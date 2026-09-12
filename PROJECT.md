@@ -38,6 +38,11 @@ full provenance and third-party licenses.
   in `work/previews/index.html`.
 - Defined the future settings architecture: Appearance, Audio, Playback, and
   Advanced capability/opt-in layers.
+- Completed the initial SDRAM architecture audit and selected a staged hybrid
+  direction: retain audio-critical code/data in BRAM, add a bounded CPU bridge
+  to the proven framebuffer SDRAM controller, migrate cold data first, and gate
+  cold-code execution on hardware results. See
+  `docs/SDRAM_MEMORY_ARCHITECTURE.md`.
 - Documented battery/power work: real in-core battery state is blocked by the
   current documented openFPGA API, while internal efficiency instrumentation is
   viable later.
@@ -52,6 +57,9 @@ full provenance and third-party licenses.
 - A runtime settings-home prototype does not fit the protected firmware
   memory layout; see `docs/SETTINGS_RUNTIME_BUDGET.md`. Do not reduce decoder,
   DMA, stack, or linker-heap reservations merely to accommodate UI code.
+- The external SDRAM is currently framebuffer-only. CPU access requires new
+  60/100 MHz CDC, arbitration, address decoding, and hardware contention tests;
+  no feature may treat the proposed SDRAM map as implemented yet.
 - Loading art currently uses a 16-entry RGB565 palette; on-device tonal tuning
   awaits a Pocket reference photo.
 - Playlist paths with Unicode names remain a known compatibility investigation;
@@ -71,14 +79,22 @@ remains necessary for Pocket OLED behaviour.
 Use the exact asset capture alongside a Pocket photo to separate background,
 glow, waveform, text, and progress luminance bands. Retest on hardware.
 
-### 3. In-app settings — memory-budget gate
+### 3. SDRAM capacity gate
+
+Implement the staged decision in `docs/SDRAM_MEMORY_ARCHITECTURE.md`. Begin with
+a bounded diagnostic CPU bridge and shared arbiter, then migrate at least 24 KiB
+of cold playlist/artwork workspace. Preserve framebuffer priority, introduce no
+unplanned M10K use, and require zero audio underruns or display corruption in the
+Pocket stress matrix. Cold-code execution is a separate later gate.
+
+### 4. In-app settings — memory-budget gate
 
 Complete the Figma interaction model and measure a minimal implementation
-against an explicit code-size budget before reattempting a runtime menu. Start
-with named theme, visualizer, and EQ views, then Playback. Advanced options
-require both an Advanced-capable build and explicit user opt-in.
+after the SDRAM data phase recovers its budget. Start with named theme,
+visualizer, and EQ views, then Playback. Advanced options require both an
+Advanced-capable build and explicit user opt-in.
 
-### 4. Diagnostics and efficiency instrumentation
+### 5. Diagnostics and efficiency instrumentation
 
 After the snapshot suite is reliable, add guarded performance counters for
 decoder headroom, framebuffer pressure, SD activity, and audio FIFO margin.
@@ -86,7 +102,7 @@ Only introduce persistent logs with a dedicated safe `/Saves/tau/` slot and
 power-loss tests. Do not add a battery meter until a documented API exposes
 real battery telemetry.
 
-### 5. Hardware and release discipline
+### 6. Hardware and release discipline
 
 Run the complete audio/transport matrix after each firmware change. Rebuild the
 RTL and capture timing/resource reports on a supported Quartus host before any
