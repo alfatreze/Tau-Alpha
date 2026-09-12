@@ -49,6 +49,9 @@ full provenance and third-party licenses.
 - Firmware builds locally; Quartus/FPGA recompilation still needs an x86-64
   Windows or Linux host.
 - Firmware uses 152,088 bytes (84.4% of the current usable RAM budget).
+- A runtime settings-home prototype does not fit the protected firmware
+  memory layout; see `docs/SETTINGS_RUNTIME_BUDGET.md`. Do not reduce decoder,
+  DMA, stack, or linker-heap reservations merely to accommodate UI code.
 - Loading art currently uses a 16-entry RGB565 palette; on-device tonal tuning
   awaits a Pocket reference photo.
 - Playlist paths with Unicode names remain a known compatibility investigation;
@@ -68,11 +71,12 @@ remains necessary for Pocket OLED behaviour.
 Use the exact asset capture alongside a Pocket photo to separate background,
 glow, waveform, text, and progress luminance bands. Retest on hardware.
 
-### 3. In-app settings
+### 3. In-app settings — memory-budget gate
 
-Implement the approved functional model after Figma defines the interaction and
-visual system. Start with named theme, visualizer, and EQ views, then Playback.
-Advanced options require both an Advanced-capable build and explicit user opt-in.
+Complete the Figma interaction model and measure a minimal implementation
+against an explicit code-size budget before reattempting a runtime menu. Start
+with named theme, visualizer, and EQ views, then Playback. Advanced options
+require both an Advanced-capable build and explicit user opt-in.
 
 ### 4. Diagnostics and efficiency instrumentation
 
