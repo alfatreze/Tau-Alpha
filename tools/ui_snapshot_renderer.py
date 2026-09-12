@@ -248,8 +248,10 @@ def draw_progress(frame, done):
     frame.rect(knob - 2, y - 3, 5, height + 6, UI_WHITE)
 
 
-def now_playing_base():
+def now_playing_base(state="playing", seeking=False):
     """Deterministic no-art instance of ui_draw_chrome + dynamic UI rows."""
+    if state not in {"playing", "paused", "stopped"}:
+        raise ValueError(f"unsupported transport state: {state}")
     frame = Frame()
     paint_gradient(frame)
     # ui_draw_chrome's 352px text card.  This no-art fixture keeps the full
@@ -267,18 +269,32 @@ def now_playing_base():
     for index in range(count):
         x = UI_MARGIN + index * (bar_w + gap)
         h = 6 + ((index * 19 + 13) % 57)
-        color = blend(UI_ACCENT, UI_TRACK, (index + 1) * 16 // count)
+        lit = UI_ACCENT if state == "playing" else blend(UI_ACCENT, UI_TRACK, 5)
+        color = blend(lit, UI_TRACK, (index + 1) * 16 // count)
         frame.rect(x, wave_y, bar_w, wave_h - h, grad_at(wave_y))
         frame.rect(x, wave_y + wave_h - h, bar_w, h, color)
-    frame.text(UI_MARGIN, 262, "PLAYING", "TS_1X", UI_ACCENT, grad_at(262), 70)
+    transport_color = (UI_ACCENT if state == "playing" else
+                       (UI_WHITE if state == "stopped" else blend(UI_WHITE, UI_PANEL, 16)))
+    frame.text(UI_MARGIN, 262, state.upper(), "TS_1X", transport_color, grad_at(262), 80)
     # The three chevrons are the same geometry-driven affordance as the RTL UI;
     # at a frozen review moment, all use the steady accent rather than animation.
-    for base in (96, 108, 120):
-        for row in range(13):
-            inset = abs(6 - row) // 2
-            frame.rect(base + inset, 262 + row, max(1, 8 - inset * 2), 1, UI_ACCENT)
+    if state == "playing":
+        for base in (96, 108, 120):
+            for row in range(13):
+                inset = abs(6 - row) // 2
+                frame.rect(base + inset, 262 + row, max(1, 8 - inset * 2), 1, UI_ACCENT)
+    elif state == "paused":
+        frame.rect(96, 263, 4, 12, transport_color)
+        frame.rect(103, 263, 4, 12, transport_color)
+    else:
+        frame.rect(96, 264, 10, 10, transport_color)
     frame.text(UI_MARGIN, 288, "1:12 / 3:48", "TS_15X", UI_WHITE, grad_at(288), 360)
-    draw_progress(frame, 113)
+    done = 126 if seeking else 113
+    draw_progress(frame, done)
+    if seeking:
+        toast_y = 314
+        frame.text(UI_MARGIN, toast_y, "SEEK +10s", "TS_1X", UI_WHITE, grad_at(toast_y),
+                   FB_W - 2 * UI_MARGIN)
     return frame
 
 
@@ -320,6 +336,9 @@ FIXTURES = {
     "playlist-error": lambda: idle("No playable tracks in playlist"),
     "now-playing": now_playing_base,
     "playlist-browser": playlist_browser,
+    "paused": lambda: now_playing_base("paused"),
+    "stopped": lambda: now_playing_base("stopped"),
+    "seeking": lambda: now_playing_base("playing", seeking=True),
 }
 
 

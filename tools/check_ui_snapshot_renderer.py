@@ -21,7 +21,9 @@ def main():
         raise SystemExit("FAIL: playlist error fixture did not draw its reason")
     if checksums["now-playing"] == checksums["playlist-browser"]:
         raise SystemExit("FAIL: playlist browser fixture did not draw its overlay")
-    print("PASS: UI snapshot renderer emits four deterministic 400x360 RGB565 fixtures")
+    if len({checksums[name] for name in ("now-playing", "paused", "stopped", "seeking")}) != 4:
+        raise SystemExit("FAIL: transport fixtures are not distinct")
+    print("PASS: UI snapshot renderer emits seven deterministic 400x360 RGB565 fixtures")
 
 
 if __name__ == "__main__":
