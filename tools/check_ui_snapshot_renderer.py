@@ -19,7 +19,9 @@ def main():
         checksums[name] = sum(frame.pixels) & 0xFFFFFFFF
     if checksums["empty-library"] == checksums["playlist-error"]:
         raise SystemExit("FAIL: playlist error fixture did not draw its reason")
-    print("PASS: UI snapshot renderer emits two deterministic 400x360 RGB565 fixtures")
+    if checksums["now-playing"] == checksums["playlist-browser"]:
+        raise SystemExit("FAIL: playlist browser fixture did not draw its overlay")
+    print("PASS: UI snapshot renderer emits four deterministic 400x360 RGB565 fixtures")
 
 
 if __name__ == "__main__":

@@ -130,6 +130,8 @@ UI_WHITE = c_uint("UI_WHITE")
 UI_DIM = c_uint("UI_DIM")
 UI_RED = c_uint("UI_RED")
 UI_ACCENT = c_uint("UI_ACCENT")
+UI_TRACK = c_uint("UI_TRACK")
+UI_FAINT = c_uint("UI_FAINT")
 UI_MARGIN = c_dec("UI_MARGIN")
 UI_TITLE_Y = c_dec("UI_TITLE_Y")
 UI_CARD_H = c_dec("UI_CARD_H")
@@ -180,6 +182,20 @@ def rounded_rect(frame, x, y, width, height, radius, color):
                 frame.rect(xx, y + height - 1 - i, cut, 1, grad_at(y + height - 1 - i))
 
 
+def rounded_rect_on(frame, x, y, width, height, radius, color, background):
+    """Mirror fb_round_rect_on(), whose corner cuts reveal its parent panel."""
+    frame.rect(x, y, width, height, color)
+    for i in range(radius):
+        dy, inner = radius - i, 0
+        while (inner + 1) ** 2 + dy ** 2 <= radius ** 2:
+            inner += 1
+        cut = radius - inner
+        if cut:
+            for xx in (x, x + width - cut):
+                frame.rect(xx, y + i, cut, 1, background)
+                frame.rect(xx, y + height - 1 - i, cut, 1, background)
+
+
 def source_idle_lines():
     body = PLAYER.split("static void ui_idle_screen(", 1)[1].split("\n}", 1)[0]
     colors = {"UI_WHITE": UI_WHITE, "UI_DIM": UI_DIM, "ui_accent": UI_ACCENT}
@@ -204,9 +220,106 @@ def idle(reason=None):
     return frame
 
 
+def paint_gradient(frame):
+    for y in range(FB_H):
+        frame.rect(0, y, FB_W, 1, grad_at(y))
+
+
+def draw_progress(frame, done):
+    """Static representative of ui_draw_dynamic()'s progress-bar branch."""
+    x, y, width, height = UI_MARGIN, 334, FB_W - 2 * UI_MARGIN, 5
+    bg = grad_at(y)
+    frame.rect(x, y - 3, width, height + 6, bg)
+    if done:
+        frame.rect(x, y, done, height, UI_ACCENT)
+        frame.rect(x, y, done, 1, blend(UI_WHITE, UI_ACCENT, 5))
+    frame.rect(x + done, y, width - done, height, UI_TRACK)
+    radius = height // 2
+    for i in range(radius):
+        dy, inner = radius - i, 0
+        while (inner + 1) ** 2 + dy ** 2 <= radius ** 2:
+            inner += 1
+        cut = radius - inner
+        if cut:
+            for xx in (x, x + width - cut):
+                frame.rect(xx, y + i, cut, 1, bg)
+                frame.rect(xx, y + height - 1 - i, cut, 1, bg)
+    knob = max(x + 2, min(x + width - 3, x + done))
+    frame.rect(knob - 2, y - 3, 5, height + 6, UI_WHITE)
+
+
+def now_playing_base():
+    """Deterministic no-art instance of ui_draw_chrome + dynamic UI rows."""
+    frame = Frame()
+    paint_gradient(frame)
+    # ui_draw_chrome's 352px text card.  This no-art fixture keeps the full
+    # waveform width, matching art_shown == 0 in the firmware.
+    rounded_rect(frame, UI_MARGIN - 8, UI_TITLE_Y - 14, 368, UI_CARD_H, 8, UI_PANEL)
+    frame.text(UI_MARGIN, UI_TITLE_Y, "NIGHT DRIVE", "TS_2X", UI_WHITE, UI_PANEL, 352)
+    frame.text(UI_MARGIN, 68, "Tau Test Artist", "TS_15X", UI_DIM, UI_PANEL, 352)
+    frame.text(UI_MARGIN, 95, "TAU TESTS - 2026", "TS_1X", UI_DIM, UI_PANEL, 352)
+    frame.text(UI_MARGIN, 113, "320 kbps - 44.1 kHz - LAME", "TS_1X", UI_FAINT, UI_PANEL, 352)
+
+    # Default bar visualizer at a frozen, intentionally uneven sample point.
+    wave_y, wave_h, count, gap = 173, 72, 36, 2
+    available = FB_W - 2 * UI_MARGIN
+    bar_w = (available - gap * (count - 1)) // count
+    for index in range(count):
+        x = UI_MARGIN + index * (bar_w + gap)
+        h = 6 + ((index * 19 + 13) % 57)
+        color = blend(UI_ACCENT, UI_TRACK, (index + 1) * 16 // count)
+        frame.rect(x, wave_y, bar_w, wave_h - h, grad_at(wave_y))
+        frame.rect(x, wave_y + wave_h - h, bar_w, h, color)
+    frame.text(UI_MARGIN, 262, "PLAYING", "TS_1X", UI_ACCENT, grad_at(262), 70)
+    # The three chevrons are the same geometry-driven affordance as the RTL UI;
+    # at a frozen review moment, all use the steady accent rather than animation.
+    for base in (96, 108, 120):
+        for row in range(13):
+            inset = abs(6 - row) // 2
+            frame.rect(base + inset, 262 + row, max(1, 8 - inset * 2), 1, UI_ACCENT)
+    frame.text(UI_MARGIN, 288, "1:12 / 3:48", "TS_15X", UI_WHITE, grad_at(288), 360)
+    draw_progress(frame, 113)
+    return frame
+
+
+def playlist_browser():
+    """pl_ui_draw() fixture layered over the same frozen now-playing frame."""
+    frame = now_playing_base()
+    x, width, y, rows, row_h, list_y, pad_b = 12, 376, 18, 9, 20, 52, 22
+    text_x, selected, playing, top, count = x + 10, 3, 1, 0, 12
+    entries = ("01 - Welcome Home", "02 - Night Drive", "03 - Sunset Sequence",
+               "04 - Ocean Between Us", "05 - Echoes", "06 - Golden Hour",
+               "07 - Low Battery", "08 - Neon Rain", "09 - Last Light")
+    panel_h = list_y + rows * row_h + pad_b - y
+    rounded_rect(frame, x, y, width, panel_h, 8, UI_PANEL)
+    frame.text(text_x, y + 10, f"PLAYLIST  {selected + 1} / {count}", "TS_1X",
+               UI_ACCENT, UI_PANEL, width - 20)
+    track_x, track_y, track_h = x + width - 11, list_y - 2, rows * row_h
+    frame.rect(track_x, track_y, 3, track_h, blend(UI_DIM, UI_PANEL, 5))
+    thumb_h = track_h * rows // count
+    frame.rect(track_x, track_y + (track_h - thumb_h) * top // (count - rows),
+               3, thumb_h, UI_ACCENT)
+    for i, label in enumerate(entries):
+        row_y = list_y + i * row_h
+        selected_row = i == selected
+        background = UI_ACCENT if selected_row else UI_PANEL
+        if selected_row:
+            rounded_rect_on(frame, x + 4, row_y - 2, width - 8, row_h, 5,
+                            background, UI_PANEL)
+        else:
+            frame.rect(x + 4, row_y - 2, width - 8, row_h, background)
+        foreground = UI_PANEL if selected_row else (UI_WHITE if i == playing else UI_DIM)
+        if i == playing:
+            frame.text(x + 8, row_y, ">", "TS_1X", foreground, background, 12)
+        frame.text(text_x + 8, row_y, label, "TS_1X", foreground, background, width - 40)
+    return frame
+
+
 FIXTURES = {
     "empty-library": lambda: idle(),
     "playlist-error": lambda: idle("No playable tracks in playlist"),
+    "now-playing": now_playing_base,
+    "playlist-browser": playlist_browser,
 }
 
 

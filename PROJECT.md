@@ -27,7 +27,8 @@ full provenance and third-party licenses.
   identity, framebuffer draw operations, target commands, PCM underrun decay,
   and bit-exact EQ.
 - Added `make visual-review` and a named UI-state manifest. The loading frame
-  is asset-exact; empty-library and playlist-error now have reproducible
+  is asset-exact; empty-library, playlist-error, no-art now-playing, and
+  playlist-browser now have reproducible
   400×360 RGB565 framebuffer models that read the production font ROM, glyph
   metrics, colour values, layout strings, and fractional-scale behaviour.
   Remaining legacy references and pending state fixtures are labelled honestly
@@ -56,7 +57,7 @@ full provenance and third-party licenses.
 
 Continue replacing each legacy visual reference with a reproducible 400×360
 production framebuffer model or an asset-exact decode. The next fixtures are
-now-playing and playlist browser, followed by transport feedback, metadata edge
+transport feedback, metadata edge
 cases, every visualizer, and later every settings/battery state. Device capture
 remains necessary for Pocket OLED behaviour.
 
