@@ -10,6 +10,7 @@ the firmware's framebuffer commands from its source of truth.
 """
 
 import argparse
+import math
 import re
 from pathlib import Path
 
@@ -248,9 +249,99 @@ def draw_progress(frame, done):
     frame.rect(knob - 2, y - 3, 5, height + 6, UI_WHITE)
 
 
+def draw_visualizer(frame, mode):
+    """Frozen review instances for the firmware's eleven meter families."""
+    x0, y0, width, height = UI_MARGIN, 173, FB_W - 2 * UI_MARGIN, 72
+    def background():
+        for yy in range(y0, y0 + height):
+            frame.rect(x0, yy, width, 1, grad_at(yy))
+    def level(index, count=36):
+        return 6 + ((index * 19 + 13) % 57)
+    background()
+    if mode == "bars":
+        count, gap = 36, 2
+        bar_w = (width - gap * (count - 1)) // count
+        for index in range(count):
+            x, h = x0 + index * (bar_w + gap), level(index)
+            frame.rect(x, y0 + height - h, bar_w, h,
+                       blend(UI_ACCENT, UI_TRACK, (index + 1) * 16 // count))
+    elif mode == "waterfall":
+        for xx in range(width):
+            h = 3 + ((xx * 11 + 23) % height)
+            color = blend(UI_ACCENT, UI_TRACK, h * 16 // height)
+            frame.rect(x0 + xx, y0 + height - h, 1, h, color)
+            frame.rect(x0 + xx, y0 + height - h, 1, 1, UI_WHITE)
+    elif mode == "levels":
+        for i, fraction in enumerate((58, 81)):
+            y = y0 + i * 25
+            amount = width * fraction // 100
+            frame.rect(x0, y, amount, 23, UI_ACCENT)
+            frame.rect(x0 + amount, y, width - amount, 23, UI_TRACK)
+            frame.rect(x0 + min(width - 1, amount + 15), y, 1, 23, UI_WHITE)
+    elif mode == "phase-scope":
+        cx, cy = x0 + width // 2, y0 + height // 2
+        frame.rect(cx, y0, 1, height, UI_TRACK)
+        frame.rect(x0, cy, width, 1, UI_TRACK)
+        for i in range(96):
+            a = i * math.pi * 2 / 96
+            px = cx + int(math.sin(a * 3) * width * .22)
+            py = cy - int(math.sin(a * 2) * height * .38)
+            frame.rect(px, py, 2, 2, blend(UI_ACCENT, grad_at(py), 12))
+    elif mode == "oscilloscope":
+        cy = y0 + height // 2
+        frame.rect(x0, cy, width, 1, UI_TRACK)
+        previous = cy
+        for xx in range(width):
+            yy = cy - int(math.sin(xx * .15) * 22 + math.sin(xx * .043) * 9)
+            top, bottom = min(previous, yy), max(previous, yy)
+            frame.rect(x0 + xx, top, 1, bottom - top + 2,
+                       blend(UI_ACCENT, UI_TRACK, xx * 16 // width))
+            previous = yy
+    elif mode == "waveform":
+        cy = y0 + height // 2
+        for xx in range(width):
+            h = 1 + int((math.sin(xx * .10) + 1) * 13)
+            frame.rect(x0 + xx, cy - h, 1, h * 2 + 1,
+                       blend(UI_ACCENT, UI_TRACK, h * 16 // 28))
+    elif mode == "mirrored-bars":
+        count, gap, cy = 36, 2, y0 + height // 2
+        bar_w = (width - gap * (count - 1)) // count
+        for index in range(count):
+            h, x = level(index) // 2, x0 + index * (bar_w + gap)
+            frame.rect(x, cy - h, bar_w, h * 2 + 1,
+                       blend(UI_ACCENT, UI_TRACK, (index + 1) * 16 // count))
+    elif mode == "peak-dots":
+        count, gap = 36, 2
+        bar_w = (width - gap * (count - 1)) // count
+        for index in range(count):
+            h, x = level(index), x0 + index * (bar_w + gap)
+            frame.rect(x, y0 + height - h, bar_w, 2,
+                       blend(UI_ACCENT, UI_TRACK, (index + 1) * 16 // count))
+    elif mode == "magic-eye":
+        tube_w, gap, tx = 46, 24, x0 + (width - 116) // 2
+        for channel in range(2):
+            x, lit = tx + channel * (tube_w + gap), 42 + channel * 12
+            frame.rect(x, y0 + 6, tube_w, 58, blend(UI_ACCENT, UI_TRACK, 5))
+            frame.rect(x + 13, y0 + 64 - lit, 20, lit, UI_ACCENT)
+            frame.rect(x + 9, y0 + 65, 28, 5, blend(UI_ACCENT, UI_TRACK, 5))
+    elif mode == "spectrum":
+        columns, rows = 8, 8
+        col_w = width // columns
+        for col in range(columns):
+            lit = 2 + ((col * 5 + 3) % 7)
+            for row in range(rows):
+                color = (blend(UI_ACCENT, UI_TRACK, min(16, (row + 2) * 16 // rows))
+                         if row < lit else UI_TRACK)
+                frame.rect(x0 + col * col_w, y0 + height - (row + 1) * 8,
+                           col_w - 3, 6, color)
+    else:
+        raise ValueError(f"unsupported visualizer mode: {mode}")
+
+
 def now_playing_base(state="playing", seeking=False, title="NIGHT DRIVE",
                      artist="Tau Test Artist", album="TAU TESTS - 2026",
-                     format_line="320 kbps - 44.1 kHz - LAME", toast=None):
+                     format_line="320 kbps - 44.1 kHz - LAME", toast=None,
+                     visualizer="bars"):
     """Deterministic no-art instance of ui_draw_chrome + dynamic UI rows."""
     if state not in {"playing", "paused", "stopped"}:
         raise ValueError(f"unsupported transport state: {state}")
@@ -270,17 +361,7 @@ def now_playing_base(state="playing", seeking=False, title="NIGHT DRIVE",
     if format_line:
         frame.text(UI_MARGIN, info_y, format_line, "TS_1X", UI_FAINT, UI_PANEL, 352)
 
-    # Default bar visualizer at a frozen, intentionally uneven sample point.
-    wave_y, wave_h, count, gap = 173, 72, 36, 2
-    available = FB_W - 2 * UI_MARGIN
-    bar_w = (available - gap * (count - 1)) // count
-    for index in range(count):
-        x = UI_MARGIN + index * (bar_w + gap)
-        h = 6 + ((index * 19 + 13) % 57)
-        lit = UI_ACCENT if state == "playing" else blend(UI_ACCENT, UI_TRACK, 5)
-        color = blend(lit, UI_TRACK, (index + 1) * 16 // count)
-        frame.rect(x, wave_y, bar_w, wave_h - h, grad_at(wave_y))
-        frame.rect(x, wave_y + wave_h - h, bar_w, h, color)
+    draw_visualizer(frame, visualizer)
     transport_color = (UI_ACCENT if state == "playing" else
                        (UI_WHITE if state == "stopped" else blend(UI_WHITE, UI_PANEL, 16)))
     frame.text(UI_MARGIN, 262, state.upper(), "TS_1X", transport_color, grad_at(262), 80)
@@ -358,6 +439,9 @@ FIXTURES = {
     "metadata-missing": lambda: now_playing_base(
         title="untagged-demo-track", artist="", album="", format_line=""),
     "toast": lambda: now_playing_base(toast="VOLUME 70%"),
+    **{f"visualizer-{name}": (lambda mode=name: now_playing_base(visualizer=mode))
+       for name in ("bars", "waterfall", "levels", "phase-scope", "oscilloscope",
+                    "waveform", "mirrored-bars", "peak-dots", "magic-eye", "spectrum")},
 }
 
 

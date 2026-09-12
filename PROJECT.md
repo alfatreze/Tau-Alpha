@@ -32,6 +32,8 @@ full provenance and third-party licenses.
   states now have reproducible
   400×360 RGB565 framebuffer models that read the production font ROM, glyph
   metrics, colour values, layout strings, and fractional-scale behaviour.
+  Ten visualizer families (all except VU) now also have frozen deterministic
+  models; these represent framebuffer composition, not live Pocket capture.
   Remaining legacy references and pending state fixtures are labelled honestly
   in `work/previews/index.html`.
 - Defined the future settings architecture: Appearance, Audio, Playback, and
@@ -58,7 +60,7 @@ full provenance and third-party licenses.
 
 Continue replacing each legacy visual reference with a reproducible 400×360
 production framebuffer model or an asset-exact decode. The next fixtures are
-every visualizer mode, then later every settings/battery state. Device capture
+the VU visualizer, then later every settings/battery state. Device capture
 remains necessary for Pocket OLED behaviour.
 
 ### 2. Tune the loading artwork
