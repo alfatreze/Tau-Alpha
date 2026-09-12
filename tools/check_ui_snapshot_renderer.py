@@ -25,7 +25,7 @@ def main():
         raise SystemExit("FAIL: transport fixtures are not distinct")
     if len({checksums[name] for name in ("now-playing", "metadata-long", "metadata-missing", "toast")}) != 4:
         raise SystemExit("FAIL: metadata and toast fixtures are not distinct")
-    print("PASS: UI snapshot renderer emits 20 deterministic 400x360 RGB565 fixtures")
+    print("PASS: UI snapshot renderer emits 21 deterministic 400x360 RGB565 fixtures")
 
 
 if __name__ == "__main__":

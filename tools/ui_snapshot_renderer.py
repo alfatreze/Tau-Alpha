@@ -334,6 +334,32 @@ def draw_visualizer(frame, mode):
                          if row < lit else UI_TRACK)
                 frame.rect(x0 + col * col_w, y0 + height - (row + 1) * 8,
                            col_w - 3, 6, color)
+    elif mode == "vu":
+        half = width // 2
+        for channel, needle in enumerate((.36, .69)):
+            ox, pivot_x, pivot_y = x0 + channel * half, x0 + channel * half + half // 2, y0 + height - 4
+            radius = height - 14
+            for tick in range(81):
+                theta = -1.05 + 2.10 * tick / 80
+                px = pivot_x + int(math.sin(theta) * radius)
+                py = pivot_y - int(math.cos(theta) * radius)
+                color = UI_ACCENT if tick >= 60 else blend(UI_ACCENT, grad_at(py), 6)
+                frame.rect(px, py, 2, 2, color)
+            for tick in range(5):
+                theta = -1.05 + 2.10 * tick / 4
+                for distance in range(radius - 4, radius):
+                    px = pivot_x + int(math.sin(theta) * distance)
+                    py = pivot_y - int(math.cos(theta) * distance)
+                    frame.rect(px, py, 1, 1, UI_ACCENT if tick >= 3 else blend(UI_ACCENT, grad_at(py), 9))
+            frame.text(ox + 6, y0 + 2, "L" if channel == 0 else "R", "TS_1X",
+                       UI_ACCENT, grad_at(y0 + 2), 16)
+            theta = -1.05 + 2.10 * needle
+            for step in range(2, 29):
+                distance = (radius - 6) * step // 28
+                px = pivot_x + int(math.sin(theta) * distance)
+                py = pivot_y - int(math.cos(theta) * distance)
+                frame.rect(px, py, 2 if step < 23 else 1, 2 if step < 23 else 1, UI_ACCENT)
+            frame.rect(pivot_x - 2, pivot_y - 2, 5, 5, UI_ACCENT)
     else:
         raise ValueError(f"unsupported visualizer mode: {mode}")
 
@@ -441,7 +467,7 @@ FIXTURES = {
     "toast": lambda: now_playing_base(toast="VOLUME 70%"),
     **{f"visualizer-{name}": (lambda mode=name: now_playing_base(visualizer=mode))
        for name in ("bars", "waterfall", "levels", "phase-scope", "oscilloscope",
-                    "waveform", "mirrored-bars", "peak-dots", "magic-eye", "spectrum")},
+                    "waveform", "mirrored-bars", "peak-dots", "magic-eye", "spectrum", "vu")},
 }
 
 
