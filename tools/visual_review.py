@@ -21,10 +21,10 @@ OUT = ROOT / "work/previews"
 STATES = [
     {"id": "boot-loading", "status": "exact", "file": "boot-loading.framebuffer.png",
      "note": "Decoded from the shipped TAU1 RLE/RGB565 asset."},
-    {"id": "empty-library", "status": "reference", "source": "docs/idle_preview.png",
-     "file": "empty-library.reference.png"},
-    {"id": "playlist-error", "status": "reference", "source": "docs/idle_preview_err.png",
-     "file": "playlist-error.reference.png"},
+    {"id": "empty-library", "status": "model", "file": "empty-library.framebuffer.png",
+     "note": "Production UI-command model using the FPGA font ROM and RGB565 rules."},
+    {"id": "playlist-error", "status": "model", "file": "playlist-error.framebuffer.png",
+     "note": "Production UI-command model using the FPGA font ROM and RGB565 rules."},
     {"id": "now-playing", "status": "reference", "source": "docs/screenshot.png",
      "file": "now-playing.reference.png"},
     {"id": "playlist-browser", "status": "reference", "source": "docs/playlist_browser.png",
@@ -64,6 +64,12 @@ def generate():
     ], check=True)
 
     for state in STATES:
+        if state["status"] == "model":
+            subprocess.run([
+                sys.executable, str(ROOT / "tools/ui_snapshot_renderer.py"), state["id"],
+                "--output", str(OUT / state["file"]),
+            ], check=True)
+            continue
         if state["status"] != "reference":
             continue
         source = ROOT / state["source"]
@@ -74,7 +80,8 @@ def generate():
     manifest = {
         "native_framebuffer": {"width": 400, "height": 360, "format": "RGB565"},
         "fidelity": {
-            "exact": "Derived from a packaged asset or production framebuffer path.",
+            "exact": "Decoded from a packaged asset or production framebuffer path.",
+            "model": "Reproduces production framebuffer commands from source; not a device capture.",
             "reference": "Existing visual reference; must be replaced by an exact fixture.",
             "pending": "Required state with no capture yet.",
         },
@@ -105,7 +112,7 @@ img,.pending{display:block;width:100%;aspect-ratio:10/9;object-fit:contain;backg
     (OUT / "index.html").write_text(page, encoding="utf-8")
 
     counts = {kind: sum(s["status"] == kind for s in STATES)
-              for kind in ("exact", "reference", "pending")}
+              for kind in ("exact", "model", "reference", "pending")}
     print(f'wrote {OUT / "index.html"}')
     print("visual states: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
 

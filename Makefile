@@ -33,6 +33,7 @@ test-host:
 	$(PYTHON) sim/test_m3u_parse.py
 	$(PYTHON) tools/check_splash_asset.py
 	$(PYTHON) tools/check_tau_package.py
+	$(PYTHON) tools/check_ui_snapshot_renderer.py
 
 test-rtl:
 	$(PYTHON) tools/gen_eq_vectors.py

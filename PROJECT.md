@@ -27,8 +27,11 @@ full provenance and third-party licenses.
   identity, framebuffer draw operations, target commands, PCM underrun decay,
   and bit-exact EQ.
 - Added `make visual-review` and a named UI-state manifest. The loading frame
-  is currently exact; legacy references and pending state fixtures are labelled
-  honestly in `work/previews/index.html`.
+  is asset-exact; empty-library and playlist-error now have reproducible
+  400×360 RGB565 framebuffer models that read the production font ROM, glyph
+  metrics, colour values, layout strings, and fractional-scale behaviour.
+  Remaining legacy references and pending state fixtures are labelled honestly
+  in `work/previews/index.html`.
 - Defined the future settings architecture: Appearance, Audio, Playback, and
   Advanced capability/opt-in layers.
 - Documented battery/power work: real in-core battery state is blocked by the
@@ -51,10 +54,11 @@ full provenance and third-party licenses.
 
 ### 1. Snapshot baseline — in progress
 
-Replace each legacy visual reference with an exact, reproducible 400×360
-production framebuffer fixture. Cover empty/error states, now-playing variants,
-transport feedback, metadata edge cases, every visualizer, and later every
-settings/battery state.
+Continue replacing each legacy visual reference with a reproducible 400×360
+production framebuffer model or an asset-exact decode. The next fixtures are
+now-playing and playlist browser, followed by transport feedback, metadata edge
+cases, every visualizer, and later every settings/battery state. Device capture
+remains necessary for Pocket OLED behaviour.
 
 ### 2. Tune the loading artwork
 
