@@ -248,7 +248,9 @@ def draw_progress(frame, done):
     frame.rect(knob - 2, y - 3, 5, height + 6, UI_WHITE)
 
 
-def now_playing_base(state="playing", seeking=False):
+def now_playing_base(state="playing", seeking=False, title="NIGHT DRIVE",
+                     artist="Tau Test Artist", album="TAU TESTS - 2026",
+                     format_line="320 kbps - 44.1 kHz - LAME", toast=None):
     """Deterministic no-art instance of ui_draw_chrome + dynamic UI rows."""
     if state not in {"playing", "paused", "stopped"}:
         raise ValueError(f"unsupported transport state: {state}")
@@ -257,10 +259,16 @@ def now_playing_base(state="playing", seeking=False):
     # ui_draw_chrome's 352px text card.  This no-art fixture keeps the full
     # waveform width, matching art_shown == 0 in the firmware.
     rounded_rect(frame, UI_MARGIN - 8, UI_TITLE_Y - 14, 368, UI_CARD_H, 8, UI_PANEL)
-    frame.text(UI_MARGIN, UI_TITLE_Y, "NIGHT DRIVE", "TS_2X", UI_WHITE, UI_PANEL, 352)
-    frame.text(UI_MARGIN, 68, "Tau Test Artist", "TS_15X", UI_DIM, UI_PANEL, 352)
-    frame.text(UI_MARGIN, 95, "TAU TESTS - 2026", "TS_1X", UI_DIM, UI_PANEL, 352)
-    frame.text(UI_MARGIN, 113, "320 kbps - 44.1 kHz - LAME", "TS_1X", UI_FAINT, UI_PANEL, 352)
+    frame.text(UI_MARGIN, UI_TITLE_Y, title, "TS_2X", UI_WHITE, UI_PANEL, 352)
+    info_y = 68
+    if artist:
+        frame.text(UI_MARGIN, info_y, artist, "TS_15X", UI_DIM, UI_PANEL, 352)
+        info_y += 27
+    if album:
+        frame.text(UI_MARGIN, info_y, album, "TS_1X", UI_DIM, UI_PANEL, 352)
+        info_y += 18
+    if format_line:
+        frame.text(UI_MARGIN, info_y, format_line, "TS_1X", UI_FAINT, UI_PANEL, 352)
 
     # Default bar visualizer at a frozen, intentionally uneven sample point.
     wave_y, wave_h, count, gap = 173, 72, 36, 2
@@ -279,21 +287,25 @@ def now_playing_base(state="playing", seeking=False):
     # The three chevrons are the same geometry-driven affordance as the RTL UI;
     # at a frozen review moment, all use the steady accent rather than animation.
     if state == "playing":
-        for base in (96, 108, 120):
+        for base in (110, 122, 134):
             for row in range(13):
                 inset = abs(6 - row) // 2
                 frame.rect(base + inset, 262 + row, max(1, 8 - inset * 2), 1, UI_ACCENT)
     elif state == "paused":
-        frame.rect(96, 263, 4, 12, transport_color)
-        frame.rect(103, 263, 4, 12, transport_color)
+        frame.rect(110, 263, 4, 12, transport_color)
+        frame.rect(117, 263, 4, 12, transport_color)
     else:
-        frame.rect(96, 264, 10, 10, transport_color)
+        frame.rect(110, 264, 10, 10, transport_color)
     frame.text(UI_MARGIN, 288, "1:12 / 3:48", "TS_15X", UI_WHITE, grad_at(288), 360)
     done = 126 if seeking else 113
     draw_progress(frame, done)
     if seeking:
         toast_y = 314
         frame.text(UI_MARGIN, toast_y, "SEEK +10s", "TS_1X", UI_WHITE, grad_at(toast_y),
+                   FB_W - 2 * UI_MARGIN)
+    elif toast:
+        toast_y = 314
+        frame.text(UI_MARGIN, toast_y, toast, "TS_1X", UI_WHITE, grad_at(toast_y),
                    FB_W - 2 * UI_MARGIN)
     return frame
 
@@ -339,6 +351,13 @@ FIXTURES = {
     "paused": lambda: now_playing_base("paused"),
     "stopped": lambda: now_playing_base("stopped"),
     "seeking": lambda: now_playing_base("playing", seeking=True),
+    "metadata-long": lambda: now_playing_base(
+        title="THE EXTREMELY LONG TITLE THAT STARTS A MARQUEE",
+        artist="A VERY LONG ARTIST NAME FOR FIXTURE REVIEW",
+        album="LONG ALBUM NAME - 2026"),
+    "metadata-missing": lambda: now_playing_base(
+        title="untagged-demo-track", artist="", album="", format_line=""),
+    "toast": lambda: now_playing_base(toast="VOLUME 70%"),
 }
 
 
