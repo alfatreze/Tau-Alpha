@@ -10,7 +10,7 @@ hold-to-seek bug lived in.
 This reports which files are on which side, so a failing set can be compared
 against a passing one instead of guessed at.
 
-    python tools/xing_check.py D:/Assets/mp3player/common
+    python tools/xing_check.py D:/Assets/tau/common
 """
 import struct
 import sys
@@ -84,7 +84,7 @@ def scan(path):
 
 
 def main():
-    root = Path(sys.argv[1] if len(sys.argv) > 1 else "D:/Assets/mp3player/common")
+    root = Path(sys.argv[1] if len(sys.argv) > 1 else "D:/Assets/tau/common")
     files = sorted(root.glob("*.mp3"))
     if not files:
         sys.exit("no .mp3 files under %s" % root)

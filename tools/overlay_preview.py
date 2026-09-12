@@ -78,8 +78,8 @@ def main():
     rows, budget = C['PL_UI_ROWS'], C['PL_UI_W'] - 40   # 10 px to the scrollbar
 
     names = sorted(os.path.basename(p) for p in
-                   glob.glob('D:/Assets/mp3player/common/*.mp3') +
-                   glob.glob('D:/Assets/mp3player/common/*.flac'))
+                   glob.glob('D:/Assets/tau/common/*.mp3') +
+                   glob.glob('D:/Assets/tau/common/*.flac'))
     src = 'the card'
     if not names:
         src = 'a sample (card not mounted)'

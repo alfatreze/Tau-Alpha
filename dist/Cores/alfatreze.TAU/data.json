@@ -7,11 +7,11 @@
                 "id": 1,
                 "required": true,
                 "parameters": "0x108",
-                "filename": "mp3player.rom",
+                "filename": "tau.rom",
                 "address": "0x00000000"
             },
             {
-                "name": "MP3",
+                "name": "Audio file",
                 "id": 2,
                 "required": false,
                 "deferload": true,
@@ -31,6 +31,14 @@
                 "extensions": [
                     "m3u"
                 ]
+            },
+            {
+                "name": "Tau loading artwork",
+                "id": 4,
+                "required": false,
+                "deferload": true,
+                "parameters": "0x1",
+                "filename": "tau-loading.bin"
             }
         ]
     }

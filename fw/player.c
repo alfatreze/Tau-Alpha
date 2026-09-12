@@ -24,6 +24,7 @@
 // =============================================================================
 
 #include <stdint.h>
+#include "build_config.h"
 #include "mp3dec.h"
 #include "font_metrics.h"
 /* Up here, not down beside the FLAC glue where it used to sit. The diagnostic
@@ -155,7 +156,7 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 /* Shown on the splash. This is the PRODUCT version, not the RTL/firmware
  * contract above -- they answer different questions and must not be conflated.
  * Keep it in step with the status line in README.md; nothing enforces that. */
-#define APP_VER "1.4.0"
+#define APP_VER "0.1.0"
 
 /* Developer diagnostics, OFF in a release build. Flip to 1 to bring back
  * Select+A (APF slot table, boot vs live), Select+B (the framework's file
@@ -1312,6 +1313,7 @@ static uint32_t ui_last_vu    = 0xFFFFFFFFu;
 static uint32_t ui_last_pause = 0xFFFFFFFFu;
 static uint32_t ui_last_stall;
 static uint32_t ui_last_spd = 0xFFFFFFFFu;   /* speed-branch diag row */
+static uint8_t  ui_splash_art_active;         /* authored Tau loading screen up */
 /* One marquee per scrollable line. Title and artist can both overflow, and
  * they scroll independently -- a shared position would drag the shorter one
  * around for no reason. */
@@ -2410,6 +2412,7 @@ static void ui_draw_chrome(void)
      * screen back up. ui_blank_wake() calls this again on the way out, so the
      * skipped work is simply deferred rather than lost. */
     if (screen_blank) return;
+    ui_splash_art_active = 0u;
     ui_gradient();
 
     /* When there's no usable title, show the FILENAME.
@@ -2429,7 +2432,7 @@ static void ui_draw_chrome(void)
     const char *title = track_title;
     if (!track_title[0]) {
         /* Last path component, extension dropped: the slot holds a full path
-         * ("/Assets/mp3player/common/Flodown.mp3"). */
+         * ("/Assets/tau/common/Flodown.mp3"). */
         uint32_t start = 0;
         for (uint32_t i = 0; track_file[i]; i++)
             if (track_file[i] == '/' || track_file[i] == 0x5Cu) start = i + 1u;
@@ -2658,6 +2661,100 @@ static void poll_input(void);
 #define UI_SPL_VER_Y    (UI_TITLE_Y - 14u + UI_CARD_H - 14u - 16u)
 #define UI_SPL_INFO_Y  262u    /* the transport row's line */
 
+/* Authored Tau loading screen. The generated 16-colour RLE file lives in its
+ * own deferred APF slot and streams through the existing 4 KB tag scratch
+ * window. Embedding it in the firmware crossed the reserved DMA boundary by
+ * 12.5 KB; keeping it external preserves both image quality and decoder RAM.
+ * The source artwork already contains the progress-bar outline. */
+#define TAU_SPLASH_SLOT_ID  4u
+#define TAU_SPLASH_W        400u
+#define TAU_SPLASH_H        360u
+#define TAU_SPLASH_HEADER   44u
+#define TAU_SPLASH_CHUNK    4096u
+#define TAU_SPLASH_BG       0x0841u
+#define TAU_SPLASH_STATUS_X 104u
+#define TAU_SPLASH_STATUS_Y 256u
+#define TAU_SPLASH_STATUS_W 192u
+#define TAU_SPLASH_STATUS_H 16u
+#define TAU_SPLASH_BAR_X    132u
+#define TAU_SPLASH_BAR_Y    283u
+#define TAU_SPLASH_BAR_W    144u
+#define TAU_SPLASH_BAR_H    4u
+#define TAU_SPLASH_SEG_W    30u
+#define TAU_SPLASH_VER_Y    334u
+
+/* Defined with the target-command implementation later in this file. */
+static int target_read_slot(uint32_t slot, uint32_t off,
+                            uint32_t dst_off, uint32_t len);
+extern char _tag_start;
+
+static uint16_t tau_u16(const uint8_t *p)
+{
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static uint32_t tau_u32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8)
+         | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static int ui_splash_asset(void)
+{
+    uint32_t dst = (uint32_t)(uintptr_t)&_tag_start;
+    uint8_t *buf = (uint8_t *)(uintptr_t)(0xC0000000u + dst);
+    uint16_t palette[16];
+
+    if (!target_read_slot(TAU_SPLASH_SLOT_ID, 0u, dst, TAU_SPLASH_HEADER))
+        return 0;
+    if (buf[0] != 'T' || buf[1] != 'A' || buf[2] != 'U' || buf[3] != '1' ||
+        tau_u16(buf + 4u) != TAU_SPLASH_W ||
+        tau_u16(buf + 6u) != TAU_SPLASH_H)
+        return 0;
+
+    uint32_t bytes = tau_u32(buf + 8u);
+    if (!bytes || (bytes & 1u) || bytes > TAU_SPLASH_W * TAU_SPLASH_H * 2u)
+        return 0;
+    for (uint32_t i = 0; i < 16u; i++)
+        palette[i] = tau_u16(buf + 12u + i * 2u);
+
+    uint32_t file_off = TAU_SPLASH_HEADER, pos = 0;
+    while (bytes) {
+        uint32_t chunk = bytes > TAU_SPLASH_CHUNK ? TAU_SPLASH_CHUNK : bytes;
+        if (!target_read_slot(TAU_SPLASH_SLOT_ID, file_off, dst, chunk))
+            return 0;
+        for (uint32_t i = 0; i < chunk; i += 2u) {
+            uint32_t left = buf[i];
+            uint16_t c = palette[buf[i + 1u] & 15u];
+            if (!left || pos + left > TAU_SPLASH_W * TAU_SPLASH_H)
+                return 0;
+            while (left) {
+                uint32_t x = pos % TAU_SPLASH_W;
+                uint32_t y = pos / TAU_SPLASH_W;
+                uint32_t n = TAU_SPLASH_W - x;
+                if (n > left) n = left;
+                fb_rect(x, y, n, 1u, c);
+                pos += n;
+                left -= n;
+            }
+        }
+        file_off += chunk;
+        bytes -= chunk;
+    }
+    return pos == TAU_SPLASH_W * TAU_SPLASH_H;
+}
+
+static void ui_splash_version(void)
+{
+    const char *s = "TAU ALPHA " APP_VER;
+    uint32_t w = fb_text_width(s, TS_1X);
+    fb_rect(UI_MARGIN - 4u, TAU_SPLASH_VER_Y - 1u, w + 8u,
+            FB_CELL(TS_1X) + 2u, TAU_SPLASH_BG);
+    fb_set_color(UI_DIM, TAU_SPLASH_BG);
+    fb_text_clipped(UI_MARGIN, TAU_SPLASH_VER_Y, s, TS_1X, TS_1X,
+                    FB_W - 2u * UI_MARGIN);
+}
+
 /* Card, title and version. Shared by the static splash and the animated one so
  * they cannot drift -- they are the same screen, and previously each drew the
  * title itself. `f/den` is the title's fade position; the card and version do
@@ -2688,9 +2785,9 @@ static void ui_splash_bg(void)
 
 static void ui_splash_title(uint32_t f, uint32_t den)
 {
-    uint32_t sc = fb_text_fit("MP3 PLAYER", UI_INNER_W, TS_2X);
+    uint32_t sc = fb_text_fit("TAU", UI_INNER_W, TS_2X);
     fb_set_color(ui_mix(UI_PANEL, ui_accent, f, den), UI_PANEL);
-    fb_text_clipped(UI_MARGIN, UI_TITLE_Y, "MP3 PLAYER", sc, sc, UI_INNER_W);
+    fb_text_clipped(UI_MARGIN, UI_TITLE_Y, "TAU", sc, sc, UI_INNER_W);
 }
 
 static void ui_splash_card(uint32_t f, uint32_t den)
@@ -2701,8 +2798,17 @@ static void ui_splash_card(uint32_t f, uint32_t den)
 
 static void ui_splash(void)
 {
-    ui_gradient();
-    ui_splash_card(1u, 1u);
+    /* Immediate fallback while the APF asset is being read. A missing or
+     * damaged cosmetic asset must never prevent the player from starting. */
+    fb_rect(0u, 0u, FB_W, FB_H, TAU_SPLASH_BG);
+    ui_splash_art_active = 1u;
+    if (!ui_splash_asset()) {
+        ui_splash_art_active = 0u;
+        ui_gradient();
+        ui_splash_card(1u, 1u);
+        return;
+    }
+    ui_splash_version();
 }
 
 /* Boot animation: a pulse sweeps the meter while the title fades up.
@@ -2848,34 +2954,9 @@ static void ui_wave_anim_stop(void)
 
 static void ui_splash_anim(void)
 {
-    ui_gradient();
-
-    const uint32_t STEP_DEN = 32u;   /* title fade resolution */
-
-    /* Minimum time on screen, then the wave carries on from the read spin for
-     * as long as loading takes. Fixed length here rather than "until loaded"
-     * so a fast card still gets a boot animation instead of a flicker. */
-    ui_wave_anim_start();
-    const uint32_t INTRO_MS = 1600u;
-    uint32_t t0 = cycles(), fade_end = CLK_HZ / 1000u * (INTRO_MS / 2u);
-    /* Redraw the card only when the fade STEP changes -- 33 times, not once per
-     * spin of an unpaced loop. Repainting the title thousands of times a second
-     * is what made it flash: each repaint erases its own cell before writing
-     * the glyph, and scanout catches the gap. */
-    uint32_t last_f = 0xFFFFFFFFu;
-    ui_splash_bg();                  /* ONCE -- see ui_splash_bg() */
-    for (;;) {
-        uint32_t el = cycles() - t0;
-        if (el >= CLK_HZ / 1000u * INTRO_MS) break;
-        uint32_t f = (el < fade_end) ? (el * STEP_DEN / fade_end) : STEP_DEN;
-        if (f != last_f) { last_f = f; ui_splash_title(f, STEP_DEN); }
-        ui_wave_anim_tick();
-    }
-
-    /* Nothing flattens the meter here any more. That belonged to the original
-     * one-shot animation, which had finished by this point; now the meter keeps
-     * running from the read spin until loading is done, and flattening it would
-     * blank one frame and then be immediately overdrawn. */
+    /* Loading activity is tied to the actual APF read below, so no artificial
+     * minimum delay is added here.  Fast cards should remain fast. */
+    ui_splash();
 }
 
 /* `reason` explains why there is nothing playing, or is NULL when the answer is
@@ -2926,7 +3007,7 @@ static uint32_t    ui_boot_next, ui_boot_t, ui_boot_x;
 
 static uint16_t ui_boot_bg(void)
 {
-    return ui_grad_at(UI_BOOT_Y);
+    return ui_splash_art_active ? TAU_SPLASH_BG : ui_grad_at(UI_BOOT_Y);
 }
 
 /* A 7x7 disc, one rect per row -- the way every other icon here is built,
@@ -2949,6 +3030,22 @@ static void ui_boot_note(const char *msg)
      * for the whole of roughly every other load, which is why they were
      * "rarely seen". Same fault as fl_ui_next and pl_poll_at in c501764. */
     ui_boot_next = cycles();                /* first tick paints immediately */
+
+    if (ui_splash_art_active) {
+        uint32_t w = fb_text_width(msg, TS_1X);
+        uint32_t x = (w < TAU_SPLASH_STATUS_W)
+                   ? TAU_SPLASH_STATUS_X + (TAU_SPLASH_STATUS_W - w) / 2u
+                   : TAU_SPLASH_STATUS_X;
+        fb_rect(TAU_SPLASH_STATUS_X, TAU_SPLASH_STATUS_Y,
+                TAU_SPLASH_STATUS_W, TAU_SPLASH_STATUS_H, TAU_SPLASH_BG);
+        fb_set_color(UI_WHITE, TAU_SPLASH_BG);
+        fb_text_clipped(x, TAU_SPLASH_STATUS_Y, msg, TS_1X, TS_1X,
+                        TAU_SPLASH_STATUS_W);
+        fb_rect(TAU_SPLASH_BAR_X, TAU_SPLASH_BAR_Y,
+                TAU_SPLASH_BAR_W, TAU_SPLASH_BAR_H, TAU_SPLASH_BG);
+        return;
+    }
+
     /* WIPE FIRST. On the splash this row is empty so it never mattered, but in
      * the player it is the transport row -- PLAYING, the repeat and shuffle
      * arrows, the EQ name -- and writing over it left the old glyphs showing
@@ -2986,6 +3083,17 @@ static void ui_boot_tick(void)
     if ((int32_t)(cycles() - ui_boot_next) < 0) return;
     ui_boot_next = cycles() + CLK_HZ / 30u;
 
+    if (ui_splash_art_active) {
+        uint32_t travel = TAU_SPLASH_BAR_W - TAU_SPLASH_SEG_W;
+        uint32_t phase = ui_boot_t++ % (travel * 2u);
+        uint32_t x = phase <= travel ? phase : travel * 2u - phase;
+        fb_rect(TAU_SPLASH_BAR_X, TAU_SPLASH_BAR_Y,
+                TAU_SPLASH_BAR_W, TAU_SPLASH_BAR_H, TAU_SPLASH_BG);
+        fb_rect(TAU_SPLASH_BAR_X + x, TAU_SPLASH_BAR_Y,
+                TAU_SPLASH_SEG_W, TAU_SPLASH_BAR_H, 0x27ECu);
+        return;
+    }
+
     uint16_t bg = ui_boot_bg();
     uint32_t dy = UI_BOOT_Y + (FB_CELL(TS_1X) - 7u) / 2u;   /* centred on the text */
     uint32_t t  = ui_boot_t++ % UI_DOT_TICKS;
@@ -3011,6 +3119,13 @@ static void ui_boot_clear(void)
 {
     if (!ui_boot_msg) return;
     ui_boot_msg = 0;
+    if (ui_splash_art_active) {
+        fb_rect(TAU_SPLASH_STATUS_X, TAU_SPLASH_STATUS_Y,
+                TAU_SPLASH_STATUS_W, TAU_SPLASH_STATUS_H, TAU_SPLASH_BG);
+        fb_rect(TAU_SPLASH_BAR_X, TAU_SPLASH_BAR_Y,
+                TAU_SPLASH_BAR_W, TAU_SPLASH_BAR_H, TAU_SPLASH_BG);
+        return;
+    }
     fb_rect(UI_MARGIN, UI_BOOT_Y, UI_INNER_W, FB_CELL(TS_1X), ui_boot_bg());
 }
 
@@ -3042,6 +3157,19 @@ static void ui_splash_summary(uint32_t n)
     const char *tail = (n == 1u) ? " TRACK" : " TRACKS";
     for (uint32_t k = 0; tail[k] && i < sizeof(b) - 1u; k++) b[i++] = tail[k];
     b[i] = 0;
+
+    if (ui_splash_art_active) {
+        uint32_t w = fb_text_width(b, TS_1X);
+        uint32_t x = TAU_SPLASH_STATUS_X;
+        if (w < TAU_SPLASH_STATUS_W)
+            x += (TAU_SPLASH_STATUS_W - w) / 2u;
+        fb_rect(TAU_SPLASH_STATUS_X, TAU_SPLASH_STATUS_Y,
+                TAU_SPLASH_STATUS_W, TAU_SPLASH_STATUS_H, TAU_SPLASH_BG);
+        fb_set_color(UI_DIM, TAU_SPLASH_BG);
+        fb_text_clipped(x, TAU_SPLASH_STATUS_Y, b, TS_1X, TS_1X,
+                        TAU_SPLASH_STATUS_W);
+        return;
+    }
 
     uint16_t bg = ui_grad_at(UI_SPL_INFO_Y);
     uint32_t w  = fb_text_width(b, TS_1X);   /* hoisted: the label clips to it */
@@ -3189,7 +3317,11 @@ static void ui_gs_line(uint32_t y, const char *s, uint16_t fg, uint32_t ts)
  * font_metrics.h; the widest line is 310 px of the 360 available. */
 static void ui_idle_screen(const char *reason)
 {
-    ui_splash();
+    /* The authored image is a loading state, not an empty/error screen.  Keep
+     * the inherited getting-started layout readable when there is no media. */
+    ui_splash_art_active = 0u;
+    ui_gradient();
+    ui_splash_card(1u, 1u);
 
     /* Sits between the card (ends at 136) and the heading (170), 8 px clear of
      * each. At 148 it crowded the heading and read as part of it rather than
@@ -3207,7 +3339,7 @@ static void ui_idle_screen(const char *reason)
      * halfway through it reads as a mistake -- while the path and the two
      * menu entries are grey. */
     ui_gs_line(206u, "1  Copy .mp3 files to your SD card:", UI_WHITE,  TS_1X);
-    ui_gs_line(224u, "   /Assets/mp3player/common/",        UI_DIM,    TS_1X);
+    ui_gs_line(224u, "   /Assets/tau/common/",              UI_DIM,    TS_1X);
 
     ui_gs_line(250u, "2  For the best experience, list them", UI_WHITE, TS_1X);
     ui_gs_line(268u, "   in a playlist.m3u in that folder.",  UI_WHITE, TS_1X);
@@ -3240,6 +3372,7 @@ static void ui_failed_msg(const char *l1, const char *l2)
      * player behind a dark screen gives the user nothing to act on. The idle
      * timer restarts from here, so it blanks again on its own. */
     ui_blank_wake();
+    ui_splash_art_active = 0u;
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
     fb_set_color(UI_RED, UI_BG);
     fb_text_clipped(UI_MARGIN, UI_TITLE_Y, "LOAD FAILED", TS_2X, TS_2X, UI_INNER_W);

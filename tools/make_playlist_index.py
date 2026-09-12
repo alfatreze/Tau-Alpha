@@ -20,8 +20,8 @@ Without this file the core falls back to the twelve-character stem, which is
 exactly how it behaved before, so nothing here is required -- it only lifts
 the limit.
 
-    python make_playlist_index.py "D:/Assets/mp3player/common"
-    python make_playlist_index.py "D:/Assets/mp3player/common" --dry-run
+    python make_playlist_index.py "D:/Assets/tau/common"
+    python make_playlist_index.py "D:/Assets/tau/common" --dry-run
 """
 import argparse
 import os
@@ -57,7 +57,7 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('root', help='the core folder, e.g. .../mp3player/common')
+    ap.add_argument('root', help='the core folder, e.g. .../tau/common')
     ap.add_argument('--dry-run', action='store_true',
                     help='report what would be written, change nothing')
     args = ap.parse_args()

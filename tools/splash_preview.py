@@ -163,7 +163,7 @@ def dots(im, x, y):
 def before():
     im = new_frame()
     meter(im)
-    text(im, UI_MARGIN, 120, "MP3 PLAYER", ACCENT, 2)
+    text(im, UI_MARGIN, 120, "TAU", ACCENT, 2)
     text(im, UI_MARGIN, UI_BOOT_Y, "LOADING PLAYLIST", UI_WHITE, 1)
     dots(im, UI_MARGIN + width("LOADING PLAYLIST", 1) + 8, UI_BOOT_Y + 4)
     return im
@@ -175,7 +175,7 @@ def after(loading=False):
     im = new_frame()
     round_rect(im, UI_MARGIN - 8, UI_TITLE_Y - 14,
                (FB_W - 2 * UI_MARGIN) + 16, UI_CARD_H, 8, 0x2945)
-    FP.draw_text(im, UI_MARGIN, UI_TITLE_Y, "MP3 PLAYER", ACCENT,
+    FP.draw_text(im, UI_MARGIN, UI_TITLE_Y, "TAU", ACCENT,
                  FP.load_font(15, 600, 14), "round", FP.COV_WEIGHT, 2,
                  lambda _y: 0x2945)
     FP.draw_text(im, UI_MARGIN, V_Y, "v" + VER, UI_DIM,

@@ -1,10 +1,10 @@
 """
-package.py — Package the compiled MP3 Player core for the Analogue Pocket.
+package.py — Package the compiled TAU core for the Analogue Pocket.
 
 Steps:
   1. Verify the bitstream exists in src/fpga/output_files/
   2. Convert .rbf -> .rbf_r (BIT-REVERSED bitstream for Pocket -- mandatory)
-  3. Copy bitstream to dist/Cores/HarpMudd.Mp3Player/bitstream.rbf_r
+  3. Copy bitstream to dist/Cores/alfatreze.TAU/bitstream.rbf_r
   4. Verify the firmware image is present (built separately by fw/build.sh)
   5. Print copy instructions for the Pocket SD card
 
@@ -21,9 +21,9 @@ import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 BITSTREAM_SRC = os.path.join(PROJECT_ROOT, "src", "fpga", "output_files", "ap_core.rbf")
-DIST_CORE     = os.path.join(PROJECT_ROOT, "dist", "Cores", "HarpMudd.Mp3Player")
+DIST_CORE     = os.path.join(PROJECT_ROOT, "dist", "Cores", "alfatreze.TAU")
 BITSTREAM_DST = os.path.join(DIST_CORE, "bitstream.rbf_r")
-ROM_DST       = os.path.join(PROJECT_ROOT, "dist", "Assets", "mp3player", "common", "mp3player.rom")
+ROM_DST       = os.path.join(PROJECT_ROOT, "dist", "Assets", "tau", "common", "tau.rom")
 README_PATH   = os.path.join(PROJECT_ROOT, "README.md")
 
 
@@ -65,18 +65,23 @@ def check_readme():
 def main():
     skip_rom = "--skip-rom" in sys.argv
 
-    print("=== MP3 Player Pocket Core Packager ===\n")
+    print("=== TAU Pocket Core Packager ===\n")
 
     # 1. Bitstream
-    if not os.path.exists(BITSTREAM_SRC):
-        print(f"ERROR: bitstream not found: {BITSTREAM_SRC}")
+    if os.path.exists(BITSTREAM_SRC):
+        os.makedirs(DIST_CORE, exist_ok=True)
+        print("Converting bitstream...")
+        rbf_to_rbf_r(BITSTREAM_SRC, BITSTREAM_DST)
+    elif os.path.exists(BITSTREAM_DST):
+        # Branding and firmware-only builds intentionally reuse the pinned,
+        # hardware-tested bitstream. Quartus is unavailable on macOS and an
+        # identity change does not justify an FPGA rebuild.
+        print(f"Using existing bitstream: {BITSTREAM_DST}")
+    else:
+        print(f"ERROR: neither source nor packaged bitstream exists: {BITSTREAM_SRC}")
         print("Run Quartus compilation first:")
         print(f"  quartus_sh --flow compile {os.path.join(PROJECT_ROOT, 'src', 'fpga', 'ap_core.qpf')}")
         sys.exit(1)
-
-    os.makedirs(DIST_CORE, exist_ok=True)
-    print("Converting bitstream...")
-    rbf_to_rbf_r(BITSTREAM_SRC, BITSTREAM_DST)
 
     # 2. Firmware. Not built here -- fw/build.sh owns that, and it is a separate
     #    toolchain. Just refuse to call the package complete without it, since

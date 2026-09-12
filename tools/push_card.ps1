@@ -21,7 +21,7 @@ $Dist = (Resolve-Path $Dist).Path
 
 $card = $null
 foreach ($d in (Get-PSDrive -PSProvider FileSystem).Root) {
-    if (Test-Path (Join-Path $d 'Assets\mp3player\common')) { $card = $d; break }
+    if (Test-Path (Join-Path $d 'Assets\tau\common')) { $card = $d; break }
 }
 if (-not $card) { Write-Error 'card not mounted'; exit 1 }
 Write-Host "card: $card"
@@ -47,7 +47,7 @@ foreach ($f in $files) {
 }
 
 # Re-check the card is still there before trusting anything the verify says.
-if (-not (Test-Path (Join-Path $card 'Assets\mp3player\common'))) {
+if (-not (Test-Path (Join-Path $card 'Assets\tau\common'))) {
     Write-Error 'card disappeared during the copy -- nothing is verified'
     exit 1
 }
@@ -80,5 +80,5 @@ if ($bad.Count) {
 }
 
 Write-Host ("  {0} copied, {1}/{2} verified identical" -f $copied, $compared, $files.Count)
-$rom = Join-Path $card 'Assets\mp3player\common\mp3player.rom'
+$rom = Join-Path $card 'Assets\tau\common\tau.rom'
 Write-Host ("  firmware {0:N0} bytes" -f (Get-Item $rom).Length)

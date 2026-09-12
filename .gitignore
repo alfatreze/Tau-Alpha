@@ -1,4 +1,6 @@
 # Quartus build artefacts
+.DS_Store
+
 src/fpga/db/
 src/fpga/incremental_db/
 src/fpga/output_files/
@@ -23,7 +25,7 @@ fw/build.log
 # not a game ROM, and the core does not start without it -- a release zip built
 # from a checkout that lacks it is a broken release. The blanket *.rom rule above
 # still covers everything else.
-!dist/Assets/mp3player/common/mp3player.rom
+!dist/Assets/tau/common/tau.rom
 
 # Simulation outputs
 sim/*.vvp
@@ -53,6 +55,10 @@ toolchain/
 sim/*.bin
 sim/*.txt
 
+# Regenerable design-review captures. `make visual-review` writes the exact
+# decoded packaged splash here, alongside the authored source for comparison.
+work/previews/
+
 # Vendored upstreams that carry their own .git (would become gitlinks, not
 # content). Re-clone per README; only the ones we build against matter:
 #   libhelix-mp3, pythondata-cpu-vexriscv  -> required
@@ -65,7 +71,7 @@ third_party/pythondata-cpu-vexriscv/
 
 # The playlist is the USER'S file, not a build output. Shipping one meant a
 # full sync to the card overwrote whatever they had written in it.
-dist/Assets/mp3player/common/playlist.m3u
+dist/Assets/tau/common/playlist.m3u
 
 # Card snapshots from tools/card_snapshot.py -- measurement scratch, and they
 # name the user's own files.
@@ -76,7 +82,7 @@ sim/eq_*.hex
 sim/*.vvp
 
 # Stray bitstream copies at the repo root -- the shipped one lives in
-# dist/Cores/HarpMudd.Mp3Player/ and is written there by package.py.
+# dist/Cores/alfatreze.TAU/ and is written there by package.py.
 /bitstream.rbf_r
 /*.rbf
 fw/*.o

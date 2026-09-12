@@ -1,11 +1,20 @@
-# MP3 Player — Analogue Pocket
+# TAUᵅ — Analogue Pocket Music Player
 
 A music player for the Analogue Pocket. It plays MP3 and FLAC straight off the
 SD card, with album art, tags and meters.
 
 Decoding runs in software, on a RISC-V CPU built into the Pocket's FPGA.
 
-Current version **v1.4.0**. Release history: [CHANGELOG.md](CHANGELOG.md).
+Current version **v0.1.0**.
+
+Tau is a derivative of
+**[HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player)**
+v1.4.0 by HarpMudd. The project intentionally retains the complete upstream Git
+history, copyright notice, and inherited release history in
+[CHANGELOG.md](CHANGELOG.md). Tau's new identity, packaging, artwork pipeline,
+technical plans, and subsequent changes are maintained by alfatreze. See
+[NOTICE.md](NOTICE.md) for provenance and third-party licensing boundaries, and
+[PROJECT.md](PROJECT.md) for the current milestone ledger and plan.
 
 ## Installing
 
@@ -14,11 +23,11 @@ Pocket's SD card, merging with what's already there. Then drop your `.mp3` and
 `.flac` files into:
 
 ```text
-/Assets/mp3player/common/
+/Assets/tau/common/
 ```
 
 They can live in subfolders under that path — an `Artist/Album` layout works
-without rearranging. `mp3player.rom` is the firmware and has to stay in that
+without rearranging. `tau.rom` is the firmware and has to stay in that
 folder — the core won't start without it.
 
 ## Playing
@@ -63,7 +72,7 @@ records no position at all — so for an audiobook, use a playlist; a one-line
 `.m3u` is enough.
 
 The album art panel and screen-blank timeout reset each launch. Everything
-saved lives in `/Settings/HarpMudd.Mp3Player/` — delete that folder to reset.
+saved lives in `/Settings/alfatreze.TAU/` — delete that folder to reset.
 Nothing is written to your music folder.
 
 ## What it shows
@@ -94,7 +103,7 @@ sample rates common in spoken-word recordings.<br clear="right">
 ## Playlists
 
 A plain text file with one track per line, saved as `playlist.m3u` in
-`/Assets/mp3player/common/`:
+`/Assets/tau/common/`:
 
 ```text
 Feel Good Inc.mp3
@@ -158,7 +167,7 @@ Live/Phish - Hampton 1997.m3u
 ```
 
 Write it in any text editor and save it beside your playlists, in
-`/Assets/mp3player/common/`. The core searches it by name at boot, so a
+`/Assets/tau/common/`. The core searches it by name at boot, so a
 playlist can be called anything you like. Order doesn't matter and you can add
 or remove lines freely — entries are matched by name, not by position.
 
@@ -291,8 +300,11 @@ from that source file's own copyright header.
   ([rsms](https://github.com/rsms)) — SIL Open Font License 1.1, bundled at
   [`third_party/font/OFL.txt`](third_party/font/OFL.txt). The font ROM the core
   draws with is generated from it and is a derivative under the same license.
-- **Core, firmware, UI and integration** —
-  [HarpMudd](https://github.com/harpmudd).
+- **Original MP3 Player core, firmware, UI, integration, and Tau's v1.4.0
+  baseline** — [HarpMudd](https://github.com/harpmudd), from
+  [HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player).
+- **Tau project direction, identity, artwork, and modifications after the
+  v1.4.0 baseline** — [alfatreze](https://github.com/alfatreze).
 
 Two more shaped the design without ending up in it. Both decided something, which
 is why they are credited at all:
@@ -308,8 +320,10 @@ is why they are credited at all:
 
 ## License
 
-The code written for this project — the firmware, the RTL, the tools and the
-docs — is [MIT licensed](LICENSE).
+HarpMudd's original code and Tau's own code and modifications are
+[MIT licensed](LICENSE), with both copyright notices preserved. MIT was retained
+because it is the upstream project's license and keeps contributions and reuse
+straightforward without attempting to relicense the original work.
 
 Everything under `third_party/` keeps its own, and MIT here relicenses none of
 it. Two carry real obligations:
@@ -319,10 +333,11 @@ source-disclosure license, so it is vendored in full and unmodified;
 from it is a derivative under the same terms. The rest are MIT, ISC or public
 domain — see [Credits](#credits).
 
-## About / Support
+## Upstream support
 
-I'm into retro games and the Analogue Pocket, always cooking up something new.
-I love being part of a community built on sharing and the love of games — so if
-any of my projects bring you joy, chip in below; it fuels the next thing.
+Tau preserves HarpMudd's original support link as an acknowledgement of the
+project it builds on:
 
-💛 **[Support this project via PayPal](https://www.paypal.com/donate/?hosted_button_id=S22WV924XU2ME)**
+💛 **[Support HarpMudd via PayPal](https://www.paypal.com/donate/?hosted_button_id=S22WV924XU2ME)**
+
+Tau does not currently configure a project funding link.

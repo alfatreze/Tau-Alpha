@@ -37,7 +37,7 @@ itself has to change.
 **Version lives in THREE files and all must move:**
 
 - `fw/player.c` — `APP_VER`, which is the version on the splash screen
-- `dist/Cores/HarpMudd.Mp3Player/core.json` — `version`, which is what the
+- `dist/Cores/alfatreze.TAU/core.json` — `version`, which is what the
   Pocket shows in its core list, plus `date_release`
 - `README.md` — the `Current version **vX.Y.Z**` line in the opener
 
@@ -974,7 +974,7 @@ the template path outright, and the README documented that with an example
 pointing outside the core's own folder (`/Music/Albums/...`). Removed at the
 v1.3.0 release audit: the code path has never once been run, and it compounds a
 second unknown -- whether APF will open anything outside
-`/Assets/mp3player/common/` at all.
+`/Assets/tau/common/` at all.
 
 Both questions settle in one hardware session: put one absolute entry in a test
 playlist, once inside the core's folder and once outside it. If the inside case
@@ -1252,7 +1252,7 @@ belongs to the user, not to whoever picks this ticket up.
 If it is ever attempted:
 
 - **APF cannot CREATE a file.** A placeholder `scrobbler.log` has to ship in
-  `Assets/mp3player/common/` and be declared as its own slot. Design for that;
+  `Assets/tau/common/` and be declared as its own slot. Design for that;
   do not assume create-on-first-write.
 - **Never point the write at the MP3 slot.** A separate slot, and assert the
   slot id at the call site rather than trusting a variable.
@@ -1467,6 +1467,20 @@ finishes through the reposition body. Others are load-bearing: the FIFO
 glide/fade pair, the cut-at-press transition, and the confirmed-EOF guard all
 fix real faults. Worth a pass, one at a time, each verified on hardware —
 not a bulk tidy.
+
+## Battery status and power-efficiency logging — future, API-gated
+
+A user-facing battery meter is desirable, but the documented openFPGA interface
+does not currently expose battery percentage, voltage, current, or charging
+state to a core. Do not display an inferred value as measured battery status.
+
+An Advanced-build efficiency log is still useful: session duration, decoder
+headroom, framebuffer work and stalls, SD traffic, FIFO low-water, artwork,
+visualizer, EQ, speed, and screen-blank time can identify expensive workloads.
+Any persistent log needs its own bounded nonvolatile slot under `/Saves/tau/`
+and throwaway-card failure tests; it must never write into the music library.
+
+See `docs/BATTERY_AND_POWER_PLAN.md` for the staged measurement and storage plan.
 
 ## The persisted-settings register file — 5 of 16 slots free
 
@@ -2153,7 +2167,7 @@ and the answer turned out to be a mechanism that never touches a file.
 at a word of a register file at `0x20000000`. APF reads those words back from
 the core every frame, lets the user adjust them in Core Settings, writes them
 back, and saves them itself to
-`/Settings/HarpMudd.Mp3Player/Interact/_core/interact_persist.json`.
+`/Settings/alfatreze.TAU/Interact/_core/interact_persist.json`.
 
 **The core issues no write and no data slot is involved at any point** — which
 is exactly why it is safe. Both earlier mechanisms had a path to the user's

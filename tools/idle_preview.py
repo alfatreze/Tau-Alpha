@@ -82,7 +82,7 @@ def render(reason=None):
     # The card, title and version, exactly as the splash draws them.
     SP.round_rect(im, MARGIN - 4, SP.UI_TITLE_Y - 14, INNER_W + 8,
                   SP.const("UI_CARD_H", 120), 10, SP.UI_PANEL)
-    draw_frac(im, MARGIN, SP.UI_TITLE_Y, "MP3 PLAYER", SP.ACCENT, f, 4,
+    draw_frac(im, MARGIN, SP.UI_TITLE_Y, "TAU", SP.ACCENT, f, 4,
               lambda y: SP.UI_PANEL)
     draw_frac(im, MARGIN, SP.V_Y, "v" + SP.VER, SP.UI_DIM, f, 2,
               lambda y: SP.UI_PANEL)

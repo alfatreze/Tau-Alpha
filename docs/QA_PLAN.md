@@ -11,6 +11,16 @@ at least once while building it, which is why they earn a place here at all.
 Both have decided a diagnosis on this project more than once. §10 says how to
 get real numbers if a symptom is vague.
 
+## Visual regression gate
+
+Every distinct UI state, and every material visual change to an existing state,
+requires a named reproducible framebuffer snapshot. Run `make visual-review`
+and inspect the native 400x360 captures in `work/previews/` before producing a
+hardware build. The capture verifies production layout and pixel conversion;
+a Pocket photo remains the authority for display gamma and perceived contrast.
+
+The complete rule and required state-naming convention live in `AGENTS.md`.
+
 ---
 
 ## 0. Setup
@@ -20,7 +30,7 @@ that is **not** in the playlist — the standalone path behaves differently on
 purpose.
 
 ```
-python tools/xing_check.py D:/Assets/mp3player/common
+python tools/xing_check.py D:/Assets/tau/common
 ```
 
 Run it once and keep the output. It reports which files have a Xing/Info frame
@@ -45,7 +55,7 @@ records nothing.
 | 1.3 | As 1.1, but quit after ~2 s. | Starts from the beginning. Under 2 s is deliberately ignored. |
 | 1.4 | Turn **Resume playback** off. Play 60 s in, quit, relaunch. | Starts at the first track from 0:00. Boot row reads **LOADING TRACK**. |
 | 1.5 | Resume a track, then let it play to the end. | Advances normally. Resume does not re-fire. |
-| 1.6 | Fresh install (delete `/Settings/HarpMudd.Mp3Player/`). | Resume is **off** by default; other settings return to defaults. |
+| 1.6 | Fresh install (delete `/Settings/alfatreze.TAU/`). | Resume is **off** by default; other settings return to defaults. |
 
 **1.7 — audiobook shape.** A long file as a one-line `.m3u`. Play 10+ minutes
 in, quit, relaunch. Should return to the right place. This is the use the
@@ -169,13 +179,13 @@ Every one of these has been broken at some point.
 | 9.1 | Rename `playlist.m3u` away and launch with an empty slot. | Getting-started screen with the three numbered steps. |
 | 9.2 | Launch with a playlist present. | **LOADING PLAYLIST** with animated dots, then a track starts playing. |
 | 9.3 | Load MP3 from the getting-started screen. | Indicator appears **immediately** on picking, not after a pause. Plays first time — not needing two attempts. |
-| 9.4 | Pocket core list. | Shows as **MP3 Player**. |
+| 9.4 | Pocket core list with Group openFPGA enabled. | Shows as **TAU** under **Media Players**. |
 
 ---
 
 ## 10. If something fails
 
-**Read the card first.** `/Settings/HarpMudd.Mp3Player/Interact/_core/interact_persist.json`
+**Read the card first.** `/Settings/alfatreze.TAU/Interact/_core/interact_persist.json`
 is plain JSON and authoritative. It settled four failures on this project
 before any build, including contradicting a theory of mine about settings being
 reset. Check it before anything else.

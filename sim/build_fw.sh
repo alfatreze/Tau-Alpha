@@ -5,7 +5,7 @@
 # so GCC's gp-relative relaxation would emit stores through an uninitialised gp.
 set -e
 
-ROOT="C:/Projects/HarpMudd.mp3player"
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 TC="$ROOT/toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin"
 GCC="$TC/riscv-none-elf-gcc.exe"
 OBJCOPY="$TC/riscv-none-elf-objcopy.exe"

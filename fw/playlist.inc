@@ -150,7 +150,7 @@ static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_slot)
      *    than assumed, and only accepted in that one adjacent position -- a
      *    scan of the whole struct for "any word equal to the length" would
      *    eventually match something unrelated and corrupt it. */
-    /* The slot's current entry is a full PATH ("/Assets/mp3player/common/x.mp3"
+    /* The slot's current entry is a full PATH ("/Assets/tau/common/x.mp3"
      * -- the 0190 work saw exactly that), while a playlist line is normally a
      * bare filename. Replacing the whole path with a bare name asks APF to open
      * a file that does not exist at the root, which is what result code 4 was

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build core firmware -> dist/Assets/mp3player/common/mp3player.rom
+# Build core firmware -> dist/Assets/tau/common/tau.rom
 #
 #   ./build.sh            # Stage 3 player (Helix decode + playback)  [default]
 #   ./build.sh bringup    # Stage 1/2 bring-up (tone + 0180 test, no decoder)
@@ -11,14 +11,33 @@ set -e
 
 TARGET="${1:-player}"
 
-ROOT="C:/Projects/HarpMudd.mp3player"
-TC="$ROOT/toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin"
-GCC="$TC/riscv-none-elf-gcc.exe"
-OBJCOPY="$TC/riscv-none-elf-objcopy.exe"
-SIZE="$TC/riscv-none-elf-size.exe"
-FW="$ROOT/fw"
+# Resolve the checkout instead of assuming the original author's Windows path.
+# Override RISCV_TOOLCHAIN_BIN and/or RISCV_PREFIX when the tools are not on
+# PATH.  Examples:
+#   RISCV_TOOLCHAIN_BIN=/opt/xpack-riscv/bin bash fw/build.sh
+#   RISCV_PREFIX=riscv64-unknown-elf- bash fw/build.sh
+FW="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd -- "$FW/.." && pwd)"
+TOOL_BIN="${RISCV_TOOLCHAIN_BIN:-}"
+TOOL_PREFIX="${RISCV_PREFIX:-riscv-none-elf-}"
+VENDORED_TOOL_BIN="$ROOT/toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin"
+if [[ -z "$TOOL_BIN" && -x "$VENDORED_TOOL_BIN/riscv-none-elf-gcc" ]]; then
+    TOOL_BIN="$VENDORED_TOOL_BIN"
+fi
+GCC="${CC_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}gcc}"
+OBJCOPY="${OBJCOPY_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}objcopy}"
+SIZE="${SIZE_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}size}"
+PYTHON="${PYTHON:-python3}"
 HELIX="$ROOT/third_party/libhelix-mp3"
-OUT="$ROOT/dist/Assets/mp3player/common"
+OUT="$ROOT/dist/Assets/tau/common"
+
+for tool in "$GCC" "$OBJCOPY" "$SIZE" "$PYTHON"; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "missing build tool: $tool" >&2
+        echo "set RISCV_TOOLCHAIN_BIN or RISCV_PREFIX, then retry" >&2
+        exit 127
+    fi
+done
 
 mkdir -p "$OUT"
 
@@ -27,22 +46,25 @@ mkdir -p "$OUT"
 # EXTRA_CFLAGS lets a build turn on things that are off by default without
 # editing source, e.g.:  EXTRA_CFLAGS=-DDEBUG_DIAG=1 bash fw/build.sh
 CFLAGS="-march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostartfiles -ffunction-sections -fdata-sections -Wl,--gc-sections ${EXTRA_CFLAGS:-}"
-ROM="mp3player.rom"
+ROM="tau.rom"
 
 case "$TARGET" in
 bringup)
-    SRCS="$FW/start.S $FW/main.c"
-    INC=""
+    SRCS=("$FW/start.S" "$FW/main.c")
+    INC=()
     ;;
 player)
-    SRCS="$HELIX/mp3dec.c $HELIX/mp3tabs.c \
-      $HELIX/real/bitstream.c $HELIX/real/buffers.c $HELIX/real/dct32.c \
-      $HELIX/real/dequant.c $HELIX/real/dqchan.c $HELIX/real/huffman.c \
-      $HELIX/real/hufftabs.c $HELIX/real/imdct.c $HELIX/real/polyphase.c \
-      $HELIX/real/scalfact.c $HELIX/real/stproc.c $HELIX/real/subband.c \
-      $HELIX/real/trigtabs.c \
-      $FW/start.S $FW/player.c $FW/sysio.c $FW/alloc.c $FW/picojpeg.o $FW/flac.o"
-    INC="-I $HELIX/pub -I $HELIX/real -I $ROOT/third_party/picojpeg"
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     ;;
 *)
     echo "usage: $0 {player|bringup}"; exit 1 ;;
@@ -80,7 +102,7 @@ if ! "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -Os -ffreestanding         -I "
     exit 1
 fi
 
-if ! "$GCC" $CFLAGS $INC -T "$FW/link.ld" -o "$FW/fw.elf" $SRCS -lm \
+if ! "$GCC" $CFLAGS "${INC[@]}" -T "$FW/link.ld" -o "$FW/fw.elf" "${SRCS[@]}" -lm \
         > "$FW/build.log" 2>&1; then
     grep -v "LOAD segment with RWX" "$FW/build.log" >&2 || true
     echo "*** COMPILE FAILED -- no .rom written ***" >&2
@@ -90,8 +112,11 @@ grep -v "LOAD segment with RWX" "$FW/build.log" >&2 || true
 
 "$SIZE" "$FW/fw.elf"
 "$OBJCOPY" -O binary "$FW/fw.elf" "$OUT/$ROM"
+# GNU objcopy inherits the ELF executable bit on Unix. A ROM is data, and the
+# shipped artifact is tracked as 0644, so normalize it for reproducible status.
+chmod 0644 "$OUT/$ROM"
 
-python -c "
+"$PYTHON" -c "
 import os
 n = os.path.getsize(r'$OUT/$ROM')
 lim = 192*1024 - 16*1024        # RAM minus stack reserve
@@ -109,7 +134,7 @@ assert n < lim, 'firmware image exceeds usable RAM'
 # cut on the quotes rather than a sed backreference: escaping is what broke the
 # first version of this check, and one that silently compares two empty strings
 # is worse than no check at all.
-CORE_JSON="$ROOT/dist/Cores/HarpMudd.Mp3Player/core.json"
+CORE_JSON="$ROOT/dist/Cores/alfatreze.TAU/core.json"
 APP_VER=$(grep -m1 '#define APP_VER'  "$FW/player.c" | cut -d'"' -f2)
 JSON_VER=$(grep -m1 '"version"'       "$CORE_JSON"   | cut -d'"' -f4)
 JSON_DATE=$(grep -m1 '"date_release"' "$CORE_JSON"   | cut -d'"' -f4)

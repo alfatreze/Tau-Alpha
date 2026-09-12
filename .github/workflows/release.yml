@@ -20,10 +20,13 @@ jobs:
       - name: Verify the release payload is complete
         run: |
           for f in \
-            dist/Cores/HarpMudd.Mp3Player/bitstream.rbf_r \
-            dist/Cores/HarpMudd.Mp3Player/core.json \
-            dist/Assets/mp3player/common/mp3player.rom \
-            dist/Platforms/mp3player.json
+            dist/Cores/alfatreze.TAU/bitstream.rbf_r \
+            dist/Cores/alfatreze.TAU/core.json \
+            dist/Cores/alfatreze.TAU/icon.bin \
+            dist/Assets/tau/common/tau.rom \
+            dist/Assets/tau/common/tau-loading.bin \
+            dist/Platforms/tau.json \
+            dist/Platforms/_images/tau.bin
           do
             if [ ! -s "$f" ]; then
               echo "::error::missing or empty: $f"
@@ -31,12 +34,21 @@ jobs:
             fi
           done
 
+      - name: Determine release archive name
+        id: archive
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          release_date="$(python3 -c 'import json; print(json.load(open("dist/Cores/alfatreze.TAU/core.json"))["core"]["metadata"]["date_release"])')"
+          archive="alfatreze.TAU_${version}_${release_date}.zip"
+          echo "name=$archive" >> "$GITHUB_OUTPUT"
+
       - name: Create zip of dist contents
         run: |
           cd dist
-          zip -r "../HarpMudd.Mp3Player_${{ github.event.release.tag_name }}.zip" .
+          zip -r "../${{ steps.archive.outputs.name }}" . -x '*.DS_Store'
 
       - name: Upload zip to release
         uses: softprops/action-gh-release@v2
         with:
-          files: HarpMudd.Mp3Player_${{ github.event.release.tag_name }}.zip
+          files: ${{ steps.archive.outputs.name }}

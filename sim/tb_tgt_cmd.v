@@ -22,17 +22,19 @@ module tb_tgt_cmd;
     always #6.73 clk_74a = ~clk_74a;   // 74.25 MHz
 
     reg  go = 0;
+    reg  [1:0] cmd_sel = 0;
     wire busy, done;
     wire [7:0] seq;
     wire [2:0] err;
-    wire t_read, t_openfile;
+    wire t_read, t_openfile, t_getfile, t_write;
     reg  t_done = 0;
     reg  [2:0] t_err = 0;
 
     tgt_cmd dut (
         .clk_sys(clk_sys), .rst_sys(rst), .clk_74a(clk_74a),
-        .go(go), .is_openfile(1'b0), .busy(busy), .done(done), .seq(seq), .err(err),
+        .go(go), .cmd_sel(cmd_sel), .busy(busy), .done(done), .seq(seq), .err(err),
         .t_read(t_read), .t_openfile(t_openfile),
+        .t_getfile(t_getfile), .t_write(t_write),
         .t_ack(1'b0), .t_done(t_done), .t_err(t_err)
     );
 

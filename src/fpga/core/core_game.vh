@@ -218,7 +218,7 @@ assign datatable_data = soc_dt_wdata;
 //   w0=1 w1=0x1CB40(117568)  w2=2 w3=0        w4=3 w5=0x395(917)  w6=4 w7=0x20(32)
 //
 // which is APF's DATASLOT ID/SIZE TABLE -- {slot_id, size} pairs at stride 2 --
-// matching mp3player.rom, the empty MP3 slot, playlist.m3u and settings.bin
+// matching tau.rom, the empty audio slot, playlist.m3u and settings.bin
 // exactly. Analogue's docs say a slot's size "is determined by the Dataslot
 // ID/Size Table BRAM in the core"; this is that table.
 //

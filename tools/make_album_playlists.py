@@ -13,7 +13,7 @@ enumeration has to happen somewhere that can see the filesystem -- here.
 Track order is natural: a leading track number sorts numerically, so "2" comes
 before "10" rather than after it. Failing that, plain name order.
 
-    python make_album_playlists.py "D:/Assets/mp3player/common"
+    python make_album_playlists.py "D:/Assets/tau/common"
     python make_album_playlists.py "D:/Music" --name album.m3u --dry-run
 """
 import argparse

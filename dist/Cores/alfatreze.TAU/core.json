@@ -3,14 +3,13 @@
         "magic": "APF_VER_1",
         "metadata": {
             "platform_ids": [
-                "mp3player"
+                "tau"
             ],
-            "shortname": "Mp3Player",
-            "description": "MP3 Player",
-            "author": "HarpMudd",
-            "url": "https://github.com/harpmudd/HarpMudd.mp3player",
-            "version": "1.4.0",
-            "date_release": "2026-08-21"
+            "shortname": "TAU",
+            "description": "TAU Music Player",
+            "author": "alfatreze",
+            "version": "0.1.0",
+            "date_release": "2026-09-12"
         },
         "framework": {
             "target_product": "Analogue Pocket",

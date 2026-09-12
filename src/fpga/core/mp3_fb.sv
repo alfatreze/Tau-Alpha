@@ -123,6 +123,12 @@ module mp3_fb (
     // for the whole block. Source address rides in the fg/bg fields, which a
     // copy has no other use for.
 
+    // Declared before the scale helpers consume them. Quartus accepted the
+    // former declaration-after-use ordering, but standards-strict simulators
+    // could not elaborate the module.
+    wire [1:0] q_sx;
+    wire [1:0] q_sy;
+
     // scale sel -> (num, den) and the resulting painted extent of a 16px cell
     function [5:0] scale_nd(input [1:0] sel);
         case (sel)
@@ -228,8 +234,8 @@ module mp3_fb (
     wire [8:0]  q_w     = cmd_q[34:26];
     wire [8:0]  q_h     = cmd_q[25:17];
     wire [6:0]  q_glyph = cmd_q[16:10];
-    wire [1:0]  q_sx    = cmd_q[9:8];
-    wire [1:0]  q_sy    = cmd_q[7:6];
+    assign q_sx = cmd_q[9:8];
+    assign q_sy = cmd_q[7:6];
 
     // ======================================================================
     // Scanout line buffer: parity-split double buffer, exactly as

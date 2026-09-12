@@ -171,7 +171,7 @@ def main():
     root = args.root
     if not root:
         for c in "DEFGH":
-            p = c + ":\\Assets\\mp3player"
+            p = c + ":\\Assets\\tau"
             if os.path.isdir(p):
                 root = p
                 break
