@@ -1,6 +1,7 @@
 # Issue 005 — Phase 1 Quartus Assembler internal error
 
-**Status:** Open — build blocker for SDRAM Phase 1 hardware validation  
+**Status:** Reproduced once; not reproduced by controlled isolations — final
+clean current-source build and Pocket diagnostics remain required
 **First observed:** 2026-09-13  
 **Evidence level:** **Quartus** only; no programming artifact or Pocket test
 
@@ -129,6 +130,30 @@ that variant next. If it reproduces the assertion, split its small register-map
 change from the top-level connection before considering any architecture or
 toolchain change.
 
+## Isolation result 5 — MMIO and top-level diagnostic wiring
+
+**Status:** Passed, 2026-09-13 (**Quartus**)
+
+Starting from isolation 4, add the current `mp3_soc` SDRAM diagnostic mailbox
+register/interface expansion and its `core_game.vh` wiring to the already-live
+bridge. This is the final remaining functional FPGA delta from the original
+failing Phase 1 integration. The complete flow succeeded in 42m19s: fitter
+32m21s, assembler 1m09s, timing analyzer 3m44s. It generated both
+`ap_core.sof` and `ap_core.rbf`.
+
+Fit: 5,706 ALMs, 7,414 registers, 2,380,416 block-memory bits, and 299 RAM
+blocks. Timing analysis completed with no failure (slow-model setup slack
+1.034 ns; tightest shown hold slack 0.283 ns). A source-tree comparison against
+the current FPGA tree, excluding Quartus build outputs, found only nonfunctional
+`core_game.vh` comment/format/declaration-placement differences.
+
+The original assembler assertion is therefore **not reproducible** with this
+functionally equivalent design and the same toolchain. Do not claim the failure
+was caused by MMIO, bridge, arbiter, or `mp3_fb`. Its remaining classification
+is a one-off Quartus build-state/tool failure. The next required gate is a
+fresh local-ext4 build from the exact current source commit, followed by the
+controlled Pocket diagnostic; no architecture/toolchain change is justified.
+
 ## Reproduction context
 
 - Source build copy: `/home/taualpha/tau-local/tau-alpha` (local ext4)
@@ -145,14 +170,13 @@ toolchain change.
    classified; do not clean it as a first response.
 2. **Completed:** the controlled known-good baseline source build assembled and
    passed timing in a separate local copy with the same toolchain.
-3. **In progress:** bisect only the small set of RTL/QSF integration changes.
-   Isolation results 1–4 cleared source inclusion, live framebuffer arbitration,
-   idle bridge/CDC, and the residual `mp3_fb` declaration-order change. Next
-   add `mp3_soc` SDRAM diagnostic MMIO/interface wiring. Keep each result in
-   the audit trail with exact source revision and evidence tag.
-4. Consider a Quartus version/toolchain change only after the controlled
-   comparison; it would invalidate direct comparison with the existing
-   baseline and requires a new clean baseline build.
+3. **Completed:** isolations 1–5 cleared every functional FPGA delta from the
+   original Phase 1 source, including MMIO/top-level wiring. The original
+   assembler assertion did not reproduce.
+4. Build the exact current source revision in a fresh local-ext4 directory.
+   Only if that fails again, retain its database/logs and investigate Quartus
+   build state before considering a toolchain change. If it passes, proceed to
+   the controlled Pocket diagnostic; no source migration follows automatically.
 
 No Phase 2 mapped SDRAM work or Pocket diagnostic should start until this issue
 has produced a timing-clean programming artifact.

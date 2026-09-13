@@ -30,6 +30,7 @@ row.
 |---|---|---:|---:|---:|---:|---:|---|
 | A-003 | **Quartus** baseline, 2026-09-13 | 5,587 / 18,480 (30%) | 300 / 308 (97%) | 2,380,928 / 3,153,920 (75%) | 11 / 66 (17%) | 0.025 ns hold, fast 0C | Successful, 42m58s full compile. |
 | A-006 | **Quartus** fitter only, 2026-09-13 | 5,661 / 18,480 (31%) | 299 / 308 (97%) | 2,380,416 / 3,153,920 (75%) | 11 / 66 (17%) | not produced | Fitter passed; assembler assertion prevented artifact and timing analysis. |
+| A-017 | **Quartus** Phase 1-equivalent isolation, 2026-09-13 | 5,706 / 18,480 (31%) | 299 / 308 (97%) | 2,380,416 / 3,153,920 (75%) | 0.283 ns hold, shown slow model | Successful 42m19s full flow; clean exact-current-source build remains the release gate. |
 
 ## Entries
 
@@ -342,6 +343,30 @@ diagnostic MMIO/register expansion in `mp3_soc` and associated `core_game.vh`
 wiring. Test it next; only a reproducing result justifies splitting that narrow
 delta further.
 
+### A-017 — Isolation 5 clears MMIO/top-level wiring; original assembler error does not reproduce
+
+**Date:** 2026-09-13
+**Decision/change:** Add the current `mp3_soc` diagnostic mailbox register map
+and all associated `core_game.vh` signal wiring to passing isolation 4.
+**Alternatives and rationale:** Attribute the original failure to MMIO without
+testing (rejected: it would convert temporal coincidence into a root-cause
+claim), or change Quartus now (rejected: this matched-toolchain experiment is
+the decisive control).
+**Hot/cold impact:** No request is issued by the existing playback firmware;
+the mailbox remains diagnostic-only. No cold-data migration or Pocket claim is
+enabled.
+**Evidence:** **Quartus** — successful complete 42m19s flow with `.sof`/`.rbf`.
+Fit: 5,706 ALMs, 7,414 registers, 2,380,416 RAM bits, 299 RAM blocks, 11 DSP,
+one PLL. Slow-model setup slack 1.034 ns; shown tightest hold slack 0.283 ns.
+**Resource/timing delta:** +119 ALMs and -1 RAM block relative to A-003. This
+is Phase 1-equivalent, not yet the exact current-source release build.
+**Outcome, reversal/workaround, remaining risk, and next gate:** All functional
+FPGA deltas in the original failing build have now passed controlled flows. The
+assembler assertion is non-reproducible and classified as one-off
+Quartus/build-state behavior, not an RTL root cause. Fresh-build the exact
+current source from local ext4; only a timing-clean artifact from that build
+can enter the Pocket diagnostic gate.
+
 ### A-015 — Fresh-clone external audit validates current evidence state
 
 **Date:** 2026-09-13
@@ -363,6 +388,111 @@ pre-MMIO discriminator.
 loop is now reconciled. All future external reviews must state the exact commit
 SHA or use direct blob URLs. Isolation 4 remains active; after its result,
 test the MMIO/top-level delta only if the declaration-order change passes.
+
+### A-017 — Conversation-first triad and incremental RTL gate
+
+**Date:** 2026-09-13
+**Decision/change:** Add a deterministic Qwen/Codex/Claude Director, install
+and configure a loopback-only Computer surface, connect Codex and Claude
+directly to the official Figma MCP, add Verilator lint, and split the Icarus
+suite into dependency-tracked cached targets.
+**Alternatives and rationale:** Retain Cursor as the primary surface (rejected:
+the user needs conversation rather than a code-centric editor); use Computer's
+homogeneous subagents as the orchestrator (rejected: no reliable per-role model
+routing); increase Qwen context above 16k (rejected: prior resource pressure);
+or expose all Claude/MCP tools to Qwen (rejected: the initial schema was about
+23,600 tokens and exceeded its 16,128-token context). The selected local Qwen
+path excludes MCP, exposes six tools, and adds a narrowly anchored recovery for
+the model's observed missing outer XML tool-call wrapper.
+**Hot/cold impact:** Neither product hot nor cold paths are changed. This is
+development tooling only.
+**Evidence:** **host** — Director doctor reports Codex, Claude, Icarus 13,
+Verilator 5.052, SSH, LM Studio Qwen 7B at context 16,128, and UniClaudeProxy
+healthy. A direct proxy request returned `LOCAL_QWEN_OK`; the restricted harness
+returned `QWEN_HARNESS_OK`; the recovered bare tool call executed a read-only
+`Read` action. `make rtl-lint` completed with pre-existing nonfatal warnings.
+**simulation** — the complete seven-test Icarus suite passed, and a second
+Make dry run contained no `iverilog` commands, confirming compile reuse. Logs
+from Director runs are written to ignored `work/triad/`.
+**Resource/timing delta:** No FPGA resource/timing delta; Quartus was not run.
+Local model remains the 5.44 GB Q5_K_M 7B GGUF; 14B models are unloaded.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The local and
+review layers are operational. Qwen's post-tool summary showed one inaccurate
+heading in a focused test, so deterministic gates plus Codex and Claude review
+remain mandatory. Complete the local Computer account setup and agent profiles,
+then run one disposable end-to-end triad task before using it on production RTL.
+The future SSH/tmux Quartus launcher remains human-gated and unimplemented until
+the VM host alias is explicitly supplied. Claude's Figma MCP is authenticated,
+but the Claude CLI itself is not signed in, so the final audit correctly remains
+unavailable until the user chooses and authenticates a Claude plan.
+
+### A-018 — Codex-led planning and patch-only local implementation
+
+**Date:** 2026-09-14
+**Decision/change:** Replace the Qwen file/shell-tool route with a Codex-owned
+plan and a local patch-only Qwen role. Codex emits a structured plan with an
+explicit repository path allowlist and compact source excerpts; Qwen receives
+only that packet and produces a unified diff. The Director validates diff paths
+and `git apply --check`, then asks Codex to apply the exact patch. Codex plans
+and performs at most one bounded repair after adversarial review. GPT-5.6 Luna
+at low reasoning is the default for routine Codex planning, Figma briefs, patch
+application, and review.
+**Alternatives and rationale:** Let the 7B model read/edit/run shell tools
+(rejected: tool-call parsing was fragile, MCP schemas overflowed its context,
+and a focused test showed an inaccurate read summary); upgrade the local model
+solely for tool use (deferred: the local role no longer needs tool calling); or
+allow open-ended repair loops (rejected: cost and scope need a predictable cap).
+**Hot/cold impact:** Neither product hot nor cold paths are changed; this is
+development tooling and documentation only.
+**Evidence:** **host** — Python syntax/CLI checks, schema parsing, and the
+Director's plan/patch-path regression tests pass;
+`make rtl-lint` completes with the pre-existing nonfatal warnings described in
+A-017; `make test-rtl` passes framebuffer, target command, exact EQ preset, PCM
+decay, EQ cycle, SDRAM arbiter, and SDRAM bridge simulations. The Director can
+save a gate transcript to ignored `work/triad/gate.log`.
+**Resource/timing delta:** No FPGA resource/timing change; no Quartus run. The
+local model remains Qwen2.5-Coder-7B Q5_K_M at 16,128 context.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The role
+boundaries and reusable guide are documented. A complete live triad run remains
+pending because Claude CLI authentication and Computer account/profile setup
+require user completion. The Director fails before edits when Claude is not
+signed in, preventing a partial full-run. Next: complete those account steps,
+run a disposable end-to-end task, inspect plan/patch/gate/review/audit artifacts,
+then record the live validation result. Quartus remains human-gated.
+
+### A-019 — Apply validated Qwen patches deterministically
+
+**Date:** 2026-09-14
+**Decision/change:** Revise A-018's patch application step. The Director now
+validates the Qwen unified diff against the allowlist, runs `git apply --check`,
+and applies those exact patch bytes directly. It does not grant Codex a broad
+write session solely to apply the diff. The plan schema now expresses the same
+`patch`/`no_change` path-count constraints as runtime validation. A Qwen
+`NO_CHANGE` response under a patch plan stops safely without editing files;
+binary and symlink patches are rejected. Documentation clarifies that LM
+Studio is asked for 16,000 context and aligns this to the observed 16,128.
+**Alternatives and rationale:** Keep Codex applying through a workspace-write
+agent and trust its instruction to run the exact checked patch (rejected: the
+agent retained broader write capability and no post-apply path check); manually
+allow the schema to be looser than runtime validation (rejected: it creates
+confusing plan-generation failures).
+**Hot/cold impact:** Neither product hot nor cold paths are changed.
+**Evidence:** **code-review** — Luna's read-only review identified the broad
+apply capability, schema/runtime mismatch, ambiguous Qwen `NO_CHANGE` response,
+and context-setting discrepancy; all four are addressed in this entry's
+implementation. **host** — 11 Director plan/patch safety tests pass through
+`make test-host`; `python3 tools/triad/director.py gate` passes host checks and
+Verilator lint; the full `make test-rtl` suite passes. Existing lint warnings
+remain unchanged from A-017.
+**Resource/timing delta:** No hardware changes or Quartus run.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The Codex
+planner still decides scope and allowed paths, while the Director is the only
+patch applier and can only apply diff paths that pass allowlist validation.
+Qwen may decline and stop the run; Codex must then revise the packet manually.
+The full triad remains unvalidated until Claude CLI authentication and Computer
+account/profile setup are completed. Next, perform one disposable live triad
+run and inspect its plan/patch/gate/review/audit artifacts. Quartus remains
+human-gated.
 
 ## Reversal ledger
 
