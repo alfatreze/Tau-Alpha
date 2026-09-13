@@ -193,6 +193,12 @@ successful, timing-clean Quartus 25.1std build. Build details are recorded in
 
 ### Phase 1 — diagnostic SDRAM access
 
+**Current status:** the owner-locking arbiter is implemented as
+`core/tau_sdram_arbiter.sv` and covered by `sim/tb_tau_sdram_arbiter.v`.
+The test proves simultaneous-request framebuffer priority, completion/data
+routing only to the selected owner, and a queued CPU request taking the next
+idle slot. It is not integrated into the physical controller yet.
+
 Add two modules with deliberately small interfaces:
 
 - `tau_sdram_cpu_bridge`: one latched 32-bit request in `clk_sys`, a

@@ -47,6 +47,10 @@ full provenance and third-party licenses.
   supported Linux x86-64 build VM. The final fit uses 5,587 / 18,480 ALMs
   (30%), 300 / 308 RAM blocks (97%), and 11 / 66 DSP blocks (17%); all timing
   checks pass. The full build took 42m 58s. See `docs/FPGA_BUILD.md`.
+- Started SDRAM Phase 1 with a standalone, simulation-tested port arbiter. It
+  gives framebuffer traffic priority at idle arbitration points and locks each
+  accepted owner through completion. It is deliberately not connected to the
+  live core until the CPU bridge sequence is tested.
 - Documented battery/power work: real in-core battery state is blocked by the
   current documented openFPGA API, while internal efficiency instrumentation is
   viable later.
