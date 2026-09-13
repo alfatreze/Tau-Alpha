@@ -266,6 +266,30 @@ framebuffer arbitration route is cleared as the direct assembler trigger.
 Next: instantiate and connect the CPU bridge/CDC with its system request side
 held inactive, then test MMIO integration separately if that succeeds.
 
+### A-013 — Isolation 3 clears idle bridge/CDC integration
+
+**Date:** 2026-09-13
+**Decision/change:** Instantiate the CPU bridge, connect its SDRAM-side port to
+the arbiter, and hold its system-side request inactive. `mp3_soc` SDRAM MMIO
+and its top-level interface wiring remain absent.
+**Alternatives and rationale:** Add MMIO at the same time (rejected: would
+confound bridge/CDC and CPU-register-interface effects), or treat passing bridge
+unit simulations as sufficient (rejected: this experiment specifically tests
+the post-fit live two-clock integration).
+**Hot/cold impact:** The system request is inert; no CPU transaction, cold-data
+migration, or Pocket behavior is enabled.
+**Evidence:** **Quartus** — complete successful flow, 3h23m10s total; fitter,
+assembler, and timing analyzer all completed and created `.sof`/`.rbf`.
+Fit: 5,522 ALMs, 7,104 registers, 2,380,416 RAM bits, 299 RAM blocks, 11 DSP,
+one PLL. Slow-model setup slack 1.021 ns; `clk_74a` hold slack 0.297 ns.
+**Resource/timing delta:** -65 ALMs and -1 RAM block versus A-003. This is a
+controlled variant, so it is not substituted for final Phase 1 resource values.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The live idle
+bridge/CDC route is cleared as the direct assembler trigger. The failure is now
+narrowed to the `mp3_soc` SDRAM diagnostic MMIO/interface expansion and
+associated top-level wiring. Next add that delta in isolation; retain the
+architecture and current Quartus version until that result exists.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible
