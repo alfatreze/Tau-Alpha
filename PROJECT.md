@@ -73,6 +73,11 @@ chronological decision/reversal/evidence trail and resource trend are in
 - The VM's detached SSH launcher currently exits before a Quartus build starts;
   use a managed interactive session until investigated. See
   `docs/issues/004-vm-quartus-detached-launch.md`.
+- The Phase 1 SDRAM integration passed Quartus analysis/synthesis and fitting
+  (5,661 ALMs; 299 / 308 RAM blocks), but Quartus 25.1std's final Assembler
+  raised an internal assertion and generated no `.sof`/`.rbf` or timing report.
+  This is a build blocker, not hardware validation; see
+  `docs/issues/005-quartus-assembler-internal-error.md`.
 - Firmware uses 152,088 bytes (84.4% of the current usable RAM budget).
 - A runtime settings-home prototype does not fit the protected firmware
   memory layout; see `docs/SETTINGS_RUNTIME_BUDGET.md`. Do not reduce decoder,

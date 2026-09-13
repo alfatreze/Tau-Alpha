@@ -25,6 +25,29 @@ The limiting timing margin is a 0.025 ns hold slack in the fast 0C timing
 model. There are no setup or hold failures, but this is not a basis for
 unmeasured clocking changes.
 
+## Phase 1 SDRAM integration build — assembler blocked
+
+On 13 September 2026, the Phase 1 SDRAM diagnostic integration completed
+analysis, synthesis, and fitting successfully on the same VM and Quartus
+installation. The fitter reported the following preliminary resource result:
+
+| Resource | Baseline | Phase 1 fitted result | Delta |
+|---|---:|---:|---:|
+| ALMs | 5,587 | 5,661 | +74 |
+| Registers | 7,217 | 7,422 | +205 |
+| Block memory bits | 2,380,928 | 2,380,416 | -512 |
+| RAM blocks | 300 | 299 | -1 |
+| DSP blocks | 11 | 11 | 0 |
+| PLLs | 1 | 1 | 0 |
+
+This is **not a completed FPGA build**. Quartus's final Assembler terminated
+with the internal assertion `u2b_bcm_netlist != NULL` in
+`asm_model_generator.h:217`, so it did not create an `.sof`/`.rbf` and timing
+analysis did not run. An isolated `quartus_asm` retry also created no programming
+artifact. Treat the fitter values as fit-only evidence, not a timing or Pocket
+result. Full evidence and the next safe investigation step are retained in
+[issue 005](issues/005-quartus-assembler-internal-error.md).
+
 ## Build layout
 
 The host project directory is shared into the VM at:

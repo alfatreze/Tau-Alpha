@@ -29,7 +29,7 @@ row.
 | Entry | Evidence | ALMs | RAM blocks | Block-memory bits | DSP | Tightest reported slack | Notes |
 |---|---|---:|---:|---:|---:|---:|---|
 | A-003 | **Quartus** baseline, 2026-09-13 | 5,587 / 18,480 (30%) | 300 / 308 (97%) | 2,380,928 / 3,153,920 (75%) | 11 / 66 (17%) | 0.025 ns hold, fast 0C | Successful, 42m58s full compile. |
-| A-006 | pending | — | — | — | — | — | Integrated SDRAM diagnostic compile in progress; do not claim a delta yet. |
+| A-006 | **Quartus** fitter only, 2026-09-13 | 5,661 / 18,480 (31%) | 299 / 308 (97%) | 2,380,416 / 3,153,920 (75%) | 11 / 66 (17%) | not produced | Fitter passed; assembler assertion prevented artifact and timing analysis. |
 
 ## Entries
 
@@ -121,12 +121,14 @@ Quartus-verified result) or make a cached SDRAM window immediately (rejected:
 violates Phase 1 scope).
 **Hot/cold impact:** No hot data moved. Framebuffer remains the priority owner.
 **Evidence:** **host** regression suite and firmware build pass; **Quartus**
-compilation is in progress.
+analysis, synthesis, and fitter pass with the resource row above. No final
+timing or programming artifact exists.
 **Failure/workaround:** Detached SSH `nohup`/`setsid` launch attempts exited
 without starting Quartus. A managed interactive SSH session started synthesis;
 see [issue 004](issues/004-vm-quartus-detached-launch.md).
-**Remaining gate:** Record final Quartus resources/timing, then build a
-controlled Pocket diagnostic before enabling any data migration.
+**Remaining gate:** Resolve/reproduce the Quartus assembler failure and obtain
+a complete timing-clean artifact, then build a controlled Pocket diagnostic
+before enabling any data migration. See [issue 005](issues/005-quartus-assembler-internal-error.md).
 
 ### A-007 — External documentation audit and code-link index
 
@@ -167,8 +169,32 @@ that `AGENTS.md` lacked the audit rule is stale against commit `fd767b3`; the
 current file contains the rule.
 **Resource/timing delta:** Not applicable; test and documentation changes only.
 **Outcome/risk:** Phase 1 simulation coverage is stronger. The complete
-top-level integration, QSF, build-environment, and issue review remains useful;
-the active Quartus fit and Pocket diagnostic gate remain unresolved.
+top-level integration/QSF fitter pass is now recorded, but the Quartus
+assembler failure leaves timing and Pocket diagnostics unresolved.
+
+### A-009 — Phase 1 fitter pass; Quartus assembler internal failure
+
+**Date:** 2026-09-13
+**Decision/change:** Preserve the first full-build failure as an investigation
+record rather than retrying a complete 45-minute flow blindly. Retry only the
+Assembler against the successful fitter database to distinguish a fit failure
+from a packaging/tool failure.
+**Alternatives and rationale:** Treat fitter success as release-ready (rejected:
+there is no `.sof`/`.rbf` or timing result), or rebuild immediately (deferred:
+would destroy useful failure context without testing a narrower hypothesis).
+**Hot/cold impact:** None. No data migration or Pocket diagnostic is enabled.
+**Evidence:** **Quartus** — analysis/synthesis (6m12s) and fitter (38m21s)
+succeeded. Fitter used 5,661 ALMs, 299 RAM blocks, 2,380,416 RAM bits, 11 DSP,
+and one PLL. The final Assembler failed with `u2b_bcm_netlist != NULL` at
+`asm_model_generator.h:217`; an isolated assembler retry produced no artifact.
+Timing analysis did not run.
+**Resource/timing delta:** +74 ALMs, +205 registers, -1 RAM block, -512 RAM
+bits from A-003. Timing: unavailable, not assumed.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The error is
+currently classified as a Quartus assembler/toolchain failure, not an RTL
+success or RTL root cause. Preserve the local database/logs; next reproduce
+from a known source revision and, if repeatable, isolate source/configuration
+sensitivity before considering a tool-version change. Details: [issue 005](issues/005-quartus-assembler-internal-error.md).
 
 ## Reversal ledger
 
