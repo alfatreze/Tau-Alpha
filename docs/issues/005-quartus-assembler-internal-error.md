@@ -83,6 +83,28 @@ The next variant instantiates the CPU bridge and connects its SDRAM-side port
 to the arbiter while holding its system request input inactive. That isolates
 bridge/CDC integration from `mp3_soc` MMIO integration.
 
+## Isolation result 3 — bridge/CDC live, system request inactive
+
+**Status:** Passed, 2026-09-13 (**Quartus**)
+
+Starting from isolation 2, `tau_sdram_cpu_bridge` was instantiated with its
+60 MHz system side held inactive and its 100 MHz SDRAM-side port connected to
+the arbiter. The MMIO registers and `mp3_soc` interface expansion remained
+absent. The complete flow succeeded in 3h23m10s: fitter 2h19m53s, assembler
+18m20s, timing analyzer 40m03s. It generated both `ap_core.sof` and
+`ap_core.rbf`.
+
+Fit: 5,522 ALMs, 7,104 registers, 2,380,416 block-memory bits, and 299 RAM
+blocks. Timing analysis completed with no failure (slow-model setup slack
+1.021 ns; slow-model `clk_74a` hold slack 0.297 ns). This is a build result,
+not a functional CPU-transfer or Pocket result.
+
+This clears source inclusion, the live framebuffer arbiter route, and the
+live-but-idle bridge/CDC route as direct assembler triggers. The remaining
+Phase 1 FPGA delta is the `mp3_soc` SDRAM diagnostic MMIO register/interface
+integration and its associated top-level signal wiring. Test that next in a
+controlled variant before changing the architecture or Quartus version.
+
 ## Reproduction context
 
 - Source build copy: `/home/taualpha/tau-local/tau-alpha` (local ext4)
@@ -100,10 +122,10 @@ bridge/CDC integration from `mp3_soc` MMIO integration.
 2. **Completed:** the controlled known-good baseline source build assembled and
    passed timing in a separate local copy with the same toolchain.
 3. **In progress:** bisect only the small set of RTL/QSF integration changes.
-   Isolation results 1 and 2 cleared source inclusion and the arbiter's live
-   framebuffer path. Next connect the bridge/CDC with its system side inactive.
-   Keep each result in the audit trail with exact source revision and evidence
-   tag.
+   Isolation results 1–3 cleared source inclusion, live framebuffer arbitration,
+   and the bridge/CDC with an inactive system request. Next add `mp3_soc` SDRAM
+   diagnostic MMIO/interface wiring. Keep each result in the audit trail with
+   exact source revision and evidence tag.
 4. Consider a Quartus version/toolchain change only after the controlled
    comparison; it would invalidate direct comparison with the existing
    baseline and requires a new clean baseline build.
