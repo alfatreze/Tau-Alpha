@@ -59,11 +59,19 @@ full provenance and third-party licenses.
 
 ## Current constraints
 
+The canonical cross-reference for architectural decisions, feature status,
+evidence level, and known issues is `docs/PROJECT_REGISTER.md`. The
+chronological decision/reversal/evidence trail and resource trend are in
+`docs/AUDIT_TRAIL.md`.
+
 - Target raster remains 400×360 at 60 Hz: an exact 4× map to Pocket's
   1600×1440 display. No raster change is planned without measurements.
 - Firmware builds locally. FPGA recompilation is verified on the project’s
   Linux x86-64 VM; Quartus must build on its local ext4 working copy, not the
   macOS shared-folder mount.
+- The VM's detached SSH launcher currently exits before a Quartus build starts;
+  use a managed interactive session until investigated. See
+  `docs/issues/004-vm-quartus-detached-launch.md`.
 - Firmware uses 152,088 bytes (84.4% of the current usable RAM budget).
 - A runtime settings-home prototype does not fit the protected firmware
   memory layout; see `docs/SETTINGS_RUNTIME_BUDGET.md`. Do not reduce decoder,
