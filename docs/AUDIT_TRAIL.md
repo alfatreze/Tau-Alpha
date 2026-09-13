@@ -320,6 +320,28 @@ reviews to a full commit SHA or direct blob URLs, not an unverified default
 branch snapshot. Continue isolation 4; do not treat the full integration as
 validated until it creates a timing-clean artifact and passes Pocket tests.
 
+### A-015 — Fresh-clone external audit validates current evidence state
+
+**Date:** 2026-09-13
+**Decision/change:** Obtain a new external SDRAM audit from a fresh Git clone
+pinned to `cac4ca02d95c24e19810301a5e497ab0328187ad`, following two stale
+rendered-page reviews.
+**Alternatives and rationale:** Reuse rendered GitHub-page fetching (rejected:
+it demonstrably returned a cached old snapshot), or accept an unpinned review
+(rejected: the reviewed state would not be falsifiable).
+**Hot/cold impact:** None.
+**Evidence:** **external review** — verified direct review links, A-006 fitter
+and assembler evidence, isolation A-010–A-013, CPU-first/framebuffer-arrival
+arbiter test, both bridge reset-release-order tests, AGENTS audit rules, and
+the intentionally deferred Phase 2 address-decode gate. The review confirmed
+isolation 4 (`mp3_fb` declaration-order delta alone) as the correct remaining
+pre-MMIO discriminator.
+**Resource/timing delta:** Not applicable; review evidence only.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The audit
+loop is now reconciled. All future external reviews must state the exact commit
+SHA or use direct blob URLs. Isolation 4 remains active; after its result,
+test the MMIO/top-level delta only if the declaration-order change passes.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible
