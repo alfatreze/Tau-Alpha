@@ -244,6 +244,28 @@ hypothesis that adding the SystemVerilog source declarations causes the
 assembler failure is disproved. The trigger is in live integration. Next test:
 arbiter-only framebuffer-path integration, with CPU bridge/MMIO disconnected.
 
+### A-012 — Isolation 2 clears arbiter framebuffer-path integration
+
+**Date:** 2026-09-13
+**Decision/change:** Insert the arbiter into the active framebuffer-to-SDRAM
+path, while tying every CPU-side arbiter request inactive and omitting the CPU
+bridge/MMIO entirely.
+**Alternatives and rationale:** Add the bridge and MMIO together (rejected:
+would not separate controller-path logic from CDC/control integration), or
+infer safety from the arbiter testbench (rejected: an assembler trigger is a
+post-fit integration property, not a unit-simulation result).
+**Hot/cold impact:** CPU path inert; framebuffer remains the sole live owner.
+**Evidence:** **Quartus** — complete successful flow, with `.sof`/`.rbf` and
+timing analysis. Fitter: 5,624 ALMs / 18,480, 300 / 308 RAM blocks; total
+runtime 2h53m. No Pocket claim is made.
+**Resource/timing delta:** +37 ALMs relative to A-003; RAM blocks unchanged.
+Timing analyzer completed without a reported failure; exact slack is not
+promoted as a Phase 1 timing result because this is not the full integration.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The live
+framebuffer arbitration route is cleared as the direct assembler trigger.
+Next: instantiate and connect the CPU bridge/CDC with its system request side
+held inactive, then test MMIO integration separately if that succeeds.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible

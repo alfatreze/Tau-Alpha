@@ -64,6 +64,25 @@ The restarted run took 2h42m due to the interrupted VM session and a slower
 post-restart fit/timing pass. That duration is operational evidence only; it is
 not used as a performance claim.
 
+## Isolation result 2 — arbiter in the live framebuffer path
+
+**Status:** Passed, 2026-09-13 (**Quartus**)
+
+Starting from the same baseline-plus-sources variant, the arbiter was inserted
+between `mp3_fb` and `sdram_fb`. Every CPU-side arbiter input was tied inactive;
+the CPU bridge and its MMIO signals were absent. The complete flow succeeded in
+2h53m: fitter 1h53m49s, assembler 6m02s, and timing analyzer 48m07s. It created
+both `ap_core.sof` and `ap_core.rbf`.
+
+The fitter used 5,624 ALMs and 300 RAM blocks. This clears the live framebuffer
+request/response and write-source route through the arbiter as the direct
+assembler trigger. It is a Quartus build result only; it is not a Pocket
+display or audio validation.
+
+The next variant instantiates the CPU bridge and connects its SDRAM-side port
+to the arbiter while holding its system request input inactive. That isolates
+bridge/CDC integration from `mp3_soc` MMIO integration.
+
 ## Reproduction context
 
 - Source build copy: `/home/taualpha/tau-local/tau-alpha` (local ext4)
@@ -81,9 +100,10 @@ not used as a performance claim.
 2. **Completed:** the controlled known-good baseline source build assembled and
    passed timing in a separate local copy with the same toolchain.
 3. **In progress:** bisect only the small set of RTL/QSF integration changes.
-   Isolation result 1 cleared source inclusion. Next connect only the arbiter
-   to the framebuffer path. Keep each result in the audit trail with exact
-   source revision and evidence tag.
+   Isolation results 1 and 2 cleared source inclusion and the arbiter's live
+   framebuffer path. Next connect the bridge/CDC with its system side inactive.
+   Keep each result in the audit trail with exact source revision and evidence
+   tag.
 4. Consider a Quartus version/toolchain change only after the controlled
    comparison; it would invalidate direct comparison with the existing
    baseline and requires a new clean baseline build.
