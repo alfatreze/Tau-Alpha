@@ -13,3 +13,8 @@
 ## 3. Strict Project Rules
 - Never modify this repository's upstream tracking references.
 - Always append an execution log entry to this file after finishing a coding turn.
+
+## AUDIT COMPLIANCE TARGETS
+- **Code Style:** Ensure consistent naming conventions and formatting.
+- **Security:** Regularly review for potential vulnerabilities.
+- **Performance:** Optimize code for efficiency.
