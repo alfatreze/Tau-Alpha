@@ -285,10 +285,16 @@ one PLL. Slow-model setup slack 1.021 ns; `clk_74a` hold slack 0.297 ns.
 **Resource/timing delta:** -65 ALMs and -1 RAM block versus A-003. This is a
 controlled variant, so it is not substituted for final Phase 1 resource values.
 **Outcome, reversal/workaround, remaining risk, and next gate:** The live idle
-bridge/CDC route is cleared as the direct assembler trigger. The failure is now
-narrowed to the `mp3_soc` SDRAM diagnostic MMIO/interface expansion and
-associated top-level wiring. Next add that delta in isolation; retain the
-architecture and current Quartus version until that result exists.
+bridge/CDC route is cleared as the direct assembler trigger. A source-diff
+recheck found the failing full build also contains an untested, non-SDRAM
+`mp3_fb` declaration-order change. The prior conclusion that only MMIO/top-level
+wiring remained was premature. Next compile that residual change alone, then
+test MMIO integration; retain the architecture and current Quartus version
+until both results exist.
+
+| Isolation scope | Earlier assumption | Corrected scope / evidence |
+|---|---|---|
+| Post-isolation-3 residual delta | Only `mp3_soc` MMIO and its top-level wiring remained. | `mp3_fb` has an earlier declaration-order change present in the failing full build but absent from isolation variants 1–3. It must be tested independently before assigning cause. |
 
 ## Reversal ledger
 

@@ -100,10 +100,13 @@ blocks. Timing analysis completed with no failure (slow-model setup slack
 not a functional CPU-transfer or Pocket result.
 
 This clears source inclusion, the live framebuffer arbiter route, and the
-live-but-idle bridge/CDC route as direct assembler triggers. The remaining
-Phase 1 FPGA delta is the `mp3_soc` SDRAM diagnostic MMIO register/interface
-integration and its associated top-level signal wiring. Test that next in a
-controlled variant before changing the architecture or Quartus version.
+live-but-idle bridge/CDC route as direct assembler triggers. A final source-diff
+audit found one non-SDRAM delta still absent from isolations 1–3: the earlier
+`mp3_fb` declaration-order change made for standards-strict simulation. It was
+present in the failing full build, so test it independently before attributing
+the remaining failure to the `mp3_soc` SDRAM diagnostic MMIO/interface wiring.
+Only then test MMIO/top-level wiring in a controlled variant; do not change the
+architecture or Quartus version first.
 
 ## Reproduction context
 
@@ -123,9 +126,10 @@ controlled variant before changing the architecture or Quartus version.
    passed timing in a separate local copy with the same toolchain.
 3. **In progress:** bisect only the small set of RTL/QSF integration changes.
    Isolation results 1–3 cleared source inclusion, live framebuffer arbitration,
-   and the bridge/CDC with an inactive system request. Next add `mp3_soc` SDRAM
-   diagnostic MMIO/interface wiring. Keep each result in the audit trail with
-   exact source revision and evidence tag.
+   and the bridge/CDC with an inactive system request. Next add the residual
+   `mp3_fb` declaration-order change alone, then add `mp3_soc` SDRAM diagnostic
+   MMIO/interface wiring. Keep each result in the audit trail with exact source
+   revision and evidence tag.
 4. Consider a Quartus version/toolchain change only after the controlled
    comparison; it would invalidate direct comparison with the existing
    baseline and requires a new clean baseline build.
