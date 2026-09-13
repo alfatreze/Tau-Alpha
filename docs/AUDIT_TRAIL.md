@@ -35,98 +35,116 @@ row.
 
 ### A-001 — Tau package and baseline presentation
 
-**Date:** 2026-09-12  
+**Date:** 2026-09-12
 **Decision/change:** Maintain a separately named Tau package derived from
 HarpMudd, placed in Pocket's Media Players category, with Tau artwork and an
-ASCII `TAU` OS label.  
+ASCII `TAU` OS label.
 **Alternatives:** Alter upstream package identity (rejected: risks collision
 and accidental upstream writes) or use the superscript alpha in OS metadata
-(rejected after rendering failure).  
-**Hot/cold impact:** Neither.  
+(rejected after rendering failure).
+**Hot/cold impact:** Neither.
 **Evidence:** **Pocket** — packaging, artwork, MP3 playback, seeking, cover art,
-and visualizers were tested.  
+and visualizers were tested.
 **Outcome/risk:** Core branding works. Superscript alpha remains graphical only;
 see [issue 002](issues/002-pocket-os-unicode-metadata.md).
 
 ### A-002 — Preserve the 400×360 raster
 
-**Date:** 2026-09-12  
+**Date:** 2026-09-12
 **Decision:** Keep 400×360 RGB565 at 60 Hz instead of pursuing a 640×480 mode.
 It is an exact 4× scale to the Pocket display and already has a working SDRAM
-framebuffer pipeline.  
+framebuffer pipeline.
 **Alternatives:** Change video timing through configuration only (rejected: it
 requires RTL, clocking, memory-bandwidth, and output-pipeline changes) or fork
 a different graphics stack (deferred: no capacity/validation benefit for the
-current player).  
-**Hot/cold impact:** Display-critical path retained as-is.  
+current player).
+**Hot/cold impact:** Display-critical path retained as-is.
 **Evidence:** **Pocket** baseline display; **code-review** of existing timing
-and framebuffer architecture.  
+and framebuffer architecture.
 **Outcome/risk:** UI remains constrained to 400×360; richer rendering is gated
 by memory capacity, not resolution.
 
 ### A-003 — Reproducible FPGA baseline
 
-**Date:** 2026-09-13  
+**Date:** 2026-09-13
 **Decision/change:** Establish a local Linux x86-64 Quartus 25.1std build path
-and compile the unmodified core before SDRAM changes.  
+and compile the unmodified core before SDRAM changes.
 **Alternatives:** Compile on the macOS shared 9p mount (rejected: Quartus cannot
 reliably create `db/`) or rely only on historic upstream resource figures
-(rejected: no reliable change comparison).  
-**Hot/cold impact:** None.  
-**Evidence:** **Quartus** — successful compile and resource/timing row above.  
+(rejected: no reliable change comparison).
+**Hot/cold impact:** None.
+**Evidence:** **Quartus** — successful compile and resource/timing row above.
 **Outcome/risk:** Baseline is valid. The 0.025 ns hold margin means CDC/clocking
 changes need a fresh report, not intuition. See [FPGA_BUILD.md](FPGA_BUILD.md).
 
 ### A-004 — Hybrid SDRAM direction
 
-**Date:** 2026-09-13  
+**Date:** 2026-09-13
 **Decision:** Reuse the proven framebuffer SDRAM controller behind a small
 two-owner arbiter and CDC bridge. Start with MMIO diagnostics, migrate cold
-data later, and defer SDRAM code execution.  
+data later, and defer SDRAM code execution.
 **Alternatives:** Rewrite the controller as multi-port, place CPU servicing in
 the renderer, replace it with LiteDRAM, or reclaim only stack space. All were
-rejected/deferred for larger regression risk or insufficient capacity.  
-**Hot/cold impact:** Explicitly preserves the boundary above.  
+rejected/deferred for larger regression risk or insufficient capacity.
+**Hot/cold impact:** Explicitly preserves the boundary above.
 **Evidence:** **code-review** and **host** resource/firmware analysis; no
-hardware validation at this entry.  
+hardware validation at this entry.
 **Outcome/risk:** Architecture is selected, not proven. Full rationale and
 gates: [SDRAM_MEMORY_ARCHITECTURE.md](SDRAM_MEMORY_ARCHITECTURE.md).
 
 ### A-005 — Phase 1 unit-level implementation
 
-**Date:** 2026-09-13  
+**Date:** 2026-09-13
 **Decision/change:** Add a framebuffer-priority owner-locking arbiter and a
 one-outstanding asynchronous CPU bridge. A 32-bit CPU operation is deliberately
 two independent 16-bit transfers; reads explicitly stop each controller burst.
 **Alternatives:** Permit a longer CPU burst (rejected: hides a scanout deadline
 risk) or add CPU memory mapping first (rejected: expands the debugging surface
-before the physical controller route is proven).  
+before the physical controller route is proven).
 **Hot/cold impact:** Maintains the boundary. The bridge is diagnostic-only and
-does not map ordinary CPU loads/stores to SDRAM.  
+does not map ordinary CPU loads/stores to SDRAM.
 **Evidence:** **simulation** — `tb_tau_sdram_arbiter` verifies priority/owner
 routing; `tb_tau_sdram_cpu_bridge` verifies CDC mailbox, byte enables,
-halfword sequencing, burst termination, and read assembly.  
+halfword sequencing, burst termination, and read assembly.
 **Outcome/risk:** Unit tests pass. Simulation is not a Pocket SDRAM test; no
 contention, timing, or display claim is made yet.
 
 ### A-006 — Phase 1 top-level integration and build-session failure
 
-**Date:** 2026-09-13  
+**Date:** 2026-09-13
 **Decision/change:** Route the existing framebuffer controller port through
 the arbiter, connect the diagnostic bridge through new MMIO registers, and
 bump the RTL/firmware compatibility word. Playback firmware does not issue the
-new commands.  
+new commands.
 **Alternatives:** Publish before the full fit (rejected: integration is not a
 Quartus-verified result) or make a cached SDRAM window immediately (rejected:
-violates Phase 1 scope).  
+violates Phase 1 scope).
 **Hot/cold impact:** No hot data moved. Framebuffer remains the priority owner.
 **Evidence:** **host** regression suite and firmware build pass; **Quartus**
-compilation is in progress.  
+compilation is in progress.
 **Failure/workaround:** Detached SSH `nohup`/`setsid` launch attempts exited
 without starting Quartus. A managed interactive SSH session started synthesis;
-see [issue 004](issues/004-vm-quartus-detached-launch.md).  
+see [issue 004](issues/004-vm-quartus-detached-launch.md).
 **Remaining gate:** Record final Quartus resources/timing, then build a
 controlled Pocket diagnostic before enabling any data migration.
+
+### A-007 — External documentation audit and code-link index
+
+**Date:** 2026-09-13
+**Decision/change:** Add explicit repository-relative links to the relevant
+RTL, testbenches, build record, integration files, and VM issue so a reviewer
+without local workspace access can navigate from the project register.
+**Alternatives and rationale:** Rely on repository search/file discovery
+(insufficient: Claude could read the four top-level audit documents but could
+not locate the implementation artifacts in its first pass).
+**Hot/cold impact:** None.
+**Evidence:** **external review** — Claude confirmed the four audit documents
+were clear and evidence labels were applied consistently, but stated its first
+pass was documentation-only because implementation file links were not
+provided.
+**Outcome/risk:** Direct code links are now indexed in
+`PROJECT_REGISTER.md`. The code-level audit remains pending and the Quartus fit
+is still in progress; do not treat this feedback as RTL approval.
 
 ## Reversal ledger
 

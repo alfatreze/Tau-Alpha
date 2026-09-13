@@ -8,6 +8,21 @@ For chronological decisions, alternatives, verification evidence, reversals,
 and resource/timing trend, read [AUDIT_TRAIL.md](AUDIT_TRAIL.md) alongside this
 register.
 
+## Direct code-review links
+
+These links are intended for reviewers who can access the public GitHub
+repository but cannot browse the local workspace. The current SDRAM integration
+is still awaiting Quartus fit/timing results and Pocket validation.
+
+| Review area | GitHub source |
+|---|---|
+| FPGA baseline and reproducible VM build | [FPGA_BUILD.md](FPGA_BUILD.md) |
+| SDRAM arbitration policy | [tau_sdram_arbiter.sv](../src/fpga/core/tau_sdram_arbiter.sv), [arbiter testbench](../sim/tb_tau_sdram_arbiter.v) |
+| CDC bridge and bounded halfword transactions | [tau_sdram_cpu_bridge.sv](../src/fpga/core/tau_sdram_cpu_bridge.sv), [bridge testbench](../sim/tb_tau_sdram_cpu_bridge.v) |
+| Top-level controller integration and diagnostic MMIO | [core_game.vh](../src/fpga/core/core_game.vh), [mp3_soc.v](../src/fpga/core/mp3_soc.v), [QSF source list](../src/fpga/ap_core.qsf) |
+| Current integration test/build status | [AUDIT_TRAIL.md](AUDIT_TRAIL.md), [PROJECT.md](../PROJECT.md) |
+| VM build detachment workaround | [issue 004](issues/004-vm-quartus-detached-launch.md) |
+
 **Evidence labels:** **Pocket** = observed on an Analogue Pocket; **Quartus** =
 compiled and timing/resource checked; **host** = automated host test or local
 firmware build; **design** = agreed intent, not implementation evidence.
