@@ -296,6 +296,30 @@ until both results exist.
 |---|---|---|
 | Post-isolation-3 residual delta | Only `mp3_soc` MMIO and its top-level wiring remained. | `mp3_fb` has an earlier declaration-order change present in the failing full build but absent from isolation variants 1–3. It must be tested independently before assigning cause. |
 
+### A-014 — External-audit reconciliation and compact-index correction
+
+**Date:** 2026-09-13
+**Decision/change:** Reconcile an external review that reported the repository
+as pre-A-006/A-008 state. Verify local `main` ancestry and review artifacts,
+then update the compact project register so it links issue 005 and accurately
+states the distinction between full-integration fitter evidence, assembler
+blocker, and passing controlled isolations.
+**Alternatives and rationale:** Treat the review as current without checking
+(rejected: it contradicted committed source/tests and audit entries), or ignore
+it as wholly stale (rejected: its reading exposed stale wording in the compact
+register that could mislead a future reviewer).
+**Hot/cold impact:** None.
+**Evidence:** **code-review** — `e8ddf74` is an ancestor of local `main`; its
+direct review-link section is present in `docs/PROJECT_REGISTER.md`. `AGENTS.md`
+contains the audit-entry requirements; arbiter and bridge testbenches contain
+the CPU-first/framebuffer-arrival and both reset-release-order cases introduced
+by `4af2065`. Current build evidence is A-006 and A-010–A-013.
+**Resource/timing delta:** Not applicable; documentation/index correction only.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Pin external
+reviews to a full commit SHA or direct blob URLs, not an unverified default
+branch snapshot. Continue isolation 4; do not treat the full integration as
+validated until it creates a timing-clean artifact and passes Pocket tests.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible

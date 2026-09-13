@@ -11,8 +11,11 @@ register.
 ## Direct code-review links
 
 These links are intended for reviewers who can access the public GitHub
-repository but cannot browse the local workspace. The current SDRAM integration
-is still awaiting Quartus fit/timing results and Pocket validation.
+repository but cannot browse the local workspace. The full SDRAM integration
+has fitter evidence but is blocked by a Quartus Assembler internal error;
+controlled isolations 1–3 have separately passed complete Quartus flows.
+Pocket validation remains pending. Read the current issue and chronological
+trail rather than treating this compact index as a replacement for them.
 
 | Review area | GitHub source |
 |---|---|
@@ -20,7 +23,7 @@ is still awaiting Quartus fit/timing results and Pocket validation.
 | SDRAM arbitration policy | [tau_sdram_arbiter.sv](../src/fpga/core/tau_sdram_arbiter.sv), [arbiter testbench](../sim/tb_tau_sdram_arbiter.v) |
 | CDC bridge and bounded halfword transactions | [tau_sdram_cpu_bridge.sv](../src/fpga/core/tau_sdram_cpu_bridge.sv), [bridge testbench](../sim/tb_tau_sdram_cpu_bridge.v) |
 | Top-level controller integration and diagnostic MMIO | [core_game.vh](../src/fpga/core/core_game.vh), [mp3_soc.v](../src/fpga/core/mp3_soc.v), [QSF source list](../src/fpga/ap_core.qsf) |
-| Current integration test/build status | [AUDIT_TRAIL.md](AUDIT_TRAIL.md), [PROJECT.md](../PROJECT.md) |
+| Current integration test/build status | [AUDIT_TRAIL.md](AUDIT_TRAIL.md), [issue 005](issues/005-quartus-assembler-internal-error.md), [PROJECT.md](../PROJECT.md) |
 | VM build detachment workaround | [issue 004](issues/004-vm-quartus-detached-launch.md) |
 
 **Evidence labels:** **Pocket** = observed on an Analogue Pocket; **Quartus** =
@@ -33,7 +36,7 @@ firmware build; **design** = agreed intent, not implementation evidence.
 |---|---|---|---|
 | A-01 | Keep the 400×360 RGB565 raster at 60 Hz. It maps exactly 4× to Pocket’s 1600×1440 display; no 640×480 change is planned. | Active; **Pocket** baseline | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md), [technical spike](TAU_TECHNICAL_SPIKE.md) |
 | A-02 | Tau is a separate, attributed HarpMudd-derived core with a separate Pocket package identity. | Active; **Pocket** package verified | [PROJECT.md](../PROJECT.md), [NOTICE.md](../NOTICE.md) |
-| A-03 | Keep audio-critical state in BRAM; pursue a bounded, framebuffer-priority SDRAM bridge for cold data before any execute-in-place experiment. | Active; bridge/arbiter **host** tested; live integration Quartus build pending | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md) |
+| A-03 | Keep audio-critical state in BRAM; pursue a bounded, framebuffer-priority SDRAM bridge for cold data before any execute-in-place experiment. | Active; bridge/arbiter **simulation** tested; full integration fitter passed but Assembler blocked; isolation flows 1–3 **Quartus** passed | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md), [issue 005](issues/005-quartus-assembler-internal-error.md) |
 | A-04 | Do not reduce decoder arena, DMA ring, stack, or linker reservations to fit a settings UI. | Active; **host** measured | [settings runtime budget](SETTINGS_RUNTIME_BUDGET.md) |
 | A-05 | In-app settings are gated on recovered memory. Appearance, Audio, Playback, and opt-in Advanced are the intended grouping. | Active; **design** | [settings architecture](SETTINGS_ARCHITECTURE.md) |
 | A-06 | Advanced capabilities must be both compiled in and explicitly enabled by the user; a build flag alone never exposes them. | Active; **design** | [PROJECT.md](../PROJECT.md) |
@@ -57,7 +60,7 @@ firmware build; **design** = agreed intent, not implementation evidence.
 | Settings | Persistent framework settings words | Implemented baseline capability | [how it works](HOW_IT_WORKS.md) |
 | Settings | In-app settings screen | Deferred until SDRAM data-capacity gate | [settings runtime budget](SETTINGS_RUNTIME_BUDGET.md) |
 | Diagnostics | Performance/SD/audio FIFO counters and safe persistent efficiency log | Planned after SDRAM and snapshot gates | [PROJECT.md](../PROJECT.md), [battery plan](BATTERY_AND_POWER_PLAN.md) |
-| Hardware capacity | Diagnostic SDRAM MMIO access | RTL integrated locally; **host** simulations pass; Quartus verification in progress; no Pocket claim | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md) |
+| Hardware capacity | Diagnostic SDRAM MMIO access | RTL integrated; **simulation** tests pass; full fit completed but final Assembler failed; controlled Quartus isolations are narrowing the trigger; no Pocket claim | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md), [issue 005](issues/005-quartus-assembler-internal-error.md) |
 | Hardware capacity | Cached SDRAM data window and cold-workspace migration | Planned; blocked on successful diagnostic gate | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md) |
 | Hardware capacity | Cold code execution from SDRAM | Deferred; separate later decision gate | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md) |
 
@@ -69,6 +72,7 @@ firmware build; **design** = agreed intent, not implementation evidence.
 | [002](issues/002-pocket-os-unicode-metadata.md) | Pocket OS does not render the superscript alpha in textual metadata. | Resolved by ASCII `TAU` OS labels; graphical branding retains alpha. |
 | [003](issues/003-loading-splash-tonemapping.md) | Loading art loses tonal separation on Pocket. | Open; needs a Pocket reference photo and asset tuning. |
 | [004](issues/004-vm-quartus-detached-launch.md) | Detached VM Quartus commands exit before compilation starts. | Workaround active: managed interactive SSH build session. |
+| [005](issues/005-quartus-assembler-internal-error.md) | Full SDRAM integration reaches Quartus fitter but fails in the final Assembler. | Open; isolations 1–3 passed, residual source/MMIO differences under controlled test. |
 
 ## Updating this register
 
