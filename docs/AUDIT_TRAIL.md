@@ -320,6 +320,28 @@ reviews to a full commit SHA or direct blob URLs, not an unverified default
 branch snapshot. Continue isolation 4; do not treat the full integration as
 validated until it creates a timing-clean artifact and passes Pocket tests.
 
+### A-016 — Isolation 4 clears the residual `mp3_fb` delta
+
+**Date:** 2026-09-13
+**Decision/change:** Apply only the `mp3_fb` declaration-order change that had
+been present in the failing full build but absent from isolations 1–3.
+**Alternatives and rationale:** Combine it with MMIO integration (rejected:
+would reintroduce two variables after A-013 corrected that scope gap), or
+assume semantic equivalence proves assembler equivalence (rejected: the
+investigation concerns Quartus's post-fit behavior).
+**Hot/cold impact:** None; the change preserves framebuffer behavior and this
+is a Quartus-only experiment.
+**Evidence:** **Quartus** — successful 1h03m46s complete flow with `.sof`/`.rbf`
+and timing analysis. Fit: 5,522 ALMs, 7,104 registers, 299 RAM blocks.
+Slow-model setup slack 1.021 ns; `clk_74a` hold slack 0.297 ns.
+**Resource/timing delta:** No measured delta from A-013; this is expected for
+the declaration-order-only change.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The residual
+`mp3_fb` change is cleared. The exact remaining isolation target is the SDRAM
+diagnostic MMIO/register expansion in `mp3_soc` and associated `core_game.vh`
+wiring. Test it next; only a reproducing result justifies splitting that narrow
+delta further.
+
 ### A-015 — Fresh-clone external audit validates current evidence state
 
 **Date:** 2026-09-13

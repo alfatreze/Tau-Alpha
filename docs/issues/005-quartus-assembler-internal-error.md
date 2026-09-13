@@ -108,6 +108,27 @@ the remaining failure to the `mp3_soc` SDRAM diagnostic MMIO/interface wiring.
 Only then test MMIO/top-level wiring in a controlled variant; do not change the
 architecture or Quartus version first.
 
+## Isolation result 4 — residual `mp3_fb` declaration-order change
+
+**Status:** Passed, 2026-09-13 (**Quartus**)
+
+Starting from isolation 3, apply only the eight-added/two-removed-line
+`mp3_fb` declaration-order change present in the failing full build. No SDRAM
+MMIO or top-level control wiring was added. The complete flow succeeded in
+1h03m46s: fitter 41m42s, assembler 58s, timing analyzer 15m48s. It generated
+both `ap_core.sof` and `ap_core.rbf`.
+
+Fit and timing match isolation 3: 5,522 ALMs, 7,104 registers, 2,380,416
+block-memory bits, 299 RAM blocks; slow-model setup slack 1.021 ns and
+`clk_74a` hold slack 0.297 ns. This clears the declaration-order change as the
+direct assembler trigger.
+
+The remaining untested delta is now precisely the `mp3_soc` SDRAM diagnostic
+MMIO register/interface expansion plus its `core_game.vh` signal wiring. Build
+that variant next. If it reproduces the assertion, split its small register-map
+change from the top-level connection before considering any architecture or
+toolchain change.
+
 ## Reproduction context
 
 - Source build copy: `/home/taualpha/tau-local/tau-alpha` (local ext4)
@@ -125,11 +146,10 @@ architecture or Quartus version first.
 2. **Completed:** the controlled known-good baseline source build assembled and
    passed timing in a separate local copy with the same toolchain.
 3. **In progress:** bisect only the small set of RTL/QSF integration changes.
-   Isolation results 1–3 cleared source inclusion, live framebuffer arbitration,
-   and the bridge/CDC with an inactive system request. Next add the residual
-   `mp3_fb` declaration-order change alone, then add `mp3_soc` SDRAM diagnostic
-   MMIO/interface wiring. Keep each result in the audit trail with exact source
-   revision and evidence tag.
+   Isolation results 1–4 cleared source inclusion, live framebuffer arbitration,
+   idle bridge/CDC, and the residual `mp3_fb` declaration-order change. Next
+   add `mp3_soc` SDRAM diagnostic MMIO/interface wiring. Keep each result in
+   the audit trail with exact source revision and evidence tag.
 4. Consider a Quartus version/toolchain change only after the controlled
    comparison; it would invalidate direct comparison with the existing
    baseline and requires a new clean baseline build.
