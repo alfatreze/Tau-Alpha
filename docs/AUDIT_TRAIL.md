@@ -196,6 +196,30 @@ success or RTL root cause. Preserve the local database/logs; next reproduce
 from a known source revision and, if repeatable, isolate source/configuration
 sensitivity before considering a tool-version change. Details: [issue 005](issues/005-quartus-assembler-internal-error.md).
 
+### A-010 — Controlled baseline build clears VM/toolchain as the broad cause
+
+**Date:** 2026-09-13
+**Decision/change:** Build the exact pre-Phase-1 source revision
+`7ef8f0fb84abd4ae5a6a187805fd910351ae57dc` from an archive in a separate local
+ext4 VM directory. This avoids both the shared-mount limitation and any reuse
+of the retained Phase 1 database.
+**Alternatives and rationale:** Assume the previously recorded baseline proves
+the current installation remains healthy (rejected: a fresh controlled run is
+stronger evidence), or reinstall/change Quartus first (rejected: would obscure
+the comparison and invalidate the matching-toolchain control).
+**Hot/cold impact:** None.
+**Evidence:** **Quartus** — successful complete flow: 5m58s analysis/synthesis,
+35m45s fitter, 1m17s assembler, 4m12s timing analyzer; 47m12s total. It
+produced `ap_core.sof` and `ap_core.rbf`; all timing checks passed.
+**Resource/timing delta:** Matches A-003 baseline: 5,587 ALMs, 7,217
+registers, 2,380,928 RAM bits, 11 DSP, 1 PLL. This is a control result, not a
+new Phase 1 result.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The prior
+working assumption that the assembler failure might be generic to the VM or
+Quartus installation is disproved. The failure is now narrowed to the Phase 1
+RTL/QSF integration delta. Next isolate its trigger in controlled variants;
+Phase 2 and Pocket testing remain blocked.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible

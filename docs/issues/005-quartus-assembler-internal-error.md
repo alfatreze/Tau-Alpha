@@ -24,11 +24,12 @@ database also exited without creating an artifact.
 
 ## Known-good comparison
 
-The unmodified Tau baseline completed on the same VM, same Quartus version,
-and same target device on 2026-09-13. It generated both artifacts and passed
-timing. This rules out a blanket unsupported host/device installation claim,
-but does **not** identify the changed source/configuration element that exposes
-the assembler failure.
+An isolated build of the exact baseline source revision
+`7ef8f0fb84abd4ae5a6a187805fd910351ae57dc` completed on the same VM, same
+Quartus version, and same target device on 2026-09-13. It generated both
+artifacts and passed timing in 47m12s. This rules out a blanket unsupported
+host/device installation claim. The failure is specific to the Phase 1 source
+or configuration delta, but the individual trigger is not identified yet.
 
 ## Fit-only result
 
@@ -58,9 +59,9 @@ programming-file validity, SDRAM operation, or Pocket stability.
 
 1. Preserve `db/` and `output_files/` in the local VM copy until the failure is
    classified; do not clean it as a first response.
-2. Run a controlled known-good baseline source build in a separate local copy
-   with the same toolchain. If it assembles, the environment remains verified.
-3. If the Phase 1 build still fails, bisect only the small set of RTL/QSF
+2. **Completed:** the controlled known-good baseline source build assembled and
+   passed timing in a separate local copy with the same toolchain.
+3. Bisect only the small set of RTL/QSF
    integration changes or inspect Quartus assignment sensitivity. Keep each
    result in the audit trail with exact source revision and evidence tag.
 4. Consider a Quartus version/toolchain change only after the controlled

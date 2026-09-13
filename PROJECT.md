@@ -78,6 +78,10 @@ chronological decision/reversal/evidence trail and resource trend are in
   raised an internal assertion and generated no `.sof`/`.rbf` or timing report.
   This is a build blocker, not hardware validation; see
   `docs/issues/005-quartus-assembler-internal-error.md`.
+- A fresh, separately built pre-Phase-1 baseline completed successfully on the
+  same VM/toolchain and produced valid `.sof`/`.rbf` files. The assembler
+  failure is therefore narrowed to the Phase 1 RTL/QSF integration delta, not
+  a general VM or Quartus installation problem.
 - Firmware uses 152,088 bytes (84.4% of the current usable RAM budget).
 - A runtime settings-home prototype does not fit the protected firmware
   memory layout; see `docs/SETTINGS_RUNTIME_BUDGET.md`. Do not reduce decoder,
