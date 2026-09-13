@@ -49,9 +49,16 @@ The current documented FPGA fit is also asymmetric:
 
 | Resource | Used | Consequence |
 |---|---:|---|
-| ALMs | 3,437 / 18,480 (19%) | Logic is available for a small bridge. |
-| DSPs | 7 / 66 (11%) | Not relevant to this change. |
+| ALMs | 5,587 / 18,480 (30%) | Logic is available for a small bridge. |
+| DSPs | 11 / 66 (17%) | Not relevant to this change. |
 | M10K blocks | 300 / 308 (97%) | New FIFOs must not consume M10Ks accidentally. |
+
+These figures are from the reproducible, unmodified baseline compiled with
+Quartus Prime Lite 25.1std on the Linux x86-64 build VM. The build completed in
+42m 58s with zero setup/hold timing failures. The most constrained reported
+hold slack was 0.025 ns in the fast 0C model, so clocking and clock-domain
+crossing changes must be measured against this baseline rather than assumed to
+have wide timing headroom.
 
 The 256 KiB CPU RAM is the dominant M10K consumer. Moving variables into SDRAM
 creates firmware address space immediately, but it does **not** lower the 300
@@ -179,8 +186,10 @@ window is enabled.
 2. Keep the shipping build and package unchanged.
 3. Add no UI and change no linker reservation during the bridge work.
 
-**Exit:** baseline `make firmware` and `make test` pass; hardware baseline remains
-the already tested Tau build.
+**Exit:** complete. Baseline `make firmware` and `make test` are established;
+the original Tau package is hardware-tested and the unmodified RTL has a
+successful, timing-clean Quartus 25.1std build. Build details are recorded in
+`docs/FPGA_BUILD.md`.
 
 ### Phase 1 — diagnostic SDRAM access
 
@@ -338,4 +347,3 @@ moving playback-critical state. That is enough to make settings and diagnostics
 practical again. Phase 3 is the route to continued code growth. Phase 4 is what
 could eventually return a large number of FPGA block-RAM resources; it is not an
 automatic consequence of merely storing some variables in SDRAM.
-

@@ -43,6 +43,10 @@ full provenance and third-party licenses.
   to the proven framebuffer SDRAM controller, migrate cold data first, and gate
   cold-code execution on hardware results. See
   `docs/SDRAM_MEMORY_ARCHITECTURE.md`.
+- Rebuilt the unmodified FPGA baseline with Quartus Prime Lite 25.1std on the
+  supported Linux x86-64 build VM. The final fit uses 5,587 / 18,480 ALMs
+  (30%), 300 / 308 RAM blocks (97%), and 11 / 66 DSP blocks (17%); all timing
+  checks pass. The full build took 42m 58s. See `docs/FPGA_BUILD.md`.
 - Documented battery/power work: real in-core battery state is blocked by the
   current documented openFPGA API, while internal efficiency instrumentation is
   viable later.
@@ -51,8 +55,9 @@ full provenance and third-party licenses.
 
 - Target raster remains 400×360 at 60 Hz: an exact 4× map to Pocket's
   1600×1440 display. No raster change is planned without measurements.
-- Firmware builds locally; Quartus/FPGA recompilation still needs an x86-64
-  Windows or Linux host.
+- Firmware builds locally. FPGA recompilation is verified on the project’s
+  Linux x86-64 VM; Quartus must build on its local ext4 working copy, not the
+  macOS shared-folder mount.
 - Firmware uses 152,088 bytes (84.4% of the current usable RAM budget).
 - A runtime settings-home prototype does not fit the protected firmware
   memory layout; see `docs/SETTINGS_RUNTIME_BUDGET.md`. Do not reduce decoder,
@@ -79,7 +84,7 @@ remains necessary for Pocket OLED behaviour.
 Use the exact asset capture alongside a Pocket photo to separate background,
 glow, waveform, text, and progress luminance bands. Retest on hardware.
 
-### 3. SDRAM capacity gate
+### 3. SDRAM capacity gate — next technical work
 
 Implement the staged decision in `docs/SDRAM_MEMORY_ARCHITECTURE.md`. Begin with
 a bounded diagnostic CPU bridge and shared arbiter, then migrate at least 24 KiB
