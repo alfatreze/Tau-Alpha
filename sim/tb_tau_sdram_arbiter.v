@@ -101,6 +101,34 @@ module tb_tau_sdram_arbiter;
         #1;
         chk(cpu_ready && !fb_ready, "CPU completion returns only to CPU owner");
 
+        // Mirror of the first contention case: CPU owns first, then scanout
+        // arrives. The accepted CPU operation must finish intact, but the
+        // framebuffer must win the very next idle arbitration point.
+        @(posedge clk);
+        @(negedge clk);
+        p_ready = 0; p_avail = 1;
+        cpu_addr = 25'h456; cpu_data = 16'hFACE; cpu_wr = 1;
+        #1;
+        chk(p_wr && cpu_accepted, "CPU can own an uncontended operation");
+        @(posedge clk);
+        @(negedge clk);
+        cpu_wr = 0; p_avail = 0;
+        fb_addr = 25'h23; fb_rd = 1;
+        #1;
+        chk(!p_rd && p_addr == 25'h456 && !fb_avail,
+            "framebuffer waits while an accepted CPU operation completes");
+        @(posedge clk);
+        @(negedge clk);
+        p_ready = 1;
+        #1;
+        chk(cpu_ready && !fb_ready, "CPU retains completion ownership");
+        @(posedge clk);
+        @(negedge clk);
+        p_ready = 0; p_avail = 1;
+        #1;
+        chk(p_rd && p_addr == 25'h23 && !cpu_accepted,
+            "framebuffer wins the first idle slot after CPU completion");
+
         @(posedge clk);
         $display("\n%0s (%0d failures)", errors ? "FAILED" : "PASSED", errors);
         $finish;

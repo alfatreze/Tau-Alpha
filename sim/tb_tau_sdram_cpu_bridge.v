@@ -7,7 +7,7 @@
 `default_nettype none
 
 module tb_tau_sdram_cpu_bridge;
-    reg clk_sys = 0, clk_sdram = 0, rst = 1;
+    reg clk_sys = 0, clk_sdram = 0, rst_sys = 1, rst_sdram = 1;
     always #8.333 clk_sys = ~clk_sys;
     always #5     clk_sdram = ~clk_sdram;
 
@@ -27,9 +27,9 @@ module tb_tau_sdram_cpu_bridge;
     reg m_ready = 0, m_data_avail = 0;
 
     tau_sdram_cpu_bridge dut (
-        .clk_sys(clk_sys), .rst_sys(rst), .sys_start(start), .sys_write(write_op),
+        .clk_sys(clk_sys), .rst_sys(rst_sys), .sys_start(start), .sys_write(write_op),
         .sys_addr(addr), .sys_wdata(wdata), .sys_byte_en(be), .sys_busy(busy),
-        .sys_done(done), .sys_rdata(rdata), .clk_sdram(clk_sdram), .rst_sdram(rst),
+        .sys_done(done), .sys_rdata(rdata), .clk_sdram(clk_sdram), .rst_sdram(rst_sdram),
         .m_addr(m_addr), .m_data(m_data), .m_byte_en(m_be), .m_wr_len(m_len),
         .m_wr_req(m_wr), .m_rd_req(m_rd), .m_end_burst_req(m_end), .m_q(m_q),
         .m_accepted(m_accepted), .m_ready(m_ready), .m_data_available(m_data_avail)
@@ -101,9 +101,18 @@ module tb_tau_sdram_cpu_bridge;
         end
     endtask
 
+    integer reads_before_reset;
     initial begin
+        // Reset deassertion is intentionally skewed: clk_sys comes out first.
+        // The bridge must neither create a phantom request nor lose its first
+        // real request when the SDRAM side starts later.
         repeat (5) @(posedge clk_sys);
-        rst = 0;
+        rst_sys = 0;
+        repeat (5) @(posedge clk_sdram);
+        rst_sdram = 0;
+        repeat (2) @(posedge clk_sys);
+        chk(!busy && !done && read_count == 0 && write_count == 0,
+            "sys-first reset release creates no phantom transaction");
         issue_write();
         chk(write_count == 2, "32-bit write issues two bounded controller operations");
         chk(write_addr[0] == 25'h40 && write_data[0] == 16'h3344 && write_be[0] == 2'b01,
@@ -113,6 +122,25 @@ module tb_tau_sdram_cpu_bridge;
         issue_read();
         chk(read_count == 2, "32-bit read issues two bounded controller operations");
         chk(rdata == 32'hCAFEBEEF, "read combines controller halfwords little-endian");
+
+        // Repeat with the opposite skew. Both toggle comparators reset to zero,
+        // but the proof is behavioural: no completion arrives before a request,
+        // and the next request still crosses and completes normally.
+        reads_before_reset = read_count;
+        @(posedge clk_sys); rst_sys = 1;
+        @(posedge clk_sdram); rst_sdram = 1;
+        repeat (5) @(posedge clk_sdram);
+        rst_sdram = 0;
+        repeat (5) @(posedge clk_sys);
+        rst_sys = 0;
+        repeat (2) @(posedge clk_sys);
+        chk(!busy && !done && read_count == reads_before_reset,
+            "sdram-first reset release creates no phantom transaction");
+        issue_read();
+        chk(read_count == reads_before_reset + 2,
+            "first post-reset request crosses after sdram-first release");
+        chk(rdata == 32'hCAFEBEEF,
+            "post-reset read response remains correctly assembled");
         $display("\n%0s (%0d failures)", errors ? "FAILED" : "PASSED", errors);
         $finish;
     end

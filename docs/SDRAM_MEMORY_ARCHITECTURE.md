@@ -175,8 +175,10 @@ the same physical offset explicitly; they must not depend on simply truncating
 the CPU address.
 
 The current broad `d_is_ram` decode accepts more aliases than intended. It must
-be replaced with explicit BRAM, SDRAM, and MMIO selects before a mapped SDRAM
-window is enabled.
+be replaced with explicit BRAM, SDRAM, and MMIO selects **before Phase 2 begins**.
+This is a hard gate, not parallel cleanup: a CPU access to the proposed
+`0x4000_0000` SDRAM window currently aliases into BRAM through the low RAM
+address bits, which could silently corrupt playback state.
 
 ## Selected staged implementation
 
@@ -195,12 +197,15 @@ successful, timing-clean Quartus 25.1std build. Build details are recorded in
 
 **Current status:** the owner-locking arbiter is implemented as
 `core/tau_sdram_arbiter.sv` and covered by `sim/tb_tau_sdram_arbiter.v`.
-The test proves simultaneous-request framebuffer priority, completion/data
-routing only to the selected owner, and a queued CPU request taking the next
-idle slot. `core/tau_sdram_cpu_bridge.sv` and
+The test proves simultaneous-request framebuffer priority in both contention
+directions, completion/data routing only to the selected owner, and a queued
+CPU request taking the next idle slot. `core/tau_sdram_cpu_bridge.sv` and
 `sim/tb_tau_sdram_cpu_bridge.v` additionally prove the asynchronous mailbox,
 byte enables, 32-bit-to-two-halfword conversion, and mandatory read-burst
-termination. Neither module is integrated into the physical controller yet.
+termination. The bridge test also deasserts `clk_sys` and `clk_sdram` resets in
+both orders and proves that neither creates a phantom transaction. Both modules
+are integrated into the physical controller path behind dormant diagnostic MMIO
+registers; the current full Quartus verification build is the next gate.
 
 Add two modules with deliberately small interfaces:
 
@@ -300,8 +305,12 @@ SDRAM bridge.
 
 - Back-to-back reads and writes with every byte-enable pattern.
 - Reset in idle, while waiting for a grant, and during an owned transaction.
+- Independent `clk_sys` and `clk_sdram` reset deassertion in both orders, with
+  no phantom operation and a successful first post-reset transaction.
 - Repeated 60/100 MHz asynchronous phase relationships.
 - Simultaneous framebuffer and CPU requests; framebuffer wins the boundary.
+- CPU ownership followed by a framebuffer request; framebuffer wins the first
+  idle slot after the accepted CPU transaction completes.
 - CPU request held while the controller is unavailable or refreshing.
 - Read-data routing only to the owning master.
 - No owner switch until completion; no request loss or duplicate completion.

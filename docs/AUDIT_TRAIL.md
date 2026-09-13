@@ -146,6 +146,30 @@ provided.
 `PROJECT_REGISTER.md`. The code-level audit remains pending and the Quartus fit
 is still in progress; do not treat this feedback as RTL approval.
 
+### A-008 — Claude SDRAM RTL review and simulation-coverage additions
+
+**Date:** 2026-09-13
+**Decision/change:** Review Claude's source-level audit, then add the two
+identified tests before the Phase 1 Pocket gate: framebuffer arrival during an
+owned CPU operation, and independent reset deassertion in both clock-domain
+orders. Promote explicit BRAM/SDRAM/MMIO decode to a hard Phase 2 prerequisite.
+**Alternatives and rationale:** Leave the cases to code inspection (rejected:
+display-critical arbitration and CDC reset behavior need executable evidence),
+or tighten the broad decode during Phase 1 (deferred: Phase 1 MMIO does not use
+the mapped window, while Phase 2 must not start without the change).
+**Hot/cold impact:** The tests reinforce the existing boundary; no hot state or
+mapped CPU address path changes.
+**Evidence:** **external review** confirmed framebuffer priority, held CPU
+requests, stable-payload toggle CDC, halfword ordering, and the `sdram_start`
+pulse contract by source inspection. **simulation** now covers both contention
+orders and reset deassertion orders; `make test` passes. The external finding
+that `AGENTS.md` lacked the audit rule is stale against commit `fd767b3`; the
+current file contains the rule.
+**Resource/timing delta:** Not applicable; test and documentation changes only.
+**Outcome/risk:** Phase 1 simulation coverage is stronger. The complete
+top-level integration, QSF, build-environment, and issue review remains useful;
+the active Quartus fit and Pocket diagnostic gate remain unresolved.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible

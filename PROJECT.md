@@ -51,8 +51,9 @@ full provenance and third-party licenses.
   gives framebuffer traffic priority at idle arbitration points and locks each
   accepted owner through completion. A paired asynchronous CPU bridge now also
   passes isolated 60/100 MHz simulation, translating each 32-bit operation to
-  two bounded 16-bit requests. Neither module is connected to the live core
-  until their integration path is tested.
+  two bounded 16-bit requests. Both are integrated into the live controller
+  path behind dormant diagnostic MMIO registers; Quartus fit/timing and Pocket
+  diagnostics remain required before any data migration.
 - Documented battery/power work: real in-core battery state is blocked by the
   current documented openFPGA API, while internal efficiency instrumentation is
   viable later.
