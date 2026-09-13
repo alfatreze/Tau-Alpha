@@ -45,6 +45,25 @@ or configuration delta, but the individual trigger is not identified yet.
 These figures establish fit capacity only. They do not establish timing,
 programming-file validity, SDRAM operation, or Pocket stability.
 
+## Isolation result 1 — source inclusion only
+
+**Status:** Passed, 2026-09-13 (**Quartus**)
+
+Starting from exact baseline revision `7ef8f0fb84abd4ae5a6a187805fd910351ae57dc`,
+the two new files `tau_sdram_arbiter.sv` and `tau_sdram_cpu_bridge.sv` were
+added to the QSF as `SYSTEMVERILOG_FILE` sources. Neither module was connected
+to the live top level. The complete build succeeded and generated both
+`ap_core.sof` and `ap_core.rbf`; the timing analyzer ran successfully.
+
+This rules out source-file inclusion, SystemVerilog parsing, and the QSF source
+declarations as the direct assembler trigger. It does not validate either
+module's live logic; the next variant connects only the arbiter to the existing
+framebuffer controller path, while keeping the CPU bridge/MMIO out of circuit.
+
+The restarted run took 2h42m due to the interrupted VM session and a slower
+post-restart fit/timing pass. That duration is operational evidence only; it is
+not used as a performance claim.
+
 ## Reproduction context
 
 - Source build copy: `/home/taualpha/tau-local/tau-alpha` (local ext4)
@@ -61,9 +80,10 @@ programming-file validity, SDRAM operation, or Pocket stability.
    classified; do not clean it as a first response.
 2. **Completed:** the controlled known-good baseline source build assembled and
    passed timing in a separate local copy with the same toolchain.
-3. Bisect only the small set of RTL/QSF
-   integration changes or inspect Quartus assignment sensitivity. Keep each
-   result in the audit trail with exact source revision and evidence tag.
+3. **In progress:** bisect only the small set of RTL/QSF integration changes.
+   Isolation result 1 cleared source inclusion. Next connect only the arbiter
+   to the framebuffer path. Keep each result in the audit trail with exact
+   source revision and evidence tag.
 4. Consider a Quartus version/toolchain change only after the controlled
    comparison; it would invalidate direct comparison with the existing
    baseline and requires a new clean baseline build.

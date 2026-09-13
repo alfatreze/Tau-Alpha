@@ -220,6 +220,30 @@ Quartus installation is disproved. The failure is now narrowed to the Phase 1
 RTL/QSF integration delta. Next isolate its trigger in controlled variants;
 Phase 2 and Pocket testing remain blocked.
 
+### A-011 — Isolation 1 clears source inclusion as the assembler trigger
+
+**Date:** 2026-09-13
+**Decision/change:** Compile exact baseline source with only the two new SDRAM
+modules included as SystemVerilog/QSF sources. The modules were deliberately
+unconnected at the top level.
+**Alternatives and rationale:** Start by wiring the full Phase 1 path again
+(rejected: would not separate source-list/tool parsing from integrated-netlist
+behavior) or inspect the internal assertion alone (rejected: no reliable root
+cause can be inferred from a vendor assertion).
+**Hot/cold impact:** None; this is an unconnected build-only experiment.
+**Evidence:** **Quartus** — complete build after VM-crash restart: fitter,
+assembler, and timing analyzer completed and `ap_core.sof`/`ap_core.rbf` were
+created. Fit reported 5,587 ALMs and 300 RAM blocks. The timing analyzer ran;
+no failure was reported.
+**Resource/timing delta:** Resource capacity matches A-003. Registers reported
+7,242 (+25); this unconnected experiment is not used to infer a functional
+resource delta because fitter/timing settings and the interrupted/restarted
+build context differed.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The former
+hypothesis that adding the SystemVerilog source declarations causes the
+assembler failure is disproved. The trigger is in live integration. Next test:
+arbiter-only framebuffer-path integration, with CPU bridge/MMIO disconnected.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible
