@@ -197,7 +197,10 @@ successful, timing-clean Quartus 25.1std build. Build details are recorded in
 `core/tau_sdram_arbiter.sv` and covered by `sim/tb_tau_sdram_arbiter.v`.
 The test proves simultaneous-request framebuffer priority, completion/data
 routing only to the selected owner, and a queued CPU request taking the next
-idle slot. It is not integrated into the physical controller yet.
+idle slot. `core/tau_sdram_cpu_bridge.sv` and
+`sim/tb_tau_sdram_cpu_bridge.v` additionally prove the asynchronous mailbox,
+byte enables, 32-bit-to-two-halfword conversion, and mandatory read-burst
+termination. Neither module is integrated into the physical controller yet.
 
 Add two modules with deliberately small interfaces:
 

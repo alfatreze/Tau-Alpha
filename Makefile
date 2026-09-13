@@ -49,6 +49,8 @@ test-rtl:
 	vvp /tmp/tau-alpha-tb-eq-cycles.vvp
 	iverilog -g2012 -o /tmp/tau-alpha-tb-sdram-arbiter.vvp sim/tb_tau_sdram_arbiter.v src/fpga/core/tau_sdram_arbiter.sv
 	vvp /tmp/tau-alpha-tb-sdram-arbiter.vvp
+	iverilog -g2012 -o /tmp/tau-alpha-tb-sdram-bridge.vvp sim/tb_tau_sdram_cpu_bridge.v src/fpga/core/tau_sdram_cpu_bridge.sv
+	vvp /tmp/tau-alpha-tb-sdram-bridge.vvp
 
 card-check:
 	$(PYTHON) tools/library_check.py

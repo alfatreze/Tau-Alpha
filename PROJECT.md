@@ -49,8 +49,10 @@ full provenance and third-party licenses.
   checks pass. The full build took 42m 58s. See `docs/FPGA_BUILD.md`.
 - Started SDRAM Phase 1 with a standalone, simulation-tested port arbiter. It
   gives framebuffer traffic priority at idle arbitration points and locks each
-  accepted owner through completion. It is deliberately not connected to the
-  live core until the CPU bridge sequence is tested.
+  accepted owner through completion. A paired asynchronous CPU bridge now also
+  passes isolated 60/100 MHz simulation, translating each 32-bit operation to
+  two bounded 16-bit requests. Neither module is connected to the live core
+  until their integration path is tested.
 - Documented battery/power work: real in-core battery state is blocked by the
   current documented openFPGA API, while internal efficiency instrumentation is
   viable later.
