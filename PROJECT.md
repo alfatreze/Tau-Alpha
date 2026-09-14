@@ -52,8 +52,14 @@ full provenance and third-party licenses.
   accepted owner through completion. A paired asynchronous CPU bridge now also
   passes isolated 60/100 MHz simulation, translating each 32-bit operation to
   two bounded 16-bit requests. Both are integrated into the live controller
-  path behind dormant diagnostic MMIO registers; Quartus fit/timing and Pocket
-  diagnostics remain required before any data migration.
+  path behind dormant diagnostic MMIO registers. A fresh Quartus build of the
+  current FPGA source passed and produced `.sof`/`.rbf` artifacts; controlled
+  Pocket diagnostics still gate any SDRAM data migration.
+- Added a separate Phase 1 SDRAM diagnostic firmware and side-by-side Pocket
+  package. It performs 183 fixed-pattern, walking-bit, sparse address-as-data,
+  and byte/halfword-lane readback checks above the framebuffer's 1 MiB guard.
+  Host compilation, package identity/bit-reversal checks, RTL regressions, and
+  running/pass/fail framebuffer fixtures pass; Pocket execution is pending.
 - Documented battery/power work: real in-core battery state is blocked by the
   current documented openFPGA API, while internal efficiency instrumentation is
   viable later.
@@ -73,22 +79,24 @@ chronological decision/reversal/evidence trail and resource trend are in
 - The VM's detached SSH launcher currently exits before a Quartus build starts;
   use a managed interactive session until investigated. See
   `docs/issues/004-vm-quartus-detached-launch.md`.
-- The Phase 1 SDRAM integration passed Quartus analysis/synthesis and fitting
-  (5,661 ALMs; 299 / 308 RAM blocks), but Quartus 25.1std's final Assembler
-  raised an internal assertion and generated no `.sof`/`.rbf` or timing report.
-  This is a build blocker, not hardware validation; see
-  `docs/issues/005-quartus-assembler-internal-error.md`.
-- A fresh, separately built pre-Phase-1 baseline completed successfully on the
-  same VM/toolchain and produced valid `.sof`/`.rbf` files. The assembler
-  failure is therefore narrowed to the Phase 1 RTL/QSF integration delta, not
-  a general VM or Quartus installation problem.
+- Fresh Phase 1 Quartus flow passed on 2026-09-14 and generated both `.sof` and
+  `.rbf`. Fit: 5,706 ALMs, 7,414 registers, and 299 / 308 RAM blocks (97%).
+  Timing has zero TNS and positive slack, but the tightest reported hold slack
+  is only 0.119 ns; re-run timing after any CDC/clocking change. No Pocket
+  diagnostic has been performed. See issue 005 and audit entry A-024.
+- The soft-lockup messages initially mistaken for current-build activity were
+  stale console logs from the guest's 2026-09-13 boot, over 11 hours before the
+  Sep 14 build. Later host CPU/memory samples were also taken hours after the
+  build completed, so they cannot establish whether full-screen video affected
+  build time. Details and correction: `docs/issues/006-vm-quartus-soft-lockup.md`.
 - Firmware uses 152,088 bytes (84.4% of the current usable RAM budget).
 - A runtime settings-home prototype does not fit the protected firmware
   memory layout; see `docs/SETTINGS_RUNTIME_BUDGET.md`. Do not reduce decoder,
   DMA, stack, or linker-heap reservations merely to accommodate UI code.
-- The external SDRAM is currently framebuffer-only. CPU access requires new
-  60/100 MHz CDC, arbitration, address decoding, and hardware contention tests;
-  no feature may treat the proposed SDRAM map as implemented yet.
+- The external SDRAM remains framebuffer-only for product features. A bounded
+  diagnostic MMIO bridge is fitted and its developer Pocket test bundle is
+  ready, but no feature may use the proposed mapped SDRAM window until the
+  Pocket readback and later concurrent playback/CRC gates pass.
 - Loading art currently uses a 16-entry RGB565 palette; on-device tonal tuning
   awaits a Pocket reference photo.
 - Playlist paths with Unicode names remain a known compatibility investigation;
@@ -110,11 +118,13 @@ glow, waveform, text, and progress luminance bands. Retest on hardware.
 
 ### 3. SDRAM capacity gate — next technical work
 
-Implement the staged decision in `docs/SDRAM_MEMORY_ARCHITECTURE.md`. Begin with
-a bounded diagnostic CPU bridge and shared arbiter, then migrate at least 24 KiB
-of cold playlist/artwork workspace. Preserve framebuffer priority, introduce no
-unplanned M10K use, and require zero audio underruns or display corruption in the
-Pocket stress matrix. Cold-code execution is a separate later gate.
+Implement the staged decision in `docs/SDRAM_MEMORY_ARCHITECTURE.md`. The
+Quartus and host diagnostic-package gates are complete; run the ten warm/cold
+Pocket readback passes in `docs/SDRAM_POCKET_DIAGNOSTIC.md`, then add concurrent
+1 MiB CRC and playback stress before migrating at least 24 KiB of cold
+playlist/artwork workspace. Preserve framebuffer priority, introduce no
+unplanned M10K use, and require zero audio underruns or display corruption.
+Cold-code execution is a separate later gate.
 
 ### 3a. Evaluate targeted FPGA audio acceleration — deferred until SDRAM works
 

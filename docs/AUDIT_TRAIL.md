@@ -5,6 +5,10 @@ milestones, failed attempts, reversals, and verification results. The compact
 current-state index is [PROJECT_REGISTER.md](PROJECT_REGISTER.md); detailed
 reasoning remains in the linked documents.
 
+Audit identifiers are permanent and unique even when their chronological
+display order reflects later recovery of earlier evidence. `make test-host`
+runs `tools/check_audit_trail.py` to reject duplicate entry IDs.
+
 **Evidence tags:** **code-review**, **host**, **simulation**, **Quartus**, and
 **Pocket**. A tag describes the evidence actually available, not the desired
 confidence level.
@@ -30,7 +34,8 @@ row.
 |---|---|---:|---:|---:|---:|---:|---|
 | A-003 | **Quartus** baseline, 2026-09-13 | 5,587 / 18,480 (30%) | 300 / 308 (97%) | 2,380,928 / 3,153,920 (75%) | 11 / 66 (17%) | 0.025 ns hold, fast 0C | Successful, 42m58s full compile. |
 | A-006 | **Quartus** fitter only, 2026-09-13 | 5,661 / 18,480 (31%) | 299 / 308 (97%) | 2,380,416 / 3,153,920 (75%) | 11 / 66 (17%) | not produced | Fitter passed; assembler assertion prevented artifact and timing analysis. |
-| A-017 | **Quartus** Phase 1-equivalent isolation, 2026-09-13 | 5,706 / 18,480 (31%) | 299 / 308 (97%) | 2,380,416 / 3,153,920 (75%) | 0.283 ns hold, shown slow model | Successful 42m19s full flow; clean exact-current-source build remains the release gate. |
+| A-017 | **Quartus** Phase 1-equivalent isolation, 2026-09-13 | 5,706 / 18,480 (31%) | 299 / 308 (97%) | 2,380,416 / 3,153,920 (75%) | 0.283 ns hold, shown slow model | Successful 42m19s full flow; at the time, clean exact-current-source build remained the release gate (cleared by A-024). |
+| A-024 | **Quartus** fresh current-source Phase 1 build, 2026-09-14 | 5,706 / 18,480 (31%) | 299 / 308 (97%) | 2,380,416 / 3,153,920 (75%) | 0.119 ns hold, fast 0C | Successful 39m28s flow; resource counts match A-017. Pocket diagnostic remains pending. |
 
 ## Entries
 
@@ -389,9 +394,12 @@ loop is now reconciled. All future external reviews must state the exact commit
 SHA or use direct blob URLs. Isolation 4 remains active; after its result,
 test the MMIO/top-level delta only if the declaration-order change passes.
 
-### A-017 — Conversation-first triad and incremental RTL gate
+### A-050 — Conversation-first triad and incremental RTL gate
 
 **Date:** 2026-09-13
+**Audit-ID correction:** Renumbered from a duplicate `A-017` on 2026-09-14.
+`A-017` remains exclusively the Quartus Isolation 5 record above. This entry's
+references were updated to `A-050`; no technical claim changed.
 **Decision/change:** Add a deterministic Qwen/Codex/Claude Director, install
 and configure a loopback-only Computer surface, connect Codex and Claude
 directly to the official Figma MCP, add Verilator lint, and split the Icarus
@@ -447,7 +455,7 @@ development tooling and documentation only.
 **Evidence:** **host** — Python syntax/CLI checks, schema parsing, and the
 Director's plan/patch-path regression tests pass;
 `make rtl-lint` completes with the pre-existing nonfatal warnings described in
-A-017; `make test-rtl` passes framebuffer, target command, exact EQ preset, PCM
+A-050; `make test-rtl` passes framebuffer, target command, exact EQ preset, PCM
 decay, EQ cycle, SDRAM arbiter, and SDRAM bridge simulations. The Director can
 save a gate transcript to ignored `work/triad/gate.log`.
 **Resource/timing delta:** No FPGA resource/timing change; no Quartus run. The
@@ -483,7 +491,7 @@ and context-setting discrepancy; all four are addressed in this entry's
 implementation. **host** — 11 Director plan/patch safety tests pass through
 `make test-host`; `python3 tools/triad/director.py gate` passes host checks and
 Verilator lint; the full `make test-rtl` suite passes. Existing lint warnings
-remain unchanged from A-017.
+remain unchanged from A-050.
 **Resource/timing delta:** No hardware changes or Quartus run.
 **Outcome, reversal/workaround, remaining risk, and next gate:** The Codex
 planner still decides scope and allowed paths, while the Director is the only
@@ -521,6 +529,838 @@ possible fixed-point/streaming references; external I2S hardware compatibility
 must be evaluated separately. The software implementation remains reference
 and fallback.
 
+### A-021 — Provisional soft-lockup interpretation; corrected by A-024
+
+**Date:** 2026-09-14
+**Decision/change:** Record the live VM observation during the fresh exact-source
+Quartus build check. The UTM console displayed repeated Linux watchdog reports
+of CPU soft lockups naming `quartus_fit`, `quartus_asm`, and `quartus_sta`, as
+well as `systemd` watchdog timeouts. The VM is marked Started, but console
+input did not produce a visible shell response; the managed build session
+remained open and produced no new output during a 30-second check. Completion,
+exit status, reports, and programming artifacts were not verified.
+**Alternatives and rationale:** Declare the build complete based on elapsed
+time (rejected: there is no successful flow summary or verified artifact), or
+immediately restart the VM (deferred: this could destroy the live process and
+valuable Quartus database/log state).
+**Hot/cold impact:** None to RTL or the audio path; this is a host/VM build
+reliability observation.
+**Evidence:** **host** — UTM console screenshot and unchanged managed-session
+output; an SSH probe reached the forwarded service but password authentication
+was rejected. These observations do not prove whether Quartus is still making
+progress or whether output files are complete. The user also recalled that a
+full-screen Crunchyroll video was playing on the Mac during the build. This is
+recorded only as a possible host-load confounder; host utilization was not
+measured, so it is not established as the cause.
+**Resource/timing delta:** Not measured; no final fit/timing report inspected.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Treat the
+current build as unverified and potentially stalled. Preserve `db/` and
+`output_files/`; recover a responsive console or authenticated SSH session and
+inspect process state, flow report, exit code, `.sof`/`.rbf`, and timing report
+before deciding whether to wait or restart. For a future controlled run, pause
+avoidable host-heavy workloads and capture resource data if possible. Do not
+begin Pocket testing without a verified timing-clean artifact. Detailed
+record: [issue 006](issues/006-vm-quartus-soft-lockup.md).
+
+### A-022 — Post-build VM activity initially mistaken for compile progress; corrected by A-024
+
+**Date:** 2026-09-14
+**Decision/change:** Recheck the active build without stopping or restarting
+the VM. The managed build session remained open and silent; UTM marked the VM
+Started and its console showed the guest text login prompt. Host-side samples
+found the QEMU process alive with CPU readings varying from 0% to 11.4% over
+short intervals, and the qcow2 disk's last-modified time was 07:04:23 local.
+**Alternatives and rationale:** Treat CPU or virtual-disk activity as proof
+that Quartus is advancing (rejected: either can reflect guest OS/input activity
+and no stage report was accessible), or stop the VM to force a status (rejected:
+that risks losing the current Quartus state).
+**Hot/cold impact:** None to RTL or playback paths.
+**Evidence:** **host** — macOS `top`/`ps` and qcow2 metadata; QEMU uses four
+TCG-emulated vCPUs and 12 GiB guest RAM. Host memory samples showed about
+23 GiB used, 73–540 MiB unused, and about 5.8 GiB compressed. This supports
+host resource pressure as a plausible confounder, including the user's report
+of full-screen video playback, but does not prove causality or Quartus progress.
+**Resource/timing delta:** Quartus resource and timing results remain
+unavailable.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Build status
+remains unknown; do not claim pass/fail and do not program the Pocket. Obtain
+guest process/report/artifact status from a responsive authenticated session
+before deciding to wait or restart. See [issue 006](issues/006-vm-quartus-soft-lockup.md).
+
+### A-023 — Post-build disk changes initially mistaken for compile progress; corrected by A-024
+
+**Date:** 2026-09-14
+**Decision/change:** Perform another short, read-only progress check. The
+managed build session remained open and silent. QEMU showed intermittent CPU
+use from 0% to 5.3%; the qcow2 modification time advanced to 07:07:45 local.
+**Alternatives and rationale:** Treat recent VM CPU/disk activity as proof
+that Quartus is progressing (rejected: guest OS activity is also possible and
+no Quartus report or process list is available), or declare it stalled solely
+because the session is silent (rejected: the disk timestamp and CPU samples
+show some VM activity).
+**Hot/cold impact:** None to RTL or playback paths.
+**Evidence:** **host** — macOS `top` and qcow2 metadata. Host memory remained
+under substantial pressure at roughly 23 GiB used, 81–151 MiB unused, and
+about 6.7 GiB compressed. Full-screen video remains a possible but unproven
+contributor.
+**Resource/timing delta:** Quartus resource and timing results unavailable.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Current
+evidence supports only that the VM is not entirely idle; compile progress and
+completion remain unknown. Keep VM/database intact and inspect the guest flow
+report and artifacts once authenticated shell access is available. See
+[issue 006](issues/006-vm-quartus-soft-lockup.md).
+
+### A-024 — Fresh SDRAM Phase 1 Quartus build passed; stale-console diagnosis corrected
+
+**Date:** 2026-09-14
+**Decision/change:** Authenticate interactively to the guest and inspect the
+completed current-source build. In `/home/taualpha/tau-current-b729a7b`,
+`ap_core.flow.rpt` reports **Successful** at 01:24:08; `ap_core.done` is
+stamped 01:27:38. Both `ap_core.sof` and `ap_core.rbf` are present. Flow time
+was 39m28s: analysis/synthesis 5m04s, fitter 29m59s, assembler 1m03s, and
+timing analysis 3m22s. A recursive comparison of the build snapshot's
+`src/fpga` against the current shared project found no functional source
+difference; `apf/build_id.mif` is regenerated by the pre-flow script, while
+the other differences are generated build outputs. The snapshot directory has
+no Git metadata, so its commit could not be queried inside the VM.
+**Alternatives and rationale:** Continue treating the compile as stalled from
+the old console buffer and post-build QEMU activity (rejected: the build flow
+and output files prove it completed), or attribute the earlier soft-lockup
+messages to this build (rejected: guest boot was 2026-09-13 12:07:22 and the
+latest visible watchdog timestamp was about 3,784.94 seconds after boot,
+roughly 13:10 that day, over eleven hours before the fresh build).
+**Hot/cold impact:** None to RTL or playback paths. This clears only the
+Quartus build gate; it does not validate SDRAM transactions on Pocket.
+**Evidence:** **Quartus | host** — successful flow report, done marker, fit and
+STA summaries, generated programming files, guest `uptime -s`, and source-tree
+comparison. The build directory is named for snapshot `b729a7b`; current FPGA
+source matches the shared tree except for the generated build ID MIF and
+Quartus-generated files/directories.
+**Resource/timing delta:** Fit: 5,706 / 18,480 ALMs (31%), 7,414 registers,
+2,380,416 / 3,153,920 block-memory bits (75%), 299 / 308 RAM blocks (97%),
+11 / 66 DSP blocks (17%), 1 / 4 PLLs (25%). These resource counts match
+controlled isolation 5 (no delta). TNS is 0 and all reported slack is
+positive; minimum setup slack is 0.914 ns and tightest hold slack is 0.119 ns
+(Fast 1100mV, 0C). The hold margin is narrow and must be rechecked after
+clocking/CDC changes.
+**Outcome, reversal/workaround, remaining risk, and next gate:** This reverses
+the provisional “current build stalled” interpretation in A-021–A-023. The
+kernel console messages were stale from an earlier guest uptime; the host
+resource samples at 07:04–07:07 were collected hours after build completion,
+so they cannot establish compile-time memory pressure or video impact. The
+user's full-screen Crunchyroll report is retained as an unverified possible
+confounder because contemporaneous host measurements are unavailable. The
+original Assembler assertion remains non-reproducible; keep its history. Next,
+perform the controlled Pocket diagnostic and concurrency/stability matrix
+before migrating SDRAM data. See [issue 005](issues/005-quartus-assembler-internal-error.md)
+and [issue 006](issues/006-vm-quartus-soft-lockup.md).
+
+### A-025 — Require confirmation for non-preferred Codex model tiers
+
+**Date:** 2026-09-14
+**Decision/change:** Keep GPT-5.6 Luna as the default and Luna/Terra as the
+preferred models. Before launching Codex, the Director now asks for interactive
+approval if the selected model is outside that pair (including GPT-6 Astra),
+or if reasoning effort is `xhigh`, `max`, or `ultra` (also recognizing the
+spelled-out `extra high`). A full `run` preflights both its planner and reviewer
+selections before any project edits; non-interactive execution fails closed.
+**Alternatives and rationale:** Rely only on the default values and the user's
+environment setup (rejected: environment overrides could silently raise model
+or reasoning usage); require a separate typed flag (deferred: an interactive
+yes/no prompt makes the approval visible at the point of use).
+**Hot/cold impact:** Neither product hot nor cold paths are affected.
+**Evidence:** **host** — Director policy tests cover preferred models, Astra,
+non-preferred models, high-effort aliases, full-run reviewer selection, and
+interactive approval/decline. `make test` and `git diff --check` pass.
+**Resource/timing delta:** No hardware changes or Quartus run.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The guard
+controls the Director's CLI-launched Codex requests only; manually launched
+Codex sessions remain under their own settings. Approval is per Director
+command/run and does not persist. Next, test an approved advanced run only if
+the user requests one.
+
+### A-026 — Stage a separate Phase 1 Pocket SDRAM readback diagnostic
+
+**Date:** 2026-09-14
+**Decision/change:** Add `fw/sdram_diag.c`, a separate `sdram-diag` firmware
+target, three deterministic diagnostic framebuffer states, and a reproducible
+side-by-side Pocket packager. The candidate performs 183 readback checks only
+at SDRAM word addresses `0x00080000–0x000FFFFE` (byte offsets 1–2 MiB), above
+the reserved 1 MiB framebuffer/guard region. The successful VM RBF was copied
+to host staging rather than overwriting the release bitstream.
+**Alternatives and rationale:** Put the diagnostic directly in the shipping
+player (rejected for the first hardware transaction: it expands the regression
+surface and makes a mailbox fault look like a playback fault); overwrite the
+normal TAU package (rejected: a distinct core/platform preserves side-by-side
+baseline comparison); start immediately with a full concurrent 1 MiB CRC
+(deferred: isolate basic wiring/address/data/byte-lane correctness before
+mixing it with decoder, SD, and renderer load).
+**Hot/cold impact:** The player ROM and all audio-critical BRAM code/data are
+unchanged. The new ROM is developer-only and uses a currently unassigned cold
+SDRAM region. No mapped SDRAM, cache, linker, decoder, FIFO, EQ, or playback
+path is changed.
+**Evidence:** **host | simulation | code-review** — the diagnostic compiles
+warning-free for RV32IM and links to 4,895 bytes; the staged 4,872-byte ROM is
+not byte-identical to the release ROM, confirming the release artifact was not
+silently reused. Arbiter and CDC bridge regressions pass. The 24-fixture RGB565
+snapshot check passes, including distinct running/pass/fail states, and all
+three were visually inspected. Package JSON parses; reversing the staged
+`bitstream.rbf_r` reproduces the VM RBF exactly; packaged diagnostic ROM equals
+the staged ROM. The source RBF SHA-256 is
+`0c00362795f22486af8aece80d1a3c6b1eb857e0783699a7fa6394163b1a6dc7`.
+No **Pocket** claim is made.
+The bundle was then installed on the mounted exFAT `Pock` volume. Recursive
+comparisons of the diagnostic core/assets and byte comparisons of both platform
+files passed; card-side bitstream and ROM hashes match staging. This remains
+**host** installation evidence until the Pocket executes it.
+**Resource/timing delta:** Firmware-only after A-024; no RTL changed and no new
+Quartus run is required. A-024 remains the applicable fit/timing evidence:
+5,706 ALMs, 299/308 RAM blocks, TNS 0, minimum setup 0.914 ns, minimum hold
+0.119 ns.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Two failed
+host attempts are retained. First, objcopy failed because target-specific
+`OUT` was selected after the script's original `mkdir`; creating the selected
+directory after the target switch fixed it without writing a ROM. Second, the
+new snapshots initially raised `NameError: UI_BG`; importing that value from
+`player.c` and enforcing distinct diagnostic checks fixed the renderer. The
+mailbox completion status has no sequence counter, so firmware waits 128
+system cycles after start before polling `busy`, with a 0.5-second timeout;
+Pocket results still decide whether this is sufficient. Run five warm repeats
+and five cold-boot repeats. Only after ten 183/0 passes should work proceed to
+concurrent 1 MiB CRC/pattern traffic during highest-bitrate MP3 playback and
+all visualizers. See [Pocket procedure](SDRAM_POCKET_DIAGNOSTIC.md).
+The resolved host failures are reproduced in [issue 007](issues/007-sdram-diagnostic-staging.md).
+
+### A-027 — Correct diagnostic core folder/shortname identity mismatch
+
+**Date:** 2026-09-14
+**Decision/change:** After repeated Pocket `Load error in 'core' / General
+Error` and `Error in core setup` screens, compare the side-by-side package with
+Analogue's core naming contract. Change diagnostic `metadata.shortname` from
+`TAU SDRAM DIAG` to `TAU_SDRAM_DIAG`, exactly matching folder
+`alfatreze.TAU_SDRAM_DIAG`, and make the packager assert the derived
+`author.shortname` identity before producing output.
+**Alternatives and rationale:** Diagnose SDRAM RTL or firmware (rejected: core
+setup failed before the ROM ran); replace the folder with a space-containing
+name (rejected: the existing underscore identifier is unambiguous and the
+friendly platform name remains available for UI); modify several manifests at
+once (rejected: preserve a narrow, evidence-backed correction).
+**Hot/cold impact:** Neither path is affected. This changes diagnostic package
+metadata only; the player ROM, diagnostic ROM, RBF, RTL, and normal TAU package
+are unchanged.
+**Evidence:** **Pocket** — the user reproduced both setup error screens several
+times. **code-review** — the first package folder and manifest shortname did
+not correspond, contrary to Analogue's documented naming convention. **host**
+— the corrected packager now rejects identity mismatch and regenerates valid
+JSON. Reaching the diagnostic on Pocket remains pending, so the cause is the
+leading evidence-backed diagnosis rather than hardware-confirmed resolution.
+**Resource/timing delta:** None; no firmware or RTL change and no Quartus run.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The first
+installed bundle is superseded and its failures do not count toward SDRAM test
+runs. The corrected paths were regenerated, reinstalled on `Pock`, verified
+against staging by identity and hash, and flushed. If core setup now succeeds,
+run the warm/cold matrix; if not,
+continue package-level diagnosis without changing SDRAM logic. See
+[issue 008](issues/008-diagnostic-core-identity-mismatch.md).
+
+### A-028 — APF diagnostic log clears package loading; runtime state remains unknown
+
+**Date:** 2026-09-14
+**Decision/change:** Preserve and inspect the Pocket OS 2.6 developer log after
+the corrected diagnostic loaded but A produced no visible response. Reclassify
+the active investigation from package setup to firmware/runtime state: APF
+parsed all manifests, loaded the bitstream and exact 4,872-byte ROM, completed
+the firmware data slot, reached `Run`, and returned OK from Reset Exit.
+**Alternatives and rationale:** Treat the APF `already running` warning as the
+fault (rejected: the known-working TAU log contains the same warning); infer an
+SDRAM failure from lack of reported PASS (deferred: the exact visible screen is
+not yet known and APF logs cannot observe firmware MMIO); treat A as the start
+command (corrected: the suite starts automatically and A is polled only after
+the suite returns).
+**Hot/cold impact:** Neither path is changed. This is evidence collection only.
+**Evidence:** **Pocket | host | code-review** — user-observed nonresponse; APF
+log SHA-256
+`a750529af86d42c3f6004db6ea6832bb11ae2a0fd9f3fcb48d8f7cb5ab0bd4d9`;
+comparison with the working TAU log; inspection of the diagnostic control flow.
+**Resource/timing delta:** None; no code or RTL change and no Quartus run.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Package load
+is cleared as the current blocker, but SDRAM is not passed or failed. A code
+review found that a permanently busy mailbox can trigger roughly 247 sequential
+0.5-second timeouts—about two minutes—before input is polled, making the test
+appear frozen. Obtain the exact on-screen label/photo, then build a fail-fast
+timeout reporter if a progress screen is present; investigate execution/video
+first if it is black. See [issue 009](issues/009-sdram-diagnostic-nonresponsive.md).
+
+### A-029 — Make the SDRAM diagnostic boot and timeout failures visible
+
+**Date:** 2026-09-14
+**Decision/change:** Following the user’s black-screen report, revise the
+developer diagnostic ROM to draw a boot frame before checking the firmware/RTL
+contract, display expected and actual version words on mismatch, and terminate
+the pattern suite after its first timeout. Add the required named
+version-mismatch framebuffer fixture.
+**Alternatives and rationale:** Continue relying on APF logs (rejected: they
+prove loading/reset but cannot observe CPU MMIO or SDRAM); infer the mismatch
+from a black screen (rejected: black cannot distinguish firmware execution,
+version, or framebuffer causes); change RTL instrumentation first (deferred:
+the ROM-only probe is faster, reversible, and sufficient to classify the next
+failure).
+**Hot/cold impact:** No product hot/cold path changes. The diagnostic ROM alone
+changed; normal TAU ROM, FPGA RBF, playback, decoder, FIFO, and SDRAM RTL are
+unchanged.
+**Evidence:** **host | code-review** — RV32IM build with warnings as errors
+passes; 25 deterministic RGB565 fixtures, including visual inspection of the
+version-mismatch screen, pass. The 5,568-byte ROM SHA-256 is
+`6ba3bbbdf0c730c522b6bb346440f87cb4bde2228f594bd175b77a7d83f062de`.
+It was copied to `/Volumes/Pock`, byte-compared to staging, and flushed.
+**Resource/timing delta:** Firmware-only; no Quartus build or FPGA resource/
+timing delta. A-024 remains the hardware fit/timing reference.
+**Outcome, reversal/workaround, remaining risk, and next gate:** A first copy
+attempt failed harmlessly when Pocket detached USB SD Access between mount and
+write; the successful remount retry is verified. Relaunch now must show either
+a boot/version mismatch/fail/pass screen. If it remains black, CPU execution or
+framebuffer command delivery—not SDRAM correctness—is the next investigation.
+See [issue 009](issues/009-sdram-diagnostic-nonresponsive.md).
+
+### A-030 — Separate CPU execution from early framebuffer availability
+
+**Date:** 2026-09-14
+**Decision/change:** After the fail-visible diagnostic ROM was verified on the
+Pocket SD card but still displayed black, add a 0.5-second boot warm-up before
+the first framebuffer command and issue a read-only APF `GETFILE` request for
+the already-loaded firmware slot as a CPU heartbeat. The Pocket developer log
+records that request even if the screen stays black.
+**Alternatives and rationale:** Interpret black as an SDRAM mailbox failure
+(rejected: no mailbox operation precedes the first screen); modify FPGA RTL
+instrumentation (deferred: a ROM-only, reversible probe can first distinguish
+CPU execution from display delivery); rely on the existing APF Run/Reset Exit
+log (rejected: it cannot observe post-reset CPU instructions).
+**Hot/cold impact:** Neither product path changes. This is diagnostic-ROM-only;
+the normal player ROM, FPGA RBF, SDRAM controller, decoder, and audio path are
+unchanged.
+**Evidence:** **Pocket | host | code-review** — Pocket log for the preceding
+verified ROM proves APF loading and Reset Exit but contains no target command;
+code review confirms normal player startup naturally delays framebuffer MMIO,
+whereas the tiny diagnostic does not. The 5,624-byte ROM
+`a34f3b994722ab7de216699f83a35bfba6f9b2cc857581f458669838d7bc169f`
+builds successfully, passes the 25-fixture deterministic renderer check, and
+was byte-compared after copying to `/Volumes/Pock`; Pocket result is pending.
+**Resource/timing delta:** Firmware-only; no Quartus run or FPGA resource/
+timing delta.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Pending
+Pocket relaunch. A logged target request plus black output means investigate
+the framebuffer/display path. No request means investigate firmware reset/
+execution. See [issue 009](issues/009-sdram-diagnostic-nonresponsive.md).
+
+### A-031 — Use APF logs to isolate the SDRAM mailbox from black video
+
+**Date:** 2026-09-14
+**Decision/change:** Two new Pocket logs recorded the A-030 `0190` heartbeat
+despite black output, so replace the next temporary diagnostic ROM with a
+headless one-word SDRAM mailbox preflight. It produces ordered `0190`
+checkpoints after CPU entry, initial mailbox-idle confirmation, a safe-region
+write, and a matching safe-region read. It intentionally makes no framebuffer
+MMIO writes.
+**Alternatives and rationale:** Continue revising visible screens (deferred:
+the framebuffer is now the suspected dependent path and can mask the mailbox
+result); call SDRAM failed from black video (rejected: no SDRAM operation is
+observable in that symptom); add RTL debug instrumentation (deferred: four
+APF-log checkpoints answer the immediate classification question with a
+firmware-only, reversible artifact).
+**Hot/cold impact:** No product path changes; diagnostic firmware only.
+**Evidence:** **Pocket | host | code-review** — logs
+`075944` and `075959` contain a post-Reset Exit `Target: New command [0190]`;
+host build succeeded and the 25-fixture renderer regression check passes. The
+headless 672-byte ROM is
+`1d882cbda1958749f704e9f09bc354700a69b87b393e1ec725670fe2a4cbc249`.
+Pocket result is pending.
+**Resource/timing delta:** Firmware-only; no Quartus resource/timing change.
+**Outcome, reversal/workaround, remaining risk, and next gate:** CPU execution
+is now Pocket-confirmed; a black screen no longer implicates ROM/reset. Install
+the headless preflight and count ordered `0190` entries. Four enables a focused
+framebuffer/arbiter diagnosis; fewer entries locate mailbox noncompletion. See
+[issue 009](issues/009-sdram-diagnostic-nonresponsive.md).
+
+### A-032 — Correct the SDRAM arbiter's circular acceptance handshake
+
+**Date:** 2026-09-14
+**Decision/change:** Two headless Pocket preflight runs produced exactly the
+first two of four `0190` checkpoints, stopping before completion of the first
+safe-region SDRAM write. Correct `tau_sdram_arbiter` so request ownership and
+CPU acceptance occur when the arbiter forwards an idle request, rather than
+requiring `p0_available` in that same cycle. Extend the arbiter testbench to
+model the controller's actual `p0_available=0` while a request is asserted.
+**Alternatives and rationale:** Treat the result as an electrical SDRAM fault
+(rejected: RTL contains a deterministic protocol contradiction matching the
+exact failure); change framebuffer logic first (deferred: the headless probe
+fails before any framebuffer command); alter `sdram_fb` availability semantics
+(deferred: the smallest correction is local to the new arbiter and preserves
+the known upstream controller interface).
+**Hot/cold impact:** No product firmware data movement changed. FPGA arbitration
+behavior changes for the diagnostic CPU port; framebuffer keeps first priority
+at a genuine contention point.
+**Evidence:** **Pocket | simulation | code-review** — logs `080353` and
+`080407` contain exactly two checkpoints; source establishes
+`p0_available = state == IDLE && ~port_req`; updated arbiter and CPU-bridge
+tests pass (0 failures). **Quartus** — clean 25.1std build succeeds; **Pocket**
+validation remains pending. Raw RBF SHA-256:
+`840f8d9187526521124864447d72619b533a1ca629d3a6168d003c4ee2082970`.
+**Resource/timing delta:** 5,832 / 18,480 ALMs (32%; prior 5,706), 300 / 308
+RAM blocks (97%; prior 299), setup TNS 0 and minimum setup slack 0.465 ns;
+minimum hold slack 0.120 ns. This remains a narrow but passing timing/resource
+state; any further RTL/clocking change requires a fresh report.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The prior
+Phase 1 RBF is known to stall its first mailbox write and must not be used as
+SDRAM capability evidence. The corrected RBF passed Quartus and now must
+repeat the headless Pocket preflight. See [issue 009](issues/009-sdram-diagnostic-nonresponsive.md).
+
+### A-033 — Confirm the corrected SDRAM mailbox on Pocket, then restore video
+
+**Date:** 2026-09-14
+**Decision/change:** The corrected-RBF headless preflight completed all four
+ordered APF `0190` checkpoints on two Pocket runs. Restore the visible bounded
+SDRAM diagnostic ROM without changing the now Pocket-confirmed RBF.
+**Alternatives and rationale:** Declare Phase 1 complete (rejected: one
+write/read proves only the narrow mailbox transaction); retain a headless ROM
+for all remaining tests (rejected: the next gate must verify the framebuffer
+client that previously appeared black); immediately introduce concurrent load
+(deferred until the full bounded suite and visible output are confirmed).
+**Hot/cold impact:** Normal player remains unchanged. Diagnostic-only ROM
+changes; the RBF is unchanged from A-032.
+**Evidence:** **Pocket | host** — logs `103939` and `104220` each contain four
+post-reset `0190` entries, matching the documented entry/idle/write/read
+checkpoint protocol. Visible 5,688-byte ROM SHA-256
+`8680a77ce89a20201d9d35470dc563d89bc6e54cf360a51798287012d366ae5d`
+passes the deterministic 25-fixture renderer check and was byte-compared after
+copying to `/Volumes/Pock`.
+**Resource/timing delta:** ROM-only after A-032; no new Quartus result.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The original
+black-output conclusion is revised: it was a real arbiter deadlock, not an
+unclassified video fault. Launch the restored visible diagnostic and retain a
+photo/log of its first result before starting the ten-run matrix. See
+[issue 009](issues/009-sdram-diagnostic-nonresponsive.md).
+
+### A-034 — First visible Phase 1 SDRAM diagnostic passes on Pocket
+
+**Date:** 2026-09-14
+**Decision/change:** Record the first visible bounded-suite result after the
+corrected arbitration RBF: `PASS`, 183 readback checks, zero failures. Preserve
+the user-provided screen photo and matching developer log as immutable evidence.
+**Alternatives and rationale:** Treat the headless preflight as sufficient
+(rejected: it covers only one round-trip); call the entire ten-run matrix
+complete (rejected: this is one warm run only); change SDRAM mapping now
+(deferred until repeatability and contention gates are passed).
+**Hot/cold impact:** No code, RBF, or product behavior change; evidence only.
+**Evidence:** **Pocket** — visible screen reports `PASS`, `READBACK CHECKS 183`,
+and `FAILURES 0`; retained photo SHA-256
+`07fe7af04dcf473f2584ab07f2b9bb64d83f2f323070d1429c91acb57280e6ca`;
+matching developer log SHA-256
+`d6e8c7b0566700f8da99a70133772ff506d340d8878947095dae448b583cd881`.
+**Resource/timing delta:** None; A-032 remains the relevant Quartus result.
+**Outcome, reversal/workaround, remaining risk, and next gate:** This is warm
+acceptance run 1/5 and must not be generalized to cold/soak/concurrent use.
+Repeat four warm runs, then power the Pocket fully off and repeat five cold
+runs before the bounded Phase 1 gate is passed. See
+[issue 009](issues/009-sdram-diagnostic-nonresponsive.md).
+
+### A-035 — Close the bounded warm/cold SDRAM acceptance gate
+
+**Date:** 2026-09-14
+**Decision/change:** Record completion of the specified five-warm/five-cold
+bounded SDRAM diagnostic matrix. The user reports every run as `PASS`, 183
+readback checks, and zero failures, with no visual change or stall.
+**Alternatives and rationale:** Infer all ten results from APF developer logs
+(rejected: warm A-triggered repetitions occur inside one core session and are
+not individually logged); promote SDRAM to general player storage (deferred:
+concurrent scanout/audio contention remains untested); repeat indefinitely
+(deferred: the agreed bounded gate is complete and has a distinct next gate).
+**Hot/cold impact:** No code or product behavior changes.
+**Evidence:** **Pocket user observation | Pocket log** — the user reports the
+full ten-run result; finalised log SHA-256
+`d4db8dd0b27fa1135eb8d5052870b4a28659e2cee0af2d4309778b2c92dae902`
+confirms the final 5,688-byte diagnostic load, Reset Exit, heartbeat, and
+clean unload. The log does not individually count in-core warm repeats.
+**Resource/timing delta:** None; A-032 remains the current Quartus evidence.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The bounded
+Phase 1 mailbox/byte-lane gate is passed. It does not validate soak behavior,
+mapped SDRAM, or concurrent display/audio traffic. Define and run a separate
+contention diagnostic before any player-memory migration. See
+[issue 009](issues/009-sdram-diagnostic-nonresponsive.md).
+
+### A-036 — Start a separate compile-gated SDRAM contention player
+
+**Date:** 2026-09-14
+**Decision/change:** Add the initial `TAU_SDRAM_STRESS` player-only firmware
+path and its design/procedure document. The pump performs one outstanding,
+throttled write/read/compare operation at a time in the already proven 1–2 MiB
+safe region, calculates a rolling CRC-32, and is enabled only by a developer
+core build. `Select+X` is reserved in that build to toggle it; plain X retains
+visualizer cycling.
+**Alternatives and rationale:** Create a synthetic standalone diagnostic
+(rejected: it would not exercise real decoder/audio/visualizer scheduling);
+run an unbounded request loop (rejected: it would measure CPU starvation rather
+than the intended bounded Phase 2 style of traffic); enable it in normal TAU
+(rejected: developer stress behavior must not alter release controls or files).
+**Hot/cold impact:** Normal player source behavior is compile-time unchanged.
+The stress build uses Phase 1 MMIO only; no mapped SDRAM, linker, decoder, or
+audio-critical-memory migration occurs.
+**Evidence:** **host | code-review** — stress build succeeds at 153,100 bytes
+(84.9% of usable firmware RAM); ordinary rebuild restores the 152,088-byte
+release ROM. Hardware and Quartus validation are pending because this is a
+firmware-only use of the A-032 RBF.
+**Resource/timing delta:** No RTL change, hence no new Quartus result. Firmware
+image grows 1,012 bytes versus the ordinary player artifact.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The source
+and stress ROM artifact exist, but no stress package or Pocket result exists
+yet. Package it as a separate player core and validate controls/counters before
+using it for the visualizer matrix. See
+[SDRAM contention diagnostic](SDRAM_CONTENTION_DIAGNOSTIC.md).
+
+### A-037 — Correct the stress core's overlength platform shortname
+
+**Date:** 2026-09-14
+**Decision/change:** After the user could not find TAU SDRAM Stress anywhere in
+the Pocket core list, compare its package with the working diagnostic. The
+platform ID `tau_sdram_stress` was 16 characters, above Analogue's documented
+15-character platform-shortname maximum. Rename the internal platform ID to
+`tau_sdram_strs` (14 characters) in all package paths and metadata, retaining
+the visible name and valid 16-character core shortname. Add packager validation
+for the documented platform-ID rule.
+**Alternatives and rationale:** Reinstall the same package after another reboot
+(rejected: user had already cold-booted, and the ID itself violates the
+official limit); shorten the core shortname (rejected: core shortname has a
+separate 31-character limit, and folder/metadata identity already matches);
+change artwork or firmware (rejected: unrelated to discovery and both were
+copied from a working structure).
+**Hot/cold impact:** No player firmware or RBF change; package metadata/path
+only.
+**Evidence:** **code-review | host | Pocket failed** — official
+[Analogue Platform Metadata](https://www.analogue.co/developer/docs/platform-metadata)
+sets platform shortnames to 15 characters; official
+[core.json documentation](https://www.analogue.co/developer/docs/core-definition-files/core-json)
+sets core shortnames to 31. Generated host package checks validate all
+platform/asset paths and the 14-character corrected ID. The old malformed-ID
+files were archived under `work/diagnostics/sdram-stress/obsolete-platform-id/`
+before the obsolete card paths were removed. Corrected core JSON, ROM, and RBF
+were installed and compared/hashed on `/Volumes/Pock`. User performed a cold
+boot and reports the core is still absent. Inspection of the mounted card shows
+`cores_cache.bin` contains `TAU_SDRAM_STRESS`, `corelist_cache.bin` contains the
+correct `tau_sdram_strs`, but `platforms_cache.bin` contains only the obsolete
+`tau_sdram_stress` entry for this platform. Its mtime predates the corrected
+platform JSON/image on the card. This supports stale/inconsistent Pocket
+catalog state; the cold boot did not refresh this index. Per Analogue's
+[debugging guide](https://www.analogue.co/developer/docs/debugging-aids),
+Tools > Developer > Builds lists installed core folders even when platform
+association is broken; user confirmed the stress core appears there, and then
+successfully launched it from Builds. The stress platform Assets now also
+contain a playlist and MP3 for later testing.
+**Resource/timing delta:** None.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Preserve the
+old malformed-ID card files in a host archive, remove their stale card entries,
+install the corrected package, and cold boot. That retest failed. Cache
+inspection shows the core is indexed but the platform cache retains the old
+ID; it is visible/launchable in Tools > Developer > Builds only. On 2026-09-14,
+byte-verified backups of all five catalog/index caches were saved under
+`work/diagnostics/sdram-stress/pocket-cache-backup-2026-09-14/System/`, then
+only those originals were removed from the card so Pocket can regenerate its
+catalog. Regeneration and normal-browser visibility remain pending. See
+[issue 010](issues/010-stress-platform-id-too-long.md).
+
+### A-038 — Correct the stress telemetry acceptance record
+
+**Date:** 2026-09-14
+**Decision/change:** Reconcile stress-test instructions with firmware after the
+user observed multiple `SDRAM PASS n` messages. Retain one completed pass per
+visualizer as the minimum data-integrity threshold, while recording that the
+promised Select + Start summary for mismatch/word/audio/FIFO counters is not
+implemented.
+**Alternatives and rationale:** Treat pass count alone as full acceptance
+(rejected: it cannot evidence audio underrun or framebuffer FIFO deltas); stop
+the Pocket test until telemetry exists (rejected: pass toasts still provide
+useful bounded data-integrity evidence while the user tests).
+**Hot/cold impact:** None to normal TAU; no RTL, playback, or build output
+changed.
+**Evidence:** **code-review | Pocket** — `fw/player.c` increments pass and word
+counters and emits `SDRAM PASS` at pass completion, but has no Select + Start
+stress-summary handler/renderer. User reports passes 1–5 completed without
+visible error; their Select + Start attempt stopped playback, consistent with
+the ordinary Start stop binding. This does not establish audio/FIFO deltas.
+**Resource/timing delta:** None.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Initially
+concluded the summary was absent based on source review; this was corrected by
+A-039 after new Pocket evidence. See [issue 011](issues/011-stress-summary-telemetry-missing.md).
+
+### A-039 — Prefer Pocket evidence over incomplete stress-summary source review
+
+**Date:** 2026-09-14
+**Decision/change:** Reverse A-038's claim that the stress summary was absent.
+The user successfully invoked Select + Start on Pocket, saw diagnostic
+messages, and resumed playback with A. Preserve the stop/resume interaction as
+a known part of the current test workflow while investigating why the reviewed
+source lacks the matching handler.
+**Alternatives and rationale:** Insist the Pocket report is impossible because
+the handler is absent from current source (rejected: direct hardware evidence
+outranks incomplete source inspection); treat the issue as fully resolved
+(rejected: current source/package provenance mismatch remains unexplained, and
+exact summary values have not been logged).
+**Hot/cold impact:** None to hardware RTL; current stress firmware stops audio
+while the summary is shown, then user resumes with A.
+**Evidence:** **Pocket | code-review** — user observed the summary and reports
+two clean passes on the default visualizer. The reviewed `fw/player.c` lacks
+the described handler, so identify the exact ROM hash/build source and record
+summary values in a follow-up.
+**Resource/timing delta:** None measured.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Amend issue
+011 and the diagnostic instructions. Continue the matrix one complete pass per
+visualizer, resume playback after each summary, and capture displayed raw
+values. Reconcile running ROM with source before declaring the gate passed.
+
+### A-040 — Pocket SDRAM stress progress: pass 3 on second visualizer
+
+**Date:** 2026-09-14
+**Decision/change:** Record the user's live stress-test update: pass 3 completed
+without reported error while testing the second visualizer. Treat pass numbering
+as cumulative because no counter reset on visualizer change was reported.
+**Alternatives and rationale:** Count this as three passes for the second mode
+(rejected: the user described it as pass 3 overall after changing visualizers);
+count it as a fully characterized mode result (deferred: playback/control
+matrix and summary values remain to be recorded).
+**Hot/cold impact:** No source or hardware change; Pocket test continues.
+**Evidence:** **Pocket** — user report, `SDRAM PASS 3` clean on visualizer 2.
+**Resource/timing delta:** No Quartus/resource change.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Current status
+is three clean cumulative passes across at least two visualizer modes. Continue
+until each mode has at least one completed pass with MP3 playback active; record
+which pass occurred on each mode and any audio/display symptoms. See issues
+010/011 and [contention diagnostic](SDRAM_CONTENTION_DIAGNOSTIC.md).
+
+### A-041 — Pocket SDRAM stress progress: pass 4 clean
+
+**Date:** 2026-09-14
+**Decision/change:** Record the user's live update that pass 4 completed cleanly
+and they are changing to Meter Scope for pass 5.
+**Alternatives and rationale:** Attribute pass 4 to a specific visualizer
+(deferred: user did not identify the mode for that pass); track only the
+cumulative ordinal and preserve the stated next mode.
+**Hot/cold impact:** No source or hardware change; Pocket test continues.
+**Evidence:** **Pocket** — user report: pass 4 okay; proceeding to Meter Scope.
+**Resource/timing delta:** No Quartus/resource change.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Four clean
+cumulative passes reported so far; Meter Scope is the next visualizer under
+test. Continue one complete pass per remaining mode with playback active and
+record the mode associated with each pass when known. See issues 010/011 and
+[contention diagnostic](SDRAM_CONTENTION_DIAGNOSTIC.md).
+
+### A-042 — Propose a persistent, low-overhead stress progress HUD
+
+**Date:** 2026-09-14
+**Decision/change:** Record the user's request for a more legible way to track
+multi-minute stress passes. Recommend a compact stress-only HUD showing current
+pass/progress percentage, elapsed time, and previous pass result/duration;
+implementation is deferred until the current Pocket matrix finishes.
+**Alternatives and rationale:** Full-screen progress page (rejected: hides
+player and visualizer during the concurrent-load test); frequent animation or
+per-operation refresh (rejected: adds avoidable framebuffer/CPU traffic and can
+perturb measured contention); pass toast only (rejected: not legible enough for
+the observed run length).
+**Hot/cold impact:** No change yet. Proposed UI stays compiled only into the
+stress build and must not change the normal TAU interface.
+**Evidence:** **Pocket | design** — user reports pass notifications are hard to
+follow and estimates 2–3 minutes per pass. This is un-timed user observation;
+existing plan's approximately-one-minute figure is also only a rough estimate.
+**Resource/timing delta:** None yet. Proposed status refresh limit: at most 1 Hz;
+measure HUD-on vs. pre-HUD pass durations and audio/display behavior.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Add [issue
+012](issues/012-stress-progress-hud.md) and register it as proposed. Finish the
+current visualizer matrix, time multiple same-condition passes, then implement
+and measure the HUD without changing SDRAM RTL or Quartus artifacts.
+
+### A-044 — Keep the token-heap guard; use a size-optimised stress-only HUD artifact
+
+**Date:** 2026-09-14
+**Decision/change:** Attempted the proposed 1 Hz stress HUD in the normal
+firmware optimisation profile. The linker rejected it with `no room left for
+even a token heap`. Retain the 1 KiB heap guard and configure the separate
+developer stress target to use `-Os`; release TAU remains on its established
+profile.
+**Alternatives and rationale:** Reduce/remove the linker heap guard (rejected:
+it protects stray newlib allocation paths); put the HUD in normal TAU (rejected:
+developer-only behavior must not ship); omit elapsed/progress data (rejected:
+it defeats the user-observed testability need).
+**Hot/cold impact:** No RTL/Quartus change. Only the new stress ROM is compiled
+with `-Os`; the existing player artifact is not overwritten.
+**Evidence:** **host** — exact `-O2` stress build fails linker heap assertion;
+an exploratory all-`-Os` stress build linked at 127,764-byte ROM size. This
+does not yet constitute Pocket evidence.
+**Resource/timing delta:** Firmware build-profile change only. HUD redraw is
+throttled to 1 Hz; measure Pocket pass duration and audio/display behavior
+before drawing performance conclusions.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Build and
+install the explicit stress-only artifact, retain its artifact hash, then run a
+Pocket comparison. See [issue 012](issues/012-stress-progress-hud.md).
+
+### A-045 — Build, package, and stage the reproducible stress HUD ROM
+
+**Date:** 2026-09-14
+**Decision/change:** Add a dedicated `player-stress` firmware target and a
+stress-only 1 Hz HUD. It identifies the active visualizer, current pass/percent
+and elapsed time, plus previous pass/duration; Select + Start safely refreshes
+the HUD instead of stopping playback. Build, package, and replace only the
+stress core's asset ROM on the mounted Pocket card.
+**Alternatives and rationale:** Depend on user timing/transcription (rejected:
+the current run is difficult to follow); force the HUD into the release ROM
+(rejected: no developer test feature belongs in normal TAU); remove the heap
+assertion to fit `-O2` (rejected: a linker safety margin is not expendable).
+**Hot/cold impact:** No RTL, Quartus, normal-core, playlist, media, or save
+change. Only `/Assets/tau_sdram_strs/common/tau.rom` changed on Pocket.
+**Evidence:** **host** — `make firmware-sdram-stress` passed, producing a
+127,764-byte ROM (SHA-256
+`61d39f955bde907fb63f59cca1c560ad31ea965c9d588627252db585b2bc3b9a`).
+The pre-HUD ROM (SHA-256 `2e896ae1…f295b3de`) was copied to
+`work/diagnostics/sdram-stress/pre-hud-rom-2026-09-14/tau.rom`; card copy was
+byte-compared. `make test-host` passed its 17 director checks, M3U parser
+matrix, splash/package checks, and deterministic UI fixture check. The
+director's optional Astra task-launch probe did not run because it requires an
+interactive approval; this is not a firmware test failure. Pocket behavior
+remains pending.
+**Resource/timing delta:** The separate ROM uses `-Os` because the `-O2` HUD
+build violates the token-heap guard. HUD render rate is at most 1 Hz. Treat its
+timing measurements as stress-diagnostic evidence, not release-player CPU data.
+**Outcome, reversal/workaround, remaining risk, and next gate:** User should
+run the staged core, verify the persistent strip and safe Select + Start action,
+then photograph completed-pass states for the audit. Persistent SD logging is
+not implemented. See [issues 011](issues/011-stress-summary-telemetry-missing.md)
+and [012](issues/012-stress-progress-hud.md).
+
+### A-046 — Correct the stress HUD's 32-bit cycle-counter duration wrap
+
+**Date:** 2026-09-14
+**Decision/change:** Reject the first HUD's raw pass durations after Pocket
+photos showed a `01:09` HUD time while the active music was already beyond two
+minutes. Replace its `now - pass_started` display with a wrap-safe software
+accumulator sampled from `R_CYCLES` each main-loop iteration.
+**Alternatives and rationale:** Treat player elapsed time as the pass stopwatch
+(rejected: it is audio-frame time and need not start with stress); widen the
+RTL counter (rejected: a firmware-only diagnostic defect does not justify a
+hardware interface change); retain raw modulo values (rejected: they invite a
+false bandwidth conclusion).
+**Hot/cold impact:** No RTL, Quartus, normal-core, media, or save change. The
+fix is inside the compile-gated stress HUD firmware only.
+**Evidence:** **code-review** — `mp3_soc.v` defines `cycle_ctr` as a 32-bit
+counter incremented on `clk`; firmware defines `CLK_HZ` as 60,000,000.
+**Pocket** — user photos show the mismatch and completed named visualizer
+matrix; the raw L-times are therefore retained but explicitly invalidated.
+**Resource/timing delta:** Counter wraps at 71.582788 s. The fix uses 32-bit
+division/remainder only in the existing main-loop stress path and adds no
+framebuffer update beyond the existing 1 Hz HUD. Pocket resource/performance
+evidence is pending.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The stress ROM
+was rebuilt, staged, and byte-verified on the mounted card (new SHA-256
+`1860455e…c3bb2cd5`; prior ROM `61d39f…b2bc3b9a` archived). The user elected
+to defer its >72-second smoke test to a future stress session; it is not a
+blocker for the completed contention result, but duration claims remain
+withheld until then. See [issue 013](issues/013-stress-hud-timer-wrap.md).
+
+### A-047 — Accept Phase 1 contention evidence; constrain Phase 2 entry
+
+**Date:** 2026-09-14
+**Decision/change:** Accept the completed ten-mode Pocket contention matrix as
+the Phase 1 reliability gate, with the Eye repeat explicitly waived after
+visual review. Begin Phase 2 as a decode-and-adapter preflight rather than
+mapping cached SDRAM directly through the diagnostic bridge.
+**Alternatives and rationale:** Require an Eye repeat despite no materially
+distinct failure signal (rejected by user); treat HUD timing validation as a
+reliability blocker (rejected: it affects duration telemetry, not the checked
+read/write/failure path); map VexRiscv's cached bus directly into the single
+word bridge (rejected: its cache-line/burst behavior would violate bounded
+framebuffer arbitration).
+**Hot/cold impact:** Hot playback, decoder, FIFO, stack, target-read, and
+input paths remain BRAM. Phase 2 starts with an uncached cold-data diagnostic
+window only; no linker placement changes yet.
+**Evidence:** **Pocket** — ten exercised modes, no reported mismatch, timeout,
+audible dropout, or display corruption. **design | code-review** — existing
+bridge is one outstanding 32-bit mailbox; cacheability and broad `d_is_ram`
+decode require an explicit mapping/adapter decision before use.
+**Resource/timing delta:** None yet; no RTL/Quartus change. Phase 2 must report
+new adapter resource and timing deltas before Pocket mapping work.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Implement and
+simulate mutually exclusive address selects and a bounded uncached mapping
+adapter first. Do not migrate data or enable the cached window until alias and
+Wishbone-beat behavior are proven. See
+[SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md).
+
+### A-048 — Freeze and simulate the Phase 2 address-map contract
+
+**Date:** 2026-09-14
+**Decision/change:** Add a standalone `tau_sdram_addr_decode` contract and
+testbench. It makes cached/uncached BRAM, narrow MMIO, and cached/uncached
+CPU-owned SDRAM windows mutually exclusive, preserving the first 1 MiB SDRAM
+framebuffer/guard region and translating CPU words to controller halfwords.
+**Alternatives and rationale:** Keep the existing broad `d_is_ram` expression
+(rejected: proposed SDRAM addresses alias BRAM); route all `0x8...–0xB...`
+addresses to MMIO (rejected: it precludes the required uncached alias); wire
+the decode directly into a cacheable data path immediately (deferred: the
+bounded Wishbone adapter is not yet designed or verified).
+**Hot/cold impact:** No live bus, linker, firmware, RTL integration, or Pocket
+artifact changed. This is a Phase 2 preflight contract only.
+**Evidence:** **simulation** — `make test-rtl-sdram-decode` passes 13 checks:
+window exclusivity, narrow-MMIO limits, BRAM-alias rejection, framebuffer
+guard rejection, both SDRAM bounds, and identical cached/uncached physical
+translation at the 1 MiB boundary.
+**Resource/timing delta:** Not applicable; the standalone module is not in the
+Quartus source list and no fit claim is made.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The old broad
+decode remains live until a bounded uncached Wishbone adapter is integrated.
+Next design/test that adapter; do not enable cacheable SDRAM or migrate a
+workspace yet.
+
+### A-049 — Prove a bounded uncached Wishbone adapter in isolation
+
+**Date:** 2026-09-14
+**Decision/change:** Add `tau_sdram_wb_adapter`, a separate Phase 2a adapter
+between one classic uncached Wishbone beat and the existing one-word SDRAM
+bridge interface. It intentionally rejects incrementing cache/burst cycles.
+**Alternatives and rationale:** Reuse the adapter for cached line fills
+(rejected: a line would hold the narrow bridge/scanout boundary for an
+unbounded series); permit held request signals to restart after ACK (rejected:
+it duplicates writes); connect it directly to the live bus before isolation
+tests (rejected: a decode/handshake fault could stall normal playback).
+**Hot/cold impact:** No live integration, linker, firmware, Pocket artifact,
+or Quartus source-list change. It remains an isolated cold-data preflight
+component.
+**Evidence:** **simulation** — `make test-rtl-sdram-wb-adapter` passes classic
+read/write/lane propagation, one ACK/one command behavior, held-request
+deduplication, busy-bridge deferral, burst rejection, and reset-during-wait.
+The complete `make test-rtl` regression suite passes.
+**Resource/timing delta:** Not applicable until the module is connected and a
+Quartus fit is run.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Integrate only
+the uncached alias behind an explicit diagnostic build flag, arbitration-safe
+bridge-request mux, and a firmware read/write smoke test. Cacheable SDRAM,
+workspace migration, and normal package changes remain prohibited.
+
+### A-043 — Confirm Pocket rebuilt the corrected platform catalog
+
+**Date:** 2026-09-14
+**Decision/change:** After the user exited the stress core and remounted the SD
+card, inspect the five regenerated catalog/index caches and stress media paths.
+**Alternatives and rationale:** Assume cache rebuild failed because the core was
+previously visible only in Developer > Builds (rejected: fresh caches now
+contain the corrected platform ID); treat ordinary-menu visibility as proven
+(deferred: user has not yet confirmed the menu after regeneration).
+**Hot/cold impact:** Read-only host inspection; no card changes.
+**Evidence:** **host** — `platforms_cache.bin`, `corelist_cache.bin`,
+`core_viewby_platform.bin`, and `platform_viewby_category.bin` now contain
+`tau_sdram_strs` and not `tau_sdram_stress`; `cores_cache.bin` contains
+`TAU_SDRAM_STRESS`. Playlist exists and 26 MP3 files are present in the stress
+assets.
+**Resource/timing delta:** None.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Cache recovery
+worked. Ask user to confirm the core appears in the ordinary Media Players
+browser. Continue the user-run visualizer matrix. See
+[issue 010](issues/010-stress-platform-id-too-long.md) and
+[issue 012](issues/012-stress-progress-hud.md).
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible
@@ -528,9 +1368,12 @@ in review; it is not an embarrassment to delete.
 
 | Topic | Earlier conclusion | Corrected conclusion / evidence |
 |---|---|---|
+| Sep 14 Quartus progress check | Stale console watchdog text and post-build VM activity suggested the active build might be stalled. | Authenticated inspection found a successful flow at 01:24, done marker at 01:27, valid `.sof`/`.rbf`, and passing timing. Guest boot/watchdog timestamps predate that run by over eleven hours. A-024; issue 006. |
 | FLAC feasibility | Early estimates treated I/O as the likely binding budget. | Measured analysis found CPU/RAM constraints dominate; see the dated, retained corrections in [FLAC.md](FLAC.md). |
 | Settings shell | A small runtime settings implementation appeared plausible. | It crossed protected memory layout boundaries; defer until SDRAM data capacity is proven. [SETTINGS_RUNTIME_BUDGET.md](SETTINGS_RUNTIME_BUDGET.md). |
 | Video resolution | A configuration-only resolution change appeared plausible. | Current pipeline needs RTL/clock/bandwidth work; preserve 400×360 pending measurements. A-002 above. |
+| Stress summary telemetry | Source review concluded Select + Start summary did not exist. | User invoked it on Pocket and resumed with A; summary exists in running binary but source provenance is unresolved. A-038/A-039; issue 011. |
+| Stress HUD pass durations | First HUD readings were treated as potential timing evidence. | Pocket photos plus source review show `R_CYCLES` wraps every 71.58 s; raw L-times are modulo remnants, not durations. A-046; issue 013. |
 
 ## Entry template
 

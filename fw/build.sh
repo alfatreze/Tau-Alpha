@@ -2,7 +2,9 @@
 # Build core firmware -> dist/Assets/tau/common/tau.rom
 #
 #   ./build.sh            # Stage 3 player (Helix decode + playback)  [default]
+#   ./build.sh player-stress # Developer-only SDRAM contention player
 #   ./build.sh bringup    # Stage 1/2 bring-up (tone + 0180 test, no decoder)
+#   ./build.sh sdram-diag # Phase 1 Pocket SDRAM mailbox diagnostic
 #
 # The .rom is loaded from SD into BRAM by data_loader at boot, exactly like an
 # arcade core's ROM -- which is the point: firmware changes cost seconds here
@@ -10,6 +12,7 @@
 set -e
 
 TARGET="${1:-player}"
+STRESS_CFLAGS=""
 
 # Resolve the checkout instead of assuming the original author's Windows path.
 # Override RISCV_TOOLCHAIN_BIN and/or RISCV_PREFIX when the tools are not on
@@ -66,9 +69,39 @@ player)
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     ;;
+player-stress)
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/sdram-stress"
+    STRESS_CFLAGS="-DTAU_SDRAM_STRESS=1 -DTAU_STRESS_HUD=1"
+    ;;
+sdram-diag)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram"
+    ;;
 *)
-    echo "usage: $0 {player|bringup}"; exit 1 ;;
+    echo "usage: $0 {player|player-stress|bringup|sdram-diag}"; exit 1 ;;
 esac
+
+# Build flags are selected by target rather than remembered in a shell history.
+# This makes the installed stress ROM reproducible and avoids accidentally
+# placing developer contention behavior in the normal TAU artifact.
+CFLAGS="$CFLAGS $STRESS_CFLAGS"
+
+# A specialised target may redirect OUT away from the release Assets folder.
+# Create it after target selection so objcopy never fails on a missing staging
+# directory (the first sdram-diag build exposed the old ordering).
+mkdir -p "$OUT"
 
 # Compile status is checked EXPLICITLY. This used to be
 #   "$GCC" ... 2>&1 | grep -v "LOAD segment with RWX" || true

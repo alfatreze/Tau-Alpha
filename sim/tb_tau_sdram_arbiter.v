@@ -29,7 +29,10 @@ module tb_tau_sdram_arbiter;
     wire [10:0] p_len;
     wire p_stream, p_wr, p_rd, p_end;
     reg [15:0] p_q = 0;
-    reg p_avail = 1, p_ready = 0, p_data_avail = 0;
+    // sdram_fb deasserts available combinationally when p_wr/p_rd is present.
+    // Start low to model that real controller behavior; a request must still
+    // acquire arbiter ownership in this cycle.
+    reg p_avail = 0, p_ready = 0, p_data_avail = 0;
     reg [10:0] p_wsrc_addr = 0;
 
     tau_sdram_arbiter dut (
@@ -60,8 +63,9 @@ module tb_tau_sdram_arbiter;
         repeat (3) @(posedge clk);
         rst = 0;
 
-        // Both masters request together. Framebuffer must win and CPU must not
-        // see a false acceptance pulse.
+        // Both masters request together while the real controller-style
+        // p_available is already low because p_rd is asserted. Framebuffer
+        // must still win and CPU must not see a false acceptance pulse.
         @(negedge clk);
         fb_addr = 25'h12; fb_rd = 1;
         cpu_addr = 25'h345; cpu_wr = 1; cpu_data = 16'hBEEF;

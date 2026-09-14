@@ -64,6 +64,11 @@
 #define R_EQ        0x80000068u   /* R/W: EQ preset index, 0 = FLAT (bypass)    */
 #define R_SET_IDX   0x8000006Cu   /* W:   persistent settings word index, 0..7  */
 #define R_SET_DAT   0x80000070u   /* R: value APF wrote  W: value we publish    */
+#define R_SDR_ADDR  0x80000074u
+#define R_SDR_DATA  0x80000078u
+#define R_SDR_CTRL  0x8000007Cu
+#define R_SDR_RDATA 0x80000080u
+#define R_SDR_STATUS 0x80000084u
 
 /* Target command selector, written to R_TGT_GO bits [1:0]. */
 #define TGT_READ     0u   /* 0180 */
@@ -169,6 +174,12 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * on is a one-line change, not an archaeology exercise. */
 #ifndef DEBUG_DIAG
 #define DEBUG_DIAG 0
+#endif
+#ifndef TAU_SDRAM_STRESS
+#define TAU_SDRAM_STRESS 0
+#endif
+#ifndef TAU_STRESS_HUD
+#define TAU_STRESS_HUD 0
 #endif
 
 /* Framebuffer: 400x360 RGB565, one word/pixel, 512-word (page-aligned) stride.
@@ -605,6 +616,29 @@ static uint32_t paused, volume = 65u;    /* overridden by the saved setting     
 static uint32_t fade_left;
 static uint8_t  under_shadow;   /* underrun already faded this flush epoch */
 static uint32_t pcm_under_n;    /* underrun EDGES since boot, for the diag  */
+
+#if TAU_SDRAM_STRESS
+/* Developer-only contention pump. This is deliberately MMIO-only: it never
+ * changes the player linker map or exposes mapped SDRAM. */
+#define STRESS_BASE 0x00080000u
+#define STRESS_LAST 0x000FFFFEu
+#define STRESS_WORDS_PER_PASS (((STRESS_LAST - STRESS_BASE) / 2u) + 1u)
+#define STRESS_GAP  (CLK_HZ / 16000u)
+#define STRESS_TIMEOUT (CLK_HZ / 4u)
+static uint8_t stress_on, stress_read;
+static uint32_t stress_addr, stress_due, stress_started, stress_expect;
+static uint32_t stress_words, stress_passes, stress_failures, stress_crc;
+static uint32_t stress_under0, stress_fb0;
+#if TAU_STRESS_HUD
+/* R_CYCLES is a 32-bit 60 MHz counter: it wraps every 71.58 s.  Keep a
+ * small wrap-safe stopwatch by consuming deltas every main-loop iteration;
+ * do not retain a raw start/end difference as a multi-minute pass duration. */
+static uint32_t stress_clock_prev, stress_pass_secs, stress_pass_rem;
+static uint32_t stress_last_secs, stress_last_pass;
+static uint32_t stress_hud_tick = 0xFFFFFFFFu;
+static const char *stress_fault;
+#endif
+#endif
 
 /* FIRST underrun of the current track, latched with its circumstances.
  *
@@ -1297,6 +1331,8 @@ static uint32_t io_bench_bytes;   /* ...and how much it managed to read      */
 #define UI_TIME_Y   288u
 #define UI_PROG_Y   334u
 #define UI_PROG_H   5u
+#define UI_STRESS_BAR_Y 341u
+#define UI_STRESS_HUD_Y 344u
 #define UI_INNER_W  (FB_W - 2u * UI_MARGIN)
 /* Right edge a painted glyph CELL may not cross on the info card. The card
  * spans UI_MARGIN-8 .. UI_MARGIN-8+UI_INNER_W+16, so this leaves 8px of
@@ -2607,6 +2643,11 @@ static void ui_draw_chrome(void)
      * Resetting a new track's clock belongs to load_track, which is the only
      * place that knows a new track started. It does it now. */
     ui_prog_sec   = 0xFFFFFFFFu;
+#if TAU_SDRAM_STRESS && TAU_STRESS_HUD
+    /* Chrome repaints the bottom strip too; make the 1 Hz stress HUD restore
+     * itself on the next main-loop pass rather than waiting for another tick. */
+    stress_hud_tick = 0xFFFFFFFFu;
+#endif
     /* track_kbps is NOT cleared here. It describes the STREAM, not the screen,
      * and ui_draw_chrome() is also called mid-track by the tag probe. Clearing
      * it there blanked the format line permanently: rate_set is latched after
@@ -5631,6 +5672,179 @@ static void ui_blank_pump(void)
     if (blank_sec >= blank_min * 60u) ui_blank_enter();
 }
 
+#if TAU_SDRAM_STRESS
+static uint32_t stress_pattern(uint32_t a) { return 0xA55AA55Au ^ (a * 0x9E3779B9u); }
+static uint32_t stress_crc_word(uint32_t crc, uint32_t v)
+{
+    for (uint32_t n = 0; n < 4u; n++, v >>= 8) {
+        crc ^= v & 0xFFu;
+        for (uint32_t b = 0; b < 8u; b++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+    }
+    return crc;
+}
+static void stress_stop(const char *why)
+{
+    stress_on = 0; stress_failures++;
+#if TAU_STRESS_HUD
+    stress_fault = why;
+#endif
+    ui_toast_msg(why);
+}
+
+#if TAU_STRESS_HUD
+static __attribute__((optimize("Os"))) const char *stress_viz_name(void)
+{
+    static const char *const names[] = {
+        "BARS", "WATER", "LEVELS", "SCOPE", "WAVE", "VU",
+        "SCROLL", "MIRROR", "DOTS", "EYE", "LED"
+    };
+    return (viz_mode < VIZ_COUNT) ? names[viz_mode] : "?";
+}
+
+/* The HUD is deliberately tiny and clocks at 1 Hz. It is part of the stress
+ * workload, so drawing it every frame would alter the contention it reports.
+ * The bottom 16 px is otherwise unused; its text cell ends exactly at FB_H. */
+static __attribute__((optimize("Os"))) void stress_hud_draw(void)
+{
+    if (screen_blank) return;
+    uint32_t now = cycles(), tick = now / CLK_HZ;
+    if (tick == stress_hud_tick) return;
+    stress_hud_tick = tick;
+
+    uint32_t done = 0, elapsed = 0;
+    if (stress_on) {
+        done = (stress_addr - STRESS_BASE) / 2u;
+        if (done > STRESS_WORDS_PER_PASS) done = STRESS_WORDS_PER_PASS;
+        elapsed = stress_pass_secs;
+    }
+    uint32_t pct = (done * 100u) / STRESS_WORDS_PER_PASS;
+    uint32_t fill = (UI_INNER_W * pct) / 100u;
+    uint16_t bg = ui_grad_at(UI_STRESS_HUD_Y);
+    fb_rect(UI_MARGIN, UI_STRESS_BAR_Y, UI_INNER_W, 2u, UI_TRACK);
+    if (fill) fb_rect(UI_MARGIN, UI_STRESS_BAR_Y, fill, 2u, ui_accent);
+
+    char b[56], *q = b;
+    *q++ = 'S'; *q++ = 'T'; *q++ = ' ';
+    const char *v = stress_viz_name();
+    while (*v && q < b + sizeof(b) - 1u) *q++ = *v++;
+    *q++ = ' ';
+    if (stress_fault) {
+        const char *f = "FAIL";
+        while (*f) *q++ = *f++;
+        *q++ = ' '; q = ui_dec(q, stress_failures);
+    } else if (!stress_on) {
+        const char *off = "OFF";
+        while (*off) *q++ = *off++;
+    } else {
+        *q++ = 'P'; q = ui_dec(q, stress_passes + 1u);
+        *q++ = ' '; q = ui_dec(q, pct); *q++ = '%';
+        *q++ = ' '; q = ui_mmss(q, elapsed);
+    }
+    *q++ = ' '; *q++ = 'L';
+    if (stress_last_pass) {
+        q = ui_dec(q, stress_last_pass);
+        *q++ = ' '; q = ui_mmss(q, stress_last_secs);
+    } else {
+        *q++ = '-'; *q++ = ' '; *q++ = '-'; *q++ = '-'; *q++ = ':';
+        *q++ = '-'; *q++ = '-';
+    }
+    *q = 0;
+    fb_rect(UI_MARGIN, UI_STRESS_HUD_Y, UI_INNER_W, FB_CELL(TS_1X), bg);
+    fb_set_color(stress_fault ? UI_RED : (stress_on ? ui_accent : UI_DIM), bg);
+    fb_text_clipped(UI_MARGIN, UI_STRESS_HUD_Y, b, TS_1X, TS_1X, UI_INNER_W);
+}
+
+/* Accumulate a pass duration in whole seconds without 64-bit helpers.  The
+ * main loop samples R_CYCLES far more frequently than its 71.58 s wrap, and
+ * unsigned subtraction makes each sampled delta wrap-safe. */
+static __attribute__((optimize("Os"))) void stress_time_tick(void)
+{
+    uint32_t now = cycles(), delta = now - stress_clock_prev;
+    uint32_t secs = delta / CLK_HZ, rem = delta % CLK_HZ;
+    stress_clock_prev = now;
+    stress_pass_secs += secs;
+    if (rem && stress_pass_rem >= CLK_HZ - rem) {
+        stress_pass_secs++;
+        stress_pass_rem -= CLK_HZ - rem;
+    } else {
+        stress_pass_rem += rem;
+    }
+}
+#endif
+
+static void stress_pump(void)
+{
+    uint32_t now = cycles(), st;
+    if (!stress_on) return;
+    st = REG(R_SDR_STATUS);
+    if (st & 1u) {
+        if ((uint32_t)(now - stress_started) > STRESS_TIMEOUT) stress_stop("SDRAM TIMEOUT");
+        return;
+    }
+    if (stress_read == 2u) {
+        /* mp3_soc asserts busy on the clock after the MMIO start pulse. Do
+         * not mistake that one-cycle acceptance gap for write completion. */
+        if ((uint32_t)(now - stress_started) < 128u) return;
+        REG(R_SDR_ADDR) = stress_addr; REG(R_SDR_CTRL) = 0x3Du;
+        stress_started = now; stress_read = 1u; return;
+    }
+    if (stress_read == 1u) {
+        uint32_t got = REG(R_SDR_RDATA);
+        if (got != stress_expect) { stress_stop("SDRAM MISMATCH"); return; }
+        stress_crc = stress_crc_word(stress_crc, got);
+        stress_words++;
+        stress_addr += 2u;
+        if (stress_addr > STRESS_LAST) {
+#if TAU_STRESS_HUD
+            stress_last_secs = stress_pass_secs;
+            stress_addr = STRESS_BASE; stress_passes++; stress_last_pass = stress_passes;
+            stress_pass_secs = stress_pass_rem = 0; stress_crc ^= 0xFFFFFFFFu;
+#else
+            stress_addr = STRESS_BASE; stress_passes++; stress_crc ^= 0xFFFFFFFFu;
+#endif
+            ui_toast_set("SDRAM PASS", stress_passes, 0);
+        }
+        stress_read = 0; stress_due = now + STRESS_GAP; return;
+    }
+    if ((int32_t)(now - stress_due) < 0) return;
+    stress_expect = stress_pattern(stress_addr);
+    REG(R_SDR_ADDR) = stress_addr; REG(R_SDR_DATA) = stress_expect;
+    REG(R_SDR_CTRL) = 0x3Fu; /* start, write, all byte lanes */
+    stress_started = now; stress_read = 2u;
+    /* state 2 means the next idle observation issues a read, not validates. */
+}
+static void stress_tick(void)
+{
+#if TAU_STRESS_HUD
+    if (stress_on) stress_time_tick();
+#endif
+    stress_pump();
+#if TAU_STRESS_HUD
+    stress_hud_draw();
+#endif
+}
+static void stress_toggle(void)
+{
+    stress_on ^= 1u;
+    if (stress_on) {
+        stress_read = 0; stress_addr = STRESS_BASE; stress_due = cycles();
+        stress_words = stress_passes = stress_failures = 0; stress_crc = 0xFFFFFFFFu;
+#if TAU_STRESS_HUD
+        stress_last_secs = stress_last_pass = 0; stress_fault = 0;
+        stress_clock_prev = stress_due; stress_pass_secs = stress_pass_rem = 0;
+        stress_hud_tick = 0xFFFFFFFFu;
+#endif
+        stress_under0 = pcm_under_n; stress_fb0 = REG(R_FB_STALL);
+        ui_toast_msg("SDRAM STRESS ON");
+    } else {
+#if TAU_STRESS_HUD
+        stress_hud_tick = 0xFFFFFFFFu;
+#endif
+        ui_toast_msg("SDRAM STRESS OFF");
+    }
+}
+#endif
+
 /* Black the whole frame. Only the framebuffer -- there is no way to switch the
  * panel itself off from a core, so "blank" means every pixel black. The
  * backlight stays on regardless; see the note on blank_min. */
@@ -5643,6 +5857,9 @@ static void poll_input(void)
     static uint32_t sel_t0;              /* when Select went down              */
     static uint8_t  sel_held;            /* the hold action already ran        */
     static uint32_t pl_rep_at;           /* next overlay scroll repeat         */
+#if TAU_SDRAM_STRESS
+    stress_tick();
+#endif
     uint32_t in   = REG(R_INPUT);
     uint32_t keys = in & 0xFFFFu;
     uint32_t edge = keys & ~prev;        /* rising edges only  */
@@ -5777,6 +5994,11 @@ static void poll_input(void)
             }
         }
     }
+#if TAU_SDRAM_STRESS
+    if ((edge & KEY_X) && (keys & KEY_SELECT)) {
+        sel_used = 1; stress_toggle(); return;
+    }
+#endif
     if (edge & KEY_X) {
         /* Forward only. A reverse on Select+X existed and was dropped: nine
          * modes wrap in a handful of taps, and every Select combo the user has to
@@ -5807,6 +6029,18 @@ static void poll_input(void)
         eq_idx = (uint8_t)((eq_idx + 1u) % EQ_COUNT);
         eq_apply = 1u;
     }
+#if TAU_SDRAM_STRESS && TAU_STRESS_HUD
+    /* The normal Start action stops playback. In the developer stress build,
+     * Select+Start is an explicit HUD refresh and MUST consume the combo: the
+     * test is only meaningful while audio and visualizer traffic continue. */
+    if ((edge & KEY_START) && (keys & KEY_SELECT)) {
+        sel_used = 1;
+        stress_hud_tick = 0xFFFFFFFFu;
+        stress_hud_draw();
+        ui_toast_msg("SDRAM HUD");
+        return;
+    }
+#endif
     if (edge & KEY_START) {
 #if DEBUG_DIAG
         /* Seek state, live. Kept after the hold-to-seek fault: that took five

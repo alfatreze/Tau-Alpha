@@ -127,6 +127,7 @@ class Frame:
 
 
 UI_PANEL = c_uint("UI_PANEL")
+UI_BG = c_uint("UI_BG")
 UI_WHITE = c_uint("UI_WHITE")
 UI_DIM = c_uint("UI_DIM")
 UI_RED = c_uint("UI_RED")
@@ -450,6 +451,54 @@ def playlist_browser():
     return frame
 
 
+def sdram_diagnostic(state):
+    """Mirror the three user-visible states in fw/sdram_diag.c."""
+    if state not in {"running", "pass", "fail", "version-mismatch"}:
+        raise ValueError(f"unsupported SDRAM diagnostic state: {state}")
+    frame = Frame()
+    frame.rect(0, 0, FB_W, FB_H, UI_BG)
+    frame.rect(12, 18, 376, 324, UI_PANEL)
+    frame.text(28, 38, "TAU SDRAM DIAGNOSTIC", "TS_1X", UI_ACCENT, UI_PANEL, 360)
+    if state == "version-mismatch":
+        frame.text(28, 78, "RTL VERSION MISMATCH", "TS_1X", UI_RED, UI_PANEL, 360)
+        frame.text(28, 120, "EXPECTED", "TS_1X", UI_DIM, UI_PANEL, 180)
+        frame.text(220, 120, "4D503316", "TS_1X", UI_WHITE, UI_PANEL, 150)
+        frame.text(28, 146, "ACTUAL", "TS_1X", UI_DIM, UI_PANEL, 180)
+        frame.text(220, 146, "00000000", "TS_1X", UI_RED, UI_PANEL, 150)
+        frame.text(28, 306, "REBUILD OR REINSTALL RBF", "TS_1X", UI_DIM, UI_PANEL, 350)
+        return frame
+    if state == "running":
+        frame.text(28, 78, "PHASE 1 MAILBOX TEST", "TS_1X", UI_WHITE, UI_PANEL, 360)
+        frame.text(28, 112, "SAFE REGION 1-2 MIB", "TS_1X", UI_DIM, UI_PANEL, 360)
+        frame.text(28, 138, "PLAYER DATA UNCHANGED", "TS_1X", UI_DIM, UI_PANEL, 360)
+        frame.rect(20, 177, 360, 10, UI_TRACK)
+        frame.rect(20, 204, 360, 18, UI_BG)
+        frame.text(20, 204, "FIXED PATTERNS", "TS_1X", UI_DIM, UI_BG, 360)
+        return frame
+
+    passed = state == "pass"
+    result_color = 0x4F49 if passed else UI_RED
+    frame.text(28, 72, "PASS" if passed else "FAIL", "TS_1X",
+               result_color, UI_PANEL, 360)
+    frame.text(28, 110, "READBACK CHECKS", "TS_1X", UI_DIM, UI_PANEL, 180)
+    frame.text(220, 110, "183", "TS_1X", UI_WHITE, UI_PANEL, 150)
+    frame.text(28, 136, "FAILURES", "TS_1X", UI_DIM, UI_PANEL, 180)
+    frame.text(220, 136, "0" if passed else "1", "TS_1X",
+               result_color, UI_PANEL, 150)
+    if passed:
+        frame.text(28, 190, "TEST REGION ABOVE 1 MIB", "TS_1X", UI_DIM, UI_PANEL, 350)
+        frame.text(28, 216, "FIXED WALK ADDRESS LANES", "TS_1X", UI_DIM, UI_PANEL, 350)
+    else:
+        for y, label, value in ((180, "FIRST WORD ADDR", "00080800"),
+                                (206, "EXPECTED", "A5A5A5A5"),
+                                (232, "ACTUAL", "A5A4A5A5")):
+            frame.text(28, y, label, "TS_1X", UI_DIM, UI_PANEL, 180)
+            frame.text(220, y, value, "TS_1X", UI_WHITE if y != 232 else result_color,
+                       UI_PANEL, 150)
+    frame.text(28, 306, "A  RUN AGAIN", "TS_1X", UI_DIM, UI_PANEL, 350)
+    return frame
+
+
 FIXTURES = {
     "empty-library": lambda: idle(),
     "playlist-error": lambda: idle("No playable tracks in playlist"),
@@ -465,6 +514,10 @@ FIXTURES = {
     "metadata-missing": lambda: now_playing_base(
         title="untagged-demo-track", artist="", album="", format_line=""),
     "toast": lambda: now_playing_base(toast="VOLUME 70%"),
+    "sdram-diagnostic-running": lambda: sdram_diagnostic("running"),
+    "sdram-diagnostic-pass": lambda: sdram_diagnostic("pass"),
+    "sdram-diagnostic-fail": lambda: sdram_diagnostic("fail"),
+    "sdram-diagnostic-version-mismatch": lambda: sdram_diagnostic("version-mismatch"),
     **{f"visualizer-{name}": (lambda mode=name: now_playing_base(visualizer=mode))
        for name in ("bars", "waterfall", "levels", "phase-scope", "oscilloscope",
                     "waveform", "mirrored-bars", "peak-dots", "magic-eye", "spectrum", "vu")},
