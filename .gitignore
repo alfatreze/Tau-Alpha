@@ -58,6 +58,7 @@ sim/*.txt
 # Regenerable design-review captures. `make visual-review` writes the exact
 # decoded packaged splash here, alongside the authored source for comparison.
 work/previews/
+work/triad/
 
 # Vendored upstreams that carry their own .git (would become gitlinks, not
 # content). Re-clone per README; only the ones we build against matter:
@@ -86,3 +87,9 @@ sim/*.vvp
 /bitstream.rbf_r
 /*.rbf
 fw/*.o
+.aider*
+
+# Local incremental HDL build cache.
+/build/rtl/
+/.venv-cptr/
+/.cptr-data/

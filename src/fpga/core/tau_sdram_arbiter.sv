@@ -74,6 +74,14 @@ module tau_sdram_arbiter (
     // At idle, an incoming framebuffer request wins the same cycle even if a
     // CPU request is also waiting.  Once selected, the owner stays unchanged
     // through data beats and the controller's ready pulse.
+    //
+    // Do NOT use p0_available as the acceptance condition. sdram_fb defines
+    // it as IDLE && !port_req, so it falls combinationally in the exact cycle
+    // a forwarded request is asserted. Requiring it here creates a circular
+    // handshake: the controller sees and queues the request while this
+    // arbiter/CPU bridge never considers it accepted, holding the request
+    // forever. Ownership itself is the accepted-request latch; sdram_fb
+    // retains an accepted request internally until it raises p0_ready.
     wire select_fb  = (owner == OWNER_FB) ||
                       ((owner == OWNER_NONE) && fb_req);
     wire select_cpu = (owner == OWNER_CPU) ||
@@ -95,8 +103,7 @@ module tau_sdram_arbiter (
     // it may assert a one-cycle request pulse.
     assign fb_available  = (owner == OWNER_NONE) && p0_available;
     assign cpu_available = (owner == OWNER_NONE) && p0_available;
-    assign cpu_accepted  = (owner == OWNER_NONE) && p0_available &&
-                           !fb_req && cpu_req;
+    assign cpu_accepted  = (owner == OWNER_NONE) && !fb_req && cpu_req;
 
     assign fb_q              = p0_q;
     assign cpu_q             = p0_q;
@@ -109,10 +116,8 @@ module tau_sdram_arbiter (
         if (rst) begin
             owner <= OWNER_NONE;
         end else if (owner == OWNER_NONE) begin
-            if (p0_available) begin
-                if (fb_req)       owner <= OWNER_FB;
-                else if (cpu_req) owner <= OWNER_CPU;
-            end
+            if (fb_req)       owner <= OWNER_FB;
+            else if (cpu_req) owner <= OWNER_CPU;
         end else if (p0_ready) begin
             owner <= OWNER_NONE;
         end

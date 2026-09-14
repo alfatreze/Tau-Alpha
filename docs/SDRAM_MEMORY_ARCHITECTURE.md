@@ -1,6 +1,6 @@
 # SDRAM memory architecture decision
 
-**Status:** Proposed for staged implementation  
+**Status:** Phase 1 accepted on Pocket; Phase 2 preflight in progress
 **Decision gate:** Tau should not resume substantial feature growth until the
 data-only SDRAM prototype passes on Pocket hardware.  Executing cold code from
 SDRAM is a later, separate gate.
@@ -163,16 +163,15 @@ map is:
 | CPU address | Use | Cache |
 |---|---|---|
 | `0x0000_0000–0x0003_FFFF` | Existing 256 KiB BRAM | Cached |
-| `0x4000_0000–0x43FF_FFFF` | SDRAM physical address space | Cached |
 | `0x4010_0000–0x43FF_FFFF` | Initial CPU-owned SDRAM region | Cached |
 | `0x8000_0000` narrow page | Existing MMIO | Uncached |
-| `0xA000_0000–0xA3EF_FFFF` | Optional CPU-owned SDRAM alias | Uncached |
+| `0xA010_0000–0xA3FF_FFFF` | CPU-owned SDRAM alias | Uncached |
 | `0xC000_0000–0xC003_FFFF` | Existing BRAM alias for APF DMA | Uncached |
 
 The first 1 MiB of physical SDRAM remains unavailable to the CPU even though the
-framebuffer currently needs only 360 KiB. Cached and uncached windows must map to
-the same physical offset explicitly; they must not depend on simply truncating
-the CPU address.
+framebuffer currently needs only 360 KiB. Cached and uncached windows begin at
+the same 1 MiB physical boundary and must map to that offset explicitly; they
+must not depend on simply truncating the CPU address.
 
 The current broad `d_is_ram` decode accepts more aliases than intended. It must
 be replaced with explicit BRAM, SDRAM, and MMIO selects **before Phase 2 begins**.
@@ -258,6 +257,61 @@ state in BRAM.
 audio reservations remain unchanged, and the previously rejected minimal
 settings shell links without using that recovered space for unrelated features.
 
+#### Phase 2 preflight — explicit decode and bus semantics
+
+**Current state (2026-09-14):** Phase 1's bounded concurrent contention gate
+is accepted: ten named visualizer modes completed cleanly on Pocket, with a
+reviewed waiver for the stopped-playback Eye repeat. The stress-HUD timer
+correction is staged for future sessions and is not a reliability blocker.
+
+Do **not** expose `0x4000_0000` as cacheable SDRAM by changing only the broad
+`d_is_ram` expression in `mp3_soc.v`. The existing `tau_sdram_cpu_bridge` is a
+one-outstanding, 32-bit request/response mailbox. VexRiscv's cached data port
+can issue cache-line fills and writeback traffic using Wishbone burst metadata;
+connecting that port directly would either lose burst semantics or hold
+framebuffer arbitration for an unbounded line transaction. That would violate
+the Phase 1 safety boundary.
+
+The required order is:
+
+1. Replace the implicit `d_is_ram` aliasing with mutually exclusive **BRAM**,
+   **MMIO**, and **SDRAM-window** selects. Simulate that `0x4000_0000` can no
+   longer address BRAM before any mapped request is enabled.
+2. Expose only the explicit `0xA010_0000+` *uncached* alias through a bounded
+   32-bit Wishbone-to-bridge adapter. Start with a diagnostic read/write/byte
+   lane and physical-offset-alias test; no linker placement or user feature
+   may depend on it.
+3. Design and simulate a cache-line adapter that decomposes every cached
+   request into bounded bridge operations, creates a framebuffer arbitration
+   point between each operation, preserves Wishbone `CTI/BTE` semantics, and
+   returns one ACK per CPU beat. This is a new module, not a widening of the
+   Phase 1 bridge.
+4. Only after the uncached and cached aliases agree on Pocket may a `NOLOAD`
+   cold workspace be moved. Candidate data remains playlist and artwork
+   workspace only; decoder, audio, stack, target reads, and input remain BRAM.
+
+**Why start uncached:** it proves address translation, lane preservation,
+reset/initialisation behavior, and concurrent framebuffer safety without
+depending on generated VexRiscv cache behavior. It cannot establish cache
+coherence or provide the intended cold-workspace performance, so it is a
+sub-gate rather than a final architecture.
+
+**Preflight exit criteria:** a code-reviewable address table; a new adapter
+testbench that covers idle, controller-unavailable, read/write, all byte lanes,
+back-to-back requests, reset skew, and framebuffer contention; an explicit
+test showing proposed SDRAM addresses never select BRAM; and a revised
+resource/timing plan before a new Quartus build. Record each result with its
+evidence label; do not describe simulation as Pocket validation.
+
+**Preflight progress:** `tau_sdram_addr_decode.sv` now provides the standalone
+address-map contract, and `tau_sdram_wb_adapter.sv` provides the standalone
+uncached classic-Wishbone adapter. Their tests pass, but neither module is in
+the live Quartus source list or connected to VexRiscv yet. The adapter accepts
+only `CTI=000` classic beats, produces one bridge command and one ACK, waits for
+the master to release its held request, and flags incrementing bursts rather
+than forwarding them. Integration must first mux its bridge request safely with
+the existing diagnostic MMIO path and preserve the current normal-TAU build.
+
 ### Phase 3 — cold initialized data and cold code
 
 Only after Phase 2 passes, add a linker section for selected read-only tables or
@@ -318,6 +372,12 @@ SDRAM bridge.
 - Existing `tb_mp3_fb` remains unchanged and passing.
 
 ### Firmware diagnostics
+
+The first developer-only fixed/sparse readback sub-gate is implemented in
+`fw/sdram_diag.c` and documented in
+[SDRAM_POCKET_DIAGNOSTIC.md](SDRAM_POCKET_DIAGNOSTIC.md). It deliberately stops
+short of the 1 MiB CRC and concurrent playback requirements below; those remain
+the next hardware gate rather than being implied by a basic `PASS`.
 
 - Fixed patterns: `0x00000000`, `0xFFFFFFFF`, `0xAAAAAAAA`, `0x55555555`.
 - Walking ones and zeros.

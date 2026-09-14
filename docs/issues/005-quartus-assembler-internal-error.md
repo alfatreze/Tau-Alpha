@@ -1,7 +1,7 @@
 # Issue 005 — Phase 1 Quartus Assembler internal error
 
-**Status:** Reproduced once; not reproduced by controlled isolations — final
-clean current-source build and Pocket diagnostics remain required
+**Status:** Quartus build gate passed on 2026-09-14; controlled Pocket
+diagnostics remain required
 **First observed:** 2026-09-13  
 **Evidence level:** **Quartus** only; no programming artifact or Pocket test
 
@@ -164,6 +164,37 @@ controlled Pocket diagnostic; no architecture/toolchain change is justified.
 - The build ran in a managed interactive SSH session. This is distinct from
   issue 004's detached-launch limitation.
 
+## Final fresh current-source build
+
+**Status:** Passed, 2026-09-14 (**Quartus**)
+
+The fresh local-ext4 snapshot `/home/taualpha/tau-current-b729a7b` completed the
+full Quartus flow. Its directory name identifies the source snapshot as
+`b729a7b`; the guest copy has no Git executable/metadata, so its commit could
+not be queried in place. A recursive comparison of `src/fpga` with the current
+shared project found no RTL/QSF/source differences; the only file difference
+was `apf/build_id.mif`, which the Quartus pre-flow script regenerates with the
+current build identifier. `c5_pin_model_dump.txt`, `incremental_db/`, and
+`output_files/` are generated build products.
+
+The flow report says **Successful** at 01:24:08; `ap_core.done` is stamped
+01:27:38. Quartus reports 39m28s total flow time (analysis/synthesis 5m04s,
+fitter 29m59s, assembler 1m03s, timing analyzer 3m22s). Both `ap_core.sof`
+(2.4 MiB) and `ap_core.rbf` (1.8 MiB) were generated. The fitted device was
+Cyclone V `5CEBA4F23C8` using Quartus Prime Lite 25.1std.0 Build 1129.
+
+Fit: 5,706 / 18,480 ALMs (31%), 7,414 registers, 2,380,416 / 3,153,920 block
+memory bits (75%), 299 / 308 RAM blocks (97%), 11 / 66 DSP blocks (17%), and
+1 / 4 PLLs (25%). This matches controlled isolation 5's resource counts.
+Timing analysis completed with TNS 0 and positive slack in the reported
+corners. The minimum reported setup slack is 0.914 ns; the tightest reported
+hold slack is 0.119 ns (Fast 1100mV, 0C model). The positive hold margin is
+small and must be rechecked after any clocking/CDC changes.
+
+This is Quartus evidence only. It does not confirm SDRAM transfers, Pocket
+stability, or audio/video behavior. The controlled Pocket diagnostic is the
+next hardware gate.
+
 ## Decision and next investigation
 
 1. Preserve `db/` and `output_files/` in the local VM copy until the failure is
@@ -173,10 +204,9 @@ controlled Pocket diagnostic; no architecture/toolchain change is justified.
 3. **Completed:** isolations 1–5 cleared every functional FPGA delta from the
    original Phase 1 source, including MMIO/top-level wiring. The original
    assembler assertion did not reproduce.
-4. Build the exact current source revision in a fresh local-ext4 directory.
-   Only if that fails again, retain its database/logs and investigate Quartus
-   build state before considering a toolchain change. If it passes, proceed to
-   the controlled Pocket diagnostic; no source migration follows automatically.
+4. **Completed:** the fresh source-matched build generated valid programming
+   files and passed timing. Proceed to the controlled Pocket diagnostic; no
+   data migration follows automatically.
 
-No Phase 2 mapped SDRAM work or Pocket diagnostic should start until this issue
-has produced a timing-clean programming artifact.
+The Quartus build gate is cleared. Pocket diagnostics and the project's SDRAM
+concurrency/stability matrix remain required before Phase 2 data migration.

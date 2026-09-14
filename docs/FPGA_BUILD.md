@@ -25,7 +25,7 @@ The limiting timing margin is a 0.025 ns hold slack in the fast 0C timing
 model. There are no setup or hold failures, but this is not a basis for
 unmeasured clocking changes.
 
-## Phase 1 SDRAM integration build — assembler blocked
+## Phase 1 SDRAM integration build — successful Quartus gate; Pocket testing pending
 
 On 13 September 2026, the Phase 1 SDRAM diagnostic integration completed
 analysis, synthesis, and fitting successfully on the same VM and Quartus
@@ -40,13 +40,50 @@ installation. The fitter reported the following preliminary resource result:
 | DSP blocks | 11 | 11 | 0 |
 | PLLs | 1 | 1 | 0 |
 
-This is **not a completed FPGA build**. Quartus's final Assembler terminated
-with the internal assertion `u2b_bcm_netlist != NULL` in
-`asm_model_generator.h:217`, so it did not create an `.sof`/`.rbf` and timing
-analysis did not run. An isolated `quartus_asm` retry also created no programming
-artifact. Treat the fitter values as fit-only evidence, not a timing or Pocket
-result. Full evidence and the next safe investigation step are retained in
-[issue 005](issues/005-quartus-assembler-internal-error.md).
+The first complete Phase 1 attempt did fail in Quartus's final Assembler with
+the internal assertion `u2b_bcm_netlist != NULL` in
+`asm_model_generator.h:217`; that attempt did not create programming files or
+run timing analysis. The failure was not reproduced by controlled isolations
+1–5 or by the fresh current-source rerun below. Keep the original failure in
+the audit history; do not attribute it to a specific RTL change.
+
+### Fresh current-source rerun — 2026-09-14
+
+The full Quartus flow in `/home/taualpha/tau-current-b729a7b` reported
+**Successful**. The report totals 39m28s: Analysis & Synthesis 5m04s, Fitter
+29m59s, Assembler 1m03s, and Timing Analyzer 3m22s. It produced both
+`ap_core.sof` and `ap_core.rbf`.
+
+| Resource | Fitted result |
+|---|---:|
+| ALMs | 5,706 / 18,480 (31%) |
+| Registers | 7,414 |
+| Block memory bits | 2,380,416 / 3,153,920 (75%) |
+| RAM blocks | 299 / 308 (97%) |
+| DSP blocks | 11 / 66 (17%) |
+| PLLs | 1 / 4 (25%) |
+
+Timing analysis reported TNS 0 and positive slack in all listed corners. The
+minimum setup slack is 0.914 ns; the tightest hold slack is 0.119 ns in the
+Fast 1100mV, 0C model. That positive hold margin is narrow and must be
+rechecked after clocking or CDC changes. The resource counts match controlled
+isolation 5. The source snapshot was compared against the current shared FPGA
+tree; differences were limited to regenerated `apf/build_id.mif` and generated
+Quartus outputs. The VM snapshot has no Git metadata, so the directory label
+`b729a7b` could not be validated with `git rev-parse` inside the guest.
+
+This is **Quartus** evidence only, not Pocket validation. The fitted resource
+usage also leaves only nine RAM blocks; the next gate is the controlled Pocket
+diagnostic and concurrency/stability matrix before any SDRAM data migration.
+See [issue 005](issues/005-quartus-assembler-internal-error.md) and
+[audit entry A-024](AUDIT_TRAIL.md).
+
+The successful `ap_core.rbf` was copied without modification into the host
+diagnostic staging area. Its SHA-256 is
+`0c00362795f22486af8aece80d1a3c6b1eb857e0783699a7fa6394163b1a6dc7`.
+The side-by-side Pocket diagnostic package and exact firmware procedure are in
+[SDRAM_POCKET_DIAGNOSTIC.md](SDRAM_POCKET_DIAGNOSTIC.md). This artifact copy
+does not add a new Quartus result or change the resource/timing evidence above.
 
 ## Build layout
 
