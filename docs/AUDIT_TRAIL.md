@@ -494,6 +494,33 @@ account/profile setup are completed. Next, perform one disposable live triad
 run and inspect its plan/patch/gate/review/audit artifacts. Quartus remains
 human-gated.
 
+### A-020 — Defer targeted MP3 FPGA acceleration research until SDRAM is proven
+
+**Date:** 2026-09-14
+**Decision/change:** Add a post-SDRAM research gate to profile the MP3 software
+decoder and evaluate narrowly targeted FPGA logic/DSP acceleration for measured
+bottlenecks such as IMDCT, Huffman decode, dequantization, or the subband
+synthesis/polyphase filterbank.
+**Alternatives and rationale:** Start implementing a broad hardware decoder
+now (deferred: SDRAM capacity and validation remain the active architecture
+gate, and no per-stage profile or resource/benefit measurement exists), or
+assume a PMOD I2S2 controller provides codec acceleration (rejected: it is an
+audio-interface reference, not an MP3 decode engine).
+**Hot/cold impact:** No implementation yet. The existing protected audio
+software path remains unchanged; any future accelerator would be on the hot
+path and must earn its complexity through measured end-to-end benefit.
+**Evidence:** **design** — a research question and evaluation criteria have
+been added to the roadmap; no hardware or performance claim is made.
+**Resource/timing delta:** Not applicable; documentation-only.
+**Outcome, reversal/workaround, remaining risk, and next gate:** After the
+expanded SDRAM data path passes timing and Pocket concurrency/stability tests,
+profile the decoder, compare candidate kernels for bit-exactness, throughput,
+latency, ALM/DSP/M10K cost, clock closure, and audio underruns, then prototype
+only a stage with meaningful system-level value. FPGA sound generators are
+possible fixed-point/streaming references; external I2S hardware compatibility
+must be evaluated separately. The software implementation remains reference
+and fallback.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible

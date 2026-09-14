@@ -365,3 +365,38 @@ moving playback-critical state. That is enough to make settings and diagnostics
 practical again. Phase 3 is the route to continued code growth. Phase 4 is what
 could eventually return a large number of FPGA block-RAM resources; it is not an
 automatic consequence of merely storing some variables in SDRAM.
+
+## Deferred research: targeted MP3 datapath acceleration
+
+Do not begin this work until the expanded SDRAM data path has a timing-clean
+build and has passed the Pocket concurrency/stability gate above. SDRAM is the
+current capacity and integration gate; accelerator work should not obscure or
+compete with proving it.
+
+After that gate, profile the software decoder first. If measurements show a
+remaining CPU or latency bottleneck, evaluate one FPGA logic/DSP block at a
+time rather than recreating an entire MP3 decoder chip. Candidate kernels are
+IMDCT, Huffman decode, dequantization, and the subband synthesis/polyphase
+filterbank. Their suitability differs: transform/filterbank arithmetic may
+map naturally to DSP slices, while Huffman control and table-driven stages may
+be less efficient. Treat each as a hypothesis to measure, not a presumed win.
+
+The study should compare the existing software path with any prototype for
+bit-exact decoded samples, throughput and latency, ALM/DSP/M10K cost, clock
+closure, SDRAM arbitration impact, power if measurable, and zero audio
+underruns under the existing Pocket stress matrix. Preserve the software
+implementation as the reference and fallback until a hardware path proves
+equivalent and robust.
+
+FPGA sound-generator projects may provide reusable ideas for fixed-point DSP
+and streaming datapaths. A PMOD I2S2 controller is relevant only as a reference
+for serial-audio interfacing or test-fixture output; it does not perform MP3
+decode acceleration. Separately verify whether such an interface is compatible
+with the Pocket's existing audio output and pin/resource constraints before
+considering it in-core.
+
+**Gate:** after Phase 2 passes, produce a profile and resource/benefit
+comparison for candidate stages. Proceed to an RTL prototype only if one
+measured stage has meaningful end-to-end value with acceptable fit, timing, and
+audio-validation cost. Until then this is research backlog, not selected
+architecture.
