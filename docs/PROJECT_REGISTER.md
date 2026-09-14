@@ -63,6 +63,7 @@ firmware build; **design** = agreed intent, not implementation evidence.
 | Hardware capacity | Diagnostic SDRAM MMIO access | RTL integrated; **simulation** tests pass; full fit completed but final Assembler failed; controlled Quartus isolations are narrowing the trigger; no Pocket claim | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md), [issue 005](issues/005-quartus-assembler-internal-error.md) |
 | Hardware capacity | Cached SDRAM data window and cold-workspace migration | Planned; blocked on successful diagnostic gate | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md) |
 | Hardware capacity | Cold code execution from SDRAM | Deferred; separate later decision gate | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md) |
+| Audio architecture | Profile MP3 stages and evaluate a targeted logic/DSP accelerator (IMDCT, Huffman, dequantization, synthesis filterbank) | Deferred until expanded SDRAM passes its Pocket gate; research only, no RTL commitment | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md), [PROJECT plan](../PROJECT.md) |
 
 ## Known issue register
 

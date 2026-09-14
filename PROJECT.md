@@ -116,6 +116,24 @@ of cold playlist/artwork workspace. Preserve framebuffer priority, introduce no
 unplanned M10K use, and require zero audio underruns or display corruption in the
 Pocket stress matrix. Cold-code execution is a separate later gate.
 
+### 3a. Evaluate targeted FPGA audio acceleration — deferred until SDRAM works
+
+After the expanded SDRAM data path has a timing-clean build and passes its
+Pocket concurrency/stability gate, profile the MP3 decode pipeline to identify
+whether specific stages still limit playback or consume meaningful CPU time.
+Then evaluate a small FPGA logic/DSP accelerator for one measured bottleneck,
+with candidate stages including IMDCT, Huffman decode, dequantization, and the
+subband synthesis/polyphase filterbank. Keep the software decoder as the
+reference and fallback; do not assume a full codec-chip recreation is needed.
+
+Compare CPU-only and accelerated implementations for bit-exact output,
+throughput/latency, ALM/DSP/M10K use, clock timing, SDRAM contention, and audio
+underruns. Consider FPGA sound-generator projects as implementation references.
+Treat a PMOD I2S2 controller as a possible serial-audio-interface reference
+only: it does not provide MP3 decode acceleration, and its fit with the Pocket
+audio path must be established separately. This is a research gate, not a
+committed RTL feature.
+
 ### 4. In-app settings — memory-budget gate
 
 Complete the Figma interaction model and measure a minimal implementation
