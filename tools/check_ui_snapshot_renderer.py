@@ -2,6 +2,7 @@
 """Fast host check for the first deterministic Tau UI framebuffer fixtures."""
 
 import sys
+import re
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -29,6 +30,32 @@ def main():
                   "sdram-diagnostic-fail", "sdram-diagnostic-version-mismatch")
     if len({checksums[name] for name in diagnostic}) != len(diagnostic):
         raise SystemExit("FAIL: SDRAM diagnostic fixtures are not distinct")
+    cpu_diagnostic = ("sdram-cpu-diagnostic-running", "sdram-cpu-diagnostic-pass",
+                      "sdram-cpu-diagnostic-fail", "sdram-cpu-diagnostic-version-mismatch")
+    if len({checksums[name] for name in cpu_diagnostic}) != len(cpu_diagnostic):
+        raise SystemExit("FAIL: CPU SDRAM diagnostic fixtures are not distinct")
+    if checksums["sdram-diagnostic-running"] == checksums["sdram-cpu-diagnostic-running"]:
+        raise SystemExit("FAIL: CPU SDRAM running fixture is not clearly identified")
+    preflight = ("sdram-cpu-preflight-running", "sdram-cpu-preflight-fail",
+                 "sdram-cpu-preflight-readback-fail")
+    if len({checksums[name] for name in preflight}) != len(preflight):
+        raise SystemExit("FAIL: CPU SDRAM preflight fixtures are not distinct")
+    if checksums["sdram-cpu-probe-bar"] == checksums["sdram-cpu-diagnostic-running"]:
+        raise SystemExit("FAIL: CPU SDRAM hardware-probe fixture did not render the overlay")
+    # The FPGA overlay must render every recorded probe bit. A-063 initially
+    # widened the recorder to 46 bits but left the visible bar at 19 cells;
+    # inspect the authoritative scanout guards so a host-only preview cannot
+    # accidentally hide that integration error again.
+    core_game = (Path(__file__).resolve().parent.parent / "src/fpga/core/core_game.vh").read_text(
+        encoding="utf-8")
+    match = re.search(
+        r"wire sdram_probe_pixel.*?sdram_probe_x < 9'd(\d+).*?"
+        r"wire sdram_probe_bar.*?sdram_probe_x < 9'd(\d+)",
+        core_game,
+        flags=re.DOTALL,
+    )
+    if not match or match.group(1) != match.group(2) or match.group(1) != "392":
+        raise SystemExit("FAIL: FPGA probe bar does not cover all 49 A-074 cells")
     print(f"PASS: UI snapshot renderer emits {len(frames)} deterministic "
           "400x360 RGB565 fixtures")
 

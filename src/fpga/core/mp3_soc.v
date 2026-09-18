@@ -47,7 +47,10 @@
 // the core. pcm_fifo adds ~8 more.
 module mp3_soc #(
     parameter RAM_WORDS = 65536,           // 256 KB -- power of two, required
-    parameter RAM_AW    = 16
+    parameter RAM_AW    = 16,
+    // Phase 2 remains opt-in until its address map, uncached adapter, and
+    // owner-mux path have passed the full Quartus and Pocket gates.
+    parameter PHASE2_WINDOW_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -150,7 +153,33 @@ module mp3_soc #(
     output reg  [3:0]   sdram_byte_en,
     input  wire         sdram_busy,
     input  wire         sdram_done,
-    input  wire [31:0]  sdram_rdata
+    input  wire [31:0]  sdram_rdata,
+
+    // Phase 2 uncached CPU data-window client. Disabled by default; in the
+    // disabled build these outputs are tied inactive and inputs are ignored.
+    output wire         sdram_wb_req,
+    output wire         sdram_wb_write,
+    output wire [24:0]  sdram_wb_addr,
+    output wire [31:0]  sdram_wb_wdata,
+    output wire [3:0]   sdram_wb_byte_en,
+    input  wire         sdram_wb_accept,
+    input  wire         sdram_wb_done,
+    input  wire [31:0]  sdram_wb_rdata,
+
+    // Diagnostic-only visibility for the opt-in Phase 2 CPU-window probe.
+    // These ports are inert in release builds and deliberately expose only
+    // protocol metadata, never CPU data or program memory.
+    output wire         sdram_wb_debug_cpu_req,
+    output wire         sdram_wb_debug_we,
+    output wire [31:0]  sdram_wb_debug_wdata,
+    output wire [2:0]   sdram_wb_debug_cti,
+    output wire [3:0]   sdram_wb_debug_sel,
+    output wire         sdram_wb_debug_ack,
+    output wire         sdram_wb_debug_unsupported,
+    // Optional return-path probe visibility. These expose only the CPU-facing
+    // registered ACK/data pair; they are inert in legacy builds.
+    output wire         sdram_wb_debug_cpu_ack,
+    output wire [31:0]  sdram_wb_debug_cpu_rdata
 );
 
     // ---------------------------------------------------------------- CPU ---
@@ -171,6 +200,12 @@ module mp3_soc #(
     wire [1:0]  dBTE;
     reg  [31:0] dDAT_MISO;
     reg         dACK;
+    wire        sdram_wb_ack;
+    wire [31:0] sdram_wb_cpu_rdata;
+    wire        sdram_wb_unsupported;
+    wire        d_bus_err;
+    wire        d_req     = dCYC & dSTB & ~dACK;
+    wire        i_req     = iCYC & iSTB & ~iACK;
 
     VexRiscv cpu (
         .externalResetVector   (32'h00000000),
@@ -198,7 +233,7 @@ module mp3_soc #(
         .dBusWishbone_DAT_MISO (dDAT_MISO),
         .dBusWishbone_DAT_MOSI (dDAT_MOSI),
         .dBusWishbone_SEL      (dSEL),
-        .dBusWishbone_ERR      (1'b0),
+        .dBusWishbone_ERR      (d_bus_err),
         .dBusWishbone_CTI      (dCTI),
         .dBusWishbone_BTE      (dBTE),
 
@@ -226,10 +261,84 @@ module mp3_soc #(
     // over the bridge, behind the CPU's back. Reading that buffer through the
     // cached window could return stale lines with no way to tell. Firmware reads
     // streamed bytes via 0xC000_0000 and gets the real memory every time.
-    wire        d_is_mmio = dADR[29] & ~dADR[28];     // byte 0x8xxx_xxxx
-    wire        d_is_ram  = ~dADR[29] | dADR[28];     // byte 0x0xxx / 0xCxxx
-    wire        d_req     = dCYC & dSTB & ~dACK;
-    wire        i_req     = iCYC & iSTB & ~iACK;
+    wire        d_is_mmio;
+    wire        d_is_ram;
+    wire        d_is_sdram;
+    wire        d_is_sdram_cached;
+    wire [24:0] d_sdram_addr;
+
+    wire dec_bram_cached, dec_bram_uncached, dec_mmio;
+    wire dec_sdram_cached, dec_sdram_uncached;
+    wire [24:0] dec_sdram_addr;
+    tau_sdram_addr_decode u_sdram_addr_decode (
+        .dadr(dADR), .bram_cached(dec_bram_cached),
+        .bram_uncached(dec_bram_uncached), .mmio(dec_mmio),
+        .sdram_cached(dec_sdram_cached), .sdram_uncached(dec_sdram_uncached),
+        .sdram_addr(dec_sdram_addr)
+    );
+
+    generate
+        if (PHASE2_WINDOW_ENABLE != 0) begin : g_phase2_window
+            assign d_is_mmio        = dec_mmio;
+            assign d_is_ram         = dec_bram_cached | dec_bram_uncached;
+            assign d_is_sdram       = dec_sdram_uncached;
+            assign d_is_sdram_cached= dec_sdram_cached;
+            assign d_sdram_addr     = dec_sdram_addr;
+            assign sdram_wb_debug_cpu_req = d_req & dec_sdram_uncached;
+            assign sdram_wb_debug_we      = dWE;
+            assign sdram_wb_debug_wdata   = dDAT_MOSI;
+            assign sdram_wb_debug_cti     = dCTI;
+            assign sdram_wb_debug_sel     = dSEL;
+            assign sdram_wb_debug_ack     = sdram_wb_ack;
+            assign sdram_wb_debug_unsupported = sdram_wb_unsupported;
+            assign sdram_wb_debug_cpu_ack = dACK;
+            assign sdram_wb_debug_cpu_rdata = dDAT_MISO;
+
+            tau_sdram_wb_adapter u_sdram_wb_adapter (
+                .clk(clk), .rst(rst),
+                .wb_cyc(dCYC & d_is_sdram), .wb_stb(dSTB), .wb_we(dWE),
+                .wb_cti(dCTI), .wb_sdram_addr(d_sdram_addr),
+                .wb_wdata(dDAT_MOSI), .wb_sel(dSEL),
+                .wb_rdata(sdram_wb_cpu_rdata), .wb_ack(sdram_wb_ack),
+                .wb_unsupported(sdram_wb_unsupported),
+                .bridge_req(sdram_wb_req), .bridge_write(sdram_wb_write),
+                .bridge_addr(sdram_wb_addr), .bridge_wdata(sdram_wb_wdata),
+                .bridge_byte_en(sdram_wb_byte_en),
+                .bridge_accept(sdram_wb_accept), .bridge_done(sdram_wb_done),
+                .bridge_rdata(sdram_wb_rdata)
+            );
+
+            // Unsupported bursts and unmapped data addresses terminate as a
+            // Wishbone error instead of silently hanging the CPU bus.
+            assign d_bus_err = sdram_wb_unsupported |
+                (d_req & (dec_sdram_cached |
+                          ~(d_is_mmio | d_is_ram | d_is_sdram)));
+        end else begin : g_legacy_window
+            assign d_is_mmio         = dADR[29] & ~dADR[28];
+            assign d_is_ram          = ~dADR[29] | dADR[28];
+            assign d_is_sdram        = 1'b0;
+            assign d_is_sdram_cached = 1'b0;
+            assign d_sdram_addr      = 25'd0;
+            assign sdram_wb_req      = 1'b0;
+            assign sdram_wb_write    = 1'b0;
+            assign sdram_wb_addr     = 25'd0;
+            assign sdram_wb_wdata    = 32'd0;
+            assign sdram_wb_byte_en  = 4'd0;
+            assign sdram_wb_ack      = 1'b0;
+            assign sdram_wb_cpu_rdata= 32'd0;
+            assign sdram_wb_unsupported = 1'b0;
+            assign sdram_wb_debug_cpu_req = 1'b0;
+            assign sdram_wb_debug_we      = 1'b0;
+            assign sdram_wb_debug_wdata   = 32'd0;
+            assign sdram_wb_debug_cti     = 3'd0;
+            assign sdram_wb_debug_sel     = 4'd0;
+            assign sdram_wb_debug_ack     = 1'b0;
+            assign sdram_wb_debug_unsupported = 1'b0;
+            assign sdram_wb_debug_cpu_ack = 1'b0;
+            assign sdram_wb_debug_cpu_rdata = 32'd0;
+            assign d_bus_err         = 1'b0;
+        end
+    endgenerate
 
     // Priority: loader > dBus > iBus. The loader must win because the APF
     // bridge cannot be back-pressured -- a dropped byte would silently corrupt
@@ -563,23 +672,26 @@ module mp3_soc #(
     end
 
     // --------------------------------------------------------- bus returns ---
-    reg d_was_mmio;
+    reg d_was_mmio, d_was_sdram;
     always @(posedge clk) begin
         if (rst) begin
-            dACK <= 1'b0; iACK <= 1'b0; d_was_mmio <= 1'b0;
+            dACK <= 1'b0; iACK <= 1'b0;
+            d_was_mmio <= 1'b0; d_was_sdram <= 1'b0;
         end else begin
             dACK       <= 1'b0;
             iACK       <= 1'b0;
-            d_was_mmio <= d_is_mmio;
+            d_was_mmio <= d_mmio_req;
+            d_was_sdram<= sdram_wb_ack;
             // Ack only what actually got the port this cycle; anything blocked
             // by the loader simply retries (Wishbone masters hold their request).
-            if (d_mmio_req | serve_d) dACK <= 1'b1;
+            if (d_mmio_req | serve_d | sdram_wb_ack) dACK <= 1'b1;
             if (serve_i)              iACK <= 1'b1;
         end
     end
 
     always @(*) begin
-        dDAT_MISO = d_was_mmio ? mmio_rdata : a_rdata;
+        dDAT_MISO = d_was_mmio  ? mmio_rdata :
+                    d_was_sdram ? sdram_wb_cpu_rdata : a_rdata;
         iDAT_MISO = a_rdata;
     end
 

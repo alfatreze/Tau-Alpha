@@ -26,45 +26,45 @@ module tau_sdram_wb_adapter (
     output wire        wb_unsupported,
 
     // Existing one-outstanding CPU bridge interface
-    output reg         bridge_start,
+    output wire        bridge_req,
     output reg         bridge_write,
     output reg  [24:0] bridge_addr,
     output reg  [31:0] bridge_wdata,
     output reg  [3:0]  bridge_byte_en,
-    input  wire        bridge_busy,
+    input  wire        bridge_accept,
     input  wire        bridge_done,
     input  wire [31:0] bridge_rdata
 );
-    localparam [1:0] S_IDLE = 2'd0, S_WAIT = 2'd1, S_RELEASE = 2'd2;
+    localparam [1:0] S_IDLE = 2'd0, S_ISSUE = 2'd1, S_WAIT = 2'd2, S_RELEASE = 2'd3;
     reg [1:0] state;
 
     wire wb_req = wb_cyc && wb_stb;
     wire wb_classic = (wb_cti == 3'b000);
     assign wb_unsupported = wb_req && !wb_classic;
+    assign bridge_req = (state == S_ISSUE);
 
     always @(posedge clk) begin
         if (rst) begin
             state          <= S_IDLE;
             wb_rdata       <= 32'd0;
             wb_ack         <= 1'b0;
-            bridge_start   <= 1'b0;
             bridge_write   <= 1'b0;
             bridge_addr    <= 25'd0;
             bridge_wdata   <= 32'd0;
             bridge_byte_en <= 4'd0;
         end else begin
-            // Both acknowledgement and bridge-start are single-clock pulses.
+            // Acknowledgement is a single-clock pulse. The bridge request is
+            // held in S_ISSUE until the shared-bridge mux accepts it.
             wb_ack       <= 1'b0;
-            bridge_start <= 1'b0;
             case (state)
-                S_IDLE: if (wb_req && wb_classic && !bridge_busy) begin
+                S_IDLE: if (wb_req && wb_classic) begin
                     bridge_write   <= wb_we;
                     bridge_addr    <= wb_sdram_addr;
                     bridge_wdata   <= wb_wdata;
                     bridge_byte_en <= wb_sel;
-                    bridge_start   <= 1'b1;
-                    state          <= S_WAIT;
+                    state          <= S_ISSUE;
                 end
+                S_ISSUE: if (bridge_accept) state <= S_WAIT;
                 S_WAIT: if (bridge_done) begin
                     wb_rdata <= bridge_rdata;
                     wb_ack   <= 1'b1;
@@ -72,7 +72,14 @@ module tau_sdram_wb_adapter (
                     // release prevents a held request from starting twice.
                     state    <= S_RELEASE;
                 end
-                S_RELEASE: if (!wb_req) state <= S_IDLE;
+                // VexRiscv may keep CYC/STB asserted while moving directly
+                // to the next CLASSIC beat. Hold one turnaround cycle so the
+                // registered ACK is observable at mp3_soc, then return to
+                // IDLE unconditionally. Waiting for !wb_req here deadlocks
+                // that legal back-to-back form: no new beat can be admitted
+                // until the old one is released, but the master does not
+                // release the cycle between consecutive transfers.
+                S_RELEASE: state <= S_IDLE;
                 default: state <= S_IDLE;
             endcase
         end

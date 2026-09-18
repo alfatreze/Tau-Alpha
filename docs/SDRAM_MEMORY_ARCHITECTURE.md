@@ -1,6 +1,7 @@
 # SDRAM memory architecture decision
 
-**Status:** Phase 1 accepted on Pocket; Phase 2 preflight in progress
+**Status:** Phase 1 accepted on Pocket; Phase 2 CPU-window RTL fits, Pocket
+firmware gate pending
 **Decision gate:** Tau should not resume substantial feature growth until the
 data-only SDRAM prototype passes on Pocket hardware.  Executing cold code from
 SDRAM is a later, separate gate.
@@ -303,14 +304,35 @@ test showing proposed SDRAM addresses never select BRAM; and a revised
 resource/timing plan before a new Quartus build. Record each result with its
 evidence label; do not describe simulation as Pocket validation.
 
-**Preflight progress:** `tau_sdram_addr_decode.sv` now provides the standalone
-address-map contract, and `tau_sdram_wb_adapter.sv` provides the standalone
-uncached classic-Wishbone adapter. Their tests pass, but neither module is in
-the live Quartus source list or connected to VexRiscv yet. The adapter accepts
-only `CTI=000` classic beats, produces one bridge command and one ACK, waits for
-the master to release its held request, and flags incrementing bursts rather
-than forwarding them. Integration must first mux its bridge request safely with
-the existing diagnostic MMIO path and preserve the current normal-TAU build.
+**Preflight progress:** `tau_sdram_addr_decode.sv` provides mutually exclusive
+BRAM/MMIO/SDRAM windows; `tau_sdram_wb_adapter.sv` accepts only `CTI=000`
+uncached beats and holds each request until explicit owner-mux acceptance;
+`tau_sdram_bridge_mux.sv` locks completion/data to the selected client, with
+diagnostic MMIO priority at an idle boundary. These modules are now connected
+through `mp3_soc` and `core_game.vh`. The integration is opt-in: define
+`TAU_PHASE2_WINDOW` in a dedicated diagnostic build to select
+`PHASE2_WINDOW_ENABLE=1`; default/release builds keep the legacy CPU decode and
+tie the mapped client inactive. Uncached CPU reads/writes now have an end-to-end
+decoder/adapter/mux simulation test, and all current RTL tests pass. A first
+testbench run had false failures from checking combinational decode before its
+delta-cycle and treating the word-addressed CPU bus as byte-addressed; the
+stimulus/checks were corrected, with no RTL change needed.
+
+The generated VexRiscv RTL is not present as a standalone source for local
+Verilator elaboration, and an Icarus top elaboration attempt encounters
+pre-existing forward references to MMIO constants in `mp3_soc.v`. Neither
+standalone attempt is counted as top-level verification. The authoritative
+syntax/synthesis gate is a fresh Quartus compile on the VM, using the diagnostic
+macro to elaborate the enabled branch. The first attempt exposed a duplicate
+SoC instance header and stopped before fitting; source is corrected and the
+fresh macro-enabled retry passed Quartus (A-055/A-056): 7,796 registers,
+300/308 RAM blocks, 11/66 DSP blocks, zero TNS, and 0.120 ns minimum reported
+hold slack. The Phase 2a feature is not ready for Pocket use until a dedicated
+firmware CPU load/store/byte-lane smoke package passes; see
+[SDRAM_CPU_WINDOW_DIAGNOSTIC.md](SDRAM_CPU_WINDOW_DIAGNOSTIC.md) for its
+artifact-provenance and Pocket procedure. Cached SDRAM is decoded as an
+unsupported bus error and remains prohibited; no linker placement, normal ROM,
+or Pocket package may use either SDRAM window yet.
 
 ### Phase 3 — cold initialized data and cold code
 

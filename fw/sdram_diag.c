@@ -1,9 +1,10 @@
-// Tau Phase 1 SDRAM mailbox diagnostic firmware.
+// Tau SDRAM diagnostic firmware.
 //
-// This is a deliberately separate, developer-only ROM.  It exercises only
-// SDRAM word addresses at and above 0x80000 (1 MiB in byte addressing), leaving
-// the visible framebuffer and off-screen artwork stash untouched.  It does not
-// change the player firmware or the linker map.
+// This is a deliberately separate, developer-only ROM. The Phase 1 build uses
+// controller word addresses at and above 0x80000 (1 MiB in byte addressing);
+// the Phase 2 build uses the uncached CPU window beginning at physical 2 MiB.
+// Both leave the visible framebuffer/artwork area untouched and neither alters
+// player firmware or the linker map.
 
 #include <stdint.h>
 #include "font_metrics.h"
@@ -30,7 +31,9 @@
 #define R_SDR_STATUS 0x80000084u
 
 #define EXPECT_VERSION 0x4D503316u
+#ifndef CLK_HZ
 #define CLK_HZ         60000000u
+#endif
 
 /* APF target command selector. GETFILE for the already-loaded firmware slot
  * is read-only.  It is used only as a boot heartbeat: the Pocket developer
@@ -55,11 +58,30 @@
 
 #define KEY_A (1u << 4)
 
-// Controller addresses are 16-bit word addresses.  The first 1 MiB is reserved
-// for framebuffer ownership, so CPU diagnostics begin at 1 MiB / 2.
+// The CPU-window build uses byte addresses in the uncached Phase 2 aperture.
+// It begins at physical 2 MiB, preserving the framebuffer guard and the
+// 1–2 MiB area already exercised by the Phase 1 mailbox diagnostic.
+#ifdef TAU_CPU_WINDOW_DIAG
+#define TEST_BASE_WORD 0xA0200000u
+#define TEST_LAST_WORD 0xA02FFFFCu
+#define TEST_ADDR_STRIDE 0x00001FFCu
+#else
+// Controller addresses are 16-bit words; Phase 1 begins at 1 MiB / 2.
 #define TEST_BASE_WORD 0x00080000u
 #define TEST_LAST_WORD 0x000FFFFEu
+#define TEST_ADDR_STRIDE 0x00001FFEu
+#endif
 #define SDR_TIMEOUT    (CLK_HZ / 2u)
+
+// The Phase 2 ROM first proves the established MMIO -> mux -> CDC bridge path
+// at the same physical 2 MiB address. This creates a useful hardware boundary:
+// a failure here means the new shared owner-mux composition is broken; a later
+// CPU-window stall instead isolates the adapter/CPU-bus side. It is a single
+// destructive word within the already-owned 2-3 MiB diagnostic region.
+#ifdef TAU_CPU_WINDOW_DIAG
+#define PREFLIGHT_SDR_WORD_ADDR 0x00100000u
+#define PREFLIGHT_PATTERN       0x43505550u
+#endif
 
 static uint32_t fb_color_shadow = 0xFFFFFFFFu;
 static uint32_t tests_run;
@@ -189,15 +211,43 @@ static int issue(uint32_t word_addr, uint32_t data, uint32_t byte_en,
 
 static int write32(uint32_t word_addr, uint32_t value, uint32_t byte_en)
 {
+#ifdef TAU_CPU_WINDOW_DIAG
+    /* Keep the exact store width visible to the CPU Wishbone byte enables.
+     * The smoke test invokes full-word stores through this helper and byte/
+     * halfword stores through the dedicated helpers below. */
+    if (byte_en != 15u) return 0;
+    *(volatile uint32_t *)(uintptr_t)word_addr = value;
+    return 1;
+#else
     return issue(word_addr, value, byte_en, 1u);
+#endif
 }
 
 static int read32(uint32_t word_addr, uint32_t *value)
 {
+#ifdef TAU_CPU_WINDOW_DIAG
+    *value = *(volatile uint32_t *)(uintptr_t)word_addr;
+    return 1;
+#else
     if (!issue(word_addr, 0u, 15u, 0u)) return 0;
     *value = REG(R_SDR_RDATA);
     return 1;
+#endif
 }
+
+#ifdef TAU_CPU_WINDOW_DIAG
+static int write8(uint32_t addr, uint8_t value)
+{
+    *(volatile uint8_t *)(uintptr_t)addr = value;
+    return 1;
+}
+
+static int write16(uint32_t addr, uint16_t value)
+{
+    *(volatile uint16_t *)(uintptr_t)addr = value;
+    return 1;
+}
+#endif
 
 static void record_failure(uint32_t addr, uint32_t expected, uint32_t actual)
 {
@@ -233,11 +283,27 @@ static void write_expect(uint32_t addr, uint32_t value)
 static void partial_expect(uint32_t addr, uint32_t value, uint32_t byte_en,
                            uint32_t expected)
 {
+#ifdef TAU_CPU_WINDOW_DIAG
+    int ok;
+    if (byte_en == 1u) ok = write8(addr, (uint8_t)value);
+    else if (byte_en == 2u) ok = write8(addr + 1u, (uint8_t)(value >> 8));
+    else if (byte_en == 4u) ok = write8(addr + 2u, (uint8_t)(value >> 16));
+    else if (byte_en == 8u) ok = write8(addr + 3u, (uint8_t)(value >> 24));
+    else if (byte_en == 3u) ok = write16(addr, (uint16_t)value);
+    else if (byte_en == 12u) ok = write16(addr + 2u, (uint16_t)(value >> 16));
+    else ok = 0;
+    if (!ok) {
+        ++tests_run;
+        record_failure(addr, expected, 0xDEAD0003u);
+        return;
+    }
+#else
     if (!write32(addr, value, byte_en)) {
         ++tests_run;
         record_failure(addr, expected, 0xDEAD0003u);
         return;
     }
+#endif
     expect_value(addr, expected);
 }
 
@@ -254,7 +320,11 @@ static void draw_version_mismatch(uint32_t actual)
     char hex[9];
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
     fb_rect(12, 18, 376, 324, UI_PANEL);
+#ifdef TAU_CPU_WINDOW_DIAG
+    fb_text(28, 38, "TAU CPU SDRAM TEST", UI_ACCENT, UI_PANEL);
+#else
     fb_text(28, 38, "TAU SDRAM DIAGNOSTIC", UI_ACCENT, UI_PANEL);
+#endif
     fb_text(28, 78, "RTL VERSION MISMATCH", UI_RED, UI_PANEL);
     fb_text(28, 120, "EXPECTED", UI_DIM, UI_PANEL);
     hex8(hex, EXPECT_VERSION);
@@ -265,15 +335,69 @@ static void draw_version_mismatch(uint32_t actual)
     fb_text(28, 306, "REBUILD OR REINSTALL RBF", UI_DIM, UI_PANEL);
 }
 
+#ifdef TAU_CPU_WINDOW_DIAG
+static void draw_preflight_failure(uint32_t actual)
+{
+    char hex[9];
+    fb_rect(0, 0, FB_W, FB_H, UI_BG);
+    fb_rect(12, 18, 376, 324, UI_PANEL);
+    fb_text(28, 38, "TAU CPU SDRAM TEST", UI_ACCENT, UI_PANEL);
+    fb_text(28, 78, "MAILBOX PREFLIGHT FAIL", UI_RED, UI_PANEL);
+    fb_text(28, 112, "MUX OR CDC BRIDGE PATH", UI_DIM, UI_PANEL);
+    fb_text(28, 138, "CPU WINDOW NOT ATTEMPTED", UI_DIM, UI_PANEL);
+    fb_text(28, 180, "ACTUAL", UI_DIM, UI_PANEL);
+    hex8(hex, actual);
+    fb_text(220, 180, hex, UI_RED, UI_PANEL);
+    fb_text(28, 306, "REBUILD REQUIRED", UI_DIM, UI_PANEL);
+}
+
+#ifdef TAU_CPU_WINDOW_READBACK_DIAG
+static void draw_cpu_preflight_readback_failure(uint32_t actual)
+{
+    char hex[9];
+    fb_rect(0, 0, FB_W, FB_H, UI_BG);
+    fb_rect(12, 18, 376, 324, UI_PANEL);
+    fb_text(28, 38, "TAU CPU SDRAM TEST", UI_ACCENT, UI_PANEL);
+    fb_text(28, 78, "CPU PREFLIGHT READ FAIL", UI_RED, UI_PANEL);
+    fb_text(28, 112, "MAILBOX WROTE 2 MIB", UI_DIM, UI_PANEL);
+    fb_text(28, 138, "CPU READS SAME WORD", UI_DIM, UI_PANEL);
+    fb_text(28, 180, "EXPECTED", UI_DIM, UI_PANEL);
+    hex8(hex, PREFLIGHT_PATTERN);
+    fb_text(220, 180, hex, UI_WHITE, UI_PANEL);
+    fb_text(28, 206, "ACTUAL", UI_DIM, UI_PANEL);
+    hex8(hex, actual);
+    fb_text(220, 206, hex, UI_RED, UI_PANEL);
+    fb_text(28, 306, "REBUILD REQUIRED", UI_DIM, UI_PANEL);
+}
+#endif
+
+static int mailbox_preflight(void)
+{
+    uint32_t actual = 0u;
+    timed_out = 0u;
+    if (!issue(PREFLIGHT_SDR_WORD_ADDR, PREFLIGHT_PATTERN, 15u, 1u) ||
+        !issue(PREFLIGHT_SDR_WORD_ADDR, 0u, 15u, 0u)) {
+        draw_preflight_failure(timed_out ? 0xDEAD0001u : 0xDEAD0002u);
+        return 0;
+    }
+    actual = REG(R_SDR_RDATA);
+    if (actual != PREFLIGHT_PATTERN) {
+        draw_preflight_failure(actual);
+        return 0;
+    }
+    return 1;
+}
+#endif
+
 static void run_tests(void)
 {
     static const uint32_t patterns[4] = {
         0x00000000u, 0xFFFFFFFFu, 0xAAAAAAAAu, 0x55555555u
     };
     static const uint32_t anchors[12] = {
-        0x00080000u, 0x00080002u, 0x000800FEu, 0x00080100u,
-        0x000807FEu, 0x00080800u, 0x00081FFEu, 0x00082000u,
-        0x00087FFEu, 0x00088000u, 0x0008FFFEu, 0x00090000u
+        0x000u, 0x004u, 0x0FCu, 0x100u,
+        0x7FCu, 0x800u, 0x1FFCu, 0x2000u,
+        0x7FFCu, 0x8000u, 0xFFFCu, 0x10000u
     };
     tests_run = failures = first_fail_addr = 0u;
     first_fail_expected = first_fail_actual = timed_out = 0u;
@@ -281,7 +405,7 @@ static void run_tests(void)
     draw_running(0u, "FIXED PATTERNS");
     for (uint32_t a = 0; a < 12u && !timed_out; ++a)
         for (uint32_t p = 0; p < 4u && !timed_out; ++p)
-            write_expect(anchors[a], patterns[p]);
+            write_expect(TEST_BASE_WORD + anchors[a], patterns[p]);
 
     draw_running(1u, "WALKING ONES AND ZEROS");
     for (uint32_t bit = 0; bit < 32u && !timed_out; ++bit) {
@@ -294,13 +418,13 @@ static void run_tests(void)
     // pair at each address would miss address-line aliases because the aliased
     // location would still contain the value most recently written to it.
     for (uint32_t i = 0; i < 64u && !timed_out; ++i) {
-        uint32_t addr = TEST_BASE_WORD + i * 0x1FFEu;
+        uint32_t addr = TEST_BASE_WORD + i * TEST_ADDR_STRIDE;
         if (addr > TEST_LAST_WORD) addr = TEST_LAST_WORD - (i & 0x1Eu);
         if (!write32(addr, 0xA5000000u ^ addr, 15u))
             record_failure(addr, 0xA5000000u ^ addr, 0xDEAD0002u);
     }
     for (uint32_t i = 0; i < 64u && !timed_out; ++i) {
-        uint32_t addr = TEST_BASE_WORD + i * 0x1FFEu;
+        uint32_t addr = TEST_BASE_WORD + i * TEST_ADDR_STRIDE;
         if (addr > TEST_LAST_WORD) addr = TEST_LAST_WORD - (i & 0x1Eu);
         expect_value(addr, 0xA5000000u ^ addr);
     }
@@ -328,7 +452,11 @@ static void draw_result(void)
     uint16_t color = failures ? UI_RED : UI_GREEN;
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
     fb_rect(12, 18, 376, 324, UI_PANEL);
+#ifdef TAU_CPU_WINDOW_DIAG
+    fb_text(28, 38, "TAU CPU SDRAM TEST", UI_ACCENT, UI_PANEL);
+#else
     fb_text(28, 38, "TAU SDRAM DIAGNOSTIC", UI_ACCENT, UI_PANEL);
+#endif
     fb_text(28, 72, failures ? "FAIL" : "PASS", color, UI_PANEL);
 
     char *end = append_dec(number, tests_run);
@@ -343,7 +471,11 @@ static void draw_result(void)
 
     if (failures) {
         hex8(hex, first_fail_addr);
+#ifdef TAU_CPU_WINDOW_DIAG
+        fb_text(28, 180, "FIRST BYTE ADDR", UI_DIM, UI_PANEL);
+#else
         fb_text(28, 180, "FIRST WORD ADDR", UI_DIM, UI_PANEL);
+#endif
         fb_text(220, 180, hex, UI_WHITE, UI_PANEL);
         hex8(hex, first_fail_expected);
         fb_text(28, 206, "EXPECTED", UI_DIM, UI_PANEL);
@@ -352,8 +484,13 @@ static void draw_result(void)
         fb_text(28, 232, timed_out ? "TIMEOUT CODE" : "ACTUAL", UI_DIM, UI_PANEL);
         fb_text(220, 232, hex, color, UI_PANEL);
     } else {
+#ifdef TAU_CPU_WINDOW_DIAG
+        fb_text(28, 190, "CPU WINDOW 2-3 MIB", UI_DIM, UI_PANEL);
+        fb_text(28, 216, "WORD BYTE HALFWORD LANES", UI_DIM, UI_PANEL);
+#else
         fb_text(28, 190, "TEST REGION ABOVE 1 MIB", UI_DIM, UI_PANEL);
         fb_text(28, 216, "FIXED WALK ADDRESS LANES", UI_DIM, UI_PANEL);
+#endif
     }
     fb_text(28, 306, "A  RUN AGAIN", UI_DIM, UI_PANEL);
 }
@@ -362,10 +499,17 @@ static void draw_initial(void)
 {
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
     fb_rect(12, 18, 376, 324, UI_PANEL);
+#ifdef TAU_CPU_WINDOW_DIAG
+    fb_text(28, 38, "TAU CPU SDRAM TEST", UI_ACCENT, UI_PANEL);
+    fb_text(28, 78, "PHASE 2 UNCACHED WINDOW", UI_WHITE, UI_PANEL);
+    fb_text(28, 112, "SAFE REGION 2-3 MIB", UI_DIM, UI_PANEL);
+    fb_text(28, 138, "CPU LOAD STORE LANES", UI_DIM, UI_PANEL);
+#else
     fb_text(28, 38, "TAU SDRAM DIAGNOSTIC", UI_ACCENT, UI_PANEL);
     fb_text(28, 78, "PHASE 1 MAILBOX TEST", UI_WHITE, UI_PANEL);
     fb_text(28, 112, "SAFE REGION 1-2 MIB", UI_DIM, UI_PANEL);
     fb_text(28, 138, "PLAYER DATA UNCHANGED", UI_DIM, UI_PANEL);
+#endif
     draw_running(0u, "STARTING");
 }
 
@@ -394,6 +538,25 @@ int main(void)
 
     uint32_t pause = cycles();
     while ((uint32_t)(cycles() - pause) < CLK_HZ / 4u) { }
+#ifdef TAU_CPU_WINDOW_DIAG
+    draw_running(0u, "MAILBOX PREFLIGHT");
+    if (!mailbox_preflight()) {
+        for (;;) { }
+    }
+    draw_running(0u, "MAILBOX OK CPU WINDOW NEXT");
+    pause = cycles();
+    while ((uint32_t)(cycles() - pause) < CLK_HZ) { }
+#ifdef TAU_CPU_WINDOW_READBACK_DIAG
+    {
+        uint32_t actual = 0u;
+        draw_running(0u, "CPU READS PREFLIGHT WORD");
+        if (!read32(TEST_BASE_WORD, &actual) || actual != PREFLIGHT_PATTERN) {
+            draw_cpu_preflight_readback_failure(actual);
+            for (;;) { }
+        }
+    }
+#endif
+#endif
     run_tests();
     draw_result();
 

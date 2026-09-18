@@ -44,7 +44,7 @@ module tb_tau_sdram_arbiter;
         .cpu_addr(cpu_addr), .cpu_data(cpu_data), .cpu_byte_en(cpu_be), .cpu_wr_len(cpu_len),
         .cpu_wr_req(cpu_wr), .cpu_rd_req(cpu_rd), .cpu_end_burst_req(cpu_end),
         .cpu_q(cpu_q), .cpu_available(cpu_avail), .cpu_ready(cpu_ready),
-        .cpu_data_available(cpu_data_avail), .cpu_accepted(cpu_accepted),
+        .cpu_data_available(cpu_data_avail), .cpu_accepted(cpu_accepted), .p0_cpu_selected(),
         .p0_addr(p_addr), .p0_data(p_data), .p0_byte_en(p_be), .p0_wr_len(p_len),
         .p0_wr_stream(p_stream), .p0_q(p_q), .p0_wr_req(p_wr), .p0_rd_req(p_rd),
         .p0_end_burst_req(p_end), .p0_available(p_avail), .p0_ready(p_ready),

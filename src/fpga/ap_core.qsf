@@ -753,6 +753,10 @@ set_global_assignment -name VERILOG_FILE rtl/VexRiscv_Full.v
 set_global_assignment -name VERILOG_FILE core/mp3_soc.v
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_arbiter.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_cpu_bridge.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_addr_decode.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_wb_adapter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_bridge_mux.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_cpu_window_probe.sv
 set_global_assignment -name VERILOG_FILE core/tgt_cmd.v
 set_global_assignment -name VERILOG_FILE core/pcm_fifo.v
 set_global_assignment -name VERILOG_FILE core/eq_biquad.v

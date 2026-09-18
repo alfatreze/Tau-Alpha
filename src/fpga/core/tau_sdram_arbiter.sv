@@ -48,6 +48,11 @@ module tau_sdram_arbiter (
     output wire        cpu_data_available,
     output wire        cpu_accepted,
 
+    // Diagnostic provenance for the sole controller port. This is asserted
+    // combinationally with a CPU-owned request, including its first accepted
+    // cycle before `owner` becomes registered.
+    output wire        p0_cpu_selected,
+
     // Sole controller port ---------------------------------------------------
     output wire [24:0] p0_addr,
     output wire [15:0] p0_data,
@@ -104,6 +109,7 @@ module tau_sdram_arbiter (
     assign fb_available  = (owner == OWNER_NONE) && p0_available;
     assign cpu_available = (owner == OWNER_NONE) && p0_available;
     assign cpu_accepted  = (owner == OWNER_NONE) && !fb_req && cpu_req;
+    assign p0_cpu_selected = select_cpu;
 
     assign fb_q              = p0_q;
     assign cpu_q             = p0_q;
