@@ -12,23 +12,23 @@ module tb_tau_sdram_wb_adapter;
     reg [3:0] sel = 0;
     wire [31:0] rdata;
     wire ack, unsupported;
-    wire start, bwrite;
+    wire breq, bwrite;
     wire [24:0] baddr;
     wire [31:0] bwdata;
     wire [3:0] bsel;
-    reg bbusy = 0, bdone = 0;
+    reg baccept = 0, bdone = 0;
     reg [31:0] brdata = 0;
     integer starts = 0, errors = 0;
 
     tau_sdram_wb_adapter dut (
         .clk(clk), .rst(rst), .wb_cyc(cyc), .wb_stb(stb), .wb_we(we), .wb_cti(cti),
         .wb_sdram_addr(addr), .wb_wdata(wdata), .wb_sel(sel), .wb_rdata(rdata),
-        .wb_ack(ack), .wb_unsupported(unsupported), .bridge_start(start),
+        .wb_ack(ack), .wb_unsupported(unsupported), .bridge_req(breq),
         .bridge_write(bwrite), .bridge_addr(baddr), .bridge_wdata(bwdata),
-        .bridge_byte_en(bsel), .bridge_busy(bbusy), .bridge_done(bdone), .bridge_rdata(brdata)
+        .bridge_byte_en(bsel), .bridge_accept(baccept), .bridge_done(bdone), .bridge_rdata(brdata)
     );
 
-    always @(posedge clk) if (start) starts = starts + 1;
+    always @(posedge clk) if (breq && baccept) starts = starts + 1;
     task chk(input cond, input [511:0] what);
         begin
             if (!cond) begin $display("FAIL: %0s", what); errors = errors + 1; end
@@ -37,8 +37,8 @@ module tb_tau_sdram_wb_adapter;
     endtask
     task finish_bridge(input [31:0] value);
         begin
-            @(negedge clk); bbusy = 1; brdata = value;
-            @(negedge clk); bbusy = 0; bdone = 1;
+            @(negedge clk); brdata = value;
+            @(negedge clk); bdone = 1;
             @(negedge clk); bdone = 0;
         end
     endtask
@@ -51,8 +51,10 @@ module tb_tau_sdram_wb_adapter;
         @(negedge clk);
         cyc = 1; stb = 1; we = 0; cti = 3'b000; addr = 25'h0080000; sel = 4'hF;
         @(posedge clk); #1;
-        chk(start && !bwrite && baddr == 25'h0080000 && bsel == 4'hF,
-            "classic read launches one bridge request with translated address");
+        chk(breq && !bwrite && baddr == 25'h0080000 && bsel == 4'hF,
+            "classic read holds one translated bridge request until accepted");
+        @(negedge clk); baccept = 1;
+        @(negedge clk); baccept = 0;
         finish_bridge(32'hCAFEBEEF);
         #1; chk(ack && rdata == 32'hCAFEBEEF, "bridge read completion produces one ACK and data");
         @(posedge clk); #1;
@@ -65,35 +67,62 @@ module tb_tau_sdram_wb_adapter;
         cyc = 1; stb = 1; we = 1; cti = 3'b000; addr = 25'h0080010;
         wdata = 32'h11223344; sel = 4'b0101;
         @(posedge clk); #1;
-        chk(start && bwrite && baddr == 25'h0080010 && bwdata == 32'h11223344 && bsel == 4'b0101,
+        chk(breq && bwrite && baddr == 25'h0080010 && bwdata == 32'h11223344 && bsel == 4'b0101,
             "classic write preserves address, data, and all byte lanes");
+        @(negedge clk); baccept = 1;
+        @(negedge clk); baccept = 0;
         finish_bridge(32'd0);
         #1; chk(ack && starts == 2, "write completion produces one additional ACK only");
         @(negedge clk); cyc = 0; stb = 0;
         @(posedge clk);
 
-        // A bridge already occupied by diagnostic traffic must defer, not drop.
-        @(negedge clk); bbusy = 1; cyc = 1; stb = 1; we = 0; addr = 25'h0080020;
-        @(posedge clk); #1; chk(!start && starts == 2, "busy bridge defers request without a false launch");
-        @(negedge clk); bbusy = 0;
-        @(posedge clk); #1; chk(start, "deferred request launches once bridge becomes idle");
+        // A shared bridge can defer by withholding acceptance without dropping.
+        @(negedge clk); cyc = 1; stb = 1; we = 0; addr = 25'h0080020;
+        @(posedge clk); #1; chk(breq && starts == 2, "unaccepted bridge request remains held");
+        @(negedge clk); baccept = 1;
+        @(negedge clk); baccept = 0;
+        @(posedge clk); #1; chk(!breq && starts == 3, "request advances only after explicit acceptance");
         finish_bridge(32'h01234567);
         @(negedge clk); cyc = 0; stb = 0;
 
+        // Legal classic Wishbone traffic may leave CYC/STB asserted while
+        // advancing directly to the next beat after ACK. The adapter needs a
+        // one-cycle turnaround, not an indefinite wait for a low level.
+        @(negedge clk); cyc = 1; stb = 1; we = 1; addr = 25'h0080040;
+        wdata = 32'hA0A1A2A3; sel = 4'hF;
+        @(negedge clk); baccept = 1;
+        @(negedge clk); baccept = 0;
+        finish_bridge(32'd0);
+        #1; chk(ack && starts == 4, "first back-to-back beat acknowledges once");
+        @(negedge clk); addr = 25'h0080044; wdata = 32'hB0B1B2B3;
+        @(posedge clk); #1;
+        chk(!ack && starts == 4 && (!breq ||
+            (baddr == 25'h0080044 && bwdata == 32'hB0B1B2B3)),
+            "turnaround suppresses stale-beat duplication");
+        @(posedge clk); #1;
+        chk(breq && baddr == 25'h0080044 && bwdata == 32'hB0B1B2B3,
+            "held CYC/STB admits the next classic beat");
+        @(negedge clk); baccept = 1;
+        @(negedge clk); baccept = 0;
+        finish_bridge(32'd0);
+        #1; chk(ack && starts == 5, "second back-to-back beat acknowledges once");
+        @(negedge clk); cyc = 0; stb = 0;
+        @(posedge clk);
+
         // Cache/burst cycles are expressly not accepted by this Phase 2a path.
         @(negedge clk); cyc = 1; stb = 1; cti = 3'b010;
-        @(posedge clk); #1; chk(unsupported && !start && starts == 3,
+        @(posedge clk); #1; chk(unsupported && !breq && starts == 5,
             "incrementing burst is flagged and never reaches narrow bridge");
         @(negedge clk); cyc = 0; stb = 0; cti = 3'b000;
         @(posedge clk);
 
         // Reset during a wait clears state and suppresses an old completion.
         @(negedge clk); cyc = 1; stb = 1; addr = 25'h0080030;
-        @(posedge clk); #1; chk(start, "post-test request launches before reset");
+        @(posedge clk); #1; chk(breq, "post-test request holds before reset");
         @(negedge clk); rst = 1; bdone = 1;
-        @(posedge clk); #1; chk(!ack && !start, "reset suppresses stale completion and start pulse");
+        @(posedge clk); #1; chk(!ack && !breq, "reset suppresses stale completion and bridge request");
         @(negedge clk); rst = 0; bdone = 0; cyc = 0; stb = 0;
-        @(posedge clk); #1; chk(!ack && starts == 4, "reset leaves no duplicate request state");
+        @(posedge clk); #1; chk(!ack && starts == 5, "reset leaves no duplicate request state");
 
         $display("\n%0s (%0d failures)", errors ? "FAILED" : "PASSED", errors);
         $finish;

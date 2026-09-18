@@ -451,14 +451,15 @@ def playlist_browser():
     return frame
 
 
-def sdram_diagnostic(state):
-    """Mirror the three user-visible states in fw/sdram_diag.c."""
+def sdram_diagnostic(state, cpu_window=False, running_label="FIXED PATTERNS"):
+    """Mirror the Phase 1 mailbox or Phase 2 CPU-window diagnostic UI."""
     if state not in {"running", "pass", "fail", "version-mismatch"}:
         raise ValueError(f"unsupported SDRAM diagnostic state: {state}")
     frame = Frame()
     frame.rect(0, 0, FB_W, FB_H, UI_BG)
     frame.rect(12, 18, 376, 324, UI_PANEL)
-    frame.text(28, 38, "TAU SDRAM DIAGNOSTIC", "TS_1X", UI_ACCENT, UI_PANEL, 360)
+    title = "TAU CPU SDRAM TEST" if cpu_window else "TAU SDRAM DIAGNOSTIC"
+    frame.text(28, 38, title, "TS_1X", UI_ACCENT, UI_PANEL, 360)
     if state == "version-mismatch":
         frame.text(28, 78, "RTL VERSION MISMATCH", "TS_1X", UI_RED, UI_PANEL, 360)
         frame.text(28, 120, "EXPECTED", "TS_1X", UI_DIM, UI_PANEL, 180)
@@ -468,12 +469,15 @@ def sdram_diagnostic(state):
         frame.text(28, 306, "REBUILD OR REINSTALL RBF", "TS_1X", UI_DIM, UI_PANEL, 350)
         return frame
     if state == "running":
-        frame.text(28, 78, "PHASE 1 MAILBOX TEST", "TS_1X", UI_WHITE, UI_PANEL, 360)
-        frame.text(28, 112, "SAFE REGION 1-2 MIB", "TS_1X", UI_DIM, UI_PANEL, 360)
-        frame.text(28, 138, "PLAYER DATA UNCHANGED", "TS_1X", UI_DIM, UI_PANEL, 360)
+        frame.text(28, 78, "PHASE 2 UNCACHED WINDOW" if cpu_window else "PHASE 1 MAILBOX TEST",
+                   "TS_1X", UI_WHITE, UI_PANEL, 360)
+        frame.text(28, 112, "SAFE REGION 2-3 MIB" if cpu_window else "SAFE REGION 1-2 MIB",
+                   "TS_1X", UI_DIM, UI_PANEL, 360)
+        frame.text(28, 138, "CPU LOAD STORE LANES" if cpu_window else "PLAYER DATA UNCHANGED",
+                   "TS_1X", UI_DIM, UI_PANEL, 360)
         frame.rect(20, 177, 360, 10, UI_TRACK)
         frame.rect(20, 204, 360, 18, UI_BG)
-        frame.text(20, 204, "FIXED PATTERNS", "TS_1X", UI_DIM, UI_BG, 360)
+        frame.text(20, 204, running_label, "TS_1X", UI_DIM, UI_BG, 360)
         return frame
 
     passed = state == "pass"
@@ -486,16 +490,62 @@ def sdram_diagnostic(state):
     frame.text(220, 136, "0" if passed else "1", "TS_1X",
                result_color, UI_PANEL, 150)
     if passed:
-        frame.text(28, 190, "TEST REGION ABOVE 1 MIB", "TS_1X", UI_DIM, UI_PANEL, 350)
-        frame.text(28, 216, "FIXED WALK ADDRESS LANES", "TS_1X", UI_DIM, UI_PANEL, 350)
+        frame.text(28, 190, "CPU WINDOW 2-3 MIB" if cpu_window else "TEST REGION ABOVE 1 MIB",
+                   "TS_1X", UI_DIM, UI_PANEL, 350)
+        frame.text(28, 216, "WORD BYTE HALFWORD LANES" if cpu_window else "FIXED WALK ADDRESS LANES",
+                   "TS_1X", UI_DIM, UI_PANEL, 350)
     else:
-        for y, label, value in ((180, "FIRST WORD ADDR", "00080800"),
+        for y, label, value in ((180, "FIRST BYTE ADDR" if cpu_window else "FIRST WORD ADDR",
+                                 "A0200800" if cpu_window else "00080800"),
                                 (206, "EXPECTED", "A5A5A5A5"),
                                 (232, "ACTUAL", "A5A4A5A5")):
             frame.text(28, y, label, "TS_1X", UI_DIM, UI_PANEL, 180)
             frame.text(220, y, value, "TS_1X", UI_WHITE if y != 232 else result_color,
                        UI_PANEL, 150)
     frame.text(28, 306, "A  RUN AGAIN", "TS_1X", UI_DIM, UI_PANEL, 350)
+    return frame
+
+
+def sdram_cpu_preflight_failure():
+    """Mirror the Phase 2 mailbox-preflight failure before CPU access."""
+    frame = Frame()
+    frame.rect(0, 0, FB_W, FB_H, UI_BG)
+    frame.rect(12, 18, 376, 324, UI_PANEL)
+    frame.text(28, 38, "TAU CPU SDRAM TEST", "TS_1X", UI_ACCENT, UI_PANEL, 360)
+    frame.text(28, 78, "MAILBOX PREFLIGHT FAIL", "TS_1X", UI_RED, UI_PANEL, 360)
+    frame.text(28, 112, "MUX OR CDC BRIDGE PATH", "TS_1X", UI_DIM, UI_PANEL, 360)
+    frame.text(28, 138, "CPU WINDOW NOT ATTEMPTED", "TS_1X", UI_DIM, UI_PANEL, 360)
+    frame.text(28, 180, "ACTUAL", "TS_1X", UI_DIM, UI_PANEL, 180)
+    frame.text(220, 180, "DEAD0001", "TS_1X", UI_RED, UI_PANEL, 150)
+    frame.text(28, 306, "REBUILD REQUIRED", "TS_1X", UI_DIM, UI_PANEL, 350)
+    return frame
+
+
+def sdram_cpu_preflight_readback_failure():
+    """A-060 firmware-only mailbox-to-CPU readback discriminator failure."""
+    frame = Frame()
+    frame.rect(0, 0, FB_W, FB_H, UI_BG)
+    frame.rect(12, 18, 376, 324, UI_PANEL)
+    frame.text(28, 38, "TAU CPU SDRAM TEST", "TS_1X", UI_ACCENT, UI_PANEL, 360)
+    frame.text(28, 78, "CPU PREFLIGHT READ FAIL", "TS_1X", UI_RED, UI_PANEL, 360)
+    frame.text(28, 112, "MAILBOX WROTE 2 MIB", "TS_1X", UI_DIM, UI_PANEL, 360)
+    frame.text(28, 138, "CPU READS SAME WORD", "TS_1X", UI_DIM, UI_PANEL, 360)
+    frame.text(28, 180, "EXPECTED", "TS_1X", UI_DIM, UI_PANEL, 180)
+    frame.text(220, 180, "43505550", "TS_1X", UI_WHITE, UI_PANEL, 150)
+    frame.text(28, 206, "ACTUAL", "TS_1X", UI_DIM, UI_PANEL, 180)
+    frame.text(220, 206, "00000000", "TS_1X", UI_RED, UI_PANEL, 150)
+    frame.text(28, 306, "REBUILD REQUIRED", "TS_1X", UI_DIM, UI_PANEL, 350)
+    return frame
+
+
+def sdram_cpu_probe_bar():
+    """Review fixture for the Phase 2 hardware-only progress overlay."""
+    frame = sdram_diagnostic("running", cpu_window=True, running_label="FIXED PATTERNS")
+    # A-073's successor probe preserves the A-066 controller observation and
+    # appends bridge-response evidence (seen/all-ones; zero remains red).
+    observed = ((1 << 49) - 1) & ~((0xF << 8) | (1 << 16) | (1 << 44) | (1 << 47))
+    for bit in range(49):
+        frame.rect(bit * 8, 0, 8, 8, 0x4F49 if (observed & (1 << bit)) else UI_RED)
     return frame
 
 
@@ -518,6 +568,16 @@ FIXTURES = {
     "sdram-diagnostic-pass": lambda: sdram_diagnostic("pass"),
     "sdram-diagnostic-fail": lambda: sdram_diagnostic("fail"),
     "sdram-diagnostic-version-mismatch": lambda: sdram_diagnostic("version-mismatch"),
+    "sdram-cpu-diagnostic-running": lambda: sdram_diagnostic("running", cpu_window=True),
+    "sdram-cpu-diagnostic-pass": lambda: sdram_diagnostic("pass", cpu_window=True),
+    "sdram-cpu-diagnostic-fail": lambda: sdram_diagnostic("fail", cpu_window=True),
+    "sdram-cpu-diagnostic-version-mismatch": lambda: sdram_diagnostic(
+        "version-mismatch", cpu_window=True),
+    "sdram-cpu-preflight-running": lambda: sdram_diagnostic(
+        "running", cpu_window=True, running_label="MAILBOX PREFLIGHT"),
+    "sdram-cpu-preflight-fail": sdram_cpu_preflight_failure,
+    "sdram-cpu-preflight-readback-fail": sdram_cpu_preflight_readback_failure,
+    "sdram-cpu-probe-bar": sdram_cpu_probe_bar,
     **{f"visualizer-{name}": (lambda mode=name: now_playing_base(visualizer=mode))
        for name in ("bars", "waterfall", "levels", "phase-scope", "oscilloscope",
                     "waveform", "mirrored-bars", "peak-dots", "magic-eye", "spectrum", "vu")},

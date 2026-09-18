@@ -67,6 +67,25 @@ module sdram_fb #(
     input wire p0_rd_req,
     input wire p0_end_burst_req,
 
+`ifdef TAU_PHASE2_WINDOW
+    // Diagnostic-only controller-boundary provenance. The normal player does
+    // not elaborate these retained observations; the Phase-2 probe uses them
+    // to distinguish a controller input/drive/read failure from an upstream
+    // CPU bridge failure.
+    input wire        debug_p0_cpu_selected,
+    output reg         debug_cpu_allones_write_latched = 0,
+    output reg         debug_cpu_allones_data_latched = 0,
+    output reg         debug_cpu_allones_be_latched = 0,
+    output reg         debug_cpu_allones_write_command = 0,
+    output reg         debug_cpu_allones_dq_enabled = 0,
+    output reg         debug_cpu_allones_dq_allones = 0,
+    output reg         debug_cpu_allones_dqm_unmasked = 0,
+    output reg         debug_cpu_follow_read_seen = 0,
+    output reg         debug_cpu_follow_read_data_seen = 0,
+    output reg         debug_cpu_follow_read_data_zero = 0,
+    output reg         debug_cpu_follow_read_data_allones = 0,
+`endif
+
     output wire p0_available,  // The port is able to be used
     output reg p0_ready = 0,  // The port has finished its task. Will rise for a single cycle
     output wire p0_data_available,
@@ -292,6 +311,11 @@ module sdram_fb #(
   // 1-cycle BRAM read (wsrc_q) is ready when sdram_data is latched.
   reg [10:0] wsrc_cnt = 0;
   reg        wsrc_run = 0;
+`ifdef TAU_PHASE2_WINDOW
+  reg        debug_target_write_pending = 0;
+  reg        debug_target_read_armed = 0;
+  reg        debug_target_read_wait_data = 0;
+`endif
   assign wsrc_addr = wsrc_cnt;
 
   wire p0_req = p0_wr_req || p0_rd_req;
@@ -411,6 +435,22 @@ module sdram_fb #(
       p0_rd_queue <= 0;
       wsrc_run    <= 0;
       wsrc_cnt    <= 0;
+`ifdef TAU_PHASE2_WINDOW
+      debug_target_write_pending <= 0;
+      debug_target_read_armed <= 0;
+      debug_target_read_wait_data <= 0;
+      debug_cpu_allones_write_latched <= 0;
+      debug_cpu_allones_data_latched <= 0;
+      debug_cpu_allones_be_latched <= 0;
+      debug_cpu_allones_write_command <= 0;
+      debug_cpu_allones_dq_enabled <= 0;
+      debug_cpu_allones_dq_allones <= 0;
+      debug_cpu_allones_dqm_unmasked <= 0;
+      debug_cpu_follow_read_seen <= 0;
+      debug_cpu_follow_read_data_seen <= 0;
+      debug_cpu_follow_read_data_zero <= 0;
+      debug_cpu_follow_read_data_allones <= 0;
+`endif
 
       dq_output <= 0;
     end else begin
@@ -430,11 +470,53 @@ module sdram_fb #(
         p0_data_queue <= p0_data;
         p0_wr_len_queue <= (p0_wr_len == 11'd0) ? 11'd1 : p0_wr_len;
         p0_wr_stream_queue <= p0_wr_stream;
+`ifdef TAU_PHASE2_WINDOW
+        if (debug_p0_cpu_selected && p0_data == 16'hFFFF &&
+            p0_byte_en == 2'b11 && !debug_cpu_allones_write_latched) begin
+          debug_cpu_allones_write_latched <= 1'b1;
+          debug_cpu_allones_data_latched <= 1'b1;
+          debug_cpu_allones_be_latched <= 1'b1;
+          debug_target_write_pending <= 1'b1;
+        end
+`endif
       end else if (p0_rd_req) begin
         p0_rd_queue   <= 1;
 
         p0_addr_queue <= p0_addr;
+`ifdef TAU_PHASE2_WINDOW
+        if (debug_target_read_armed && debug_p0_cpu_selected &&
+            !debug_cpu_follow_read_seen) begin
+          debug_cpu_follow_read_seen <= 1'b1;
+          debug_target_read_wait_data <= 1'b1;
+        end
+`endif
       end
+
+`ifdef TAU_PHASE2_WINDOW
+      // The WRITE command and its DQ/DQM values are registered during WRITE,
+      // so observe them from WRITE_STREAM on the next SDRAM edge. This matches
+      // the values presented to the external SDRAM clock edge, not merely the
+      // controller's queued input fields.
+      if (debug_target_write_pending && state == WRITE_STREAM &&
+          sdram_command == COMMAND_WRITE) begin
+        debug_cpu_allones_write_command <= 1'b1;
+        debug_cpu_allones_dq_enabled <= dq_output;
+        debug_cpu_allones_dq_allones <= (sdram_data == 16'hFFFF);
+        debug_cpu_allones_dqm_unmasked <= (SDRAM_DQM == 2'b00);
+        debug_target_write_pending <= 1'b0;
+        debug_target_read_armed <= 1'b1;
+      end
+      // `p0_data_available` rises one cycle ahead of READ_OUTPUT as a
+      // convenience for callers. The retained provenance needs the sampled
+      // bus value, so take it only in READ_OUTPUT rather than recording that
+      // early notification cycle.
+      if (debug_target_read_wait_data && state == READ_OUTPUT && p0_data_available) begin
+        debug_cpu_follow_read_data_seen <= 1'b1;
+        debug_cpu_follow_read_data_zero <= (p0_q == 16'h0000);
+        debug_cpu_follow_read_data_allones <= (p0_q == 16'hFFFF);
+        debug_target_read_wait_data <= 1'b0;
+      end
+`endif
 
       // Default to NOP at all times in between commands
       // NOP

@@ -8,6 +8,12 @@ full provenance and third-party licenses.
 **Current preview:** v0.1.0 · **Core identity:** `alfatreze.TAU` ·
 **Platform:** `tau` / Media Players
 
+**Current technical status (2026-09-18):** Phase 1 SDRAM access and contention
+gates are accepted on Pocket. Phase 2 A-074 seed 2 fits cleanly and its first
+Pocket run proves the bridge assembled `FFFFFFFF`, but the CPU still receives
+zero. A-076 adds a return-path probe; focused RTL tests pass, while its
+Quartus/Pocket gates remain pending.
+
 ## Completed
 
 - Established the HarpMudd v1.4.0 baseline at upstream commit
@@ -59,7 +65,27 @@ full provenance and third-party licenses.
   package. It performs 183 fixed-pattern, walking-bit, sparse address-as-data,
   and byte/halfword-lane readback checks above the framebuffer's 1 MiB guard.
   Host compilation, package identity/bit-reversal checks, RTL regressions, and
-  running/pass/fail framebuffer fixtures pass; Pocket execution is pending.
+  running/pass/fail framebuffer fixtures pass. Pocket completed five warm and
+  five cold passes, 183 checks each with zero failures; see
+  `docs/SDRAM_POCKET_DIAGNOSTIC.md`.
+- Completed Phase 1 SDRAM Pocket readback and concurrent visualizer contention
+  testing; see the named Pocket evidence in `docs/SDRAM_POCKET_DIAGNOSTIC.md`
+  and `docs/SDRAM_CONTENTION_DIAGNOSTIC.md`. Added an opt-in Phase 2 uncached
+  CPU data path: explicit address decoder, held classic-Wishbone adapter, and
+  shared bridge-owner mux are wired into `mp3_soc` / `core_game.vh`. The
+  end-to-end RTL read/write path test and full `make test-rtl` suite pass.
+  `TAU_PHASE2_WINDOW` is required to select the new map; the default core keeps
+  the old map. The first enabled Quartus attempt caught a duplicate SoC
+  instance declaration and stopped before fitting; the source is corrected.
+  The fresh isolated retry passed Quartus (7,796 registers, 300/308 RAM blocks,
+  11/66 DSP blocks, zero TNS, and 0.120 ns minimum reported hold slack). The
+  current macro-off/default branch also passed Quartus (7,609 registers,
+  300/308 RAM blocks, 11/66 DSP blocks, zero TNS, and 0.118 ns minimum reported
+  hold slack). A-074 seed 2 then passed with +0.662 ns setup, +0.119 ns hold,
+  and TNS 0; its Pocket run completed 183 checks with 181 failures while the
+  bridge-response cells reported `G-R-G` (assembled `FFFFFFFF`, CPU result
+  still zero). A-076 now instruments the CPU-facing return path; no normal
+  player data uses mapped SDRAM.
 - Documented battery/power work: real in-core battery state is blocked by the
   current documented openFPGA API, while internal efficiency instrumentation is
   viable later.
@@ -94,9 +120,11 @@ chronological decision/reversal/evidence trail and resource trend are in
   memory layout; see `docs/SETTINGS_RUNTIME_BUDGET.md`. Do not reduce decoder,
   DMA, stack, or linker-heap reservations merely to accommodate UI code.
 - The external SDRAM remains framebuffer-only for product features. A bounded
-  diagnostic MMIO bridge is fitted and its developer Pocket test bundle is
-  ready, but no feature may use the proposed mapped SDRAM window until the
-  Pocket readback and later concurrent playback/CRC gates pass.
+  diagnostic MMIO bridge and owner mux are fitted; A-075 proves the bridge
+  response on Pocket, but the CPU-facing Wishbone return path is not yet
+  proven. A-076's focused return probe passes RTL simulation; its Quartus and
+  Pocket gates, followed by concurrent playback/CRC, must pass before any
+  mapped SDRAM feature is enabled. See audit A-076 and issue 018.
 - Loading art currently uses a 16-entry RGB565 palette; on-device tonal tuning
   awaits a Pocket reference photo.
 - Playlist paths with Unicode names remain a known compatibility investigation;
@@ -116,15 +144,19 @@ remains necessary for Pocket OLED behaviour.
 Use the exact asset capture alongside a Pocket photo to separate background,
 glow, waveform, text, and progress luminance bands. Retest on hardware.
 
-### 3. SDRAM capacity gate — next technical work
+### 3. Validate the opt-in uncached SDRAM CPU window — next technical work
 
-Implement the staged decision in `docs/SDRAM_MEMORY_ARCHITECTURE.md`. The
-Quartus and host diagnostic-package gates are complete; run the ten warm/cold
-Pocket readback passes in `docs/SDRAM_POCKET_DIAGNOSTIC.md`, then add concurrent
+The A-074 seed-2 diagnostic build is accepted for the bridge-response boundary
+and its Pocket result is recorded, but the CPU-facing return path still fails.
+A separate A-076 firmware diagnostic/probe must first pass Quartus and Pocket;
+stage only that separately named macro-enabled RBF and run the documented
+return-path test. After it passes, add concurrent
 1 MiB CRC and playback stress before migrating at least 24 KiB of cold
 playlist/artwork workspace. Preserve framebuffer priority, introduce no
 unplanned M10K use, and require zero audio underruns or display corruption.
-Cold-code execution is a separate later gate.
+Do not implement a cached-window adapter until this sub-gate passes; cold-code
+execution is a separate later gate. Full context and the explicit cache/burst
+limitations are in `docs/SDRAM_MEMORY_ARCHITECTURE.md` and A-054.
 
 ### 3a. Evaluate targeted FPGA audio acceleration — deferred until SDRAM works
 

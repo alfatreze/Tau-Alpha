@@ -1,0 +1,37 @@
+# Autonomous Hardware Multi-Agent Directives (.clinerules)
+
+## 1. Automated System Triad Flow
+When processing any user instruction, you must automatically split your reasoning into these three sequential execution phases inside the chat container log:
+
+1. **[PHASE 1: CLAUDE AUDITOR]**
+   - Before making any file changes, analyze the target scripts. List structural flaws, security gaps, payload validation vulnerabilities, clock-domain crossing (CDC) hazards, or signal bit-width alignment discrepancies.
+   - Present this detailed analysis to the user as a clear implementation blueprint.
+
+2. **[PHASE 2: QWEN IMPLEMENTER]**
+   - Apply the approved blueprint changes line-by-line using precise, clean code.
+   - **CRITICAL:** Use a highly iterative approach and break down changes into tiny modules.
+   - **NO TRUNCATION:** Write fully fleshed-out code modules. Never truncate blocks, insert placeholder comment markers, or leave out logical bits.
+
+3. **[PHASE 3: CODEX ADVERSARIAL REVIEWER]**
+   - After modifying files, review your own changes for edge-case errors, hardware race conditions, memory leaks, or logical flaws.
+   - **Automated Compilation Check:** The moment file modifications are completed, you must autonomously use terminal simulation commands to run the background verification suite defined in Section 2.
+   - Cross-check any compiler warnings or syntax errors returned by the terminal. If errors exist, self-correct the code paths automatically until the build logs return a success status code.
+
+## 2. Background Verification & Automation Suite
+You have full permission to invoke the following automation paths using terminal simulation commands to verify code stability before finishing a turn:
+
+- **For FPGA Core Verification:**
+  Run the Quartus command-line syntax checker directly over the workspace directory structure to catch HDL compilation errors early:
+  ```bash
+  fcc_verify_hdl
+  ```
+- **For Low-Level Firmware Verification:**
+  Run your local makefile build profile to verify C-source code compilation rules pass without overflow:
+  ```bash
+  fcc_verify_fw
+  ```
+
+## 3. Core Project & Safety Guidelines
+- **Git Context:** Always preserve the existing Git repository tracking configurations (`origin` and `upstream`). Never touch or break the repository tracking connections.
+- **Robust Syntax:** Ensure all input variables and external api payloads are explicitly wrapped in robust error-handling/try-catch structures.
+- **RAM Protection:** Keep individual file inspection payloads compact. Never overwhelm the token boundaries of your 16k context window buffer to protect the 24GB host Mac from out-of-memory kernel lockups.

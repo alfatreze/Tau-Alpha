@@ -36,6 +36,10 @@ row.
 | A-006 | **Quartus** fitter only, 2026-09-13 | 5,661 / 18,480 (31%) | 299 / 308 (97%) | 2,380,416 / 3,153,920 (75%) | 11 / 66 (17%) | not produced | Fitter passed; assembler assertion prevented artifact and timing analysis. |
 | A-017 | **Quartus** Phase 1-equivalent isolation, 2026-09-13 | 5,706 / 18,480 (31%) | 299 / 308 (97%) | 2,380,416 / 3,153,920 (75%) | 0.283 ns hold, shown slow model | Successful 42m19s full flow; at the time, clean exact-current-source build remained the release gate (cleared by A-024). |
 | A-024 | **Quartus** fresh current-source Phase 1 build, 2026-09-14 | 5,706 / 18,480 (31%) | 299 / 308 (97%) | 2,380,416 / 3,153,920 (75%) | 0.119 ns hold, fast 0C | Successful 39m28s flow; resource counts match A-017. Pocket diagnostic remains pending. |
+| A-053 | **Quartus** core bridge-mux integration, 2026-09-14 | see entry | 300 / 308 (97%) | 2,380,928 / 3,153,920 (75%) | 11 / 66 (17%) | 0.086 ns minimum reported hold | Successful 3h32m29s flow; mapped-window client tied inactive. |
+| A-055/A-056 | **Quartus** opt-in CPU window, 2026-09-14 | see entry | 300 / 308 (97%) | pending extraction | 11 / 66 (17%) | 0.120 ns minimum reported hold | Successful 1h18m22s flow; Phase 2 macro enabled in isolated VM copy only. |
+| A-057 | **Quartus** current macro-off regression, 2026-09-16 | see entry | 300 / 308 (97%) | pending extraction | 11 / 66 (17%) | 0.118 ns minimum reported hold | Successful 43m04s flow; current default branch remains buildable. |
+| A-072 | **Quartus** A-067 bridge read-timing diagnostic, 2026-09-17 | 6,196 / 18,480 (34%) | 300 / 308 (97%) | 2,380,928 / 3,153,920 (75%) | 11 / 66 (17%) | 0.125 ns hold, multicorner | Successful macro-enabled flow; Pocket gate pending. |
 
 ## Entries
 
@@ -1339,6 +1343,666 @@ the uncached alias behind an explicit diagnostic build flag, arbitration-safe
 bridge-request mux, and a firmware read/write smoke test. Cacheable SDRAM,
 workspace migration, and normal package changes remain prohibited.
 
+### A-051 — Add accepted-request ownership for the shared SDRAM bridge
+
+**Date:** 2026-09-14
+**Decision/change:** Change the uncached adapter to hold a request until an
+explicit accept, and add an isolated bridge-owner mux for diagnostic MMIO and
+the mapped-window client.
+**Alternatives and rationale:** Let both clients pulse the existing bridge
+start input directly (rejected: simultaneous starts can misattribute a
+completion); rely on firmware never issuing both (rejected: correctness must
+not depend on that convention).
+**Hot/cold impact:** No live top-level integration or Pocket artifact changed.
+**Evidence:** **simulation** — adapter acceptance/hold/reset tests and mux
+priority/deferred-owner/response-routing tests pass.
+**Resource/timing delta:** Not applicable pending live integration and Quartus.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Connect these
+units only in a compile-gated Phase 2 diagnostic configuration, then fresh-build
+with Quartus before staging any Pocket core.
+
+### A-052 — Add Phase 2 preflight RTL to the Quartus manifest
+
+**Date:** 2026-09-14
+**Decision/change:** Include the address decoder, bounded adapter, and bridge
+mux in `ap_core.qsf` while leaving all three uninstantiated.
+**Alternatives and rationale:** Wait until live wiring to add files (rejected:
+parse/source-list errors should be separated from behavioral integration);
+enable the mapped window at the same time (rejected: it would alter the normal
+core before the diagnostic configuration and Quartus gate exist).
+**Hot/cold impact:** No live logic path changes; synthesis may parse but can
+remove uninstantiated modules. No Pocket artifact is produced.
+**Evidence:** **Quartus | code-review** — full compile completed successfully
+on the VM in 51m15s (0 errors, 342 warnings). Manifest paths match source
+files; existing RTL simulation remains the behavioral evidence.
+**Resource/timing delta:** 300/308 RAM blocks, 2,380,928/3,153,920 memory bits,
+11/66 DSP, and 1/4 PLLs: unchanged because modules are uninstantiated. TNS is
+0; reported worst setup/hold slack is 0.465/0.120 ns. This is positive but the
+hold margin remains narrow.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The Quartus
+source-list gate passed. Continue with disabled-by-default top-level wiring,
+then repeat the Quartus and Pocket gates.
+
+### A-053 — Quartus validates the core-level bridge-owner mux
+
+**Date:** 2026-09-14
+**Decision/change:** Compile the actual `core_game.vh` integration in which
+diagnostic MMIO passes through `tau_sdram_bridge_mux`; the mapped Wishbone
+client is tied inactive. The Phase 1 diagnostic path now has explicit owner
+and completion routing.
+**Alternatives and rationale:** Treat the earlier VM launch as a valid run
+(rejected: its path did not contain the project and no Quartus process or
+report existed); accept source simulation alone (rejected: production top-level
+wiring requires the actual Quartus flow).
+**Hot/cold impact:** No Pocket artifact installed and no mapped CPU window is
+enabled. The future Wishbone client is tied off.
+**Evidence:** **Quartus** — full compile succeeded with 0 errors and 342
+warnings; `.sof` and `.rbf` were generated. RBF SHA-256:
+`5b69e78899d65c77ed74d480c1e35676570880ac19b8d228830971bb0c318895`.
+**Resource/timing delta:** 7,646 registers (130 more than the uninstantiated
+source-list build); 300/308 RAM blocks, 2,380,928/3,153,920 block-memory bits,
+11/66 DSP, 1/4 PLL. The lowest reported setup slack is 1.201 ns and lowest
+hold slack 0.086 ns, with TNS 0. Hold remains positive but narrow. Fitter
+elapsed 3h21m19s; full-flow elapsed 3h32m29s, far longer than the preceding
+51m15s compile.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The first
+launch attempt used a wrong project path and exited before Quartus ran; it is
+retained as a failed launch, not a build. The corrected ext4 project path
+completed successfully. Next add `mp3_soc` decode/adapter behind the dedicated
+diagnostic build gate and rerun simulation and Quartus before Pocket staging.
+
+### A-054 — Wire the opt-in uncached SDRAM path through mp3_soc
+
+**Date:** 2026-09-14
+**Decision/change:** Connect the standalone decoder and classic-beat adapter to
+`mp3_soc`, route its held request and response through the `core_game.vh` owner
+mux, and select that address map only when a dedicated build defines
+`TAU_PHASE2_WINDOW`. The macro-off/default build retains the legacy decode and
+ties the mapped-window client inactive. Unsupported burst beats and unmapped
+data addresses return Wishbone ERR; cached SDRAM remains unsupported.
+**Alternatives and rationale:** Enable the new map in every core build (rejected:
+the hardware fit, diagnostic firmware, and Pocket gates have not passed); route
+cached requests to the same single-word bridge (rejected: this adapter cannot
+preserve cache-line burst semantics or bounded arbitration points).
+**Hot/cold impact:** Default build preserves the legacy CPU path. The enabled
+diagnostic branch adds only cold data-window access; Helix, PCM/EQ, DMA, stack,
+input, and target-read paths remain in BRAM.
+**Evidence:** **simulation | code-review** — address decoder, adapter, mux,
+existing CPU bridge, and the new end-to-end decoder/adapter/mux read/write
+bench pass; `make test-rtl` passes. Local Verilator top lint was attempted but
+cannot elaborate the SoC because the generated `VexRiscv` module is absent from
+the standalone source tree (see issue 014); this is not counted as successful
+top-level lint. The earlier A-053 Quartus result does not cover this new CPU
+integration.
+**Resource/timing delta:** Pending a fresh Quartus compile of both the default
+and `TAU_PHASE2_WINDOW` configurations; no resource or timing change is inferred.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Initial
+end-to-end bench assertions were false failures caused by delta-cycle sampling
+and confusing byte offsets with the word-addressed VexRiscv bus; the bench was
+corrected and then passed without RTL changes. Next run the opt-in Quartus
+configuration, create a firmware read/write smoke diagnostic, then stage a
+separate Pocket package. No ordinary Tau package or firmware may use the map
+until those gates pass.
+
+### A-055 — Launch the Phase 2-enabled Quartus validation build
+
+**Date:** 2026-09-14
+**Decision/change:** Stage the current source snapshot at
+`/home/taualpha/tau-local/phase2-window-a054-20260914` on VM ext4 and define
+`TAU_PHASE2_WINDOW` only in that isolated copy's QSF. Start the full Quartus
+flow to elaborate and fit the enabled `mp3_soc`/`core_game.vh` branch.
+**Alternatives and rationale:** Enable the macro in the tracked QSF (rejected:
+would change the ordinary build before validation); use the A-053 default-mode
+fit as proof of this branch (rejected: A-053 predates the CPU window wiring).
+**Hot/cold impact:** Isolated diagnostic build only. No normal config, package,
+or Pocket card is modified.
+**Evidence:** **host | Quartus pending** — authenticated VM check found no
+existing Quartus process; the staged copy passes `make check-fpga`, and the
+interactive SSH session launched `make fpga` and printed the Quartus flow
+command. Final reports are not yet available. The initial staging tool call
+did not execute due to a mistyped local working directory; it was corrected
+before any VM change.
+**Resource/timing delta:** Pending; do not infer from prior builds. The last
+comparable full flow (A-053) took 3h32m29s; this is an estimate only.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Wait for the
+flow report and confirm success, fit/resource numbers, timing slack, and
+`.sof`/`.rbf` hashes. A successful fit alone is not Pocket validation; next
+build a dedicated uncached CPU read/write/byte-lane firmware diagnostic and
+test as a separate Pocket core.
+
+**Result update:** The first Analysis & Synthesis attempt failed after 1m28s
+with a syntax error at the conditional `mp3_soc` instantiation. The preprocessor
+selection was followed by the old unconditional instance line, leaving a
+duplicate `mp3_soc u_soc`; no fit or hardware artifact was produced. Removed
+the stale line and retained the failed attempt in issue 015 / A-056 before
+relaunching from a fresh snapshot.
+
+### A-056 — Correct duplicate SoC instantiation exposed by Quartus
+
+**Date:** 2026-09-14
+**Decision/change:** Remove the old unconditional `mp3_soc u_soc (` line left
+below the new `TAU_PHASE2_WINDOW` conditional instance declaration in
+`core_game.vh`.
+**Alternatives and rationale:** Treat the first failure as a Quartus parser
+quirk (rejected: the source visibly contained two instance headers); revert the
+Phase 2 conditional (rejected: the default-off gate is needed to safely
+elaborate a dedicated diagnostic build).
+**Hot/cold impact:** Fixes elaboration only; default datapath and opt-in SDRAM
+behavior are unchanged.
+**Evidence:** **Quartus | code-review** — the first macro-enabled compile
+identified the syntax error at `core_game.vh:147`; code inspection found the
+duplicate header. Corrected source has not yet had a retry build.
+**Resource/timing delta:** No fitter ran; not applicable.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The failed
+attempt lasted 1m28s and generated no `.sof`/`.rbf`. A clean, refreshed
+macro-enabled Quartus run is the immediate gate.
+
+**Result update:** Corrected source was staged in a fresh ext4 directory,
+`/home/taualpha/tau-local/phase2-window-a056-20260914`; only that copy's QSF
+defines `TAU_PHASE2_WINDOW`. `make check-fpga` passed and the full `make fpga`
+flow is now running in an interactive SSH session. Fit/timing/artifact results
+remain pending; no Pocket installation has occurred.
+
+**Progress update (22:38 WEST):** The corrected Quartus Analysis & Synthesis
+log reached `Elaborating entity "mp3_soc"` with no repeat of the syntax error;
+`quartus_map` remained active. This confirms the parser fix, not a completed
+synthesis, fit, timing pass, or artifact build.
+
+**Result update (2026-09-16 inspection):** The corrected isolated build
+completed successfully at 23:53:04 WEST on 2026-09-14. Full-flow elapsed time
+was 1h18m22s (Fitter 1h06m04s); it produced `.rbf` SHA-256
+`0d01f61409f42aec6f372166f8e81f17aa1c3b0482361a03ccba3465c942217e`
+and `.sof` SHA-256
+`5b57004da55c5a5c379698717d97209d4a65ed74982331175518b69ddbd8fcac`.
+The fit uses 7,796 registers, 300/308 RAM blocks, and 11/66 DSP blocks. TNS is
+0; the minimum reported setup/hold/pulse-width slacks are 1.034/0.120/0.833 ns.
+This is **Quartus** evidence for the enabled branch only. The normal macro-off
+rebuild and Pocket CPU-window firmware test remain mandatory gates.
+
+### A-057 — Launch fresh macro-off regression build
+
+**Date:** 2026-09-16
+**Decision/change:** Stage the same audited source in a separate ext4 VM copy,
+`/home/taualpha/tau-local/phase2-default-a057-20260916`, without defining
+`TAU_PHASE2_WINDOW`, and start the full Quartus flow.
+**Alternatives and rationale:** Rely on the pre-A-054 default build (rejected:
+the current source changes `mp3_soc` ports and `core_game.vh` wiring); retain
+the macro in the ordinary QSF (rejected: release behavior must stay opt-in).
+**Hot/cold impact:** Validation only. The normal/default branch keeps its
+legacy CPU BRAM/MMIO decode; no Pocket package or card is changed.
+**Evidence:** **host | Quartus pending** — audit-ID validation and
+`make check-fpga` passed in the isolated VM copy; the interactive SSH session
+launched the full `make fpga` flow. Final reports and artifacts are pending.
+**Resource/timing delta:** Pending; do not infer from the opt-in build.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Confirm the
+macro-off fit and compare it with A-055/A-056. Then implement the separately
+packaged CPU-window firmware read/write/byte-lane smoke test; neither fit alone
+authorizes a normal player to use SDRAM.
+
+**Result update:** The macro-off flow completed successfully at 15:34:50 WEST
+on 2026-09-16, in 43m04s. It produced `.rbf` SHA-256
+`431c96729dbcab5011be6e8aaac7327205a344da76b3d4f4ba49d08cbaea43d3`
+and `.sof` SHA-256
+`f15955bca13ae1a1dbe1a9804a5f171c199f9e894f295d02d25f48f304ac4e26`.
+The fit uses 7,609 registers, 300/308 RAM blocks, and 11/66 DSP blocks; TNS is
+0, and the minimum reported setup/hold/pulse-width slacks are
+0.357/0.118/0.833 ns. This establishes the current normal branch still fits;
+the lower positive hold margin remains a timing watch item. The next gate is
+the dedicated Pocket CPU-window firmware smoke package.
+
+### A-058 — Implement a separately packaged CPU-window smoke diagnostic
+
+**Date:** 2026-09-16
+**Decision/change:** Reuse the Phase 1 diagnostic UI/test harness with the
+compile-time `TAU_CPU_WINDOW_DIAG` profile. Its full-word, byte, and halfword
+operations now issue volatile CPU accesses through the uncached address range
+`0xA0200000–0xA02FFFFC` (physical SDRAM 2–3 MiB). Add a distinct
+`TAU_SDRAM_CPU` Media Players package, separate ROM staging target, package
+checksums, deterministic running/PASS/FAIL/version-mismatch frame fixtures,
+and a documented Pocket procedure.
+**Alternatives and rationale:** Use the existing MMIO mailbox diagnostic
+(rejected: it cannot exercise `mp3_soc` address decode, adapter, CPU byte
+enables, or owner mux); modify normal TAU's ROM/RBF (rejected: an experimental
+destructive test must not alter the player artifact); test the cached alias
+first (rejected: cached bursts are explicitly unsupported and return bus error).
+**Hot/cold impact:** Developer-only test writes its bounded 2–3 MiB region.
+Framebuffer/guard, Phase 1's 1–2 MiB region, audio/decoder/PCM/stack, normal
+ROM, and normal package remain untouched. No user data migrates.
+**Evidence:** **code-review | host** — the source uses volatile `uint32_t`,
+`uint16_t`, and `uint8_t` lvalues; the compiled RISC-V disassembly confirms
+`sw`, `sb`, and `sh` operations at `0xA0200600+`. `make
+firmware-sdram-cpu-diag` passed (5,192-byte ROM, 2.9% of usable BRAM); the
+29-state 400×360 RGB565 snapshot check, visual-review generation, audit-ID
+check, Python syntax check, and independent package identity/ROM/bit-reversal
+verification all pass. The staged RBF SHA-256 exactly matches A-056:
+`0d01f61409f42aec6f372166f8e81f17aa1c3b0482361a03ccba3465c942217e`.
+`make test` passes all host and RTL tests. Its optional Astra peer-launches
+were not run because that helper requires an interactive approval; no peer-run
+claim is made. No Pocket claim is made.
+**Resource/timing delta:** No RTL or new Quartus result. Diagnostic ROM is
+5,192 bytes; the accepted A-056 enabled RBF remains the sole staging input.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The legacy
+version register is shared by macro-on and macro-off RBFs, so it cannot protect
+against a mismatched bitstream. The packager hard-rejects a non-A-056 hash;
+`SHA256SUMS.txt` and installer text provide the inspectable provenance. Host gates have
+passed; next run five cold/five warm Pocket passes. A pass proves only bounded uncached
+traffic; concurrent player/CRC pressure and a separate cache-line adapter are
+later gates.
+
+**Pocket checkpoint (2026-09-16):** User supplied a Pocket photo of the
+initial screen showing `TAU CPU SDRAM TEST`, `PHASE 2 UNCACHED WINDOW`,
+`SAFE REGION 2-3 MIB`, and `CPU LOAD STORE LANES` at 31.8°C / 60 Hz / sync ok.
+This confirms the separately packaged diagnostic booted and reached its first
+test stage. It is **Pocket** boot/UI evidence only—not a read/write or memory
+integrity pass. Await the PASS/FAIL screen before updating the gate.
+
+**Pocket result update:** After more than 30 seconds the same screen remained
+at `FIXED PATTERNS`, with no PASS/FAIL result. This is a **Pocket** failure of
+the first mapped CPU transaction completion path. It narrows the problem to the
+new adapter/mux/actual CDC-bridge/arbiter composition after otherwise-successful
+firmware and UI boot; see [issue 016](issues/016-phase2-cpu-window-first-transaction-stall.md).
+The stand-in end-to-end simulation is therefore insufficient, not invalidated
+as a unit-level result. Do not call the CPU-window gate passed or migrate data.
+
+**Source-provenance update:** SHA-256 comparison of the five Phase 2 top-path
+RTL files between the local checkout and A-056's isolated VM snapshot is an
+exact match. This eliminates a local-source versus packaged-RBF mismatch. The
+next test is a ROM-only mailbox preflight at the same physical 2 MiB location;
+it uses the known bridge path and a distinct failure screen before any mapped
+CPU access. No new Quartus result is claimed or required for that firmware-only
+instrumentation step.
+
+**Preflight-ROM update:** The updated ROM-only diagnostic compiles at 6,112
+bytes (3.4% of usable BRAM), produces 31 deterministic framebuffer fixtures,
+and packages with the unchanged A-056 RBF. Its ROM SHA-256 is
+`a3dd9bd6b67ba740237c7e5d2990c1197d45593c573102342622fbe49eee8854`.
+
+**Pocket preflight result:** User observed the transient `MAILBOX OK CPU
+WINDOW NEXT` state, followed by the same persistent `FIXED PATTERNS` screen.
+This is **Pocket** proof that the new shared owner mux, existing CDC bridge,
+arbiter/controller route, and physical 2 MiB location complete a mailbox
+write/read. It eliminates that composition from the leading cause. The mapped
+VexRiscv-to-adapter request or its return ACK remains the failing boundary;
+the next evidence must expose the actual generated-CPU request semantics,
+rather than assume the stand-in testbench covers them.
+
+**Composed-simulation update:** `tb_tau_sdram_composed_path.v` combines the
+real adapter, owner mux, CDC bridge, and arbiter at 60/100 MHz with recurring
+framebuffer traffic; it passes. A minimal generated-VexRiscv execution harness
+was also attempted but timed out before the target access because its simplified
+instruction-memory responder did not model the CPU's cached instruction bus.
+It was removed and is explicitly **not** treated as generated-CPU evidence.
+The normal 6,112-byte preflight ROM/package was rebuilt afterward and its ROM
+hash re-verified as `a3dd9bd6b67ba740237c7e5d2990c1197d45593c573102342622fbe49eee8854`.
+
+### A-059 — Add a Phase-2 hardware progress probe for the first CPU request
+
+**Date:** 2026-09-16
+**Decision/change:** Add `tau_sdram_cpu_window_probe.sv`, an opt-in recorder
+that retains the first mapped CPU request's CTI/SEL plus adapter request,
+mux accept/start, bridge busy/done, adapter done, Wishbone ACK, and unsupported
+CTI milestones. In an enabled diagnostic build only, a 16-cell green/red bar
+is overlaid after framebuffer scanout so it persists after a CPU freeze.
+**Alternatives and rationale:** Continue extending a full generated-VexRiscv
+Icarus harness (rejected for this gate: even after correcting its startup MMIO
+model, it was too slow to provide bounded useful evidence); infer the stage
+from the frozen firmware text (rejected: it only proves execution reached the
+first access); add a normal-player debug UI (rejected: would contaminate the
+release path and disappear if the CPU stalls).
+**Hot/cold impact:** Diagnostic-only added registers and top-edge scanout
+overlay; no normal Tau macro-off path, player storage, SDRAM mapping policy,
+or user data changes. The probe observes protocol metadata only.
+**Evidence:** **code-review | simulation | host** — the isolated probe test
+passes first-request metadata retention, all success milestones, unsupported
+CTI indication, and non-overwrite by later traffic. `make test-rtl`, audit-ID
+check, whitespace check, and deterministic UI fixture check pass. The
+composed adapter/mux/CDC/arbiter test remains passing. The generated-Vex
+attempt is explicitly inconclusive, not simulation evidence for the request
+shape. **Quartus | Pocket:** pending a fresh dedicated macro-enabled build.
+**Resource/timing delta:** Pending Quartus; the probe is small control logic
+plus two 16-bit video-domain synchronizer stages. No resource estimate is
+treated as a fit result.
+**Outcome, reversal/workaround, remaining risk, and next gate:** A-056 proves
+the prior enabled build, not this instrumentation. Build/package a distinct
+probe artifact, photograph the 16-cell sequence on Pocket, then make exactly
+one evidence-backed correction (or add a targeted test) based on the first
+missing milestone. No migration gate advances.
+
+**Build status update:** A fresh isolated VM copy at
+`/home/taualpha/tau-local/phase2-probe-a059-20260916` was staged from the
+current local source. SHA-256 matches for `mp3_soc.v`
+(`b6c138b5…84ab71b`), `core_game.vh` (`4cc38b75…149f28cc`), and the new probe
+(`67448db0…8dab4f169`). Only that copy has `TAU_PHASE2_WINDOW` in its QSF.
+The Quartus 25.1std full flow began 2026-09-16; its report, artifact hashes,
+timing, and Pocket result remain pending.
+
+**Quartus/package result update:** The isolated A-059 flow completed with 0
+errors and 343 warnings in 42m29s. Its raw RBF SHA-256 is
+`921d6f941b8d40dd0f662857b6fe1b34e09a22bade0f372a950c9ed8c88df97c`; the
+Pocket bit-reversed hash is
+`fd4d59e5d054f6f4c5e6c552fcb84bcba691bd28a847432aa5c6dccfd8578720`.
+Resources are 917/1,848 LABs (50%), 7,842 registers, 300/308 RAM blocks
+(97%), 2,380,928/3,153,920 block-memory bits (75%), and 11/66 DSP blocks
+(17%). Positive timing is reported; the tightest reported hold slack is
+0.070 ns. `TAU CPU SDRAM Probe` packages beside, rather than overwriting,
+the A-056 `TAU CPU SDRAM Diagnostic`; both package hashes and the unchanged
+6,112-byte ROM hash were verified on the host. **Pocket:** pending; no SD-card
+write was made by this build/package step.
+
+**Card-install update:** After the user explicitly confirmed `/Volumes/Pock`
+was mounted, only the new `alfatreze.TAU_SDRAM_PROBE`, `tau_sdram_probe`, and
+platform-image/metadata paths were copied. Card-side SHA-256 verification
+matches the packaged bit-reversed RBF
+`fd4d59e5d054f6f4c5e6c552fcb84bcba691bd28a847432aa5c6dccfd8578720` and
+ROM `a3dd9bd6b67ba740237c7e5d2990c1197d45593c573102342622fbe49eee8854`;
+the platform JSON byte-compares equal. This is **host** installation evidence,
+not Pocket runtime evidence. Normal Tau and A-056 diagnostic paths were not
+modified.
+
+### A-060 — Correct CPU-window back-to-back classic Wishbone turnaround
+
+**Date:** 2026-09-16
+**Decision/change:** Interpret the A-059 Pocket probe: the first mapped
+full-word request completed through ACK (`CTI=000`, `SEL=1111`) before the
+firmware remained on `FIXED PATTERNS`. Replace the adapter's indefinite
+`S_RELEASE` wait for a low CYC/STB level with a one-clock turnaround followed
+by IDLE. Widen the probe scanout x-counter to 9 bits so its 128-pixel bar
+does not repeat after an 8-bit wrap.
+**Alternatives and rationale:** Treat the completed first request as evidence
+that the overall CPU window works (rejected: the persistent firmware stall
+shows a later beat remains blocked); add broader speculative instrumentation
+before changing the narrow adapter (deferred: source semantics plus the probe
+give a direct, testable cause); remove turnaround entirely (rejected: would
+capture the just-acknowledged held request again before the registered SoC ACK
+is observable).
+**Hot/cold impact:** Changes only the opt-in Phase-2 adapter/probe path.
+Normal macro-off Tau, BRAM hot path, audio, framebuffer ownership, and all
+data-placement policy remain unchanged.
+**Evidence:** **Pocket | code-review | simulation** — Pocket photo has all
+request/adapter/mux/bridge/done/ACK cells green, unsupported CTI red, CTI
+`000`, and SEL `1111`. The probe's two visible bars are explained by exact
+8-bit x-counter wrap. `tb_tau_sdram_wb_adapter` now passes held-cycle,
+back-to-back classic-beat, unsupported-burst, and reset cases; the Phase-2
+path and composed CDC/arbiter tests pass. **Quartus | Pocket corrected build:**
+pending.
+
+**Pocket display reversal:** The first A-063 Pocket photo retained the known
+182/183 zero-readback result, but visibly rendered only the prior 19-cell
+sequence. Code review found that `sdram_probe_pixel` was widened to 280 pixels
+while the enclosing `sdram_probe_bar` guard was accidentally left at 152.
+Thus cells 19–34 were never displayed and this run is not evidence about the
+new payload trace. The guard is corrected to 280 and a host check now compares
+both scanout limits before a fresh build; no functional SDRAM logic changed.
+
+### A-064 — Correct the visible width of the 35-cell store-payload probe
+
+**Date:** 2026-09-17
+**Decision/change:** Change the enclosing probe-bar scanout guard from 152 to
+280 pixels so it covers all 35 retained cells, matching the already-correct
+probe-pixel guard. Add a host check that extracts both RTL limits and rejects a
+mismatch or a width other than 280.
+**Alternatives and rationale:** Decode the hidden cells from the failed screen
+(rejected: they were not rendered); treat A-063's first 19 cells as payload
+evidence (rejected: those cells end before payload tracing begins); alter SDRAM
+write logic (rejected: this is demonstrably a display-boundary defect).
+**Hot/cold impact:** Diagnostic scanout only. The normal macro-off player,
+request path, bridge state machine, data map, and audio path are unchanged.
+**Evidence:** **Pocket | code-review | simulation** — the A-063 photo has a
+152-pixel/19-cell colored bar despite the 35-cell recorder. The corrected
+host scanner, probe test, bridge/mux/composed tests, audit-ID check, and
+whitespace check pass. **Quartus | Pocket A-064:** pending.
+**Resource/timing delta:** Pending a fresh diagnostic-only fit.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Build a
+distinct A-064 RBF, then repeat one Pocket run and photograph the full visible
+bar. Only then can the first red payload boundary guide a functional change.
+
+**Build status update:** At 2026-09-17 09:15:01 WEST, a fresh ext4-only VM
+snapshot at `/home/taualpha/tau-local/phase2-probe-a064-20260917` passed the
+Quartus environment preflight with `TAU_PHASE2_WINDOW=1` only in that copy.
+The full flow launched under PID 32635. This is **host** launch evidence only;
+fit, timing, artifact hashes, and Pocket evidence remain pending.
+
+**Quartus/package result update:** A-064 completed successfully with 0 errors
+and 343 warnings in 47m28s. Raw RBF SHA-256 is
+`60abb545fef5e6c725c84717af21b6a53f4f994d9219cd0245b0dbd1577c32dc`; the
+bit-reversed Pocket RBF SHA-256 is
+`da6ccf4a8d0200147d458238b96c058d58dd67146ec8890f38b78e24f36a11fe`.
+The fit uses 913/1,848 LABs (49%), 7,902 registers, 300/308 RAM blocks (97%),
+and 11/66 DSP blocks (17%). All reported timing is positive; tightest reported
+hold slack is 0.118 ns. The separate **TAU CPU SDRAM Probe A064** package
+(`alfatreze.TAU_SDRAM_PRB64`, `tau_sdram_prb64`) is hard-pinned to that RBF and
+the verified A-061 ROM. Host package, audit-ID, UI-fixture, and whitespace
+checks pass. Card installation and Pocket runtime evidence remain pending
+explicit mounted-card confirmation.
+
+**Card-replacement update:** After fresh mounted-card confirmation, the exact
+superseded A-063 core, asset, platform JSON, and platform-image paths were
+removed before copying only A-064's corresponding paths. Card-side SHA-256
+matches the A-064 bit-reversed RBF and paired A-061 ROM above. Normal Tau and
+the independent retained diagnostics were not touched. This is **host**
+installation evidence only; Pocket A-064 runtime evidence is pending.
+
+**Catalog-index update:** After installation, the A-064 core and platform files
+were present and hash-verified, and `cores_cache.bin`/`corelist_cache.bin`
+contained `TAU_SDRAM_PRB64`. However, those caches were timestamped 11:08
+while the A-064 files were copied at 11:41; `platforms_cache.bin` was older at
+08:33 and the platform/category indexes did not contain the new mapping. The
+core is therefore valid but not yet menu-visible. A Pocket disconnect/reconnect
+or cold catalog rebuild is required before treating menu absence as a package
+failure. This is **host** cache evidence only.
+
+**Cache-rebuild action:** After the user reported two cold boots and a cleared
+recent-FPGA catalog still did not show A-064, metadata was rechecked against
+the visible diagnostics and remained valid. Only the five regenerable Pocket
+catalog/index caches (`platforms_cache.bin`, `cores_cache.bin`,
+`corelist_cache.bin`, `core_viewby_platform.bin`, and
+`platform_viewby_category.bin`) were removed; all core, asset, platform JSON,
+and image files were preserved. The Pocket must be disconnected/reconnected so
+it regenerates these indexes. This is **host** cache maintenance evidence,
+not runtime or SDRAM evidence.
+**Resource/timing delta:** Pending fresh build; the adapter changes one state
+transition and probe x-counter one bit. No fit estimate is treated as evidence.
+**Outcome, reversal/workaround, remaining risk, and next gate:** A-059
+reverses the initial conclusion that the first transaction never returns. The
+leading cause is a legal back-to-back classic transfer blocked by release
+policy. Fresh-build a distinct A-060 probe RBF, rerun Pocket, and require a
+PASS screen before considering Phase-2 migration.
+
+**Build status update:** The complete host/RTL/UI suite passed before staging
+the A-060 source in isolated VM directory
+`/home/taualpha/tau-local/phase2-probe-a060-20260916`. Its Phase-2 macro is
+present only in that directory's QSF, and the full Quartus 25.1std flow is now
+running. The prior Pocket card package remains installed but is not a valid
+test of this correction; no card write is made until this new flow is verified
+and separately packaged.
+
+**Quartus/package result update:** A-060 completed with 0 errors and 343
+warnings in 47m11s. Its raw RBF SHA-256 is
+`9ea5e38c20145125627b8d23c2bf4ab02b7c5b3998778cea80598bcd72b4c5ee`; the
+bit-reversed Pocket RBF SHA-256 is
+`4b68f7b3b6681697ed7af80718535a2e5542e347db918ee1ab9e41f4ccbb78cd`.
+Resources are 939/1,848 LABs (51%), 7,848 registers, 300/308 RAM blocks
+(97%), 2,380,928/3,153,920 block-memory bits (75%), and 11/66 DSP blocks
+(17%). All reported timing is positive; tightest reported hold slack is
+0.116 ns. The new hard-pinned package is **TAU CPU SDRAM Probe A060**
+(`alfatreze.TAU_SDRAM_PRB60`, platform `tau_sdram_prb60`), deliberately
+separate from A-059. Host package validation passed; Pocket install/test is
+pending explicit card-mounted confirmation.
+
+**Card-install update:** `/Volumes/Pock` was confirmed mounted before copying
+only `alfatreze.TAU_SDRAM_PRB60`, `tau_sdram_prb60`, and its platform
+image/metadata. Card-side hashes match the A-060 bit-reversed RBF
+`4b68f7b3b6681697ed7af80718535a2e5542e347db918ee1ab9e41f4ccbb78cd` and
+the unchanged ROM; platform JSON byte-compares equal. This is **host** install
+evidence only. A-059, A-056, and normal Tau paths remain present and untouched.
+
+### A-061 — Add a firmware-only mailbox-to-CPU readback discriminator
+
+**Date:** 2026-09-17
+**Decision/change:** After A-060 completed the whole matrix with 182/183
+failures and zero actual values, add a distinct ROM that uses the proven
+mailbox to write/read `PREFLIGHT_PATTERN` at physical 2 MiB, then reads that
+same word once through the CPU uncached alias before entering the matrix. Add
+a dedicated CPU readback failure UI state and fix the CPU diagnostic result
+title, which was incorrectly hard-coded as the Phase-1 name.
+**Alternatives and rationale:** Immediately modify the mapped write bridge
+(rejected: the result does not distinguish write loss from mapped-read return
+loss); rebuild FPGA logic merely for this observation (rejected: the current
+A-060 RBF already contains the needed address and bridge paths); inspect only
+the 182 aggregate failures (rejected: insufficient to locate the boundary).
+**Hot/cold impact:** Separate developer ROM/package only; no RTL, timing,
+normal player, user data, or existing diagnostic artifact change.
+**Evidence:** **Pocket | code-review | host** — Pocket confirmed A-060
+preflight and full transaction completion, then showed zero readbacks. The
+readback ROM builds at 6,668 bytes (3.7% usable RAM), its new deterministic
+frame fixture plus UI review pass, and it packages with the already-verified
+A-060 RBF. **Pocket readback result:** pending.
+**Resource/timing delta:** No new FPGA build. A-060 resources/timing remain
+the applicable hardware evidence.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Install the
+separate `TAU CPU SDRAM Readback A060` package only after explicit card-mounted
+confirmation. A matching read proves CPU mapped-read routing; a zero read
+focuses the next correction on mapping/return data, while a preflight failure
+would reopen the mailbox/physical-address premise.
+
+**Card-install update:** After explicit mounted-card confirmation, only
+`alfatreze.TAU_SDRAM_RD60`, `tau_sdram_rd60`, and its platform image/metadata
+were installed. Card-side hashes match the A-060 bit-reversed RBF
+`4b68f7b3b6681697ed7af80718535a2e5542e347db918ee1ab9e41f4ccbb78cd` and
+the A-061 ROM
+`f8a7f999cb0a503c9bef0536cead0c8f2ea046382efb2626bfdc8af60c16338a`;
+platform JSON byte-compares equal. This is **host** install evidence only;
+all earlier Tau and diagnostic paths remain untouched.
+
+### A-062 — Instrument first two mapped CPU request directions
+
+**Date:** 2026-09-17
+**Decision/change:** Interpret the A-061 Pocket run: it passed the CPU read of
+the non-zero mailbox preflight word, then reached the matrix with 181 failures
+on first launch and 182 on re-run. Extend the opt-in hardware probe from 16 to
+19 cells to record first-request WE and second-request observed/WE. Under the
+A-061 ROM, these map directly to the checkpoint read followed by the first
+matrix store. Preserve the first-request CTI/SEL and pipeline milestones.
+**Alternatives and rationale:** Diagnose mapped reads further (rejected:
+A-061 directly proved the mapped read of the mailbox's non-zero word);
+assume stores assert WE because firmware disassembly contains `sw` (rejected:
+the FPGA boundary must observe the real generated Vex signal); rewrite the
+store bridge now (rejected: direction versus downstream loss remains unknown).
+**Hot/cold impact:** Opt-in diagnostic probe only. No normal Tau, data map,
+audio, framebuffer ownership, or firmware feature behaviour changes.
+**Evidence:** **Pocket | code-review | simulation | Quartus | host** — A-061 Pocket result and
+the 181/182 reversal are recorded above. The expanded probe unit test passes
+first/second request edge capture, CTI/SEL retention, direction bits,
+milestones, unsupported indication, and non-overwrite. Existing adapter,
+Phase-2 path, and composed tests pass. Quartus completed as recorded below.
+**Pocket result:** the retained 19-cell bar reads green ×8, red ×4, green ×4,
+red ×1, green ×2. This is the expected first mapped read (`CTI=000`,
+`SEL=1111`, `WE=0`) followed by an observed second request with `WE=1`. The
+matrix then completed with 182/183 failures and zero returned data.
+**Resource/timing delta:** The dedicated fit is recorded below; the probe adds
+two retained bits and the corresponding video-domain synchronizer width.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Mapped reads
+are no longer the leading cause. The A-062 Pocket result rules out missing CPU
+store direction as well. Next, trace the first store's payload and write intent
+across the adapter, owner mux, CDC bridge, and SDRAM-domain sequencer before
+changing any functional write logic.
+
+**Quartus/package result update:** A-062 completed with 0 errors and 343
+warnings in 46m58s. Raw RBF SHA-256 is
+`d7f60eb7e52705a5f622d449312b266040399acf2940a352acebc0b77dcde0a4`; the
+bit-reversed Pocket RBF SHA-256 is
+`99437bac629b27bdba89c7e2a377645e7aa831bc51e56bd8e40c425a54fb2984`.
+Resources are 914/1,848 LABs (49%), 7,861 registers, 300/308 RAM blocks
+(97%), and 11/66 DSP blocks (17%); all reported timing is positive with 0.115
+ns tightest reported hold slack. It packages separately as **TAU CPU SDRAM
+Probe A062** (`alfatreze.TAU_SDRAM_PRB62`, `tau_sdram_prb62`) paired with the
+verified A-061 readback ROM. Host package checks pass.
+
+**Card-cleanup/install update:** After explicit mounted-card confirmation, the
+A-062 package was installed and card-side SHA-256 matched the bit-reversed RBF
+and paired ROM above. The superseded A-059, A-060, and standalone A-061
+diagnostic packages (their exact core, asset, platform JSON, and image paths)
+were then removed at the user's request. Normal Tau and the Phase-1 baseline
+diagnostic were not touched. This is **host** install/cleanup evidence only.
+
+### A-063 — Trace first mapped-store payload through every write boundary
+
+**Date:** 2026-09-17
+**Decision/change:** The A-062 Pocket bar proves the first matrix store reaches
+the CPU Wishbone boundary with `WE=1`, while subsequent reads remain zero.
+Extend the opt-in probe to 35 cells. It retains expected `FFFFFFFF`/`1111`
+payload evidence at the second CPU request, adapter, owner mux, SDRAM-domain
+bridge capture, and accepted lower/upper controller writes. Add a one-cycle
+`bridge_wb_start` provenance pulse so the bridge explicitly excludes the
+earlier diagnostic-MMIO preflight write from this evidence.
+**Alternatives and rationale:** Change write logic now (rejected: A-062 only
+establishes direction, not the first loss boundary); use the old generic
+bridge-write state (rejected: it would be polluted by the preflight MMIO
+write); infer payload from the source instruction (rejected: hardware evidence
+must cover the actual routed values).
+**Hot/cold impact:** Diagnostic-only observability. The normal macro-off
+player does not consume the retained outputs; no user data map, audio path, or
+functional write policy changes.
+**Evidence:** **Pocket | code-review | simulation** — Pocket A-062 provided
+the direction result above. Targeted probe, bridge, mux, Phase-2 path, and
+composed-path simulations pass, including retained payload/byte-enable state
+and both accepted 16-bit writes. **Quartus | Pocket A-063:** pending.
+**Resource/timing delta:** Pending dedicated fit; no inference is made from
+the A-062 fit because the new retained state crosses the diagnostic boundary.
+**Outcome, reversal/workaround, remaining risk, and next gate:** Fresh-build a
+distinct A-063 package with the unchanged A-061 ROM, photograph all 35 cells,
+and trace only the first red cell. No functional fix or SDRAM migration is
+authorised beforehand.
+
+**Build status update:** At 2026-09-17 01:42:46 WEST, a fresh ext4-only VM
+snapshot at `/home/taualpha/tau-local/phase2-probe-a063-20260917` was created
+from the local worktree. SHA-256 matches were checked for `core_game.vh`,
+`mp3_soc.v`, `tau_sdram_cpu_bridge.sv`, `tau_sdram_bridge_mux.sv`, and
+`tau_sdram_cpu_window_probe.sv` before adding `TAU_PHASE2_WINDOW=1` only to
+that copy's QSF. Quartus environment preflight passed and the full flow was
+launched under PID 28041. This is **host** launch evidence, not a fit result;
+reports, hashes, timing, and Pocket evidence remain pending.
+
+**Failed-build update:** Quartus Analysis & Synthesis stopped after 56 seconds
+with `default_nettype none` error 10162 at `core_game.vh:459`: the new
+`sdram_wb_debug_wdata` output was declared in `mp3_soc` but omitted from the
+top-level instance and its wire declaration. No fitter, timing, RBF, or Pocket
+evidence was produced. This is a retained integration failure, not a hardware
+finding. The local connection is corrected; local gates must pass before a
+fresh isolated snapshot is built.
+
+**Retry launch update:** The connection fix passed the focused local RTL,
+audit-ID, UI-fixture, and whitespace gates. A new ext4 snapshot at
+`/home/taualpha/tau-local/phase2-probe-a063r-20260917` passed its Quartus
+environment preflight with `TAU_PHASE2_WINDOW=1` only in that copy. The full
+retry started at 2026-09-17 07:06:28 WEST under PID 30161. This is **host**
+launch evidence only; the original failed snapshot is retained for audit and
+will not provide the retry's artifact or timing provenance.
+
+**Quartus/package result update:** The retry completed successfully with 0
+errors and 343 warnings in 1h19m08s. Raw RBF SHA-256 is
+`acce05b2145b34780da31a8a315557ac64ae2416546f104c5a242f2241cbfaaa`; the
+bit-reversed Pocket RBF SHA-256 is
+`8f2d4693060443a83c8d06620b8d85b4f7cbd283f69e971dec5b523dae3d348e`.
+The fit uses 932/1,848 LABs (50%), 7,982 registers, 300/308 RAM blocks (97%),
+and 11/66 DSP blocks (17%). All reported timing is positive; tightest reported
+hold slack is 0.115 ns. The separate **TAU CPU SDRAM Probe A063** package
+(`alfatreze.TAU_SDRAM_PRB63`, `tau_sdram_prb63`) is hard-pinned to that RBF and
+the verified A-061 ROM hash. Host package, audit-ID, UI-fixture, and whitespace
+checks pass. Card installation and Pocket runtime evidence remain pending
+explicit mounted-card confirmation.
+
+**Card-cleanup/install update:** After explicit mounted-card confirmation, the
+superseded A-056 CPU-window diagnostic and A-062 direction-probe packages were
+removed before copying only A-063's exact core, asset, platform JSON, and
+platform image paths. Card-side hashes match the A-063 bit-reversed RBF and
+the paired A-061 ROM above. Normal Tau, the independent Phase-1 mailbox
+baseline, and the contention-stress diagnostic were retained. Going forward,
+remove superseded Tau test packages before installing a newer test package;
+retain only independent regression baselines that remain useful. This is
+**host** install/cleanup evidence only; Pocket A-063 runtime evidence is
+pending.
+
 ### A-043 — Confirm Pocket rebuilt the corrected platform catalog
 
 **Date:** 2026-09-14
@@ -1360,6 +2024,439 @@ worked. Ask user to confirm the core appears in the ordinary Media Players
 browser. Continue the user-run visualizer matrix. See
 [issue 010](issues/010-stress-platform-id-too-long.md) and
 [issue 012](issues/012-stress-progress-hud.md).
+
+### A-065 — Interpret the full-width A-064 Pocket payload trace
+
+**Date:** 2026-09-17
+**Decision/change:** Decode the first complete 35-cell A-064 Pocket bar and
+correct the payload expectation in the diagnostic documentation. The observed
+sequence is `GGGGGGGGRRRRGGGGRGGRGGRRGGRRGGGRGGG`; cells 19, 22–23, 26–27, and
+31 are red because the captured second CPU request is the first fixed-pattern
+store, whose firmware value is `0x00000000`, not `0xFFFFFFFF`.
+**Alternatives and rationale:** Treat red payload cells as proof that the
+adapter or SDRAM path changed zero data (rejected: source review of
+`fw/sdram_diag.c` shows the first store is the zero pattern); treat the bar as
+proof that the later all-ones failure is fixed (rejected: the probe latches
+only the first matrix store and the player still reports 181 failures at
+`A0200000`).
+**Hot/cold impact:** Documentation and diagnostic interpretation only; no
+player, bridge, arbiter, or SDRAM controller logic changed.
+**Evidence:** **Pocket | code-review** — full A-064 photo; pixel decode of the
+35-cell bar; `fw/sdram_diag.c` fixed-pattern order; failure screen showing
+183 checks, 181 failures, first failure `A0200000`, expected `FFFFFFFF`,
+actual `00000000`.
+**Resource/timing delta:** None; A-064 fit remains 913/1,848 LABs, 300/308
+RAM blocks, and positive timing.
+**Outcome, reversal/workaround, remaining risk, and next gate:** A-064's
+display-width defect is resolved, but its payload trace is stimulus-mismatched
+and cannot localise the later all-ones failure. Issue
+[017](issues/017-a064-probe-stimulus-mismatch.md) is open. Build another
+diagnostic-only probe after making the observed store ordinal/value
+deterministic; do not change the functional path on this evidence alone.
+
+### A-066 — Target the all-ones CPU store in the A-065 payload probe
+
+**Date:** 2026-09-17
+**Decision/change:** Retain first-request metadata, but arm payload capture on
+the fourth CPU request: the A-061 order is preflight read, zero store, zero
+read, then the all-ones store that produces the first observed failure. The
+bridge's retained provenance similarly selects the first mapped Wishbone write
+whose payload is `FFFFFFFF`, so its SDRAM-domain evidence matches the target
+transaction.
+**Alternatives and rationale:** Reorder the diagnostic firmware to write ones
+first (rejected: it changes the long-lived smoke test rather than its observer);
+infer the all-ones path from A-064's zero-store trace (rejected: it cannot
+locate the later failure); capture an unbounded stream of transactions
+(rejected: unnecessary state and wider diagnostic surface).
+**Hot/cold impact:** Opt-in Phase-2 diagnostic recorder and provenance flags
+only. The normal macro-off player, CPU-window protocol, bridge transaction
+state machine, arbiter, firmware ROM, and SDRAM map are unchanged.
+**Evidence:** **code-review | simulation | host** — focused probe simulation
+proves that requests two and three do not arm capture and request four retains
+`FFFFFFFF/F`; bridge simulation proves a non-all-ones write does not arm
+provenance and a later all-ones write reaches both controller halfwords. The
+full local `make -B test`, UI fixture, audit-ID, and whitespace gates pass.
+**Resource/timing delta:** Pending a new macro-enabled Quartus fit; no estimate
+is treated as a result.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The diagnostic
+now observes the correct failing transaction in simulation. Stage an isolated
+ext4 A-065 build, obtain Quartus reports and hashes, package under a new core
+identity, and require a Pocket bar before changing functional RTL.
+
+**VM staging/build update:** A fresh local-ext4 snapshot was created at
+`/home/taualpha/tau-local/phase2-probe-a065-20260917`. Its first appended QSF
+macro line was malformed by shell escaping; it was removed before any build,
+then replaced with the exact line
+`set_global_assignment -name VERILOG_MACRO "TAU_PHASE2_WINDOW"`. The isolated
+copy passed `make check-fpga`, which confirmed Quartus 25.1std and the macro at
+QSF line 773. The full flow launched as PID 35053 (child `quartus_map` PID
+35081). This is **host** launch/preflight evidence only; no fit, timing,
+artifact, or Pocket claim is made from it.
+
+**Quartus/package result update:** The A-065 flow completed at 13:02:12 WEST
+with 0 errors and 343 warnings in 45m17s. Raw RBF SHA-256 is
+`dcdc78107dbb0dc729a71f9559f55dda3e6fd7e950c46468255f4c90e0878bdb`; SOF
+SHA-256 is `e83eacb6f1a2d77774182a10e4417e47796d412f9b628373b9b8c14dfa195629`;
+the bit-reversed Pocket RBF SHA-256 is
+`ddc0ba874f2d46b472b608c15178b4d3fbf0df0ecb5955deee6089a5b1c02b14`.
+Resource use is 6,088/18,480 ALMs (33%), 7,939 registers, 300/308 RAM blocks
+(97%), and 11/66 DSP blocks (17%). Timing is positive; the tightest reported
+hold slack is 0.124 ns. The host package
+`alfatreze.TAU_SDRAM_PRB65`/`tau_sdram_prb65` is hard-pinned to that RBF and
+the A-061 ROM hash. Package identity, hashes, UI fixture, audit-ID, and
+whitespace checks pass. The Pocket card has not been modified; Pocket runtime
+evidence remains pending explicit mounted-card confirmation.
+
+**Card replacement update:** After explicit mounted-card confirmation, only the
+superseded A-064 core, assets, platform JSON, and platform image were removed.
+The A-065 package was copied in their place; card-side SHA-256 matches the
+bit-reversed RBF `ddc0ba874f2d46b472b608c15178b4d3fbf0df0ecb5955deee6089a5b1c02b14`
+and paired A-061 ROM. Normal Tau, the Phase-1 diagnostic, and the stress
+diagnostic were retained. The five previously-problematic, regenerable Pocket
+catalog/index caches were removed so the fresh platform mapping is rebuilt on
+reconnect. This is **host** installation evidence only; no Pocket runtime or
+SDRAM conclusion is implied.
+
+### A-067 — A-065 Pocket trace moves the CPU-window boundary past the bridge
+
+**Date:** 2026-09-17
+**Decision/change:** Decode the first A-065 Pocket bar rather than infer payload
+integrity from the failing screen. The 35 cells are
+`GGGGGGGGRRRRGGGGRGGGGGRRGGRRGGGGGGG`. The target all-ones store is present at
+the CPU source, the SDRAM-domain bridge captures `FFFFFFFF/F`, and both of its
+16-bit controller requests are accepted; the final readback still returns zero.
+**Alternatives and rationale:** Treat the red adapter/mux data cells as a
+payload-loss boundary (rejected: their registered observation is not
+transaction-locked and later bridge capture is all green); declare a physical
+SDRAM defect (rejected: controller command/data timing remains unobserved);
+change the controller now (rejected: next evidence can distinguish its input
+latch, command drive, and read return without perturbing the normal core).
+**Hot/cold impact:** Evidence and documentation only; A-065 is diagnostic-only
+and the Pocket result did not change functional RTL or the normal player.
+**Evidence:** **Pocket | code-review** — A-065 bar and result photo: 183
+checks, 182 failures, first `A0200000` mismatch expected `FFFFFFFF`, actual
+`00000000`; source review of recorder timing and bridge debug capture.
+**Resource/timing delta:** None beyond A-065's recorded Quartus result.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The all-ones
+transaction reaches and completes the bridge, so the active boundary is the
+controller-facing write/read path. [Issue 018](issues/018-phase2-post-bridge-write-readback.md)
+requires a controller-boundary recorder and controller-facing simulation before
+another Quartus/Pocket cycle or any functional SDRAM change.
+
+### A-068 — Add a transaction-bound controller-edge provenance recorder
+
+**Date:** 2026-09-17
+**Decision/change:** Add eleven retained A-066 diagnostic bits after A-065's
+35 bridge-path cells. The new recorder captures the target CPU-owned all-ones
+write as latched by `sdram_fb`, its registered external WRITE/DQ/DQM values,
+and the following CPU read/`READ_OUTPUT` halfword predicates. The overlay grows
+to 46 eight-pixel cells (368 pixels) and its renderer/check are widened with it.
+**Alternatives and rationale:** Infer controller integrity from bridge capture
+alone (rejected: A-065 already proves that does not explain zero readback);
+sample on `p0_data_available` (rejected: it is asserted one convenience cycle
+before `READ_OUTPUT`); trace every SDRAM transaction (rejected: a one-way
+targeted recorder is lower risk, smaller, and sufficient for this boundary).
+**Hot/cold impact:** Opt-in `TAU_PHASE2_WINDOW` diagnostics only. The normal
+macro-off player, mapped window protocol, firmware ROM, cache policy, and
+physical SDRAM timing parameters are unchanged.
+**Evidence:** **code-review | simulation | host** — `tb_tau_sdram_cpu_window_probe`
+passes the added two-stage clock-domain capture; `tb_sdram_fb_controller_probe`
+passes with an independent DQ model that observes `WRITE/FFFF/DQM=00` and then
+returns zero during `READ_OUTPUT`; arbiter/composed-path regressions, UI
+fixture, audit-ID and whitespace checks pass. Icarus cannot elaborate this
+controller due to the upstream unpacked SystemVerilog struct; Verilator 5.052
+was used for this focused controller test. This is not Quartus or Pocket
+evidence.
+**Resource/timing delta:** Pending a fresh macro-enabled Quartus fit. The
+additional debug registers and 88 pixels of overlay may change the previous
+A-065 fit; no resource/timing claim is carried forward.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The next
+Pocket image can distinguish controller input latch, registered write pins,
+and sampled zero/all-ones read evidence. Stage a fresh ext4 A-066 build, record
+Quartus resources/timing/hashes, package under a new identity, remove the
+superseded A-065 package from the mounted card, then take one cold-boot bar and
+failure photo. Do not modify functional SDRAM behavior before that gate.
+
+### A-069 — A-066 Quartus staging paused: VM shared folder is not mounted
+
+**Date:** 2026-09-17
+**Decision/change:** Do not launch an A-066 Quartus fit from an unknown or
+stale VM source tree. Authenticated VM inspection found Quartus 25.1std
+available and prior isolated A-059–A-065 workspaces present, but
+`/home/taualpha/tau-workspace` is not an active mount after the VM reboot.
+**Alternatives and rationale:** Export the complete working tree directly over
+SSH (not taken: the environment rejected that repository-data egress without
+a fresh payload/destination-specific approval); build an older A-065 staging
+tree (rejected: it omits A-066); remount the established UTM `share` path with
+the VM's privileged mount command (pending fresh explicit approval).
+**Hot/cold impact:** None; no VM source was changed and no Quartus process was
+started.
+**Evidence:** **host** — authenticated SSH reports Quartus Prime Lite 25.1std
+Build 1129, lists the prior local-ext4 workspaces, and `findmnt` does not show
+the configured 9p share.
+**Resource/timing delta:** Not applicable; no A-066 fit exists.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The staged
+build remains intentionally blocked rather than claiming A-066 is compiling.
+After explicit approval to restore the known UTM share mount (or to copy this
+exact tree over SSH), stage a fresh local-ext4 snapshot and run the normal
+Quartus flow. See [issue 004](issues/004-vm-quartus-detached-launch.md) for
+the persistent build-environment record.
+
+### A-070 — A-066 staging excludes host-only symlink trees
+
+**Date:** 2026-09-17
+**Decision/change:** Restore the known UTM 9p `share` mount and stage A-066 on
+VM-local ext4, excluding the repository's host-only `toolchain` and
+`.venv-cptr` trees. The initial all-files copy stopped on macOS symlink loops
+inside those trees; each partial A-066 staging directory was removed before
+the clean copy was retried. The clean snapshot passed the FPGA environment
+preflight and then completed Quartus successfully.
+**Alternatives and rationale:** Follow host symlinks (rejected: produces
+infinite `Too many levels of symbolic links` failures and these macOS runtime
+trees are not FPGA inputs); build from the 9p mount (rejected: prior Quartus
+work uses local ext4 to avoid shared-filesystem instability); reuse A-065
+(rejected: it lacks the A-066 recorder).
+**Hot/cold impact:** VM staging only. No source file was changed to work around
+the host symlinks; the excluded trees are not consumed by Quartus. The staged
+QSF adds only the opt-in `TAU_PHASE2_WINDOW` macro.
+**Evidence:** **host | Quartus** — authenticated VM mount inspection; clean
+source includes `tb_sdram_fb_controller_probe.v`; Quartus 25.1std preflight
+passes; the A-066 flow succeeds at 17:55:45 WEST with 0 errors and 343
+warnings in 47m51s. Raw RBF SHA-256 is
+`8b4e1b75960ab36f1ae168b51a32626b3ab42ee8ff07e10d4bf194258d574293`; SOF
+SHA-256 is `053367c72339367a063b09e8c628a2e63fa3e1566988ab3c97379eb8967d075b`.
+**Resource/timing delta:** 6,150/18,480 ALMs (33%), 7,987 registers,
+300/308 RAM blocks (97%), 11/66 DSP blocks (17%); positive worst-case setup
+slack 0.338 ns and hold slack 0.126 ns, with design-wide TNS 0.0. Compared to
+A-065: +62 ALMs, +48 registers, unchanged RAM/DSP, setup improves by 0.004 ns
+and hold improves by 0.002 ns.
+**Outcome, reversal/workaround, remaining risk, and next gate:** An explicit
+approved SSH copy transferred only the verified RBF to the local workspace;
+its local SHA-256 matches the Quartus result. `--probe-a066` then produced the
+hard-pinned `alfatreze.TAU_SDRAM_PRB66`/`tau_sdram_prb66` bundle with
+bit-reversed RBF SHA-256
+`3f6f793d2096a2eac8b9528b86e2f600743887def60fd6901293d0f9c1526605` and
+the A-061 ROM hash. Package identity and whitespace gates pass. A-066 now
+awaits only a mounted-card replacement of superseded A-065 and the first
+Pocket controller-boundary bar.
+
+### A-071 — A-066 isolates the all-zero CPU result to the bridge read sample
+
+**Date:** 2026-09-17
+**Decision/change:** Decode the complete A-066 Pocket bar and correct the
+two-halfword bridge's read sampling. The 46 cells are
+`GGGGGGGGRRRRGGGGRGGGGGRRGGRRGGGGGGGGGGGGGGGGRG`. `sdram_fb` receives
+the target `FFFF` write, drives `WRITE/FFFF/DQM=00`, and later observes an
+all-ones read halfword; the CPU result remains zero.
+**Alternatives and rationale:** Continue investigating physical SDRAM writes
+(rejected: controller-side evidence proves they persist); treat the controller
+read recorder as misaligned (rejected: it samples only `READ_OUTPUT` and its
+focused model distinguishes zero from all ones); delay sampling globally in
+`sdram_fb` (rejected: framebuffer clients may intentionally use its early
+notification). Correct only the CPU bridge, whose state machine explicitly
+consumes the early notification as data.
+**Hot/cold impact:** The functional bridge changes only mapped CPU reads: each
+16-bit read holds `m_end_burst_req` low through the first availability cycle,
+then captures `m_q` on the next asserted cycle. Normal macro-off playback has
+no CPU-window requester, but a fresh full-core fit/Pocket regression remains
+mandatory.
+**Evidence:** **Pocket | code-review | simulation** — A-066 failure photo:
+183 checks, 181 failures, first `A0200000`, expected `FFFFFFFF`, actual
+`00000000`; cells 35–43 green, 44 red, 45 green. Source review shows
+`sdram_fb` advertises `next_cycle_is_read || READ_OUTPUT`, while the old bridge
+sampled its first `m_data_available`. The updated bridge test injects early
+zero then valid `BEEF/CAFE` and passes; composed-path, controller-recorder,
+and probe regressions pass. This is not yet Quartus or a passing Pocket result.
+**Resource/timing delta:** Pending a fresh macro-enabled Quartus fit.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The previous
+controller/physical-SDRAM suspicion is reversed: the observed defect is a
+bridge fast-input timing error. Build and package a new distinct diagnostic
+artifact, preserve A-066 evidence until its successor is verified, and require
+one cold-boot Pocket run before using the CPU window for cold data.
+
+**Card replacement update:** With the card explicitly mounted, only
+`alfatreze.TAU_SDRAM_PRB65`, `tau_sdram_prb65` assets/platform JSON/image, and
+the five regenerable Pocket catalog/index cache files were removed. The A-066
+core, assets, platform JSON, and platform image were copied from the verified
+bundle. Card-side SHA-256 matches packaged RBF
+`3f6f793d2096a2eac8b9528b86e2f600743887def60fd6901293d0f9c1526605` and
+the A-061 ROM `f8a7f999cb0a503c9bef0536cead0c8f2ea046382efb2626bfdc8af60c16338a`.
+The retained independent baselines are normal TAU, `TAU_SDRAM_DIAG`, and
+`TAU_SDRAM_STRESS`. This is **host** installation evidence only; the first
+Pocket A-066 observation is still required.
+
+### A-072 — A-067 bridge read-timing fix passes a fresh macro-enabled Quartus flow
+
+**Date:** 2026-09-17
+**Decision/change:** Fit the A-071 two-notification bridge capture change in a
+fresh local-ext4 VM stage with `TAU_PHASE2_WINDOW` enabled. The candidate
+artifact is intentionally a distinct A-067 diagnostic, not a normal Tau build
+or an overwrite of retained A-066 evidence.
+**Alternatives and rationale:** Reuse the A-066 RBF (rejected: it contains the
+known stale-first-notification bridge behaviour); change `sdram_fb`'s global
+early availability protocol (rejected: other clients may rely on it); or claim
+the focused simulation as hardware proof (rejected: the fast-input placement
+and full-core timing require a new fit and Pocket observation).
+**Hot/cold impact:** Only opt-in mapped CPU reads change: each bridge halfword
+waits through the intentionally early availability indication and samples on
+the following asserted availability. Audio, framebuffer ownership, normal
+macro-off Tau, and all proposed cold-data migration remain unchanged.
+**Evidence:** **simulation | Quartus | host** — bridge, composed-path,
+CPU-window probe, controller-probe, audit-integrity, UI-renderer, and whitespace
+checks passed before staging. Quartus 25.1std reports a successful flow; raw
+RBF SHA-256 is `fb2b8b1db6ec67384e244f089f47f585317c30c0573d762f3c44970b68b8f580`
+and SOF SHA-256 is `3799178108e7d85cbf68e4633e55720b5abb1eed728a3cf3a4194ea14a5e43ae`.
+**Resource/timing delta:** 6,196/18,480 ALMs (34%), 7,970 registers,
+300/308 RAM blocks (97%), and 11/66 DSP blocks (17%). Multicorner setup slack
+is +0.932 ns, hold slack is +0.125 ns, and design-wide TNS is 0.0. Compared
+with A-066: +46 ALMs, -17 registers, unchanged RAM/DSP, setup improves by
+0.594 ns and hold decreases by 0.001 ns. The narrow hold margin remains a
+standing clocking/CDC caution rather than a license for intuition.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The raw RBF
+was copied through the approved SSH path and hash-matched locally. The
+hard-pinned `TAU_SDRAM_PRB67` package has bit-reversed Pocket RBF SHA-256
+`8c03edc7bcff3810e18bcd34380fae864546140678955ee8e85b4849709bd128` and
+the existing readback ROM SHA-256
+`f8a7f999cb0a503c9bef0536cead0c8f2ea046382efb2626bfdc8af60c16338a`.
+With the card mounted, A-066 was removed and only A-067 plus its assets and
+platform metadata were installed; the five regenerable catalog caches were
+cleared. Card-side hashes match the package. This is **host** evidence only.
+The A-067 cold-boot Pocket run then failed its established MMIO preflight with
+`0x5DB54350` instead of `0x43505550`; see A-073. This invalidates the A-071
+capture-delay hypothesis as a functional fix. The bounded uncached window and
+all cold-data migration remain blocked.
+
+### A-073 — A-067 Pocket preflight failure rejects the delayed bridge capture
+
+**Date:** 2026-09-17
+**Decision/change:** Record the first A-067 cold-boot Pocket observation and
+revert its delayed `m_data_available` capture. The screen shows **MAILBOX
+PREFLIGHT FAIL**, `ACTUAL 5DB54350`, and explicitly states that the CPU window
+was not attempted. The preflight writes/reads `0x43505550` through the same
+MMIO → owner mux → CDC bridge path that A-066 had passed before its CPU test.
+**Alternatives and rationale:** Treat the result as a stale package (rejected:
+the card-side A-067 hashes were verified and the A-067-specific ROM UI ran);
+continue to CPU-window testing anyway (rejected: firmware deliberately stopped
+before it); retain the A-071 capture delay because its focused simulation passed
+(rejected: the Pocket regression outweighs the incomplete model). Restore the
+known-good controller-client capture contract and add response provenance at
+the bridge boundary instead of guessing where the all-zero CPU result arose.
+**Hot/cold impact:** The A-067 functional change is removed. A-074 adds only
+diagnostic registers and 24 pixels to the macro-only top bar; normal Tau,
+audio, scanout ownership, and all cold-data policy remain untouched.
+**Evidence:** **Pocket | code-review | simulation** — user photo of A-067
+shows the exact preflight failure above. A-066 previously crossed this same
+preflight and reached 183 CPU-window checks, so this is a real regression in
+the changed bridge read path. The restored bridge test now models the documented
+first-availability capture and verifies an all-ones follow-read response;
+the extended probe test and UI coverage pass. The A-074 fit and package are
+recorded in the dated follow-up below; no A-074 Pocket observation existed at
+the time of this A-073 entry.
+**Resource/timing delta:** Not applicable pending a new fit. The A-067
+resource/timing report remains valid only for the rejected capture-delay
+artifact, not for A-074.
+**Outcome, reversal/workaround, remaining risk, and next gate:** The A-071
+claim that delayed capture fixes the CPU result is reversed. A-074 will retain
+the first mapped follow-read's assembled bridge response in three appended bar
+cells: seen, zero, all-ones. A fresh macro-enabled Quartus build and one
+cold-boot Pocket run must classify whether the bridge itself returns `FFFF` or
+the later owner-mux/Wishbone response path loses it.
+
+**Quartus seed-screen update:** A-074 seed 1 completed successfully in 44m33s
+with raw RBF SHA-256
+`cca1694723af01da931ce3fc9e3bf18f62e0a2e5653e40708895b2397b78913e`,
+6,153/18,480 ALMs, 7,973 registers, 300/308 RAM blocks, and 11/66 DSP blocks.
+However, multicorner setup slack is only +0.018 ns (hold +0.124 ns, TNS 0.0).
+Although positive, that is materially below A-067's +0.932 ns and too narrow
+to promote based on one routing seed. It is intentionally not packaged or
+installed. An isolated seed-2 repeat was required before selecting an artifact.
+
+### A-074 — Seed-2 fit signs off the bridge-response probe package
+
+**Date:** 2026-09-17
+**Decision/change:** Select the isolated A-074 seed-2 Quartus result for
+hardware screening and package it as `alfatreze.TAU_SDRAM_PRB74` /
+`tau_sdram_prb74`. Seed 2 completed with 0 errors in 49m24s, 6,153/18,480
+ALMs, 7,973 registers, 300/308 RAM blocks, and 11/66 DSP blocks. Multicorner
+setup slack is +0.662 ns, hold slack +0.119 ns, and TNS 0.0. The raw RBF SHA-256
+is `d4b6295d168351704dc185abf358bb230be5cc2b77460a3adbaeea48c95b6c98`; the
+bit-reversed package SHA-256 is
+`794d5c9b1a9b646959a687dbaa2325beb821a006d671941896cf039f6b95d3db`.
+**Alternatives and rationale:** Promote seed 1 (rejected: +0.018 ns setup
+margin is too narrow); keep screening indefinitely (rejected: seed 2 restores
+substantial timing margin while preserving the same resource footprint); use
+the normal player bitstream (rejected: it cannot expose the bridge-response
+provenance cells). The local package passed identity, SHA-256, UI snapshot,
+audit uniqueness, and diff checks.
+**Hot/cold impact:** Diagnostic-only macro path; normal Tau audio, scanout,
+hot-path RAM, and all cold-data policy remain unchanged. No CPU-window pass or
+SDRAM migration is authorized by this fit alone.
+**Evidence:** **Quartus | host | code-review | simulation** — fit report and
+hashes are host evidence, focused bridge/probe tests pass in simulation, and
+the package metadata identifies the intended A-074 core. **Pocket evidence is
+pending** because the environment approval service rejected the authorized
+card-transfer operation; the card still contains the rejected A-067 probe.
+**Outcome, remaining risk, and next gate:** A-074 seed 2 is the signed-off
+candidate for one cold-boot Pocket observation. After transfer, remove only
+the superseded A-067 package/cache entries, install A-074, and record the
+49-cell bar plus complete result. The bridge-response cells must classify
+whether the assembled response is all ones before any CPU-window matrix or
+cold migration decision.
+
+### A-075 — A-074 Pocket run proves bridge response is all ones
+
+**Date:** 2026-09-18
+**Decision/change:** Record the first A-074 cold-boot Pocket observation. The
+diagnostic completed all 183 checks with 181 failures at
+`A0200000`, expected `FFFFFFFF`, actual `00000000`. The 49-cell bar was
+`GGGGGGGGRRRRGGGGRGGGGGRRGGRRGGGGGGGGGGGGGGGGRGGRG`.
+**Interpretation:** A-074 cells 46–48 decode as `G-R-G`: the bridge saw the
+following mapped read, its assembled 32-bit response was not zero, and it was
+all ones. This is **Pocket** evidence that the controller/bridge assembly
+returns `0xFFFFFFFF`; the loss is later in the owner-mux/Wishbone response
+return path. The existing red cells 22–23 and 26–27 remain registered-signal
+instrumentation caveats and are not used to override the transaction-locked
+bridge result.
+**Alternatives and rationale:** Attribute the result to physical SDRAM
+failure (rejected: the controller-boundary and bridge-response evidence both
+show all-ones data); repeat the same probe without changing RTL (deferred:
+the boundary is now classified and another identical run adds little); move
+to cached/cold migration (rejected: the uncached response path is still
+unproven). The A-074 package identity and Quartus timing remain unchanged.
+**Hot/cold impact:** No product path changed; no cold-data migration or CPU
+window promotion is authorized.
+**Outcome, remaining risk, and next gate:** Keep issue 018 open, revise its
+boundary to the owner-mux/Wishbone return path, and add a focused probe or
+simulation assertion that compares the bridge's assembled response with the
+Wishbone `DAT_MISO`/ACK seen by the CPU. Do not run the uncached smoke matrix
+until that return path is corrected and re-qualified.
+
+### A-076 — Add a successor probe for CPU-facing Wishbone return data
+
+**Date:** 2026-09-18
+**Decision/change:** Add an opt-in `RETURN_PATH_MODE` to the existing 49-cell
+CPU-window probe. In that mode, cells 46–48 capture the fifth-request
+CPU-facing ACK/data result (seen, zero, all ones), while the A-074 default mode
+continues to capture bridge assembly. Expose only `dACK` and `dDAT_MISO` from
+`mp3_soc` under the diagnostic wiring; no product data path is changed.
+**Alternatives and rationale:** Add more pixels (rejected: the 400-pixel
+scanout leaves little room and would create another layout/package change);
+replace the existing A-074 bridge evidence (rejected: it is needed as the
+known-good boundary); infer the CPU value from firmware alone (rejected: that
+cannot distinguish an ACK/data timing loss at the CPU-facing bus). A focused
+simulation test is added before any Quartus build.
+**Hot/cold impact:** Diagnostic-only; no normal Tau, audio, scanout, cache, or
+cold-workspace behavior changes.
+**Evidence:** **code-review | simulation** — return-mode probe simulation
+passes with a fifth-request zero result, and all prior CPU-window/composed-path
+tests still pass. Quartus and Pocket evidence are pending; the authorized SSH
+connection to the Quartus VM was attempted but the environment approval
+service rejected it because of the current usage limit, so no build was
+started or altered.
+**Outcome, remaining risk, and next gate:** Build a separately named A-076
+macro package with `TAU_PHASE2_WINDOW` and `TAU_PHASE2_RETURN_PROBE`, then run
+one cold-boot Pocket test. Do not reuse the A-074 package identity for this
+changed bar semantics.
 
 ## Reversal ledger
 

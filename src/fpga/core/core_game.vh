@@ -129,8 +129,27 @@ wire        soc_sdram_start, soc_sdram_write, soc_sdram_busy, soc_sdram_done;
 wire [24:0] soc_sdram_addr;
 wire [31:0] soc_sdram_wdata, soc_sdram_rdata;
 wire [3:0]  soc_sdram_byte_en;
+wire        soc_sdram_wb_req, soc_sdram_wb_write;
+wire [24:0] soc_sdram_wb_addr;
+wire [31:0] soc_sdram_wb_wdata, soc_sdram_wb_rdata;
+wire [3:0]  soc_sdram_wb_byte_en;
+wire        soc_sdram_wb_accept, soc_sdram_wb_done;
+wire        soc_sdram_wb_debug_cpu_req, soc_sdram_wb_debug_we, soc_sdram_wb_debug_ack;
+wire [31:0] soc_sdram_wb_debug_wdata;
+wire        soc_sdram_wb_debug_unsupported;
+wire [2:0]  soc_sdram_wb_debug_cti;
+wire [3:0]  soc_sdram_wb_debug_sel;
+wire        soc_sdram_wb_debug_cpu_ack;
+wire [31:0] soc_sdram_wb_debug_cpu_rdata;
 
+// Phase 2 is enabled only by adding TAU_PHASE2_WINDOW to a dedicated
+// diagnostic build's Verilog macros. Release/default builds stay on the
+// proven legacy BRAM/MMIO decode.
+`ifdef TAU_PHASE2_WINDOW
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1)) u_soc (
+`else
 mp3_soc u_soc (
+`endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
     .clk_74a (clk_74a),
@@ -206,9 +225,27 @@ mp3_soc u_soc (
     .sdram_addr   (soc_sdram_addr),
     .sdram_wdata  (soc_sdram_wdata),
     .sdram_byte_en(soc_sdram_byte_en),
-    .sdram_busy   (soc_sdram_busy),
-    .sdram_done   (soc_sdram_done),
-    .sdram_rdata  (soc_sdram_rdata)
+    .sdram_busy   (sdram_mux_busy),
+    .sdram_done   (sdram_mux_diag_done),
+    .sdram_rdata  (sdram_mux_diag_rdata),
+
+    .sdram_wb_req      (soc_sdram_wb_req),
+    .sdram_wb_write    (soc_sdram_wb_write),
+    .sdram_wb_addr     (soc_sdram_wb_addr),
+    .sdram_wb_wdata    (soc_sdram_wb_wdata),
+    .sdram_wb_byte_en  (soc_sdram_wb_byte_en),
+    .sdram_wb_accept   (soc_sdram_wb_accept),
+    .sdram_wb_done     (soc_sdram_wb_done),
+    .sdram_wb_rdata    (soc_sdram_wb_rdata),
+    .sdram_wb_debug_cpu_req(soc_sdram_wb_debug_cpu_req),
+    .sdram_wb_debug_we     (soc_sdram_wb_debug_we),
+    .sdram_wb_debug_wdata  (soc_sdram_wb_debug_wdata),
+    .sdram_wb_debug_cti    (soc_sdram_wb_debug_cti),
+    .sdram_wb_debug_sel    (soc_sdram_wb_debug_sel),
+    .sdram_wb_debug_ack    (soc_sdram_wb_debug_ack),
+    .sdram_wb_debug_unsupported(soc_sdram_wb_debug_unsupported),
+    .sdram_wb_debug_cpu_ack(soc_sdram_wb_debug_cpu_ack),
+    .sdram_wb_debug_cpu_rdata(soc_sdram_wb_debug_cpu_rdata)
 );
 
 // core_bridge_cmd's datatable, user-side port. core_top declares these wires
@@ -330,12 +367,59 @@ wire        arb_p0_wr_stream, arb_p0_wr_req, arb_p0_rd_req, arb_p0_end_burst_req
 wire        arb_p0_available, arb_p0_ready, arb_p0_data_available;
 wire [15:0] arb_wsrc_q;
 
+// Phase 2 shared bridge boundary. The mapped-window client can be enabled only
+// in the explicitly flagged diagnostic build; normal builds drive it inactive
+// at mp3_soc and diagnostic MMIO always traverses the owner mux.
+wire sdram_mux_busy, sdram_mux_diag_done;
+wire [31:0] sdram_mux_diag_rdata;
+wire sdram_mux_start, sdram_mux_write, sdram_mux_wb_start;
+wire [24:0] sdram_mux_addr;
+wire [31:0] sdram_mux_wdata;
+wire [3:0] sdram_mux_be;
+// Unused and removed by synthesis in macro-off builds; consumed only by the
+// opt-in Phase-2 diagnostic overlay below.
+wire sdram_bridge_write_seen, sdram_bridge_op_write;
+wire sdram_bridge_wdata_all_ones, sdram_bridge_be_all_enabled;
+wire sdram_bridge_lo_write_accepted, sdram_bridge_hi_write_accepted;
+wire sdram_bridge_follow_read_seen, sdram_bridge_follow_read_data_zero;
+wire sdram_bridge_follow_read_data_all_ones;
+wire sdram_arb_p0_cpu_selected;
+wire sdram_ctrl_write_latched, sdram_ctrl_write_data_all_ones;
+wire sdram_ctrl_write_be_all_enabled, sdram_ctrl_write_command;
+wire sdram_ctrl_write_dq_enabled, sdram_ctrl_write_dq_all_ones;
+wire sdram_ctrl_write_dqm_unmasked, sdram_ctrl_follow_read_seen;
+wire sdram_ctrl_follow_read_data_seen, sdram_ctrl_follow_read_data_zero;
+wire sdram_ctrl_follow_read_data_all_ones;
+tau_sdram_bridge_mux u_sdram_bridge_mux (
+    .clk(clk_sys), .rst(cpu_reset),
+    .diag_req(soc_sdram_start), .diag_write(soc_sdram_write),
+    .diag_addr(soc_sdram_addr), .diag_wdata(soc_sdram_wdata), .diag_be(soc_sdram_byte_en),
+    .wb_req(soc_sdram_wb_req), .wb_write(soc_sdram_wb_write),
+    .wb_addr(soc_sdram_wb_addr), .wb_wdata(soc_sdram_wb_wdata),
+    .wb_be(soc_sdram_wb_byte_en), .wb_accept(soc_sdram_wb_accept),
+    .diag_done(sdram_mux_diag_done), .wb_done(soc_sdram_wb_done),
+    .diag_rdata(sdram_mux_diag_rdata), .wb_rdata(soc_sdram_wb_rdata), .busy(sdram_mux_busy),
+    .bridge_start(sdram_mux_start), .bridge_write(sdram_mux_write),
+    .bridge_addr(sdram_mux_addr), .bridge_wdata(sdram_mux_wdata), .bridge_be(sdram_mux_be),
+    .bridge_wb_start(sdram_mux_wb_start),
+    .bridge_busy(soc_sdram_busy), .bridge_done(soc_sdram_done), .bridge_rdata(soc_sdram_rdata)
+);
+
 tau_sdram_cpu_bridge u_sdram_cpu_bridge (
     .clk_sys(clk_sys), .rst_sys(cpu_reset),
-    .sys_start(soc_sdram_start), .sys_write(soc_sdram_write),
-    .sys_addr(soc_sdram_addr), .sys_wdata(soc_sdram_wdata),
-    .sys_byte_en(soc_sdram_byte_en), .sys_busy(soc_sdram_busy),
+    .sys_start(sdram_mux_start), .sys_wb_start(sdram_mux_wb_start), .sys_write(sdram_mux_write),
+    .sys_addr(sdram_mux_addr), .sys_wdata(sdram_mux_wdata),
+    .sys_byte_en(sdram_mux_be), .sys_busy(soc_sdram_busy),
     .sys_done(soc_sdram_done), .sys_rdata(soc_sdram_rdata),
+    .debug_wb_write_seen(sdram_bridge_write_seen),
+    .debug_op_write(sdram_bridge_op_write),
+    .debug_wdata_all_ones(sdram_bridge_wdata_all_ones),
+    .debug_be_all_enabled(sdram_bridge_be_all_enabled),
+    .debug_lo_write_accepted(sdram_bridge_lo_write_accepted),
+    .debug_hi_write_accepted(sdram_bridge_hi_write_accepted),
+    .debug_follow_read_seen(sdram_bridge_follow_read_seen),
+    .debug_follow_read_data_zero(sdram_bridge_follow_read_data_zero),
+    .debug_follow_read_data_all_ones(sdram_bridge_follow_read_data_all_ones),
     .clk_sdram(clk_sdram), .rst_sdram(~pll_locked),
     .m_addr(cpu_p0_addr), .m_data(cpu_p0_data), .m_byte_en(cpu_p0_byte_en),
     .m_wr_len(cpu_p0_wr_len), .m_wr_req(cpu_p0_wr_req), .m_rd_req(cpu_p0_rd_req),
@@ -358,6 +442,7 @@ tau_sdram_arbiter u_sdram_arbiter (
     .cpu_rd_req(cpu_p0_rd_req), .cpu_end_burst_req(cpu_p0_end_burst_req),
     .cpu_q(cpu_p0_q), .cpu_available(cpu_p0_available), .cpu_ready(cpu_p0_ready),
     .cpu_data_available(cpu_p0_data_available), .cpu_accepted(cpu_p0_accepted),
+    .p0_cpu_selected(sdram_arb_p0_cpu_selected),
     .p0_addr(arb_p0_addr), .p0_data(arb_p0_data), .p0_byte_en(arb_p0_byte_en),
     .p0_wr_len(arb_p0_wr_len), .p0_wr_stream(arb_p0_wr_stream), .p0_q(arb_p0_q),
     .p0_wr_req(arb_p0_wr_req), .p0_rd_req(arb_p0_rd_req),
@@ -372,6 +457,20 @@ sdram_fb #(.CLOCK_SPEED_MHZ(100), .BURST_TYPE(0), .CAS_LATENCY(2), .WRITE_BURST(
     .p0_wr_len(arb_p0_wr_len), .p0_q(arb_p0_q),
     .p0_wr_stream(arb_p0_wr_stream), .wsrc_addr(arb_wsrc_addr), .wsrc_q(arb_wsrc_q),
     .p0_wr_req(arb_p0_wr_req), .p0_rd_req(arb_p0_rd_req), .p0_end_burst_req(arb_p0_end_burst_req),
+`ifdef TAU_PHASE2_WINDOW
+    .debug_p0_cpu_selected(sdram_arb_p0_cpu_selected),
+    .debug_cpu_allones_write_latched(sdram_ctrl_write_latched),
+    .debug_cpu_allones_data_latched(sdram_ctrl_write_data_all_ones),
+    .debug_cpu_allones_be_latched(sdram_ctrl_write_be_all_enabled),
+    .debug_cpu_allones_write_command(sdram_ctrl_write_command),
+    .debug_cpu_allones_dq_enabled(sdram_ctrl_write_dq_enabled),
+    .debug_cpu_allones_dq_allones(sdram_ctrl_write_dq_all_ones),
+    .debug_cpu_allones_dqm_unmasked(sdram_ctrl_write_dqm_unmasked),
+    .debug_cpu_follow_read_seen(sdram_ctrl_follow_read_seen),
+    .debug_cpu_follow_read_data_seen(sdram_ctrl_follow_read_data_seen),
+    .debug_cpu_follow_read_data_zero(sdram_ctrl_follow_read_data_zero),
+    .debug_cpu_follow_read_data_allones(sdram_ctrl_follow_read_data_all_ones),
+`endif
     .p0_available(arb_p0_available), .p0_ready(arb_p0_ready), .p0_data_available(arb_p0_data_available),
     .SDRAM_DQ(dram_dq), .SDRAM_A(dram_a), .SDRAM_DQM(dram_dqm), .SDRAM_BA(dram_ba),
     .SDRAM_nCS(), .SDRAM_nWE(dram_we_n), .SDRAM_nRAS(dram_ras_n), .SDRAM_nCAS(dram_cas_n),
@@ -380,6 +479,73 @@ sdram_fb #(.CLOCK_SPEED_MHZ(100), .BURST_TYPE(0), .CAS_LATENCY(2), .WRITE_BURST(
 
 wire [23:0] vid_rgb_w;
 wire        vid_hs_w, vid_vs_w, vid_de_w;
+
+// The probe is excluded from normal builds. It records the first mapped CPU
+// transaction in clk_sys and displays 49 persistent eight-pixel cells in the
+// top active scan lines. Green means the corresponding bit was observed;
+// red means it was not. This remains useful after a CPU-side stall.
+`ifdef TAU_PHASE2_WINDOW
+wire [48:0] sdram_probe_bits;
+tau_sdram_cpu_window_probe
+`ifdef TAU_PHASE2_RETURN_PROBE
+    #(.RETURN_PATH_MODE(1))
+`endif
+u_sdram_cpu_window_probe (
+    .clk(clk_sys), .rst(cpu_reset),
+    .cpu_req(soc_sdram_wb_debug_cpu_req), .cpu_we(soc_sdram_wb_debug_we),
+    .cpu_wdata(soc_sdram_wb_debug_wdata),
+    .cpu_cti(soc_sdram_wb_debug_cti),
+    .cpu_sel(soc_sdram_wb_debug_sel), .adapter_req(soc_sdram_wb_req),
+    .mux_accept(soc_sdram_wb_accept), .mux_start(sdram_mux_start),
+    .bridge_busy(soc_sdram_busy), .bridge_done(soc_sdram_done),
+    .adapter_done(soc_sdram_wb_done), .wb_ack(soc_sdram_wb_debug_ack),
+    .unsupported(soc_sdram_wb_debug_unsupported),
+    .adapter_write(soc_sdram_wb_write), .adapter_wdata(soc_sdram_wb_wdata),
+    .adapter_be(soc_sdram_wb_byte_en), .mux_wb_start(sdram_mux_wb_start),
+    .mux_write(sdram_mux_write), .mux_wdata(sdram_mux_wdata), .mux_be(sdram_mux_be),
+    .bridge_write_seen(sdram_bridge_write_seen), .bridge_op_write(sdram_bridge_op_write),
+    .bridge_wdata_all_ones(sdram_bridge_wdata_all_ones),
+    .bridge_be_all_enabled(sdram_bridge_be_all_enabled),
+    .bridge_lo_write_accepted(sdram_bridge_lo_write_accepted),
+    .bridge_hi_write_accepted(sdram_bridge_hi_write_accepted),
+    .ctrl_write_latched(sdram_ctrl_write_latched),
+    .ctrl_write_data_all_ones(sdram_ctrl_write_data_all_ones),
+    .ctrl_write_be_all_enabled(sdram_ctrl_write_be_all_enabled),
+    .ctrl_write_command(sdram_ctrl_write_command),
+    .ctrl_write_dq_enabled(sdram_ctrl_write_dq_enabled),
+    .ctrl_write_dq_all_ones(sdram_ctrl_write_dq_all_ones),
+    .ctrl_write_dqm_unmasked(sdram_ctrl_write_dqm_unmasked),
+    .ctrl_follow_read_seen(sdram_ctrl_follow_read_seen),
+    .ctrl_follow_read_data_seen(sdram_ctrl_follow_read_data_seen),
+    .ctrl_follow_read_data_zero(sdram_ctrl_follow_read_data_zero),
+    .ctrl_follow_read_data_all_ones(sdram_ctrl_follow_read_data_all_ones),
+    .bridge_follow_read_seen(sdram_bridge_follow_read_seen),
+    .bridge_follow_read_data_zero(sdram_bridge_follow_read_data_zero),
+    .bridge_follow_read_data_all_ones(sdram_bridge_follow_read_data_all_ones),
+    .cpu_ack(soc_sdram_wb_debug_cpu_ack),
+    .cpu_rdata(soc_sdram_wb_debug_cpu_rdata),
+    .bits(sdram_probe_bits)
+);
+
+reg [48:0] sdram_probe_bits_vid_1, sdram_probe_bits_vid_2;
+reg        sdram_probe_de_d;
+reg [8:0]  sdram_probe_x;
+reg [8:0]  sdram_probe_y;
+always @(posedge clk_vid) begin
+    sdram_probe_bits_vid_1 <= sdram_probe_bits;
+    sdram_probe_bits_vid_2 <= sdram_probe_bits_vid_1;
+    sdram_probe_de_d <= vid_de_w;
+    if (vid_vs_w) sdram_probe_y <= 9'd0;
+    else if (vid_de_w && !sdram_probe_de_d) sdram_probe_y <= sdram_probe_y + 1'd1;
+    if (!vid_de_w) sdram_probe_x <= 9'd0;
+    else if (!sdram_probe_de_d) sdram_probe_x <= 9'd0;
+    else sdram_probe_x <= sdram_probe_x + 1'd1;
+end
+wire sdram_probe_pixel = vid_de_w && (sdram_probe_y < 9'd8) &&
+    (sdram_probe_x < 9'd392) && sdram_probe_bits_vid_2[sdram_probe_x[8:3]];
+wire sdram_probe_bar = vid_de_w && (sdram_probe_y < 9'd8) &&
+    (sdram_probe_x < 9'd392);
+`endif
 
 mp3_fb u_fb (
     .reset    (~pll_locked),
@@ -409,7 +575,12 @@ mp3_fb u_fb (
     .video_rgb(vid_rgb_w), .video_de(vid_de_w), .video_hs(vid_hs_w), .video_vs(vid_vs_w)
 );
 
+`ifdef TAU_PHASE2_WINDOW
+assign video_rgb          = sdram_probe_bar ?
+                            (sdram_probe_pixel ? 24'h40FF40 : 24'hFF3030) : vid_rgb_w;
+`else
 assign video_rgb          = vid_rgb_w;
+`endif
 assign video_rgb_clock    = clk_vid;
 assign video_rgb_clock_90 = clk_vid_90;
 assign video_de           = vid_de_w;

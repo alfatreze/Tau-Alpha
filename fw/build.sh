@@ -5,6 +5,8 @@
 #   ./build.sh player-stress # Developer-only SDRAM contention player
 #   ./build.sh bringup    # Stage 1/2 bring-up (tone + 0180 test, no decoder)
 #   ./build.sh sdram-diag # Phase 1 Pocket SDRAM mailbox diagnostic
+#   ./build.sh sdram-cpu-diag # Phase 2 uncached CPU-window SDRAM diagnostic
+#   ./build.sh sdram-cpu-readback # A-060 mailbox-to-CPU readback discriminator
 #
 # The .rom is loaded from SD into BRAM by data_loader at boot, exactly like an
 # arcade core's ROM -- which is the point: firmware changes cost seconds here
@@ -89,8 +91,20 @@ sdram-diag)
     INC=(-I "$FW")
     OUT="$ROOT/work/diagnostics/sdram"
     ;;
+sdram-cpu-diag)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1"
+    ;;
+sdram-cpu-readback)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-readback"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1"
+    ;;
 *)
-    echo "usage: $0 {player|player-stress|bringup|sdram-diag}"; exit 1 ;;
+    echo "usage: $0 {player|player-stress|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback}"; exit 1 ;;
 esac
 
 # Build flags are selected by target rather than remembered in a shell history.
