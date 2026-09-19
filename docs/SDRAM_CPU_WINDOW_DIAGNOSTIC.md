@@ -131,6 +131,20 @@ distinct **TAU CPU SDRAM Probe A079** / `tau_sdram_prb79` package profile. Its
 generated bit-reversed Pocket RBF SHA-256 is
 `6ce93f8713ea2e3d2dc74ae98ed215cfb7d84006b393ecd92619665ab47a93dd`.
 
+The A-080 persistent-log probe keeps the A-079 mux-return instrumentation and
+adds target `0184` write plus `0188` flush wiring. Its rev-23 raw RBF SHA-256
+is `f21a9ba0fe0d4d43d49c3d2f102eda8fdc5445516581928fc87730687a14baa4`;
+the generated bit-reversed Pocket RBF SHA-256 is
+`c892ae7089484e099090391b6f7aba3551d1b58cedb8415f3ead6eef42099e16`.
+Its matching ROM SHA-256 is
+`0aa105744c24eb756b363d8b0fd4ba8eebb30b221693e12147f2920705b95f8a`.
+Package it only through
+`python3 tools/package_sdram_cpu_diagnostic.py --probe-a080`; it includes an
+isolated, zeroed 64-byte `last-result.tlog` under its own `Saves` path. See
+[DIAGNOSTIC_RESULT_LOG.md](DIAGNOSTIC_RESULT_LOG.md) for the record schema and
+decoder. Do not pair the A-080 ROM with A-079 or another older RBF: the rev-23
+interlock will reject it because target flush support is absent.
+
 ## Pocket procedure and evidence
 
 1. Cold boot the Pocket, then open **Media Players → TAU CPU SDRAM Probe A079**.
@@ -174,6 +188,47 @@ backed up under
 and cleared after their
 platform/category mappings omitted A-077 despite a valid core-list entry.
 Eject/remount the card and cold boot Pocket before evaluating list visibility.
+A-080 then replaced only A-079. Its Pocket RBF, ROM, and initial zeroed save
+file were hash-verified on-card; the five regenerable catalog indexes were
+backed up under
+`work/diagnostics/sdram-cpu-probe-a080/pocket-cache-backup-2026-09-19/System/`
+and cleared. Pocket execution and saved-log evidence are still pending.
+
+### A-080 log gate
+
+After the normal A-080 result screen appears, exit the core or remount the SD
+card. Decode this exact per-core file:
+
+```sh
+python3 tools/decode_tau_diag_log.py \
+  /Volumes/Pock/Saves/tau_sdram_prb80/alfatreze.TAU_SDRAM_PRB80/last-result.tlog
+```
+
+The decoded `readback_checks`, `failures`, first failing values, and outcome
+flags must match the screen. Record the decoder output verbatim with the Pocket
+photo. A missing file, invalid checksum, target-command timeout, or mismatch
+is an A-080 failure; do not interpret it as new SDRAM-path evidence.
+
+### A-082 command-status gate
+
+A-082 reuses the A-080 RBF and changes only diagnostic firmware, so no Quartus
+build is required. It replaces A-080 rather than accumulating a second active
+log core. At terminal result it displays `WRITE D/T/- ERR n` and
+`FLUSH D/T/- ERR n`: `D` is completion, `T` is local timeout, `-` means the
+operation was not attempted, and `n` is the APF result code. Photograph this
+screen and then inspect the isolated A-082 `last-result.tlog`. This reports
+the APF command boundary; it is not SDRAM evidence.
+
+### A-084 result-slot lifecycle gate
+
+A-084 replaces A-083 and reuses the verified A-080 RBF; it is a firmware-only
+probe, so no Quartus build is required. Before testing SDRAM it obtains APF's
+slot-5 descriptor (`0190`), copies it unchanged into the established open-file
+parameter buffer, and opens the same result slot (`0192`). At terminal result,
+photograph all four lines: `OPEN`, `WRITE`, `FLUSH`, and `READ`. `D ERR 0` on
+OPEN plus `READ D ERR 0 DATA 544C4F47` proves that the result record reached
+the active APF slot before exit. Any other outcome is an APF diagnostic-slot
+lifecycle result, not a change in the SDRAM conclusion.
 
 On a black screen before the initial UI, capture Pocket diagnostics: the CPU
 may be stalled by a malformed mapped transaction. On FAIL, capture the full
