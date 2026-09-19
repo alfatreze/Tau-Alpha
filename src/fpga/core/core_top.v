@@ -213,6 +213,7 @@ wire        osnotify_inmenu;
 
 reg         target_dataslot_read     = 1'b0;
 reg         target_dataslot_write    = 1'b0;
+reg         target_dataslot_flush    = 1'b0;
 reg         target_dataslot_getfile  = 1'b0;
 reg         target_dataslot_openfile = 1'b0;
 wire        target_dataslot_ack;
@@ -276,6 +277,7 @@ core_bridge_cmd icb (
     .osnotify_inmenu           (osnotify_inmenu),
     .target_dataslot_read      (target_dataslot_read),
     .target_dataslot_write     (target_dataslot_write),
+    .target_dataslot_flush     (target_dataslot_flush),
     .target_dataslot_getfile   (target_dataslot_getfile),
     .target_dataslot_openfile  (target_dataslot_openfile),
     .target_dataslot_ack       (target_dataslot_ack),
@@ -313,4 +315,3 @@ end
 `include "core_game.vh"
 
 endmodule
-

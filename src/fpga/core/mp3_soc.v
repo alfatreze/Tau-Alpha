@@ -98,7 +98,7 @@ module mp3_soc #(
 
     // APF target-command request (clk domain; CDC handled in tgt_cmd.v)
     output reg         tgt_go,             // 1-cycle pulse
-    output reg  [1:0]  tgt_cmd_sel,        // 0=0180 read 1=0192 openfile 2=0190 getfile
+    output reg  [2:0]  tgt_cmd_sel,        // 0=0180 read 1=0192 openfile 2=0190 getfile 3=0184 write 4=0188 flush
     output reg  [15:0] tgt_id,
     output reg  [31:0] tgt_slotoffset,
     output reg  [31:0] tgt_bridgeaddr,
@@ -504,7 +504,7 @@ module mp3_soc #(
     // stale RTL. That has already happened three times here, each time looking
     // like a logic bug (dead peripheral, no audio, unresponsive buttons) rather
     // than what it was. BUMP THIS whenever the MMIO map changes.
-    localparam [31:0] CORE_VERSION = 32'h4D503316;   // "MP3" + rev 22 (SDRAM diagnostics)
+    localparam [31:0] CORE_VERSION = 32'h4D503317;   // "MP3" + rev 23 (target data-slot flush)
 
     wire [7:0] mmio_reg = {dADR[5:0], 2'b00};   // byte offset within MMIO page
 
@@ -573,7 +573,7 @@ module mp3_soc #(
             status2 <= 32'd0; status3 <= 32'd0;
             tgt_id  <= 16'd0; tgt_slotoffset <= 32'd0;
             tgt_bridgeaddr <= 32'd0; tgt_length <= 32'd0;
-            tgt_cmd_sel <= 2'd0;
+            tgt_cmd_sel <= 3'd0;
             dt_addr <= 10'd0; dt_wdata <= 32'd0;
             fb_cmd_op <= 2'd0; fb_cmd_addr <= 19'd0;
             fb_cmd_w  <= 9'd0; fb_cmd_h    <= 9'd0;
@@ -615,7 +615,7 @@ module mp3_soc #(
                 R_TGT_OFF: tgt_slotoffset <= dDAT_MOSI;
                 R_TGT_ADR: tgt_bridgeaddr <= dDAT_MOSI;
                 R_TGT_LEN: tgt_length     <= dDAT_MOSI;
-                R_TGT_GO:  begin tgt_cmd_sel <= dDAT_MOSI[1:0]; tgt_go <= 1'b1; end
+                R_TGT_GO:  begin tgt_cmd_sel <= dDAT_MOSI[2:0]; tgt_go <= 1'b1; end
                 R_DT_ADDR: dt_addr  <= dDAT_MOSI[9:0];
                 R_DT_DATA: begin dt_wdata <= dDAT_MOSI; dt_wren <= 1'b1; end
                 R_FB_ADDR: fb_cmd_addr <= dDAT_MOSI[18:0];
