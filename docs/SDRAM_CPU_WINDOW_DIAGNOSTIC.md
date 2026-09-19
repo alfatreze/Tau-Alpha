@@ -139,9 +139,10 @@ packages from the card. Keep normal Tau and only independent regression
 baselines that are still useful; do not accumulate obsolete probes.
 
 **Current card state:** A-076 is installed with verified RBF/ROM hashes;
-superseded A-067/A-074 CPU probes were removed. This is **host** install
-evidence only. Keep normal Tau and the independent SDRAM Diagnostic/Stress
-baselines; cold-boot Pocket execution is still required.
+superseded A-067/A-074 CPU probes were removed. Its Pocket result is 183
+checks / 181 failures with final cells `G-G-R`: ACK observed, CPU data zero,
+CPU data not all ones. Keep normal Tau and the independent SDRAM
+Diagnostic/Stress baselines; A-076 is now a completed failing reference.
 
 On a black screen before the initial UI, capture Pocket diagnostics: the CPU
 may be stalled by a malformed mapped transaction. On FAIL, capture the full

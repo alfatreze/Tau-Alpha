@@ -2,7 +2,7 @@
 
 **Status:** open; reproduced on Pocket with A-065/A-066/A-074. A-076's
 CPU-facing return-path discriminator has passed its isolated **Quartus** fit
-but has not yet run on Pocket. A-066's
+and its first Pocket run. A-066's
 controller-boundary recorder proves the controller return is all ones. A-067's
 delayed capture candidate passed focused simulation/Quartus but failed the
 established MMIO preflight on Pocket and was rejected. A-074 restores the
@@ -102,5 +102,10 @@ Pocket. A-076 adds a focused CPU-facing ACK/data return-path probe. Its
 2026-09-19 isolated Quartus fit completed with 0 errors, +0.972 ns setup,
 +0.268 ns hold, and raw RBF SHA-256
 `9ef62ebc4002abf4f5d29c84c59c08d997c18369d55e7c134beac5b97c832ef1`.
-Its distinct package is installed with hash-verified RBF/ROM provenance; one
-cold-boot Pocket run is the next hardware gate.
+Its distinct package is installed with hash-verified RBF/ROM provenance. The
+Pocket run reports 183 checks / 181 failures and the final return cells
+`G-G-R`: `dACK` was observed while `dDAT_MISO` was zero, not all ones. This
+narrows the live failure to the adapter/mux response path or the registered
+`mp3_soc` return selector. The next diagnostic must retain the adapter's
+`sdram_wb_cpu_rdata` when its ACK occurs, so it can be compared with A-076's
+already-proven final CPU-bus zero.

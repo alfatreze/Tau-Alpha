@@ -11,8 +11,9 @@ full provenance and third-party licenses.
 **Current technical status (2026-09-19):** Phase 1 SDRAM access and contention
 gates are accepted on Pocket. Phase 2 A-074 seed 2 fits cleanly and its first
 Pocket run proves the bridge assembled `FFFFFFFF`, but the CPU still receives
-zero. A-076 adds a return-path probe; focused RTL tests and its isolated
-Quartus gate pass, while its Pocket gate remains pending.
+zero. A-076's focused RTL tests and isolated Quartus gate pass; its Pocket
+result confirms CPU ACK with zero data, leaving the adapter/mux-to-selector
+return boundary unresolved.
 
 ## Completed
 
@@ -124,7 +125,8 @@ chronological decision/reversal/evidence trail and resource trend are in
   diagnostic MMIO bridge and owner mux are fitted; A-075 proves the bridge
   response on Pocket, but the CPU-facing Wishbone return path is not yet
   proven. A-076's focused return probe passes RTL simulation and Quartus; its
-  Pocket gate, followed by concurrent playback/CRC, must pass before any
+  Pocket result confirms zero at the final CPU bus. The adapter/selector gate,
+  followed by concurrent playback/CRC, must pass before any
   mapped SDRAM feature is enabled. See audit A-076 and issue 018.
 - Loading art currently uses a 16-entry RGB565 palette; on-device tonal tuning
   awaits a Pocket reference photo.
@@ -149,9 +151,10 @@ glow, waveform, text, and progress luminance bands. Retest on hardware.
 
 The A-074 seed-2 diagnostic build is accepted for the bridge-response boundary
 and its Pocket result is recorded, but the CPU-facing return path still fails.
-A separate A-076 firmware diagnostic/probe has passed Quartus and must now pass Pocket;
-stage only that separately named macro-enabled RBF and run the documented
-return-path test. After it passes, add concurrent
+A separate A-076 firmware diagnostic/probe passed Quartus and its Pocket run
+showed CPU ACK with zero data. Stage a successor that separates adapter output
+from the `mp3_soc` return selector, then run its documented return-path test.
+After that boundary passes, add concurrent
 1 MiB CRC and playback stress before migrating at least 24 KiB of cold
 playlist/artwork workspace. Preserve framebuffer priority, introduce no
 unplanned M10K use, and require zero audio underruns or display corruption.
