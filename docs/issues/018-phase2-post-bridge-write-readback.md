@@ -108,4 +108,6 @@ Pocket run reports 183 checks / 181 failures and the final return cells
 narrows the live failure to the adapter/mux response path or the registered
 `mp3_soc` return selector. The next diagnostic must retain the adapter's
 `sdram_wb_cpu_rdata` when its ACK occurs, so it can be compared with A-076's
-already-proven final CPU-bus zero.
+already-proven final CPU-bus zero. A-077 implements that focused adapter-return
+discriminator; simulation shows its all-ones result as `G-R-G`. Its separate
+Quartus/Pocket gate is pending.

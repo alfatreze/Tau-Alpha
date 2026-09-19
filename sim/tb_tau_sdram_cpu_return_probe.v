@@ -17,7 +17,7 @@ module tb_tau_sdram_cpu_return_probe;
         .cpu_wdata(cpu_wdata), .cpu_cti(cpu_cti), .cpu_sel(cpu_sel),
         .adapter_req(1'b0), .mux_accept(1'b0), .mux_start(1'b0),
         .bridge_busy(1'b0), .bridge_done(1'b0), .adapter_done(1'b0),
-        .wb_ack(1'b0), .unsupported(1'b0), .adapter_write(1'b0),
+        .wb_ack(1'b0), .adapter_rdata(32'd0), .unsupported(1'b0), .adapter_write(1'b0),
         .adapter_wdata(32'd0), .adapter_be(4'd0), .mux_wb_start(1'b0),
         .mux_write(1'b0), .mux_wdata(32'd0), .mux_be(4'd0),
         .bridge_write_seen(1'b0), .bridge_op_write(1'b0),

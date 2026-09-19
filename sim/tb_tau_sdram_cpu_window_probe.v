@@ -34,7 +34,7 @@ module tb_tau_sdram_cpu_window_probe;
         .cpu_cti(cpu_cti), .cpu_sel(cpu_sel),
         .adapter_req(adapter_req), .mux_accept(mux_accept), .mux_start(mux_start),
         .bridge_busy(bridge_busy), .bridge_done(bridge_done), .adapter_done(adapter_done),
-        .wb_ack(wb_ack), .unsupported(unsupported), .adapter_write(adapter_write),
+        .wb_ack(wb_ack), .adapter_rdata(32'd0), .unsupported(unsupported), .adapter_write(adapter_write),
         .adapter_wdata(adapter_wdata), .adapter_be(adapter_be),
         .mux_wb_start(mux_wb_start), .mux_write(mux_write),
         .mux_wdata(mux_wdata), .mux_be(mux_be),

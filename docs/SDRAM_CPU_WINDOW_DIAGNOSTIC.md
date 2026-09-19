@@ -128,7 +128,10 @@ mandatory.
    check count, failure count, and photos of both the 49-cell bar and result.
    Press A to repeat only if the bar is not stable or legible.
 4. Decode A-076 cells 46–48 as CPU-facing **ACK seen**, **CPU data zero**, and
-   **CPU data all ones** for the fifth target read. One clean cold-boot
+   **CPU data all ones** for the fifth target read. A-077 reuses the same
+   cells for the adapter's ACK/data pair before `mp3_soc`'s selector: `G-R-G`
+   means all ones reached the adapter boundary; `G-G-R` means zero reached it.
+   One clean cold-boot
    observation is the immediate gate; do not spend the five-cold/five-warm
    matrix until this return-path boundary is classified. A later passing
    implementation must still complete that matrix and one post-player-session

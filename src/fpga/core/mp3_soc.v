@@ -176,8 +176,10 @@ module mp3_soc #(
     output wire [3:0]   sdram_wb_debug_sel,
     output wire         sdram_wb_debug_ack,
     output wire         sdram_wb_debug_unsupported,
-    // Optional return-path probe visibility. These expose only the CPU-facing
-    // registered ACK/data pair; they are inert in legacy builds.
+    // Optional return-path probe visibility. These expose the adapter response
+    // and CPU-facing registered ACK/data pair; they are inert in legacy builds
+    // and exist only to isolate the diagnostic return boundary.
+    output wire [31:0]  sdram_wb_debug_adapter_rdata,
     output wire         sdram_wb_debug_cpu_ack,
     output wire [31:0]  sdram_wb_debug_cpu_rdata
 );
@@ -291,6 +293,7 @@ module mp3_soc #(
             assign sdram_wb_debug_sel     = dSEL;
             assign sdram_wb_debug_ack     = sdram_wb_ack;
             assign sdram_wb_debug_unsupported = sdram_wb_unsupported;
+            assign sdram_wb_debug_adapter_rdata = sdram_wb_cpu_rdata;
             assign sdram_wb_debug_cpu_ack = dACK;
             assign sdram_wb_debug_cpu_rdata = dDAT_MISO;
 
@@ -334,6 +337,7 @@ module mp3_soc #(
             assign sdram_wb_debug_sel     = 4'd0;
             assign sdram_wb_debug_ack     = 1'b0;
             assign sdram_wb_debug_unsupported = 1'b0;
+            assign sdram_wb_debug_adapter_rdata = 32'd0;
             assign sdram_wb_debug_cpu_ack = 1'b0;
             assign sdram_wb_debug_cpu_rdata = 32'd0;
             assign d_bus_err         = 1'b0;
