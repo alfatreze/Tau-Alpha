@@ -2575,7 +2575,16 @@ bit-reversed Pocket RBF SHA-256
 `6ce93f8713ea2e3d2dc74ae98ed215cfb7d84006b393ecd92619665ab47a93dd` and
 the unchanged A-061 readback ROM SHA-256
 `f8a7f999cb0a503c9bef0536cead0c8f2ea046382efb2626bfdc8af60c16338a`.
-Pocket evidence is pending and must not be inferred from host provenance.
+**Host card-install evidence:** Both hashes were verified after installation
+on the mounted Pocket card. Only the superseded A-077 files were removed:
+its core directory, platform asset directory, platform JSON, and platform
+image. Normal Tau and the independent SDRAM Diagnostic/Stress cores were not
+changed. The five regenerable Pocket catalog indexes were copied with SHA-256
+provenance under
+`work/diagnostics/sdram-cpu-probe-a079/pocket-cache-backup-2026-09-19/System/`
+and then cleared so Pocket can rebuild the A-079 platform/category mapping.
+This is **host** provenance; Pocket execution remains pending and must not be
+inferred from it.
 **Outcome, remaining risk, and next gate:** Build the exact source with
 `TAU_PHASE2_WINDOW` and `TAU_PHASE2_MUX_PROBE`. A Pocket `G-R-G` result means
 the mux presents all ones and A-077's adapter zero implicates the adapter
