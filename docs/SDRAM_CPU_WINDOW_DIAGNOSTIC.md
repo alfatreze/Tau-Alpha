@@ -117,9 +117,16 @@ macro-off RBF: that map does not provide the CPU window. The legacy version
 register cannot distinguish the two bitstreams, so this provenance check is
 mandatory.
 
+The signed-off A-077 raw RBF SHA-256 is
+`53b11ee8fbfd2ff401a8a84255c88c4edd994333210933dfb1825d8b6bc6806f`.
+It defines `TAU_PHASE2_WINDOW` and `TAU_PHASE2_ADAPTER_PROBE` and must use the
+distinct **TAU CPU SDRAM Probe A077** / `tau_sdram_prb77` package profile. Its
+generated bit-reversed Pocket RBF SHA-256 is
+`1dd410d81ad9fa646a498bdcbead7d52cc5a7330fb0502d15dc489b40dd71918`.
+
 ## Pocket procedure and evidence
 
-1. Cold boot the Pocket, then open **Media Players → TAU CPU SDRAM Probe A076**.
+1. Cold boot the Pocket, then open **Media Players → TAU CPU SDRAM Probe A077**.
    It includes the A-061 preflight-readback ROM. **TAU CPU SDRAM Diagnostic**
    remains available only as the uninstrumented A-056 comparison baseline.
 2. Photograph the initial screen. It must state **PHASE 2 UNCACHED WINDOW**
@@ -141,11 +148,11 @@ Before copying a newer CPU-window diagnostic, remove its superseded CPU-window
 packages from the card. Keep normal Tau and only independent regression
 baselines that are still useful; do not accumulate obsolete probes.
 
-**Current card state:** A-076 is installed with verified RBF/ROM hashes;
-superseded A-067/A-074 CPU probes were removed. Its Pocket result is 183
-checks / 181 failures with final cells `G-G-R`: ACK observed, CPU data zero,
-CPU data not all ones. Keep normal Tau and the independent SDRAM
-Diagnostic/Stress baselines; A-076 is now a completed failing reference.
+**Current card state:** A-077 is installed with verified RBF/ROM hashes;
+completed A-076 was removed. A-076's Pocket result remains the recorded 183
+checks / 181 failures with final cells `G-G-R`: CPU ACK observed, CPU data
+zero, CPU data not all ones. Keep normal Tau and the independent SDRAM
+Diagnostic/Stress baselines; A-077 awaits its Pocket result.
 
 On a black screen before the initial UI, capture Pocket diagnostics: the CPU
 may be stalled by a malformed mapped transaction. On FAIL, capture the full

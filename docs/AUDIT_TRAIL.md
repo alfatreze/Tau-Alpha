@@ -2494,15 +2494,37 @@ fix). The mode-2 successor isolates one boundary without changing any product
 return behavior.
 **Hot/cold impact:** Diagnostic-only output wiring and an opt-in probe mode.
 Normal Tau, audio, scanout, cache behavior, and the macro-off map are unchanged.
-**Evidence:** **simulation | code-review** — the new focused adapter-return
-test retains `G-R-G` for an all-ones adapter result; existing bridge-response,
-CPU-return, and composed-path tests pass unchanged. Quartus/Pocket evidence is
-pending.
-**Outcome, remaining risk, and next gate:** Build a separate macro-enabled
-A-077 artifact with `TAU_PHASE2_WINDOW` and `TAU_PHASE2_ADAPTER_PROBE`. A
+**Evidence:** **simulation | code-review | Quartus** — the new focused
+adapter-return test retains `G-R-G` for an all-ones adapter result; existing
+bridge-response, CPU-return, and composed-path tests pass unchanged. The
+2026-09-19 isolated local-ext4 build defined `TAU_PHASE2_WINDOW` and
+`TAU_PHASE2_ADAPTER_PROBE`, completed in 44m09s with 0 errors, 6,162 / 18,480
+ALMs (33%), 8,053 registers, 300 / 308 RAM blocks (97%), and 11 / 66 DSP
+blocks (17%). Its limiting multicorner setup/hold slacks are +0.801 ns / +0.115
+ns. Raw RBF SHA-256 is
+`53b11ee8fbfd2ff401a8a84255c88c4edd994333210933dfb1825d8b6bc6806f`.
+**Host packaging/card-install evidence:** The separate A-077 package has a
+bit-reversed RBF SHA-256 of
+`1dd410d81ad9fa646a498bdcbead7d52cc5a7330fb0502d15dc489b40dd71918` and the
+known A-061 ROM SHA-256
+`f8a7f999cb0a503c9bef0536cead0c8f2ea046382efb2626bfdc8af60c16338a`.
+Those hashes were verified after installation on the mounted Pocket card; only
+the completed A-076 predecessor was removed. This is **host** provenance, not
+Pocket catalog/execution evidence. Pocket evidence remains pending.
+**Outcome, remaining risk, and next gate:** Run that exact A-077 build with
+`TAU_PHASE2_WINDOW` and `TAU_PHASE2_ADAPTER_PROBE`. A
 Pocket `G-R-G` result moves the fault into `mp3_soc`'s registered selector;
 `G-G-R` locates it at or before the adapter/mux response handoff. No package,
 fix, or cold-data migration is authorized until that result is observed.
+
+### A-078 — Keep Codex plan schema within CLI structured-output subset
+
+- **Date:** 2026-09-19
+- **Decision:** Remove conditional `allOf` branches from `tools/triad/schemas/codex-plan.schema.json` after Codex CLI 0.147.0 rejected the schema before planning. Preserve the same conditional guarantees in `director.py` runtime validation.
+- **Alternatives considered:** Keep `allOf` (blocked by the installed CLI); weaken runtime validation (unsafe and rejected).
+- **Scope:** Orchestration/schema compatibility only; no HDL, Quartus, SSH, or hardware changes.
+- **Evidence:** Reproduced `invalid_json_schema ... 'allOf' is not permitted`; base schema and Director tests are the acceptance gate.
+- **Outcome/next gate:** Retry the read-only Director readiness probe and confirm planning proceeds.
 
 ## Reversal ledger
 
