@@ -76,6 +76,7 @@ input   wire            savestate_load_err,
 
 input   wire            target_dataslot_read,       // rising edge triggered
 input   wire            target_dataslot_write,
+input   wire            target_dataslot_flush,
 input   wire            target_dataslot_getfile,
 input   wire            target_dataslot_openfile,
 
@@ -182,6 +183,7 @@ localparam  [3:0]   TARG_ST_WAITRESULT_DSO  = 'd15;
     reg             status_setup_done_1, status_setup_done_queue;
     reg             target_dataslot_read_1, target_dataslot_read_queue;
     reg             target_dataslot_write_1, target_dataslot_write_queue;
+    reg             target_dataslot_flush_1, target_dataslot_flush_queue;
     reg             target_dataslot_getfile_1, target_dataslot_getfile_queue;
     reg             target_dataslot_openfile_1, target_dataslot_openfile_queue;
     
@@ -200,6 +202,7 @@ initial begin
     status_setup_done_queue <= 0;
     target_dataslot_read_queue <= 0;
     target_dataslot_write_queue <= 0;
+    target_dataslot_flush_queue <= 0;
     target_dataslot_getfile_queue <= 0;
     target_dataslot_openfile_queue <= 0;
     target_dataslot_ack <= 0;
@@ -214,6 +217,7 @@ always @(posedge clk) begin
     status_setup_done_1 <= status_setup_done;
     target_dataslot_read_1 <= target_dataslot_read;
     target_dataslot_write_1 <= target_dataslot_write;
+    target_dataslot_flush_1 <= target_dataslot_flush;
     target_dataslot_getfile_1 <= target_dataslot_getfile;
     target_dataslot_openfile_1 <= target_dataslot_openfile;
     
@@ -225,6 +229,9 @@ always @(posedge clk) begin
     end
     if(target_dataslot_write & ~target_dataslot_write_1) begin
         target_dataslot_write_queue <= 1;
+    end
+    if(target_dataslot_flush & ~target_dataslot_flush_1) begin
+        target_dataslot_flush_queue <= 1;
     end
     if(target_dataslot_getfile & ~target_dataslot_getfile_1) begin
         target_dataslot_getfile_queue <= 1;
@@ -501,6 +508,12 @@ always @(posedge clk) begin
             target_28 <= target_dataslot_bridgeaddr;
             target_2C <= target_dataslot_length;
             
+            tstate <= TARG_ST_DATASLOTOP;
+
+        end else if(target_dataslot_flush_queue) begin
+            target_dataslot_flush_queue <= 0;
+            target_0[15:0] <= 16'h0188;
+            target_20 <= target_dataslot_id;
             tstate <= TARG_ST_DATASLOTOP;
             
         end else if(target_dataslot_getfile_queue) begin

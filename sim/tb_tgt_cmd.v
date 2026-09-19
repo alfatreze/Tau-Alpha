@@ -22,11 +22,11 @@ module tb_tgt_cmd;
     always #6.73 clk_74a = ~clk_74a;   // 74.25 MHz
 
     reg  go = 0;
-    reg  [1:0] cmd_sel = 0;
+    reg  [2:0] cmd_sel = 0;
     wire busy, done;
     wire [7:0] seq;
     wire [2:0] err;
-    wire t_read, t_openfile, t_getfile, t_write;
+    wire t_read, t_openfile, t_getfile, t_write, t_flush;
     reg  t_done = 0;
     reg  [2:0] t_err = 0;
 
@@ -35,6 +35,7 @@ module tb_tgt_cmd;
         .go(go), .cmd_sel(cmd_sel), .busy(busy), .done(done), .seq(seq), .err(err),
         .t_read(t_read), .t_openfile(t_openfile),
         .t_getfile(t_getfile), .t_write(t_write),
+        .t_flush(t_flush),
         .t_ack(1'b0), .t_done(t_done), .t_err(t_err)
     );
 
@@ -44,9 +45,11 @@ module tb_tgt_cmd;
     integer bstate = 0, delay = 0;
     integer transfers = 0;
     reg     queued = 0;
+    integer flushes = 0;
 
     always @(posedge clk_74a) begin
-        if (t_read) queued <= 1'b1;
+        if (t_read || t_openfile || t_getfile || t_write || t_flush) queued <= 1'b1;
+        if (t_flush) flushes <= flushes + 1;
         case (bstate)
             0: if (queued) begin queued <= 1'b0; bstate <= 1; end
             1: begin t_done <= 1'b0; delay <= 0; bstate <= 2; end   // DATASLOTOP
@@ -70,19 +73,24 @@ module tb_tgt_cmd;
     endtask
 
     integer seen_at;
+    integer seen_flushes;
     reg [7:0] seq0;
-    task run_one(input [255:0] label);
+    task run_one(input [2:0] which, input [255:0] label);
         begin
             // Exactly what firmware does: sample seq BEFORE issuing, then wait
             // for it to change. Immune to the sticky-done level entirely.
             seq0 = seq;
             seen_at = transfers;
+            seen_flushes = flushes;
+            cmd_sel = which;
             @(posedge clk_sys); go <= 1'b1;
             @(posedge clk_sys); go <= 1'b0;
             wait (seq != seq0);
             // The whole point: completion must not be reported before the
             // transfer that belongs to THIS command.
             chk(transfers == seen_at + 1, label);
+            if (which == 3'd4)
+                chk(flushes == seen_flushes + 1, "flush selects 0188 pulse");
             @(posedge clk_sys);
         end
     endtask
@@ -92,9 +100,9 @@ module tb_tgt_cmd;
         rst = 0;
         repeat (20) @(posedge clk_sys);
 
-        run_one("command 1 waits for its own transfer");
-        run_one("command 2 waits for its own transfer");
-        run_one("command 3 waits for its own transfer");
+        run_one(3'd0, "read waits for its own transfer");
+        run_one(3'd3, "write waits for its own transfer");
+        run_one(3'd4, "flush waits for its own transfer");
 
         $display("\n%0s (%0d failures)", errors ? "FAILED" : "PASSED", errors);
         $finish;

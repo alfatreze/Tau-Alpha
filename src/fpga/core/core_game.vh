@@ -100,7 +100,7 @@ wire        soc_con_wr;
 wire [7:0]  soc_con_char;
 
 wire        soc_tgt_go;
-wire [1:0]  soc_tgt_cmd_sel;
+wire [2:0]  soc_tgt_cmd_sel;
 wire [3:0]  soc_set_idx;
 wire        soc_set_wr;
 wire [31:0] soc_set_wdata;
@@ -293,7 +293,7 @@ assign target_buffer_param_struct = 32'hF8002200;   // word 128
 // -- 5. APF target-command bridge (clk_sys <-> clk_74a) -----------------------
 // STAGE 2 GOAL: no core in this workspace has ever driven these. 0192 hands off
 // to the Pocket's own file browser; 0180 reads from an arbitrary offset.
-wire tgt_t_read, tgt_t_openfile, tgt_t_getfile, tgt_t_write;
+wire tgt_t_read, tgt_t_openfile, tgt_t_getfile, tgt_t_write, tgt_t_flush;
 
 tgt_cmd u_tgt (
     .clk_sys     (clk_sys),
@@ -311,6 +311,7 @@ tgt_cmd u_tgt (
     .t_openfile  (tgt_t_openfile),
     .t_getfile   (tgt_t_getfile),
     .t_write     (tgt_t_write),
+    .t_flush     (tgt_t_flush),
     .t_ack       (target_dataslot_ack),
     .t_done      (target_dataslot_done),
     .t_err       (target_dataslot_err)
@@ -324,6 +325,7 @@ always @(posedge clk_74a) begin
     target_dataslot_read       <= tgt_t_read;
     target_dataslot_openfile   <= tgt_t_openfile;
     target_dataslot_write      <= tgt_t_write;
+    target_dataslot_flush      <= tgt_t_flush;
     target_dataslot_getfile    <= tgt_t_getfile;
     target_dataslot_id         <= soc_tgt_id;
     target_dataslot_slotoffset <= soc_tgt_slotoffset;

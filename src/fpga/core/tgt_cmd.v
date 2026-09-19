@@ -29,8 +29,9 @@ module tgt_cmd (
 
     // ---- clk_sys side (CPU) ----
     input  wire        go,                 // 1-cycle pulse
-    input  wire [1:0]  cmd_sel,            // 0 = 0180 read,  1 = 0192 openfile,
-                                           // 2 = 0190 getfile, 3 = 0184 write
+    input  wire [2:0]  cmd_sel,            // 0 = 0180 read,  1 = 0192 openfile,
+                                           // 2 = 0190 getfile, 3 = 0184 write,
+                                           // 4 = 0188 flush
     output reg         busy,
     output reg         done,               // sticky until next go
     output reg  [7:0]  seq,                // ++ on each genuine completion
@@ -41,6 +42,7 @@ module tgt_cmd (
     output reg         t_openfile,
     output reg         t_getfile,
     output reg         t_write,
+    output reg         t_flush,
     input  wire        t_ack,
     input  wire        t_done,
     input  wire [2:0]  t_err
@@ -75,13 +77,15 @@ module tgt_cmd (
         t_openfile <= 1'b0;
         t_getfile  <= 1'b0;
         t_write    <= 1'b0;
+        t_flush    <= 1'b0;
         case (st74)
             S_IDLE:
                 if (start_74) begin
                     case (cmd_sel)
-                        2'd1:    t_openfile <= 1'b1;   // 0192
-                        2'd2:    t_getfile  <= 1'b1;   // 0190
-                        2'd3:    t_write    <= 1'b1;   // 0184
+                        3'd1:    t_openfile <= 1'b1;   // 0192
+                        3'd2:    t_getfile  <= 1'b1;   // 0190
+                        3'd3:    t_write    <= 1'b1;   // 0184
+                        3'd4:    t_flush    <= 1'b1;   // 0188
                         default: t_read     <= 1'b1;   // 0180
                     endcase
                     st74 <= S_CLRDONE;
