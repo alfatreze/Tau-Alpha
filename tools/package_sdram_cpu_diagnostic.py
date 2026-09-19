@@ -54,12 +54,15 @@ EXPECTED_A067_PROBE_RBF_SHA256 = (
 EXPECTED_A074_PROBE_RBF_SHA256 = (
     "d4b6295d168351704dc185abf358bb230be5cc2b77460a3adbaeea48c95b6c98"
 )
+EXPECTED_A076_PROBE_RBF_SHA256 = (
+    "9ef62ebc4002abf4f5d29c84c59c08d997c18369d55e7c134beac5b97c832ef1"
+)
 
 
 def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             probe_a062: bool, probe_a063: bool, probe_a064: bool,
             probe_a065: bool, probe_a066: bool, probe_a067: bool,
-            probe_a074: bool) -> dict[str, object]:
+            probe_a074: bool, probe_a076: bool) -> dict[str, object]:
     """Return the immutable package identity/provenance for one diagnostic."""
     if probe_a062:
         return {
@@ -144,6 +147,18 @@ def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             "name": "TAU CPU SDRAM Probe A074",
             "description": "TAU Phase 2 bridge-response probe A074",
             "expected_hash": EXPECTED_A074_PROBE_RBF_SHA256,
+        }
+    if probe_a076:
+        return {
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a076/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-readback/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a076/pocket",
+            "platform_id": "tau_sdram_prb76",
+            "core_id": "alfatreze.TAU_SDRAM_PRB76",
+            "shortname": "TAU_SDRAM_PRB76",
+            "name": "TAU CPU SDRAM Probe A076",
+            "description": "TAU Phase 2 CPU-facing return-path probe A076",
+            "expected_hash": EXPECTED_A076_PROBE_RBF_SHA256,
         }
     if probe_a060_readback:
         return {
@@ -234,11 +249,13 @@ def main() -> None:
                       help="package the A-067 bridge read-timing probe")
     mode.add_argument("--probe-a074", action="store_true",
                       help="package the A-074 bridge-response probe")
+    mode.add_argument("--probe-a076", action="store_true",
+                      help="package the A-076 CPU-facing return-path probe")
     args = parser.parse_args()
     cfg = profile(args.probe, args.probe_a060, args.probe_a060_readback,
                   args.probe_a062, args.probe_a063, args.probe_a064,
                   args.probe_a065, args.probe_a066, args.probe_a067,
-                  args.probe_a074)
+                  args.probe_a074, args.probe_a076)
     raw_rbf = cfg["raw_rbf"]
     diag_rom = cfg["rom"]
     output = cfg["output"]
@@ -330,12 +347,12 @@ def main() -> None:
         encoding="utf-8",
     )
     (temp / "INSTALL.txt").write_text(
-        "TAU CPU SDRAM DIAGNOSTIC - DEVELOPER BUILD\n\n"
+        f"{cfg['name']} - DEVELOPER BUILD\n\n"
         "Copy the Cores, Assets, and Platforms folders to the Pocket SD root.\n"
         "This installs beside the normal TAU core under Media Players.\n"
         "It REQUIRES the packaged Phase 2 RBF; do not combine this ROM with a normal TAU RBF.\n"
         "The test destructively writes only physical SDRAM 2-3 MiB via 0xA0200000.\n"
-        "Launch TAU CPU SDRAM Diagnostic and photograph PASS or the complete FAIL screen.\n"
+        f"Launch {cfg['name']} and photograph PASS or the complete FAIL screen.\n"
         "Press A to repeat the diagnostic.\n",
         encoding="utf-8",
     )

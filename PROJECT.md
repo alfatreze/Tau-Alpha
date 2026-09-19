@@ -8,11 +8,11 @@ full provenance and third-party licenses.
 **Current preview:** v0.1.0 · **Core identity:** `alfatreze.TAU` ·
 **Platform:** `tau` / Media Players
 
-**Current technical status (2026-09-18):** Phase 1 SDRAM access and contention
+**Current technical status (2026-09-19):** Phase 1 SDRAM access and contention
 gates are accepted on Pocket. Phase 2 A-074 seed 2 fits cleanly and its first
 Pocket run proves the bridge assembled `FFFFFFFF`, but the CPU still receives
-zero. A-076 adds a return-path probe; focused RTL tests pass, while its
-Quartus/Pocket gates remain pending.
+zero. A-076 adds a return-path probe; focused RTL tests and its isolated
+Quartus gate pass, while its Pocket gate remains pending.
 
 ## Completed
 
@@ -84,7 +84,8 @@ Quartus/Pocket gates remain pending.
   hold slack). A-074 seed 2 then passed with +0.662 ns setup, +0.119 ns hold,
   and TNS 0; its Pocket run completed 183 checks with 181 failures while the
   bridge-response cells reported `G-R-G` (assembled `FFFFFFFF`, CPU result
-  still zero). A-076 now instruments the CPU-facing return path; no normal
+  still zero). A-076 now instruments the CPU-facing return path and passed
+  its isolated Quartus fit; no normal
   player data uses mapped SDRAM.
 - Documented battery/power work: real in-core battery state is blocked by the
   current documented openFPGA API, while internal efficiency instrumentation is
@@ -122,8 +123,8 @@ chronological decision/reversal/evidence trail and resource trend are in
 - The external SDRAM remains framebuffer-only for product features. A bounded
   diagnostic MMIO bridge and owner mux are fitted; A-075 proves the bridge
   response on Pocket, but the CPU-facing Wishbone return path is not yet
-  proven. A-076's focused return probe passes RTL simulation; its Quartus and
-  Pocket gates, followed by concurrent playback/CRC, must pass before any
+  proven. A-076's focused return probe passes RTL simulation and Quartus; its
+  Pocket gate, followed by concurrent playback/CRC, must pass before any
   mapped SDRAM feature is enabled. See audit A-076 and issue 018.
 - Loading art currently uses a 16-entry RGB565 palette; on-device tonal tuning
   awaits a Pocket reference photo.
@@ -148,7 +149,7 @@ glow, waveform, text, and progress luminance bands. Retest on hardware.
 
 The A-074 seed-2 diagnostic build is accepted for the bridge-response boundary
 and its Pocket result is recorded, but the CPU-facing return path still fails.
-A separate A-076 firmware diagnostic/probe must first pass Quartus and Pocket;
+A separate A-076 firmware diagnostic/probe has passed Quartus and must now pass Pocket;
 stage only that separately named macro-enabled RBF and run the documented
 return-path test. After it passes, add concurrent
 1 MiB CRC and playback stress before migrating at least 24 KiB of cold

@@ -106,16 +106,20 @@ Pocket bit-reversed SHA-256 is
 `794d5c9b1a9b646959a687dbaa2325beb821a006d671941896cf039f6b95d3db`. The
 A-061 readback ROM SHA-256 remains
 `f8a7f999cb0a503c9bef0536cead0c8f2ea046382efb2626bfdc8af60c16338a`.
-Its `SHA256SUMS.txt` records both values. The successor return-path build must
-define both `TAU_PHASE2_WINDOW` and `TAU_PHASE2_RETURN_PROBE` and use a distinct
-A-076 package profile. Do not substitute the ordinary
+Its `SHA256SUMS.txt` records both values. The signed-off A-076 raw RBF SHA-256
+is `9ef62ebc4002abf4f5d29c84c59c08d997c18369d55e7c134beac5b97c832ef1`.
+It defines both `TAU_PHASE2_WINDOW` and `TAU_PHASE2_RETURN_PROBE` and must use
+the distinct **TAU CPU SDRAM Probe A076** / `tau_sdram_prb76` package profile.
+Its generated bit-reversed Pocket RBF SHA-256 is
+`212e1761d2b4107e6d933e11bada800dfdaf78c8fc83ad9c1f36788e65fc747a`.
+Do not substitute the ordinary
 macro-off RBF: that map does not provide the CPU window. The legacy version
 register cannot distinguish the two bitstreams, so this provenance check is
 mandatory.
 
 ## Pocket procedure and evidence
 
-1. Cold boot the Pocket, then open **Media Players → TAU CPU SDRAM Probe A074**.
+1. Cold boot the Pocket, then open **Media Players → TAU CPU SDRAM Probe A076**.
    It includes the A-061 preflight-readback ROM. **TAU CPU SDRAM Diagnostic**
    remains available only as the uninstrumented A-056 comparison baseline.
 2. Photograph the initial screen. It must state **PHASE 2 UNCACHED WINDOW**
@@ -123,19 +127,21 @@ mandatory.
 3. Wait for complete FAIL or PASS. Record device temperature, cold/warm boot,
    check count, failure count, and photos of both the 49-cell bar and result.
    Press A to repeat only if the bar is not stable or legible.
-4. For A-074, one clean cold-boot observation is the immediate gate; do not
-   spend the five-cold/five-warm matrix until the all-ones store boundary is
-   classified. A later passing implementation must still complete that matrix
-   and one post-player-session pass, without claiming concurrent playback.
+4. Decode A-076 cells 46–48 as CPU-facing **ACK seen**, **CPU data zero**, and
+   **CPU data all ones** for the fifth target read. One clean cold-boot
+   observation is the immediate gate; do not spend the five-cold/five-warm
+   matrix until this return-path boundary is classified. A later passing
+   implementation must still complete that matrix and one post-player-session
+   pass, without claiming concurrent playback.
 
 Before copying a newer CPU-window diagnostic, remove its superseded CPU-window
 packages from the card. Keep normal Tau and only independent regression
 baselines that are still useful; do not accumulate obsolete probes.
 
-**Current card state:** A-074 is now installed and has completed its first
-Pocket run. Keep normal Tau and the independent SDRAM Diagnostic/Stress
-baselines installed; remove A-074 only when replacing it with a superseding
-return-path probe.
+**Current card state:** A-074 completed its first Pocket run. A-076 is the
+superseding, locally verified return-path package and is awaiting card copy.
+Keep normal Tau and the independent SDRAM Diagnostic/Stress baselines; remove
+A-074 when installing A-076.
 
 On a black screen before the initial UI, capture Pocket diagnostics: the CPU
 may be stalled by a malformed mapped transaction. On FAIL, capture the full
