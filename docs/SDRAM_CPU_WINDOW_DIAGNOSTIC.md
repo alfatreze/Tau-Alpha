@@ -138,10 +138,10 @@ Before copying a newer CPU-window diagnostic, remove its superseded CPU-window
 packages from the card. Keep normal Tau and only independent regression
 baselines that are still useful; do not accumulate obsolete probes.
 
-**Current card state:** A-074 completed its first Pocket run. A-076 is the
-superseding, locally verified return-path package and is awaiting card copy.
-Keep normal Tau and the independent SDRAM Diagnostic/Stress baselines; remove
-A-074 when installing A-076.
+**Current card state:** A-076 is installed with verified RBF/ROM hashes;
+superseded A-067/A-074 CPU probes were removed. This is **host** install
+evidence only. Keep normal Tau and the independent SDRAM Diagnostic/Stress
+baselines; cold-boot Pocket execution is still required.
 
 On a black screen before the initial UI, capture Pocket diagnostics: the CPU
 may be stalled by a malformed mapped transaction. On FAIL, capture the full

@@ -2460,7 +2460,10 @@ bit-reversed RBF SHA-256
 `212e1761d2b4107e6d933e11bada800dfdaf78c8fc83ad9c1f36788e65fc747a` and the
 unchanged A-061 readback ROM SHA-256
 `f8a7f999cb0a503c9bef0536cead0c8f2ea046382efb2626bfdc8af60c16338a`.
-Pocket evidence remains pending.
+**Host card-install evidence:** A-076's installed Pocket RBF and ROM matched
+those two package hashes; only superseded A-067/A-074 CPU probes were removed.
+This establishes file provenance, not that Pocket rebuilt its catalog or ran
+the core. Pocket execution evidence remains pending.
 **Outcome, remaining risk, and next gate:** The exact-hash-gated, separate
 **TAU CPU SDRAM Probe A076** bundle is ready for one cold-boot Pocket test.
 Cells 46–48 are CPU-facing ACK/data facts, not the A-074 bridge facts. Do not
