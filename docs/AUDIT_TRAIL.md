@@ -2584,7 +2584,21 @@ provenance under
 `work/diagnostics/sdram-cpu-probe-a079/pocket-cache-backup-2026-09-19/System/`
 and then cleared so Pocket can rebuild the A-079 platform/category mapping.
 This is **host** provenance; Pocket execution remains pending and must not be
-inferred from it.
+inferred from it. **Pocket execution:** The supplied A-079 photo reports 183
+checks, 181 failures, first byte address `A0200000`, expected `FFFFFFFF`, and
+actual `00000000`. The stable bar runs at its top scan lines calibrate to
+`GGGGGGGGRRRRGGGGRGGGGGRRGGRRGGGGGGGGGGGGGGGGRGGGR`.
+Cells 46–48 are `G-G-R`: owner-mux completion was observed, its registered
+return data was zero, and it was not all ones. This is **Pocket** evidence.
+**Outcome, remaining risk, and next gate:** A-075's bridge-internal recorder
+observed an assembled `FFFFFFFF`, while A-079 observes zero at the owner-mux
+output. The adapter and `mp3_soc` selector are now excluded as primary
+suspects. The live boundary is the bridge's system-domain response signals
+(`sys_done`/`sys_rdata`) into `tau_sdram_bridge_mux`, or the mux's response
+latch. Before changing either, add an end-to-end simulation that drives the
+bridge response with the production registered completion timing and asserts
+that the mux retains `FFFFFFFF` when it raises `wb_done`. The test must fail
+against the observed timing before any candidate fix is accepted.
 **Outcome, remaining risk, and next gate:** Build the exact source with
 `TAU_PHASE2_WINDOW` and `TAU_PHASE2_MUX_PROBE`. A Pocket `G-R-G` result means
 the mux presents all ones and A-077's adapter zero implicates the adapter

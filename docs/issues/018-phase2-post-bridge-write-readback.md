@@ -126,7 +126,12 @@ implicates the adapter capture/ACK timing, while mux zero implicates the
 owner-mux latch or its preceding bridge handoff. A-079's focused simulation
 and isolated **Quartus** gates have passed (43m55s, +0.787 ns setup / +0.282 ns
 hold); its hash-locked package is card-installed with only A-077 superseded,
-and its Pocket gate remains pending.
+and its Pocket gate reports 183 checks / 181 failures at `A0200000`, expected
+`FFFFFFFF`, actual `00000000`. The calibrated final cells are `G-G-R`: mux
+completion is present but mux return data is zero. This excludes the adapter
+and `mp3_soc` selector as primary suspects. The immediate next step is a
+production-timing bridge-system-response → mux regression, not a timing change
+or cold-data migration.
 The initial ordinary-browser
 absence is classified as
 stale/inconsistent Pocket catalog data: core-list caches contained A-077 while

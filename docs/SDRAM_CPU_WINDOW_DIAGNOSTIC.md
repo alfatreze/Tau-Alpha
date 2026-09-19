@@ -165,9 +165,10 @@ zero, CPU data not all ones. A-077 has now produced the same 183 / 181 result
 and final cells `G-G-R`: adapter ACK observed, adapter return data zero, and
 adapter return data not all ones. Keep normal Tau and the independent SDRAM
 Diagnostic/Stress baselines; A-079 is installed with verified RBF/ROM hashes,
-and only superseded A-077 was removed. A-079 probes owner-mux
-`wb_done`/`wb_rdata` before adapter capture. Its `G-R-G` result means mux all
-ones; `G-G-R` means mux zero. Its five regenerable Pocket catalog indexes were
+and only superseded A-077 was removed. Its photographed Pocket result is 183
+checks / 181 failures with final cells `G-G-R`: owner-mux completion observed,
+owner-mux data zero, owner-mux data not all ones. A-079 therefore classifies
+the live failure before the adapter. Its five regenerable Pocket catalog indexes were
 backed up under
 `work/diagnostics/sdram-cpu-probe-a079/pocket-cache-backup-2026-09-19/System/`
 and cleared after their
