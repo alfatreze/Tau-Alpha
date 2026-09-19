@@ -109,5 +109,9 @@ narrows the live failure to the adapter/mux response path or the registered
 `mp3_soc` return selector. The next diagnostic must retain the adapter's
 `sdram_wb_cpu_rdata` when its ACK occurs, so it can be compared with A-076's
 already-proven final CPU-bus zero. A-077 implements that focused adapter-return
-discriminator; simulation shows its all-ones result as `G-R-G`. Its separate
-Quartus/Pocket gate is pending.
+discriminator; simulation shows its all-ones result as `G-R-G`. Its isolated
+2026-09-19 Quartus fit completed with 0 errors, +0.801 ns setup, +0.115 ns
+hold, and raw RBF SHA-256
+`53b11ee8fbfd2ff401a8a84255c88c4edd994333210933dfb1825d8b6bc6806f`.
+Its separate package is installed with hash-verified RBF/ROM provenance; its
+Pocket gate is pending.

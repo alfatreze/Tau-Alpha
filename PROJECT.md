@@ -13,8 +13,8 @@ gates are accepted on Pocket. Phase 2 A-074 seed 2 fits cleanly and its first
 Pocket run proves the bridge assembled `FFFFFFFF`, but the CPU still receives
 zero. A-076's focused RTL tests and isolated Quartus gate pass; its Pocket
 result confirms CPU ACK with zero data, leaving the adapter/mux-to-selector
-return boundary unresolved. A-077 is the focused adapter-return discriminator
-awaiting Quartus/Pocket evidence.
+return boundary unresolved. A-077 is the focused adapter-return discriminator;
+it has passed Quartus and is installed for its Pocket gate.
 
 ## Completed
 

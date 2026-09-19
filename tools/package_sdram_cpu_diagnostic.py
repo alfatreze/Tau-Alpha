@@ -57,12 +57,15 @@ EXPECTED_A074_PROBE_RBF_SHA256 = (
 EXPECTED_A076_PROBE_RBF_SHA256 = (
     "9ef62ebc4002abf4f5d29c84c59c08d997c18369d55e7c134beac5b97c832ef1"
 )
+EXPECTED_A077_PROBE_RBF_SHA256 = (
+    "53b11ee8fbfd2ff401a8a84255c88c4edd994333210933dfb1825d8b6bc6806f"
+)
 
 
 def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             probe_a062: bool, probe_a063: bool, probe_a064: bool,
             probe_a065: bool, probe_a066: bool, probe_a067: bool,
-            probe_a074: bool, probe_a076: bool) -> dict[str, object]:
+            probe_a074: bool, probe_a076: bool, probe_a077: bool) -> dict[str, object]:
     """Return the immutable package identity/provenance for one diagnostic."""
     if probe_a062:
         return {
@@ -160,6 +163,18 @@ def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             "description": "TAU Phase 2 CPU-facing return-path probe A076",
             "expected_hash": EXPECTED_A076_PROBE_RBF_SHA256,
         }
+    if probe_a077:
+        return {
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a077/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-readback/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a077/pocket",
+            "platform_id": "tau_sdram_prb77",
+            "core_id": "alfatreze.TAU_SDRAM_PRB77",
+            "shortname": "TAU_SDRAM_PRB77",
+            "name": "TAU CPU SDRAM Probe A077",
+            "description": "TAU Phase 2 adapter-return probe A077",
+            "expected_hash": EXPECTED_A077_PROBE_RBF_SHA256,
+        }
     if probe_a060_readback:
         return {
             "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a060/fpga/ap_core.rbf",
@@ -251,11 +266,13 @@ def main() -> None:
                       help="package the A-074 bridge-response probe")
     mode.add_argument("--probe-a076", action="store_true",
                       help="package the A-076 CPU-facing return-path probe")
+    mode.add_argument("--probe-a077", action="store_true",
+                      help="package the A-077 adapter-return probe")
     args = parser.parse_args()
     cfg = profile(args.probe, args.probe_a060, args.probe_a060_readback,
                   args.probe_a062, args.probe_a063, args.probe_a064,
                   args.probe_a065, args.probe_a066, args.probe_a067,
-                  args.probe_a074, args.probe_a076)
+                  args.probe_a074, args.probe_a076, args.probe_a077)
     raw_rbf = cfg["raw_rbf"]
     diag_rom = cfg["rom"]
     output = cfg["output"]
