@@ -125,7 +125,8 @@ zero rather than all ones. The next bounded A-079 probe must retain owner-mux
 implicates the adapter capture/ACK timing, while mux zero implicates the
 owner-mux latch or its preceding bridge handoff. A-079's focused simulation
 and isolated **Quartus** gates have passed (43m55s, +0.787 ns setup / +0.282 ns
-hold); its hash-locked package is ready and its Pocket gate remains pending.
+hold); its hash-locked package is card-installed with only A-077 superseded,
+and its Pocket gate remains pending.
 The initial ordinary-browser
 absence is classified as
 stale/inconsistent Pocket catalog data: core-list caches contained A-077 while

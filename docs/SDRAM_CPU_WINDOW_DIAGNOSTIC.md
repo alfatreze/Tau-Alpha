@@ -164,12 +164,13 @@ checks / 181 failures with final cells `G-G-R`: CPU ACK observed, CPU data
 zero, CPU data not all ones. A-077 has now produced the same 183 / 181 result
 and final cells `G-G-R`: adapter ACK observed, adapter return data zero, and
 adapter return data not all ones. Keep normal Tau and the independent SDRAM
-Diagnostic/Stress baselines; the A-079 package is ready locally but is not yet
-installed. On installation, remove only superseded A-077 and preserve normal
-Tau plus the independent Diagnostic/Stress baselines. A-079 probes owner-mux
+Diagnostic/Stress baselines; A-079 is installed with verified RBF/ROM hashes,
+and only superseded A-077 was removed. A-079 probes owner-mux
 `wb_done`/`wb_rdata` before adapter capture. Its `G-R-G` result means mux all
-ones; `G-G-R` means mux zero. The five regenerable Pocket catalog indexes were
-backed up and cleared after their
+ones; `G-G-R` means mux zero. Its five regenerable Pocket catalog indexes were
+backed up under
+`work/diagnostics/sdram-cpu-probe-a079/pocket-cache-backup-2026-09-19/System/`
+and cleared after their
 platform/category mappings omitted A-077 despite a valid core-list entry.
 Eject/remount the card and cold boot Pocket before evaluating list visibility.
 

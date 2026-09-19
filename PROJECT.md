@@ -15,8 +15,8 @@ zero. A-076's focused RTL tests and isolated Quartus gate pass; its Pocket
 result confirms CPU ACK with zero data. A-077 then confirms adapter ACK with
 zero data, excluding `mp3_soc`'s return selector as the first suspect. A-079
 has passing focused RTL simulations and isolated Quartus evidence; its
-hash-locked Pocket package will discriminate the owner-mux output from adapter
-capture before a fix.
+hash-locked Pocket package is installed for the owner-mux-versus-adapter
+capture gate before any fix.
 
 ## Completed
 
