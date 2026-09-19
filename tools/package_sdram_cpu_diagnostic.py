@@ -63,13 +63,22 @@ EXPECTED_A077_PROBE_RBF_SHA256 = (
 EXPECTED_A079_PROBE_RBF_SHA256 = (
     "246202a00fab50c6b96a38e8dd1acc4d835e5041b9d1784f325d2223421531e8"
 )
+EXPECTED_A080_PROBE_RBF_SHA256 = (
+    "f21a9ba0fe0d4d43d49c3d2f102eda8fdc5445516581928fc87730687a14baa4"
+)
 
 
 def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             probe_a062: bool, probe_a063: bool, probe_a064: bool,
             probe_a065: bool, probe_a066: bool, probe_a067: bool,
             probe_a074: bool, probe_a076: bool, probe_a077: bool,
-            probe_a079: bool) -> dict[str, object]:
+            probe_a079: bool, probe_a080: bool, probe_a082: bool,
+            probe_a083: bool, probe_a084: bool, probe_a085: bool,
+            probe_a086: bool, probe_a087: bool = False,
+            probe_a088: bool = False,
+            probe_a089: bool = False,
+            probe_a090: bool = False,
+            probe_a091: bool = False) -> dict[str, object]:
     """Return the immutable package identity/provenance for one diagnostic."""
     if probe_a062:
         return {
@@ -191,6 +200,158 @@ def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             "description": "TAU Phase 2 owner-mux return probe A079",
             "expected_hash": EXPECTED_A079_PROBE_RBF_SHA256,
         }
+    if probe_a080:
+        return {
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-probe-a080/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a080/pocket",
+            "platform_id": "tau_sdram_prb80",
+            "core_id": "alfatreze.TAU_SDRAM_PRB80",
+            "shortname": "TAU_SDRAM_PRB80",
+            "name": "TAU CPU SDRAM Probe A080",
+            "description": "TAU Phase 2 mux probe with persistent result log A080",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a082:
+        return {
+            # Firmware-only diagnostic discriminator: this intentionally reuses
+            # the A-080 rev-23 RBF, which contains target write/flush support.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-probe/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a082/pocket",
+            "platform_id": "tau_sdram_prb82",
+            "core_id": "alfatreze.TAU_SDRAM_PRB82",
+            "shortname": "TAU_SDRAM_PRB82",
+            "name": "TAU CPU SDRAM Probe A082",
+            "description": "TAU target-write and flush status probe A082",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a083:
+        return {
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-readback/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a083/pocket",
+            "platform_id": "tau_sdram_prb83",
+            "core_id": "alfatreze.TAU_SDRAM_PRB83",
+            "shortname": "TAU_SDRAM_PRB83",
+            "name": "TAU CPU SDRAM Probe A083",
+            "description": "TAU target-slot readback probe A083",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a084:
+        return {
+            # Firmware-only: A-084 adds the documented 0190 -> copied 0192
+            # lifecycle before target read/write; it reuses A-080's fitted RBF.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-open/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a084/pocket",
+            "platform_id": "tau_sdram_prb84",
+            "core_id": "alfatreze.TAU_SDRAM_PRB84",
+            "shortname": "TAU_SDRAM_PRB84",
+            "name": "TAU CPU SDRAM Probe A084",
+            "description": "TAU result-slot open/write/read probe A084",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a085:
+        return {
+            # Firmware-only: wait for two short, successful 0180 responses
+            # after 0192 before A-085 writes the same isolated slot.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-settle/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a085/pocket",
+            "platform_id": "tau_sdram_prb85",
+            "core_id": "alfatreze.TAU_SDRAM_PRB85",
+            "shortname": "TAU_SDRAM_PRB85",
+            "name": "TAU CPU SDRAM Probe A085",
+            "description": "TAU result-slot settle/write/read probe A085",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a091:
+        return {
+            # Firmware-only result channel: 16 interact.json persist words,
+            # APF-stored; no slot 5, no 0184/0188, no Saves file.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-interact/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a091/pocket",
+            "platform_id": "tau_sdram_prb91",
+            "core_id": "alfatreze.TAU_SDRAM_PRB91",
+            "shortname": "TAU_SDRAM_PRB91",
+            "name": "TAU CPU SDRAM Probe A091",
+            "description": "TAU result via interact.json persist A091",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+            "interact_result": True,
+        }
+    if probe_a090:
+        return {
+            # Firmware-only: table-size/integrity, 10 s flush with timing and
+            # a post-flush re-read. Parameters revert to the original 0x22
+            # because A-089's nonvolatile bit did not help and upstream hung.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-table/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a090/pocket",
+            "platform_id": "tau_sdram_prb90",
+            "core_id": "alfatreze.TAU_SDRAM_PRB90",
+            "shortname": "TAU_SDRAM_PRB90",
+            "name": "TAU CPU SDRAM Probe A090",
+            "description": "TAU result slot table and flush timing A090",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a089:
+        return {
+            # Packaging-only: same A-088 ROM; slot 5 gains the nonvolatile
+            # bit (0x86 = core-specific | nonvolatile | deferload).
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-bridge/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a089/pocket",
+            "platform_id": "tau_sdram_prb89",
+            "core_id": "alfatreze.TAU_SDRAM_PRB89",
+            "shortname": "TAU_SDRAM_PRB89",
+            "name": "TAU CPU SDRAM Probe A089",
+            "description": "TAU result slot nonvolatile parameters A089",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+            "slot_parameters": "0x86",
+        }
+    if probe_a088:
+        return {
+            # Firmware-only: corrects the datatable bridge base to 0xF8002000.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-bridge/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a088/pocket",
+            "platform_id": "tau_sdram_prb88",
+            "core_id": "alfatreze.TAU_SDRAM_PRB88",
+            "shortname": "TAU_SDRAM_PRB88",
+            "name": "TAU CPU SDRAM Probe A088",
+            "description": "TAU result bridge-address fix A088",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a087:
+        return {
+            # Firmware-only: shows datatable words 200..203 sampled just
+            # before 0184 so payload absence and APF mapping faults differ.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-source/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a087/pocket",
+            "platform_id": "tau_sdram_prb87",
+            "core_id": "alfatreze.TAU_SDRAM_PRB87",
+            "shortname": "TAU_SDRAM_PRB87",
+            "name": "TAU CPU SDRAM Probe A087",
+            "description": "TAU result source-buffer discriminator A087",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a086:
+        return {
+            # Firmware-only: immediate readback now occurs before 0188 flush,
+            # preventing a timed-out flush from obscuring the write boundary.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-write-read/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a086/pocket",
+            "platform_id": "tau_sdram_prb86",
+            "core_id": "alfatreze.TAU_SDRAM_PRB86",
+            "shortname": "TAU_SDRAM_PRB86",
+            "name": "TAU CPU SDRAM Probe A086",
+            "description": "TAU result write-before-flush readback A086",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
     if probe_a060_readback:
         return {
             "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a060/fpga/ap_core.rbf",
@@ -286,12 +447,36 @@ def main() -> None:
                       help="package the A-077 adapter-return probe")
     mode.add_argument("--probe-a079", action="store_true",
                       help="package the A-079 owner-mux return probe")
+    mode.add_argument("--probe-a080", action="store_true",
+                      help="package the A-080 persistent-result-log probe")
+    mode.add_argument("--probe-a082", action="store_true",
+                      help="package the A-082 target-write/flush status probe")
+    mode.add_argument("--probe-a083", action="store_true",
+                      help="package the A-083 target-slot readback probe")
+    mode.add_argument("--probe-a084", action="store_true",
+                      help="package the A-084 result-slot lifecycle probe")
+    mode.add_argument("--probe-a085", action="store_true",
+                      help="package the A-085 result-slot settle probe")
+    mode.add_argument("--probe-a091", action="store_true",
+                      help="package the A-091 interact.json result probe")
+    mode.add_argument("--probe-a090", action="store_true",
+                      help="package the A-090 table/flush-timing probe")
+    mode.add_argument("--probe-a089", action="store_true",
+                      help="package the A-089 nonvolatile-slot probe")
+    mode.add_argument("--probe-a088", action="store_true",
+                      help="package the A-088 bridge-address fix probe")
+    mode.add_argument("--probe-a087", action="store_true",
+                      help="package the A-087 source-buffer probe")
+    mode.add_argument("--probe-a086", action="store_true",
+                      help="package the A-086 write-before-flush probe")
     args = parser.parse_args()
     cfg = profile(args.probe, args.probe_a060, args.probe_a060_readback,
                   args.probe_a062, args.probe_a063, args.probe_a064,
                   args.probe_a065, args.probe_a066, args.probe_a067,
                   args.probe_a074, args.probe_a076, args.probe_a077,
-                  args.probe_a079)
+                  args.probe_a079, args.probe_a080, args.probe_a082,
+                  args.probe_a083, args.probe_a084, args.probe_a085,
+                  args.probe_a086, args.probe_a087, args.probe_a088, args.probe_a089, args.probe_a090, args.probe_a091)
     raw_rbf = cfg["raw_rbf"]
     diag_rom = cfg["rom"]
     output = cfg["output"]
@@ -332,7 +517,24 @@ def main() -> None:
         )
 
     data = load_json(core_dir / "data.json")
-    data["data"]["data_slots"] = [data["data"]["data_slots"][0]]
+    # Slot 5 is intentionally the only writable diagnostic slot. It must
+    # never be substituted with music, artwork, or playlist data.
+    interact_result = bool(cfg.get("interact_result"))
+    data["data"]["data_slots"] = [data["data"]["data_slots"][0]] if interact_result else [
+        data["data"]["data_slots"][0],
+        {
+            "name": "Diag result log",
+            "id": 5,
+            "required": False,
+            "nonvolatile": True,
+            "deferload": True,
+            "parameters": cfg.get("slot_parameters", "0x22"),
+            "filename": "last-result.tlog",
+            "extensions": ["tlog"],
+            "size_exact": 64,
+            "size_maximum": 64,
+        },
+    ]
     save_json(core_dir / "data.json", data)
 
     input_config = load_json(core_dir / "input.json")
@@ -342,7 +544,22 @@ def main() -> None:
     save_json(core_dir / "input.json", input_config)
 
     interact = load_json(core_dir / "interact.json")
-    interact["interact"]["variables"] = []
+    # A-091: one persist variable per interact word (APF stores signed int32,
+    # so the range stays within 0..2^31-1; firmware publishes 31-bit values).
+    interact["interact"]["variables"] = [] if not interact_result else [
+        {
+            "name": f"(diag) result word {i}",
+            "id": 30 + i,
+            "type": "slider_u32",
+            "enabled": True,
+            "persist": True,
+            "address": f"0x{0x20000000 + 4 * i:08X}",
+            "defaultval": 0,
+            "graphical": {"signed": False, "min": 0, "max": 2147483647,
+                          "adjust_small": 1, "adjust_large": 1},
+        }
+        for i in range(16)
+    ]
     interact["interact"]["messages"] = []
     save_json(core_dir / "interact.json", interact)
 
@@ -356,10 +573,19 @@ def main() -> None:
             "magic": "APF_VER_1",
             "variant_select": {"id": 0, "select": False},
             "data_path": "",
-            "data_slots": [{"id": 1, "filename": "tau.rom"}],
+            "data_slots": [
+                {"id": 1, "filename": "tau.rom"},
+            ] + ([] if interact_result else [{"id": 5, "filename": "last-result.tlog"}]),
             "memory_writes": [],
         }
     })
+
+    # Pre-create the fixed-size file rather than rely on undocumented creation
+    # timing for a defer-loaded slot. Firmware writes and flushes this file.
+    save_file = temp / "Saves" / platform_id / core_id / "last-result.tlog"
+    if not interact_result:
+        save_file.parent.mkdir(parents=True)
+        save_file.write_bytes(b"\0" * 64)
 
     platform_dir = temp / "Platforms"
     (platform_dir / "_images").mkdir(parents=True)
@@ -378,6 +604,8 @@ def main() -> None:
         "packaged_bitstream.rbf_r": digest(core_dir / "bitstream.rbf_r"),
         "diagnostic_tau.rom": digest(assets_common / "tau.rom"),
     }
+    if not interact_result:
+        hashes["diagnostic_last-result.tlog"] = digest(save_file)
     (temp / "SHA256SUMS.txt").write_text(
         "".join(f"{value}  {name}\n" for name, value in hashes.items()),
         encoding="utf-8",
@@ -389,6 +617,9 @@ def main() -> None:
         "It REQUIRES the packaged Phase 2 RBF; do not combine this ROM with a normal TAU RBF.\n"
         "The test destructively writes only physical SDRAM 2-3 MiB via 0xA0200000.\n"
         f"Launch {cfg['name']} and photograph PASS or the complete FAIL screen.\n"
+        + ("After the run QUIT the core to the menu; APF then writes the result words to "
+           "Settings/<core>/Interact/_core/interact_persist.json.\n" if interact_result else
+           "The matching 64-byte result log is flushed to Saves/<platform>/<core>/last-result.tlog.\n") +
         "Press A to repeat the diagnostic.\n",
         encoding="utf-8",
     )

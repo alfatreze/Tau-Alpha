@@ -17,20 +17,27 @@
 #define R_STAT2      0x80000018u
 #define R_STAT3      0x8000001Cu
 #define R_TGT_ID     0x80000020u
+#define R_TGT_OFF    0x80000024u
+#define R_TGT_ADR    0x80000028u
+#define R_TGT_LEN    0x8000002Cu
 #define R_TGT_GO     0x80000030u
+#define R_DT_ADDR    0x80000060u
+#define R_DT_DATA    0x80000064u
 #define R_INPUT      0x8000003Cu
 #define R_VERSION    0x80000040u
 #define R_FB_ADDR    0x80000048u
 #define R_FB_SIZE    0x8000004Cu
 #define R_FB_COLOR   0x80000050u
 #define R_FB_GO      0x80000054u
+#define R_SET_IDX    0x8000006Cu
+#define R_SET_DAT    0x80000070u
 #define R_SDR_ADDR   0x80000074u
 #define R_SDR_DATA   0x80000078u
 #define R_SDR_CTRL   0x8000007Cu
 #define R_SDR_RDATA  0x80000080u
 #define R_SDR_STATUS 0x80000084u
 
-#define EXPECT_VERSION 0x4D503316u
+#define EXPECT_VERSION 0x4D503317u
 #ifndef CLK_HZ
 #define CLK_HZ         60000000u
 #endif
@@ -39,7 +46,33 @@
  * is read-only.  It is used only as a boot heartbeat: the Pocket developer
  * log records the command, independently of the framebuffer path. */
 #define FW_SLOT_ID   1u
+#define LOG_SLOT_ID  5u
 #define TGT_GETFILE  2u
+#define TGT_READ     0u
+#define TGT_OPENFILE 1u
+#define TGT_WRITE    3u
+#define TGT_FLUSH    4u
+
+/* A 64-byte binary record lives in mf_datatable words 200..215. This range is
+ * above the APF slot-size table (0..63), the filename command buffers
+ * (64..191), and settings (192..199), but below Pocket's build metadata at
+ * 224. APF copies it to the dedicated nonvolatile diagnostic slot; the ROM
+ * never writes any music, playlist, artwork, or settings slot. */
+#define LOG_DT_WORD  200u
+#define LOG_WORDS    16u
+/* mf_datatable is bridged at 0xF8002000 (word 64 == 0xF8002100 in
+ * core_game.vh). A-082..A-087 wrongly used 0xF8000000, so 0184 sourced from
+ * outside the datatable and 0180 landed outside it. */
+#define DT_BRIDGE_BASE 0xF8002000u
+#define LOG_BRIDGE_ADDR (DT_BRIDGE_BASE + LOG_DT_WORD * 4u)
+#define LOG_READ_DT_WORD 216u
+#define LOG_READ_BRIDGE_ADDR (DT_BRIDGE_BASE + LOG_READ_DT_WORD * 4u)
+/* These are the existing APF command buffers in core_game.vh.  The first 64
+ * words remain APF's slot-size table, so a 0190 response may only use the
+ * 64..127 buffer and its 0192 input must use 128..191. */
+#define DT_RESP_WORD 64u
+#define DT_PARAM_WORD 128u
+#define DT_STRUCT_WORDS 64u
 
 #define FB_W      400u
 #define FB_H      360u
@@ -90,8 +123,51 @@ static uint32_t first_fail_addr;
 static uint32_t first_fail_expected;
 static uint32_t first_fail_actual;
 static uint32_t timed_out;
+static uint32_t diagnostic_run;
+#ifdef TAU_LOG_COMMAND_PROBE
+/* Pocket-visible evidence for A-081. D=target command completed, T=local
+ * timeout, -=not attempted. Error is the APF target result code. */
+static uint32_t log_open_state, log_open_err;
+static uint32_t log_ready_state, log_ready_err, log_ready_tries;
+static uint32_t log_write_state, log_write_err;
+static uint32_t log_flush_state, log_flush_err;
+static uint32_t log_read_state, log_read_err, log_read_data;
+#ifdef TAU_LOG_TABLE_PROBE
+/* A-090: slot 5's size from APF's {id,size} table (stride 2 from word 0)
+ * before and after 0184, an XOR/rotate hash of words 0..63 to prove the table
+ * is unchanged, the flush duration, and a second readback after the flush. */
+static uint32_t log_tbl_size_before, log_tbl_size_after;
+static uint32_t log_tbl_hash_before, log_tbl_hash_after;
+static uint32_t log_flush_cycles;
+static uint32_t log_read2_state, log_read2_err, log_read2_data;
+#endif
+#ifdef TAU_LOG_SOURCE_PROBE
+/* A-087: datatable words 200..203 sampled after dt_write and immediately
+ * before 0184, to separate a missing payload from an APF address fault. */
+static uint32_t log_src[4];
+#endif
+#endif
+
+#ifdef TAU_LOG_INTERACT_PROBE
+/* A-091: the 64-byte record is published through APF's interact.json persist
+ * channel (16 words at 0x20000000, APF-stored to Settings/<core>/Interact/
+ * _core/interact_persist.json).  No data slot, 0184 or 0188 is used.  APF
+ * stores these values as SIGNED int32, so words 0..14 carry only their low 31
+ * bits and word 15 carries the withheld top bits (bit i = top bit of word i). */
+static uint32_t set_readback[4];   /* words 0, 7, 12, 15 as read back */
+#endif
 
 static inline uint32_t cycles(void) { return REG(R_CYCLES); }
+static inline void dt_write(uint32_t word, uint32_t value)
+{
+    REG(R_DT_ADDR) = word;
+    REG(R_DT_DATA) = value;
+}
+static inline uint32_t dt_read(uint32_t word)
+{
+    REG(R_DT_ADDR) = word;
+    return REG(R_DT_DATA);
+}
 static inline void fb_wait(void) { while (REG(R_FB_GO) & 1u) { } }
 
 static void fb_set_color(uint16_t fg, uint16_t bg)
@@ -191,6 +267,255 @@ static int target_heartbeat(void)
     }
     return 1;
 }
+
+/* One APF target command, using the sequence counter rather than the sticky
+ * completion level.  `state` is 1 for an answered command, 2 for local
+ * timeout; the Pocket error code is returned separately. */
+static int target_cmd(uint32_t selector, uint32_t slot, uint32_t offset,
+                      uint32_t address, uint32_t length,
+                      uint32_t timeout, uint32_t *state, uint32_t *error)
+{
+    uint32_t seq = (REG(R_TGT_GO) >> 8) & 0xFFu;
+    uint32_t started;
+    REG(R_TGT_ID) = slot;
+    REG(R_TGT_OFF) = offset;
+    REG(R_TGT_ADR) = address;
+    REG(R_TGT_LEN) = length;
+    REG(R_TGT_GO) = selector;
+    started = cycles();
+    while (((REG(R_TGT_GO) >> 8) & 0xFFu) == seq) {
+        if ((uint32_t)(cycles() - started) > timeout) {
+            *state = 2u;
+            *error = 0u;
+            return 0;
+        }
+    }
+    *state = 1u;
+    *error = (REG(R_TGT_GO) >> 2) & 7u;
+    return *error == 0u;
+}
+
+/* A deferred nonvolatile slot is declared in data.json and bound by the
+ * instance, but A-083 proves that this alone does not make it the active APF
+ * file for 0184/0180.  Ask APF for its own descriptor, copy it unchanged into
+ * the separate 0192 parameter buffer, then open that same descriptor.  This
+ * deliberately mirrors the production playlist path rather than inventing an
+ * undocumented 0192 struct layout. */
+static int open_log_slot(void)
+{
+    uint32_t state = 0u, error = 0u;
+    if (!target_cmd(TGT_GETFILE, LOG_SLOT_ID, 0u, 0u, 0u, SDR_TIMEOUT,
+                    &state, &error)) {
+#ifdef TAU_LOG_COMMAND_PROBE
+        log_open_state = state;
+        log_open_err = error;
+#endif
+        return 0;
+    }
+    for (uint32_t i = 0; i < DT_STRUCT_WORDS; ++i)
+        dt_write(DT_PARAM_WORD + i, dt_read(DT_RESP_WORD + i));
+    (void)target_cmd(TGT_OPENFILE, LOG_SLOT_ID, 0u, 0u, 0u, SDR_TIMEOUT,
+                     &state, &error);
+#ifdef TAU_LOG_COMMAND_PROBE
+    log_open_state = state;
+    log_open_err = error;
+#endif
+    return state == 1u && error == 0u;
+}
+
+static int flush_result(void);
+
+/* `0192` completion means the Pocket accepted the request, not that the new
+ * file is ready for its next transaction.  The production player has the same
+ * observed boundary and uses repeated reads roughly 30 ms apart.  Require two
+ * successful 0180 responses here before the diagnostic writes; each failed
+ * attempt has a short 100 ms deadline so this diagnostic remains bounded. */
+static int wait_log_slot_ready(void)
+{
+    uint32_t stable = 0u;
+#ifdef TAU_LOG_COMMAND_PROBE
+    log_ready_state = log_ready_err = log_ready_tries = 0u;
+#endif
+    for (uint32_t tries = 1u; tries <= 16u; ++tries) {
+        uint32_t state = 0u, error = 0u;
+        int ok = target_cmd(TGT_READ, LOG_SLOT_ID, 0u, LOG_READ_BRIDGE_ADDR,
+                            4u, CLK_HZ / 10u, &state, &error);
+#ifdef TAU_LOG_COMMAND_PROBE
+        log_ready_state = state;
+        log_ready_err = error;
+        log_ready_tries = tries;
+#endif
+        if (ok) {
+            if (++stable == 2u) return 1;
+        } else {
+            stable = 0u;
+        }
+        {
+            uint32_t until = cycles() + CLK_HZ / 32u;
+            while ((int32_t)(cycles() - until) < 0) { }
+        }
+    }
+    return 0;
+}
+
+#ifdef TAU_LOG_TABLE_PROBE
+static void sample_slot_table(uint32_t *size, uint32_t *hash)
+{
+    uint32_t h = 0u;
+    *size = 0xFFFFFFFFu;                 /* id 5 not found */
+    for (uint32_t w = 0u; w < 64u; ++w) {
+        uint32_t v = dt_read(w);
+        h = ((h << 1) | (h >> 31)) ^ v;
+        if (!(w & 1u) && v == LOG_SLOT_ID) *size = dt_read(w + 1u);
+    }
+    *hash = h;
+}
+#endif
+
+/* Write the terminal result.  The readback probes intentionally defer flush:
+ * a timed-out 0188 can leave the single-command bridge occupied, making the
+ * following 0180 result inconclusive.  A-086 therefore validates the write
+ * first, then flushes only after that read has had a fair turn. */
+#ifdef TAU_LOG_INTERACT_PROBE
+static uint32_t set_read(uint32_t idx)
+{
+    REG(R_SET_IDX) = idx;
+    return REG(R_SET_DAT);
+}
+
+static void publish_interact(const uint32_t *words)
+{
+    uint32_t mask = 0u;
+    for (uint32_t i = 0; i < 15u; ++i) {
+        REG(R_SET_IDX) = i;
+        REG(R_SET_DAT) = words[i] & 0x7FFFFFFFu;
+        mask |= (words[i] >> 31) << i;
+    }
+    REG(R_SET_IDX) = 15u;
+    REG(R_SET_DAT) = mask;
+    /* The CPU write crosses to clk_74a on a toggle; allow it to land before
+     * reading the same words back. */
+    uint32_t until = cycles() + CLK_HZ / 100u;
+    while ((int32_t)(cycles() - until) < 0) { }
+    set_readback[0] = set_read(0u);
+    set_readback[1] = set_read(7u);
+    set_readback[2] = set_read(12u);
+    set_readback[3] = set_read(15u);
+}
+#endif
+
+static int save_result(uint32_t stage)
+{
+    uint32_t words[LOG_WORDS];
+    uint32_t checksum = 0x544C4F47u; /* "TLOG" */
+    uint32_t command_state = 0u, command_error = 0u;
+
+    words[0]  = 0x544C4F47u;             /* TLOG */
+    words[1]  = 0x00010040u;             /* schema 1, 64 bytes */
+    words[2]  = stage | (failures ? 0x00000100u : 0u) |
+                (timed_out ? 0x00000200u : 0u);
+    words[3]  = EXPECT_VERSION;
+    words[4]  = ++diagnostic_run;
+    words[5]  = cycles();
+    words[6]  = tests_run;
+    words[7]  = failures;
+    words[8]  = first_fail_addr;
+    words[9]  = first_fail_expected;
+    words[10] = first_fail_actual;
+    words[11] = REG(R_STAT0);
+    for (uint32_t i = 0; i < 12u; ++i) checksum ^= words[i];
+    words[12] = checksum;
+    words[13] = 0u;
+    words[14] = 0u;
+    words[15] = 0u;
+#ifdef TAU_LOG_INTERACT_PROBE
+    (void)command_state; (void)command_error;
+    publish_interact(words);
+    return 1;
+#endif
+    for (uint32_t i = 0; i < LOG_WORDS; ++i) dt_write(LOG_DT_WORD + i, words[i]);
+#ifdef TAU_LOG_TABLE_PROBE
+    sample_slot_table(&log_tbl_size_before, &log_tbl_hash_before);
+#endif
+#ifdef TAU_LOG_SOURCE_PROBE
+    for (uint32_t i = 0; i < 4u; ++i) log_src[i] = dt_read(LOG_DT_WORD + i);
+#endif
+
+#ifdef TAU_LOG_COMMAND_PROBE
+    log_write_state = log_write_err = log_flush_state = log_flush_err = 0u;
+#endif
+    if (!target_cmd(TGT_WRITE, LOG_SLOT_ID, 0u, LOG_BRIDGE_ADDR,
+                    LOG_WORDS * 4u, SDR_TIMEOUT, &command_state, &command_error)) {
+#ifdef TAU_LOG_COMMAND_PROBE
+        log_write_state = command_state;
+        log_write_err = command_error;
+#endif
+        return 0;
+    }
+#ifdef TAU_LOG_COMMAND_PROBE
+    log_write_state = command_state;
+    log_write_err = command_error;
+#endif
+#ifdef TAU_LOG_TABLE_PROBE
+    sample_slot_table(&log_tbl_size_after, &log_tbl_hash_after);
+#endif
+#ifdef TAU_LOG_READBACK_PROBE
+    return 1;
+#else
+    return flush_result();
+#endif
+}
+
+static int flush_result(void)
+{
+    uint32_t command_state = 0u, command_error = 0u;
+#ifdef TAU_LOG_TABLE_PROBE
+    uint32_t flush_started = cycles();
+    int flush_ok = target_cmd(TGT_FLUSH, LOG_SLOT_ID, 0u, 0u, 0u,
+                              CLK_HZ * 10u, &command_state, &command_error);
+    log_flush_cycles = cycles() - flush_started;
+    if (!flush_ok) {
+#else
+    if (!target_cmd(TGT_FLUSH, LOG_SLOT_ID, 0u, 0u, 0u,
+                    SDR_TIMEOUT, &command_state, &command_error)) {
+#endif
+#ifdef TAU_LOG_COMMAND_PROBE
+        log_flush_state = command_state;
+        log_flush_err = command_error;
+#endif
+        return 0;
+    }
+#ifdef TAU_LOG_COMMAND_PROBE
+    log_flush_state = command_state;
+    log_flush_err = command_error;
+#endif
+    return 1;
+}
+
+#ifdef TAU_LOG_READBACK_PROBE
+/* Read the first result word back from slot 5 before core exit. Words 216..223
+ * are unused and lie below Pocket's build metadata at 224; this four-byte
+ * transfer cannot overlap the result record at 200..215. */
+static void read_result_back(void)
+{
+    log_read_state = log_read_err = log_read_data = 0u;
+    dt_write(LOG_READ_DT_WORD, 0u);
+    if (target_cmd(TGT_READ, LOG_SLOT_ID, 0u, LOG_READ_BRIDGE_ADDR, 4u,
+                   SDR_TIMEOUT, &log_read_state, &log_read_err))
+        log_read_data = dt_read(LOG_READ_DT_WORD);
+}
+#endif
+
+#ifdef TAU_LOG_TABLE_PROBE
+static void read_result_back2(void)
+{
+    log_read2_state = log_read2_err = log_read2_data = 0u;
+    dt_write(LOG_READ_DT_WORD, 0u);
+    if (target_cmd(TGT_READ, LOG_SLOT_ID, 0u, LOG_READ_BRIDGE_ADDR, 4u,
+                   SDR_TIMEOUT, &log_read2_state, &log_read2_err))
+        log_read2_data = dt_read(LOG_READ_DT_WORD);
+}
+#endif
 
 static int issue(uint32_t word_addr, uint32_t data, uint32_t byte_en,
                  uint32_t write)
@@ -492,7 +817,114 @@ static void draw_result(void)
         fb_text(28, 216, "FIXED WALK ADDRESS LANES", UI_DIM, UI_PANEL);
 #endif
     }
+#ifdef TAU_LOG_COMMAND_PROBE
+    {
+        char line[16] = "OPEN ? ERR ?";
+        /* Keep all lifecycle evidence visible on one screen.  An answered
+         * command with a nonzero APF result is red, not a misleading pass. */
+        line[5] = ' '; line[6] = log_open_state == 1u ? 'D' :
+                              (log_open_state == 2u ? 'T' : '-');
+        line[7] = ' '; line[8] = 'E'; line[9] = 'R'; line[10] = 'R';
+        line[11] = ' '; line[12] = hex_digit(log_open_err); line[13] = 0;
+        fb_text(28, 248, line,
+                (log_open_state == 1u && log_open_err == 0u) ? UI_WHITE : UI_RED,
+                UI_PANEL);
+        line[0] = 'R'; line[1] = 'E'; line[2] = 'A'; line[3] = 'D'; line[4] = 'Y';
+        line[5] = ' '; line[6] = log_ready_state == 1u ? 'D' :
+                              (log_ready_state == 2u ? 'T' : '-');
+        line[7] = ' '; line[8] = '#';
+        line[9] = (char)('0' + ((log_ready_tries / 10u) % 10u));
+        line[10] = (char)('0' + (log_ready_tries % 10u)); line[11] = 0;
+        fb_text(28, 264, line, log_ready_state == 1u ? UI_WHITE : UI_RED, UI_PANEL);
+        line[0] = 'W'; line[1] = 'R'; line[2] = 'I'; line[3] = 'T'; line[4] = 'E';
+        line[5] = ' '; line[6] = log_write_state == 1u ? 'D' :
+                              (log_write_state == 2u ? 'T' : '-');
+        line[7] = ' '; line[8] = 'E'; line[9] = 'R'; line[10] = 'R';
+        line[11] = ' '; line[12] = hex_digit(log_write_err); line[13] = 0;
+        fb_text(28, 280, line,
+                (log_write_state == 1u && log_write_err == 0u) ? UI_WHITE : UI_RED,
+                UI_PANEL);
+        line[0] = 'F'; line[1] = 'L'; line[2] = 'U'; line[3] = 'S'; line[4] = 'H';
+        line[5] = ' '; line[6] = log_flush_state == 1u ? 'D' :
+                              (log_flush_state == 2u ? 'T' : '-');
+        line[7] = ' '; line[8] = 'E'; line[9] = 'R'; line[10] = 'R';
+        line[11] = ' '; line[12] = hex_digit(log_flush_err); line[13] = 0;
+        fb_text(28, 296, line,
+                (log_flush_state == 1u && log_flush_err == 0u) ? UI_WHITE : UI_RED,
+                UI_PANEL);
+#ifdef TAU_LOG_READBACK_PROBE
+        {
+            char read_line[27] = "READ ? ERR ? DATA 00000000";
+            read_line[5] = log_read_state == 1u ? 'D' :
+                           (log_read_state == 2u ? 'T' : '-');
+            read_line[11] = hex_digit(log_read_err);
+            hex8(&read_line[18], log_read_data);
+            fb_text(28, 312, read_line,
+                    (log_read_state == 1u && log_read_err == 0u) ? UI_WHITE : UI_RED,
+                    UI_PANEL);
+        }
+#ifdef TAU_LOG_TABLE_PROBE
+        {
+            char a[28], b[28];
+            uint32_t ms = log_flush_cycles / (CLK_HZ / 1000u);
+            a[0] = 'T'; a[1] = '5'; a[2] = ' '; a[3] = 'B'; a[4] = ' ';
+            hex8(&a[5], log_tbl_size_before); a[13] = ' '; a[14] = 'A'; a[15] = ' ';
+            hex8(&a[16], log_tbl_size_after); a[24] = ' ';
+            a[25] = log_tbl_hash_before == log_tbl_hash_after ? '=' : '!'; a[26] = 0;
+            fb_text(28, 328, a, log_tbl_hash_before == log_tbl_hash_after ?
+                    UI_WHITE : UI_RED, UI_PANEL);
+            b[0] = 'F'; b[1] = ' ';
+            b[2] = (char)('0' + ((ms / 10000u) % 10u));
+            b[3] = (char)('0' + ((ms / 1000u) % 10u));
+            b[4] = (char)('0' + ((ms / 100u) % 10u));
+            b[5] = (char)('0' + ((ms / 10u) % 10u));
+            b[6] = (char)('0' + (ms % 10u));
+            b[7] = 'M'; b[8] = 'S'; b[9] = ' '; b[10] = 'R'; b[11] = '2';
+            b[12] = ' '; b[13] = log_read2_state == 1u ? 'D' :
+                                 (log_read2_state == 2u ? 'T' : '-');
+            b[14] = ' '; hex8(&b[15], log_read2_data); b[23] = 0;
+            fb_text(28, 340, b, (log_read2_state == 1u && log_read2_err == 0u) ?
+                    UI_WHITE : UI_RED, UI_PANEL);
+        }
+#endif
+#ifdef TAU_LOG_SOURCE_PROBE
+        {
+            char src_line[20];
+            src_line[0] = 'S'; src_line[1] = ' ';
+            hex8(&src_line[2], log_src[0]); src_line[10] = ' ';
+            hex8(&src_line[11], log_src[1]);
+            fb_text(28, 328, src_line, UI_WHITE, UI_PANEL);
+            src_line[0] = 'S'; src_line[1] = ' ';
+            hex8(&src_line[2], log_src[2]); src_line[10] = ' ';
+            hex8(&src_line[11], log_src[3]);
+            fb_text(28, 340, src_line, UI_WHITE, UI_PANEL);
+        }
+#endif
+#else
+        fb_text(28, 306, "A  RUN AGAIN", UI_DIM, UI_PANEL);
+#endif
+    }
+#elif defined(TAU_LOG_INTERACT_PROBE)
+    {
+        char line[24];
+        fb_text(28, 248, "PUBLISHED 16 WORDS", UI_WHITE, UI_PANEL);
+        line[0] = 'W'; line[1] = '0'; line[2] = ' ';
+        hex8(&line[3], set_readback[0]);
+        fb_text(28, 264, line, UI_WHITE, UI_PANEL);
+        line[0] = 'W'; line[1] = '7'; line[2] = ' ';
+        hex8(&line[3], set_readback[1]);
+        fb_text(28, 280, line, UI_WHITE, UI_PANEL);
+        line[0] = 'W'; line[1] = 'C'; line[2] = ' ';
+        hex8(&line[3], set_readback[2]);
+        fb_text(28, 296, line, UI_WHITE, UI_PANEL);
+        line[0] = 'W'; line[1] = 'F'; line[2] = ' ';
+        hex8(&line[3], set_readback[3]);
+        fb_text(28, 312, line, UI_WHITE, UI_PANEL);
+        fb_text(28, 328, "QUIT TO SAVE  A RUN AGAIN", UI_DIM, UI_PANEL);
+    }
+#else
     fb_text(28, 306, "A  RUN AGAIN", UI_DIM, UI_PANEL);
+#endif
 }
 
 static void draw_initial(void)
@@ -525,6 +957,14 @@ int main(void)
      * It is read-only and its result is not needed to enter the diagnostic. */
     (void)target_heartbeat();
 
+    /* Make the fixed diagnostic result file the active slot before either the
+     * initial run or a repeat.  A-083 showed that the instance binding alone
+     * is not sufficient for target read/write commands. */
+#ifndef TAU_LOG_INTERACT_PROBE
+    (void)open_log_slot();
+    (void)wait_log_slot_ready();
+#endif
+
     /* Draw before the RTL version interlock so a mismatch cannot turn into an
      * unexplained black screen. */
     draw_initial();
@@ -533,6 +973,7 @@ int main(void)
         REG(R_STAT0) = 0xBAD00016u;
         REG(R_STAT1) = version;
         draw_version_mismatch(version);
+        (void)save_result(1u);             /* version interlock */
         for (;;) { }
     }
 
@@ -541,6 +982,7 @@ int main(void)
 #ifdef TAU_CPU_WINDOW_DIAG
     draw_running(0u, "MAILBOX PREFLIGHT");
     if (!mailbox_preflight()) {
+        (void)save_result(2u);             /* mailbox preflight */
         for (;;) { }
     }
     draw_running(0u, "MAILBOX OK CPU WINDOW NEXT");
@@ -552,21 +994,56 @@ int main(void)
         draw_running(0u, "CPU READS PREFLIGHT WORD");
         if (!read32(TEST_BASE_WORD, &actual) || actual != PREFLIGHT_PATTERN) {
             draw_cpu_preflight_readback_failure(actual);
+            first_fail_addr = TEST_BASE_WORD;
+            first_fail_expected = PREFLIGHT_PATTERN;
+            first_fail_actual = actual;
+            failures = 1u;
+            (void)save_result(3u);         /* CPU preflight readback */
             for (;;) { }
         }
     }
 #endif
 #endif
     run_tests();
+#if defined(TAU_LOG_COMMAND_PROBE) || defined(TAU_LOG_INTERACT_PROBE)
+    (void)save_result(4u);                 /* show target write/flush outcome */
+#ifdef TAU_LOG_READBACK_PROBE
+    read_result_back();
+    (void)flush_result();
+#ifdef TAU_LOG_TABLE_PROBE
+    read_result_back2();
+#endif
+#endif
     draw_result();
+#else
+    draw_result();
+    (void)save_result(4u);
+#endif
 
     uint32_t old_keys = 0u;
     for (;;) {
         uint32_t keys = REG(R_INPUT) & 0xFFFFu;
         if ((keys & KEY_A) && !(old_keys & KEY_A)) {
             draw_initial();
+#ifndef TAU_LOG_INTERACT_PROBE
+            (void)open_log_slot();
+            (void)wait_log_slot_ready();
+#endif
             run_tests();
+#if defined(TAU_LOG_COMMAND_PROBE) || defined(TAU_LOG_INTERACT_PROBE)
+            (void)save_result(4u);
+#ifdef TAU_LOG_READBACK_PROBE
+            read_result_back();
+            (void)flush_result();
+#ifdef TAU_LOG_TABLE_PROBE
+            read_result_back2();
+#endif
+#endif
             draw_result();
+#else
+            draw_result();
+            (void)save_result(4u);
+#endif
         }
         old_keys = keys;
     }
