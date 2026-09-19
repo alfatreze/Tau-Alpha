@@ -2623,6 +2623,590 @@ and repeat the focused Pocket gate.
   from `CodexApprovalPolicyTests`, not a model launch. The gate is closed; no
   RTL simulation, Quartus, SSH, or Pocket operation occurred.
 
+### A-080 — persistent CPU SDRAM diagnostic result record
+
+**Date:** 2026-09-19
+**Decision/change:** Add a dedicated, 64-byte nonvolatile diagnostic data slot
+(ID 5) to CPU-window diagnostic packages. `fw/sdram_diag.c` writes a bounded
+`TLOG` schema-1 record into the existing APF-visible datatable, issues target
+`0184` to copy it to the save slot, then issues target `0188` to flush it.
+The target-command selector expands from two to three bits and the
+FPGA/firmware interlock advances from rev 22 to rev 23.
+
+**Alternatives and rationale:** Manual screenshot only remains useful visual
+evidence but needs transcription. A raw framebuffer dump would be larger,
+non-PNG, and unnecessary during an SDRAM investigation. An append/ring log is
+deferred until this bounded latest-result record proves itself on Pocket.
+The selected slot leaves music, artwork, playlist, and settings slots outside
+the diagnostic writer's reach.
+
+**Evidence:** **simulation | host | Quartus** — `make test-rtl-tgt` passes read, write,
+and flush completion sequencing; the flush-specific pulse is asserted exactly
+once. `bash fw/build.sh sdram-cpu-readback` produces the diagnostic ROM. The
+decoder rejects invalid size, magic, schema, and checksum, and decodes a known
+failing fixture. An isolated `TAU_PHASE2_WINDOW` + `TAU_PHASE2_MUX_PROBE`
+Quartus 25.1std build completed in 56m13s with 0 errors; raw RBF SHA-256 is
+`f21a9ba0fe0d4d43d49c3d2f102eda8fdc5445516581928fc87730687a14baa4`.
+The fit uses 300/308 RAM blocks and reports minimum hold slack +0.114 ns;
+like prior builds, it warns that the design is not fully constrained. The
+A-080 packager generated and host-validated the unique package, including only
+firmware slot 1 and writable 64-byte log slot 5. No Pocket result exists.
+
+**Resource/timing delta:** 300/308 RAM blocks; +0.114 ns tightest reported
+hold slack; no resource migration is authorised.
+
+**Outcome, remaining risk, and next gate:** `0188` requires new RTL wiring, so
+the old RBF cannot test this firmware. The matching rev-23 diagnostic RBF and
+ROM are now packaged; on Pocket compare the decoded save record against the
+terminal screen. Only then classify persistence as **Pocket** verified.
+
+**Installation evidence:** **host** — A-080 was copied to the mounted Pocket
+card after removing only A-079 (`Cores`, `Assets`, platform JSON/image). The
+on-card bit-reversed RBF SHA-256 is
+`c892ae7089484e099090391b6f7aba3551d1b58cedb8415f3ead6eef42099e16`, ROM is
+`0aa105744c24eb756b363d8b0fd4ba8eebb30b221693e12147f2920705b95f8a`, and the
+pre-created 64-byte save file is
+`f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b`.
+The five regenerable Pocket catalog indexes were backed up in
+`work/diagnostics/sdram-cpu-probe-a080/pocket-cache-backup-2026-09-19/System/`
+and cleared. This is installation evidence only, not a Pocket execution result.
+
+**Pocket result (failure):** Two native Pocket screenshots,
+`20260919_193036.png` and `20260919_210853.png`, show the ordinary A-079
+terminal result (183 checks, 181 failures, `A0200000`, expected `FFFFFFFF`,
+actual `00000000`). The on-card A-080 RBF/ROM hashes remained correct, but its
+dedicated 64-byte `last-result.tlog` was still all zero; the decoder rejected
+it with `bad magic: 0x00000000`. Therefore A-080 proves neither target write
+nor flush on Pocket. This is a persistence failure, not new SDRAM evidence;
+see [issue 019](issues/019-a080-result-log-not-persisted.md).
+
+### A-081 — stage an independent PSRAM capacity evaluation
+
+**Date:** 2026-09-19
+**Decision/change:** Record an early, no-RTL PSRAM evaluation plan. It uses
+Pocket's otherwise idle 32 MiB Cellular PSRAM as a possible CPU-owned cold-data
+path, beginning with a single-owner asynchronous controller at the existing
+60 MHz system clock, a diagnostic MMIO mailbox, and only then an explicit
+uncached CPU window. It reserves the last word of every die (`0x3FFFFF`) until
+four FPGA shadow registers safely implement it.
+
+**Alternatives and rationale:** Extend the current SDRAM port first (not
+replaced; its Phase 2 failure remains open, but that work shares the real-time
+framebuffer controller and a 60/100 MHz CDC); begin with 133 MHz PSRAM bursts
+(deferred because a new clock/CDC and burst contract would obscure the first
+hardware result); immediately migrate `pl_text` (rejected until a standalone
+diagnostic and mapped CPU return are Pocket-proven). The asynchronous path
+provides the smallest independent response path and allows the SDRAM lesson of
+transaction-locked response observation to be applied from the start.
+
+**Hot/cold impact:** Planning and documentation only; no FPGA pins, RTL,
+firmware memory placement, normal Tau package, audio path, display path, or
+SDRAM diagnostic behaviour changes.
+
+**Evidence:** **code-review | research** — Tau's `core_top.v` presently ties
+both `cram0` and `cram1` inactive while the QSF already assigns their 1.8 V
+pins. Analogue documents two 16 MiB AS1C8M16PL Cellular PSRAM chips, each with
+two CE-selected dies, asynchronous low-latency operation, a 133 MHz
+synchronous-burst option, and a configuration-sequence hazard at each die's
+last word. No simulation, Quartus, or Pocket PSRAM evidence exists.
+
+**Resource/timing delta:** not applicable; no implementation.
+
+**Outcome, remaining risk, and next gate:** The plan is recorded in
+`PSRAM_EVALUATION_PLAN.md`. The first gate is P0: derive an explicit 60 MHz
+asynchronous timing contract from the AS1C8M16PL datasheet and prove macro-off
+idle pins before adding a controller. SDRAM issue 018 and all cold-data
+migration gates remain open and independent.
+
+### A-082 — expose target write and flush outcome on the diagnostic screen
+
+**Date:** 2026-09-19
+
+**Decision/change:** Add a firmware-only successor to A-080. It uses the same
+rev-23 A-080 RBF and the same dedicated slot 5, but displays `WRITE` and
+`FLUSH` command state (`D` complete, `T` local timeout, `-` not attempted) and
+APF result code on the terminal screen. The record schema and SDRAM test are
+unchanged.
+
+**Alternatives and rationale:** Guess whether the zero file means APF rejected
+the slot, the bridge pointer was wrong, or flush was not reached (rejected;
+indistinguishable from the card). Add a new RTL probe (deferred; existing
+rev-23 wiring already exposes target completion/error, so a firmware-only
+display isolates the next boundary without another Quartus fit).
+
+**Hot/cold impact:** Diagnostic firmware and dedicated save slot only. No audio,
+normal Tau package, framebuffer arbitration, or SDRAM transaction behavior
+changes.
+
+**Evidence:** **host | simulation** — `bash fw/build.sh sdram-cpu-log-probe`
+produced ROM SHA-256
+`066965d7fcb12d13f778cc99b84b3c79f0b2675b0b7f85cd4da872af7bf10b99`.
+`make test-rtl-tgt` still passes read/write/flush sequencing. The packager
+host-validated the isolated A-082 package and its 64-byte save slot. The RBF is
+the already Quartus-verified A-080 RBF; no new RTL requires a Quartus build.
+
+**Resource/timing delta:** none; same A-080 RBF.
+
+**Outcome, remaining risk, and next gate:** Install A-082 after removing only
+A-080. A Pocket screen must tell whether the write command times out, returns
+a nonzero APF error, or completes before the file remains zero. That outcome
+selects the next change; do not alter SDRAM logic based on this result.
+
+**Installation evidence:** **host** — A-082 replaced only A-080 on the mounted
+card. The RBF SHA-256 is
+`c892ae7089484e099090391b6f7aba3551d1b58cedb8415f3ead6eef42099e16`, ROM is
+`066965d7fcb12d13f778cc99b84b3c79f0b2675b0b7f85cd4da872af7bf10b99`, and the
+new zeroed save file is
+`f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b`.
+Regenerable Pocket catalog indexes were backed up under
+`work/diagnostics/sdram-cpu-probe-a082/pocket-cache-backup-2026-09-19/System/`
+then cleared. Pocket result pending.
+
+**Pocket result:** Screenshot `20260919_214432.png` reports `WRITE D ERR 0`
+and `FLUSH T ERR 0`: `0184` completed with result code zero, but `0188` did not
+return before the local timeout. The A-082 save file remained all zero when
+inspected. This narrows the persistence fault to flush behavior and/or deferred
+nonvolatile-save lifecycle; it does not establish an SDRAM-path conclusion.
+The next minimal gate is a root-menu core exit, then card remount and log
+inspection; see [issue 019](issues/019-a080-result-log-not-persisted.md).
+
+**Post-Quit Pocket result:** The A-082 file remained exactly 64 zero bytes
+after root-menu Quit and card remount. Normal nonvolatile shutdown did not
+persist the acknowledged `0184` write. The next gate is firmware-only slot
+readback into a safe datatable buffer before exit, not an SDRAM logic change.
+
+### A-083 — read slot 5 back before shutdown
+
+**Date:** 2026-09-19
+
+**Decision/change:** Add a firmware-only A-083 diagnostic that retains A-082's
+write/flush status and immediately reads four bytes from slot 5 back to safe
+datatable word 216. It renders the target read outcome and returned word.
+
+**Alternatives and rationale:** Infer payload state from the zero SD file
+(rejected; it cannot distinguish a no-op slot write from a persistence fault).
+The readback has the same APF target-command contract but creates a direct
+pre-shutdown observation. It reuses the rev-23 RBF and changes no SDRAM logic.
+
+**Hot/cold impact:** Diagnostic firmware and dedicated log slot only.
+
+**Evidence:** **host | simulation** — ROM SHA-256
+`acbae22769c4ff47f5b134a37338de4c3e75fa091e9ba531afe0900d5b4f6c0f`;
+target-command sequencing regression passes; isolated package slot check passes.
+
+**Resource/timing delta:** none; same A-080 RBF.
+
+**Outcome, remaining risk, and next gate:** A-083 replaces A-082. The Pocket
+screen's `READ` state/error/data selects the next APF persistence investigation.
+
+**Pocket outcome:** **Pocket | host** — Screenshot `20260919_215538.png`
+reports `WRITE D ERR 0`, `FLUSH T ERR 0`, and `READ D ERR 0 DATA 00000000`.
+The mounted slot-5 file is still 64 zero bytes. The acknowledged write was not
+observable even before shutdown, so persistence-only is no longer an adequate
+explanation. This remains unrelated to the SDRAM zero-read fault.
+
+### A-084 — explicitly open the diagnostic result slot before writing
+
+**Date:** 2026-09-19
+
+**Decision/change:** Add a firmware-only A-084 successor. It performs `0190`
+on slot 5, copies APF's returned 256-byte descriptor from words 64..127 to the
+separate `0192` parameter buffer at words 128..191, then opens slot 5 with
+`0192` before the diagnostic writes or reads it. The screen reports OPEN,
+WRITE, FLUSH, and immediate READ outcomes.
+
+**Alternatives and rationale:** Construct a new `0192` structure by guessing
+its fields (rejected; the established playlist path deliberately avoids that
+and past mistakes came from guessed layouts). Change SDRAM wiring (rejected;
+A-083 is target-slot behavior, not SDRAM evidence). Reuse APF's own descriptor
+(selected; production-proven pattern and minimal isolated discriminator).
+
+**Hot/cold impact:** Dedicated diagnostic firmware and result slot only. No
+audio, normal player behavior, SDRAM arbitration, or FPGA RTL changes.
+
+**Evidence:** **code-review | host** — `bash fw/build.sh sdram-cpu-log-open`
+produced ROM SHA-256
+`ab68e6610f9b022040267a880813ed988ffd7b82987f4f8a4d42758128fd8c64`.
+`python3 tools/package_sdram_cpu_diagnostic.py --probe-a084` validated an
+isolated package and zeroed 64-byte slot. The RBF is the existing
+Quartus-verified A-080 RBF; no new RTL means no Quartus fit is required.
+
+**Resource/timing delta:** none; same A-080 RBF.
+
+**Outcome, reversal/workaround, remaining risk, and next gate:** Install A-084
+in place of A-083. If OPEN succeeds and the immediate read returns `544C4F47`,
+separate in-memory write correctness from delayed flush/persistence. If OPEN
+or READ errors, inspect APF slot definition/lifecycle requirements. Pocket
+evidence pending.
+
+**Installation evidence:** **host** — A-084 replaced only A-083 on the mounted
+card. Its bit-reversed RBF SHA-256 is
+`c892ae7089484e099090391b6f7aba3551d1b58cedb8415f3ead6eef42099e16`, ROM is
+`ab68e6610f9b022040267a880813ed988ffd7b82987f4f8a4d42758128fd8c64`, and the
+initial 64-byte save file is
+`f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b`.
+The five regenerable Pocket catalog indexes were backed up under
+`work/diagnostics/sdram-cpu-probe-a084/pocket-cache-backup-2026-09-19/System/`
+then cleared, so Pocket will rebuild its catalogue for the new core. Pocket
+result pending.
+
+**Pocket outcome:** **Pocket | host** — Screenshot `20260919_220843.png`
+reports `OPEN D ERR 0`, `WRITE D ERR 0`, `FLUSH T ERR 0`, and `READ T ERR 0`.
+The mounted file still contains 64 zero bytes. This reverses the working
+assumption that an accepted `0192` immediately enables a target read; it is
+consistent with the production player's already-recorded post-open settling
+behavior. It remains a diagnostic-slot/APF result, not SDRAM evidence.
+
+### A-085 — wait for two bounded post-open reads before result write
+
+**Date:** 2026-09-19
+
+**Decision/change:** Add a firmware-only A-085 successor. After A-084's
+descriptor-copy open, it issues `0180` reads with 100-ms deadlines roughly
+30 ms apart, requiring two consecutive successes before target write, flush,
+and readback. The final screen shows READY state and attempt count.
+
+**Alternatives and rationale:** Fixed sleep (rejected; hides whether the slot
+was actually usable and makes the delay arbitrary). Immediate write/read
+(rejected by A-084). Two successful reads (selected; mirrors the established
+player settle rule while giving a bounded, Pocket-visible measurement).
+
+**Hot/cold impact:** Diagnostic firmware and isolated slot only; no FPGA RTL,
+audio path, normal player behavior, or SDRAM ownership changes.
+
+**Evidence:** **code-review | host | simulation** — build ROM SHA-256
+`bb91947cbf652d3e4ab281463378f662fe789087c9550476320fcbfb58028557`;
+package validation passed; `make test-rtl-tgt` passes. Same Quartus-verified
+A-080 RBF, therefore no new fit is required.
+
+**Resource/timing delta:** none; same RBF. Firmware is 9,456 bytes (5.2% of
+usable instruction RAM); settle cap is 16 × (100 ms command deadline + 31 ms
+spacing), before the normal SDRAM test begins.
+
+**Outcome, remaining risk, and next gate:** Replace only A-084 with A-085.
+If READY completes and immediate post-write READ returns `544C4F47`, proceed to
+flush/persistence isolation. If READY cannot complete, investigate APF's
+deferred-slot definition rather than changing SDRAM. Pocket evidence pending.
+
+**Installation evidence:** **host** — A-085 replaced only A-084 on the mounted
+card. Bit-reversed RBF SHA-256 remains
+`c892ae7089484e099090391b6f7aba3551d1b58cedb8415f3ead6eef42099e16`; A-085
+ROM SHA-256 is `bb91947cbf652d3e4ab281463378f662fe789087c9550476320fcbfb58028557`;
+the new isolated save file begins as the verified 64 zero bytes
+`f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b`.
+The same five regenerable catalog indexes were backed up under
+`work/diagnostics/sdram-cpu-probe-a085/pocket-cache-backup-2026-09-19/System/`
+and cleared. Pocket evidence pending.
+
+**Pocket outcome:** **Pocket | host** — Screenshot `20260919_221941.png`
+reports `OPEN D ERR 0`, `READY D #02`, `WRITE D ERR 0`, `FLUSH T ERR 0`, and
+`READ T ERR 0`; its result file remains zero. This validates the bounded
+post-open readiness gate, but reverses the assumption that its later read
+classified the write: the timed-out flush was issued first and can still occupy
+the single target-command bridge.
+
+### A-086 — validate write before issuing the known-problematic flush
+
+**Date:** 2026-09-19
+
+**Decision/change:** Add firmware-only A-086. It retains A-085's successful
+open and readiness gate, but performs immediate slot readback after `0184` and
+only then sends `0188` flush. The status screen still reports all outcomes.
+
+**Alternatives and rationale:** Treat A-085's post-flush read timeout as a
+failed write (rejected; the flush may leave the one-command bridge waiting).
+Remove flush entirely (rejected; it remains useful persistence evidence after
+the direct write verdict). Reorder read before flush (selected; isolates the
+write boundary without changing hardware).
+
+**Hot/cold impact:** Diagnostic firmware and isolated slot only. No FPGA RTL,
+audio, normal player behavior, or SDRAM logic changes.
+
+**Evidence:** **code-review | host | simulation** — ROM SHA-256
+`b19a8e6b22e4092bc7963e8882a13f5d7562ea5b1390d094330fe30ca3d51173`;
+package validation and `make test-rtl-tgt` pass. Same Quartus-verified A-080
+RBF; no fresh Quartus build is required.
+
+**Resource/timing delta:** none; same RBF. Firmware is 9,468 bytes (5.3% of
+usable instruction RAM).
+
+**Outcome, remaining risk, and next gate:** Replace only A-085 with A-086.
+`READ D ERR 0 DATA 544C4F47` establishes in-memory write success before flush;
+zero or error selects the APF write/bridge-address investigation. Pocket
+evidence pending.
+
+**Installation evidence:** **host** — A-086 replaced only A-085 on the mounted
+card. Its bit-reversed RBF SHA-256 remains
+`c892ae7089484e099090391b6f7aba3551d1b58cedb8415f3ead6eef42099e16`; ROM is
+`b19a8e6b22e4092bc7963e8882a13f5d7562ea5b1390d094330fe30ca3d51173`; its
+new 64-byte isolated save file has hash
+`f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b`.
+Regenerable catalog indexes were backed up under
+`work/diagnostics/sdram-cpu-probe-a086/pocket-cache-backup-2026-09-19/System/`
+then cleared. Pocket evidence pending.
+
+**Pocket outcome:** **Pocket | host** — Screenshot `20260919_222659.png`
+reports `OPEN D ERR 0`, `READY D #02`, `WRITE D ERR 0`, `READ D ERR 0 DATA
+00000000`, and `FLUSH T ERR 0`. Since READ completed before FLUSH, this is a
+direct target write-path failure. The save file remains zero; the next gate is
+to display the local payload words 200–203 before 0184 and compare them with
+target readback. SDRAM arbitration is out of scope.
+
+### A-087 — display local payload words before the target write
+
+**Date:** 2026-09-19
+
+**Decision/change:** Add firmware-only A-087 (`TAU_LOG_SOURCE_PROBE`). After the
+record is written to datatable words 200–215, the CPU samples words 200–203 and
+the terminal screen shows them (`S w200 w201` / `S w202 w203`) beside the A-086
+OPEN/READY/WRITE/READ/FLUSH lines.
+
+**Alternatives and rationale:** Change SDRAM arbitration (rejected; the failure
+is at the APF write boundary, not the SDRAM path). Rebuild the FPGA (rejected;
+the A-080 RBF is unchanged). Show local words (selected; separates a missing
+payload from an APF address/slot mapping fault).
+
+**Hot/cold impact:** Diagnostic firmware and isolated slot 5 only.
+
+**Evidence:** **host** — `fw/build.sh sdram-cpu-log-source` builds 9,876 bytes
+(5.5% of usable RAM); packaged with `--probe-a087`. ROM SHA-256
+`1dff6c3fde7c82040aa3390a96fcf0739fd5fcdec52dfbc976daafd34c8b0fda`; RBF
+unchanged (`c892ae70...9e16`). Simulation and Pocket not yet run.
+
+**Resource/timing delta:** none; same RBF.
+
+**Outcome, remaining risk, and next gate:** Bundle at
+`work/diagnostics/sdram-cpu-probe-a087/pocket`, **not yet installed on the card**.
+Local `544C4F47 00010040` with target readback zero means APF is not receiving
+or mapping the payload; local zeros means the datatable write path is at fault.
+Pocket evidence pending.
+
+**Installation evidence:** **host** — A-087 replaced only A-086 on the mounted
+card (A-086 core, platform, image, assets, save and settings removed). RBF
+`c892ae70...9e16` and ROM `1dff6c3f...0fda` verified on the card by SHA-256;
+the new isolated save file is the verified 64 zero bytes `f5a5fd42...fb4b`.
+The five regenerable catalog indexes were backed up under
+`work/diagnostics/sdram-cpu-probe-a087/pocket-cache-backup-2026-09-19/System/`
+and cleared; the removed A-086 result file is kept in `a086-removed/` beside
+them. The card was unmounted after `sync`. Installation evidence only.
+
+**Pocket outcome:** **Pocket | host** — Screenshot `20260919_223832.png` reports
+`OPEN D ERR 0`, `READY D #02`, `WRITE D ERR 0`, `FLUSH T ERR 0`,
+`READ D ERR 0 DATA 00000000`, and source words `S 544C4F47 00010040` /
+`S 00000304 4D503317` (magic, schema, stage|fail|timeout, version). The local
+datatable payload is intact at 200–203 immediately before `0184`, yet target
+readback is zero and `last-result.tlog` is still 64 zero bytes (SHA-256
+`f5a5fd42...fb4b`). This rules out a missing/corrupt source payload; the fault is
+in how APF accepts or maps the slot-5 write (bridge address, offset, slot
+state, or a write reported OK without transfer). SDRAM remains out of scope.
+
+### A-088 — correct the datatable bridge base address
+
+**Date:** 2026-09-19
+
+**Decision/change:** Firmware-only. `LOG_BRIDGE_ADDR` and `LOG_READ_BRIDGE_ADDR`
+in `fw/sdram_diag.c` used base `0xF8000000`; the datatable is bridged at
+`0xF8002000` (`core_game.vh` maps word 64 to `0xF8002100`, and
+`DIAGNOSTIC_RESULT_LOG.md` already specified `0xF8002320`). Both now derive from
+`DT_BRIDGE_BASE = 0xF8002000`. The A-087 source-word display is kept.
+
+**Alternatives and rationale:** Further APF slot/parameter experiments (rejected
+until this address error is removed; it fully explains A-082..A-087: 0184 read
+its payload from outside the datatable and 0180 stored outside it, while local
+`dt_write`/`dt_read` and the OPEN command, which uses the correct struct
+addresses, all looked healthy).
+
+**Hot/cold impact:** Diagnostic firmware and isolated slot 5 only.
+
+**Evidence:** **code-review | host** — ROM SHA-256
+`c3e2145740690f4ed47d504e2d93c2dcc6f7489c6e1bb95c24f18155764dcccc` (9,876
+bytes); same RBF `c892ae70...9e16`; packaged at
+`work/diagnostics/sdram-cpu-probe-a088/pocket`. **Reversal:** the A-082..A-087
+conclusions of a "target write-path failure" are superseded; those probes tested
+a wrong address.
+
+**Resource/timing delta:** none.
+
+**Outcome, remaining risk, and next gate:** Installed (see below). Expect
+`READ D ERR 0 DATA 544C4F47` and a decoded `last-result.tlog`. Flush timeout may
+persist independently; if the read passes, investigate it separately.
+
+**Installation evidence:** **host** — A-088 replaced only A-087 on the mounted
+card (A-087 core, platform, image, assets, save and settings removed). ROM
+`c3e21457...dccc` and RBF `c892ae70...9e16` verified on the card by SHA-256; the
+new isolated save file is the verified 64 zero bytes `f5a5fd42...fb4b`. The five
+regenerable catalog indexes were backed up under
+`work/diagnostics/sdram-cpu-probe-a088/pocket-cache-backup-2026-09-19/System/`
+and cleared; the removed A-087 result file is in `a087-removed/`. Pocket
+evidence pending.
+
+**Pocket outcome:** **Pocket | host** — Screenshot `20260919_224340.png`
+reports `OPEN D ERR 0`, `READY D #02`, `WRITE D ERR 0`, `FLUSH T ERR 0`,
+`READ D ERR 0 DATA 544C4F47`. The address fix is **confirmed**: the record now
+reaches active slot 5 (A-082..A-087 "write-path failure" was the wrong bridge
+base). `last-result.tlog` on the card is still 64 zero bytes: persistence to the
+SD file has not happened. The remaining fault is the `0188` flush (local
+timeout) and/or the slot's persistence parameters (`0x22`, no nonvolatile bit).
+
+### A-089 — mark the result slot nonvolatile
+
+**Date:** 2026-09-19
+
+**Decision/change:** Packaging-only. Same A-088 ROM (`c3e21457...dccc`) and RBF
+(`c892ae70...9e16`); slot 5 `parameters` changes from `0x22` to `0x86`
+(core-specific | nonvolatile | deferload, matching the `0x84` save slots of
+other cores on the card). Added `slot_parameters` to the packager profile.
+
+**Alternatives and rationale:** Firmware changes (rejected; A-088 proved the
+slot write works). Leave `0x22` (rejected; it lacks the nonvolatile bit, a
+plausible reason APF never answers `0188` or writes the file). The bit meanings
+are from memory of the Analogue docs and are **unverified** in this repo.
+
+**Hot/cold impact:** Diagnostic slot 5 only.
+
+**Evidence:** **host** — bundle `work/diagnostics/sdram-cpu-probe-a089/pocket`.
+
+**Installation evidence:** **host** — A-089 replaced only A-088 on the mounted
+card; ROM and RBF SHA-256 verified; zero 64-byte save file `f5a5fd42...fb4b`;
+catalog indexes backed up under
+`work/diagnostics/sdram-cpu-probe-a089/pocket-cache-backup-2026-09-19/System/`
+and cleared; A-088 removed with its result file kept in `a088-removed/`.
+Pocket evidence pending. Pass: `FLUSH D ERR 0` and a decodable file.
+
+**Pocket outcome:** **Pocket | host** — Screenshot `20260919_224639.png` is
+identical to A-088: `OPEN/READY/WRITE` OK, `READ D ERR 0 DATA 544C4F47`,
+`FLUSH T ERR 0`; `last-result.tlog` is still 64 zero bytes. **Reversal:** the
+`0x22` -> `0x86` parameter hypothesis is **not supported**; the flush timeout is
+independent of the nonvolatile bit. Next: inspect the `0188` command path
+(RTL handshake and whether this Pocket firmware answers it at all).
+
+**Quit test (A-089):** **Pocket | host** — after quitting to the menu and
+relaunching, `last-result.tlog` was still the 64 zero bytes (`f5a5fd42...fb4b`).
+Sleep is not supported by the Pocket for this core, so sleep/wake (upstream check
+C4) remains untested. No Quit or boot hang was observed with the nonvolatile bit.
+
+### A-090 — slot-table size, flush timing, post-flush re-read
+
+**Date:** 2026-09-19
+
+**Decision/change:** Firmware-only (`TAU_LOG_TABLE_PROBE`, `fw/build.sh
+sdram-cpu-log-table`; `--probe-a090`). Shows on screen: slot 5's size from
+APF's `{id,size}` table before (`B`) and after (`A`) `0184` with a table-hash
+`=`/`!` (upstream checks C1/C2); the `0188` flush now waits 10 s and reports its
+duration in ms (`F`); and a second slot read after the flush (`R2`). Word 216 is
+cleared before each read so stale data cannot pass. Slot 5 `parameters` revert
+to `0x22` (A-089's nonvolatile bit had no effect and upstream's nonvolatile slot
+hung the Pocket).
+
+**Alternatives and rationale:** interact.json persist channel (deferred; kept as
+the fallback if this fails); RTL changes (rejected; the bridge handshake matches
+the working read/write path).
+
+**Hot/cold impact:** Diagnostic firmware and isolated slot 5 only.
+
+**Evidence:** **host** — ROM SHA-256
+`af9a2010c7672b3543440a181576406bec012398043175ac585b0986e3c01253` (10,680
+bytes, 5.9% of RAM); same RBF `c892ae70...9e16`. Predictions, written before the
+run: P1 `T5 B/A` = `00000040`; P2 table hash `=`; P3 `READ` and `R2` =
+`544C4F47`; P4 flush either returns within 10 s (`F` < 10000MS, `FLUSH D`) or
+still times out at ~10000MS, in which case `0188` is unsupported here and the
+file stays zero.
+
+**Installation evidence:** **host** — A-090 replaced only A-089 on the mounted
+card; ROM and RBF SHA-256 verified; zero 64-byte save `f5a5fd42...fb4b`;
+catalog indexes backed up under
+`work/diagnostics/sdram-cpu-probe-a090/pocket-cache-backup-2026-09-19/System/`
+and cleared; A-089 removed (result file kept in `a089-removed/`). Pocket
+evidence pending.
+
+**Pocket outcome:** **Pocket | host** — Screenshot `20260919_230517.png`:
+`OPEN/READY/WRITE` OK, `FLUSH T ERR 0`, `READ D ERR 0 DATA 544C4F47`,
+`T5 B 00000040 A 00000040 =`, `F 10000MS R2 T 00000000`. `last-result.tlog` is
+still 64 zero bytes. Against the predictions: table size 64 and table intact
+(P1, P2 confirmed); first read `544C4F47` (P3 half confirmed; `R2` did **not**
+read, it timed out); the flush ran the full 10 s and never answered (P4: `0188`
+is unanswered by this Pocket/firmware). The timed-out flush leaves the
+single-command bridge occupied, which is why `R2` also timed out and matches
+A-085. The longer run time you noticed is the 10 s flush wait plus the extra
+read timeout. SDRAM check this run: 183 checks, 181 failures, `ACTUAL` shown (A-088/89
+ended earlier at 50/48 with `TIMEOUT CODE`; not investigated here).
+
+**Conclusion:** slot 5 is valid in APF's table, the write reaches APF's slot,
+but `0188` never completes and nothing is persisted to the SD file, including
+after Quit. **Upstream correction:** `docs/A088_UPSTREAM_CHECKS.md` said
+upstream rewrote `settings.bin` via `0184`; upstream's ROADMAP says `0184`
+destroyed three libraries and is off permanently, its `nonvolatile` slot hung
+the Pocket, and only `interact.json` persistence works. Do not treat upstream as
+evidence that `0184` persists a file. Recommended next: stop chasing `0184`
+persistence and move to the `interact.json` compact-result channel.
+
+### A-091 — publish the result through interact.json persist (draft, not installed)
+
+**Date:** 2026-09-19
+
+**Decision/change:** Firmware + packaging, no RTL. `TAU_LOG_INTERACT_PROBE`
+(`fw/build.sh sdram-cpu-log-interact`, `--probe-a091`) publishes the 16-word
+TLOG record to the existing 16 `set_reg` words (`R_SET_IDX 0x6C`, `R_SET_DAT
+0x70`; RTL `core_game.vh` section 8) that APF stores itself to
+`Settings/<core>/Interact/_core/interact_persist.json` when the core quits.
+The diagnostic core declares 16 `slider_u32` persist variables (ids 30..45,
+`0x20000000 + 4*i`, range 0..2147483647). APF stores signed int32, so words
+0..14 carry their low 31 bits and word 15 carries the withheld top bits (upstream
+lesson, `fw/player.c` ~815). No data slot, `0184`, `0188`, or Saves file; the
+10 s flush wait and wedged bridge are gone. The screen shows `PUBLISHED 16
+WORDS` and read-backs of words 0, 7, 12 and 15. `tools/decode_tau_diag_log.py
+--interact <interact_persist.json>` rebuilds and validates the record (checked
+on a synthetic file with `A0200000` and `FFFFFFFF`).
+
+**Alternatives and rationale:** keep pursuing `0184`/`0188` (rejected; A-090 shows
+`0188` is unanswered and upstream's ROADMAP marks `0184` unsafe and off);
+compact pass/fail code only (unnecessary: the diagnostic core has all 16 words
+free, unlike the player).
+
+**Hot/cold impact:** Diagnostic core only. Uses the same Quartus-verified A-080
+RBF; the settings words are shared FPGA state but this core has no player.
+
+**Evidence:** **host** — ROM SHA-256
+`63c89cf63ed3c35dfc188d3e1a82d27e1132b256d1cbbd2f9813ee1beb461534` (7,752 bytes,
+4.3% of RAM); RBF `c892ae70...9e16`; bundle at
+`work/diagnostics/sdram-cpu-probe-a091/pocket` (16 variables, slot 5 absent).
+Not yet run on hardware or installed. Predictions, written before the run: P1
+the screen shows `W0 544C4F47` and `WF` = top-bit mask (`0` unless a word has
+bit 31 set; `A0200000` on a failure sets bit 8 of word 8 => `WF` bit 8);
+P2 after Quit, `interact_persist.json` has ids 30..45 with non-zero values that
+`decode_tau_diag_log.py --interact` validates (checksum OK); P3 the core still
+boots and quits normally. **Risks:** APF may not save on a hard power-off (Quit
+first); the 16 variables appear in the Core Settings menu and could be edited by
+hand; the R_SET readback depends on the clk_74a toggle landing within 10 ms.
+
+**Installation evidence:** **host** — A-091 replaced only A-090 on the mounted
+card (A-090 core, platform, image, assets, save and settings removed; its result
+file is in `a090-removed/`). ROM `63c89cf6...1534` and RBF `c892ae70...9e16`
+verified on the card by SHA-256; the card's `interact.json` has 16 persist
+variables and no Saves file was created. Catalog indexes backed up under
+`work/diagnostics/sdram-cpu-probe-a091/pocket-cache-backup-2026-09-19/System/`
+and cleared. Pocket evidence pending. Pass: decodable `interact_persist.json`
+(after Quit) that matches the screen.
+
+**Pocket outcome:** **Pocket | host** — **PASS for the persistence channel.**
+After Quit, `Settings/alfatreze.TAU_SDRAM_PRB91/Interact/_core/interact_persist.json`
+(copy kept at `work/diagnostics/sdram-cpu-probe-a091/pocket-result/`) decodes
+with `tools/decode_tau_diag_log.py --interact`: magic, schema and XOR checksum
+valid (`0x47896EF5`); stage 4, run 1, 183 checks, 181 failures, first failure
+`0xA0200000` expected `0xFFFFFFFF` actual `0x00000000`, `timed_out` false,
+`status0 0x53444641`, core version `0x4D503317`. Predictions: P2 confirmed
+(ids 30..45, validated record); P3 confirmed as reported by the user (core quit
+normally; no hang reported). P1 is **confirmed** by screenshot `20260919_232118.png`
+(`PUBLISHED 16 WORDS`, `W0 544C4F47`, `W7 000000B5` = 181, `WC 478E986A`, `WF
+00000300` = top bits of words 8 and 9). That screen is a second run: the persist
+file was rewritten at 23:21 and its checksum (`0x478E986A`) now matches `WC`
+exactly; the earlier 23:18 file (checksum `0x47896EF5`) is kept beside it in
+`pocket-result/` as `interact_persist-run-23-18.json`. The record agrees with the earlier
+screen evidence for the SDRAM failure (181/183 at `A0200000`, actual zero).
+This closes the result-log path: the SD-card record now works without `0184`
+or `0188`. Issue 019 can be resolved on this evidence. It says nothing about the
+SDRAM return-path fault itself, which remains open.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible
