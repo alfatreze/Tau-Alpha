@@ -102,4 +102,5 @@ Pocket. A-076 adds a focused CPU-facing ACK/data return-path probe. Its
 2026-09-19 isolated Quartus fit completed with 0 errors, +0.972 ns setup,
 +0.268 ns hold, and raw RBF SHA-256
 `9ef62ebc4002abf4f5d29c84c59c08d997c18369d55e7c134beac5b97c832ef1`.
-Its distinct package and one cold-boot Pocket run are the next hardware gate.
+Its distinct package is installed with hash-verified RBF/ROM provenance; one
+cold-boot Pocket run is the next hardware gate.
