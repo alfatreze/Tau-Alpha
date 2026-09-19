@@ -2477,6 +2477,33 @@ compare that retained result with the already-observed final CPU bus fact.
 This separates the adapter/mux response boundary from `mp3_soc`'s registered
 return selector. Do not infer a cold-data migration result from this failure.
 
+### A-077 — Add an adapter-return discriminator before the CPU selector
+
+**Date:** 2026-09-19
+**Decision/change:** Add `RETURN_PATH_MODE=2` to the same 49-cell probe and
+expose the adapter's registered `sdram_wb_cpu_rdata` from `mp3_soc` for
+diagnostic-only observation. In this mode, cells 46–48 retain the target
+fifth-read adapter ACK, adapter data-zero predicate, and adapter data-all-ones
+predicate. A-076 remains the separate, observed final CPU-bus reference.
+**Alternatives and rationale:** Infer the adapter result from the A-076 zero
+(rejected: A-076 observes only the later CPU-facing bus); add a wider overlay
+that shows both values in one build (rejected: would change the reviewed 49-cell
+layout and create a less comparable Pocket artifact); change the return logic
+before locating the loss (rejected: it risks another plausible but unverified
+fix). The mode-2 successor isolates one boundary without changing any product
+return behavior.
+**Hot/cold impact:** Diagnostic-only output wiring and an opt-in probe mode.
+Normal Tau, audio, scanout, cache behavior, and the macro-off map are unchanged.
+**Evidence:** **simulation | code-review** — the new focused adapter-return
+test retains `G-R-G` for an all-ones adapter result; existing bridge-response,
+CPU-return, and composed-path tests pass unchanged. Quartus/Pocket evidence is
+pending.
+**Outcome, remaining risk, and next gate:** Build a separate macro-enabled
+A-077 artifact with `TAU_PHASE2_WINDOW` and `TAU_PHASE2_ADAPTER_PROBE`. A
+Pocket `G-R-G` result moves the fault into `mp3_soc`'s registered selector;
+`G-G-R` locates it at or before the adapter/mux response handoff. No package,
+fix, or cold-data migration is authorized until that result is observed.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible

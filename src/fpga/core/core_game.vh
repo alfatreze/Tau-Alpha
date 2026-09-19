@@ -140,7 +140,7 @@ wire        soc_sdram_wb_debug_unsupported;
 wire [2:0]  soc_sdram_wb_debug_cti;
 wire [3:0]  soc_sdram_wb_debug_sel;
 wire        soc_sdram_wb_debug_cpu_ack;
-wire [31:0] soc_sdram_wb_debug_cpu_rdata;
+wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 
 // Phase 2 is enabled only by adding TAU_PHASE2_WINDOW to a dedicated
 // diagnostic build's Verilog macros. Release/default builds stay on the
@@ -244,6 +244,7 @@ mp3_soc u_soc (
     .sdram_wb_debug_sel    (soc_sdram_wb_debug_sel),
     .sdram_wb_debug_ack    (soc_sdram_wb_debug_ack),
     .sdram_wb_debug_unsupported(soc_sdram_wb_debug_unsupported),
+    .sdram_wb_debug_adapter_rdata(soc_sdram_wb_debug_adapter_rdata),
     .sdram_wb_debug_cpu_ack(soc_sdram_wb_debug_cpu_ack),
     .sdram_wb_debug_cpu_rdata(soc_sdram_wb_debug_cpu_rdata)
 );
@@ -487,8 +488,12 @@ wire        vid_hs_w, vid_vs_w, vid_de_w;
 `ifdef TAU_PHASE2_WINDOW
 wire [48:0] sdram_probe_bits;
 tau_sdram_cpu_window_probe
+`ifdef TAU_PHASE2_ADAPTER_PROBE
+    #(.RETURN_PATH_MODE(2))
+`else
 `ifdef TAU_PHASE2_RETURN_PROBE
     #(.RETURN_PATH_MODE(1))
+`endif
 `endif
 u_sdram_cpu_window_probe (
     .clk(clk_sys), .rst(cpu_reset),
@@ -499,6 +504,7 @@ u_sdram_cpu_window_probe (
     .mux_accept(soc_sdram_wb_accept), .mux_start(sdram_mux_start),
     .bridge_busy(soc_sdram_busy), .bridge_done(soc_sdram_done),
     .adapter_done(soc_sdram_wb_done), .wb_ack(soc_sdram_wb_debug_ack),
+    .adapter_rdata(soc_sdram_wb_debug_adapter_rdata),
     .unsupported(soc_sdram_wb_debug_unsupported),
     .adapter_write(soc_sdram_wb_write), .adapter_wdata(soc_sdram_wb_wdata),
     .adapter_be(soc_sdram_wb_byte_en), .mux_wb_start(sdram_mux_wb_start),
