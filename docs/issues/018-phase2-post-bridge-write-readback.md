@@ -124,7 +124,9 @@ zero rather than all ones. The next bounded A-079 probe must retain owner-mux
 `wb_done` and `wb_rdata` at the target read: mux all ones with adapter zero
 implicates the adapter capture/ACK timing, while mux zero implicates the
 owner-mux latch or its preceding bridge handoff. A-079's focused simulation
-test has passed; its Quartus and Pocket gates remain pending. The initial ordinary-browser
+and isolated **Quartus** gates have passed (43m55s, +0.787 ns setup / +0.282 ns
+hold); its hash-locked package is ready and its Pocket gate remains pending.
+The initial ordinary-browser
 absence is classified as
 stale/inconsistent Pocket catalog data: core-list caches contained A-077 while
 platform/category indexes did not. The five regenerable indexes were

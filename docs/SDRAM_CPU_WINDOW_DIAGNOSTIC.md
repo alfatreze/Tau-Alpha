@@ -124,9 +124,16 @@ distinct **TAU CPU SDRAM Probe A077** / `tau_sdram_prb77` package profile. Its
 generated bit-reversed Pocket RBF SHA-256 is
 `1dd410d81ad9fa646a498bdcbead7d52cc5a7330fb0502d15dc489b40dd71918`.
 
+The signed-off A-079 raw RBF SHA-256 is
+`246202a00fab50c6b96a38e8dd1acc4d835e5041b9d1784f325d2223421531e8`.
+It defines `TAU_PHASE2_WINDOW` and `TAU_PHASE2_MUX_PROBE` and must use the
+distinct **TAU CPU SDRAM Probe A079** / `tau_sdram_prb79` package profile. Its
+generated bit-reversed Pocket RBF SHA-256 is
+`6ce93f8713ea2e3d2dc74ae98ed215cfb7d84006b393ecd92619665ab47a93dd`.
+
 ## Pocket procedure and evidence
 
-1. Cold boot the Pocket, then open **Media Players → TAU CPU SDRAM Probe A077**.
+1. Cold boot the Pocket, then open **Media Players → TAU CPU SDRAM Probe A079**.
    It includes the A-061 preflight-readback ROM. **TAU CPU SDRAM Diagnostic**
    remains available only as the uninstrumented A-056 comparison baseline.
 2. Photograph the initial screen. It must state **PHASE 2 UNCACHED WINDOW**
@@ -138,6 +145,9 @@ generated bit-reversed Pocket RBF SHA-256 is
    **CPU data all ones** for the fifth target read. A-077 reuses the same
    cells for the adapter's ACK/data pair before `mp3_soc`'s selector: `G-R-G`
    means all ones reached the adapter boundary; `G-G-R` means zero reached it.
+   A-079 reuses those cells for owner-mux **done seen**, **mux data zero**, and
+   **mux data all ones**. `G-R-G` means the mux presented all ones before the
+   adapter; `G-G-R` means the mux itself presented zero.
    One clean cold-boot
    observation is the immediate gate; do not spend the five-cold/five-warm
    matrix until this return-path boundary is classified. A later passing
@@ -154,9 +164,11 @@ checks / 181 failures with final cells `G-G-R`: CPU ACK observed, CPU data
 zero, CPU data not all ones. A-077 has now produced the same 183 / 181 result
 and final cells `G-G-R`: adapter ACK observed, adapter return data zero, and
 adapter return data not all ones. Keep normal Tau and the independent SDRAM
-Diagnostic/Stress baselines; A-079 is the next CPU-window package and probes
-owner-mux `wb_done`/`wb_rdata` before adapter capture. Its `G-R-G` result
-means mux all ones; `G-G-R` means mux zero. The five regenerable Pocket catalog indexes were
+Diagnostic/Stress baselines; the A-079 package is ready locally but is not yet
+installed. On installation, remove only superseded A-077 and preserve normal
+Tau plus the independent Diagnostic/Stress baselines. A-079 probes owner-mux
+`wb_done`/`wb_rdata` before adapter capture. Its `G-R-G` result means mux all
+ones; `G-G-R` means mux zero. The five regenerable Pocket catalog indexes were
 backed up and cleared after their
 platform/category mappings omitted A-077 despite a valid core-list entry.
 Eject/remount the card and cold boot Pocket before evaluating list visibility.

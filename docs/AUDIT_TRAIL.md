@@ -2558,11 +2558,24 @@ and gives two mutually exclusive conclusions.
 **Hot/cold impact:** Diagnostic-only mode and overlay inputs; normal Tau,
 audio, scanout, cache behavior, address map, and macro-off synthesis are
 unchanged.
-**Evidence:** **simulation | code-review** — the new focused mux-return test
-captures `G-R-G` for an all-ones response at `wb_done`. Existing CPU-window,
-CPU-return, adapter-return, bridge-mux, Wishbone-adapter, standalone Phase 2,
-and composed-path simulations pass unchanged. Quartus and Pocket evidence are
-pending and must not be inferred from these host simulations.
+**Evidence:** **simulation | code-review | Quartus | host packaging** — the new
+focused mux-return test captures `G-R-G` for an all-ones response at `wb_done`.
+Existing CPU-window, CPU-return, adapter-return, bridge-mux, Wishbone-adapter,
+standalone Phase 2, and composed-path simulations pass unchanged. The
+2026-09-19 isolated local-ext4 Quartus build defined
+`TAU_PHASE2_WINDOW` and `TAU_PHASE2_MUX_PROBE`, completed successfully in
+43m55s with 0 errors, 6,173 / 18,480 ALMs (33%), 8,044 registers, 300 / 308
+RAM blocks (97%), and 11 / 66 DSP blocks (17%). Its minimum reported
+multicorner setup/hold slacks are +0.787 ns / +0.282 ns; the pre-existing
+unconstrained-path warning remains a warning, not a claim of universal timing
+closure. Raw RBF SHA-256 is
+`246202a00fab50c6b96a38e8dd1acc4d835e5041b9d1784f325d2223421531e8`.
+Host packaging produced the separately identified A-079 bundle with
+bit-reversed Pocket RBF SHA-256
+`6ce93f8713ea2e3d2dc74ae98ed215cfb7d84006b393ecd92619665ab47a93dd` and
+the unchanged A-061 readback ROM SHA-256
+`f8a7f999cb0a503c9bef0536cead0c8f2ea046382efb2626bfdc8af60c16338a`.
+Pocket evidence is pending and must not be inferred from host provenance.
 **Outcome, remaining risk, and next gate:** Build the exact source with
 `TAU_PHASE2_WINDOW` and `TAU_PHASE2_MUX_PROBE`. A Pocket `G-R-G` result means
 the mux presents all ones and A-077's adapter zero implicates the adapter
