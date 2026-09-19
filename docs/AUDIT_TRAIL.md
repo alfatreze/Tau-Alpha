@@ -2519,11 +2519,24 @@ catalog indexes were byte-backed-up under
 and then removed from the card to force a Pocket rebuild. No core, asset,
 music, save, or normal Tau file was touched. This remains **host** cache
 maintenance evidence; Pocket catalog/execution evidence is pending.
-**Outcome, remaining risk, and next gate:** Run that exact A-077 build with
-`TAU_PHASE2_WINDOW` and `TAU_PHASE2_ADAPTER_PROBE`. A
-Pocket `G-R-G` result moves the fault into `mp3_soc`'s registered selector;
-`G-G-R` locates it at or before the adapter/mux response handoff. No package,
-fix, or cold-data migration is authorized until that result is observed.
+**Pocket execution:** The supplied cold-boot A-077 photograph reports 183
+checks, 181 failures, first byte address `A0200000`, expected `FFFFFFFF`, and
+actual `00000000`. Its 49-cell status bar decodes to
+`GGGGGGGGRRRRGGGGRGGGGGRRGGRRGGGGGGGGGGGGGGGGRGGGR` when calibrated against
+the fixed first 46 cells. Cells 46–48 are `G-G-R`: the adapter ACK was
+observed, while the adapter's registered return data was zero, not all ones.
+This is **Pocket** evidence; the first result photo is retained in the task
+record rather than treated as a simulated classification.
+**Outcome, remaining risk, and next gate:** A-075 already observed the bridge
+assemble `FFFFFFFF`; A-077 now proves that zero is present by the
+bridge-mux/Wishbone-adapter boundary, before `mp3_soc`'s registered selector.
+The selector is therefore no longer the primary suspect. The next bounded
+probe (A-079; A-078 is reserved for the unrelated plan-schema compatibility
+record) must retain the owner mux's `wb_done` and `wb_rdata` at the target
+read, alongside the existing adapter result. `wb_rdata=FFFFFFFF` with an
+adapter zero isolates the adapter capture/ACK timing; mux zero instead
+isolates the owner-mux latch or its preceding bridge handoff. No package, fix,
+or cold-data migration is authorized before that result is observed.
 
 ### A-078 — Keep Codex plan schema within CLI structured-output subset
 
