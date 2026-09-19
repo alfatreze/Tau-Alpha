@@ -151,9 +151,12 @@ baselines that are still useful; do not accumulate obsolete probes.
 **Current card state:** A-077 is installed with verified RBF/ROM hashes;
 completed A-076 was removed. A-076's Pocket result remains the recorded 183
 checks / 181 failures with final cells `G-G-R`: CPU ACK observed, CPU data
-zero, CPU data not all ones. Keep normal Tau and the independent SDRAM
-Diagnostic/Stress baselines; A-077 awaits its Pocket result. The five
-regenerable Pocket catalog indexes were backed up and cleared after their
+zero, CPU data not all ones. A-077 has now produced the same 183 / 181 result
+and final cells `G-G-R`: adapter ACK observed, adapter return data zero, and
+adapter return data not all ones. Keep normal Tau and the independent SDRAM
+Diagnostic/Stress baselines; A-079 is required before another CPU-window
+package is installed. The five regenerable Pocket catalog indexes were
+backed up and cleared after their
 platform/category mappings omitted A-077 despite a valid core-list entry.
 Eject/remount the card and cold boot Pocket before evaluating list visibility.
 

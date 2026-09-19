@@ -14,9 +14,9 @@ These links are intended for reviewers who can access the public GitHub
 repository but cannot browse the local workspace. The diagnostic MMIO/owner-mux
 integration passed Quartus (A-053); the newer opt-in CPU data-window wiring
 passed isolated Quartus as A-074 seed 2. Pocket A-075 proved the bridge
-assembled `FFFFFFFF`, while the CPU still received zero. A-076 now adds a
-focused CPU-facing return-path probe with RTL and isolated Quartus evidence;
-its Pocket gate is pending. The original
+assembled `FFFFFFFF`, while the CPU still received zero. A-077 now proves the
+adapter return itself is zero at its ACK, excluding `mp3_soc`'s selector as the
+first suspect. The original
 Assembler error and its successful isolations/rerun are retained in the issue
 and chronological trail; read those records rather than treating this compact
 index as a replacement.
@@ -42,7 +42,7 @@ firmware build; **design** = agreed intent, not implementation evidence.
 |---|---|---|---|
 | A-01 | Keep the 400×360 RGB565 raster at 60 Hz. It maps exactly 4× to Pocket’s 1600×1440 display; no 640×480 change is planned. | Active; **Pocket** baseline | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md), [technical spike](TAU_TECHNICAL_SPIKE.md) |
 | A-02 | Tau is a separate, attributed HarpMudd-derived core with a separate Pocket package identity. | Active; **Pocket** package verified | [PROJECT.md](../PROJECT.md), [NOTICE.md](../NOTICE.md) |
-| A-03 | Keep audio-critical state in BRAM; pursue a bounded, framebuffer-priority SDRAM bridge for cold data before any execute-in-place experiment. | Active; Phase 1 contention **Pocket** gate accepted. A-075 **Pocket** evidence proves bridge assembly, while A-076 proves the final CPU-facing return is zero at ACK. A-077 isolates adapter/mux return data from `mp3_soc`’s selector. | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md), [audit A-075/A-076/A-077](AUDIT_TRAIL.md), [CPU-window procedure](SDRAM_CPU_WINDOW_DIAGNOSTIC.md) |
+| A-03 | Keep audio-critical state in BRAM; pursue a bounded, framebuffer-priority SDRAM bridge for cold data before any execute-in-place experiment. | Active; Phase 1 contention **Pocket** gate accepted. A-075 **Pocket** evidence proves bridge assembly; A-076 proves the final CPU-facing return is zero at ACK; A-077 proves the adapter return is also zero. The next discriminator is the owner-mux output, not `mp3_soc`’s selector. | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md), [audit A-075/A-076/A-077](AUDIT_TRAIL.md), [CPU-window procedure](SDRAM_CPU_WINDOW_DIAGNOSTIC.md) |
 | A-04 | Do not reduce decoder arena, DMA ring, stack, or linker reservations to fit a settings UI. | Active; **host** measured | [settings runtime budget](SETTINGS_RUNTIME_BUDGET.md) |
 | A-05 | In-app settings are gated on recovered memory. Appearance, Audio, Playback, and opt-in Advanced are the intended grouping. | Active; **design** | [settings architecture](SETTINGS_ARCHITECTURE.md) |
 | A-06 | Advanced capabilities must be both compiled in and explicitly enabled by the user; a build flag alone never exposes them. | Active; **design** | [PROJECT.md](../PROJECT.md) |
@@ -70,7 +70,7 @@ firmware build; **design** = agreed intent, not implementation evidence.
 | Hardware capacity | SDRAM contention stress player | Contention gate accepted: ten named modes completed cleanly; Eye repeat was explicitly waived after visual review and LED repeated. Timer validation is deferred and non-blocking. | [contention diagnostic](SDRAM_CONTENTION_DIAGNOSTIC.md), [issue 010](issues/010-stress-platform-id-too-long.md) |
 | Hardware capacity | SDRAM stress evidence/telemetry | HUD safely consumes Select+Start and rendered on Pocket; old ROM source provenance remains historical gap. Raw timer values wrap after 71.58 s and are not accepted as durations. | [issue 011](issues/011-stress-summary-telemetry-missing.md), [contention diagnostic](SDRAM_CONTENTION_DIAGNOSTIC.md) |
 | Hardware capacity | SDRAM stress progress HUD | Pocket UI/functionality verified. Corrected wrap-safe ROM is staged; one >72 s Pocket smoke test remains. Persistent SD log deferred. | [issue 012](issues/012-stress-progress-hud.md) |
-| Hardware capacity | Uncached SDRAM CPU data window | A-066 **Pocket** proves `sdram_fb` writes and reads `FFFF`. A-067's delayed bridge capture regressed the previously passing MMIO preflight and is rejected. A-074/A-075 prove the bridge assembled `FFFFFFFF`; A-076 passed Quartus (+0.972 ns setup / +0.268 ns hold) and its Pocket cells 46–48 are `G-G-R` (CPU ACK with zero data). A-077 passed isolated **Quartus** (+0.801 ns setup / +0.115 ns hold) and is hash-verified on card; its Pocket gate is next. | [issues 016](issues/016-phase2-cpu-window-first-transaction-stall.md), [017](issues/017-a064-probe-stimulus-mismatch.md), and [018](issues/018-phase2-post-bridge-write-readback.md) |
+| Hardware capacity | Uncached SDRAM CPU data window | A-066 **Pocket** proves `sdram_fb` writes and reads `FFFF`. A-067's delayed bridge capture regressed the previously passing MMIO preflight and is rejected. A-074/A-075 prove the bridge assembled `FFFFFFFF`; A-076 proves zero at CPU ACK; A-077 passes Quartus (+0.801 ns setup / +0.115 ns hold) and **Pocket** proves the adapter return is also zero at ACK (`G-G-R`). A-079 must discriminate owner-mux output from adapter capture. | [issues 016](issues/016-phase2-cpu-window-first-transaction-stall.md), [017](issues/017-a064-probe-stimulus-mismatch.md), and [018](issues/018-phase2-post-bridge-write-readback.md) |
 | Hardware capacity | Cached SDRAM data window and cold-workspace migration | Planned; requires a separate cache-line adapter and successful uncached diagnostic/hardware gate. | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md) |
 | Hardware capacity | Cold code execution from SDRAM | Deferred; separate later decision gate | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md) |
 | Audio architecture | Profile MP3 stages and evaluate a targeted logic/DSP accelerator (IMDCT, Huffman, dequantization, synthesis filterbank) | Deferred until expanded SDRAM passes its Pocket gate; research only, no RTL commitment | [SDRAM architecture](SDRAM_MEMORY_ARCHITECTURE.md), [PROJECT plan](../PROJECT.md) |
@@ -96,7 +96,7 @@ firmware build; **design** = agreed intent, not implementation evidence.
 | [015](issues/015-phase2-duplicate-soc-instance.md) | Phase 2 conditional left duplicate `mp3_soc` instance header. | Fixed in source; clean macro-enabled Quartus retry pending. |
 | [016](issues/016-phase2-cpu-window-first-transaction-stall.md) | CPU-window diagnostic returns mostly-zero data after later all-ones stores. | Open; A-065 targets the failing all-ones transaction for Pocket boundary evidence. |
 | [017](issues/017-a064-probe-stimulus-mismatch.md) | A-064 observed the valid zero store rather than the later all-ones failure. | Resolved by A-065's target selection; the resulting downstream boundary is tracked in issue 018. |
-| [018](issues/018-phase2-post-bridge-write-readback.md) | A-065 reaches the SDRAM-domain bridge with `FFFFFFFF` and both controller requests accepted, but later reads still return zero. | Open; A-075 Pocket evidence shows A-074's bridge assembled `FFFFFFFF`; A-076 **Pocket** proves the final CPU-facing ACK returns zero. A-077 isolates adapter/mux data from `mp3_soc`'s selector before any migration decision. |
+| [018](issues/018-phase2-post-bridge-write-readback.md) | A-065 reaches the SDRAM-domain bridge with `FFFFFFFF` and both controller requests accepted, but later reads still return zero. | Open; A-075 **Pocket** evidence shows A-074's bridge assembled `FFFFFFFF`; A-076 proves final CPU ACK returns zero; A-077 proves adapter output is zero at its ACK. A-079 will discriminate the owner-mux output from adapter capture before any migration decision. |
 
 ## Updating this register
 

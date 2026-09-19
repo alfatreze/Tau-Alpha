@@ -12,9 +12,9 @@ full provenance and third-party licenses.
 gates are accepted on Pocket. Phase 2 A-074 seed 2 fits cleanly and its first
 Pocket run proves the bridge assembled `FFFFFFFF`, but the CPU still receives
 zero. A-076's focused RTL tests and isolated Quartus gate pass; its Pocket
-result confirms CPU ACK with zero data, leaving the adapter/mux-to-selector
-return boundary unresolved. A-077 is the focused adapter-return discriminator;
-it has passed Quartus and is installed for its Pocket gate.
+result confirms CPU ACK with zero data. A-077 then confirms adapter ACK with
+zero data, excluding `mp3_soc`'s return selector as the first suspect. A-079
+will discriminate the owner-mux output from adapter capture before a fix.
 
 ## Completed
 
@@ -126,9 +126,9 @@ chronological decision/reversal/evidence trail and resource trend are in
   diagnostic MMIO bridge and owner mux are fitted; A-075 proves the bridge
   response on Pocket, but the CPU-facing Wishbone return path is not yet
   proven. A-076's focused return probe passes RTL simulation and Quartus; its
-  Pocket result confirms zero at the final CPU bus. A-077 separates the
-  adapter result from the selector; its adapter/selector gate,
-  followed by concurrent playback/CRC, must pass before any
+  Pocket result confirms zero at the final CPU bus. A-077 proves the adapter
+  result is also zero, so the next gate is the owner-mux/adapter handoff;
+  that gate, followed by concurrent playback/CRC, must pass before any
   mapped SDRAM feature is enabled. See audit A-076 and issue 018.
 - Loading art currently uses a 16-entry RGB565 palette; on-device tonal tuning
   awaits a Pocket reference photo.
@@ -154,9 +154,9 @@ glow, waveform, text, and progress luminance bands. Retest on hardware.
 The A-074 seed-2 diagnostic build is accepted for the bridge-response boundary
 and its Pocket result is recorded, but the CPU-facing return path still fails.
 A separate A-076 firmware diagnostic/probe passed Quartus and its Pocket run
-showed CPU ACK with zero data. A-077 separates adapter output from the
-`mp3_soc` return selector; build and run its documented return-path test. After
-that boundary passes, add concurrent
+showed CPU ACK with zero data. A-077 then showed adapter ACK with zero data,
+which shifts the next probe to the owner-mux/adapter handoff. After that
+boundary passes, add concurrent
 1 MiB CRC and playback stress before migrating at least 24 KiB of cold
 playlist/artwork workspace. Preserve framebuffer priority, introduce no
 unplanned M10K use, and require zero audio underruns or display corruption.

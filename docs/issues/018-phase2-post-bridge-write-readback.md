@@ -1,8 +1,8 @@
 # Issue 018 — CPU all-ones write completes but reads back zero after bridge
 
 **Status:** open; reproduced on Pocket with A-065/A-066/A-074. A-076's
-CPU-facing return-path discriminator has passed its isolated **Quartus** fit
-and its first Pocket run. A-066's
+CPU-facing return-path discriminator and A-077's adapter-return discriminator
+have each passed isolated **Quartus** fit and Pocket execution. A-066's
 controller-boundary recorder proves the controller return is all ones. A-067's
 delayed capture candidate passed focused simulation/Quartus but failed the
 established MMIO preflight on Pocket and was rejected. A-074 restores the
@@ -40,10 +40,13 @@ evidence that the payload changed there.
 ## Boundary
 
 The failure is now after the bridge assembles the all-ones response and before
-the CPU receives its later readback. A-074's Pocket result makes the bridge
-assembly itself an observed-good boundary. The remaining suspect path is the
-owner-mux/Wishbone response return (`DAT_MISO`/ACK) into the CPU. This does not
-authorize a claim about cached access or cold migration.
+the adapter returns its later readback. A-074/A-075 make bridge assembly an
+observed-good boundary. A-076 shows the final CPU return is zero and A-077
+shows the adapter return is already zero at its ACK; the `mp3_soc` registered
+selector is therefore no longer the primary suspect. The remaining suspect
+path is the owner-mux response (`wb_done`/`wb_rdata`) into the adapter, or the
+adapter's capture timing of that response. This does not authorize a claim
+about cached access or cold migration.
 
 ## A-066 controller-boundary recorder
 
@@ -113,8 +116,15 @@ discriminator; simulation shows its all-ones result as `G-R-G`. Its isolated
 2026-09-19 Quartus fit completed with 0 errors, +0.801 ns setup, +0.115 ns
 hold, and raw RBF SHA-256
 `53b11ee8fbfd2ff401a8a84255c88c4edd994333210933dfb1825d8b6bc6806f`.
-Its separate package is installed with hash-verified RBF/ROM provenance; its
-Pocket gate is pending. The initial ordinary-browser absence is classified as
+Its separate package is installed with hash-verified RBF/ROM provenance. Its
+Pocket run reports 183 checks / 181 failures at `A0200000`, expected
+`FFFFFFFF`, actual `00000000`; after calibration against the stable first 46
+cells its final cells are `G-G-R`. The adapter therefore acknowledges with
+zero rather than all ones. The next bounded A-079 probe must retain owner-mux
+`wb_done` and `wb_rdata` at the target read: mux all ones with adapter zero
+implicates the adapter capture/ACK timing, while mux zero implicates the
+owner-mux latch or its preceding bridge handoff. The initial ordinary-browser
+absence is classified as
 stale/inconsistent Pocket catalog data: core-list caches contained A-077 while
 platform/category indexes did not. The five regenerable indexes were
 byte-backed-up and cleared; cold catalog rebuild is required before treating
