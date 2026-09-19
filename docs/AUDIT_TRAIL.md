@@ -2510,7 +2510,15 @@ known A-061 ROM SHA-256
 `f8a7f999cb0a503c9bef0536cead0c8f2ea046382efb2626bfdc8af60c16338a`.
 Those hashes were verified after installation on the mounted Pocket card; only
 the completed A-076 predecessor was removed. This is **host** provenance, not
-Pocket catalog/execution evidence. Pocket evidence remains pending.
+Pocket catalog/execution evidence. The normal core list initially omitted
+A-077 even though `cores_cache.bin` and `corelist_cache.bin` contained its
+identity: `platforms_cache.bin`, `core_viewby_platform.bin`, and
+`platform_viewby_category.bin` had no A-077 mapping. All five regenerable
+catalog indexes were byte-backed-up under
+`work/diagnostics/sdram-cpu-probe-a077/pocket-cache-backup-2026-09-19/System/`
+and then removed from the card to force a Pocket rebuild. No core, asset,
+music, save, or normal Tau file was touched. This remains **host** cache
+maintenance evidence; Pocket catalog/execution evidence is pending.
 **Outcome, remaining risk, and next gate:** Run that exact A-077 build with
 `TAU_PHASE2_WINDOW` and `TAU_PHASE2_ADAPTER_PROBE`. A
 Pocket `G-R-G` result moves the fault into `mp3_soc`'s registered selector;
