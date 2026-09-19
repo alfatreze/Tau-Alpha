@@ -7,6 +7,8 @@
 #   ./build.sh sdram-diag # Phase 1 Pocket SDRAM mailbox diagnostic
 #   ./build.sh sdram-cpu-diag # Phase 2 uncached CPU-window SDRAM diagnostic
 #   ./build.sh sdram-cpu-readback # A-060 mailbox-to-CPU readback discriminator
+#   ./build.sh sdram-cpu-log-probe # A-081 target-write/flush result discriminator
+#   ./build.sh sdram-cpu-log-readback # A-083 target slot readback discriminator
 #
 # The .rom is loaded from SD into BRAM by data_loader at boot, exactly like an
 # arcade core's ROM -- which is the point: firmware changes cost seconds here
@@ -103,8 +105,62 @@ sdram-cpu-readback)
     OUT="$ROOT/work/diagnostics/sdram-cpu-readback"
     STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1"
     ;;
+sdram-cpu-log-probe)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-log-probe"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_COMMAND_PROBE=1"
+    ;;
+sdram-cpu-log-readback)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-log-readback"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_COMMAND_PROBE=1 -DTAU_LOG_READBACK_PROBE=1"
+    ;;
+sdram-cpu-log-open)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-log-open"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_COMMAND_PROBE=1 -DTAU_LOG_READBACK_PROBE=1"
+    ;;
+sdram-cpu-log-settle)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-log-settle"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_COMMAND_PROBE=1 -DTAU_LOG_READBACK_PROBE=1"
+    ;;
+sdram-cpu-log-write-read)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-log-write-read"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_COMMAND_PROBE=1 -DTAU_LOG_READBACK_PROBE=1"
+    ;;
+sdram-cpu-log-source)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-log-source"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_COMMAND_PROBE=1 -DTAU_LOG_READBACK_PROBE=1 -DTAU_LOG_SOURCE_PROBE=1"
+    ;;
+sdram-cpu-log-bridge)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-log-bridge"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_COMMAND_PROBE=1 -DTAU_LOG_READBACK_PROBE=1 -DTAU_LOG_SOURCE_PROBE=1"
+    ;;
+sdram-cpu-log-table)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-log-table"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_COMMAND_PROBE=1 -DTAU_LOG_READBACK_PROBE=1 -DTAU_LOG_TABLE_PROBE=1"
+    ;;
+sdram-cpu-log-interact)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-log-interact"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_INTERACT_PROBE=1"
+    ;;
 *)
-    echo "usage: $0 {player|player-stress|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback}"; exit 1 ;;
+    echo "usage: $0 {player|player-stress|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback|sdram-cpu-log-probe|sdram-cpu-log-readback|sdram-cpu-log-open|sdram-cpu-log-settle|sdram-cpu-log-write-read|sdram-cpu-log-source|sdram-cpu-log-bridge|sdram-cpu-log-table|sdram-cpu-log-interact}"; exit 1 ;;
 esac
 
 # Build flags are selected by target rather than remembered in a shell history.
