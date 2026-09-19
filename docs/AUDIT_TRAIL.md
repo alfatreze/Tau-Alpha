@@ -2463,12 +2463,19 @@ unchanged A-061 readback ROM SHA-256
 **Host card-install evidence:** A-076's installed Pocket RBF and ROM matched
 those two package hashes; only superseded A-067/A-074 CPU probes were removed.
 This establishes file provenance, not that Pocket rebuilt its catalog or ran
-the core. Pocket execution evidence remains pending.
-**Outcome, remaining risk, and next gate:** The exact-hash-gated, separate
-**TAU CPU SDRAM Probe A076** bundle is ready for one cold-boot Pocket test.
-Cells 46–48 are CPU-facing ACK/data facts, not the A-074 bridge facts. Do not
-reuse the A-074 package identity or infer a cold-data migration result from
-this diagnostic.
+the core. **Pocket execution:** the supplied A-076 photo shows 183 checks,
+181 failures, first byte address `A0200000`, expected `FFFFFFFF`, actual
+`00000000`, and the decoded 49-cell bar
+`GGGGGGGGRRRRGGGGRGGGGGRRGGRRGGGGGGGGGGGGGGGGRGGGR`.
+Cells 46–48 are `G-G-R`: the CPU-facing ACK was observed and the data sampled
+at that ACK was zero, not all ones.
+**Outcome, remaining risk, and next gate:** Together with A-075's observed
+bridge-assembled `FFFFFFFF`, A-076 proves that zero is present at the final
+`mp3_soc` CPU-facing data return when the target read acknowledges. The next
+diagnostic must sample the adapter's `sdram_wb_cpu_rdata` at its ACK, then
+compare that retained result with the already-observed final CPU bus fact.
+This separates the adapter/mux response boundary from `mp3_soc`'s registered
+return selector. Do not infer a cold-data migration result from this failure.
 
 ## Reversal ledger
 
