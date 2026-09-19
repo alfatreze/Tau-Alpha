@@ -152,7 +152,10 @@ baselines that are still useful; do not accumulate obsolete probes.
 completed A-076 was removed. A-076's Pocket result remains the recorded 183
 checks / 181 failures with final cells `G-G-R`: CPU ACK observed, CPU data
 zero, CPU data not all ones. Keep normal Tau and the independent SDRAM
-Diagnostic/Stress baselines; A-077 awaits its Pocket result.
+Diagnostic/Stress baselines; A-077 awaits its Pocket result. The five
+regenerable Pocket catalog indexes were backed up and cleared after their
+platform/category mappings omitted A-077 despite a valid core-list entry.
+Eject/remount the card and cold boot Pocket before evaluating list visibility.
 
 On a black screen before the initial UI, capture Pocket diagnostics: the CPU
 may be stalled by a malformed mapped transaction. On FAIL, capture the full

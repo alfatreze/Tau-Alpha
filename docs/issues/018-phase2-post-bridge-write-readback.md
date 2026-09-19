@@ -114,4 +114,8 @@ discriminator; simulation shows its all-ones result as `G-R-G`. Its isolated
 hold, and raw RBF SHA-256
 `53b11ee8fbfd2ff401a8a84255c88c4edd994333210933dfb1825d8b6bc6806f`.
 Its separate package is installed with hash-verified RBF/ROM provenance; its
-Pocket gate is pending.
+Pocket gate is pending. The initial ordinary-browser absence is classified as
+stale/inconsistent Pocket catalog data: core-list caches contained A-077 while
+platform/category indexes did not. The five regenerable indexes were
+byte-backed-up and cleared; cold catalog rebuild is required before treating
+the missing menu entry as a package failure.
