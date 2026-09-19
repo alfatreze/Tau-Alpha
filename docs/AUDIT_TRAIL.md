@@ -2447,16 +2447,25 @@ cannot distinguish an ACK/data timing loss at the CPU-facing bus). A focused
 simulation test is added before any Quartus build.
 **Hot/cold impact:** Diagnostic-only; no normal Tau, audio, scanout, cache, or
 cold-workspace behavior changes.
-**Evidence:** **code-review | simulation** — return-mode probe simulation
-passes with a fifth-request zero result, and all prior CPU-window/composed-path
-tests still pass. Quartus and Pocket evidence are pending; the authorized SSH
-connection to the Quartus VM was attempted but the environment approval
-service rejected it because of the current usage limit, so no build was
-started or altered.
-**Outcome, remaining risk, and next gate:** Build a separately named A-076
-macro package with `TAU_PHASE2_WINDOW` and `TAU_PHASE2_RETURN_PROBE`, then run
-one cold-boot Pocket test. Do not reuse the A-074 package identity for this
-changed bar semantics.
+**Evidence:** **code-review | simulation | Quartus** — return-mode probe
+simulation passes with a fifth-request zero result, and all prior CPU-window/
+composed-path tests still pass. On 2026-09-19 the isolated local-ext4 VM stage
+defined both `TAU_PHASE2_WINDOW` and `TAU_PHASE2_RETURN_PROBE`; Quartus 25.1
+completed successfully in 43m35s with 0 errors, 6,207 / 18,480 ALMs (34%),
+8,011 registers, 300 / 308 RAM blocks (97%), and 11 / 66 DSP blocks (17%).
+The worst multicorner setup/hold slacks are +0.972 ns / +0.268 ns. The raw RBF
+SHA-256 is `9ef62ebc4002abf4f5d29c84c59c08d997c18369d55e7c134beac5b97c832ef1`.
+**Host packaging** then produced the separately identified A-076 bundle with
+bit-reversed RBF SHA-256
+`212e1761d2b4107e6d933e11bada800dfdaf78c8fc83ad9c1f36788e65fc747a` and the
+unchanged A-061 readback ROM SHA-256
+`f8a7f999cb0a503c9bef0536cead0c8f2ea046382efb2626bfdc8af60c16338a`.
+Pocket evidence remains pending.
+**Outcome, remaining risk, and next gate:** The exact-hash-gated, separate
+**TAU CPU SDRAM Probe A076** bundle is ready for one cold-boot Pocket test.
+Cells 46–48 are CPU-facing ACK/data facts, not the A-074 bridge facts. Do not
+reuse the A-074 package identity or infer a cold-data migration result from
+this diagnostic.
 
 ## Reversal ledger
 
