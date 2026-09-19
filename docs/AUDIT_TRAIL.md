@@ -2538,6 +2538,39 @@ adapter zero isolates the adapter capture/ACK timing; mux zero instead
 isolates the owner-mux latch or its preceding bridge handoff. No package, fix,
 or cold-data migration is authorized before that result is observed.
 
+### A-079 — Add an owner-mux return discriminator before adapter capture
+
+**Date:** 2026-09-19
+**Decision/change:** Add `RETURN_PATH_MODE=3` to the existing fixed 49-cell
+diagnostic overlay. In this mode, cells 46–48 retain the target fifth read's
+owner-mux `wb_done`, `wb_rdata == 0`, and `wb_rdata == FFFFFFFF` predicates.
+The signals are already the mux outputs wired into `tau_sdram_wb_adapter`, so
+the probe adds diagnostic observation only; it changes no owner, request,
+ACK, or product data-path behavior. It is selected only by the dedicated
+`TAU_PHASE2_MUX_PROBE` macro, ahead of the older probe-mode macros.
+**Alternatives and rationale:** Change adapter capture timing immediately
+(rejected: A-077 localizes the loss to a remaining two-boundary interval but
+does not say which boundary is wrong); expose both mux and adapter values in a
+wider UI (rejected: loses the stable, photographed 49-cell format); infer mux
+data from A-075 (rejected: that older evidence observes bridge assembly, not
+the mux output at `wb_done`). This successor preserves one observable boundary
+and gives two mutually exclusive conclusions.
+**Hot/cold impact:** Diagnostic-only mode and overlay inputs; normal Tau,
+audio, scanout, cache behavior, address map, and macro-off synthesis are
+unchanged.
+**Evidence:** **simulation | code-review** — the new focused mux-return test
+captures `G-R-G` for an all-ones response at `wb_done`. Existing CPU-window,
+CPU-return, adapter-return, bridge-mux, Wishbone-adapter, standalone Phase 2,
+and composed-path simulations pass unchanged. Quartus and Pocket evidence are
+pending and must not be inferred from these host simulations.
+**Outcome, remaining risk, and next gate:** Build the exact source with
+`TAU_PHASE2_WINDOW` and `TAU_PHASE2_MUX_PROBE`. A Pocket `G-R-G` result means
+the mux presents all ones and A-077's adapter zero implicates the adapter
+capture/ACK timing. A `G-G-R` result means the mux itself presents zero,
+implicating its registered latch or the immediate bridge-to-mux handoff. In
+either outcome, keep cold-data migration disabled; first correct, regress, fit,
+and repeat the focused Pocket gate.
+
 ### A-078 — Keep Codex plan schema within CLI structured-output subset
 
 - **Date:** 2026-09-19
@@ -2545,7 +2578,14 @@ or cold-data migration is authorized before that result is observed.
 - **Alternatives considered:** Keep `allOf` (blocked by the installed CLI); weaken runtime validation (unsafe and rejected).
 - **Scope:** Orchestration/schema compatibility only; no HDL, Quartus, SSH, or hardware changes.
 - **Evidence:** Reproduced `invalid_json_schema ... 'allOf' is not permitted`; base schema and Director tests are the acceptance gate.
-- **Outcome/next gate:** Retry the read-only Director readiness probe and confirm planning proceeds.
+- **Outcome/readiness update (2026-09-19):** The original next gate was a
+  read-only Director readiness probe. **Host** evidence in
+  `work/triad/gate.log`, `work/triad/codex-review.md`, and
+  `work/triad/claude-audit.md` shows that a no-change run reached planning,
+  local host gates, clean Codex review, and Claude audit. Qwen was skipped and
+  no implementation changed. The Astra approval/STOP lines are expected stdout
+  from `CodexApprovalPolicyTests`, not a model launch. The gate is closed; no
+  RTL simulation, Quartus, SSH, or Pocket operation occurred.
 
 ## Reversal ledger
 

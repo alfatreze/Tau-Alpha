@@ -14,7 +14,8 @@ Pocket run proves the bridge assembled `FFFFFFFF`, but the CPU still receives
 zero. A-076's focused RTL tests and isolated Quartus gate pass; its Pocket
 result confirms CPU ACK with zero data. A-077 then confirms adapter ACK with
 zero data, excluding `mp3_soc`'s return selector as the first suspect. A-079
-will discriminate the owner-mux output from adapter capture before a fix.
+now has passing focused RTL simulations and will discriminate the owner-mux
+output from adapter capture before a fix.
 
 ## Completed
 

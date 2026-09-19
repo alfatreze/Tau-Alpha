@@ -18,7 +18,8 @@
 // Bits 46..48: by default, bridge's assembled 32-bit response for that
 //              following read (seen, zero, all ones), before mux/Wishbone
 //              return handling. RETURN_PATH_MODE=1 uses CPU-facing ACK/data;
-//              mode 2 uses adapter ACK/data (seen, zero, all ones).
+//              mode 2 uses adapter ACK/data; mode 3 uses owner-mux
+//              done/data (each as seen, zero, all ones).
 // The A-061 ROM order is preflight read, zero store, zero read, all-ones
 // store. Capturing request four therefore observes the write that produces the
 // diagnostic's first failing FFFFFFFF readback, rather than the valid zero
@@ -29,7 +30,8 @@
 module tau_sdram_cpu_window_probe #(
     // 0 preserves A-074 bridge-response semantics. 1 reuses cells 46..48
     // for CPU-facing return data; 2 captures adapter data immediately before
-    // mp3_soc's registered return selector.
+    // mp3_soc's registered return selector; 3 captures the owner-mux response
+    // immediately before the adapter's capture point.
     parameter RETURN_PATH_MODE = 0
 ) (
     input  wire        clk,
@@ -45,6 +47,8 @@ module tau_sdram_cpu_window_probe #(
     input  wire        bridge_busy,
     input  wire        bridge_done,
     input  wire        adapter_done,
+    input  wire        mux_done,
+    input  wire [31:0] mux_rdata,
     input  wire        wb_ack,
     input  wire [31:0] adapter_rdata,
     input  wire        unsupported,
@@ -177,6 +181,12 @@ module tau_sdram_cpu_window_probe #(
                         bits[46] <= 1'b1;
                         bits[47] <= (adapter_rdata == 32'h00000000);
                         bits[48] <= (adapter_rdata == 32'hFFFFFFFF);
+                    end
+                end else if (RETURN_PATH_MODE == 3) begin
+                    if (cpu_follow_read_armed && mux_done && !bits[46]) begin
+                        bits[46] <= 1'b1;
+                        bits[47] <= (mux_rdata == 32'h00000000);
+                        bits[48] <= (mux_rdata == 32'hFFFFFFFF);
                     end
                 end else begin
                     if (bridge_debug_sync_2[2]) bits[46] <= 1'b1;

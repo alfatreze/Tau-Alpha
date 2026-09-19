@@ -123,7 +123,8 @@ cells its final cells are `G-G-R`. The adapter therefore acknowledges with
 zero rather than all ones. The next bounded A-079 probe must retain owner-mux
 `wb_done` and `wb_rdata` at the target read: mux all ones with adapter zero
 implicates the adapter capture/ACK timing, while mux zero implicates the
-owner-mux latch or its preceding bridge handoff. The initial ordinary-browser
+owner-mux latch or its preceding bridge handoff. A-079's focused simulation
+test has passed; its Quartus and Pocket gates remain pending. The initial ordinary-browser
 absence is classified as
 stale/inconsistent Pocket catalog data: core-list caches contained A-077 while
 platform/category indexes did not. The five regenerable indexes were

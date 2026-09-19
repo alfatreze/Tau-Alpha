@@ -488,11 +488,15 @@ wire        vid_hs_w, vid_vs_w, vid_de_w;
 `ifdef TAU_PHASE2_WINDOW
 wire [48:0] sdram_probe_bits;
 tau_sdram_cpu_window_probe
+`ifdef TAU_PHASE2_MUX_PROBE
+    #(.RETURN_PATH_MODE(3))
+`else
 `ifdef TAU_PHASE2_ADAPTER_PROBE
     #(.RETURN_PATH_MODE(2))
 `else
 `ifdef TAU_PHASE2_RETURN_PROBE
     #(.RETURN_PATH_MODE(1))
+`endif
 `endif
 `endif
 u_sdram_cpu_window_probe (
@@ -503,7 +507,8 @@ u_sdram_cpu_window_probe (
     .cpu_sel(soc_sdram_wb_debug_sel), .adapter_req(soc_sdram_wb_req),
     .mux_accept(soc_sdram_wb_accept), .mux_start(sdram_mux_start),
     .bridge_busy(soc_sdram_busy), .bridge_done(soc_sdram_done),
-    .adapter_done(soc_sdram_wb_done), .wb_ack(soc_sdram_wb_debug_ack),
+    .adapter_done(soc_sdram_wb_done), .mux_done(soc_sdram_wb_done),
+    .mux_rdata(soc_sdram_wb_rdata), .wb_ack(soc_sdram_wb_debug_ack),
     .adapter_rdata(soc_sdram_wb_debug_adapter_rdata),
     .unsupported(soc_sdram_wb_debug_unsupported),
     .adapter_write(soc_sdram_wb_write), .adapter_wdata(soc_sdram_wb_wdata),
