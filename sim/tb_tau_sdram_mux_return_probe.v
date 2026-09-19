@@ -1,24 +1,25 @@
 `timescale 1ns/1ps
 `default_nettype none
 
-// Verify the A-076 successor mode reuses cells 46..48 to capture the
-// CPU-facing ACK/data result for the fifth (all-ones) readback request.
-module tb_tau_sdram_cpu_return_probe;
+// A-079: retain owner-mux response data for the target fifth CPU read. This
+// is the immediate source observed by tau_sdram_wb_adapter on the following
+// clock, distinguishing a mux-side zero from an adapter capture failure.
+module tb_tau_sdram_mux_return_probe;
     reg clk = 0;
     always #5 clk = ~clk;
-    reg rst = 1, cpu_req = 0, cpu_we = 0, cpu_ack = 0;
-    reg [31:0] cpu_wdata = 0, cpu_rdata = 0;
+    reg rst = 1, cpu_req = 0, cpu_we = 0, mux_done = 0;
+    reg [31:0] cpu_wdata = 0, mux_rdata = 0;
     reg [2:0] cpu_cti = 0;
     reg [3:0] cpu_sel = 4'hf;
     wire [48:0] bits;
 
-    tau_sdram_cpu_window_probe #(.RETURN_PATH_MODE(1)) dut (
+    tau_sdram_cpu_window_probe #(.RETURN_PATH_MODE(3)) dut (
         .clk(clk), .rst(rst), .cpu_req(cpu_req), .cpu_we(cpu_we),
         .cpu_wdata(cpu_wdata), .cpu_cti(cpu_cti), .cpu_sel(cpu_sel),
         .adapter_req(1'b0), .mux_accept(1'b0), .mux_start(1'b0),
         .bridge_busy(1'b0), .bridge_done(1'b0), .adapter_done(1'b0),
-        .mux_done(1'b0), .mux_rdata(32'd0),
-        .wb_ack(1'b0), .adapter_rdata(32'd0), .unsupported(1'b0), .adapter_write(1'b0),
+        .mux_done(mux_done), .mux_rdata(mux_rdata), .wb_ack(1'b0),
+        .adapter_rdata(32'd0), .unsupported(1'b0), .adapter_write(1'b0),
         .adapter_wdata(32'd0), .adapter_be(4'd0), .mux_wb_start(1'b0),
         .mux_write(1'b0), .mux_wdata(32'd0), .mux_be(4'd0),
         .bridge_write_seen(1'b0), .bridge_op_write(1'b0),
@@ -31,28 +32,23 @@ module tb_tau_sdram_cpu_return_probe;
         .ctrl_follow_read_data_seen(1'b0), .ctrl_follow_read_data_zero(1'b0),
         .ctrl_follow_read_data_all_ones(1'b0), .bridge_follow_read_seen(1'b0),
         .bridge_follow_read_data_zero(1'b0),
-        .bridge_follow_read_data_all_ones(1'b0),
-        .cpu_ack(cpu_ack), .cpu_rdata(cpu_rdata), .bits(bits)
+        .bridge_follow_read_data_all_ones(1'b0), .cpu_ack(1'b0),
+        .cpu_rdata(32'd0), .bits(bits)
     );
 
     task tick; begin @(posedge clk); #1; end endtask
     task request(input write, input [31:0] data);
-        begin
-            cpu_we = write; cpu_wdata = data; cpu_req = 1; tick; cpu_req = 0; tick;
-        end
+        begin cpu_we = write; cpu_wdata = data; cpu_req = 1; tick; cpu_req = 0; tick; end
     endtask
 
     initial begin
         tick; rst = 0;
-        request(0, 32'd0);                 // request 0: preflight read
-        request(1, 32'd0);                 // request 1: zero store
-        request(0, 32'd0);                 // request 2: zero read
-        request(1, 32'hFFFFFFFF);          // request 3: all-ones store
-        request(0, 32'd0);                 // request 4: all-ones readback
-        cpu_rdata = 32'd0; cpu_ack = 1; tick; cpu_ack = 0;
-        if (bits[48:46] !== 3'b011)
-            $fatal(1, "CPU return probe did not capture zero data at ACK: %h", bits);
-        $display("PASS: CPU return-path probe captures ACK and zero data");
+        request(0, 32'd0); request(1, 32'd0); request(0, 32'd0);
+        request(1, 32'hFFFFFFFF); request(0, 32'd0);
+        mux_rdata = 32'hFFFFFFFF; mux_done = 1; tick; mux_done = 0;
+        if (bits[48:46] !== 3'b101)
+            $fatal(1, "mux return probe did not capture all-ones data: %h", bits);
+        $display("PASS: mux return probe captures all-ones data at done");
         $finish;
     end
 endmodule

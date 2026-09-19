@@ -152,6 +152,12 @@ $(RTL_BUILD_DIR)/tb_tau_sdram_adapter_return_probe.vvp: sim/tb_tau_sdram_adapter
 test-rtl-sdram-adapter-return-probe: $(RTL_BUILD_DIR)/tb_tau_sdram_adapter_return_probe.vvp
 	$(VVP) $<
 
+$(RTL_BUILD_DIR)/tb_tau_sdram_mux_return_probe.vvp: sim/tb_tau_sdram_mux_return_probe.v src/fpga/core/tau_sdram_cpu_window_probe.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -s tb_tau_sdram_mux_return_probe -o $@ $^
+
+test-rtl-sdram-mux-return-probe: $(RTL_BUILD_DIR)/tb_tau_sdram_mux_return_probe.vvp
+	$(VVP) $<
+
 # Verilator's generated GNUmakefiles cannot run beneath this repository's path
 # because it contains spaces. Keep this tool-only artefact outside the tree.
 test-rtl-sdram-controller-probe:
