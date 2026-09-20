@@ -155,6 +155,9 @@ static uint32_t log_src[4];
  * stores these values as SIGNED int32, so words 0..14 carry only their low 31
  * bits and word 15 carries the withheld top bits (bit i = top bit of word i). */
 static uint32_t set_readback[4];   /* words 0, 7, 12, 15 as read back */
+#ifdef TAU_DISCRIMINATOR_PROBE
+static uint32_t disc_words[16];    /* A-092 raw discriminator results */
+#endif
 #endif
 
 static inline uint32_t cycles(void) { return REG(R_CYCLES); }
@@ -430,7 +433,11 @@ static int save_result(uint32_t stage)
     words[15] = 0u;
 #ifdef TAU_LOG_INTERACT_PROBE
     (void)command_state; (void)command_error;
+#ifdef TAU_DISCRIMINATOR_PROBE
+    publish_interact(disc_words);
+#else
     publish_interact(words);
+#endif
     return 1;
 #endif
     for (uint32_t i = 0; i < LOG_WORDS; ++i) dt_write(LOG_DT_WORD + i, words[i]);
@@ -714,8 +721,77 @@ static int mailbox_preflight(void)
 }
 #endif
 
+#ifdef TAU_DISCRIMINATOR_PROBE
+/* A-092: separate the proven mailbox path from the CPU window.  Byte offset
+ * `off` from 2 MiB is halfword address 0x100000 + off/2 for the mailbox.
+ * Distinct patterns (not only 0/FFFFFFFF) expose lag, swap or shift.
+ * Raw results are published as 15 words (`disc_words`), no matrix is run. */
+#define DISC_BASE_HW  0x00100000u
+#define DISC_A        0x1000u
+#define DISC_B        0x2000u
+#define DISC_C        0x3000u
+#define DISC_D        0x4000u
+
+static int mb_write(uint32_t off, uint32_t value)
+{
+    return issue(DISC_BASE_HW + (off >> 1), value, 15u, 1u);
+}
+static int mb_read(uint32_t off, uint32_t *value)
+{
+    if (!issue(DISC_BASE_HW + (off >> 1), 0u, 15u, 0u)) return 0;
+    *value = REG(R_SDR_RDATA);
+    return 1;
+}
+static uint32_t cpu_rd(uint32_t off)
+{
+    return *(volatile uint32_t *)(uintptr_t)(TEST_BASE_WORD + off);
+}
+static void cpu_wr(uint32_t off, uint32_t value)
+{
+    *(volatile uint32_t *)(uintptr_t)(TEST_BASE_WORD + off) = value;
+}
+
+static void run_discriminator(void)
+{
+    uint32_t fail = 0u, v;
+    for (uint32_t i = 0; i < 16u; ++i) disc_words[i] = 0u;
+    disc_words[0] = 0x44534331u;                          /* "DSC1" */
+    /* w1/w2: mailbox write, mailbox read; then the CPU reads it */
+    fail |= (uint32_t)!mb_write(DISC_A, 0x12345678u) << 1;
+    v = 0u; fail |= (uint32_t)!mb_read(DISC_A, &v) << 2; disc_words[1] = v;
+    disc_words[2] = cpu_rd(DISC_A);
+    /* w3..w7: CPU write of a distinctive word between marked neighbours */
+    fail |= (uint32_t)!mb_write(DISC_B - 4u, 0x0DEFACEDu) << 3;
+    fail |= (uint32_t)!mb_write(DISC_B + 4u, 0x0BADF00Du) << 4;
+    cpu_wr(DISC_B, 0xA5C33C5Au);
+    v = 0u; fail |= (uint32_t)!mb_read(DISC_B, &v) << 5; disc_words[3] = v;
+    disc_words[4] = cpu_rd(DISC_B);
+    disc_words[5] = cpu_rd(DISC_B);
+    disc_words[6] = cpu_rd(DISC_B + 4u);
+    disc_words[7] = cpu_rd(DISC_B - 4u);
+    /* w8: mailbox all-ones, CPU read */
+    fail |= (uint32_t)!mb_write(DISC_C, 0xFFFFFFFFu) << 6;
+    disc_words[8] = cpu_rd(DISC_C);
+    /* w9..w12: CPU all-ones then zero, checked from both sides */
+    cpu_wr(DISC_D, 0xFFFFFFFFu);
+    v = 0u; fail |= (uint32_t)!mb_read(DISC_D, &v) << 7; disc_words[9] = v;
+    disc_words[10] = cpu_rd(DISC_D);
+    cpu_wr(DISC_D, 0u);
+    disc_words[11] = cpu_rd(DISC_D);
+    v = 0u; fail |= (uint32_t)!mb_read(DISC_D, &v) << 8; disc_words[12] = v;
+    disc_words[13] = fail;                                /* failed mailbox ops */
+    disc_words[14] = cpu_rd(DISC_A);                      /* w2 again, at the end */
+    tests_run = 14u;
+    failures = 0u;
+}
+#endif
+
 static void run_tests(void)
 {
+#ifdef TAU_DISCRIMINATOR_PROBE
+    run_discriminator();
+    return;
+#endif
     static const uint32_t patterns[4] = {
         0x00000000u, 0xFFFFFFFFu, 0xAAAAAAAAu, 0x55555555u
     };
@@ -776,6 +852,25 @@ static void draw_result(void)
     char number[12], hex[9];
     uint16_t color = failures ? UI_RED : UI_GREEN;
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
+#ifdef TAU_DISCRIMINATOR_PROBE
+    {
+        char line[16];
+        fb_rect(12, 18, 376, 324, UI_PANEL);
+        fb_text(28, 30, "TAU SDRAM DISCRIMINATOR", UI_ACCENT, UI_PANEL);
+        for (uint32_t i = 0; i < 16u; ++i) {
+            uint32_t col = i < 8u ? 28u : 208u;
+            uint32_t y = 62u + (i & 7u) * 22u;
+            line[0] = hex_digit(i); line[1] = ' ';
+            hex8(&line[2], i == 15u ? set_readback[3] : disc_words[i]);
+            fb_text(col, y, line, UI_WHITE, UI_PANEL);
+        }
+        fb_text(28, 250, "W1 MB  W2 CPU  W3 MB RD OF CPU WR", UI_DIM, UI_PANEL);
+        fb_text(28, 270, "W4 W5 CPU RD  W6 W7 NEIGHBOURS", UI_DIM, UI_PANEL);
+        fb_text(28, 290, "W8 MB WR CPU RD  W9 W10 FFFF  W11 W12 ZERO", UI_DIM, UI_PANEL);
+        fb_text(28, 320, "QUIT TO SAVE  A RUN AGAIN", UI_DIM, UI_PANEL);
+        return;
+    }
+#endif
     fb_rect(12, 18, 376, 324, UI_PANEL);
 #ifdef TAU_CPU_WINDOW_DIAG
     fb_text(28, 38, "TAU CPU SDRAM TEST", UI_ACCENT, UI_PANEL);

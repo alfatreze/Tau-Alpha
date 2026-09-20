@@ -79,9 +79,17 @@ def words_from_interact(doc: dict) -> bytes:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path)
+    parser.add_argument("--raw", action="store_true",
+                        help="with --interact: print the 16 reconstructed words (A-092)")
     parser.add_argument("--interact", action="store_true",
                         help="path is APF's interact_persist.json (A-091)")
     args = parser.parse_args()
+    if args.interact and args.raw:
+        words = struct.unpack(">16I", words_from_interact(
+            json.loads(args.path.read_text())))
+        print(json.dumps({f"w{i}": f"0x{w:08X}" for i, w in enumerate(words)},
+                         indent=2))
+        return
     if args.interact:
         data = words_from_interact(json.loads(args.path.read_text()))
     else:
