@@ -107,3 +107,4 @@
 
 - 2026-09-20 (Claude): docs/tools. PSRAM work now uses its own audit series **B-NNN** (B-001 = former A-098, B-002 = A-099, B-003 = A-123) so it can never collide with the A series; `tools/check_audit_trail.py` checks both series. No code touched.
 - 2026-09-20 (Claude): card. Installed the Diagnostic Build (TAU_DIAGNOSTIC, ROM 9580c8e9..., 14/14 SHA-256, media copied from base TAU) and removed the superseded TAU_SDRAM_STRESS and TAU_SDRAM_DIAG after verified backups. Kept TAU, TAU_SETTINGS, WSTRESS, PRB97, PRB100. Result pending.
+- 2026-09-20 (Claude): docs. Read the Diagnostic Build Tests screenshot: WINDOW TEST PASS 89, read 48/56/330, write 31/38/313, PLAYLIST CHECK PASS 13, counters cleared. Recorded A-126; agrees with the standalone probes. Working tree has uncommitted RTL edits (core_game.vh, core_top.v, mp3_soc.v) that are not mine.
