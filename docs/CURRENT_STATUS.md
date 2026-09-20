@@ -106,7 +106,7 @@ unauthorised.
    cycles net at 60 MHz (about 0.8 us), worst single access about 360 cycles
    (6 us), 0 mismatches. Next: count accesses per candidate buffer to decide
    which moves pay.
-2. **Margin:** run a long soak of the CPU-window matrix, and confirm the
+2. **Margin (A-097 soak PASSED: 264M checks, 30 min, 0 failures; coverage and CAS/seed work remain; A-100 coverage PASSED: 52 address-line checks and 3 CRC rounds, 0 failures, worst access 360 cycles):** run a long soak of the CPU-window matrix, and confirm the
    controller's CAS latency / clock phase (KB-021, OQ-6); the A-093 fit has only
    +0.111 ns hold slack, so build promotion RTL with several seeds and read
    fast-corner hold (KB-011).
