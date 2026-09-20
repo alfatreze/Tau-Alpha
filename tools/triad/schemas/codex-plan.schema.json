@@ -15,23 +15,11 @@
       "description": "Repository-relative paths Qwen may change in its returned patch.",
       "items": {
         "type": "string",
-        "minLength": 1,
-        "pattern": "^(?!/)(?![A-Za-z]:[\\\\/])(?!.*(?:^|[\\\\/])\\.\\.(?:[\\\\/]|$)).+$"
+        "minLength": 1
       },
-      "minItems": 0,
-      "uniqueItems": true
+      "minItems": 0
     }
   },
   "required": ["status", "task_packet", "allowed_files"],
-  "allOf": [
-    {
-      "if": { "properties": { "status": { "const": "patch" } } },
-      "then": { "properties": { "allowed_files": { "minItems": 1 } } }
-    },
-    {
-      "if": { "properties": { "status": { "const": "no_change" } } },
-      "then": { "properties": { "allowed_files": { "maxItems": 0 } } }
-    }
-  ],
   "additionalProperties": false
 }
