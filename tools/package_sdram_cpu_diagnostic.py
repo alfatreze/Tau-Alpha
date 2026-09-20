@@ -82,7 +82,9 @@ def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             probe_a091: bool = False,
             probe_a092: bool = False,
             probe_a093: bool = False,
-            probe_a094: bool = False) -> dict[str, object]:
+            probe_a094: bool = False,
+            probe_a097: bool = False,
+            probe_a100: bool = False) -> dict[str, object]:
     """Return the immutable package identity/provenance for one diagnostic."""
     if probe_a062:
         return {
@@ -269,6 +271,35 @@ def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             "name": "TAU CPU SDRAM Probe A085",
             "description": "TAU result-slot settle/write/read probe A085",
             "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a100:
+        return {
+            # Firmware-only whole-window coverage (address lines, 1 MiB CRC
+            # under concurrent drawing, access counters) on the A-093 RBF.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a093/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-full/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a100/pocket",
+            "platform_id": "tau_sdram_p100",
+            "core_id": "alfatreze.TAU_SDRAM_PRB100",
+            "shortname": "TAU_SDRAM_PRB100",
+            "name": "TAU CPU SDRAM Probe A100",
+            "description": "TAU CPU window full-range coverage A100",
+            "expected_hash": EXPECTED_A093_PROBE_RBF_SHA256,
+            "interact_result": True,
+        }
+    if probe_a097:
+        return {
+            # Firmware-only soak of the fixed-adapter CPU window (A-093 RBF).
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a093/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-soak/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a097/pocket",
+            "platform_id": "tau_sdram_prb97",
+            "core_id": "alfatreze.TAU_SDRAM_PRB97",
+            "shortname": "TAU_SDRAM_PRB97",
+            "name": "TAU CPU SDRAM Probe A097",
+            "description": "TAU CPU window soak A097",
+            "expected_hash": EXPECTED_A093_PROBE_RBF_SHA256,
+            "interact_result": True,
         }
     if probe_a094:
         return {
@@ -507,6 +538,10 @@ def main() -> None:
                       help="package the A-084 result-slot lifecycle probe")
     mode.add_argument("--probe-a085", action="store_true",
                       help="package the A-085 result-slot settle probe")
+    mode.add_argument("--probe-a100", action="store_true",
+                      help="package the A-100 full-range coverage probe")
+    mode.add_argument("--probe-a097", action="store_true",
+                      help="package the A-097 CPU window soak")
     mode.add_argument("--probe-a094", action="store_true",
                       help="package the A-094 SDRAM window latency probe")
     mode.add_argument("--probe-a093", action="store_true",
@@ -532,7 +567,7 @@ def main() -> None:
                   args.probe_a074, args.probe_a076, args.probe_a077,
                   args.probe_a079, args.probe_a080, args.probe_a082,
                   args.probe_a083, args.probe_a084, args.probe_a085,
-                  args.probe_a086, args.probe_a087, args.probe_a088, args.probe_a089, args.probe_a090, args.probe_a091, args.probe_a092, args.probe_a093, args.probe_a094)
+                  args.probe_a086, args.probe_a087, args.probe_a088, args.probe_a089, args.probe_a090, args.probe_a091, args.probe_a092, args.probe_a093, args.probe_a094, args.probe_a097, args.probe_a100)
     raw_rbf = cfg["raw_rbf"]
     diag_rom = cfg["rom"]
     output = cfg["output"]
