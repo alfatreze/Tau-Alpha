@@ -106,3 +106,4 @@
 - 2026-09-20 (Claude): firmware. A-125: Diagnostic Build Phase 2, Tests page (window test 89 checks at scratch 8 MiB, read/write cycles, playlist check, clear counters); ROM 9580c8e9... (heap gap 10,288 B); settings ROM now bd6a7700 (+8 B); product and SDRAM-pl unchanged; fixture settings-tests; SD read speed dropped; bundle repackaged, NOT installed.
 
 - 2026-09-20 (Claude): docs/tools. PSRAM work now uses its own audit series **B-NNN** (B-001 = former A-098, B-002 = A-099, B-003 = A-123) so it can never collide with the A series; `tools/check_audit_trail.py` checks both series. No code touched.
+- 2026-09-20 (Claude): card. Installed the Diagnostic Build (TAU_DIAGNOSTIC, ROM 9580c8e9..., 14/14 SHA-256, media copied from base TAU) and removed the superseded TAU_SDRAM_STRESS and TAU_SDRAM_DIAG after verified backups. Kept TAU, TAU_SETTINGS, WSTRESS, PRB97, PRB100. Result pending.
