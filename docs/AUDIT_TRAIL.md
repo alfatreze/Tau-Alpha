@@ -5082,3 +5082,10 @@ same window/playlist code that passed A-105..A-108, A-126, A-128 and A-129.
 **Release checks to run on Pocket (base TAU after installation):** boot, playlist and settings screens, Info page (version 0.2.0, FPGA rev `4D503317`, window OK), playback of MP3 with and
 without cover, seek, pause/resume, repeat/shuffle/resume across a Quit, a long-press of A (must only pause), Speed in Settings, colour and meter persistence, the large playlists (A-107 lists),
 a couple of screenshots for the record.
+
+**A-130 installation (host, 2026-09-21):** the release was installed as the base `alfatreze.TAU` core on the card: `Cores/alfatreze.TAU/bitstream.rbf_r` (`cb15310a...`, seed-2 probe-free), `core.json`
+(`version 0.2.0`) and `Assets/tau/common/tau.rom` (`9b5d6575...`). The replaced 0.1.0 core (old RBF `9301546c...`, old ROM `e7643ea5...`), the core folder, and the base core's Settings
+folder were backed up first in `work/diagnostics/release-v020/card-replaced/`; catalog indexes backed up and cleared. All other core files, the music (`Nausicaa OST`, `playlist.m3u`) and every other core
+untouched. Verification: 12 of 13 compared dist files SHA-256-identical to the card; the one difference is `Platforms/tau.json`, which was **not** touched: the card still has the platform name
+`TAU` + superscript alpha (installed earlier), `dist/` has plain `TAU` (the repo decided the Pocket cannot render the glyph, `check_tau_package.py`). Decide later whether to sync the card to dist.
+Result pending: run the release checks listed above.
