@@ -1,4 +1,4 @@
-.PHONY: check check-firmware check-fpga firmware firmware-advanced firmware-sdram-stress firmware-sdram-cpu-diag firmware-sdram-cpu-readback fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-controller-probe card-check visual-review
+.PHONY: check check-firmware check-fpga firmware firmware-advanced firmware-sdram-stress firmware-sdram-cpu-diag firmware-sdram-cpu-readback fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -54,7 +54,7 @@ test-host:
 	$(PYTHON) tools/check_ui_snapshot_renderer.py
 	$(PYTHON) tools/check_audit_trail.py
 
-test-rtl: test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-controller-probe
+test-rtl: test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -156,6 +156,12 @@ $(RTL_BUILD_DIR)/tb_tau_sdram_mux_return_probe.vvp: sim/tb_tau_sdram_mux_return_
 	$(IVERILOG) -g2012 -s tb_tau_sdram_mux_return_probe -o $@ $^
 
 test-rtl-sdram-mux-return-probe: $(RTL_BUILD_DIR)/tb_tau_sdram_mux_return_probe.vvp
+	$(VVP) $<
+
+$(RTL_BUILD_DIR)/tb_tau_sdram_wb_return_regression.vvp: sim/tb_tau_sdram_wb_return_regression.v src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_sdram_bridge_mux.sv src/fpga/core/tau_sdram_cpu_bridge.sv src/fpga/core/tau_sdram_arbiter.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -s tb_tau_sdram_wb_return_regression -o $@ $^
+
+test-rtl-sdram-wb-return: $(RTL_BUILD_DIR)/tb_tau_sdram_wb_return_regression.vvp
 	$(VVP) $<
 
 # Verilator's generated GNUmakefiles cannot run beneath this repository's path
