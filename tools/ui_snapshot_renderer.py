@@ -513,15 +513,18 @@ def _sconst(name):
 
 SAMPLE_VALUE = {"COLOUR": "AMBER", "METER": "OSCILLOSCOPE", "EQUALIZER": "FLAT",
                 "REPEAT": "OFF", "SCREEN BLANK": "NEVER", "ALBUM ART": "ON", "SHUFFLE": "ON",
-                "RESUME": "ON", "SPEED": "NORMAL", "VOLUME": "65%"}
+                "RESUME": "ON", "SPEED": "NORMAL", "VOLUME": "65%",
+                "WINDOW TEST": "PASS 89", "READ CYCLES": "48/50/362", "WRITE CYCLES": "47/49/361",
+                "PLAYLIST CHECK": "PASS 13", "CLEAR COUNTERS": "DONE"}
 
 
 def settings_menu(page, selected):
     """set_draw_menu() fixture. page: 0 home, 1 appearance, 2 audio, 3 playback."""
     rows = _rows(("set_home_rows", "set_appear_rows", "set_audio_rows", "set_play_rows",
-                  "set_diag_rows")[page])
+                  "set_diag_rows", "set_tests_rows")[page])
     title = _names(SETTINGS_SRC, "set_menu_title")[page]
-    hint = "A OPEN   B CLOSE" if page == 0 else ("A OPEN   B BACK" if page == 4 else "A CHANGE   B BACK")
+    hint = ("A OPEN   B CLOSE" if page == 0 else "A OPEN   B BACK" if page == 4
+            else "A RUN   B BACK" if page == 5 else "A CHANGE   B BACK")
     frame, g = ov_frame(title, "", hint)
     row_h = _sconst("SET_MENU_ROW_H")
     for i, (label, kind, _arg) in enumerate(rows):
@@ -719,6 +722,7 @@ FIXTURES = {
     "settings-playback": lambda: settings_menu(3, 3),
     "settings-diagnostics": lambda: settings_menu(4, 0),
     "settings-info": settings_info,
+    "settings-tests": lambda: settings_menu(5, 0),
     "settings-colour": lambda: settings_choice("colour", 3, 0),
     "settings-meter": lambda: settings_choice("meter", 4, 4),
     "settings-eq": lambda: settings_choice("eq", 2, 0),
