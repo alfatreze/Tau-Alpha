@@ -63,6 +63,7 @@ EXPECTED_A077_PROBE_RBF_SHA256 = (
 EXPECTED_A079_PROBE_RBF_SHA256 = (
     "246202a00fab50c6b96a38e8dd1acc4d835e5041b9d1784f325d2223421531e8"
 )
+EXPECTED_A093_PROBE_RBF_SHA256 = "e16ffe9dff4dfc8efda868c995bb7ecc371d3537af4b4d8091bec926efd84d9d"
 EXPECTED_A080_PROBE_RBF_SHA256 = (
     "f21a9ba0fe0d4d43d49c3d2f102eda8fdc5445516581928fc87730687a14baa4"
 )
@@ -78,7 +79,9 @@ def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             probe_a088: bool = False,
             probe_a089: bool = False,
             probe_a090: bool = False,
-            probe_a091: bool = False) -> dict[str, object]:
+            probe_a091: bool = False,
+            probe_a092: bool = False,
+            probe_a093: bool = False) -> dict[str, object]:
     """Return the immutable package identity/provenance for one diagnostic."""
     if probe_a062:
         return {
@@ -265,6 +268,37 @@ def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             "name": "TAU CPU SDRAM Probe A085",
             "description": "TAU result-slot settle/write/read probe A085",
             "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a093:
+        return {
+            # Fixed Wishbone adapter (S_RELEASE2, A-093) with the A-080 macros
+            # (TAU_PHASE2_WINDOW + TAU_PHASE2_MUX_PROBE, rev 23). The A-091
+            # matrix ROM publishes the 183-check result via interact.json.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a093/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-log-interact/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a093/pocket",
+            "platform_id": "tau_sdram_prb93",
+            "core_id": "alfatreze.TAU_SDRAM_PRB93",
+            "shortname": "TAU_SDRAM_PRB93",
+            "name": "TAU CPU SDRAM Probe A093",
+            "description": "TAU Wishbone adapter double-issue fix A093",
+            "expected_hash": EXPECTED_A093_PROBE_RBF_SHA256,
+            "interact_result": True,
+        }
+    if probe_a092:
+        return {
+            # Firmware-only mailbox-vs-CPU-window discriminator; raw words are
+            # published through interact.json like A-091.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a080/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-disc/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a092/pocket",
+            "platform_id": "tau_sdram_prb92",
+            "core_id": "alfatreze.TAU_SDRAM_PRB92",
+            "shortname": "TAU_SDRAM_PRB92",
+            "name": "TAU CPU SDRAM Probe A092",
+            "description": "TAU mailbox vs CPU window discriminator A092",
+            "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+            "interact_result": True,
         }
     if probe_a091:
         return {
@@ -457,6 +491,10 @@ def main() -> None:
                       help="package the A-084 result-slot lifecycle probe")
     mode.add_argument("--probe-a085", action="store_true",
                       help="package the A-085 result-slot settle probe")
+    mode.add_argument("--probe-a093", action="store_true",
+                      help="package the A-093 fixed-adapter probe")
+    mode.add_argument("--probe-a092", action="store_true",
+                      help="package the A-092 mailbox-vs-CPU discriminator")
     mode.add_argument("--probe-a091", action="store_true",
                       help="package the A-091 interact.json result probe")
     mode.add_argument("--probe-a090", action="store_true",
@@ -476,7 +514,7 @@ def main() -> None:
                   args.probe_a074, args.probe_a076, args.probe_a077,
                   args.probe_a079, args.probe_a080, args.probe_a082,
                   args.probe_a083, args.probe_a084, args.probe_a085,
-                  args.probe_a086, args.probe_a087, args.probe_a088, args.probe_a089, args.probe_a090, args.probe_a091)
+                  args.probe_a086, args.probe_a087, args.probe_a088, args.probe_a089, args.probe_a090, args.probe_a091, args.probe_a092, args.probe_a093)
     raw_rbf = cfg["raw_rbf"]
     diag_rom = cfg["rom"]
     output = cfg["output"]
