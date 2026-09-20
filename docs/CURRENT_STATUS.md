@@ -115,9 +115,16 @@ unauthorised.
    (SDRAM_MEMORY_ARCHITECTURE.md Pocket hardware gate).
 4. **Product build:** enable the window in a probe-free RBF (macro-off legacy
    decode is still broad), keep 300/308 RAM blocks, re-verify all gates.
-5. **First data move:** a NOLOAD cold buffer (`pl_text`, `art_acc`) behind the
-   uncached alias; the cached window still returns a bus error and needs its own
+5. **First data move (A-095 analysis):** `pl_text` + `pl_off` + `pl_order`
+   (13 KiB) behind the uncached alias costs tens of ms per playlist load and is
+   adequate; `art_acc` (11 KiB) would add ~0.8-0.9 s to a full cover decode, so it
+   waits for a restructure or the cached window; the 24 KiB exit target needs it.
+   Original note: the cached window still returns a bus error and needs its own
    beat-decomposing adapter (KB-024 regression applies).
+
+A-096: a minimal 7-row settings menu costs about 3.0 KiB and misses the link by
+608 B today; the 13 KiB playlist move alone would leave about 12.7 KiB spare, so
+the 24 KiB target is not supported by a measured settings need.
 
 No cold player-data migration is authorised until these gates pass.
 

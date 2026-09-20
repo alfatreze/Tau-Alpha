@@ -52,3 +52,13 @@ visualizer, EQ, repeat, shuffle, volume, resume, and blank timeout.
   confirmed action.
 - The temporary `Select+Start` entry tested in the rejected prototype is not
   adopted. Figma must define the final discoverable entry affordance.
+
+## Measured size of a minimal menu (A-096, 2026-09-20)
+
+A seven-row flat settings home over the existing controls adds 2,996 bytes
+(+2,988 `.text`/`.rodata`, +8 `.bss`) and leaves a 416-byte heap gap against the
+1,024-byte minimum: it fails the link by 608 bytes, reproducing the earlier
+"no room left for even a token heap". Freeing the 13,312-byte playlist buffers
+(A-095) would leave a 13,724-byte gap with the menu in place. A grouped design
+with previews and confirmation will be larger and needs its own size report.
+Details and caveats: `AUDIT_TRAIL.md` A-096.
