@@ -67,7 +67,7 @@ module sdram_fb #(
     input wire p0_rd_req,
     input wire p0_end_burst_req,
 
-`ifdef TAU_PHASE2_WINDOW
+`ifdef TAU_PHASE2_PROBE
     // Diagnostic-only controller-boundary provenance. The normal player does
     // not elaborate these retained observations; the Phase-2 probe uses them
     // to distinguish a controller input/drive/read failure from an upstream
@@ -311,7 +311,7 @@ module sdram_fb #(
   // 1-cycle BRAM read (wsrc_q) is ready when sdram_data is latched.
   reg [10:0] wsrc_cnt = 0;
   reg        wsrc_run = 0;
-`ifdef TAU_PHASE2_WINDOW
+`ifdef TAU_PHASE2_PROBE
   reg        debug_target_write_pending = 0;
   reg        debug_target_read_armed = 0;
   reg        debug_target_read_wait_data = 0;
@@ -435,7 +435,7 @@ module sdram_fb #(
       p0_rd_queue <= 0;
       wsrc_run    <= 0;
       wsrc_cnt    <= 0;
-`ifdef TAU_PHASE2_WINDOW
+`ifdef TAU_PHASE2_PROBE
       debug_target_write_pending <= 0;
       debug_target_read_armed <= 0;
       debug_target_read_wait_data <= 0;
@@ -470,7 +470,7 @@ module sdram_fb #(
         p0_data_queue <= p0_data;
         p0_wr_len_queue <= (p0_wr_len == 11'd0) ? 11'd1 : p0_wr_len;
         p0_wr_stream_queue <= p0_wr_stream;
-`ifdef TAU_PHASE2_WINDOW
+`ifdef TAU_PHASE2_PROBE
         if (debug_p0_cpu_selected && p0_data == 16'hFFFF &&
             p0_byte_en == 2'b11 && !debug_cpu_allones_write_latched) begin
           debug_cpu_allones_write_latched <= 1'b1;
@@ -483,7 +483,7 @@ module sdram_fb #(
         p0_rd_queue   <= 1;
 
         p0_addr_queue <= p0_addr;
-`ifdef TAU_PHASE2_WINDOW
+`ifdef TAU_PHASE2_PROBE
         if (debug_target_read_armed && debug_p0_cpu_selected &&
             !debug_cpu_follow_read_seen) begin
           debug_cpu_follow_read_seen <= 1'b1;
@@ -492,7 +492,7 @@ module sdram_fb #(
 `endif
       end
 
-`ifdef TAU_PHASE2_WINDOW
+`ifdef TAU_PHASE2_PROBE
       // The WRITE command and its DQ/DQM values are registered during WRITE,
       // so observe them from WRITE_STREAM on the next SDRAM edge. This matches
       // the values presented to the external SDRAM clock edge, not merely the

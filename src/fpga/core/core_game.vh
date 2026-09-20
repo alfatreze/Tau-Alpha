@@ -143,8 +143,14 @@ wire        soc_sdram_wb_debug_cpu_ack;
 wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 
 // Phase 2 is enabled only by adding TAU_PHASE2_WINDOW to a dedicated
-// diagnostic build's Verilog macros. Release/default builds stay on the
-// proven legacy BRAM/MMIO decode.
+// build's Verilog macros. Release/default builds stay on the proven legacy
+// BRAM/MMIO decode.
+//
+// TAU_PHASE2_WINDOW enables ONLY the CPU window. The controller-boundary debug
+// taps, tau_sdram_cpu_window_probe and the red/green top-edge overlay are a
+// separate opt-in, TAU_PHASE2_PROBE (with the return-path selectors
+// TAU_PHASE2_MUX_PROBE / _ADAPTER_PROBE / _RETURN_PROBE, which are meaningless
+// without it). Before A-113 the window macro switched the probe on as well.
 `ifdef TAU_PHASE2_WINDOW
 mp3_soc #(.PHASE2_WINDOW_ENABLE(1)) u_soc (
 `else
@@ -460,7 +466,7 @@ sdram_fb #(.CLOCK_SPEED_MHZ(100), .BURST_TYPE(0), .CAS_LATENCY(2), .WRITE_BURST(
     .p0_wr_len(arb_p0_wr_len), .p0_q(arb_p0_q),
     .p0_wr_stream(arb_p0_wr_stream), .wsrc_addr(arb_wsrc_addr), .wsrc_q(arb_wsrc_q),
     .p0_wr_req(arb_p0_wr_req), .p0_rd_req(arb_p0_rd_req), .p0_end_burst_req(arb_p0_end_burst_req),
-`ifdef TAU_PHASE2_WINDOW
+`ifdef TAU_PHASE2_PROBE
     .debug_p0_cpu_selected(sdram_arb_p0_cpu_selected),
     .debug_cpu_allones_write_latched(sdram_ctrl_write_latched),
     .debug_cpu_allones_data_latched(sdram_ctrl_write_data_all_ones),
@@ -487,7 +493,7 @@ wire        vid_hs_w, vid_vs_w, vid_de_w;
 // transaction in clk_sys and displays 49 persistent eight-pixel cells in the
 // top active scan lines. Green means the corresponding bit was observed;
 // red means it was not. This remains useful after a CPU-side stall.
-`ifdef TAU_PHASE2_WINDOW
+`ifdef TAU_PHASE2_PROBE
 wire [48:0] sdram_probe_bits;
 tau_sdram_cpu_window_probe
 `ifdef TAU_PHASE2_MUX_PROBE
@@ -588,7 +594,7 @@ mp3_fb u_fb (
     .video_rgb(vid_rgb_w), .video_de(vid_de_w), .video_hs(vid_hs_w), .video_vs(vid_vs_w)
 );
 
-`ifdef TAU_PHASE2_WINDOW
+`ifdef TAU_PHASE2_PROBE
 assign video_rgb          = sdram_probe_bar ?
                             (sdram_probe_pixel ? 24'h40FF40 : 24'hFF3030) : vid_rgb_w;
 `else

@@ -197,7 +197,7 @@ test-rtl-psram-mutation: | $(RTL_BUILD_DIR)
 # Verilator's generated GNUmakefiles cannot run beneath this repository's path
 # because it contains spaces. Keep this tool-only artefact outside the tree.
 test-rtl-sdram-controller-probe:
-	$(VERILATOR) --binary --timing -DSIM -DTAU_PHASE2_WINDOW --top-module tb_sdram_fb_controller_probe -Wno-fatal -Wno-TIMESCALEMOD -Wno-REALCVT -Mdir /tmp/tau_sdram_fb_controller_probe sim/tb_sdram_fb_controller_probe.v src/fpga/rtl/mem/sdram_fb.sv
+	$(VERILATOR) --binary --timing -DSIM -DTAU_PHASE2_WINDOW -DTAU_PHASE2_PROBE --top-module tb_sdram_fb_controller_probe -Wno-fatal -Wno-TIMESCALEMOD -Wno-REALCVT -Mdir /tmp/tau_sdram_fb_controller_probe sim/tb_sdram_fb_controller_probe.v src/fpga/rtl/mem/sdram_fb.sv
 	/tmp/tau_sdram_fb_controller_probe/Vtb_sdram_fb_controller_probe
 
 rtl-lint:
