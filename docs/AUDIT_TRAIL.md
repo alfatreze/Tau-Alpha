@@ -3480,6 +3480,99 @@ interact.json works. (2) KB-011/KB-021: fit results vary about 1.2 ns by seed
 and CL/phase margin is unmeasured, while A-093's hold slack is only +0.111 ns,
 so any promotion RTL needs several seeds and a soak.
 
+### A-095 — access counts for the candidate cold buffers (static analysis)
+
+**Date:** 2026-09-20
+
+**Decision/change:** No code or hardware change. Read `fw/art.inc`,
+`fw/playlist.inc` and `fw/player.c` to count how often each candidate buffer
+from the Phase 2 list is touched, and price those counts with the A-094
+measurements (uncached window: about 48 cycles per read and 74.6 per
+read-modify-write, net of loop, at 60 MHz). These are **code-review estimates**
+(no compiler output or firmware counters were used; loads-per-compare may differ
+by up to about 2x); BRAM cost is assumed 2-4 cycles per access, not measured.
+
+| Buffer (bytes) | When touched | Accesses | Extra cost in the window |
+|---|---|---:|---|
+| `pl_text` (12,288) + `pl_off`/`pl_order` (1,024) | one playlist load: byte copy from `tagbuf`, parse, hash, name pass | up to about 75k | up to about 60 ms worst case; a small playlist (a few hundred bytes) is a few ms |
+| same | one track change (`pl_open_name`, a name of tens of bytes) | a few hundred | well under 1 ms |
+| same | one playlist-browser redraw (about 10 rows of names) | about 1k | about 1 ms |
+| same | shuffle (256-entry Fisher-Yates) | about 1k | about 1 ms |
+| `art_acc` (11,040) | full decode, 455 px cover (207,025 source pixels x 6 accumulator accesses, plus 1 `art_xmap` load) | about 1.45M | about 0.8-0.9 s (3 RMW at 74.6 + one read per pixel) |
+| `art_acc` | reduce mode, 1494x1497 cover (about 35k block pixels) | about 0.25M | about 0.16 s |
+| `art_acc` | row flush and slot clear (about 92 rows x 92 cells x 6, plus clear) | about 56k | about 45 ms |
+| `art_xmap`/`art_yslot` (2,048) | read once per source pixel / row in the inner loop | per pixel | keep in BRAM: tiny and hottest |
+
+**Findings:**
+1. `pl_text` is filled by a CPU copy from `tagbuf`, not by APF DMA, so it can
+   live behind the uncached alias. All its use is cold (load, parse, redraw).
+   `pl_text` + `pl_off` + `pl_order` = 13,312 B (13 KiB) for a cost of tens of
+   milliseconds once per playlist load. An uncached-first move is adequate; no
+   cached window is needed.
+2. `art_acc` would add about 0.8-0.9 s to a 455 px full decode and 0.16 s to a
+   reduce-mode one. `player.c` records that the decode is already 2801 ms of a
+   3731 ms track load, so this is roughly +30% on a load that happens once per
+   album (a cover-signature cache skips repeats). It is not worth moving
+   uncached as written.
+3. The Phase 2 exit criterion is at least 24 KiB recovered
+   (`SDRAM_MEMORY_ARCHITECTURE.md`). `pl_*` alone gives 13 KiB. Reaching 24 KiB
+   needs `art_acc` (11,040 B), which needs either the cached window or a
+   restructure that accumulates a run of source pixels per destination cell in
+   registers so each cell is read-modified-written once per run (about 5x fewer
+   window accesses at this cover size). Both change decode code and need their
+   own measurement.
+**Decision needed (user):** accept `pl_*` (13 KiB) as the first Phase 2 step and
+defer `art_acc`, or plan the restructure/cached window to reach 24 KiB.
+**Next gate:** the margin, contention and product-build gates in
+`docs/CURRENT_STATUS.md` still apply before any move. A firmware access counter
+on a player build would replace the estimates above with measured counts.
+
+### A-096 — measured size of a minimal settings menu against the link gap
+
+**Date:** 2026-09-20
+
+**Decision/change:** No product change. Built a throwaway seven-row settings home
+(Colour, Meter, EQ, Repeat, Shuffle, Resume, Screen blank) behind
+`TAU_SETTINGS_PROTO`, drawn like the playlist overlay, editing the existing
+controls with the same side effects as their current key bindings, and linked it
+into the player. This is the "isolated size report" step of
+`docs/SETTINGS_RUNTIME_BUDGET.md`. The prototype, its hook patch and a
+relaxed-assert link script are kept in `work/diagnostics/settings-size-proto/`;
+`fw/player.c` and `fw/build.sh` were restored, the product ROM in `dist/` is
+unchanged (an accidental rebuild of it was reverted with `git checkout`), and the
+prototype was built to a scratch output directory.
+
+**Measured (Icarus/toolchain `size`, same flags as the player build):**
+
+| | `.text`+`.rodata` | `.data` | `.bss` | Image + BSS | Heap gap |
+|---|---:|---:|---:|---:|---:|
+| Baseline player | 151,324 | 764 | 61,578 | 213,666 | 3,408 B |
+| With the 7-row menu | 154,312 | 764 | 61,586 | 216,662 | 416 B |
+| Delta | +2,988 | 0 | +8 | **+2,996** | -2,992 |
+
+The linker requires a heap gap of at least 1,024 B, so the baseline has only
+2,384 B of slack and the prototype misses by 608 B. The unmodified link of the
+prototype fails with the exact earlier message, "no room left for even a token
+heap", which reproduces and explains the rejected settings prototype.
+**Findings:**
+1. Almost all the cost is code and strings (+2,988 B), not data (+8 B). SDRAM data
+   cannot pay for it directly; only freeing on-chip RAM elsewhere can, because
+   image, BSS, heap and stack share the 256 KiB (see A-095).
+2. Moving `pl_text`+`pl_off`+`pl_order` (13,312 B, A-095) would leave a heap gap of
+   3,408 + 13,312 - 2,996 = **13,724 B** with this menu in place, about 12.7 KiB
+   above the 1 KiB minimum and roughly 4x the prototype's size.
+3. So the minimal settings home does **not** need the 24 KiB Phase 2 target or the
+   `art_acc` move. 13 KiB is enough for it with room to spare.
+**Caveats:** the prototype is one flat list with no groups, previews, confirmation
+or Advanced section, no new persisted words, and no Figma layout; the approved
+design in `SETTINGS_ARCHITECTURE.md` will be larger. A plausible 2-4x range
+(about 6-12 KiB) is a guess, not a measurement. Hardware behaviour of the menu
+was not tested (compile and link only); the block-RAM fit is unaffected.
+**Decision/next gate:** treat the 24 KiB criterion as unsupported by any measured
+need and revisit it once the real settings design has a size report. The first
+Phase 2 move can be the playlist buffers alone, subject to the margin,
+contention and product-build gates in `docs/CURRENT_STATUS.md`.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible
