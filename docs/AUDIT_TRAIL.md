@@ -5063,3 +5063,22 @@ R0 baseline were not photographed; they were the lighter cases of the A-102 grid
 **Retirement (host):** `TAU_SDRAM_WSTRESS` (platform `tau_sdram_wst`, with its test tracks) removed from the card after a verified backup (Cores, Assets, Platform files, Settings, all diffed
 identical) in `work/diagnostics/gates-a128/card-removed-wstress/` (66 MB; the test music also exists in `work/test-music/`). Catalog indexes backed up and cleared. Remaining cores:
 `TAU`, `TAU_SETTINGS`, `TAU_DIAGNOSTIC`, and `TAU_PSRAM` (PSRAM session, untouched). The Diagnostic Build carries the stress pump, soak and tests from now on.
+
+### A-130 — release v0.2.0: settings + Info + SDRAM playlist on the probe-free seed-2 RBF (built and packaged in dist/, not installed)
+
+**Date:** 2026-09-21
+**Owner decisions:** version **0.2.0**; add a `release` target and keep `player` as the legacy build.
+**Change:** `fw/build.sh release` builds the shipped product into `dist/`: `TAU_SETTINGS_UI=1 TAU_PL_SDRAM=1 TAU_DIAG_INFO=1` (no diagnostic tests, no stress), minimum
+heap gap 8 KiB enforced. Version bumped in the three places the build cross-checks: `APP_VER "0.2.0"` (`fw/player.c`), `dist/Cores/alfatreze.TAU/core.json`
+(`version 0.2.0`, `date_release 2026-09-21`) and `README.md` ("Current version **v0.2.0**"); `CHANGELOG.md` has a v0.2.0 entry. `package.py` gained an audited
+`--rbf PATH --rbf-sha256 HASH` option; `python3 package.py --rbf work/diagnostics/sdram-probefree-a114/s2/ap_core.rbf --rbf-sha256 551e5a76...718b` wrote the
+bit-reversed bitstream to `dist/Cores/alfatreze.TAU/bitstream.rbf_r` (`cb15310a...a3c9`, 1,828,936 B; verified equal to the reversed raw file).
+**Artifacts:** `dist/Assets/tau/common/tau.rom` = release ROM `9b5d6575...` (155,684 B, 86.4% of the RAM budget, heap gap 13,088 B); `dist/Cores/alfatreze.TAU/bitstream.rbf_r` = seed-2
+probe-free window RBF; `tools/check_tau_package.py` passes; `make test-host` passes (`make check` cannot run on this Mac: its build-tool probe reports the Quartus/toolchain
+tools missing, as before). The release ROM is the settings-UI ROM with the version string 0.2.0, which is what ran on the Pocket in A-116..A-122 (plus the gesture change of A-122) and the
+same window/playlist code that passed A-105..A-108, A-126, A-128 and A-129.
+**Not done:** no card install (the base `TAU` core on the card is still the old 0.1.0 product), no full release regression on the packaged product, no version-bumped rebuild of the
+`TAU_SETTINGS`/`TAU_DIAGNOSTIC` test bundles (their ROMs show 0.1.0 until rebuilt).
+**Release checks to run on Pocket (base TAU after installation):** boot, playlist and settings screens, Info page (version 0.2.0, FPGA rev `4D503317`, window OK), playback of MP3 with and
+without cover, seek, pause/resume, repeat/shuffle/resume across a Quit, a long-press of A (must only pause), Speed in Settings, colour and meter persistence, the large playlists (A-107 lists),
+a couple of screenshots for the record.

@@ -2,6 +2,22 @@
 
 What changed in each release, newest first.
 
+## v0.2.0 — 21 September 2026
+
+- **Settings menu** — tap **Start**. Appearance (colour, meter, album art, screen blank),
+  Audio (equalizer, volume) and Playback (repeat, shuffle, resume, speed). Colour, meter,
+  equalizer, repeat and screen blank open a list: move with **Up**/**Down**, **A** selects,
+  **B** goes back. **Start** no longer stops playback; **B** still returns to the start of the track.
+- **Full-screen playlist and settings**, with a position counter and a hint line.
+- **1.2x moved into Settings > Playback.** A long press of **A** no longer changes speed.
+- **Diagnostics > Info** in Settings: firmware, FPGA revision, memory, playlist, track, underruns,
+  draw stall and load timings at a glance.
+- **The playlist now lives in the Pocket's SDRAM**, freeing 13 KiB of on-chip memory (the room
+  the settings menu needed). Validated with a 32-minute soak (279 million checks), a whole-window
+  address-line and CRC test, and playback under heavy memory load, all with zero failures.
+- New bitstream: SDRAM CPU window enabled (the SDRAM read-return bug is fixed) and no diagnostic
+  overlay on screen.
+
 ## v1.4.0 — 21 August 2026
 
 - **Playlist browser** — tap **Select**. **Up**/**Down** moves,

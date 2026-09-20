@@ -137,6 +137,23 @@ player-settings)
     HEAP_MIN=8192        # release-style build: keep at least 8 KiB of heap gap
     ;;
 player-diagnostic)
+release)
+    # The shipped product (A-130): settings menu, Info page and the playlist in SDRAM, built into
+    # dist/. Needs the window RBF (the probe-free seed-2 build, A-114/A-128) in the same package.
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_DIAG_INFO=1"
+    HEAP_MIN=8192
+    ;;
     SRCS=(
       "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
       "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
