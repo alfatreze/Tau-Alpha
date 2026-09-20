@@ -98,6 +98,11 @@ approval before submission.
 
 ## Known issues and fixes
 
+- Codex CLI 0.147.0 rejects conditional `allOf` keywords in structured-output
+  schemas. The plan schema therefore contains only its portable base constraints;
+  `tools/triad/director.py` remains authoritative for status-specific rules such
+  as requiring files for `patch` and forbidding them for `no_change`.
+
 - Passing the full Figma and Claude MCP catalog to a 16k local model produced
   an initial prompt around 23.6k tokens. Qwen now receives only a short Codex
   packet, with no tool schemas.
@@ -122,8 +127,8 @@ approval before submission.
 
 The complete local Icarus suite, Director plan/patch safety tests, host checks,
 and Verilator lint pass, with pre-existing nonfatal lint warnings documented in
-the audit trail. The live triad has not yet run because Claude CLI sign-in and
-Computer account/profile setup remain for the user. Neither action should be
-inferred from the Figma OAuth connection.
+the audit trail. The authenticated live triad is now available: Codex planning/review,
+patch-only Qwen, and Claude final audit completed a read-only no-change probe. It ran
+host gates only; no RTL simulation, Quartus, SSH, or Pocket hardware was used.
 
 Generated plans, patches, reviews, and logs are under ignored `work/triad/`.
