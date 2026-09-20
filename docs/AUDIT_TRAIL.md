@@ -4080,3 +4080,101 @@ on Pocket (p.3 caption says registers need setting after power-on, p.7 says defa
 load); board-level skew and I/O constraints; datasheet is a preliminary revision.
 **Next:** P2 (mailbox, I/O constraints, `interact.json` publishing, `--probe-a100`).
 
+
+### A-103 — playlist-buffers-to-SDRAM design spec (design only)
+
+**Date:** 2026-09-20
+**Evidence:** code-review (no build, no hardware)
+**Change:** added `docs/PLAYLIST_SDRAM_MOVE_SPEC.md`: move `pl_text`/`pl_off`/`pl_order`
+(13,312 B) behind the uncached alias at `0xA0100000` via a NOLOAD linker section, with a
+preflight, feature-off fail-safe (no BRAM fallback), product RTL = A-101 seed 4 unchanged,
+and an 8-row Pocket regression matrix. Confirmed from source: alias = `0xA0000000 + physical`,
+byte/halfword access supported (A-093), macro-off decode aliases into MMIO, only the CPU
+touches the buffers. Also checked the skill KB: KB-026/027 already hold their own bodies
+and KB-030/031 are complete local entries, so no repair was needed. Step-1 hardware run
+(cold boot + seek/pause/cover under stress) still awaits the user.
+
+### A-104 — A-102 cold-boot repeat with seek/pause/track change (Pocket, no failure)
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (8 screenshots, card clock 10:48-10:53, copies in
+`work/diagnostics/sdram-stress-window/session4-screenshots/`). Card verified read-only before
+the run: all 14 bundle files SHA-256-identical (seed-4 RBF `2e9aaf0e...`, burst ROM `55384a55...`).
+**Observed** (HUD `E L M S R K P`): track 1 R0 (00:08, cold start) E7 L0 M0 S2; R1 stopped at
+02:28 E15 L0 M372 S0 K3.8; R2 restarted at 00:05 E35 L0 M372 K15.2; R3 E56 L0 M372 K17.0 P8;
+track 2 (455 px cover) R0 E73 L0; R1 E15 L0 M365 K3.2; R2 E37 L0 M373 K9.2; R3 E57 L0 M373
+K11.1 P7. No FAIL/mismatch text, S 0 (the S2 at cold-boot R0 precedes any window traffic, M0),
+worst window access 365-373 cycles (idle bound), L (late underruns) 0 in every frame, no audible
+issue reported. Pump reached K up to 17.0k ops/s, similar to A-102's 22.6k.
+**Reading:** E rises with every stop/seek/resume/track change (expected restart artefacts, KB-031);
+E/S/K counters are reset when stress cycles (values drop between levels). Covers: cold boot,
+stop, seek, resume, track change with a different cover size, at R0-R3.
+**Limits:** no screenshot was taken during a cover decode itself, so cover-change-under-stress
+is only inferred from the track change; the persist file holds only settings (no diagnostic
+record in this core); saturating level not run (skipped by decision); the constant red/green
+strip along the top edge is the same in sessions 2-4 (also in the A-102 session with the same
+RBF family) and is treated as a fixed UI element, not corruption, but its source is not
+identified in this session.
+**Verdict:** step 1 gate passed at realistic load; no contention signal.
+
+### A-105 — playlist buffers in SDRAM: firmware built and packaged (not installed)
+
+**Date:** 2026-09-20
+**Evidence:** host (build, link map, `make test-host`); no simulation or hardware yet.
+**Change** (implements `docs/PLAYLIST_SDRAM_MOVE_SPEC.md`, all behind `TAU_PL_SDRAM`, default 0):
+`pl_text`, `pl_off`, `pl_order` (13,312 B) get `__attribute__((section(".sdram")))`; `fw/link.ld`
+gains region `sdram` at `0xA0100000`, length 0x3400, and an `.sdram (NOLOAD)` output section
+(ALLOC only, no LOAD, so the ROM carries nothing). `pl_load()` first calls `pl_sdram_ready()`,
+which runs once: pattern through the Phase 1 mailbox at physical 1 MiB, read back through the
+window (a read, harmless on a bitstream without the window), then two patterns on the first and
+last word of the section through the window. Failure sets `PL_ERR_SDRAM`, the playlist stays off
+(no BRAM fallback) and the toast says `NO SDRAM PLAYLIST`. New build target
+`fw/build.sh player-sdram-pl` (-> `work/diagnostics/playlist-sdram/tau.rom`); packager mode
+`tools/package_sdram_stress.py --playlist-sdram --rbf ... --rbf-sha256 ...` builds core
+`alfatreze.TAU_PLSDRAM` / platform `tau_plsdram`.
+**Results:** the product build (`player`) is byte-identical to before (`b365dc2a...c842`, 152,088 B);
+the new toast branch is compiled out. SDRAM ROM 152,436 B, SHA-256
+`63e605e9e551229b4e06c1e41ba4b33c92ff8170c4b78f6736267d0ec92029fe` (+348 B: the preflight).
+ELF: `.sdram` at `a0100000` size 0x3400 (pl_order a0100000, pl_off a0100200, pl_text a0100400);
+heap gap 0x3FF0 = 16,368 B against the 1,024 B minimum (about 3,056 B before this change).
+Bundle `work/diagnostics/playlist-sdram/pocket` with the A-101 seed-4 RBF (raw `ed34a6bc...90eb`,
+bit-reversed `2e9aaf0e...3cd7`). `make test-host` passes.
+**Not done:** no card write, no Pocket run. Test music/playlist for this platform must be copied
+to `Assets/tau_plsdram/common/` at install time (same procedure as the window stress core).
+Regression matrix rows 1-8 of the spec are pending; a BRAM-vs-SDRAM playlist-hash comparison
+needs a way to read `pl_sig`/order on screen, to be decided when installing (the existing
+overlay shows names and order, which is the practical check).
+
+**A-105 installation (host, 2026-09-20):** installed `alfatreze.TAU_PLSDRAM` / platform `tau_plsdram` on the
+card (volume `Pock`) beside the existing cores, nothing removed. All 14 bundle files SHA-256-identical
+on the card (ROM `63e605e9...029fe`, bit-reversed RBF `2e9aaf0e...3cd7`); test music + `playlist.m3u`
+copied to `Assets/tau_plsdram/common/` and diffed identical to `work/test-music/tau_sdram_wst/common`
+(macOS `._*` files created by the copy were removed). Catalog indexes backed up to
+`work/diagnostics/playlist-sdram/pocket-cache-backup-2026-09-20/System/` and cleared. The user had
+cleaned out `Memories/Screenshots` beforehand. Pocket result pending: run matrix rows 2-8
+(row 1 needs a no-window RBF).
+
+### A-106 — playlist buffers in SDRAM on Pocket (A-105 build): pass on the 5-track list
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (5 screenshots, card clock 11:09-11:13, copies in
+`work/diagnostics/playlist-sdram/screenshots/`) plus the user's statement that everything in the
+regression list was exercised and no audio problem was heard (user-reported, not all of it
+photographed).
+**Screenshots:** (1) overlay `PLAYLIST 1/5`, all five names correct and in file order
+(`01 320CBR 44k1 stereo`, `02 320CBR 48k stereo`, `VBR 07 Contact with the Ohmu`, `CBR128 44k1
+merry-farm`, `VBR 02 Stampede of the Ohmu`), track 1 playing at 00:17; (2) shuffle on: same names,
+order permuted (VBR 02 first, current track 01 second), `2/5` in the overlay and `1/5` on the status
+line, playback continued at 00:31; (3) `SEEK + 10s` on track 1 (1400 px cover) at 03:59, no glitch;
+(4) track 2 (455 px cover) at 01:54 with shuffle; (5) track 3 (VBR, 64 kbps 44.1 kHz, album art) at
+00:05. No error toast, no `NO SDRAM PLAYLIST`, no garbled name, playback normal.
+**Reading:** the window preflight passed, the playlist loaded through `pl_text`/`pl_off`/`pl_order`
+in SDRAM, names render correctly (every character read through the uncached window), shuffle
+permutes `pl_order`, navigation across tracks works, and seeking and cover loads were fine.
+**Limits:** only the 5-track list was tested (no 240-track or truncation case, matrix rows 3-4); no
+screenshot of the boot toast; number of cold boots is user-reported only; no underrun counters (the
+product build has no HUD), so "no audio issue" is by ear; row 1 (old no-window RBF, must refuse
+without side effects) has not been run.
+**Verdict:** rows 2, 5, 6, 7 pass on the small list. Remaining before the move is promoted:
+rows 1, 3, 4 (large and clipped lists, negative test), then product packaging with the settings
+menu work that this recovered space is for.
