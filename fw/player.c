@@ -6175,6 +6175,10 @@ static void poll_input(void)
      * use. Firing the tap action on the press instead would mean a long press
      * pauses AND changes speed -- it is on the way into every hold. */
     {
+#if !TAU_SETTINGS_UI
+        /* The 1.2x hold gesture exists only in builds WITHOUT the settings menu. Where the menu
+         * is present, Speed lives in Settings > Playback and a long press of A is just a press:
+         * it was too easy to trigger by accident (A-121). */
         static uint32_t a_t0;
         static uint8_t  a_fired;      /* the hold action already ran this press */
         const uint32_t  a_hold_cy = CLK_HZ / 1000u * SPEED_HOLD_MS;
@@ -6194,6 +6198,9 @@ static void poll_input(void)
              * seconds change. */
             ui_last_sec = 0xFFFFFFFFu;
         }
+#else
+        static const uint8_t a_fired = 0u;    /* no hold action: every release is a tap */
+#endif
 
         if ((fall & KEY_A) && !a_fired) {
             /* Select+A shows the boot datatable snapshot, mirroring Select+B
