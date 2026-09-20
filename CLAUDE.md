@@ -134,3 +134,4 @@
 - 2026-09-21 (Claude): card. Installed the A-132 build (meter previews, ten speeds; ROM b80fe44b...) into TAU_SETTINGS with core.json 0.2.0; previous ROM/core.json/indexes backed up; 14/14 SHA-256. Result pending.
 - 2026-09-21 (Claude): docs. A-133: meter previews work (fixed lime colours, not theme-following: open question); speed list works, 1.25x ok and 1.30x clearly degraded (user-reported).
 - 2026-09-21 (Claude): firmware. A-134: speed list trimmed to 0.85-1.25x (table keeps all ten), previews unchanged per the user; settings ROM 36d1e37c (gap 6,608 B), diagnostic 62640957; bundles repackaged, NOT installed.
+- 2026-09-21 (Claude): card. Installed the A-134 build (speed list 0.85-1.25x, ROM 36d1e37c...) into TAU_SETTINGS; A-132 ROM and indexes backed up; 14/14 SHA-256. Result pending.
