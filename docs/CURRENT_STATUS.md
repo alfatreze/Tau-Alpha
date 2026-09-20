@@ -110,10 +110,10 @@ unauthorised.
    controller's CAS latency / clock phase (KB-021, OQ-6); the A-093 fit has only
    +0.111 ns hold slack, so build promotion RTL with several seeds and read
    fast-corner hold (KB-011).
-3. **Contention:** the matrix passes with scanout running; add real MP3 playback
+3. **Contention (A-102 PASSED at realistic load: seed-4 RBF, 4 tracks x levels 0-3, 0 late underruns, 0 mismatches, S 0, worst access 373 cycles, up to 22.6k ops/s; saturation, FLAC and cold-boot repeat still open):** the matrix passes with scanout running; add real MP3 playback
    and count audio underruns during concurrent CPU-window traffic
    (SDRAM_MEMORY_ARCHITECTURE.md Pocket hardware gate).
-4. **Product build:** enable the window in a probe-free RBF (macro-off legacy
+4. **Product build (A-101 DONE: four seeds all closed timing, 300/308 RAM blocks, hold +0.105..+0.123 ns, setup +0.39..+0.52 ns; seed 4 selected, RBF `ed34a6bc...90eb`):** enable the window in a probe-free RBF (macro-off legacy
    decode is still broad), keep 300/308 RAM blocks, re-verify all gates.
 5. **First data move (A-095 analysis):** `pl_text` + `pl_off` + `pl_order`
    (13 KiB) behind the uncached alias costs tens of ms per playlist load and is

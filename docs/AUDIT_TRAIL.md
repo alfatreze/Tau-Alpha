@@ -3140,7 +3140,7 @@ the Pocket, and only `interact.json` persistence works. Do not treat upstream as
 evidence that `0184` persists a file. Recommended next: stop chasing `0184`
 persistence and move to the `interact.json` compact-result channel.
 
-### A-091 — publish the result through interact.json persist (draft, not installed)
+### A-091 — publish the result through interact.json persist (Pocket PASS)
 
 **Date:** 2026-09-19
 
@@ -3207,7 +3207,7 @@ This closes the result-log path: the SD-card record now works without `0184`
 or `0188`. Issue 019 can be resolved on this evidence. It says nothing about the
 SDRAM return-path fault itself, which remains open.
 
-### A-092 — mailbox-vs-CPU-window discriminator (draft, not installed)
+### A-092 — mailbox-vs-CPU-window discriminator (Pocket result: reads lag one beat)
 
 **Date:** 2026-09-20
 
@@ -3391,7 +3391,7 @@ is independently confirmed.
 before any real use of SDRAM for player data. Do not promote
 the CPU window or migrate cold data on simulation evidence alone.
 
-### A-094 — cost of the uncached SDRAM window (draft, not installed)
+### A-094 — cost of the uncached SDRAM window (Pocket result: about 50 cycles per access)
 
 **Date:** 2026-09-20
 
@@ -3573,7 +3573,7 @@ need and revisit it once the real settings design has a size report. The first
 Phase 2 move can be the playlist buffers alone, subject to the margin,
 contention and product-build gates in `docs/CURRENT_STATUS.md`.
 
-### A-097 — long soak of the fixed CPU window (draft, not installed)
+### A-097 — long soak of the fixed CPU window (Pocket PASS: 264M checks)
 
 **Date:** 2026-09-20
 
@@ -3635,7 +3635,7 @@ strip (the matrix's own progress text), which does not affect the record.
 framebuffer drawing, and access-time counters (A-100), then the product RTL and
 contention gates.
 
-### A-100 — whole-window coverage, CRC under drawing, access counters (draft)
+### A-100 — whole-window coverage, CRC under drawing, access counters (Pocket PASS)
 
 **Date:** 2026-09-20
 
@@ -3696,6 +3696,291 @@ location and indicate a decode or wiring fault for that line; a CRC mismatch wou
 localise to a 64 KiB block.
 **Not covered even by this:** audio playback, other engine traffic, temperature,
 the product RTL, and the cached alias.
+
+### A-101 — product-candidate RTL with the CPU window, multi-seed fits (complete; seed 4 selected)
+
+**Date:** 2026-09-20
+
+**Decision/change:** Gate 4 of the promotion list: build the CPU-window RTL
+**without any probe macro** (only `TAU_PHASE2_WINDOW=1`, the fixed adapter of A-093
+and the rev-23 wiring), on several placer seeds, to measure timing margin and
+resources before any product use. KB-011 (skill knowledge base) says fit results
+vary about 1.2 ns by seed and to compare fast-corner hold, and the A-093 probe
+build had only +0.111 ns worst hold. Player firmware is unchanged
+(`EXPECT_VERSION 0x4D503317` already matches); no firmware uses the window yet.
+**Method:** fresh ext4 snapshots on the VM
+`phase2-product-a101-s1-20260920` and `phase2-product-a101-s2-20260920`, staged from
+the shared workspace at the committed tree (excluding `toolchain`, `work`, `.git`,
+`.claude`, `docs/vendor`, `UniClaudeProxy`, the host venv and Quartus output), each
+with `TAU_PHASE2_WINDOW=1` and `SEED n` appended to the qsf. `make check-fpga`
+passed in both. Both `make fpga` runs launched at 2026-09-20 02:36 WEST in
+parallel (4 vCPU; logs `quartus-a101-s1.log`, `quartus-a101-s2.log`). Seeds 3 and 4
+follow after these finish. The stale idle A-067 session on the VM is untouched.
+**Acceptance (set before the results):** 0 errors; timing TNS 0 with positive
+setup and hold in all corners; RAM blocks not above 300 / 308; report ALM, register
+and DSP deltas against the A-093 probe build (6,106 ALMs, 8,060 registers, 11 DSP);
+prefer the seed with the best fast-corner hold slack, and require it to beat the
+A-093 build's +0.111 ns or explain why not.
+**Interim result (seeds 1 and 2, both flows Successful, 0 errors):**
+
+| | Seed 1 | Seed 2 | A-093 probe build |
+|---|---:|---:|---:|
+| Flow time | 53m41s (finished 03:26:47) | 49m48s (03:22:24) | 44m03s (single build) |
+| ALMs | 6,124 (33%) | 6,108 (33%) | 6,106 |
+| Registers | 7,999 | 8,042 | 8,060 |
+| RAM blocks / DSP | 300/308, 11 | 300/308, 11 | 300/308, 11 |
+| Worst setup (slow 85C, 100 MHz `general[3]`) | +0.443 ns | +0.524 ns | +1.106 ns |
+| Worst hold (fast 0C, `general[0]`) | **+0.115 ns** | +0.105 ns | +0.111 ns |
+| TNS | 0 | 0 | 0 |
+| Raw RBF SHA-256 | `89d7fd63...4256` | `687c78c6...55eb` | `e16ffe9d...4d9d` |
+
+Both stay at 300/308 RAM blocks. Against the criteria: only seed 1's worst hold
+(+0.115 ns) beats A-093's +0.111 ns, by 4 ps, which is not a meaningful
+difference; seed 2 is 6 ps below it. The worst hold is about +0.1 ns in every build
+so far (baseline 0.025), i.e. seed choice is not moving it much, so hold is a
+property of these clock crossings, not of the window. **Setup margin is lower than
+the probe build** (+0.44/+0.52 ns vs +1.11 ns) on the 100 MHz SDRAM-side clock,
+still positive with TNS 0. Copies of both RBFs: `work/diagnostics/sdram-product-a101/s1|s2`.
+Seeds 3 and 4 launched at 03:36 WEST to complete the comparison; pick after those
+finish. This is **Quartus** evidence only.
+**Final result (all four seeds Successful, 0 errors, TNS 0, 300/308 RAM blocks, 11 DSP):**
+
+| Seed | ALMs | Registers | Worst setup | Worst hold | Flow time | Raw RBF SHA-256 |
+|---|---:|---:|---:|---:|---|---|
+| 1 | 6,124 | 7,999 | +0.443 ns | +0.115 ns | 53m41s | `89d7fd63...4256` |
+| 2 | 6,108 | 8,042 | **+0.524 ns** | +0.105 ns | 49m48s | `687c78c6...55eb` |
+| 3 | 6,099 | 8,043 | +0.390 ns | +0.116 ns | 54m37s | `fcfe81ef...f01b` |
+| 4 | 6,106 | 8,053 | +0.464 ns | **+0.123 ns** | 50m52s | `ed34a6bc...90eb` |
+| A-093 probe build | 6,106 | 8,060 | +1.106 ns | +0.111 ns | 44m03s | `e16ffe9d...4d9d` |
+
+Spread across seeds: setup 0.39-0.52 ns, hold 0.105-0.123 ns (about 18 ps), i.e. hold
+barely moves with the seed (KB-011's roughly 1.2 ns variation did not appear here).
+**Selection (rule set before the results: best fast-corner hold, must beat A-093's
++0.111 ns):** **seed 4** (hold +0.123 ns, 12 ps above A-093; setup +0.464 ns, second best).
+Seed 1 (+0.115) also qualifies but by 4 ps; seed 2 has the best setup but its hold is below
+the A-093 figure. The differences are within placer noise, so this is a tie-break, not a
+finding that seed 4 is materially safer. All four RBFs are in
+`work/diagnostics/sdram-product-a101/s1..s4/ap_core.rbf`. Note that every seed has less setup
+margin (0.39-0.52 ns) than the probe build (1.11 ns); it is positive on the 100 MHz
+SDRAM-side clock with TNS 0. This is **Quartus** evidence only; the gate run on Pocket
+(A-102) currently uses seed 1 for bring-up and should be repeated on seed 4.
+**Status:** complete for the build gate; product-candidate RBF selected (seed 4); Pocket
+gate pending (A-102).
+
+### A-102 — CPU-window contention stress with real playback (realistic-load pass on Pocket)
+
+**Date:** 2026-09-20
+
+**Decision/change:** Gate 3 of the promotion list. The existing Phase 1 harness
+(`TAU_SDRAM_STRESS`/`TAU_STRESS_HUD`, `docs/SDRAM_CONTENTION_DIAGNOSTIC.md`) drives
+an MMIO-mailbox pump next to real playback. New `TAU_SDRAM_STRESS_WINDOW=1`
+(`fw/build.sh player-stress-window`) replaces the pump with CPU-window traffic:
+each operation writes a pattern word through the uncached alias
+(`0xA0000000 + byte offset`, physical 1-2 MiB, the same region and address-derived
+pattern as Phase 1) and reads it back, checking every word; a CRC accumulates per
+1 MiB pass. **Select+X** now cycles off, level 1 (about 16,000 ops/s, the Phase 1
+rate), level 2 (about 64,000) and level 3 (about 128,000, roughly 20% of the CPU).
+The HUD line gains `R<level> M<max window access cycles> U<audio underruns since
+start> S<draw-engine stall cycles since start>`. Before the first window store the
+pump runs a preflight (mailbox write, CPU-window read of the same word) and
+refuses with the toast "NO SDRAM WINDOW" otherwise, because on a bitstream without
+the window the alias decodes to MMIO.
+**Link finding:** the Phase 1 stress ROM **no longer links on the current tree**:
+`player-stress` leaves a 624-byte heap gap (1,024 required) and the window variant
+224 bytes, since the player has grown. `fw/link.ld` now has
+`PROVIDE(_min_heap = 1024)` and the stress targets pass
+`-Wl,--defsym=_min_heap=128`. Justification: `malloc` is the fixed arena in
+`alloc.c` (FLAC also uses it) and nothing links `printf`, so `_sbrk` is only a
+fallback. Verified: the product player builds to the same SHA-256 (`b365dc2a...`)
+with the old and the new link script. The committed `dist/` ROM differs from a fresh
+build only because it predates rev 23. Size: stress-window ROM 155,200 bytes; text
+154,432, bss 61,650.
+**Packaging:** `tools/package_sdram_stress.py --window --rbf <raw> --rbf-sha256 <hash>`
+(refuses an RBF whose hash differs) builds `alfatreze.TAU_SDRAM_WSTRESS` /
+`tau_sdram_wst` from the normal TAU core JSON. For early bring-up it was packaged with
+the A-093 RBF (`e16ffe9d...4d9d`; its top 8 scanlines carry the probe overlay, so
+judge top-edge corruption only on the A-101 build). ROM SHA-256
+`d11309cc6f2103267e86389d4b5ae5ffd9f07d34eec97fb32ae82f1b7bfe0663`; bit-reversed
+RBF `c765cabb...48b3`; bundle `work/diagnostics/sdram-stress-window/pocket`.
+**Protocol and acceptance (set before any run):** high-bitrate MP3 with artwork and a
+playlist. (1) Per visualizer, a stress-off baseline, then level 1 for at least one
+full pass (about 16 s). (2) On at least three heavy visualizers, levels 2 and 3 for at
+least 5 minutes each, with seek, pause/resume, artwork loads and track/playlist changes.
+(3) A cold-boot repeat. Pass: zero `SDRAM MISMATCH`/timeout, `U` (underruns) 0 at the
+levels where CPU load is not the cause, no audible dropout, no tearing or corruption.
+Record `M` and `S` at each level. **Confound to keep in mind:** at level 3 an underrun
+could be CPU starvation (the pump costs about 20% of the CPU) rather than SDRAM
+contention; `S`, `M`, and a stress-off run at similar CPU load are needed to separate
+them. There is no BRAM-only control at the same CPU cost yet.
+**Predictions:** levels 1-2 with 0 mismatches and 0 underruns; `M` similar to the idle
+360-cycle bound (higher if the engine is busy), `S` growing but bounded; level 3 may show
+underruns, which would be recorded, not hidden.
+**Repackaged with the A-101 seed-1 product-candidate RBF (2026-09-20):** the bring-up
+package now uses the probe-free build (raw SHA-256 `89d7fd63...4256`, verified before
+packaging) instead of the A-093 probe RBF, so the top scanlines carry no diagnostic
+overlay and edge corruption can be judged. Bit-reversed Pocket RBF SHA-256
+`898210a6bbeea82fa9c91f012c52e89f37c98291cf20c740cd499040cf9f1b6b` (bit reversal
+re-checked against the raw file); ROM unchanged, SHA-256
+`d11309cc6f2103267e86389d4b5ae5ffd9f07d34eec97fb32ae82f1b7bfe0663`. Seed 1 is the
+bring-up choice only; the final gate seed is decided after A-101 seeds 3 and 4.
+Bundle: `work/diagnostics/sdram-stress-window/pocket` (core
+`alfatreze.TAU_SDRAM_WSTRESS`, platform `tau_sdram_wst`); the test tracks go to
+`Assets/tau_sdram_wst/common/` (playlist.m3u sits in `common/`).
+**Installation evidence:** **host** — the window-stress core replaced the A-100 probe on
+the mounted card (A-100 core, platform, image, assets and settings removed; its persist
+file is in `work/diagnostics/sdram-stress-window/pocket-cache-backup-2026-09-20/a100-removed/`).
+Installed `alfatreze.TAU_SDRAM_WSTRESS` / `tau_sdram_wst`; on-card SHA-256 matches
+the ROM (`d11309cc...0663`) and the bit-reversed seed-1 RBF (`898210a6...1b6b`). The
+five test tracks and `playlist.m3u` were copied to `Assets/tau_sdram_wst/common/`
+(`TAU A-102 stress/` two files, `Controls/` three files; 67 MB) and byte-compared against
+the staged tree with no differences. The older `alfatreze.TAU_SDRAM_STRESS` (Phase 1,
+old RBF) and all other cores were left in place. Catalog indexes backed up under
+`work/diagnostics/sdram-stress-window/pocket-cache-backup-2026-09-20/System/` and
+cleared. Pocket result pending.
+**First Pocket session (partial, user-reported):** a short test on the installed core:
+no audible problem at any point; the user saw one instance of the underrun counter
+incrementing (track, level and action at that moment not yet recorded); the `S` (draw
+stall) field was never visible. One screenshot from the session
+(`20260920_031057.png`, loading screen) shows the HUD strip at the screen bottom:
+`ST BARS OFF L- --:-- R0 M0 U0 S0`, so the window core, the HUD and the counters ran. **Cause of
+the invisible `S`:** while stress runs the line reached about 48 characters
+(`ST BARS P1 61% 01:09 L2 00:31 R2 M360 U0 S...`) against a 360 px clip
+(`UI_INNER_W`), which cut off the fields appended at the end. **Fix:** in window mode
+the counters now come first and the line is shorter: `[FAIL n] U<underruns> M<worst
+cycles> S<stall ms> R<level> [P<pass> <pct>%] [L<n> mm:ss]` (S is in milliseconds;
+`R_FB_STALL` cycles / 60,000). ROM rebuilt, 154,800 bytes, SHA-256
+`dc8eeeb4cbcc32cf5502521830e465d49213e7e65a2ea16a20207a442ce9c17a`; the bundle in
+`work/diagnostics/sdram-stress-window/pocket` was repackaged with the same seed-1 RBF.
+**Card update (host):** the ROM on the card was replaced with the new one (`Assets/tau_sdram_wst/common/tau.rom`, SHA-256 `dc8eeeb4...c17a`, byte-compared with the staged file); the previous ROM (`d11309cc...0663`) is kept in `pocket-cache-backup-2026-09-20/rom-replaced/`, and the catalog indexes were backed up there again and cleared. The RBF and test music are unchanged. The
+single underrun is **not** yet classified: it needs the track, stress level and action
+(load, cover decode, seek, track change) at the time, and whether it occurred with
+stress off.
+**Slip (recorded):** while rebuilding, an unintended run of the Phase 1 target
+(`fw/build.sh player-stress`) overwrote the staged `work/diagnostics/sdram-stress/tau.rom`.
+It was restored from the copy inside `work/diagnostics/sdram-stress/pocket/` (127,876
+bytes, SHA-256 `1860455e...`, identical to the ROM on the card); I cannot prove the
+pre-slip staged file was byte-identical to it. `work/` is untracked, and that Phase 1
+core uses the older rev-22 RBF and is superseded by the window stress core.
+**Second Pocket session (12 screenshots, copies in `work/diagnostics/sdram-stress-window/session1-screenshots/`, new-HUD ROM `dc8eeeb4...c17a`):**
+four tracks, HUD `U<underruns since stress start> M<worst window access, cycles> S<draw stall ms> R<level> P<pass> <pct>% L<n> <pass time>`.
+
+| Track | Level | Values seen |
+|---|---|---|
+| 1 (320/44.1, 1400 px cover) | R0, R1 P1 4%, R2 P1 72%, R3 P2 64% | U0 M0 -> U0 M362 -> U1 M366 -> U1 M366, L1 00:57 |
+| 2 (320/48, 455 px cover) | R1 6%, R2 53%, R3 P2 25% | U0 M367 -> U1 M367 -> U1 M367, L1 01:06 |
+| 3 (VBR 07, 292 kbps) | R1 14%, R2 70%, R3 P2 28% | U0 M365 -> U4 M365 -> U13 M365, L1 01:10 |
+| 4 (128 kbps CBR control) | R1 9%, R3 P2 9% | U0 M362 -> U10 M364, L1 00:50 |
+
+Consistent findings: **no SDRAM mismatch or timeout** anywhere; the worst window access
+stayed at **362-367 cycles**, the same as the idle 360 of A-094/A-100 (so playback,
+artwork loads and drawing did not raise it); **S stayed 0 ms** (the draw engine never
+stalled); no audible problem (user). The window and the HUD work with the real player.
+**Correction to A-102's own design:** the pass times (50-70 s for 262,144 words) show an
+average of 3,700-5,200 ops/s at every level, not the intended 16k, 64k and 128k. The pump
+did one operation per main-loop pass (about 4,400 passes/s), so levels 2 and 3 were
+loop-limited to the level-1 rate (about 1% of the CPU). This session therefore
+validates the window at roughly the Phase 1 traffic rate only, **not** heavy contention.
+**Underruns, unclassified:** U rose with time on tracks 3 and 4 (up to 13 and 10) but only
+to 1 on tracks 1 and 2. The user reports that taking a screenshot often stops the track
+(a key press) and A is tapped to resume; 8 of the 12 screenshots show STOPPED. Every
+stop/resume flushes the FIFO (`pcm_flush`, which also clears the sticky underrun flag),
+and the first underrun of each new epoch is counted, so restart artefacts probably explain
+the increments. It is not established: no stress-off baseline with the same actions exists.
+**Fix (built, not yet on the card):** the pump now performs all operations that have
+fallen due per pass (at most 32) to hold a true target rate of 16k, 40k and 72k ops/s at
+levels 1-3 (at about 170 cycles per operation, roughly 4.5%, 11% and 20% of the CPU, against an
+estimated 24% headroom; level 3 may therefore also show CPU starvation); the HUD shows
+the achieved rate (`K<k ops/s>`), and underruns are split into `E` (early, within 1 s of a
+flush: start, seek, resume) and `L` (late, steady playback). New HUD:
+`E<n> L<n> M<cycles> S<ms> R<level> K<k ops/s> P<pass> <pct>%`. ROM 155,116 bytes, SHA-256
+`591061308a79ed2b5f95561a4fca6ae5e43e116012cf59144451e4cbb461be71`; bundle repackaged
+(seed-1 RBF). **Card update (host):** the ROM on the card was replaced with this build
+(`Assets/tau_sdram_wst/common/tau.rom`, byte-compared with the staged file); the previous
+ROM (`dc8eeeb4...c17a`) and the catalog indexes are backed up in
+`pocket-cache-backup-2026-09-20/rom-replaced/`, and the indexes were cleared. RBF and test
+music unchanged.
+**Protocol addition:** take few screenshots (one per level per track), tap A after each, and
+run the same actions with stress off (R0) for a baseline; late underruns (`L`) in steady
+playback are the meaningful contention signal.
+**Third Pocket session (12 screenshots, `work/diagnostics/sdram-stress-window/session2-screenshots/`;
+card ROM `59106130...be71`, seed-1 RBF, tracks 1-3 at levels R0-R3, no audible issue heard):**
+
+| Track | R0 | R1 | R2 | R3 |
+|---|---|---|---|---|
+| 1 (320/44.1, 1400 px) | E1 L0 M0 S1 | E0 L0 M362 S0 K4.0 P1 95% (STOPPED) | E0 **L1** M362 S0 K7.9 P4 87% (STOPPED) | E0 **L2** M362 S0 K13.0 P8 67% |
+| 2 (320/48, 455 px) | E1 L2 (carried) M362 S0 | E0 L0 M362 S0 K3.2 P1 73% | E0 L0 M362 S0 K5.3 P3 8% | E0 L0 M362 S0 K8.2 P5 45% |
+| 3 (VBR 07) | E1 L0 M362 S0 | E2 L0 M362 S0 K3.7 P1 67% | E2 L0 M362 S0 K7.1 P3 43% | E4 L0 M362 S0 K11.6 P6 41% |
+
+Findings: no mismatch, timeout or FAIL; the worst window access stayed at 362 cycles at every
+level (the idle bound); the draw engine did not stall (S 0). Tracks 2 and 3 had **no late
+underruns at any level** (L0). Track 1 showed L1 at R2 and L2 at R3; both increments coincide
+with screenshots showing STOPPED (a stop and A-resume, which reloads the track and its
+1.4 MB cover), and the time-since-flush rule used here classifies a restart that follows a
+long load as late, so they are **not attributed to SDRAM contention** (unproven either
+way). The E counts are restarts and loops as expected.
+**Rate shortfall:** achieved K was 3.2-4.0k, 5.3-7.9k and 8.2-13.0k ops/s at R1-R3 against
+targets of 16k, 40k and 72k. The pump runs from `poll_input()`, which is mostly called from
+the loop that waits for the audio FIFO to drain, so its call rate (not the pacing) limits the
+load. At about 170 cycles per operation, 13k ops/s is roughly 4% of the CPU and about 2% of
+SDRAM time: this session is a valid functional and light-contention pass, **not** the
+heavy-contention gate.
+**Fix (built, ROM `55384a5596eac32f189eaba073d31f25d6c0236c9e77202553fa7484cb9bc20a`, 155,116
+bytes, bundle repackaged, not on the card):** level 1 stays paced at 16k ops/s; levels 2 and 3
+are unpaced bursts of 8 and 32 operations on every pump call, consuming the idle wait time, with
+K reporting what is achieved; underruns are now classified by decoded frames since the last
+flush (early if fewer than 9 frames, about 0.2 s of audio), which is immune to long cover
+decodes. Bursts are at most about 90 us, against a 43 ms FIFO.
+**Seed 4 swap (host, 2026-09-20):** at the user's request the stress core was repackaged with
+the A-101 **seed-4** RBF (raw `ed34a6bc...90eb`, hash checked before packaging, bit reversal
+re-verified; bit-reversed `2e9aaf0e66cebcb71d4f83e59ea2cd8e91b4c6d9e52a0ed430df2c158aaa3cd7`)
+and the new ROM `55384a55...bc20a`, and both files on the card
+(`Cores/alfatreze.TAU_SDRAM_WSTRESS/bitstream.rbf_r`, `Assets/tau_sdram_wst/common/tau.rom`)
+were replaced and byte-compared with the bundle. Backups of the seed-1 RBF (`898210a6...1b6b`),
+the previous ROM (`59106130...be71`) and the catalog indexes are in
+`pocket-cache-backup-2026-09-20/seed4-swap/`; the indexes were cleared. Test music unchanged.
+Seed 1 results (sessions 2 and 3) remain valid as bring-up evidence for the window logic; the
+gate runs from here use seed 4 with the burst ROM, so they are not directly comparable to
+the seed-1 sessions.
+**Fourth Pocket session: seed-4 RBF + burst ROM (14 screenshots, `session3-screenshots/`; card
+verified `2e9aaf0e...3cd7` and `55384a55...bc20a`; no audible issue heard, per the user):**
+
+| Track | R0 | R1 | R2 | R3 |
+|---|---|---|---|---|
+| 1 (320/44.1, 1400 px) | E1 L0 M0 S1 | E0 L0 M373 S0 K2.3 P1 95% | E0 L0 M373 S0 K14.9 P5 91% | E0 L0 M373 S0 K17.4 P12 18% |
+| 2 (320/48, 455 px) | E1 L0 M373 S0 | E0 L0 M373 S0 K3.0 P1 35% | E0 L0 M373 S0 K10.6 P3 20% | E0 L0 M373 S0 K10.7 P7 78% |
+| 3 (VBR 07) | E1 L0 M373 S0 | E0 L0 M371 S0 K3.7 P1 54% | E2 L0 M371 S0 K13.2 P2 77% | E2 L0 M372 S0 K16.2 P6 40% |
+| 4 (128 kbps CBR) | E3 L0 M372 S0 | (not shown) | (not shown) | E0 L0 M366 S0 K22.6 P3 4% ("SDRAM PASS 2") |
+
+Findings: **zero late (steady-playback) underruns (L0) on all four tracks at every level**;
+the few early underruns (E1-E3) are track loads and restarts; **no mismatch, timeout or FAIL**;
+the draw engine never stalled (S0); the worst window access was 366-373 cycles (about 6.2
+us; 11 cycles above the 362 seen with the seed-1 RBF, an inconsequential difference that
+cannot be attributed to seed or ROM from this data). Achieved rates were 2.3-3.7k ops/s at
+R1, 10.6-14.9k at R2 and 10.7-22.6k at R3 (maximum about 45,000 window accesses per second,
+roughly 6% of the CPU and 3-4% of SDRAM time): the pump still only runs in the CPU's idle
+time, so K is limited by the CPU, and this is a **realistic-load** result, not a saturation
+test. The 22.6k point is the 128 kbps control, where the decoder leaves the most idle time.
+**Assessment against A-102's acceptance (set before the runs):** met for tracks 1-4 at the
+achieved rates: zero mismatches or timeouts, `L` 0 where CPU load is not the cause, no
+audible dropout, no visible tearing reported. **Not yet covered:** a saturating burst level
+(higher per-call bursts), FLAC (project decision: unverified), a cold-boot repeat, and an
+explicit seek/pause/artwork-change sequence under stress (restarts under stress are visible as
+E counts but were not logged as a deliberate test). The expected Phase 2 use (playlist
+buffers: about 75k accesses per playlist load, hundreds per track change, about 1k per UI
+redraw, per A-095) is far below the tested 10-22k accesses per second sustained.
+**Test music (staged copy in work/):** `work/test-music/tau_sdram_wst/common/`
+(README there). The search of local libraries found only the 13-track Nausicaa OST
+(VBR, 44.1 kHz, three copies on the card, 707 px covers), one 128 kbps CBR track
+(`merry-farm.mp3`, 136 s), and short game sound effects; nothing long at 320 kbps
+CBR or 48 kHz. A web search found sources (free-stock-music.com states 320 kbps
+MP3 under CC BY 4.0; Scott Buckley CC BY 4.0) but no verifiable file specs, so
+nothing was downloaded. Instead LAME 4.0 was installed (Homebrew, with mpg123) and
+two 320 kbps CBR files were encoded from four local OST tracks (44.1 kHz with a
+1400 px cover taking the reduce path; 48 kHz with a 455 px cover taking the FULL
+decode path), tagged with ID3v2.3, joined into a playlist with the VBR and 128 kbps
+controls, and verified (header scan, full decode, `tools/library_check.py`).
+**Status:** built and packaged; **not installed**, no hardware result. The final gate
+run should use the A-101 product-candidate RBF once its seeds are chosen.
 
 ## Reversal ledger
 

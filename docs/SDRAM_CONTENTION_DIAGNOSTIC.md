@@ -117,3 +117,17 @@ dropouts, and no display corruption. The timing correction is staged for a
 future stress session; it is not a blocker for this contention result, but no
 pass-duration performance claim may be made until it is observed past 72
 seconds.
+
+## Phase 2 CPU-window contention (A-102)
+
+The Phase 1 gate above used the MMIO mailbox. The Phase 2 gate drives the **uncached
+CPU window** (`0xA0100000+`) from the same stress pump while the real player runs.
+Build with `bash fw/build.sh player-stress-window`, package with
+`python3 tools/package_sdram_stress.py --window --rbf <raw rbf> --rbf-sha256 <hash>`
+(core `alfatreze.TAU_SDRAM_WSTRESS`, platform `tau_sdram_wst`). Select+X cycles off,
+level 1 (about 16k ops/s, the Phase 1 rate), 2 (about 64k) and 3 (about 128k); the
+HUD shows `R<level> M<max window access cycles> U<underruns since start> S<draw
+stall cycles since start>`. A window preflight refuses to start ("NO SDRAM WINDOW")
+on a bitstream without the window. Protocol, acceptance criteria and the CPU-starvation
+confound are in `AUDIT_TRAIL.md` A-102. This gate does not cover the cached alias or
+running code from SDRAM.
