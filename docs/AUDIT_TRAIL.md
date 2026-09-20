@@ -4009,7 +4009,7 @@ in review; it is not an embarrassment to delete.
 **Outcome, reversal/workaround, remaining risk, and next gate:**
 ```
 
-### A-098 — PSRAM P0 contract and P1 controller simulation (sim only, no hardware)
+### B-001 — PSRAM P0 contract and P1 controller simulation (sim only, no hardware)
 
 **Date:** 2026-09-20
 
@@ -4048,7 +4048,7 @@ constraints, Quartus fit or board-level DQ turn-around evidence exist yet.
 **Next:** owner supplies the datasheet; close P0 open rows; then P2 (mailbox,
 I/O constraints, `interact.json` publishing, the packager probe flag for the next free audit id).
 
-### A-099 — datasheet check of the PSRAM controller (sim only, found a real bug)
+### B-002 — datasheet check of the PSRAM controller (sim only, found a real bug)
 
 **Date:** 2026-09-20
 
@@ -4059,11 +4059,11 @@ was rewritten with datasheet-verified values and PDF page references. Controller
 default `T_ACC` 6 -> 8. `sim/psram_chip_model.v` gained `tOE`, `tAA`, `tCO`,
 `tAADV`-from-ADV#-rising, `tCW`, `tCPH`, `tCEM` and an OE#-during-address check.
 Makefile mutation target now also kills `T_ACC=6` and `T_ACC=7`.
-**Why:** the A-098 timings were provisional (agg23 reference values).
-**Finding:** the A-098 default sampled read data about 1 clock (16.7 ns) after OE#
+**Why:** the B-001 timings were provisional (agg23 reference values).
+**Finding:** the B-001 default sampled read data about 1 clock (16.7 ns) after OE#
 fell and about 3 clocks (50 ns) after ADV# rose. The datasheet requires `tOE` <= 20
 ns from OE# low, and `tAADV` 70 ns (origin edge not stated; safe reading is from
-ADV# rising). The A-098 model did not check `tOE`, so it passed. On hardware this
+ADV# rising). The B-001 model did not check `tOE`, so it passed. On hardware this
 would have produced marginal or wrong reads. Not a hardware result; found before
 any build.
 **Datasheet facts closed:** software-access hazard is two async reads then two async
@@ -4575,16 +4575,16 @@ unchanged (`661c5936...`), SDRAM-playlist ROM unchanged (`82fdb70c...`); setting
 13,312 B; the removed block shrank it by about 0.8 KiB). Bundles repackaged with the seed-2 RBF (`TAU_SETTINGS`, `TAU_DIAGNOSTIC`); NOT installed.
 `make test-host` passes. The A/B of old versus new RBF suggested in A-121 is postponed by the user (judged user error).
 
-### A-123 — PSRAM plan review after later SDRAM/UI/skill updates (docs only)
+### B-003 — PSRAM plan review after later SDRAM/UI/skill updates (docs only)
 
 **Date:** 2026-09-20
 
-**Decision/change:** Reviewed everything since A-099 (A-100..A-122, `ARCHITECTURE_ROADMAP.md`,
+**Decision/change:** Reviewed everything since B-002 (A-100..A-122 in the A series, `ARCHITECTURE_ROADMAP.md`,
 the skill's drift checks and its KB restructure) against the PSRAM plan. Updated
 `docs/PSRAM_IMPLEMENTATION_PLAN.md`: audit-id policy (next free id), the
 window/probe macro split, P5 candidates (playlist buffers already in SDRAM), the
 scheduling note, and a new section 7 listing twelve considerations. Removed the stale
-`--probe-a100` from A-098/A-099 (A-100 belongs to the SDRAM coverage probe).
+`--probe-a100` from B-001/B-002 (A-100 belongs to the SDRAM coverage probe).
 **Skill checks:** `refresh.py docs` 0 changed; `refresh.py repos` openfpga-library
 metadata moved, one repo unreachable, neither PSRAM-relevant; `kb.py validate` 0
 problems. The KB now has publishable and git-ignored local entries; KB-029 (PSRAM

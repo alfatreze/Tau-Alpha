@@ -55,10 +55,10 @@ its safe direction and listed in section 5 for hardware confirmation.
 | `tBW` LB#/UB# to end of write | min 70 ns | lanes fixed for the whole op | 47 ns | [DS] |
 | `tCPH` CE# high between ops | min 5 ns | `T_REC` = 2 clocks (33 ns) | 28 ns | [DS] p.32 |
 
-Note the change from the first draft (A-098): the read sample was 5 clocks after
+Note the change from the first draft (B-001): the read sample was 5 clocks after
 ADV# **falls**, which is only about 1 clock (16.7 ns) after OE# falls and about
 3 clocks (50 ns) after ADV# rises. That violates `tOE` (20 ns) and, if `tAADV` runs
-from ADV# rising, `tAADV` as well. The model had not checked `tOE`. Fixed in A-099
+from ADV# rising, `tAADV` as well. The model had not checked `tOE`. Fixed in B-002
 (`T_ACC` = 8); `T_ACC` = 6 and 7 are now killed by the mutation tests.
 
 Defaults stay conservative until hardware shows the margin. Run-time dials
