@@ -5089,3 +5089,14 @@ folder were backed up first in `work/diagnostics/release-v020/card-replaced/`; c
 untouched. Verification: 12 of 13 compared dist files SHA-256-identical to the card; the one difference is `Platforms/tau.json`, which was **not** touched: the card still has the platform name
 `TAU` + superscript alpha (installed earlier), `dist/` has plain `TAU` (the repo decided the Pocket cannot render the glyph, `check_tau_package.py`). Decide later whether to sync the card to dist.
 Result pending: run the release checks listed above.
+
+### A-131 — release v0.2.0 on Pocket (base TAU core): tested by the user
+
+**Date:** 2026-09-21
+**Evidence:** user report ("tested the release", no screenshots requested; no problem reported) plus the base core's persisted settings read from the card (Pocket clock 23:44, written on Quit):
+volume 45, colour 4 (sky), repeat 0, shuffle 0, meter 8 (peak dots), EQ 0 (flat), resume 0. Colour, meter and volume are off their defaults (amber, bars, 65), so the settings saved by the new
+menu/shortcuts reach the persist file as designed on the release build. Whether every value came back after a relaunch, and each item of the A-130 checklist, is the user's own confirmation, not
+independently recorded.
+**Status:** v0.2.0 is the installed base `TAU` product: probe-free seed-2 RBF, release ROM `9b5d6575...`, settings menu, full-screen playlist and Info page, the playlist in SDRAM, no 1.2x hold gesture.
+The SDRAM implementation work (A-088..A-131) is complete for the CPU window and the first data move (playlist). Deliberately open: FLAC, other tracks under saturation, temperature, the artwork buffers
+(blit engine versus cached window), Diagnostic Build items (save report), and rebuilding the `TAU_SETTINGS`/`TAU_DIAGNOSTIC` bundles with the 0.2.0 version string.
