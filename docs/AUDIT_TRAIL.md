@@ -4178,3 +4178,94 @@ without side effects) has not been run.
 **Verdict:** rows 2, 5, 6, 7 pass on the small list. Remaining before the move is promoted:
 rows 1, 3, 4 (large and clipped lists, negative test), then product packaging with the settings
 menu work that this recovered space is for.
+
+### A-107 — large-playlist test lists prepared for the SDRAM playlist (host only)
+
+**Date:** 2026-09-20
+**Evidence:** host (generator + parse model); not yet on the card, no Pocket result.
+`tools/make_large_playlists.py` writes `work/test-music/tau_plsdram_large/` (`large240.m3u`,
+`overflow_count.m3u`, `overflow_text.m3u`, `README.txt`) and prints the expected result from a model
+of the firmware read/parse (PL_MAX 256, PL_TEXT_MAX 12,288): `large240` 9,798 B, 240 tracks, no clip,
+missing-file markers at entries 50/100/150/200; `overflow_count` 300 lines -> 256 tracks, clipped;
+`overflow_text` 19,722 B -> about 188 tracks, clipped by the text buffer (the last line may be cut).
+Each list starts with real tracks so the first entry plays; the rest are deliberately missing files
+(overlay/scroll test only). These exercise the top of the 13,312 B `.sdram` section (matrix rows 3-4).
+Install procedure: copy the three `.m3u` files to `Assets/tau_plsdram/common/`, pick each via the
+playlist file menu (needs user approval before writing to the card).
+
+**A-107 installation (host, 2026-09-20):** the three lists and README were copied to
+`Assets/tau_plsdram/common/` on the card (byte-compared identical, `._*` files removed); nothing else on the
+card changed. Pocket result pending.
+
+### A-108 — large playlists in SDRAM on Pocket: counts match the model (matrix rows 3-4)
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (4 screenshots, card clock 11:25-11:26, copies in
+`work/diagnostics/playlist-sdram/screenshots-large/`); user reports all three lists were tested.
+`large240.m3u`: `PLAYLIST 1/240` with the first nine rows in the expected cycle, status `1 / 240`; at the
+end `240 / 240`, last row `VBR 02 Stampede of the Ohmu` (as predicted). `overflow_count.m3u`: `256 / 256`,
+last rows `m248`..`m256` intact (the model predicted 256). `overflow_text.m3u`: `188 / 188`, last rows
+`long 180`..`long 188`, the final name cut short (`long 188 xxxxxxxxxxxxxxxx`), exactly the modelled count
+(188) and the predicted mid-name cut. Playback of the first real track continued in each (00:05, 00:14,
+00:10), no error, no garbled text, no audio issue reported.
+**Reading:** the whole 13,312 B section works through its top end: the 256-entry index arrays are full
+(`pl_order` and `pl_off` to their last element) and the 12,288-byte text buffer is full and cut at the
+limit, with the same counts as the BRAM design's limits. The clipping toast, the marker rows 50/100/150/200
+of `large240` and the final re-pick of the 5-track list were not photographed.
+**Verdict:** rows 3-4 pass. Still open: row 1 (a bitstream without the window must refuse without side
+effects) and a probe-free HUD-free long soak; then decide whether to make `TAU_PL_SDRAM` the product default.
+
+### A-109 — no-window fail-safe test prepared (fault-injection ROM; true no-window RBF still needed)
+
+**Date:** 2026-09-20
+**Evidence:** host (build, package); no Pocket result.
+**Finding:** matrix row 1 as written cannot be run with an existing RBF. Firmware refuses to start on any
+RBF whose `R_VERSION` differs from `EXPECT_VERSION` (rev 23, A-080), painting a fixed pattern and
+stopping before the playlist code runs. Every rev-23 build so far (A-080..A-102) has
+`TAU_PHASE2_WINDOW`; the only macro-off RBFs (dist product, `work/diagnostics/sdram/fpga`) are rev 22.
+So a genuine no-window test needs a new **rev-23 macro-off** Quartus build (no `TAU_PHASE2_*` macros,
+about 50 min on the VM); not launched.
+**Prepared now:** fault-injection variant `TAU_PL_SDRAM_FAULT=1` (`fw/build.sh player-sdram-pl-fault`): the
+window preflight reads a word the mailbox never wrote, so it fails on a healthy bitstream and exercises the
+feature-off path (`PL_ERR_SDRAM`, toast `NO SDRAM PLAYLIST`, playlist off, player otherwise alive). ROM
+152,440 B, SHA-256 `00b17a682dd9f09f4c9afcdfe4310b200cfd01711759e324cb493c97603fb66e`; packaged with the
+seed-4 RBF as `alfatreze.TAU_PLSDRAMF` / `tau_plsdramf` (`package_sdram_stress.py --playlist-sdram --fault`),
+bundle `work/diagnostics/playlist-sdram-fault/pocket`; NOT installed. The normal SDRAM ROM
+(`63e605e9...`) and the product ROM (`b365dc2a...`) are unchanged.
+**What it proves and what it does not:** proves the failure branch (no store issued, toast, single-file
+playback, no crash, no MMIO side effect from the branch itself) on hardware. It does not prove the
+premise that on a window-less bitstream the preflight's read of `0xA0100000` is harmless (that read hits the
+MMIO decode); that needs the rev-23 macro-off RBF.
+
+**A-109 installation (host, 2026-09-20):** `alfatreze.TAU_PLSDRAMF` / `tau_plsdramf` installed on the card beside
+the other cores; all 14 bundle files SHA-256-identical (ROM `00b17a68...b66e`, bit-reversed seed-4 RBF
+`2e9aaf0e...3cd7`). Assets: `playlist.m3u` (5 lines) and one real track
+(`TAU A-102 stress/02 320CBR 48k stereo.mp3`) so single-file playback can be tried while the playlist is refused.
+Indexes backed up to `work/diagnostics/playlist-sdram-fault/pocket-cache-backup-2026-09-20/System/` and cleared.
+Result pending. Expected: toast `NO SDRAM PLAYLIST`, no playlist overlay, track playable via Load > Audio file.
+
+### A-110 — rev-23 macro-off (no window) RBF build launched
+
+**Date:** 2026-09-20
+**Evidence:** VM launch only; result pending.
+Staged `/home/taualpha/tau-local/nowin-a110-20260920` from the A-101 seed-4 snapshot minus its last three qsf
+lines (comment, `TAU_PHASE2_WINDOW=1`, `SEED 4`): no `TAU_PHASE2_*` macros, default seed, same rev-23 RTL;
+`make check-fpga` ok; `make fpga` launched 12:13 WEST (log `quartus-a110.log`). Purpose: matrix row 1, the
+`TAU_PL_SDRAM` ROM (`63e605e9...`) on a bitstream where the alias decodes to MMIO must refuse without side
+effects. Timing on this build is irrelevant to the product; it is a test vehicle.
+
+### A-111 — fault-injection core on Pocket: playlist refused, player alive (A-109 result)
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (4 screenshots, card clock 11:41-11:42, copies in
+`work/diagnostics/playlist-sdram-fault/screenshots/`).
+**Observed:** (1) cold boot lands on the idle "Getting started" screen, i.e. the boot-time `pl_load()` produced no
+playlist; (2) after the user chose Load Playlist the `LOADING PLAYLIST` indicator appeared (over the splash, then the
+CRT loading screen) and ended without a playlist; (3) after Load MP3 the 48 kHz track played normally
+(`PLAYING`, 00:09 / 11:13, cover, spectrum) and a Select tap showed `NO PLAYLIST LOADED` (the `pl_count == 0` path);
+no crash, no garbled state, no MMIO side effect visible, and playback worked with the playlist off.
+**Reading:** the feature-off branch behaves as designed on hardware: the window check fails on a healthy
+bitstream, `pl_count` stays 0, the UI handles it, and single-file playback is unaffected.
+**Limit:** the `NO SDRAM PLAYLIST` toast itself was not photographed (it is brief and the screenshots came after it),
+so its exact wording on screen is unconfirmed; the `NO PLAYLIST LOADED` message seen is a different, existing toast.
+Still open: the true no-window RBF (A-110, building).
