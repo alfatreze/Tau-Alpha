@@ -671,8 +671,15 @@ static uint32_t pcm_under_n;    /* underrun EDGES since boot, for the diag  */
 #if TAU_SDRAM_STRESS
 /* Developer-only contention pump. This is deliberately MMIO-only: it never
  * changes the player linker map or exposes mapped SDRAM. */
+#if TAU_PL_SDRAM
+/* The playlist buffers live at physical 1 MiB (A-105); the pump must not touch them, so it
+ * works on 2..3 MiB instead. (Word units of 16 bits, like the mailbox address.) */
+#define STRESS_BASE 0x00100000u
+#define STRESS_LAST 0x0017FFFEu
+#else
 #define STRESS_BASE 0x00080000u
 #define STRESS_LAST 0x000FFFFEu
+#endif
 #define STRESS_WORDS_PER_PASS (((STRESS_LAST - STRESS_BASE) / 2u) + 1u)
 #define STRESS_GAP  (CLK_HZ / 16000u)
 #define STRESS_TIMEOUT (CLK_HZ / 4u)
@@ -6054,6 +6061,42 @@ static void stress_toggle(void)
         ui_toast_msg("SDRAM STRESS OFF");
     }
 }
+
+#if TAU_SDRAM_STRESS_WINDOW
+/* Menu entry point (Diagnostic Build): set the pump to an absolute level, 0 = off. A change
+ * between running levels keeps the counters; starting from off zeroes them, as stress_toggle()
+ * does. */
+static void stress_set_level(uint8_t lvl)
+{
+    if (lvl > 3u) lvl = 3u;
+    if (lvl && !stress_win_ok) {
+        stress_win_ok = (uint8_t)stress_window_preflight();
+        if (!stress_win_ok) {
+            stress_level = 0u; stress_on = 0u;
+            ui_toast_msg("NO SDRAM WINDOW");
+            return;
+        }
+    }
+    uint8_t was = stress_on;
+    stress_level = lvl;
+    stress_on = (uint8_t)(lvl != 0u);
+#if TAU_STRESS_HUD
+    stress_hud_tick = 0xFFFFFFFFu;
+#endif
+    if (!stress_on) return;
+    stress_due = cycles();
+    if (was) return;
+    stress_rd_max = stress_wr_max = 0u;
+    stress_read = 0; stress_addr = STRESS_BASE;
+    stress_words = stress_passes = stress_failures = 0; stress_crc = 0xFFFFFFFFu;
+#if TAU_STRESS_HUD
+    stress_last_secs = stress_last_pass = 0; stress_fault = 0;
+    stress_clock_prev = stress_due; stress_pass_secs = stress_pass_rem = 0;
+#endif
+    stress_under0 = pcm_under_n; stress_fb0 = REG(R_FB_STALL);
+    stress_und_early = stress_und_late = 0u; stress_rate_words = 0u; stress_rate = 0u;
+}
+#endif
 #endif
 
 /* Black the whole frame. Only the framebuffer -- there is no way to switch the
@@ -6215,7 +6258,7 @@ static void poll_input(void)
             }
         }
     }
-#if TAU_SDRAM_STRESS
+#if TAU_SDRAM_STRESS && !TAU_SETTINGS_UI
     if ((edge & KEY_X) && (keys & KEY_SELECT)) {
         sel_used = 1; stress_toggle(); return;
     }
@@ -9828,6 +9871,9 @@ int main(void)
         if (set_open && set_dirty) { set_dirty = 0u; set_draw(); }
 #if TAU_DIAG_INFO
         set_info_tick();
+#endif
+#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+        dg_soak_tick();
 #endif
 #endif
         if (pl_ui_open && pl_ui_drawn_pos != pl_pos) pl_ui_dirty = 1u;

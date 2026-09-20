@@ -14,10 +14,11 @@
  * Every change goes through the same variables and side effects as the direct shortcuts
  * (which stay); nothing new is persisted; Screen blank is not persisted (as Select+Down). */
 
-enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_MENUS };
-enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_N };
+enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_MENUS };
+enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_STRESS, CH_SOAK, CH_N };
 /* Pages after the menus: one per choice list, then the read-only Info page (diagnostics). */
 #define SET_INFO_PG ((uint8_t)(SET_MENUS + CH_N))
+#define SET_STAT_PG ((uint8_t)(SET_INFO_PG + 1u))   /* stress status (Diagnostic Build) */
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
 enum { TG_ART = 0, TG_SHUF, TG_RESUME, TG_SPEED };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
@@ -43,6 +44,7 @@ static const set_row_t set_diag_rows[] = {
     { "INFO", RT_GROUP, SET_INFO_PG },
 #if TAU_DIAG_TESTS
     { "TESTS", RT_GROUP, SET_TESTS },
+    { "STRESS", RT_GROUP, SET_STRESS },
 #endif
 };
 /* Diagnostic Build tests: A runs the highlighted one and its result replaces the value. */
@@ -51,15 +53,26 @@ static const set_row_t set_tests_rows[] = {
     { "WINDOW TEST", RT_ACTION, DG_WIN }, { "READ CYCLES", RT_ACTION, DG_RD },
     { "WRITE CYCLES", RT_ACTION, DG_WR }, { "PLAYLIST CHECK", RT_ACTION, DG_PLC },
     { "CLEAR COUNTERS", RT_ACTION, DG_CLR } };
+/* Stress (Diagnostic Build): the pump level and a timed soak, both choice lists, and a live status page. */
+static const set_row_t set_stress_rows[] = {
+    { "LEVEL", RT_CHOICE, CH_STRESS }, { "SOAK", RT_CHOICE, CH_SOAK },
+    { "STATUS", RT_GROUP, SET_STAT_PG } };
 static const set_row_t *const set_menu_rows[SET_MENUS] = {
     set_home_rows, set_appear_rows, set_audio_rows, set_play_rows, set_diag_rows,
-    set_tests_rows };
+    set_tests_rows, set_stress_rows };
 static const uint8_t set_menu_n[SET_MENUS] = {
-    SET_COUNT(set_home_rows), 4u, 2u, 4u, SET_COUNT(set_diag_rows), SET_COUNT(set_tests_rows) };
+    SET_COUNT(set_home_rows), 4u, 2u, 4u, SET_COUNT(set_diag_rows), SET_COUNT(set_tests_rows),
+    SET_COUNT(set_stress_rows) };
 static const char *const set_menu_title[SET_MENUS] = {
-    "SETTINGS", "APPEARANCE", "AUDIO", "PLAYBACK", "DIAGNOSTICS", "TESTS" };
-static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT", "SCREEN BLANK" };
-static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_APPEAR };
+    "SETTINGS", "APPEARANCE", "AUDIO", "PLAYBACK", "DIAGNOSTICS", "TESTS", "STRESS" };
+static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
+    "SCREEN BLANK", "STRESS LEVEL", "SOAK" };
+static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
+    SET_APPEAR, SET_STRESS, SET_STRESS };
+static const char *const set_stress_nm[4] = { "OFF", "R1  16K OPS/S PACED", "R2  8 OP BURSTS",
+    "R3  32 OP BURSTS" };
+static const char *const set_soak_nm[5] = { "OFF", "5 MIN", "15 MIN", "30 MIN", "60 MIN" };
+static const uint8_t     set_soak_min[5] = { 0u, 5u, 15u, 30u, 60u };
 
 /* Same order as the VIZ_* enum; the label VIZ_LED shares with its toast is SPECTRUM. */
 static const char *const set_viz[] = { "BARS", "WATERFALL", "L/R LEVELS", "PHASE SCOPE",
@@ -81,10 +94,46 @@ static const uint8_t     set_blank[5]    = { 0u, 1u, 5u, 10u, 30u };
 
 static uint8_t set_page, set_sel[SET_MENUS], set_ch_cur[CH_N], set_ch_top[CH_N];
 
+#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+/* ---- Timed soak (Diagnostic Build): runs the stress pump for N minutes beside normal playback,
+ * then stops it and reports PASS (no data mismatch or timeout) or FAIL. Late underruns are counted
+ * and shown on the status page but are not part of the verdict (at R3 they can be CPU starvation). ---- */
+static uint8_t  dg_soak_idx, dg_soak_res;       /* index in set_soak_min; 0 none, 1 running, 2 pass, 3 fail */
+static uint32_t dg_soak_left, dg_soak_at;       /* seconds left; next one-second boundary */
+static uint32_t dg_soak_active(void) { return dg_soak_res == 1u ? dg_soak_idx : 0u; }
+static void dg_soak_cancel(void) { dg_soak_res = 0u; dg_soak_idx = 0u; }
+static void dg_soak_start(uint32_t i)
+{
+    if (!i) { dg_soak_cancel(); stress_set_level(0u); return; }
+    uint8_t lvl = stress_on ? stress_level : 2u;        /* keep the chosen level, else R2 */
+    stress_set_level(0u);
+    stress_set_level(lvl);                              /* fresh counters */
+    if (!stress_on) return;                             /* no window: refused, toast shown */
+    dg_soak_idx  = (uint8_t)i;
+    dg_soak_left = (uint32_t)set_soak_min[i] * 60u;
+    dg_soak_at   = cycles() + CLK_HZ;
+    dg_soak_res  = 1u;
+}
+static void dg_soak_tick(void)
+{
+    if (dg_soak_res != 1u) return;
+    if ((int32_t)(cycles() - dg_soak_at) < 0) return;
+    dg_soak_at = cycles() + CLK_HZ;
+    if (dg_soak_left) dg_soak_left--;
+    if (stress_failures || !stress_on || !dg_soak_left) {
+        dg_soak_res = (stress_failures || (!stress_on && dg_soak_left)) ? 3u : 2u;
+        stress_set_level(0u);
+    }
+}
+#else
+#define dg_soak_active() 0u
+#endif
+
 static uint32_t set_ch_count(uint32_t c)
 {
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_COUNT
-         : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u : 5u;
+         : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
+         : c == CH_STRESS ? 4u : 5u;
 }
 static uint32_t set_blank_idx(void)
 {
@@ -94,13 +143,22 @@ static uint32_t set_blank_idx(void)
 }
 static uint32_t set_ch_active(uint32_t c)
 {
+    if (c == CH_STRESS) {
+#if TAU_SDRAM_STRESS_WINDOW
+        return stress_on ? stress_level : 0u;
+#else
+        return 0u;
+#endif
+    }
+    if (c == CH_SOAK) return dg_soak_active();
     return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode : c == CH_EQ ? eq_idx
          : c == CH_REPEAT ? rep_mode : set_blank_idx();
 }
 static const char *set_ch_name(uint32_t c, uint32_t i)
 {
     return c == CH_COLOUR ? ui_palette_name[i] : c == CH_METER ? set_viz[i]
-         : c == CH_EQ ? eq_name[i] : c == CH_REPEAT ? set_rep[i] : set_blank_nm[i];
+         : c == CH_EQ ? eq_name[i] : c == CH_REPEAT ? set_rep[i]
+         : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i] : set_blank_nm[i];
 }
 static uint32_t set_ch_rowh(uint32_t c)
 {
@@ -110,6 +168,13 @@ static uint32_t set_ch_visible(uint32_t c) { return SET_LIST_H / set_ch_rowh(c);
 
 static void set_ch_apply(uint32_t c, uint32_t i)
 {
+    if (c == CH_STRESS || c == CH_SOAK) {
+#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+        if (c == CH_STRESS) { dg_soak_cancel(); stress_set_level((uint8_t)i); }
+        else                dg_soak_start(i);
+#endif
+        return;
+    }
     if (c == CH_COLOUR) {
         ui_pal_idx = i;
         ui_accent = ui_palette[i];
@@ -327,7 +392,7 @@ static void set_draw_menu(uint32_t p)
     const set_row_t *rows = set_menu_rows[p];
     ov_frame(set_menu_title[p], "",
              p == SET_HOME ? "A OPEN   B CLOSE"
-             : p == SET_DIAG ? "A OPEN   B BACK" : p == SET_TESTS ? "A RUN   B BACK"
+             : p == SET_DIAG || p == SET_STRESS ? "A OPEN   B BACK" : p == SET_TESTS ? "A RUN   B BACK"
              : "A CHANGE   B BACK");
     for (uint32_t i = 0; i < set_menu_n[p]; i++) {
         uint32_t y = PL_UI_LIST_Y + i * SET_MENU_ROW_H;
@@ -446,30 +511,65 @@ static void set_info_value(uint32_t i, char *o)
     *q = 0;
 }
 
-static void set_draw_info(int full)
+/* Read-only value pages share one painter: labels on the left, values right-aligned. */
+static void set_draw_ro(int full, const char *title, const char *const *labels, uint32_t n,
+                        void (*value)(uint32_t, char *))
 {
-    if (full) ov_frame("INFO", "", "B BACK");
-    for (uint32_t i = 0; i < SET_INFO_ROWS; i++) {
+    if (full) ov_frame(title, "", "B BACK");
+    for (uint32_t i = 0; i < n; i++) {
         uint32_t y = PL_UI_LIST_Y + i * PL_UI_ROW_H;
         char v[40];
-        set_info_value(i, v);
+        value(i, v);
         fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H, UI_PANEL);
         fb_set_color(UI_DIM, UI_PANEL);
-        fb_text_clipped(PL_UI_TEXT_X, y, set_info_label[i], TS_1X, TS_1X, 170u);
+        fb_text_clipped(PL_UI_TEXT_X, y, labels[i], TS_1X, TS_1X, 170u);
         uint32_t w = fb_text_width(v, TS_1X);
         fb_set_color(UI_WHITE, UI_PANEL);
         fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, y, v, TS_1X, TS_1X, w + 2u);
     }
 }
 
-/* Once a second while the page is open: repaint the rows only, never the panel. */
+#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+#define SET_STAT_ROWS 11u
+static const char *const set_stat_label[SET_STAT_ROWS] = {
+    "LEVEL", "STATE", "PASSES", "OPERATIONS", "FAILURES", "EARLY UNDERRUNS", "LATE UNDERRUNS",
+    "WORST ACCESS", "DRAW STALL", "RATE", "SOAK" };
+
+static void set_stat_value(uint32_t i, char *o)
+{
+    char *q = o;
+    switch (i) {
+    case 0: q = set_str(q, stress_on ? (stress_level == 1u ? "R1" : stress_level == 2u ? "R2" : "R3") : "OFF"); break;
+    case 1: q = set_str(q, stress_fault ? "FAILED" : stress_on ? "RUNNING" : "STOPPED"); break;
+    case 2: q = ui_dec(q, stress_passes); break;
+    case 3: q = ui_dec(q, stress_words); break;
+    case 4: q = ui_dec(q, stress_failures); break;
+    case 5: q = ui_dec(q, stress_und_early); break;
+    case 6: q = ui_dec(q, stress_und_late); break;
+    case 7: q = ui_dec(q, stress_rd_max > stress_wr_max ? stress_rd_max : stress_wr_max);
+            q = set_str(q, " CYC"); break;
+    case 8: q = ui_dec(q, (REG(R_FB_STALL) - stress_fb0) / (CLK_HZ / 1000u)); q = set_str(q, " MS"); break;
+    case 9: q = ui_dec(q, stress_rate / 1000u); *q++ = '.'; q = ui_dec(q, (stress_rate % 1000u) / 100u);
+            q = set_str(q, "K OPS/S"); break;
+    default:
+        if (dg_soak_res == 1u) { q = ui_mmss(q, dg_soak_left); q = set_str(q, " LEFT"); }
+        else q = set_str(q, dg_soak_res == 2u ? "PASS" : dg_soak_res == 3u ? "FAIL" : "OFF");
+    }
+    *q = 0;
+}
+#endif
+
+/* Once a second while a value page is open: repaint the rows only, never the panel. */
 static void set_info_tick(void)
 {
-    if (!set_open || set_page != SET_INFO_PG) return;
+    if (!set_open || set_page < SET_INFO_PG) return;
     if ((int32_t)(cycles() - set_info_at) < 0) return;
     set_info_at = cycles() + CLK_HZ;
     uint8_t o = ov_draw; ov_draw = 1u;
-    set_draw_info(0);
+    if (set_page == SET_INFO_PG) set_draw_ro(0, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
+#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+    else set_draw_ro(0, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
+#endif
     ov_draw = o;
 }
 #endif
@@ -479,7 +579,12 @@ static void set_draw(void)
     uint8_t o = ov_draw; ov_draw = 1u;
     if (set_page < SET_MENUS)                set_draw_menu(set_page);
 #if TAU_DIAG_INFO
-    else if (set_page == SET_INFO_PG)        set_draw_info(1);
+    else if (set_page == SET_INFO_PG)
+        set_draw_ro(1, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
+#endif
+#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+    else if (set_page == SET_STAT_PG)
+        set_draw_ro(1, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
 #endif
     else                                     set_draw_choice(set_page - SET_MENUS);
     ov_draw = o;
@@ -509,8 +614,8 @@ static int set_input(uint32_t edge, uint32_t keys)
         return 0;
     }
     if (edge & KEY_START) { set_close(); return 1; }
-    if (set_page == SET_INFO_PG) {                /* read-only page: only B (back) */
-        if (edge & KEY_B) { set_page = SET_DIAG; set_dirty = 1u; }
+    if (set_page >= SET_INFO_PG) {                /* read-only value page: only B (back) */
+        if (edge & KEY_B) { set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }
         return 1;
     }
     if (set_page >= SET_MENUS) {                  /* a choice list */
