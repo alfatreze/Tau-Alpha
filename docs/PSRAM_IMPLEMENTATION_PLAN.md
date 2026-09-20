@@ -1,6 +1,6 @@
 # PSRAM implementation plan
 
-**Status:** P0/P1 done in simulation (A-098, A-099). The new controller/bus RTL and tests
+**Status:** P0/P1 done in simulation (B-001, B-002). The new controller/bus RTL and tests
 exist but are **not wired** into `core_top.v`, the CPU decode, firmware or any
 package; no memory-map change.
 This turns `docs/PSRAM_EVALUATION_PLAN.md` (P0-P5, kept as the contract) into an
@@ -19,13 +19,14 @@ against benefit:
    (A-091/A-093); the slot-5/`0188` path is not.
 3. **Async-only scope: yes.** A burst engine adds a clock domain and a second
    timing surface for an uncertain gain; revisit only with P4 measurements.
-4. **Audit numbering from A-098: yes.** Needed so the PSRAM series is separable.
+4. **Separate audit series: yes.** PSRAM entries use **B-NNN** (B-001, B-002, ...),
+   never the A series, so parallel SDRAM/UI work cannot collide with them.
 
-Status: **P0 done** (contract checked against the datasheet, A-099; static idle
+Status: **P0 done** (contract checked against the datasheet, B-002; static idle
 check). **P1 done** (controller, bus wrapper, strict chip model, testbenches,
 mutation tests; all in `make test`). **P2 unblocked**: the remaining unknowns are
 hardware questions (`docs/PSRAM_TIMING_CONTRACT.md` section 5), not datasheet
-gaps. Details in `docs/AUDIT_TRAIL.md` A-098 and A-099. The datasheet check found
+gaps. Details in `docs/AUDIT_TRAIL.md` B-001 and B-002. The datasheet check found
 and fixed a real read-timing violation in the first controller (tOE / tAADV).
 
 ## 1. Analysis of the evaluation plan
@@ -128,12 +129,21 @@ VexRiscv dbus -> tau_sdram_addr_decode (adds psram_uncached)
 - Response contract (KB-008, KB-024): data and `valid` captured in one
   controller-owned register; `ack` derived from that register only; the adapter
   returns to idle two cycles after ACK.
-- All new RTL sits behind a `TAU_PSRAM_*` macro (off by default), so a macro-off
+- All new RTL sits behind macros that are off by default, split the way A-113
+  split the SDRAM ones: `TAU_PSRAM_WINDOW` (controller + bus wrapper in the CPU
+  decode, the only part a product build gets) and `TAU_PSRAM_PROBE` (mailbox,
+  diagnostic overlay, debug taps). A product RBF must build with the window and
+  no probe. A macro-off
   build has no behavioural or resource change. Extend the macro-off tie-off test.
 
 ## 3. Ordered work items
 
-Audit ids continue from **A-098**.
+Audit ids: all PSRAM work is logged as **B-NNN** in `docs/AUDIT_TRAIL.md`
+(B-001 and B-002 are the simulation entries, formerly A-098/A-099; B-003 is the
+plan review). The A series (SDRAM/UI, currently past A-122) is not used for PSRAM.
+The packager probe flag and platform id (15-char limit) follow the B id, e.g.
+`--probe-b004` and `tau_psram_b004`; the packager and decoder need a small change
+to accept the `b` prefix when P2 is built.
 
 ### P0 - contract (docs + one test; no hardware)
 1. Read the AS1C8M16PL datasheet; write `docs/PSRAM_TIMING_CONTRACT.md`: async
@@ -199,15 +209,19 @@ persist blocks P4.
 resource deltas recorded; default Tau build unchanged.
 
 ### P5 - one cold-data move (separate approval)
-Order, subject to P4 latency: `pl_text` + `pl_off` + `pl_order` (13 KiB), then
-`art_acc` (11 KiB) only if PSRAM cost keeps the decode delta small. Needs the
-SDRAM promotion gates (`CURRENT_STATUS.md` next gates 2-4) or an explicit decision
-that PSRAM promotes independently. Measure memory reclaimed and player impact;
+Order, subject to P4 latency: the playlist buffers (`pl_text`, `pl_off`,
+`pl_order`) **already moved to SDRAM** behind `TAU_PL_SDRAM` (A-105..A-108), so
+they are no longer candidates. What remains is `art_acc` (11 KiB), and only if
+the measured PSRAM cost keeps the decode delta small (the Info page reports art
+decode 2.6 s of a 3.0 s load, A-120), then Phase E media-library indexes. Needs the
+SDRAM promotion gates (`CURRENT_STATUS.md`) or an explicit decision that PSRAM
+promotes independently. Measure memory reclaimed and player impact;
 repeat the PSRAM CRC after a session.
 
 ## 4. Scheduling and dependencies
-- P0 and P1 need no Quartus and no card, so they can start now, in parallel with
-  the pending A-097 soak result.
+- P0 and P1 are done (B-001, B-002). A-097 has since passed (264M checks) and the
+  SDRAM product candidate is the probe-free seed-2 RBF (A-114); its gate re-runs
+  and the open A-121 audio report are still pending.
 - P2 needs one Quartus slot (about 44 min per build on the VM); do not queue it
   while an SDRAM promotion build is being fitted.
 - A passing PSRAM run does not close or affect any SDRAM gate.
@@ -226,4 +240,60 @@ and registered ACK (KB-024) before the memory.
 2. Confirm PSRAM diagnostics use the `interact.json` persist channel.
 3. Confirm async-only scope; a 133 MHz synchronous-burst engine stays a separate
    decision record, only if P4 shows async is too slow.
-4. Confirm audit numbering from A-098 for the PSRAM series.
+4. Confirm the B-NNN audit series for PSRAM (adopted 2026-09-20).
+
+## 7. Review of later updates (2026-09-20, after B-002)
+
+Skill state: `refresh.py docs` reports 0 changed pages; `refresh.py repos` reports
+only openfpga-library metadata moved and one unreachable tutorials repo (nothing
+PSRAM-relevant). The skill KB now separates publishable entries (`entries/`) from
+project-private ones (`local-entries/`, git-ignored): KB-022..025 and KB-029
+(PSRAM datasheet, docs-verified) live in `local-entries/`; KB-032..035 are the
+generalized public versions of 022..025, still community-reported. New local
+entries KB-030 (SDRAM window cost, hardware-validated) and KB-031 (screenshots can
+stop playback). No new PSRAM claim exists upstream or in the community KB.
+
+New considerations for the PSRAM work:
+
+1. **Audit ids collided.** The plan had reserved the next A ids, but A-100..A-122
+   were used in parallel. Resolved by moving PSRAM to its own B-NNN series (section 3).
+2. **Macro split (A-113).** SDRAM learned to separate window from probe; PSRAM must
+   do it from the start (section 2). A product PSRAM RBF must not carry the probe.
+3. **P2 prerequisite: MMIO allocation table** (roadmap Phase B4). The mailbox
+   offsets must come from that single table (PSRAM, EQ, accelerators, GPU), not be
+   picked ad hoc.
+4. **Bundling with the SDRAM busy-cycle counter** (roadmap Phase C). Acceptable: the
+   counter is a read-only observer, not a second RTL client, so the "do not combine
+   two clients in one change" rule is not broken. Keep each behind its own macro and
+   pre-set fit rule so a failure is attributable.
+5. **A-121 is open** (user-reported errors and poorer audio on the probe-free seed-2
+   RBF; frames show no failure). PSRAM P4 compares the product RBF against a
+   baseline, so it should wait for A-121 to be resolved, or at least record which
+   baseline RBF it compares to. P2/P3 use a standalone core and are not blocked.
+6. **Test method for audio coexistence.** Use the stress HUD counters (E early, L
+   late underruns, M worst window access, S draw stall, K ops/s) and the Info-page
+   underrun count, one variable at a time, like-for-like A/B by swapping only
+   `bitstream.rbf_r`. Screenshots stop playback and raise `E` (KB-031), so
+   underrun runs must be screenshot-free.
+7. **Worst case should be tight.** SDRAM's worst single access is 360-373 cycles
+   (about 6 us) against about 50 typical (KB-030) because of refresh and scanout
+   arbitration. Async PSRAM has no arbitration and refresh is hidden by the chip,
+   so its worst case should sit near its typical cost (about 24 clocks). P4 must
+   measure per-access min/max to confirm; a wide spread would point at a
+   controller or refresh-collision problem.
+8. **Value of P5 has narrowed.** The playlist buffers are already in SDRAM. PSRAM's
+   remaining case is `art_acc`/library data and isolation from scanout; it is not
+   capacity. The gate is unchanged (measure first), but expect P5 to be optional.
+9. **Diagnostic Build tier (A-119, `TAU_DIAG_TESTS`).** After P4, the PSRAM
+   round-trip/soak could become a Diagnostic-tier entry instead of a separate core.
+   P2/P3 stay a standalone core so a fault cannot affect the player.
+10. **Fit margins.** SDRAM candidates closed at +0.124 ns hold (A-114). PSRAM adds
+    1.8 V I/O paths in the same 60 MHz domain: require several seeds, read
+    fast-corner hold (KB-011), and keep M10K at 300/308 (the mailbox needs none).
+11. **GPU/DMA sourcing PSRAM (roadmap Phase F).** This controller is single-client
+    with one outstanding request. If a GPU or DMA master ever reads PSRAM it needs
+    an arbiter with audio ranked at or above graphics, which is new work outside
+    P0-P5.
+12. **Datasheet is preliminary (Rev 1.0).** Re-check the contract if a newer
+    revision appears; hardware questions stay in the timing contract, section 5.
+
