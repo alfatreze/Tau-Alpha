@@ -4335,3 +4335,156 @@ Total registers: 7,470, against 7,688 for the A-101 seed-4 map (218 fewer, the p
 A-110 build (the window itself costs about 159); block memory bits unchanged (2,380,928).
 **Not done:** no place-and-route, no timing, no Pocket. The probe-free window RBF must be built on several seeds
 and every A-093..A-108 gate re-run on it before it replaces the A-101 seed-4 RBF as the product candidate.
+
+### A-114 — probe-free window RBF, multi-seed fit launched
+
+**Date:** 2026-09-20
+**Evidence:** VM launch only; results pending.
+Committed the A-113 split (`e67f93a` RTL, `bf56f20` docs/tools). Staged
+`/home/taualpha/tau-local/probefree-a114-s1-20260920` and `...-s2-20260920` from the A-110 tree with the
+committed `src/fpga` and `Makefile` overlaid, and `TAU_PHASE2_WINDOW=1` plus `SEED 1` / `SEED 2` appended to
+`ap_core.qsf` (no probe macros). `make check-fpga` ok; both `make fpga` runs launched 15:05 WEST in parallel
+(logs `quartus-a114-s1.log`, `quartus-a114-s2.log`). Seeds 3-4 only if timing is tight. Acceptance: 0 errors, all
+slacks positive with hold at least as good as A-101 (+0.105 ns worst), 300/308 RAM blocks or fewer; then repackage the
+window stress core and re-run soak, coverage, contention and the playlist tests on the chosen RBF.
+
+### A-115 — in-app settings UI (grouped), firmware built and packaged (not installed)
+
+**Date:** 2026-09-20
+**Evidence:** host (build, link map, snapshot fixtures, `make test-host`); no Pocket run.
+**Decisions (owner):** grouped home + three pages; opened with **Start** ("we'll remove the stop function from
+there"; settings may later become part of a main menu). Hold-Select was rejected once found to be the existing
+album-art toggle.
+**Change** (behind `TAU_SETTINGS_UI`, default 0): new `fw/settingsui.inc`, table-driven. Home lists Appearance,
+Audio, Playback; Appearance = Colour, Meter (named), Album art on/off, Screen blank; Audio = EQ, Volume; Playback =
+Repeat, Shuffle, Resume, Speed (Normal/1.2x). Up/Down move, A/Right open a group or change a value, Left/Right change,
+B back (closes at the home), Start closes. Every change applies immediately through the same variables and side effects
+as the direct shortcuts, which stay (X, Y, Select+L/R/Down, hold-Select art, hold-A speed, Up/Down volume). Nothing new
+is written to the persisted settings words; Screen blank stays non-persisted (as Select+Down). Hooks in `player.c`:
+`UI_OVERLAY_UP` (= playlist overlay or settings) gates the title/meter/status repaint exactly as the playlist
+overlay does, draw in the repaint tail and main loop, input consumed early in `poll_input()`. In this build **Start no
+longer stops playback** (B still repositions to the start, A pauses); Select+Start debug/stress combos are untouched.
+Deferred: Advanced, reset, gallery/preview screens, EQ curve preview, playback-speed preview.
+**Build:** `fw/build.sh player-settings` (defines `TAU_SETTINGS_UI=1 TAU_PL_SDRAM=1`: the settings alone do NOT link on
+BRAM, the SDRAM playlist is required; the linker refuses with "firmware image collides"). ROM 156,816 B, SHA-256
+`9e252117...7e40`, heap gap 11,984 B (SDRAM-playlist build 16,368 B), i.e. the four-page settings cost about 4.4 KiB, about
+1.5x the flat prototype of A-096 (2,996 B). Product ROM unchanged (`b365dc2a...`), SDRAM-playlist ROM unchanged
+(`63e605e9...`). Packaged with the A-101 seed-4 RBF as `alfatreze.TAU_SETTINGS` / `tau_settings`
+(`package_sdram_stress.py --playlist-sdram --settings`); bundle `work/diagnostics/settings-ui/pocket`; NOT installed.
+**Snapshots (AGENTS.md):** four new named fixtures `settings-home`, `settings-appearance`, `settings-audio`,
+`settings-playback` (labels, row counts and column geometry parsed from `fw/settingsui.inc`), registered in
+`ui_snapshot_renderer.py`, `check_ui_snapshot_renderer.py` and `visual_review.py`; rendered to `work/previews/` and
+inspected (first render clipped `SCREEN BLANK` and `OSCILLOSCOPE`; column widths fixed in the firmware and fixture).
+`check_ui_snapshot_renderer` now emits 37 fixtures.
+**Risks to test on the Pocket:** (1) the Pocket screenshot combination is seen by the core and earlier stopped playback
+(KB-031); if it includes Start, a screenshot will now open the settings screen; (2) closing must repaint the player
+without artefacts (`pl_ui_restore` path, as the playlist); (3) meter and cover behaviour after changing them from the
+menu; (4) audio while paging and changing values (EQ, speed, volume), listen for dropouts; (5) shuffle change with a
+playlist loaded keeps the current track.
+
+**A-115 installation (host, 2026-09-20):** `alfatreze.TAU_SETTINGS` / `tau_settings` installed on the card; all 14 bundle
+files SHA-256-identical (ROM `9e252117...7e40`, bit-reversed seed-4 RBF `2e9aaf0e...3cd7`). Media copied (not moved; the
+base TAU is untouched) from `Assets/tau/common` into `Assets/tau_settings/common`: the `Nausicaa OST` folder and
+`playlist.m3u`, diffed identical. Removed as finished/superseded test builds (each backed up first and diffed identical
+under `work/diagnostics/settings-ui/card-removed-2026-09-20/`, including Cores, Assets, Platforms and Settings):
+`TAU_PLSDRAM`, `TAU_PLSDRAMF`, `TAU_PLSDRAMN`. Left in place: base `TAU`, the window stress core `TAU_SDRAM_WSTRESS`
+(needed for the gate re-runs) and the older Phase 1 `TAU_SDRAM_STRESS` / `TAU_SDRAM_DIAG`, plus stale `Settings/`
+folders of long-removed probe cores. Incident: the first attempt aborted when the card dropped off the Mac (nothing
+deleted); the second removed the three cores and then failed on an unquoted path before installing; the third, with quoted
+paths, completed. Catalog indexes backed up to `work/diagnostics/settings-ui/pocket-cache-backup-2026-09-20/System/` and
+cleared. Result pending.
+
+### A-116 — full-screen overlays, choice lists, colour swatches and meter placeholders (firmware built, not installed)
+
+**Date:** 2026-09-20
+**Evidence:** host (build, link map, snapshot fixtures, `make test-host`, `overlay_preview.py`); no Pocket run. A-115 was
+reported working on the Pocket by the user ("everything worked").
+**Request (owner):** playlist and settings full screen with more visual space; Colour as a submenu list with a circle per
+option and the selected one marked; Meter the same with a small preview per meter (grey rectangle placeholder); Equalizer as a
+submenu with the active preset marked and A selecting a new choice; "this should be the default behaviour".
+**Changes:**
+1. **Full-screen overlays.** New geometry (`PL_UI_*`: panel inset 8 px, 12 rows of 22 px, 36 px hint area) and a shared
+   `ov_frame()` (border, rounded panel, accent title, optional right-hand counter, hairline, dim hint line). Playlist gets a
+   `n / total` counter and an `A PLAY   B BACK` hint. Because nothing of the player may show through, **the three drawing
+   primitives (`fb_rect`, `fb_copy_span`, `fb_char`) are now no-ops while an overlay is up** (`FB_HELD()`), except when the
+   overlay itself paints (`ov_draw`); playback continues and the existing close path (`pl_ui_restore`: chrome repaint plus
+   invalidation of meter, clock, progress, info) redraws everything. Toasts raised while an overlay is up are not shown.
+   This changes the **standard build too** (playlist overlay).
+2. **Choice lists as the default for multi-option settings** (`fw/settingsui.inc`, rewritten table-driven): Colour, Meter,
+   Equalizer, Repeat and Screen blank open a list page; Up/Down move the highlight, **A selects** (applies at once, the mark
+   moves), B goes back. Colour rows are swatches (a circle in each theme colour, white ring on the active one); Meter rows are a
+   radio circle plus a 56x32 grey placeholder thumbnail plus the name (11 meters, 6 visible, scrolls); the others use a radio
+   circle with a dot on the active option. Two-state settings (Album art, Shuffle, Resume, Speed) and Volume stay inline (A or
+   Left/Right).
+3. **Snapshots.** `playlist-browser` and the four settings fixtures were rewritten to the new layout, and five new fixtures added:
+   `settings-colour`, `settings-meter`, `settings-eq`, `settings-repeat`, `settings-blank` (geometry, row tables and names are read
+   from `fw/player.c`, `fw/settingsui.inc`, `fw/eq_curve.h`). 42 fixtures; rendered to `work/previews/` and inspected.
+**Builds (ROM SHA-256 prefixes):** product `661c5936...` (151,252 B), SDRAM-playlist `02fa0499...` (151,600 B), settings
+`78cb7582...` (152,680 B; heap gap 16,112 B here, the previous settings ROM had 11,984 B: the rewrite is smaller). These replace
+`b365dc2a`, `63e605e9` and `9e252117`; the earlier Pocket evidence (A-104..A-115) belongs to the old ROMs. Settings bundle
+`work/diagnostics/settings-ui/pocket` repackaged with the seed-4 RBF; NOT installed.
+**Risks for the Pocket:** (1) the primitive gate could hide a legitimate draw made while an overlay is up (art or meter not
+redrawn after close, stale clock/progress/toast); (2) close must repaint the player cleanly for both overlays; (3) full-panel
+redraw cost on every cursor move (12 rows of circles): check for visible flicker and audio dropouts while paging; (4) scroll
+handling and highlight on the 11-row meter list; (5) selecting Colour/Meter/EQ/Repeat/Blank applies at once (accent changes
+while the list is open); (6) screenshot combination still to be checked for Start.
+
+**A-116 installation (host, 2026-09-20):** replaced `Assets/tau_settings/common/tau.rom` on the card with the A-116 build (SHA-256
+`78cb7582...50faa5e`); the previous A-115 ROM (`9e252117...`) and the catalog indexes are backed up in
+`work/diagnostics/settings-ui/rom-replaced-a116/`, the indexes were cleared. RBF, JSON, base media and every other core untouched;
+all 14 bundle files SHA-256-identical, media diffed identical. Result pending.
+
+### A-117 — A-116 on Pocket (works), one overlay-conflict bug and its fix
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (12 screenshots from the A-116 session, card clock 15:51-15:52, copies in
+`work/diagnostics/settings-ui/screenshots-a116/`; plus one older A-115-layout shot) and the user's report: everything worked, no
+tearing, no audio problem heard.
+**Seen:** full-screen playlist (`PLAYLIST 2 / 13`, 12 rows, hint line, `>` on the playing row, cursor row highlighted), settings
+home, Appearance (COLOUR BLUSH, METER VU, ALBUM ART OFF, SCREEN BLANK NEVER), Audio (EQUALIZER BASS, VOLUME 100%), Repeat list
+(radio dot on ALL), Colour list (swatch per theme colour, white ring on the active BLUSH, dark ring on the cursor row); accent
+follows the selection as it changes. Screenshots taken while settings was open did not close or re-open it, so the Pocket's
+screenshot combination does not toggle Start. The red/green strip at the top is still there: this card carries the A-101 seed-4 RBF
+(probe included); the A-113 probe-free RBF is still being fitted.
+**Bug (user-reported and visible in screenshots 1-2):** opening settings while the playlist overlay is open left `pl_ui_open` set;
+the playlist's selected-row marquee redraws that row through the `ov_draw` gate, so the playing track name overwrote the first
+settings row. **Fix:** `set_input()` closes the playlist when settings opens (one overlay at a time; closing settings returns to
+the player). Select cannot reopen the playlist over settings because `set_input()` consumes the falling edge. Settings ROM
+`7f81d6f1...` (152,692 B), bundle `work/diagnostics/settings-ui/pocket` repackaged; product ROM (`661c5936...`) and SDRAM-playlist
+ROM (`02fa0499...`) unchanged. Not yet on the card.
+
+### A-118 — Diagnostics group, Phase 1: Info page (firmware built and packaged, not installed)
+
+**Date:** 2026-09-20
+**Evidence:** host (build, link map, snapshot fixtures, `make test-host`); no Pocket run.
+**Scope (owner: "start phase 1 and install the overlap fix"):** a **Diagnostics** group on the settings home, compiled only with
+`TAU_DIAG_MENU` (default 0; the `player-settings` developer target defines it), containing one page, **Info**, of eleven read-only
+live values: firmware version, FPGA rev (`R_VERSION`), SDRAM window state (untested/OK/FAILED) and cycles for one window read
+(measured in `pl_sdram_prove()`, new `pl_win_rd`), free RAM (heap gap), playlist track count, list-clipped flag, current track
+(format, kbps, rate), underrun count since boot (`pcm_under_n`), draw-engine stall in ms, and the last load timings
+(head/size/art/total). Rows only repaint once a second (`set_info_tick()`; the panel is drawn once), B goes back. It includes the
+overlap fix (opening settings closes the playlist).
+**Save report deferred:** the product's persist register file has 16 words of which 12 are used (`SW_N`), so the 16-word,
+31-bit record of A-091 does not fit; a compact 4-word summary or an RTL/register widening is needed and is a Phase 2 decision.
+The Pocket already takes screenshots, so no firmware screenshot is attempted (architecture doc: no runtime image export).
+**Builds:** product ROM unchanged (`b365dc2a` line replaced by A-116's `661c5936...`, 151,252 B, still the same); SDRAM-playlist ROM
+changed by the `pl_win_rd` measurement: `82fdb70c...` (151,616 B); settings ROM `d0b5a32b...` (156,252 B, heap gap 12,512 B, about
+11.5 KiB above the linker minimum). Bundle repackaged with the seed-4 RBF. New fixtures `settings-diagnostics` and `settings-info`
+(44 total), rendered and inspected. `make test-host` passes.
+**Not on the card yet** (card unmounted at build time).
+
+### A-119 — release-style build includes Info; "Diagnostic Build" defined; settings ROM with Info installed
+
+**Date:** 2026-09-20
+**Owner decision:** the release-style build combines the standard settings with the read-only Info page (small, useful for support);
+the developer build is named **Diagnostic Build** and will carry the on-demand tests, stress pump and soak.
+**Change:** `TAU_DIAG_MENU` renamed `TAU_DIAG_INFO` (Diagnostics group + Info page); `TAU_DIAG_TESTS` reserved for the Diagnostic
+Build (no code behind it yet). `fw/build.sh`: `player-settings` = settings + SDRAM playlist + Info, minimum heap gap 8 KiB enforced
+at build time; new `player-diagnostic` = the same plus `TAU_DIAG_TESTS`, minimum 4 KiB (both print `heap gap: N B`). Packager
+`--diagnostic`: core `alfatreze.TAU_DIAGNOSTIC` / platform `tau_diagnostic`, title "TAU Diagnostic Build", bundle
+`work/diagnostics/diagnostic-build/pocket` (not installed). Until Phase 2 exists the two ROMs are byte-identical
+(`d0b5a32bb7309e2a...`, 156,252 B, heap gap 12,512 B); product ROM (`b365dc2a` lineage, 151,252 B) and SDRAM-playlist ROM
+(`82fdb70c...`) unchanged from A-118. `make test-host` passes.
+**Card (host):** `Assets/tau_settings/common/tau.rom` on the card replaced with `d0b5a32b...` (A-118: overlap fix + Info page); the
+previous A-116 ROM (`78cb7582...`) and the indexes are backed up in `work/diagnostics/settings-ui/rom-replaced-a118/`, indexes cleared;
+all 14 bundle files SHA-256-identical, base media untouched. The Diagnostic Build was NOT installed. Result pending.
