@@ -155,8 +155,8 @@ static uint32_t log_src[4];
  * stores these values as SIGNED int32, so words 0..14 carry only their low 31
  * bits and word 15 carries the withheld top bits (bit i = top bit of word i). */
 static uint32_t set_readback[4];   /* words 0, 7, 12, 15 as read back */
-#ifdef TAU_DISCRIMINATOR_PROBE
-static uint32_t disc_words[16];    /* A-092 raw discriminator results */
+#if defined(TAU_DISCRIMINATOR_PROBE) || defined(TAU_LATENCY_PROBE)
+static uint32_t disc_words[16];    /* A-092/A-094 raw result words */
 #endif
 #endif
 
@@ -433,7 +433,7 @@ static int save_result(uint32_t stage)
     words[15] = 0u;
 #ifdef TAU_LOG_INTERACT_PROBE
     (void)command_state; (void)command_error;
-#ifdef TAU_DISCRIMINATOR_PROBE
+#if defined(TAU_DISCRIMINATOR_PROBE) || defined(TAU_LATENCY_PROBE)
     publish_interact(disc_words);
 #else
     publish_interact(words);
@@ -786,10 +786,79 @@ static void run_discriminator(void)
 }
 #endif
 
+#ifdef TAU_LATENCY_PROBE
+/* A-094: cost of the uncached SDRAM CPU window, measured with the 60 MHz core
+ * cycle counter while scanout keeps running.  Region 2-3 MiB, N ops per test.
+ * disc_words: 0 "LAT1", 1 N, 2 empty-loop total, 3 seq write total, 4 seq read
+ * total, 5 stride-0x1000 write total, 6 stride-0x1000 read total, 7 write+read
+ * same word total, 8 read-modify-write total, 9 min read cycles, 10 max read
+ * cycles, 11 max write cycles, 12 stride-0x40000 read total (bank/row hop),
+ * 13 data mismatches, 14 0. */
+#define LAT_N 256u
+static void run_latency(void)
+{
+    volatile uint32_t *base = (volatile uint32_t *)(uintptr_t)TEST_BASE_WORD;
+    uint32_t t0, t1, i, mism = 0u, rmin = 0xFFFFFFFFu, rmax = 0u, wmax = 0u;
+    volatile uint32_t sink = 0u;
+    for (i = 0; i < 16u; ++i) disc_words[i] = 0u;
+    disc_words[0] = 0x4C415431u;                                   /* "LAT1" */
+    disc_words[1] = LAT_N;
+    t0 = cycles();
+    for (i = 0; i < LAT_N; ++i) sink = i;                          /* loop cost */
+    disc_words[2] = cycles() - t0;
+    t0 = cycles();
+    for (i = 0; i < LAT_N; ++i) base[i] = 0x51000000u ^ i;
+    disc_words[3] = cycles() - t0;
+    t0 = cycles();
+    for (i = 0; i < LAT_N; ++i) sink ^= base[i];
+    disc_words[4] = cycles() - t0;
+    for (i = 0; i < LAT_N; ++i) {                                  /* per-op */
+        uint32_t a = cycles();
+        uint32_t v = base[i];
+        uint32_t d = cycles() - a;
+        if (v != (0x51000000u ^ i)) ++mism;
+        if (d < rmin) rmin = d;
+        if (d > rmax) rmax = d;
+    }
+    t0 = cycles();
+    for (i = 0; i < LAT_N; ++i) base[i * 0x400u] = i;              /* 4 KiB stride */
+    disc_words[5] = cycles() - t0;
+    t0 = cycles();
+    for (i = 0; i < LAT_N; ++i) if (base[i * 0x400u] != i) ++mism;
+    disc_words[6] = cycles() - t0;
+    t0 = cycles();
+    for (i = 0; i < LAT_N; ++i) { base[0x100u] = i; sink ^= base[0x100u]; }
+    disc_words[7] = cycles() - t0;
+    t0 = cycles();
+    for (i = 0; i < LAT_N; ++i) base[i] = base[i] + 1u;
+    disc_words[8] = cycles() - t0;
+    for (i = 0; i < LAT_N; ++i) {                                  /* write max */
+        uint32_t a = cycles();
+        base[0x200u + i] = i;
+        uint32_t d = cycles() - a;
+        if (d > wmax) wmax = d;
+    }
+    disc_words[9] = rmin;
+    disc_words[10] = rmax;
+    disc_words[11] = wmax;
+    t0 = cycles();
+    for (i = 0; i < 4u; ++i) base[i * 0x10000u] = i;               /* 256 KiB stride */
+    for (i = 0; i < 4u; ++i) sink ^= base[i * 0x10000u];
+    disc_words[12] = cycles() - t0;
+    disc_words[13] = mism;
+    (void)sink;
+    tests_run = LAT_N; failures = 0u;
+}
+#endif
+
 static void run_tests(void)
 {
 #ifdef TAU_DISCRIMINATOR_PROBE
     run_discriminator();
+    return;
+#endif
+#ifdef TAU_LATENCY_PROBE
+    run_latency();
     return;
 #endif
     static const uint32_t patterns[4] = {
@@ -852,6 +921,37 @@ static void draw_result(void)
     char number[12], hex[9];
     uint16_t color = failures ? UI_RED : UI_GREEN;
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
+#ifdef TAU_LATENCY_PROBE
+    {
+        char line[28], *q;
+        static const char *const names[] = {
+            "LOOP ONLY   ", "SEQ WRITE   ", "SEQ READ    ", "STRIDE4K WR ",
+            "STRIDE4K RD ", "WR+RD SAME  ", "READ-MOD-WR ", "" };
+        fb_rect(12, 18, 376, 324, UI_PANEL);
+        fb_text(28, 30, "TAU SDRAM LATENCY A094", UI_ACCENT, UI_PANEL);
+        fb_text(28, 50, "CYCLES PER OP AT 60 MHZ", UI_DIM, UI_PANEL);
+        for (uint32_t k = 0; k < 7u; ++k) {
+            uint32_t total = disc_words[2u + k];
+            q = line;
+            for (const char *n = names[k]; *n; ++n) *q++ = *n;
+            q = append_dec(q, total / LAT_N);
+            *q++ = '.';
+            q = append_dec(q, ((total % LAT_N) * 10u) / LAT_N);
+            *q = 0;
+            fb_text(28, 76u + k * 22u, line, UI_WHITE, UI_PANEL);
+        }
+        q = line; *q++ = 'R'; *q++ = 'D'; *q++ = ' '; *q++ = 'M'; *q++ = 'I'; *q++ = 'N'; *q++ = ' ';
+        q = append_dec(q, disc_words[9]); *q++ = ' '; *q++ = 'M'; *q++ = 'A'; *q++ = 'X'; *q++ = ' ';
+        q = append_dec(q, disc_words[10]); *q = 0;
+        fb_text(28, 236, line, UI_WHITE, UI_PANEL);
+        q = line; *q++ = 'W'; *q++ = 'R'; *q++ = ' '; *q++ = 'M'; *q++ = 'A'; *q++ = 'X'; *q++ = ' ';
+        q = append_dec(q, disc_words[11]); *q++ = ' '; *q++ = 'B'; *q++ = 'A'; *q++ = 'D'; *q++ = ' ';
+        q = append_dec(q, disc_words[13]); *q = 0;
+        fb_text(28, 258, line, disc_words[13] ? UI_RED : UI_WHITE, UI_PANEL);
+        fb_text(28, 290, "QUIT TO SAVE  A RUN AGAIN", UI_DIM, UI_PANEL);
+        return;
+    }
+#endif
 #ifdef TAU_DISCRIMINATOR_PROBE
     {
         char line[16];

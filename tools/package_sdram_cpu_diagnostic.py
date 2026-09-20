@@ -81,7 +81,8 @@ def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             probe_a090: bool = False,
             probe_a091: bool = False,
             probe_a092: bool = False,
-            probe_a093: bool = False) -> dict[str, object]:
+            probe_a093: bool = False,
+            probe_a094: bool = False) -> dict[str, object]:
     """Return the immutable package identity/provenance for one diagnostic."""
     if probe_a062:
         return {
@@ -268,6 +269,21 @@ def profile(probe: bool, probe_a060: bool, probe_a060_readback: bool,
             "name": "TAU CPU SDRAM Probe A085",
             "description": "TAU result-slot settle/write/read probe A085",
             "expected_hash": EXPECTED_A080_PROBE_RBF_SHA256,
+        }
+    if probe_a094:
+        return {
+            # Firmware-only cost measurement of the uncached SDRAM window on
+            # the A-093 (fixed adapter) RBF; raw words via interact.json.
+            "raw_rbf": ROOT / "work/diagnostics/sdram-cpu-probe-a093/fpga/ap_core.rbf",
+            "rom": ROOT / "work/diagnostics/sdram-cpu-latency/tau.rom",
+            "output": ROOT / "work/diagnostics/sdram-cpu-probe-a094/pocket",
+            "platform_id": "tau_sdram_prb94",
+            "core_id": "alfatreze.TAU_SDRAM_PRB94",
+            "shortname": "TAU_SDRAM_PRB94",
+            "name": "TAU CPU SDRAM Probe A094",
+            "description": "TAU uncached SDRAM window latency A094",
+            "expected_hash": EXPECTED_A093_PROBE_RBF_SHA256,
+            "interact_result": True,
         }
     if probe_a093:
         return {
@@ -491,6 +507,8 @@ def main() -> None:
                       help="package the A-084 result-slot lifecycle probe")
     mode.add_argument("--probe-a085", action="store_true",
                       help="package the A-085 result-slot settle probe")
+    mode.add_argument("--probe-a094", action="store_true",
+                      help="package the A-094 SDRAM window latency probe")
     mode.add_argument("--probe-a093", action="store_true",
                       help="package the A-093 fixed-adapter probe")
     mode.add_argument("--probe-a092", action="store_true",
@@ -514,7 +532,7 @@ def main() -> None:
                   args.probe_a074, args.probe_a076, args.probe_a077,
                   args.probe_a079, args.probe_a080, args.probe_a082,
                   args.probe_a083, args.probe_a084, args.probe_a085,
-                  args.probe_a086, args.probe_a087, args.probe_a088, args.probe_a089, args.probe_a090, args.probe_a091, args.probe_a092, args.probe_a093)
+                  args.probe_a086, args.probe_a087, args.probe_a088, args.probe_a089, args.probe_a090, args.probe_a091, args.probe_a092, args.probe_a093, args.probe_a094)
     raw_rbf = cfg["raw_rbf"]
     diag_rom = cfg["rom"]
     output = cfg["output"]
