@@ -5149,3 +5149,7 @@ reported as a problem.
 raising the constant when a resampler or faster decode exists. No change to the previews (`fw/meter_thumbs.h`, `tools/gen_meter_thumbs.py` as in A-132). Fixture `settings-speed` shows five rows.
 **Builds:** release-style settings ROM `36d1e37c...` (162,172 B, heap gap 6,608 B), Diagnostic Build `62640957...` (164,324 B, gap 4,224 B); product and SDRAM-playlist ROMs unchanged from A-132; `dist/` still the v0.2.0 release.
 `make test-host` passes. Bundles `TAU_SETTINGS` and `TAU_DIAGNOSTIC` repackaged with the seed-2 RBF; not installed (the card currently runs the A-132 ROM `b80fe44b...` with the ten-speed list).
+
+**A-134 installation (host, 2026-09-21):** `Assets/tau_settings/common/tau.rom` on the card replaced with the trimmed-speed build (`36d1e37c...`, 162,172 B); the A-132 ROM (`b80fe44b...`) and the catalog
+indexes are backed up in `work/diagnostics/settings-ui/rom-replaced-a134/`, indexes cleared. All 14 bundle files SHA-256-identical (seed-2 RBF and `core.json` 0.2.0 unchanged); `TAU` (v0.2.0), `TAU_DIAGNOSTIC`,
+`TAU_PSRAM` and the media untouched. Result pending: the Speed list should show only 0.85-1.25x; the meter previews unchanged.
