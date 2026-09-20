@@ -187,6 +187,18 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #ifndef TAU_SDRAM_STRESS_WINDOW
 #define TAU_SDRAM_STRESS_WINDOW 0
 #endif
+/* A-103: place the playlist buffers (pl_text, pl_off, pl_order: 13,312 B) in SDRAM
+ * behind the uncached CPU window instead of BRAM. Needs an RBF built with
+ * TAU_PHASE2_WINDOW; pl_load() proves the window first and turns the playlist
+ * feature off (no BRAM fallback) if it does not answer. Off by default. */
+#ifndef TAU_PL_SDRAM
+#define TAU_PL_SDRAM 0
+#endif
+#if TAU_PL_SDRAM
+#define PL_SDRAM __attribute__((section(".sdram")))
+#else
+#define PL_SDRAM
+#endif
 
 /* Framebuffer: 400x360 RGB565, one word/pixel, 512-word (page-aligned) stride.
  * See mp3_fb.sv for the full rationale. */
@@ -787,13 +799,13 @@ static void vol_apply(void)
  * function moves, no static is exported, nothing is reordered. */
 #define PL_TEXT_MAX  12288u
 
-static char     pl_text[PL_TEXT_MAX];
+static char     pl_text[PL_TEXT_MAX] PL_SDRAM;
 /* Set when the .m3u did not fit -- either the text buffer filled or PL_MAX was
  * reached with lines still to read. Without this a clipped playlist is
  * indistinguishable from a short one: the screen just shows a smaller number. */
 static uint8_t  pl_truncated;
-static uint16_t pl_off[PL_MAX];          /* byte offset of each name in pl_text */
-static uint16_t pl_order[PL_MAX];        /* play order -> file index            */
+static uint16_t pl_off[PL_MAX] PL_SDRAM;        /* byte offset of each name in pl_text */
+static uint16_t pl_order[PL_MAX] PL_SDRAM;        /* play order -> file index            */
 static uint16_t pl_count;                /* 0 = no playlist loaded              */
 static uint16_t pl_pos;                  /* index INTO pl_order                 */
 

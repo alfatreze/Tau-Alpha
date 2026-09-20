@@ -16,6 +16,10 @@
 
 MEMORY {
 	ram : ORIGIN = 0x00000000, LENGTH = 0x00040000   /* 256 KB */
+	/* A-103: uncached CPU window onto SDRAM (physical 1 MiB up). Only the playlist
+	 * buffers, 13,312 B, and only in TAU_PL_SDRAM builds; the section is empty
+	 * otherwise. NOLOAD: never in the ROM image, contents undefined at boot. */
+	sdram : ORIGIN = 0xA0100000, LENGTH = 0x00003400
 }
 
 ENTRY(_start)
@@ -50,6 +54,8 @@ SECTIONS {
 
 	.rodata : { *(.rodata .rodata.*) *(.srodata .srodata.*) } > ram
 	.data   : { *(.data .data.*) *(.sdata .sdata.*) } > ram
+
+	.sdram (NOLOAD) : { *(.sdram .sdram.*) } > sdram
 
 	.bss : {
 		__bss_start = .;

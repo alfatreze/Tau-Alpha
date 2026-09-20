@@ -19,20 +19,34 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--window", action="store_true",
                     help="package the Phase 2 CPU-window stress player (A-102)")
+    ap.add_argument("--playlist-sdram", action="store_true",
+                    help="package the A-103 playlist-in-SDRAM player (needs a window RBF)")
     ap.add_argument("--rbf", type=Path, help="raw RBF (window mode requires it)")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
     args = ap.parse_args()
-    if args.window:
+    if args.window and args.playlist_sdram:
+        sys.exit("--window and --playlist-sdram are mutually exclusive")
+    if args.window or args.playlist_sdram:
+        flag = "--window" if args.window else "--playlist-sdram"
         if not args.rbf or not args.rbf_sha256:
-            sys.exit("--window requires --rbf and --rbf-sha256 (refusing an unaudited RBF)")
-        out = root / "work/diagnostics/sdram-stress-window/pocket"
-        core_id, platform = "alfatreze.TAU_SDRAM_WSTRESS", "tau_sdram_wst"
+            sys.exit(f"{flag} requires --rbf and --rbf-sha256 (refusing an unaudited RBF)")
+        if args.window:
+            out = root / "work/diagnostics/sdram-stress-window/pocket"
+            core_id, platform = "alfatreze.TAU_SDRAM_WSTRESS", "tau_sdram_wst"
+        else:
+            out = root / "work/diagnostics/playlist-sdram/pocket"
+            core_id, platform = "alfatreze.TAU_PLSDRAM", "tau_plsdram"
         rbf = args.rbf if args.rbf.is_absolute() else root / args.rbf
         if digest(rbf) != args.rbf_sha256:
             sys.exit(f"RBF hash mismatch: expected {args.rbf_sha256}, got {digest(rbf)}")
-        rom = root / "work/diagnostics/sdram-stress-window/tau.rom"
-        short, title, desc = ("TAU_SDRAM_WSTRESS", "TAU SDRAM Window Stress",
-                              "TAU developer CPU-window contention stress player")
+        if args.window:
+            rom = root / "work/diagnostics/sdram-stress-window/tau.rom"
+            short, title, desc = ("TAU_SDRAM_WSTRESS", "TAU SDRAM Window Stress",
+                                  "TAU developer CPU-window contention stress player")
+        else:
+            rom = root / "work/diagnostics/playlist-sdram/tau.rom"
+            short, title, desc = ("TAU_PLSDRAM", "TAU Playlist in SDRAM",
+                                  "TAU developer player with playlist buffers in SDRAM")
     else:
         rbf = root / "work/diagnostics/sdram/fpga/ap_core.rbf"
         rom = root / "work/diagnostics/sdram-stress/tau.rom"
