@@ -4655,3 +4655,18 @@ copied, not moved, from the base TAU and diffed identical. Removed as superseded
 window stress core) and `TAU_SDRAM_DIAG` (Phase 1 mailbox diagnostic, replaced by the CPU-window probes). Kept: base `TAU`, `TAU_SETTINGS`, `TAU_SDRAM_WSTRESS`,
 `TAU_SDRAM_PRB97` and `TAU_SDRAM_PRB100` (gate runs pending on the seed-2 RBF); the latter three are to be retired once Phase 3 of the Diagnostic Build
 reproduces them. Six alfatreze cores remain. Catalog indexes backed up and cleared. Result pending.
+
+### A-126 — Diagnostic Build Phase 2 tests on Pocket: all pass
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (1 screenshot, `work/diagnostics/diagnostic-build/screenshots/20260920_173026.png`, card clock 17:30; the user reported the quick
+tests done). Diagnostic Build (`TAU_DIAGNOSTIC`, ROM `9580c8e9...`, probe-free seed-2 RBF).
+**Result (Tests page, all five rows run):** WINDOW TEST `PASS 89` (all 89 checks: back-to-back read-back, sub-word merge, address lines 2..25);
+READ CYCLES `48/56/330` (min/avg/max, net); WRITE CYCLES `31/38/313`; PLAYLIST CHECK `PASS 13` (13 tracks: permutation, offsets and parsed-text hash);
+CLEAR COUNTERS `DONE`. No error, no FAIL, no `NO WINDOW`.
+**Reading:** on the probe-free RBF the window passes the same class of checks as the standalone matrix and coverage probes (A-093, A-100), and the in-menu
+figures agree with the earlier probes: minimum 48 cycles (A-094: about 48-50), a maximum of 330 under the menu's own concurrent scanout (inside the 360-373
+idle bound of A-094/A-100/A-102); the write average (38) is lower than the read average (56), as a posted write would be. The playlist in SDRAM passes its
+integrity check after real use. The menu versions now agree with what the standalone gates established, which was the condition for trusting them.
+**Not yet done:** the standalone gate cores on this RBF (coverage A-100, soak A-097) and the clean 1.0x stress run; the Diagnostic Build's Info and Tests
+under longer playback; Phase 3 (stress pump, timed soak).
