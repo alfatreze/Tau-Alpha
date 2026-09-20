@@ -935,6 +935,7 @@ static void pl_remember(void)
 #define PL_SDRAM_BASE   0xA0100000u
 #define PL_SDRAM_BYTES  (PL_TEXT_MAX + 2u * PL_MAX * 2u)
 static uint8_t pl_sdram_state;                  /* 0 untested, 1 proven, 2 failed */
+static uint32_t pl_win_rd;                      /* cycles for one window read (Info page) */
 
 static int pl_sdram_prove(void)
 {
@@ -953,7 +954,10 @@ static int pl_sdram_prove(void)
      * check fails on a healthy bitstream and exercises the feature-off path. */
     w0 = (volatile uint32_t *)(uintptr_t)(PL_SDRAM_BASE + 0x40u);
 #endif
-    if (*w0 != 0x504C5342u) return 0;
+    uint32_t t1 = cycles();
+    uint32_t got = *w0;
+    pl_win_rd = cycles() - t1;
+    if (got != 0x504C5342u) return 0;
     for (uint32_t k = 0; k < 2u; k++) {
         *w0 = pat[k];  *w1 = ~pat[k];
         if (*w0 != pat[k] || *w1 != ~pat[k]) return 0;

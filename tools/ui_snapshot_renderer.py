@@ -418,36 +418,195 @@ def now_playing_base(state="playing", seeking=False, title="NIGHT DRIVE",
     return frame
 
 
+SETTINGS_SRC = (ROOT / "fw/settingsui.inc").read_text(encoding="utf-8")
+EQ_SRC = (ROOT / "fw/eq_curve.h").read_text(encoding="utf-8")
+
+
+def ui_mix(a, b, t, n):
+    """Mirror ui_mix() in fw/player.c (per-channel integer lerp)."""
+    ra, ga, ba = rgb565_parts(a)
+    rb, gb, bb = rgb565_parts(b)
+    return ((((ra * (n - t) + rb * t) // n) << 11) | (((ga * (n - t) + gb * t) // n) << 5) |
+            ((ba * (n - t) + bb * t) // n))
+
+
+def text_width(message, scale="TS_1X"):
+    half = HALF[scale]
+    return sum(ADV[glyph(ch) - 0x20] * half // 2 for ch in message)
+
+
+def overlay_geometry():
+    """PL_UI_* from fw/player.c (the expressions use FB_W/FB_H and earlier names)."""
+    env = {"FB_W": FB_W, "FB_H": FB_H}
+    for name in ("PL_UI_ROWS", "PL_UI_X", "PL_UI_W", "PL_UI_Y", "PL_UI_H", "PL_UI_ROW_H",
+                 "PL_UI_LIST_Y", "PL_UI_TEXT_X", "PL_UI_PAD_B"):
+        match = re.search(r"#define\s+" + name + r"\s+(.+)", PLAYER)
+        if not match:
+            raise RuntimeError(f"could not read {name} from fw/player.c")
+        expr = re.sub(r"(\d+)u\b", r"\1", match.group(1).split("/*")[0]).strip()
+        env[name] = eval(expr, {}, env)
+    return env
+
+
+def disc(frame, cx, cy, d, color, background):
+    rounded_rect_on(frame, cx - d // 2, cy - d // 2, d, d, d // 2, color, background)
+
+
+def ov_frame(title, right="", hint=""):
+    """Mirror ov_frame() in fw/player.c on an otherwise empty frame."""
+    g = overlay_geometry()
+    frame = Frame()
+    frame.rect(0, 0, FB_W, FB_H, UI_BG)
+    rounded_rect_on(frame, g["PL_UI_X"], g["PL_UI_Y"], g["PL_UI_W"], g["PL_UI_H"], 8, UI_PANEL, UI_BG)
+    frame.text(g["PL_UI_TEXT_X"], g["PL_UI_Y"] + 16, title, "TS_1X", UI_ACCENT, UI_PANEL, 230)
+    if right:
+        w = text_width(right)
+        frame.text(g["PL_UI_X"] + g["PL_UI_W"] - 16 - w, g["PL_UI_Y"] + 16, right, "TS_1X",
+                   UI_DIM, UI_PANEL, w + 2)
+    frame.rect(g["PL_UI_X"] + 12, g["PL_UI_Y"] + 34, g["PL_UI_W"] - 24, 1,
+               ui_mix(UI_PANEL, UI_DIM, 1, 3))
+    frame.text(g["PL_UI_TEXT_X"], g["PL_UI_Y"] + g["PL_UI_H"] - 26, hint, "TS_1X", UI_FAINT,
+               UI_PANEL, g["PL_UI_W"] - 32)
+    return frame, g
+
+
 def playlist_browser():
-    """pl_ui_draw() fixture layered over the same frozen now-playing frame."""
-    frame = now_playing_base()
-    x, width, y, rows, row_h, list_y, pad_b = 12, 376, 18, 9, 20, 52, 22
-    text_x, selected, playing, top, count = x + 10, 3, 1, 0, 12
+    """pl_ui_draw() fixture: the full-screen playlist overlay (nothing of the player shows)."""
     entries = ("01 - Welcome Home", "02 - Night Drive", "03 - Sunset Sequence",
                "04 - Ocean Between Us", "05 - Echoes", "06 - Golden Hour",
-               "07 - Low Battery", "08 - Neon Rain", "09 - Last Light")
-    panel_h = list_y + rows * row_h + pad_b - y
-    rounded_rect(frame, x, y, width, panel_h, 8, UI_PANEL)
-    frame.text(text_x, y + 10, f"PLAYLIST  {selected + 1} / {count}", "TS_1X",
-               UI_ACCENT, UI_PANEL, width - 20)
+               "07 - Low Battery", "08 - Neon Rain", "09 - Last Light",
+               "10 - Static Bloom", "11 - Harbor Lights", "12 - Slow Return")
+    count, selected, playing, top = 30, 3, 1, 0
+    frame, g = ov_frame("PLAYLIST", f"{selected + 1} / {count}", "A PLAY   B BACK")
+    x, width, list_y, row_h, rows = g["PL_UI_X"], g["PL_UI_W"], g["PL_UI_LIST_Y"], g["PL_UI_ROW_H"], g["PL_UI_ROWS"]
+    text_x = g["PL_UI_TEXT_X"]
     track_x, track_y, track_h = x + width - 11, list_y - 2, rows * row_h
-    frame.rect(track_x, track_y, 3, track_h, blend(UI_DIM, UI_PANEL, 5))
-    thumb_h = track_h * rows // count
-    frame.rect(track_x, track_y + (track_h - thumb_h) * top // (count - rows),
-               3, thumb_h, UI_ACCENT)
-    for i, label in enumerate(entries):
+    frame.rect(track_x, track_y, 3, track_h, ui_mix(UI_PANEL, UI_DIM, 1, 3))
+    thumb_h = max(8, track_h * rows // count)
+    frame.rect(track_x, track_y + (track_h - thumb_h) * top // (count - rows), 3, thumb_h, UI_ACCENT)
+    for i, label in enumerate(entries[:rows]):
         row_y = list_y + i * row_h
         selected_row = i == selected
         background = UI_ACCENT if selected_row else UI_PANEL
         if selected_row:
-            rounded_rect_on(frame, x + 4, row_y - 2, width - 8, row_h, 5,
-                            background, UI_PANEL)
-        else:
-            frame.rect(x + 4, row_y - 2, width - 8, row_h, background)
+            rounded_rect_on(frame, x + 4, row_y - 2, width - 8, row_h, 5, background, UI_PANEL)
         foreground = UI_PANEL if selected_row else (UI_WHITE if i == playing else UI_DIM)
         if i == playing:
             frame.text(x + 8, row_y, ">", "TS_1X", foreground, background, 12)
         frame.text(text_x + 8, row_y, label, "TS_1X", foreground, background, width - 40)
+    return frame
+
+
+def _rows(name):
+    body = re.search(rf"{name}\[\] = \{{(.*?)\}};", SETTINGS_SRC, re.S).group(1)
+    return re.findall(r'\{\s*"([^"]*)",\s*(RT_\w+),\s*(\w+)\s*\}', body)
+
+
+def _names(source, name):
+    body = re.search(rf"{name}[^=]*=\s*\{{(.*?)\}};", source, re.S).group(1)
+    return re.findall(r'"([^"]*)"', body)
+
+
+def _sconst(name):
+    return int(re.search(rf"#define\s+{name}\s+(\d+)u", SETTINGS_SRC).group(1))
+
+
+SAMPLE_VALUE = {"COLOUR": "AMBER", "METER": "OSCILLOSCOPE", "EQUALIZER": "FLAT",
+                "REPEAT": "OFF", "SCREEN BLANK": "NEVER", "ALBUM ART": "ON", "SHUFFLE": "ON",
+                "RESUME": "ON", "SPEED": "NORMAL", "VOLUME": "65%"}
+
+
+def settings_menu(page, selected):
+    """set_draw_menu() fixture. page: 0 home, 1 appearance, 2 audio, 3 playback."""
+    rows = _rows(("set_home_rows", "set_appear_rows", "set_audio_rows", "set_play_rows",
+                  "set_diag_rows")[page])
+    title = _names(SETTINGS_SRC, "set_menu_title")[page]
+    hint = "A OPEN   B CLOSE" if page == 0 else ("A OPEN   B BACK" if page == 4 else "A CHANGE   B BACK")
+    frame, g = ov_frame(title, "", hint)
+    row_h = _sconst("SET_MENU_ROW_H")
+    for i, (label, kind, _arg) in enumerate(rows):
+        y = g["PL_UI_LIST_Y"] + i * row_h
+        sel = i == selected
+        bg = UI_ACCENT if sel else UI_PANEL
+        if sel:
+            rounded_rect_on(frame, g["PL_UI_X"] + 4, y, g["PL_UI_W"] - 8, row_h - 4, 5, bg, UI_PANEL)
+        ty = y + 8
+        fg = UI_PANEL if sel else UI_WHITE
+        frame.text(g["PL_UI_TEXT_X"], ty, label, "TS_1X", fg, bg, 200)
+        right = g["PL_UI_X"] + g["PL_UI_W"] - 16
+        if kind in ("RT_GROUP", "RT_CHOICE"):
+            right -= 12
+            frame.text(right, ty, ">", "TS_1X", UI_PANEL if sel else UI_DIM, bg, 12)
+            right -= 8
+        value = "" if kind == "RT_GROUP" else SAMPLE_VALUE[label]
+        if value:
+            w = text_width(value)
+            frame.text(right - w, ty, value, "TS_1X", UI_PANEL if sel else UI_DIM, bg, w + 2)
+    return frame
+
+
+INFO_SAMPLE = ("0.1.0", "4D503317", "OK", "52 CYC", "16112 B", "13 TRACKS", "NO",
+               "MP3 320K 44.1K", "0", "0 MS", "12/8/41/118")
+
+
+def settings_info():
+    """set_draw_info() fixture (diagnostics builds): labels parsed from fw/settingsui.inc."""
+    labels = _names(SETTINGS_SRC, "set_info_label")
+    frame, g = ov_frame("INFO", "", "B BACK")
+    for i, label in enumerate(labels):
+        y = g["PL_UI_LIST_Y"] + i * g["PL_UI_ROW_H"]
+        frame.text(g["PL_UI_TEXT_X"], y, label, "TS_1X", UI_DIM, UI_PANEL, 170)
+        w = text_width(INFO_SAMPLE[i])
+        frame.text(g["PL_UI_X"] + g["PL_UI_W"] - 16 - w, y, INFO_SAMPLE[i], "TS_1X", UI_WHITE,
+                   UI_PANEL, w + 2)
+    return frame
+
+
+def settings_choice(choice, cursor, active, top=0):
+    """set_draw_choice() fixture. choice: colour, meter, eq, repeat, blank."""
+    titles = _names(SETTINGS_SRC, "set_ch_title")
+    idx = ("colour", "meter", "eq", "repeat", "blank").index(choice)
+    if choice == "colour":
+        names = _names(PLAYER, "ui_palette_name")
+        colours = [int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{4})u,\s*/\*", PLAYER.split("ui_palette[] = {")[1].split("};")[0])]
+    else:
+        names = {"meter": lambda: _names(SETTINGS_SRC, "set_viz"),
+                 "eq": lambda: _names(EQ_SRC, "eq_name"),
+                 "repeat": lambda: _names(SETTINGS_SRC, "set_rep"),
+                 "blank": lambda: _names(SETTINGS_SRC, "set_blank_nm")}[choice]()
+    frame, g = ov_frame(titles[idx], "", "A SELECT   B BACK")
+    row_h = _sconst("SET_TH_ROW_H") if choice == "meter" else _sconst("SET_CH_ROW_H")
+    list_h = g["PL_UI_ROWS"] * g["PL_UI_ROW_H"]
+    vis, n = list_h // row_h, len(names)
+    if n > vis:
+        tx, th = g["PL_UI_X"] + g["PL_UI_W"] - 11, list_h * vis // n
+        frame.rect(tx, g["PL_UI_LIST_Y"] - 2, 3, list_h, ui_mix(UI_PANEL, UI_DIM, 1, 3))
+        frame.rect(tx, g["PL_UI_LIST_Y"] - 2 + (list_h - th) * top // (n - vis), 3, th, UI_ACCENT)
+    for k in range(min(vis, n - top)):
+        i, y = top + k, g["PL_UI_LIST_Y"] + k * row_h
+        cy = y + (row_h - 2) // 2
+        sel, on = i == cursor, i == active
+        bg = UI_ACCENT if sel else UI_PANEL
+        if sel:
+            rounded_rect_on(frame, g["PL_UI_X"] + 4, y, g["PL_UI_W"] - 20, row_h - 2, 5, bg, UI_PANEL)
+        mx = g["PL_UI_TEXT_X"] + 10
+        if choice == "colour":
+            ring = UI_WHITE if on else (UI_PANEL if sel else ui_mix(UI_PANEL, UI_DIM, 1, 3))
+            disc(frame, mx, cy, 20, ring, bg)
+            disc(frame, mx, cy, 14, colours[i], ring)
+        else:
+            ring = UI_PANEL if sel else UI_WHITE
+            disc(frame, mx, cy, 18, ring, bg)
+            disc(frame, mx, cy, 12, bg, ring)
+            if on:
+                disc(frame, mx, cy, 8, UI_PANEL if sel else UI_ACCENT, bg)
+        tx = mx + 24
+        if choice == "meter":
+            frame.rect(tx, y + (row_h - 2 - _sconst("SET_TH_H")) // 2, _sconst("SET_TH_W"),
+                       _sconst("SET_TH_H"), UI_DIM)
+            tx += _sconst("SET_TH_W") + 14
+        frame.text(tx, y + (row_h - 2 - 16) // 2, names[i], "TS_1X",
+                   UI_PANEL if sel else UI_WHITE, bg, g["PL_UI_X"] + g["PL_UI_W"] - 24 - tx)
     return frame
 
 
@@ -554,6 +713,17 @@ FIXTURES = {
     "playlist-error": lambda: idle("No playable tracks in playlist"),
     "now-playing": now_playing_base,
     "playlist-browser": playlist_browser,
+    "settings-home": lambda: settings_menu(0, 1),
+    "settings-appearance": lambda: settings_menu(1, 0),
+    "settings-audio": lambda: settings_menu(2, 0),
+    "settings-playback": lambda: settings_menu(3, 3),
+    "settings-diagnostics": lambda: settings_menu(4, 0),
+    "settings-info": settings_info,
+    "settings-colour": lambda: settings_choice("colour", 3, 0),
+    "settings-meter": lambda: settings_choice("meter", 4, 4),
+    "settings-eq": lambda: settings_choice("eq", 2, 0),
+    "settings-repeat": lambda: settings_choice("repeat", 1, 0),
+    "settings-blank": lambda: settings_choice("blank", 2, 0),
     "paused": lambda: now_playing_base("paused"),
     "stopped": lambda: now_playing_base("stopped"),
     "seeking": lambda: now_playing_base("playing", seeking=True),

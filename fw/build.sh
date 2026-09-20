@@ -18,6 +18,7 @@ set -e
 
 TARGET="${1:-player}"
 STRESS_CFLAGS=""
+HEAP_MIN=0
 
 # Resolve the checkout instead of assuming the original author's Windows path.
 # Override RISCV_TOOLCHAIN_BIN and/or RISCV_PREFIX when the tools are not on
@@ -118,6 +119,38 @@ player-sdram-pl)
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     OUT="$ROOT/work/diagnostics/playlist-sdram"
     STRESS_CFLAGS="-DTAU_PL_SDRAM=1"
+    ;;
+player-settings)
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/settings-ui"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_DIAG_INFO=1"
+    HEAP_MIN=8192        # release-style build: keep at least 8 KiB of heap gap
+    ;;
+player-diagnostic)
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/diagnostic-build"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1"
+    HEAP_MIN=4096        # developer build: the tests may use the space, never below 4 KiB
     ;;
 player-sdram-pl-fault)
     SRCS=(
@@ -339,4 +372,12 @@ fi
 
 echo "version $APP_VER (core.json date_release $JSON_DATE)"
 
+if [ "$HEAP_MIN" -gt 0 ]; then
+    GAP=$("$TOOL_BIN/${TOOL_PREFIX}nm" "$FW/fw.elf" | "$PYTHON" -c "
+import sys
+s = {l.split()[2]: int(l.split()[0], 16) for l in sys.stdin if len(l.split()) == 3}
+print(s['_heap_end'] - s['_heap_start'])")
+    echo "heap gap: $GAP B (minimum for $TARGET: $HEAP_MIN B)"
+    if [ "$GAP" -lt "$HEAP_MIN" ]; then echo "*** heap gap below the $TARGET minimum ***" >&2; exit 1; fi
+fi
 echo "built [$TARGET] -> $OUT/$ROM"

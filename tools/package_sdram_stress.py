@@ -21,6 +21,10 @@ def main():
                     help="package the Phase 2 CPU-window stress player (A-102)")
     ap.add_argument("--playlist-sdram", action="store_true",
                     help="package the A-103 playlist-in-SDRAM player (needs a window RBF)")
+    ap.add_argument("--diagnostic", action="store_true",
+                    help="with --playlist-sdram: package the Diagnostic Build (settings + Info + tests)")
+    ap.add_argument("--settings", action="store_true",
+                    help="with --playlist-sdram: package the A-115 settings-UI player (SDRAM playlist + settings)")
     ap.add_argument("--nowin", action="store_true",
                     help="with --playlist-sdram: pair the normal SDRAM-playlist ROM with a no-window RBF (A-110)")
     ap.add_argument("--fault", action="store_true",
@@ -38,9 +42,12 @@ def main():
             out = root / "work/diagnostics/sdram-stress-window/pocket"
             core_id, platform = "alfatreze.TAU_SDRAM_WSTRESS", "tau_sdram_wst"
         else:
-            d = "playlist-sdram-fault" if args.fault else "playlist-sdram"
+            d = ("playlist-sdram-fault" if args.fault else "settings-ui" if args.settings
+                 else "diagnostic-build" if args.diagnostic else "playlist-sdram")
             out = root / f"work/diagnostics/{'playlist-sdram-nowin' if args.nowin else d}/pocket"
             core_id, platform = (("alfatreze.TAU_PLSDRAMF", "tau_plsdramf") if args.fault
+                                 else ("alfatreze.TAU_SETTINGS", "tau_settings") if args.settings
+                                 else ("alfatreze.TAU_DIAGNOSTIC", "tau_diagnostic") if args.diagnostic
                                  else ("alfatreze.TAU_PLSDRAMN", "tau_plsdramn") if args.nowin
                                  else ("alfatreze.TAU_PLSDRAM", "tau_plsdram"))
         rbf = args.rbf if args.rbf.is_absolute() else root / args.rbf
@@ -55,6 +62,12 @@ def main():
             short, title, desc = (("TAU_PLSDRAMF", "TAU Playlist SDRAM Fault",
                                    "TAU developer fault-injection player (window check must fail)")
                                   if args.fault else
+                                  ("TAU_SETTINGS", "TAU Settings UI",
+                                   "TAU developer player with the in-app settings and SDRAM playlist")
+                                  if args.settings else
+                                  ("TAU_DIAGNOSTIC", "TAU Diagnostic Build",
+                                   "TAU developer build: settings, Info page and diagnostic tests")
+                                  if args.diagnostic else
                                   ("TAU_PLSDRAMN", "TAU Playlist No Window",
                                    "TAU developer SDRAM-playlist ROM on a no-window RBF (must refuse)")
                                   if args.nowin else
