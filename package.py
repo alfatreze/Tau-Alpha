@@ -14,6 +14,7 @@ never respond ("Error in framework RS: BRIDGE not responding").
 
 Usage:
   python package.py [--skip-rom]   # --skip-rom: package without the firmware check
+  python package.py --rbf PATH --rbf-sha256 HASH   # package a specific raw RBF
 """
 
 import os
@@ -63,7 +64,24 @@ def check_readme():
 
 
 def main():
+    global BITSTREAM_SRC
     skip_rom = "--skip-rom" in sys.argv
+    # Audited override: package a specific raw RBF (for example the probe-free window build from
+    # work/) instead of src/fpga/output_files/ap_core.rbf; the hash must match.
+    if "--rbf" in sys.argv:
+        import hashlib
+        i = sys.argv.index("--rbf")
+        want = sys.argv[sys.argv.index("--rbf-sha256") + 1] if "--rbf-sha256" in sys.argv else None
+        if not want:
+            print("ERROR: --rbf requires --rbf-sha256 (refusing an unaudited bitstream)")
+            sys.exit(1)
+        path = sys.argv[i + 1]
+        path = path if os.path.isabs(path) else os.path.join(PROJECT_ROOT, path)
+        got = hashlib.sha256(open(path, "rb").read()).hexdigest()
+        if got != want:
+            print(f"ERROR: RBF hash mismatch: expected {want}, got {got}")
+            sys.exit(1)
+        BITSTREAM_SRC = path
 
     print("=== TAU Pocket Core Packager ===\n")
 
