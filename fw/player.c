@@ -181,6 +181,12 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #ifndef TAU_STRESS_HUD
 #define TAU_STRESS_HUD 0
 #endif
+/* Developer-only: drive the Phase 2 CPU-window (uncached alias 0xA0100000) from
+ * the stress pump instead of the Phase 1 MMIO mailbox. Requires an RBF built
+ * with TAU_PHASE2_WINDOW; the pump refuses to start without a window preflight. */
+#ifndef TAU_SDRAM_STRESS_WINDOW
+#define TAU_SDRAM_STRESS_WINDOW 0
+#endif
 
 /* Framebuffer: 400x360 RGB565, one word/pixel, 512-word (page-aligned) stride.
  * See mp3_fb.sv for the full rationale. */
@@ -629,6 +635,23 @@ static uint8_t stress_on, stress_read;
 static uint32_t stress_addr, stress_due, stress_started, stress_expect;
 static uint32_t stress_words, stress_passes, stress_failures, stress_crc;
 static uint32_t stress_under0, stress_fb0;
+#if TAU_SDRAM_STRESS_WINDOW
+static uint8_t stress_level;                    /* 0 off, 1..3 = 16k/64k/128k ops/s */
+static uint32_t stress_rd_max, stress_wr_max;   /* worst window access, cycles   */
+static uint8_t stress_win_ok;                   /* preflight verified the window */
+static uint32_t stress_frames_at_flush;          /* decoded-frame counter at the last pcm flush */
+static uint32_t stress_und_early, stress_und_late; /* underruns <1 s / >=1 s after a flush */
+static uint32_t stress_rate_words;              /* words at the last HUD tick       */
+static uint32_t stress_rate;                    /* achieved ops per second          */
+/* An underrun is EARLY if fewer than 9 frames (about 0.2 s of audio) were decoded since
+ * the last flush (track start, seek, resume, including long cover decodes before the first
+ * frame), LATE otherwise. `frames` is reset to 0 at track load, hence the wrap guard. */
+static inline void stress_note_underrun(void)
+{
+    uint32_t d = (frames >= stress_frames_at_flush) ? frames - stress_frames_at_flush : frames;
+    if (d < 9u) stress_und_early++; else stress_und_late++;
+}
+#endif
 #if TAU_STRESS_HUD
 /* R_CYCLES is a 32-bit 60 MHz counter: it wraps every 71.58 s.  Keep a
  * small wrap-safe stopwatch by consuming deltas every main-loop iteration;
@@ -5723,6 +5746,33 @@ static __attribute__((optimize("Os"))) void stress_hud_draw(void)
     fb_rect(UI_MARGIN, UI_STRESS_BAR_Y, UI_INNER_W, 2u, UI_TRACK);
     if (fill) fb_rect(UI_MARGIN, UI_STRESS_BAR_Y, fill, 2u, ui_accent);
 
+#if TAU_SDRAM_STRESS_WINDOW
+    /* Window mode: the live counters come FIRST so the 360 px line cannot clip them.
+     * U = audio underruns since the run started (since boot while off), M = worst
+     * window access in cycles, S = draw-engine stall in ms, R = rate level. */
+    char b[56], *q = b;
+    if (stress_fault) {
+        const char *f = "FAIL ";
+        while (*f) *q++ = *f++;
+        q = ui_dec(q, stress_failures); *q++ = ' ';
+    }
+    /* Achieved rate over the last HUD tick (about 1 s). */
+    stress_rate = stress_words - stress_rate_words;
+    stress_rate_words = stress_words;
+    *q++ = 'E'; q = ui_dec(q, stress_und_early);
+    *q++ = ' '; *q++ = 'L'; q = ui_dec(q, stress_und_late);
+    *q++ = ' '; *q++ = 'M';
+    q = ui_dec(q, stress_rd_max > stress_wr_max ? stress_rd_max : stress_wr_max);
+    *q++ = ' '; *q++ = 'S';
+    q = ui_dec(q, (REG(R_FB_STALL) - stress_fb0) / (CLK_HZ / 1000u));
+    *q++ = ' '; *q++ = 'R'; q = ui_dec(q, stress_level);
+    *q++ = ' '; *q++ = 'K'; q = ui_dec(q, stress_rate / 1000u);
+    *q++ = '.'; q = ui_dec(q, (stress_rate % 1000u) / 100u);
+    if (stress_on) {
+        *q++ = ' '; *q++ = 'P'; q = ui_dec(q, stress_passes + 1u);
+        *q++ = ' '; q = ui_dec(q, pct); *q++ = '%';
+    }
+#else
     char b[56], *q = b;
     *q++ = 'S'; *q++ = 'T'; *q++ = ' ';
     const char *v = stress_viz_name();
@@ -5748,6 +5798,7 @@ static __attribute__((optimize("Os"))) void stress_hud_draw(void)
         *q++ = '-'; *q++ = ' '; *q++ = '-'; *q++ = '-'; *q++ = ':';
         *q++ = '-'; *q++ = '-';
     }
+#endif
     *q = 0;
     fb_rect(UI_MARGIN, UI_STRESS_HUD_Y, UI_INNER_W, FB_CELL(TS_1X), bg);
     fb_set_color(stress_fault ? UI_RED : (stress_on ? ui_accent : UI_DIM), bg);
@@ -5772,6 +5823,66 @@ static __attribute__((optimize("Os"))) void stress_time_tick(void)
 }
 #endif
 
+#if TAU_SDRAM_STRESS_WINDOW
+/* Write one pattern word through the mailbox, then read it back through the CPU
+ * window. On a bitstream without the window the alias decodes to MMIO and this
+ * fails harmlessly (a read), so the pump never issues window STORES blind. */
+static int stress_window_preflight(void)
+{
+    uint32_t t = cycles();
+    REG(R_SDR_ADDR) = STRESS_BASE; REG(R_SDR_DATA) = 0x43505550u;
+    REG(R_SDR_CTRL) = 0x3Fu;
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u)
+        if ((uint32_t)(cycles() - t) > STRESS_TIMEOUT) return 0;
+    return *(volatile uint32_t *)(uintptr_t)(0xA0000000u + (STRESS_BASE << 1)) == 0x43505550u;
+}
+
+static void stress_pump(void)
+{
+    /* Level 1 is PACED at 16k ops/s (3,750 cycles per operation), the Phase 1 rate.
+     * Levels 2 and 3 are UNPACED bursts of 8 and 32 operations on every call (about
+     * 20 and 90 us): this pump runs from poll_input(), mostly inside the loop that
+     * waits for the audio FIFO to drain, so bursts consume only idle time, and the
+     * achieved rate (K on the HUD) is whatever that idle time allows. An earlier
+     * paced version reached only 13k ops/s at its top level because the wait loop
+     * calls this rarely. */
+    uint32_t now = cycles(), n, g = 3750u;
+    if (!stress_on) return;
+    if (stress_level <= 1u) {
+        if ((int32_t)(now - stress_due) < 0) return;
+        n = 1u + (uint32_t)((int32_t)(now - stress_due)) / g;
+        if (n > 32u) n = 32u;
+    } else {
+        n = (stress_level == 2u) ? 8u : 32u;
+    }
+    for (uint32_t k = 0; k < n; k++) {
+        uint32_t t0, d, got, exp;
+        volatile uint32_t *p = (volatile uint32_t *)(uintptr_t)(0xA0000000u + (stress_addr << 1));
+        exp = stress_pattern(stress_addr);
+        t0 = cycles(); *p = exp;  d = cycles() - t0; if (d > stress_wr_max) stress_wr_max = d;
+        t0 = cycles(); got = *p;  d = cycles() - t0; if (d > stress_rd_max) stress_rd_max = d;
+        if (got != exp) { stress_stop("SDRAM MISMATCH"); return; }
+        stress_crc = stress_crc_word(stress_crc, got);
+        stress_words++;
+        stress_addr += 2u;
+        if (stress_addr > STRESS_LAST) {
+#if TAU_STRESS_HUD
+            stress_last_secs = stress_pass_secs;
+            stress_addr = STRESS_BASE; stress_passes++; stress_last_pass = stress_passes;
+            stress_pass_secs = stress_pass_rem = 0; stress_crc ^= 0xFFFFFFFFu;
+#else
+            stress_addr = STRESS_BASE; stress_passes++; stress_crc ^= 0xFFFFFFFFu;
+#endif
+            ui_toast_set("SDRAM PASS", stress_passes, 0);
+        }
+    }
+    if (stress_level <= 1u) {
+        stress_due += n * g;
+        if ((int32_t)(cycles() - stress_due) > (int32_t)(32u * g)) stress_due = cycles();
+    }
+}
+#else
 static void stress_pump(void)
 {
     uint32_t now = cycles(), st;
@@ -5813,6 +5924,7 @@ static void stress_pump(void)
     stress_started = now; stress_read = 2u;
     /* state 2 means the next idle observation issues a read, not validates. */
 }
+#endif
 static void stress_tick(void)
 {
 #if TAU_STRESS_HUD
@@ -5825,7 +5937,26 @@ static void stress_tick(void)
 }
 static void stress_toggle(void)
 {
+#if TAU_SDRAM_STRESS_WINDOW
+    stress_level = (uint8_t)((stress_level + 1u) & 3u);        /* off,1,2,3 */
+    if (stress_level == 1u && !stress_win_ok) {
+        stress_win_ok = (uint8_t)stress_window_preflight();
+        if (!stress_win_ok) {
+            stress_level = 0u; stress_on = 0u;
+            ui_toast_msg("NO SDRAM WINDOW");
+            return;
+        }
+    }
+    stress_on = (uint8_t)(stress_level != 0u);
+    if (stress_on && stress_level > 1u) {
+        stress_due = cycles();
+        ui_toast_set("WIN STRESS RATE", stress_level, 0);
+        return;
+    }
+    if (stress_on) stress_rd_max = stress_wr_max = 0u;
+#else
     stress_on ^= 1u;
+#endif
     if (stress_on) {
         stress_read = 0; stress_addr = STRESS_BASE; stress_due = cycles();
         stress_words = stress_passes = stress_failures = 0; stress_crc = 0xFFFFFFFFu;
@@ -5835,6 +5966,9 @@ static void stress_toggle(void)
         stress_hud_tick = 0xFFFFFFFFu;
 #endif
         stress_under0 = pcm_under_n; stress_fb0 = REG(R_FB_STALL);
+#if TAU_SDRAM_STRESS_WINDOW
+        stress_und_early = stress_und_late = 0u; stress_rate_words = 0u; stress_rate = 0u;
+#endif
         ui_toast_msg("SDRAM STRESS ON");
     } else {
 #if TAU_STRESS_HUD
@@ -6308,6 +6442,9 @@ static inline void pcm_flush(void)
     REG(R_PCM_ST) = 1u;
     fade_left    = FADE_SAMPLES;  /* every flush is a discontinuity */
     under_shadow = 0;             /* flush clears the sticky underrun flag */
+#if TAU_SDRAM_STRESS_WINDOW
+    stress_frames_at_flush = frames;
+#endif
 }
 
 static uint32_t rd_seq0, rd_deadline, rd_len;
@@ -9746,6 +9883,9 @@ int main(void)
             if (!under_shadow && pcm_underrun()) {
                 under_shadow = 1u;
                 pcm_under_n++;
+#if TAU_SDRAM_STRESS_WINDOW
+                stress_note_underrun();
+#endif
                 fade_left    = FADE_SAMPLES;
                 /* Latch the circumstances of the FIRST one only -- the later
                  * ones are consequences and would overwrite the evidence. */
@@ -9883,6 +10023,9 @@ int main(void)
         if (!under_shadow && pcm_underrun()) {
             under_shadow = 1u;
             pcm_under_n++;
+#if TAU_SDRAM_STRESS_WINDOW
+            stress_note_underrun();
+#endif
             fade_left    = FADE_SAMPLES;
         }
 

@@ -20,6 +20,12 @@ MEMORY {
 
 ENTRY(_start)
 
+/* Minimum token heap. 1 KB for every product build. Developer stress builds pass
+ * -Wl,--defsym=_min_heap=128: malloc is the fixed arena in alloc.c and nothing
+ * links printf, so _sbrk is only a fallback, and the stress HUD and pump alone
+ * exceed the product's 2.4 KB slack. PROVIDE never overrides a --defsym. */
+PROVIDE(_min_heap = 1024);
+
 _stack_size = 0x4000;    /* 16 KB */
 /* 24 KB, down from 32.
  *
@@ -86,5 +92,5 @@ SECTIONS {
 	 * The guard that matters now is ARENA_BYTES in alloc.c, which is exact.
 	 * This one only keeps a token heap so a stray newlib path that reaches
 	 * _sbrk has somewhere to go rather than returning -1 in a corner. */
-	ASSERT(_heap_end - _heap_start >= 1024, "no room left for even a token heap")
+	ASSERT(_heap_end - _heap_start >= _min_heap, "no room left for even a token heap")
 }
