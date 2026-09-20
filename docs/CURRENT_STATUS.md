@@ -100,8 +100,28 @@ Pocket: 0 failures, screenshot and decoded persist record agree (checksum
 data path; cached access, sustained contention, and cold-data migration remain
 unauthorised.
 
-## Next gate
+## Next gates for promotion (informed by the analogue-pocket-dev skill KB)
 
-Two further cold-boot A-093 runs passed (user-reported, no artifacts held). Define the promotion gates (stress
-with scanout and audio contention, cached-window design) before any use of SDRAM
-for player data.
+1. **A-094 cost probe** (done, Pocket): an uncached access costs about 48-50
+   cycles net at 60 MHz (about 0.8 us), worst single access about 360 cycles
+   (6 us), 0 mismatches. Next: count accesses per candidate buffer to decide
+   which moves pay.
+2. **Margin:** run a long soak of the CPU-window matrix, and confirm the
+   controller's CAS latency / clock phase (KB-021, OQ-6); the A-093 fit has only
+   +0.111 ns hold slack, so build promotion RTL with several seeds and read
+   fast-corner hold (KB-011).
+3. **Contention:** the matrix passes with scanout running; add real MP3 playback
+   and count audio underruns during concurrent CPU-window traffic
+   (SDRAM_MEMORY_ARCHITECTURE.md Pocket hardware gate).
+4. **Product build:** enable the window in a probe-free RBF (macro-off legacy
+   decode is still broad), keep 300/308 RAM blocks, re-verify all gates.
+5. **First data move:** a NOLOAD cold buffer (`pl_text`, `art_acc`) behind the
+   uncached alias; the cached window still returns a bus error and needs its own
+   beat-decomposing adapter (KB-024 regression applies).
+
+No cold player-data migration is authorised until these gates pass.
+
+Two further cold-boot A-093 runs passed (user-reported); the card's later persist file independently shows 183 checks, 0 failures.
+
+See [issue 019](issues/019-a080-result-log-not-persisted.md) and
+[AUDIT_TRAIL.md](AUDIT_TRAIL.md) for the detailed reversal and evidence record.

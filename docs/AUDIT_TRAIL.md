@@ -3379,13 +3379,106 @@ was not needed.
 **Reversal ledger:** the A-079 conclusion that the bridge-to-mux handoff or the
 mux latch was the live boundary was wrong; the defect was the adapter's
 double-issue of each completed beat.
-**Repeat runs (user-reported, not independently verified):** two further cold-boot
-runs of the same A-093 package also passed, per the user on 2026-09-20; the card
-was not mounted afterwards, so no screenshot or persist file for them is held in
-`pocket-result/`.
+**Repeat runs:** two further cold-boot runs of the same A-093 package also
+passed, per the user on 2026-09-20. **Partly verified:** before A-094 replaced
+A-093 the card's persist file (mtime 00:51, after the 00:46 screenshot) was
+decoded: stage 4, 183 checks, `failures 0`, `timed_out false`, checksum
+`0x1851CA53` (different from the first run's `0x18511A0D`, so a later run).
+Copy: `pocket-result/interact_persist-later-run-00-51.json`. No screenshots exist
+for the repeat runs, and the file holds only the last run, so at most one repeat
+is independently confirmed.
 **Next gate:** decide the promotion gates (stress with scanout and audio contention, cached window design)
 before any real use of SDRAM for player data. Do not promote
 the CPU window or migrate cold data on simulation evidence alone.
+
+### A-094 — cost of the uncached SDRAM window (draft, not installed)
+
+**Date:** 2026-09-20
+
+**Decision/change:** With the CPU window now passing (A-093), start the promotion
+work with the cheapest question: what does an uncached SDRAM access cost?
+Firmware-only `TAU_LATENCY_PROBE` (`fw/build.sh sdram-cpu-latency`,
+`--probe-a094`) measures, with the 60 MHz core cycle counter and scanout running,
+256-op loops over the 2-3 MiB region: an empty loop (overhead), sequential
+write and read, 4 KiB-stride write and read, write-then-read of one word,
+read-modify-write, per-op min/max read and max write cycles (refresh and scanout
+stalls), a 256 KiB-stride hop, and a data-mismatch count. Raw words go through
+the interact.json channel; the screen shows cycles per operation. Same A-093
+RBF (`e16ffe9d...4d9d`); ROM SHA-256
+`797f9ac4cfdd590417a866deca82c446ed2fa695adc9c26f4c9703db3e6225ce` (6,156 bytes).
+**Why:** the candidate cold buffers (`pl_text` 12 KiB, `art_acc` 11 KiB, maps,
+about 25.8 KiB) are only worth moving if the cost per access is tolerable; this
+also gives the CPU cost of the future cached-window refill.
+**Predictions (before the run):** each uncached access costs tens of cycles
+(two 16-bit controller operations plus two CDC crossings), reads slower than
+writes; the max per-op cost exceeds the min by a refresh/scanout stall; the
+mismatch count is 0.
+**Status:** built and packaged at `work/diagnostics/sdram-cpu-probe-a094/pocket`.
+**Installation evidence:** **host** — A-094 replaced only A-093 on the mounted card
+(A-093 core, platform, image, assets, save and settings removed; its persist file
+is in `pocket-cache-backup-2026-09-20/a093-removed/`). ROM `797f9ac4...25ce` and
+bit-reversed RBF `c765cabb...48b3` (the same fixed RBF as A-093) verified on the
+card by SHA-256; 16 persist variables present; catalog indexes backed up under
+`work/diagnostics/sdram-cpu-probe-a094/pocket-cache-backup-2026-09-20/System/` and
+cleared. Pocket result pending; Quit before removing the card.
+
+**Pocket outcome:** **Pocket | host** — screenshot `20260920_010008.png` and the
+decoded `interact_persist.json` (copies in `pocket-result/`) agree. N = 256 ops
+per test, 60 MHz core cycle counter, scanout running, region 2-3 MiB. Cycles per
+op (total / 256), with the empty-loop overhead of 4.1 cycles per iteration:
+
+| Test | Cycles/op | Net of loop |
+|---|---:|---:|
+| Sequential write | 53.6 | 49.5 |
+| Sequential read | 51.8 | 47.7 |
+| 4 KiB-stride write | 31.9 | 27.8 |
+| 4 KiB-stride read | 53.0 | 48.9 |
+| Write then read, same word (per pair) | 83.9 | 79.8 |
+| Read-modify-write | 78.7 | 74.6 |
+| 256 KiB-stride hops (4 writes + 4 reads, per op) | 42.4 | (not netted) |
+
+Per-op read min 43 cycles, max 360; per-op write max 324; data mismatches 0 (`BAD
+0`). At 60 MHz an uncached access is about 0.8 us (min 0.7 us), and the worst
+single access about 6 us (stall from refresh/scanout arbitration).
+**Predictions:** tens of cycles per access confirmed (about 50); worst case above
+the best confirmed (360 vs 43); 0 mismatches confirmed; **"reads slower than
+writes" refuted** (sequential read 51.8 vs write 53.6, effectively equal).
+**Unexplained:** 4 KiB-stride writes cost 31.9, well below sequential writes
+(53.6), and the read-modify-write's implied write half (about 27) matches it. The
+cause is not established; a repeat run, or a per-op write histogram, would show
+whether it is systematic or an arbitration/scanout phase effect. Not used for any
+conclusion.
+**Implications (estimates, not measurements of Tau's code):** the uncached window
+is roughly 10-20x the cost of a BRAM access, and it applies per access, so a byte
+load costs the same as a word load. A structure touched a few hundred times per
+UI frame (the playlist name strings behind `pl_text`) would cost well under a
+millisecond per frame. A buffer walked per pixel during artwork decode
+(`art_acc`) needs its access count measured before any move; the per-access cost
+also competes with audio refill for CPU time. A cached window (line fills)
+would amortise this, but needs its own beat-decomposing adapter.
+**Next gate:** count accesses per artwork load and per UI frame for the candidate
+buffers (firmware counter or static analysis), then decide uncached-first versus
+building the cached window. Margin, contention, and product-build gates in
+`docs/CURRENT_STATUS.md` are unchanged.
+**Skill registration:** the `analogue-pocket-dev` skill could not be registered
+into this session (`Skill` reports it unknown; `ListSkills` sees only claude.ai
+skills). Project-local skills are discovered at session start, so a fresh session
+opened in this repository is needed for it to appear in the skill list. Its files
+were read directly and used meanwhile.
+
+**Skill/KB update (same date):** the project-local `analogue-pocket-dev` skill
+(`.claude/skills/`) was consulted. New hardware-validated entries were added to
+its knowledge base from our own audit ids: KB-022 (0188 unanswered, A-090),
+KB-023 (datatable base 0xF8002000, A-088), KB-024 (adapter must not re-accept a
+completed beat, A-093), KB-025 (interact.json persist record, A-091/A-093);
+notes were appended to KB-001, KB-004, KB-007, KB-008 and KB-021 and to open
+questions OQ-1, OQ-2 and OQ-6 (`kb.py validate` passes, 25 entries). Two skill
+points change our plan: (1) KB-004/KB-001 suggest the zero save file after Quit
+was caused by APF reading the slot back from the core at the slot `address`,
+which Tau's slot 5 did not have or serve; untested, and unnecessary now that
+interact.json works. (2) KB-011/KB-021: fit results vary about 1.2 ns by seed
+and CL/phase margin is unmeasured, while A-093's hold slack is only +0.111 ns,
+so any promotion RTL needs several seeds and a soak.
 
 ## Reversal ledger
 
