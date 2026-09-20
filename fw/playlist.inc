@@ -925,6 +925,9 @@ static void pl_remember(void)
     settings_mark_dirty();
 }
 
+#if TAU_DIAG_TESTS
+static uint32_t pl_dg_len, pl_dg_sig;            /* parsed-text length and hash (Playlist check) */
+#endif
 #if TAU_PL_SDRAM
 /* The playlist buffers live at 0xA0100000..0xA01033FF (linker section .sdram). On a
  * bitstream without the CPU window that alias decodes to MMIO, so no store may be
@@ -1067,6 +1070,16 @@ static void pl_load(void)
     }
 
     pl_parse(len);
+#if TAU_DIAG_TESTS
+    /* Diagnostic Build: remember the parsed text's length and FNV so the Playlist check can
+     * detect a change in SDRAM later (pl_sig above is taken BEFORE parsing rewrites the text). */
+    pl_dg_len = len;
+    {
+        uint32_t h = 2166136261u;
+        for (uint32_t i = 0; i < len; i++) { h ^= (uint32_t)(uint8_t)pl_text[i]; h *= 16777619u; }
+        pl_dg_sig = h;
+    }
+#endif
     if (!pl_count) { pl_status = PL_ERR_EMPTY; return; }
 
     /* Seed HERE, not only when shuffle is switched on.

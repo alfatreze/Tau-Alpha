@@ -51,6 +51,8 @@ STATES = [
      "note": "Diagnostics group page (developer builds), one row: Info."},
     {"id": "settings-info", "status": "model", "file": "settings-info.framebuffer.png",
      "note": "Diagnostics Info page: 11 read-only live values, sample data; labels parsed from fw/settingsui.inc."},
+    {"id": "settings-tests", "status": "model", "file": "settings-tests.framebuffer.png",
+     "note": "Diagnostic Build Tests page: window test, read/write cycles, playlist check, clear counters (sample results)."},
     {"id": "paused", "status": "model", "file": "paused.framebuffer.png",
      "note": "Frozen pause-breath instant over the no-art playback fixture."},
     {"id": "stopped", "status": "model", "file": "stopped.framebuffer.png",
