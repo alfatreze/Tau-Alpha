@@ -119,6 +119,21 @@ player-sdram-pl)
     OUT="$ROOT/work/diagnostics/playlist-sdram"
     STRESS_CFLAGS="-DTAU_PL_SDRAM=1"
     ;;
+player-sdram-pl-fault)
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/playlist-sdram-fault"
+    STRESS_CFLAGS="-DTAU_PL_SDRAM=1 -DTAU_PL_SDRAM_FAULT=1"
+    ;;
 sdram-diag)
     SRCS=("$FW/start.S" "$FW/sdram_diag.c")
     INC=(-I "$FW")
