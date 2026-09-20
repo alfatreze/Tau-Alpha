@@ -4647,3 +4647,11 @@ the seed-2 RBF (`work/diagnostics/diagnostic-build/pocket`); not installed. New 
 **To validate on Pocket:** WINDOW TEST must read `PASS 89`; READ/WRITE CYCLES near 48/50/360-370; PLAYLIST CHECK `PASS <tracks>` with a playlist
 loaded (and `NO PLAYLIST` without); CLEAR COUNTERS then zeroes the Info counters. Compare against the standalone coverage/soak cores on the same RBF
 before trusting the menu versions alone.
+
+**A-125 installation and card cleanup (host, 2026-09-20):** `alfatreze.TAU_DIAGNOSTIC` / `tau_diagnostic` ("TAU Diagnostic Build") installed on the card:
+14 bundle files SHA-256-identical (ROM `9580c8e9...`, seed-2 RBF `cb15310a...`), media (the `Nausicaa OST` folder and `playlist.m3u`)
+copied, not moved, from the base TAU and diffed identical. Removed as superseded Phase 1 builds, each backed up and diffed identical first under
+`work/diagnostics/diagnostic-build/card-removed-2026-09-20/` (Cores, Assets, Platforms, Settings): `TAU_SDRAM_STRESS` (Phase 1 mailbox stress, replaced by the
+window stress core) and `TAU_SDRAM_DIAG` (Phase 1 mailbox diagnostic, replaced by the CPU-window probes). Kept: base `TAU`, `TAU_SETTINGS`, `TAU_SDRAM_WSTRESS`,
+`TAU_SDRAM_PRB97` and `TAU_SDRAM_PRB100` (gate runs pending on the seed-2 RBF); the latter three are to be retired once Phase 3 of the Diagnostic Build
+reproduces them. Six alfatreze cores remain. Catalog indexes backed up and cleared. Result pending.
