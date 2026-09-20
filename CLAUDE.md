@@ -103,4 +103,6 @@
 - 2026-09-20 (Claude): card. Replaced the TAU_SETTINGS ROM with the A-122 build (448a49dc...; previous ROM and indexes backed up; 14/14 SHA-256). Result pending.
 - 2026-09-20 (Claude): tooling/packaging. A-124: soak and coverage ROMs rebuilt (byte-identical to the passing ones) and packaged with the probe-free seed-2 RBF via the new --rbf option; bundles in work/diagnostics/sdram-cpu-probe-a097-pf and a100-pf, NOT installed. User reported the A-122 ROM tests fine.
 - 2026-09-20 (Claude): card. Installed the soak (TAU_SDRAM_PRB97) and coverage (TAU_SDRAM_PRB100) cores with the probe-free seed-2 RBF (13/13 card files SHA-256-identical each; indexes backed up/cleared). Results pending.
+- 2026-09-20 (Claude): firmware. A-125: Diagnostic Build Phase 2, Tests page (window test 89 checks at scratch 8 MiB, read/write cycles, playlist check, clear counters); ROM 9580c8e9... (heap gap 10,288 B); settings ROM now bd6a7700 (+8 B); product and SDRAM-pl unchanged; fixture settings-tests; SD read speed dropped; bundle repackaged, NOT installed.
+
 - 2026-09-20 (Claude): docs/tools. PSRAM work now uses its own audit series **B-NNN** (B-001 = former A-098, B-002 = A-099, B-003 = A-123) so it can never collide with the A series; `tools/check_audit_trail.py` checks both series. No code touched.

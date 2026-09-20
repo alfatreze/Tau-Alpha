@@ -4619,3 +4619,31 @@ of checks; Quit the core afterwards so APF writes `interact_persist.json`; decod
 files of each bundle SHA-256-identical to the packaged copy (the `INSTALL.txt` and `SHA256SUMS.txt` in each bundle are documentation and
 were deliberately not copied). ROMs `3a4cfbbd...` / `6a7567d1...`, bit-reversed seed-2 RBF `cb15310a...`. Catalog indexes backed up in
 `work/diagnostics/sdram-cpu-probe-a097-pf/card-backup-2026-09-20/System/` and cleared. Results pending.
+
+### A-125 — Diagnostic Build, Phase 2: on-demand tests (firmware built and packaged, not installed)
+
+**Date:** 2026-09-20
+**Evidence:** host (build, link map, fixture, `make test-host`); no Pocket run.
+**Scope (owner: "do phase 2"):** `TAU_DIAG_TESTS` (Diagnostic Build only): **Diagnostics > Tests** page, A runs the highlighted test and its
+result replaces the value in the row. Tests run in the menu, are short and blocking (well under a few ms), use the CPU window only at a
+**scratch area at physical 8 MiB** (never the playlist buffers at 1 MiB+13 KiB, the framebuffer, or the card), and refuse with `NO WINDOW`
+unless the window check of the SDRAM playlist passed.
+- **WINDOW TEST:** 64 words written then read back-to-back (the A-093 bug returned the previous beat), a byte+byte+halfword sub-word merge
+  check, and one distinct address per address line 2..25 (base 8 MiB plus each single bit; write all, then read all: aliasing shows as a
+  mismatch). 89 checks; `PASS 89` or `FAIL n OF 89`.
+- **READ CYCLES / WRITE CYCLES:** net cycles per window access (cycles() overhead subtracted), min/avg/max over 256; expect about 48-50
+  average and a maximum near the known 360-370 bound.
+- **PLAYLIST CHECK:** `pl_order` is a permutation of 0..count-1, every `pl_off` is inside the parsed text at a non-comment named entry and
+  increasing, and the parsed text still hashes to what it did at load (hash and length are captured in `pl_load()` after parsing, Diagnostic
+  Build only): `PASS <tracks>` or `FAIL <n>`.
+- **CLEAR COUNTERS:** the Info page's UNDERRUNS and DRAW STALL then count from now (base offsets), so restart artefacts do not pollute a run.
+**Dropped, with reason:** the planned **SD read speed** test. It needs a safe read path while the audio ring is in use, and the load timings
+on the Info page already give the SD-bound numbers; it belongs with Phase 3 or with playback stopped. **Save report** stays deferred
+(4 free persist words).
+**Builds:** Diagnostic Build ROM `9580c8e9...` (158,356 B; heap gap 10,288 B, above its 4 KiB floor; the tests cost about 3 KiB).
+Release-style settings ROM `bd6a7700...` (155,476 B, +8 B: the unreachable Tests page tables), heap gap 13,296 B; it differs from the ROM on
+the card (`448a49dc...`) only by those tables. Product `661c5936...` and SDRAM-playlist `82fdb70c...` unchanged. Diagnostic bundle repackaged with
+the seed-2 RBF (`work/diagnostics/diagnostic-build/pocket`); not installed. New fixture `settings-tests` (45 fixtures), rendered and inspected.
+**To validate on Pocket:** WINDOW TEST must read `PASS 89`; READ/WRITE CYCLES near 48/50/360-370; PLAYLIST CHECK `PASS <tracks>` with a playlist
+loaded (and `NO PLAYLIST` without); CLEAR COUNTERS then zeroes the Info counters. Compare against the standalone coverage/soak cores on the same RBF
+before trusting the menu versions alone.
