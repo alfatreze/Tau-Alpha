@@ -396,7 +396,7 @@ static void pl_dump_struct(void)
 /* Why a playlist load produced nothing -- so "no playlist" can say WHICH kind
  * of nothing, instead of leaving the user to guess between an empty slot, an
  * unreadable file and a file with no track lines in it. */
-enum { PL_OK = 0, PL_ERR_NOFILE, PL_ERR_EMPTY };
+enum { PL_OK = 0, PL_ERR_NOFILE, PL_ERR_EMPTY, PL_ERR_SDRAM };
 static uint8_t pl_status;
 
 /* Read the playlist slot into pl_text. The landing zone is the ID3 probe
@@ -925,9 +925,50 @@ static void pl_remember(void)
     settings_mark_dirty();
 }
 
+#if TAU_PL_SDRAM
+/* The playlist buffers live at 0xA0100000..0xA01033FF (linker section .sdram). On a
+ * bitstream without the CPU window that alias decodes to MMIO, so no store may be
+ * issued until the window is proven: write a pattern through the Phase 1 mailbox
+ * (physical byte 1 MiB = mailbox word 0x80000) and read it back through the window
+ * (a read, harmless on a wrong bitstream), then exercise the first and last word of
+ * the section with two patterns. Runs once; the verdict is kept. */
+#define PL_SDRAM_BASE   0xA0100000u
+#define PL_SDRAM_BYTES  (PL_TEXT_MAX + 2u * PL_MAX * 2u)
+static uint8_t pl_sdram_state;                  /* 0 untested, 1 proven, 2 failed */
+
+static int pl_sdram_prove(void)
+{
+    static const uint32_t pat[2] = { 0xA5C33C5Au, 0x5A3CC3A5u };
+    volatile uint32_t *w0 = (volatile uint32_t *)(uintptr_t)PL_SDRAM_BASE;
+    volatile uint32_t *w1 = (volatile uint32_t *)(uintptr_t)(PL_SDRAM_BASE + PL_SDRAM_BYTES - 4u);
+    uint32_t t = cycles();
+
+    REG(R_SDR_ADDR) = 0x00080000u; REG(R_SDR_DATA) = 0x504C5342u;   /* "PLSB" */
+    REG(R_SDR_CTRL) = 0x3Fu;
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u)
+        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return 0;
+    if (*w0 != 0x504C5342u) return 0;
+    for (uint32_t k = 0; k < 2u; k++) {
+        *w0 = pat[k];  *w1 = ~pat[k];
+        if (*w0 != pat[k] || *w1 != ~pat[k]) return 0;
+    }
+    return 1;
+}
+
+static int pl_sdram_ready(void)
+{
+    if (!pl_sdram_state) pl_sdram_state = pl_sdram_prove() ? 1u : 2u;
+    return pl_sdram_state == 1u;
+}
+#else
+#define pl_sdram_ready() 1
+#endif
+
 static void pl_load(void)
 {
     pl_count = 0; pl_pos = 0; pl_status = PL_OK;
+    if (!pl_sdram_ready()) { pl_status = PL_ERR_SDRAM; return; }
     /* A new list means new entries: nothing carries over. This is also the only
      * way back for a user who fixed a filename on the card -- re-picking the
      * playlist gives every entry another chance. */
@@ -1045,6 +1086,9 @@ static void pl_report(void)
                                                        " TRACKS");
     else if (pl_count)                    ui_toast_set("PLAYLIST", pl_live_count(),
                                                        " TRACKS");
+#if TAU_PL_SDRAM
+    else if (pl_status == PL_ERR_SDRAM)   ui_toast_msg("NO SDRAM PLAYLIST");
+#endif
     else if (pl_status == PL_ERR_NOFILE)  ui_toast_msg("NO PLAYLIST FILE");
     else                                  ui_toast_msg("PLAYLIST HAS NO TRACKS");
 }

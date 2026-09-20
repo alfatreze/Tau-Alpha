@@ -4,6 +4,7 @@
 #   ./build.sh            # Stage 3 player (Helix decode + playback)  [default]
 #   ./build.sh player-stress # Developer-only SDRAM contention player
 #   ./build.sh bringup    # Stage 1/2 bring-up (tone + 0180 test, no decoder)
+#   ./build.sh player-sdram-pl # A-103 player with playlist buffers in SDRAM (needs window RBF)
 #   ./build.sh sdram-diag # Phase 1 Pocket SDRAM mailbox diagnostic
 #   ./build.sh sdram-cpu-diag # Phase 2 uncached CPU-window SDRAM diagnostic
 #   ./build.sh sdram-cpu-readback # A-060 mailbox-to-CPU readback discriminator
@@ -102,6 +103,21 @@ player-stress-window)
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     OUT="$ROOT/work/diagnostics/sdram-stress-window"
     STRESS_CFLAGS="-DTAU_SDRAM_STRESS=1 -DTAU_STRESS_HUD=1 -DTAU_SDRAM_STRESS_WINDOW=1 -Wl,--defsym=_min_heap=128"
+    ;;
+player-sdram-pl)
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/playlist-sdram"
+    STRESS_CFLAGS="-DTAU_PL_SDRAM=1"
     ;;
 sdram-diag)
     SRCS=("$FW/start.S" "$FW/sdram_diag.c")
