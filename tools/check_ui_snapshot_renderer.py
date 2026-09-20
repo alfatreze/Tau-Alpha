@@ -20,6 +20,11 @@ def main():
         checksums[name] = sum(frame.pixels) & 0xFFFFFFFF
     if checksums["empty-library"] == checksums["playlist-error"]:
         raise SystemExit("FAIL: playlist error fixture did not draw its reason")
+    settings = ("settings-home", "settings-appearance", "settings-audio", "settings-playback",
+                "settings-colour", "settings-meter", "settings-eq", "settings-repeat",
+                "settings-blank", "settings-diagnostics", "settings-info")
+    if len({checksums[name] for name in settings + ("now-playing", "playlist-browser")}) != 13:
+        raise SystemExit("FAIL: settings fixtures are not distinct")
     if checksums["now-playing"] == checksums["playlist-browser"]:
         raise SystemExit("FAIL: playlist browser fixture did not draw its overlay")
     if len({checksums[name] for name in ("now-playing", "paused", "stopped", "seeking")}) != 4:

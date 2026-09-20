@@ -194,6 +194,20 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #ifndef TAU_PL_SDRAM
 #define TAU_PL_SDRAM 0
 #endif
+/* A-115: in-app settings (Start opens it; the Start stop function is removed in such a
+ * build). Off by default so the standard build stays byte-identical until it is versioned. */
+#ifndef TAU_SETTINGS_UI
+#define TAU_SETTINGS_UI 0
+#endif
+/* A-118/A-119: Diagnostics group in the settings menu. TAU_DIAG_INFO adds the read-only Info
+ * page and is part of the release-style build; TAU_DIAG_TESTS is reserved for the on-demand
+ * tests, stress pump and soak of the "Diagnostic Build" (no code behind it yet). */
+#ifndef TAU_DIAG_INFO
+#define TAU_DIAG_INFO 0
+#endif
+#ifndef TAU_DIAG_TESTS
+#define TAU_DIAG_TESTS 0
+#endif
 #ifndef TAU_PL_SDRAM_FAULT
 #define TAU_PL_SDRAM_FAULT 0
 #endif
@@ -253,6 +267,20 @@ static uint32_t fb_color_shadow = 0xFFFFFFFFu;
 
 static inline void fb_wait(void) { while (REG(R_FB_GO) & 1u) { } }
 
+/* A full-screen overlay (playlist, settings) owns every pixel. While one is up, every
+ * drawing primitive is a no-op unless the overlay itself is painting (ov_draw), so the
+ * player -- meter, clock, progress bar, toasts, art -- cannot punch through it. The
+ * repaint on close (pl_ui_restore) already redraws and invalidates all of it. */
+static uint8_t pl_ui_open;         /* playlist overlay is up */
+#if TAU_SETTINGS_UI
+static uint8_t set_open;           /* settings overlay is up */
+#define UI_OVERLAY_UP (pl_ui_open || set_open)
+#else
+#define UI_OVERLAY_UP pl_ui_open
+#endif
+static uint8_t ov_draw;            /* the overlay itself is painting */
+#define FB_HELD() (UI_OVERLAY_UP && !ov_draw)
+
 static void fb_set_color(uint16_t fg, uint16_t bg)
 {
     uint32_t v = ((uint32_t)bg << 16) | (uint32_t)fg;
@@ -268,7 +296,7 @@ static void fb_set_color(uint16_t fg, uint16_t bg)
  * a clear rect leaves fg == bg, so the glyphs paint invisibly. */
 static void fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
 {
-    if (!w || !h) return;
+    if (!w || !h || FB_HELD()) return;
     fb_wait();
     REG(R_FB_ADDR) = y * FB_STRIDE + x;
     REG(R_FB_SIZE) = (h << 9) | w;
@@ -298,6 +326,7 @@ static void fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t col
 static void fb_copy_span(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
                          uint32_t w, uint32_t h)
 {
+    if (FB_HELD()) return;
     uint32_t src = sy_ * FB_STRIDE + sx_;
     fb_wait();
     REG(R_FB_ADDR)  = dy * FB_STRIDE + dx;
@@ -336,6 +365,7 @@ static void fb_copy(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
 
 static void fb_char(uint32_t x, uint32_t y, char ch, uint32_t sx, uint32_t sy)
 {
+    if (FB_HELD()) return;
     fb_wait();
     REG(R_FB_ADDR) = y * FB_STRIDE + x;
     REG(R_FB_GO)   = FB_OP_CHAR
@@ -815,7 +845,11 @@ static uint16_t pl_pos;                  /* index INTO pl_order                 
 /* Overlay state, declared HERE rather than with its drawing code:
  * ui_draw_chrome() repaints the overlay on top of itself and sits a
  * thousand lines earlier in the file. */
-static uint8_t  pl_ui_open;        /* overlay is up                          */
+#if TAU_SETTINGS_UI
+static uint8_t  set_dirty;
+static int  set_input(uint32_t edge, uint32_t keys);
+static void set_draw(void);
+#endif
 static uint8_t  pl_ui_play_req;    /* main loop: start pl_ui_sel             */
 static uint8_t  pl_ui_dirty;       /* repaint wanted                         */
 static uint8_t  pl_ui_restore;     /* overlay closed: repaint the player      */
@@ -2479,6 +2513,7 @@ static void ui_marq_step(ui_marquee_t *m, uint16_t fg)
 }
 
 static void pl_ui_draw(void);   /* defined with the overlay, below */
+static void pl_ui_row(uint32_t i);
 
 static void ui_draw_chrome(void)
 {
@@ -2704,6 +2739,9 @@ static void ui_draw_chrome(void)
      * Putting it here rather than in the main loop means EVERY repaint route
      * is covered by construction, including ones added later. */
     if (pl_ui_open) pl_ui_draw();
+#if TAU_SETTINGS_UI
+    else if (set_open) set_draw();
+#endif
 
 }
 
@@ -3610,26 +3648,19 @@ static void ui_rate_unsupported(void)
  * Order follows pl_order, so with shuffle on the list is the QUEUE: scrolling
  * down previews what is actually coming.
  */
-/* 9, not 11. The transport row -- PLAYING/PAUSED, the repeat and shuffle
- * arrows, the EQ name -- sits at UI_TRANSPORT_Y 262 and keeps animating while
- * the overlay is up, so an 11-row panel ending at 284 had it drawing straight
- * through. Nine rows end the panel at 244 and leave that row, the clock and
- * the progress bar all visible below the list, which is more useful than the
- * two rows it costs. */
-#define PL_UI_ROWS   9u
-#define PL_UI_X      12u
+/* Full-screen overlay geometry (playlist and settings share it). The panel is inset 8 px
+ * from every edge over a UI_BG frame; the header sits at y 24, the list starts at y 52 and
+ * the hint line lives in the bottom PL_UI_PAD_B. 12 rows of 22 px fit above it. The
+ * snapshot fixtures and tools/overlay_preview.py read these names. */
+#define PL_UI_ROWS   12u
+#define PL_UI_X      8u
 #define PL_UI_W      (FB_W - 2u * PL_UI_X)
-#define PL_UI_Y      18u
-#define PL_UI_ROW_H  20u
+#define PL_UI_Y      8u
+#define PL_UI_H      (FB_H - 2u * PL_UI_Y)
+#define PL_UI_ROW_H  22u
 #define PL_UI_LIST_Y 52u
-#define PL_UI_TEXT_X (PL_UI_X + 10u)
-/* Bottom padding, and it is load-bearing rather than cosmetic. The art frame
- * reaches y 249 and the meter 245; at 12 the panel ended at 244 and left a
- * sliver of both showing under it. 22 puts the bottom at 254 -- clear of both,
- * and still 8 px above the transport row at 262, which stays visible on
- * purpose. Named so tools/overlay_preview.py reads it instead of repeating
- * the number. */
-#define PL_UI_PAD_B  22u
+#define PL_UI_TEXT_X (PL_UI_X + 16u)
+#define PL_UI_PAD_B  36u
 
 static uint16_t pl_ui_sel;         /* selection, an index into pl_order      */
 static uint16_t pl_ui_top;         /* first visible row                      */
@@ -3666,9 +3697,31 @@ static void pl_ui_follow(void)
     if (pl_count <= PL_UI_ROWS) pl_ui_top = 0;
 }
 
+/* Frame, header and hint of a full-screen overlay: the UI_BG border, the rounded panel, the
+ * accent title (left), an optional dim right-hand text such as a position counter, a hairline
+ * under the header and a dim hint line at the bottom. Caller must have set ov_draw. */
+static void ov_frame(const char *title, const char *right, const char *hint)
+{
+    fb_rect(0u, 0u, FB_W, PL_UI_Y, UI_BG);
+    fb_rect(0u, PL_UI_Y + PL_UI_H, FB_W, FB_H - PL_UI_Y - PL_UI_H, UI_BG);
+    fb_rect(0u, PL_UI_Y, PL_UI_X, PL_UI_H, UI_BG);
+    fb_rect(PL_UI_X + PL_UI_W, PL_UI_Y, FB_W - PL_UI_X - PL_UI_W, PL_UI_H, UI_BG);
+    fb_round_rect_on(PL_UI_X, PL_UI_Y, PL_UI_W, PL_UI_H, 8u, UI_PANEL, UI_BG);
+    fb_set_color(ui_accent, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_Y + 16u, title, TS_1X, TS_1X, 230u);
+    if (right && right[0]) {
+        uint32_t w = fb_text_width(right, TS_1X);
+        fb_set_color(UI_DIM, UI_PANEL);
+        fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, PL_UI_Y + 16u, right, TS_1X, TS_1X, w + 2u);
+    }
+    fb_rect(PL_UI_X + 12u, PL_UI_Y + 34u, PL_UI_W - 24u, 1u, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
+    fb_set_color(UI_FAINT, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_Y + PL_UI_H - 26u, hint, TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
 /* One row. Split out so the marquee can repaint just the selected line
  * without redrawing the whole list four times a second. */
-static void pl_ui_row(uint32_t i)
+static void pl_ui_row_body(uint32_t i)
 {
     uint32_t y   = PL_UI_LIST_Y + i * PL_UI_ROW_H;
     uint16_t pos = (uint16_t)(pl_ui_top + i);
@@ -3716,7 +3769,7 @@ static void pl_ui_row(uint32_t i)
                   PL_UI_W - 40u, PL_UI_X + PL_UI_W - 16u);
 }
 
-static void pl_ui_draw(void)
+static void pl_ui_draw_body(void)
 {
     /* The list can change under an open overlay -- a reload, or a pick the
      * core noticed late. Clamp rather than trusting the stored indices. */
@@ -3725,22 +3778,13 @@ static void pl_ui_draw(void)
     pl_ui_follow();
     pl_ui_drawn_pos = pl_pos;
 
-    uint32_t h = PL_UI_LIST_Y + PL_UI_ROWS * PL_UI_ROW_H + PL_UI_PAD_B - PL_UI_Y;
-    fb_round_rect(PL_UI_X, PL_UI_Y, PL_UI_W, h, 8u, UI_PANEL);
-
-    /* Header: where you are in the list, which is the thing a long list hides. */
-    char hdr[40], *q = hdr;
-    const char *t = "PLAYLIST";
-    while (*t) *q++ = *t++;
-    if (pl_count) {
-        *q++ = ' '; *q++ = ' ';
-        q = ui_dec(q, (uint32_t)pl_ui_sel + 1u);
-        *q++ = ' '; *q++ = '/'; *q++ = ' ';
-        q = ui_dec(q, pl_count);
-    }
+    /* Header: what this is, and where you are in the list -- the thing a long list hides. */
+    char pos[24], *q = pos;
+    q = ui_dec(q, (uint32_t)pl_ui_sel + 1u);
+    *q++ = ' '; *q++ = '/'; *q++ = ' ';
+    q = ui_dec(q, pl_count);
     *q = 0;
-    fb_set_color(ui_accent, UI_PANEL);
-    fb_text_clipped(PL_UI_TEXT_X, PL_UI_Y + 10u, hdr, TS_1X, TS_1X, PL_UI_W - 20u);
+    ov_frame("PLAYLIST", pos, "A PLAY   B BACK");
 
     /* Scroll position, for lists too long to hold in your head. The header
      * counter says WHERE you are; this says how far that is through the list,
@@ -3763,6 +3807,21 @@ static void pl_ui_draw(void)
 }
 
 
+/* Entry points: the overlay paints through the ov_draw gate (see FB_HELD). */
+static void pl_ui_row(uint32_t i)
+{
+    uint8_t o = ov_draw; ov_draw = 1u;
+    pl_ui_row_body(i);
+    ov_draw = o;
+}
+
+static void pl_ui_draw(void)
+{
+    uint8_t o = ov_draw; ov_draw = 1u;
+    pl_ui_draw_body();
+    ov_draw = o;
+}
+
 static void ui_draw_dynamic(void)
 {
     if (screen_blank) return;
@@ -3781,7 +3840,7 @@ static void ui_draw_dynamic(void)
      * region is several hundred lines and every declaration in it is scoped
      * inside the sections being skipped. `viz_done` already sets the
      * precedent. */
-    if (pl_ui_open) goto ui_tail;
+    if (UI_OVERLAY_UP) goto ui_tail;
 
     /* Publish the peaks once per display frame, so every meter below reads a
      * value covering exactly the audio since the last frame. Nothing new means
@@ -4848,7 +4907,7 @@ ui_tail:
      * a glyph at any x but does not clip one partially off the left edge, so a
      * pixel scroll would need clipping support that does not exist. One step
      * every ~350 ms reads as a scroll without being distracting. */
-    if (!pl_ui_open) {          /* title/artist rows are under the overlay */
+    if (!UI_OVERLAY_UP) {          /* title/artist rows are under the overlay */
         ui_marq_step(&ui_mq_title,  UI_WHITE);
         ui_marq_step(&ui_mq_artist, UI_DIM);
     }
@@ -4856,7 +4915,7 @@ ui_tail:
     /* Loud, and it stays: a wrong file size means the card's directory is
      * damaged, which will not fix itself and puts every file in that folder in
      * question -- not something to mention in a toast that scrolls away. */
-    if (size_suspect && !ui_size_warned && !pl_ui_open) {
+    if (size_suspect && !ui_size_warned && !UI_OVERLAY_UP) {
         ui_size_warned = 1;
         fb_set_color(UI_RED, UI_PANEL);
         fb_text_clipped(UI_MARGIN, ui_info_y, "! FILE SIZE WRONG - CHECK SD CARD",
@@ -4906,7 +4965,7 @@ ui_tail:
         }
     }
 
-    if (track_kbps && info != ui_last_info && !size_suspect && !pl_ui_open) {
+    if (track_kbps && info != ui_last_info && !size_suspect && !UI_OVERLAY_UP) {
         ui_last_info = info;
         char b[40], *q = b;
         q = ui_dec(q, track_kbps);
@@ -5652,6 +5711,9 @@ static void ui_blank_wake(void)
      * screen blanked it is still logically open and still eating the d-pad,
      * so without this the user would be left driving an invisible list. */
     if (pl_ui_open) pl_ui_dirty = 1u;
+#if TAU_SETTINGS_UI
+    if (set_open) set_dirty = 1u;
+#endif
 }
 
 /* One call per main-loop pass. Re-arms from NOW rather than advancing by a
@@ -6035,6 +6097,9 @@ static void poll_input(void)
      * so nothing downstream also acts on them. Select is deliberately left in
      * `keys`/`fall`: its tap-to-close is the same code that opened it, and its
      * hold timer reads `keys` directly. */
+#if TAU_SETTINGS_UI
+    if (set_input(edge, keys)) { edge = 0; fall = 0; }
+#endif
     if (pl_ui_open && !pl_count) {      /* list emptied underneath it */
         pl_ui_open = 0u; pl_ui_restore = 1u;
     }
@@ -6838,6 +6903,7 @@ static int32_t *fl_buf;            /* one blocksize of int32, from the arena */
 #include "art.inc"
 #include "playlist.inc"
 #include "settings.inc"
+#include "settingsui.inc"
 
 /* Slide unconsumed bytes down and pull in ONE chunk. Compaction keeps Helix's
  * input pointer arithmetic simple -- it wants a flat span, not a wrap. */
@@ -9751,6 +9817,12 @@ int main(void)
          * overlay is up draws straight through it -- and the '>' marker has
          * moved anyway. Comparing against what was last drawn catches both,
          * and any other route that changes the position. */
+#if TAU_SETTINGS_UI
+        if (set_open && set_dirty) { set_dirty = 0u; set_draw(); }
+#if TAU_DIAG_INFO
+        set_info_tick();
+#endif
+#endif
         if (pl_ui_open && pl_ui_drawn_pos != pl_pos) pl_ui_dirty = 1u;
         if (pl_ui_open && pl_ui_dirty) {
             pl_ui_dirty = 0;
