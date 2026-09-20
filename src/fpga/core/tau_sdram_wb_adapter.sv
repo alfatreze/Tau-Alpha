@@ -35,8 +35,9 @@ module tau_sdram_wb_adapter (
     input  wire        bridge_done,
     input  wire [31:0] bridge_rdata
 );
-    localparam [1:0] S_IDLE = 2'd0, S_ISSUE = 2'd1, S_WAIT = 2'd2, S_RELEASE = 2'd3;
-    reg [1:0] state;
+    localparam [2:0] S_IDLE = 3'd0, S_ISSUE = 3'd1, S_WAIT = 3'd2, S_RELEASE = 3'd3,
+                     S_RELEASE2 = 3'd4;
+    reg [2:0] state;
 
     wire wb_req = wb_cyc && wb_stb;
     wire wb_classic = (wb_cti == 3'b000);
@@ -73,13 +74,18 @@ module tau_sdram_wb_adapter (
                     state    <= S_RELEASE;
                 end
                 // VexRiscv may keep CYC/STB asserted while moving directly
-                // to the next CLASSIC beat. Hold one turnaround cycle so the
-                // registered ACK is observable at mp3_soc, then return to
-                // IDLE unconditionally. Waiting for !wb_req here deadlocks
-                // that legal back-to-back form: no new beat can be admitted
-                // until the old one is released, but the master does not
-                // release the cycle between consecutive transfers.
-                S_RELEASE: state <= S_IDLE;
+                // to the next CLASSIC beat. Waiting for !wb_req here deadlocks
+                // that legal back-to-back form, so return to IDLE after a
+                // fixed turnaround instead. It must be TWO cycles: wb_ack is
+                // registered again in mp3_soc (dACK), so the CPU still shows
+                // the just-completed beat's STB for one cycle after this
+                // adapter leaves S_WAIT and one more after S_RELEASE.
+                // Returning to IDLE after one cycle (A-060) re-accepted that
+                // old beat, issuing a duplicate bridge request whose response
+                // then ACKed the NEXT beat with the previous beat's data
+                // (A-092 Pocket result; tb_tau_sdram_wb_return_regression).
+                S_RELEASE: state <= S_RELEASE2;
+                S_RELEASE2: state <= S_IDLE;
                 default: state <= S_IDLE;
             endcase
         end
