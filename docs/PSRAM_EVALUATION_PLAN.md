@@ -20,6 +20,14 @@ nevertheless start as an isolated diagnostic, not as an immediate linker
 escape hatch. Keep the active SDRAM diagnostic and all normal Tau behaviour
 unchanged while this spike runs.
 
+As external precedent (not a Tau dependency): another Analogue Pocket core,
+PocketQuake, runs SDRAM, PSRAM, and a dedicated SRAM z-buffer behind a shared
+arbiter — including PSRAM in synchronous burst mode for CPU code execution —
+alongside working real-time I2S audio output, on the same Cyclone V part.
+This does not de-risk Tau's specific controller or CDC work, but it is
+evidence that a PSRAM path coexisting with real-time audio is achievable on
+this exact hardware, not merely a paper design.
+
 Pocket exposes two 16 MiB AS1C8M16PL Cellular PSRAM chips, each containing two
 independently selected dies: 32 MiB total. Each die is 4 Mi 16-bit words (8
 MiB); no operation may enable both `CE0#` and `CE1#` on the same chip. The
@@ -67,6 +75,71 @@ no speculative read, no CTI/BTE burst, no cache fill, and one outstanding
 request. A controller `busy` indication is advisory; the adapter must wait for
 the controller's registered response-valid event rather than derive ACK from a
 fixed cycle count.
+
+## Controller and bus interface
+
+This section concretizes the module boundary described in P1 so it is
+directly implementable, and gives P2's diagnostic mailbox a fixed register
+layout so P2 and P4 can share the same request/response shape. Signal names
+on the chip-facing side reuse this document's existing `cram0`/`cram1`,
+`CE0#`/`CE1#`, `cram*_a`, `cram*_dq` naming; exact pin widths and any
+additional control pins (`ADV#`, `WAIT`, `CRE`, a dedicated clock) are **not**
+asserted here and must be confirmed against the current `.qsf` PSRAM pin
+assignments (P0) and the AS1C8M16PL datasheet before RTL is written. Treat the
+tables below as a structural starting point for the port lists, not a
+verified pinout.
+
+### `tau_psram_bus` — CPU-facing, classic Wishbone B4, single outstanding request
+
+| Signal | Width | Direction | Purpose |
+|---|---|---|---|
+| `wb_clk_i` | 1 | in | `clk_sys` (60 MHz), per P1 |
+| `wb_rst_i` | 1 | in | synchronous reset |
+| `wb_adr_i` | 24 | in | CPU word address, decoded per the provisional map |
+| `wb_dat_i` | 32 | in | write data |
+| `wb_sel_i` | 4 | in | byte enables, preserved across both ordered 16-bit beats |
+| `wb_we_i` | 1 | in | read/write |
+| `wb_cyc_i`, `wb_stb_i` | 1, 1 | in | cycle/strobe; one outstanding request only |
+| `wb_dat_o` | 32 | out | held response register — registered, never combinational |
+| `wb_ack_o` | 1 | out | asserted only from the controller's registered response-valid event |
+
+### `tau_psram_async` — chip-facing
+
+| Signal | Width | Direction | Purpose |
+|---|---|---|---|
+| `cram_sel` | 1 | out | selects `cram0` vs `cram1` (address bit 23) |
+| `cram_ce0_n`, `cram_ce1_n` | 1, 1 | out | die select — mutually exclusive; both high when idle |
+| `cram_a` | TBD (per `.qsf`) | out | address bits per the provisional decode |
+| `cram_dq` | 16 | inout | multiplexed address-phase/data bus; tri-stated, released before a read response |
+| `cram_oe_n`, `cram_we_n` | 1, 1 | out | asynchronous read/write strobes |
+| `cram_lb_n`, `cram_ub_n` | 1, 1 | out | byte-lane controls |
+| `cram_adv_n`, `cram_wait`, `cram_clk`, `cram_cre` | TBD | TBD | include only if the asynchronous mode selected in P0 requires them — confirm against the datasheet before adding any of these |
+
+This module boundary keeps the safety-rule contract enforceable in one place:
+`cram_dq` release and the response-valid → `wb_ack_o` chain both live inside
+`tau_psram_async`, so `tau_psram_bus` and any diagnostic client above it can
+never observe an unregistered or early response.
+
+## Diagnostic mailbox register map (concretizing P2)
+
+P2 specifies a firmware-facing MMIO mailbox without a register layout.
+Fixing the layout now means P2's firmware path and P4's CPU-window path
+share the same request/response shape end to end.
+
+| Register | Access | Fields |
+|---|---|---|
+| `PSRAM_ADDR` | RW | 24-bit word address (chip/die/`cram*_a`/phase, per the provisional map) |
+| `PSRAM_WDATA` | RW | 32-bit write data |
+| `PSRAM_CTRL` | RW | `REQ` (self-clearing start bit), `WE` (read/write select) |
+| `PSRAM_STATUS` | RO | `BUSY`, `DONE`, `TIMEOUT`, sticky `CE_CONFLICT`, sticky `LAST_WORD_GUARD_HIT` |
+| `PSRAM_RDATA` | RO | 32-bit held read response, valid only while `DONE` is set |
+
+Firmware sequence: write `PSRAM_ADDR` (and `PSRAM_WDATA` for writes and `WE`
+as needed), pulse `REQ`, poll `PSRAM_STATUS` with a timeout, read
+`PSRAM_RDATA` only after `DONE`. Sticky fault bits need an explicit
+clear-on-write so a P3 cold/warm run cannot silently lose a CE-conflict or
+last-word-guard event between polls — this is what P2 and P3's "surface the
+... sticky CE-conflict/last-word flags" requirement resolves to concretely.
 
 ## PSRAM-specific safety rules
 
@@ -196,6 +269,13 @@ decoder state, and execute-in-place code stay out of scope.
 - **Do not use a passing PSRAM diagnostic to close SDRAM issue 018.** It can
   unblock capacity exploration, but it does not validate the SDRAM bridge/mux
   response path.
+- **Out of scope for this plan, but flagged for whoever scopes it next:** if a
+  future stage adds a DMA or blit engine that reads PSRAM for display use (as
+  distinct from this plan's CPU-load/store-only cold-data scope), it needs its
+  own explicit priority ranking against audio on any shared bus or arbiter —
+  audio's claim should be ranked at or above video/graphics traffic by design,
+  not assumed safe from leftover bandwidth. This plan's P0–P5 stages do not
+  reach that point.
 
 ## Deliverables
 

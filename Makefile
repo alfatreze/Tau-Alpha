@@ -54,7 +54,7 @@ test-host:
 	$(PYTHON) tools/check_ui_snapshot_renderer.py
 	$(PYTHON) tools/check_audit_trail.py
 
-test-rtl: test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe
+test-rtl: test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -163,6 +163,36 @@ $(RTL_BUILD_DIR)/tb_tau_sdram_wb_return_regression.vvp: sim/tb_tau_sdram_wb_retu
 
 test-rtl-sdram-wb-return: $(RTL_BUILD_DIR)/tb_tau_sdram_wb_return_regression.vvp
 	$(VVP) $<
+
+# ---- PSRAM (P0/P1): idle-pin static check, controller, bus regression, mutations
+PSRAM_SRC = src/fpga/core/tau_psram_async.sv src/fpga/core/tau_psram_bus.sv sim/psram_chip_model.v
+
+test-rtl-psram-idle:
+	$(PYTHON) tools/check_psram_idle.py
+
+$(RTL_BUILD_DIR)/tb_tau_psram_async.vvp: sim/tb_tau_psram_async.v $(PSRAM_SRC) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ sim/tb_tau_psram_async.v $(PSRAM_SRC)
+
+test-rtl-psram-async: $(RTL_BUILD_DIR)/tb_tau_psram_async.vvp
+	$(VVP) $< | tail -4 | tee $(RTL_BUILD_DIR)/psram_async.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_async.log
+
+$(RTL_BUILD_DIR)/tb_tau_psram_wb_return_regression.vvp: sim/tb_tau_psram_wb_return_regression.v $(PSRAM_SRC) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ sim/tb_tau_psram_wb_return_regression.v $(PSRAM_SRC)
+
+test-rtl-psram-wb-return: $(RTL_BUILD_DIR)/tb_tau_psram_wb_return_regression.vvp
+	$(VVP) $< | tail -4 | tee $(RTL_BUILD_DIR)/psram_wb.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_wb.log
+
+# Each mutant MUST fail; a mutant that passes means the tests are toothless.
+test-rtl-psram-mutation: | $(RTL_BUILD_DIR)
+	@set -e; \
+	run() { $(IVERILOG) -g2012 $$1 -o $(RTL_BUILD_DIR)/psram_mut.vvp $$2 $(PSRAM_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/psram_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: $$1"; \
+	  else echo "MUTANT SURVIVED: $$1"; exit 1; fi; }; \
+	run -Ptb_tau_psram_async.T_ACC=4 sim/tb_tau_psram_async.v; \
+	run -Ptb_tau_psram_async.T_ACC=6 sim/tb_tau_psram_async.v; \
+	run -Ptb_tau_psram_async.T_ACC=7 sim/tb_tau_psram_async.v; \
+	run -Ptb_tau_psram_wb_return_regression.REL_CYC=1 sim/tb_tau_psram_wb_return_regression.v; \
+	run -Ptb_tau_psram_wb_return_regression.MUT_EARLY_ACK=1 sim/tb_tau_psram_wb_return_regression.v
 
 # Verilator's generated GNUmakefiles cannot run beneath this repository's path
 # because it contains spaces. Keep this tool-only artefact outside the tree.
