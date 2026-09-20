@@ -4670,3 +4670,396 @@ idle bound of A-094/A-100/A-102); the write average (38) is lower than the read 
 integrity check after real use. The menu versions now agree with what the standalone gates established, which was the condition for trusting them.
 **Not yet done:** the standalone gate cores on this RBF (coverage A-100, soak A-097) and the clean 1.0x stress run; the Diagnostic Build's Info and Tests
 under longer playback; Phase 3 (stress pump, timed soak).
+
+### A-127 — Diagnostic Build, Phase 3: in-menu stress pump and timed soak (firmware built and packaged, not installed)
+
+**Date:** 2026-09-20
+**Evidence:** host (build, link map, fixtures, `make test-host`); no Pocket run.
+**Approach:** reuse the pump that produced the A-102 evidence instead of writing a new one. The Diagnostic Build now also compiles
+`TAU_SDRAM_STRESS`, `TAU_SDRAM_STRESS_WINDOW` and `TAU_STRESS_HUD` (the same code and counters E/L/M/S/R/K/P as the standalone stress core),
+driven from a menu instead of the Select+X chord (the chord is compiled out where the settings menu exists, so it cannot start the pump by
+accident).
+**Menu (Diagnostics > Stress):** `LEVEL` (choice list: OFF, R1 16k ops/s paced, R2 8-op bursts, R3 32-op bursts; A selects, applies at once),
+`SOAK` (choice list: OFF, 5, 15, 30, 60 min) and `STATUS` (live page, rows repaint once a second): level, state (stopped / running / failed),
+passes, operations, failures, early and late underruns, worst window access (cycles), draw stall (ms), achieved rate, and soak time left or
+PASS/FAIL. The player screen also shows the familiar HUD line at the bottom while the pump exists. New `stress_set_level()` sets an absolute
+level (starting from off zeroes the counters as `stress_toggle()` does; changing between running levels keeps them).
+**Soak:** starts the pump (the chosen level, else R2) for N minutes beside normal playback, then stops it; the verdict is PASS when there was no
+data mismatch or timeout, FAIL otherwise (a failure ends the soak at once). Late underruns are shown and counted but are not part of the verdict
+(at R3 they can be CPU starvation, A-102). Changing the level by hand cancels a running soak.
+**Safety change:** with the playlist in SDRAM the pump's region moved from physical 1-2 MiB (where the playlist buffers now live) to **2-3 MiB**
+(`STRESS_BASE 0x00100000`, `STRESS_LAST 0x0017FFFE` in 16-bit word units); the Tests page scratch area stays at 8 MiB. The window preflight
+(mailbox write, window read) still gates every start.
+**Builds:** Diagnostic Build ROM `580bb638...` (164,164 B; **heap gap 4,384 B, only 288 B above its 4 KiB build floor**: Phase 3 cost about 5.8 KiB;
+no room for more diagnostic code without first freeing memory or lowering the floor). Release-style settings ROM `bc26aeba...` (155,684 B, heap gap
+13,088 B; it changed again only by the unreachable stress/soak table entries). Product `661c5936...` and SDRAM-playlist `82fdb70c...` unchanged. Bundle
+`work/diagnostics/diagnostic-build/pocket` repackaged with the seed-2 RBF; not installed. Five new fixtures (`settings-stress`,
+`settings-stress-level`, `settings-soak`, `settings-stress-status`; 49 in total), rendered and inspected.
+**To validate on Pocket:** (1) Stress > Level R1 then R2 then R3 while a track plays: status shows RUNNING, operations grow, failures 0, worst access about
+365-375, rate near 4k/15k/high; HUD line agrees; (2) playlist still intact afterwards (Tests > Playlist check `PASS 13`), which proves the region move; (3) a 5
+minute soak ends with PASS and the pump stopped; (4) cancelling with OFF stops it; (5) compare the counters with the standalone stress core's on the same RBF
+before retiring it.
+
+### B-004 — PSRAM diagnostic core drafted: RTL, firmware, packager, decoder, tests (simulation only; not built or installed)
+
+**Date:** 2026-09-20
+**Evidence:** simulation and host tests only (`make test` exits 0, 25 PASSED suites); no Quartus, no card, no Pocket.
+**Decision/change:** P2 of `docs/PSRAM_IMPLEMENTATION_PLAN.md`.
+- **RTL:** `tau_psram_probe.sv` (mailbox MMIO 0x88-0xA8 + `tau_psram_async` + both CRAM pin groups) behind
+  `TAU_PSRAM_PROBE`; `mp3_soc` gains an inert expansion-MMIO port (`xm_*`, read data only used inside the window);
+  `core_game.vh` instantiates the probe under the macro; `core_top.v` keeps the idle tie-offs only when the macro is off.
+  `CORE_VERSION` not bumped (additive, inert without the macro). Register map and the shared MMIO table:
+  `docs/MMIO_ALLOCATION.md` (this also closes roadmap Phase B4's table).
+- **Firmware:** `fw/psram_diag.c`, `fw/build.sh psram-diag` (8,080 B, SHA-256 `b43bdbba...ac4bc`) and `psram-diag-sim`
+  (64-word fill). Per die: address lines, byte lanes, 1 MiB hash fill + CRC, anchors incl. last legal word, guard refusal;
+  A = default timing, B = slow dials (+3/+3). Screen evidence and 16 `interact.json` words.
+- **Packager:** `tools/package_psram_diagnostic.py`, no default RBF (`--rbf` + `--rbf-sha256` mandatory), identity
+  `alfatreze.TAU_PSRAM` / `tau_psram`, ROM slot only. Exercised only with a throwaway RBF in the scratchpad (wrong hash refused).
+- **Decoder:** `decode_tau_diag_log.py --interact --psram` recomputes each die's expected CRC from the deterministic fill.
+- **Controller change from the review below:** per-chip DQ pad registers (mux after the register) and `T_ACC` 8 -> 9.
+**Tests added (all in `make test`):** `test-rtl-psram-probe` (mailbox: ID, hold-off ignores REQ, all dies, lanes, LAST/RDATA
+held, guard flags and CLR, dials, op counter; run also with `WATCHDOG=8` to prove TIMEOUT latches);
+`test-rtl-psram-fw` (real VexRiscv running the ROM against `mp3_soc`, the probe and the strict chip model, run A then run B by
+key press, both records decoded independently: 384 checks, 0 failures, 760/1520 ops, guard hit set, all four CRCs equal the
+Python-recomputed values; the chip-side count reconciles: 752 chip ops per run = 760 minus 8 refused guard ops, two 16-bit
+ops each); the same run with one injected bit flip on chip 1 die 0 word 10 is reported on CPU die 2 only, with a CRC mismatch
+on die 2 only; `sim/test_psram_decode.py` (good record, bad magic/checksum, wrong CRC, missing guard hit, CE conflict,
+timeouts); `tools/check_psram_idle.py` now also checks the macro-on branch (no double drivers, every CRAM pin connected).
+Icarus cannot elaborate `mp3_soc` as written (use before declaration of the MMIO constants, already true at HEAD; Quartus
+accepts it), so the test builds a sim copy with `sim/make_soc_sim.py`; the synthesised source is untouched.
+**Finding (design review during P2):** the B-002 margins are edge-to-edge and ignore the FPGA's own output delay, trace and
+input path (about 8-15 ns, an estimate; the SDC has no CRAM constraints, same as the SDRAM pins, so Quartus will not report
+it). Under the safe `tAADV`-from-ADV#-rising reading, `T_ACC` = 8 left about 13 ns before those delays, i.e. roughly 0-5 ns
+after. The chip model gained a pad-delay parameter (`T_IO`): with 15 ns, `T_ACC` = 9 passes and `T_ACC` = 8 fails (added as a
+killed mutant). Default is now 9 (read 26 clocks, write 22 per 32-bit word in simulation).
+**Not established:** anything about hardware. Quartus fit and timing, the I/O-cell packing of the pad registers, the real pad
+delay, `tAADV` origin, defaults-only operation (BCR/RCR caption question) and board behaviour are all still open.
+**Next (needs approval):** stage a fresh ext4 snapshot on the VM, append `TAU_PSRAM_PROBE=1` (optional `SEED n`) to
+`src/fpga/ap_core.qsf`, `make check-fpga`, detached `make fpga`; two seeds fit the 4 vCPUs (about 50-55 min). Require 0
+timing failures, RAM blocks 300/308, and a look at the CRAM pin timing in the report. Then hash-lock the RBF here, package,
+review, and only then install (cache backup, SHA-256 verify) and run the P3 matrix.
+
+
+**A-127 installation (host, 2026-09-20):** `Assets/tau_diagnostic/common/tau.rom` on the card replaced with the Phase 3 build (`580bb638...`, 164,164 B);
+previous ROM (`9580c8e9...`, Phase 2) and the catalog indexes backed up in `work/diagnostics/diagnostic-build/rom-replaced-a127/`, indexes cleared.
+All 14 bundle files SHA-256-identical (seed-2 RBF unchanged), media and every other core untouched.
+**Cleanup decision:** no core was removed this time. The standalone soak (`TAU_SDRAM_PRB97`), coverage (`TAU_SDRAM_PRB100`) and window-stress
+(`TAU_SDRAM_WSTRESS`) cores are still the only validated reference for the gates on the seed-2 RBF (their runs are pending) and the menu versions of
+soak and stress are unproven on hardware; the 1 MiB CRC-under-drawing part of coverage has no menu equivalent yet. They are to be removed once the gates have
+passed and the Diagnostic Build's stress/soak agree with them. `TAU` (base), `TAU_SETTINGS` (release-style) and `TAU_DIAGNOSTIC` stay. Result pending.
+
+### B-005 — PSRAM diagnostic RBF: two-seed Quartus builds launched (result pending)
+
+**Date:** 2026-09-20
+**Evidence:** VM stage and launch only; no result yet.
+**Approval:** the owner approved the launch in chat ("go ahead and launch the Quartus build") after B-004.
+**Change to the tree:** `src/fpga/ap_core.qsf` now lists `core/tau_psram_async.sv` and `core/tau_psram_probe.sv` (unused,
+so harmless, when `TAU_PSRAM_PROBE` is off; `tau_psram_bus.sv` is deliberately not listed until P4).
+**Stage:** two fresh ext4 snapshots streamed from the local tree (255 files, source only; no toolchain, work, .git, .claude,
+docs/vendor or Quartus db), `/home/taualpha/tau-local/psram-probe-b004-s1-20260920` and `...-s2-20260920`. Source hashes of all
+45 `src/` files were compared with the local tree: identical except `ap_core.qsf`, which has the intended appended lines
+`VERILOG_MACRO "TAU_PSRAM_PROBE=1"` and `SEED 1` / `SEED 2` (on top of the existing `USE_SDRAM=1`; no `TAU_PHASE2_*` macro,
+so this is the legacy SDRAM path plus the PSRAM probe). `make check-fpga` ok on both.
+**Launch:** 2026-09-20 18:22 WEST, detached (`setsid nohup make fpga`), logs `quartus-b004-s1.log` and `quartus-b004-s2.log`
+in each stage. The VM was idle (load 0.00; only the harmless stale A-067 shell). Two parallel builds fit the 4 vCPUs (about
+50-55 min each, A-114).
+**Acceptance (pre-set, same as B-004):** "Successful", 0 timing failures (setup and hold, all corners), RAM blocks stay 300/308,
+no new M10K, and the CRAM pin timing read from the report (the SDC has no CRAM constraints, so Quartus will not flag it; look
+at the I/O register packing of `dq0_q`/`dq1_q` and the output flops instead). Pick a seed by the larger worst-case slack.
+**Next:** on success copy the RBF to `work/diagnostics/psram-diag/fpga`, record its SHA-256 here, package with
+`tools/package_psram_diagnostic.py --rbf ... --rbf-sha256 ...`. Installing on the card is a separate step (needs approval).
+
+### B-006 — PSRAM diagnostic RBF: both seeds fit and meet timing; CRAM pad registers NOT packed into I/O cells (bundle packaged, not installed)
+
+**Date:** 2026-09-20
+**Evidence:** Quartus on the VM (two seeds, `TAU_PSRAM_PROBE=1` on top of `USE_SDRAM=1`, no `TAU_PHASE2_*`); host packaging. No Pocket run.
+**Result (B-005 acceptance):** both builds finished "Successful", 0 errors, 321 warnings, 52m16s (seed 1) and 51m16s (seed 2).
+Synthesis (6m) already showed the probe instantiated at `u_psram`; block memory bits 2,380,928 and DSP blocks 11 are unchanged, so the
+probe added no RAM.
+| | Seed 1 | Seed 2 |
+|---|---:|---:|
+| ALMs | 6,238 / 18,480 | 6,247 / 18,480 |
+| Registers | 8,136 | 8,085 |
+| RAM blocks | 300 / 308 | 300 / 308 |
+| DSP blocks | 11 / 66 | 11 / 66 |
+| Negative-slack entries | 0 | 0 |
+| Worst setup (Slow 0C) | +0.385 ns | **+0.642 ns** |
+| Worst hold (Fast 0C, clk_sys group) | +0.033 ns | **+0.068 ns** |
+| Worst min pulse width | +0.833 ns | +0.833 ns |
+| Raw RBF SHA-256 | `9c3a2660...daf2f` | `142cd354...9de8` |
+Seed 2 chosen by the pre-set rule (larger worst-case slack on both). Compared with the SDRAM candidates (A-114: setup +0.158/+0.664,
+hold +0.124) the hold margin is thinner (+0.068), all still positive. Registers rose about 700 against the no-window build (7,311 at A-110);
+mailbox, controller and monitor account for it.
+**Finding (the check set in B-004): the CRAM pad registers were not packed into I/O cells.** The fitter's pin table for seed 2 shows
+`Input Register = no`, `Output Register = no`, `Output Enable Register = no` for every `cram*_dq` and for the control outputs
+(`ce0_n`, `ce1_n`, `oe_n`, `we_n`, `adv_n`, `lb_n`, `a[..]`); `cram*_dq` has combinational fan-out 1 and registered fan-out 0. With no
+timing constraints on those pins and no `FAST_*_REGISTER` assignments, the flops sit in the fabric, so the pad delay is set by routing and
+is neither reported nor controlled. The B-004 read-sample default (`T_ACC` = 9, about 30 ns before pad delays) was chosen with that in mind,
+but the real delay is unknown and could be larger than the 8-15 ns estimate.
+**Consequence and options (not yet decided):** (a) use this bundle for P3 as is; the slow dial (+3/+3) and default give two operating points,
+a pass says the margin is adequate, a failure could be timing skew or a real fault; (b) rebuild with `FAST_OUTPUT_REGISTER`,
+`FAST_INPUT_REGISTER` and `FAST_OUTPUT_ENABLE_REGISTER` on the CRAM pins (2 qsf lines per group, no RTL change, another 50 min), which makes
+the pad delay short and repeatable and is what a product path would use. Recommendation: (b) before P3, since P3 is the evidence P4 rests on.
+**Other warnings from the PSRAM sources:** three 32-to-8-bit truncations of small constants in `tau_psram_async.sv` (lines 93-96),
+harmless; the four expected `cram*_clk`/`cre` stuck-at-ground notes (async mode).
+**Artifacts:** `work/diagnostics/psram-diag/fpga/ap_core.rbf` (seed 2), `fpga-s1/ap_core.rbf`, `reports-s2/` (fit/sta/map reports);
+bundle `work/diagnostics/psram-diag/pocket` built with `tools/package_psram_diagnostic.py --rbf-sha256 142cd354...9de8 --rom-sha256 b43bdbba...ac4bc`;
+`SHA256SUMS.txt`: packaged `bitstream.rbf_r` `ec68b436c3cecddc0de31c07f04fc01a5006891db53804a1c22b5043f9265ad2`, ROM `b43bdbba...` (8,080 B), and
+the reversal was checked independently (`rbf_r` equals the bit-reversed RBF, 1,833,572 bytes). NOT installed on the card.
+**Next (needs a decision/approval):** choose (a) or (b); then install (cache backup, SHA-256 verify) and run the P3 matrix (5 cold, 5 warm,
+plus slow runs); quit the core before removing the card, decode with `--interact --psram`.
+
+### B-007 — PSRAM diagnostic RBF rebuild with I/O-cell register packing (launched, result pending)
+
+**Date:** 2026-09-20
+**Evidence:** simulation, VM stage and launch only; no result yet.
+**Approval:** the owner chose option (b) of B-006 in chat ("rebuild with the fast I/O register assignments").
+**Why:** B-006 found that no CRAM register was packed into an I/O cell (Input/Output/Output-Enable Register = no), leaving the pad delay
+to fabric routing.
+**RTL change (needed for packing, not only the qsf):** a register can be packed into an I/O cell only if it drives nothing but its pad.
+Two monitors read the pin registers back, which would have blocked packing: the CE-conflict / OE-WE-clash check in
+`tau_psram_async.sv` and the WAIT sampler in `tau_psram_probe.sv`. The controller now monitors the same next-pin values with its own
+register (`mon_bad`) and exports separate taps (`oe_act`, `sel_chip`); the probe samples WAIT from those. The pin registers keep exactly
+one load. The monitor sees what the pins will do one clock later, instead of the pins themselves. A new controller-test step forces
+`mon_bad_d` and checks the sticky flag latches and clears (the monitor was previously never exercised). `make test` exits 0 with all
+PSRAM suites, the real-CPU firmware sim, its injected fault, and the six mutants killed.
+**Build config:** `tools/psram_probe_qsf_append.txt` (new, in the repo) is appended to the STAGED `ap_core.qsf` only:
+`TAU_PSRAM_PROBE=1` plus `FAST_OUTPUT_REGISTER` on `cram{0,1}_dq[*]`, `a[*]`, `adv_n`, `ce0_n`, `ce1_n`, `oe_n`, `we_n`, `ub_n`, `lb_n`,
+`FAST_INPUT_REGISTER` and `FAST_OUTPUT_ENABLE_REGISTER` on `cram{0,1}_dq[*]` (22 lines), then `SEED 1` / `SEED 2`. Product builds are unchanged.
+**Stage:** `/home/taualpha/tau-local/psram-probe-b007-s1-20260920` and `...-s2-...` (256 files); all `src/` files identical to the local
+tree except `ap_core.qsf`; `make check-fpga` ok. VM idle at launch (load 0.01, no Quartus stages, 16 GB free).
+**Launch:** 2026-09-20 19:38 WEST, detached, logs `quartus-b007-s1.log` / `-s2.log`.
+**Acceptance:** "Successful", 0 timing failures, RAM blocks 300/308; and now the packing itself: `Input Register`, `Output Register`
+and `Output Enable Register` = yes for `cram*_dq`, and `Output Register` = yes for the control outputs and `a[..]`. If any read "no", record
+which and why before doing anything else. Compare slacks with B-006 (seed 2: setup +0.642, hold +0.068).
+
+### B-008 — B-007 result: I/O packing partly worked (reads packed, write data and address not); both seeds meet timing; bundle repackaged, not installed
+
+**Date:** 2026-09-20
+**Evidence:** Quartus fit reports for two seeds; host packaging. No Pocket run. (Wall-clock build time 1h51m in the log includes about an hour
+where the VM was suspended; VM uptime shows about 50 min of real work, in line with B-006.)
+**Timing and resources (0 errors, no negative slack, both seeds):**
+| | Seed 1 | Seed 2 |
+|---|---:|---:|
+| ALMs | 6,240 | 6,236 |
+| Registers | 8,169 | 8,130 |
+| RAM blocks / DSP | 300 / 308, 11 | 300 / 308, 11 |
+| Worst setup (Slow 0C) | +0.482 ns | **+1.012 ns** |
+| Worst hold (Fast 0C) | +0.083 ns | **+0.121 ns** |
+| Raw RBF SHA-256 | `27e588b3...c44a` | `8e9d9c16...873d` |
+Seed 2 chosen (larger slack on both). Better than the B-006 seed 2 (+0.642 / +0.068) and close to the SDRAM candidates' hold (+0.124).
+**Packing (the acceptance item), identical on both seeds:**
+- `cram*_dq` (32 pins): `Input Register` **yes**, `Output Enable Register` **yes**, `Output Register` **no**.
+- Control outputs `adv_n`, `ce0_n`, `ce1_n`, `oe_n`, `we_n`, `ub_n`, `lb_n` (14 pins): `Output Register` **yes**.
+- `cram*_a[21:16]` (12 pins): `Output Register` **no**. (`cram*_clk` and `cram*_cre` are constants; not applicable.)
+- Cause, from 44 fitter warnings (176279): `dq_out0/1[15:0]` and `cram0/1_a[5:0]` "cannot simultaneously use clear and load signals". An I/O-cell
+  register takes one synchronous control; those registers have both a reset/idle clear and a data mux.
+**Reading:** the read path, which is the timing-critical one (tAADV/tOE), now has its DQ input flop and its OE#/ADV#/CE# outputs in I/O cells.
+The unpacked paths are write data and the address phase, whose datasheet margins are at least 28 ns (tAVS 5 ns vs 33 ns of ADV# low; tDW 20 ns
+vs at least 50 ns), so a few ns of extra routing there is not a concern for P3. Decision recorded: do NOT spend another build on it now.
+**Known fix, deferred to the next RTL change (P4):** make `dq_out` and `cram*_a` plain registers (`dq_out <= dq_val;`, `cram_a <= addr_hi;`, no
+reset and no zero-mask; the address and data pins are don't-care while CE# is high and DQ is released), then check `Output Register = yes`.
+**Artifacts:** `work/diagnostics/psram-diag/fpga/ap_core.rbf` (B-007 seed 2), `fpga-b007-s1/`, `reports-b007-s2/`; B-006 material moved to
+`fpga-b006-s1|s2/`, `reports-b006-s2/`, `pocket-b006-unpacked/` (superseded, do not install). New bundle `work/diagnostics/psram-diag/pocket`:
+raw RBF `8e9d9c1653cc630a83038d9308033288eeba1c885832d22465a5f5621332873d`, packaged `bitstream.rbf_r`
+`1d64bcfa573723dcbc2872bda6bdd3088875fe2912cf2b52eae3ffc3f1e2fec6` (checked equal to the bit-reversed RBF, 1,832,700 bytes), ROM
+`b43bdbbae7b3688f08f09675a1db23954c69211fb4a4c88276aff4cc112ac4bc`. Hash-locked via `--rbf-sha256` / `--rom-sha256`. NOT installed.
+**Next (needs approval):** install on the Pocket card (cache backup, SHA-256 verify, indexes cleared) and run the P3 matrix.
+
+### B-009 — PSRAM diagnostic installed on the Pocket card (P3 pending)
+
+**Date:** 2026-09-20
+**Evidence:** host (card install and per-file SHA-256 verification). No Pocket run yet.
+**Approval:** the owner asked for the install and the P3 run in chat ("install it on the card and run P3").
+**Install (additive, nothing removed):** volume `Pock` (110 GB free). Backed up the five catalog indexes (`core_viewby_platform`, `corelist_cache`,
+`cores_cache`, `platform_viewby_category`, `platforms_cache`) to `work/diagnostics/psram-diag/pocket-cache-backup-2026-09-20/System/` and
+verified them identical to the card. Copied `Cores/alfatreze.TAU_PSRAM`, `Assets/tau_psram`, `Platforms/tau_psram.json` and
+`Platforms/_images/tau_psram.bin` from the hash-locked B-008 bundle; deleted the five indexes so the Pocket rebuilds them. macOS added
+`._*` metadata files; I removed only those I had created in the new paths. The other cores (TAU, TAU_SETTINGS, TAU_DIAGNOSTIC, the SDRAM
+diagnostics, third-party cores) were not touched. Verification: 13 of 13 bundle files SHA-256-identical on the card, file list equal to the
+bundle, bitstream `1d64bcfa...` and ROM `b43bdbba...` as recorded in B-008. Card unmounted after `sync`.
+**P3 protocol given to the owner:** launch "TAU PSRAM Diagnostic" from Media Players; the ROM runs once automatically (A = default timing, B =
+slow dials +3/+3). Five cold starts (Pocket powered on from off) and five warm starts (core quit and relaunched), each with one default run and one
+slow run; photograph the screen after each run (a phone photo, not the Pocket screenshot combination, which the core may see as button presses,
+KB-031); QUIT the core to the menu before removing the card so APF writes the last record to
+`Settings/alfatreze.TAU_PSRAM/Interact/_core/interact_persist.json` (only the last quit persists, so read the card after the first cold pair and after
+the last; earlier runs are evidenced by the photographs). Decode with `tools/decode_tau_diag_log.py --interact --psram <that file>`.
+**Predictions (before the run, from simulation and the fill definition):**
+- Screen: `PASS`, `FAIL 0`, `TO 0 CE 0 GHIT 1`; the `W` bits (WAIT seen low/high) are unknown and informational.
+- Per-die CRC (1 MiB fill = 2^18 words per die): D0 `833D7446`, D1 `4BF5A918`, D2 `ECE394E1`, D3 `8B21EF3F`, on default and slow runs alike.
+- CHECKS `1048704` (262,176 per die), OPS `2097400` for the first run after power-up (the counter is cumulative; the slow run adds the same again).
+- A run takes on the order of seconds (about 2.1 M controller ops at roughly 26-60 clocks each).
+- Not predicted: whether defaults-only operation works on real silicon (BCR/RCR question), or whether the read-sample margin is adequate under real pad delay.
+**How to read a failure:** a data mismatch on one die with CRC differing points at that die; mismatches everywhere, or all reads returning one value,
+point at read timing or the power-up state (compare the slow run: if slow passes and default fails, it is a read-margin problem); `TO 1` means the
+controller never completed a request; `CE 1` is a controller bug; `GHIT 0` means the guard did not fire. Do not power off; photograph first.
+
+### B-010 — PSRAM diagnostic on the Pocket, P3 start C1: PASS on default and slow timing, saved record agrees
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (two phone photos of the screen, and the persisted `interact_persist.json` read from the card, decoded independently). Archived in
+`work/diagnostics/psram-diag/p3/c1/`. The owner reports this start as C1 (cold); the cold/warm state is as reported, not independently verified.
+**Screen, run 1 (default timing):** D0..D3 PASS 0, CRCs `833D7446` / `4BF5A918` / `ECE394E1` / `8B21EF3F`, `CHECKS 1048704 FAIL 0`,
+`TO 0 CE 0 GHIT 1 W 01`, `LAST 0F7FFFFE RD C0DE0303`, `OPS 2097400`, verdict PASS.
+**Screen, run 2 (slow +3/+3):** identical CRCs and checks, `OPS 4194800` (cumulative, exactly double), PASS.
+**Saved record (after Quit):** decodes with a valid checksum to run 2, slow dials, verdict PASS, 1,048,704 checks, 0 failures, all four per-die CRCs equal the
+value recomputed in Python from the deterministic fill, controller ops 4,194,800, no timeout, no CE conflict, guard hit set, `WAIT` seen high and never low
+(status byte `0xA2`). Screen and record agree on every field.
+**All predictions in B-009 held exactly:** PASS, the four CRCs, `CHECKS 1048704`, `OPS 2097400`, `TO 0 CE 0 GHIT 1`. `LAST 0F7FFFFE` is the last check of the run
+(read of die 3's last legal word, offset 0x1FFFFE) and returned the expected anchor `C0DE0303`.
+**Established (for this unit, at room temperature, one start):**
+1. Defaults-only operation works: no register write was ever issued, and all four dies read and write correctly. The BCR/RCR question from the datasheet
+   caption (B-002) is answered for this part in practice: async on power-up defaults is enough.
+2. The read path at the shipped default (`T_ACC` = 9, B-008 packing) is correct over 1,048,704 checks per run and about 2.1 M controller operations per run, including
+   both chips and both dies of each, byte lanes, all address lines, and a full 1 MiB hash-verified fill per die.
+3. The guard word was refused with the sticky flag set and no data disturbed (no die failure, last legal word intact).
+4. `WAIT` read high whenever it was sampled during an OE#-low phase and was never seen low: consistent with the datasheet's "ignore WAIT in async mode".
+**Not established:** repeatability (1 start of 10), cold versus warm, whether the two default and slow passes differ in margin (both passed, so the slow dial says
+nothing about how close the default is to failing; it only adds cycles), and the actual read-timing margin under real pad delay. Reads pass at 9; whether they
+would at 8 or 7 is unknown and cannot be tested with this build (the dial only lengthens).
+**Next:** starts C2-C5, W1-W5 per the P3 protocol in B-009 (W5 ends with a third, default run and a Quit), then the final card read. Any FAIL, TO 1, CE 1
+or GHIT 0 stops the sequence.
+
+### B-011 — PSRAM diagnostic P3 complete: 10 of 10 starts PASS on default and slow timing, zero errors; P3 exit gate met
+
+**Date:** 2026-09-20
+**Evidence:** Pocket. 19 phone photos of the result screen (archived `work/diagnostics/psram-diag/p3/photos/`, plus the two C1 photos in B-010) and the last persisted
+`interact_persist.json` (`p3/final/`), decoded independently. Cold/warm labelling of the starts is as reported by the owner.
+**Sequence (B-009 protocol):** C1 (B-010), then C2-C5 and W1-W5, each with an automatic default run and a slow (+3/+3) run; W5 ended with a third default run and a Quit.
+**Screens:** all 19 new photos show PASS with `FAIL 0`, `TO 0 CE 0 GHIT 1 W 01`, `LAST 0F7FFFFE RD C0DE0303`, `CHECKS 1048704` and the four expected CRCs
+(`833D7446`, `4BF5A918`, `ECE394E1`, `8B21EF3F`). Counts: 9 default-run screens (`RUN 1`, `OPS 2097400`), 9 slow-run screens (`RUN 2 SLOW`, `OPS 4194800`) and 1
+`RUN 3 DEFAULT` screen (`OPS 6292200`), exactly the set expected for nine further starts plus the extra run. The `OPS` counter reading 2,097,400 at every first run shows the
+counter, and so the core, was reloaded at the start of each session. Together with B-010, that is 10 starts, 20 runs plus one, no failure.
+**Saved record (last Quit, after W5's run 3):** valid checksum, PASS, run 3, default timing, 1,048,704 checks, 0 failures, all four die CRCs equal the Python-recomputed
+values, 6,292,200 controller ops (3 x 2,097,400), no timeout, no CE conflict, guard hit set, WAIT seen high only. It agrees with the W5 photo. With B-010's record
+(slow run) there is one persisted record of each timing, both matching the screen.
+**Card:** after the sequence, the 13 installed files were still byte-identical to the B-008 bundle. No new Pocket screenshots exist on the card (the owner used phone photos).
+**P3 exit gate (evaluation plan): "10/10 complete Pocket runs with zero errors and matching persisted results": met.** It covers bounded diagnostic access only
+(not cacheability, audio concurrency or product use), as the plan says.
+**Limits of this evidence:** the photos carry no timestamps and the screens are identical, so I verified content and counts (9/9/1), not that each photo belongs to a
+distinct start; cold versus warm is as reported. The slow dial only lengthens cycles, so 20 passes say nothing about how much read margin remains at the shipped default
+(`T_ACC` = 9). One unit, room temperature, one bitstream (B-007 seed 2).
+**Decision points from the plan:** no stop condition triggered (no CE overlap, no guard side effect, no stale response, no timing failure, no mismatch or timeout,
+no regression). P4 (uncached CPU window) is now allowed by the plan; it needs its own approval and a new Quartus build.
+**Suggested before P4 (owner to decide):** (1) a margin experiment: two parallel builds of this diagnostic with `T_ACC` = 8 and 7 (same seed), about 55 min, plus two
+card runs, to learn how much timing slack exists and whether the product can run faster; (2) fold the deferred packing fix (plain `dq_out` / `cram_a` registers) into that
+build or into P4's.
+
+### B-012 — PSRAM read-timing margin experiment: two builds launched (read-sample index 7 and 6), result pending
+
+**Date:** 2026-09-20
+**Evidence:** simulation (model predictions), VM stage and launch only; no hardware result yet.
+**Approval:** the owner chose the margin experiment first ("run the margin experiment first", after B-011).
+**Question:** P3 passed at the shipped read-sample index `T_ACC` = 9 but the slow dial only lengthens reads, so it cannot show how much margin exists. The
+experiment shortens the sample and finds where reads start to fail.
+**Change from the option described in B-011:** two builds at index 7 and 6, not 7 and 8, plus finer firmware dials, because the dials reach further up:
+key X = read +1, Y = read +2, B = +3/+3 (with the automatic default run that is four consecutive indices per build). Build 7 covers 7,8,9,10 and
+build 6 covers 6,7,8,9, so 7, 8 and 9 are measured twice in different bitstreams (a check on build-to-build placement variation) and the boundary is
+resolved to one clock (16.7 ns).
+**RTL and firmware changes:** `tau_psram_probe.sv` takes the index from a macro `PSRAM_T_ACC` (default 9, so all other builds are unchanged) and returns it in
+`PS_CFG[15:8]` (read-only); the ROM shows `IDX n` (= build index + read extra) and records the build index and read extra in the interact record (word 4
+[23:16], word 1 [19:17]); the decoder reports `t_acc`, `read_extra_clocks` and `sample_index`. A decoder bug found by its unit test in passing: the verdict
+treated any word-4 bits above bit 7 as a firmware timeout, which would have judged every real record FAIL once the index was stored there; fixed to test bit 8
+only. Tests: mailbox test checks the readback; the firmware-in-the-loop sim now runs four modes and checks each record's mode and index (still with the
+injected-fault run); `make test` exits 0, 25 suites.
+**Build config:** `tools/psram_probe_qsf_append.txt` (probe macro plus the FAST_* register assignments, as B-007) then `PSRAM_T_ACC=7` / `=6` and `SEED 2` (the
+seed used in B-007/B-008), staged at `/home/taualpha/tau-local/psram-probe-b012-t7-20260920` and `...-t6-...`; all `src/` files identical to the local tree
+except `ap_core.qsf`; `make check-fpga` ok; VM idle at launch (load 0.06, no Quartus stages, 15 GB free). Launched 2026-09-20 22:37 WEST, detached.
+The packager gained `--variant` (identities `alfatreze.TAU_PSRAM_T7` / `_T6`, platforms `tau_psram_t7` / `_t6`) and the X/Y mappings so both builds can sit on the card.
+**Predictions (before hardware).** Datasheet-conservative model (tAADV taken from ADV# rising, tOE 20 ns), firmware-in-the-loop, with 0 and 10 ns of pad delay:
+| Effective sample index | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|
+| Model (0 or 10 ns pad delay) | FAIL | FAIL | PASS | PASS |
+The model is the pessimistic reading. If tAADV is instead measured from ADV# falling (not stated in the datasheet, B-002 section 5) then index 7 passes and only
+6 fails (tOE 20 ns cannot be met at 6: OE# falls one clock before the sample). So: FAIL at 6 is expected either way; FAIL or PASS at 7 tells which reading is right.
+**How to read the result:**
+- 7 FAIL, 8 PASS: the shipped 9 has exactly one clock (16.7 ns) of margin; keep 9 (or 8 only with more evidence).
+- 7 PASS, 8 PASS: tAADV runs from ADV# falling or the chip is faster; 9 has two clocks (33 ns) of margin; 8 is a candidate default.
+- 8 FAIL: margin at 9 is under one clock; raise the default to 10 before P4.
+- 6 PASS: unexpectedly fast silicon or much shorter pad delay; note it and test 5 if wanted.
+- Disagreement between build 7 and build 6 at the same index means placement matters and more seeds are needed.
+Acceptance for the builds: "Successful", 0 timing failures, RAM blocks 300/308, DQ input and output-enable registers and the control outputs packed (as B-008).
+
+
+### A-128 — gates on the probe-free seed-2 RBF: coverage PASS, soak PASS, in-menu soak PASS
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (5 screenshots and two persist files, copies in `work/diagnostics/gates-a128/`, card clock 21:42-22:46); results decoded with
+`tools/decode_tau_diag_log.py`. Bitstream: seed-2 probe-free RBF (raw `551e5a76...718b`); ROMs byte-identical to the ones that passed A-097/A-100.
+**Coverage (A-100, `TAU_SDRAM_PRB100`): PASS.** 52 address-line checks, 0 failures; 3 CRC rounds of 1 MiB under concurrent drawing, 0 block mismatches,
+block-0 CRC read = written `0xD7F900C4`; worst read 359 and write 350 cycles; draw-engine stall 0; 1,572 thousand window accesses. The persisted record
+(after Quit) equals the screen (`ADDR LINES 52 F 0`, `CRC ROUNDS 3 BAD 0`, `MAX RD 359 WR 350`, `STALL 0`, `ACCESSES K 1572`). Same figures as A-100 on the
+old RBF (worst 360/350).
+**Soak (A-097, `TAU_SDRAM_PRB97`): PASS.** 1,920 s (32:00), 746,120 passes, **279,795,000 checks, 0 failures** (0 matrix failures, 0 timeouts, 0 random-
+pattern failures), pass time 0.9-3.9 ms. Screenshots at 10:00 (233,440 passes, 87,540,000 checks), 20:24 (178,338,000 checks) and 31:54 (743,824 passes,
+278,934,000 checks) all read `FAILS 0` and agree with the persisted record. A-097 on the old RBF: 30:15, 264,435,000 checks, 0 failures. In two of the
+soak screenshots the small phase label under the bar (`ADDRESS ALIAS`, `BYTE ENABLES`) is caught half-redrawn; it is the probe screen's own label update
+(same ROM as A-097), not a data error.
+**In-menu soak (Diagnostic Build, Stress > Soak, music playing):** Stress status after the run: level OFF, state STOPPED, **SOAK PASS**, 112 passes,
+29,447,688 operations, **failures 0**, early underruns 6, **late underruns 0**, worst access 373 cycles, draw stall 7 ms. 29.4 M operations is about 16.4k ops/s
+over 30 minutes, consistent with the R1 rate (or R2 at a similar rate); the level and duration were not photographed. The playlist check after the soak was not
+photographed either.
+**Reading:** the probe-free seed-2 RBF passes the whole-window coverage and the 30-minute soak with the same figures as the probe-carrying seed-4 build, and
+the menu's stress/soak agrees (0 failures, worst access 373, no late underruns during real playback). Together with A-121 (stress core, no failure, strip gone),
+A-114 (timing) and A-122..A-126 (settings, Info, tests on it), this is the evidence needed to **adopt seed 2 as the product window RBF**. Still open: the
+clean 1.0x A-102 protocol on the standalone stress core (four tracks x R0-R3) or an equivalent in-menu run; a saturating level; FLAC; temperature.
+
+**A-128 addendum (user, 2026-09-20):** the in-menu soak was run at **R2** (unpaced 8-operation bursts) for its full duration beside playback; the average of about 16.4k operations
+per second is the pump's achieved rate on the idle CPU time at that level, a little above the 13-15k seen at R2 in A-102 (different track, cover and load). The **playlist check
+after the soak was not run** (forgotten), so the proof that the relocated pump (2-3 MiB) leaves the playlist buffers alone rests on the Phase 2 check before the soak (A-126) and on the
+soak itself finishing with the playlist still loaded; a Tests > Playlist check on the same session is still owed (quick, and can be run any time the Diagnostic Build has been
+running the pump).
+
+**A-128 closure (user, 2026-09-20):** the owed check was run as directed (Stress > Level R2 with music playing for a minute or two, then OFF, then Tests > Playlist
+check): **`PASS 13`**. The relocated pump (physical 2-3 MiB) leaves the playlist buffers (1 MiB+13 KiB) intact under real stress. User-reported, no screenshot.
+
+**A-128 card cleanup (host, 2026-09-20):** the standalone soak (`alfatreze.TAU_SDRAM_PRB97`, platform `tau_sdram_prb97`) and coverage (`alfatreze.TAU_SDRAM_PRB100`, platform
+`tau_sdram_p100`) cores were removed from the card after their gates passed and the Diagnostic Build's soak reproduced the soak result. Each was backed up first (Cores, Assets,
+Platforms and the Settings folder with its persist record) and diffed identical under `work/diagnostics/gates-a128/card-removed/`; the results themselves are in
+`work/diagnostics/gates-a128/`. Catalog indexes backed up and cleared. Remaining alfatreze cores: `TAU` (base), `TAU_SETTINGS`, `TAU_DIAGNOSTIC`, `TAU_SDRAM_WSTRESS` (kept until the
+four-track A-102 protocol is repeated on the seed-2 RBF), and `TAU_PSRAM`, which appeared on the card from the PSRAM session and was not touched.
+
+### B-013 — margin experiment builds (read-sample index 7 and 6) fit and meet timing; bundles packaged, not installed
+
+**Date:** 2026-09-20
+**Evidence:** Quartus fit and timing reports; host packaging. No Pocket run yet.
+**Result (B-012 acceptance):** both builds "Successful", 0 errors, 0 negative-slack entries, 58m46s each, RAM blocks 300/308, DSP 11.
+| | T_ACC = 7 | T_ACC = 6 |
+|---|---:|---:|
+| ALMs / registers | 6,237 / 8,151 | 6,244 / 8,130 |
+| Worst setup (Slow 0C) | +0.693 ns | +0.719 ns |
+| Worst hold (Fast 0C) | +0.100 ns | +0.108 ns |
+| Raw RBF SHA-256 | `ae01ae5c...6b43` | `e363c5f7...d1a7` |
+The synthesis reports show the controller parameter `T_ACC` = 7 and 6 respectively (9 in B-007). Packing is identical to B-008 in both: DQ `Input Register` and
+`Output Enable Register` yes for 32 of 32, all 14 control outputs `Output Register` yes; DQ output data and `cram_a` still not packed (the known clear-and-load
+case, deferred). Slacks are positive and close to the B-008 seed 2 (+1.012 / +0.121); placement differs between builds, so the read path was re-fitted, which
+is exactly why the same effective index is measured in both builds.
+**Bundles (hash-locked, ROM `9e1e65a4f4cafacf51a033e89ec48198f73923ae3832ddf645e4199e467f884b`, 8,404 B, with the X/Y modes and index display):**
+`work/diagnostics/psram-diag/pocket-t7` (core `alfatreze.TAU_PSRAM_T7`, platform `tau_psram_t7`, packaged `bitstream.rbf_r` `3b9ec0f0...f323`) and
+`pocket-t6` (`alfatreze.TAU_PSRAM_T6`, `tau_psram_t6`, `0471b0e0...f0cd`); both `rbf_r` files checked equal to the bit-reversed RBFs. Artifacts:
+`fpga-b012-t7|t6/ap_core.rbf`, `reports-b012-t7|t6/`. The B-008 core (`alfatreze.TAU_PSRAM`, older ROM without X/Y) stays on the card untouched.
+**Next (needs approval and the card in the Mac):** install both variants additively (index backup, SHA-256 verify, indexes cleared), then the card run below.
+**Card run protocol (proposed):** for each of the two new cores, two starts (cold or warm, either): the automatic default run (index = build value), then X, then Y,
+then B, photographing each result screen (four photos per start, 16 in all), Quit at the end of each start. Every screen shows `IDX n` (build index plus read
+extra), so a photo identifies its own configuration. A FAIL screen shows the first failing test, word, expected and actual: photograph it fully. Predictions
+are in B-012.
+
+
+### A-129 — window stress on the probe-free seed-2 RBF, track 1 at R1/R2/R3 (Pocket PASS); stress core retired
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (3 screenshots, `work/diagnostics/gates-a128/wstress-screenshots/`, card clock 23:07-23:14), standalone `TAU_SDRAM_WSTRESS` (burst-pump ROM `55384a55`, seed-2 RBF),
+the shortened protocol agreed in place of the full A-102 grid: track 1 only (320 kbps, 44.1 kHz, 1400 px cover, the heaviest load), normal speed (no 1.2x indicator), no seeking.
+| Time in track | Level | E | L | M | S | K (k ops/s) | Passes |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 05:34 | R3 | 0 | 0 | 373 | 0 | 17.8 | 24 |
+| 02:05 | R1 | 0 | 0 | 373 | 0 | 4.2 | 2 |
+| 03:04 | R2 | 1 | 0 | 373 | 1 | 15.0 | 13 |
+No `FAIL`, mismatch or timeout text; no late underrun (`L` 0); worst window access 373 cycles (the idle bound of A-094/A-100/A-102); draw stall 0 (1 ms cumulative in the R2 frame);
+the R3 frame shows 24 passes (about 6.4 M operations) accumulated over roughly six minutes of uninterrupted playback. The user reported no audible problem (the earlier "poorer
+audio" of A-121 was the 1.2x speed being on).
+**Verdict:** PASS for the closing scope: real playback at the heaviest track and cover with the pump at R1, R2 and the saturating R3, on the probe-free seed-2 RBF, no failure. Tracks 2-4 and an
+R0 baseline were not photographed; they were the lighter cases of the A-102 grid, and the 30-minute R2 in-menu soak (A-128) also passed.
+**Retirement (host):** `TAU_SDRAM_WSTRESS` (platform `tau_sdram_wst`, with its test tracks) removed from the card after a verified backup (Cores, Assets, Platform files, Settings, all diffed
+identical) in `work/diagnostics/gates-a128/card-removed-wstress/` (66 MB; the test music also exists in `work/test-music/`). Catalog indexes backed up and cleared. Remaining cores:
+`TAU`, `TAU_SETTINGS`, `TAU_DIAGNOSTIC`, and `TAU_PSRAM` (PSRAM session, untouched). The Diagnostic Build carries the stress pump, soak and tests from now on.
