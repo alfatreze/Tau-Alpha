@@ -1,6 +1,6 @@
 # Issue 018 — CPU all-ones write completes but reads back zero after bridge
 
-**Status:** open; reproduced on Pocket with A-065/A-066/A-074. A-076's
+**Status:** **Resolved 2026-09-20 (A-093, Pocket PASS: 183 checks, 0 failures, persisted record `failures 0`).** Root cause identified 2026-09-20 (A-093: the Wishbone adapter re-accepted each completed beat, so every ACK carried the previous beat's data); RTL fix simulated, Quartus and Pocket confirmation pending. Earlier text: open; reproduced on Pocket with A-065/A-066/A-074. A-076's
 CPU-facing return-path discriminator and A-077's adapter-return discriminator
 have each passed isolated **Quartus** fit and Pocket execution. A-066's
 controller-boundary recorder proves the controller return is all ones. A-067's
