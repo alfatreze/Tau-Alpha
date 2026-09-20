@@ -29,6 +29,7 @@
 #define R_FB_SIZE    0x8000004Cu
 #define R_FB_COLOR   0x80000050u
 #define R_FB_GO      0x80000054u
+#define R_FB_STALL   0x80000058u
 #define R_SET_IDX    0x8000006Cu
 #define R_SET_DAT    0x80000070u
 #define R_SDR_ADDR   0x80000074u
@@ -155,6 +156,9 @@ static uint32_t log_src[4];
  * stores these values as SIGNED int32, so words 0..14 carry only their low 31
  * bits and word 15 carries the withheld top bits (bit i = top bit of word i). */
 static uint32_t set_readback[4];   /* words 0, 7, 12, 15 as read back */
+#ifdef TAU_FULL_PROBE
+static uint32_t ful_words_out[16]; /* A-100 raw result words */
+#endif
 #if defined(TAU_DISCRIMINATOR_PROBE) || defined(TAU_LATENCY_PROBE)
 static uint32_t disc_words[16];    /* A-092/A-094 raw result words */
 #endif
@@ -435,6 +439,8 @@ static int save_result(uint32_t stage)
     (void)command_state; (void)command_error;
 #if defined(TAU_DISCRIMINATOR_PROBE) || defined(TAU_LATENCY_PROBE)
     publish_interact(disc_words);
+#elif defined(TAU_FULL_PROBE)
+    publish_interact(ful_words_out);
 #else
     publish_interact(words);
 #endif
@@ -851,8 +857,129 @@ static void run_latency(void)
 }
 #endif
 
+#ifdef TAU_FULL_PROBE
+/* A-100: coverage the matrix and soak lack.
+ *  1. Address lines over the whole window (physical 1 MiB..64 MiB): a unique
+ *     per-address word is written at 0x100000 and at 0x100000 + 2^k for every
+ *     k = 2..25 (plus 2^25 alone), then all are read back in reverse order,
+ *     then the complements are written and checked, so a stuck or aliased line
+ *     (column, row or bank bits) corrupts a named location.
+ *  2. A 1 MiB CRC region at physical 8 MiB, three rounds: a pseudo-random fill
+ *     with per-64 KiB CRC32s, then a read-back CRC32 per block, with a
+ *     framebuffer RECT pushed every 64 words in both passes so the draw engine
+ *     runs concurrently with the CPU window.
+ *  3. Per-access min/max cycles for reads and writes during the CRC passes and
+ *     the draw-engine stall counter (R_FB_STALL).
+ * Words: 0 "FUL1", 1 address-line checks, 2 address-line failures, 3/4/5 first
+ * address-line failure addr/expected/actual, 6 CRC rounds, 7 CRC block
+ * mismatches, 8 first bad block (round<<8|block, 0xFFFF none), 9 CRC of block 0
+ * (last round, write), 10 CRC of block 0 (read), 11 max read cycles, 12 max
+ * write cycles, 13 draw-engine stall cycles, 14 32-bit accesses in millions
+ * scaled x1000. */
+#define FUL_CRC_BASE   0xA0800000u          /* physical 8 MiB */
+#define FUL_BLOCK_W    16384u               /* 64 KiB per block, in words */
+#define FUL_BLOCKS     16u
+static uint32_t ful_accesses;
+
+static uint32_t ful_hash(uint32_t a)
+{
+    a ^= a >> 16; a *= 0x7FEB352Du; a ^= a >> 15; a *= 0x846CA68Bu; a ^= a >> 16;
+    return a;
+}
+static uint32_t ful_crc(uint32_t crc, uint32_t w)
+{
+    static const uint32_t t[16] = {
+        0x00000000u, 0x1DB71064u, 0x3B6E20C8u, 0x26D930ACu, 0x76DC4190u, 0x6B6B51F4u,
+        0x4DB26158u, 0x5005713Cu, 0xEDB88320u, 0xF00F9344u, 0xD6D6A3E8u, 0xCB61B38Cu,
+        0x9B64C2B0u, 0x86D3D2D4u, 0xA00AE278u, 0xBDBDF21Cu };
+    for (uint32_t i = 0; i < 8u; ++i) { crc = (crc >> 4) ^ t[(crc ^ w) & 15u]; w >>= 4; }
+    return crc;
+}
+
+static void run_full(void)
+{
+    uint32_t addrs[26], nadr = 0u, checks = 0u, fails = 0u;
+    uint32_t fa = 0u, fe = 0u, fv = 0u;
+    uint32_t rmax = 0u, wmax = 0u, mism = 0u, firstbad = 0xFFFFu;
+    uint32_t crc_w0 = 0u, crc_r0 = 0u, crc_w[FUL_BLOCKS];
+    for (uint32_t i = 0; i < 16u; ++i) ful_words_out[i] = 0u;
+    ful_accesses = 0u;
+    /* Base 0x100000 plus each single address bit 2..19 and 21..25 (bit 20 is
+     * already set in the base). Line 20 is tested by the pair 0x200000 /
+     * 0x300000, which differ only in bit 20. Duplicates are harmless. */
+    addrs[nadr++] = 0x100000u;
+    for (uint32_t k = 2; k <= 25u; ++k)
+        if (k != 20u) addrs[nadr++] = 0x100000u | (1u << k);
+    addrs[nadr++] = 0x200000u;
+    addrs[nadr++] = 0x300000u;
+    for (uint32_t pass = 0; pass < 2u; ++pass) {          /* true, then complement */
+        for (uint32_t i = 0; i < nadr; ++i)
+            *(volatile uint32_t *)(uintptr_t)(0xA0000000u + addrs[i]) =
+                pass ? ~ful_hash(addrs[i]) : ful_hash(addrs[i]);
+        for (uint32_t j = nadr; j-- > 0u; ) {
+            uint32_t v = *(volatile uint32_t *)(uintptr_t)(0xA0000000u + addrs[j]);
+            uint32_t e = pass ? ~ful_hash(addrs[j]) : ful_hash(addrs[j]);
+            ++checks; ful_accesses += 2u;
+            if (v != e) {
+                ++fails;
+                if (!fa) { fa = 0xA0000000u + addrs[j]; fe = e; fv = v; }
+            }
+        }
+    }
+    for (uint32_t round = 0; round < 3u; ++round) {
+        uint32_t x = 0x9E3779B9u * (round + 1u);
+        for (uint32_t b = 0; b < FUL_BLOCKS; ++b) {         /* fill + write CRC */
+            volatile uint32_t *p = (volatile uint32_t *)(uintptr_t)
+                (FUL_CRC_BASE + b * FUL_BLOCK_W * 4u);
+            uint32_t crc = 0xFFFFFFFFu;
+            for (uint32_t i = 0; i < FUL_BLOCK_W; ++i) {
+                if (!(i & 63u)) fb_rect((x >> 8) % 300u, (x >> 20) % 250u, 60u, 40u,
+                                        (uint16_t)x);
+                x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+                uint32_t a = cycles();
+                p[i] = x;
+                uint32_t d = cycles() - a; if (d > wmax) wmax = d;
+                crc = ful_crc(crc, x); ++ful_accesses;
+            }
+            crc_w[b] = crc;
+        }
+        for (uint32_t b = 0; b < FUL_BLOCKS; ++b) {         /* read back + CRC */
+            volatile uint32_t *p = (volatile uint32_t *)(uintptr_t)
+                (FUL_CRC_BASE + b * FUL_BLOCK_W * 4u);
+            uint32_t crc = 0xFFFFFFFFu;
+            for (uint32_t i = 0; i < FUL_BLOCK_W; ++i) {
+                if (!(i & 63u)) fb_rect((i >> 2) % 300u, (b * 13u) % 250u, 50u, 30u,
+                                        (uint16_t)(i * 0x9E37u));
+                uint32_t a = cycles();
+                uint32_t v = p[i];
+                uint32_t d = cycles() - a; if (d > rmax) rmax = d;
+                crc = ful_crc(crc, v); ++ful_accesses;
+            }
+            if (b == 0u) { crc_w0 = crc_w[0]; crc_r0 = crc; }
+            if (crc != crc_w[b]) {
+                ++mism;
+                if (firstbad == 0xFFFFu) firstbad = (round << 8) | b;
+            }
+        }
+    }
+    ful_words_out[0] = 0x46554C31u;                        /* "FUL1" */
+    ful_words_out[1] = checks; ful_words_out[2] = fails;
+    ful_words_out[3] = fa; ful_words_out[4] = fe; ful_words_out[5] = fv;
+    ful_words_out[6] = 3u; ful_words_out[7] = mism; ful_words_out[8] = firstbad;
+    ful_words_out[9] = crc_w0; ful_words_out[10] = crc_r0;
+    ful_words_out[11] = rmax; ful_words_out[12] = wmax;
+    ful_words_out[13] = REG(R_FB_STALL);
+    ful_words_out[14] = ful_accesses / 1000u;
+    tests_run = checks + 48u; failures = fails + mism;
+}
+#endif
+
 static void run_tests(void)
 {
+#ifdef TAU_FULL_PROBE
+    run_full();
+    return;
+#endif
 #ifdef TAU_DISCRIMINATOR_PROBE
     run_discriminator();
     return;
@@ -921,6 +1048,39 @@ static void draw_result(void)
     char number[12], hex[9];
     uint16_t color = failures ? UI_RED : UI_GREEN;
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
+#ifdef TAU_FULL_PROBE
+    {
+        char line[36], *q;
+        fb_rect(0, 0, FB_W, FB_H, UI_BG);
+        fb_rect(12, 18, 376, 324, UI_PANEL);
+        fb_text(28, 30, "TAU SDRAM COVERAGE A100", UI_ACCENT, UI_PANEL);
+        q = line; for (const char *t = "ADDR LINES "; *t; ) *q++ = *t++;
+        q = append_dec(q, ful_words_out[1]); *q++ = ' '; *q++ = 'F'; *q++ = ' ';
+        q = append_dec(q, ful_words_out[2]); *q = 0;
+        fb_text(28, 64, line, ful_words_out[2] ? UI_RED : UI_GREEN, UI_PANEL);
+        q = line; for (const char *t = "CRC ROUNDS "; *t; ) *q++ = *t++;
+        q = append_dec(q, ful_words_out[6]); *q++ = ' '; *q++ = 'B'; *q++ = 'A'; *q++ = 'D'; *q++ = ' ';
+        q = append_dec(q, ful_words_out[7]); *q = 0;
+        fb_text(28, 88, line, ful_words_out[7] ? UI_RED : UI_GREEN, UI_PANEL);
+        q = line; for (const char *t = "MAX RD "; *t; ) *q++ = *t++;
+        q = append_dec(q, ful_words_out[11]); *q++ = ' '; *q++ = 'W'; *q++ = 'R'; *q++ = ' ';
+        q = append_dec(q, ful_words_out[12]); *q = 0;
+        fb_text(28, 112, line, UI_WHITE, UI_PANEL);
+        q = line; for (const char *t = "STALL "; *t; ) *q++ = *t++;
+        q = append_dec(q, ful_words_out[13]); *q = 0;
+        fb_text(28, 136, line, UI_WHITE, UI_PANEL);
+        q = line; for (const char *t = "ACCESSES K "; *t; ) *q++ = *t++;
+        q = append_dec(q, ful_words_out[14]); *q = 0;
+        fb_text(28, 160, line, UI_WHITE, UI_PANEL);
+        if (ful_words_out[2]) {
+            hex8(line, ful_words_out[3]); fb_text(28, 200, line, UI_RED, UI_PANEL);
+            hex8(line, ful_words_out[4]); fb_text(28, 220, line, UI_WHITE, UI_PANEL);
+            hex8(line, ful_words_out[5]); fb_text(28, 240, line, UI_RED, UI_PANEL);
+        }
+        fb_text(28, 300, "QUIT TO SAVE  A RUN AGAIN", UI_DIM, UI_PANEL);
+        return;
+    }
+#endif
 #ifdef TAU_LATENCY_PROBE
     {
         char line[28], *q;
@@ -1140,6 +1300,128 @@ static void draw_initial(void)
     draw_running(0u, "STARTING");
 }
 
+#ifdef TAU_SOAK_PROBE
+/* A-097: long soak.  Repeats the 183-check matrix plus randomized write/read
+ * verification over the whole 2-3 MiB window, forever, while scanout runs, and
+ * keeps cumulative counters in the interact.json record.  The screen refreshes
+ * every SOAK_UI_EVERY passes; the record is published at the same cadence and on
+ * a new failure.  Words: 0 "SOK1", 1 passes, 2 checks, 3 failures, 4 first
+ * failing pass (0 = none), 5/6/7 first failure addr/expected/actual, 8 elapsed
+ * seconds, 9 min pass cycles, 10 max pass cycles, 11 matrix failures, 12 random
+ * failures, 13 matrix timeouts, 14 0. */
+#define SOAK_UI_EVERY 8u
+#define SOAK_RAND_PAIRS 128u
+#define SOAK_BLOCK_WORDS 64u
+static uint32_t soak_rng = 0x2545F491u;
+static uint32_t soak_rand(void)
+{
+    soak_rng ^= soak_rng << 13; soak_rng ^= soak_rng >> 17; soak_rng ^= soak_rng << 5;
+    return soak_rng;
+}
+
+static char *soak_2d(char *q, uint32_t v)
+{
+    *q++ = (char)('0' + (v / 10u) % 10u); *q++ = (char)('0' + v % 10u);
+    return q;
+}
+
+static void soak_draw(uint32_t passes, uint32_t checks, uint32_t fails,
+                      uint32_t secs, uint32_t mn, uint32_t mx,
+                      uint32_t fp, uint32_t fa, uint32_t fe, uint32_t fv)
+{
+    char line[40], *q;
+    fb_rect(12, 18, 376, 150, UI_PANEL);
+    fb_text(28, 30, "TAU SDRAM SOAK A097", UI_ACCENT, UI_PANEL);
+    q = line; for (const char *t = "PASSES "; *t; ) *q++ = *t++; q = append_dec(q, passes);
+    fb_text(28, 60, line, UI_WHITE, UI_PANEL);
+    q = line; for (const char *t = "CHECKS "; *t; ) *q++ = *t++; q = append_dec(q, checks);
+    fb_text(28, 80, line, UI_WHITE, UI_PANEL);
+    q = line; for (const char *t = "FAILS  "; *t; ) *q++ = *t++; q = append_dec(q, fails);
+    fb_text(28, 100, line, fails ? UI_RED : UI_GREEN, UI_PANEL);
+    q = line; for (const char *t = "TIME "; *t; ) *q++ = *t++;
+    q = append_dec(q, secs / 3600u); *q++ = ':';
+    q = soak_2d(q, (secs / 60u) % 60u); *q++ = ':'; q = soak_2d(q, secs % 60u); *q = 0;
+    fb_text(28, 120, line, UI_WHITE, UI_PANEL);
+    q = line; for (const char *t = "PASS MS "; *t; ) *q++ = *t++;
+    q = append_dec(q, mn / (CLK_HZ / 1000u)); *q++ = '/'; q = append_dec(q, mx / (CLK_HZ / 1000u));
+    fb_text(28, 140, line, UI_WHITE, UI_PANEL);
+    fb_rect(12, 230, 376, 110, UI_PANEL);
+    if (fp) {
+        q = line; for (const char *t = "FIRST FAIL PASS "; *t; ) *q++ = *t++; q = append_dec(q, fp);
+        fb_text(28, 236, line, UI_RED, UI_PANEL);
+        hex8(&line[0], fa); fb_text(28, 256, line, UI_WHITE, UI_PANEL);
+        hex8(&line[0], fe); fb_text(28, 276, line, UI_WHITE, UI_PANEL);
+        hex8(&line[0], fv); fb_text(28, 296, line, UI_RED, UI_PANEL);
+    } else {
+        fb_text(28, 236, "NO FAILURES YET", UI_DIM, UI_PANEL);
+    }
+    fb_text(28, 320, "QUIT TO SAVE THE RECORD", UI_DIM, UI_PANEL);
+}
+
+static void soak_forever(void)
+{
+    uint32_t passes = 0u, checks = 0u, fails = 0u, mfails = 0u, rfails = 0u, touts = 0u;
+    uint32_t first_pass = 0u, first_addr = 0u, first_exp = 0u, first_act = 0u;
+    uint32_t min_cyc = 0xFFFFFFFFu, max_cyc = 0u, secs = 0u, frac = 0u;
+    uint32_t words[16];
+    fb_rect(0, 0, FB_W, FB_H, UI_BG);
+    fb_rect(12, 18, 376, 324, UI_PANEL);
+    for (;;) {
+        uint32_t loop0 = cycles(), t0 = loop0, pass_fail = 0u;
+        run_tests();                                    /* 183-check matrix */
+        checks += tests_run; mfails += failures; pass_fail += failures;
+        if (timed_out) ++touts;
+        if (failures && !first_pass) {
+            first_pass = passes + 1u; first_addr = first_fail_addr;
+            first_exp = first_fail_expected; first_act = first_fail_actual;
+        }
+        for (uint32_t i = 0; i < SOAK_RAND_PAIRS; ++i) {   /* random write->read */
+            uint32_t a = TEST_BASE_WORD + (soak_rand() & 0xFFFFCu), v = soak_rand(), r = 0u;
+            ++checks;
+            if (!write32(a, v, 15u) || !read32(a, &r) || r != v) {
+                ++rfails; ++pass_fail;
+                if (!first_pass) { first_pass = passes + 1u; first_addr = a;
+                                   first_exp = v; first_act = r; }
+            }
+        }
+        {                                                /* block write, then verify */
+            uint32_t base = TEST_BASE_WORD + 0x80000u + ((soak_rand() & 0x3FFu) << 2);
+            uint32_t seed = soak_rand();
+            for (uint32_t i = 0; i < SOAK_BLOCK_WORDS; ++i)
+                (void)write32(base + i * 4u, seed ^ (i * 0x9E3779B1u), 15u);
+            for (uint32_t i = 0; i < SOAK_BLOCK_WORDS; ++i) {
+                uint32_t r = 0u, v = seed ^ (i * 0x9E3779B1u);
+                ++checks;
+                if (!read32(base + i * 4u, &r) || r != v) {
+                    ++rfails; ++pass_fail;
+                    if (!first_pass) { first_pass = passes + 1u; first_addr = base + i * 4u;
+                                       first_exp = v; first_act = r; }
+                }
+            }
+        }
+        fails += pass_fail;
+        ++passes;
+        {
+            uint32_t d = cycles() - t0;
+            if (d < min_cyc) min_cyc = d;
+            if (d > max_cyc) max_cyc = d;
+        }
+        if (!(passes % SOAK_UI_EVERY) || pass_fail) {
+            words[0] = 0x534F4B31u; words[1] = passes; words[2] = checks; words[3] = fails;
+            words[4] = first_pass; words[5] = first_addr; words[6] = first_exp;
+            words[7] = first_act; words[8] = secs; words[9] = min_cyc; words[10] = max_cyc;
+            words[11] = mfails; words[12] = rfails; words[13] = touts;
+            words[14] = 0u; words[15] = 0u;
+            publish_interact(words);
+            soak_draw(passes, checks, fails, secs, min_cyc, max_cyc,
+                      first_pass, first_addr, first_exp, first_act);
+        }
+        frac += cycles() - loop0;                          /* whole loop incl. UI */
+        while (frac >= CLK_HZ) { frac -= CLK_HZ; ++secs; }
+    }
+}
+#endif
+
 int main(void)
 {
     /* The tiny diagnostic reaches its first MMIO writes far earlier than the
@@ -1215,6 +1497,9 @@ int main(void)
     (void)save_result(4u);
 #endif
 
+#ifdef TAU_SOAK_PROBE
+    soak_forever();
+#endif
     uint32_t old_keys = 0u;
     for (;;) {
         uint32_t keys = REG(R_INPUT) & 0xFFFFu;

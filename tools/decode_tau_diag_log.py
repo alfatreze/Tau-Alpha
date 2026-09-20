@@ -76,14 +76,68 @@ def words_from_interact(doc: dict) -> bytes:
     return struct.pack(">16I", *words)
 
 
+def decode_soak(words) -> dict[str, object]:
+    """Decode the A-097 soak record (words 0..14 of the interact record)."""
+    if words[0] != 0x534F4B31:
+        raise ValueError(f"not a soak record: 0x{words[0]:08X}")
+    ms = lambda c: round(c / 60000.0, 3)          # 60 MHz core clock -> ms
+    return {
+        "format": "tau-cpu-window-soak",
+        "passes": words[1], "checks": words[2], "failures": words[3],
+        "matrix_failures": words[11], "random_failures": words[12],
+        "matrix_timeouts": words[13],
+        "first_failing_pass": words[4],
+        "first_fail_address": f"0x{words[5]:08X}",
+        "first_fail_expected": f"0x{words[6]:08X}",
+        "first_fail_actual": f"0x{words[7]:08X}",
+        "elapsed_seconds": words[8],
+        "elapsed": f"{words[8] // 3600}:{(words[8] // 60) % 60:02d}:{words[8] % 60:02d}",
+        "pass_ms_min": ms(words[9]), "pass_ms_max": ms(words[10]),
+    }
+
+
+def decode_full(words) -> dict[str, object]:
+    """Decode the A-100 full-range coverage record."""
+    if words[0] != 0x46554C31:
+        raise ValueError(f"not a coverage record: 0x{words[0]:08X}")
+    fb = words[8]
+    return {
+        "format": "tau-cpu-window-coverage",
+        "address_line_checks": words[1], "address_line_failures": words[2],
+        "first_address_fail": f"0x{words[3]:08X}",
+        "first_address_expected": f"0x{words[4]:08X}",
+        "first_address_actual": f"0x{words[5]:08X}",
+        "crc_rounds": words[6], "crc_block_mismatches": words[7],
+        "first_bad_block": None if fb == 0xFFFF else {"round": fb >> 8, "block": fb & 0xFF},
+        "block0_crc_written": f"0x{words[9]:08X}", "block0_crc_read": f"0x{words[10]:08X}",
+        "max_read_cycles": words[11], "max_write_cycles": words[12],
+        "draw_engine_stall_cycles": words[13],
+        "cpu_window_accesses_thousands": words[14],
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path)
+    parser.add_argument("--full", action="store_true",
+                        help="with --interact: decode an A-100 coverage record")
+    parser.add_argument("--soak", action="store_true",
+                        help="with --interact: decode an A-097 soak record")
     parser.add_argument("--raw", action="store_true",
                         help="with --interact: print the 16 reconstructed words (A-092)")
     parser.add_argument("--interact", action="store_true",
                         help="path is APF's interact_persist.json (A-091)")
     args = parser.parse_args()
+    if args.interact and args.full:
+        words = struct.unpack(">16I", words_from_interact(
+            json.loads(args.path.read_text())))
+        print(json.dumps(decode_full(words), indent=2, sort_keys=True))
+        return
+    if args.interact and args.soak:
+        words = struct.unpack(">16I", words_from_interact(
+            json.loads(args.path.read_text())))
+        print(json.dumps(decode_soak(words), indent=2, sort_keys=True))
+        return
     if args.interact and args.raw:
         words = struct.unpack(">16I", words_from_interact(
             json.loads(args.path.read_text())))

@@ -171,8 +171,20 @@ sdram-cpu-latency)
     OUT="$ROOT/work/diagnostics/sdram-cpu-latency"
     STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_INTERACT_PROBE=1 -DTAU_LATENCY_PROBE=1"
     ;;
+sdram-cpu-soak)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-soak"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_INTERACT_PROBE=1 -DTAU_SOAK_PROBE=1"
+    ;;
+sdram-cpu-full)
+    SRCS=("$FW/start.S" "$FW/sdram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/sdram-cpu-full"
+    STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_INTERACT_PROBE=1 -DTAU_FULL_PROBE=1"
+    ;;
 *)
-    echo "usage: $0 {player|player-stress|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback|sdram-cpu-log-probe|sdram-cpu-log-readback|sdram-cpu-log-open|sdram-cpu-log-settle|sdram-cpu-log-write-read|sdram-cpu-log-source|sdram-cpu-log-bridge|sdram-cpu-log-table|sdram-cpu-log-interact|sdram-cpu-disc|sdram-cpu-latency}"; exit 1 ;;
+    echo "usage: $0 {player|player-stress|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback|sdram-cpu-log-probe|sdram-cpu-log-readback|sdram-cpu-log-open|sdram-cpu-log-settle|sdram-cpu-log-write-read|sdram-cpu-log-source|sdram-cpu-log-bridge|sdram-cpu-log-table|sdram-cpu-log-interact|sdram-cpu-disc|sdram-cpu-latency|sdram-cpu-soak|sdram-cpu-full}"; exit 1 ;;
 esac
 
 # Build flags are selected by target rather than remembered in a shell history.
