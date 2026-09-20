@@ -515,15 +515,16 @@ SAMPLE_VALUE = {"COLOUR": "AMBER", "METER": "OSCILLOSCOPE", "EQUALIZER": "FLAT",
                 "REPEAT": "OFF", "SCREEN BLANK": "NEVER", "ALBUM ART": "ON", "SHUFFLE": "ON",
                 "RESUME": "ON", "SPEED": "NORMAL", "VOLUME": "65%",
                 "WINDOW TEST": "PASS 89", "READ CYCLES": "48/50/362", "WRITE CYCLES": "47/49/361",
-                "PLAYLIST CHECK": "PASS 13", "CLEAR COUNTERS": "DONE"}
+                "PLAYLIST CHECK": "PASS 13", "CLEAR COUNTERS": "DONE",
+                "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN"}
 
 
 def settings_menu(page, selected):
     """set_draw_menu() fixture. page: 0 home, 1 appearance, 2 audio, 3 playback."""
     rows = _rows(("set_home_rows", "set_appear_rows", "set_audio_rows", "set_play_rows",
-                  "set_diag_rows", "set_tests_rows")[page])
+                  "set_diag_rows", "set_tests_rows", "set_stress_rows")[page])
     title = _names(SETTINGS_SRC, "set_menu_title")[page]
-    hint = ("A OPEN   B CLOSE" if page == 0 else "A OPEN   B BACK" if page == 4
+    hint = ("A OPEN   B CLOSE" if page == 0 else "A OPEN   B BACK" if page in (4, 6)
             else "A RUN   B BACK" if page == 5 else "A CHANGE   B BACK")
     frame, g = ov_frame(title, "", hint)
     row_h = _sconst("SET_MENU_ROW_H")
@@ -550,25 +551,35 @@ def settings_menu(page, selected):
 
 INFO_SAMPLE = ("0.1.0", "4D503317", "OK", "52 CYC", "16112 B", "13 TRACKS", "NO",
                "MP3 320K 44.1K", "0", "0 MS", "12/8/41/118")
+STAT_SAMPLE = ("R2", "RUNNING", "3", "786432", "0", "4", "0", "372 CYC", "0 MS", "13.4K OPS/S",
+               "12:41 LEFT")
 
 
-def settings_info():
-    """set_draw_info() fixture (diagnostics builds): labels parsed from fw/settingsui.inc."""
-    labels = _names(SETTINGS_SRC, "set_info_label")
-    frame, g = ov_frame("INFO", "", "B BACK")
+def settings_readonly(title, label_array, samples):
+    """set_draw_ro() fixture: labels parsed from fw/settingsui.inc, sample values."""
+    labels = _names(SETTINGS_SRC, label_array)
+    frame, g = ov_frame(title, "", "B BACK")
     for i, label in enumerate(labels):
         y = g["PL_UI_LIST_Y"] + i * g["PL_UI_ROW_H"]
         frame.text(g["PL_UI_TEXT_X"], y, label, "TS_1X", UI_DIM, UI_PANEL, 170)
-        w = text_width(INFO_SAMPLE[i])
-        frame.text(g["PL_UI_X"] + g["PL_UI_W"] - 16 - w, y, INFO_SAMPLE[i], "TS_1X", UI_WHITE,
+        w = text_width(samples[i])
+        frame.text(g["PL_UI_X"] + g["PL_UI_W"] - 16 - w, y, samples[i], "TS_1X", UI_WHITE,
                    UI_PANEL, w + 2)
     return frame
+
+
+def settings_info():
+    return settings_readonly("INFO", "set_info_label", INFO_SAMPLE)
+
+
+def settings_stress_status():
+    return settings_readonly("STRESS STATUS", "set_stat_label", STAT_SAMPLE)
 
 
 def settings_choice(choice, cursor, active, top=0):
     """set_draw_choice() fixture. choice: colour, meter, eq, repeat, blank."""
     titles = _names(SETTINGS_SRC, "set_ch_title")
-    idx = ("colour", "meter", "eq", "repeat", "blank").index(choice)
+    idx = ("colour", "meter", "eq", "repeat", "blank", "stress", "soak").index(choice)
     if choice == "colour":
         names = _names(PLAYER, "ui_palette_name")
         colours = [int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{4})u,\s*/\*", PLAYER.split("ui_palette[] = {")[1].split("};")[0])]
@@ -576,7 +587,9 @@ def settings_choice(choice, cursor, active, top=0):
         names = {"meter": lambda: _names(SETTINGS_SRC, "set_viz"),
                  "eq": lambda: _names(EQ_SRC, "eq_name"),
                  "repeat": lambda: _names(SETTINGS_SRC, "set_rep"),
-                 "blank": lambda: _names(SETTINGS_SRC, "set_blank_nm")}[choice]()
+                 "blank": lambda: _names(SETTINGS_SRC, "set_blank_nm"),
+                 "stress": lambda: _names(SETTINGS_SRC, "set_stress_nm"),
+                 "soak": lambda: _names(SETTINGS_SRC, "set_soak_nm")}[choice]()
     frame, g = ov_frame(titles[idx], "", "A SELECT   B BACK")
     row_h = _sconst("SET_TH_ROW_H") if choice == "meter" else _sconst("SET_CH_ROW_H")
     list_h = g["PL_UI_ROWS"] * g["PL_UI_ROW_H"]
@@ -723,6 +736,10 @@ FIXTURES = {
     "settings-diagnostics": lambda: settings_menu(4, 0),
     "settings-info": settings_info,
     "settings-tests": lambda: settings_menu(5, 0),
+    "settings-stress": lambda: settings_menu(6, 0),
+    "settings-stress-level": lambda: settings_choice("stress", 2, 2),
+    "settings-soak": lambda: settings_choice("soak", 2, 0),
+    "settings-stress-status": settings_stress_status,
     "settings-colour": lambda: settings_choice("colour", 3, 0),
     "settings-meter": lambda: settings_choice("meter", 4, 4),
     "settings-eq": lambda: settings_choice("eq", 2, 0),
