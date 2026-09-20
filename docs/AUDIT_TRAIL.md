@@ -4046,7 +4046,7 @@ of uncached SDRAM (A-094); simulated, not measured on hardware.
 built to, so passing shows internal consistency, not datasheet compliance. No I/O
 constraints, Quartus fit or board-level DQ turn-around evidence exist yet.
 **Next:** owner supplies the datasheet; close P0 open rows; then P2 (mailbox,
-I/O constraints, `interact.json` publishing, `--probe-a100`).
+I/O constraints, `interact.json` publishing, the packager probe flag for the next free audit id).
 
 ### A-099 — datasheet check of the PSRAM controller (sim only, found a real bug)
 
@@ -4078,7 +4078,7 @@ still about 2x cheaper than uncached SDRAM (48-50 clocks, A-094).
 **Still open (hardware):** origin of `tAADV`; whether defaults-only operation works
 on Pocket (p.3 caption says registers need setting after power-on, p.7 says defaults
 load); board-level skew and I/O constraints; datasheet is a preliminary revision.
-**Next:** P2 (mailbox, I/O constraints, `interact.json` publishing, `--probe-a100`).
+**Next:** P2 (mailbox, I/O constraints, `interact.json` publishing, the packager probe flag for the next free audit id).
 
 
 ### A-103 — playlist-buffers-to-SDRAM design spec (design only)
@@ -4488,3 +4488,105 @@ at build time; new `player-diagnostic` = the same plus `TAU_DIAG_TESTS`, minimum
 **Card (host):** `Assets/tau_settings/common/tau.rom` on the card replaced with `d0b5a32b...` (A-118: overlap fix + Info page); the
 previous A-116 ROM (`78cb7582...`) and the indexes are backed up in `work/diagnostics/settings-ui/rom-replaced-a118/`, indexes cleared;
 all 14 bundle files SHA-256-identical, base media untouched. The Diagnostic Build was NOT installed. Result pending.
+
+**A-114 result (Quartus, 2026-09-20):** both fits finished Successful (0 errors, 343 warnings; 50:00 and 52:18 wall clock,
+started 15:05 WEST, finished about 15:55). Probe-free window RBF, 300/308 RAM blocks, 7,768 registers (the A-101 seed-4 map had
+7,688 registers in synthesis, so this is the fitted count and not comparable to the map figure). No negative slack anywhere.
+| Seed | Worst setup | Worst hold | Raw RBF SHA-256 |
+|---|---|---|---|
+| 1 | +0.158 ns | +0.124 ns | `5a1d75c39828f232859a737345a65831b679e20f4301214a556cedf9747057f2` |
+| 2 | +0.664 ns | +0.124 ns | `551e5a7600fbf5c5e93a3d1f513a4b71c5603e3d890d26fa72dfcbfd4343718b` |
+Against A-101 (setup +0.39..+0.52, hold +0.105..+0.123): both hold slacks are equal to or slightly better than the best A-101 seed,
+seed 2 has clearly the best setup margin, seed 1's setup is thin. **Seed 2 is the candidate** (acceptance from A-114: no negative
+slack, hold at least +0.105 ns, at most 300 RAM blocks; equal hold, so setup breaks the tie). Copies in
+`work/diagnostics/sdram-probefree-a114/s1|s2/ap_core.rbf`. Seeds 3 and 4 not needed. Still open: repackage the window-stress core
+and the playlist/settings cores with this RBF and repeat soak, coverage, contention and playlist gates on Pocket; the red/green top
+strip must be absent on it (the probe is gone).
+
+**A-114 candidate installed (host, 2026-09-20):** the probe-free seed-2 RBF (raw `551e5a76...718b`, bit-reversed `cb15310a...a3c9`,
+reversal re-checked against the raw file) replaced the seed-4 RBF (`2e9aaf0e...`) in **both** `alfatreze.TAU_SDRAM_WSTRESS`
+(stress ROM unchanged, `55384a55...`) and `alfatreze.TAU_SETTINGS` (ROM unchanged, `d0b5a32b...`). All 14 files of each bundle
+SHA-256-identical on the card; the old RBFs and the catalog indexes are backed up in
+`work/diagnostics/sdram-probefree-a114/card-replaced/`, indexes cleared. Media and every other core untouched. Result pending.
+Checks to run: (1) top-edge red/green strip must be absent in both cores; (2) stress core: repeat the A-102 protocol (tracks x R0-R3,
+E/L/M/S/K counters) on this RBF; (3) settings core: the earlier settings/playlist/Info checks; (4) then soak (A-097) and coverage
+(A-100) probes need packaging with this RBF (not built yet).
+
+### A-120 — Info page on Pocket (A-118 ROM, old seed-4 RBF): works
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (1 screenshot, `work/diagnostics/sdram-probefree-a114/screenshots/20260920_161516.png`, card clock 16:15) and the
+core's persist file (same minute). The card clock runs behind the host clock, and this shot predates the seed-2 RBF install, so it was
+taken with the A-118 settings ROM on the **A-101 seed-4 RBF** (the red/green top strip is still present, as expected; the probe-free RBF
+has not been run yet). The user's remark: the Info page and overlap fix were tested; no problems reported.
+**Info page:** FIRMWARE 0.1.0; FPGA REV 4D503317 (matches `EXPECT_VERSION`); SDRAM WINDOW OK; WINDOW READ 286 CYC; FREE RAM 12,512 B
+(equals the build's heap gap); PLAYLIST 13 TRACKS, LIST CLIPPED NO; TRACK MP3 64K 44.1K; UNDERRUNS 1; DRAW STALL 8 MS; LOAD MS
+383/0/2587/3017 (head/size/art/total).
+**Reading:** all eleven fields render and carry plausible values, and the ones we can cross-check agree with the build. Notes:
+(1) WINDOW READ is one cold read right after the mailbox write, so it includes SDRAM arbitration (286 cycles, inside the known 360-cycle
+worst case); the typical cost is about 50 cycles (A-094). A better figure would be the minimum of several reads; (2) one underrun edge
+since boot is consistent with the start-of-track restart artefact (KB-031), not a sign of a problem; (3) the load breakdown shows
+album-art decode as the slow part (2.6 s of a 3.0 s load for this track); (4) the 8 ms draw stall is cumulative since boot.
+The persisted settings file was written on Quit, so persistence still works with the new pages.
+**Not yet run on Pocket:** the seed-2 probe-free RBF in `TAU_SETTINGS` and `TAU_SDRAM_WSTRESS` (installed after this session).
+
+### A-121 — window stress on the probe-free seed-2 RBF: no logged failure, top strip gone, user reports errors and poorer audio (open)
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (10 screenshots, card clock 16:46-16:50, `work/diagnostics/sdram-probefree-a114/screenshots/`) plus the user's report:
+"windows stress seemed to have errors and poorer audio quality", tested mostly on tracks 1 and 2 (one screenshot each of tracks 3 and 4
+at the start). Settings core: UI fine (user).
+**Confirmed good:** the red/green top-edge strip is **absent** in every frame, so the probe is out of the bitstream; the playlist/settings
+UI is fine. The core loaded and played.
+**HUD readings (stress ROM `55384a55`, burst pump; E early underruns, L late, M worst window access, S draw stall ms, K k ops/s):**
+| Time | Speed | Track | Level | E | L | M | S | K |
+|---|---|---|---|---:|---:|---:|---:|---:|
+| 46:23 | **1.2x** | 1 | R3 | 21 | 0 | 372 | 1 | 1.4 |
+| 47:08 | **1.2x** | 2 | R3 | 45 | 0 | 372 | 1 | 1.4 |
+| 47:30 | **1.2x** | 3 | R3 | 50 | 0 | 372 | 1 | 1.4 |
+| 47:55 | **1.2x** | 4 | R3 | 56 | 0 | 372 | 1 | 4.7 |
+| 48:45 | 1.0x | 1 | R1 | 12 | 0 | 371 | 0 | 4.2 |
+| 49:08 | 1.0x | 1 | R2 | 28 | 0 | 373 | 0 | 15.5 |
+| 49:28 | 1.0x | 1 | R0 | 40 | 0 | 373 | 0 | 0 |
+| 49:45 | 1.0x | 2 | R0 | 50 | 0 | 373 | 0 | 0 |
+| 50:07 | 1.0x | 2 | R1 | 14 | 0 | 371 | 0 | 3.0 |
+| 50:27 | 1.0x | 3 | R2 | 26 | 0 | 372 | 0 | 13.4 |
+**Reading:** no `FAIL`, no `SDRAM MISMATCH` or timeout text, no late underrun (`L` 0 in all ten), `M` 371-373 (the idle bound), `S`
+0 at 1.0x. Two differences from the earlier A-102 runs: (1) the **1.2x speed indicator is lit in the first four frames**
+(the hold-A speed gesture, or the settings toggle, was on) and only there does `S` read 1 ms and the pump reach just 1.4k ops/s at R3,
+i.e. the decoder was using most of the CPU; that alone would sound different (pitch/tempo) and leaves little idle time; (2) the
+early-underrun counter `E` is higher than before (up to 56 against 4-13), which fits many stops, seeks and restarts but cannot be
+separated from a real change without a like-for-like A/B. Screenshots stop playback (KB-031), so they add restarts.
+**Not established:** what the user perceived as "errors" (a message, a glitch, audible dropouts) and where; the frames show none.
+Whether the RBF changed audio quality is unproven either way. Suggested discriminators: the same track and level at 1.0x by ear on the
+old seed-4 RBF and on seed 2 (A/B, swap `bitstream.rbf_r` only); a longer, screenshot-free run per level; the Info page underrun
+count on the settings core over a full album.
+
+### A-122 — 1.2x hold gesture removed where the settings menu exists
+
+**Date:** 2026-09-20
+**Owner decision:** after A-121 (the user's stress session had 1.2x on without noticing, and reads the `E` counter as errors: it is
+early underruns after a restart, not a failure indicator; failures show as `FAIL n`) - "remove 1.2x from the long press and keep in
+settings only".
+**Change:** in `fw/player.c` the hold-A speed toggle is compiled only when `TAU_SETTINGS_UI` is 0. In builds with the settings menu a
+long press of A is an ordinary press (pause on release); Speed stays in Settings > Playback (Normal / 1.2x). The standard build has no
+settings menu yet, so it keeps the gesture until the settings ship (it would otherwise lose the only way to change speed). Product ROM
+unchanged (`661c5936...`), SDRAM-playlist ROM unchanged (`82fdb70c...`); settings and Diagnostic Build ROM `448a49dc...` (155,468 B, heap gap
+13,312 B; the removed block shrank it by about 0.8 KiB). Bundles repackaged with the seed-2 RBF (`TAU_SETTINGS`, `TAU_DIAGNOSTIC`); NOT installed.
+`make test-host` passes. The A/B of old versus new RBF suggested in A-121 is postponed by the user (judged user error).
+
+### A-123 — PSRAM plan review after later SDRAM/UI/skill updates (docs only)
+
+**Date:** 2026-09-20
+
+**Decision/change:** Reviewed everything since A-099 (A-100..A-122, `ARCHITECTURE_ROADMAP.md`,
+the skill's drift checks and its KB restructure) against the PSRAM plan. Updated
+`docs/PSRAM_IMPLEMENTATION_PLAN.md`: audit-id policy (next free id), the
+window/probe macro split, P5 candidates (playlist buffers already in SDRAM), the
+scheduling note, and a new section 7 listing twelve considerations. Removed the stale
+`--probe-a100` from A-098/A-099 (A-100 belongs to the SDRAM coverage probe).
+**Skill checks:** `refresh.py docs` 0 changed; `refresh.py repos` openfpga-library
+metadata moved, one repo unreachable, neither PSRAM-relevant; `kb.py validate` 0
+problems. The KB now has publishable and git-ignored local entries; KB-029 (PSRAM
+datasheet) is in `local-entries/`, unchanged.
+**Not changed:** no RTL, firmware, package, card or VM action.
