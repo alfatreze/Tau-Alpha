@@ -5100,3 +5100,52 @@ independently recorded.
 **Status:** v0.2.0 is the installed base `TAU` product: probe-free seed-2 RBF, release ROM `9b5d6575...`, settings menu, full-screen playlist and Info page, the playlist in SDRAM, no 1.2x hold gesture.
 The SDRAM implementation work (A-088..A-131) is complete for the CPU window and the first data move (playlist). Deliberately open: FLAC, other tracks under saturation, temperature, the artwork buffers
 (blit engine versus cached window), Diagnostic Build items (save report), and rebuilding the `TAU_SETTINGS`/`TAU_DIAGNOSTIC` bundles with the 0.2.0 version string.
+
+### A-132 — real meter previews in the menu and a ten-step speed list (firmware built and packaged, not installed)
+
+**Date:** 2026-09-21
+**Evidence:** host (build, link map, snapshot fixtures, `make test-host`); no Pocket run.
+**Meter previews.** Found the Figma exports at `assets/ui/meter/` (11 files, one per meter): **baseline JPEG, 24-bit, already 56x32 and about 2 KB each**, not large (the
+converter nevertheless area-averages any larger export down to 56x32). Raw RGB565 would need 39,424 B, far beyond the RAM headroom, so `tools/gen_meter_thumbs.py`
+(decodes with macOS `sips`, or Pillow if present; deterministic k-means) writes `fw/meter_thumbs.h`: **one 16-colour RGB565 palette per image plus a raster run-length
+stream (one byte per run: palette index << 4 | length-1)**, 5,883 B in total (5,507 run bytes, 352 B of palettes, 24 B offsets). Per-image palettes keep each preview's own
+hues (the shared-palette attempt lost the magic eye's cyan and the spectrum's orange); a 12- or 8-colour palette would save only 0.3 or 0.8 KiB. The firmware fills a preview with its dominant
+colour and paints the other runs as one-row rectangles (`set_draw_thumb()`), indexed by the `VIZ_*` value (static assert on the enum order). The snapshot fixture decodes the same header, so
+`settings-meter` shows the real previews. `TAU_METER_THUMBS` is on in the release-style targets only; the Diagnostic Build keeps the grey placeholder (it has no room).
+**Speed.** `speed_fast` (0/1, 1.2x) is replaced by `speed_idx` over ten rational factors: **0.85, 0.95, 1.00, 1.10, 1.25 (replacing 1.2), 1.30, 1.50, 1.75, 2.00, 2.50**
+(`speed_num/speed_den`, no FPU); Settings > Playback > Speed is now a choice list of them (A selects, applies at once, not persisted), the time-row marker shows the active speed,
+and where there is no settings menu the old hold-A gesture toggles 1.00x/1.25x. Pitch follows speed (pitch correction later, as agreed).
+**Limits to expect (from the code's own notes, not yet measured):** (1) the decoder budget: the source comments record that 1.5x already breaks on 320 kbps MP3 and 2x cannot work at
+any bitrate at 60 MHz, so 1.30x is marginal and **1.50x-2.50x will underrun** (stutter/silence) until decode is faster or frames are skipped; (2) `sound_i2s` zero-order-holds to a fixed
+48 kHz, so whenever file rate x speed exceeds 48 kHz (44.1 kHz above 1.09x, 48 kHz above 1.00x) samples are dropped without filtering, which is audible; that is a likely reason the earlier
+1.2x "sounded poorer" (A-121), and a proper resampler belongs with the pitch-correction work. Slower speeds (0.85, 0.95) ask less of the decoder.
+**Builds:** release-style settings ROM `b80fe44b...` (162,232 B; **heap gap 6,544 B**, floor lowered from 8 KiB to 6 KiB for the release-style targets because of the previews; hard link minimum
+1 KiB); Diagnostic Build `7b0acdd2...` (164,384 B; gap 4,176 B, 80 B above its floor); SDRAM-playlist `4cfc1662...` and legacy product `player` (151,316 B) changed only by the speed table.
+`dist/` still holds the v0.2.0 release ROM (`9b5d6575...`); a new release would need this ROM, a version bump and a new install. Bundles `TAU_SETTINGS` and `TAU_DIAGNOSTIC` repackaged with the seed-2
+RBF, not installed. Fixtures: 50 (new `settings-speed`; `settings-meter` shows the real previews).
+**To validate on Pocket:** the meter list shows the eleven previews (colours right, no flicker while paging, audio fine); Playback > Speed lists the ten speeds, the marker appears next to the time, 0.85/0.95/1.10/1.25
+play, and how far up the list playback stays clean (report where it starts to stutter).
+
+**A-132 installation (host, 2026-09-21):** `TAU_SETTINGS` on the card now runs the meter-preview and speed-list build: ROM `Assets/tau_settings/common/tau.rom` = `b80fe44b...` (162,232 B) and
+its `core.json` updated to `version 0.2.0` (it still said 0.1.0). The previous ROM (`448a49dc...`), the old `core.json` and the catalog indexes are backed up in `work/diagnostics/settings-ui/rom-replaced-a132/`,
+indexes cleared. All 14 bundle files SHA-256-identical (seed-2 RBF unchanged); the base `TAU` (v0.2.0 release), `TAU_DIAGNOSTIC`, `TAU_PSRAM` and the media untouched. Result pending.
+
+### A-133 — meter previews and the ten-speed list on Pocket (A-132 build)
+
+**Date:** 2026-09-21
+**Evidence:** Pocket (5 screenshots, `work/diagnostics/settings-ui/screenshots-a132/`, card clock 00:03-00:06) and the user's report. Saved colour 7 (blush), meter 4 (oscilloscope).
+**Meter previews:** the list shows the real previews (bars, waterfall, L/R levels, phase scope, oscilloscope, VU, waveform, mirrored bars, peak dots, magic eye seen), correctly drawn and placed, with the radio marker
+on the active meter, scrolling, and the highlight/accent following the chosen colour (lime, blush in the frames). **The previews do not follow the theme colour:** they are the Figma artwork's own fixed lime/green
+(plus the cyan magic eye), converted as exported; nothing in the converter or firmware recolours them, so with a non-lime accent they look out of place. (User: "if so not visible".) Open design question.
+**Speed:** the Speed list shows the ten speeds with the radio on the active one. User-reported audio: **1.25x sounded fine; clear problems from 1.30x** (above it not described), i.e. the
+decoder budget limit predicted in A-132 lands between 1.25x and 1.30x, and 1.25x is the practical maximum until decode gets faster or a resampler exists. Slower speeds and 1.10x not
+reported as a problem.
+
+### A-134 — speed list trimmed to 0.85-1.25x; previews stay as designed (firmware built and packaged, not installed)
+
+**Date:** 2026-09-21
+**Owner decisions after A-133:** keep the meter previews as designed (fixed Figma colours, no theme tint); trim the speed list to the speeds that play cleanly, 0.85, 0.95, 1.00, 1.10 and 1.25x.
+**Change:** `SET_SPEED_SHOWN 5` in `fw/settingsui.inc`: the Speed list (and its name array) offers only those five; `speed_num/speed_den/speed_txt` in `fw/player.c` keep all ten entries so 1.30-2.50x return by
+raising the constant when a resampler or faster decode exists. No change to the previews (`fw/meter_thumbs.h`, `tools/gen_meter_thumbs.py` as in A-132). Fixture `settings-speed` shows five rows.
+**Builds:** release-style settings ROM `36d1e37c...` (162,172 B, heap gap 6,608 B), Diagnostic Build `62640957...` (164,324 B, gap 4,224 B); product and SDRAM-playlist ROMs unchanged from A-132; `dist/` still the v0.2.0 release.
+`make test-host` passes. Bundles `TAU_SETTINGS` and `TAU_DIAGNOSTIC` repackaged with the seed-2 RBF; not installed (the card currently runs the A-132 ROM `b80fe44b...` with the ten-speed list).

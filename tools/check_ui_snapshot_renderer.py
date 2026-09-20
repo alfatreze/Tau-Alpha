@@ -23,8 +23,8 @@ def main():
     settings = ("settings-home", "settings-appearance", "settings-audio", "settings-playback",
                 "settings-colour", "settings-meter", "settings-eq", "settings-repeat",
                 "settings-blank", "settings-diagnostics", "settings-info", "settings-tests", "settings-stress",
-                "settings-stress-level", "settings-soak", "settings-stress-status")
-    if len({checksums[name] for name in settings + ("now-playing", "playlist-browser")}) != 18:
+                "settings-stress-level", "settings-soak", "settings-stress-status", "settings-speed")
+    if len({checksums[name] for name in settings + ("now-playing", "playlist-browser")}) != 19:
         raise SystemExit("FAIL: settings fixtures are not distinct")
     if checksums["now-playing"] == checksums["playlist-browser"]:
         raise SystemExit("FAIL: playlist browser fixture did not draw its overlay")
