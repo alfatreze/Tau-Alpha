@@ -79,13 +79,29 @@ Firmware-only: slot-5 table size/integrity, 10 s flush with timing, post-flush r
 
 Result published via interact.json persist (16 words, APF-stored on Quit) instead of `0184`/`0188`. ROM SHA-256 `63c89cf6...1534`, same RBF, bundle at `work/diagnostics/sdram-cpu-probe-a091/pocket`. Decode with `tools/decode_tau_diag_log.py --interact`. **Result:** after Quit the persist file decoded with a valid checksum (183 checks, 181 failures, first at `0xA0200000`, expected `FFFFFFFF`, actual `0`). The log path is solved; the SDRAM return-path fault is still open.
 
+## A-092 (installed on card, result pending)
+
+Firmware-only SDRAM discriminator (mailbox vs CPU window, distinctive patterns), raw words via interact.json; ROM SHA-256 `d8a991e8...8a57`, same RBF, bundle at `work/diagnostics/sdram-cpu-probe-a092/pocket`. Decode: `tools/decode_tau_diag_log.py --interact --raw`.
+
+## A-092 result and A-093 root cause
+
+A-092 (mailbox vs CPU window) showed the SDRAM and CPU writes are fine and CPU
+reads lag by one beat when back-to-back. A-093 reproduces this in simulation
+(`make test-rtl-sdram-wb-return`): `tau_sdram_wb_adapter` released to IDLE one
+cycle after ACK while `mp3_soc` still presented the finished beat, so it issued a
+duplicate bridge request and every following ACK carried the previous beat's
+data. Fixed with a second release cycle; all simulation and host gates pass.
+
+## A-093 Pocket result
+
+The fixed-adapter build (A-093) **passes** the 183-check CPU-window matrix on
+Pocket: 0 failures, screenshot and decoded persist record agree (checksum
+`0x18511A0D`). Issue 018 is resolved. This validates only the limited uncached
+data path; cached access, sustained contention, and cold-data migration remain
+unauthorised.
+
 ## Next gate
 
-The result-log path is closed (issue 019 resolved, A-091). The next gate is the
-SDRAM CPU return path: 181 of 183 readbacks still fail at `0xA0200000`
-(expected `FFFFFFFF`, actual `0`). No cold player-data migration is authorised.
-Results now reach the card as a validated record, so use the A-091 build (or its
-`--interact` decode) for future SDRAM probes.
-
-See [issue 019](issues/019-a080-result-log-not-persisted.md) and
-[AUDIT_TRAIL.md](AUDIT_TRAIL.md) for the detailed reversal and evidence record.
+Two further cold-boot A-093 runs passed (user-reported, no artifacts held). Define the promotion gates (stress
+with scanout and audio contention, cached-window design) before any use of SDRAM
+for player data.

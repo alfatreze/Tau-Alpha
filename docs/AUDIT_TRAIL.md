@@ -3207,6 +3207,186 @@ This closes the result-log path: the SD-card record now works without `0184`
 or `0188`. Issue 019 can be resolved on this evidence. It says nothing about the
 SDRAM return-path fault itself, which remains open.
 
+### A-092 — mailbox-vs-CPU-window discriminator (draft, not installed)
+
+**Date:** 2026-09-20
+
+**Decision/change:** Start on the SDRAM CPU return path with a firmware-only
+probe that needs no Quartus build. `TAU_DISCRIMINATOR_PROBE`
+(`fw/build.sh sdram-cpu-disc`, `--probe-a092`) replaces the 183-check matrix
+with 14 raw observations that separate the proven mailbox path (DIAG owner)
+from the CPU window (WB owner) and use distinctive data so lag, swap, shift or
+address error is visible, then publishes them through the A-091 interact.json
+channel (`decode_tau_diag_log.py --interact --raw`). Same A-080 RBF.
+
+**Why (review of A-060..A-079 and issue 018):** the mailbox write/read works
+(A-061 preflight), a CPU read of a mailbox-written word works, but a CPU-written
+word reads zero at the CPU. The bridge recorder (A-074/A-075) said the follow
+read assembled `FFFFFFFF`, the controller recorder (A-066) sampled `FFFF` at
+`READ_OUTPUT`, yet the mux/adapter/CPU (A-076/A-077/A-079) see zero. Those are
+different builds and different recorders, never both on the same read. Also,
+181/183 failures (only 2 passes) means even expected-zero reads fail, so reads
+are not simply "always zero". The existing composed-path simulation is a stub
+(constant `CAFE`, no readback assert), so it cannot show the failure; a real
+end-to-end gate needs a functional SDRAM model around `sdram_fb`.
+
+**Observations (words, all raw 32-bit):** w0 `44534331`; w1 mailbox write/read
+of A=`12345678`; w2 CPU read of A; w3 mailbox read of B after a CPU write of
+`A5C33C5A` (neighbours B-4=`0DEFACED`, B+4=`0BADF00D` pre-seeded by mailbox);
+w4/w5 CPU read of B twice; w6/w7 CPU read of B+4/B-4; w8 CPU read of a
+mailbox-written `FFFFFFFF`; w9 mailbox read of D after a CPU `FFFFFFFF` write;
+w10 CPU read of D; w11 CPU read of D after a CPU zero write; w12 mailbox read of
+D; w13 bitmask of failed mailbox commands; w14 CPU read of A again at the end.
+
+**Predictions (before any run):** P1 w1=w2=w14=`12345678`. P2 w6=`0BADF00D`,
+w7=`0DEFACED`. P3 w8=`FFFFFFFF` (reads are fine when the CPU did not write).
+**Decision table for w3/w4:** w3=`A5C33C5A` and w4/w5=0 -> the write lands and
+the CPU read after a CPU write is wrong (suspect write recovery/bank state, not
+the mux); w3 wrong or 0 -> the CPU write does not land or lands elsewhere (check
+w6/w7 for a shifted neighbour, halves swapped => lane fault); w4=w6 or w7 ->
+CPU read address off by one word; w4 differs from w5 -> read data is lagging.
+
+**Evidence:** **host** — ROM SHA-256
+`d8a991e876d5a09f4cd70598f8292d1e17d8af39fdf6813d0331e0727f3e8a57` (5,320
+bytes, 3.0% of RAM); RBF `c892ae70...9e16`; bundle at
+`work/diagnostics/sdram-cpu-probe-a092/pocket`. Not yet run or installed.
+
+**Alternatives and rationale:** another 44-minute Quartus probe (deferred until
+this cheap run localises write vs read); a functional SDRAM model plus
+production-timing regression (still required before any RTL change, per A-079).
+
+**Installation evidence:** **host** — A-092 replaced only A-091 on the mounted
+card (A-091 core, platform, image, assets and settings removed; its persist file
+is kept under `pocket-cache-backup-2026-09-20/a091-removed/`). ROM `d8a991e8...8a57`
+and RBF `c892ae70...9e16` verified on the card by SHA-256; 16 persist variables
+present. Catalog indexes backed up under
+`work/diagnostics/sdram-cpu-probe-a092/pocket-cache-backup-2026-09-20/System/`
+and cleared. Pocket evidence pending; Quit before removing the card.
+
+**Outcome, remaining risk, and next gate:** Do not change RTL or promote the CPU
+window from this result alone.
+
+**Pocket outcome:** **Pocket | host** — screenshot `20260919_233156.png` matches the
+decoded `interact_persist.json` (copies in `pocket-result/`; the screen's `F`
+value `0F78` is the top-bit mask). Words: w1 `12345678`, w2 `12345678`, w3
+`A5C33C5A`, w4 `A5C33C5A`, w5 `A5C33C5A`, w6 `A5C33C5A`, w7 `0BADF00D`, w8
+`FFFFFFFF`, w9 `FFFFFFFF`, w10 `FFFFFFFF`, w11 `FFFFFFFF`, w12 `00000000`,
+w13 `0` (no mailbox command failed), w14 `12345678`. Predictions: P1 confirmed;
+P3 confirmed; **P2 refuted** (w6 should be `0BADF00D`, w7 `0DEFACED`).
+**Findings:** the SDRAM and the write path are fine: CPU writes landed (w3, w9)
+and the zero write landed (w12 `0`), all checked through the mailbox. CPU reads
+are correct when a mailbox operation precedes them (w2, w4, w8, w10, w14) but
+wrong when they follow another CPU beat back-to-back: w6 (B+4) returned B's
+data, w7 (B-4) returned B+4's data (`0BADF00D`, the pre-seeded value), and w11,
+a load right after a zero store to D, returned the old `FFFFFFFF` although
+w12 proves the zero had landed. Every wrong read equals the data the previous
+beat returned or fetched: a one-beat lag in the return, not corruption.
+
+### A-093 — adapter starts each CPU beat twice (root cause of issue 018)
+
+**Date:** 2026-09-20
+
+**Decision/change:** `sim/tb_tau_sdram_wb_return_regression.v` (new,
+`make test-rtl-sdram-wb-return`, part of `make test-rtl`) drives the real
+adapter, owner mux, CDC bridge and arbiter with a controller-contract memory
+model, an `mp3_soc`-style registered ACK (`dACK <= wb_ack`), and a master that
+either holds STB into the next beat (gap 0) or idles (gap 3). It asserts data
+and that each Wishbone beat causes exactly one bridge request. **It fails on
+the pre-fix RTL and reproduces the Pocket symptoms**: back-to-back load B
+returns A's data, load C returns B's, "load after zero store" returns the old
+`FFFFFFFF`, and 18 beats produced 19 bridge requests.
+**Root cause:** `tau_sdram_wb_adapter` (A-060) left `S_RELEASE` for `S_IDLE`
+after one cycle. `mp3_soc` registers the ACK again before the CPU sees it, so
+at that moment the CPU still presents the just-completed beat. `S_IDLE` accepted
+it a second time and issued a duplicate bridge request. The next beat had to wait
+for the duplicate; the duplicate's completion (carrying the previous beat's
+data, or the zero of a write) was taken as that next beat's ACK, and the chain
+repeats. This explains every earlier observation: A-074's bridge recorder saw
+`FFFFFFFF` on a real read that the CPU never received; A-076/077/079 saw the
+stale zero at ACK; the matrix returned each store's neighbour's data
+(181/183 failures); mailbox operations in between drain the duplicate, so those
+reads were right; A-061's single CPU read of a mailbox-written word passed.
+**Fix:** `S_RELEASE2` added, so the adapter re-enters `S_IDLE` two cycles after
+its ACK (`src/fpga/core/tau_sdram_wb_adapter.sv`). The regression passes at gap 0
+and 3 with one bridge request per beat; `make test-rtl` (all 18 suites) and
+`make test-host` (92 unique audit IDs) pass.
+**Alternatives:** gate the adapter's STB with `~dACK` in `mp3_soc` (equivalent,
+but spreads the fix across two files); waiting for STB to drop (rejected, A-060
+deadlock). **Hot/cold impact:** only the opt-in Phase-2 window path
+(`TAU_PHASE2_WINDOW`); the macro-off player is unchanged. **Timing:** one extra
+FSM state; **Quartus: pending**, and this is a functional RTL change, so it needs
+a fresh fit and Pocket run. **Evidence:** **simulation | Pocket (A-092)**.
+**Reversal:** issue 018's "owner-mux latch / bridge handoff" suspicion (A-079)
+was wrong; the mux and bridge are correct and the defect was the adapter's
+re-accept of a completed beat.
+**Quartus launch (host evidence only):** at 2026-09-20 00:17:54 WEST a fresh
+ext4 snapshot `/home/taualpha/tau-local/phase2-adapter-fix-a093-20260920` was
+staged from the shared workspace (excluding `toolchain`, `work`, `.git`,
+`UniClaudeProxy`, the host `.venv-cptr`, and Quartus db/output dirs). It differs
+from the shared source only by the same two macro lines as A-080
+(`TAU_PHASE2_WINDOW=1`, `TAU_PHASE2_MUX_PROBE=1`) so the rev-23 flush wiring, the
+A-079 mux probe and the existing A-091/A-092 firmware remain compatible. `make
+check-fpga` passed in the snapshot and `make fpga` launched (`quartus-a093.log`,
+PID 28654; expect about 45 minutes). No fit, timing, artifact or Pocket result
+exists yet. A stale idle A-067 `make fpga` session from 2026-09-17 is still in
+the process table and was left untouched.
+
+**Quartus result:** **Quartus** — the `phase2-adapter-fix-a093-20260920` flow
+finished **Successful** at 2026-09-20 00:58:09 WEST in 44m03s (synthesis 5m32s,
+fitter 33m06s, assembler 1m06s, timing 3m44s), 0 errors. Resources: 6,106 /
+18,480 ALMs (33%), 8,060 registers, 300 / 308 RAM blocks (97%), 11 / 66 DSP
+blocks, 1 / 4 PLLs. Multicorner worst-case setup +1.106 ns, hold +0.111 ns, TNS
+0 (limiting hold is the `general[0]` PLL output; the design still warns about
+unconstrained paths, as in earlier builds). Raw RBF SHA-256
+`e16ffe9dff4dfc8efda868c995bb7ecc371d3537af4b4d8091bec926efd84d9d` (copied to
+`work/diagnostics/sdram-cpu-probe-a093/fpga/ap_core.rbf`, hash re-verified on the
+host).
+**Packaging:** `--probe-a093` (new `EXPECTED_A093_PROBE_RBF_SHA256`,
+`tau_sdram_prb93`, `alfatreze.TAU_SDRAM_PRB93`) pairs the fixed RBF with the
+unchanged A-091 matrix ROM (`63c89cf6...1534`, 7,752 bytes), so the run prints
+the usual screen and publishes the 183-check record via interact.json.
+Bit-reversed Pocket RBF SHA-256
+`c765cabbc15308f198fab7449efbb6298f57d6af9d68a60cde049389f79748b3`; bundle at
+`work/diagnostics/sdram-cpu-probe-a093/pocket`.
+**Installation evidence:** **host** — A-093 replaced only A-092 on the mounted
+card (A-092 core, platform, image, assets and settings removed; its persist file
+kept under `pocket-cache-backup-2026-09-20/a092-removed/`). ROM `63c89cf6...1534`
+and bit-reversed RBF `c765cabb...48b3` verified on the card by SHA-256; 16
+persist variables present. Catalog indexes backed up under
+`work/diagnostics/sdram-cpu-probe-a093/pocket-cache-backup-2026-09-20/System/`
+and cleared. Pocket evidence pending; Quit before removing the card.
+**Predictions (before the run):** P1 the version interlock still passes (rev 23);
+P2 the matrix reports 183 checks with 0 failures (PASS) and the persisted record
+decodes to `failures 0`; P3 if failures remain, they are no longer the
+lag pattern (actual = previous beat's data) and the A-092 discriminator ROM
+(same RBF) is the follow-up.
+**Pocket outcome:** **Pocket | host** — **PASS.** Screenshot `20260920_004648.png`
+(copy in `pocket-result/`) shows `PASS`, 183 readback checks, 0 failures,
+`W0 544C4F47`, `W7 00000000`, `WC 18511A0D`, `WF 00000000`. The persisted
+`interact_persist.json` (written at 00:46 after Quit) decodes with a valid
+checksum (`0x18511A0D`, matching `WC`): stage 4, run 1, core version
+`0x4D503317`, `failures 0`, `timed_out false`, `status0 0x53445041` (was
+`0x53444641` in every failing run). Predictions: P1 (interlock passes) and P2
+(183 checks, 0 failures) confirmed; P3 not needed. The previous 181/183
+failures at `A0200000` are gone with only the adapter's second release cycle
+changed, which confirms A-093's root cause on hardware.
+**Scope of the claim:** this is Pocket evidence for the limited uncached
+CPU-window data path only (word, byte and halfword lanes over physical 2-3 MiB
+under the diagnostic's own traffic). It does not authorise cached access,
+execution from SDRAM, linker placement, or cold-data migration, and it says
+nothing about sustained audio/scanout contention. The A-092 discriminator ROM
+was not needed.
+**Reversal ledger:** the A-079 conclusion that the bridge-to-mux handoff or the
+mux latch was the live boundary was wrong; the defect was the adapter's
+double-issue of each completed beat.
+**Repeat runs (user-reported, not independently verified):** two further cold-boot
+runs of the same A-093 package also passed, per the user on 2026-09-20; the card
+was not mounted afterwards, so no screenshot or persist file for them is held in
+`pocket-result/`.
+**Next gate:** decide the promotion gates (stress with scanout and audio contention, cached window design)
+before any real use of SDRAM for player data. Do not promote
+the CPU window or migrate cold data on simulation evidence alone.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible
