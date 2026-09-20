@@ -448,6 +448,30 @@ def overlay_geometry():
     return env
 
 
+def meter_thumb(viz):
+    """Decode preview `viz` from fw/meter_thumbs.h the way set_draw_thumb() paints it: (x, y, w, h,
+    RGB565) rectangles relative to the top-left corner, dominant-colour fill first."""
+    src = (ROOT / "fw/meter_thumbs.h").read_text(encoding="utf-8")
+    w = int(re.search(r"METER_THUMB_W (\d+)u", src).group(1))
+    h = int(re.search(r"METER_THUMB_H (\d+)u", src).group(1))
+    pal = re.search(r"meter_thumb_pal\[\d+\]\[\d+\] = \{(.*?)\n\};", src, re.S).group(1)
+    pals = [[int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{4})u", row)] for row in pal.split("},")[:-1]]
+    offs = [int(v) for v in re.search(r"meter_thumb_off\[\d+\] = \{(.*?)\};", src, re.S).group(1).split("*/")[-1].split(",")]
+    rle = [int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{2})", re.search(r"meter_thumb_rle\[\d+\] = \{(.*?)\};", src, re.S).group(1))]
+    rects, pos = [(0, 0, w, h, pals[viz][0])], 0
+    for b in rle[offs[viz]:offs[viz + 1]]:
+        idx, n = b >> 4, (b & 15) + 1
+        if idx:
+            at, left = pos, n
+            while left:
+                col = at % w
+                seg = min(w - col, left)
+                rects.append((col, at // w, seg, 1, pals[viz][idx]))
+                at += seg; left -= seg
+        pos += n
+    return rects
+
+
 def disc(frame, cx, cy, d, color, background):
     rounded_rect_on(frame, cx - d // 2, cy - d // 2, d, d, d // 2, color, background)
 
@@ -513,7 +537,7 @@ def _sconst(name):
 
 SAMPLE_VALUE = {"COLOUR": "AMBER", "METER": "OSCILLOSCOPE", "EQUALIZER": "FLAT",
                 "REPEAT": "OFF", "SCREEN BLANK": "NEVER", "ALBUM ART": "ON", "SHUFFLE": "ON",
-                "RESUME": "ON", "SPEED": "NORMAL", "VOLUME": "65%",
+                "RESUME": "ON", "SPEED": "1.00X", "VOLUME": "65%",
                 "WINDOW TEST": "PASS 89", "READ CYCLES": "48/50/362", "WRITE CYCLES": "47/49/361",
                 "PLAYLIST CHECK": "PASS 13", "CLEAR COUNTERS": "DONE",
                 "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN"}
@@ -579,7 +603,7 @@ def settings_stress_status():
 def settings_choice(choice, cursor, active, top=0):
     """set_draw_choice() fixture. choice: colour, meter, eq, repeat, blank."""
     titles = _names(SETTINGS_SRC, "set_ch_title")
-    idx = ("colour", "meter", "eq", "repeat", "blank", "stress", "soak").index(choice)
+    idx = ("colour", "meter", "eq", "repeat", "blank", "speed", "stress", "soak").index(choice)
     if choice == "colour":
         names = _names(PLAYER, "ui_palette_name")
         colours = [int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{4})u,\s*/\*", PLAYER.split("ui_palette[] = {")[1].split("};")[0])]
@@ -588,6 +612,7 @@ def settings_choice(choice, cursor, active, top=0):
                  "eq": lambda: _names(EQ_SRC, "eq_name"),
                  "repeat": lambda: _names(SETTINGS_SRC, "set_rep"),
                  "blank": lambda: _names(SETTINGS_SRC, "set_blank_nm"),
+                 "speed": lambda: _names(SETTINGS_SRC, "set_speed_nm"),
                  "stress": lambda: _names(SETTINGS_SRC, "set_stress_nm"),
                  "soak": lambda: _names(SETTINGS_SRC, "set_soak_nm")}[choice]()
     frame, g = ov_frame(titles[idx], "", "A SELECT   B BACK")
@@ -618,8 +643,9 @@ def settings_choice(choice, cursor, active, top=0):
                 disc(frame, mx, cy, 8, UI_PANEL if sel else UI_ACCENT, bg)
         tx = mx + 24
         if choice == "meter":
-            frame.rect(tx, y + (row_h - 2 - _sconst("SET_TH_H")) // 2, _sconst("SET_TH_W"),
-                       _sconst("SET_TH_H"), UI_DIM)
+            ty = y + (row_h - 2 - _sconst("SET_TH_H")) // 2
+            for rx, ry, rw, rh, rc in meter_thumb(i):
+                frame.rect(tx + rx, ty + ry, rw, rh, rc)
             tx += _sconst("SET_TH_W") + 14
         frame.text(tx, y + (row_h - 2 - 16) // 2, names[i], "TS_1X",
                    UI_PANEL if sel else UI_WHITE, bg, g["PL_UI_X"] + g["PL_UI_W"] - 24 - tx)
@@ -739,6 +765,7 @@ FIXTURES = {
     "settings-stress": lambda: settings_menu(6, 0),
     "settings-stress-level": lambda: settings_choice("stress", 2, 2),
     "settings-soak": lambda: settings_choice("soak", 2, 0),
+    "settings-speed": lambda: settings_choice("speed", 4, 2),
     "settings-stress-status": settings_stress_status,
     "settings-colour": lambda: settings_choice("colour", 3, 0),
     "settings-meter": lambda: settings_choice("meter", 4, 4),

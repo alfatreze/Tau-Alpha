@@ -15,12 +15,12 @@
  * (which stay); nothing new is persisted; Screen blank is not persisted (as Select+Down). */
 
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_MENUS };
-enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_STRESS, CH_SOAK, CH_N };
+enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_N };
 /* Pages after the menus: one per choice list, then the read-only Info page (diagnostics). */
 #define SET_INFO_PG ((uint8_t)(SET_MENUS + CH_N))
 #define SET_STAT_PG ((uint8_t)(SET_INFO_PG + 1u))   /* stress status (Diagnostic Build) */
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
-enum { TG_ART = 0, TG_SHUF, TG_RESUME, TG_SPEED };
+enum { TG_ART = 0, TG_SHUF, TG_RESUME };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 #define SET_PAGE_CH(c) ((uint8_t)(SET_MENUS + (c)))
 
@@ -39,7 +39,7 @@ static const set_row_t set_audio_rows[] = {
     { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 } };
 static const set_row_t set_play_rows[] = {
     { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SHUFFLE", RT_TOGGLE, TG_SHUF },
-    { "RESUME", RT_TOGGLE, TG_RESUME }, { "SPEED", RT_TOGGLE, TG_SPEED } };
+    { "RESUME", RT_TOGGLE, TG_RESUME }, { "SPEED", RT_CHOICE, CH_SPEED } };
 static const set_row_t set_diag_rows[] = {
     { "INFO", RT_GROUP, SET_INFO_PG },
 #if TAU_DIAG_TESTS
@@ -66,9 +66,15 @@ static const uint8_t set_menu_n[SET_MENUS] = {
 static const char *const set_menu_title[SET_MENUS] = {
     "SETTINGS", "APPEARANCE", "AUDIO", "PLAYBACK", "DIAGNOSTICS", "TESTS", "STRESS" };
 static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
-    "SCREEN BLANK", "STRESS LEVEL", "SOAK" };
+    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK" };
 static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
-    SET_APPEAR, SET_STRESS, SET_STRESS };
+    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS };
+/* Only the speeds that play cleanly are offered (A-133: 1.30x and above degrade, the decoder budget
+ * and the 48 kHz output path allow about 1.25x). The higher entries stay in speed_num/speed_den in
+ * player.c for the resampler / decoder work and return here by raising SET_SPEED_SHOWN. */
+#define SET_SPEED_SHOWN 5u
+_Static_assert(SET_SPEED_SHOWN <= SPEED_N, "speed list longer than the speed table");
+static const char *const set_speed_nm[SET_SPEED_SHOWN] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.25X" };
 static const char *const set_stress_nm[4] = { "OFF", "R1  16K OPS/S PACED", "R2  8 OP BURSTS",
     "R3  32 OP BURSTS" };
 static const char *const set_soak_nm[5] = { "OFF", "5 MIN", "15 MIN", "30 MIN", "60 MIN" };
@@ -93,6 +99,34 @@ static const uint8_t     set_blank[5]    = { 0u, 1u, 5u, 10u, 30u };
 #define SET_LIST_H     (PL_UI_ROWS * PL_UI_ROW_H)     /* 264 px of list area */
 
 static uint8_t set_page, set_sel[SET_MENUS], set_ch_cur[CH_N], set_ch_top[CH_N];
+
+#if TAU_METER_THUMBS
+#include "meter_thumbs.h"
+_Static_assert(VIZ_COUNT == 11 && VIZ_BARS == 0 && VIZ_LED == 10,
+               "meter_thumbs.h is indexed by the VIZ_* enum order (tools/gen_meter_thumbs.py ORDER)");
+/* Draw preview `viz` at (x, y): fill with the dominant colour, then paint every other run as a
+ * one-row rectangle (runs may cross row ends). */
+static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
+{
+    const uint16_t *pal = meter_thumb_pal[viz];
+    const uint8_t *p = &meter_thumb_rle[meter_thumb_off[viz]], *e = &meter_thumb_rle[meter_thumb_off[viz + 1u]];
+    uint32_t pos = 0;
+    fb_rect(x, y, METER_THUMB_W, METER_THUMB_H, pal[0]);
+    while (p < e) {
+        uint32_t b = *p++, idx = b >> 4, n = (b & 15u) + 1u;
+        if (idx) {
+            uint32_t at = pos, left = n;
+            while (left) {
+                uint32_t col = at % METER_THUMB_W, seg = METER_THUMB_W - col;
+                if (seg > left) seg = left;
+                fb_rect(x + col, y + at / METER_THUMB_W, seg, 1u, pal[idx]);
+                at += seg; left -= seg;
+            }
+        }
+        pos += n;
+    }
+}
+#endif
 
 #if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
 /* ---- Timed soak (Diagnostic Build): runs the stress pump for N minutes beside normal playback,
@@ -133,7 +167,7 @@ static uint32_t set_ch_count(uint32_t c)
 {
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_COUNT
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
-         : c == CH_STRESS ? 4u : 5u;
+         : c == CH_STRESS ? 4u : c == CH_SPEED ? (uint32_t)SET_SPEED_SHOWN : 5u;
 }
 static uint32_t set_blank_idx(void)
 {
@@ -151,6 +185,7 @@ static uint32_t set_ch_active(uint32_t c)
 #endif
     }
     if (c == CH_SOAK) return dg_soak_active();
+    if (c == CH_SPEED) return speed_idx;
     return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode : c == CH_EQ ? eq_idx
          : c == CH_REPEAT ? rep_mode : set_blank_idx();
 }
@@ -158,7 +193,8 @@ static const char *set_ch_name(uint32_t c, uint32_t i)
 {
     return c == CH_COLOUR ? ui_palette_name[i] : c == CH_METER ? set_viz[i]
          : c == CH_EQ ? eq_name[i] : c == CH_REPEAT ? set_rep[i]
-         : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i] : set_blank_nm[i];
+         : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i]
+         : c == CH_SPEED ? set_speed_nm[i] : set_blank_nm[i];
 }
 static uint32_t set_ch_rowh(uint32_t c)
 {
@@ -174,6 +210,13 @@ static void set_ch_apply(uint32_t c, uint32_t i)
         else                dg_soak_start(i);
 #endif
         return;
+    }
+    if (c == CH_SPEED) {
+        speed_idx = (uint8_t)i;
+        pcm_rate_apply(track_hz);
+        ui_last_sec = 0xFFFFFFFFu;               /* repaint the speed marker next frame */
+        ui_mode_dirty = 1u;
+        return;                                  /* not persisted */
     }
     if (c == CH_COLOUR) {
         ui_pal_idx = i;
@@ -215,12 +258,8 @@ static void set_toggle(uint32_t t)
             pl_resync(cur);                      /* keep playing what is playing */
         }
         ui_mode_dirty = 1u;
-    } else if (t == TG_RESUME) {
-        resume_on = (uint8_t)!resume_on;
     } else {
-        speed_fast ^= 1u;
-        pcm_rate_apply(track_hz);
-        ui_mode_dirty = 1u;
+        resume_on = (uint8_t)!resume_on;
     }
     settings_mark_dirty();
 }
@@ -375,8 +414,7 @@ static void set_menu_value(const set_row_t *r, char *o)
     else if (r->type == RT_VOL) { q = ui_dec(q, volume); s = "%"; }
     else if (r->arg == TG_ART)    s = art_pref ? "ON" : "OFF";
     else if (r->arg == TG_SHUF)   s = shuffle_on ? "ON" : "OFF";
-    else if (r->arg == TG_RESUME) s = resume_on ? "ON" : "OFF";
-    else                          s = speed_fast ? "1.2X" : "NORMAL";
+    else                          s = resume_on ? "ON" : "OFF";
     while (*s) *q++ = *s++;
     *q = 0;
 }
@@ -446,7 +484,11 @@ static void set_draw_choice(uint32_t c)
         }
         uint32_t tx = mx + 24u;
         if (c == CH_METER) {                      /* preview placeholder */
+#if TAU_METER_THUMBS
+            set_draw_thumb(tx, y + (rowh - 2u - SET_TH_H) / 2u, i);
+#else
             fb_rect(tx, y + (rowh - 2u - SET_TH_H) / 2u, SET_TH_W, SET_TH_H, UI_DIM);
+#endif
             tx += SET_TH_W + 14u;
         }
         fb_set_color(sel ? UI_PANEL : UI_WHITE, bg);

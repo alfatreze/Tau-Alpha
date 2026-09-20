@@ -202,6 +202,12 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 /* A-118/A-119: Diagnostics group in the settings menu. TAU_DIAG_INFO adds the read-only Info
  * page and is part of the release-style build; TAU_DIAG_TESTS is reserved for the on-demand
  * tests, stress pump and soak of the "Diagnostic Build" (no code behind it yet). */
+/* A-132: the real meter previews in the settings menu (fw/meter_thumbs.h, about 6 KiB of ROM);
+ * builds without it keep the grey placeholder. Release-style builds only: the Diagnostic Build has
+ * no room for it. */
+#ifndef TAU_METER_THUMBS
+#define TAU_METER_THUMBS 0
+#endif
 #ifndef TAU_DIAG_INFO
 #define TAU_DIAG_INFO 0
 #endif
@@ -508,9 +514,18 @@ static uint32_t track_kbps, track_hz;
  * Deliberately NOT persisted, so it costs no settings slot (all eight are used
  * and a ninth would mean an RTL change). Resetting to normal each launch is
  * also the right default for something engaged per-listen. See ROADMAP. */
-#define SPEED_NUM 6u
-#define SPEED_DEN 5u
-static uint8_t speed_fast;               /* 0 = normal, 1 = 1.2x */
+/* Ten speeds (A-132): rational scale factors, no FPU. The FIFO drain rate is the file's rate times
+ * num/den, so the pitch follows the speed (pitch correction is a later job). The decoder needs
+ * N x the throughput: about 1.25x is the limit on 320 kbps MP3 at 60 MHz (Stage 0 figures), and
+ * 1.5x and above will underrun. Above 48 kHz / file rate the I2S path also drops samples
+ * (zero-order hold at a fixed 48 kHz), which is audible. Not persisted. */
+#define SPEED_N  10u
+#define SPEED_1X 2u
+static const uint8_t speed_num[SPEED_N] = { 17u, 19u, 1u, 11u, 5u, 13u, 3u, 7u, 2u, 5u };
+static const uint8_t speed_den[SPEED_N] = { 20u, 20u, 1u, 10u, 4u, 10u, 2u,  4u, 1u, 2u };
+static const char *const speed_txt[SPEED_N] = { "0.85x", "0.95x", "1.00x", "1.10x", "1.25x",
+                                                "1.30x", "1.50x", "1.75x", "2.00x", "2.50x" };
+static uint8_t speed_idx = SPEED_1X;
 
 /* Drain the PCM FIFO at the file's sample rate, scaled by the current speed;
  * sound_i2s zero-order-holds up to its fixed 48 kHz. Pitch rises with speed --
@@ -528,7 +543,7 @@ static void pcm_rate_apply(uint32_t hz)
 {
     if (!hz) return;
     uint64_t inc = ((uint64_t)hz << 32) / CLK_HZ;
-    if (speed_fast) inc = inc * SPEED_NUM / SPEED_DEN;
+    if (speed_idx != SPEED_1X) inc = inc * speed_num[speed_idx] / speed_den[speed_idx];
     REG(R_PCM_RATE) = (uint32_t)inc;
 }
 static uint32_t track_bytes;      /* audio length the FILE declares (Xing/VBRI) */
@@ -4866,8 +4881,8 @@ ui_tail:
          *
          * Accent, not white: it is a state the user chose, and the same colour
          * every other active mode indicator uses. */
-        if (speed_fast) {
-            const char *sp = "1.2x";
+        if (speed_idx != SPEED_1X) {
+            const char *sp = speed_txt[speed_idx];
             uint32_t sw = fb_text_width(sp, TS_1X);
             uint32_t sx = FB_W - UI_MARGIN - sw;
             uint32_t sy = UI_TIME_Y + (FB_CELL(TS_15X) > FB_CELL(TS_1X)
@@ -6231,11 +6246,11 @@ static void poll_input(void)
         if ((keys & KEY_A) && !a_fired &&
             (int32_t)(cycles() - a_t0) >= (int32_t)a_hold_cy) {
             a_fired = 1;
-            speed_fast ^= 1u;
+            speed_idx = (speed_idx == SPEED_1X) ? 4u : SPEED_1X;       /* 1.25x toggle */
             pcm_rate_apply(track_hz);
             /* Name the speed. An unlabelled 1.2x just sounds like a bad rip,
              * and the only other clue is the elapsed clock running fast. */
-            ui_toast_msg(speed_fast ? "SPEED 1.2x" : "SPEED NORMAL");
+            ui_toast_msg(speed_idx != SPEED_1X ? "SPEED 1.25x" : "SPEED NORMAL");
             /* Repaint the indicator now rather than at the next second tick:
              * it is drawn with the elapsed time, which only redraws when the
              * seconds change. */
