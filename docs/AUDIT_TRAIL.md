@@ -4269,3 +4269,69 @@ bitstream, `pl_count` stays 0, the UI handles it, and single-file playback is un
 **Limit:** the `NO SDRAM PLAYLIST` toast itself was not photographed (it is brief and the screenshots came after it),
 so its exact wording on screen is unconfirmed; the `NO PLAYLIST LOADED` message seen is a different, existing toast.
 Still open: the true no-window RBF (A-110, building).
+
+**A-110 result (Quartus, 2026-09-20):** the rev-23 macro-off build finished Successful (0 errors, 346 warnings;
+it took 2h20m wall clock, far longer than the 50-55 min of earlier builds, cause not investigated, other
+idle VM sessions or host load are possible), 300/308 RAM blocks, all reported slacks positive (setup
++1.029 ns and up, hold +0.313 ns and up). Raw RBF SHA-256
+`743f9fdd349b1cfae11d98492b578ffac95cd9839bc60bd5190f192a8d34b1e6`, copied to
+`work/diagnostics/nowindow-a110/ap_core.rbf`. Packaged with the normal SDRAM-playlist ROM
+(`63e605e9...029fe`, unchanged) by `package_sdram_stress.py --playlist-sdram --nowin` as core
+`alfatreze.TAU_PLSDRAMN` / platform `tau_plsdramn` (bit-reversed RBF `260164d1...03af`, verified against
+the raw file), bundle `work/diagnostics/playlist-sdram-nowin/pocket`; NOT installed on the card.
+Expected on Pocket: the ROM passes the rev-23 interlock, the window preflight fails, toast
+`NO SDRAM PLAYLIST`, playlist off, single-file playback works, and nothing else misbehaves.
+
+**A-110 installation (host, 2026-09-20):** `alfatreze.TAU_PLSDRAMN` / `tau_plsdramn` installed on the card beside the
+other cores (nothing removed); all 14 bundle files SHA-256-identical (ROM `63e605e9...029fe`, bit-reversed
+no-window RBF `260164d1...03af`). Assets: `playlist.m3u` (5 lines) and one real track
+(`TAU A-102 stress/02 320CBR 48k stereo.mp3`). Indexes backed up to
+`work/diagnostics/playlist-sdram-nowin/pocket-cache-backup-2026-09-20/System/` and cleared. Result pending.
+
+### A-112 — SDRAM-playlist ROM on a no-window RBF (Pocket pass) and a correction about the top-edge strip
+
+**Date:** 2026-09-20
+**Evidence:** Pocket (3 screenshots, card clock 14:09, `work/diagnostics/playlist-sdram-nowin/screenshots/`) and RTL
+code-review of `src/fpga/core/core_game.vh`.
+**Row 1 result:** `TAU Playlist No Window` (`63e605e9...` ROM on the A-110 rev-23 macro-off RBF) booted past the
+interlock to the idle "Getting started" screen (no playlist), `LOADING PLAYLIST` appeared after Load Playlist and
+ended without one, and a loaded track then played normally (`PLAYING`, 00:08 / 11:13, cover, spectrum). No crash,
+no garbled screen, no visible side effect of the preflight's read of `0xA0100000` on a bitstream where the
+alias decodes to MMIO. So the fail-safe premise holds on hardware; the `NO SDRAM PLAYLIST` toast itself was again not
+photographed. The user reported no problem beyond "tested".
+**Correction (important):** in all earlier window-build screenshots (A-102 sessions, A-104, A-106, A-111) a
+red/green strip runs along the top edge. A-104 called it "a fixed UI element". It is not: `core_game.vh` (around
+lines 463-500 and 591-594) instantiates `tau_sdram_cpu_window_probe` and overlays 49 eight-pixel cells on the top
+scanlines whenever **`TAU_PHASE2_WINDOW` is defined**; the probe macros only select the return-path mode. The
+strip is absent in the three no-window screenshots. Consequently the A-101 "product-candidate RTL, no probe
+macros" still contains the diagnostic overlay (and its probe logic), and A-102 was wrong to say the strip was
+confined to the A-093 RBF. The A-101 timing/RAM-block numbers, the A-102..A-108 memory results and the
+window's function are unaffected; what is not a product build is the presentation (visible strip) and the exact
+netlist.
+**Next:** split the overlay and the probe instance under their own macro (for example `TAU_PHASE2_PROBE_OVERLAY`),
+keep `TAU_PHASE2_WINDOW` for the window alone, add the macro to the existing probe builds' recipes, run
+`make test-rtl`, then re-run the multi-seed fit and re-verify (soak, coverage, contention, playlist) on the
+resulting RBF, since removing the probe changes placement and timing. Not started; needs the owner's decision.
+
+### A-113 — split the diagnostic probe/overlay from the CPU-window macro (RTL; simulation + synthesis only)
+
+**Date:** 2026-09-20
+**Evidence:** code-review, simulation (`make test-rtl` passes, 0 failures), Quartus Analysis & Synthesis (VM); no fit, no Pocket.
+**Check first:** every use of `TAU_PHASE2_WINDOW` in the tree: `core_game.vh` (mp3_soc window enable; SDRAM debug
+port hookup; probe instance plus overlay; video-out mux), `sdram_fb.sv` (six blocks, all debug ports/registers of the
+probe), `Makefile` (controller-probe testbench). Only the first is the window itself; everything else feeds the
+probe/overlay. No other module depends on the probe, and the wires that only the probe consumed are unconditional
+and were already removed by synthesis in macro-off builds.
+**Change:** new opt-in macro `TAU_PHASE2_PROBE` now guards the controller debug taps in `sdram_fb.sv` and the
+debug-port hookup, probe instance and overlay/video mux in `core_game.vh`. `TAU_PHASE2_WINDOW` keeps only the
+`mp3_soc` window enable. `TAU_PHASE2_MUX_PROBE/_ADAPTER_PROBE/_RETURN_PROBE` remain return-path selectors and now
+require `TAU_PHASE2_PROBE`. The controller-probe simulation in the Makefile builds with both macros.
+**Consequence for old recipes:** a build that used `TAU_PHASE2_WINDOW=1` plus a `*_PROBE` selector (A-080, A-093 and
+the other probe RBFs) needs `TAU_PHASE2_PROBE=1` added to reproduce the same bitstream; the bare-window build
+(A-101) changes: it loses the probe and the strip.
+**Synthesis check** (`quartus_map`, tree with only `TAU_PHASE2_WINDOW=1`, stage `map-a113-20260920` on the VM):
+successful, 0 errors, 5m16s. The probe entity is read from source but not instantiated (no instance in the report).
+Total registers: 7,470, against 7,688 for the A-101 seed-4 map (218 fewer, the probe) and 7,311 for the no-window
+A-110 build (the window itself costs about 159); block memory bits unchanged (2,380,928).
+**Not done:** no place-and-route, no timing, no Pocket. The probe-free window RBF must be built on several seeds
+and every A-093..A-108 gate re-run on it before it replaces the A-101 seed-4 RBF as the product candidate.

@@ -21,6 +21,8 @@ def main():
                     help="package the Phase 2 CPU-window stress player (A-102)")
     ap.add_argument("--playlist-sdram", action="store_true",
                     help="package the A-103 playlist-in-SDRAM player (needs a window RBF)")
+    ap.add_argument("--nowin", action="store_true",
+                    help="with --playlist-sdram: pair the normal SDRAM-playlist ROM with a no-window RBF (A-110)")
     ap.add_argument("--fault", action="store_true",
                     help="with --playlist-sdram: package the fault-injection ROM (A-109)")
     ap.add_argument("--rbf", type=Path, help="raw RBF (window mode requires it)")
@@ -37,8 +39,9 @@ def main():
             core_id, platform = "alfatreze.TAU_SDRAM_WSTRESS", "tau_sdram_wst"
         else:
             d = "playlist-sdram-fault" if args.fault else "playlist-sdram"
-            out = root / f"work/diagnostics/{d}/pocket"
+            out = root / f"work/diagnostics/{'playlist-sdram-nowin' if args.nowin else d}/pocket"
             core_id, platform = (("alfatreze.TAU_PLSDRAMF", "tau_plsdramf") if args.fault
+                                 else ("alfatreze.TAU_PLSDRAMN", "tau_plsdramn") if args.nowin
                                  else ("alfatreze.TAU_PLSDRAM", "tau_plsdram"))
         rbf = args.rbf if args.rbf.is_absolute() else root / args.rbf
         if digest(rbf) != args.rbf_sha256:
@@ -52,6 +55,9 @@ def main():
             short, title, desc = (("TAU_PLSDRAMF", "TAU Playlist SDRAM Fault",
                                    "TAU developer fault-injection player (window check must fail)")
                                   if args.fault else
+                                  ("TAU_PLSDRAMN", "TAU Playlist No Window",
+                                   "TAU developer SDRAM-playlist ROM on a no-window RBF (must refuse)")
+                                  if args.nowin else
                                   ("TAU_PLSDRAM", "TAU Playlist in SDRAM",
                                    "TAU developer player with playlist buffers in SDRAM"))
     else:
