@@ -3573,6 +3573,130 @@ need and revisit it once the real settings design has a size report. The first
 Phase 2 move can be the playlist buffers alone, subject to the margin,
 contention and product-build gates in `docs/CURRENT_STATUS.md`.
 
+### A-097 — long soak of the fixed CPU window (draft, not installed)
+
+**Date:** 2026-09-20
+
+**Decision/change:** First of the promotion gates (margin): a firmware-only soak on
+the A-093 RBF. `TAU_SOAK_PROBE` (`fw/build.sh sdram-cpu-soak`, `--probe-a097`)
+repeats forever, with scanout running: the 183-check matrix, then 128 random
+write-then-read pairs over the whole 2-3 MiB window (xorshift data and
+addresses), then a 64-word block write followed by a verify. Cumulative counters
+(passes, checks, failures split matrix/random, matrix timeouts, elapsed seconds,
+min/max pass time, and the first failure's pass number, address, expected and
+actual) are published through interact.json every 8 passes and on any failure.
+The screen shows the same counters. Decode with
+`tools/decode_tau_diag_log.py --interact --soak` (checked on a synthetic record).
+Same RBF `e16ffe9d...4d9d`; ROM SHA-256
+`3a4cfbbdee84d34f91bd6703a8aba0b788068f12833fa2ffe33492781c600f0a` (10,400 bytes,
+5.8% of RAM); bundle at `work/diagnostics/sdram-cpu-probe-a097/pocket`.
+**Why:** A-093 passed the 183-check matrix on three cold boots, but a few short
+runs do not show timing margin (KB-011/KB-021: seed variation, CL2 at 100 MHz,
++0.111 ns worst hold slack). A soak with varied addresses and data across many
+refresh and scanout phases is the cheap first check. It does not include audio
+playback (the separate contention gate).
+**Predictions (before the run):** over at least 30 minutes, 0 failures in both
+matrix and random parts and no matrix timeouts; pass time steady (about tens of
+ms) with an occasional longer pass from stalls; if any failures appear they are
+sporadic, not the lag pattern, and would point to margin rather than logic.
+**Run plan:** install, launch, leave it running for 30 to 60 minutes with the
+Pocket on power, photograph the screen near the start and just before quitting,
+Quit to the menu, then remount the card. A hard power-off or pulling the card
+without Quit loses the record.
+**Status:** built and packaged.
+**Installation evidence:** **host** — A-097 replaced only A-094 on the mounted card
+(A-094 core, platform, image, assets, save and settings removed; its persist file
+is in `pocket-cache-backup-2026-09-20/a094-removed/`). ROM `3a4cfbbd...0f0a` and
+bit-reversed RBF `c765cabb...48b3` (the A-093 fixed RBF) verified on the card by
+SHA-256; 16 persist variables present; catalog indexes backed up under
+`work/diagnostics/sdram-cpu-probe-a097/pocket-cache-backup-2026-09-20/System/` and
+cleared. Pocket result pending; Quit before removing the card.
+
+**Pocket outcome:** **Pocket | host** — **PASS.** The persisted record (after Quit,
+copy in `pocket-result/`) decodes to: 705,160 passes, 264,435,000 checks, elapsed
+0:30:15, **0 failures** (matrix 0, random 0), 0 matrix timeouts, no first-failure
+data, per-pass time 0.852 ms minimum and 3.935 ms maximum. Screenshots
+`20260920_011745.png` (start: 824 passes, 309,000 checks, 0:00:02) and
+`20260920_014753.png` (just before Quit: 703,016 passes, 263,631,000 checks,
+0:30:09, `FAILS 0`) agree with the record (checks = 375 per pass: 183 matrix +
+128 random pairs + 64 block words). Predictions: 0 failures, no timeouts, steady
+pass time with occasional longer passes: all confirmed.
+**What this supports:** with scanout running, about 2.6 x 10^8 read-back checks
+over 30 minutes at room temperature produced no error, which bounds the failure
+rate below about 1.1 x 10^-8 per check at roughly 95% confidence (rule of
+three). It supports the uncached window at CL2/100 MHz for this traffic on this
+unit for that long.
+**What it does not cover:** only the 2-3 MiB region (the window spans about 63
+MiB); no audio or other engine traffic beyond scanout; one temperature and one
+unit; the A-093 build's thin hold slack (+0.111 ns) is unchanged; a fixed traffic
+mix. Cosmetic: the soak screen shows a clipped stale phase label in the progress
+strip (the matrix's own progress text), which does not affect the record.
+**Next gate:** full-window address-line coverage, a 1 MiB CRC under concurrent
+framebuffer drawing, and access-time counters (A-100), then the product RTL and
+contention gates.
+
+### A-100 — whole-window coverage, CRC under drawing, access counters (draft)
+
+**Date:** 2026-09-20
+
+**Decision/change:** Firmware-only `TAU_FULL_PROBE` (`fw/build.sh sdram-cpu-full`,
+`--probe-a100`, decoder `--interact --full`) on the A-093 RBF, closing coverage
+gaps left by the matrix and the A-097 soak, which only touch physical 2-3 MiB:
+1. **Address lines over the whole window.** A unique per-address word is written at
+   0x100000 and at 0x100000 | 2^k for every k = 2..25 except 20, plus the pair
+   0x200000/0x300000 (which differs only in bit 20), 26 addresses in all, then read
+   back in reverse order, then the complements are written and checked (52 checks).
+   A host check confirms the list contains a single-bit pair for every line 2..25
+   and stays inside 1-64 MiB. This covers column, row and both bank bits
+   (byte bits 24-25).
+2. **1 MiB CRC under concurrent drawing.** Physical 8-9 MiB, three rounds: a
+   pseudo-random fill with a CRC32 per 64 KiB block, then a read-back CRC32 per
+   block; a framebuffer RECT is issued every 64 words in both passes so the draw
+   engine runs against the CPU window.
+3. **Counters.** Per-access max read and write cycles during the CRC passes, the
+   draw-engine stall counter (`R_FB_STALL`), block-0 CRCs, and the number of window
+   accesses.
+ROM SHA-256 `6a7567d1aa9912366aa8a3d20292ce0d09b86ee8bde7688ed16354124f85044f`
+(7,852 bytes, 4.4% of RAM); RBF `e16ffe9d...4d9d`; bundle at
+`work/diagnostics/sdram-cpu-probe-a100/pocket`. Platform id `tau_sdram_p100` (the Pocket limit is 15 characters). Renumbered from
+A-098 because a parallel PSRAM session claimed A-098 and A-099 in this trail.
+**Installation evidence:** **host** — A-100 replaced only A-097 on the mounted card
+(A-097 core, platform, image, assets, save and settings removed; its persist file
+is in `pocket-cache-backup-2026-09-20/a097-removed/`). ROM `6a7567d1...5044f` and
+bit-reversed RBF `c765cabb...48b3` (the A-093 fixed RBF) verified on the card by
+SHA-256; 16 persist variables present; catalog indexes backed up under
+`work/diagnostics/sdram-cpu-probe-a100/pocket-cache-backup-2026-09-20/System/` and
+cleared. Pocket result pending; Quit before removing the card.
+
+**Pocket outcome:** **Pocket | host** — **PASS.** Screenshot `20260920_015608.png` and
+the decoded persisted record (copies in `pocket-result/`, with the mid-run
+screenshot `20260920_015601.png` showing the concurrent drawing) agree: address
+lines 52 checks, 0 failures; CRC 3 rounds, 0 block mismatches, block-0 CRC written
+and read both `0xD7F900C4`; maximum access time read 360 cycles (6 us), write
+350; draw-engine stall count 0; 1,572 thousand window accesses (3 rounds x 2 x
+262,144 words). Predictions: all confirmed (worst access far below 1,000).
+**Observations:** the worst read equals A-094's idle worst case (360), so drawing at
+this load did not raise the bound; a stall count of 0 shows the draw command queue
+never filled, so this is a light concurrent load (one 60x40 RECT per 64 words), not
+a heavy contention test.
+**Still not covered:** the top word of the window (0xA3FFFFFC; the highest tested
+address is 33 MiB), out-of-window accesses on hardware (below 1 MiB and above
+64 MiB; decode is simulated only), audio playback and other engine traffic,
+temperature, the product RTL, and the cached alias. Combined with A-097 (30 min,
+264M checks, 0 failures) the uncached window is now supported across its address
+lines and for sustained traffic on this unit.
+**Next gate:** probe-free product RTL built on several seeds (timing margin,
+block-RAM count), then the contention test with real playback.
+**Predictions (before the run):** 52 address-line checks with 0 failures; 3 CRC
+rounds with 0 block mismatches and block-0 write and read CRCs equal; maximum
+read/write access time stays below about 1,000 cycles (A-094 idle worst case was
+360 and 324) even with the engine drawing; a nonzero draw-engine stall count is
+possible and is informational. Any address-line failure would name the failing
+location and indicate a decode or wiring fault for that line; a CRC mismatch would
+localise to a 64 KiB block.
+**Not covered even by this:** audio playback, other engine traffic, temperature,
+the product RTL, and the cached alias.
+
 ## Reversal ledger
 
 This table points to conclusions that changed after evidence. Keep it visible
@@ -3599,3 +3723,75 @@ in review; it is not an embarrassment to delete.
 **Resource/timing delta:** measured values or `not applicable` / `pending`
 **Outcome, reversal/workaround, remaining risk, and next gate:**
 ```
+
+### A-098 — PSRAM P0 contract and P1 controller simulation (sim only, no hardware)
+
+**Date:** 2026-09-20
+
+**Decision/change:** Started the PSRAM series (`docs/PSRAM_IMPLEMENTATION_PLAN.md`).
+Added `docs/PSRAM_TIMING_CONTRACT.md` (values tagged by source; every datasheet
+value OPEN), `tools/check_psram_idle.py` (static: all `cram0_/cram1_` outputs idle
+with PSRAM macros off; negative-tested), `src/fpga/core/tau_psram_async.sv`
+(async multiplexed-address controller: two ordered 16-bit ops per CPU word, one CE#
+at a time, guard word refused, DQ driven only in address/write phases, held
+response, power-up hold-off, slow-timing dials), `src/fpga/core/tau_psram_bus.sv`
+(classic Wishbone, ACK/ERR only after the response register loads, two-cycle
+release per KB-024), `sim/psram_chip_model.v` (strict four-die model that returns X
+until t_acc and reports CE overlap, short pulses, missing setup, lane changes and
+guard access), `sim/tb_tau_psram_async.v`, `sim/tb_tau_psram_wb_return_regression.v`.
+Makefile: `test-rtl-psram-{idle,async,wb-return,mutation}`, all in `test-rtl`.
+Nothing is wired into `core_top.v`, the CPU decode, firmware or any package.
+**Why:** P0/P1 carry no hardware risk and need neither the Quartus VM nor the card.
+The AS1C8M16PL datasheet could not be fetched (Alliance URLs return the site HTML),
+so timings come from the agg23 reference controller (its comments call two values
+guesses) and are held as parameters.
+**Result (simulation):** controller test PASSED (0 failures, 0 model errors;
+about 1,000 writes and 890 reads per chip; hold-off, walking 0/1, address lines,
+byte lanes, random traffic over all four dies, boundaries, guard refused with no
+chip access, reset mid-read and mid-write, slow dials +3/+3). Bus regression PASSED
+(29 beats -> 29 controller requests at gap 0 and gap 3, registered ACK). Mutants
+killed: `T_ACC=4` (early capture), `REL_CYC=1` (reproduces the A-092 duplicate
+request, 29 beats -> 30 requests), `MUT_EARLY_ACK=1` (ACK before response loaded;
+first version of the check was too weak and the mutant survived until an ACK-cycle
+assertion was added). A separate `T_WP=2` mutant also fails (not in the Makefile).
+`make test` exits 0. Measured cost at the conservative defaults: 22 clocks per
+32-bit write, 20 per read (controller only), about 2x cheaper than the 48-50 clocks
+of uncached SDRAM (A-094); simulated, not measured on hardware.
+**Limits:** the model timings are the same provisional numbers the controller was
+built to, so passing shows internal consistency, not datasheet compliance. No I/O
+constraints, Quartus fit or board-level DQ turn-around evidence exist yet.
+**Next:** owner supplies the datasheet; close P0 open rows; then P2 (mailbox,
+I/O constraints, `interact.json` publishing, `--probe-a100`).
+
+### A-099 — datasheet check of the PSRAM controller (sim only, found a real bug)
+
+**Date:** 2026-09-20
+
+**Decision/change:** The AS1C8M16PL-70BIN datasheet (`docs/vendor/DOC012312972.pdf`,
+Rev 1.0 preliminary Aug 2018) was supplied and read (54 PDF pages, text extracted
+with pypdf installed in the session scratchpad only). `docs/PSRAM_TIMING_CONTRACT.md`
+was rewritten with datasheet-verified values and PDF page references. Controller
+default `T_ACC` 6 -> 8. `sim/psram_chip_model.v` gained `tOE`, `tAA`, `tCO`,
+`tAADV`-from-ADV#-rising, `tCW`, `tCPH`, `tCEM` and an OE#-during-address check.
+Makefile mutation target now also kills `T_ACC=6` and `T_ACC=7`.
+**Why:** the A-098 timings were provisional (agg23 reference values).
+**Finding:** the A-098 default sampled read data about 1 clock (16.7 ns) after OE#
+fell and about 3 clocks (50 ns) after ADV# rose. The datasheet requires `tOE` <= 20
+ns from OE# low, and `tAADV` 70 ns (origin edge not stated; safe reading is from
+ADV# rising). The A-098 model did not check `tOE`, so it passed. On hardware this
+would have produced marginal or wrong reads. Not a hardware result; found before
+any build.
+**Datasheet facts closed:** software-access hazard is two async reads then two async
+writes at 3FFFFFh, third-cycle data selects RCR/BCR/DIDR (p.19); power-up init
+150 us (p.7); async is the power-up default, BCR 9D1Fh, RCR 0010h (pp.21, 26);
+WAIT ignored in async (pp.5, 13); CRE may be tied low (p.19); CE# high between ops
+>= 5 ns, CE# low <= 4 us (pp.30-33); write timings tWP 45, tDW 20, tAW/tCW/tVS 70.
+**Result (simulation):** controller test PASSED (0 model errors), bus regression
+PASSED, five mutants killed (`T_ACC=4/6/7`, `REL_CYC=1`, `MUT_EARLY_ACK=1`). Cost at
+the checked defaults: 22 clocks per 32-bit write, 24 per read (controller only),
+still about 2x cheaper than uncached SDRAM (48-50 clocks, A-094).
+**Still open (hardware):** origin of `tAADV`; whether defaults-only operation works
+on Pocket (p.3 caption says registers need setting after power-on, p.7 says defaults
+load); board-level skew and I/O constraints; datasheet is a preliminary revision.
+**Next:** P2 (mailbox, I/O constraints, `interact.json` publishing, `--probe-a100`).
+
