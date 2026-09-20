@@ -194,6 +194,9 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #ifndef TAU_PL_SDRAM
 #define TAU_PL_SDRAM 0
 #endif
+#ifndef TAU_PL_SDRAM_FAULT
+#define TAU_PL_SDRAM_FAULT 0
+#endif
 #if TAU_PL_SDRAM
 #define PL_SDRAM __attribute__((section(".sdram")))
 #else

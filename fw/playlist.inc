@@ -948,6 +948,11 @@ static int pl_sdram_prove(void)
     while ((uint32_t)(cycles() - t) < 128u) { }
     while (REG(R_SDR_STATUS) & 1u)
         if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return 0;
+#if TAU_PL_SDRAM_FAULT
+    /* Fault injection (A-109): read a word the mailbox never wrote, so the window
+     * check fails on a healthy bitstream and exercises the feature-off path. */
+    w0 = (volatile uint32_t *)(uintptr_t)(PL_SDRAM_BASE + 0x40u);
+#endif
     if (*w0 != 0x504C5342u) return 0;
     for (uint32_t k = 0; k < 2u; k++) {
         *w0 = pat[k];  *w1 = ~pat[k];
