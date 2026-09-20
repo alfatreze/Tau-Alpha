@@ -560,6 +560,9 @@ def main() -> None:
                       help="package the A-087 source-buffer probe")
     mode.add_argument("--probe-a086", action="store_true",
                       help="package the A-086 write-before-flush probe")
+    parser.add_argument("--rbf", type=Path,
+                        help="use this raw RBF instead of the profile's (A-114 probe-free candidate)")
+    parser.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
     args = parser.parse_args()
     cfg = profile(args.probe, args.probe_a060, args.probe_a060_readback,
                   args.probe_a062, args.probe_a063, args.probe_a064,
@@ -568,6 +571,13 @@ def main() -> None:
                   args.probe_a079, args.probe_a080, args.probe_a082,
                   args.probe_a083, args.probe_a084, args.probe_a085,
                   args.probe_a086, args.probe_a087, args.probe_a088, args.probe_a089, args.probe_a090, args.probe_a091, args.probe_a092, args.probe_a093, args.probe_a094, args.probe_a097, args.probe_a100)
+    if args.rbf:
+        if not args.rbf_sha256:
+            raise SystemExit("--rbf requires --rbf-sha256 (refusing an unaudited RBF)")
+        cfg["raw_rbf"] = args.rbf if args.rbf.is_absolute() else ROOT / args.rbf
+        cfg["expected_hash"] = args.rbf_sha256
+        cfg["output"] = (cfg["output"].parent.with_name(cfg["output"].parent.name + "-pf")
+                         / cfg["output"].name)
     raw_rbf = cfg["raw_rbf"]
     diag_rom = cfg["rom"]
     output = cfg["output"]

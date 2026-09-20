@@ -4590,3 +4590,32 @@ metadata moved, one repo unreachable, neither PSRAM-relevant; `kb.py validate` 0
 problems. The KB now has publishable and git-ignored local entries; KB-029 (PSRAM
 datasheet) is in `local-entries/`, unchanged.
 **Not changed:** no RTL, firmware, package, card or VM action.
+
+**A-122 installation (host, 2026-09-20):** `Assets/tau_settings/common/tau.rom` on the card replaced with the 1.2x-hold-free build
+(`448a49dc...`, 155,468 B); previous ROM (`d0b5a32b...`, A-118) and the catalog indexes backed up in
+`work/diagnostics/settings-ui/rom-replaced-a122/`, indexes cleared. All 14 bundle files SHA-256-identical (seed-2 RBF unchanged,
+base media and every other core untouched). The Diagnostic Build is not on the card. Result pending: a long press of A must now only
+pause/resume, and Speed must still work from Settings > Playback.
+
+### A-124 — soak and coverage gates repackaged on the probe-free seed-2 RBF (host only)
+
+**Date:** 2026-09-20
+**Evidence:** host (build, package); the user reported the A-122 settings ROM tested fine on the Pocket (long-press A no longer changes
+speed; user-reported, no screenshots read).
+**Change:** `tools/package_sdram_cpu_diagnostic.py` gained `--rbf PATH --rbf-sha256 HASH` (audited override; output goes to a `-pf`
+sibling of the profile's folder so the old bundles stay). The soak (A-097) and whole-window coverage (A-100) ROMs were rebuilt with
+`fw/build.sh sdram-cpu-soak` / `sdram-cpu-full` and are **byte-identical** to the ones that passed on Pocket (soak `3a4cfbbd...0f0a`,
+10,400 B; full `6a7567d1...044f`, 7,852 B), so only the bitstream differs. Packaged with the seed-2 RBF (raw `551e5a76...718b`,
+bit-reversed `cb15310a...a3c9`):
+`work/diagnostics/sdram-cpu-probe-a097-pf/pocket` (core `alfatreze.TAU_SDRAM_PRB97`, platform `tau_sdram_prb97`) and
+`work/diagnostics/sdram-cpu-probe-a100-pf/pocket` (core `alfatreze.TAU_SDRAM_PRB100`, platform `tau_sdram_p100`). Not installed.
+**Run plan (same acceptance as A-097/A-100):** coverage: run once (seconds to a minute), 52 address-line checks and three 1 MiB CRC
+rounds with 0 failures, worst access about 360 cycles, draw stalls 0; soak: leave 30-60 min, expect 0 failures over hundreds of millions
+of checks; Quit the core afterwards so APF writes `interact_persist.json`; decode with `tools/decode_tau_diag_log.py --interact --full`
+(coverage) and `--interact --soak`.
+
+**A-124 installation (host, 2026-09-20):** `alfatreze.TAU_SDRAM_PRB97` (soak, platform `tau_sdram_prb97`) and
+`alfatreze.TAU_SDRAM_PRB100` (coverage, platform `tau_sdram_p100`) installed on the card beside the other cores, nothing removed. All 13 card
+files of each bundle SHA-256-identical to the packaged copy (the `INSTALL.txt` and `SHA256SUMS.txt` in each bundle are documentation and
+were deliberately not copied). ROMs `3a4cfbbd...` / `6a7567d1...`, bit-reversed seed-2 RBF `cb15310a...`. Catalog indexes backed up in
+`work/diagnostics/sdram-cpu-probe-a097-pf/card-backup-2026-09-20/System/` and cleared. Results pending.
