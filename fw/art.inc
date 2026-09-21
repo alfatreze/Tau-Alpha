@@ -60,7 +60,48 @@
  * the other. */
 #define ART_ACC_ROWS  20u
 
-static uint16_t art_acc[ART_ACC_ROWS][ART_IMG][3];
+static uint16_t art_acc[ART_ACC_ROWS][ART_IMG][3] ART_PSRAM;
+
+#define ART_ERR_PSRAM  0xE1u
+#if TAU_ART_PSRAM
+/* The accumulator lives at 0xA4000000.. (PSRAM window). On a bitstream without the window
+ * that address is not RAM, so no store may be issued until it is proven: the PSRAM
+ * expansion ID must read back, the build must report the CPU window present, and the first
+ * and last word of the section must hold two patterns. Runs once; the verdict is kept.
+ * Failure leaves cover art off for the session (art_decode returns 0, code ART_ERR_PSRAM). */
+#define ART_PS_ID      0x80000088u
+#define ART_PS_CFG     0x800000A0u
+#define ART_PS_ID_VAL  0x50535231u
+static uint8_t  art_ps_state;                    /* 0 untested, 1 proven, 2 failed */
+static uint32_t art_ps_rd __attribute__((unused));   /* cycles for one window read */
+
+static int art_psram_prove(void)
+{
+    static const uint32_t pat[2] = { 0xA5C33C5Au, 0x5A3CC3A5u };
+    if (REG(ART_PS_ID) != ART_PS_ID_VAL) return 0;
+    if (!((REG(ART_PS_CFG) >> 16) & 1u)) return 0;
+    volatile uint32_t *w0 = (volatile uint32_t *)(uintptr_t)&art_acc[0][0][0];
+    volatile uint32_t *w1 = (volatile uint32_t *)((uintptr_t)&art_acc[0][0][0] + sizeof(art_acc) - 4u);
+    uint32_t t = cycles();
+    *w0 = pat[0];
+    uint32_t got = *w0;
+    art_ps_rd = cycles() - t;
+    if (got != pat[0]) return 0;
+    for (uint32_t k = 0; k < 2u; k++) {
+        *w0 = pat[k]; *w1 = ~pat[k];
+        if (*w0 != pat[k] || *w1 != ~pat[k]) return 0;
+    }
+    return 1;
+}
+
+static int art_psram_ready(void)
+{
+    if (!art_ps_state) art_ps_state = art_psram_prove() ? 1u : 2u;
+    return art_ps_state == 1u;
+}
+#else
+#define art_psram_ready() 1
+#endif
 static uint16_t art_rowcnt[ART_IMG];    /* source rows feeding each dest row */
 static uint16_t art_colcnt[ART_IMG];    /* source cols feeding each dest col */
 static uint16_t art_line[ART_IMG];      /* the row currently being emitted   */
@@ -384,6 +425,7 @@ static int art_decode(uint32_t tag_len)
               ? art_find_flac_picture()
               : (tag_len && art_find_apic(tag_len));
     if (!found) return 0;                    /* no picture: nothing to explain */
+    if (!art_psram_ready()) { art_fail_code = ART_ERR_PSRAM; return 0; }   /* P5: window not proven */
     uint32_t jpg_start = art_jpg_pos;        /* to rewind for a second init */
 
     pjpeg_image_info_t info;

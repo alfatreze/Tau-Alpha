@@ -20,7 +20,7 @@ enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS,
 #define SET_INFO_PG ((uint8_t)(SET_MENUS + CH_N))
 #define SET_STAT_PG ((uint8_t)(SET_INFO_PG + 1u))   /* stress status (Diagnostic Build) */
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
-enum { TG_ART = 0, TG_SHUF, TG_RESUME };
+enum { TG_ART = 0, TG_SHUF, TG_RESUME, TG_SPEEDS };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 #define SET_PAGE_CH(c) ((uint8_t)(SET_MENUS + (c)))
 
@@ -45,6 +45,7 @@ static const set_row_t set_diag_rows[] = {
 #if TAU_DIAG_TESTS
     { "TESTS", RT_GROUP, SET_TESTS },
     { "STRESS", RT_GROUP, SET_STRESS },
+    { "ALL SPEEDS", RT_TOGGLE, TG_SPEEDS },
 #endif
 };
 /* Diagnostic Build tests: A runs the highlighted one and its result replaces the value. */
@@ -74,7 +75,21 @@ static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, 
  * player.c for the resampler / decoder work and return here by raising SET_SPEED_SHOWN. */
 #define SET_SPEED_SHOWN 5u
 _Static_assert(SET_SPEED_SHOWN <= SPEED_N, "speed list longer than the speed table");
+#if TAU_DIAG_TESTS
+static const char *const set_speed_nm[SPEED_N] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.20X",
+    "1.30X", "1.50X", "1.75X", "2.00X", "2.50X" };
+#else
 static const char *const set_speed_nm[SET_SPEED_SHOWN] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.20X" };
+#endif
+/* Diagnostic Build only: Diagnostics > ALL SPEEDS offers the whole speed table (up to 2.50x) in the speed list, as a
+ * test bed for the audio work. Not persisted; off at every start; turning it off returns a fast speed to 1.00x. */
+#if TAU_DIAG_TESTS
+static uint8_t set_speed_all;
+#define SET_SPEED_COUNT() ((uint32_t)(set_speed_all ? SPEED_N : SET_SPEED_SHOWN))
+#else
+#define set_speed_all 0u
+#define SET_SPEED_COUNT() ((uint32_t)SET_SPEED_SHOWN)
+#endif
 static const char *const set_stress_nm[4] = { "OFF", "R1  16K OPS/S PACED", "R2  8 OP BURSTS",
     "R3  32 OP BURSTS" };
 static const char *const set_soak_nm[5] = { "OFF", "5 MIN", "15 MIN", "30 MIN", "60 MIN" };
@@ -167,7 +182,7 @@ static uint32_t set_ch_count(uint32_t c)
 {
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_COUNT
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
-         : c == CH_STRESS ? 4u : c == CH_SPEED ? (uint32_t)SET_SPEED_SHOWN : 5u;
+         : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT() : 5u;
 }
 static uint32_t set_blank_idx(void)
 {
@@ -258,6 +273,17 @@ static void set_toggle(uint32_t t)
             pl_resync(cur);                      /* keep playing what is playing */
         }
         ui_mode_dirty = 1u;
+#if TAU_DIAG_TESTS
+    } else if (t == TG_SPEEDS) {
+        set_speed_all = (uint8_t)!set_speed_all;
+        if (!set_speed_all && speed_idx >= SET_SPEED_SHOWN) {
+            speed_idx = SPEED_1X;                /* leave the fast speeds behind */
+            pcm_rate_apply(track_hz);
+            ui_last_sec = 0xFFFFFFFFu;
+            ui_mode_dirty = 1u;
+        }
+        return;                                  /* not persisted */
+#endif
     } else {
         resume_on = (uint8_t)!resume_on;
     }
@@ -414,6 +440,7 @@ static void set_menu_value(const set_row_t *r, char *o)
     else if (r->type == RT_VOL) { q = ui_dec(q, volume); s = "%"; }
     else if (r->arg == TG_ART)    s = art_pref ? "ON" : "OFF";
     else if (r->arg == TG_SHUF)   s = shuffle_on ? "ON" : "OFF";
+    else if (r->arg == TG_SPEEDS) s = set_speed_all ? "ON" : "OFF";
     else                          s = resume_on ? "ON" : "OFF";
     while (*s) *q++ = *s++;
     *q = 0;

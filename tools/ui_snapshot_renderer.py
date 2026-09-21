@@ -540,7 +540,7 @@ SAMPLE_VALUE = {"COLOUR": "AMBER", "METER": "OSCILLOSCOPE", "EQUALIZER": "FLAT",
                 "RESUME": "ON", "SPEED": "1.00X", "VOLUME": "65%",
                 "WINDOW TEST": "PASS 89", "READ CYCLES": "48/50/362", "WRITE CYCLES": "47/49/361",
                 "PLAYLIST CHECK": "PASS 13", "CLEAR COUNTERS": "DONE",
-                "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN"}
+                "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN", "ALL SPEEDS": "OFF"}
 
 
 def settings_menu(page, selected):

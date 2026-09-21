@@ -161,7 +161,7 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 /* Shown on the splash. This is the PRODUCT version, not the RTL/firmware
  * contract above -- they answer different questions and must not be conflated.
  * Keep it in step with the status line in README.md; nothing enforces that. */
-#define APP_VER "0.2.2"
+#define APP_VER "0.3.0"
 
 /* Developer diagnostics, OFF in a release build. Flip to 1 to bring back
  * Select+A (APF slot table, boot vs live), Select+B (the framework's file
@@ -193,6 +193,18 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * feature off (no BRAM fallback) if it does not answer. Off by default. */
 #ifndef TAU_PL_SDRAM
 #define TAU_PL_SDRAM 0
+#endif
+/* P5: place the album-art accumulator (art_acc, 11,040 B) in PSRAM behind the uncached CPU
+ * window at 0xA4000000 instead of BRAM. Needs the P4 bitstream (PSRAM window); art_prove()
+ * checks for it before the first store and turns cover art off (no BRAM fallback) if it is
+ * absent or fails. Off by default. */
+#ifndef TAU_ART_PSRAM
+#define TAU_ART_PSRAM 0
+#endif
+#if TAU_ART_PSRAM
+#define ART_PSRAM __attribute__((section(".psram")))
+#else
+#define ART_PSRAM
 #endif
 /* A-115: in-app settings (Start opens it; the Start stop function is removed in such a
  * build). Off by default so the standard build stays byte-identical until it is versioned. */
