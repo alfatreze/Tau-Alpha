@@ -5195,3 +5195,8 @@ Same ROM as the `TAU_SETTINGS` test build.
 **A-137 installation (host, 2026-09-21):** v0.2.2 installed as the base `alfatreze.TAU` core (`tau.rom` `a8e76b78...`, `core.json` `0.2.2`; the seed-2 `bitstream.rbf_r` was already identical) and brought to the same ROM/version in the
 `TAU_SETTINGS` test build. Replaced files (v0.2.1 ROMs `40b92cdf...` and `core.json`s) and the catalog indexes are backed up in `work/diagnostics/release-v022/card-replaced/`, indexes cleared; media, `TAU_DIAGNOSTIC` and `TAU_PSRAM` untouched.
 Result pending: meter list shows the greyscale previews; Info shows 0.2.2; Speed 0.85-1.20x.
+
+**Card cleanup (host, 2026-09-21):** removed from the card, each first copied to `work/diagnostics/card-cleanup-2026-09-21/` (84 MB) and diffed identical: (1) `TAU_SETTINGS` (core, `Assets/tau_settings` 83 MB, `Platforms/tau_settings.json`,
+`Platforms/_images/tau_settings.bin`, `Settings/alfatreze.TAU_SETTINGS`), redundant since v0.2.2 made it byte-identical to the base `TAU`; (2) the orphans of long-removed probe cores: 19 `Settings/alfatreze.TAU_SDRAM_*` folders (`CPU`, `PRB60`..`PRB85`,
+`PROBE`, `RD60`; none had a core folder), `Platforms/tau_sdram_prb83/84/85.json` and the images for `prb67/74/76/83/84/85`. Catalog indexes backed up and cleared. What remains of ours on the card: `TAU` (v0.2.2, with its media),
+`TAU_DIAGNOSTIC` (Phase 3 build, own media copy) and `TAU_PSRAM` (PSRAM session, untouched). Screenshots, the other cores and Pocket data were not touched.
