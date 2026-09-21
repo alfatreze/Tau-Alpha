@@ -5206,7 +5206,7 @@ Result pending: meter list shows the greyscale previews; Info shows 0.2.2; Speed
 **Date:** 2026-09-21
 **Evidence:** host (card install and per-file SHA-256 verification). No Pocket run yet.
 **Approval:** the owner put the card in and said "go ahead and install both" after B-013.
-**Card state found (not caused by this work):** volume `Pock`, 111 GB free. Compared with the state left after B-009, the other Tau cores (`TAU_SETTINGS`,
+**Card state found (not caused by this work; explained by the owner afterwards: deliberate cleanup of the SDRAM and settings builds after releases 2.0, 2.1 and 2.2, so no action needed):** volume `Pock`, 111 GB free. Compared with the state left after B-009, the other Tau cores (`TAU_SETTINGS`,
 `TAU_SDRAM_PRB97`, `TAU_SDRAM_PRB100`, `TAU_SDRAM_WSTRESS`) and their assets/platforms were no longer on the card, and the five catalog indexes were absent
 (only `chip32_state`, `lastbuild`, `lastcore`, `laststate`, `platforms_defaultcores`, `recent`, `usercore_startstate` remained). `alfatreze.TAU`, `TAU_DIAGNOSTIC`
 and the B-008 `TAU_PSRAM` core were present; the latter was byte-identical to its bundle. Nothing was removed by me, and I did not restore anything.
@@ -5230,3 +5230,120 @@ screen shows `RUN n` and `IDX n`. A screenshot that starts an extra run is harml
 (the 24 KiB exit target was not needed); notes added to `docs/SETTINGS_ARCHITECTURE.md` and `docs/SETTINGS_RUNTIME_BUDGET.md`; `CLAUDE.md` gained a session-start section (read order, audit series, commit etiquette, card procedure). Skill knowledge base: local
 entries KB-038 (a diagnostic-overlay macro that is also the feature macro leaks the overlay into product builds) and KB-039 (a memory window must be proven at runtime before the first store; failure switches the feature off), both
 hardware-validated by the Tau results cited in them; `kb.py validate` and `index` pass.
+
+### B-015 — PSRAM read-timing margin measured on the Pocket: reads pass from sample index 7, fail at 6; the shipped 9 has two clocks of margin
+
+**Date:** 2026-09-21
+**Evidence:** Pocket. 16 Pocket screenshots (archived `work/diagnostics/psram-diag/margin/screenshots/`, card clock 00:47:43 to 00:52:25; four earlier files from 00:03-00:06 belong to other work and are
+not used) and both persisted records (`margin/t7/`, `margin/t6/`), decoded independently. Two starts per core (T6 first, then T7), each with the automatic run and then X, Y, B.
+**Screens (every one is self-labelled with `RUN n` and `IDX n`; every failing or passing run has CHECKS 1048704):**
+| Build | Start | Idx 6 | Idx 7 | Idx 8 | Idx 9 | Idx 10 |
+|---|---|---|---|---|---|---|
+| T6 | 1 (00:47-00:48) | **FAIL** 305,846 | PASS | PASS | PASS | |
+| T6 | 2 (00:50) | **FAIL** 378,019 | PASS | PASS | PASS | |
+| T7 | 1 (00:51) | | PASS | PASS | PASS | PASS |
+| T7 | 2 (00:51-00:52) | | PASS | PASS | PASS | PASS |
+Every PASS shows all four CRCs correct, `FAIL 0`, `TO 0 CE 0 GHIT 1 W 01`. Index 7 was tested four times (two builds, two starts each) and passed every time; index 6 failed both times it was tested.
+**Idx 6 failures (partial, die-dependent):** start 1: D0 2,150, D1 204,115, D2 53,135, D3 46,446 (of 262,176 checks per die: 0.8%, 77.9%, 20.3%, 17.7%); start 2: D0 5,349, D1 227,541, D2 76,746, D3 68,383
+(2.0%, 86.8%, 29.3%, 26.1%). No timeout, no CE conflict, guard still hit. First failure in both starts: test 3 (hash fill), and the actual value differs from the expected one by exactly bit 16 (start 1: word `000017`,
+expected `53968C70`, actual `53978C70`; start 2: word `000004`, expected `37C2E759`, actual `37C3E759`). Bit 16 is DQ[0] of the second 16-bit read of a word; it is only the first failure in die 0, not
+a per-bit error map. The failure at 6 is gradual (data almost right on some dies), the signature of sampling at the edge of valid data, not of a broken interface.
+**Saved records:** T7 (last run: idx 10, slow, 8,389,600 ops) and T6 (last run: idx 9, slow, 8,389,600 ops), both PASS, valid checksum, four CRCs equal to the recomputed values, guard hit, WAIT high only; both agree with the last screenshot of their start.
+**Predictions (B-012) versus outcome:** the datasheet-conservative model predicted FAIL at 6 and 7 and PASS at 8 and 9. Observed: FAIL at 6 (as predicted), **PASS at 7 (not as predicted)**, PASS at 8 and 9. The model's reading (tAADV counted from ADV# rising,
+70 ns) is too pessimistic for this unit: at index 7 the sample is 4 clocks (66.7 ns) after ADV# rises, 6 clocks (100 ns) after it falls and 2 clocks (33 ns) after OE# falls. Either tAADV runs from ADV# falling, or this chip is faster than its 70 ns
+maximum by more than the pad delay; the data cannot tell which. Index 6 (1 clock, 16.7 ns after OE#) sits just under the datasheet's tOE of 20 ns, consistent with tOE being the binding limit.
+**Margin:** the shipped default (index 9) is two clocks (33 ns) above the lowest index that passed on every die (7), one clock above the datasheet-derived safe minimum (8). The worst die at index 6 (D1) failed 78-87% of reads while the best (D0) failed 1-2%, so
+die-to-die and pad-to-pad differences of a few nanoseconds exist.
+**Decision (recommendation, owner may overrule):** keep the default at 9. Going to 8 would save 2 of about 26 clocks per 32-bit read (about 8%) and rests on one unit at room temperature; the datasheet's guarantees are over temperature and voltage. Revisit only if PSRAM read latency
+becomes a measured bottleneck in P4/P5, and then with a temperature check.
+**Limits:** one unit, room temperature, one seed (2), two placements (T6 and T7 builds), 4 observations at index 7. The write path's margin is untested (the write dial only lengthens); the write timings have at least 5 ns (tWP) of datasheet margin and 28+ ns elsewhere.
+**Optional follow-up:** a per-bit/per-die error map at index 6 (an XOR accumulator per die) would show which DQ lines and dies are slowest and could guide the deferred packing fix; not needed for P4.
+
+### B-016 — PSRAM P4 (uncached CPU window) drafted: RTL, firmware, decoder, tests (simulation only; not built, not installed)
+
+**Date:** 2026-09-21
+**Evidence:** simulation and host tests only (`make test` exits 0, 27 suites); no Quartus, no card, no Pocket.
+**Approval:** the owner said "continue" after B-015 (P4 was the stated next step); the Quartus build and card install are held for their own approval.
+**Changes:** see `docs/PSRAM_IMPLEMENTATION_PLAN.md` P4 and `docs/MMIO_ALLOCATION.md`. In short: PSRAM window decode at `0xA400_0000..A5FF_FFFF`; the CPU data bus reaches the controller
+through `tau_psram_bus` (guard word ACKs with 0, no bus error); the controller is shared with the mailbox through an owner mux; `PS_CFG[16]` reports window presence and `PS_WCOUNT`
+counts window ops; firmware modes L (window suite) and R (soak); PSW1 record and decoder; packager mappings for L/R (names now within the 19-character limit; the earlier longer
+names loaded on the Pocket regardless); the deferred B-008 packing fix (plain `cram*_a`, `dq_out*`).
+**Simulation results (real VexRiscv running the ROM, strict chip model, fill 64 words/die):** mailbox runs 1-4 PASS as before; window suite PASS, 896 checks (384 through the window
++ 512 cross-check), 0 failures, cross-check 0, guard ok (ACK, data 0, sticky flag set), CRC chain equal to the Python recomputation; two soak passes accumulate correctly (1,792 checks,
+5,376 window ops); net cost 32 cycles per window read and 26 per write, constant (min = avg = max); the same run with one injected bit flip is reported on die 2 only in every mailbox
+and window record. Controller mutants (T_ACC 4/6/7/8+15 ns, REL_CYC 1, early ACK) all still killed.
+**Bugs found and fixed while building it:** none in shipped code. (A stale CFG-readback expectation in a test after adding the window-present bit.)
+**Design decisions:** window requires the Phase 2 decode because the legacy decode aliases the whole `0x8000_0000..BFFF_FFFF` range onto MMIO; the guard word ACKs instead of erroring because
+VexRiscv here has no exception handler; the window has priority over a waiting mailbox request because the CPU is stalled on it; no separate return-path probe (the mailbox suite in the same
+core plus the cross-check and the CRC chain already discriminate bus-path faults from chip faults).
+**Predictions for the Pocket (from simulation and the fill definition; fill 2^18 words per die):**
+- Window suite screen: `PASS`, `CHECKS 1049216 FAIL 0`, `TO 0 CE 0 GHIT 1 X 0 GD OK`, `WIN OPS 2098432` for the first window run after start (each soak pass adds the same).
+- CRC chain `0xAF0AA680`; per-die CRCs on screen equal B-009's (`833D7446`, `4BF5A918`, `ECE394E1`, `8B21EF3F`).
+- Access cost: read about 32 cycles, write about 26, min = avg = max (against about 50 average and 360-373 worst for the SDRAM window, KB-030); a wide spread would point at a controller or bus problem.
+- The mailbox suite (A, X, Y, B) in the same core still passes as in P3/B-015; if the mailbox passes and the window does not, suspect the bus wrapper or CPU return path (A-092 pattern), not the chip.
+- Not predicted: build timing and packing (fresh Quartus fit needed), and behaviour with the SDRAM window and player active at the same time (coexistence check).
+**Build plan (needs approval):** stage two snapshots (seeds 1 and 2) with `tools/psram_window_qsf_append.txt` (`TAU_PHASE2_WINDOW`, `TAU_PSRAM_PROBE`, `TAU_PSRAM_WINDOW`, FAST_* on all CRAM pins), acceptance: Successful,
+0 timing failures, RAM blocks 300/308, packing yes on read path and now on `dq_out`/`cram_a` too; pick by larger slack; package with `--variant w`; install (needs approval); Pocket run: window suite, then soak 30 min,
+then the player on the same RBF for a 30-minute idle coexistence check.
+
+### B-017 — review of the completed SDRAM/UI documentation against PSRAM P4 (docs only; found one Quartus project omission)
+
+**Date:** 2026-09-21
+**Evidence:** code-review of documents and sources; no build, no card.
+**Scope:** `CURRENT_STATUS.md`, `SESSION_HANDOFF_2026-09-21.md`, `ARCHITECTURE_ROADMAP.md`, the `SDRAM_MEMORY_ARCHITECTURE.md` status, audit A-121..A-138, `git diff 05b7d7a..HEAD`
+(no `src/fpga` change by the other side), the stress pump and `pl_sdram_prove` in the firmware, the Analogue external-hardware doc.
+**Result:** eleven points recorded in `docs/PSRAM_IMPLEMENTATION_PLAN.md` section 8; direct impact on P4: (1) P4 edits shared shipping RTL, so "default Tau unchanged" becomes a bit-for-bit check of a
+product-configuration build against the shipped RBF `551e5a76...718b`; (2) `tau_psram_bus.sv` was missing from `ap_core.qsf` (now listed; without it a generate-branch instantiation could fail the build);
+(3) A-121 closed, no wait; (4) the Diagnostic Build gates on the P4 RBF replace the idle-player coexistence check; (5) cost baseline read 48/56/330, write 31/38/313; (6) card procedure per handoff; (7) `CORE_VERSION` not bumped
+for the additive, macro-gated registers, bump at P5.
+**Changes:** `src/fpga/ap_core.qsf` (+1 line), `docs/PSRAM_IMPLEMENTATION_PLAN.md`. The stale statements in the other side's documents (PSRAM on "cart pins", "packaged, not installed", MMIO "used up to 0x30") are
+listed there for their owner and were not edited.
+**Revised build plan (needs approval):** two builds in parallel, both seed 2: (a) the P4 diagnostic (`tools/psram_window_qsf_append.txt`), (b) the product-configuration regression build (`TAU_PHASE2_WINDOW=1`, `SEED 2`, nothing else);
+seed 1 of (a) only if (a) misses timing. Acceptance for (b): raw RBF SHA-256 equal to `551e5a7600fbf5c5e93a3d1f513a4b71c5603e3d890d26fa72dfcbfd4343718b`, or, if different, timing and resources within the A-114 range
+and the Diagnostic Build gates rerun before any of these files reach a release. Stage exactly the working tree (state the RTL used by hash), not a mixture.
+
+### B-018 — PSRAM P4: diagnostic build and product-configuration regression build launched (result pending)
+
+**Date:** 2026-09-21
+**Evidence:** VM stage and launch only; no result yet.
+**Approval:** the owner said "go ahead and launch both builds" after B-017.
+**Sources:** the exact working tree (uncommitted PSRAM RTL on top of HEAD `665895c`); manifest of the 45 `src/` files SHA-256 `b21a9c0a73379e415da850d936403c1365c3a5958a37475982d0028f5f92ea7c`
+(`ap_core.qsf` `a0f99782`, `core_game.vh` `72e96b64`, `core_top.v` `751c3f45`, `mp3_soc.v` `6132700b`, `tau_psram_async.sv` `94e812b7`, `tau_psram_bus.sv` `3277fcad`,
+`tau_psram_probe.sv` `213177c1`, `tau_sdram_addr_decode.sv` `934f8317`; 12-hex prefixes). Both VM stages were compared file by file with the local tree: identical except `ap_core.qsf` (the intended appended lines).
+**Build (a), the P4 diagnostic:** `/home/taualpha/tau-local/psram-p4-b018-diag-s2-20260921`; appended `tools/psram_window_qsf_append.txt` (`TAU_PHASE2_WINDOW=1`, `TAU_PSRAM_PROBE=1`, `TAU_PSRAM_WINDOW=1`,
+22 FAST_* lines) and `SEED 2`; default `T_ACC` 9.
+**Build (b), the product-configuration regression build:** `.../psram-p4-b018-prod-s2-20260921`; appended only `TAU_PHASE2_WINDOW=1` and `SEED 2` (the A-114 appendix; no PSRAM macros, no FAST_*).
+**Launch:** 2026-09-21 02:12 WEST, both detached (`setsid nohup make fpga`), logs `quartus-b018-diag.log` and `quartus-b018-prod.log`. VM idle at launch (load 0.00, no Quartus stages, 15 GB free); `make check-fpga` ok on both.
+**Acceptance (a):** "Successful", 0 timing failures, RAM blocks 300/308, DQ and control registers packed as before and now `dq_out` / `cram_a` too (`Output Register` yes); pick seed 1 only if seed 2 misses timing.
+**Acceptance (b):** raw RBF SHA-256 equal to the shipped `551e5a7600fbf5c5e93a3d1f513a4b71c5603e3d890d26fa72dfcbfd4343718b` proves the PSRAM changes are inert in the product configuration. If it differs: compare
+timing/resources with A-114 (seed 2: setup +0.664, hold +0.124, 300/308) and rerun the Diagnostic Build gates (WINDOW TEST 89, READ/WRITE CYCLES ~48/56/330 and 31/38/313, PLAYLIST CHECK, Stress R1-R3, 30-min Soak) before any of these
+files reach a release; the A-114 seed-2 RBF stays the fallback product.
+**Synthesis check (02:21 WEST, both builds "Analysis & Synthesis was successful", 0 errors):** (a) contains the PSRAM bus wrapper (`tau_psram_bus:g_phase2_window.g_psram.u_psram_bus`, 43 combinational ALMs,
+97 registers), `PSRAM_WINDOW_ENABLE` = 1 and `WIN_PRESENT` = 1, 8,044 registers in total; (b) contains no PSRAM logic and 7,470 registers, equal to the earlier no-probe window builds (A-113/A-114 range).
+(A first grep for `tau_psram_bus:u_psram_bus` found nothing because Quartus names generate-block instances `g_phase2_window.g_psram.u_psram_bus`; not a defect.) Fits are running; results are read on request.
+
+### B-019 — documentation handed over for a new session (docs and one tool; no build, no card)
+
+**Date:** 2026-09-21
+**Evidence:** code-review of documents; the new tool was run on archived reports.
+**Approval:** the owner asked to update all documentation so work can continue in a new chat task.
+**Added:** `docs/SESSION_HANDOFF_PSRAM_2026-09-21.md` (state, the two running builds and what to do when they finish, P4 card-run protocol and predictions, rules learned, artifact map, commands, open decisions, gotchas, the uncommitted-file list);
+`tools/quartus_fit_summary.py` (reusable extraction of resources, worst setup/hold, negative-slack count, CRAM pad-register packing, packing warnings and RBF hash, with `--expect-rbf-sha256`; run on the archived B-012 T7 reports it reproduces the B-013 numbers exactly: setup +0.693, hold +0.100, packing as recorded).
+**Updated:** `docs/PSRAM_IMPLEMENTATION_PLAN.md` (status points to the handoff), `docs/PSRAM_EVALUATION_PLAN.md` (marked as the original contract), `docs/ARCHITECTURE_ROADMAP.md` (MMIO row now "used up to 0xAC" with a pointer to `docs/MMIO_ALLOCATION.md`, Phase B item 4 marked done, Phase C status).
+**Edits to the SDRAM side's documents (small, marked as corrections from this workstream; B-017 had only listed them):** `docs/CURRENT_STATUS.md` (parallel-work bullet updated); `docs/SESSION_HANDOFF_2026-09-21.md` section 7 items 7 and 8 (PSRAM is on its own `cram*` pins,
+not the cartridge pins; the margin-experiment builds were installed and measured, P4 status).
+**State at handover:** two Quartus fits (B-018, launched 02:12 WEST, seed 2) were still running at 02:48 WEST, 0 errors; nothing for P4 is installed on the card; all PSRAM RTL, firmware, tests and tools are uncommitted.
+
+### B-020 — PSRAM work committed; committed fw/build.sh found broken since v0.2.0 and repaired (git only)
+
+**Date:** 2026-09-21
+**Evidence:** git and `bash -n`; no build, no card. The owner asked for the PSRAM work to be committed.
+**Checks before committing:** HEAD had not moved (`665895c`); the RTL manifest of the working tree was still `b21a9c0a73379e415da850d936403c1365c3a5958a37475982d0028f5f92ea7c`, equal to what the two B-018 builds were staged from, so the commit matches their provenance;
+`make test` had passed (27 suites) on this RTL; the shared files (`Makefile`, `fw/build.sh`, `CLAUDE.md`, `docs/AUDIT_TRAIL.md`) contained only my hunks apart from the finding below.
+**Finding:** `git show HEAD:fw/build.sh | bash -n` fails ("syntax error near unexpected token `)'" at the `release)` label). Bisected with `bash -n` per commit: valid at `3cc562b`, broken from `af28127` (release v0.2.0) through `665895c`. Cause: `player-diagnostic)` directly before `release)`
+(two case labels with no body between them) and the diagnostic body left after a `;;`, consistent with a filtered-patch commit that dropped part of the file. The working tree had the correct structure, so releases and builds were unaffected locally; a fresh checkout could not have run any target.
+**Commits:** `25ae8b6` fw/build.sh: restore the player-diagnostic label (one line moved, nothing else; bodies and flags equal the last valid version); `82f5f90` PSRAM RTL, firmware, simulation and tools (26 files: mailbox and owner mux, T_ACC 9, plain address/data registers,
+GUARD_ERR bus wrapper, PSRAM window decode and `mp3_soc` path, `psram_diag.c` with window suite and soak, decoders, packager, fit-summary tool, qsf appendices, 27-suite tests, qsf lists the three PSRAM files); a documentation commit follows.
+**Left out on purpose:** `docs/vendor/` (confidential datasheet PDF), `.claude/`, `work/`, `UniClaudeProxy/`.
+**For the SDRAM side:** the `fw/build.sh` repair is in `25ae8b6`; if they hold a different working copy they should diff it against the repaired file before their next commit.
+

@@ -41,10 +41,10 @@ its safe direction and listed in section 5 for hardware confirmation.
 | `tAVS` address setup to ADV# high | min 5 ns | within ADV# low time | large | [DS] |
 | `tAVH` address hold from ADV# high | min 2 ns | 1 clock = 16.7 ns | 14.7 ns | [DS] |
 | `tCVS` CE# low to ADV# high | min 7 ns | CE# and ADV# fall together, ADV# rises 2 clocks later (33 ns) | 26 ns | [DS] |
-| `tAA` address access | max 70 ns | sample 7 clocks after address valid (117 ns) | large | [DS] p.30 |
-| `tCO` chip-select access | max 70 ns | sample 7 clocks after CE# low | large | [DS] |
-| `tAADV` ADV# access | max 70 ns | **[ASSUMED] measured from ADV# rising** (safe reading): sample 5 clocks = 83.3 ns after ADV# rises | 13.3 ns | [DS] p.30 |
-| `tOE` OE# low to valid data | max 20 ns | sample 3 clocks = 50 ns after OE# falls | 30 ns | [DS] p.30 |
+| `tAA` address access | max 70 ns | sample 8 clocks after address valid (133 ns) | large | [DS] p.30 |
+| `tCO` chip-select access | max 70 ns | sample 8 clocks after CE# low (133 ns) | large | [DS] |
+| `tAADV` ADV# access | max 70 ns | **[ASSUMED] measured from ADV# rising** (safe reading): sample 6 clocks = 100 ns after ADV# rises | 30 ns before pad delays | [DS] p.30 |
+| `tOE` OE# low to valid data | max 20 ns | sample 4 clocks = 66.7 ns after OE# falls | 46 ns | [DS] p.30 |
 | `tOLZ` / `tOHZ` | 3 ns / 7 ns | DQ released before OE# falls; OE# rises before CE# | ok | [DS] |
 | `tWP` WE# pulse | min 45 ns | 3 clocks = 50 ns | 5 ns | [DS] p.32 |
 | `tDW` data setup | min 20 ns | data driven 1 clock before WE# falls and held until it rises (>= 50 ns) | large | [DS] |
@@ -59,12 +59,22 @@ Note the change from the first draft (B-001): the read sample was 5 clocks after
 ADV# **falls**, which is only about 1 clock (16.7 ns) after OE# falls and about
 3 clocks (50 ns) after ADV# rises. That violates `tOE` (20 ns) and, if `tAADV` runs
 from ADV# rising, `tAADV` as well. The model had not checked `tOE`. Fixed in B-002
-(`T_ACC` = 8); `T_ACC` = 6 and 7 are now killed by the mutation tests.
+(`T_ACC` = 8, later 9 in B-004); `T_ACC` = 6 and 7 are killed by the mutation tests.
+
+**Pad delays (B-004).** The margins above are edge-to-edge and ignore the FPGA's
+own output delay (tCO), trace and input path, roughly 8-15 ns in total (an estimate;
+the SDC has no CRAM constraints, matching the SDRAM convention, so Quartus does not
+report it). With that allowance the first default (`T_ACC` = 8, 83 ns after ADV#
+rising) would have had only about 0-5 ns left under the safe `tAADV` reading, so
+the default is `T_ACC` = 9. Simulation encodes this: with 15 ns of extra data-valid
+delay `T_ACC` = 9 passes and `T_ACC` = 8 fails (`make test-rtl-psram-mutation`).
+DQ is registered per chip directly at the pad (mux after the register) so the
+input flop can be packed into the I/O cell.
 
 Defaults stay conservative until hardware shows the margin. Run-time dials
 (`cfg_rd_extra`, `cfg_wr_extra`) add cycles for a slow-timing pass in P3. The
-tightest datasheet-derived margin is `tWP` (5 ns), then `tAADV` (13 ns, only under
-the assumption above).
+tightest datasheet-derived margin is `tWP` (5 ns, writes), then `tAADV` (30 ns
+before pad delays, only under the assumption above).
 
 ## 4. Interface rules enforced by simulation (P1)
 
@@ -84,7 +94,10 @@ the assumption above).
 
 ## 5. What the datasheet does not settle (hardware questions for P3/P4)
 
-1. **`tAADV` origin.** The text lists "ADV# access time 70 ns" without saying from
+**Measured on the Pocket (B-015):** reads passed from sample index 7 (4 clocks = 66.7 ns after ADV# rises, 2 clocks = 33 ns after OE# falls) and failed partially at 6 (1 clock = 16.7 ns after OE#, below
+tOE 20 ns); four observations at 7 across two builds. So the conservative tAADV reading is pessimistic for this unit, and the shipped default (index 9) has two clocks (33 ns) of margin. One unit, room temperature.
+
+1. **`tAADV` origin.** (Item still open in the datasheet; hardware shows it does not limit at 66.7 ns after ADV# rising on this unit.) The text lists "ADV# access time 70 ns" without saying from
    which edge (figure labels do not disambiguate). Controller assumes from ADV#
    rising. Measuring with a shorter capture (dial or `T_ACC` build) on hardware can
    show real margin; do not tighten before then.

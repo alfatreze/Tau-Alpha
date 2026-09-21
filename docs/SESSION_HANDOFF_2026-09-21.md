@@ -75,9 +75,8 @@ A-124..A-129 gates on the seed-2 RBF; A-125..A-127 Diagnostic Build Phases 2-3; 
    or a separate diagnostic build like `psram-diag`. Card cores of yours (`TAU_PSRAM`) are separate from `TAU`/`TAU_DIAGNOSTIC`.
 6. **Value of PSRAM for memory:** the release has 7.8 KiB of heap gap; candidates to move behind a window are `art_acc` (11 KiB) and its maps (2 KiB), which cost about 0.8-0.9 s per cover decode through the SDRAM window (A-095). Compare PSRAM's
    access cost to SDRAM's (about 0.8 us) before choosing; a hardware scaling blit engine is the alternative that removes `art_acc` without a slower decode.
-7. **Cartridge-port safety:** PSRAM lives on the cart pins; never enable both chip selects, keep the translator tie-offs from the template, and keep the card's `Cores/` free of stale test cores that assume the old pin map.
-8. **Housekeeping:** your uncommitted files are safe in the tree, but before pushing coordinate what is staged; commit with explicit `git add` paths. Your open items per `docs/AUDIT_TRAIL.md` B-012/B-013: the read-timing margin
-   experiment builds (read-sample index 7 and 6) are packaged, not installed.
+7. **Cartridge-port safety:** never enable both chip selects of a PSRAM chip; keep the cartridge translator tie-offs from the template. *(Corrected 2026-09-21 by the PSRAM session: PSRAM is on its own `cram0_*`/`cram1_*` pins, not on the cartridge pins; the Analogue docs list them separately, and the PSRAM design drives only `cram*` pins.)*
+8. **Housekeeping:** your uncommitted files are safe in the tree, but before pushing coordinate what is staged; commit with explicit `git add` paths. Status of the PSRAM items (updated by the PSRAM session, 2026-09-21; the PSRAM RTL, firmware and tests are now committed, `25ae8b6` and `82f5f90`, and `25ae8b6` also repairs `fw/build.sh`, which had not parsed since `af28127`): the margin-experiment builds were installed and measured (B-014, B-015); P4 is built and simulated with two Quartus builds running (B-018). See `docs/SESSION_HANDOFF_PSRAM_2026-09-21.md`.
 
 ## 8. Open items (SDRAM/UI side)
 Temperature test; a saturating stress run on other tracks; FLAC (labelled unverified by decision); Diagnostic Build save report (only 4 free persist words) and SD read speed test; resampler and pitch correction (then raise

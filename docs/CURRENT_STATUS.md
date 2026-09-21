@@ -17,7 +17,8 @@ recorded the investigation up to A-093; that record now lives in the audit trail
   integrity, clear counters) and Stress (levels, timed soak, live status). It replaces the standalone probe and stress cores.
 - **Not validated / deliberately open:** FLAC; stress on tracks 2-4 and other material; temperature; CL2/100 MHz margin
   (KB-021); speeds above 1.20x (decoder budget); artwork buffers still in BRAM; cached window and code in SDRAM (not started).
-- **Parallel work:** PSRAM (audit series B-NNN, `docs/PSRAM_*.md`): P3 done, P4 next; its RTL edits are uncommitted in the tree.
+- **Parallel work:** PSRAM (audit series B-NNN, `docs/PSRAM_*.md`): P0-P3 done on the Pocket (10/10 starts), read-timing margin measured, P4 (CPU window at `0xA400_0000`) built and simulated and two Quartus builds running (B-018);
+  its RTL, firmware and tests are committed (`25ae8b6`, `82f5f90`). Entry point: `docs/SESSION_HANDOFF_PSRAM_2026-09-21.md`. (Updated by the PSRAM session, 2026-09-21.)
 
 ## Evidence that closes the SDRAM gates (Pocket unless stated)
 

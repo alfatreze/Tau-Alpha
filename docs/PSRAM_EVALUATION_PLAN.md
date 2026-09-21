@@ -1,7 +1,7 @@
 # PSRAM early evaluation plan
 
-**Status:** proposed evaluation; no PSRAM RTL, memory map, firmware placement,
-or package behaviour is changed by this document.
+**Status:** the original evaluation contract (P0-P5). Historical: the work it proposed has progressed to P3 complete and P4 built; the current plan, corrections and
+status are in `docs/PSRAM_IMPLEMENTATION_PLAN.md` and `docs/SESSION_HANDOFF_PSRAM_2026-09-21.md`. This document itself changes no RTL, memory map, firmware placement or package.
 
 ## Recommendation
 

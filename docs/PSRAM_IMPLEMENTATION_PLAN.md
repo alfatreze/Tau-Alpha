@@ -1,6 +1,6 @@
 # PSRAM implementation plan
 
-**Status:** P0/P1 done in simulation (B-001, B-002). The new controller/bus RTL and tests
+**Status:** P0-P3 done; P4 built and simulated (B-016) with two Quartus builds running (B-018); **start a new session from `docs/SESSION_HANDOFF_PSRAM_2026-09-21.md`**; read-timing margin measured (B-015: passes from index 7, fails at 6, default 9 keeps two clocks). P3 (B-009..B-011): 10 of 10 Pocket starts PASS on default and slow timing, zero errors, exit gate met. Next is P4 (uncached CPU window), which needs approval and a new build. The new controller/bus RTL and tests
 exist but are **not wired** into `core_top.v`, the CPU decode, firmware or any
 package; no memory-map change.
 This turns `docs/PSRAM_EVALUATION_PLAN.md` (P0-P5, kept as the contract) into an
@@ -104,7 +104,7 @@ and fixed a real read-timing violation in the first controller (tOE / tAADV).
    **isolation** (no scanout/arbiter sharing) and probably **lower latency**:
    A-094 measured uncached SDRAM at about 48-50 cycles per access at 60 MHz
    **[HW]**. The P1 controller at its deliberately conservative
-   defaults takes **22 clocks per 32-bit write and 24 per read** (controller only, datasheet-checked timing,
+   defaults takes **22 clocks per 32-bit write and 26 per read** (controller only, datasheet-checked timing,
    `tb_tau_psram_async`, simulation), plus about 3 for the bus wrapper: roughly
    **2x cheaper** than uncached SDRAM. That is a simulated figure; timings can
    only tighten after hardware shows the margin (contract section 5) and the real cost is
@@ -169,22 +169,35 @@ to accept the `b` prefix when P2 is built.
 
 **Exit:** all pass and both mutations fail; targets added to `test-rtl`.
 
-### P2 - diagnostic core (mailbox)
-1. Mailbox registers per the evaluation plan (`ADDR`, `WDATA`, `CTRL`, `STATUS`
-   with `BUSY/DONE/TIMEOUT/CE_CONFLICT/GUARD_HIT`, `RDATA`, write-1-to-clear
-   sticky bits) plus run-time dials for extra read-capture delay and extended
-   write/recovery cycles (default = contract).
-2. `fw/psram_diag.c` modelled on `fw/sdram_diag.c`: fixed anchors, walking
-   patterns, address-as-data, lane tests, per-die CRC over 1 MiB (guard word
-   excluded), results published through `interact.json` persist (KB-025). Screen:
-   chip/die, controller response, bus response, byte enables, timeout, sticky
-   flags, provenance bar.
-3. Packager `--probe-a098` (new core identity, locked hashes); decoder support
-   (`--interact --psram`); PSRAM I/O constraints; several Quartus seeds.
+### P2 - diagnostic core (mailbox) - drafted (B-004), build and card pending
+Built in this step (all simulation-verified, nothing installed):
+- `tau_psram_probe.sv`: mailbox + controller + pins, behind `TAU_PSRAM_PROBE`
+  (`core_game.vh`, `core_top.v`, expansion-MMIO port `xm_*` on `mp3_soc`); register
+  map in `docs/MMIO_ALLOCATION.md` (0x88-0xA8, also the Phase B4 table).
+- `fw/psram_diag.c` (`fw/build.sh psram-diag`): per die address lines, byte lanes,
+  1 MiB hash fill with CRC, anchors incl. the last legal word, guard refusal;
+  A = default timing, B = slow dials; screen evidence plus 16 words through
+  `interact.json`.
+- `tools/package_psram_diagnostic.py`: hash-locked (`--rbf` + `--rbf-sha256`
+  mandatory, no default RBF), separate identity `alfatreze.TAU_PSRAM` / `tau_psram`,
+  ROM slot only. This replaces the earlier idea of a `--probe-bNNN` flag in the
+  SDRAM packager, so no change to that tool is needed.
+- `tools/decode_tau_diag_log.py --interact --psram`: recomputes each die's
+  expected CRC from the deterministic fill; verdict does not trust the firmware.
+- Tests in `make test`: `test-rtl-psram-probe` (mailbox, hold-off, guard, dials,
+  watchdog), `test-rtl-psram-fw` (the real firmware on the real VexRiscv against
+  the RTL and strict chip model, two runs, then one injected bit flip that must be
+  caught on the right die), `sim/test_psram_decode.py`, and the static macro-on/off
+  pin check.
+Done (B-005..B-008): two builds x two seeds, 0 timing failures, RAM blocks 300/308.
+The final candidate (B-007 seed 2, RBF `8e9d9c16...873d`, setup +1.012 / hold +0.121 ns)
+has the DQ input and output-enable registers and all control outputs packed into
+I/O cells; DQ output data and `cram_a` are not (clear-and-load conflict). Deferred
+fix for P4: make those plain registers. Bundle hash-locked and packaged. Open: review
+and install (needs approval).
 
-**Exit:** Quartus 0 timing failures, no new M10K (stay at 300/308), all RTL and
-host tests pass, package hash-checked; NOT installed until reviewed. Audit-trail
-entry and CLAUDE.md log line at each step.
+**Exit:** Quartus 0 timing failures, no new M10K, all RTL and host tests pass,
+package hash-checked; NOT installed until reviewed.
 
 ### P3 - Pocket matrix (5 cold + 5 warm)
 Each run covers all four dies, a die change across a restart, and one pass with
@@ -195,18 +208,27 @@ persist blocks P4.
 
 **Exit:** 10/10 clean runs with matching persisted results.
 
-### P4 - uncached CPU window
-1. Add `psram_uncached` to the decoder and `tau_psram_bus` to the dbus path
-   behind the macro; cached alias unmapped (bus error); guard words return a
-   defined fault. Extend `tb_tau_sdram_addr_decode` for no-alias and adjacency.
-2. Clone the A-093 CPU-window probe: at least 183 deterministic load/store
-   checks, provenance bar, transaction-locked probes at controller, adapter and
-   CPU return. Then an A-094-style cost probe to settle the latency estimate.
-3. Repeat the P3 matrix, a 30-minute idle-player coexistence run, and an
-   A-097-style soak.
+### P4 - uncached CPU window - drafted (B-016), build and Pocket run pending
+Built (simulation only so far):
+- Decode: `tau_sdram_addr_decode` gains `psram_uncached`/`psram_word` (`0xA400_0000..A5FF_FFFF`, adjacent to the SDRAM window, no overlap, no cached alias); unit tests for
+  base, last word, upper limit, chip/die boundaries and no aliasing into MMIO or the SDRAM windows.
+- Path: `mp3_soc` (`PSRAM_WINDOW_ENABLE`, needs the Phase 2 decode) puts `tau_psram_bus` (KB-024 release timing, `GUARD_ERR = 0`) on the CPU data bus; ACK/data/error return paths extended.
+  The controller is shared with the mailbox by an owner mux in `tau_psram_probe` (window priority, waiting mailbox request kept), tested with same-clock contention and both-way
+  data equivalence. `TAU_PSRAM_WINDOW` requires `TAU_PHASE2_WINDOW` and `TAU_PSRAM_PROBE` (build errors otherwise).
+- Deferred packing fix from B-008 applied: `cram*_a` and `dq_out*` are plain registers (I-O-cell packable).
+- Firmware (`psram_diag.c`, key L = window suite, key R = soak): the same tests through CPU loads/stores (address lines, byte lanes as `sb`, 1 MiB hash fill with CRC chain,
+  anchors, guard through the window), a mailbox-versus-window cross-check (64 words per die, both directions), and the A-094-style access cost. PSW1 record;
+  decoder `--interact --psram-window`.
+- Tests in `make test` (27 suites): decoder, bus wrapper in both guard modes, probe with the window client, and the real-CPU firmware sim with the window (all seven records
+  verified independently, then again with an injected bit flip caught on the right die only).
+Simplification against the plan: no separate provenance-bar/return-path probe. The mailbox suite in the same core, the cross-check and the CRC chain localize a fault
+(mailbox passes, window fails: bus wrapper or CPU return, the A-092 pattern) without extra RTL.
+Still to do (revised after the SDRAM review, section 8): (1) Quartus fit of the P4 diagnostic (`TAU_PHASE2_WINDOW`, `TAU_PSRAM_PROBE`, `TAU_PSRAM_WINDOW`, FAST_* assignments; seed 2 first, seed 1
+if timing is tight), and in parallel a **regression build of the product configuration** from the same tree (`TAU_PHASE2_WINDOW` only, seed 2) compared bit for bit with the shipped
+RBF; (2) package (`--variant w`), install (needs approval); (3) the window suite and the 30-minute soak; (4) the **Diagnostic Build ROM on the P4 RBF**: WINDOW TEST, READ/WRITE CYCLES,
+PLAYLIST CHECK, Stress R1-R3 with music and the 30-minute Soak, which proves the SDRAM window is untouched and is a stronger coexistence test than an idle player.
 
-**Exit:** Pocket-proven CPU round trip and measured access cost; timing and
-resource deltas recorded; default Tau build unchanged.
+**Exit:** Pocket-proven CPU round trip and measured access cost; timing and resource deltas recorded; default Tau build unchanged.
 
 ### P5 - one cold-data move (separate approval)
 Order, subject to P4 latency: the playlist buffers (`pl_text`, `pl_off`,
@@ -266,10 +288,8 @@ New considerations for the PSRAM work:
    counter is a read-only observer, not a second RTL client, so the "do not combine
    two clients in one change" rule is not broken. Keep each behind its own macro and
    pre-set fit rule so a failure is attributable.
-5. **A-121 is open** (user-reported errors and poorer audio on the probe-free seed-2
-   RBF; frames show no failure). PSRAM P4 compares the product RBF against a
-   baseline, so it should wait for A-121 to be resolved, or at least record which
-   baseline RBF it compares to. P2/P3 use a standalone core and are not blocked.
+5. **A-121 (resolved 2026-09-21).** The report of errors and poorer audio was the 1.2x speed being on plus reading the `E` counter (early underruns after a restart) as errors
+   (A-122, A-129). No longer a dependency for P4; use the late-underrun counter `L`, not `E`.
 6. **Test method for audio coexistence.** Use the stress HUD counters (E early, L
    late underruns, M worst window access, S draw stall, K ops/s) and the Info-page
    underrun count, one variable at a time, like-for-like A/B by swapping only
@@ -296,4 +316,45 @@ New considerations for the PSRAM work:
     P0-P5.
 12. **Datasheet is preliminary (Rev 1.0).** Re-check the contract if a newer
     revision appears; hardware questions stay in the timing contract, section 5.
+
+## 8. Impact of the completed SDRAM work (review 2026-09-21, after A-138 and releases v0.2.0-v0.2.2)
+
+Read: `docs/CURRENT_STATUS.md`, `docs/SESSION_HANDOFF_2026-09-21.md`, `docs/ARCHITECTURE_ROADMAP.md`, `docs/SDRAM_MEMORY_ARCHITECTURE.md` status, audit entries A-121..A-138.
+No RTL under `src/fpga` was changed by the SDRAM/UI side since the PSRAM commit `2b69114`; the shipped RBF is the A-114 seed-2 build (raw SHA-256
+`551e5a7600fbf5c5e93a3d1f513a4b71c5603e3d890d26fa72dfcbfd4343718b`, macros `TAU_PHASE2_WINDOW=1` only, setup +0.664 / hold +0.124 ns).
+
+**Direct impact on P4 (acted on):**
+1. **P4 edits shared, shipping RTL.** `mp3_soc.v`, `tau_sdram_addr_decode.sv`, `core_game.vh`, `core_top.v` and `ap_core.qsf` are also the product's sources. "Default Tau unchanged" (the P4 exit) is now
+   a concrete check: build the product configuration (`TAU_PHASE2_WINDOW=1`, `SEED 2`, no PSRAM macros, no FAST_* lines) from the same tree and compare the raw RBF with the value above. Identical bits
+   prove nothing changed; a different RBF means the handoff rules apply (new fit, gates rerun, seed-2 RBF stays the fallback) before any of these files reach a release.
+2. **Project file completeness.** `tau_psram_bus.sv` was not listed in `ap_core.qsf`; `mp3_soc` instantiates it in a generate branch that is off in the product. Listed now (found by this review, before a build).
+3. **A-121 is closed** (user error: 1.2x on, `E` misread), so the wait I recommended in section 7 item 5 is void. Coexistence reads use late underruns `L`.
+4. **Better coexistence gate than an idle player.** The Diagnostic Build (A-125..A-129) already contains the gates that closed SDRAM: WINDOW TEST (`PASS 89`), READ/WRITE CYCLES (SDRAM baseline min/avg/max: read 48/56/330,
+   write 31/38/313, A-126), PLAYLIST CHECK, Stress R1-R3 with music (0 late underruns, worst access 365-375), a 30-minute Soak. Running that ROM on the P4 RBF, which contains both windows and the shared decode,
+   shows the SDRAM window is unchanged and that playback is unaffected while both windows exist. It is packaged with `tools/package_sdram_stress.py --diagnostic --rbf <raw> --rbf-sha256 <hash>` and replaces the
+   `TAU_DIAGNOSTIC` core on the card, so back that core up first (handoff section 2).
+5. **Cost comparison baseline.** SDRAM window net cycles (Pocket, A-126): read 48/56/330, write 31/38/313 (min/avg/max). PSRAM prediction (simulation, B-016): read 32/32/32, write 26/26/26. A real P4 measurement
+   settles it; a spread on PSRAM would indicate a bus or controller problem.
+6. **Card procedure** follows handoff section 2 (backup of what is replaced and of the five indexes, quoted paths, per-file SHA-256, `diskutil eject`, copy never move). The Pocket clock runs behind the Mac's.
+7. **`CORE_VERSION` decision recorded.** P4/P4-diagnostic adds registers only inside the macro-gated expansion window and does not change the meaning of any existing register, so `CORE_VERSION` (`0x4D503317`) and
+   every shipped `EXPECT_VERSION` stay as they are; product ROMs run unchanged on a PSRAM RBF. This deliberately differs from the handoff's blanket rule "any RTL register or behaviour change bumps both": bump when the
+   product RTL itself gains PSRAM (P5), because then firmware must be able to refuse a stale bitstream.
+
+**Impact on P5 and later (recorded, not yet acted on):**
+8. **Fail-safe pattern.** Product firmware must prove a window at runtime and treat failure as feature-off (`pl_sdram_prove`: write a word through the mailbox, read it through the window, check patterns; A-109..A-112
+   proved it with a fault-injected build and a no-window RBF). That needs a mailbox in the product. Today `TAU_PSRAM_WINDOW` requires `TAU_PSRAM_PROBE` (mailbox plus controller); for P5 decouple them so the window build carries a
+   minimal mailbox and a presence flag readable by the release firmware.
+9. **Memory budget.** Release heap gap 7,824 B (floor 6,144); Diagnostic Build gap 4,224 B (floor 4,096); the persist register file is 12/16 words. PSRAM tests therefore stay in the separate `psram-diag` core (as now)
+   or behind their own macro; product-visible PSRAM status goes on the Info page, not the persist file.
+10. **Value of P5.** Remaining cold BRAM data is `art_acc` (11 KiB) plus maps (2 KiB); moving it through the SDRAM window would add about 0.8-0.9 s per cover decode (A-095; the Info page shows art decode 2.6 s of a 3.0 s load).
+    With the measured-in-simulation PSRAM cost the same move would add roughly 0.5-0.6 s [EST]. The handoff also lists a hardware scaling blit engine as an alternative that removes `art_acc` without a slower decode; decide
+    between them after the P4 measurement.
+11. **Stress pump reuse.** The Diagnostic Build's stress pump addresses the SDRAM window from a base constant (`0xA0000000 + ...`); pointing a variant at `0xA4000000` is a small change (a few hundred bytes against a
+    4,224 B gap) and would give real-playback stress on the PSRAM window. Optional, after P4.
+
+**Statements in the SDRAM-side documents that are stale or inaccurate (for their owner; not edited here):**
+- Handoff section 7 item 7 says PSRAM "lives on the cart pins". It does not: the Analogue docs list PSRAM (the `cram*` pins) separately from the cartridge bus, and the PSRAM design drives only `cram*` pins; the cartridge
+  translators stay at the template tie-offs. The safety rule itself (never assert both chip enables) stands and is enforced in RTL and simulation.
+- Handoff section 7 item 8 says the margin-experiment builds are "packaged, not installed". They were installed and measured (B-014, B-015).
+- `docs/ARCHITECTURE_ROADMAP.md` section 2 says MMIO is "used up to 0x30"; the table is `docs/MMIO_ALLOCATION.md` (used up to 0xAC).
 
