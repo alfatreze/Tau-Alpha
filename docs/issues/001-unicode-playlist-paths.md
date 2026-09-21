@@ -50,3 +50,6 @@ those names exactly.  Prefer a single album-local playlist with bare filenames.
   exact failing entry, rather than a generic empty-playlist message.
 - The selected path tests run from a real FAT-formatted SD card and are retained
   as a regression checklist.
+
+## Update 2026-09-21 (B-026)
+Reproduced on the Pocket with the numbered test builds: tracks whose names contain an accented character (decomposed, as macOS writes them) were skipped as unreadable (Soundtrack track 1 and Bird Man track 2), while ASCII-named tracks in the same playlists played. Firmware side found in `fw/playlist.inc`: the path template for 0192 is the longest printable-ASCII run in the descriptor (`pl_template`), so a non-ASCII byte splits the recorded path. The workaround is now in the host tool: `tools/sync_media.py` writes ASCII-only names and rewrites playlist lines to match. The firmware test matrix above is still to do.
