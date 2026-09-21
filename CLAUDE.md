@@ -137,3 +137,5 @@
 - 2026-09-21 (Claude): card. Installed the A-134 build (speed list 0.85-1.25x, ROM 36d1e37c...) into TAU_SETTINGS; A-132 ROM and indexes backed up; 14/14 SHA-256. Result pending.
 - 2026-09-21 (Claude): release. A-135: v0.2.1 (speed list 0.85-1.20x after 1.25x micro-stuttered; meter previews; version/README/CHANGELOG bumped); dist/ rebuilt (ROM 40b92cdf..., RBF unchanged); check_tau_package and test-host pass. Not installed.
 - 2026-09-21 (Claude): card. Installed release v0.2.1 as the base TAU (ROM 40b92cdf..., core.json 0.2.1; RBF unchanged) and brought TAU_SETTINGS to the same ROM/version; old files and indexes backed up. Result pending.
+- 2026-09-21 (Claude): firmware/tools. A-136: regenerated fw/meter_thumbs.h from the user's grayscale previews (5,747 B, -136 B); settings ROM 69d036da... (gap 6,736 B), TAU_SETTINGS bundle repackaged; dist/ (v0.2.1, lime previews) and the card unchanged. Uncommitted.
+- 2026-09-21 (Claude): firmware/release. A-137: meter previews in an 8-level grey palette with 3+5 bit runs (fw/meter_thumbs.h 4,667 B, -1.2 KiB); release v0.2.2 (ROM a8e76b78..., heap gap 7,824 B, RBF unchanged) built into dist/.

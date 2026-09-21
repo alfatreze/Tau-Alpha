@@ -113,7 +113,7 @@ static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
     uint32_t pos = 0;
     fb_rect(x, y, METER_THUMB_W, METER_THUMB_H, pal[0]);
     while (p < e) {
-        uint32_t b = *p++, idx = b >> 4, n = (b & 15u) + 1u;
+        uint32_t b = *p++, idx = b >> 5, n = (b & 31u) + 1u;
         if (idx) {
             uint32_t at = pos, left = n;
             while (left) {

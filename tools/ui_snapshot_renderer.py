@@ -460,7 +460,7 @@ def meter_thumb(viz):
     rle = [int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{2})", re.search(r"meter_thumb_rle\[\d+\] = \{(.*?)\};", src, re.S).group(1))]
     rects, pos = [(0, 0, w, h, pals[viz][0])], 0
     for b in rle[offs[viz]:offs[viz + 1]]:
-        idx, n = b >> 4, (b & 15) + 1
+        idx, n = b >> 5, (b & 31) + 1
         if idx:
             at, left = pos, n
             while left:
