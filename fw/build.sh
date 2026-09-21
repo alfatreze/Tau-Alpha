@@ -134,7 +134,7 @@ player-settings)
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     OUT="$ROOT/work/diagnostics/settings-ui"
-    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1"
     HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB        # release-style build: keep at least 8 KiB of heap gap
     ;;
 release)
@@ -151,7 +151,7 @@ release)
       "$FW/picojpeg.o" "$FW/flac.o"
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
-    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1"
     HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB
     ;;
 player-diagnostic)
@@ -167,7 +167,7 @@ player-diagnostic)
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     OUT="$ROOT/work/diagnostics/diagnostic-build"
-    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1"
     HEAP_MIN=4096        # developer build: the tests may use the space, never below 4 KiB
     ;;
 player-sdram-pl-fault)

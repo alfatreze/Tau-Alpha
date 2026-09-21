@@ -20,6 +20,9 @@ MEMORY {
 	 * buffers, 13,312 B, and only in TAU_PL_SDRAM builds; the section is empty
 	 * otherwise. NOLOAD: never in the ROM image, contents undefined at boot. */
 	sdram : ORIGIN = 0xA0100000, LENGTH = 0x00003400
+	/* P5: uncached CPU window onto PSRAM (0xA4000000). Only the album-art accumulator,
+	 * 11,040 B, and only in TAU_ART_PSRAM builds; empty otherwise. NOLOAD. */
+	psram : ORIGIN = 0xA4000000, LENGTH = 0x00002C00
 }
 
 ENTRY(_start)
@@ -56,6 +59,7 @@ SECTIONS {
 	.data   : { *(.data .data.*) *(.sdata .sdata.*) } > ram
 
 	.sdram (NOLOAD) : { *(.sdram .sdram.*) } > sdram
+	.psram (NOLOAD) : { *(.psram .psram.*) } > psram
 
 	.bss : {
 		__bss_start = .;
