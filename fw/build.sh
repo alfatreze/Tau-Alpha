@@ -10,6 +10,7 @@
 #   ./build.sh sdram-cpu-readback # A-060 mailbox-to-CPU readback discriminator
 #   ./build.sh sdram-cpu-log-probe # A-081 target-write/flush result discriminator
 #   ./build.sh sdram-cpu-log-readback # A-083 target slot readback discriminator
+#   ./build.sh psram-diag # B-004 PSRAM mailbox diagnostic (needs a TAU_PSRAM_PROBE RBF)
 #
 # The .rom is loaded from SD into BRAM by data_loader at boot, exactly like an
 # arcade core's ROM -- which is the point: firmware changes cost seconds here
@@ -279,8 +280,19 @@ sdram-cpu-full)
     OUT="$ROOT/work/diagnostics/sdram-cpu-full"
     STRESS_CFLAGS="-DTAU_CPU_WINDOW_DIAG=1 -DTAU_CPU_WINDOW_READBACK_DIAG=1 -DTAU_LOG_INTERACT_PROBE=1 -DTAU_FULL_PROBE=1"
     ;;
+psram-diag-sim)
+    SRCS=("$FW/start.S" "$FW/psram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/psram-diag-sim"
+    STRESS_CFLAGS="-DPSRAM_FILL_LOG2=6 -DPSRAM_WARMUP=200 -DPSRAM_PUBLISH_WAIT=200"
+    ;;
+psram-diag)
+    SRCS=("$FW/start.S" "$FW/psram_diag.c")
+    INC=(-I "$FW")
+    OUT="$ROOT/work/diagnostics/psram-diag"
+    ;;
 *)
-    echo "usage: $0 {player|player-stress|player-stress-window|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback|sdram-cpu-log-probe|sdram-cpu-log-readback|sdram-cpu-log-open|sdram-cpu-log-settle|sdram-cpu-log-write-read|sdram-cpu-log-source|sdram-cpu-log-bridge|sdram-cpu-log-table|sdram-cpu-log-interact|sdram-cpu-disc|sdram-cpu-latency|sdram-cpu-soak|sdram-cpu-full}"; exit 1 ;;
+    echo "usage: $0 {player|player-stress|player-stress-window|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback|sdram-cpu-log-probe|sdram-cpu-log-readback|sdram-cpu-log-open|sdram-cpu-log-settle|sdram-cpu-log-write-read|sdram-cpu-log-source|sdram-cpu-log-bridge|sdram-cpu-log-table|sdram-cpu-log-interact|sdram-cpu-disc|sdram-cpu-latency|sdram-cpu-soak|sdram-cpu-full|psram-diag|psram-diag-sim}"; exit 1 ;;
 esac
 
 # Build flags are selected by target rather than remembered in a shell history.

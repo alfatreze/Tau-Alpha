@@ -115,6 +115,134 @@ def decode_full(words) -> dict[str, object]:
         "cpu_window_accesses_thousands": words[14],
     }
 
+PSRAM_MAGIC = 0x50535231  # "PSR1"
+
+
+def _psram_hash(a: int) -> int:
+    """Deterministic fill word; must match hash_word() in fw/psram_diag.c."""
+    m = 0xFFFFFFFF
+    x = (a * 0x9E3779B1 + 0x7F4A7C15) & m
+    x ^= x >> 15
+    x = (x * 0x85EBCA6B) & m
+    x ^= x >> 13
+    return x
+
+
+def _psram_crc_step(crc: int, w: int) -> int:
+    crc ^= w
+    return (((crc << 5) | (crc >> 27)) & 0xFFFFFFFF) ^ 0x9E3779B9
+
+
+def psram_expected_crc(die: int, fill_log2: int) -> int:
+    """CRC the firmware must read back for a die that returned exactly the fill."""
+    crc, base = 0, die << 21
+    for i in range(1 << fill_log2):
+        crc = _psram_crc_step(crc, _psram_hash(base + i))
+    return crc
+
+
+PSRAM_WIN_MAGIC = 0x50535731  # "PSW1"
+
+
+def psram_expected_chain(fill_log2: int) -> int:
+    """CRC of all four dies' fills read back in order, one running CRC (window record)."""
+    crc = 0
+    for d in range(4):
+        base = d << 21
+        for i in range(1 << fill_log2):
+            crc = _psram_crc_step(crc, _psram_hash(base + i))
+    return crc
+
+
+def decode_psram_window(words) -> dict[str, object]:
+    """Decode the B-016 CPU-window record (PSW1, words 0..14).
+
+    Window suite: the same tests as the mailbox suite but through CPU loads and stores
+    at 0xA4000000, a mailbox-versus-window cross-check, and the per-access cycle cost.
+    The expected CRC chain is recomputed from the deterministic fill here.
+    """
+    if words[0] != PSRAM_WIN_MAGIC:
+        raise ValueError(f"not a PSRAM window record: 0x{words[0]:08X}")
+    checksum = PSRAM_WIN_MAGIC
+    for w in words[:14]:
+        checksum ^= w
+    if words[14] != checksum:
+        raise ValueError(f"bad checksum: expected 0x{checksum:08X}, got 0x{words[14]:08X}")
+    fill_log2 = (words[1] >> 24) & 0x1F
+    status = words[4] & 0xFF
+    want = psram_expected_chain(fill_log2)
+    guard_ok = bool((words[4] >> 24) & 1)
+    cross_ok = bool((words[4] >> 25) & 1)
+    ok = (words[3] == 0 and words[8] == 0 and not ((words[4] >> 8) & 1) and guard_ok and cross_ok
+          and words[5] == want and not status & 0x14 and bool(status & 0x20))
+    mode = (words[1] >> 17) & 7
+    return {
+        "format": "tau-psram-cpu-window", "verdict": "PASS" if ok else "FAIL",
+        "mode": "soak" if mode == 5 else "window",
+        "passes": words[1] & 0xFFFF, "fill_words_per_die": 1 << fill_log2,
+        "checks": words[2], "failures": words[3], "cross_check_failures": words[8],
+        "t_acc": (words[4] >> 16) & 0xFF, "window_ops": words[13],
+        "crc_chain_read": f"0x{words[5]:08X}", "crc_chain_expected": f"0x{want:08X}",
+        "crc_chain_match": words[5] == want,
+        "cost_cycles": {"read_avg": words[6] & 0xFFFF, "read_max": words[6] >> 16,
+                        "write_avg": words[7] & 0xFFFF, "write_max": words[7] >> 16},
+        "guard_ok": guard_ok, "cross_check_ok": cross_ok,
+        "flags": {"timeout": bool(status & 0x04), "ce_conflict": bool(status & 0x10),
+                  "guard_hit": bool(status & 0x20), "wait_lo_seen": bool(status & 0x40),
+                  "wait_hi_seen": bool(status & 0x80),
+                  "firmware_timeout": bool((words[4] >> 8) & 1)},
+        "die_failures_last_pass": [(words[9] >> (8 * d)) & 0xFF for d in range(4)],
+        "first_failure": None if words[3] == 0 else {
+            "test": words[10] >> 24, "word": f"0x{words[10] & 0xFFFFFF:06X}",
+            "expected": f"0x{words[11]:08X}", "actual": f"0x{words[12]:08X}"},
+    }
+
+
+def decode_psram(words) -> dict[str, object]:
+    """Decode the B-004 PSRAM diagnostic record (words 0..14 of the interact record).
+
+    Rejects a bad magic or checksum; recomputes each die's expected CRC from the
+    deterministic fill instead of trusting the firmware's own verdict.
+    """
+    if words[0] != PSRAM_MAGIC:
+        raise ValueError(f"not a PSRAM record: 0x{words[0]:08X}")
+    checksum = PSRAM_MAGIC
+    for w in words[:14]:
+        checksum ^= w
+    if words[14] != checksum:
+        raise ValueError(f"bad checksum: expected 0x{checksum:08X}, got 0x{words[14]:08X}")
+    fill_log2 = (words[1] >> 24) & 0x1F
+    status = words[4] & 0xFF
+    dies = []
+    for d in range(4):
+        want = psram_expected_crc(d, fill_log2)
+        dies.append({
+            "die": d, "chip": d >> 1, "ce": d & 1,
+            "failures": (words[9] >> (8 * d)) & 0xFF,
+            "crc_read": f"0x{words[5 + d]:08X}", "crc_expected": f"0x{want:08X}",
+            "crc_match": words[5 + d] == want,
+        })
+    ok = (words[3] == 0 and not ((words[4] >> 8) & 1) and all(x["crc_match"] for x in dies)
+          and not status & 0x14 and bool(status & 0x20))
+    return {
+        "format": "tau-psram-diagnostic", "verdict": "PASS" if ok else "FAIL",
+        "run": words[1] & 0xFFFF, "slow_dials": bool((words[1] >> 16) & 1),
+        # margin experiment (B-012): the build's read-sample index, the extra read
+        # clocks used by this run and the effective index (T_ACC + extra)
+        "t_acc": (words[4] >> 16) & 0xFF, "read_extra_clocks": (words[1] >> 17) & 7,
+        "sample_index": ((words[4] >> 16) & 0xFF) + ((words[1] >> 17) & 7),
+        "fill_words_per_die": 1 << fill_log2,
+        "checks": words[2], "failures": words[3], "controller_ops": words[13],
+        "flags": {"timeout": bool(status & 0x04), "ce_conflict": bool(status & 0x10),
+                  "guard_hit": bool(status & 0x20), "wait_lo_seen": bool(status & 0x40),
+                  "wait_hi_seen": bool(status & 0x80),
+                  "firmware_timeout": bool((words[4] >> 8) & 1)},
+        "dies": dies,
+        "first_failure": None if words[3] == 0 else {
+            "test": words[10] >> 24, "word": f"0x{words[10] & 0xFFFFFF:06X}",
+            "expected": f"0x{words[11]:08X}", "actual": f"0x{words[12]:08X}"},
+    }
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -123,6 +251,10 @@ def main() -> None:
                         help="with --interact: decode an A-100 coverage record")
     parser.add_argument("--soak", action="store_true",
                         help="with --interact: decode an A-097 soak record")
+    parser.add_argument("--psram-window", action="store_true",
+                        help="with --interact: decode a B-016 PSRAM CPU-window record (PSW1)")
+    parser.add_argument("--psram", action="store_true",
+                        help="with --interact: decode a B-004 PSRAM diagnostic record")
     parser.add_argument("--raw", action="store_true",
                         help="with --interact: print the 16 reconstructed words (A-092)")
     parser.add_argument("--interact", action="store_true",
@@ -132,6 +264,16 @@ def main() -> None:
         words = struct.unpack(">16I", words_from_interact(
             json.loads(args.path.read_text())))
         print(json.dumps(decode_full(words), indent=2, sort_keys=True))
+        return
+    if args.interact and args.psram_window:
+        words = struct.unpack(">16I", words_from_interact(
+            json.loads(args.path.read_text())))
+        print(json.dumps(decode_psram_window(words), indent=2, sort_keys=True))
+        return
+    if args.interact and args.psram:
+        words = struct.unpack(">16I", words_from_interact(
+            json.loads(args.path.read_text())))
+        print(json.dumps(decode_psram(words), indent=2, sort_keys=True))
         return
     if args.interact and args.soak:
         words = struct.unpack(">16I", words_from_interact(

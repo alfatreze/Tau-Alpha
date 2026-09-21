@@ -151,8 +151,33 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 // separate opt-in, TAU_PHASE2_PROBE (with the return-path selectors
 // TAU_PHASE2_MUX_PROBE / _ADAPTER_PROBE / _RETURN_PROBE, which are meaningless
 // without it). Before A-113 the window macro switched the probe on as well.
+// PSRAM CPU window (B-016): TAU_PSRAM_WINDOW needs the SDRAM Phase 2 decode (the legacy
+// decode aliases 0xA400_0000.. onto MMIO) and, for now, the probe module that owns the
+// controller (a window-only wrapper for product builds comes with P5).
+`ifdef TAU_PSRAM_WINDOW
+`ifndef TAU_PHASE2_WINDOW
+`error "TAU_PSRAM_WINDOW requires TAU_PHASE2_WINDOW"
+`endif
+`ifndef TAU_PSRAM_PROBE
+`error "TAU_PSRAM_WINDOW requires TAU_PSRAM_PROBE"
+`endif
+`define TAU_PSRAM_WIN_EN 1
+`else
+`define TAU_PSRAM_WIN_EN 0
+`endif
+wire        soc_psram_req, soc_psram_we;
+wire [22:0] soc_psram_word;
+wire [31:0] soc_psram_wdata, soc_psram_rdata;
+wire [3:0]  soc_psram_be;
+wire        soc_psram_done, soc_psram_guard;
+
+// Expansion-MMIO wires (declared before use: an implicit net would be 1 bit).
+wire [7:0]  soc_xm_reg;
+wire        soc_xm_wr;
+wire [31:0] soc_xm_wdata;
+wire [31:0] soc_xm_rdata;
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1)) u_soc (
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN)) u_soc (
 `else
 mp3_soc u_soc (
 `endif
@@ -252,8 +277,50 @@ mp3_soc u_soc (
     .sdram_wb_debug_unsupported(soc_sdram_wb_debug_unsupported),
     .sdram_wb_debug_adapter_rdata(soc_sdram_wb_debug_adapter_rdata),
     .sdram_wb_debug_cpu_ack(soc_sdram_wb_debug_cpu_ack),
-    .sdram_wb_debug_cpu_rdata(soc_sdram_wb_debug_cpu_rdata)
+    .sdram_wb_debug_cpu_rdata(soc_sdram_wb_debug_cpu_rdata),
+
+    .xm_reg   (soc_xm_reg),
+    .xm_wr    (soc_xm_wr),
+    .xm_wdata (soc_xm_wdata),
+    .xm_rdata (soc_xm_rdata),
+
+    .psram_req   (soc_psram_req),
+    .psram_we    (soc_psram_we),
+    .psram_word  (soc_psram_word),
+    .psram_wdata (soc_psram_wdata),
+    .psram_be    (soc_psram_be),
+    .psram_done  (soc_psram_done),
+    .psram_rdata (soc_psram_rdata),
+    .psram_guard (soc_psram_guard)
 );
+
+// PSRAM diagnostic (P2). Opt-in TAU_PSRAM_PROBE only; it owns the CRAM pins and
+// the expansion-MMIO window. Without the macro the pins stay tied idle in
+// core_top.v and the window reads as zero.
+`ifdef TAU_PSRAM_PROBE
+tau_psram_probe #(.WIN_PRESENT(`TAU_PSRAM_WIN_EN)) u_psram (
+    .clk(clk_sys), .rst(cpu_reset),
+    .xm_reg(soc_xm_reg), .xm_wr(soc_xm_wr), .xm_wdata(soc_xm_wdata), .xm_rdata(soc_xm_rdata),
+    .win_req(soc_psram_req), .win_we(soc_psram_we), .win_word(soc_psram_word),
+    .win_wdata(soc_psram_wdata), .win_be(soc_psram_be),
+    .win_done(soc_psram_done), .win_rdata(soc_psram_rdata), .win_guard(soc_psram_guard),
+    .cram0_a(cram0_a), .cram0_dq(cram0_dq), .cram0_wait(cram0_wait), .cram0_clk(cram0_clk),
+    .cram0_adv_n(cram0_adv_n), .cram0_cre(cram0_cre),
+    .cram0_ce0_n(cram0_ce0_n), .cram0_ce1_n(cram0_ce1_n),
+    .cram0_oe_n(cram0_oe_n), .cram0_we_n(cram0_we_n),
+    .cram0_ub_n(cram0_ub_n), .cram0_lb_n(cram0_lb_n),
+    .cram1_a(cram1_a), .cram1_dq(cram1_dq), .cram1_wait(cram1_wait), .cram1_clk(cram1_clk),
+    .cram1_adv_n(cram1_adv_n), .cram1_cre(cram1_cre),
+    .cram1_ce0_n(cram1_ce0_n), .cram1_ce1_n(cram1_ce1_n),
+    .cram1_oe_n(cram1_oe_n), .cram1_we_n(cram1_we_n),
+    .cram1_ub_n(cram1_ub_n), .cram1_lb_n(cram1_lb_n)
+);
+`else
+assign soc_xm_rdata = 32'd0;
+assign soc_psram_done = 1'b0;
+assign soc_psram_rdata = 32'd0;
+assign soc_psram_guard = 1'b0;
+`endif
 
 // core_bridge_cmd's datatable, user-side port. core_top declares these wires
 // and connects them but never drives them, so this is the intended extension

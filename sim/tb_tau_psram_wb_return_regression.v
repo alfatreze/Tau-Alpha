@@ -11,6 +11,7 @@
 module tb_tau_psram_wb_return_regression;
     parameter REL_CYC = 2;
     parameter MUT_EARLY_ACK = 0;
+    parameter GUARD_ERR = 1;      // 0: the guard beat must ACK with data 0 (CPU window mode)
 
     reg clk = 0, rst = 1;
     always #8.333 clk = ~clk;
@@ -31,7 +32,7 @@ module tb_tau_psram_wb_return_regression;
     wire [22:0] c_word;
     wire [31:0] c_wdata, c_rdata;
     wire [3:0]  c_be;
-    tau_psram_bus #(.REL_CYC(REL_CYC), .MUT_EARLY_ACK(MUT_EARLY_ACK)) bus (
+    tau_psram_bus #(.REL_CYC(REL_CYC), .MUT_EARLY_ACK(MUT_EARLY_ACK), .GUARD_ERR(GUARD_ERR)) bus (
         .clk(clk), .rst(rst), .wb_cyc(cyc), .wb_stb(stb), .wb_we(we), .wb_cti(3'b000),
         .wb_adr(adr), .wb_dat_i(dat), .wb_sel(sel), .wb_dat_o(rdata), .wb_ack(ack_pulse),
         .wb_err(err_pulse), .wb_unsupported(unsupported),
@@ -118,8 +119,13 @@ module tb_tau_psram_wb_return_regression;
             beat(0, CHIP1 + DIE1 + 23'h30, 32'd0, gapv); check(got, 32'h5A3CC3A5, "load after store (chip 1 die 1)");
             // guard word: ERR pulse, no data, no chip access
             beat(0, DIE1 + 23'h1FFFFF, 32'd0, gapv);
-            if (!goterr) begin $display("FAIL: guard beat did not return ERR"); errors = errors + 1; end
-            else $display("ok:   guard beat returns ERR");
+            if (GUARD_ERR != 0) begin
+                if (!goterr) begin $display("FAIL: guard beat did not return ERR"); errors = errors + 1; end
+                else $display("ok:   guard beat returns ERR");
+            end else begin
+                if (goterr) begin $display("FAIL: guard beat returned ERR in ACK mode"); errors = errors + 1; end
+                else check(got, 32'd0, "guard beat ACKs with data 0");
+            end
             beat(0, 23'h000200, 32'd0, gapv); check(got, 32'h12345678, "load after guard beat");
         end
         cyc <= 0; stb <= 0;

@@ -9,6 +9,9 @@
 
 module tau_psram_bus #(
     parameter REL_CYC        = 2,  // test hook: 1 reproduces the A-092 duplicate-request bug
+    parameter GUARD_ERR      = 1,  // 1: a guard-word beat returns ERR; 0: it returns ACK with data 0
+                                   // (used by the CPU window: firmware has no bus-error handler, the
+                                   // controller's sticky guard flag records the access)
     parameter MUT_EARLY_ACK  = 0   // test hook: 1 pulses ACK before the response register is loaded
 ) (
     input  wire        clk,
@@ -63,8 +66,8 @@ module tau_psram_bus #(
                     state      <= S_LATE;         // data loaded one cycle too late
                 end else begin
                     wb_dat_o <= ctl_guard ? 32'd0 : ctl_rdata;
-                    wb_ack   <= !ctl_guard;
-                    wb_err   <= ctl_guard;
+                    wb_ack   <= !ctl_guard || (GUARD_ERR == 0);
+                    wb_err   <= ctl_guard && (GUARD_ERR != 0);
                     state    <= S_REL1;
                 end
             end

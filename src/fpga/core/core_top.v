@@ -137,6 +137,10 @@ assign port_tran_si            = 1'bZ;    assign port_tran_si_dir        = 1'b0;
 assign port_tran_sck           = 1'bZ;    assign port_tran_sck_dir       = 1'b0;
 assign port_tran_sd            = 1'bZ;    assign port_tran_sd_dir        = 1'b0;
 
+// CRAM pins: idle tie-offs unless the opt-in PSRAM diagnostic (TAU_PSRAM_PROBE,
+// tau_psram_probe in core_game.vh) drives them.
+`ifdef TAU_PSRAM_PROBE
+`else
 assign cram0_a = 6'h0;  assign cram0_dq = 16'hZZZZ; assign cram0_clk = 1'b0;
 assign cram0_adv_n = 1'b1; assign cram0_cre = 1'b0;
 assign cram0_ce0_n = 1'b1; assign cram0_ce1_n = 1'b1;
@@ -148,6 +152,7 @@ assign cram1_adv_n = 1'b1; assign cram1_cre = 1'b0;
 assign cram1_ce0_n = 1'b1; assign cram1_ce1_n = 1'b1;
 assign cram1_oe_n = 1'b1; assign cram1_we_n = 1'b1;
 assign cram1_ub_n = 1'b1; assign cram1_lb_n = 1'b1;
+`endif
 
 `ifndef USE_SDRAM
 assign dram_a = 13'h0; assign dram_ba = 2'h0; assign dram_dq = 16'hZZZZ;

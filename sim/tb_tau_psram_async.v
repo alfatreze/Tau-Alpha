@@ -1,12 +1,14 @@
 // P1 controller test: tau_psram_async against the strict four-die chip model.
 // Covers hold-off, walking patterns, address lines, byte lanes, random traffic
 // across all dies, guard words, die/chip boundaries, reset mid-operation, and
-// the slow-timing dials. Mutation hooks: -Ptb_tau_psram_async.T_ACC=4/6/7 must FAIL (T_ACC=6 was the
+// the slow-timing dials. IO_NS adds pad delay: T_ACC=9 must pass at IO_NS=15, T_ACC=8 must not.
+// Mutation hooks: -Ptb_tau_psram_async.T_ACC=4/6/7 must FAIL (T_ACC=6 was the
 // pre-datasheet default and violates tOE/tAADV; 7 is one cycle short).
 `timescale 1ns/1ps
 `default_nettype none
 module tb_tau_psram_async;
-    parameter T_ACC = 8;
+    parameter T_ACC = 9;
+    parameter real IO_NS = 0.0;   // pad/trace delay added to read data valid (test of sensitivity)
     localparam INIT_CYC = 40;
 
     reg clk = 0, rst = 1;
@@ -38,9 +40,9 @@ module tb_tau_psram_async;
     );
 
     wire drv0, drv1, gt0, gt1;
-    psram_chip_model #(.NAME("chip0")) c0 (.a(a0), .dq(dq0), .adv_n(adv0), .ce0_n(ce00), .ce1_n(ce01),
+    psram_chip_model #(.NAME("chip0"), .T_IO(IO_NS)) c0 (.a(a0), .dq(dq0), .adv_n(adv0), .ce0_n(ce00), .ce1_n(ce01),
         .oe_n(oe0), .we_n(we0), .ub_n(ub0), .lb_n(lb0), .drv_en(drv0), .guard_touched(gt0));
-    psram_chip_model #(.NAME("chip1")) c1 (.a(a1), .dq(dq1), .adv_n(adv1), .ce0_n(ce10), .ce1_n(ce11),
+    psram_chip_model #(.NAME("chip1"), .T_IO(IO_NS)) c1 (.a(a1), .dq(dq1), .adv_n(adv1), .ce0_n(ce10), .ce1_n(ce11),
         .oe_n(oe1), .we_n(we1), .ub_n(ub1), .lb_n(lb1), .drv_en(drv1), .guard_touched(gt1));
 
     integer errors = 0;
@@ -209,6 +211,13 @@ module tb_tau_psram_async;
         rd(D00 + 23'h1FFFFE, 1, "data survives reset");
         wr(D11 + 23'd50, 32'h12345678); rd(D11 + 23'd50, 32'h12345678, "usable after reset");
 
+        // the CE/OE-WE monitor must actually fire (it is otherwise never exercised)
+        if (sce) begin $display("FAIL: CE monitor already set"); errors = errors + 1; end
+        force dut.mon_bad_d = 1'b1; repeat (4) @(posedge clk); release dut.mon_bad_d;
+        repeat (2) @(posedge clk);
+        if (!sce) begin $display("FAIL: CE/OE-WE monitor did not latch a forced fault"); errors = errors + 1; end
+        clr <= 1; @(posedge clk); clr <= 0; @(posedge clk);
+        if (sce) begin $display("FAIL: CE monitor flag not cleared"); errors = errors + 1; end
         // sticky flags (reset clears them, so provoke a guard hit now)
         if (sgh) begin $display("FAIL: sticky guard flag survived reset"); errors = errors + 1; end
         xfer(0, D10 + 23'h1FFFFF, 32'd0, 4'hf);
