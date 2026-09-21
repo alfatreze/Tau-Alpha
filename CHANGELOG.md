@@ -2,6 +2,11 @@
 
 What changed in each release, newest first.
 
+## v0.2.2 — 21 September 2026
+
+- **Greyscale meter previews**, so they sit well on every accent colour, and stored more compactly
+  (about 1 KiB less memory than the colour versions).
+
 ## v0.2.1 — 21 September 2026
 
 - **Meter previews in the meter list** — each of the eleven meters shows its artwork next to

@@ -5171,3 +5171,23 @@ Same ROM as `TAU_SETTINGS` (identical flags). Diagnostic Build `afca0152...` (ga
 compared identical, so it was not rewritten. `TAU_SETTINGS` (test build) was brought to the same ROM and version (its A-134 ROM `36d1e37c...` still offered 1.25x) so nothing on the card is stale. The replaced files (v0.2.0 ROM `9b5d6575...`, its
 `core.json`, the settings core's A-134 ROM and `core.json`) and the catalog indexes are backed up in `work/diagnostics/release-v021/card-replaced/`, indexes cleared. Media, `TAU_DIAGNOSTIC` (still the A-127 Phase 3 ROM),
 `TAU_PSRAM` and every other file untouched. Result pending: Info page shows 0.2.1; Speed list 0.85-1.20x; meter previews; a long-press of A only pauses.
+
+### A-136 — meter previews regenerated from the grayscale exports (built and packaged, not installed)
+
+**Date:** 2026-09-21
+**Evidence:** host (converter run, fixture, build, package). The user re-exported the eleven Figma previews as **grayscale** (56x32 baseline JPEG, 1.5-2.3 KB each, timestamps 00:58); they replace the lime/green originals of A-132 in `assets/ui/meter/`.
+**Change:** `python3 tools/gen_meter_thumbs.py` regenerated `fw/meter_thumbs.h`: 5,747 B (5,371 run bytes, 352 B palettes, 24 B offsets), 136 B less than before. Neutral grey previews sit comfortably on every accent colour, which is what the earlier
+"do they follow the theme?" question was after; no draw-time tint was added. (The 16-colour per-image palettes are more than grey art needs: a grey-only palette of 8 levels would save about 0.5-1 KiB more if the heap gap ever matters.)
+Fixture `settings-meter` (50 fixtures) shows the new previews; inspected. Release-style settings ROM `69d036da...` (162,036 B, heap gap 6,736 B); `TAU_SETTINGS` bundle repackaged with the seed-2 RBF; the Diagnostic Build has no previews.
+`dist/` (v0.2.1) still carries the ROM built from the lime previews, and the card runs it: the grayscale previews reach the base `TAU` only with a rebuilt release (a v0.2.2, or the next version).
+
+### A-136 addendum / A-137 — 8-level grey previews and release v0.2.2 (built, committed, installed)
+
+**Date:** 2026-09-21
+**Owner decisions:** apply the saving (an 8-level grey palette); release v0.2.2 and install it.
+**Change (A-136 follow-up):** `tools/gen_meter_thumbs.py` now uses **8 colours per preview** (the exports are greyscale) and a **3-bit index + 5-bit run length** byte (runs of 1..32 pixels instead of 1..16, so flat areas need fewer
+tokens); `fw/settingsui.inc` (`set_draw_thumb`) and the fixture decoder read the same layout. `fw/meter_thumbs.h`: **4,667 B** (4,467 run bytes, 176 B palettes, 24 B offsets), down from 5,747 B (grey 16-colour) and 5,883 B (lime),
+about 1.2 KiB saved against the first version; quality checked on the contact sheet and the `settings-meter` fixture (magic eye and spectrum lose a little smoothness, everything is recognisable).
+**Release v0.2.2:** `APP_VER`, `dist/Cores/alfatreze.TAU/core.json` (`0.2.2`, `date_release 2026-09-21`) and `README.md` bumped; `CHANGELOG.md` entry. `fw/build.sh release` -> `dist/Assets/tau/common/tau.rom` = `a8e76b78...`
+(160,956 B, 89.3% of the RAM budget, **heap gap 7,824 B**, up from 6,608 B); `bitstream.rbf_r` unchanged (seed-2 probe-free RBF). `check_tau_package` and `make test-host` pass; the Diagnostic Build (no previews) gap is 4,224 B.
+Same ROM as the `TAU_SETTINGS` test build.
