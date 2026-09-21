@@ -1,5 +1,8 @@
 # Runtime settings feasibility
 
+> **Update 2026-09-21:** the settings screen shipped in v0.2.0 after the playlist buffers moved to SDRAM (A-105); measured cost of the grouped menu about 4.4 KiB, the choice lists and
+> previews about 1-6 KiB more. See `docs/CURRENT_STATUS.md`; the text below is the original budget analysis.
+
 ## Current result
 
 The first in-core settings-home prototype was deliberately not retained. It

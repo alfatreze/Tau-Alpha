@@ -5200,3 +5200,33 @@ Result pending: meter list shows the greyscale previews; Info shows 0.2.2; Speed
 `Platforms/_images/tau_settings.bin`, `Settings/alfatreze.TAU_SETTINGS`), redundant since v0.2.2 made it byte-identical to the base `TAU`; (2) the orphans of long-removed probe cores: 19 `Settings/alfatreze.TAU_SDRAM_*` folders (`CPU`, `PRB60`..`PRB85`,
 `PROBE`, `RD60`; none had a core folder), `Platforms/tau_sdram_prb83/84/85.json` and the images for `prb67/74/76/83/84/85`. Catalog indexes backed up and cleared. What remains of ours on the card: `TAU` (v0.2.2, with its media),
 `TAU_DIAGNOSTIC` (Phase 3 build, own media copy) and `TAU_PSRAM` (PSRAM session, untouched). Screenshots, the other cores and Pocket data were not touched.
+
+### B-014 — margin-experiment cores (T_ACC 7 and 6) installed on the Pocket card; run pending
+
+**Date:** 2026-09-21
+**Evidence:** host (card install and per-file SHA-256 verification). No Pocket run yet.
+**Approval:** the owner put the card in and said "go ahead and install both" after B-013.
+**Card state found (not caused by this work):** volume `Pock`, 111 GB free. Compared with the state left after B-009, the other Tau cores (`TAU_SETTINGS`,
+`TAU_SDRAM_PRB97`, `TAU_SDRAM_PRB100`, `TAU_SDRAM_WSTRESS`) and their assets/platforms were no longer on the card, and the five catalog indexes were absent
+(only `chip32_state`, `lastbuild`, `lastcore`, `laststate`, `platforms_defaultcores`, `recent`, `usercore_startstate` remained). `alfatreze.TAU`, `TAU_DIAGNOSTIC`
+and the B-008 `TAU_PSRAM` core were present; the latter was byte-identical to its bundle. Nothing was removed by me, and I did not restore anything.
+**Backup:** none of the five indexes existed, so nothing was backed up (`pocket-cache-backup-2026-09-21/System/` is empty by design).
+**Install (additive):** `Cores/alfatreze.TAU_PSRAM_T7|T6`, `Assets/tau_psram_t7|t6`, `Platforms/tau_psram_t7|t6.json`, `Platforms/_images/tau_psram_t7|t6.bin` from the
+hash-locked B-013 bundles; removed only the macOS `._*` files I created in those paths; cleared the (absent) indexes; `sync`; unmounted.
+**Verification:** bundle hashes matched `SHA256SUMS.txt` before copying; afterwards 13 of 13 files per bundle SHA-256-identical, file lists equal, identities
+`TAU_PSRAM_T7`/`tau_psram_t7` and `TAU_PSRAM_T6`/`tau_psram_t6`; packaged bitstreams `3b9ec0f0...` (T7) and `0471b0e0...` (T6); the B-008 core still
+byte-identical.
+**Run protocol (owner, with Pocket screenshots):** for each new core, two starts; per start: the automatic run (index = build value), then X, Y and B, taking a
+screenshot after each result is showing (`PASS`/`FAIL` on the bottom line), Quit at the end. 16 screenshots; the card clock in the file names orders them, and each
+screen shows `RUN n` and `IDX n`. A screenshot that starts an extra run is harmless and self-identifying. Predictions are in B-012 (model: index 6 and 7 FAIL,
+8 and 9 PASS; index 7 passing would mean tAADV counts from ADV# falling or faster silicon).
+
+
+### A-138 — documentation consolidated for the next session (docs only)
+
+**Date:** 2026-09-21
+**Change:** new `docs/SESSION_HANDOFF_2026-09-21.md` (state, working rules, build tiers and targets, RBF/VM/gate procedures, evidence index, non-obvious facts, guidance for the PSRAM work, open items) superseding the 2026-09-20 handoff
+(marked); `docs/CURRENT_STATUS.md` rewritten (it had stopped at A-093); `docs/PROJECT_REGISTER.md` rows for settings, the uncached window, the cached window/data moves and diagnostics updated; `docs/SDRAM_MEMORY_ARCHITECTURE.md` status block and status line
+(the 24 KiB exit target was not needed); notes added to `docs/SETTINGS_ARCHITECTURE.md` and `docs/SETTINGS_RUNTIME_BUDGET.md`; `CLAUDE.md` gained a session-start section (read order, audit series, commit etiquette, card procedure). Skill knowledge base: local
+entries KB-038 (a diagnostic-overlay macro that is also the feature macro leaks the overlay into product builds) and KB-039 (a memory window must be proven at runtime before the first store; failure switches the feature off), both
+hardware-validated by the Tau results cited in them; `kb.py validate` and `index` pass.

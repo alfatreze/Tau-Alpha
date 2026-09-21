@@ -1,5 +1,9 @@
 # Tau in-app settings architecture
 
+> **Update 2026-09-21:** Appearance, Audio and Playback are implemented (`fw/settingsui.inc`, opened with Start; multi-option settings open a choice list, A selects), plus a Diagnostics group
+> (Info, and Tests/Stress in the Diagnostic Build). Not implemented: Advanced mode, reset, galleries/previews other than the meter thumbnails, EQ curve preview, artwork "always hide". Speed offers
+> 0.85-1.20x (higher speeds need a resampler). Snapshot fixtures: `settings-*` in `tools/ui_snapshot_renderer.py`.
+
 **Status:** Functional model and information architecture approved for technical
 scaffolding. Screen layout waits for Figma and the framebuffer snapshot harness.
 
