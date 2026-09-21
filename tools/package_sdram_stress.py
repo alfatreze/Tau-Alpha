@@ -29,6 +29,10 @@ def main():
                     help="with --playlist-sdram: pair the normal SDRAM-playlist ROM with a no-window RBF (A-110)")
     ap.add_argument("--fault", action="store_true",
                     help="with --playlist-sdram: package the fault-injection ROM (A-109)")
+    ap.add_argument("--number", type=int,
+                    help="with --settings/--diagnostic: name the core 'TAU PSRAM NN' (numbered test build; "
+                         "output work/diagnostics/tau-psram-NN/pocket)")
+    ap.add_argument("--note", help="with --number: replaces the text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="raw RBF (window mode requires it)")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
     args = ap.parse_args()
@@ -78,6 +82,15 @@ def main():
         rom = root / "work/diagnostics/sdram-stress/tau.rom"
         short, title, desc = ("TAU_SDRAM_STRESS", "TAU SDRAM Stress",
                               "TAU developer SDRAM contention stress player")
+    if args.number is not None:
+        if not (args.playlist_sdram and (args.settings or args.diagnostic)):
+            sys.exit("--number needs --playlist-sdram with --settings or --diagnostic")
+        nn = f"{args.number:02d}"
+        kind = "diagnostic build" if args.diagnostic else "release-style build"
+        core_id, platform = f"alfatreze.TAU_PSRAM_{nn}", f"tau_psram_{nn}"
+        short, title = f"TAU_PSRAM_{nn}", f"TAU PSRAM {nn}"
+        desc = f"TAU numbered test build {nn}: {kind}, " + (args.note or "album art in PSRAM")
+        out = root / f"work/diagnostics/tau-psram-{nn}/pocket"
     if out.exists(): shutil.rmtree(out)
     c = out / "Cores" / core_id
     shutil.copytree(src / "Cores/alfatreze.TAU", c)
