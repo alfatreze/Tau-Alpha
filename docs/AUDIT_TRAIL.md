@@ -5166,3 +5166,8 @@ CPU is doing (cover decode, drawing); 1.25x was on the edge, not solidly clean. 
 **Artifacts:** `fw/build.sh release` -> `dist/Assets/tau/common/tau.rom` = `40b92cdf...` (162,172 B, 90.0% of the RAM budget, heap gap 6,608 B above the 6 KiB floor); `dist/Cores/alfatreze.TAU/bitstream.rbf_r` unchanged (the seed-2 probe-free RBF, `cb15310a...`).
 Same ROM as `TAU_SETTINGS` (identical flags). Diagnostic Build `afca0152...` (gap 4,224 B). Test bundles repackaged with the seed-2 RBF.
 **Not done:** no card install (the card runs v0.2.0 as the base `TAU` and the A-134 ROM in `TAU_SETTINGS`); no re-run of the full release checklist on v0.2.1.
+
+**A-135 installation (host, 2026-09-21):** v0.2.1 installed as the base `alfatreze.TAU` core: `Assets/tau/common/tau.rom` = `40b92cdf...`, `Cores/alfatreze.TAU/core.json` = `version 0.2.1`; `bitstream.rbf_r` was already the seed-2 probe-free RBF and
+compared identical, so it was not rewritten. `TAU_SETTINGS` (test build) was brought to the same ROM and version (its A-134 ROM `36d1e37c...` still offered 1.25x) so nothing on the card is stale. The replaced files (v0.2.0 ROM `9b5d6575...`, its
+`core.json`, the settings core's A-134 ROM and `core.json`) and the catalog indexes are backed up in `work/diagnostics/release-v021/card-replaced/`, indexes cleared. Media, `TAU_DIAGNOSTIC` (still the A-127 Phase 3 ROM),
+`TAU_PSRAM` and every other file untouched. Result pending: Info page shows 0.2.1; Speed list 0.85-1.20x; meter previews; a long-press of A only pauses.
