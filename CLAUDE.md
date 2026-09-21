@@ -11,7 +11,7 @@
 3. **Codex** must run background checks against modified files to detect bugs, race conditions, or performance flaws.
 
 ## 2b. Session start (read before working)
-1. `docs/SESSION_HANDOFF_2026-09-21.md` (state, rules, build targets, card and VM procedures, PSRAM guidance), then `docs/CURRENT_STATUS.md`.
+1. `docs/SESSION_HANDOFF_2026-09-21_RELEASE_0.3.md` (latest: v0.3.0 release, rules, procedures, open items), then `docs/SESSION_HANDOFF_2026-09-21.md` (build targets, card and VM procedures) and `docs/CURRENT_STATUS.md`.
 2. `docs/AUDIT_TRAIL.md`: A-NNN = SDRAM/UI/firmware series, B-NNN = the parallel PSRAM series; log every hardware result with an evidence label.
 3. Commit only your own files; never stage another session's uncommitted RTL/sim/PSRAM docs. Ask before any SD-card write and follow the backup / clear-catalog / verify-SHA-256 / eject procedure.
 
@@ -176,3 +176,4 @@
 - 2026-09-21 (Claude): release. B-029: v0.3.0 built and zipped as release/alfatreze.TAU_0.3.0_2026-09-21.zip (Analogue naming Author.Core_Version_Date.zip): P4 bitstream with PSRAM, art buffer in PSRAM, new platform artwork (convert_pocket_art.py now runs without Pillow), CHANGELOG/README/APP_VER/core.json bumped; package checks and host tests pass. Not installed or tested on the Pocket, not committed.
 - 2026-09-21 (Claude): release. B-029 addendum: `tools/make_release.py` builds and zips BOTH cores per release (alfatreze.TAU and alfatreze.TAU_DIAGNOSTIC, Analogue naming, checks, SHA256SUMS); v0.3.0 zips produced; README gained a Diagnostics section (what it is for, how to send results) and corrected controls/speed text. Not installed/tested on the Pocket, not committed.
 - 2026-09-21 (Claude): card. B-029: installed the v0.3.0 release as TAU and the Diagnostic Build as TAU_DIAGNOSTIC (+media), removed test cores 03/05/W after verified backup; cores on the card: TAU, TAU_DIAGNOSTIC. Smoke test pending.
+- 2026-09-21 (Claude): git/docs. B-030: committed v0.3.0 locally in four commits and tagged `v0.3.0` (not pushed; owner skipped the release smoke test); wrote `docs/SESSION_HANDOFF_2026-09-21_RELEASE_0.3.md`, `docs/MEDIA_LIBRARY_0.4_BRIEF.md` and `docs/MEDIA_LIBRARY_0.4_PROMPT.md`; updated CURRENT_STATUS and the session-start pointer; KB-042 added. Next: 0.4 media library design.
