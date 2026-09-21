@@ -10,6 +10,11 @@
 2. **Aider (Qwen-14B)** must read this file, execute the code modifications line-by-line, and make a clean Git commit.
 3. **Codex** must run background checks against modified files to detect bugs, race conditions, or performance flaws.
 
+## 2b. Session start (read before working)
+1. `docs/SESSION_HANDOFF_2026-09-21.md` (state, rules, build targets, card and VM procedures, PSRAM guidance), then `docs/CURRENT_STATUS.md`.
+2. `docs/AUDIT_TRAIL.md`: A-NNN = SDRAM/UI/firmware series, B-NNN = the parallel PSRAM series; log every hardware result with an evidence label.
+3. Commit only your own files; never stage another session's uncommitted RTL/sim/PSRAM docs. Ask before any SD-card write and follow the backup / clear-catalog / verify-SHA-256 / eject procedure.
+
 ## 3. Strict Project Rules
 - Never modify this repository's upstream tracking references.
 - Always append an execution log entry to this file after finishing a coding turn.
@@ -141,3 +146,5 @@
 - 2026-09-21 (Claude): firmware/release. A-137: meter previews in an 8-level grey palette with 3+5 bit runs (fw/meter_thumbs.h 4,667 B, -1.2 KiB); release v0.2.2 (ROM a8e76b78..., heap gap 7,824 B, RBF unchanged) built into dist/.
 - 2026-09-21 (Claude): card. Installed v0.2.2 as the base TAU (ROM a8e76b78..., core.json 0.2.2; RBF unchanged) and TAU_SETTINGS; v0.2.1 files and indexes backed up. Result pending.
 - 2026-09-21 (Claude): card. Cleanup: removed TAU_SETTINGS (redundant with the base TAU) and the orphan probe leftovers (19 Settings folders, 3 platform json, 6 platform images) after verified backups (84 MB in work/diagnostics/card-cleanup-2026-09-21). Left: TAU, TAU_DIAGNOSTIC, TAU_PSRAM.
+- 2026-09-21 (Claude): card. B-014: installed the two margin cores (`TAU_PSRAM_T7`, `TAU_PSRAM_T6`) additively on `Pock`: bundle hashes checked, 13/13 files per core SHA-256-identical, B-008 core untouched, unmounted. The card had already lost the other Tau cores and the five indexes (not by me; nothing to back up). Run pending (owner, screenshots).
+- 2026-09-21 (Claude): docs. Consolidated for handoff: new docs/SESSION_HANDOFF_2026-09-21.md (supersedes the 09-20 one), rewrote docs/CURRENT_STATUS.md, updated PROJECT_REGISTER, SDRAM_MEMORY_ARCHITECTURE status, SETTINGS_* notes and CLAUDE.md session-start section. Pushed.

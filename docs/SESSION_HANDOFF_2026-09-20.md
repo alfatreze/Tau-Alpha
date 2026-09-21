@@ -1,3 +1,5 @@
+> **SUPERSEDED by `docs/SESSION_HANDOFF_2026-09-21.md` (state, rules and procedures are current there).** Kept for the history of that day.
+
 # Session handoff, 2026-09-20 (SDRAM CPU window: from root cause to contention pass)
 
 Read this first in a fresh session, then `docs/CURRENT_STATUS.md`, the A-088..A-102

@@ -1,10 +1,17 @@
 # SDRAM memory architecture decision
 
-**Status:** Phase 1 accepted on Pocket; Phase 2 CPU-window RTL fits, Pocket
-firmware gate pending
+**Status:** Phase 1 and Phase 2 (uncached CPU window) accepted on Pocket and shipped in v0.2.x;
+Phase 3-4 not started (see the status block below)
 **Decision gate:** Tau should not resume substantial feature growth until the
 data-only SDRAM prototype passes on Pocket hardware.  Executing cold code from
 SDRAM is a later, separate gate.
+
+> **Status, 2026-09-21.** Implemented and shipped: Phase 1 diagnostic access, the **Phase 2 uncached CPU window** (explicit decode, registered-ACK
+> adapter that must not re-accept a finished beat, A-093) and its first data move (playlist buffers, `docs/PLAYLIST_SDRAM_MOVE_SPEC.md`). Pocket gates
+> (soak, whole-window coverage, contention with playback) passed on the probe-free seed-2 RBF (A-128, A-129); release v0.2.2 uses it. The **24 KiB exit
+> target below was not needed** (A-096; the 13 KiB playlist move bought the settings menu and previews). Not started: the cached window (Phase 3 code
+> execution from SDRAM) and Phase 4; the artwork buffers remain in BRAM (a hardware scaling blit engine is the alternative to moving them). See
+> `docs/CURRENT_STATUS.md` and `docs/SESSION_HANDOFF_2026-09-21.md`.
 
 ## Decision
 
