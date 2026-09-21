@@ -69,12 +69,12 @@ static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", 
     "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK" };
 static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
     SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS };
-/* Only the speeds that play cleanly are offered (A-133: 1.30x and above degrade, the decoder budget
- * and the 48 kHz output path allow about 1.25x). The higher entries stay in speed_num/speed_den in
+/* Only the speeds that play cleanly are offered (A-133/A-135: 1.30x and above degrade and 1.25x micro-stuttered on some
+ * material, the decoder budget at 60 MHz allows about 1.20x). The higher entries stay in speed_num/speed_den in
  * player.c for the resampler / decoder work and return here by raising SET_SPEED_SHOWN. */
 #define SET_SPEED_SHOWN 5u
 _Static_assert(SET_SPEED_SHOWN <= SPEED_N, "speed list longer than the speed table");
-static const char *const set_speed_nm[SET_SPEED_SHOWN] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.25X" };
+static const char *const set_speed_nm[SET_SPEED_SHOWN] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.20X" };
 static const char *const set_stress_nm[4] = { "OFF", "R1  16K OPS/S PACED", "R2  8 OP BURSTS",
     "R3  32 OP BURSTS" };
 static const char *const set_soak_nm[5] = { "OFF", "5 MIN", "15 MIN", "30 MIN", "60 MIN" };

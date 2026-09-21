@@ -62,7 +62,7 @@ STATES = [
     {"id": "settings-stress-status", "status": "model", "file": "settings-stress-status.framebuffer.png",
      "note": "Stress status page: level, state, passes, operations, failures, early/late underruns, worst access, stall, rate, soak (sample values)."},
     {"id": "settings-speed", "status": "model", "file": "settings-speed.framebuffer.png",
-     "note": "Speed choice list: ten speeds from 0.85x to 2.50x, active one marked."},
+     "note": "Speed choice list: 0.85x to 1.20x (the table keeps ten speeds), active one marked."},
     {"id": "paused", "status": "model", "file": "paused.framebuffer.png",
      "note": "Frozen pause-breath instant over the no-art playback fixture."},
     {"id": "stopped", "status": "model", "file": "stopped.framebuffer.png",

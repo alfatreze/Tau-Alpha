@@ -2,6 +2,15 @@
 
 What changed in each release, newest first.
 
+## v0.2.1 — 21 September 2026
+
+- **Meter previews in the meter list** — each of the eleven meters shows its artwork next to
+  the name (Settings > Appearance > Meter).
+- **Speed is a list** in Settings > Playback: 0.85x, 0.95x, 1.00x, 1.10x and 1.20x. (1.25x and
+  above stutter on some material at this clock speed, so they are not offered.)
+- Fixed: opening the settings while the playlist was open drew the playing track over the top
+  row.
+
 ## v0.2.0 — 21 September 2026
 
 - **Settings menu** — tap **Start**. Appearance (colour, meter, album art, screen blank),
