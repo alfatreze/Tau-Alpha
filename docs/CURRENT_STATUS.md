@@ -1,6 +1,6 @@
 # Current engineering status
 
-**Snapshot:** 2026-09-21. Tau **v0.2.2** is released and installed as the base `TAU` core. The detailed history is
+**Snapshot:** 2026-09-21 (evening). Tau **v0.3.0** is released (PSRAM in the bitstream, album-art buffer in PSRAM; two zips: TAU and TAU_DIAGNOSTIC; see `docs/SESSION_HANDOFF_2026-09-21_RELEASE_0.3.md`). The text below is the v0.2.2 state and the SDRAM gate record, still correct for the SDRAM side. Earlier: v0.2.2 was released and installed as the base `TAU` core. The detailed history is
 `docs/AUDIT_TRAIL.md`; how to continue is `docs/SESSION_HANDOFF_2026-09-21.md`. (The previous version of this file
 recorded the investigation up to A-093; that record now lives in the audit trail, A-060..A-093.)
 
