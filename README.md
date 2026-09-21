@@ -5,7 +5,7 @@ SD card, with album art, tags and meters.
 
 Decoding runs in software, on a RISC-V CPU built into the Pocket's FPGA.
 
-Current version **v0.2.2**.
+Current version **v0.3.0**.
 
 Tau is a derivative of
 **[HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player)**
@@ -45,8 +45,7 @@ The controls:
 | Pocket | Action |
 |---|---|
 | **A** | *Tap* — play / pause |
-| **A** | *Hold* — 1.2× speed; hold again for normal |
-| **Start** | Stop — returns to 0:00 |
+| **Start** | Open the settings menu (colour, meter, equalizer, repeat, speed and more) |
 | **Left** / **Right** | *Tap* — previous / next track |
 | **Left** / **Right** | *Hold* — seek, faster the longer you hold |
 | **Select** + **Left** / **Right** | Seek one second |
@@ -208,10 +207,10 @@ loud the music seems.
 
 ## Playback speed
 
-Hold **A** for 1.2×, hold again for normal. It's meant for spoken word: pitch
-rises with the speed, so music sounds wrong. Off every launch. 1.2× is the
-whole range — double speed would mean decoding twice as many frames a second,
-past what the CPU can do.
+Choose it in **Settings > Playback > Speed**: 0.85×, 0.95×, 1.00×, 1.10× or
+1.20×. It's meant for spoken word: pitch rises with the speed, so music sounds
+wrong. Off every launch. 1.2× is about the limit — faster would mean decoding
+more frames a second than the CPU can do.
 
 ## Screen blanking
 
@@ -221,6 +220,66 @@ without doing anything else — reaching for a sleeping player shouldn't pause
 it. Playback carries on regardless. Resets to off each launch, and it blacks
 the picture rather than powering down: a core can't reach the Pocket's
 backlight, so it's for a dark room, not for battery.
+
+## Diagnostics
+
+Tau can show what it is doing inside, so that a problem can be described with
+numbers instead of "it stutters". There are two levels.
+
+### The Info page (in every build)
+
+**Start** opens Settings; choose **Diagnostics > Info**. It is read-only and
+updates once a second:
+
+| Row | What it tells you |
+|---|---|
+| **Firmware** / **FPGA rev** | The player version and the version of the FPGA design under it. They must belong together. |
+| **SDRAM window** | `OK` when the Pocket's SDRAM was found and passed its start-up check. |
+| **Window read** | Cycles for one read of that memory. Normal is well under 400. |
+| **Free RAM** | Spare on-chip memory. |
+| **Playlist** / **List clipped** | Tracks loaded, and whether the list was cut at the limit. |
+| **Track** | Format, bitrate and sample rate of what is playing. |
+| **Underruns** | Times the audio ran out of data since start. A track change or a screenshot adds one; a count that climbs while music plays untouched is a problem. |
+| **Draw stall** | Milliseconds the CPU waited on the screen drawing, since start. |
+| **Load ms** | The last track load in four parts: header, size probe, album art, total. Tells you if a slow start is the cover. |
+
+### The Diagnostic Build (a separate core, for testers)
+
+A second core, **TAU Diagnostic Build**, is released beside the normal one
+(`alfatreze.TAU_DIAGNOSTIC_<version>_<date>.zip`). It is the same player on the same
+FPGA design, with the test menus switched on under **Settings > Diagnostics**.
+It installs next to TAU and has its own settings; use TAU for everyday
+listening, because the stress tests deliberately load the memory system.
+
+| Menu | What it is for |
+|---|---|
+| **Tests > Window test** | Writes and reads back a pattern in the extra memory the player uses. Expect `PASS 89`. |
+| **Tests > Read / Write cycles** | Timing of that memory as `fastest/average/slowest` cycles. Expect about 48/57/335 read and 31/38/350 write. |
+| **Tests > Playlist check** | Confirms the playlist memory still reads back correctly. Expect `PASS 13`. |
+| **Stress > Level** | Adds memory traffic (R1 light, R2 and R3 heavy) while music plays, to look for glitches. |
+| **Stress > Soak** | Runs that traffic for 5 to 60 minutes and reports pass or fail. |
+| **Stress > Status** | Live result: passes, failures, early and **late** underruns, slowest access. Late underruns must stay 0. Early ones follow track changes and are not a fault. |
+| **ALL SPEEDS** | Adds speeds above 1.20× to the speed list, for experiments. Off at every start. |
+
+**A run:** open the core, start music, open the test or stress page, note the
+result, then **Quit** to the menu (some results are only saved when you quit).
+
+### Sending results
+
+Open an issue at <https://github.com/alfatreze/Tau-Alpha/issues> and include:
+
+1. Which core and version (TAU or Diagnostic Build, and the version on the Info page), and your Pocket firmware version.
+2. What you did and what you expected.
+3. **Screenshots**: press **Menu + Start** on the Pocket. They are saved as PNG
+   files on the SD card in `Memories/Screenshots/`. Take one of the Info page
+   and one of the result page. (The screenshot buttons also reach the player, so
+   a track may pause; tap **A** to carry on. That adds one to the underrun count.)
+4. For a failed test, the row that failed and the numbers it showed, and how
+   long the test had been running.
+5. A short description of the music: format, bitrate, whether it has a cover and its size.
+
+A `PASS` on the Info and Tests pages together with a screenshot is enough for a
+good report; you do not need to send anything else from the card.
 
 ## FLAC
 
@@ -270,6 +329,16 @@ framework bugs that had to be found first — is in
   that loads next launch, and resume won't follow it. A `playlists.m3u` that
   exists but doesn't list that playlist has the same effect as none at all. See
   [Remembering which playlist you were using](#remembering-which-playlist-you-were-using).
+- **File and folder names must be plain ASCII.** A name with an accented
+  letter (`é`, `ä`) or another non-ASCII character may fail to open and the
+  track is skipped as unreadable. `tools/sync_media.py` copies a library to the
+  card with the names converted (`ä` becomes `a`, characters with no plain
+  equivalent are removed) and rewrites the playlists to match.
+- **Big covers are slow to appear.** Decoding takes about as long as the
+  picture file is heavy, not as the picture is large: a 455 px cover of 255 KB
+  took about 5 s, a 1.5 MB cover about 16 s. Re-save covers at around 100 KB
+  (the screen shows them at 92 px) and they appear at once. The same cover is
+  not decoded again for the rest of the album.
 - **1.2× speed can distort in dense passages.** It needs up to 54.8 MHz of the
   60 available, so the decoder occasionally can't keep up. Normal speed is
   unaffected.

@@ -2,6 +2,24 @@
 
 What changed in each release, newest first.
 
+## v0.3.0 — 21 September 2026
+
+- **PSRAM support.** The bitstream now drives the Pocket's PSRAM chips as a second memory area
+  (32 MiB, checked on every start). The album-art working buffer (about 11 KiB) moved there,
+  which leaves about 11 KiB more free memory in the player. Validated with a 1,000-pass
+  window soak (1.05 billion checks, zero failures) and a 30-minute stress soak on real playback
+  with no late underruns.
+- **New platform artwork** for the core in the Pocket's menu.
+- **Speed list, meter previews and the settings menu** from the 0.2 releases are unchanged.
+- **A separate Diagnostic Build** (`alfatreze.TAU_DIAGNOSTIC`, its own zip) is released with every version:
+  the same player and FPGA design with the Tests, Stress and All Speeds menus switched on. The README now
+  explains what the diagnostics are for and how to send results.
+- Known limits: file and folder names with accented characters cannot be opened by the player
+  (use plain ASCII names; the sync tool in `tools/sync_media.py` converts them). Album art that is
+  very large or lightly compressed takes several seconds to appear (a 455 px cover of 255 KB took
+  about 5 s), so re-encode covers to about 100 KB or less for a fast start.
+- If PSRAM is not detected at start, album art is switched off and everything else keeps working.
+
 ## v0.2.2 — 21 September 2026
 
 - **Greyscale meter previews**, so they sit well on every accent colour, and stored more compactly
