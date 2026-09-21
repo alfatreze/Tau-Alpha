@@ -1,0 +1,33 @@
+# PSRAM CPU-window diagnostic build (B-016): appended to the STAGED src/fpga/ap_core.qsf only.
+# Probe macro plus I/O-cell register packing on every CRAM signal the design drives, so
+# pad delay is short and repeatable (B-006: without these the flops stayed in the fabric).
+# Not applied to product builds: there the CRAM pins are constant tie-offs.
+# P4 (B-016): SDRAM Phase 2 decode (needed for a clean PSRAM window decode), the PSRAM
+# probe/mailbox and the uncached CPU window at 0xA400_0000..A5FF_FFFF.
+set_global_assignment -name VERILOG_MACRO "TAU_PHASE2_WINDOW=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_PROBE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_WINDOW=1"
+# chip 0
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_lb_n
+# chip 1
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_lb_n

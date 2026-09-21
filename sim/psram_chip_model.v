@@ -22,7 +22,19 @@ module psram_chip_model #(
     parameter real T_OE   = 20.0,   // output enable to valid data
     parameter real T_CW   = 70.0,   // CE# low to end of write
     parameter real T_CPH  = 5.0,    // CE# high between operations
-    parameter real T_CEM  = 4000.0  // maximum CE# low
+    parameter real T_CEM  = 4000.0, // maximum CE# low
+    // Extra delay from the controller edge to data valid at the controller pad
+    // (FPGA output tCO + trace + input delay). 0 = ideal; ~10 ns is realistic.
+    parameter real T_IO   = 0.0,
+    // Value driven on DQ before data is valid. X (default) makes an early sample fail loudly
+    // in the controller tests; a firmware-in-the-loop run uses a definite value so X cannot
+    // propagate through the CPU (hardware never shows X either).
+    parameter [15:0] EARLY_FILL = 16'hxxxx,
+    // fault injection (tests only): flip FAULT_MASK bits when this word is read
+    parameter FAULT_EN = 0,
+    parameter [21:0] FAULT_ADDR = 22'd0,
+    parameter FAULT_DIE = 0,
+    parameter [15:0] FAULT_MASK = 16'h0001
 ) (
     input  wire [21:16] a,
     inout  wire [15:0]  dq,
@@ -139,15 +151,17 @@ module psram_chip_model #(
         if (ce_active && adv_open) err("OE# low while address is on the bus");
         else if (ce_active && latched && we_n) begin
             t_oe_fall = $realtime;
-            gen = gen + 1; my = gen; drv_en = 1; dq_drv = 16'hxxxx;
+            gen = gen + 1; my = gen; drv_en = 1; dq_drv = EARLY_FILL;
             t_valid = t_adv_rise + T_AADV;
             if (t_adv_fall + T_AA > t_valid)   t_valid = t_adv_fall + T_AA;
             if (t_ce_fall  + T_CO > t_valid)   t_valid = t_ce_fall  + T_CO;
             if (t_oe_fall  + T_OE > t_valid)   t_valid = t_oe_fall  + T_OE;
+            t_valid = t_valid + T_IO;
             rem = t_valid - $realtime;
             if (rem > 0) #(rem);
             if (my == gen && drv_en) begin
                 dq_drv = ldie ? mem1[laddr] : mem0[laddr];
+                if (FAULT_EN && laddr == FAULT_ADDR && ldie == FAULT_DIE) dq_drv = dq_drv ^ FAULT_MASK;
                 ops_read = ops_read + 1;
             end
         end

@@ -53,8 +53,9 @@ test-host:
 	$(PYTHON) tools/check_tau_package.py
 	$(PYTHON) tools/check_ui_snapshot_renderer.py
 	$(PYTHON) tools/check_audit_trail.py
+	$(PYTHON) sim/test_psram_decode.py
 
-test-rtl: test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation
+test-rtl: test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -175,12 +176,16 @@ $(RTL_BUILD_DIR)/tb_tau_psram_async.vvp: sim/tb_tau_psram_async.v $(PSRAM_SRC) |
 
 test-rtl-psram-async: $(RTL_BUILD_DIR)/tb_tau_psram_async.vvp
 	$(VVP) $< | tail -4 | tee $(RTL_BUILD_DIR)/psram_async.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_async.log
+	$(IVERILOG) -g2012 -Ptb_tau_psram_async.IO_NS=15.0 -o $(RTL_BUILD_DIR)/tb_tau_psram_async_io.vvp sim/tb_tau_psram_async.v $(PSRAM_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_tau_psram_async_io.vvp | tail -4 | tee $(RTL_BUILD_DIR)/psram_async_io.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_async_io.log
 
 $(RTL_BUILD_DIR)/tb_tau_psram_wb_return_regression.vvp: sim/tb_tau_psram_wb_return_regression.v $(PSRAM_SRC) | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ sim/tb_tau_psram_wb_return_regression.v $(PSRAM_SRC)
 
 test-rtl-psram-wb-return: $(RTL_BUILD_DIR)/tb_tau_psram_wb_return_regression.vvp
 	$(VVP) $< | tail -4 | tee $(RTL_BUILD_DIR)/psram_wb.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_wb.log
+	$(IVERILOG) -g2012 -Ptb_tau_psram_wb_return_regression.GUARD_ERR=0 -o $(RTL_BUILD_DIR)/tb_tau_psram_wb_guard_ack.vvp sim/tb_tau_psram_wb_return_regression.v $(PSRAM_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_tau_psram_wb_guard_ack.vvp | tail -4 | tee $(RTL_BUILD_DIR)/psram_wb_ack.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_wb_ack.log
 
 # Each mutant MUST fail; a mutant that passes means the tests are toothless.
 test-rtl-psram-mutation: | $(RTL_BUILD_DIR)
@@ -191,8 +196,35 @@ test-rtl-psram-mutation: | $(RTL_BUILD_DIR)
 	run -Ptb_tau_psram_async.T_ACC=4 sim/tb_tau_psram_async.v; \
 	run -Ptb_tau_psram_async.T_ACC=6 sim/tb_tau_psram_async.v; \
 	run -Ptb_tau_psram_async.T_ACC=7 sim/tb_tau_psram_async.v; \
+	run "-Ptb_tau_psram_async.T_ACC=8 -Ptb_tau_psram_async.IO_NS=15.0" sim/tb_tau_psram_async.v; \
 	run -Ptb_tau_psram_wb_return_regression.REL_CYC=1 sim/tb_tau_psram_wb_return_regression.v; \
 	run -Ptb_tau_psram_wb_return_regression.MUT_EARLY_ACK=1 sim/tb_tau_psram_wb_return_regression.v
+
+# ---- PSRAM P2: mailbox test, and the real firmware on the real CPU -----------
+$(RTL_BUILD_DIR)/tb_tau_psram_probe.vvp: sim/tb_tau_psram_probe.v src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ sim/tb_tau_psram_probe.v src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
+
+test-rtl-psram-probe: $(RTL_BUILD_DIR)/tb_tau_psram_probe.vvp
+	$(VVP) $< | tail -3 | tee $(RTL_BUILD_DIR)/psram_probe.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_probe.log
+	$(IVERILOG) -g2012 -Ptb_tau_psram_probe.WD=8 -o $(RTL_BUILD_DIR)/tb_tau_psram_probe_wd8.vvp sim/tb_tau_psram_probe.v src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_tau_psram_probe_wd8.vvp | tail -3 | tee $(RTL_BUILD_DIR)/psram_probe_wd8.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_probe_wd8.log
+
+PSRAM_FW_SRC = sim/tb_psram_fw.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
+
+$(RTL_BUILD_DIR)/mp3_soc_sim.v: src/fpga/core/mp3_soc.v sim/make_soc_sim.py | $(RTL_BUILD_DIR)
+	$(PYTHON) sim/make_soc_sim.py $< $@
+
+# Builds the short-fill ROM, runs it on the real VexRiscv against the RTL and
+# the strict chip model (good run, then one injected bit flip that MUST be
+# reported), and verifies both published records independently in Python.
+test-rtl-psram-fw: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+	bash fw/build.sh psram-diag-sim > $(RTL_BUILD_DIR)/psram_fw_build.log 2>&1 || { cat $(RTL_BUILD_DIR)/psram_fw_build.log; exit 1; }
+	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_psram_fw.vvp $(PSRAM_FW_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_psram_fw.vvp +OUT=$(RTL_BUILD_DIR)/psram_fw_record.txt | tail -4 | tee $(RTL_BUILD_DIR)/psram_fw.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_fw.log
+	$(PYTHON) sim/check_psram_fw_record.py $(RTL_BUILD_DIR)/psram_fw_record.txt
+	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_psram_fw.FAULT=1 -o $(RTL_BUILD_DIR)/tb_psram_fw_fault.vvp $(PSRAM_FW_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_psram_fw_fault.vvp +OUT=$(RTL_BUILD_DIR)/psram_fw_record_fault.txt > /dev/null
+	$(PYTHON) sim/check_psram_fw_record.py $(RTL_BUILD_DIR)/psram_fw_record_fault.txt --expect-fault
 
 # Verilator's generated GNUmakefiles cannot run beneath this repository's path
 # because it contains spaces. Keep this tool-only artefact outside the tree.

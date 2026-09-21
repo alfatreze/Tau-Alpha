@@ -50,7 +50,10 @@ module mp3_soc #(
     parameter RAM_AW    = 16,
     // Phase 2 remains opt-in until its address map, uncached adapter, and
     // owner-mux path have passed the full Quartus and Pocket gates.
-    parameter PHASE2_WINDOW_ENABLE = 0
+    parameter PHASE2_WINDOW_ENABLE = 0,
+    // Uncached PSRAM CPU window at 0xA400_0000..A5FF_FFFF (B-016). Needs the Phase 2
+    // decode (PHASE2_WINDOW_ENABLE): the legacy decode aliases that range onto MMIO.
+    parameter PSRAM_WINDOW_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -181,7 +184,27 @@ module mp3_soc #(
     // and exist only to isolate the diagnostic return boundary.
     output wire [31:0]  sdram_wb_debug_adapter_rdata,
     output wire         sdram_wb_debug_cpu_ack,
-    output wire [31:0]  sdram_wb_debug_cpu_rdata
+    output wire [31:0]  sdram_wb_debug_cpu_rdata,
+
+    // Expansion MMIO (docs/MMIO_ALLOCATION.md): offsets 0x88..0xAC are handed to
+    // an optional peripheral (the PSRAM diagnostic mailbox). With nothing
+    // connected xm_rdata is not read, so legacy builds and testbenches are
+    // unaffected.
+    output wire [7:0]   xm_reg,
+    output wire         xm_wr,
+    output wire [31:0]  xm_wdata,
+    input  wire [31:0]  xm_rdata,
+
+    // PSRAM CPU window: controller-side request interface (single outstanding request,
+    // level held until psram_done). Inert unless PSRAM_WINDOW_ENABLE.
+    output wire         psram_req,
+    output wire         psram_we,
+    output wire [22:0]  psram_word,
+    output wire [31:0]  psram_wdata,
+    output wire [3:0]   psram_be,
+    input  wire         psram_done,
+    input  wire [31:0]  psram_rdata,
+    input  wire         psram_guard
 );
 
     // ---------------------------------------------------------------- CPU ---
@@ -272,11 +295,17 @@ module mp3_soc #(
     wire dec_bram_cached, dec_bram_uncached, dec_mmio;
     wire dec_sdram_cached, dec_sdram_uncached;
     wire [24:0] dec_sdram_addr;
+    wire        dec_psram;
+    wire [22:0] dec_psram_word;
+    wire        d_is_psram;
+    wire        psram_wb_ack, psram_wb_unsupported;
+    wire [31:0] psram_wb_dat;
     tau_sdram_addr_decode u_sdram_addr_decode (
         .dadr(dADR), .bram_cached(dec_bram_cached),
         .bram_uncached(dec_bram_uncached), .mmio(dec_mmio),
         .sdram_cached(dec_sdram_cached), .sdram_uncached(dec_sdram_uncached),
-        .sdram_addr(dec_sdram_addr)
+        .sdram_addr(dec_sdram_addr),
+        .psram_uncached(dec_psram), .psram_word(dec_psram_word)
     );
 
     generate
@@ -313,14 +342,45 @@ module mp3_soc #(
 
             // Unsupported bursts and unmapped data addresses terminate as a
             // Wishbone error instead of silently hanging the CPU bus.
-            assign d_bus_err = sdram_wb_unsupported |
+            assign d_is_psram = dec_psram && (PSRAM_WINDOW_ENABLE != 0);
+            if (PSRAM_WINDOW_ENABLE != 0) begin : g_psram
+                // One CPU beat = one controller request (KB-024 release timing); a guard-word
+                // access ACKs with data 0 (the CPU has no bus-error handler) and sets the
+                // controller's sticky guard flag.
+                tau_psram_bus #(.REL_CYC(2), .GUARD_ERR(0)) u_psram_bus (
+                    .clk(clk), .rst(rst),
+                    .wb_cyc(dCYC & d_is_psram), .wb_stb(dSTB), .wb_we(dWE), .wb_cti(dCTI),
+                    .wb_adr(dec_psram_word), .wb_dat_i(dDAT_MOSI), .wb_sel(dSEL),
+                    .wb_dat_o(psram_wb_dat), .wb_ack(psram_wb_ack), .wb_err(),
+                    .wb_unsupported(psram_wb_unsupported),
+                    .ctl_req(psram_req), .ctl_we(psram_we), .ctl_word(psram_word),
+                    .ctl_wdata(psram_wdata), .ctl_be(psram_be),
+                    .ctl_done(psram_done), .ctl_rdata(psram_rdata), .ctl_guard(psram_guard)
+                );
+            end else begin : g_no_psram
+                assign psram_wb_dat = 32'd0;
+                assign psram_wb_ack = 1'b0;
+                assign psram_wb_unsupported = 1'b0;
+                assign psram_req = 1'b0;   assign psram_we = 1'b0;
+                assign psram_word = 23'd0; assign psram_wdata = 32'd0;
+                assign psram_be = 4'd0;
+            end
+
+            assign d_bus_err = sdram_wb_unsupported | psram_wb_unsupported |
                 (d_req & (dec_sdram_cached |
-                          ~(d_is_mmio | d_is_ram | d_is_sdram)));
+                          ~(d_is_mmio | d_is_ram | d_is_sdram | d_is_psram)));
         end else begin : g_legacy_window
             assign d_is_mmio         = dADR[29] & ~dADR[28];
             assign d_is_ram          = ~dADR[29] | dADR[28];
             assign d_is_sdram        = 1'b0;
             assign d_is_sdram_cached = 1'b0;
+            assign d_is_psram        = 1'b0;
+            assign psram_wb_dat      = 32'd0;
+            assign psram_wb_ack      = 1'b0;
+            assign psram_wb_unsupported = 1'b0;
+            assign psram_req = 1'b0;   assign psram_we = 1'b0;
+            assign psram_word = 23'd0; assign psram_wdata = 32'd0;
+            assign psram_be = 4'd0;
             assign d_sdram_addr      = 25'd0;
             assign sdram_wb_req      = 1'b0;
             assign sdram_wb_write    = 1'b0;
@@ -508,6 +568,12 @@ module mp3_soc #(
 
     wire [7:0] mmio_reg = {dADR[5:0], 2'b00};   // byte offset within MMIO page
 
+    // Expansion window 0x88..0xAC (see docs/MMIO_ALLOCATION.md).
+    assign xm_reg   = mmio_reg;
+    assign xm_wr    = d_req & d_is_mmio & dWE;
+    assign xm_wdata = dDAT_MOSI;
+    wire   xm_range = (mmio_reg >= 8'h88) && (mmio_reg <= 8'hAC);
+
     // Diagnostic: clk_sys cycles spent with the draw FIFO full. Firmware
     // busy-waits on exactly that condition, so this is the direct measurement
     // of "is drawing actually stalling the CPU" -- the question the rev 6 UI
@@ -671,31 +737,33 @@ module mp3_soc #(
             R_STAT1:   mmio_rdata = status1;
             R_STAT2:   mmio_rdata = status2;
             R_STAT3:   mmio_rdata = status3;
-            default:   mmio_rdata = 32'h0;
+            default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end
 
     // --------------------------------------------------------- bus returns ---
-    reg d_was_mmio, d_was_sdram;
+    reg d_was_mmio, d_was_sdram, d_was_psram;
     always @(posedge clk) begin
         if (rst) begin
             dACK <= 1'b0; iACK <= 1'b0;
-            d_was_mmio <= 1'b0; d_was_sdram <= 1'b0;
+            d_was_mmio <= 1'b0; d_was_sdram <= 1'b0; d_was_psram <= 1'b0;
         end else begin
             dACK       <= 1'b0;
             iACK       <= 1'b0;
             d_was_mmio <= d_mmio_req;
             d_was_sdram<= sdram_wb_ack;
+            d_was_psram<= psram_wb_ack;
             // Ack only what actually got the port this cycle; anything blocked
             // by the loader simply retries (Wishbone masters hold their request).
-            if (d_mmio_req | serve_d | sdram_wb_ack) dACK <= 1'b1;
+            if (d_mmio_req | serve_d | sdram_wb_ack | psram_wb_ack) dACK <= 1'b1;
             if (serve_i)              iACK <= 1'b1;
         end
     end
 
     always @(*) begin
         dDAT_MISO = d_was_mmio  ? mmio_rdata :
-                    d_was_sdram ? sdram_wb_cpu_rdata : a_rdata;
+                    d_was_sdram ? sdram_wb_cpu_rdata :
+                    d_was_psram ? psram_wb_dat : a_rdata;
         iDAT_MISO = a_rdata;
     end
 
