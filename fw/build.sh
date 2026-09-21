@@ -136,7 +136,6 @@ player-settings)
     STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1"
     HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB        # release-style build: keep at least 8 KiB of heap gap
     ;;
-player-diagnostic)
 release)
     # The shipped product (A-130): settings menu, Info page and the playlist in SDRAM, built into
     # dist/. Needs the window RBF (the probe-free seed-2 build, A-114/A-128) in the same package.
@@ -154,6 +153,7 @@ release)
     STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1"
     HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB
     ;;
+player-diagnostic)
     SRCS=(
       "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
       "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
