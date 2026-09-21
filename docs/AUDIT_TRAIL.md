@@ -5153,3 +5153,16 @@ raising the constant when a resampler or faster decode exists. No change to the 
 **A-134 installation (host, 2026-09-21):** `Assets/tau_settings/common/tau.rom` on the card replaced with the trimmed-speed build (`36d1e37c...`, 162,172 B); the A-132 ROM (`b80fe44b...`) and the catalog
 indexes are backed up in `work/diagnostics/settings-ui/rom-replaced-a134/`, indexes cleared. All 14 bundle files SHA-256-identical (seed-2 RBF and `core.json` 0.2.0 unchanged); `TAU` (v0.2.0), `TAU_DIAGNOSTIC`,
 `TAU_PSRAM` and the media untouched. Result pending: the Speed list should show only 0.85-1.25x; the meter previews unchanged.
+
+### A-135 — release v0.2.1: meter previews and a 0.85-1.20x speed list (built and packaged in dist/, not installed)
+
+**Date:** 2026-09-21
+**Evidence:** user report after testing the A-134 build: **1.25x now micro-stuttered**, although 1.25x had sounded fine in the A-132 test; decision "drop back to 1.20 and proceed to release". Host checks: build, link map,
+`check_tau_package`, `make test-host`, fixtures (50). No Pocket run of the release.
+**Reading of the 1.25x result:** the decode budget at 60 MHz is marginal there (about 57 of 60 MHz at 320 kbps by the source's own Stage 0 figures), so whether it stutters depends on the material and on what else the
+CPU is doing (cover decode, drawing); 1.25x was on the edge, not solidly clean. 1.20x is the value the project shipped before (55 MHz), with a little more margin.
+**Changes:** speed table entry 4 is 6/5 (`1.20x`, was 5/4); the Speed list offers 0.85, 0.95, 1.00, 1.10 and **1.20x** (the table keeps 1.30-2.50x hidden); the legacy hold-A toggle (builds without a settings menu) toggles 1.00x/1.20x. Version
+**0.2.1** in the three cross-checked places (`APP_VER`, `dist/Cores/alfatreze.TAU/core.json` with `date_release 2026-09-21`, `README.md`) plus a `CHANGELOG.md` entry (meter previews, speed list, the overlay fix from A-117).
+**Artifacts:** `fw/build.sh release` -> `dist/Assets/tau/common/tau.rom` = `40b92cdf...` (162,172 B, 90.0% of the RAM budget, heap gap 6,608 B above the 6 KiB floor); `dist/Cores/alfatreze.TAU/bitstream.rbf_r` unchanged (the seed-2 probe-free RBF, `cb15310a...`).
+Same ROM as `TAU_SETTINGS` (identical flags). Diagnostic Build `afca0152...` (gap 4,224 B). Test bundles repackaged with the seed-2 RBF.
+**Not done:** no card install (the card runs v0.2.0 as the base `TAU` and the A-134 ROM in `TAU_SETTINGS`); no re-run of the full release checklist on v0.2.1.

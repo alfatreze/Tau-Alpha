@@ -161,7 +161,7 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 /* Shown on the splash. This is the PRODUCT version, not the RTL/firmware
  * contract above -- they answer different questions and must not be conflated.
  * Keep it in step with the status line in README.md; nothing enforces that. */
-#define APP_VER "0.2.0"
+#define APP_VER "0.2.1"
 
 /* Developer diagnostics, OFF in a release build. Flip to 1 to bring back
  * Select+A (APF slot table, boot vs live), Select+B (the framework's file
@@ -514,16 +514,17 @@ static uint32_t track_kbps, track_hz;
  * Deliberately NOT persisted, so it costs no settings slot (all eight are used
  * and a ninth would mean an RTL change). Resetting to normal each launch is
  * also the right default for something engaged per-listen. See ROADMAP. */
-/* Ten speeds (A-132): rational scale factors, no FPU. The FIFO drain rate is the file's rate times
+/* Ten speeds (A-132, 1.25x back to 1.20x in A-135 after 1.25x micro-stuttered on the Pocket): rational scale factors, no FPU. The FIFO drain rate is the file's rate times
  * num/den, so the pitch follows the speed (pitch correction is a later job). The decoder needs
- * N x the throughput: about 1.25x is the limit on 320 kbps MP3 at 60 MHz (Stage 0 figures), and
+ * N x the throughput: about 1.2x is the limit on 320 kbps MP3 at 60 MHz (Stage 0 figures; 1.25x
+ * micro-stuttered on the Pocket, A-135), and
  * 1.5x and above will underrun. Above 48 kHz / file rate the I2S path also drops samples
  * (zero-order hold at a fixed 48 kHz), which is audible. Not persisted. */
 #define SPEED_N  10u
 #define SPEED_1X 2u
-static const uint8_t speed_num[SPEED_N] = { 17u, 19u, 1u, 11u, 5u, 13u, 3u, 7u, 2u, 5u };
-static const uint8_t speed_den[SPEED_N] = { 20u, 20u, 1u, 10u, 4u, 10u, 2u,  4u, 1u, 2u };
-static const char *const speed_txt[SPEED_N] = { "0.85x", "0.95x", "1.00x", "1.10x", "1.25x",
+static const uint8_t speed_num[SPEED_N] = { 17u, 19u, 1u, 11u, 6u, 13u, 3u, 7u, 2u, 5u };
+static const uint8_t speed_den[SPEED_N] = { 20u, 20u, 1u, 10u, 5u, 10u, 2u,  4u, 1u, 2u };
+static const char *const speed_txt[SPEED_N] = { "0.85x", "0.95x", "1.00x", "1.10x", "1.20x",
                                                 "1.30x", "1.50x", "1.75x", "2.00x", "2.50x" };
 static uint8_t speed_idx = SPEED_1X;
 
@@ -6246,11 +6247,11 @@ static void poll_input(void)
         if ((keys & KEY_A) && !a_fired &&
             (int32_t)(cycles() - a_t0) >= (int32_t)a_hold_cy) {
             a_fired = 1;
-            speed_idx = (speed_idx == SPEED_1X) ? 4u : SPEED_1X;       /* 1.25x toggle */
+            speed_idx = (speed_idx == SPEED_1X) ? 4u : SPEED_1X;       /* 1.20x toggle */
             pcm_rate_apply(track_hz);
             /* Name the speed. An unlabelled 1.2x just sounds like a bad rip,
              * and the only other clue is the elapsed clock running fast. */
-            ui_toast_msg(speed_idx != SPEED_1X ? "SPEED 1.25x" : "SPEED NORMAL");
+            ui_toast_msg(speed_idx != SPEED_1X ? "SPEED 1.20x" : "SPEED NORMAL");
             /* Repaint the indicator now rather than at the next second tick:
              * it is drawn with the elapsed time, which only redraws when the
              * seconds change. */
