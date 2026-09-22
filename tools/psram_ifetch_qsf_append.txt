@@ -1,0 +1,3 @@
+# Phase G2 build (docs/PHASE_G_SPEC.md): append AFTER tools/psram_window_qsf_append.txt to the STAGED src/fpga/ap_core.qsf only.
+# Instruction fetch from PSRAM through the alias 0x2400_0000..25FF_FFFF; needs TAU_PSRAM_WINDOW (set by the window append).
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_IFETCH=1"
