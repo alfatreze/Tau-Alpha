@@ -115,13 +115,16 @@ wire [7:0]  soc_tgt_seq;
 wire [2:0]  soc_tgt_err;
 
 wire        soc_fb_cmd_push;
-wire [1:0]  soc_fb_cmd_op;
+wire [2:0]  soc_fb_cmd_op;
 wire [18:0] soc_fb_cmd_addr;
 wire [8:0]  soc_fb_cmd_w, soc_fb_cmd_h;
 wire [15:0] soc_fb_cmd_fg, soc_fb_cmd_bg;
 wire [6:0]  soc_fb_cmd_glyph;
 wire [1:0]  soc_fb_cmd_sx, soc_fb_cmd_sy;
 wire        soc_fb_cmd_full;
+// Phase F B1 (section 9): sticky blit addressing state, mp3_soc -> mp3_fb.
+wire [24:0] soc_blt_src_base, soc_blt_dst_base;
+wire [9:0]  soc_blt_src_stride, soc_blt_dst_stride;
 
 // SDRAM Phase 1 diagnostic mailbox.  These are MMIO-only controls; no normal
 // instruction or data fetch is routed to external memory at this stage.
@@ -182,6 +185,13 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_SDR_BUSY_EN 0
 `endif
+// Phase F B1: blit engine, starting with the generalised blit (section 5) and its sticky
+// addressing state (section 9). Independent of the macros above.
+`ifdef TAU_BLIT
+`define TAU_BLIT_EN 1
+`else
+`define TAU_BLIT_EN 0
+`endif
 wire        soc_psram_req, soc_psram_we;
 wire [22:0] soc_psram_word;
 wire [31:0] soc_psram_wdata, soc_psram_rdata;
@@ -211,9 +221,9 @@ assign soc_sdram_busy_rd = 32'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN)) u_soc (
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN)) u_soc (
 `else
-mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN)) u_soc (
+mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -327,7 +337,12 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN)) u_soc (
     .psram_rdata (soc_psram_rdata),
     .psram_guard (soc_psram_guard),
 
-    .sdram_busy_rd (soc_sdram_busy_rd)
+    .sdram_busy_rd (soc_sdram_busy_rd),
+
+    .blt_src_base   (soc_blt_src_base),
+    .blt_src_stride (soc_blt_src_stride),
+    .blt_dst_base   (soc_blt_dst_base),
+    .blt_dst_stride (soc_blt_dst_stride)
 );
 
 // PSRAM diagnostic (P2). Opt-in TAU_PSRAM_PROBE only; it owns the CRAM pins and
@@ -686,6 +701,11 @@ mp3_fb u_fb (
     .cmd_sx    (soc_fb_cmd_sx),
     .cmd_sy    (soc_fb_cmd_sy),
     .cmd_full  (soc_fb_cmd_full),
+
+    .blt_src_base   (soc_blt_src_base),
+    .blt_src_stride (soc_blt_src_stride),
+    .blt_dst_base   (soc_blt_dst_base),
+    .blt_dst_stride (soc_blt_dst_stride),
 
     .sdram_init_complete(sdram_init_complete),
     .p0_addr(fb_p0_addr), .p0_data(fb_p0_data), .p0_byte_en(fb_p0_byte_en),

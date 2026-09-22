@@ -19,6 +19,7 @@
 `default_nettype none
 
 module tb_mp3_fb;
+    parameter BUG_IGNORE_BLIT_STRIDE = 0;   // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
 
     reg clk_sdram = 0, clk_sys = 0, clk_vid = 0, reset = 1;
     always #5    clk_sdram = ~clk_sdram;   // 100 MHz
@@ -26,13 +27,19 @@ module tb_mp3_fb;
     always #41.7 clk_vid   = ~clk_vid;     //  12 MHz
 
     reg         cmd_push = 0;
-    reg  [1:0]  cmd_op = 0;
+    reg  [2:0]  cmd_op = 0;
     reg  [18:0] cmd_addr = 0;
     reg  [8:0]  cmd_w = 0, cmd_h = 0;
     reg  [15:0] cmd_fg = 16'hFFFF, cmd_bg = 16'h0000;
     reg  [6:0]  cmd_glyph = 0;
     reg  [1:0]  cmd_sx = 0, cmd_sy = 0;
     wire        cmd_full;
+
+    // Phase F B1: sticky blit addressing state. Left at the power-up defaults
+    // (base 0, stride 512) makes OP_BLIT degenerate to exactly OP_COPY's own
+    // addressing -- the equivalence test below relies on that.
+    reg  [24:0] blt_src_base = 25'd0, blt_dst_base = 25'd0;
+    reg  [9:0]  blt_src_stride = 10'd512, blt_dst_stride = 10'd512;
 
     wire [24:0] p0_addr;
     wire [15:0] p0_data;
@@ -44,11 +51,13 @@ module tb_mp3_fb;
     reg  [10:0] wsrc_addr = 0;
     wire [15:0] wsrc_q;
 
-    mp3_fb dut (
+    mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
         .cmd_glyph(cmd_glyph), .cmd_sx(cmd_sx), .cmd_sy(cmd_sy), .cmd_full(cmd_full),
+        .blt_src_base(blt_src_base), .blt_src_stride(blt_src_stride),
+        .blt_dst_base(blt_dst_base), .blt_dst_stride(blt_dst_stride),
         .sdram_init_complete(1'b1),
         .p0_addr(p0_addr), .p0_data(p0_data), .p0_byte_en(p0_byte_en),
         .p0_wr_len(p0_wr_len), .p0_wr_stream(p0_wr_stream), .p0_q(p0_q),
@@ -128,7 +137,7 @@ module tb_mp3_fb;
     end
 
     // ---- helpers ------------------------------------------------------------
-    task push(input [1:0] op, input [18:0] a, input [8:0] w, input [8:0] h,
+    task push(input [2:0] op, input [18:0] a, input [8:0] w, input [8:0] h,
               input [6:0] g, input [1:0] sx, input [1:0] sy);
         begin
             @(posedge clk_sys);
@@ -223,6 +232,42 @@ module tb_mp3_fb;
         check(row_pix[0][7] == 16'h1008, "COPY walks along the source row");
         check(row_pix[1][0] == 16'h1201, "COPY advances source by one stride");
         check(row_addr[1] == 19'h3200,   "COPY advances dest by one stride");
+
+        // ---- BLIT, default sticky state: must equal OP_COPY exactly -------
+        // Same source/dest/w/h as the COPY case above, left at power-up
+        // defaults (base 0, stride 512) -- OP_BLIT must degenerate to OP_COPY's
+        // own addressing byte-for-byte, since that is the whole point of it
+        // being a generalisation and not a parallel, divergent code path.
+        rows_written = 0;
+        cmd_fg <= 16'd0; cmd_bg <= 16'h1000;
+        push(3'd4, 19'h3000, 9'd8, 9'd3, 7'd0, 2'd0, 2'd0);
+        wait (rows_written == 3); repeat (30) @(posedge clk_sdram);
+        check(rows_written == 3, "BLIT default: h rows = COPY");
+        check(row_addr[0] == 19'h3000, "BLIT default: dest = COPY dest");
+        check(row_pix[0][0] == 16'h1001, "BLIT default: src = COPY src");
+        check(row_addr[1] == 19'h3200,   "BLIT default: dest stride 512");
+        check(row_pix[1][0] == 16'h1201, "BLIT default: src stride 512");
+
+        // ---- BLIT, non-default sticky state: independent base and stride --
+        // src_base=0x8000 stride=64, dst_base=0x9000 stride=96 -- neither
+        // matches FB_BASE=0/512, so any leftover hardcoded-512 addressing
+        // (the exact bug this feature exists to avoid re-introducing) would
+        // show up immediately as a wrong row_addr or wrong row_pix here.
+        rows_written = 0;
+        blt_src_base = 25'h8000; blt_src_stride = 10'd64;
+        blt_dst_base = 25'h9000; blt_dst_stride = 10'd96;
+        cmd_fg <= 16'd0; cmd_bg <= 16'h0010;   // src offset 0x10, relative to blt_src_base
+        push(3'd4, 19'h0020, 9'd4, 9'd3, 7'd0, 2'd0, 2'd0);   // dest offset 0x20, relative to blt_dst_base
+        wait (rows_written == 3); repeat (30) @(posedge clk_sdram);
+        check(rows_written == 3, "BLIT (custom) emits h rows");
+        check(row_addr[0] == (25'h9000 + 25'h0020), "BLIT custom: dest = DST_BASE+off");
+        check(row_pix[0][0] == (25'h8000 + 25'h0010) + 16'd1,
+              "BLIT custom: src = SRC_BASE+off");
+        check(row_addr[1] == (25'h9000 + 25'h0020) + 25'd96, "BLIT custom: dest stride 96");
+        check(row_pix[1][0] == ((25'h8000 + 25'h0010) + 25'd64) + 16'd1,
+              "BLIT custom: src stride 64");
+        blt_src_base = 25'd0; blt_src_stride = 10'd512;   // restore defaults for anything added after this
+        blt_dst_base = 25'd0; blt_dst_stride = 10'd512;
 
         // ---- RUN ----------------------------------------------------------
         rows_written = 0;

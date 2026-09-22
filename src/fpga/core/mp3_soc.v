@@ -62,7 +62,11 @@ module mp3_soc #(
     // Phase F B7: SDRAM busy-cycle counter (PHASE_F_SPEC.md section 5). The counter itself lives
     // outside this module, in clk_sdram, and is CDC'd in by the caller (tau_cdc_gray_ctr) -- this
     // just gates whether 0xBC exposes it or reads zero. Inert (identical netlist) when 0.
-    parameter SDRAM_BUSY_ENABLE = 0
+    parameter SDRAM_BUSY_ENABLE = 0,
+    // Phase F B1 (PHASE_F_SPEC.md section 5): the sticky blit-state registers always exist (a few
+    // flops, harmless either way) but blt_src_base/stride and blt_dst_base/stride are only wired
+    // out to mp3_fb when this is set -- inert (identical netlist) when 0.
+    parameter BLIT_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -128,7 +132,7 @@ module mp3_soc #(
     // fb_cmd_full is checked before pushing; pushing while full is silently
     // dropped by mp3_fb's FIFO.
     output reg          fb_cmd_push,
-    output reg  [1:0]   fb_cmd_op,
+    output reg  [2:0]   fb_cmd_op,   // 3 bits: bit 2 was GO's unused padding bit, claimed for OP_BLIT (Phase F B1)
     output reg  [18:0]  fb_cmd_addr,
     output reg  [8:0]   fb_cmd_w,
     output reg  [8:0]   fb_cmd_h,
@@ -218,7 +222,15 @@ module mp3_soc #(
     // Phase F B7: already-CDC'd SDRAM busy-cycle count (clk_sys domain, sourced from clk_sdram
     // by the caller). Unread when SDRAM_BUSY_ENABLE is 0, so legacy builds and testbenches that
     // do not wire this port are unaffected -- same convention as xm_rdata above.
-    input  wire [31:0]  sdram_busy_rd
+    input  wire [31:0]  sdram_busy_rd,
+
+    // Phase F B1: sticky blit-engine addressing state (section 9). Driven from mp3_soc's own
+    // R_BLT_IDX/R_BLT_DATA registers regardless of BLIT_ENABLE; only OP_BLIT in mp3_fb.sv reads
+    // them, and that opcode does not exist unless TAU_BLIT is built there too.
+    output wire [24:0]  blt_src_base,
+    output wire [9:0]   blt_src_stride,
+    output wire [24:0]  blt_dst_base,
+    output wire [9:0]   blt_dst_stride
 );
 
     // ---------------------------------------------------------------- CPU ---
@@ -591,6 +603,12 @@ module mp3_soc #(
                      R_SET_DAT = 8'h70, R_SDR_ADDR= 8'h74,
                      R_SDR_DATA= 8'h78, R_SDR_CTRL= 8'h7C,
                      R_SDR_RDATA=8'h80, R_SDR_STATUS=8'h84;
+    // Phase F section 9: sticky blit-engine state (source/dest base+stride), never
+    // entering the per-command FIFO. R_BLT_IDX selects a field (0=SRC_BASE,
+    // 1=SRC_STRIDE, 2=DST_BASE, 3=DST_STRIDE); each R_BLT_DATA write stores it and
+    // auto-increments the index, so a burst of 4 writes loads the whole state with
+    // one index write. Inert (no logic reads these) unless TAU_BLIT is built.
+    localparam [7:0] R_BLT_IDX = 8'hC0, R_BLT_DATA = 8'hC4;
 
     // Bitstream/firmware interlock. Firmware compares this against its own
     // expected value and refuses to run on a mismatch.
@@ -603,6 +621,17 @@ module mp3_soc #(
     localparam [31:0] CORE_VERSION = 32'h4D503317;   // "MP3" + rev 23 (target data-slot flush)
 
     wire [7:0] mmio_reg = {dADR[5:0], 2'b00};   // byte offset within MMIO page
+
+    // Phase F section 9: sticky blit-engine state. Plain flops, no logic reads
+    // them unless BLIT_ENABLE -- see the port declarations above and the reset
+    // block below for the rest of this feature's mp3_soc-side footprint.
+    reg  [1:0]  blt_idx = 2'd0;
+    reg  [24:0] blt_src_base_r = 25'd0, blt_dst_base_r = 25'd0;
+    reg  [9:0]  blt_src_stride_r = 10'd512, blt_dst_stride_r = 10'd512;
+    assign blt_src_base   = (BLIT_ENABLE != 0) ? blt_src_base_r   : 25'd0;
+    assign blt_src_stride = (BLIT_ENABLE != 0) ? blt_src_stride_r : 10'd0;
+    assign blt_dst_base   = (BLIT_ENABLE != 0) ? blt_dst_base_r   : 25'd0;
+    assign blt_dst_stride = (BLIT_ENABLE != 0) ? blt_dst_stride_r : 10'd0;
 
     // Expansion window 0x88..0xAC (see docs/MMIO_ALLOCATION.md).
     assign xm_reg   = mmio_reg;
@@ -677,7 +706,7 @@ module mp3_soc #(
             tgt_bridgeaddr <= 32'd0; tgt_length <= 32'd0;
             tgt_cmd_sel <= 3'd0;
             dt_addr <= 10'd0; dt_wdata <= 32'd0;
-            fb_cmd_op <= 2'd0; fb_cmd_addr <= 19'd0;
+            fb_cmd_op <= 3'd0; fb_cmd_addr <= 19'd0;
             fb_cmd_w  <= 9'd0; fb_cmd_h    <= 9'd0;
             fb_cmd_fg <= 16'd0; fb_cmd_bg  <= 16'd0;
             fb_cmd_glyph <= 7'd0; fb_cmd_sx <= 2'd0; fb_cmd_sy <= 2'd0;
@@ -728,11 +757,21 @@ module mp3_soc #(
                 /* GO carries the per-glyph fields (op/char/scale) so drawing a
                  * string is two MMIO writes per character -- address, then this
                  * -- with colour and size left standing in their registers. */
-                R_FB_GO:   begin fb_cmd_op    <= dDAT_MOSI[1:0];
+                R_FB_GO:   begin fb_cmd_op    <= dDAT_MOSI[2:0];
                                  fb_cmd_glyph <= dDAT_MOSI[9:3];
                                  fb_cmd_sx    <= dDAT_MOSI[11:10];
                                  fb_cmd_sy    <= dDAT_MOSI[13:12];
                                  fb_cmd_push  <= 1'b1; end
+                R_BLT_IDX:  blt_idx <= dDAT_MOSI[1:0];
+                R_BLT_DATA: begin
+                    case (blt_idx)
+                        2'd0: blt_src_base_r   <= dDAT_MOSI[24:0];
+                        2'd1: blt_src_stride_r <= dDAT_MOSI[9:0];
+                        2'd2: blt_dst_base_r   <= dDAT_MOSI[24:0];
+                        default: blt_dst_stride_r <= dDAT_MOSI[9:0];
+                    endcase
+                    blt_idx <= blt_idx + 2'd1;
+                end
                 default: ;
             endcase
         end

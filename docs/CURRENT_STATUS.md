@@ -101,10 +101,18 @@ a usable lever; PSRAM is now the only real path to font-related blocks. Seed 2 i
 glyphbuf MLAB write path, recorded as a genuine near-zero-margin finding, not discarded as noise. Full detail:
 `docs/AUDIT_TRAIL.md` B-100/B-101/B-102, `docs/PHASE_F_SPEC.md` sections 4 and 14.
 
-**Next item: the blit engine itself** — Tier 1/2 opcodes + the MMIO descriptor register file (`PHASE_F_SPEC.md`
-section 14). Both prerequisite gates (decoder profile, MMIO descriptor model decision) are done, and the pieces
-that used to share a build with it (MLAB, font repack, busy counter) are already fitted and out of the way.
-Owner chose to **hold this for a fresh session**.
+**The blit engine: started, 2026-09-22 (B-103).** MMIO descriptor register file (section 9) built —
+`R_BLT_IDX`/`R_BLT_DATA` at 0xC0/0xC4, plus `R_FB_GO`'s opcode field widened 2->3 bits to carry the new opcode,
+reusing the existing proven per-command path instead of adding a parallel one. First opcode, **B1 (generalised
+blit)**, built as a genuine extension of `OP_COPY`: independent 25-bit source/destination addresses and
+per-row stride, both sticky (configurable via the new registers), not COPY's fixed FB_BASE=0/512 — verified in
+simulation both for equivalence (defaults = byte-identical to `OP_COPY`) and independence (custom base/stride
+match hand-computed values exactly), plus a real mutation test (`make test-rtl-fb-mutation`) confirming a
+reverted-to-hardcoded-stride bug is actually caught. `make test` (host + RTL) passes, 0 failures. **Not done:**
+B2-B6 (colour key, skew/masks, scaled blit, alpha blend, meter primitive) — B1 alone was scoped as a complete,
+verified foundation rather than shallow progress everywhere. No Quartus slot spent yet.
+
+**Next item:** the rest of Tier 1 (B2-B6, `PHASE_F_SPEC.md` section 14), building on B1's addressing foundation.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in

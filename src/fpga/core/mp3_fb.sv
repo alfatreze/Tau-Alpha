@@ -59,7 +59,13 @@
 
 `default_nettype none
 
-module mp3_fb (
+module mp3_fb #(
+    // Mutation-test hook only (sim/tb_mp3_fb.v's -PBUG_IGNORE_BLIT_STRIDE=1 target
+    // in make test-rtl-fb-mutation): 1 makes OP_BLIT step by the fixed 512 stride
+    // COPY uses instead of the sticky blt_*_stride registers, reproducing the exact
+    // hardcoded-stride bug B1 exists to fix. Never set outside that test.
+    parameter BUG_IGNORE_BLIT_STRIDE = 0
+) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
     input  wire        clk_sdram,   // SDRAM controller + engine (~100 MHz)
@@ -67,7 +73,7 @@ module mp3_fb (
 
     // CPU draw command (clk_sys domain) -------------------------------------
     input  wire        cmd_push,
-    input  wire [1:0]  cmd_op,      // 0=RUN 1=RECT 2=CHAR
+    input  wire [2:0]  cmd_op,      // 0=RUN 1=RECT 2=CHAR 3=COPY 4=BLIT (Phase F B1)
     input  wire [18:0] cmd_addr,    // word address of top-left, y*512+x
     input  wire [8:0]  cmd_w,       // RUN: run length; RECT: width (words)
     input  wire [8:0]  cmd_h,       // RECT: height (rows)
@@ -77,6 +83,14 @@ module mp3_fb (
     input  wire [1:0]  cmd_sx,      // CHAR: h scale 0=1x 1=1.5x 2=2x 3=3x
     input  wire [1:0]  cmd_sy,      // CHAR: v scale, same encoding
     output wire        cmd_full,
+
+    // Phase F B1 (section 9): sticky blit addressing state, from mp3_soc.v's
+    // R_BLT_IDX/R_BLT_DATA registers. Read only by OP_BLIT below; RUN/RECT/
+    // CHAR/COPY are entirely unaffected (unchanged FB_BASE/512-stride math).
+    input  wire [24:0] blt_src_base,
+    input  wire [9:0]  blt_src_stride,
+    input  wire [24:0] blt_dst_base,
+    input  wire [9:0]  blt_dst_stride,
 
     // SDRAM master port (clk_sdram) -> wired to sdram_fb in core_game.vh ----
     input  wire        sdram_init_complete,
@@ -115,13 +129,25 @@ module mp3_fb (
     localparam [9:0]  STRIDE = 10'd512;             // words/line, page-aligned
     localparam [24:0] FB_BASE = 25'd0;
 
-    localparam [1:0] OP_RUN = 2'd0, OP_RECT = 2'd1, OP_CHAR = 2'd2, OP_COPY = 2'd3;
+    localparam [2:0] OP_RUN = 3'd0, OP_RECT = 3'd1, OP_CHAR = 3'd2, OP_COPY = 3'd3,
+                     OP_BLIT = 3'd4;
     // COPY moves a w x h block SDRAM->SDRAM. It exists for the album-art panel:
     // sliding an image by re-sending its pixels from the CPU would be thousands
     // of commands per animation step and would starve the decoder, whereas the
     // engine can read a row and write it back with the CPU issuing ONE command
     // for the whole block. Source address rides in the fg/bg fields, which a
     // copy has no other use for.
+    //
+    // BLIT (Phase F B1, PHASE_F_SPEC.md section 5) generalises COPY: same w x h
+    // block move, same row-at-a-time streaming-write datapath, but source and
+    // destination are each `sticky_base + flat_offset`, advancing by the sticky
+    // STRIDE per row instead of COPY's fixed FB_BASE=0/512. This is genuinely
+    // cheap -- the per-row step was already a plain add, so swapping the
+    // hardcoded 512 for a register costs nothing extra. What is NOT generalised
+    // here (deliberately, a follow-up not this delivery): the row-buffer width
+    // limit COPY already has (`glyphbuf` is 128 entries, so widths above 127
+    // silently truncate) -- fixing that needs a wider row buffer, which is an
+    // M10K/MLAB cost decision of its own, not bundled into an addressing change.
 
     // Declared before the scale helpers consume them. Quartus accepted the
     // former declaration-after-use ordering, but standards-strict simulators
@@ -213,7 +239,7 @@ module mp3_fb (
         end else if (cmd_push && !cmd_full) begin
             cmd_mem[wr_ptr[FAW-1:0]] <= {cmd_op, cmd_addr, cmd_fg, cmd_bg,
                                          cmd_w, cmd_h, cmd_glyph,
-                                         cmd_sx, cmd_sy, 6'd0};
+                                         cmd_sx, cmd_sy, 5'd0};
             wr_ptr   <= wr_ptr + 1'b1;
             wr_ptr_g <= b2g(wr_ptr + 1'b1);
         end
@@ -227,15 +253,15 @@ module mp3_fb (
 
     reg [CW-1:0] cmd_q;
     always @(posedge clk_sdram) cmd_q <= cmd_mem[rd_ptr[FAW-1:0]];
-    wire [1:0]  q_op    = cmd_q[87:86];
-    wire [18:0] q_addr  = cmd_q[85:67];
-    wire [15:0] q_fg    = cmd_q[66:51];
-    wire [15:0] q_bg    = cmd_q[50:35];
-    wire [8:0]  q_w     = cmd_q[34:26];
-    wire [8:0]  q_h     = cmd_q[25:17];
-    wire [6:0]  q_glyph = cmd_q[16:10];
-    assign q_sx = cmd_q[9:8];
-    assign q_sy = cmd_q[7:6];
+    wire [2:0]  q_op    = cmd_q[87:85];
+    wire [18:0] q_addr  = cmd_q[84:66];
+    wire [15:0] q_fg    = cmd_q[65:50];
+    wire [15:0] q_bg    = cmd_q[49:34];
+    wire [8:0]  q_w     = cmd_q[33:25];
+    wire [8:0]  q_h     = cmd_q[24:16];
+    wire [6:0]  q_glyph = cmd_q[15:9];
+    assign q_sx = cmd_q[8:7];
+    assign q_sy = cmd_q[6:5];
 
     // ======================================================================
     // Scanout line buffer: parity-split double buffer, exactly as
@@ -332,6 +358,15 @@ module mp3_fb (
     reg [18:0] copy_src;
     reg [7:0]  copy_cnt;
 
+    // BLIT state (Phase F B1). Full 25-bit addresses (base + offset already
+    // summed at dispatch), so it can reach anywhere in SDRAM, not just the
+    // FB_BASE-relative 19-bit window COPY is confined to. blit_mode selects
+    // this address pair over char_addr/copy_src at every site that drives
+    // p0_addr or steps to the next row; everything else (A_COPYRD, A_WRWAIT,
+    // the glyphbuf streaming write) is shared, unmodified COPY logic.
+    reg        blit_mode;
+    reg [24:0] blit_dst_addr, blit_src_addr;
+
     // ---- 4bpp coverage sampling (combinational) --------------------------
     // rowbits holds the CURRENT source row: 16 pixels x 4 bits, fetched as two
     // 32-bit words before the row is composed, so every pixel of the row is
@@ -417,6 +452,7 @@ module mp3_fb (
             char_rows_left_nz <= 1'b0;
             char_row_ready <= 1'b0;
             copy_mode <= 1'b0;
+            blit_mode <= 1'b0;
             rd_ptr <= 0; rd_ptr_g <= 0;
         end else begin
             case (astate)
@@ -431,7 +467,7 @@ module mp3_fb (
                     // A composed glyph row is written with a STREAMING burst:
                     // each beat's data comes from glyphbuf via wsrc_q.
                     end else if (char_row_ready && can_sdram) begin
-                        p0_addr      <= FB_BASE + {6'd0, char_addr};
+                        p0_addr      <= blit_mode ? blit_dst_addr : (FB_BASE + {6'd0, char_addr});
                         p0_byte_en   <= 2'b11;
                         p0_wr_len    <= {4'd0, char_w};
                         p0_wr_stream <= 1'b1;
@@ -455,7 +491,7 @@ module mp3_fb (
                     // than the one row it is part-way through.
                     end else if (copy_mode && char_rows_left_nz
                                  && !char_row_ready && can_sdram) begin
-                        p0_addr   <= FB_BASE + {6'd0, copy_src};
+                        p0_addr   <= blit_mode ? blit_src_addr : (FB_BASE + {6'd0, copy_src});
                         p0_rd_req <= 1'b1;
                         copy_cnt  <= 8'd0;
                         astate    <= A_COPYRD;
@@ -472,6 +508,7 @@ module mp3_fb (
                                 char_addr <= q_addr;
                                 char_bg   <= q_bg;
                                 copy_mode <= 1'b0;
+                                blit_mode <= 1'b0;
                                 char_sx   <= q_sx;
                                 char_sy   <= q_sy;
                                 // EPX doubles 8x8 -> 16x16, then each axis is
@@ -498,11 +535,28 @@ module mp3_fb (
                                 rect_w      <= q_w;
                                 rect_rows   <= q_h;
                                 rect_active <= (q_h != 9'd0) && (q_w != 9'd0);
+                                blit_mode   <= 1'b0;
                             end
                             OP_COPY: begin
                                 copy_src  <= {q_fg[2:0], q_bg};
                                 copy_mode <= 1'b1;
+                                blit_mode <= 1'b0;
                                 char_addr <= q_addr;
+                                char_w    <= q_w[6:0];
+                                char_rows_left    <= q_h;
+                                char_rows_left_nz <= (q_h != 9'd0) && (q_w != 9'd0);
+                            end
+                            // Phase F B1: same shape as OP_COPY, but source and destination
+                            // are each `sticky_base + flat_offset` rather than FB_BASE/0.
+                            // q_addr is the dest offset (as COPY's dest always was); the
+                            // source offset reuses the exact {q_fg[2:0],q_bg} packing COPY
+                            // already established. Per-row stepping (A_WRWAIT below) adds
+                            // the sticky STRIDE instead of a fixed 512.
+                            OP_BLIT: begin
+                                copy_mode <= 1'b1;
+                                blit_mode <= 1'b1;
+                                blit_dst_addr <= blt_dst_base + {6'd0, q_addr};
+                                blit_src_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
                                 char_w    <= q_w[6:0];
                                 char_rows_left    <= q_h;
                                 char_rows_left_nz <= (q_h != 9'd0) && (q_w != 9'd0);
@@ -512,6 +566,7 @@ module mp3_fb (
                                 rect_w      <= q_w;
                                 rect_rows   <= 9'd1;
                                 rect_active <= (q_w != 9'd0);
+                                blit_mode   <= 1'b0;
                             end
                         endcase
                     end
@@ -538,12 +593,17 @@ module mp3_fb (
                 A_WRWAIT: if (p0_ready) begin
                     if (wr_is_char) begin
                         char_row_ready <= 1'b0;
-                        char_addr      <= char_addr + 19'd512;   // next row
+                        char_addr      <= char_addr + 19'd512;   // next row (CHAR/COPY)
                         copy_src       <= copy_src  + 19'd512;
+                        // BLIT's own address pair steps by the sticky stride instead
+                        // (dead but harmless for every other op, same as ey/acc_y below).
+                        blit_dst_addr  <= blit_dst_addr + (BUG_IGNORE_BLIT_STRIDE ? 25'd512 : {15'd0, blt_dst_stride});
+                        blit_src_addr  <= blit_src_addr + (BUG_IGNORE_BLIT_STRIDE ? 25'd512 : {15'd0, blt_src_stride});
                         char_rows_left <= char_rows_left - 9'd1;
                         if (char_rows_left == 9'd1) begin
                             char_rows_left_nz <= 1'b0;
                             copy_mode         <= 1'b0;
+                            blit_mode         <= 1'b0;
                         end
                         // Bresenham step in Y: same accumulator idea as X, so
                         // vertical scaling can be fractional too.
