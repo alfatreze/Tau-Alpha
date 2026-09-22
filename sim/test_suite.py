@@ -46,7 +46,7 @@ def main():
                              (3, bytes([0, 0]) + le(4, 89)), (3, bytes([1, 0]) + le(4, 380)), (3, bytes([2, 0]) + le(4, 1049216)),
                              (3, bytes([3, 1]) + le(4, 12)), (3, bytes([4, 2]) + le(4, 0)),
                              (4, le(2, 48, 57, 31, 37)), (8, le(2, 2, 0, 3, 380)), (13, le(2, 5, 13, 57, 68)),
-                             (14, bytes([0, 3, 0, 11, 0, 55, 0, 0, 0])), (14, bytes([1, 0, 0, 0, 0, 0, 0, 68, 0]))])
+                             (14, bytes([0, 100, 3, 0, 11, 0, 55, 0, 0, 0])), (14, bytes([1, 125, 0, 0, 0, 0, 0, 0, 68, 0]))])
     check("record bytes", fw.get("REC") == ref.hex(), fw.get("REC"))
     check("qr text", fw.get("TXT") == D.to_text(ref), fw.get("TXT"))
     rec = D.parse_record(D.from_text(fw["TXT"]))
@@ -58,8 +58,8 @@ def main():
     check("decode audio", rec["entries"]["audio"] == [2, 0, 3, 380])
     check("decode decprof", rec["entries"]["decprof"] == {"h_pct": 5, "i_pct": 13, "s_pct": 57, "r_pct": 68}, rec["entries"].get("decprof"))
     check("decode decsweep", rec["entries"]["decsweep"] == [
-        {"track": 0, "h_pct": 3, "i_pct": 11, "s_pct": 55, "r_pct": 0},
-        {"track": 1, "h_pct": 0, "i_pct": 0, "s_pct": 0, "r_pct": 68}], rec["entries"].get("decsweep"))
+        {"track": 0, "speed_pct": 100, "h_pct": 3, "i_pct": 11, "s_pct": 55, "r_pct": 0},
+        {"track": 1, "speed_pct": 125, "h_pct": 0, "i_pct": 0, "s_pct": 0, "r_pct": 68}], rec["entries"].get("decsweep"))
     # persisted words: fields at the documented bit positions
     w = [int(x, 16) for x in fw["WORDS"].split()]
     exp = [1 | 1 << 4 | 7 << 7 | 2 << 15, 0x0007 | 0x0008 << 15, 380 | 316 << 9 | 0 << 18 | 3 << 24, 154 | 0 << 12 | 18 << 18 | 3 << 24]

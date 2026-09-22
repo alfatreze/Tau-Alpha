@@ -18,11 +18,11 @@ int main(void)
     uint32_t audio[4] = { 2, 0, 3, 380 }; sr_vals(&s, SR_T_AUDIO, 2, audio, 4);
     uint32_t decprof[4] = { 5, 13, 57, 68 };      /* h, i, s pct (MP3), r pct (FLAC) -- B-088/B-089 */
     sr_vals(&s, SR_T_DECPROF, 2, decprof, 4);
-    /* Decode Profile Sweep: repeatable, one entry per track (B-090/B-091). */
-    uint8_t sw0[9] = { 0, 3, 0, 11, 0, 55, 0, 0, 0 };      /* track 0: h3 i11 s55 r0 */
-    uint8_t sw1[9] = { 1, 0, 0, 0, 0, 0, 0, 68, 0 };       /* track 1: h0 i0 s0 r68 */
-    sr_tlv(&s, SR_T_DECSWEEP, sw0, 9);
-    sr_tlv(&s, SR_T_DECSWEEP, sw1, 9);
+    /* Decode Profile Sweep: repeatable, one entry per track (B-090/B-091/B-092). */
+    uint8_t sw0[10] = { 0, 100, 3, 0, 11, 0, 55, 0, 0, 0 };    /* track 0, 1.00x: h3 i11 s55 r0 */
+    uint8_t sw1[10] = { 1, 125, 0, 0, 0, 0, 0, 0, 68, 0 };     /* track 1, 1.25x: h0 i0 s0 r68 */
+    sr_tlv(&s, SR_T_DECSWEEP, sw0, 10);
+    sr_tlv(&s, SR_T_DECSWEEP, sw1, 10);
     uint32_t len = sr_finish(&s);
     hputs("REC "); for (uint32_t i = 0; i < len; i++) { hputc("0123456789abcdef"[rec[i] >> 4]); hputc("0123456789abcdef"[rec[i] & 15]); } hnl();
     sr_text(rec, len, txt, sizeof(txt)); hputs("TXT "); hputs(txt); hnl();

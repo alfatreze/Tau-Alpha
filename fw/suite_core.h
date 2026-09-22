@@ -23,9 +23,10 @@ enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, S
  * -- a normal Check build never emits this tag, and an old decoder skips it
  * unrecognised either way. */
 /* SR_T_DECSWEEP (B-090/B-091, docs/TEST_SUITE_SPEC.md section 12): ONE entry
- * PER TRACK of a Decode Profile Sweep, repeated -- track_idx u8, then h_pct/
- * i_pct/s_pct/r_pct u16 each (9 bytes). A separate tag from SR_T_DECPROF
- * (different wire size: 9 bytes vs 8) rather than overloading it by length,
+ * PER TRACK of a Decode Profile Sweep, repeated -- track_idx u8, speed_pct u8
+ * (the active playback speed as a percent, e.g. 125 = 1.25x; B-092), then
+ * h_pct/i_pct/s_pct/r_pct u16 each (10 bytes). A separate tag from
+ * SR_T_DECPROF (different wire size) rather than overloading it by length,
  * because a sweep record and a single Check sample are different concerns
  * with no reason to share a format. */
 /* SR_T_TEST entries (len 6): id u8, result u8 (0 pass, 1 fail, 2 skipped, 3 not applicable), value u32 (test specific). */
