@@ -21,6 +21,7 @@
 module tb_mp3_fb;
     parameter BUG_IGNORE_BLIT_STRIDE = 0;   // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
     parameter BUG_IGNORE_KEY = 0;           // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
+    parameter BUG_SBLIT_NO_SCALE = 0;       // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
 
     reg clk_sdram = 0, clk_sys = 0, clk_vid = 0, reset = 1;
     always #5    clk_sdram = ~clk_sdram;   // 100 MHz
@@ -55,7 +56,8 @@ module tb_mp3_fb;
     reg  [10:0] wsrc_addr = 0;
     wire [15:0] wsrc_q;
 
-    mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY)) dut (
+    mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY),
+             .BUG_SBLIT_NO_SCALE(BUG_SBLIT_NO_SCALE)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
@@ -302,6 +304,40 @@ module tb_mp3_fb;
         push(3'd4, 19'h5000, 9'd4, 9'd2, 7'd0, 2'd0, 2'd0);
         wait (rows_written == 2); repeat (30) @(posedge clk_sdram);
         check(row_pix[0][1] == 16'h6002, "BLIT unkeyed: word 1 = src");
+
+        // ---- SBLIT (B4), 1x: must read/write pixel-for-pixel like a plain --
+        // copy, confirming the per-pixel read path agrees with the row-burst
+        // path for the trivial 1:1 case. Source 0x8000 (3 wide x 2 tall),
+        // dest 0x9000. Row 0 source words read back as 0x8001/0x8002/0x8003;
+        // row 1's source steps by the default 512 stride (1x steps every row).
+        rows_written = 0;
+        cmd_fg <= 16'd0; cmd_bg <= 16'h8000;      // src offset 0x8000
+        push(3'd6, 19'h9000, 9'd3, 9'd2, 7'd0, 2'd0, 2'd0);   // src w=3 h=2, scale 1x
+        wait (rows_written == 2); repeat (40) @(posedge clk_sdram);
+        check(rows_written == 2, "SBLIT 1x: 2 rows (no scaling)");
+        check(row_addr[0] == 19'h9000, "SBLIT 1x: dest at offset");
+        check(row_pix[0][0] == 16'h8001 && row_pix[0][1] == 16'h8002
+              && row_pix[0][2] == 16'h8003, "SBLIT 1x: row 0 pixel-for-pixel");
+        check(row_addr[1] == 19'h9000 + 512, "SBLIT 1x: dest steps by stride");
+        check(row_pix[1][0] == 16'h8201, "SBLIT 1x: src steps stride");
+
+        // ---- SBLIT, 2x: a 2x1 source doubles to 4x2 (nearest, Bresenham) --
+        // Source 0x7000 (2 wide x 1 tall) -- v0=0x7001, v1=0x7002 (readback
+        // model). At 2x, every source pixel repeats twice per axis: row 0 and
+        // row 1 both read [v0,v0,v1,v1], since the single source row has
+        // nothing further to advance to.
+        rows_written = 0;
+        cmd_fg <= 16'd0; cmd_bg <= 16'h7000;
+        push(3'd6, 19'h4000, 9'd2, 9'd1, 7'd0, 2'd2, 2'd2);   // src w=2 h=1, scale 2x/2x
+        wait (rows_written == 2); repeat (40) @(posedge clk_sdram);
+        check(rows_written == 2, "SBLIT 2x: 2 rows from 1 src");
+        check(row_len[0] == 4, "SBLIT 2x: 4 cols from 2 src");
+        check(row_pix[0][0] == 16'h7001 && row_pix[0][1] == 16'h7001,
+              "SBLIT 2x: col0 doubles");
+        check(row_pix[0][2] == 16'h7002 && row_pix[0][3] == 16'h7002,
+              "SBLIT 2x: col1 doubles");
+        check(row_pix[1][0] == 16'h7001 && row_pix[1][3] == 16'h7002,
+              "SBLIT 2x: row1 = row0 (vert)");
 
         // ---- BAR (B6): split bar, 3 unlit rows on top of 2 lit rows -------
         rows_written = 0;
