@@ -484,7 +484,7 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 |---|---|---|---|
 | **1** | **Profile the software decoder** | No | **Done — B-086..B-098, on hardware** |
 | **2** | Decide the MMIO descriptor model in RTL terms (section 9) | No | **Done — B-085** |
-| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met, held for a fresh session (owner, 2026-09-22) |
+| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; MMIO register file + first opcode (B1) built and simulation-verified (B-103), rest of Tier 1 not started, no Quartus slot spent yet |
 | **3a** | MLAB migration (`glyphbuf` + dcfifo) + font repack + busy-cycle counter, scoped out from 3 as everything not needing the blit opcodes | **Done — B-101/B-102, real multi-seed fit, both seeds Successful** | none |
 | 4 | Meters to cold code | No (firmware) | 3 |
 | 5 | Main RAM 256 -> 192 KB | Yes | 4, and the peak-usage gate in section 4.1 |
@@ -539,12 +539,52 @@ change) could reopen it. Worth a note if `glyphbuf` or its feeding arithmetic ch
 Assembler starting before the Fitter that must precede it), an artifact of a launch-script mistake, not an RTL
 problem. Redone cleanly with a verified single process before trusting the result.
 
+### Item 3 progress: MMIO descriptor register file + B1 (generalised blit), simulation-verified (for the record)
+
+**B-103, 2026-09-22.** Started item 3 itself. Built, in order:
+
+- **The MMIO descriptor register file (section 9), as designed there** — `R_BLT_IDX`/`R_BLT_DATA` (0xC0/0xC4) in
+  `mp3_soc.v`, four sticky fields (SRC_BASE, SRC_STRIDE, DST_BASE, DST_STRIDE), index auto-increments on each
+  DATA write. **One deliberate deviation from the spec's literal "three registers":** no new `R_BLT_GO` — the
+  existing `R_FB_GO`/`fb_cmd_op` per-command path (already proven, already tested) was widened from 2 to 3 bits
+  instead, using a bit that was already unused padding in `R_FB_GO`'s word layout, and the new opcode rides that.
+  Reusing proven infrastructure over adding a parallel one, not a spec violation without reason.
+- **`OP_BLIT` (B1), the first Tier 1 opcode** — a genuine generalisation of `OP_COPY`, not a parallel code path:
+  same row-at-a-time streaming-write datapath (`A_COPYRD`/`A_WRWAIT`/`glyphbuf`), but destination and source are
+  each `sticky_base + flat_offset`, stepping by the sticky `STRIDE` per row instead of `OP_COPY`'s fixed
+  `FB_BASE`=0/512. No multiplier needed — the per-row step was already a plain add; swapping a register in for a
+  constant cost nothing extra. Both addresses are full 25-bit SDRAM addresses (not the 19-bit FB_BASE-relative
+  window `OP_COPY`/`OP_RECT`/`OP_CHAR` stay confined to), so a blit can reach anywhere in SDRAM.
+  **Deliberately not fixed here, a separate follow-up:** `OP_COPY`'s existing row-buffer width limit
+  (`glyphbuf` is 128 entries, so widths above 127 silently truncate) — carries over unchanged to `OP_BLIT`
+  because fixing it is an M10K/MLAB cost decision (a wider row buffer), not an addressing one, and bundling it
+  in would have obscured which change caused what.
+- **Fail-safe, for free rather than built:** `q_op` is 3 bits now but old RTL only ever reads 2 (`R_FB_GO`'s
+  `dDAT_MOSI[1:0]`), so new firmware sending `OP_BLIT` (value 4) to an old bitstream is truncated to 0 (`OP_RUN`)
+  before it even reaches the FIFO — the existing "unknown opcode degrades to a RUN" behaviour, not a hang. A
+  full `COLD_READY()`-style feature-bit check (section 12) is still worth doing once more opcodes exist to gate,
+  not for one opcode alone.
+
+**Verification, following section 12's pattern:** extended `sim/tb_mp3_fb.v` rather than writing a parallel
+testbench, since `OP_BLIT` extends `OP_COPY`'s own machinery. Two properties checked: (1) **equivalence** — with
+the sticky registers left at their power-up defaults (base 0, stride 512), `OP_BLIT` reproduces `OP_COPY`'s
+existing passing test byte-for-byte; (2) **independence** — with `SRC_BASE=0x8000/STRIDE=64`,
+`DST_BASE=0x9000/STRIDE=96` (neither matching `FB_BASE`=0/512), every address and every per-row step matches
+hand-computed expected values, not the old hardcoded ones. A `BUG_IGNORE_BLIT_STRIDE` mutation parameter
+(reverting the stride step to a fixed 512, reproducing the exact bug this feature exists to prevent) is
+confirmed caught — `make test-rtl-fb-mutation`, a real functional mutation test, not the kind of physical-timing
+hazard B-101's CDC counter found it could not meaningfully mutation-test. `make rtl-lint`, `make test-host` and
+`make test-rtl` (now including this) all pass, 0 failures; `mp3_soc_sim.v` regenerated correctly and the
+unrelated PSRAM testbenches confirmed unaffected.
+
+**Not done:** `TAU_BLIT_BLEND` and the rest of Tier 1 (B2 colour key, B3 skew/masks, B4 scaled blit, B5 alpha
+blend, B6 meter primitive) — B1 alone was scoped as a real, complete, verified foundation rather than shallow
+progress across all six. No Quartus slot spent yet; RTL/simulation only.
+
 ### Next item, in enough detail to start cold
 
-**The blit engine itself (item 3 proper): Tier 1/2 opcodes + the MMIO descriptor register file (section 9).**
-Both gates (decoder profile, MMIO descriptor model *decision*) are met, and the two inert pieces that used to
-share a build with it (MLAB migration, font repack) are already fitted and out of the way (3a, above) — so this
-item is now purely the new RTL: `TAU_BLIT` + `TAU_BLIT_BLEND`, the software reference renderer and pixel-diff
-fixtures (section 12), and the busy-cycle counter is already built and ready to validate it against the L0
-invariant. See sections 3-6 and 9-13 for the feature tiers and plan. Owner chose to hold this for a fresh
-session (2026-09-22, reaffirmed after 3a).
+**The rest of blit engine Tier 1** (B2-B6, section 5), building on B1's opcode/addressing foundation and the
+MMIO register file (both done, B-103). B2 (colour key) and B6 (meter column) are likely the next-cheapest —
+both `~0` M10K per section 5's table — before B5 (alpha blend), which is the one carrying the documented
+-1.888 ns pipeline-depth risk (section 11) and wants its own macro (`TAU_BLIT_BLEND`) kept separable, per
+section 10's build plan. See sections 3-6 and 9-13 for the feature tiers and the rest of the plan.

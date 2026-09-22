@@ -1,4 +1,4 @@
-.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware firmware-advanced firmware-sdram-stress firmware-sdram-cpu-diag firmware-sdram-cpu-readback fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr card-check visual-review
+.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware firmware-advanced firmware-sdram-stress firmware-sdram-cpu-diag firmware-sdram-cpu-readback fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-fb-mutation card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -59,7 +59,7 @@ test-host:
 	$(PYTHON) sim/test_cold_fw.py
 	$(PYTHON) sim/test_suite.py
 
-test-rtl: test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -72,6 +72,13 @@ $(RTL_BUILD_DIR)/tb_mp3_fb.vvp: sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga
 
 test-rtl-fb: $(RTL_BUILD_DIR)/tb_mp3_fb.vvp
 	$(VVP) $<
+
+# Phase F B1: OP_BLIT's stride generalisation. A mutant that ignores the sticky
+# stride registers and falls back to COPY's fixed 512 MUST fail this bench.
+test-rtl-fb-mutation: | $(RTL_BUILD_DIR)
+	@$(IVERILOG) -g2012 -Ptb_mp3_fb.BUG_IGNORE_BLIT_STRIDE=1 -o $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v; \
+	if $(VVP) $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG_IGNORE_BLIT_STRIDE=1"; \
+	else echo "MUTANT SURVIVED: BUG_IGNORE_BLIT_STRIDE=1"; exit 1; fi
 
 $(RTL_BUILD_DIR)/tb_tgt_cmd.vvp: sim/tb_tgt_cmd.v src/fpga/core/tgt_cmd.v | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
