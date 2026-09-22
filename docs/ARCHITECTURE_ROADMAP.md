@@ -177,6 +177,20 @@ verification and fail-safe plan, and the parked-ideas list. Summary only here.
 **Exit:** GPU commands validated on Pocket under playback with the busy-cycle counter,
 with no regression in the zero-late-underrun record.
 
+**Parked here on purpose (owner decision 2026-09-22): async track loading.** Every track
+open (`pl_open_try`, boot and every skip/library pick alike) is fully synchronous today --
+SD read, decoder header parse and album art JPEG decode, all with zero `poll_input()` calls,
+so the UI is unreachable for however long that takes (B-027: 2.6-15.8 s for a large cover).
+The fix shape is known (the FLAC/MP3 ring buffer's `refill_pump()` issue-then-poll pattern
+already does this for continuous data; the same restructure -- header read and art decode as
+resumable steps ticked from the main loop, `poll_input()`/`set_input()` interleaved between
+them -- would apply to track-open too), but scoping and speccing it now was judged premature:
+**the blit engine and the M10K release change the equation this would be built against** --
+freed M10K, cold meters, and a real GPU command set for progress UI all land first, and a
+spec written against today's constraints would likely need reworking once they do. Revisit
+with a full scope/spec once Phase F (or at least the blit engine step within it) has landed,
+not before.
+
 ### Decision 2026-09-22: no 3D GPU
 Recorded so it is not re-derived. A full-screen 16-bit Z-buffer at 400x360 is about
 **281 M10K** on a device with 308 in total; 8-bit Z is about 141. Tile-based rendering is
