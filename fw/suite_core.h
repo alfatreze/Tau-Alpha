@@ -25,10 +25,16 @@ enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, S
 /* SR_T_DECSWEEP (B-090/B-091, docs/TEST_SUITE_SPEC.md section 12): ONE entry
  * PER TRACK of a Decode Profile Sweep, repeated -- track_idx u8, speed_pct u8
  * (the active playback speed as a percent, e.g. 125 = 1.25x; B-092), then
- * h_pct/i_pct/s_pct/r_pct u16 each (10 bytes). A separate tag from
- * SR_T_DECPROF (different wire size) rather than overloading it by length,
- * because a sweep record and a single Check sample are different concerns
- * with no reason to share a format. */
+ * h_pct/i_pct/s_pct/r_pct u16 each (10 bytes fixed), then a TRUNCATED TITLE
+ * (up to SW_TITLE_MAX bytes, ASCII, not NUL-terminated -- its length is
+ * whatever is left of the TLV entry's own length byte minus 10) so a reading
+ * can be matched back to a file without guessing from queue order (B-096:
+ * track_idx alone was not enough -- confirmed reading a real sweep off the
+ * card, with the queue order affected by a since-fixed bug and no way to
+ * tell which entry was which file). A separate tag from SR_T_DECPROF
+ * (different wire size, and now variable-length besides) rather than
+ * overloading it by length, because a sweep record and a single Check sample
+ * are different concerns with no reason to share a format. */
 /* SR_T_TEST entries (len 6): id u8, result u8 (0 pass, 1 fail, 2 skipped, 3 not applicable), value u32 (test specific). */
 enum { SR_PASS = 0, SR_FAIL = 1, SR_SKIP = 2, SR_NA = 3 };
 

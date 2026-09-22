@@ -71,11 +71,12 @@ def parse_record(rec: bytes) -> dict:
         if tag == 3 and n == 6:
             tid, res, val = v[0], v[1], struct.unpack("<I", v[2:])[0]
             out["tests"].append({"id": tid, "name": TESTS.get(tid, f"test {tid}"), "result": RESULTS.get(res, str(res)), "value": val})
-        elif tag == 14 and n == 10:             # Decode Profile Sweep: one entry per track (B-090/B-091/B-092), repeatable
+        elif tag == 14 and n >= 10:              # Decode Profile Sweep: one entry per track (B-090/B-091/B-092/B-096), repeatable
             track_idx, speed_pct = v[0], v[1]
             h, i2, s, r = (int.from_bytes(v[k:k + 2], "little") for k in range(2, 10, 2))
+            title = v[10:n].decode("ascii", "replace")   # truncated, not NUL-terminated (B-096)
             out["entries"].setdefault("decsweep", []).append(
-                {"track": track_idx, "speed_pct": speed_pct, "h_pct": h, "i_pct": i2, "s_pct": s, "r_pct": r})
+                {"track": track_idx, "title": title, "speed_pct": speed_pct, "h_pct": h, "i_pct": i2, "s_pct": s, "r_pct": r})
         elif tag in TAGS:
             w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1}[tag]
             if tag == 1:

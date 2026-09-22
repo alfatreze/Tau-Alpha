@@ -564,7 +564,17 @@ COLD_TEXT static int chk_input(uint32_t edge)
  * CHK_REC/CHK_TXT (PSRAM scratch) with Check -- the two pages are never open
  * at once, so there is no real second user of that memory. */
 enum { SW_IDLE = 0, SW_RUN, SW_DONE, SW_QR, SW_REFUSED };
-#define SW_MAX_TRACKS 48u   /* QR version 20/level M budget -- see the spec section for the arithmetic */
+/* B-096 (owner: a track_idx alone was not enough to identify which file a
+ * reading came from -- confirmed the hard way, reading a real sweep off the
+ * card, with no way to tell). Each entry now carries a truncated title
+ * (SW_TITLE_MAX bytes, from track_title -- the same lib_meta_apply() global
+ * B-095's album-name snapshot already relies on), so this is a capacity
+ * trade, not a free addition: entry cost goes from 11 B (10 fixed + 1 TLV
+ * length... byte was already counted) to up to 2 + 10 + SW_TITLE_MAX = 28 B.
+ * Budget (docs/TEST_SUITE_SPEC.md section 12): 666 - 4 (header) - 20 (build)
+ * - 4 (CRC) = 638 B / 28 B = 22 tracks worst case; kept at a round 20. */
+#define SW_TITLE_MAX  16u
+#define SW_MAX_TRACKS 20u
 #define SW_WIN_S      15u   /* matches CHK_AUDIO_S */
 static uint8_t  sw_state, sw_started, sw_qr_len, sw_qr_ver;
 static uint16_t sw_idx, sw_n, sw_done_n, sw_skip_n;
@@ -593,9 +603,15 @@ COLD_TEXT static void sw_sample(uint32_t elapsed)
      * record alone, without assuming the B-087 finding (speed doesn't move
      * H/I/S/R because the resampler runs downstream of decode) still holds. */
     uint8_t speed_pct = (uint8_t)((uint32_t)speed_num[speed_idx] * 100u / speed_den[speed_idx]);
-    uint8_t t[10] = { (uint8_t)sw_idx, speed_pct, (uint8_t)h, (uint8_t)(h >> 8), (uint8_t)i, (uint8_t)(i >> 8),
-                      (uint8_t)s, (uint8_t)(s >> 8), (uint8_t)r, (uint8_t)(r >> 8) };
-    sr_tlv(&sw_rec, SR_T_DECSWEEP, t, 10);
+    uint8_t t[10u + SW_TITLE_MAX] = { (uint8_t)sw_idx, speed_pct, (uint8_t)h, (uint8_t)(h >> 8), (uint8_t)i, (uint8_t)(i >> 8),
+                                       (uint8_t)s, (uint8_t)(s >> 8), (uint8_t)r, (uint8_t)(r >> 8) };
+    /* track_title is the same lib_meta_apply() global B-095's sw_album
+     * capture already relies on -- valid for THIS track because sw_advance()
+     * only reaches sw_sample() after track_hz confirmed playback started,
+     * which is well after the open (and lib_meta_apply()) completed. */
+    uint32_t tn = 0;
+    for (; tn < SW_TITLE_MAX && track_title[tn]; tn++) t[10u + tn] = (uint8_t)track_title[tn];
+    sr_tlv(&sw_rec, SR_T_DECSWEEP, t, 10u + tn);
     sw_done_n++;
 }
 
