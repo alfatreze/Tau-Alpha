@@ -234,7 +234,12 @@ module mp3_soc #(
 
     // Phase F B2: colour-key transparency, sticky field 4 (section 9's KEY).
     output wire         blt_key_en,
-    output wire [15:0]  blt_key
+    output wire [15:0]  blt_key,
+
+    // Phase F B5: alpha blend, sticky field 5 (section 9's BLEND).
+    output wire         blt_blend_en,
+    output wire [2:0]   blt_blend_mode,
+    output wire [7:0]   blt_blend_alpha
 );
 
     // ---------------------------------------------------------------- CPU ---
@@ -607,12 +612,15 @@ module mp3_soc #(
                      R_SET_DAT = 8'h70, R_SDR_ADDR= 8'h74,
                      R_SDR_DATA= 8'h78, R_SDR_CTRL= 8'h7C,
                      R_SDR_RDATA=8'h80, R_SDR_STATUS=8'h84;
-    // Phase F section 9: sticky blit-engine state (source/dest base+stride, plus
-    // B2's colour key), never entering the per-command FIFO. R_BLT_IDX selects a
-    // field (0=SRC_BASE, 1=SRC_STRIDE, 2=DST_BASE, 3=DST_STRIDE, 4=KEY: bit16 =
-    // enable, bits[15:0] = RGB565 colour); each R_BLT_DATA write stores it and
-    // auto-increments the index, so a burst of 5 writes loads the whole state with
-    // one index write. Inert (no logic reads these) unless TAU_BLIT is built.
+    // Phase F section 9: sticky blit-engine state (source/dest base+stride, B2's
+    // colour key, B5's blend mode), never entering the per-command FIFO. R_BLT_IDX
+    // selects a field (0=SRC_BASE, 1=SRC_STRIDE, 2=DST_BASE, 3=DST_STRIDE, 4=KEY:
+    // bit16=enable, bits[15:0]=RGB565 colour; 5=BLEND: bit0=enable, bits[3:1]=mode
+    // -- 0=DSP 0-255 alpha, 1=PSX B/2+F/2, 2=PSX B+F clamp, 3=PSX B-F clamp,
+    // 4=PSX B+F/4 clamp -- bits[15:8]=alpha level, DSP mode only); each R_BLT_DATA
+    // write stores it and auto-increments the index, so a burst of 6 writes loads
+    // the whole state with one index write. Inert (no logic reads these) unless
+    // TAU_BLIT is built.
     localparam [7:0] R_BLT_IDX = 8'hC0, R_BLT_DATA = 8'hC4;
 
     // Bitstream/firmware interlock. Firmware compares this against its own
@@ -635,12 +643,18 @@ module mp3_soc #(
     reg  [9:0]  blt_src_stride_r = 10'd512, blt_dst_stride_r = 10'd512;
     reg         blt_key_en_r = 1'b0;
     reg  [15:0] blt_key_r = 16'd0;
+    reg         blt_blend_en_r = 1'b0;
+    reg  [2:0]  blt_blend_mode_r = 3'd0;
+    reg  [7:0]  blt_blend_alpha_r = 8'd0;
     assign blt_src_base   = (BLIT_ENABLE != 0) ? blt_src_base_r   : 25'd0;
     assign blt_src_stride = (BLIT_ENABLE != 0) ? blt_src_stride_r : 10'd0;
     assign blt_dst_base   = (BLIT_ENABLE != 0) ? blt_dst_base_r   : 25'd0;
     assign blt_dst_stride = (BLIT_ENABLE != 0) ? blt_dst_stride_r : 10'd0;
     assign blt_key_en     = (BLIT_ENABLE != 0) ? blt_key_en_r     : 1'b0;
     assign blt_key        = (BLIT_ENABLE != 0) ? blt_key_r        : 16'd0;
+    assign blt_blend_en   = (BLIT_ENABLE != 0) ? blt_blend_en_r   : 1'b0;
+    assign blt_blend_mode = (BLIT_ENABLE != 0) ? blt_blend_mode_r : 3'd0;
+    assign blt_blend_alpha= (BLIT_ENABLE != 0) ? blt_blend_alpha_r: 8'd0;
 
     // Expansion window 0x88..0xAC (see docs/MMIO_ALLOCATION.md).
     assign xm_reg   = mmio_reg;
@@ -778,16 +792,21 @@ module mp3_soc #(
                         3'd1: blt_src_stride_r <= dDAT_MOSI[9:0];
                         3'd2: blt_dst_base_r   <= dDAT_MOSI[24:0];
                         3'd3: blt_dst_stride_r <= dDAT_MOSI[9:0];
-                        default: begin
+                        3'd4: begin
                             blt_key_en_r <= dDAT_MOSI[16];
                             blt_key_r    <= dDAT_MOSI[15:0];
                         end
+                        default: begin
+                            blt_blend_en_r    <= dDAT_MOSI[0];
+                            blt_blend_mode_r  <= dDAT_MOSI[3:1];
+                            blt_blend_alpha_r <= dDAT_MOSI[15:8];
+                        end
                     endcase
-                    // 5 real fields (0..4): wraps back to 0 after KEY rather than
-                    // counting up to 3'd5, so a burst of exactly 5 DATA writes
-                    // loads the whole state and a 6th harmlessly restarts at
-                    // SRC_BASE instead of landing on an unused index.
-                    blt_idx <= (blt_idx == 3'd4) ? 3'd0 : blt_idx + 3'd1;
+                    // 6 real fields (0..5): wraps back to 0 after BLEND rather
+                    // than counting up to 3'd6, so a burst of exactly 6 DATA
+                    // writes loads the whole state and a 7th harmlessly restarts
+                    // at SRC_BASE instead of landing on an unused index.
+                    blt_idx <= (blt_idx == 3'd5) ? 3'd0 : blt_idx + 3'd1;
                 end
                 default: ;
             endcase

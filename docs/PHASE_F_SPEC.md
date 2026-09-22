@@ -484,7 +484,7 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 |---|---|---|---|
 | **1** | **Profile the software decoder** | No | **Done — B-086..B-098, on hardware** |
 | **2** | Decide the MMIO descriptor model in RTL terms (section 9) | No | **Done — B-085** |
-| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; MMIO register file, B1, B2, B4, B6 built and simulation-verified (B-103/B-104/B-105); B3 analysed (needs firmware coordination, not RTL-only); B5 + `TAU_BLIT_BLEND` not started; no Quartus slot spent yet |
+| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; **Tier 1 functionally complete in RTL/simulation** (B-103/B-104/B-105/B-106): MMIO register file + B1/B2/B4/B5/B6 built, `TAU_BLIT_BLEND` wired separately per section 10; B3 analysed, needs firmware coordination, not RTL-only; no Quartus slot spent yet, step 2's real fit is next |
 | **3a** | MLAB migration (`glyphbuf` + dcfifo) + font repack + busy-cycle counter, scoped out from 3 as everything not needing the blit opcodes | **Done — B-101/B-102, real multi-seed fit, both seeds Successful** | none |
 | 4 | Meters to cold code | No (firmware) | 3 |
 | 5 | Main RAM 256 -> 192 KB | Yes | 4, and the peak-usage gate in section 4.1 |
@@ -664,15 +664,57 @@ X step to fire every pixel regardless of the accumulator, i.e. silently drops ba
 confirmed caught — the 2x test's doubling checks fail exactly as expected. `make rtl-lint`, `make test-host` and
 `make test-rtl` (now 3 mutation cases for this file) all pass, 0 failures.
 
-**Not done:** `TAU_BLIT_BLEND`, B5 (alpha blend) — the one carrying the documented -1.888 ns pipeline-depth risk
-(section 11), and the CHAR sub-glyph clipping half of B3 (needs the firmware coordination described above). No
-Quartus slot spent yet.
+**Not done, at B-105:** `TAU_BLIT_BLEND`/B5, and the CHAR sub-glyph clipping half of B3 (needs the firmware
+coordination described above). No Quartus slot spent yet.
+
+### B5 (alpha blend), behind its own `TAU_BLIT_BLEND` macro, simulation-verified (for the record)
+
+**B-106, 2026-09-22.** Owner said "continue with B5" — the last Tier 1 item, and per section 10's build plan the
+one that actually needs care: it is the deepest new pipeline and carries the documented -1.888 ns timing-cliff
+risk, so it is kept droppable on its own, separate from B1/B2/B4/B6.
+
+**A real gap caught before it shipped: the macro wasn't wired to anything.** Built the blend datapath first,
+then went to add the separate `TAU_BLIT_BLEND` macro the build plan requires — and found `mp3_fb`'s existing
+instantiation in `core_game.vh` passes **no module parameters at all**. Every earlier mutation-test parameter in
+that module (`BUG_IGNORE_BLIT_STRIDE`, `BUG_IGNORE_KEY`, `BUG_SBLIT_NO_SCALE`) was therefore always silently at
+its default regardless of any macro, which was fine for THOSE (test-only, default-off is correct), but for a
+real feature parameter like `BLIT_BLEND_ENABLE`, that same silence would have meant the whole feature was
+unreachable even with `TAU_BLIT_BLEND` defined. Fixed before it became a real bug: added
+`mp3_fb #(.BLIT_BLEND_ENABLE(...))  u_fb (` and the `TAU_BLIT_BLEND` -> `TAU_BLIT_BLEND_EN` derivation
+(requires `TAU_BLIT`, matching the existing dependency-check convention). Caught by building the feature
+end-to-end and checking the wiring, not by a test that happened to exercise it — worth naming as a real finding
+about how easy it is for a "just add a parameter" step to be silently inert.
+
+**The blend itself:** new sticky field 6 (`R_BLT_IDX`=5: enable, 3-bit mode, 8-bit alpha — DSP 0-255 alpha or
+one of the four PSX shift-add ratios section 5 lists: B/2+F/2, B+F, B-F, B+F/4, all clamped not wrapped). Shares
+B2's destination pre-read phase (`A_KEYDST`) rather than adding a second one — its trigger condition generalised
+from "`blt_key_en`" to "`blt_key_en` OR `blend_active`". **Found and fixed a real latent bug while generalising
+that condition, not after:** the existing key-match check (`key_dst_done && (p0_q == blt_key)`) relied on
+`key_dst_done` implying `blt_key_en` was on, which was true before this change (nothing else could trigger the
+pre-read) and stopped being true the moment blend could trigger it too — a blend-only blit could have
+accidentally treated a source pixel equal to a stale/leftover `blt_key` register value as keyed, with keying
+never actually enabled. Fixed by adding an explicit `blt_key_en` check (new `pixel_keyed` wire) rather than
+relying on the old implication. Key takes priority over blend where both apply: a keyed pixel is fully
+transparent, so blending it would be wrong, not merely redundant. One blend function (`blend_ch`, parameterised
+by the channel's own max value) serves R/G/B alike rather than three near-copies; DSP mode approximates `/255`
+as `>>8` (weight 256), the same pragmatic trade CHAR's own `cov_weight` already makes and documents.
+
+**Verification:** two cases in `sim/tb_mp3_fb.v`. DSP mode at alpha=128 reduces exactly to a per-channel average
+(128/256 = 0.5, no rounding surprise) — hand-computed R/G/B values matched on the first run. PSX mode 2 (B+F)
+deliberately chosen to overflow the 5-bit R channel (20+20=40) to confirm clamping, not wrapping. New mutation
+parameter `BUG_BLEND_ALWAYS_SRC` (blend silently does nothing, always writes the source pixel) confirmed caught.
+`make rtl-lint`, `make test-host` and `make test-rtl` (4 mutation cases for this file now) all pass, 0 failures.
+**Tier 1 is functionally complete in RTL/simulation as of this entry** — B1/B2/B4/B6 built, B3 analysed and
+correctly scoped out, B5 built behind its own separable macro. No Quartus slot spent on any of it yet.
 
 ### Next item, in enough detail to start cold
 
-**B5 (alpha blend, section 5) behind its own `TAU_BLIT_BLEND` macro**, per section 10's build plan — the last
-Tier 1 item, and the one that actually needs care: a DSP-multiply path for real 0-255 alpha plus a shift-add
-path for PSX-style fixed ratios, and the documented risk of tipping the compose pipeline into the -1.888 ns
-cliff the same way upstream HarpMudd's own font-extension work did (`docs/PHASE_F_SPEC.md` section 11, and the
-connection made explicit when researching upstream's Japanese/CJK work this session). Keep the macro separable
-so a timing failure can drop just this piece, per section 10. See sections 3-6 and 9-13 for the rest of the plan.
+**Step 2 of section 10's build plan: the first real multi-seed fit of the blit engine.** Bundle `TAU_BLIT`
+(+`TAU_BLIT_BLEND`) with the counter (B7, already fitted and proven in B-102) and re-verify MLAB/font-repack
+still hold (they should — this build doesn't touch them, but section 10 bundles everything together precisely
+because it is the first real spend of a Quartus slot on this new RTL). Watch specifically for the documented
+-1.888 ns risk; if timing fails, the first bisect is dropping `TAU_BLIT_BLEND` per section 10, keeping the rest.
+Software reference renderer + pixel-diff fixtures (section 12) and the `COLD_READY()`-style feature-bit fail-safe
+are still open items ahead of any card install — this session's RTL testbenches cover functional correctness
+per-opcode, not yet the full render-a-scene-and-diff-the-buffer pattern section 12 describes. See sections 3-6
+and 9-13 for the rest of the plan.

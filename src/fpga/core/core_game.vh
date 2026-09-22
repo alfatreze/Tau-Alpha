@@ -128,6 +128,10 @@ wire [9:0]  soc_blt_src_stride, soc_blt_dst_stride;
 // Phase F B2: colour-key transparency, sticky field 4.
 wire        soc_blt_key_en;
 wire [15:0] soc_blt_key;
+// Phase F B5: alpha blend, sticky field 5.
+wire        soc_blt_blend_en;
+wire [2:0]  soc_blt_blend_mode;
+wire [7:0]  soc_blt_blend_alpha;
 
 // SDRAM Phase 1 diagnostic mailbox.  These are MMIO-only controls; no normal
 // instruction or data fetch is routed to external memory at this stage.
@@ -194,6 +198,17 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `define TAU_BLIT_EN 1
 `else
 `define TAU_BLIT_EN 0
+`endif
+// Phase F B5: alpha blend, kept as its OWN macro per section 10's build plan
+// (the documented -1.888 ns timing-cliff risk) -- droppable without losing
+// B1/B2/B4/B6. `TAU_BLIT` alone does not imply this; both must be defined.
+`ifdef TAU_BLIT_BLEND
+`ifndef TAU_BLIT
+`error "TAU_BLIT_BLEND requires TAU_BLIT"
+`endif
+`define TAU_BLIT_BLEND_EN 1
+`else
+`define TAU_BLIT_BLEND_EN 0
 `endif
 wire        soc_psram_req, soc_psram_we;
 wire [22:0] soc_psram_word;
@@ -347,7 +362,10 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN)) u_so
     .blt_dst_base   (soc_blt_dst_base),
     .blt_dst_stride (soc_blt_dst_stride),
     .blt_key_en     (soc_blt_key_en),
-    .blt_key        (soc_blt_key)
+    .blt_key        (soc_blt_key),
+    .blt_blend_en   (soc_blt_blend_en),
+    .blt_blend_mode (soc_blt_blend_mode),
+    .blt_blend_alpha(soc_blt_blend_alpha)
 );
 
 // PSRAM diagnostic (P2). Opt-in TAU_PSRAM_PROBE only; it owns the CRAM pins and
@@ -689,7 +707,7 @@ wire sdram_probe_bar = vid_de_w && (sdram_probe_y < 9'd8) &&
     (sdram_probe_x < 9'd392);
 `endif
 
-mp3_fb u_fb (
+mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN)) u_fb (
     .reset    (~pll_locked),
     .clk_sys  (clk_sys),
     .clk_sdram(clk_sdram),
@@ -713,6 +731,9 @@ mp3_fb u_fb (
     .blt_dst_stride (soc_blt_dst_stride),
     .blt_key_en     (soc_blt_key_en),
     .blt_key        (soc_blt_key),
+    .blt_blend_en   (soc_blt_blend_en),
+    .blt_blend_mode (soc_blt_blend_mode),
+    .blt_blend_alpha(soc_blt_blend_alpha),
 
     .sdram_init_complete(sdram_init_complete),
     .p0_addr(fb_p0_addr), .p0_data(fb_p0_data), .p0_byte_en(fb_p0_byte_en),

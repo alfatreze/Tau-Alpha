@@ -22,6 +22,7 @@ module tb_mp3_fb;
     parameter BUG_IGNORE_BLIT_STRIDE = 0;   // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
     parameter BUG_IGNORE_KEY = 0;           // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
     parameter BUG_SBLIT_NO_SCALE = 0;       // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
+    parameter BUG_BLEND_ALWAYS_SRC = 0;     // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
 
     reg clk_sdram = 0, clk_sys = 0, clk_vid = 0, reset = 1;
     always #5    clk_sdram = ~clk_sdram;   // 100 MHz
@@ -45,6 +46,10 @@ module tb_mp3_fb;
     // Phase F B2: colour-key transparency, left disabled by default.
     reg         blt_key_en = 1'b0;
     reg  [15:0] blt_key = 16'd0;
+    // Phase F B5: alpha blend, left disabled by default.
+    reg         blt_blend_en = 1'b0;
+    reg  [2:0]  blt_blend_mode = 3'd0;
+    reg  [7:0]  blt_blend_alpha = 8'd0;
 
     wire [24:0] p0_addr;
     wire [15:0] p0_data;
@@ -57,7 +62,8 @@ module tb_mp3_fb;
     wire [15:0] wsrc_q;
 
     mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY),
-             .BUG_SBLIT_NO_SCALE(BUG_SBLIT_NO_SCALE)) dut (
+             .BUG_SBLIT_NO_SCALE(BUG_SBLIT_NO_SCALE), .BLIT_BLEND_ENABLE(1),
+             .BUG_BLEND_ALWAYS_SRC(BUG_BLEND_ALWAYS_SRC)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
@@ -65,6 +71,7 @@ module tb_mp3_fb;
         .blt_src_base(blt_src_base), .blt_src_stride(blt_src_stride),
         .blt_dst_base(blt_dst_base), .blt_dst_stride(blt_dst_stride),
         .blt_key_en(blt_key_en), .blt_key(blt_key),
+        .blt_blend_en(blt_blend_en), .blt_blend_mode(blt_blend_mode), .blt_blend_alpha(blt_blend_alpha),
         .sdram_init_complete(1'b1),
         .p0_addr(p0_addr), .p0_data(p0_data), .p0_byte_en(p0_byte_en),
         .p0_wr_len(p0_wr_len), .p0_wr_stream(p0_wr_stream), .p0_q(p0_q),
@@ -338,6 +345,31 @@ module tb_mp3_fb;
               "SBLIT 2x: col1 doubles");
         check(row_pix[1][0] == 16'h7001 && row_pix[1][3] == 16'h7002,
               "SBLIT 2x: row1 = row0 (vert)");
+
+        // ---- BLIT with alpha blend (B5), DSP mode -------------------------
+        // dest 0x3FFF+1=0x4000 (R=8,G=0,B=0, readback model); src offset
+        // 0x000F+1=0x0010 (R=0,G=0,B=16). alpha=128 (~50%) makes the DSP
+        // formula (f*a + b*(256-a))>>8 reduce to an exact per-channel average
+        // (128/256 = 0.5 with no rounding surprise): R=(8+0)/2=4, G=0,
+        // B=(0+16)/2=8 -> packed 0x2008.
+        rows_written = 0;
+        blt_blend_en = 1'b1; blt_blend_mode = 3'd0; blt_blend_alpha = 8'd128;
+        cmd_fg <= 16'd0; cmd_bg <= 16'h000F;      // src offset 0x000F
+        push(3'd4, 19'h3FFF, 9'd1, 9'd1, 7'd0, 2'd0, 2'd0);   // dest offset 0x3FFF
+        wait (rows_written == 1); repeat (30) @(posedge clk_sdram);
+        check(rows_written == 1, "BLEND dsp: 1 row written");
+        check(row_pix[0][0] == 16'h2008, "BLEND dsp: alpha=128 averages R/G/B exactly");
+
+        // ---- BLIT with alpha blend (B5), PSX mode 2 (B+F, saturating) -----
+        // dest and src both read back as R=20 (0xA000 pattern, G=B=0). 20+20=40
+        // overflows the 5-bit R channel (max 31) -- must clamp, not wrap.
+        rows_written = 0;
+        blt_blend_mode = 3'd2;   // alpha field irrelevant to PSX modes
+        cmd_fg <= 16'd0; cmd_bg <= 16'h9FFF;      // src offset 0x9FFF -> reads 0xA000
+        push(3'd4, 19'h9FFF, 9'd1, 9'd1, 7'd0, 2'd0, 2'd0);   // dest offset 0x9FFF -> reads 0xA000
+        wait (rows_written == 1); repeat (30) @(posedge clk_sdram);
+        check(row_pix[0][0] == 16'hF800, "BLEND psx B+F: R channel clamps, not wraps");
+        blt_blend_en = 1'b0; blt_blend_mode = 3'd0; blt_blend_alpha = 8'd0;
 
         // ---- BAR (B6): split bar, 3 unlit rows on top of 2 lit rows -------
         rows_written = 0;
