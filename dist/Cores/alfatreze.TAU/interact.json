@@ -25,11 +25,11 @@
                 "enabled": true,
                 "persist": true,
                 "address": "0x20000004",
-                "defaultval": 0,
+                "defaultval": 1,
                 "graphical": {
                     "signed": false,
                     "min": 0,
-                    "max": 11,
+                    "max": 18,
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
@@ -181,6 +181,64 @@
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
+            },
+            {
+                "name": "(internal) library 1",
+                "id": 24,
+                "type": "slider_u32",
+                "enabled": true,
+                "persist": true,
+                "address": "0x20000030",
+                "defaultval": 0,
+                "graphical": {
+                    "signed": false,
+                    "min": 0,
+                    "max": 2147483647,
+                    "adjust_small": 1,
+                    "adjust_large": 1
+                }
+            },
+            {
+                "name": "(internal) library 2",
+                "id": 25,
+                "type": "slider_u32",
+                "enabled": true,
+                "persist": true,
+                "address": "0x20000034",
+                "defaultval": 0,
+                "graphical": {
+                    "signed": false,
+                    "min": 0,
+                    "max": 2147483647,
+                    "adjust_small": 1,
+                    "adjust_large": 1
+                }
+            },
+            {
+                "name": "(internal) library 3",
+                "id": 26,
+                "type": "slider_u32",
+                "enabled": true,
+                "persist": true,
+                "address": "0x20000038",
+                "defaultval": 0,
+                "graphical": {
+                    "signed": false,
+                    "min": 0,
+                    "max": 2147483647,
+                    "adjust_small": 1,
+                    "adjust_large": 1
+                }
+            },
+            {
+                "name": "Library off (restart)",
+                "id": 27,
+                "type": "check",
+                "enabled": true,
+                "persist": true,
+                "address": "0x2000003C",
+                "defaultval": 0,
+                "value": 1
             }
         ],
         "messages": []
