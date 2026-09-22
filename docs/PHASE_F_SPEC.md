@@ -484,7 +484,7 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 |---|---|---|---|
 | **1** | **Profile the software decoder** | No | **Done — B-086..B-098, on hardware** |
 | **2** | Decide the MMIO descriptor model in RTL terms (section 9) | No | **Done — B-085** |
-| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; MMIO register file + first opcode (B1) built and simulation-verified (B-103), rest of Tier 1 not started, no Quartus slot spent yet |
+| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; MMIO register file, B1, B2, B6 built and simulation-verified (B-103/B-104); B3-B5 + `TAU_BLIT_BLEND` not started; no Quartus slot spent yet |
 | **3a** | MLAB migration (`glyphbuf` + dcfifo) + font repack + busy-cycle counter, scoped out from 3 as everything not needing the blit opcodes | **Done — B-101/B-102, real multi-seed fit, both seeds Successful** | none |
 | 4 | Meters to cold code | No (firmware) | 3 |
 | 5 | Main RAM 256 -> 192 KB | Yes | 4, and the peak-usage gate in section 4.1 |
@@ -577,14 +577,51 @@ hazard B-101's CDC counter found it could not meaningfully mutation-test. `make 
 `make test-rtl` (now including this) all pass, 0 failures; `mp3_soc_sim.v` regenerated correctly and the
 unrelated PSRAM testbenches confirmed unaffected.
 
-**Not done:** `TAU_BLIT_BLEND` and the rest of Tier 1 (B2 colour key, B3 skew/masks, B4 scaled blit, B5 alpha
-blend, B6 meter primitive) — B1 alone was scoped as a real, complete, verified foundation rather than shallow
-progress across all six. No Quartus slot spent yet; RTL/simulation only.
+**Not done, at B-103:** `TAU_BLIT_BLEND` and B2-B6 — B1 alone was scoped as a real, complete, verified foundation
+rather than shallow progress across all six. No Quartus slot spent yet; RTL/simulation only.
+
+### B2 (colour key) and B6 (meter column), simulation-verified (for the record)
+
+**B-104, 2026-09-22.** Both built on B1's `OP_BLIT`/`R_BLT_IDX`/`R_BLT_DATA` foundation.
+
+- **B6, `OP_BAR`** (section 5: "a bar is `(x, base_y, height, lit, unlit)`") is two chained `RECT` fills, not a
+  new burst mechanism — the existing `rect_active`/`A_WRWAIT` row loop runs twice per command, the second
+  segment queued (`bar2_pending`/`bar2_addr`/`bar2_rows`/`bar2_fg`) and re-armed the moment the first segment's
+  last row retires. `cmd_addr` is the span's top-left (the convention every other opcode already uses);
+  `cmd_glyph` (otherwise unused outside `CHAR`) carries the lit-row count, clamped to the span height; colours
+  reuse `cmd_fg`/`cmd_bg`, the same "no other use for these fields" reasoning `OP_COPY` already established for
+  its source address. **One convention decided here, since nothing upstream pinned it down:** lit rows are the
+  *bottom* of the span (the usual meter-fills-from-the-floor reading of "base_y"), unlit rows the top —
+  documented in the code, not just assumed.
+- **B2, colour-key transparency**, needed more than "one comparator" to be *correct*: showing the destination
+  through a keyed source pixel means the destination has to be read at all, which `OP_BLIT`/`OP_COPY` never did
+  before (write-only). Added a genuine destination pre-read phase (`A_KEYDST`, structurally identical to the
+  existing `A_COPYRD` read-into-`glyphbuf` loop) that runs before the source read whenever `blit_mode &&
+  blt_key_en`; the source read (`A_COPYRD`, one line changed) then simply *skips* writing into `glyphbuf` for any
+  word equal to the sticky `KEY` colour, leaving the pre-read destination pixel already sitting there — no
+  separate per-pixel select/blend stage needed. `OP_COPY` is untouched and never keys, matching B1's own
+  precedent of leaving `COPY` as the simple case. New sticky field 5 (`R_BLT_IDX`=4: bit16=enable,
+  bits[15:0]=colour); `blt_idx` widened 2->3 bits, wraps 4->0 instead of counting to 5, so a burst of exactly 5
+  `R_BLT_DATA` writes loads the whole state.
+
+**Verification:** both extend `sim/tb_mp3_fb.v`. BAR: three cases (a split bar, a lit-clamped-to-height fully-lit
+bar with no phantom second phase, a fully-unlit bar with no phase 2 firing at all) checking row count, exact
+per-segment addresses/stride and exact colours. B2: a keyed blit where one of four words in row 0 matches KEY
+(confirmed it keeps the destination's own pre-read value, not the source's) while the other three and all of
+row 1 take the source normally (confirming the key does not universally suppress writes), plus the same
+command with keying disabled (confirms the previously-keyed word reverts to plain source, i.e. `A_KEYDST` never
+even ran). Two new mutation parameters, both confirmed caught by `make test-rtl-fb-mutation`:
+`BUG_IGNORE_BLIT_STRIDE` (from B-103, still passing) and new `BUG_IGNORE_KEY` (disables the colour-key compare
+entirely — the keyed-word check fails as expected). `make rtl-lint`, `make test-host` and `make test-rtl` all
+pass, 0 failures.
+
+**Not done:** `TAU_BLIT_BLEND` and B3-B5 (sub-pixel skew/masks, scaled blit, alpha blend) — still RTL/simulation
+only, no Quartus slot spent.
 
 ### Next item, in enough detail to start cold
 
-**The rest of blit engine Tier 1** (B2-B6, section 5), building on B1's opcode/addressing foundation and the
-MMIO register file (both done, B-103). B2 (colour key) and B6 (meter column) are likely the next-cheapest —
-both `~0` M10K per section 5's table — before B5 (alpha blend), which is the one carrying the documented
--1.888 ns pipeline-depth risk (section 11) and wants its own macro (`TAU_BLIT_BLEND`) kept separable, per
-section 10's build plan. See sections 3-6 and 9-13 for the feature tiers and the rest of the plan.
+**The rest of blit engine Tier 1: B3 (sub-pixel skew + first/last-column masks), B4 (scaled blit), B5 (alpha
+blend)** — section 5. B5 is the one carrying the documented -1.888 ns pipeline-depth risk (section 11) and wants
+its own macro (`TAU_BLIT_BLEND`) kept separable, per section 10's build plan, so B3/B4 (both `0` M10K, no new
+pipeline depth) are the more natural next step before it. See sections 3-6 and 9-13 for the feature tiers and
+the rest of the plan.

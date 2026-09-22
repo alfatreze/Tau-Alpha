@@ -125,6 +125,9 @@ wire        soc_fb_cmd_full;
 // Phase F B1 (section 9): sticky blit addressing state, mp3_soc -> mp3_fb.
 wire [24:0] soc_blt_src_base, soc_blt_dst_base;
 wire [9:0]  soc_blt_src_stride, soc_blt_dst_stride;
+// Phase F B2: colour-key transparency, sticky field 4.
+wire        soc_blt_key_en;
+wire [15:0] soc_blt_key;
 
 // SDRAM Phase 1 diagnostic mailbox.  These are MMIO-only controls; no normal
 // instruction or data fetch is routed to external memory at this stage.
@@ -342,7 +345,9 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN)) u_so
     .blt_src_base   (soc_blt_src_base),
     .blt_src_stride (soc_blt_src_stride),
     .blt_dst_base   (soc_blt_dst_base),
-    .blt_dst_stride (soc_blt_dst_stride)
+    .blt_dst_stride (soc_blt_dst_stride),
+    .blt_key_en     (soc_blt_key_en),
+    .blt_key        (soc_blt_key)
 );
 
 // PSRAM diagnostic (P2). Opt-in TAU_PSRAM_PROBE only; it owns the CRAM pins and
@@ -706,6 +711,8 @@ mp3_fb u_fb (
     .blt_src_stride (soc_blt_src_stride),
     .blt_dst_base   (soc_blt_dst_base),
     .blt_dst_stride (soc_blt_dst_stride),
+    .blt_key_en     (soc_blt_key_en),
+    .blt_key        (soc_blt_key),
 
     .sdram_init_complete(sdram_init_complete),
     .p0_addr(fb_p0_addr), .p0_data(fb_p0_data), .p0_byte_en(fb_p0_byte_en),

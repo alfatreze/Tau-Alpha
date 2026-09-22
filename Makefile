@@ -73,12 +73,14 @@ $(RTL_BUILD_DIR)/tb_mp3_fb.vvp: sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga
 test-rtl-fb: $(RTL_BUILD_DIR)/tb_mp3_fb.vvp
 	$(VVP) $<
 
-# Phase F B1: OP_BLIT's stride generalisation. A mutant that ignores the sticky
-# stride registers and falls back to COPY's fixed 512 MUST fail this bench.
+# Phase F B1/B2: each mutant MUST fail this bench.
 test-rtl-fb-mutation: | $(RTL_BUILD_DIR)
-	@$(IVERILOG) -g2012 -Ptb_mp3_fb.BUG_IGNORE_BLIT_STRIDE=1 -o $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v; \
-	if $(VVP) $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG_IGNORE_BLIT_STRIDE=1"; \
-	else echo "MUTANT SURVIVED: BUG_IGNORE_BLIT_STRIDE=1"; exit 1; fi
+	@set -e; \
+	run() { $(IVERILOG) -g2012 $$1 -o $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v; \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: $$1"; \
+	  else echo "MUTANT SURVIVED: $$1"; exit 1; fi; }; \
+	run -Ptb_mp3_fb.BUG_IGNORE_BLIT_STRIDE=1; \
+	run -Ptb_mp3_fb.BUG_IGNORE_KEY=1
 
 $(RTL_BUILD_DIR)/tb_tgt_cmd.vvp: sim/tb_tgt_cmd.v src/fpga/core/tgt_cmd.v | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
