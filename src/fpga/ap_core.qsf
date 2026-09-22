@@ -760,6 +760,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/tau_sdram_cpu_window_probe.s
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_psram_async.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_psram_bus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_psram_probe.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cdc_gray_ctr.sv
 set_global_assignment -name VERILOG_FILE core/tgt_cmd.v
 set_global_assignment -name VERILOG_FILE core/pcm_fifo.v
 set_global_assignment -name VERILOG_FILE core/eq_biquad.v

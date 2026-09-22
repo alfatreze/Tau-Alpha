@@ -174,6 +174,14 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_PSRAM_IFE_EN 0
 `endif
+// Phase F B7: SDRAM busy-cycle counter (PHASE_F_SPEC.md section 5). Independent of the
+// PSRAM/Phase2 macros above -- it only observes the existing single-port SDRAM arbiter
+// (tau_sdram_arbiter below), so it needs no RTL dependency on the blit engine itself.
+`ifdef TAU_SDRAM_BUSY
+`define TAU_SDR_BUSY_EN 1
+`else
+`define TAU_SDR_BUSY_EN 0
+`endif
 wire        soc_psram_req, soc_psram_we;
 wire [22:0] soc_psram_word;
 wire [31:0] soc_psram_wdata, soc_psram_rdata;
@@ -185,10 +193,27 @@ wire [7:0]  soc_xm_reg;
 wire        soc_xm_wr;
 wire [31:0] soc_xm_wdata;
 wire [31:0] soc_xm_rdata;
-`ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN)) u_soc (
+
+// Phase F B7: SDRAM busy-cycle counter. `arb_p0_available` is sdram_fb's own p0_available
+// (declared below, driven by u_sdram) -- per tau_sdram_arbiter.sv's own comment, that signal
+// is asserted only while the single SDRAM port is idle with no request pending, so its inverse
+// is exactly "the SDRAM port is busy", independent of which master (framebuffer or CPU) holds
+// it. Counts in clk_sdram, a domain the MMIO decoder never sees directly, so it crosses via
+// tau_cdc_gray_ctr (Gray-coded, matching mp3_fb.sv's own FIFO-pointer CDC) into clk_sys.
+wire [31:0] soc_sdram_busy_rd;
+`ifdef TAU_SDRAM_BUSY
+tau_cdc_gray_ctr #(.WIDTH(32)) u_sdram_busy_ctr (
+    .clk_src(clk_sdram), .rst_src(~pll_locked), .inc(~arb_p0_available),
+    .clk_dst(clk_sys),   .rst_dst(cpu_reset),    .count_dst(soc_sdram_busy_rd)
+);
 `else
-mp3_soc u_soc (
+assign soc_sdram_busy_rd = 32'd0;
+`endif
+
+`ifdef TAU_PHASE2_WINDOW
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN)) u_soc (
+`else
+mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -300,7 +325,9 @@ mp3_soc u_soc (
     .psram_be    (soc_psram_be),
     .psram_done  (soc_psram_done),
     .psram_rdata (soc_psram_rdata),
-    .psram_guard (soc_psram_guard)
+    .psram_guard (soc_psram_guard),
+
+    .sdram_busy_rd (soc_sdram_busy_rd)
 );
 
 // PSRAM diagnostic (P2). Opt-in TAU_PSRAM_PROBE only; it owns the CRAM pins and

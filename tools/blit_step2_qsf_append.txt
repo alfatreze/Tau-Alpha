@@ -1,0 +1,9 @@
+# PHASE_F_SPEC.md section 10, step 2 -- scoped down per the owner's 2026-09-22 decision to
+# everything except the blit engine opcodes themselves (those stay held for a fresh session):
+# MLAB migration + font ROM repack (both from step 1, B-100) plus the SDRAM busy-cycle counter
+# (B7), bundled into one real multi-seed fit. This is what actually answers the font-repack
+# block-count question step 1's synthesis-only run could not.
+# Appended to the STAGED src/fpga/ap_core.qsf, after any base macro set + a SEED line.
+set_global_assignment -name VERILOG_MACRO "TAU_MLAB_MIGRATE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_FONT_REPACK=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_BUSY=1"
