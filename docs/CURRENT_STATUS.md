@@ -2,9 +2,13 @@
 
 **Snapshot:** 2026-09-22. Tau **v0.4.0** is released and installed on the owner's card (media library, Phase G cold code,
 on-device diagnostics; two zips: TAU and TAU_DIAGNOSTIC). Full detail: `docs/SESSION_HANDOFF_2026-09-22_RELEASE_0.4.md`.
-Not committed, not tagged, not pushed. Earlier releases: v0.3.0 (PSRAM in the bitstream) - see
+Committed locally, not pushed, not tagged. Earlier releases: v0.3.0 (PSRAM in the bitstream) - see
 `docs/SESSION_HANDOFF_2026-09-21_RELEASE_0.3.md`; the SDRAM-side history (A-001..A-137) and PSRAM P0-P4 (B-001..B-023) are
 unchanged and still correct as recorded there.
+
+**Since that snapshot (B-086..B-099, same day):** the software decoder profile (Phase D step 1) is **done** - see below.
+The gate is closed: audio kernel work is confirmed still ordered after the blit engine. Committed through `422e0a9`
+(local `main` is 26 commits ahead of `origin/main` - not pushed).
 
 ## Executive state
 
@@ -71,9 +75,26 @@ The load-bearing constraint: **main RAM cannot shrink first.** Blit engine -> me
 -> main RAM 256 KB to 192 KB (two power-of-two arrays) -> **64 M10K blocks released**. 85% of all block RAM is
 that one 256 KB array.
 
-**Next item: profile the software decoder** (Phase D step 1). Free - no RTL, no Quartus slot, no card write -
-and it gates all kernel work; the roadmap's own rule is "if it is already fast enough, stop here". Enough
-detail to start cold is in `PHASE_F_SPEC.md` section 14.
+**Decoder profile: done (B-086..B-098), on hardware, on real content.** Built per-stage cycle counters (MP3
+Huffman/IMDCT/Subband; FLAC residual/LPC), a Check field (`SR_T_DECPROF`) and a new **Decode Profile Sweep**
+feature (`SR_T_DECSWEEP`, Settings > Diagnostics > Decode Sweep, Diagnostic Build only) that runs a whole
+album/playlist end to end at a chosen speed and reports one QR code with per-track stage costs. Built a
+permanent 11-track "Audio Test Suite" test album (FLAC/MP3 at several sample rates/bitrates + a spoken-word
+clip, one consistent album so future regressions/comparisons reuse it) - source lives outside the repo at
+`/Users/abel.santos/Downloads/DEV PROJECTS/Tau Alpha/test music/Test Album/`, synced onto the card via
+`tools/sync_media.py`. **Result: MP3 is filterbank-dominated (IMDCT+Subband, not Huffman) as the roadmap
+already assumed; the FLAC bit-reader share measured 7-15% here vs. 64-76% assumed from FLAC.md's own older
+number on different content - open discrepancy, not resolved, flagged rather than force-explained.** Found and
+fixed a real cross-format measurement bug along the way (B-097: FLAC accumulators leaking into the reading
+shown for the MP3 track right after a FLAC track; fixed by gating every stage reading on `track_fmt`, confirmed
+by two clean re-runs). Also found and deliberately parked B-093 (track-open is fully synchronous, blocks the UI)
+for after the blit engine frees up M10Ks and the UI model changes. Owner decision: **follow the roadmap's own
+order** - kernel work stays gated behind the blit engine, do not jump ahead.
+
+**Next item: the Phase F blit engine**, starting with the synthesis-only proof build (no Quartus fit, no card
+write). `docs/PHASE_F_SPEC.md` section 14 has enough detail to start cold; items 1 (decoder profile) and 2
+(MMIO descriptor model) in its build-order table are both already done, so the blit engine is next up
+unblocked. Owner chose to **hold this for a fresh session** rather than start it here.
 
 ## Where to look
 

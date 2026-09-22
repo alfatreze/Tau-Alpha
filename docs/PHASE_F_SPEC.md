@@ -426,28 +426,27 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 
 | # | Step | Needs a Quartus slot? | Gated on |
 |---|---|---|---|
-| **1** | **Profile the software decoder** | No | Nothing — **this is the next item** |
-| 2 | Decide the MMIO descriptor model in RTL terms (section 9) | No | Nothing; do before any Phase F RTL |
-| 3 | Blit engine Tier 1/2 + MLAB migration + font repack + busy-cycle counter | Yes, one (plus a ~5 min synthesis-only pre-check) | 2 |
+| **1** | **Profile the software decoder** | No | **Done — B-086..B-098, on hardware** |
+| **2** | Decide the MMIO descriptor model in RTL terms (section 9) | No | **Done — B-085** |
+| **3** | **Blit engine Tier 1/2 + MLAB migration + font repack + busy-cycle counter** | Yes, one (plus a ~5 min synthesis-only pre-check) | 2 — met, **this is the next item** |
 | 4 | Meters to cold code | No (firmware) | 3 |
 | 5 | Main RAM 256 -> 192 KB | Yes | 4, and the peak-usage gate in section 4.1 |
 | 6 | Spectrum filter bank in RTL (section 7) | Yes — can ride a later build | Nothing; cheap in blocks |
-| 7 | Audio kernels, smallest first (FLAC bit reader) | Yes | **1** — do not start without it |
+| 7 | Audio kernels, smallest first (FLAC bit reader) | Yes | **1** — done, unblocked, but stays ordered after 3-5 (owner decision, 2026-09-22) |
+
+### Item 1 result (for the record)
+
+Measured on hardware, real content (the permanent "Audio Test Suite" test album, source outside the repo,
+synced via `tools/sync_media.py`): **MP3 is filterbank-dominated (IMDCT+Subband, not Huffman)**, matching the
+roadmap's assumed ordering. **FLAC's bit-reader share measured 7-15%**, not the 64-76% `docs/FLAC.md` reported
+on different content — that gap is open, not resolved. A real cross-format measurement bug (FLAC accumulators
+leaking into the MP3 reading shown right after a FLAC track) was found and fixed (B-097) before trusting the
+numbers. Full detail: `docs/ARCHITECTURE_ROADMAP.md` section 2, `docs/AUDIT_TRAIL.md` B-086..B-098.
 
 ### Next item, in enough detail to start cold
 
-**Profile the software MP3/FLAC decoder** (Phase D step 1). It has never been run, it is free — no RTL, no
-Quartus slot, no card write — and it gates all kernel work. The roadmap's own rule is "if it is already fast
-enough, stop here", so this step may cancel step 7 outright and save a 45-minute build plus a hardware cycle.
-
-- **What exists to build on:** `docs/FLAC.md` already reports a diagnostic split into D/O/U/R stages, finding
-  **R (the bit reader) at 64-76%** of FLAC decode and rising with bitrate. That is the model to follow — and
-  there is **no equivalent MP3 profile at all**, which is the real gap.
-- **What to produce:** per-stage CPU share for MP3 (Huffman/bit reading, IMDCT, synthesis filterbank, and the
-  rest) and a refresh of the FLAC figures, measured on hardware at the bitrates that matter, with the existing
-  headroom context (decode breaks down around 1.3-1.5x speed at 128 kbps).
-- **Why the answer matters beyond kernels:** it decides whether the roadmap's "synthesis filterbank, then
-  IMDCT" ordering survives. The only measurement so far points at a bit reader instead — ~1-2 M10K against
-  ~8-12 for the filterbank (D3).
-- **Where it lands:** a per-stage resource/cost line in `ARCHITECTURE_ROADMAP.md` section 2, plus an audit
-  entry with the measurement conditions recorded.
+**Blit engine Tier 1/2**, starting with the synthesis-only pre-check (no Quartus fit, no card write) to confirm
+the MLAB migration and font repack close before spending a full fit. Both gates (decoder profile, MMIO
+descriptor model) are met. See sections 3-6 and 9-13 above for the feature tiers, M10K budget, and
+build/verification/fail-safe plan. Owner chose to hold this step for a fresh session rather than start it here
+(2026-09-22).
