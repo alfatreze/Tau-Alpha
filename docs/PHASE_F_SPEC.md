@@ -95,16 +95,28 @@ The ROM holds 3,040 words x 32 bits = 97,280 bits but occupies 16 blocks [FIT]. 
 
 ## 4. The M10K ledger and the ordering constraint
 
+**Corrected 2026-09-22 (B-102) against a real fit, not an estimate.** Section 2's "+7 MLAB / +4 font repack"
+were both pre-fit predictions. Only two of the four MLAB candidates were in scope for this build (`cmd_mem` and
+the VexRiscv regfile deliberately excluded, see section 2) and the font repack was measured, not assumed —
+**it delivered +0, not +4.** Real result, both seeds: 298/308 used (was 300/308), a net **+2 blocks**, all of it
+from `glyphbuf` + the `sound_i2s` dcfifo resolving to MLAB. `TAU_FONT_REPACK` is confirmed functionally inert
+(as designed) but is *also* fitter-inert — declared content bits are unchanged by construction (section 10's
+correction already covered this), and it turns out the fitter does not find fewer physical M10K primitives for
+four narrow ROMs than one wide one either. **On-chip repacking is not a lever for the font ROM; PSRAM (row
+below) is now the only real one if those blocks are needed.**
+
 | Step | Frees | Running free | Risk |
 |---|---|---|---|
-| Today | — | **8** | — |
-| MLAB migration (section 2) | +7 | 15 | very low |
-| Font ROM repack (section 3) | +4 | 19 | very low |
-| *Blit engine consumes (CLUT + working)* | −2 | 17 | — |
-| *Spectrum filter bank consumes* | ~0 | 17 | — |
-| *FLAC bit-reader accelerator, if the profile justifies it* | −2 | 15 | — |
-| Font ROM to PSRAM (only if needed) | +12 | 27 | medium |
-| **Main RAM 256 KB -> 192 KB** | **+64** | **~91** | see below |
+| Today (measured baseline, B-018/A-114 product fit) | — | **8** (300/308 used) | — |
+| MLAB: `glyphbuf` + `sound_i2s` dcfifo (B-101/B-102, fit-confirmed, both seeds) | +2 | 10 | very low; one seed showed a real -0.001 ns setup violation on the glyphbuf write path, the other closed positive on all four corners — pick that seed |
+| Font ROM repack (B-102, fit-confirmed) | **+0** (not +4 — corrected) | 10 | none (inert, just does not help) |
+| MLAB: `cmd_mem` (still needs its own timing check per section 2) | +3 (estimate, unverified) | 13 | medium — the Fmax caveat on deep MLAB chaining is still untested |
+| MLAB: VexRiscv register file (generated netlist, needs hand-patching) | +2 (estimate, unverified) | 15 | low risk, high awkwardness — still deferred |
+| *Blit engine consumes (CLUT + working)* | −2 | 13 | — |
+| *Spectrum filter bank consumes* | ~0 | 13 | — |
+| *FLAC bit-reader accelerator, if the profile justifies it* | −2 | 11 | — |
+| Font ROM to PSRAM — **now the real path to font-related blocks, not a fallback** | +12 | ~23 | medium |
+| **Main RAM 256 KB -> 192 KB** | **+64** | **~87** | see below |
 
 **The ordering constraint, which is the important part of this document.** Main RAM cannot shrink first.
 `RAM_WORDS` must be a power of two — a 48 KB attempt once exploded the fitter into LUTs [SRC] — so the options
@@ -424,6 +436,33 @@ Kept deliberately, with reasoning, so none of it has to be re-invented. None of 
 - **Bilinear cover scaling** — free of line-buffer cost for the same reason B4 is; four reads per output pixel.
 - **Neo Geo-style zoom lookup table** as an alternative to Bresenham if table-driven scaling ever fits better.
 
+**Type/font system, broader than today's fixed ASCII-only M10K atlas:**
+
+- **Broader glyph coverage (Latin diacritics through CJK).** Upstream HarpMudd v1.5.0 shipped and hardware-
+  verified this already: `tools/gen_font_ext.py` builds one SD-card-loaded binary (4bpp Inter for Latin-1/Ext-A/
+  Greek/Cyrillic, matching the ROM's own AA style; 1bpp Unifont-JP for kana + the full CJK Unified Ideographs
+  block — a bitmap face reads sharper than a downscaled outline font at 16 px, their reasoning, not assumed
+  here), read through the existing `CHAR` opcode via a glyph-index sentinel into the same row registers the ROM
+  path already fills. Comes with full UTF-8 string-pipeline hardening (ID3 UTF-16, FLAC tag boundaries,
+  filenames, `.m3u` BOM) that would also close this project's own open BUG-001 (accented filenames skipped).
+  **The one deliberate deviation from their design, not a copy:** they stream glyph rows live from SDRAM; this
+  project would want the asset in **PSRAM** instead, through the already-proven data window, to avoid the exact
+  SDRAM-contention risk the rest of Phase F exists to protect. Their timing note — compose "tipped to -1.888 ns,
+  fixed by splitting into two registered stages, now +2.093 ns" — is the same upstream cliff `PHASE_F_SPEC.md`'s
+  own risk section (11) already cites; the fix (an extra pipeline stage) is already proven upstream if this is
+  ever picked up.
+- **Crispness at scale.** Today's 4bpp coverage atlas is baked at one fixed cell size (16x16) and read pixel-
+  for-pixel — there is no scaling path for text today. Once B4 (scaled blit) exists, the same nearest-neighbour
+  approach used for cover art would work for text too, but coverage-based AA that looks right at 1x can look
+  wrong scaled up (blocky edges) or down (lost fine strokes, especially CJK stroke detail at 1bpp) — worth a
+  real look rather than assuming it transfers, particularly for any eventual UI scale setting.
+- **Multiple font support.** Today there is exactly one typeface (Inter SemiBold) baked into one ROM. A second
+  face (a monospace variant for tabular/diagnostic screens, or a CJK-appropriate face distinct from Latin) is
+  architecturally a second atlas plus a font-select bit somewhere in the glyph index — cheap in concept once any
+  atlas is PSRAM-resident (SD-card assets are easy to add to), but each additional face multiplies the storage
+  and glyph-generation-tooling surface, and font mixing/fallback rules (which face wins for a given code point)
+  need an actual policy, not just "whichever loads."
+
 **Beyond the 2D engine:**
 
 - **True FFT via R2SDF + CORDIC twiddles**, if linear frequency bins are ever genuinely wanted (section 7).
@@ -445,7 +484,8 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 |---|---|---|---|
 | **1** | **Profile the software decoder** | No | **Done — B-086..B-098, on hardware** |
 | **2** | Decide the MMIO descriptor model in RTL terms (section 9) | No | **Done — B-085** |
-| **3** | **Blit engine Tier 1/2 + MLAB migration + font repack + busy-cycle counter** | Yes, one (the ~5 min synthesis-only pre-check is **done**, B-100) | 2 — met, **this is the next item** |
+| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met, held for a fresh session (owner, 2026-09-22) |
+| **3a** | MLAB migration (`glyphbuf` + dcfifo) + font repack + busy-cycle counter, scoped out from 3 as everything not needing the blit opcodes | **Done — B-101/B-102, real multi-seed fit, both seeds Successful** | none |
 | 4 | Meters to cold code | No (firmware) | 3 |
 | 5 | Main RAM 256 -> 192 KB | Yes | 4, and the peak-usage gate in section 4.1 |
 | 6 | Spectrum filter bank in RTL (section 7) | Yes — can ride a later build | Nothing; cheap in blocks |
@@ -473,11 +513,38 @@ fitter pack four 8-bit ROMs into fewer physical M10K blocks than one 32-bit ROM)
 correction to section 10's original framing of what synthesis-only would prove — see that section for detail.
 Evidence: `docs/AUDIT_TRAIL.md` B-100.
 
+### Item 3a result: the real fit, scoped to everything except the blit opcodes (for the record)
+
+**B-101/B-102, 2026-09-22.** Owner scoped step 2 down to "everything except the blit engine" (asked after being
+told the spec's literal step 2 bundles blit RTL that does not exist yet). Added B7 (the SDRAM busy-cycle
+counter, section 5) since it has no RTL dependency on the opcodes, then ran a real multi-seed fit (not
+synthesis-only) of `TAU_MLAB_MIGRATE` + `TAU_FONT_REPACK` + `TAU_SDRAM_BUSY` together.
+
+**Font repack's real answer, settled: +0 blocks, not +4.** Both seeds fit to identical **298/308 RAM blocks**
+(baseline 300/308 — a net +2, all of it the two MLAB items). Corrected in section 4's ledger. On-chip repacking
+is not a usable lever for the font ROM; PSRAM is now the only real path to those blocks if they are ever needed.
+
+**Timing: real difference between seeds, and it matters.** Seed 1 closed with a genuine (if tiny) violation —
+**setup slack -0.001 ns / -0.101 ns** on the two slow-silicon corners, traced to one exact path: `mp3_fb.sv`'s
+`Mux3~4` (the px_color arithmetic feeding `glyphbuf`'s write-data port) into `glyphbuf`'s newly-MLAB-mapped
+write port. Seed 2 closed **positive on all four corners** (setup +0.091/+0.005/+5.552/+5.790 ns; hold
++0.315/+0.301/+0.138/+0.127 ns) — same RTL, same macros, different placement. **Seed 2 is the build to carry
+forward** (RBF sha256 `a0942341...1a465`); seed 1's result is recorded because it is a real, reproducible
+finding (not just a bad seed to discard and forget) — the glyphbuf MLAB write path has effectively zero margin
+in the worst corner, so any future change that adds even a few picoseconds there (routing shift, a nearby logic
+change) could reopen it. Worth a note if `glyphbuf` or its feeding arithmetic changes again.
+
+**Process note, also worth keeping:** the first seed-2 attempt showed 3 errors from a corrupted run — two
+`make fpga` invocations had raced on the same project directory (traced via impossible log timestamp ordering,
+Assembler starting before the Fitter that must precede it), an artifact of a launch-script mistake, not an RTL
+problem. Redone cleanly with a verified single process before trusting the result.
+
 ### Next item, in enough detail to start cold
 
-**Blit engine Tier 1/2 + step 2**, the multi-seed fit that bundles the MLAB migration and font repack with the
-new blit opcodes and the SDRAM busy-cycle counter (section 10). The synthesis-only pre-check for the two inert
-pieces is done (above); the font repack's real block-count result still needs this fit to be known. Both gates
-(decoder profile, MMIO descriptor model) are met. See sections 3-6 and 9-13 above for the feature tiers, M10K
-budget, and build/verification/fail-safe plan. Owner chose to hold the blit engine itself for a fresh session
-(2026-09-22) — the step 1 pre-check was run in this session as a discrete, separable piece of that item.
+**The blit engine itself (item 3 proper): Tier 1/2 opcodes + the MMIO descriptor register file (section 9).**
+Both gates (decoder profile, MMIO descriptor model *decision*) are met, and the two inert pieces that used to
+share a build with it (MLAB migration, font repack) are already fitted and out of the way (3a, above) — so this
+item is now purely the new RTL: `TAU_BLIT` + `TAU_BLIT_BLEND`, the software reference renderer and pixel-diff
+fixtures (section 12), and the busy-cycle counter is already built and ready to validate it against the L0
+invariant. See sections 3-6 and 9-13 for the feature tiers and plan. Owner chose to hold this for a fresh
+session (2026-09-22, reaffirmed after 3a).

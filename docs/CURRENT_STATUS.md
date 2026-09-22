@@ -91,17 +91,24 @@ by two clean re-runs). Also found and deliberately parked B-093 (track-open is f
 for after the blit engine frees up M10Ks and the UI model changes. Owner decision: **follow the roadmap's own
 order** - kernel work stays gated behind the blit engine, do not jump ahead.
 
-**Blit engine step 1 (synthesis-only pre-check): done, 2026-09-22 (B-100).** MLAB migration confirmed and
-de-risked (`glyphbuf` + `sound_i2s` dcfifo both resolved to MLAB in the RAM Summary table, a clean 1:1 bit move
-out of the M10K pool). **Font ROM repack's actual win is not confirmed** — synthesis reports declared content
-bits, which the repack leaves unchanged by construction, so whether it actually reduces physical M10K blocks is
-a fitter question, not a synthesis one; this corrects `PHASE_F_SPEC.md` section 10's original claim that
-synthesis-only would settle both pieces. Full detail: `docs/AUDIT_TRAIL.md` B-100.
+**Blit engine step 1+3a: done and real-fit-confirmed, 2026-09-22 (B-100/B-101/B-102).** Scoped down to
+everything not needing the (still unbuilt) blit opcodes: MLAB migration (`glyphbuf` + `sound_i2s` dcfifo, both
+resolved to MLAB) + font ROM repack + the new SDRAM busy-cycle counter (B7), bundled into a real multi-seed fit
+(not just synthesis). **Result: +2 M10K blocks (298/308, was 300/308), all from MLAB — font repack delivered +0,
+not the hoped +4**, settling the question step 1's synthesis-only check couldn't. On-chip font repacking is not
+a usable lever; PSRAM is now the only real path to font-related blocks. Seed 2 is the build to carry forward
+(closes positive on all four timing corners); seed 1 had a real but tiny -0.001/-0.101 ns violation on the
+glyphbuf MLAB write path, recorded as a genuine near-zero-margin finding, not discarded as noise. Full detail:
+`docs/AUDIT_TRAIL.md` B-100/B-101/B-102, `docs/PHASE_F_SPEC.md` sections 4 and 14.
 
-**Next item: the Phase F blit engine, step 2** — the multi-seed fit bundling the new blit opcodes, MLAB
-migration, font repack and SDRAM busy-cycle counter (`docs/PHASE_F_SPEC.md` section 10). Both prerequisite gates
-(decoder profile, MMIO descriptor model) are done. Owner chose to **hold the blit engine itself for a fresh
-session**; the step-1 pre-check was run in this session as a separable, low-risk piece of that item.
+**Next item: the blit engine itself** — Tier 1/2 opcodes + the MMIO descriptor register file (`PHASE_F_SPEC.md`
+section 14). Both prerequisite gates (decoder profile, MMIO descriptor model decision) are done, and the pieces
+that used to share a build with it (MLAB, font repack, busy counter) are already fitted and out of the way.
+Owner chose to **hold this for a fresh session**.
+
+**Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
+researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
+`PHASE_F_SPEC.md` section 13. Revisit there if this becomes a real near-term want.
 
 ## Where to look
 
