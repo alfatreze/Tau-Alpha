@@ -81,7 +81,8 @@ test-rtl-fb-mutation: | $(RTL_BUILD_DIR)
 	  else echo "MUTANT SURVIVED: $$1"; exit 1; fi; }; \
 	run -Ptb_mp3_fb.BUG_IGNORE_BLIT_STRIDE=1; \
 	run -Ptb_mp3_fb.BUG_IGNORE_KEY=1; \
-	run -Ptb_mp3_fb.BUG_SBLIT_NO_SCALE=1
+	run -Ptb_mp3_fb.BUG_SBLIT_NO_SCALE=1; \
+	run -Ptb_mp3_fb.BUG_BLEND_ALWAYS_SRC=1
 
 $(RTL_BUILD_DIR)/tb_tgt_cmd.vvp: sim/tb_tgt_cmd.v src/fpga/core/tgt_cmd.v | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^

@@ -32,9 +32,9 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0xB4 | IF_CYC | R | Phase G2: cycles the instruction fetch stage held a PSRAM request |
 | 0xB8 | IF_CFG | R/W | Phase G2: bit0 = instruction fetch from PSRAM present; any write clears IF_N and IF_CYC |
 | 0xBC | SDR_BUSY | R | Phase F B7: SDRAM port-busy cycles, free-running since reset (0 when `TAU_SDRAM_BUSY` is off). Counts clk_sdram cycles the single SDRAM controller port is occupied by either master (framebuffer or CPU), regardless of which -- the resource any future SDRAM client (the blit engine) would compete for. Crosses from clk_sdram via a Gray-coded CDC (`tau_cdc_gray_ctr.sv`); never cleared by firmware -- sample before/after a measurement window and take the delta, same convention as CYCLES (0x0C). |
-| 0xC0 | BLT_IDX | W | Phase F B1/B2 (section 9): selects a sticky blit-state field (0=SRC_BASE, 1=SRC_STRIDE, 2=DST_BASE, 3=DST_STRIDE, 4=KEY: bit16=enable, bits[15:0]=RGB565 colour). Read only when `TAU_BLIT` is built; 0 otherwise. |
-| 0xC4 | BLT_DATA | W | Writes the field BLT_IDX selects, then auto-increments BLT_IDX (wraps 4->0) -- a burst of 5 writes loads the whole state after one index write. `FB_GO`'s existing opcode field (now 3 bits, was 2) carries `OP_BLIT`/`OP_BAR`/`OP_SBLIT`; no new GO register. |
-| 0xC8-0xFC | free | | next claimants: alpha mode/level, palette select, scale factors (Tier 1/2, section 5); allocate here |
+| 0xC0 | BLT_IDX | W | Phase F B1/B2/B5 (section 9): selects a sticky blit-state field (0=SRC_BASE, 1=SRC_STRIDE, 2=DST_BASE, 3=DST_STRIDE, 4=KEY: bit16=enable, bits[15:0]=RGB565 colour, 5=BLEND: bit0=enable, bits[3:1]=mode -- 0=DSP 0-255 alpha, 1=PSX B/2+F/2, 2=PSX B+F clamp, 3=PSX B-F clamp, 4=PSX B+F/4 clamp -- bits[15:8]=alpha level, DSP mode only). Read only when `TAU_BLIT` is built; the BLEND field is additionally gated on the separate `TAU_BLIT_BLEND` macro (see section 10 -- kept droppable on its own, the documented timing-cliff risk). 0 otherwise. |
+| 0xC4 | BLT_DATA | W | Writes the field BLT_IDX selects, then auto-increments BLT_IDX (wraps 5->0) -- a burst of 6 writes loads the whole state after one index write. `FB_GO`'s existing opcode field (now 3 bits, was 2) carries `OP_BLIT`/`OP_BAR`/`OP_SBLIT`; no new GO register. |
+| 0xC8-0xFC | free | | next claimants: palette select, scale factors (Tier 2, section 5); allocate here |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 

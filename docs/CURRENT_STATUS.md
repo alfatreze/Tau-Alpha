@@ -101,36 +101,40 @@ a usable lever; PSRAM is now the only real path to font-related blocks. Seed 2 i
 glyphbuf MLAB write path, recorded as a genuine near-zero-margin finding, not discarded as noise. Full detail:
 `docs/AUDIT_TRAIL.md` B-100/B-101/B-102, `docs/PHASE_F_SPEC.md` sections 4 and 14.
 
-**The blit engine: started, 2026-09-22 (B-103/B-104/B-105).** MMIO descriptor register file (section 9) built —
-`R_BLT_IDX`/`R_BLT_DATA` at 0xC0/0xC4 (5 sticky fields), plus `R_FB_GO`'s opcode field widened 2->3 bits to carry
-the new opcodes, reusing the existing proven per-command path instead of adding a parallel one. Four opcodes
-built and simulation-verified:
+**The blit engine: Tier 1 functionally complete in RTL/simulation, 2026-09-22 (B-103..B-106).** MMIO descriptor
+register file (section 9) built — `R_BLT_IDX`/`R_BLT_DATA` at 0xC0/0xC4 (6 sticky fields), plus `R_FB_GO`'s
+opcode field widened 2->3 bits, reusing the existing proven per-command path instead of adding a parallel one.
+Five opcodes built and simulation-verified:
 - **B1 (generalised blit, `OP_BLIT`)**: independent 25-bit source/destination addresses and per-row stride,
   both sticky, not `OP_COPY`'s fixed FB_BASE=0/512 — verified for equivalence and independence, plus a mutation
   test confirming a reverted-to-hardcoded-stride bug is caught.
-- **B2 (colour-key transparency)**: needed a genuine destination pre-read phase to be correct (showing the
-  destination through a keyed pixel requires reading it, which the write-only blit/copy path never did before)
-  — verified with a keyed blit where one word of four correctly keeps the destination's value, plus a mutation
-  test confirming a "colour key does nothing" bug is caught.
-- **B4 (scaled blit, `OP_SBLIT`)**: reuses CHAR's own Bresenham registers (never both active at once) against a
-  *variable* source size instead of CHAR's fixed 16px cell; every output pixel is its own SDRAM read, returning
-  through the same single dispatch point as everything else so scanout can preempt between any two pixels —
-  verified with a hand-computed 2x-scale case (a 2x1 source doubles to 4x2 output) that matched exactly, plus a
-  mutation test confirming a silently-unscaled fallback is caught.
-- **B6 (meter column, `OP_BAR`)**: two chained `RECT` fills (no new burst mechanism) for a split lit/unlit bar
-  — verified for a split bar, a fully-lit bar and a fully-unlit bar (no phantom phases in either edge case).
+- **B2 (colour-key transparency)**: needed a genuine destination pre-read phase to be correct — verified with a
+  keyed blit where one word of four correctly keeps the destination's value, plus a mutation test.
+- **B4 (scaled blit, `OP_SBLIT`)**: reuses CHAR's own Bresenham registers against a *variable* source size;
+  every output pixel is its own SDRAM read, returning through the single dispatch point so scanout can preempt
+  between any two pixels — verified with a hand-computed 2x-scale case that matched exactly, plus a mutation test.
+- **B5 (alpha blend)**: shares B2's destination pre-read rather than adding a second one. DSP mode (0-255 alpha,
+  `>>8` approximation) and four PSX shift-add ratios (B/2+F/2, B+F, B-F, B+F/4, clamped not wrapped), one shared
+  per-channel function for R/G/B. Kept behind its own `TAU_BLIT_BLEND` macro, separate from `TAU_BLIT`, per
+  section 10's build plan — it's the deepest new pipeline and carries the documented -1.888 ns timing-cliff risk,
+  so it has to be droppable on its own. **Two real bugs found and fixed while building it, not after:** (1) the
+  new macro was originally wired to nothing — `mp3_fb`'s instantiation passed no module parameters at all, so
+  `BLIT_BLEND_ENABLE` would have stayed 0 regardless of the macro; (2) generalising B2's pre-read trigger to
+  also fire for blend exposed a latent key-check bug — `key_dst_done` alone used to safely imply keying was on,
+  and stopped being safe the moment blend could trigger the same pre-read too. Both fixed before shipping.
+  Verified: DSP alpha=128 reduces to an exact per-channel average (matched hand-computed values); PSX B+F mode
+  deliberately chosen to overflow a channel, confirming clamp-not-wrap; plus a mutation test.
+- **B6 (meter column, `OP_BAR`)**: two chained `RECT` fills — verified for a split bar, a fully-lit bar and a
+  fully-unlit bar (no phantom phases in either edge case).
 
-`make test` (host + RTL, 5 mutation cases now) passes, 0 failures. **B3 (sub-pixel skew/masks): analysed, not
-built as RTL-only.** The literal Amiga bit-packed mechanism doesn't translate to this one-pixel-per-word engine;
-what it would buy for blits, B1's own addressing already provides for free. The real gap (CHAR sub-glyph
-clipping, the marquee's actual limitation) needs a firmware change first — `fb_char()` never writes `R_FB_SIZE`,
-so retrofitting `cmd_w`/`cmd_h` as clip fields would silently corrupt every existing glyph draw with stale
-leftover RECT/COPY dimensions. Confirmed by reading the source, not assumed. **Not done:** `TAU_BLIT_BLEND`, B5
-(alpha blend, the one with the documented -1.888 ns timing-cliff risk) — no Quartus slot spent yet.
+`make test` (host + RTL, 7 mutation cases now) passes, 0 failures. **B3 (sub-pixel skew/masks): analysed, not
+built as RTL-only** — the literal Amiga bit-packed mechanism doesn't translate to this one-pixel-per-word engine;
+what it would buy for blits, B1's addressing already provides. The real gap (CHAR sub-glyph clipping, the
+marquee's limitation) needs a firmware change first (`fb_char()` never writes `R_FB_SIZE`), out of scope here.
 
-**Next item:** B5 behind its own `TAU_BLIT_BLEND` macro, the last Tier 1 item and the one that needs real care
-(the documented timing-cliff risk, section 11) — per section 10's build plan, kept separable so a timing
-failure can drop just this piece.
+**Next item:** step 2 of section 10's build plan — the first real multi-seed fit of the blit engine (`TAU_BLIT`
++`TAU_BLIT_BLEND`, bundled with the already-fitted B7 counter). Software reference renderer + pixel-diff fixtures
+(section 12) and the `COLD_READY()` fail-safe are still open ahead of any card install.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in

@@ -74,7 +74,18 @@ module mp3_fb #(
     // 1 forces B4's X-Bresenham to advance the source column on every output
     // pixel, ignoring char_num/char_den -- a naive 1:1 copy instead of a real
     // scaled blit. Never set outside that test.
-    parameter BUG_SBLIT_NO_SCALE = 0
+    parameter BUG_SBLIT_NO_SCALE = 0,
+    // Phase F B5, per PHASE_F_SPEC.md section 10's build plan: kept behind its
+    // own parameter, separate from BLIT_ENABLE, specifically so it is droppable
+    // on its own if it tips the compose pipeline into the documented -1.888 ns
+    // timing cliff -- the rest of the blit engine (B1/B2/B4/B6) must not have
+    // to come out with it. Inert (blend logic provably dead, same convention
+    // as every other *_ENABLE parameter here) when 0.
+    parameter BLIT_BLEND_ENABLE = 0,
+    // Mutation-test hook only (-PBUG_BLEND_ALWAYS_SRC=1, make test-rtl-fb-mutation):
+    // 1 makes a blended blit silently behave like a plain one (always write the
+    // source pixel, ignoring blend_active entirely). Never set outside that test.
+    parameter BUG_BLEND_ALWAYS_SRC = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -106,6 +117,12 @@ module mp3_fb #(
     // leaving COPY as the simple, unmodified case.
     input  wire        blt_key_en,
     input  wire [15:0] blt_key,
+    // Phase F B5: alpha blend. Also read only when blit_mode; also shares B2's
+    // destination pre-read phase (A_KEYDST), generalised below to trigger on
+    // "blt_key_en OR blt_blend_en" instead of key alone.
+    input  wire        blt_blend_en,
+    input  wire [2:0]  blt_blend_mode,   // 0=DSP alpha, 1-4=PSX shift-add ratios
+    input  wire [7:0]  blt_blend_alpha,  // DSP mode only, 0-255
 
     // SDRAM master port (clk_sdram) -> wired to sdram_fb in core_game.vh ----
     input  wire        sdram_init_complete,
@@ -542,6 +559,59 @@ module mp3_fb #(
 
     wire [15:0] px_color = {mix_r[8:4], mix_g[9:4], mix_b[8:4]};
 
+    // ---- B5: alpha blend (combinational) ---------------------------------
+    // One function, reused for R/G/B by passing the channel's own max value --
+    // cheaper than three near-identical copies. DSP mode approximates /255 as
+    // >>8 (weight 256, not 255), the same pragmatic trade CHAR's own cov_weight
+    // above already makes (documented there); at alpha=255 the destination
+    // still contributes 1/256, a known, accepted artifact of this common
+    // approximation, not an oversight. PSX modes are exactly the shift-add
+    // ratios section 5 lists: B/2+F/2 (average), B+F and B+F/4 (saturating
+    // add), B-F (saturating subtract, clamped to 0 not wrapped).
+    function [7:0] blend_ch(input [7:0] b, input [7:0] f, input [2:0] mode,
+                             input [7:0] alpha, input [7:0] chmax);
+        reg [15:0] dsp;
+        reg [8:0]  sum;
+        begin
+            case (mode)
+                3'd0: begin
+                    dsp = f * {1'b0, alpha} + b * (9'd256 - {1'b0, alpha});
+                    blend_ch = dsp[15:8];
+                end
+                3'd1: blend_ch = (b + f) >> 1;
+                3'd2: begin sum = {1'b0,b} + {1'b0,f};      blend_ch = (sum > {1'b0,chmax}) ? chmax : sum[7:0]; end
+                3'd3: blend_ch = (f > b) ? 8'd0 : (b - f);
+                default: begin sum = {1'b0,b} + {1'b0,(f >> 2)}; blend_ch = (sum > {1'b0,chmax}) ? chmax : sum[7:0]; end
+            endcase
+        end
+    endfunction
+
+    // B (destination, already sitting in glyphbuf from the A_KEYDST pre-read)
+    // and F (source, the word A_COPYRD just read) -- see that state below for
+    // where this is actually used. Channels zero-extended to 8 bits so one
+    // function serves the 5-bit R/B and 6-bit G channels alike.
+    function [15:0] blend_px(input [15:0] bg, input [15:0] fg, input [2:0] mode, input [7:0] alpha);
+        reg [7:0] r, g, b;
+        begin
+            r = blend_ch({3'd0,bg[15:11]}, {3'd0,fg[15:11]}, mode, alpha, 8'd31);
+            g = blend_ch({2'd0,bg[10:5]},  {2'd0,fg[10:5]},  mode, alpha, 8'd63);
+            b = blend_ch({3'd0,bg[4:0]},   {3'd0,fg[4:0]},   mode, alpha, 8'd31);
+            blend_px = {r[4:0], g[5:0], b[4:0]};
+        end
+    endfunction
+
+    // B2/B5: whether the word A_COPYRD just read is keyed out. Explicitly
+    // checks blt_key_en, not just key_dst_done -- key_dst_done alone used to
+    // imply blt_key_en (the only thing that could trigger a pre-read), but
+    // now blt_blend_en can trigger one too, so without this check a blend-only
+    // blit could accidentally treat a pixel equal to a stale/leftover blt_key
+    // value as keyed, even with keying never enabled.
+    wire pixel_keyed = key_dst_done && blt_key_en && (p0_q == blt_key) && !BUG_IGNORE_KEY;
+
+    // B5: gated separately from blt_blend_en's own sticky enable bit, per
+    // BLIT_BLEND_ENABLE's own comment above.
+    wire blend_active = (BLIT_BLEND_ENABLE != 0) && blt_blend_en;
+
     // Dispatch guards: a new command may only be popped once the previous one
     // has fully retired, and any SDRAM work needs the controller idle.
     wire engine_busy = rect_active || char_rows_left_nz || char_row_ready;
@@ -608,15 +678,16 @@ module mp3_fb #(
                     // Composing needs no SDRAM, so it runs only once nothing
                     // else wants the bus -- it can never delay a fill by more
                     // than the one row it is part-way through.
-                    // B2: a keyed BLIT pre-reads the destination row into
-                    // glyphbuf before the source row, so A_COPYRD's per-word
-                    // compare below has something to fall back to. Every other
-                    // case (COPY, an unkeyed BLIT) goes straight to A_COPYRD
-                    // exactly as before -- key_dst_done starts each row/command
-                    // at 0, so this adds nothing unless blt_key_en is set.
+                    // B2/B5: a keyed or blended BLIT pre-reads the destination
+                    // row into glyphbuf before the source row, so A_COPYRD's
+                    // per-word compare/blend below has something to work with.
+                    // Every other case (COPY, a plain BLIT) goes straight to
+                    // A_COPYRD exactly as before -- key_dst_done starts each
+                    // row/command at 0, so this adds nothing unless one of the
+                    // two sticky enables is set.
                     end else if (copy_mode && char_rows_left_nz
                                  && !char_row_ready && can_sdram
-                                 && blit_mode && blt_key_en && !key_dst_done) begin
+                                 && blit_mode && (blt_key_en || blend_active) && !key_dst_done) begin
                         p0_addr   <= blit_dst_addr;
                         p0_rd_req <= 1'b1;
                         copy_cnt  <= 8'd0;
@@ -855,11 +926,23 @@ module mp3_fb #(
                 // a source word equal to the sticky KEY colour is dropped --
                 // glyphbuf already holds that destination pixel from A_KEYDST,
                 // so simply not overwriting it IS the "show destination
-                // through" behaviour, with no separate select/blend stage.
+                // through" behaviour. B5: otherwise, if blending is enabled,
+                // combine the just-read source with the destination pixel
+                // A_KEYDST already left sitting in this same glyphbuf slot --
+                // an ordinary read-then-write of one memory word, not a
+                // same-cycle read/write race (the read reflects A_KEYDST's
+                // write from several cycles earlier, not this one). Key takes
+                // priority over blend: a keyed pixel is fully transparent, so
+                // blending it would be wrong, not just redundant.
                 A_COPYRD: begin
                     if (p0_data_available) begin
-                        if (BUG_IGNORE_KEY || !(key_dst_done && (p0_q == blt_key)))
-                            glyphbuf[copy_cnt[6:0]] <= p0_q;
+                        if (!pixel_keyed) begin
+                            if (key_dst_done && blend_active && !BUG_BLEND_ALWAYS_SRC)
+                                glyphbuf[copy_cnt[6:0]] <= blend_px(glyphbuf[copy_cnt[6:0]], p0_q,
+                                                                     blt_blend_mode, blt_blend_alpha);
+                            else
+                                glyphbuf[copy_cnt[6:0]] <= p0_q;
+                        end
                         if (copy_cnt == char_w[6:0] - 7'd1) begin
                             p0_end_burst_req <= 1'b1;
                             char_row_ready   <= 1'b1;
