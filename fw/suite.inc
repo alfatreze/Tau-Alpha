@@ -218,15 +218,22 @@ COLD_TEXT static int chk_do(uint32_t id)
         /* B-088/B-089: latch this window's decode-stage percentages once,
          * here, at the exact moment the run-total accumulators stop moving --
          * same CHK_AUDIO_S/CLK_HZ arithmetic as the screen row's per-second
-         * version, just over the whole window instead of one second. */
+         * version, just over the whole window instead of one second.
+         * B-097: gated on track_fmt, same reasoning and same fix as
+         * sw_sample() -- a stage that cannot apply to the track actually
+         * playing is forced to 0 regardless of what its accumulator says. */
 #if MP3_PROFILE
-        chk_dec_h = (uint16_t)(mp3_huff_total_cyc  / (CHK_AUDIO_S * (CLK_HZ / 100u)));
-        chk_dec_i = (uint16_t)(mp3_imdct_total_cyc / (CHK_AUDIO_S * (CLK_HZ / 100u)));
-        chk_dec_s = (uint16_t)(mp3_sub_total_cyc   / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+        if (track_fmt == FMT_MP3) {
+            chk_dec_h = (uint16_t)(mp3_huff_total_cyc  / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+            chk_dec_i = (uint16_t)(mp3_imdct_total_cyc / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+            chk_dec_s = (uint16_t)(mp3_sub_total_cyc   / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+        } else { chk_dec_h = chk_dec_i = chk_dec_s = 0u; }
 #endif
 #if FLAC_PROFILE
-        { uint32_t rt = flac_res_total_cyc + flac_lpc_total_cyc;
-          chk_dec_r = (uint16_t)(rt ? (flac_res_total_cyc * 100u) / rt : 0u); }
+        if (track_fmt == FMT_FLAC) {
+            uint32_t rt = flac_res_total_cyc + flac_lpc_total_cyc;
+            chk_dec_r = (uint16_t)(rt ? (flac_res_total_cyc * 100u) / rt : 0u);
+        } else { chk_dec_r = 0u; }
 #endif
         chk_set((chk_under == 0u && chk_stall < 50u) ? SR_PASS : SR_FAIL, chk_under);
         break;
@@ -589,14 +596,27 @@ COLD_TEXT static void sw_sample(uint32_t elapsed)
 {
     uint32_t unit = elapsed / 100u; if (!unit) unit = 1u;
     uint16_t h = 0, i = 0, s = 0, r = 0;
+    /* B-097: r_pct is res/(res+lpc), a ratio of FLAC's OWN two accumulators
+     * to each other -- not normalised against elapsed time, so even a small
+     * leak of leftover decode work (found reading a real sweep: MP3 tracks
+     * immediately after a FLAC track showed a plausible-looking nonzero R,
+     * never MP3-after-MP3) produces a believable-looking percentage rather
+     * than an obviously-wrong one. The robust fix does not depend on finding
+     * the leak: track_fmt already says, unambiguously, what format is
+     * actually playing right now -- so a stage that cannot apply to it is
+     * forced to 0 here, regardless of what its accumulator says. */
 #if MP3_PROFILE
-    h = (uint16_t)(mp3_huff_total_cyc  / unit);
-    i = (uint16_t)(mp3_imdct_total_cyc / unit);
-    s = (uint16_t)(mp3_sub_total_cyc   / unit);
+    if (track_fmt == FMT_MP3) {
+        h = (uint16_t)(mp3_huff_total_cyc  / unit);
+        i = (uint16_t)(mp3_imdct_total_cyc / unit);
+        s = (uint16_t)(mp3_sub_total_cyc   / unit);
+    }
 #endif
 #if FLAC_PROFILE
-    { uint32_t rt = flac_res_total_cyc + flac_lpc_total_cyc;
-      r = (uint16_t)(rt ? (flac_res_total_cyc * 100u) / rt : 0u); }
+    if (track_fmt == FMT_FLAC) {
+        uint32_t rt = flac_res_total_cyc + flac_lpc_total_cyc;
+        r = (uint16_t)(rt ? (flac_res_total_cyc * 100u) / rt : 0u);
+    }
 #endif
     /* B-092: the active speed as a percent (100 = 1.00x), so a future kernel
      * change can be checked against "did this hold across speeds" from the
