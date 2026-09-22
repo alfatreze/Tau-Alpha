@@ -514,12 +514,14 @@ static const int8_t fixed_coef[5][4] = {
 #if FLAC_PROFILE
 uint32_t (*flac_tick)(void);
 uint32_t flac_res_cyc, flac_lpc_cyc;
+uint32_t flac_res_total_cyc, flac_lpc_total_cyc;
 uint8_t  flac_order, flac_type;
 #define PROF_T0()   uint32_t prof_t0 = flac_tick ? flac_tick() : 0u
-#define PROF_ADD(A) do { if (flac_tick) (A) += flac_tick() - prof_t0; } while (0)
+/* Two targets, one tick() read -- see mp3dec.c's MPROF_ADD, same reasoning. */
+#define PROF_ADD(A, AT) do { if (flac_tick) { uint32_t _prof_d = flac_tick() - prof_t0; (A) += _prof_d; (AT) += _prof_d; } } while (0)
 #else
 #define PROF_T0()   do {} while (0)
-#define PROF_ADD(A) do {} while (0)
+#define PROF_ADD(A, AT) do {} while (0)
 #endif
 
 static flac_err subframe(flac_t *f, int32_t *out, uint32_t bps)
@@ -545,7 +547,7 @@ static flac_err subframe(flac_t *f, int32_t *out, uint32_t bps)
 #endif
         { PROF_T0();
         flac_err e = residual(f, order, out + order);
-        PROF_ADD(flac_res_cyc);
+        PROF_ADD(flac_res_cyc, flac_res_total_cyc);
         if (e) return e; }
         const int8_t *c = fixed_coef[order];
         PROF_T0();
@@ -554,7 +556,7 @@ static flac_err subframe(flac_t *f, int32_t *out, uint32_t bps)
             for (uint32_t j = 0; j < order; j++) p += c[j] * out[i - 1u - j];
             out[i] += p;
         }
-        PROF_ADD(flac_lpc_cyc);
+        PROF_ADD(flac_lpc_cyc, flac_lpc_total_cyc);
     } else if (type >= 32u) {               /* LPC, order 1..32 */
         uint32_t order = type - 31u;
         for (uint32_t i = 0; i < order; i++) out[i] = sbits(f, bps);
@@ -568,7 +570,7 @@ static flac_err subframe(flac_t *f, int32_t *out, uint32_t bps)
 #endif
         { PROF_T0();
         flac_err e = residual(f, order, out + order);
-        PROF_ADD(flac_res_cyc);
+        PROF_ADD(flac_res_cyc, flac_res_total_cyc);
         if (e) return e; }
         PROF_T0();
         for (uint32_t i = order; i < n; i++) {
@@ -577,7 +579,7 @@ static flac_err subframe(flac_t *f, int32_t *out, uint32_t bps)
                 p += (int64_t)coef[j] * out[i - 1u - j];
             out[i] += (int32_t)(p >> shift);
         }
-        PROF_ADD(flac_lpc_cyc);
+        PROF_ADD(flac_lpc_cyc, flac_lpc_total_cyc);
     } else {
         return FLAC_ERR_DATA;
     }

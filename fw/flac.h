@@ -120,6 +120,13 @@ extern uint32_t flac_res_cyc;    /* channel 0, Rice/bit-reader pass */
 extern uint32_t flac_lpc_cyc;    /* channel 0, reconstruction pass  */
 extern uint8_t  flac_order, flac_type;   /* type: 1 FIXED, 2 LPC    */
 
+/* B-088/B-089: a SECOND, independent pair for the Check/QR record -- same
+ * call sites as the pair above, reset once when a Check audio window starts,
+ * read once when it ends, so the screen row's per-second reset never touches
+ * these. See third_party/libhelix-mp3/pub/mp3_profile.h for the MP3 side. */
+extern uint32_t flac_res_total_cyc;
+extern uint32_t flac_lpc_total_cyc;
+
 /* Drops buffered input and bit state after the caller has repositioned the
  * stream. Keeps STREAMINFO and the block buffer. */
 void flac_flush_input(flac_t *f);
