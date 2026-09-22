@@ -39,9 +39,13 @@ def main():
     ap.add_argument("--profile", action="store_true",
                     help="package the Phase D step 1 decoder-profile player (fw/build.sh player-profile, B-086); "
                          "reuses the current dist/ bitstream unchanged, no --rbf needed")
+    ap.add_argument("--diagnostic-profile", action="store_true",
+                    help="package the full Diagnostic Build (library, cold code, Check/QR) plus decoder profiling "
+                         "(fw/build.sh player-library-diagnostic-profile, B-088/B-089); reuses the current dist/ "
+                         "bitstream unchanged, no --rbf needed; adds data slots 5/6 like --library --cold")
     ap.add_argument("--number", type=int,
-                    help="with --settings/--diagnostic/--profile: name the core 'TAU DEV NN' (numbered test build; "
-                         "output work/diagnostics/tau-dev-NN/pocket)")
+                    help="with --settings/--diagnostic/--profile/--diagnostic-profile: name the core 'TAU DEV NN' "
+                         "(numbered test build; output work/diagnostics/tau-dev-NN/pocket)")
     ap.add_argument("--note", help="with --number: replaces the text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="raw RBF (window mode requires it)")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
@@ -51,7 +55,21 @@ def main():
         sys.exit("--window and --playlist-sdram are mutually exclusive")
     if args.profile and (args.window or args.playlist_sdram):
         sys.exit("--profile is mutually exclusive with --window/--playlist-sdram")
-    if args.profile:
+    if args.diagnostic_profile and (args.window or args.playlist_sdram or args.profile):
+        sys.exit("--diagnostic-profile is mutually exclusive with --window/--playlist-sdram/--profile")
+    if args.diagnostic_profile:
+        # Same reasoning as --profile (B-086): MP3_PROFILE/FLAC_PROFILE are
+        # firmware-only, no RTL change, so this reuses the CURRENT dist/
+        # bitstream as-is.
+        already_reversed = True
+        rbf = src / "Cores/alfatreze.TAU/bitstream.rbf_r"
+        rom = root / "work/diagnostics/library-diagnostic-profile/tau.rom"
+        out = root / "work/diagnostics/library-diagnostic-profile/pocket"
+        core_id, platform = "alfatreze.TAU_DIAG_PROFILE", "tau_diag_profile"
+        short, title, desc = ("TAU_DIAG_PROFILE", "TAU Diagnostic Profile",
+                              "TAU developer build: full Diagnostic Build (library, cold code, Check/QR) "
+                              "plus per-stage MP3/FLAC decode cost in the Check record (B-088/B-089)")
+    elif args.profile:
         # No RTL change (docs/AUDIT_TRAIL.md B-086): the profiling macros are
         # firmware-only, so this reuses the CURRENT dist/ bitstream as-is --
         # already bit-reversed for the card, not a raw Quartus .rbf like the
@@ -110,14 +128,15 @@ def main():
     if args.library and not (args.playlist_sdram and (args.settings or args.diagnostic)):
         sys.exit("--library needs --playlist-sdram with --settings or --diagnostic")
     if args.number is not None:
-        if not (args.profile or (args.playlist_sdram and (args.settings or args.diagnostic))):
-            sys.exit("--number needs --profile, or --playlist-sdram with --settings or --diagnostic")
+        if not (args.profile or args.diagnostic_profile or (args.playlist_sdram and (args.settings or args.diagnostic))):
+            sys.exit("--number needs --profile, --diagnostic-profile, or --playlist-sdram with --settings or --diagnostic")
         nn = f"{args.number:02d}"
-        kind = ("decoder-profile build" if args.profile else
+        kind = ("diagnostic build with the media library plus decoder profiling" if args.diagnostic_profile else
+                "decoder-profile build" if args.profile else
                 "diagnostic build with the media library" if (args.diagnostic and args.library) else "diagnostic build" if args.diagnostic else "media library build" if args.library else "release-style build")
         core_id, platform = f"alfatreze.TAU_DEV_{nn}", f"tau_dev_{nn}"
         short, title = f"TAU_DEV_{nn}", f"TAU DEV {nn}"
-        desc = f"TAU numbered test build {nn}: {kind}, " + (args.note or ("per-stage MP3/FLAC decode cost, Phase D step 1" if args.profile else "browse and play from tau-library.tdb" if args.library else "album art in PSRAM"))
+        desc = f"TAU numbered test build {nn}: {kind}, " + (args.note or ("per-stage MP3/FLAC decode cost in the Check QR record, B-088/B-089" if args.diagnostic_profile else "per-stage MP3/FLAC decode cost, Phase D step 1" if args.profile else "browse and play from tau-library.tdb" if args.library else "album art in PSRAM"))
         out = root / f"work/diagnostics/tau-dev-{nn}/pocket"
     if out.exists(): shutil.rmtree(out)
     c = out / "Cores" / core_id
@@ -129,7 +148,7 @@ def main():
     j = json.loads((c / "core.json").read_text())
     m = j["core"]["metadata"]; m["shortname"] = short; m["platform_ids"] = [platform]
     m["description"] = desc; save(c / "core.json", j)
-    if args.library:                              # data slot 5 + persist words 24-27 (B-078: shared with package.py)
+    if args.library or args.diagnostic_profile:    # data slot 5 + persist words 24-27 (B-078: shared with package.py)
         slots_lib.add_library_slot(c)
     if len(platform) > 15 or not re.fullmatch(r"[a-z0-9][a-z0-9_]*", platform):
         raise ValueError(f"invalid Analogue Pocket platform shortname: {platform!r}")
@@ -137,12 +156,12 @@ def main():
         raise ValueError(f"core shortname exceeds Pocket limit: {m['shortname']!r}")
     if c.name != f"{m['author']}.{m['shortname']}":
         raise ValueError("core folder does not match author.shortname metadata")
-    if (rom.parent / "tau-cold.bin").exists() and (args.library or args.cold):   # Phase G: cold image = data slot 6
+    if (rom.parent / "tau-cold.bin").exists() and (args.library or args.cold or args.diagnostic_profile):   # Phase G: cold image = data slot 6
         slots_lib.add_cold_slot(c)
     a = out / "Assets" / platform
     (a / "common").mkdir(parents=True); (a / core_id).mkdir()
     shutil.copy2(rom, a / "common/tau.rom")
-    if (args.library or args.cold) and (rom.parent / "tau-cold.bin").exists():
+    if (args.library or args.cold or args.diagnostic_profile) and (rom.parent / "tau-cold.bin").exists():
         shutil.copy2(rom.parent / "tau-cold.bin", a / "common/tau-cold.bin")
     shutil.copy2(src / "Assets/tau/common/tau-loading.bin", a / "common/tau-loading.bin")
     save(a / core_id / f"{title}.json", {"instance":{"magic":"APF_VER_1","variant_select":{"id":0,"select":False},"data_path":"","data_slots":[{"id":1,"filename":"tau.rom"}],"memory_writes":[]}})
