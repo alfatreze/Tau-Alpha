@@ -570,6 +570,7 @@ static uint8_t  sw_state, sw_started, sw_qr_len, sw_qr_ver;
 static uint16_t sw_idx, sw_n, sw_done_n, sw_skip_n;
 static uint32_t sw_at, sw_win0, sw_wait0;
 static sr_t     sw_rec;
+static char     sw_album[40];   /* snapshot of track_album at sw_begin(), for the QR page */
 
 /* Latches one track's decode-stage percentages against the ACTUAL elapsed
  * window (not always SW_WIN_S*CLK_HZ -- a track shorter than the cap ends
@@ -600,6 +601,10 @@ COLD_TEXT static void sw_sample(uint32_t elapsed)
 
 COLD_TEXT static void sw_finish(void)
 {
+    /* Leaving the last track playing under the result page is not what a
+     * sweep run implies -- the measurement is over. Same three flags the
+     * ordinary end-of-playlist stop uses. */
+    if (!stopped) { stopped = 1u; paused |= 1u; stop_req = 1u; }
     uint32_t len = sr_finish(&sw_rec);
     sw_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
@@ -621,7 +626,7 @@ COLD_TEXT static void sw_advance(void)
         if (!track_hz || paused || stopped) {
             if ((int32_t)(cycles() - sw_wait0) > (int32_t)(3u * CLK_HZ)) {
                 sw_skip_n++;
-                if (++sw_idx >= sw_n) { sw_finish(); sw_state = SW_DONE; }
+                if (++sw_idx >= sw_n) { sw_finish(); sw_state = sw_qr_len ? SW_QR : SW_DONE; }
                 else { lib_skip(+1); sw_wait0 = cycles(); }
                 set_dirty = 1u;
             }
@@ -641,7 +646,7 @@ COLD_TEXT static void sw_advance(void)
     else if ((int32_t)(cycles() - sw_at) < 0) return;                    /* still running */
     else sw_sample(SW_WIN_S * CLK_HZ);                                   /* hit the cap */
     sw_started = 0u;
-    if (++sw_idx >= sw_n) { sw_finish(); sw_state = SW_DONE; }
+    if (++sw_idx >= sw_n) { sw_finish(); sw_state = sw_qr_len ? SW_QR : SW_DONE; }
     else { lib_skip(+1); sw_wait0 = cycles(); }
     set_dirty = 1u;
 }
@@ -655,6 +660,13 @@ COLD_TEXT static void sw_begin(void)
     uint32_t build[4] = { fwv, REG(R_VERSION), 0u, 0u };
     sr_vals(&sw_rec, SR_T_BUILD, 4, build, 4);
     lib_play_span(0u, +1, lib_qn);        /* deterministic start: track 0 of the queue */
+    /* lib_meta_apply() already ran inside that call (it is part of the
+     * synchronous open chain, before the art decode even) -- track_album is
+     * valid right now. Snapshotted rather than read again at draw time: it
+     * should not change track to track within one sweep, but B-092's own
+     * "make it slightly clearer what is loading" note is exactly the kind of
+     * assumption worth not re-deriving from a possibly-stale global later. */
+    { uint32_t i = 0; for (; i < sizeof(sw_album) - 1u && track_album[i]; i++) sw_album[i] = track_album[i]; sw_album[i] = 0; }
     sw_started = 0u; sw_wait0 = cycles();
     sw_state = SW_RUN;
     set_dirty = 1u;
@@ -684,11 +696,22 @@ COLD_TEXT static void sw_draw_qr(void)
             x = e;
         }
     }
-    if (side + 44u > FB_H) return;
-    char t[40], *q = t;
-    q = set_str(q, "SWEEP v"); q = ui_dec(q, sw_qr_ver); *q = 0;
-    fb_set_color(UI_DIM, UI_BG);
+    if (side + 44u > FB_H) return;    /* the code fills the screen: no room for any caption */
+    /* Owner: "ill always want a screenshot" -- so the QR page IS the result
+     * page, not a second step reached from a DONE summary (sw_advance()/
+     * sw_finish() jump straight here), and it carries enough on its own face
+     * that the screenshot alone is the record: what completed, the source,
+     * how many tracks. */
+    char t[48], *q = t;
+    q = set_str(q, "TEST COMPLETE  "); q = ui_dec(q, sw_done_n); q = set_str(q, " TRACKS");
+    if (sw_skip_n) { q = set_str(q, "  "); q = ui_dec(q, sw_skip_n); q = set_str(q, " SKIPPED"); }
+    *q = 0;
+    fb_set_color(ui_accent, UI_BG);
     fb_text_clipped(PL_UI_TEXT_X, side + 6u, t, TS_1X, TS_1X, PL_UI_W - 32u);
+    if (side + 6u + 2u * FB_CELL(TS_1X) + 20u <= FB_H) {
+        fb_set_color(UI_DIM, UI_BG);
+        fb_text_clipped(PL_UI_TEXT_X, side + 6u + FB_CELL(TS_1X), sw_album, TS_1X, TS_1X, PL_UI_W - 32u);
+    }
     fb_set_color(UI_FAINT, UI_BG);
     fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, "MENU+START FOR A SCREENSHOT", TS_1X, TS_1X, PL_UI_W - 32u);
 }
