@@ -5677,10 +5677,15 @@ ui_tail:
     if (ui_sec != ui_last_prof) {
         ui_last_prof = ui_sec;
         char b[64], *q = b;
+        /* B-097: gated on track_fmt, same as the Check/Sweep readings --
+         * found reading a real sweep that r_pct (a ratio of FLAC's own two
+         * accumulators, not normalised against time) can carry a plausible-
+         * looking nonzero value even during MP3 playback from a small leak
+         * at the format transition. */
 #if MP3_PROFILE
-        uint32_t h_pct = mp3_huff_cyc  / (CLK_HZ / 100u);
-        uint32_t i_pct = mp3_imdct_cyc / (CLK_HZ / 100u);
-        uint32_t s_pct = mp3_sub_cyc   / (CLK_HZ / 100u);
+        uint32_t h_pct = track_fmt == FMT_MP3 ? mp3_huff_cyc  / (CLK_HZ / 100u) : 0u;
+        uint32_t i_pct = track_fmt == FMT_MP3 ? mp3_imdct_cyc / (CLK_HZ / 100u) : 0u;
+        uint32_t s_pct = track_fmt == FMT_MP3 ? mp3_sub_cyc   / (CLK_HZ / 100u) : 0u;
         mp3_huff_cyc = mp3_imdct_cyc = mp3_sub_cyc = 0u;
         *q++ = 'H'; q = ui_dec(q, h_pct);
         *q++ = ' '; *q++ = 'I'; q = ui_dec(q, i_pct);
@@ -5688,7 +5693,7 @@ ui_tail:
 #endif
 #if FLAC_PROFILE
         uint32_t r_total = flac_res_cyc + flac_lpc_cyc;
-        uint32_t r_pct = r_total ? (flac_res_cyc * 100u) / r_total : 0u;
+        uint32_t r_pct = (track_fmt == FMT_FLAC && r_total) ? (flac_res_cyc * 100u) / r_total : 0u;
         flac_res_cyc = flac_lpc_cyc = 0u;
 #if MP3_PROFILE
         *q++ = ' ';
