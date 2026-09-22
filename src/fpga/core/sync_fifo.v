@@ -46,7 +46,15 @@ module sync_fifo #(
       dcfifo_component.rdsync_delaypipe = 5,
       dcfifo_component.underflow_checking = "ON",
       dcfifo_component.use_eab = "ON",
-      dcfifo_component.wrsync_delaypipe = 5;
+      dcfifo_component.wrsync_delaypipe = 5
+`ifdef TAU_MLAB_MIGRATE
+      // PHASE_F_SPEC.md section 2: this 4x32 FIFO holds 128 bits in a whole
+      // M10K purely because a dcfifo megafunction won't go smaller without a
+      // hint. MLAB is simple-dual-port-native, which is exactly this FIFO's
+      // access pattern.
+      , dcfifo_component.lpm_hint = "RAM_BLOCK_TYPE=MLAB"
+`endif
+      ;
 
   reg [1:0] read_state = 0;
 

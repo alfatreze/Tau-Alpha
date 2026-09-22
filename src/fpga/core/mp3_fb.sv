@@ -257,7 +257,15 @@ module mp3_fb (
     // ======================================================================
     // 128 entries: shared by CHAR (max 48 px wide) and COPY, whose width is the
     // album-art panel rather than a glyph.
+`ifdef TAU_MLAB_MIGRATE
+    // PHASE_F_SPEC.md section 2: every saved fit report shows zero MLAB
+    // usage despite the comment above hoping for it -- Quartus was not
+    // inferring MLAB on its own, so this forces it explicitly. Simple-dual-
+    // port (one write port, one read port), so it is MLAB-legal.
+    (* ramstyle = "MLAB, no_rw_check" *) reg [15:0] glyphbuf [0:127];
+`else
     reg [15:0] glyphbuf [0:127];
+`endif
     reg [15:0] glyph_q;
     always @(posedge clk_sdram) glyph_q <= glyphbuf[wsrc_addr[6:0]];
     assign wsrc_q = glyph_q;
