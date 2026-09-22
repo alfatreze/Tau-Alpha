@@ -10310,6 +10310,9 @@ int main(void)
 #endif
 #if TAU_CHECK
         chk_tick();
+#if MP3_PROFILE || FLAC_PROFILE
+        sw_tick();
+#endif
 #endif
 #if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
         dg_soak_tick();
