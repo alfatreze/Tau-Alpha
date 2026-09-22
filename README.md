@@ -16,6 +16,14 @@ technical plans, and subsequent changes are maintained by alfatreze. See
 [NOTICE.md](NOTICE.md) for provenance and third-party licensing boundaries, and
 [PROJECT.md](PROJECT.md) for the current milestone ledger and plan.
 
+## Companion app
+
+**[Tau Omega](../Tau%20Omega/)** is the desktop companion (macOS and
+Windows) for building and syncing the Tau media library onto the Pocket's SD
+card, and for managing Tau (and other openFPGA) cores and their media. It is a
+separate project and repository, built as the product version of
+`tools/tau_library.py` and `tools/sync_media.py`.
+
 ## Installing
 
 Copy the `Cores`, `Platforms` and `Assets` folders onto the root of your
