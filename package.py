@@ -15,10 +15,16 @@ never respond ("Error in framework RS: BRIDGE not responding").
 Usage:
   python package.py [--skip-rom]   # --skip-rom: package without the firmware check
   python package.py --rbf PATH --rbf-sha256 HASH   # package a specific raw RBF
+  python package.py --release-library   # also declare the library (slot 5) and cold-image (slot 6) data slots
+  python package.py --library --cold    # the same two flags, separately
 """
 
 import os
+import pathlib
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools"))
+import tau_data_slots
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 BITSTREAM_SRC = os.path.join(PROJECT_ROOT, "src", "fpga", "output_files", "ap_core.rbf")
@@ -112,6 +118,23 @@ def main():
             print("Build it first:")
             print("  bash fw/build.sh")
             sys.exit(1)
+
+    # 2b. Media library and cold-image data slots (--library, --cold; both on with --release-library).
+    #     The library index itself is never shipped -- it is built from the user's own music by
+    #     tools/sync_media.py -- but the slot must still be declared so a locally-built one is found.
+    #     The cold image IS a firmware asset and is copied in when the build produced one.
+    add_library = "--library" in sys.argv or "--release-library" in sys.argv
+    add_cold = "--cold" in sys.argv or "--release-library" in sys.argv
+    if add_library:
+        tau_data_slots.add_library_slot(pathlib.Path(DIST_CORE))
+        print("Added data slot 5 (media library index)")
+    if add_cold:
+        cold_src = os.path.join(os.path.dirname(ROM_DST), "tau-cold.bin")
+        if not os.path.exists(cold_src):
+            print(f"\nERROR: --cold requested but {cold_src} is missing (build with COLD_PACK=1, e.g. fw/build.sh release)")
+            sys.exit(1)
+        tau_data_slots.add_cold_slot(pathlib.Path(DIST_CORE))
+        print("Added data slot 6 (cold image)")
 
     # 3. Summary
     print("\n=== Package contents ===")

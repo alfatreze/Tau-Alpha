@@ -23,6 +23,13 @@ MEMORY {
 	/* P5: uncached CPU window onto PSRAM (0xA4000000). Only the album-art accumulator,
 	 * 11,040 B, and only in TAU_ART_PSRAM builds; empty otherwise. NOLOAD. */
 	psram : ORIGIN = 0xA4000000, LENGTH = 0x00002C00
+	/* Phase G1: cold READ-ONLY DATA (meter previews, help text) lives in PSRAM at 8 MiB and is loaded at boot from the
+	 * data slot file tau-cold.bin (tools/pack_cold.py). Never in the ROM image (build.sh strips it with objcopy -R).
+	 * Empty unless TAU_COLD=1. 1 MiB reserved; the library index (0x010000..0x40FFFF) and queue areas are below. */
+	pcold : ORIGIN = 0xA4800000, LENGTH = 0x00100000
+	/* Phase G2/G4: cold CODE, executed from PSRAM through the instruction alias (PSRAM byte offset = address - 0x2400_0000).
+	 * It sits directly after the cold data in the same 1 MiB region, so ONE image (tau-cold.bin) carries both. */
+	pcode : ORIGIN = 0x24800000, LENGTH = 0x00100000
 }
 
 ENTRY(_start)
@@ -57,6 +64,22 @@ SECTIONS {
 
 	.rodata : { *(.rodata .rodata.*) *(.srodata .srodata.*) } > ram
 	.data   : { *(.data .data.*) *(.sdata .sdata.*) } > ram
+
+	.cold_data : {
+		_cold_start = .;
+		*(.cold_data .cold_data.*)
+		. = ALIGN(4);
+		_cold_end = .;
+	} > pcold
+
+	.cold_text ORIGIN(pcode) + ALIGN(SIZEOF(.cold_data), 32) : AT(ORIGIN(pcode) + ALIGN(SIZEOF(.cold_data), 32)) {
+		_cold_text_start = .;
+		*(.cold_text .cold_text.*)
+		. = ALIGN(4);
+		_cold_text_end = .;
+	} > pcode
+	/* The whole cold image as it lies in PSRAM: data, padding to 32 bytes, code. */
+	_cold_img_size = ALIGN(SIZEOF(.cold_data), 32) + SIZEOF(.cold_text);
 
 	.sdram (NOLOAD) : { *(.sdram .sdram.*) } > sdram
 	.psram (NOLOAD) : { *(.psram .psram.*) } > psram

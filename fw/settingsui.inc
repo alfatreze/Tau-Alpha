@@ -14,11 +14,20 @@
  * Every change goes through the same variables and side effects as the direct shortcuts
  * (which stay); nothing new is persisted; Screen blank is not persisted (as Select+Down). */
 
-enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_MENUS };
+/* The home is titled MENU. SET_DIAG is the SETTINGS group (Info, How it works, and in the Diagnostic Build a
+ * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). */
+enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
 enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_N };
 /* Pages after the menus: one per choice list, then the read-only Info page (diagnostics). */
 #define SET_INFO_PG ((uint8_t)(SET_MENUS + CH_N))
 #define SET_STAT_PG ((uint8_t)(SET_INFO_PG + 1u))   /* stress status (Diagnostic Build) */
+#if TAU_LIBRARY
+#define SET_HELP_PG ((uint8_t)(SET_STAT_PG + 1u))   /* how files, playlists and the library are loaded */
+#define SET_LIBCFG_PG ((uint8_t)(SET_HELP_PG + 1u)) /* library on/off with a confirmation */
+#if TAU_CHECK
+#define SET_CHECK_PG ((uint8_t)(SET_LIBCFG_PG + 1u)) /* the user-facing diagnostics run (fw/suite.inc) */
+#endif
+#endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
 enum { TG_ART = 0, TG_SHUF, TG_RESUME, TG_SPEEDS };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
@@ -29,7 +38,7 @@ static const set_row_t set_home_rows[] = {
     { "APPEARANCE", RT_GROUP, SET_APPEAR }, { "AUDIO", RT_GROUP, SET_AUDIO },
     { "PLAYBACK", RT_GROUP, SET_PLAY },
 #if TAU_DIAG_INFO
-    { "DIAGNOSTICS", RT_GROUP, SET_DIAG },
+    { "SETTINGS", RT_GROUP, SET_DIAG },
 #endif
 };
 static const set_row_t set_appear_rows[] = {
@@ -42,17 +51,38 @@ static const set_row_t set_play_rows[] = {
     { "RESUME", RT_TOGGLE, TG_RESUME }, { "SPEED", RT_CHOICE, CH_SPEED } };
 static const set_row_t set_diag_rows[] = {
     { "INFO", RT_GROUP, SET_INFO_PG },
+#if TAU_LIBRARY
+    { "LIBRARY", RT_GROUP, SET_LIBCFG_PG },
+#if TAU_CHECK && !TAU_DIAG_TESTS
+    { "CHECK", RT_GROUP, SET_CHECK_PG },
+#endif
+    { "HOW IT WORKS", RT_GROUP, SET_HELP_PG },
+#endif
+#if TAU_DIAG_TESTS
+    { "DIAGNOSTICS", RT_GROUP, SET_DGN },
+#endif
+};
+/* Diagnostic Build only: reached from SETTINGS > DIAGNOSTICS. */
+static const set_row_t set_dgn_rows[] = {
 #if TAU_DIAG_TESTS
     { "TESTS", RT_GROUP, SET_TESTS },
     { "STRESS", RT_GROUP, SET_STRESS },
     { "ALL SPEEDS", RT_TOGGLE, TG_SPEEDS },
+#if TAU_CHECK
+    { "CHECK", RT_GROUP, SET_CHECK_PG },
+#endif
+#else
+    { "INFO", RT_GROUP, SET_INFO_PG },          /* unreachable placeholder: the page exists only in the Diagnostic Build */
 #endif
 };
 /* Diagnostic Build tests: A runs the highlighted one and its result replaces the value. */
-enum { DG_WIN = 0, DG_RD, DG_WR, DG_PLC, DG_CLR, DG_N };
+enum { DG_WIN = 0, DG_RD, DG_WR, DG_PLC, DG_COLD, DG_CLR, DG_N };
 static const set_row_t set_tests_rows[] = {
     { "WINDOW TEST", RT_ACTION, DG_WIN }, { "READ CYCLES", RT_ACTION, DG_RD },
     { "WRITE CYCLES", RT_ACTION, DG_WR }, { "PLAYLIST CHECK", RT_ACTION, DG_PLC },
+#if TAU_COLD_CODE
+    { "COLD CODE TEST", RT_ACTION, DG_COLD },
+#endif
     { "CLEAR COUNTERS", RT_ACTION, DG_CLR } };
 /* Stress (Diagnostic Build): the pump level and a timed soak, both choice lists, and a live status page. */
 static const set_row_t set_stress_rows[] = {
@@ -60,12 +90,15 @@ static const set_row_t set_stress_rows[] = {
     { "STATUS", RT_GROUP, SET_STAT_PG } };
 static const set_row_t *const set_menu_rows[SET_MENUS] = {
     set_home_rows, set_appear_rows, set_audio_rows, set_play_rows, set_diag_rows,
-    set_tests_rows, set_stress_rows };
+    set_tests_rows, set_stress_rows, set_dgn_rows };
 static const uint8_t set_menu_n[SET_MENUS] = {
     SET_COUNT(set_home_rows), 4u, 2u, 4u, SET_COUNT(set_diag_rows), SET_COUNT(set_tests_rows),
-    SET_COUNT(set_stress_rows) };
+    SET_COUNT(set_stress_rows), SET_COUNT(set_dgn_rows) };
 static const char *const set_menu_title[SET_MENUS] = {
-    "SETTINGS", "APPEARANCE", "AUDIO", "PLAYBACK", "DIAGNOSTICS", "TESTS", "STRESS" };
+    "MENU", "APPEARANCE", "AUDIO", "PLAYBACK", "SETTINGS", "TESTS", "STRESS", "DIAGNOSTICS" };
+/* Where B goes from each menu page. */
+static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME, SET_HOME, SET_HOME,
+    SET_DGN, SET_DGN, SET_DIAG };
 static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
     "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK" };
 static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
@@ -112,8 +145,15 @@ static const uint8_t     set_blank[5]    = { 0u, 1u, 5u, 10u, 30u };
 #define SET_TH_W       56u
 #define SET_TH_H       32u
 #define SET_LIST_H     (PL_UI_ROWS * PL_UI_ROW_H)     /* 264 px of list area */
+#if TAU_LIBRARY
+_Static_assert(LIB_ROW_H == SET_MENU_ROW_H, "the library rows must match the settings rows");
+_Static_assert(PLIST_ROW_H == SET_MENU_ROW_H && PLIST_ROWS == LIB_ROWS, "the playlist rows must match the settings/library rows (B-073)");
+#endif
 
 static uint8_t set_page, set_sel[SET_MENUS], set_ch_cur[CH_N], set_ch_top[CH_N];
+#if TAU_LIBRARY
+static uint8_t set_lib_confirm;               /* the Library page is waiting for a second A */
+#endif
 
 #if TAU_METER_THUMBS
 #include "meter_thumbs.h"
@@ -121,8 +161,9 @@ _Static_assert(VIZ_COUNT == 11 && VIZ_BARS == 0 && VIZ_LED == 10,
                "meter_thumbs.h is indexed by the VIZ_* enum order (tools/gen_meter_thumbs.py ORDER)");
 /* Draw preview `viz` at (x, y): fill with the dominant colour, then paint every other run as a
  * one-row rectangle (runs may cross row ends). */
-static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
+COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
 {
+    if (!cold_ready()) { fb_rect(x, y, METER_THUMB_W, METER_THUMB_H, UI_TRACK); return; }   /* cold image not loaded: a plain box */
     const uint16_t *pal = meter_thumb_pal[viz];
     const uint8_t *p = &meter_thumb_rle[meter_thumb_off[viz]], *e = &meter_thumb_rle[meter_thumb_off[viz + 1u]];
     uint32_t pos = 0;
@@ -178,19 +219,19 @@ static void dg_soak_tick(void)
 #define dg_soak_active() 0u
 #endif
 
-static uint32_t set_ch_count(uint32_t c)
+COLD_FN static uint32_t set_ch_count(uint32_t c)
 {
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_COUNT
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
          : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT() : 5u;
 }
-static uint32_t set_blank_idx(void)
+COLD_FN static uint32_t set_blank_idx(void)
 {
     uint32_t n = 0;
     while (n < 4u && set_blank[n] != blank_min) n++;
     return n;
 }
-static uint32_t set_ch_active(uint32_t c)
+COLD_FN static uint32_t set_ch_active(uint32_t c)
 {
     if (c == CH_STRESS) {
 #if TAU_SDRAM_STRESS_WINDOW
@@ -204,20 +245,20 @@ static uint32_t set_ch_active(uint32_t c)
     return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode : c == CH_EQ ? eq_idx
          : c == CH_REPEAT ? rep_mode : set_blank_idx();
 }
-static const char *set_ch_name(uint32_t c, uint32_t i)
+COLD_FN static const char *set_ch_name(uint32_t c, uint32_t i)
 {
     return c == CH_COLOUR ? ui_palette_name[i] : c == CH_METER ? set_viz[i]
          : c == CH_EQ ? eq_name[i] : c == CH_REPEAT ? set_rep[i]
          : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i]
          : c == CH_SPEED ? set_speed_nm[i] : set_blank_nm[i];
 }
-static uint32_t set_ch_rowh(uint32_t c)
+COLD_FN static uint32_t set_ch_rowh(uint32_t c)
 {
     return c == CH_METER ? SET_TH_ROW_H : SET_CH_ROW_H;
 }
-static uint32_t set_ch_visible(uint32_t c) { return SET_LIST_H / set_ch_rowh(c); }
+COLD_FN static uint32_t set_ch_visible(uint32_t c) { return SET_LIST_H / set_ch_rowh(c); }
 
-static void set_ch_apply(uint32_t c, uint32_t i)
+COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
 {
     if (c == CH_STRESS || c == CH_SOAK) {
 #if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
@@ -260,7 +301,7 @@ static void set_ch_apply(uint32_t c, uint32_t i)
     settings_mark_dirty();
 }
 
-static void set_toggle(uint32_t t)
+COLD_FN static void set_toggle(uint32_t t)
 {
     if (t == TG_ART) {
         art_toggle = 1u;                         /* the main loop applies it, as for the hold */
@@ -290,7 +331,7 @@ static void set_toggle(uint32_t t)
     settings_mark_dirty();
 }
 
-static void set_volume(int dir)
+COLD_FN static void set_volume(int dir)
 {
     if (dir > 0) volume = (volume + VOL_STEP > VOL_MAX) ? VOL_MAX : volume + VOL_STEP;
     else         volume = (volume < VOL_STEP) ? 0u : volume - VOL_STEP;
@@ -311,19 +352,19 @@ static char *set_str(char *q, const char *s) { while (*s) *q++ = *s++; return q;
 static char dg_res[DG_N][22];
 static uint32_t dg_base_under, dg_base_stall;
 
-static void dg_set(uint32_t id, const char *a, uint32_t v, const char *b)
+COLD_FN static void dg_set(uint32_t id, const char *a, uint32_t v, const char *b)
 {
     char *q = set_str(dg_res[id], a);
     if (v != 0xFFFFFFFFu) q = ui_dec(q, v);
     q = set_str(q, b);
     *q = 0;
 }
-static uint32_t dg_pat(uint32_t a) { return (a * 2654435761u) ^ 0xA5C3E17Bu; }
+COLD_FN static uint32_t dg_pat(uint32_t a) { return (a * 2654435761u) ^ 0xA5C3E17Bu; }
 
-static int dg_window_ok(uint32_t id)
+COLD_FN static int dg_window_ok(uint32_t id)
 {
 #if TAU_PL_SDRAM
-    if (pl_sdram_state == 1u) return 1;
+    if (pl_sdram_ready()) return 1;
 #endif
     dg_set(id, "NO WINDOW", 0xFFFFFFFFu, "");
     return 0;
@@ -331,7 +372,7 @@ static int dg_window_ok(uint32_t id)
 
 /* Words written then read back-to-back (the A-093 bug read the previous beat), sub-word
  * writes with a merged read-back, and one distinct address per address line 2..25. */
-static void dg_window_test(void)
+COLD_FN static void dg_window_test(void)
 {
     if (!dg_window_ok(DG_WIN)) return;
     volatile uint32_t *p = (volatile uint32_t *)(uintptr_t)DG_SCRATCH;
@@ -364,7 +405,7 @@ static void dg_window_test(void)
 }
 
 /* Net cycles per access (loop and cycles() overhead subtracted), min/avg/max over 256. */
-static void dg_latency(uint32_t id, int write)
+COLD_FN static void dg_latency(uint32_t id, int write)
 {
     if (!dg_window_ok(id)) return;
     volatile uint32_t *p = (volatile uint32_t *)(uintptr_t)DG_SCRATCH;
@@ -386,7 +427,7 @@ static void dg_latency(uint32_t id, int write)
 
 /* pl_order is a permutation of 0..count-1, every pl_off points inside the parsed text at a
  * non-comment NUL-terminated name, and the parsed text still hashes to what it did at load. */
-static void dg_playlist_check(void)
+COLD_FN static void dg_playlist_check(void)
 {
     if (!pl_count) { dg_set(DG_PLC, "NO PLAYLIST", 0xFFFFFFFFu, ""); return; }
     if (!dg_window_ok(DG_PLC)) return;
@@ -409,12 +450,44 @@ static void dg_playlist_check(void)
     else     dg_set(DG_PLC, "PASS ", pl_count, "");
 }
 
-static void dg_run(uint32_t id)
+#if TAU_COLD_CODE
+/* Cold code run from PSRAM: correctness of calls into and out of it, that a second call from the cache fetches nothing,
+ * and the cost of executing 12 KB of code that cannot stay cached (cycles per instruction word, one decimal). */
+COLD_FN static void dg_cold_test(void)
+{
+    if (!COLD_READY()) { dg_set(DG_COLD, "NOT LOADED E", cold_err, ""); return; }
+    uint32_t fails = 0;
+    volatile uint32_t *ifn = (volatile uint32_t *)(uintptr_t)0x800000B0u;
+    REG(0x800000B8u) = 1u;                                   /* clear the fetch counters */
+    if (cold_add(40u, 2u) != 42u) fails++;
+    if (cold_loop(100u) != 15150u) fails++;
+    if (cold_calls_hot(21u) != 43u) fails++;
+    uint32_t n0 = *ifn;
+    if (cold_add(1u, 1u) != 2u) fails++;
+    if (*ifn != n0) fails++;                                 /* served from the I-cache: no new fills */
+    uint32_t t0 = cycles(), b0 = *ifn;
+    if (cold_big(7u) != 3007u) fails++;
+    uint32_t t1 = cycles(), b1 = *ifn;
+    if (cold_big(9u) != 3009u) fails++;
+    uint32_t t2 = cycles(), b2 = *ifn;
+    if (b1 - b0 < 2900u || b2 - b1 < 2900u) fails++;        /* the cache cannot hold it: both runs refill */
+    if (fails) { dg_set(DG_COLD, "FAIL ", fails, ""); return; }
+    uint32_t cpw10 = ((t2 - t1) * 10u) / 3000u;              /* cycles per instruction word x 10 */
+    char *q = set_str(dg_res[DG_COLD], "PASS ");
+    q = ui_dec(q, cpw10 / 10u); *q++ = '.'; q = ui_dec(q, cpw10 % 10u); q = set_str(q, " C/W"); *q = 0;
+    (void)t0; (void)t1;
+}
+#endif
+
+COLD_FN static void dg_run(uint32_t id)
 {
     if (id == DG_WIN)      dg_window_test();
     else if (id == DG_RD)  dg_latency(DG_RD, 0);
     else if (id == DG_WR)  dg_latency(DG_WR, 1);
     else if (id == DG_PLC) dg_playlist_check();
+#if TAU_COLD_CODE
+    else if (id == DG_COLD) dg_cold_test();
+#endif
     else {                                    /* CLEAR COUNTERS: Info shows counts since now */
         dg_base_under = pcm_under_n;
         dg_base_stall = REG(R_FB_STALL);
@@ -426,7 +499,7 @@ static void dg_run(uint32_t id)
 #define dg_base_stall 0u
 #endif
 
-static void set_menu_value(const set_row_t *r, char *o)
+COLD_FN static void set_menu_value(const set_row_t *r, char *o)
 {
     const char *s = "";
     char *q = o;
@@ -447,17 +520,17 @@ static void set_menu_value(const set_row_t *r, char *o)
 }
 
 /* A filled circle of diameter d centred on (cx, cy), corners cut to bg. */
-static void set_disc(uint32_t cx, uint32_t cy, uint32_t d, uint16_t colour, uint16_t bg)
+COLD_FN static void set_disc(uint32_t cx, uint32_t cy, uint32_t d, uint16_t colour, uint16_t bg)
 {
     fb_round_rect_on(cx - d / 2u, cy - d / 2u, d, d, d / 2u, colour, bg);
 }
 
-static void set_draw_menu(uint32_t p)
+COLD_FN static void set_draw_menu(uint32_t p)
 {
     const set_row_t *rows = set_menu_rows[p];
     ov_frame(set_menu_title[p], "",
              p == SET_HOME ? "A OPEN   B CLOSE"
-             : p == SET_DIAG || p == SET_STRESS ? "A OPEN   B BACK" : p == SET_TESTS ? "A RUN   B BACK"
+             : p == SET_DIAG || p == SET_STRESS || p == SET_DGN ? "A OPEN   B BACK" : p == SET_TESTS ? "A RUN   B BACK"
              : "A CHANGE   B BACK");
     for (uint32_t i = 0; i < set_menu_n[p]; i++) {
         uint32_t y = PL_UI_LIST_Y + i * SET_MENU_ROW_H;
@@ -484,7 +557,7 @@ static void set_draw_menu(uint32_t p)
     }
 }
 
-static void set_draw_choice(uint32_t c)
+COLD_FN static void set_draw_choice(uint32_t c)
 {
     uint32_t n = set_ch_count(c), rowh = set_ch_rowh(c), vis = set_ch_visible(c);
     uint32_t top = set_ch_top[c], act = set_ch_active(c);
@@ -527,14 +600,23 @@ static void set_draw_choice(uint32_t c)
 #if TAU_DIAG_INFO
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 11u
+#define SET_INFO_ROWS (12u + TAU_LIBRARY)   /* B-073: +1 for COVER (art_bad_code, for the "no picture found" report) */
 static const char *const set_info_label[SET_INFO_ROWS] = {
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM", "PLAYLIST",
-    "LIST CLIPPED", "TRACK", "UNDERRUNS", "DRAW STALL", "LOAD MS" };
+#if TAU_COLD
+    "COLD IMAGE",
+#else
+    "LIST CLIPPED",
+#endif
+    "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
+#if TAU_LIBRARY
+    , "LIBRARY"
+#endif
+    };
 static uint32_t set_info_at;
 
 
-static void set_info_value(uint32_t i, char *o)
+COLD_FN static void set_info_value(uint32_t i, char *o)
 {
     char *q = o;
     switch (i) {
@@ -563,7 +645,19 @@ static void set_info_value(uint32_t i, char *o)
         if (pl_count) { q = ui_dec(q, pl_count); q = set_str(q, " TRACKS"); }
         else q = set_str(q, "NONE");
         break;
-    case 6: q = set_str(q, pl_truncated ? "YES" : "NO"); break;
+    case 6:
+#if TAU_COLD
+        if (cold_state == 1u) { q = ui_dec(q, cold_bytes); q = set_str(q, " B "); q = ui_dec(q, cold_ms); q = set_str(q, " MS");
+#if TAU_COLD_CODE
+            if (COLD_READY()) q = set_str(q, " CODE");
+            else if (cold_err) { q = set_str(q, " E"); q = ui_dec(q, cold_err); }   /* image loaded but cold code refused */
+#endif
+        }
+        else { q = set_str(q, "OFF E"); q = ui_dec(q, cold_err); }
+#else
+        q = set_str(q, pl_truncated ? "YES" : "NO");
+#endif
+        break;
     case 7:
         if (!track_hz) { q = set_str(q, "NONE"); break; }
         q = set_str(q, track_fmt == FMT_FLAC ? "FLAC " : "MP3 ");
@@ -571,17 +665,29 @@ static void set_info_value(uint32_t i, char *o)
         q = ui_dec(q, track_hz / 1000u); *q++ = '.'; q = ui_dec(q, (track_hz % 1000u) / 100u);
         *q++ = 'K';
         break;
-    case 8: q = ui_dec(q, pcm_under_n - dg_base_under); break;
-    case 9: q = ui_dec(q, (REG(R_FB_STALL) - dg_base_stall) / (CLK_HZ / 1000u)); q = set_str(q, " MS"); break;
+    case 8:                                          /* B-073: art_bad_code, to tell "no picture in the tag" from "unreadable" */
+        if (!art_bad_code) q = set_str(q, art_have ? "OK" : "-");
+        else { q = set_str(q, "E"); q = ui_hex2(q, art_bad_code); }
+        break;
+    case 9: q = ui_dec(q, pcm_under_n - dg_base_under); break;
+    case 10: q = ui_dec(q, (REG(R_FB_STALL) - dg_base_stall) / (CLK_HZ / 1000u)); q = set_str(q, " MS"); break;
+#if TAU_LIBRARY
+    case 11:
+#else
     default:
+#endif
         q = ui_dec(q, ld_head); *q++ = '/'; q = ui_dec(q, ld_size); *q++ = '/';
         q = ui_dec(q, ld_art);  *q++ = '/'; q = ui_dec(q, ld_total);
+        break;
+#if TAU_LIBRARY
+    default: q = lib_info_text(q);
+#endif
     }
     *q = 0;
 }
 
 /* Read-only value pages share one painter: labels on the left, values right-aligned. */
-static void set_draw_ro(int full, const char *title, const char *const *labels, uint32_t n,
+COLD_FN static void set_draw_ro(int full, const char *title, const char *const *labels, uint32_t n,
                         void (*value)(uint32_t, char *))
 {
     if (full) ov_frame(title, "", "B BACK");
@@ -604,7 +710,7 @@ static const char *const set_stat_label[SET_STAT_ROWS] = {
     "LEVEL", "STATE", "PASSES", "OPERATIONS", "FAILURES", "EARLY UNDERRUNS", "LATE UNDERRUNS",
     "WORST ACCESS", "DRAW STALL", "RATE", "SOAK" };
 
-static void set_stat_value(uint32_t i, char *o)
+COLD_FN static void set_stat_value(uint32_t i, char *o)
 {
     char *q = o;
     switch (i) {
@@ -637,16 +743,87 @@ static void set_info_tick(void)
     uint8_t o = ov_draw; ov_draw = 1u;
     if (set_page == SET_INFO_PG) set_draw_ro(0, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
 #if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
-    else set_draw_ro(0, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
+    else if (set_page == SET_STAT_PG) set_draw_ro(0, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
 #endif
     ov_draw = o;
 }
 #endif
 
-static void set_draw(void)
+#if TAU_LIBRARY
+/* How music gets into the player. Two texts: with a library loaded, and without one (legacy playlist mode). */
+/* The text is one blob per mode, lines separated by NUL, so it can live in the cold image (PSRAM). */
+#define SET_HELP_LINES 12u
+static const char set_help_lib[] COLD_DATA =
+    "LIBRARY MODE\0" "Select opens your library.\0" "\0"
+    "Playlists are inside it: the\0" "sync tool imports your .m3u\0" "files. Core menu playlist picks\0"
+    "are ignored.\0" "\0" "A file picked in the core menu\0" "still plays once.\0" "\0"
+    "New music: run the sync tool.";
+static const char set_help_legacy[] COLD_DATA =
+    "LEGACY PLAYLIST MODE\0" "No library file was found.\0" "\0"
+    "Play one file:\0" "  Core menu > Load MP3\0" "Play a list:\0" "  Core menu > Load Playlist\0"
+    "  (Select opens the list)\0" "\0" "For a library, run the sync tool\0" "on your music: it writes\0"
+    "tau-library.tdb. Then restart.";
+
+COLD_FN static void set_draw_help(void)
+{
+    int lib_on = (lib_state == LIB_ST_OK);
+    const char *p = lib_on ? set_help_lib : set_help_legacy;
+    ov_frame("HOW IT WORKS", "", "B BACK");
+    if (!cold_ready()) {                                   /* cold image not loaded: no text to show */
+        fb_set_color(UI_DIM, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, "Help text is not loaded.", TS_1X, TS_1X, PL_UI_W - 32u);
+        return;
+    }
+    for (uint32_t i = 0; i < SET_HELP_LINES && i < PL_UI_ROWS; i++) {
+        fb_set_color(i ? UI_WHITE : ui_accent, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + i * PL_UI_ROW_H, p, TS_1X, TS_1X, PL_UI_W - 32u);
+        while (*p) p++;
+        p++;
+    }
+}
+#endif
+
+#if TAU_LIBRARY
+/* Library on/off. Off = the player behaves as before the library existed (legacy playlist mode); the index stays on the card. */
+COLD_FN static void set_draw_libcfg(void)
+{
+    static const char *const on_txt[] = { "Turning it off makes the player", "work as a plain playlist player:", "Load MP3 / Load Playlist in the", "core menu, Select opens the list.",
+        "The index file stays on the card." };
+    static const char *const off_txt[] = { "Turning it on loads your library", "at start: browse and play from", "Select. Your history is kept." };
+    ov_frame("LIBRARY", "", set_lib_confirm ? "A CONFIRM   B CANCEL" : "A CHANGE   B BACK");
+    uint32_t y = PL_UI_LIST_Y;
+    fb_set_color(ui_accent, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, y, lib_disabled ? "Library is OFF" : "Library is ON", TS_1X, TS_1X, PL_UI_W - 32u);
+    y += 2u * PL_UI_ROW_H;
+    const char *const *t = lib_disabled ? off_txt : on_txt;
+    uint32_t n = lib_disabled ? SET_COUNT(off_txt) : SET_COUNT(on_txt);
+    fb_set_color(UI_WHITE, UI_PANEL);
+    for (uint32_t i = 0; i < n; i++, y += PL_UI_ROW_H) fb_text_clipped(PL_UI_TEXT_X, y, t[i], TS_1X, TS_1X, PL_UI_W - 32u);
+    y += PL_UI_ROW_H;
+    fb_set_color(UI_DIM, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, y, "Applies after a restart.", TS_1X, TS_1X, PL_UI_W - 32u);
+    if (set_lib_confirm) {
+        fb_set_color(ui_accent, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, y + PL_UI_ROW_H + 8u, lib_disabled ? "Press A to turn it on." : "Press A to turn it off.", TS_1X, TS_1X, PL_UI_W - 32u);
+    }
+}
+#endif
+
+#if TAU_CHECK
+#include "suite.inc"
+#endif
+
+COLD_FN static void set_draw(void)
 {
     uint8_t o = ov_draw; ov_draw = 1u;
     if (set_page < SET_MENUS)                set_draw_menu(set_page);
+#if TAU_LIBRARY
+    else if (set_page == SET_LIBCFG_PG)      set_draw_libcfg();
+    else if (set_page == SET_HELP_PG)        set_draw_help();
+#if TAU_CHECK
+    else if (set_page == SET_CHECK_PG)       chk_draw();
+#endif
+#endif
 #if TAU_DIAG_INFO
     else if (set_page == SET_INFO_PG)
         set_draw_ro(1, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
@@ -659,9 +836,15 @@ static void set_draw(void)
     ov_draw = o;
 }
 
-static void set_close(void) { set_open = 0u; set_page = SET_HOME; pl_ui_restore = 1u; }
+static void set_close(void)
+{
+    set_open = 0u; set_page = SET_HOME; pl_ui_restore = 1u;
+#if TAU_LIBRARY
+    set_lib_confirm = 0u;
+#endif
+}
 
-static void set_ch_follow(uint32_t c)
+COLD_FN static void set_ch_follow(uint32_t c)
 {
     uint32_t vis = set_ch_visible(c), cur = set_ch_cur[c];
     if (cur < set_ch_top[c]) set_ch_top[c] = (uint8_t)cur;
@@ -673,34 +856,70 @@ static int set_input(uint32_t edge, uint32_t keys)
 {
     if (!set_open) {
         if ((edge & KEY_START) && !(keys & KEY_SELECT)) {
+#if TAU_G4 && TAU_COLD_CODE
+            if (!COLD_READY()) { ui_toast_msg("MENU OFF: NO COLD IMAGE"); return 0; }   /* the menus are cold code; say why nothing opened */
+#endif
             /* One overlay at a time: an open playlist would keep repainting its marquee row
              * over the settings (its rows draw through the ov_draw gate), so it is closed
              * here. Closing settings returns to the player, not to the list. */
             pl_ui_open = 0u;
+#if TAU_LIBRARY
+            lib_ui_open = 0u;
+#endif
             set_open = 1u; set_page = SET_HOME; set_dirty = 1u;
             return 1;
         }
         return 0;
     }
+#if TAU_CHECK
+    if (set_page == SET_CHECK_PG) return chk_input(edge);      /* first: Start is handled there (it must not close the result pages) */
+#endif
     if (edge & KEY_START) { set_close(); return 1; }
-    if (set_page >= SET_INFO_PG) {                /* read-only value page: only B (back) */
-        if (edge & KEY_B) { set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }
+#if TAU_LIBRARY
+    if (set_page == SET_LIBCFG_PG) {              /* library on/off: A asks, a second A confirms, B cancels or goes back */
+        if ((edge & KEY_A) || ((edge & KEY_RIGHT) && !set_lib_confirm)) {     /* Right may ask, only A confirms */
+            if (!set_lib_confirm) set_lib_confirm = 1u;
+            else { lib_disabled = (uint8_t)!lib_disabled; set_lib_confirm = 0u; settings_mark_dirty(); }
+            set_dirty = 1u;
+        }
+        if (edge & (KEY_B | KEY_LEFT)) {
+            if (set_lib_confirm) set_lib_confirm = 0u; else set_page = SET_DIAG;
+            set_dirty = 1u;
+        }
         return 1;
     }
+#endif
+    if (set_page >= SET_INFO_PG) {                /* read-only value page: only B (back) */
+        if (edge & (KEY_B | KEY_LEFT)) { set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info, How it works -> SETTINGS */
+        return 1;
+    }
+    /* B-073: Up/Down auto-repeat while held, the same shape as the playlist and library lists (a step on the edge, a
+     * hold delay, then steady) -- a menu used to need one tap per row, which read as inconsistent next to the lists. */
+    static uint32_t set_rep_at;
+    if (edge & (KEY_UP | KEY_DOWN)) set_rep_at = cycles() + CLK_HZ / 1000u * PL_HOLD_MS;
+    uint32_t rep = (keys & (KEY_UP | KEY_DOWN)) && (int32_t)(cycles() - set_rep_at) >= 0;
+    if (rep) { set_rep_at = cycles() + CLK_HZ / 16u; edge |= keys & (KEY_UP | KEY_DOWN); }
+
     if (set_page >= SET_MENUS) {                  /* a choice list */
         uint32_t c = set_page - SET_MENUS, n = set_ch_count(c);
         if (edge & KEY_UP)   { set_ch_cur[c] = (uint8_t)(set_ch_cur[c] ? set_ch_cur[c] - 1u : n - 1u); set_ch_follow(c); set_dirty = 1u; }
         if (edge & KEY_DOWN) { set_ch_cur[c] = (uint8_t)((set_ch_cur[c] + 1u) % n); set_ch_follow(c); set_dirty = 1u; }
-        if (edge & KEY_A)    { set_ch_apply(c, set_ch_cur[c]); set_dirty = 1u; }
-        if (edge & KEY_B)    { set_page = set_ch_parent[c]; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && !rep) { set_ch_apply(c, set_ch_cur[c]); set_dirty = 1u; }     /* Right = forward = select */
+        if ((edge & (KEY_B | KEY_LEFT)) && !rep)  { set_page = set_ch_parent[c]; set_dirty = 1u; }         /* Left = back */
         return 1;
     }
     uint8_t *sel = &set_sel[set_page];
     if (edge & KEY_UP)   { *sel = *sel ? (uint8_t)(*sel - 1u) : (uint8_t)(set_menu_n[set_page] - 1u); set_dirty = 1u; }
     if (edge & KEY_DOWN) { *sel = (uint8_t)((*sel + 1u) % set_menu_n[set_page]); set_dirty = 1u; }
+    if (rep) return 1;      /* a repeat only ever moves the cursor: A/B/Left/Right below react to a real press */
     const set_row_t *r = &set_menu_rows[set_page][*sel];
     if (edge & (KEY_A | KEY_RIGHT)) {
-        if (r->type == RT_GROUP) { set_page = r->arg; set_dirty = 1u; }
+        if (r->type == RT_GROUP) {
+            set_page = r->arg; set_dirty = 1u;
+#if TAU_CHECK
+            if (set_page == SET_CHECK_PG) chk_open();
+#endif
+        }
         else if (r->type == RT_CHOICE) {
             set_page = SET_PAGE_CH(r->arg);
             set_ch_cur[r->arg] = (uint8_t)set_ch_active(r->arg);
@@ -716,9 +935,10 @@ static int set_input(uint32_t edge, uint32_t keys)
         if (r->type == RT_TOGGLE) { set_toggle(r->arg); set_dirty = 1u; }
         else if (r->type == RT_VOL) { set_volume(-1); set_dirty = 1u; }
     }
-    if (edge & KEY_B) {
+    /* Left is Back on rows that open something; on a toggle or the volume it still changes the value. */
+    if ((edge & KEY_B) || ((edge & KEY_LEFT) && r->type != RT_TOGGLE && r->type != RT_VOL)) {
         if (set_page == SET_HOME) set_close();
-        else { set_page = SET_HOME; set_dirty = 1u; }
+        else { set_page = set_menu_parent[set_page]; set_dirty = 1u; }
     }
     return 1;
 }

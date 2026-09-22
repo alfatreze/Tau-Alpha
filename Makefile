@@ -1,4 +1,4 @@
-.PHONY: check check-firmware check-fpga firmware firmware-advanced firmware-sdram-stress firmware-sdram-cpu-diag firmware-sdram-cpu-readback fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe card-check visual-review
+.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware firmware-advanced firmware-sdram-stress firmware-sdram-cpu-diag firmware-sdram-cpu-readback fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -54,8 +54,12 @@ test-host:
 	$(PYTHON) tools/check_ui_snapshot_renderer.py
 	$(PYTHON) tools/check_audit_trail.py
 	$(PYTHON) sim/test_psram_decode.py
+	$(PYTHON) sim/test_library_index.py
+	$(PYTHON) sim/test_library_fw.py
+	$(PYTHON) sim/test_cold_fw.py
+	$(PYTHON) sim/test_suite.py
 
-test-rtl: test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw
+test-rtl: test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -226,6 +230,17 @@ test-rtl-psram-fw: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	$(VVP) $(RTL_BUILD_DIR)/tb_psram_fw_fault.vvp +OUT=$(RTL_BUILD_DIR)/psram_fw_record_fault.txt > /dev/null
 	$(PYTHON) sim/check_psram_fw_record.py $(RTL_BUILD_DIR)/psram_fw_record_fault.txt --expect-fault
 
+# Phase G2: real CPU executing code from PSRAM through the instruction alias, sharing the controller with the data window.
+# Also builds without the feature (the firmware must then report NOFEATURE, proving the netlist is inert).
+PSRAM_IFETCH_SRC = sim/tb_psram_ifetch.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
+test-rtl-psram-ifetch: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_ifetch/main.c -o $(RTL_BUILD_DIR)/fw_ifetch.elf
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_ifetch.elf $(RTL_BUILD_DIR)/fw_ifetch.bin
+	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_psram_ifetch.vvp $(PSRAM_IFETCH_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_psram_ifetch.vvp +ROM=$(RTL_BUILD_DIR)/fw_ifetch.bin | tee $(RTL_BUILD_DIR)/psram_ifetch.log | tail -30; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_ifetch.log
+	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_psram_ifetch.IFETCH=0 -Ptb_psram_ifetch.EXPECT_NOFEATURE=1 -o $(RTL_BUILD_DIR)/tb_psram_ifetch_off.vvp $(PSRAM_IFETCH_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_psram_ifetch_off.vvp +ROM=$(RTL_BUILD_DIR)/fw_ifetch.bin | tail -4 | tee $(RTL_BUILD_DIR)/psram_ifetch_off.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_ifetch_off.log
+
 # Verilator's generated GNUmakefiles cannot run beneath this repository's path
 # because it contains spaces. Keep this tool-only artefact outside the tree.
 test-rtl-sdram-controller-probe:
@@ -250,3 +265,7 @@ card-check:
 # the source file.  This is a design-review aid and never alters release files.
 visual-review:
 	$(PYTHON) tools/visual_review.py
+
+# QR encoder vs segno (needs work/venv-qr; about 3 min, so not part of test-host)
+test-qr:
+	work/venv-qr/bin/python sim/test_qr.py

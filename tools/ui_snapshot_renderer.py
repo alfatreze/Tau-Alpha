@@ -419,6 +419,8 @@ def now_playing_base(state="playing", seeking=False, title="NIGHT DRIVE",
 
 
 SETTINGS_SRC = (ROOT / "fw/settingsui.inc").read_text(encoding="utf-8")
+# Fixtures model the standard (non-cold) build: take the #else branch of "#if TAU_COLD ... #else ... #endif" blocks.
+SETTINGS_SRC = re.sub(r"#if TAU_COLD\n(.*?)#else\n(.*?)#endif\n", r"\2", SETTINGS_SRC, flags=re.S)
 EQ_SRC = (ROOT / "fw/eq_curve.h").read_text(encoding="utf-8")
 
 
@@ -439,7 +441,7 @@ def overlay_geometry():
     """PL_UI_* from fw/player.c (the expressions use FB_W/FB_H and earlier names)."""
     env = {"FB_W": FB_W, "FB_H": FB_H}
     for name in ("PL_UI_ROWS", "PL_UI_X", "PL_UI_W", "PL_UI_Y", "PL_UI_H", "PL_UI_ROW_H",
-                 "PL_UI_LIST_Y", "PL_UI_TEXT_X", "PL_UI_PAD_B"):
+                 "PL_UI_LIST_Y", "PL_UI_TEXT_X", "PL_UI_PAD_B", "PLIST_ROW_H", "PLIST_ROWS"):
         match = re.search(r"#define\s+" + name + r"\s+(.+)", PLAYER)
         if not match:
             raise RuntimeError(f"could not read {name} from fw/player.c")
@@ -454,10 +456,10 @@ def meter_thumb(viz):
     src = (ROOT / "fw/meter_thumbs.h").read_text(encoding="utf-8")
     w = int(re.search(r"METER_THUMB_W (\d+)u", src).group(1))
     h = int(re.search(r"METER_THUMB_H (\d+)u", src).group(1))
-    pal = re.search(r"meter_thumb_pal\[\d+\]\[\d+\] = \{(.*?)\n\};", src, re.S).group(1)
+    pal = re.search(r"meter_thumb_pal\[\d+\]\[\d+\](?: COLD_DATA)? = \{(.*?)\n\};", src, re.S).group(1)
     pals = [[int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{4})u", row)] for row in pal.split("},")[:-1]]
-    offs = [int(v) for v in re.search(r"meter_thumb_off\[\d+\] = \{(.*?)\};", src, re.S).group(1).split("*/")[-1].split(",")]
-    rle = [int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{2})", re.search(r"meter_thumb_rle\[\d+\] = \{(.*?)\};", src, re.S).group(1))]
+    offs = [int(v) for v in re.search(r"meter_thumb_off\[\d+\](?: COLD_DATA)? = \{(.*?)\};", src, re.S).group(1).split("*/")[-1].split(",")]
+    rle = [int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{2})", re.search(r"meter_thumb_rle\[\d+\](?: COLD_DATA)? = \{(.*?)\};", src, re.S).group(1))]
     rects, pos = [(0, 0, w, h, pals[viz][0])], 0
     for b in rle[offs[viz]:offs[viz + 1]]:
         idx, n = b >> 5, (b & 31) + 1
@@ -495,14 +497,14 @@ def ov_frame(title, right="", hint=""):
 
 
 def playlist_browser():
-    """pl_ui_draw() fixture: the full-screen playlist overlay (nothing of the player shows)."""
+    """pl_ui_draw() fixture: the full-screen playlist overlay (nothing of the player shows). B-073: rows match the
+    settings/library rows (PLIST_ROW_H/PLIST_ROWS), not the denser PL_UI_ROW_H/PL_UI_ROWS the other pages still use."""
     entries = ("01 - Welcome Home", "02 - Night Drive", "03 - Sunset Sequence",
                "04 - Ocean Between Us", "05 - Echoes", "06 - Golden Hour",
-               "07 - Low Battery", "08 - Neon Rain", "09 - Last Light",
-               "10 - Static Bloom", "11 - Harbor Lights", "12 - Slow Return")
+               "07 - Low Battery")
     count, selected, playing, top = 30, 3, 1, 0
     frame, g = ov_frame("PLAYLIST", f"{selected + 1} / {count}", "A PLAY   B BACK")
-    x, width, list_y, row_h, rows = g["PL_UI_X"], g["PL_UI_W"], g["PL_UI_LIST_Y"], g["PL_UI_ROW_H"], g["PL_UI_ROWS"]
+    x, width, list_y, row_h, rows = g["PL_UI_X"], g["PL_UI_W"], g["PL_UI_LIST_Y"], g["PLIST_ROW_H"], g["PLIST_ROWS"]
     text_x = g["PL_UI_TEXT_X"]
     track_x, track_y, track_h = x + width - 11, list_y - 2, rows * row_h
     frame.rect(track_x, track_y, 3, track_h, ui_mix(UI_PANEL, UI_DIM, 1, 3))
@@ -510,15 +512,117 @@ def playlist_browser():
     frame.rect(track_x, track_y + (track_h - thumb_h) * top // (count - rows), 3, thumb_h, UI_ACCENT)
     for i, label in enumerate(entries[:rows]):
         row_y = list_y + i * row_h
+        text_y = row_y + (row_h - 2 - 16) // 2
         selected_row = i == selected
         background = UI_ACCENT if selected_row else UI_PANEL
         if selected_row:
             rounded_rect_on(frame, x + 4, row_y - 2, width - 8, row_h, 5, background, UI_PANEL)
         foreground = UI_PANEL if selected_row else (UI_WHITE if i == playing else UI_DIM)
         if i == playing:
-            frame.text(x + 8, row_y, ">", "TS_1X", foreground, background, 12)
-        frame.text(text_x + 8, row_y, label, "TS_1X", foreground, background, width - 40)
+            frame.text(x + 8, text_y, ">", "TS_1X", foreground, background, 12)
+        frame.text(text_x + 8, text_y, label, "TS_1X", foreground, background, width - 40)
     return frame
+
+
+LIBRARY_INC = (ROOT / "fw/library.inc").read_text(encoding="utf-8")
+
+
+def library_list(title, right, hint, rows, selected, count, top=0, mq=0, arrows=False):
+    """lib_ui_draw_body() fixture: the library browse overlay, drawn like the Settings menu (LIB_ROW_H = SET_MENU_ROW_H
+    rows, 7 visible, bar 4 px shorter than the row, text 8 px down, ">" at the right of rows that open a level).
+    `rows` are (label, tile number or None, right-hand number)."""
+    tile_w = int(re.search(r"#define LIB_TILE_W\s+(\d+)u", LIBRARY_INC).group(1))
+    tile_h = int(re.search(r"#define LIB_TILE_H\s+(\d+)u", LIBRARY_INC).group(1))
+    row_h = int(re.search(r"#define LIB_ROW_H\s+(\d+)u", LIBRARY_INC).group(1))
+    nrows = int(re.search(r"#define LIB_ROWS\s+(\d+)u", LIBRARY_INC).group(1))
+    frame, g = ov_frame(title, right, hint)
+    x, width, list_y = g["PL_UI_X"], g["PL_UI_W"], g["PL_UI_LIST_Y"]
+    bar = count > nrows
+    if bar:
+        track_x, track_y, track_h = x + width - 11, list_y, nrows * row_h - 4
+        frame.rect(track_x, track_y, 3, track_h, ui_mix(UI_PANEL, UI_DIM, 1, 3))
+        thumb_h = max(8, track_h * nrows // count)
+        frame.rect(track_x, track_y + (track_h - thumb_h) * top // (count - nrows), 3, thumb_h, UI_ACCENT)
+    rw = width - 8 - (12 if bar else 0)
+    for i, (label, tile, year) in enumerate(rows[:nrows]):
+        y = list_y + i * row_h
+        sel = (top + i) == selected
+        bg = UI_ACCENT if sel else UI_PANEL
+        if sel:
+            rounded_rect_on(frame, x + 4, y, rw, row_h - 4, 5, bg, UI_PANEL)
+        ty = y + 8
+        tx = g["PL_UI_TEXT_X"]
+        right_x = x + width - 16 - (12 if bar else 0)
+        if arrows:
+            right_x -= 12
+            frame.text(right_x, ty, ">", "TS_1X", UI_PANEL if sel else UI_DIM, bg, 12)
+            right_x -= 8
+        if tile is not None:
+            n = min(tile, 99)
+            tile_y = y + (row_h - 4 - tile_h) // 2
+            if sel:
+                rounded_rect_on(frame, x + 9, tile_y - 1, tile_w + 2, tile_h + 2, 4, UI_PANEL, UI_ACCENT)
+            rounded_rect_on(frame, x + 10, tile_y, tile_w, tile_h, 3, UI_ACCENT, UI_PANEL)
+            d = f"{n:02d}"
+            w = text_width(d)
+            frame.text(x + 10 + (tile_w - w) // 2, tile_y + (tile_h - 16) // 2, d, "TS_1X", 0x0000, UI_ACCENT, w + 2)
+            tx = x + 10 + tile_w + 8
+        if year:
+            yb = str(year)
+            w = text_width(yb)
+            frame.text(right_x - w, ty, yb, "TS_1X", UI_PANEL if sel else UI_DIM, bg, w + 2)
+            right_x -= w + 8
+        frame.text(tx, ty, label[mq:] if sel else label, "TS_1X", UI_PANEL if sel else UI_WHITE, bg, right_x - tx)
+    return frame
+
+
+_LIB_TRACKS = (("Opening Theme", 1), ("Stampede of the Ohmu", 2), ("The Valley of the Wind", 3),
+               ("The Princess Who Loves Insects", 4), ("The Invasion of Kushana", 5), ("Battle", 6),
+               ("Contact with the Ohmu", 7), ("In the Sea of Corruption", 8), ("Annihilation of Pejite", 9),
+               ("The Battle between Mehve and Corvette", 10), ("The Resurrection of the Giant Warrior", 11),
+               ("Nausicaa Requiem", 12))
+
+
+def library_home(selected=0, playlist=True):
+    rows = [("ARTISTS", None, 0), ("ALBUMS", None, 0), ("TRACKS", None, 0), ("SHUFFLE ALL", None, 0)]
+    if playlist:
+        rows.append(("PLAYLISTS", None, 0))
+    return library_list("LIBRARY", "", "A OPEN   B CLOSE", rows, selected, len(rows), arrows=True)
+
+
+def library_artists():
+    names = ("Aurora", "Beck", "Bjork", "Blur", "Boards of Canada", "Bonobo", "Burial", "Caribou", "Daft Punk",
+             "Deftones", "Four Tet", "Godspeed You! Black Emperor")
+    return library_list("ARTISTS", "4 / 300", "A OPEN  X PLAY  L R A-Z", [(n, None, 0) for n in names], 3, 300, arrows=True)
+
+
+def library_albums():
+    rows = (("Alpha", 1999), ("Amber Blue", 2004), ("Blue Hours", 2011), ("Cold Dawn", 2015),
+            ("Echoes of the Harbor", 2018), ("Glass Meadow", 2020))
+    return library_list("ALBUMS", "3 / 800", "A OPEN  X PLAY  B BACK", [(a, None, y) for a, y in rows], 2, 800, arrows=True)
+
+
+def library_tracks():
+    return library_list("Nausicaa of the Valley of the Wind Soundtrack", "6 / 13", "A PLAY   B BACK",
+                        [(t, n, 0) for t, n in _LIB_TRACKS], 5, 13)
+
+
+def library_lists():
+    rows = (("Road Trip", 42), ("Evening Jazz", 18), ("Audiobook Ch 1-12", 12), ("Workout", 65), ("Sleep", 9))
+    return library_list("PLAYLISTS", "2 / 5", "A OPEN  X PLAY  B BACK", [(n, None, c) for n, c in rows], 1, 5, arrows=True)
+
+
+def library_list_tracks():
+    """A playlist: the tile numbers the position in the list, tracks come from different albums."""
+    rows = (("Opening Theme", 1), ("Blue Hours", 2), ("Static Bloom", 3), ("Battle", 4), ("Harbor Lights", 5),
+            ("Nausicaa Requiem", 6))
+    return library_list("Evening Jazz", "3 / 18", "A PLAY   B BACK", [(t, n, 0) for t, n in rows], 2, 18)
+
+
+def library_tracks_scrolled():
+    """A long title scrolling in the selected row (marquee offset 6), single- and double-digit tiles side by side."""
+    return library_list("TRACKS", "10 / 7180", "A PLAY   B BACK", [(t, n, 0) for t, n in _LIB_TRACKS], 9, 7180,
+                        top=0, mq=6)
 
 
 def _rows(name):
@@ -539,16 +643,16 @@ SAMPLE_VALUE = {"COLOUR": "AMBER", "METER": "OSCILLOSCOPE", "EQUALIZER": "FLAT",
                 "REPEAT": "OFF", "SCREEN BLANK": "NEVER", "ALBUM ART": "ON", "SHUFFLE": "ON",
                 "RESUME": "ON", "SPEED": "1.00X", "VOLUME": "65%",
                 "WINDOW TEST": "PASS 89", "READ CYCLES": "48/50/362", "WRITE CYCLES": "47/49/361",
-                "PLAYLIST CHECK": "PASS 13", "CLEAR COUNTERS": "DONE",
+                "PLAYLIST CHECK": "PASS 13", "COLD CODE TEST": "PASS 31.6 C/W", "CLEAR COUNTERS": "DONE",
                 "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN", "ALL SPEEDS": "OFF"}
 
 
 def settings_menu(page, selected):
     """set_draw_menu() fixture. page: 0 home, 1 appearance, 2 audio, 3 playback."""
     rows = _rows(("set_home_rows", "set_appear_rows", "set_audio_rows", "set_play_rows",
-                  "set_diag_rows", "set_tests_rows", "set_stress_rows")[page])
+                  "set_diag_rows", "set_tests_rows", "set_stress_rows", "set_dgn_rows")[page])
     title = _names(SETTINGS_SRC, "set_menu_title")[page]
-    hint = ("A OPEN   B CLOSE" if page == 0 else "A OPEN   B BACK" if page in (4, 6)
+    hint = ("A OPEN   B CLOSE" if page == 0 else "A OPEN   B BACK" if page in (4, 6, 7)
             else "A RUN   B BACK" if page == 5 else "A CHANGE   B BACK")
     frame, g = ov_frame(title, "", hint)
     row_h = _sconst("SET_MENU_ROW_H")
@@ -574,7 +678,7 @@ def settings_menu(page, selected):
 
 
 INFO_SAMPLE = ("0.1.0", "4D503317", "OK", "52 CYC", "16112 B", "13 TRACKS", "NO",
-               "MP3 320K 44.1K", "0", "0 MS", "12/8/41/118")
+               "MP3 320K 44.1K", "OK", "0", "0 MS", "12/8/41/118", "7180 TRK 1.2 S")
 STAT_SAMPLE = ("R2", "RUNNING", "3", "786432", "0", "4", "0", "372 CYC", "0 MS", "13.4K OPS/S",
                "12:41 LEFT")
 
@@ -594,6 +698,63 @@ def settings_readonly(title, label_array, samples):
 
 def settings_info():
     return settings_readonly("INFO", "set_info_label", INFO_SAMPLE)
+
+
+
+CHECK_SRC = (Path(__file__).resolve().parent.parent / "fw/suite.inc").read_text()
+
+
+def check_strings():
+    """The Check page's text: one NUL-separated blob in fw/suite.inc (chk_blob), fetched by index like chk_s()."""
+    body = re.search(r"chk_blob\[\] =(.*?);", CHECK_SRC, re.S).group(1)
+    return "".join(re.findall(r'"((?:[^"\\]|\\.)*)"', body)).split("\\0")
+
+
+def check_page(state, results, running_step=None, countdown=0, code=("J60000 3Z0000 1ZG100", "09C000 0CBK6M 2D1Q4G")):
+    """chk_draw() fixture. state: idle, run, done. results: seven of PASS/FAIL/SKIPPED/N/A."""
+    t = check_strings()
+    hint = t[21] if state == "idle" else t[22] if state == "run" else t[23]
+    frame, g = ov_frame(t[24], t[20] if state == "run" else "", hint)
+    if state == "idle":
+        for i in range(9):
+            frame.text(g["PL_UI_TEXT_X"], g["PL_UI_LIST_Y"] + i * g["PL_UI_ROW_H"], t[11 + i], "TS_1X", UI_WHITE,
+                       UI_PANEL, g["PL_UI_W"] - 32)
+        return frame
+    for i in range(7):
+        y = g["PL_UI_LIST_Y"] + i * g["PL_UI_ROW_H"]
+        if state == "run" and i > running_step:
+            value = ""
+        elif state == "run" and i == running_step:
+            value = f"{countdown} S" if countdown else t[25]
+        else:
+            value = results[i]
+        frame.rect(g["PL_UI_X"] + 4, y - 2, g["PL_UI_W"] - 8, g["PL_UI_ROW_H"], UI_PANEL)
+        frame.text(g["PL_UI_TEXT_X"], y, t[i], "TS_1X", UI_DIM, UI_PANEL, 170)
+        w = text_width(value)
+        frame.text(g["PL_UI_X"] + g["PL_UI_W"] - 16 - w, y, value, "TS_1X", UI_WHITE, UI_PANEL, w + 2)
+    if state == "done":
+        fails = sum(r == "FAIL" for r in results)
+        skips = sum(r == "SKIPPED" for r in results)
+        verdict = (f"{fails}{t[27] if fails == 1 else t[28]}" if fails else (t[29] if skips else t[30]))
+        frame.text(g["PL_UI_TEXT_X"], g["PL_UI_LIST_Y"] + 8 * g["PL_UI_ROW_H"], verdict, "TS_1X",
+                   UI_WHITE if fails else UI_ACCENT, UI_PANEL, g["PL_UI_W"] - 32)
+        for k, line in enumerate(code):
+            frame.text(g["PL_UI_TEXT_X"], g["PL_UI_LIST_Y"] + (9 + k) * g["PL_UI_ROW_H"] + 4, line, "TS_1X", UI_DIM,
+                       UI_PANEL, g["PL_UI_W"] - 32)
+    return frame
+
+
+def settings_help(library):
+    """set_draw_help() fixture: the two 'how it works' texts, read from the firmware source."""
+    name = "set_help_lib" if library else "set_help_legacy"
+    body = re.search(rf"{name}\[\] COLD_DATA =(.*?);", SETTINGS_SRC, re.S).group(1)
+    frags = re.findall(r'"((?:[^"\\]|\\.)*)"', body)
+    lines = "".join(frags).split("\\0")
+    frame, g = ov_frame("HOW IT WORKS", "", "B BACK")
+    for i, line in enumerate(lines[:g["PL_UI_ROWS"]]):
+        frame.text(g["PL_UI_TEXT_X"], g["PL_UI_LIST_Y"] + i * g["PL_UI_ROW_H"], line, "TS_1X",
+                   UI_WHITE if i else UI_ACCENT, UI_PANEL, g["PL_UI_W"] - 32)
+    return frame
 
 
 def settings_stress_status():
@@ -755,6 +916,13 @@ FIXTURES = {
     "playlist-error": lambda: idle("No playable tracks in playlist"),
     "now-playing": now_playing_base,
     "playlist-browser": playlist_browser,
+    "library-home": library_home,
+    "library-artists": library_artists,
+    "library-albums": library_albums,
+    "library-tracks": library_tracks,
+    "library-tracks-scrolled": library_tracks_scrolled,
+    "library-lists": library_lists,
+    "library-list-tracks": library_list_tracks,
     "settings-home": lambda: settings_menu(0, 1),
     "settings-appearance": lambda: settings_menu(1, 0),
     "settings-audio": lambda: settings_menu(2, 0),
@@ -763,6 +931,14 @@ FIXTURES = {
     "settings-info": settings_info,
     "settings-tests": lambda: settings_menu(5, 0),
     "settings-stress": lambda: settings_menu(6, 0),
+    "settings-diagnostics-group": lambda: settings_menu(7, 0),
+    "settings-check-idle": lambda: check_page("idle", ()),
+    "settings-check-running": lambda: check_page("run", ["PASS"] * 5, running_step=5, countdown=9),
+    "settings-check-pass": lambda: check_page("done", ["PASS"] * 7),
+    "settings-check-fail": lambda: check_page(
+        "done", ["PASS", "FAIL", "PASS", "PASS", "PASS", "SKIPPED", "PASS"], code=("J40020 3WG00G 000000", "09G000 0CBK6M 2D2GA0")),
+    "settings-help-library": lambda: settings_help(True),
+    "settings-help-legacy": lambda: settings_help(False),
     "settings-stress-level": lambda: settings_choice("stress", 2, 2),
     "settings-soak": lambda: settings_choice("soak", 2, 0),
     "settings-speed": lambda: settings_choice("speed", 4, 2),

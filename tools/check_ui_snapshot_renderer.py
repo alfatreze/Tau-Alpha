@@ -26,6 +26,15 @@ def main():
                 "settings-stress-level", "settings-soak", "settings-stress-status", "settings-speed")
     if len({checksums[name] for name in settings + ("now-playing", "playlist-browser")}) != 19:
         raise SystemExit("FAIL: settings fixtures are not distinct")
+    if len({checksums[n] for n in ("settings-check-idle", "settings-check-running", "settings-check-pass", "settings-check-fail")}) != 4:
+        raise SystemExit("FAIL: Check page fixtures are not distinct")
+    if len({checksums[n] for n in ("settings-diagnostics", "settings-diagnostics-group", "settings-help-library",
+                                    "settings-help-legacy", "settings-home")}) != 5:
+        raise SystemExit("FAIL: menu/settings/help fixtures are not distinct")
+    library = ("library-home", "library-artists", "library-albums", "library-tracks", "library-tracks-scrolled",
+               "library-lists", "library-list-tracks")
+    if len({checksums[name] for name in library + ("playlist-browser",)}) != 8:
+        raise SystemExit("FAIL: library fixtures are not distinct")
     if checksums["now-playing"] == checksums["playlist-browser"]:
         raise SystemExit("FAIL: playlist browser fixture did not draw its overlay")
     if len({checksums[name] for name in ("now-playing", "paused", "stopped", "seeking")}) != 4:

@@ -147,7 +147,7 @@ def main():
              f" * {len(streams)} previews of {W}x{H}, one {K}-colour RGB565 palette each, raster run-length",
              " * stream: byte = (palette index << 5) | (run length - 1), 1..32 pixels. Indexed by VIZ_* enum value. */",
              f"#define METER_THUMB_W {W}u", f"#define METER_THUMB_H {H}u",
-             "static const uint16_t meter_thumb_pal[%d][%d] = {" % (len(pals), K)]
+             "static const uint16_t meter_thumb_pal[%d][%d] COLD_DATA = {" % (len(pals), K)]
     for pal in pals:
         lines.append("    { " + ", ".join("0x%04Xu" % v for v in pal) + " },")
     lines.append("};")
@@ -156,12 +156,12 @@ def main():
         offs.append(pos); pos += len(s)
     offs.append(pos)
     by_viz = {name: i for i, (_, name) in enumerate(ORDER)}
-    lines.append("static const uint16_t meter_thumb_off[%d] = {" % (len(ORDER) + 1))
+    lines.append("static const uint16_t meter_thumb_off[%d] COLD_DATA = {" % (len(ORDER) + 1))
     lines.append("    /* indexed by VIZ_* enum: */")
     # VIZ enum order in fw/player.c: BARS, WATER, LEVELS, SCOPE, WAVE, VU, SCROLL, MIRROR, DOTS, EYE, LED
     lines.append("    " + ", ".join(str(o) for o in offs))
     lines.append("};")
-    lines.append("static const uint8_t meter_thumb_rle[%d] = {" % total)
+    lines.append("static const uint8_t meter_thumb_rle[%d] COLD_DATA = {" % total)
     flat = [b for s in streams for b in s]
     for i in range(0, len(flat), 24):
         lines.append("    " + ", ".join("0x%02X" % b for b in flat[i:i + 24]) + ",")
