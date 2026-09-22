@@ -46,7 +46,8 @@ KB-041 (accented names fail to open), KB-042 (JPEG decode time follows file size
 
 ## 5. Open items
 1. **Media library 0.4** (next task): `docs/MEDIA_LIBRARY_0.4_BRIEF.md`.
-2. **Blit / scaling engine** (owner: compare it side by side with the PSRAM art buffer); the control build `TAU PSRAM 06` and `ART_PSRAM=1` builds are the reference. Also makes pre-scaled thumbnails attractive (see the brief).
+2. **JTAG debug access (Phase F0)**, immediately before the blit engine: `docs/JTAG_DEBUG_ACCESS.md` (procedure works today; SignalTap / JTAG-to-Avalon master still to build).
+2b. **Blit / scaling engine** (owner: compare it side by side with the PSRAM art buffer); the control build `TAU PSRAM 06` and `ART_PSRAM=1` builds are the reference. Also makes pre-scaled thumbnails attractive (see the brief).
 3. **BUG-001 in firmware** (byte-transparent or normalised paths; test matrix in the issue).
 4. Not pushed: local commits and tag `v0.3.0`; smoke test of the final release files skipped; post-soak playlist check gaps of earlier runs are closed by B-023 (Tests page).
 5. PSRAM P5 beyond the art buffer, temperature/second-unit margin for the read timing (default sample index 9 keeps two clocks), cached window and code-in-memory experiments (Phase G) remain optional.

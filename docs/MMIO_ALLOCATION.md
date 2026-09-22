@@ -28,7 +28,10 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x6C-0x70 | SET_IDX/SET_DAT | W/R | persisted settings words (interact.json) |
 | 0x74-0x84 | SDR_* | W/R | Phase 1 SDRAM mailbox |
 | **0x88-0xAC** | **expansion window** | | **PSRAM diagnostic mailbox (B-004) and window counter (B-016), routed through the `xm_*` port** |
-| 0xB0-0xFC | free | | next claimants: EQ extras, accelerators, GPU (see roadmap); allocate here |
+| 0xB0 | IF_N | R | Phase G2: instruction beats served from PSRAM (0 when `PSRAM_IFETCH_ENABLE` is off) |
+| 0xB4 | IF_CYC | R | Phase G2: cycles the instruction fetch stage held a PSRAM request |
+| 0xB8 | IF_CFG | R/W | Phase G2: bit0 = instruction fetch from PSRAM present; any write clears IF_N and IF_CYC |
+| 0xBC-0xFC | free | | next claimants: EQ extras, accelerators, GPU (see roadmap); allocate here |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
