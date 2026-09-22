@@ -6133,3 +6133,5 @@ Reference: the P4 diagnostic (B-021) had setup +1.505 / hold +0.112 ns. **Choice
 **Evidence:** `make test-host` passes (17/17, unaffected -- UI-only change); firmware builds clean (`player-library-diagnostic-profile`, 150,904 B ROM); `player` confirmed byte-identical. No card write this entry -- owner asked to hold off.
 **Fix:** `sw_draw()` now shows `sw_album` (the same snapshot B-095's QR page already uses) at row 2, in both `SW_RUN` and `SW_DONE` states -- clear of RUN's row-1 status line and DONE's row-3 action hint. Closes B-094 (logged, not built, two sessions ago).
 **Not done:** not packaged or installed -- next card write will carry this along with whatever comes out of the kernel-work session.
+
+**B-099 addendum — packaged and installed, 2026-09-22.** RBF hash confirmed matching the shipped `TAU` core (no RTL change). Card: backed up and removed `TAU_DEV_41`, installed **TAU DEV 42** (verified against the packaged bundle), synced the base library plus the Test Album (`tau_library.py verify` OK, 41 tracks). Five caches cleared, `._` junk cleared, ejected. Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_42`.
