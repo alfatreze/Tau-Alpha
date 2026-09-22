@@ -484,7 +484,7 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 |---|---|---|---|
 | **1** | **Profile the software decoder** | No | **Done — B-086..B-098, on hardware** |
 | **2** | Decide the MMIO descriptor model in RTL terms (section 9) | No | **Done — B-085** |
-| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; MMIO register file, B1, B2, B6 built and simulation-verified (B-103/B-104); B3-B5 + `TAU_BLIT_BLEND` not started; no Quartus slot spent yet |
+| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; MMIO register file, B1, B2, B4, B6 built and simulation-verified (B-103/B-104/B-105); B3 analysed (needs firmware coordination, not RTL-only); B5 + `TAU_BLIT_BLEND` not started; no Quartus slot spent yet |
 | **3a** | MLAB migration (`glyphbuf` + dcfifo) + font repack + busy-cycle counter, scoped out from 3 as everything not needing the blit opcodes | **Done — B-101/B-102, real multi-seed fit, both seeds Successful** | none |
 | 4 | Meters to cold code | No (firmware) | 3 |
 | 5 | Main RAM 256 -> 192 KB | Yes | 4, and the peak-usage gate in section 4.1 |
@@ -615,13 +615,64 @@ even ran). Two new mutation parameters, both confirmed caught by `make test-rtl-
 entirely — the keyed-word check fails as expected). `make rtl-lint`, `make test-host` and `make test-rtl` all
 pass, 0 failures.
 
-**Not done:** `TAU_BLIT_BLEND` and B3-B5 (sub-pixel skew/masks, scaled blit, alpha blend) — still RTL/simulation
-only, no Quartus slot spent.
+**Not done, at B-104:** `TAU_BLIT_BLEND` and B3-B5 — still RTL/simulation only, no Quartus slot spent.
+
+### B3 (analysed, not built as RTL-only) and B4 (scaled blit, `OP_SBLIT`), simulation-verified (for the record)
+
+**B-105, 2026-09-22.** Owner said "continue with B3 and B4." B3 turned out to be a real scoping finding, not a
+straightforward build; B4 is a complete, verified new opcode.
+
+**B3: the literal mechanism does not translate to this architecture, and the real gap needs firmware
+coordination first — not built as RTL-only.** Section 5 describes an Amiga/Atari ST mechanism: a barrel shifter
+plus first/last-*word* masks, built for a format that packs many 1bpp pixels per word. This engine is one pixel
+per SDRAM word — there is no sub-word packing here for a shifter or a mask to act on, so the literal mechanism
+has nothing to translate to. What it would *buy* — an arbitrary source column offset, and an output width
+independent of the source rectangle — `OP_BLIT` already has, for free, from B1's own generalised addressing; no
+new hardware needed for blits. The one genuine gap is CHAR-specific: the marquee's own comment ("does not clip
+one partially off the left edge") is about sub-*glyph* clipping, which is real and would fix the marquee's
+whole-character scroll. **Checked rather than assumed that retrofitting it is safe, and found it is not:**
+`fw/player.c`'s `fb_char()` never writes `R_FB_SIZE` (`cmd_w`/`cmd_h`) at all — those registers hold whatever an
+earlier, unrelated `fb_rect()`/`fb_copy_span()` call left in them by the time a `CHAR` command is pushed.
+Repurposing `cmd_w`/`cmd_h` as CHAR clip fields, as originally considered, would silently feed garbage leftover
+RECT/COPY dimensions into every existing glyph draw. This needs a firmware change (dedicated clip fields
+`fb_char()` actually sets) before it is safe, which is real coordination work outside an RTL-only delivery's
+scope — recorded here so it is not re-attempted the same way, not because it is unimportant.
+
+**B4 (`OP_SBLIT`, scaled blit, nearest):** built as a genuinely new opcode, so none of B3's compatibility risk
+applies — no existing caller to break. Reuses CHAR's own Bresenham registers directly
+(`char_num`/`char_den`/`acc_x`, `char_numy`/`char_deny`/`acc_y`) rather than duplicating them, since CHAR and a
+blit are never in flight at the same time; the ratios come from the same `nd_x`/`nd_y` wires CHAR's own dispatch
+already computes. The one real generalisation: `sblit_ext()` computes the output extent from a *variable* source
+width/height (`cmd_w`/`cmd_h` — safe here, brand new opcode) and the same four scale factors, instead of CHAR's
+fixed-16px-cell lookup, using only a small multiply-by-constant (x3, for 1.5x/3x) plus a shift, not a general
+divider. Matches section 5's own "no line buffer needed... one read per output pixel" finding directly: every
+output pixel issues its own single-word SDRAM read at the Bresenham-selected source column, returning through
+`A_IDLE` between pixels exactly like every other transaction in this engine (new state `A_SBLIT`) — scanout can
+preempt between *any* two words, not just between rows, which the module's own header comment establishes as
+the whole point of routing everything through one dispatch point. The destination still advances by the sticky
+`DST_STRIDE` every output row, reusing B1's `blit_dst_addr`/`blit_mode` unchanged; only the *source* row
+advances, and only when the Y-Bresenham condition says to (a new conditional step in `A_WRWAIT`, `sblit_mode`
+selecting it over `OP_BLIT`'s own unconditional per-row stride step). Same 128-entry `glyphbuf`/127-word output
+limit as `OP_COPY`/`OP_BLIT`, same reasoning, same "not silently widened here either" note.
+
+**Verification:** two cases in `sim/tb_mp3_fb.v`. 1x (no scaling): confirms the per-pixel read path agrees with
+the row-burst path pixel-for-pixel for the trivial case, including the source row correctly stepping by the
+sticky stride every output row. 2x: a 2x1 source region doubles to 4x2 output — hand-computed expected values
+(every source pixel repeats twice per axis) matched exactly on the first run, a good sign the Bresenham reuse
+is genuinely correct rather than coincidentally close. New mutation parameter `BUG_SBLIT_NO_SCALE` (forces the
+X step to fire every pixel regardless of the accumulator, i.e. silently drops back to an unscaled 1:1 copy) is
+confirmed caught — the 2x test's doubling checks fail exactly as expected. `make rtl-lint`, `make test-host` and
+`make test-rtl` (now 3 mutation cases for this file) all pass, 0 failures.
+
+**Not done:** `TAU_BLIT_BLEND`, B5 (alpha blend) — the one carrying the documented -1.888 ns pipeline-depth risk
+(section 11), and the CHAR sub-glyph clipping half of B3 (needs the firmware coordination described above). No
+Quartus slot spent yet.
 
 ### Next item, in enough detail to start cold
 
-**The rest of blit engine Tier 1: B3 (sub-pixel skew + first/last-column masks), B4 (scaled blit), B5 (alpha
-blend)** — section 5. B5 is the one carrying the documented -1.888 ns pipeline-depth risk (section 11) and wants
-its own macro (`TAU_BLIT_BLEND`) kept separable, per section 10's build plan, so B3/B4 (both `0` M10K, no new
-pipeline depth) are the more natural next step before it. See sections 3-6 and 9-13 for the feature tiers and
-the rest of the plan.
+**B5 (alpha blend, section 5) behind its own `TAU_BLIT_BLEND` macro**, per section 10's build plan — the last
+Tier 1 item, and the one that actually needs care: a DSP-multiply path for real 0-255 alpha plus a shift-add
+path for PSX-style fixed ratios, and the documented risk of tipping the compose pipeline into the -1.888 ns
+cliff the same way upstream HarpMudd's own font-extension work did (`docs/PHASE_F_SPEC.md` section 11, and the
+connection made explicit when researching upstream's Japanese/CJK work this session). Keep the macro separable
+so a timing failure can drop just this piece, per section 10. See sections 3-6 and 9-13 for the rest of the plan.

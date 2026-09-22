@@ -69,7 +69,12 @@ module mp3_fb #(
     // disables B2's colour-key compare in A_COPYRD, so a keyed source pixel
     // always overwrites the destination instead of being dropped. Never set
     // outside that test.
-    parameter BUG_IGNORE_KEY = 0
+    parameter BUG_IGNORE_KEY = 0,
+    // Mutation-test hook only (-PBUG_SBLIT_NO_SCALE=1, make test-rtl-fb-mutation):
+    // 1 forces B4's X-Bresenham to advance the source column on every output
+    // pixel, ignoring char_num/char_den -- a naive 1:1 copy instead of a real
+    // scaled blit. Never set outside that test.
+    parameter BUG_SBLIT_NO_SCALE = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -140,7 +145,7 @@ module mp3_fb #(
     localparam [24:0] FB_BASE = 25'd0;
 
     localparam [2:0] OP_RUN = 3'd0, OP_RECT = 3'd1, OP_CHAR = 3'd2, OP_COPY = 3'd3,
-                     OP_BLIT = 3'd4, OP_BAR = 3'd5;
+                     OP_BLIT = 3'd4, OP_BAR = 3'd5, OP_SBLIT = 3'd6;
     // COPY moves a w x h block SDRAM->SDRAM. It exists for the album-art panel:
     // sliding an image by re-sending its pixels from the CPU would be thousands
     // of commands per animation step and would starve the decoder, whereas the
@@ -170,6 +175,40 @@ module mp3_fb #(
     // meter-fills-from-the-floor reading of "base_y"), unlit rows the top. Colours
     // reuse cmd_fg (lit) / cmd_bg (unlit), the same "no other use for these
     // fields" reasoning COPY's source-address packing already established.
+    //
+    // B3 (sub-pixel skew + first/last-column masks): NOT built here, on purpose,
+    // after real analysis rather than being skipped quietly. The Amiga mechanism
+    // section 5 describes is bit-level -- a barrel shifter and word masks for a
+    // format that packs many 1bpp pixels per word. This engine is one pixel per
+    // SDRAM word; there is no sub-word packing here to mask or shift, so the
+    // literal mechanism does not translate. What it WOULD buy -- an arbitrary
+    // source column offset and an output width independent of the source
+    // rectangle -- OP_BLIT already has, from B1's own generalised addressing; no
+    // new hardware is needed for blits. The one real gap is CHAR-specific: the
+    // marquee's own comment ("does not clip one partially off the left edge") is
+    // about sub-GLYPH clipping, and retrofitting cmd_w/cmd_h onto CHAR to carry
+    // clip fields is NOT safe without a firmware change first -- fw/player.c's
+    // fb_char() never writes R_FB_SIZE at all, so cmd_w/cmd_h at CHAR dispatch
+    // time is whatever an unrelated earlier fb_rect()/fb_copy_span() left there.
+    // Confirmed by reading the source, not assumed. Needs firmware coordination
+    // (new, dedicated clip fields firmware actually sets before every fb_char()
+    // call), which is out of scope for an RTL-only delivery.
+    //
+    // B4 (scaled blit, nearest): OP_SBLIT. Reuses CHAR's own Bresenham
+    // machinery -- literally the same char_num/char_den/acc_x/char_numy/
+    // char_deny/acc_y registers, since CHAR and a blit are never in flight at
+    // the same time -- against a variable SOURCE width/height (cmd_w/cmd_h,
+    // safe here because OP_SBLIT is a brand new opcode with no existing caller
+    // to break) instead of the fixed 16px font cell. Per the section 5 finding
+    // ("no line buffer needed... one read per output pixel"): every output
+    // pixel issues its OWN single-word SDRAM read at the Bresenham-selected
+    // source column, going back through A_IDLE between pixels like every other
+    // transaction here -- scanout can still preempt between ANY two words, not
+    // just between rows. Destination still advances by the sticky DST_STRIDE
+    // every output row (reusing blit_dst_addr/blit_mode from B1 unchanged);
+    // only the SOURCE row advances, and only when the Y-Bresenham says to.
+    // Same 128-entry glyphbuf/127-word limit as OP_COPY/OP_BLIT, same reason,
+    // same "not silently fixed here" note.
 
     // Declared before the scale helpers consume them. Quartus accepted the
     // former declaration-after-use ordering, but standards-strict simulators
@@ -197,6 +236,26 @@ module mp3_fb #(
             2'd2: scale_ext = 9'd32;
             default: scale_ext = 9'd48;
         endcase
+    endfunction
+
+    // B4: the same scale_nd() ratios as CHAR/scale_ext, but against a variable
+    // SOURCE width instead of a fixed 16px cell. Multiply-by-small-constant
+    // (x3) plus a shift, not a general divider -- cheap, matching section 5's
+    // "0 M10K" for this feature (this is ALM cost, a different budget, but
+    // still small: a 9-bit-by-3 multiply is adds, not a DSP block). Clamped to
+    // 127 -- the same glyphbuf-width limit OP_COPY/OP_BLIT already carry,
+    // documented there and not silently widened here either.
+    function [8:0] sblit_ext(input [8:0] src, input [1:0] sel);
+        reg [10:0] scaled;
+        begin
+            case (sel)
+                2'd0: scaled = {2'd0, src};
+                2'd1: scaled = ({2'd0, src} * 11'd3) >> 1;
+                2'd2: scaled = {2'd0, src} << 1;
+                default: scaled = {2'd0, src} * 11'd3;
+            endcase
+            sblit_ext = (scaled > 11'd127) ? 9'd127 : scaled[8:0];
+        end
     endfunction
 
     // Top black guard-band, INHERITED FROM pocket_vector_fb.sv AND NOW 0.
@@ -290,6 +349,10 @@ module mp3_fb #(
     wire [8:0] bar_lit     = (bar_lit_raw > q_h) ? q_h : bar_lit_raw;
     wire [8:0] bar_unlit   = q_h - bar_lit;
 
+    // B4 (OP_SBLIT): output extent from source width/height (q_w/q_h) and scale.
+    wire [8:0] sblit_out_w = sblit_ext(q_w, q_sx);
+    wire [8:0] sblit_out_h = sblit_ext(q_h, q_sy);
+
     // ======================================================================
     // Scanout line buffer: parity-split double buffer, exactly as
     // pocket_vector_fb.sv -- one half drains to clk_vid while the other half
@@ -335,9 +398,10 @@ module mp3_fb #(
     // it, so scanout FILL -- the only deadline in the design -- can preempt
     // between any two bursts.
     // ======================================================================
-    localparam A_IDLE=3'd0, A_FILL=3'd1, A_FILL_END=3'd2, A_WRWAIT=3'd3,
-               A_ROWFETCH=3'd4, A_COMPOSE=3'd5, A_COPYRD=3'd6, A_KEYDST=3'd7;
-    reg [2:0]  astate = A_IDLE;
+    localparam A_IDLE=4'd0, A_FILL=4'd1, A_FILL_END=4'd2, A_WRWAIT=4'd3,
+               A_ROWFETCH=4'd4, A_COMPOSE=4'd5, A_COPYRD=4'd6, A_KEYDST=4'd7,
+               A_SBLIT=4'd8;
+    reg [3:0]  astate = A_IDLE;
     reg [10:0] fill_cnt = 0;
 
     reg       fill_req_tgl = 0;
@@ -408,6 +472,16 @@ module mp3_fb #(
     // every A_COPYRD (so it is always fresh 0 at the start of a new row/command
     // regardless of what the previous command left it at).
     reg        key_dst_done = 1'b0;
+
+    // B4 (OP_SBLIT) state. sblit_mode selects the conditional (Y-Bresenham-
+    // gated) source row step in A_WRWAIT over BLIT's own unconditional one;
+    // blit_dst_addr/blit_mode are reused unchanged for the destination side.
+    // char_num/char_den/acc_x (X) and char_numy/char_deny/acc_y (Y) are
+    // CHAR's own Bresenham registers, reused here rather than duplicated --
+    // CHAR and a blit are never in flight at the same time.
+    reg        sblit_mode;
+    reg [8:0]  sblit_ex;              // current source column, 0..source_w-1
+    reg [24:0] sblit_src_row_addr;    // current source ROW's base address
 
     // ---- 4bpp coverage sampling (combinational) --------------------------
     // rowbits holds the CURRENT source row: 16 pixels x 4 bits, fetched as two
@@ -497,6 +571,7 @@ module mp3_fb #(
             blit_mode <= 1'b0;
             bar2_pending <= 1'b0;
             key_dst_done <= 1'b0;
+            sblit_mode   <= 1'b0;
             rd_ptr <= 0; rd_ptr_g <= 0;
         end else begin
             case (astate)
@@ -552,7 +627,17 @@ module mp3_fb #(
                         p0_rd_req <= 1'b1;
                         copy_cnt  <= 8'd0;
                         astate    <= A_COPYRD;
-                    end else if (!copy_mode && char_rows_left_nz && !char_row_ready) begin
+                    // B4: one source-pixel read per output column, each its own
+                    // transaction back through A_IDLE (see the module-header
+                    // comment) -- scanout can preempt between any two pixels,
+                    // not just between rows.
+                    end else if (sblit_mode && char_rows_left_nz
+                                 && !char_row_ready && can_sdram) begin
+                        p0_addr   <= sblit_src_row_addr + {16'd0, sblit_ex};
+                        p0_rd_req <= 1'b1;
+                        astate    <= A_SBLIT;
+
+                    end else if (!copy_mode && !sblit_mode && char_rows_left_nz && !char_row_ready) begin
                         rowf_cnt <= 2'd0;
                         astate   <= A_ROWFETCH;
 
@@ -567,6 +652,7 @@ module mp3_fb #(
                                 copy_mode <= 1'b0;
                                 blit_mode <= 1'b0;
                                 bar2_pending <= 1'b0;
+                                sblit_mode   <= 1'b0;
                                 char_sx   <= q_sx;
                                 char_sy   <= q_sy;
                                 // EPX doubles 8x8 -> 16x16, then each axis is
@@ -595,12 +681,14 @@ module mp3_fb #(
                                 rect_active <= (q_h != 9'd0) && (q_w != 9'd0);
                                 blit_mode   <= 1'b0;
                                 bar2_pending <= 1'b0;
+                                sblit_mode   <= 1'b0;
                             end
                             OP_COPY: begin
                                 copy_src  <= {q_fg[2:0], q_bg};
                                 copy_mode <= 1'b1;
                                 blit_mode <= 1'b0;
                                 bar2_pending <= 1'b0;
+                                sblit_mode   <= 1'b0;
                                 char_addr <= q_addr;
                                 char_w    <= q_w[6:0];
                                 char_rows_left    <= q_h;
@@ -616,6 +704,7 @@ module mp3_fb #(
                                 copy_mode <= 1'b1;
                                 blit_mode <= 1'b1;
                                 bar2_pending <= 1'b0;
+                                sblit_mode   <= 1'b0;
                                 blit_dst_addr <= blt_dst_base + {6'd0, q_addr};
                                 blit_src_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
                                 char_w    <= q_w[6:0];
@@ -628,7 +717,8 @@ module mp3_fb #(
                             // is queued and fires from A_WRWAIT when phase 1's last row
                             // retires. If there is no unlit segment, skip straight to lit.
                             OP_BAR: begin
-                                blit_mode <= 1'b0;
+                                blit_mode  <= 1'b0;
+                                sblit_mode <= 1'b0;
                                 rect_addr <= q_addr;
                                 rect_w    <= q_w;
                                 if (bar_unlit != 9'd0) begin
@@ -646,6 +736,27 @@ module mp3_fb #(
                                     bar2_pending <= 1'b0;
                                 end
                             end
+                            // Phase F B4: see the module-header comment above. Output
+                            // extent (sblit_out_w/h) and the Bresenham ratios (nd_x/nd_y,
+                            // shared with CHAR) are computed once here; A_IDLE issues one
+                            // source-pixel read per output column from here on.
+                            OP_SBLIT: begin
+                                copy_mode  <= 1'b0;   // NOT the COPY/BLIT burst-read path
+                                blit_mode  <= 1'b1;   // reuse blit_dst_addr's per-row dest step
+                                sblit_mode <= 1'b1;
+                                bar2_pending <= 1'b0;
+                                blit_dst_addr      <= blt_dst_base + {6'd0, q_addr};
+                                sblit_src_row_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
+                                char_num  <= nd_x[5:3];
+                                char_den  <= nd_x[2:0];
+                                char_numy <= nd_y[5:3];
+                                char_deny <= nd_y[2:0];
+                                char_w            <= sblit_out_w[6:0];
+                                char_rows_left    <= sblit_out_h;
+                                char_rows_left_nz <= (sblit_out_w != 9'd0) && (sblit_out_h != 9'd0);
+                                sblit_ex <= 9'd0; acc_x <= 3'd0; acc_y <= 3'd0;
+                                copy_cnt <= 8'd0;
+                            end
                             default: begin   // OP_RUN -- a one-row rect
                                 rect_addr   <= q_addr;
                                 rect_w      <= q_w;
@@ -653,6 +764,7 @@ module mp3_fb #(
                                 rect_active <= (q_w != 9'd0);
                                 blit_mode   <= 1'b0;
                                 bar2_pending <= 1'b0;
+                                sblit_mode   <= 1'b0;
                             end
                         endcase
                     end
@@ -690,12 +802,27 @@ module mp3_fb #(
                             char_rows_left_nz <= 1'b0;
                             copy_mode         <= 1'b0;
                             blit_mode         <= 1'b0;
+                            sblit_mode        <= 1'b0;
+                        end
+                        // B4: reset the per-row pixel scan for the NEXT output row.
+                        // Dead but harmless for every other op (same reasoning as the
+                        // char_addr/copy_src/blit_*_addr steps above, which SBLIT
+                        // itself never reads).
+                        if (sblit_mode) begin
+                            copy_cnt <= 8'd0;
+                            sblit_ex <= 9'd0;
+                            acc_x    <= 3'd0;
                         end
                         // Bresenham step in Y: same accumulator idea as X, so
-                        // vertical scaling can be fractional too.
+                        // vertical scaling can be fractional too. SBLIT steps its
+                        // OWN source-row address (sblit_src_row_addr, by the sticky
+                        // STRIDE) instead of CHAR's font-cell row index (ey).
                         if (acc_y + char_numy >= char_deny) begin
                             acc_y <= acc_y + char_numy - char_deny;
-                            ey    <= ey + 4'd1;
+                            if (sblit_mode)
+                                sblit_src_row_addr <= sblit_src_row_addr + {15'd0, blt_src_stride};
+                            else
+                                ey <= ey + 4'd1;
                         end else begin
                             acc_y <= acc_y + char_numy;
                         end
@@ -755,6 +882,32 @@ module mp3_fb #(
                             key_dst_done     <= 1'b1;
                             astate <= A_IDLE;
                         end else copy_cnt <= copy_cnt + 8'd1;
+                    end
+                end
+
+                // -------------------------------------- B4: one-pixel read --
+                // Response to the single-word read A_IDLE just issued. Stores
+                // it, ends that one-word transaction, and either marks the row
+                // done (char_row_ready, same write path every other opcode
+                // uses) or steps the X-Bresenham and goes back to A_IDLE for
+                // the NEXT pixel's read -- never chains a second request
+                // directly from here.
+                A_SBLIT: begin
+                    if (p0_data_available) begin
+                        glyphbuf[copy_cnt[6:0]] <= p0_q;
+                        p0_end_burst_req <= 1'b1;
+                        if (copy_cnt == char_w[6:0] - 7'd1) begin
+                            char_row_ready <= 1'b1;
+                        end else begin
+                            copy_cnt <= copy_cnt + 8'd1;
+                            if (BUG_SBLIT_NO_SCALE || (acc_x + char_num >= char_den)) begin
+                                acc_x    <= acc_x + char_num - char_den;
+                                sblit_ex <= sblit_ex + 9'd1;
+                            end else begin
+                                acc_x <= acc_x + char_num;
+                            end
+                        end
+                        astate <= A_IDLE;
                     end
                 end
 
