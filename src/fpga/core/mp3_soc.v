@@ -58,7 +58,11 @@ module mp3_soc #(
     // (32 MiB, PSRAM byte offset = address - 0x2400_0000), read-only, through a second tau_psram_bus and a two-client
     // arbiter on the existing PSRAM port. Needs PSRAM_WINDOW_ENABLE. Inert (identical netlist) when 0.
     parameter PSRAM_IFETCH_ENABLE = 0,
-    parameter IFETCH_GAP = 2                // test hook: idle cycles after each PSRAM transaction (0 reproduces back-to-back requests)
+    parameter IFETCH_GAP = 2,               // test hook: idle cycles after each PSRAM transaction (0 reproduces back-to-back requests)
+    // Phase F B7: SDRAM busy-cycle counter (PHASE_F_SPEC.md section 5). The counter itself lives
+    // outside this module, in clk_sdram, and is CDC'd in by the caller (tau_cdc_gray_ctr) -- this
+    // just gates whether 0xBC exposes it or reads zero. Inert (identical netlist) when 0.
+    parameter SDRAM_BUSY_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -209,7 +213,12 @@ module mp3_soc #(
     output wire [3:0]   psram_be,
     input  wire         psram_done,
     input  wire [31:0]  psram_rdata,
-    input  wire         psram_guard
+    input  wire         psram_guard,
+
+    // Phase F B7: already-CDC'd SDRAM busy-cycle count (clk_sys domain, sourced from clk_sdram
+    // by the caller). Unread when SDRAM_BUSY_ENABLE is 0, so legacy builds and testbenches that
+    // do not wire this port are unaffected -- same convention as xm_rdata above.
+    input  wire [31:0]  sdram_busy_rd
 );
 
     // ---------------------------------------------------------------- CPU ---
@@ -767,6 +776,7 @@ module mp3_soc #(
             8'hB0:     mmio_rdata = if_n_rd;                              // instruction beats served from PSRAM
             8'hB4:     mmio_rdata = if_cyc_rd;                            // cycles the fetch stage waited on PSRAM
             8'hB8:     mmio_rdata = {31'd0, (PSRAM_IFETCH_ENABLE != 0)};  // feature present (write = clear counters)
+            8'hBC:     mmio_rdata = (SDRAM_BUSY_ENABLE != 0) ? sdram_busy_rd : 32'd0;  // B7: SDRAM port-busy cycles, free-running since reset
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end
