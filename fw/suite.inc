@@ -782,6 +782,11 @@ COLD_TEXT static void sw_draw(void)
     q = set_str(q, "Track "); q = ui_dec(q, sw_idx + (sw_state == SW_DONE ? 0u : 1u)); q = set_str(q, " / "); q = ui_dec(q, sw_n); *q = 0;
     fb_set_color(UI_WHITE, UI_PANEL);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
+    /* B-094: which album/queue is actually loaded, not just a bare count --
+     * row 2, clear of RUN's row-1 status and DONE's row-3 action hint in
+     * both states. sw_album is the same snapshot the QR page (B-095) uses. */
+    fb_set_color(UI_FAINT, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, sw_album, TS_1X, TS_1X, PL_UI_W - 32u);
     if (sw_state == SW_RUN) {
         fb_set_color(UI_DIM, UI_PANEL);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, sw_started ? "sampling..." : "waiting for playback...", TS_1X, TS_1X, PL_UI_W - 32u);
