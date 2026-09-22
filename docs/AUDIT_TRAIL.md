@@ -6104,3 +6104,26 @@ Reference: the P4 diagnostic (B-021) had setup +1.505 / hold +0.112 ns. **Choice
 
 **B-097 addendum — packaged and installed, 2026-09-22.** RBF hash confirmed matching the shipped `TAU` core (no RTL change). Card: backed up and removed `TAU_DEV_40`, installed **TAU DEV 41** (verified against the packaged bundle), synced the base library plus the Test Album (`tau_library.py verify` OK, 41 tracks, `Audio Test Suite` still 1-11 in order). Five caches cleared, `._` junk cleared, ejected. Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_41`.
 **Not done:** no hardware run of the fix yet -- the owner's next sweep is what confirms the cross-format contamination is actually gone.
+
+### B-098 — Decoder stage cost, clean data at last: B-097's fix confirmed, FLAC refresh done, MP3 findings hold on real content
+**Date:** 2026-09-22
+**Evidence:** decoded two sweep QR codes from `TAU_DEV_41` (B-097's track_fmt-gated build) via `tools/decode_tau_suite.py --qr`. Identical across both runs. No card write this entry (read-only, ejected).
+**B-097's fix confirmed working.** R is now 0 on all 7 MP3 tracks (was nonzero and plausible-looking on 4 of them, before the fix, from the same album). Nonzero R appears only on the 4 FLAC tracks. This is the first sweep run whose data can actually be trusted end to end.
+**Full results (identical both runs), MacCunn = dense orchestral+chorus, Clementi = sparse solo piano:**
+| track | h_pct | i_pct | s_pct | r_pct |
+|---|---|---|---|---|
+| MacCunn FLAC 44.1k | - | - | - | 12 |
+| MacCunn MP3 128 44.1k | 3 | 11 | 53 | - |
+| MacCunn MP3 320 44.1k | 5 | 13 | 54 | - |
+| MacCunn FLAC 48k | - | - | - | 15 |
+| MacCunn MP3 320 48k | 3 | 9 | 41 | - |
+| Clementi FLAC 44.1k | - | - | - | 7 |
+| Clementi MP3 128 44.1k | 3 | 11 | 53 | - |
+| Clementi MP3 320 44.1k | 5 | 14 | 54 | - |
+| Clementi FLAC 48k | - | - | - | 11 |
+| Clementi MP3 320 48k | 5 | 14 | 58 | - |
+| Speech MP3 128 44.1k | 2 | 6 | 20 | - |
+**MP3: B-087's finding holds on real, content-controlled data.** Subband dominates (41-58%), Huffman is smallest (2-5%), and H rises with bitrate as predicted (3% at 128 kbps -> 5% at 320 kbps) while IMDCT/Subband stay roughly flat -- this is the design behaving as expected, not an artifact of the earlier stress-test files. **New, unpredicted result:** at the same 320 kbps, every stage reads *lower* at 48 kHz than 44.1 kHz (H5/I13/S54 vs H3/I9/S41 for MacCunn) -- consistent with FLAC.md's coded-bits-per-sample logic (320 kbps spread over more samples/sec means fewer coded bits each), now shown to hold for MP3 as well as FLAC.
+**FLAC: refreshed, and it does NOT match FLAC.md's original number.** R sits at 7-15% across both pieces and both sample rates here, against FLAC.md's Pink Floyd (also 16-bit) measured at **64%**. Both are real content, both 16-bit, both a comparable class of bitrate -- the gap is not explained by anything measured so far. Two live hypotheses, neither confirmed: (a) content/dynamics (dense orchestral or sparse piano vs. rock) drives R far more than bit depth alone, contrary to what FLAC.md concluded from comparing only bit-depth-varying files of the same genre; (b) something else specific to the original Pink Floyd/Furs files (now unrecoverable, B-086) that isn't captured by "16-bit, real music." Neither figure should be treated as a stand-in for the other pending more data.
+**Kernel-order conclusion unchanged from B-087, now on firmer ground:** MP3's filterbank-first case is confirmed on real content, not just stress-test files. FLAC's kernel ordering is still genuinely unresolved -- the refresh answered "is the R0 vectors problem fixed" (yes) but opened a new, more interesting question about what actually drives R, which the current Test Album cannot settle alone (would need matched, varied real content, ideally spanning genres/dynamics, at fixed bit depth).
+**Docs updated:** `docs/ARCHITECTURE_ROADMAP.md` "Decoder stage cost" row (B-098 findings appended).
