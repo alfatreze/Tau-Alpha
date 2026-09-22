@@ -22,7 +22,7 @@ TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window te
          4: "Playlist / library check", 5: "Playback counters", 6: "Timings", 7: "Stress R1 (30 s)",
          8: "Stress R2 (30 s)", 9: "Stress R3 (30 s)", 10: "Soak", 11: "Track changes (10)", 12: "Cold code x20"}
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
-        10: "settings", 11: "errors", 12: "notes", 13: "decprof"}
+        10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep"}
 B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
@@ -71,8 +71,13 @@ def parse_record(rec: bytes) -> dict:
         if tag == 3 and n == 6:
             tid, res, val = v[0], v[1], struct.unpack("<I", v[2:])[0]
             out["tests"].append({"id": tid, "name": TESTS.get(tid, f"test {tid}"), "result": RESULTS.get(res, str(res)), "value": val})
+        elif tag == 14 and n == 9:              # Decode Profile Sweep: one entry per track (B-090/B-091), repeatable
+            track_idx = v[0]
+            h, i2, s, r = (int.from_bytes(v[k:k + 2], "little") for k in range(1, 9, 2))
+            out["entries"].setdefault("decsweep", []).append(
+                {"track": track_idx, "h_pct": h, "i_pct": i2, "s_pct": s, "r_pct": r})
         elif tag in TAGS:
-            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2}[tag]
+            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1}[tag]
             if tag == 1:
                 fw, rev, flags, gap = (struct.unpack("<I", v[k:k + 4])[0] for k in range(0, 16, 4))
                 out["entries"]["build"] = {"firmware": f"{fw >> 16 & 255}.{fw >> 8 & 255}.{fw & 255}", "bitstream": f"{rev:08X}",

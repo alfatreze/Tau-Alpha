@@ -551,4 +551,206 @@ COLD_TEXT static int chk_input(uint32_t edge)
     }
     return 1;
 }
+
+#if MP3_PROFILE || FLAC_PROFILE
+/* ============================================================ DECODE PROFILE SWEEP (B-090/B-091)
+ * A batch companion to CT_AUD's single sample: sweeps the library's CURRENT
+ * QUEUE (whatever album or playlist is open), measuring each track up to
+ * SW_WIN_S seconds (capped by the track's own length), and emits ONE QR at
+ * the end covering every track (docs/TEST_SUITE_SPEC.md section 12).
+ *
+ * Its own page, not a Check profile: a sweep has no pass/fail verdict, so
+ * folding it into Check's framing would strain both. It shares CHK_QR/
+ * CHK_REC/CHK_TXT (PSRAM scratch) with Check -- the two pages are never open
+ * at once, so there is no real second user of that memory. */
+enum { SW_IDLE = 0, SW_RUN, SW_DONE, SW_QR, SW_REFUSED };
+#define SW_MAX_TRACKS 48u   /* QR version 20/level M budget -- see the spec section for the arithmetic */
+#define SW_WIN_S      15u   /* matches CHK_AUDIO_S */
+static uint8_t  sw_state, sw_started, sw_qr_len, sw_qr_ver;
+static uint16_t sw_idx, sw_n, sw_done_n, sw_skip_n;
+static uint32_t sw_at, sw_win0, sw_wait0;
+static sr_t     sw_rec;
+
+/* Latches one track's decode-stage percentages against the ACTUAL elapsed
+ * window (not always SW_WIN_S*CLK_HZ -- a track shorter than the cap ends
+ * the window early) and appends a repeatable SR_T_DECSWEEP entry. */
+COLD_TEXT static void sw_sample(uint32_t elapsed)
+{
+    uint32_t unit = elapsed / 100u; if (!unit) unit = 1u;
+    uint16_t h = 0, i = 0, s = 0, r = 0;
+#if MP3_PROFILE
+    h = (uint16_t)(mp3_huff_total_cyc  / unit);
+    i = (uint16_t)(mp3_imdct_total_cyc / unit);
+    s = (uint16_t)(mp3_sub_total_cyc   / unit);
+#endif
+#if FLAC_PROFILE
+    { uint32_t rt = flac_res_total_cyc + flac_lpc_total_cyc;
+      r = (uint16_t)(rt ? (flac_res_total_cyc * 100u) / rt : 0u); }
+#endif
+    uint8_t t[9] = { (uint8_t)sw_idx, (uint8_t)h, (uint8_t)(h >> 8), (uint8_t)i, (uint8_t)(i >> 8),
+                     (uint8_t)s, (uint8_t)(s >> 8), (uint8_t)r, (uint8_t)(r >> 8) };
+    sr_tlv(&sw_rec, SR_T_DECSWEEP, t, 9);
+    sw_done_n++;
+}
+
+COLD_TEXT static void sw_finish(void)
+{
+    uint32_t len = sr_finish(&sw_rec);
+    sw_qr_len = 0;
+    if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
+        uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
+        uint32_t ver = 0, mask = 0;
+        uint32_t sz = qr_encode((const uint8_t *)CHK_TXT, txtlen, 1u, CHK_QR_MAXV, 0, CHK_QR, &ver, &mask);
+        if (sz) { sw_qr_len = sz; sw_qr_ver = ver; }
+    }
+}
+
+/* One tick of one track: first phase waits for playback to actually START
+ * (never count a load/silence gap as decode cost -- the same trap CT_AUD's
+ * own chk_at gating avoids for a single track), then runs the window. A
+ * track that refuses to open within 3 s is skipped, not retried forever. */
+COLD_TEXT static void sw_advance(void)
+{
+    if (!COLD_READY()) { sw_state = SW_IDLE; set_dirty = 1u; return; }
+    if (!sw_started) {
+        if (!track_hz || paused || stopped) {
+            if ((int32_t)(cycles() - sw_wait0) > (int32_t)(3u * CLK_HZ)) {
+                sw_skip_n++;
+                if (++sw_idx >= sw_n) { sw_finish(); sw_state = SW_DONE; }
+                else { lib_skip(+1); sw_wait0 = cycles(); }
+                set_dirty = 1u;
+            }
+            return;
+        }
+#if MP3_PROFILE
+        mp3_huff_total_cyc = mp3_imdct_total_cyc = mp3_sub_total_cyc = 0u;
+#endif
+#if FLAC_PROFILE
+        flac_res_total_cyc = flac_lpc_total_cyc = 0u;
+#endif
+        sw_win0 = cycles(); sw_at = sw_win0 + SW_WIN_S * CLK_HZ; sw_started = 1u;
+        set_dirty = 1u;
+        return;
+    }
+    if (!track_hz || paused || stopped) sw_sample(cycles() - sw_win0);   /* ended before the cap */
+    else if ((int32_t)(cycles() - sw_at) < 0) return;                    /* still running */
+    else sw_sample(SW_WIN_S * CLK_HZ);                                   /* hit the cap */
+    sw_started = 0u;
+    if (++sw_idx >= sw_n) { sw_finish(); sw_state = SW_DONE; }
+    else { lib_skip(+1); sw_wait0 = cycles(); }
+    set_dirty = 1u;
+}
+
+COLD_TEXT static void sw_begin(void)
+{
+    if (!lib_qn || lib_qn > SW_MAX_TRACKS) { sw_state = SW_REFUSED; set_dirty = 1u; return; }
+    sw_n = lib_qn; sw_idx = 0u; sw_done_n = 0u; sw_skip_n = 0u;
+    sr_init(&sw_rec, CHK_REC, CHK_REC_CAP, 6u);
+    uint32_t fwv = ((uint32_t)(APP_VER[0] - '0') << 16) | ((uint32_t)(APP_VER[2] - '0') << 8) | (uint32_t)(APP_VER[4] - '0');
+    uint32_t build[4] = { fwv, REG(R_VERSION), 0u, 0u };
+    sr_vals(&sw_rec, SR_T_BUILD, 4, build, 4);
+    lib_play_span(0u, +1, lib_qn);        /* deterministic start: track 0 of the queue */
+    sw_started = 0u; sw_wait0 = cycles();
+    sw_state = SW_RUN;
+    set_dirty = 1u;
+}
+static void sw_open(void) { sw_state = SW_IDLE; }
+static void sw_tick(void)
+{
+    if (sw_state != SW_RUN) return;
+    if (set_open && set_page == SET_SWEEP_PG) sw_advance(); else sw_state = SW_IDLE;
+}
+
+COLD_TEXT static void sw_draw_qr(void)
+{
+    const uint32_t sz = sw_qr_len;
+    uint32_t m = 354u / (sz + 8u);
+    if (m > 4u) m = 4u;
+    const uint32_t side = (sz + 8u) * m, x0 = (FB_W - side) / 2u;
+    fb_rect(0u, 0u, FB_W, FB_H, UI_BG);
+    fb_rect(x0, 0u, side, side, 0xFFFFu);
+    for (uint32_t y = 0; y < sz; y++) {
+        uint32_t x = 0;
+        while (x < sz) {
+            if (!qr_get(CHK_QR, sz, (int)x, (int)y)) { x++; continue; }
+            uint32_t e = x + 1u;
+            while (e < sz && qr_get(CHK_QR, sz, (int)e, (int)y)) e++;
+            fb_rect(x0 + (x + 4u) * m, (y + 4u) * m, (e - x) * m, m, 0x0000u);
+            x = e;
+        }
+    }
+    if (side + 44u > FB_H) return;
+    char t[40], *q = t;
+    q = set_str(q, "SWEEP v"); q = ui_dec(q, sw_qr_ver); *q = 0;
+    fb_set_color(UI_DIM, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, side + 6u, t, TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_set_color(UI_FAINT, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, "MENU+START FOR A SCREENSHOT", TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
+COLD_TEXT static void sw_draw(void)
+{
+    if (sw_state == SW_QR && sw_qr_len) { sw_draw_qr(); return; }
+    ov_frame("DECODE SWEEP",
+             sw_state == SW_RUN ? "RUNNING" : sw_state == SW_REFUSED ? "REFUSED" : sw_state == SW_DONE ? "DONE" : "",
+             sw_state == SW_IDLE ? "A START   B BACK" : "B BACK");
+    if (sw_state == SW_IDLE) {
+        fb_set_color(UI_WHITE, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, "Runs decode-cost sampling over", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, "the currently open album or", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "playlist, up to 15s per track.", TS_1X, TS_1X, PL_UI_W - 32u);
+        char ln[40], *q = ln;
+        q = set_str(q, "Queue: "); q = ui_dec(q, lib_qn); q = set_str(q, " tracks"); *q = 0;
+        fb_set_color(lib_qn && lib_qn <= SW_MAX_TRACKS ? UI_DIM : UI_RED, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 4u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 5u * PL_UI_ROW_H, "A START   B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+        return;
+    }
+    if (sw_state == SW_REFUSED) {
+        fb_set_color(UI_RED, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, lib_qn ? "TOO MANY TRACKS (48 MAX)" : "NOTHING QUEUED", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+        return;
+    }
+    char ln[40], *q = ln;
+    q = set_str(q, "Track "); q = ui_dec(q, sw_idx + (sw_state == SW_DONE ? 0u : 1u)); q = set_str(q, " / "); q = ui_dec(q, sw_n); *q = 0;
+    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
+    if (sw_state == SW_RUN) {
+        fb_set_color(UI_DIM, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, sw_started ? "sampling..." : "waiting for playback...", TS_1X, TS_1X, PL_UI_W - 32u);
+    }
+    if (sw_state == SW_DONE) {
+        char dn[40], *dq = dn;
+        dq = set_str(dq, "sampled "); dq = ui_dec(dq, sw_done_n);
+        if (sw_skip_n) { dq = set_str(dq, ", skipped "); dq = ui_dec(dq, sw_skip_n); }
+        *dq = 0;
+        fb_set_color(sw_qr_len ? ui_accent : UI_RED, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, dn, TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, sw_qr_len ? "A QR   B BACK" : "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+    }
+}
+
+COLD_TEXT static int sw_input(uint32_t edge)
+{
+    if (edge & KEY_START) { if (sw_state != SW_RUN) set_close(); return 1; }
+    if (sw_state == SW_IDLE) {
+        if (edge & KEY_A) sw_begin();
+        else if (edge & (KEY_B | KEY_LEFT)) { set_page = CHK_PARENT; set_dirty = 1u; }
+    } else if (sw_state == SW_REFUSED) {
+        if (edge & (KEY_B | KEY_LEFT | KEY_A)) { sw_state = SW_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
+    } else if (sw_state == SW_RUN) {
+        if (edge & KEY_B) sw_state = SW_IDLE;   /* abort */
+    } else if (sw_state == SW_DONE) {
+        if ((edge & (KEY_A | KEY_RIGHT)) && sw_qr_len) { sw_state = SW_QR; set_dirty = 1u; }
+        else if (edge & (KEY_B | KEY_LEFT)) { sw_state = SW_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
+    } else {   /* SW_QR */
+        if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { sw_state = SW_DONE; set_dirty = 1u; }
+    }
+    return 1;
+}
+#endif
 #endif

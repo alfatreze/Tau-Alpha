@@ -26,6 +26,9 @@ enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS,
 #define SET_LIBCFG_PG ((uint8_t)(SET_HELP_PG + 1u)) /* library on/off with a confirmation */
 #if TAU_CHECK
 #define SET_CHECK_PG ((uint8_t)(SET_LIBCFG_PG + 1u)) /* the user-facing diagnostics run (fw/suite.inc) */
+#if MP3_PROFILE || FLAC_PROFILE
+#define SET_SWEEP_PG ((uint8_t)(SET_CHECK_PG + 1u))   /* Decode Profile Sweep, B-090/B-091 (fw/suite.inc) */
+#endif
 #endif
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
@@ -70,6 +73,9 @@ static const set_row_t set_dgn_rows[] = {
     { "ALL SPEEDS", RT_TOGGLE, TG_SPEEDS },
 #if TAU_CHECK
     { "CHECK", RT_GROUP, SET_CHECK_PG },
+#if MP3_PROFILE || FLAC_PROFILE
+    { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
+#endif
 #endif
 #else
     { "INFO", RT_GROUP, SET_INFO_PG },          /* unreachable placeholder: the page exists only in the Diagnostic Build */
@@ -822,6 +828,9 @@ COLD_FN static void set_draw(void)
     else if (set_page == SET_HELP_PG)        set_draw_help();
 #if TAU_CHECK
     else if (set_page == SET_CHECK_PG)       chk_draw();
+#if MP3_PROFILE || FLAC_PROFILE
+    else if (set_page == SET_SWEEP_PG)       sw_draw();
+#endif
 #endif
 #endif
 #if TAU_DIAG_INFO
@@ -873,6 +882,9 @@ static int set_input(uint32_t edge, uint32_t keys)
     }
 #if TAU_CHECK
     if (set_page == SET_CHECK_PG) return chk_input(edge);      /* first: Start is handled there (it must not close the result pages) */
+#if MP3_PROFILE || FLAC_PROFILE
+    if (set_page == SET_SWEEP_PG) return sw_input(edge);
+#endif
 #endif
     if (edge & KEY_START) { set_close(); return 1; }
 #if TAU_LIBRARY
@@ -918,6 +930,9 @@ static int set_input(uint32_t edge, uint32_t keys)
             set_page = r->arg; set_dirty = 1u;
 #if TAU_CHECK
             if (set_page == SET_CHECK_PG) chk_open();
+#if MP3_PROFILE || FLAC_PROFILE
+            if (set_page == SET_SWEEP_PG) sw_open();
+#endif
 #endif
         }
         else if (r->type == RT_CHOICE) {
