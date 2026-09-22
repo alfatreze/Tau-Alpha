@@ -34,6 +34,9 @@
  * headers depends on anything in this file. */
 #include <stdlib.h>                /* malloc/free -- fw/alloc.c provides them */
 #include "flac.h"
+#if MP3_PROFILE
+#include "mp3_profile.h"
+#endif
 
 #define REG(a)      (*(volatile uint32_t *)(uintptr_t)(a))
 
@@ -161,7 +164,7 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 /* Shown on the splash. This is the PRODUCT version, not the RTL/firmware
  * contract above -- they answer different questions and must not be conflated.
  * Keep it in step with the status line in README.md; nothing enforces that. */
-#define APP_VER "0.3.0"
+#define APP_VER "0.4.0"
 
 /* Developer diagnostics, OFF in a release build. Flip to 1 to bring back
  * Select+A (APF slot table, boot vs live), Select+B (the framework's file
@@ -211,6 +214,28 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #ifndef TAU_SETTINGS_UI
 #define TAU_SETTINGS_UI 0
 #endif
+/* Media library (spec docs/MEDIA_LIBRARY_0.4_SPEC.md): browse and play from a host-built index in PSRAM.
+ * Off by default; needs the PSRAM window bitstream (proven at boot, feature off if absent). */
+#ifndef TAU_LIBRARY
+#define TAU_LIBRARY 0
+#endif
+/* Phase G1 (docs/PHASE_G_SPEC.md): read-only data that is only needed occasionally lives in PSRAM (section .cold_data,
+ * loaded from tau-cold.bin at boot). Off: COLD_DATA is empty and the data stays in the ROM image. */
+#ifndef TAU_COLD
+#define TAU_COLD 0
+#endif
+#if TAU_COLD
+#define COLD_DATA __attribute__((section(".cold_data")))
+#else
+#define COLD_DATA
+#endif
+/* Phase G4: cold CODE run from PSRAM (needs TAU_COLD and a bitstream with PSRAM_IFETCH_ENABLE; checked at boot). */
+#ifndef TAU_COLD_CODE
+#define TAU_COLD_CODE 0
+#endif
+#if TAU_COLD_CODE && !TAU_COLD
+#error "TAU_COLD_CODE needs TAU_COLD"
+#endif
 /* A-118/A-119: Diagnostics group in the settings menu. TAU_DIAG_INFO adds the read-only Info
  * page and is part of the release-style build; TAU_DIAG_TESTS is reserved for the on-demand
  * tests, stress pump and soak of the "Diagnostic Build" (no code behind it yet). */
@@ -225,6 +250,20 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #endif
 #ifndef TAU_DIAG_TESTS
 #define TAU_DIAG_TESTS 0
+#endif
+#ifndef TAU_G4
+#define TAU_G4 0               /* Phase G4: library and settings UI code runs from PSRAM (cold code); needs TAU_COLD_CODE */
+#endif
+/* G4 step 2-3 (TAU_G4 >= 2): the playlist loader and overlay drawing and the cover-art decoder glue also run from PSRAM. The
+ * attribute is spelled out here because the overlay code sits above where cold.inc defines COLD_TEXT. The picojpeg callback
+ * art_need_bytes stays hot: it runs many times per cover and would refetch from PSRAM each time. */
+#if TAU_G4 >= 2 && TAU_COLD_CODE
+#define COLD_FN2 __attribute__((section(".cold_text"), noinline))
+#else
+#define COLD_FN2
+#endif
+#ifndef TAU_CHECK
+#define TAU_CHECK 0            /* Settings > Check (fw/suite.inc): needs TAU_LIBRARY and TAU_COLD_CODE */
 #endif
 #ifndef TAU_PL_SDRAM_FAULT
 #define TAU_PL_SDRAM_FAULT 0
@@ -290,11 +329,33 @@ static inline void fb_wait(void) { while (REG(R_FB_GO) & 1u) { } }
  * player -- meter, clock, progress bar, toasts, art -- cannot punch through it. The
  * repaint on close (pl_ui_restore) already redraws and invalidates all of it. */
 static uint8_t pl_ui_open;         /* playlist overlay is up */
+#if TAU_LIBRARY
+static uint8_t lib_ui_open;          /* library browse overlay is up */
+static uint8_t lib_src;              /* the current track came from the library queue */
+static uint16_t lib_qn, lib_qpos;    /* the library queue: length and position */
+/* What the user was playing, kept across restarts (persist words, settings.inc): lib_h = kind | id << 3 | queue position << 14,
+ * lib_hb = low 31 bits of the index build id it refers to, lib_hs = the Shuffle All seed. lib_disabled = the Settings switch. */
+static uint32_t lib_h, lib_hb, lib_hs;
+static uint8_t  lib_disabled;
+enum { LIB_ST_NONE = 0, LIB_ST_OK, LIB_ST_OFF };
+static uint8_t lib_state;            /* LIB_ST_*: no index / loaded / switched off by an error */
+#if TAU_LIBRARY
+static uint8_t  lib_boot_ok;          /* B-080 evidence: did lib_boot_restore() open something at this boot */
+#endif
+static uint8_t lib_ui_dirty;         /* repaint the browse overlay */
+static void lib_ui_draw(void);
+static void lib_ui_close(void);
+static void lib_ui_enter(void);
+static void lib_ui_input(uint32_t *edge_p, uint32_t *fall_p, uint32_t *keys_p);
+#define LIB_OVL lib_ui_open
+#else
+#define LIB_OVL 0
+#endif
 #if TAU_SETTINGS_UI
 static uint8_t set_open;           /* settings overlay is up */
-#define UI_OVERLAY_UP (pl_ui_open || set_open)
+#define UI_OVERLAY_UP (pl_ui_open || set_open || LIB_OVL)
 #else
-#define UI_OVERLAY_UP pl_ui_open
+#define UI_OVERLAY_UP (pl_ui_open || LIB_OVL)
 #endif
 static uint8_t ov_draw;            /* the overlay itself is painting */
 #define FB_HELD() (UI_OVERLAY_UP && !ov_draw)
@@ -570,6 +631,9 @@ static uint8_t  ui_size_warned;
  * dominates it is the hiccup. Measured rather than reasoned about: four
  * attempts at this were aimed by theory and three of them made it worse. */
 static uint16_t ld_head, ld_size, ld_art, ld_pre, ld_total;
+#if TAU_CHECK
+static uint16_t chk_loads;              /* completed track loads (the Check's track-change test waits on it) */
+#endif
 static uint8_t  ui_ld_shown;
 #define LD_MS(c) ((uint16_t)((c) / (CLK_HZ / 1000u)))
 /* Total frames declared by a Xing/Info/VBRI header, 0 when the file has none.
@@ -651,9 +715,11 @@ enum { FLR_NONE = 0, FLR_RATE, FLR_DEPTH, FLR_CHANS, FLR_BLOCK };
 static uint8_t  fl_reject_kind;
 static uint32_t fl_reject_val;
 
-static char track_title[48];
-static char track_artist[48];
-static char track_album[48];
+/* BUG-002: 48 clipped long titles at about 45 characters; the marquee holds TITLE_MAX. */
+#define TITLE_MAX 80u
+static char track_title[TITLE_MAX];
+static char track_artist[64];
+static char track_album[64];
 static char track_year[8];
 static char track_trk[8];
 
@@ -812,6 +878,7 @@ static uint32_t clk_max;                 /* largest jump seen, any time */
 static uint32_t fl_idle_cyc, fl_io_cyc;    /* accumulating, this second     */
 static uint32_t fl_rate_hz;                /* mirrors fl.rate, declared later */
 static uint8_t  fl_idle_pct, fl_io_pct;
+static uint32_t ui_last_prof;              /* UI_SHOW_DECODE_PROFILE latch, Phase F step 1 */
 static int32_t  vol_gain = 256;          /* Q8: 256 == unity */
 
 static void vol_apply(void)
@@ -884,6 +951,7 @@ static uint16_t pl_pos;                  /* index INTO pl_order                 
 static uint8_t  set_dirty;
 static int  set_input(uint32_t edge, uint32_t keys);
 static void set_draw(void);
+static void set_close(void);
 #endif
 static uint8_t  pl_ui_play_req;    /* main loop: start pl_ui_sel             */
 static uint8_t  pl_ui_dirty;       /* repaint wanted                         */
@@ -1205,9 +1273,9 @@ static uint32_t slot_size;
  * staleness detectable: `prev_head`/`prev_slot_size` used to be overwritten by
  * the (possibly stale) load itself, which destroyed the very reference the
  * later probes needed to compare against. */
-static char     stale_ref_title[48];   /* title of the track being left */
+static char     stale_ref_title[TITLE_MAX];   /* title of the track being left */
 static uint32_t stale_ref_size;        /* and the size APF reported for it */
-static char     last_title[48];        /* title the current load settled on */
+static char     last_title[TITLE_MAX];       /* title the current load settled on */
 static char     track_file[64];        /* filename APF reports for the slot  */
 
 /* A file identity that SURVIVES A POWER CYCLE, which cur_file_id does not.
@@ -1260,18 +1328,32 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
  * difference. Chosen to sit well on the graphite background: nothing so dark
  * it disappears, nothing so pale it competes with the white type. RGB565. */
 static const uint16_t ui_palette[] = {
-    0xFC65u,   /* amber   */
-    0xBF08u,   /* lime    */
-    0xAF13u,   /* mint    */
-    0x7E55u,   /* seafoam */
-    0x5D5Cu,   /* sky     */
-    0x7C5Au,   /* indigo  */
-    0xAC5Eu,   /* lilac   */
-    0xF534u,   /* blush   */
-    0xF32Du,   /* coral   */
-    0xB9E9u,   /* crimson */
-    0xEE07u,   /* gold    */
-    0xEF1Au,   /* cream   */
+    /* Analogue Pocket hardware edition colours (RGB565), per HANDOFF_PROMPT_pocket_colors_theme_replacement.md.
+     * The comment on each is the text colour the handoff validated on it. */
+    /* Standard Edition */
+    0x0843u,   /* BLACK            - white text */
+    0xF79Eu,   /* WHITE            - black text */
+    /* Glow Limited Edition */
+    0x2D40u,   /* GLOW             - white text */
+    /* Transparent Limited Edition (warm to cool) */
+    0xEEE0u,   /* TRANS_CLEAR      - black text */
+    0x8925u,   /* TRANS_SMOKE      - white text */
+    0xD925u,   /* TRANS_RED        - white text */
+    0xE68Fu,   /* TRANS_ORANGE     - black text */
+    0x5D6Du,   /* TRANS_GREEN      - black text */
+    0x4F5Du,   /* TRANS_BLUE       - white text */
+    0x9B9Du,   /* TRANS_PURPLE     - black text */
+    /* Classic and GBC Limited Edition (hue sequence) */
+    0xFFC0u,   /* CLASSIC_YELLOW   - black text */
+    0xE68Fu,   /* CLASSIC_ORANGE   - black text */
+    0xD925u,   /* CLASSIC_RED      - white text */
+    0xE97Du,   /* CLASSIC_PINK     - black text */
+    0x4F5Du,   /* CLASSIC_BLUE     - white text */
+    0x5D6Du,   /* CLASSIC_GREEN    - black text */
+    0x6B59u,   /* CLASSIC_INDIGO   - white text */
+    0xC0E0u,   /* CLASSIC_SILVER   - black text */
+    /* Aluminum Limited Edition */
+    0x8C63u,   /* ALUMINUM         - white text */
 };
 #define UI_PALETTE_N (sizeof(ui_palette) / sizeof(ui_palette[0]))
 
@@ -1282,14 +1364,20 @@ static const uint16_t ui_palette[] = {
  * colour, forget the name, and the label reads off the end. The assert makes that
  * a build error instead of a bug someone finds on hardware. Keep the order. */
 static const char *const ui_palette_name[] = {
-    "AMBER", "LIME", "MINT", "SEAFOAM", "SKY", "INDIGO",
-    "LILAC", "BLUSH", "CORAL", "CRIMSON", "GOLD", "CREAM",
+    "BLACK", "WHITE", "GLOW",
+    "TRANS_CLEAR", "TRANS_SMOKE", "TRANS_RED", "TRANS_ORANGE", "TRANS_GREEN", "TRANS_BLUE", "TRANS_PURPLE",
+    "CLASSIC_YELLOW", "CLASSIC_ORANGE", "CLASSIC_RED", "CLASSIC_PINK", "CLASSIC_BLUE", "CLASSIC_GREEN",
+    "CLASSIC_INDIGO", "CLASSIC_SILVER",
+    "ALUMINUM",
 };
 _Static_assert(sizeof(ui_palette_name) / sizeof(ui_palette_name[0]) == UI_PALETTE_N,
                "ui_palette_name[] must name every color in ui_palette[]");
-#define UI_ACCENT  0xFC65u
+/* Default: WHITE (index 1). The handoff left BLACK or WHITE to the implementer; BLACK (0x0843) is darker than the UI
+ * background, and the accent is also used as text and as fills that carry dark text, so a BLACK default would make the
+ * first screen unreadable. interact.json's Color default is 1 to match. */
+#define UI_ACCENT  0xF79Eu
 static uint16_t ui_accent = UI_ACCENT;
-static uint32_t ui_pal_idx;
+static uint32_t ui_pal_idx = 1u;      /* WHITE, the default (see UI_ACCENT) */
 
 /* Transient status line. Volume and seek had no on-screen confirmation at all
  * -- the only functional control feedback missing. Shown briefly, then wiped
@@ -1326,7 +1414,16 @@ static uint32_t ui_toast_end;              /* x the last toast draw reached    *
  * anything ships -- no diagnostic is ever shown to users. */
 /* 0 for any build a user sees -- the standing rule is that no diagnostic ever
  * reaches one. Set to 1 to bring the D/O/U/F row back while investigating. */
+#ifndef UI_SHOW_SPEED_DIAG
 #define UI_SHOW_SPEED_DIAG 0
+#endif
+/* Phase F step 1 (docs/PHASE_F_SPEC.md section 14): per-stage decode cost,
+ * MP3's H(uffman)/I(mdct)/S(ubband) plus a refresh of FLAC's R(ice), on the
+ * same per-second latch as the row above. Follows MP3_PROFILE/FLAC_PROFILE
+ * so a normal build (both 0) never carries it. */
+#ifndef UI_SHOW_DECODE_PROFILE
+#define UI_SHOW_DECODE_PROFILE 0
+#endif
 /* Resume instrumentation. EXTRA_CFLAGS="-DUI_SHOW_RESUME_DIAG=1 -Os"
  *
  * The -Os is not optional: the normal build has under 1 KB of heap left and
@@ -1461,7 +1558,7 @@ static uint8_t  ui_splash_art_active;         /* authored Tau loading screen up 
  * they scroll independently -- a shared position would drag the shorter one
  * around for no reason. */
 typedef struct {
-    char     text[64];
+    char     text[TITLE_MAX];
     uint32_t y, scale, on, pos, next;
 } ui_marquee_t;
 static ui_marquee_t ui_mq_title, ui_mq_artist;
@@ -1904,6 +2001,9 @@ static uint8_t  art_bad_code;     /* which picojpeg complaint, for the label  */
  * a file with none. That is why "no art, and no message either" was the
  * report: there was no frame to put a message in. */
 #define ART_PANEL_WANTED (art_have || art_bad)
+/* A track is loading on the player screen: the frame is drawn without the old track's text (ui_loading, during the
+ * repaint) and the album art plate shows an animated loader with a caption (ui_loader_on, until the load ends). */
+static uint8_t ui_loading, ui_loader_on, ui_loader_txt;
 static uint32_t art_toggle, art_next;   /* rolling amplitude history, 0..UI_WAVE_H */
 static int      ui_underrun_shown;
 
@@ -2547,9 +2647,15 @@ static void ui_marq_step(ui_marquee_t *m, uint16_t fg)
                   m->scale, m->scale, ui_text_w, UI_CARD_TEXT_R);
 }
 
+/* The list this track came from has no more entries and repeat is off: playback should stop, not restart the last
+ * track. Covers the library queue as well as the playlist. */
+static int list_ended(void);
 static void pl_ui_draw(void);   /* defined with the overlay, below */
 static void pl_ui_row(uint32_t i);
 
+#if TAU_LIBRARY
+__attribute__((optimize("Os")))       /* one-off frame paint at a track change */
+#endif
 static void ui_draw_chrome(void)
 {
     /* Draw nothing at all while blanked -- a track change must not light the
@@ -2572,9 +2678,18 @@ static void ui_draw_chrome(void)
      * words -- a tag encoding the parser declines to handle is our limitation
      * to state in the README, not a caption for someone's music. The filename
      * is the better answer there too, and those files always have one. */
-    char namebuf[48];
+    char namebuf[TITLE_MAX];
     const char *title = track_title;
-    if (!track_title[0]) {
+    if (ui_loading) title = "";                /* nothing known yet: leave it blank, do not invent a name */
+#if TAU_LIBRARY
+    /* B-080: nothing loaded at all (a fresh boot with no history, or the library overlay closed without a pick) used
+     * to fall through to the filename branch below, find no track_file either, and show "UNKNOWN TRACK" -- a
+     * debugging label, not something a track-less screen should say. The chrome is drawn either way (closing the
+     * library always repaints it, see pl_ui_restore), so this is the one place that has to carry the message. */
+    else if (!track_title[0] && !track_file[0] && lib_state == LIB_ST_OK && !lib_disabled)
+        title = "Select a track from your library";
+#endif
+    else if (!track_title[0]) {
         /* Last path component, extension dropped: the slot holds a full path
          * ("/Assets/tau/common/Flodown.mp3"). */
         uint32_t start = 0;
@@ -2649,7 +2764,7 @@ static void ui_draw_chrome(void)
     uint32_t as = (ts > TS_15X) ? (ts - 1u) : TS_15X;
     ui_mq_artist.on = 0;      /* no artist -> no leftover scroll from the last track */
     uint32_t y = UI_TITLE_Y + FB_CELL(ts) + 6u;
-    if (track_artist[0]) {
+    if (!ui_loading && track_artist[0]) {
         fb_set_color(UI_DIM, UI_PANEL);
         ui_marq_init(&ui_mq_artist, track_artist, y, as);
         fb_text_boxed(UI_MARGIN, y, ui_mq_artist.text, as, as,
@@ -2663,7 +2778,7 @@ static void ui_draw_chrome(void)
      * which existed to prove 0190 getfile returns real data. It does, so that
      * reconnaissance is finished; the capability it demonstrated is what
      * in-core track selection will be built on. */
-    if (track_album[0] || track_year[0] || track_trk[0]) {
+    if (!ui_loading && (track_album[0] || track_year[0] || track_trk[0])) {
         char b[64], *q = b;
         if (track_trk[0]) {
             const char *t = track_trk;
@@ -2710,6 +2825,7 @@ static void ui_draw_chrome(void)
      * playback, and a decode there would fire hundreds of blocking SD reads
      * straight into the budget that keeps the PCM FIFO fed. */
     ui_art_draw();
+    ui_loader_txt = 1u;            /* a repaint erased the loader caption */
 
     ui_last_sec   = 0xFFFFFFFFu;   /* force the first time-display redraw */
     ui_last_vu    = 0xFFFFFFFFu;
@@ -2774,6 +2890,9 @@ static void ui_draw_chrome(void)
      * Putting it here rather than in the main loop means EVERY repaint route
      * is covered by construction, including ones added later. */
     if (pl_ui_open) pl_ui_draw();
+#if TAU_LIBRARY
+    else if (lib_ui_open) lib_ui_draw();
+#endif
 #if TAU_SETTINGS_UI
     else if (set_open) set_draw();
 #endif
@@ -3171,6 +3290,67 @@ static void ui_icon_dot(uint32_t x, uint32_t y, uint16_t c)
         fb_rect(x + inset[i], y + i, 7u - 2u * inset[i], 1u, c);
 }
 
+static void ui_draw_dynamic(void);
+
+/* The player-screen loader: eight dots turning round the middle of the album art plate, with "Loading track" under
+ * them, the pair centred in the plate (owner request). Drawn every tick over the plate colour; the caption is drawn once
+ * and again after any repaint (ui_loader_txt). */
+static void ui_loader_tick(uint32_t t)
+{
+    static const signed char dot[8][2] = { {0,-20}, {14,-14}, {20,0}, {14,14}, {0,20}, {-14,14}, {-20,0}, {-14,-14} };
+    const uint32_t cx = ART_X + ART_W / 2u;
+    const uint32_t top = ART_Y + (ART_H - 88u) / 2u;          /* spinner 48 px + gap 8 px + two caption lines 32 px, centred */
+    const uint32_t cy = top + 24u;
+    for (uint32_t i = 0; i < 8u; i++) {
+        uint32_t dist = (t + 8u - i) & 7u;                     /* 0 = the leading dot */
+        uint32_t l = 31u - dist * 4u;
+        if (l < 5u) l = 5u;
+        ui_icon_dot(cx + dot[i][0] - 3u, cy + dot[i][1] - 3u, ui_mix(UI_PANEL, ui_accent, l, 31u));
+    }
+    if (ui_loader_txt) {
+        ui_loader_txt = 0;
+        /* Two centred lines so the words stay inside the 104 px plate. */
+        uint32_t w1 = fb_text_width("Loading", TS_1X), w2 = fb_text_width("track", TS_1X);
+        fb_set_color(UI_DIM, UI_PANEL);
+        fb_text_clipped(cx - w1 / 2u, top + 56u, "Loading", TS_1X, TS_1X, w1 + 4u);
+        fb_text_clipped(cx - w2 / 2u, top + 72u, "track", TS_1X, TS_1X, w2 + 4u);
+    }
+}
+
+/* Draw the whole player frame and start the loader. with_text = 0: nothing is known about the track yet, its text rows are left
+ * blank; 1: the title, artist and album are already known (a library track) and are drawn. */
+static void ui_loader_begin_ex(int with_text)
+{
+    ui_boot_t = 0;
+    ui_boot_next = cycles();
+    ui_toast_t0   = 0;                                          /* the loader is the only status now */
+    ui_toast_step = 0;
+    ui_loader_on = 1u;
+    ui_loading = with_text ? 0u : 1u;
+    art_shown = art_pref ? 1u : 0u;
+    art_x = art_shown ? ART_X : FB_W;
+    /* B-075: NOT ui_art_mount() here. It wipes the off-screen stash (the only copy of the decoded picture), and the
+     * art code below reuses that stash without redrawing when the new track shares the previous one's cover -- true on
+     * every track of an album. Wiping it here left the panel blank on every track after the first: a fresh decode
+     * refilled it, but nothing ever repainted it in the meantime. The load below decides, per track, whether the
+     * stash needs clearing (a genuinely different or bad cover) or can stay as it is (the common case); this call
+     * used to pre-empt that decision on every library track, whatever the outcome turned out to be.
+     * The plate briefly shows the OUTGOING track's cover under the spinner instead of a neutral grey -- correct far
+     * more often than it is not, since most tracks share their album's cover, and only ever wrong for the length of
+     * one load. */
+    ui_draw_chrome();
+    ui_loading = 0u;
+    {   /* transport row, clock and progress bar with nothing elapsed */
+        uint32_t s0 = ui_sec, t0 = track_secs;
+        ui_sec = 0; track_secs = 0;
+        ui_draw_dynamic();
+        ui_sec = s0; track_secs = t0;
+    }
+    ui_loader_txt = 1u;
+}
+
+static void ui_loader_begin(void) { ui_loader_begin_ex(0); }
+
 static void ui_boot_note(const char *msg)
 {
     ui_boot_msg  = msg;
@@ -3184,49 +3364,15 @@ static void ui_boot_note(const char *msg)
     ui_boot_next = cycles();                /* first tick paints immediately */
 
     if (ui_splash_art_active) {
-        uint32_t w = fb_text_width(msg, TS_1X);
-        uint32_t x = (w < TAU_SPLASH_STATUS_W)
-                   ? TAU_SPLASH_STATUS_X + (TAU_SPLASH_STATUS_W - w) / 2u
-                   : TAU_SPLASH_STATUS_X;
+        /* Splash: the loading bar only, no words (owner request). */
         fb_rect(TAU_SPLASH_STATUS_X, TAU_SPLASH_STATUS_Y,
                 TAU_SPLASH_STATUS_W, TAU_SPLASH_STATUS_H, TAU_SPLASH_BG);
-        fb_set_color(UI_WHITE, TAU_SPLASH_BG);
-        fb_text_clipped(x, TAU_SPLASH_STATUS_Y, msg, TS_1X, TS_1X,
-                        TAU_SPLASH_STATUS_W);
         fb_rect(TAU_SPLASH_BAR_X, TAU_SPLASH_BAR_Y,
                 TAU_SPLASH_BAR_W, TAU_SPLASH_BAR_H, TAU_SPLASH_BG);
         return;
     }
-
-    /* WIPE FIRST. On the splash this row is empty so it never mattered, but in
-     * the player it is the transport row -- PLAYING, the repeat and shuffle
-     * arrows, the EQ name -- and writing over it left the old glyphs showing
-     * around the shorter new text. */
-    fb_rect(UI_MARGIN, UI_BOOT_Y, UI_INNER_W, FB_CELL(TS_1X), ui_boot_bg());
-
-    /* Retire any live toast. This row and the toast band are both "what is
-     * happening", and they must not disagree.
-     *
-     * Concretely: ui_draw_chrome() invalidates ui_toast_step so a toast
-     * survives a repaint, which also means the PREVIOUS load's toast gets
-     * redrawn for a frame as the next load completes -- seen as a quick flash
-     * of stale text on the toast line. Killing it here means the newer message
-     * is the only one making a claim. */
-    ui_toast_t0   = 0;
-    ui_toast_step = 0;
-    fb_rect(UI_MARGIN, UI_TOAST_Y, UI_INNER_W, UI_TOAST_H, ui_grad_at(UI_TOAST_Y));
-
-    fb_set_color(UI_WHITE, ui_boot_bg());
-    /* Left-aligned at UI_MARGIN, like every other row on this screen and on
-     * the player it is imitating. An earlier version centred the label and its
-     * dots; centring reads as a different screen, which is the whole thing
-     * this layout exists to avoid.
-     *
-     * fb_text_clipped returns where it stopped, so the dots follow the label
-     * instead of sitting at a hardcoded offset that a longer word would run
-     * into. */
-    ui_boot_x = fb_text_clipped(UI_MARGIN, UI_BOOT_Y, msg,
-                                TS_1X, TS_1X, UI_INNER_W) + 8u;
+    (void)msg;
+    ui_loader_begin();                      /* the player screen: full frame, loader in the art plate */
 }
 
 static void ui_boot_tick(void)
@@ -3245,6 +3391,12 @@ static void ui_boot_tick(void)
                 TAU_SPLASH_SEG_W, TAU_SPLASH_BAR_H, 0x27ECu);
         return;
     }
+
+    /* Player screen (not the splash): the loader in the art plate, never the old three dots on the transport row. If no frame
+     * was started for it (a note armed over a frame that was drawn some other way) the spinner simply draws over the plate. */
+    ui_loader_on = 1u;
+    ui_loader_tick(ui_boot_t++);
+    return;
 
     uint16_t bg = ui_boot_bg();
     uint32_t dy = UI_BOOT_Y + (FB_CELL(TS_1X) - 7u) / 2u;   /* centred on the text */
@@ -3271,6 +3423,7 @@ static void ui_boot_clear(void)
 {
     if (!ui_boot_msg) return;
     ui_boot_msg = 0;
+    ui_loader_on = 0;
     if (ui_splash_art_active) {
         fb_rect(TAU_SPLASH_STATUS_X, TAU_SPLASH_STATUS_Y,
                 TAU_SPLASH_STATUS_W, TAU_SPLASH_STATUS_H, TAU_SPLASH_BG);
@@ -3289,7 +3442,7 @@ static void ui_boot_clear(void)
  * punch a gradient-coloured rectangle straight through the transport row.
  * Disarming still matters: ui_boot_tick() runs inside every blocking read, so
  * a note left armed would keep painting dots over the player forever. */
-static void ui_boot_cancel(void) { ui_boot_msg = 0; }
+static void ui_boot_cancel(void) { ui_boot_msg = 0; ui_loader_on = 0; }
 
 /* What the card turned out to hold, on the row the transport occupies during
  * playback. A labelled pair rather than a bare number: "10 TRACKS" alone in the
@@ -3467,6 +3620,18 @@ static void ui_gs_line(uint32_t y, const char *s, uint16_t fg, uint32_t ts)
  * getting-started card rather than a bare error -- the three steps are the
  * whole setup, in the order they have to happen. Widths were measured against
  * font_metrics.h; the widest line is 310 px of the 360 available. */
+#if TAU_LIBRARY
+/* Nothing playing but a library is loaded: point at it instead of the legacy getting-started steps. */
+static void ui_idle_library(void)
+{
+    ui_gs_line(170u, "Library ready", ui_accent, TS_15X);
+    ui_gs_line(214u, "Press the Select button to", UI_WHITE, TS_1X);
+    ui_gs_line(232u, "browse and play your music.", UI_WHITE, TS_1X);
+    ui_gs_line(268u, "Menu > Settings > How it works", UI_DIM, TS_1X);
+    ui_gs_line(286u, "explains playlists and updates.", UI_DIM, TS_1X);
+}
+#endif
+
 static void ui_idle_screen(const char *reason)
 {
     /* The authored image is a loading state, not an empty/error screen.  Keep
@@ -3474,6 +3639,10 @@ static void ui_idle_screen(const char *reason)
     ui_splash_art_active = 0u;
     ui_gradient();
     ui_splash_card(1u, 1u);
+#if TAU_LIBRARY
+    if (lib_state == LIB_ST_OK) { ui_idle_library(); return; }
+    if (!reason && lib_state == LIB_ST_NONE) reason = "LEGACY PLAYLIST MODE";   /* no library file: see Menu > Settings > How it works */
+#endif
 
     /* Sits between the card (ends at 136) and the heading (170), 8 px clear of
      * each. At 148 it crowded the heading and read as part of it rather than
@@ -3548,7 +3717,7 @@ static void ui_failed_msg(const char *l1, const char *l2)
     tk_poll_at = cycles() + CLK_HZ;
     for (;;) {
         poll_input();
-        if (reload_pending) return;
+        if (reload_pending || pl_check_req) return;     /* a file OR a playlist was picked: the main loop handles it */
         if ((int32_t)(cycles() - tk_poll_at) >= 0) {
             tk_poll_at = cycles() + CLK_HZ;
             if (slot_changed()) reload_pending = 1u;
@@ -3688,6 +3857,12 @@ static void ui_rate_unsupported(void)
  * the hint line lives in the bottom PL_UI_PAD_B. 12 rows of 22 px fit above it. The
  * snapshot fixtures and tools/overlay_preview.py read these names. */
 #define PL_UI_ROWS   12u
+/* B-073: the playlist overlay's OWN row geometry, distinct from PL_UI_ROW_H/PL_UI_ROWS above (which stay 22 px/12 rows
+ * for the other pages sharing this frame: Info, Check, Stress Status, Help). Matches the settings menu and library
+ * rows (SET_MENU_ROW_H/LIB_ROW_H, 36 px) so a plain playlist looks like everything else on the player, not like an
+ * older, denser screen; filenames stay single-line text (a tag lives inside its file, not in the .m3u). */
+#define PLIST_ROW_H  36u
+#define PLIST_ROWS   7u
 #define PL_UI_X      8u
 #define PL_UI_W      (FB_W - 2u * PL_UI_X)
 #define PL_UI_Y      8u
@@ -3702,7 +3877,7 @@ static uint16_t pl_ui_top;         /* first visible row                      */
 
 /* Last path component with the extension trimmed -- the same shape the title
  * row falls back to, so a file reads the same in both places. */
-static void pl_ui_label(uint16_t pos, char *out, uint32_t cap)
+COLD_FN2 static void pl_ui_label(uint16_t pos, char *out, uint32_t cap)
 {
     out[0] = 0;
     if (pos >= pl_count) return;
@@ -3722,14 +3897,14 @@ static void pl_ui_label(uint16_t pos, char *out, uint32_t cap)
 }
 
 /* Keeps the selection on screen after any move. */
-static void pl_ui_follow(void)
+COLD_FN2 static void pl_ui_follow(void)
 {
     if (pl_ui_sel < pl_ui_top) pl_ui_top = pl_ui_sel;
-    else if (pl_ui_sel >= pl_ui_top + PL_UI_ROWS)
-        pl_ui_top = (uint16_t)(pl_ui_sel - PL_UI_ROWS + 1u);
-    if (pl_count > PL_UI_ROWS && pl_ui_top > pl_count - PL_UI_ROWS)
-        pl_ui_top = (uint16_t)(pl_count - PL_UI_ROWS);
-    if (pl_count <= PL_UI_ROWS) pl_ui_top = 0;
+    else if (pl_ui_sel >= pl_ui_top + PLIST_ROWS)
+        pl_ui_top = (uint16_t)(pl_ui_sel - PLIST_ROWS + 1u);
+    if (pl_count > PLIST_ROWS && pl_ui_top > pl_count - PLIST_ROWS)
+        pl_ui_top = (uint16_t)(pl_count - PLIST_ROWS);
+    if (pl_count <= PLIST_ROWS) pl_ui_top = 0;
 }
 
 /* Frame, header and hint of a full-screen overlay: the UI_BG border, the rounded panel, the
@@ -3756,13 +3931,17 @@ static void ov_frame(const char *title, const char *right, const char *hint)
 
 /* One row. Split out so the marquee can repaint just the selected line
  * without redrawing the whole list four times a second. */
-static void pl_ui_row_body(uint32_t i)
+COLD_FN2 static void pl_ui_row_body(uint32_t i)
 {
-    uint32_t y   = PL_UI_LIST_Y + i * PL_UI_ROW_H;
+    uint32_t y   = PL_UI_LIST_Y + i * PLIST_ROW_H;
     uint16_t pos = (uint16_t)(pl_ui_top + i);
 
+    /* The scroll bar sits at the right edge of the panel (drawn once per full redraw). A row repaint that
+     * spans the whole panel width wiped a gap in it every time the marquee stepped, which read as the bar
+     * glitching; rows stop short of it when it is there. */
+    uint32_t rw = PL_UI_W - 8u - (pl_count > PLIST_ROWS ? 12u : 0u);
     if (pos >= pl_count) {                       /* short list: clear the row */
-        fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H, UI_PANEL);
+        fb_rect(PL_UI_X + 4u, y - 2u, rw, PLIST_ROW_H, UI_PANEL);
         return;
     }
 
@@ -3777,10 +3956,10 @@ static void pl_ui_row_body(uint32_t i)
      * the corner cuts on every row would be work for nothing. */
     uint16_t bg = (pos == pl_ui_sel) ? ui_accent : UI_PANEL;
     if (pos == pl_ui_sel)
-        fb_round_rect_on(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H,
+        fb_round_rect_on(PL_UI_X + 4u, y - 2u, rw, PLIST_ROW_H,
                          5u, bg, UI_PANEL);
     else
-        fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H, bg);
+        fb_rect(PL_UI_X + 4u, y - 2u, rw, PLIST_ROW_H, bg);
 
     char nm[64];
     pl_ui_label(pos, nm, sizeof(nm));
@@ -3796,15 +3975,16 @@ static void pl_ui_row_body(uint32_t i)
     }
 
     /* '>' rather than an arrow glyph: the font is ASCII 0x20..0x7E. */
+    uint32_t ty = y + (PLIST_ROW_H - 2u - 16u) / 2u;    /* vertically centred, as the settings and library rows are */
     fb_set_color(pos == pl_ui_sel ? UI_PANEL
                : pos == pl_pos    ? UI_WHITE : UI_DIM, bg);
     if (pos == pl_pos)
-        fb_text_clipped(PL_UI_X + 8u, y, ">", TS_1X, TS_1X, 12u);
-    fb_text_boxed(PL_UI_TEXT_X + 8u, y, txt, TS_1X, TS_1X,
+        fb_text_clipped(PL_UI_X + 8u, ty, ">", TS_1X, TS_1X, 12u);
+    fb_text_boxed(PL_UI_TEXT_X + 8u, ty, txt, TS_1X, TS_1X,
                   PL_UI_W - 40u, PL_UI_X + PL_UI_W - 16u);
 }
 
-static void pl_ui_draw_body(void)
+COLD_FN2 static void pl_ui_draw_body(void)
 {
     /* The list can change under an open overlay -- a reload, or a pick the
      * core noticed late. Clamp rather than trusting the stored indices. */
@@ -3825,32 +4005,32 @@ static void pl_ui_draw_body(void)
      * counter says WHERE you are; this says how far that is through the list,
      * which at 240 entries is the question actually being asked. Two rects,
      * drawn only when the list overflows the window. */
-    if (pl_count > PL_UI_ROWS) {
+    if (pl_count > PLIST_ROWS) {
         uint32_t track_x = PL_UI_X + PL_UI_W - 11u;
         uint32_t track_y = PL_UI_LIST_Y - 2u;
-        uint32_t track_h = PL_UI_ROWS * PL_UI_ROW_H;
+        uint32_t track_h = PLIST_ROWS * PLIST_ROW_H;
         fb_rect(track_x, track_y, 3u, track_h, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
 
-        uint32_t span = pl_count - PL_UI_ROWS;          /* max value of _top */
-        uint32_t th   = track_h * PL_UI_ROWS / pl_count;
+        uint32_t span = pl_count - PLIST_ROWS;          /* max value of _top */
+        uint32_t th   = track_h * PLIST_ROWS / pl_count;
         if (th < 8u) th = 8u;                           /* stays grabbable   */
         uint32_t ty   = track_y + (track_h - th) * pl_ui_top / span;
         fb_rect(track_x, ty, 3u, th, ui_accent);
     }
 
-    for (uint32_t i = 0; i < PL_UI_ROWS; i++) pl_ui_row(i);
+    for (uint32_t i = 0; i < PLIST_ROWS; i++) pl_ui_row(i);
 }
 
 
 /* Entry points: the overlay paints through the ov_draw gate (see FB_HELD). */
-static void pl_ui_row(uint32_t i)
+COLD_FN2 static void pl_ui_row(uint32_t i)
 {
     uint8_t o = ov_draw; ov_draw = 1u;
     pl_ui_row_body(i);
     ov_draw = o;
 }
 
-static void pl_ui_draw(void)
+COLD_FN2 static void pl_ui_draw(void)
 {
     uint8_t o = ov_draw; ov_draw = 1u;
     pl_ui_draw_body();
@@ -5168,7 +5348,7 @@ ui_tail:
      *
      * The note owns the row until ui_boot_cancel(), whose callers already
      * force a full transport repaint after it. */
-    if (!ui_boot_msg) {
+    if (!ui_boot_msg || ui_loader_on) {
         uint16_t tbg = ui_grad_at((UI_TIME_Y + 10u));
         /* Left end of its own row. The arrows sit at a FIXED x derived from
          * the WIDER of the two words, so switching PLAYING <-> PAUSED cannot
@@ -5184,7 +5364,16 @@ ui_tail:
         uint32_t ph  = (++ui_breath) & 63u;
         uint32_t lvl = (ph < 32u) ? ph : (63u - ph);
 
-        if (paused) {
+        if (ui_loader_on) {
+            /* Loading: the label says so, no arrows. */
+            if (ui_last_pause != 3u) {
+                ui_last_pause = 3u;
+                fb_rect(lx, ly, lbl_w + 8u, FB_CELL(TS_1X), tbg);
+                fb_set_color(UI_DIM, tbg);
+                fb_text_clipped(lx, ly, "LOADING", TS_1X, TS_1X, lbl_w + 8u);
+                fb_rect(ix, iy, UI_ARR_SPAN, UI_ICONBOX_H, tbg);
+            }
+        } else if (paused) {
             /* Stopped is a settled state, so it does not breathe -- the pulse
              * says "waiting to resume", which stop is not. It also means the
              * label and icon are drawn once instead of every frame. */
@@ -5280,11 +5469,17 @@ ui_tail:
              * Counted over LIVE entries, not lines in the file: an entry that
              * will not open is not a song. Both halves use the same counting or
              * the position could exceed the total. */
-            if (pl_count) {
+            uint32_t cnt_x = 0, cnt_y = 0;
+#if TAU_LIBRARY
+            if (lib_src && lib_qn) { cnt_x = (uint32_t)lib_qpos + 1u; cnt_y = lib_qn; }      /* the library queue */
+            else
+#endif
+            if (pl_count) { cnt_x = pl_live_ordinal(pl_pos); cnt_y = pl_live_count(); }
+            if (cnt_x) {
                 char pos[16]; char *q = pos;
-                q = ui_dec(q, (uint32_t)pl_live_ordinal(pl_pos));
+                q = ui_dec(q, cnt_x);
                 *q++ = ' '; *q++ = '/'; *q++ = ' ';
-                q = ui_dec(q, (uint32_t)pl_live_count());
+                q = ui_dec(q, cnt_y);
                 *q = 0;
                 uint32_t pw = fb_text_width(pos, TS_1X);
                 uint32_t px = FB_W - UI_MARGIN - pw;
@@ -5457,6 +5652,55 @@ ui_tail:
         fb_rect(UI_MARGIN, FB_H - 24u, UI_INNER_W, FB_CELL(TS_1X), sbg);
         fb_set_color(UI_RED, sbg);
         fb_text_clipped(UI_MARGIN, FB_H - 24u, b, TS_1X, TS_1X, UI_INNER_W);
+    }
+#endif
+
+#if UI_SHOW_DECODE_PROFILE
+    /* Phase F step 1 (docs/PHASE_F_SPEC.md section 14): a bench-only row.
+     * At the very top of the screen (y0..15), the one strip nothing else
+     * ever draws to -- the card panel starts at UI_TITLE_Y-14 = 16. It was
+     * first placed above the toast band (y296..311) to avoid the y318..333
+     * collision the row below is on record as having hit, but that still
+     * covered UI_TIME_Y (288, the elapsed/total clock) during a real
+     * playback run -- moved here after the first hardware run (B-086) so it
+     * stops eating screen the clock needs on every future run.
+     *
+     * H/I/S are MP3's three stages as a percent of realtime, each latched
+     * and reset every second like D/O above: Huffman/bit-reading (folds in
+     * UnpackScaleFactors), IMDCT (folds in Dequantize and alias reduction),
+     * Subband (the polyphase synthesis filterbank). Not capped at 100 --
+     * that is the point, same as FLAC's old L.
+     *
+     * R is FLAC's bit reader, kept in its ORIGINAL units -- a share of
+     * channel 0's decode (res / (res+lpc)), not a share of realtime -- so
+     * this refresh is comparable to the FLAC.md numbers it is refreshing. */
+    if (ui_sec != ui_last_prof) {
+        ui_last_prof = ui_sec;
+        char b[64], *q = b;
+#if MP3_PROFILE
+        uint32_t h_pct = mp3_huff_cyc  / (CLK_HZ / 100u);
+        uint32_t i_pct = mp3_imdct_cyc / (CLK_HZ / 100u);
+        uint32_t s_pct = mp3_sub_cyc   / (CLK_HZ / 100u);
+        mp3_huff_cyc = mp3_imdct_cyc = mp3_sub_cyc = 0u;
+        *q++ = 'H'; q = ui_dec(q, h_pct);
+        *q++ = ' '; *q++ = 'I'; q = ui_dec(q, i_pct);
+        *q++ = ' '; *q++ = 'S'; q = ui_dec(q, s_pct);
+#endif
+#if FLAC_PROFILE
+        uint32_t r_total = flac_res_cyc + flac_lpc_cyc;
+        uint32_t r_pct = r_total ? (flac_res_cyc * 100u) / r_total : 0u;
+        flac_res_cyc = flac_lpc_cyc = 0u;
+#if MP3_PROFILE
+        *q++ = ' ';
+#endif
+        *q++ = 'R'; q = ui_dec(q, r_pct);
+#endif
+        *q = 0;
+        uint32_t py = 0u;   /* top edge -- above the card panel at y16 */
+        uint16_t pbg = ui_grad_at(py);
+        fb_rect(UI_MARGIN, py, UI_INNER_W, FB_CELL(TS_1X), pbg);
+        fb_set_color(UI_RED, pbg);
+        fb_text_clipped(UI_MARGIN, py, b, TS_1X, TS_1X, UI_INNER_W);
     }
 #endif
 
@@ -5746,6 +5990,9 @@ static void ui_blank_wake(void)
      * screen blanked it is still logically open and still eating the d-pad,
      * so without this the user would be left driving an invisible list. */
     if (pl_ui_open) pl_ui_dirty = 1u;
+#if TAU_LIBRARY
+    if (lib_ui_open) lib_ui_dirty = 1u;
+#endif
 #if TAU_SETTINGS_UI
     if (set_open) set_dirty = 1u;
 #endif
@@ -6130,6 +6377,9 @@ static void stress_set_level(uint8_t lvl)
 /* Black the whole frame. Only the framebuffer -- there is no way to switch the
  * panel itself off from a core, so "blank" means every pixel black. The
  * backlight stays on regardless; see the note on blank_min. */
+#if TAU_LIBRARY
+__attribute__((optimize("Os")))       /* button handling: no timing role; RAM is the constraint in the library build */
+#endif
 static void poll_input(void)
 {
     static uint32_t prev;
@@ -6169,7 +6419,18 @@ static void poll_input(void)
      * `keys`/`fall`: its tap-to-close is the same code that opened it, and its
      * hold timer reads `keys` directly. */
 #if TAU_SETTINGS_UI
-    if (set_input(edge, keys)) { edge = 0; fall = 0; }
+    /* Select is left in edge/fall: tapping it while Settings is up leaves Settings for the list (below),
+     * the inverse of Start closing the list. */
+    if (set_input(edge, keys)) {
+        edge &= KEY_SELECT; fall &= KEY_SELECT;
+        /* `keys` too: the Left/Right scrub below reads the held level with the timestamp of the last press it saw, so a
+         * Left/Right pressed in a settings page (volume, the Check profile) counted as an old, long hold and sought the
+         * track by 5 s per press (B-065). Select stays: its tap and hold logic read it directly. */
+        keys &= KEY_SELECT;
+    }
+#endif
+#if TAU_LIBRARY
+    if (lib_ui_open) lib_ui_input(&edge, &fall, &keys);
 #endif
     if (pl_ui_open && !pl_count) {      /* list emptied underneath it */
         pl_ui_open = 0u; pl_ui_restore = 1u;
@@ -6210,15 +6471,19 @@ static void poll_input(void)
          * `git checkout 1c1d55a -- fw/player.c` while reverting an unrelated
          * seek change, and went unnoticed because the changelog already
          * described the intended behaviour rather than the shipped one. */
-        if (edge & KEY_LEFT) {
-            pl_ui_sel = (pl_ui_sel > PL_UI_ROWS) ? (uint16_t)(pl_ui_sel - PL_UI_ROWS) : 0u;
+        /* B-072: Left and Right are Back and Forward, like the menus (Left = B, Right = A). Paging moved to the shoulder buttons: L1
+         * a screenful up, R1 a screenful down. (Both d-pad keys used to page, and on a short list each jumped to an end.) */
+        if (edge & KEY_L1) {
+            pl_ui_sel = (pl_ui_sel > PLIST_ROWS) ? (uint16_t)(pl_ui_sel - PLIST_ROWS) : 0u;
             pl_ui_follow(); pl_ui_dirty = 1u;
         }
-        if (edge & KEY_RIGHT) {
-            uint32_t n = (uint32_t)pl_ui_sel + PL_UI_ROWS;
+        if (edge & KEY_R1) {
+            uint32_t n = (uint32_t)pl_ui_sel + PLIST_ROWS;
             pl_ui_sel = (n >= pl_count) ? (uint16_t)(pl_count - 1u) : (uint16_t)n;
             pl_ui_follow(); pl_ui_dirty = 1u;
         }
+        if (edge & KEY_RIGHT) edge |= KEY_A;
+        if (edge & KEY_LEFT)  edge |= KEY_B;
         /* Y snaps back to what is playing. Scrolling a long list loses the one
          * row you can always name, and hunting for it defeats the point. */
         if (edge & KEY_Y) { pl_ui_sel = pl_pos; pl_ui_follow(); pl_ui_dirty = 1u; }
@@ -6443,8 +6708,16 @@ static void poll_input(void)
 
             if (fall & kmask[i]) {
                 if (!lr_fired[i]) {               /* a tap: change track */
-                    if (pl_count) skip_req = i ? 1u : (uint32_t)-1;
-                    else          ui_toast_msg("NO PLAYLIST");
+                    /* B-073: with a library loaded, skip_req must fire off the library queue (lib_qn), not the legacy
+                     * playlist count -- pl_load() is never called in that mode, so pl_count stayed 0 forever and every
+                     * tap read as "no playlist" although a library track was playing. */
+#if TAU_LIBRARY
+                    uint32_t has = lib_src ? (lib_qn > 0u) : (pl_count > 0u);
+#else
+                    uint32_t has = pl_count > 0u;
+#endif
+                    if (has) skip_req = i ? 1u : (uint32_t)-1;
+                    else     ui_toast_msg("NO PLAYLIST");
                 }
                 lr_fired[i] = 0;
             }
@@ -6544,7 +6817,14 @@ static void poll_input(void)
      * Opening lands the cursor on what is playing, which is the row a user
      * wants nine times in ten. */
     if ((fall & KEY_SELECT) && !sel_used && !sel_held) {
+#if TAU_SETTINGS_UI
+        if (set_open) set_close();
+#endif
         if (pl_ui_open) { pl_ui_open = 0u; pl_ui_restore = 1u; }
+#if TAU_LIBRARY
+        else if (lib_ui_open) lib_ui_close();
+        else if (lib_state == LIB_ST_OK) lib_ui_enter();
+#endif
         else if (pl_count) {
             pl_ui_open = 1u;
             pl_ui_sel  = pl_pos;
@@ -6979,9 +7259,45 @@ static flac_t   fl;
 static int32_t *fl_buf;            /* one blocksize of int32, from the arena */
 
 #include "art.inc"
+#if TAU_LIBRARY
+#pragma GCC push_options
+#pragma GCC optimize ("Os")          /* playlist control code: no timing role, RAM is the constraint in the library build */
+#endif
 #include "playlist.inc"
+#include "cold.inc"
+#if TAU_G4 && TAU_COLD_CODE
+#define COLD_FN COLD_TEXT      /* G4: a function moved to PSRAM; every entry from hot code is gated on COLD_READY() or on state that implies it */
+#else
+#define COLD_FN
+#endif
+#if TAU_LIBRARY
+#pragma GCC pop_options
+#endif
+#if TAU_LIBRARY
+/* Size-optimised: the library is browse UI and one-time load code, and the RAM it costs comes out of the heap gap. */
+#pragma GCC push_options
+#pragma GCC optimize ("Os")
+#include "library.inc"
+#pragma GCC pop_options
+#endif
+#if TAU_LIBRARY
+/* Settings is menu code with no timing role; size-optimise it in the library build, where RAM is the constraint. */
+#pragma GCC push_options
+#pragma GCC optimize ("Os")
+#endif
 #include "settings.inc"
 #include "settingsui.inc"
+#if TAU_LIBRARY
+#pragma GCC pop_options
+#endif
+
+static int list_ended(void)
+{
+#if TAU_LIBRARY
+    if (lib_src) return rep_mode == REP_OFF && (uint32_t)lib_qpos + 1u >= lib_qn;
+#endif
+    return pl_count && rep_mode == REP_OFF && pl_pos + 1u >= pl_count;
+}
 
 /* Slide unconsumed bytes down and pull in ONE chunk. Compaction keeps Helix's
  * input pointer arithmetic simple -- it wants a flat span, not a wrap. */
@@ -8024,7 +8340,7 @@ static int read_track_head(void)
 
     int attempt = 0, have_prev = 0;
     uint32_t skip = 0, prev_skip = 0;
-    char prev_try[48];
+    char prev_try[TITLE_MAX];
     /* PROVE THE SLOT HAS SETTLED before reading anything we will act on.
      *
      * After a 0192 the slot does not switch instantly, and the old design
@@ -8298,6 +8614,9 @@ static int read_track_head(void)
 
 /* Everything needed to start a track from the beginning, shared by boot and by
  * a reload. ONE function deliberately -- two copies of this drift apart. */
+#if TAU_LIBRARY
+__attribute__((optimize("Os")))       /* runs between tracks (audio silent), dominated by SD reads: size matters more than speed here */
+#endif
 static int load_track(void)
 {
     /* Release the FLAC buffer FIRST. This runs before the format is known --
@@ -8520,6 +8839,14 @@ static int load_track(void)
     }
     ld_size = LD_MS(cycles() - tphase); tphase = cycles();
 
+#if TAU_LIBRARY
+    /* Library track: show the title, artist and album at once (taken from the index), and let the cover art and the
+     * rest of the details follow once the file has fully loaded. The panel is parked so the early frame has no stale cover. */
+    if (lib_src) {
+        lib_meta_apply();
+        ui_loader_begin_ex(1);      /* full frame with the index's title/artist/album; the loader turns in the empty art plate until the cover arrives */
+    }
+#endif
     /* Cover art BEFORE the chrome, because whether it exists decides the
      * layout: no art means no panel and a full-width waveform. Also before
      * prefill, so its blocking reads cannot starve playback. */
@@ -8547,7 +8874,11 @@ static int load_track(void)
          * Must happen BEFORE ui_art_mount(), which fills the stash with the
          * panel colour -- checking afterwards would compare against an image
          * it had already destroyed. */
+#if TAU_G4 >= 2 && TAU_COLD_CODE
+        uint32_t sig = COLD_READY() ? art_sig_of(audio_start) : 0u;     /* cold code */
+#else
         uint32_t sig = art_sig_of(audio_start);
+#endif
         art_bad = 0;
         if (art_have && sig && sig == art_sig) {
             has_art = 1;                 /* the stash already holds this cover */
@@ -8563,7 +8894,11 @@ static int load_track(void)
             art_bad = 1;
         } else {
             ui_art_mount();
+#if TAU_G4 >= 2 && TAU_COLD_CODE
+            has_art = COLD_READY() ? art_decode(audio_start) : 0;     /* cold code: no cover without it */
+#else
             has_art = art_decode(audio_start);
+#endif
             if (!has_art) {
                 if (art_fail_code) {     /* present, and unreadable */
                     art_bad      = 1;
@@ -8602,6 +8937,7 @@ static int load_track(void)
     art_x     = art_shown ? ART_X : FB_W;
 
     ui_draw_chrome();   /* title/artist are populated now -- draw the UI */
+    ui_boot_cancel();   /* the loader is over: prefill()'s reads tick ui_boot_tick(), which would otherwise keep painting the spinner and its caption over the cover */
 
     if (!prefill()) { REG(R_STAT2) = 0xD0000000u; return 0; }
 
@@ -8694,6 +9030,9 @@ static int load_track(void)
 
     ld_pre   = LD_MS(cycles() - tphase);
     ld_total = LD_MS(cycles() - t0);
+#if TAU_CHECK
+    chk_loads++;
+#endif
 
 #if UI_SHOW_LOAD_TIMES
     /* The load-phase breakdown, as a toast, after every load.
@@ -8747,6 +9086,16 @@ int main(void)
 
     vol_apply();
 
+    /* Phase F step 1 (docs/PHASE_F_SPEC.md section 14): point the decoders'
+     * cycle-counting hooks at R_CYCLES. Compiles to nothing unless the
+     * profiling build turns MP3_PROFILE and/or FLAC_PROFILE on. */
+#if MP3_PROFILE
+    mp3_tick = cycles;
+#endif
+#if FLAC_PROFILE
+    flac_tick = cycles;
+#endif
+
     /* ---- DIAGNOSTIC: dump APF's datatable, hold SELECT at boot ----
      *
      * Analogue's docs say a slot's size comes from "the Dataslot ID/Size Table
@@ -8790,8 +9139,31 @@ int main(void)
     /* Armed only around this call, so the indicator means "reading the .m3u"
      * and nothing else -- the track open and artwork decode that follow are a
      * separate wait and deliberately do not claim this label. */
+#if TAU_COLD
+    cold_boot_load();                 /* first: the cold image holds data the menus need */
+#endif
+#if TAU_LIBRARY
+    ui_boot_note("LOADING LIBRARY");
+#if TAU_G4 && TAU_COLD_CODE
+    if (COLD_READY()) lib_boot_load();
+    else { lib_state = LIB_ST_OFF; lib_err = 18u; }     /* the library UI is cold code: without it the library stays off (Info shows E18) */
+#else
+    lib_boot_load();
+#endif
+#if TAU_PL_SDRAM
+    (void)pl_sdram_ready();           /* library mode never reaches pl_load(), which used to be the only place the window was proven */
+#endif
+    ui_boot_clear();
+#endif
     ui_boot_note("LOADING PLAYLIST");
+#if TAU_LIBRARY
+    if (lib_state != LIB_ST_OK)      /* with a library the core-menu playlist is not used (Menu > Settings > How it works) */
+#endif
+#if TAU_G4 >= 2 && TAU_COLD_CODE
+    if (COLD_READY()) pl_load();          /* cold code: without it no playlist (single files still play) */
+#else
     pl_load();
+#endif
     ui_boot_clear();
     /* Only when there is something to report. A "0 TRACKS" line would be
      * answered a moment later by the idle screen saying the same thing at
@@ -8831,7 +9203,7 @@ int main(void)
      * being repositioned to a playlist track's timestamp. Choosing the source
      * first makes the position unambiguous: it belongs to the track this
      * branch just started. */
-    int from_slot = 0, from_list = 0;
+    int from_slot = 0, from_list = 0, from_lib = 0;
     if (resume_on && resume_word && RS_PL(resume_word) && pl_count
         && RS_SECS(resume_word) > 2u) {
         uint16_t f = RS_TRACK(resume_word);
@@ -8840,6 +9212,15 @@ int main(void)
             from_list = pl_play_at(pl_pos);
         }
     }
+#if TAU_LIBRARY
+    /* Library: open what the user was last playing (or the first track) but do not start it. */
+    if (lib_state == LIB_ST_OK) { from_lib = lib_boot_restore();
+#if TAU_LIBRARY
+        lib_boot_ok = (uint8_t)from_lib;   /* B-080: shown on Info so a release-vs-diagnostic mismatch has evidence, not a guess */
+#endif
+    }
+    if (lib_state != LIB_ST_OK)      /* a library is browsed from the Select button; no auto-start from the file slot */
+#endif
     if (!from_list) from_slot = load_track();
     /* The splash is already up; leave it while the playlist track loads
      * rather than flashing instructions that are about to be replaced.
@@ -8897,9 +9278,17 @@ int main(void)
 
     if (from_slot) {
         pl_report();
-    } else if (!from_list) {
+    } else if (!from_list && !from_lib) {
         idle = 1;
         ui_wave_anim_stop();
+#if TAU_LIBRARY
+        /* B-080: a library with nothing to restore (a first boot, or an index with no playable history) used to show
+         * the separate "Library ready" getting-started card here, then the ordinary player chrome once the library
+         * was opened and closed -- two different screens for the same "nothing loaded" state. ui_draw_chrome() now
+         * carries its own message for this case (above), so it is the one screen, consistent with every other way of
+         * reaching it. */
+        if (lib_state == LIB_ST_OK && !lib_disabled) { ui_draw_chrome(); goto boot_idle_drawn; }
+#endif
         /* Say WHICH nothing this is. A playlist whose every entry is
          * mistyped and no playlist at all both land here, and the idle
          * screen is otherwise indistinguishable from the splash that was
@@ -8908,6 +9297,7 @@ int main(void)
         ui_idle_screen(pl_count            ? "No playable tracks in playlist"
                      : pl_status == PL_ERR_EMPTY ? "Playlist has no tracks"
                      : (const char *)0);
+        boot_idle_drawn:;
     }
 
     for (;;) {
@@ -8968,6 +9358,9 @@ int main(void)
              * itself here. */
             resume_seek_req = 0;
             track_from_pl  = 0u;            /* the user chose this one */
+#if TAU_LIBRARY
+            lib_src = 0u;
+#endif
 
             REG(R_RELOAD)  = 1;             /* ack */
             reload_pending = 0;
@@ -9175,6 +9568,13 @@ int main(void)
             if (slot_changed()) reload_pending = 1u;
         }
 
+#if TAU_LIBRARY
+        if (lib_state == LIB_ST_OK && (pl_check_req || pl_reload_pending)) {
+            pl_check_req = 0;                       /* library mode: playlists live in the library */
+            if (pl_reload_pending) { pl_reload_pending = 0; REG(R_RELOAD) = RL_PL_RELOAD; }
+            continue;
+        }
+#endif
         if (pl_check_req) {
             pl_check_req = 0;
             pl_name_read();
@@ -9270,7 +9670,11 @@ int main(void)
                     refill_drain();
                     ring_fill = 0; ring_rd = 0;
                     uint32_t sig_was = pl_sig;
+#if TAU_G4 >= 2 && TAU_COLD_CODE
+                    if (COLD_READY()) pl_load();
+#else
                     pl_load();
+#endif
 
                     /* Did the switch actually happen?
                      *
@@ -9397,7 +9801,11 @@ int main(void)
                  * offset would read the wrong file. Drop them; stay silent
                  * until the reload lands. */
                 ring_fill = 0; ring_rd = 0;
+#if TAU_LIBRARY
+                ui_toast_set("TRACK", lib_src ? (uint32_t)lib_qpos + 1u : (uint32_t)pl_live_ordinal(pl_pos), 0);
+#else
                 ui_toast_set("TRACK", (uint32_t)pl_live_ordinal(pl_pos), 0);
+#endif
                 ui_mode_dirty = 1;
             }
             continue;
@@ -9900,9 +10308,16 @@ int main(void)
 #if TAU_DIAG_INFO
         set_info_tick();
 #endif
+#if TAU_CHECK
+        chk_tick();
+#endif
 #if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
         dg_soak_tick();
 #endif
+#endif
+#if TAU_LIBRARY
+        if (lib_ui_open && lib_ui_dirty) { lib_ui_dirty = 0u; lib_ui_draw(); }
+        if (lib_ui_open) lib_ui_marquee();
 #endif
         if (pl_ui_open && pl_ui_drawn_pos != pl_pos) pl_ui_dirty = 1u;
         if (pl_ui_open && pl_ui_dirty) {
@@ -9933,7 +10348,7 @@ int main(void)
                         pl_ui_mq_next = cycles() + CLK_HZ;  /* pause, then again */
                     }
                     if (pl_ui_sel >= pl_ui_top &&
-                        pl_ui_sel <  pl_ui_top + PL_UI_ROWS)
+                        pl_ui_sel <  pl_ui_top + PLIST_ROWS)
                         pl_ui_row(pl_ui_sel - pl_ui_top);
                 } else {
                     /* Fits: nothing to scroll, so back off rather than
@@ -9960,6 +10375,17 @@ int main(void)
             ui_last_sec   = 0xFFFFFFFFu;
             ui_prog_sec   = 0xFFFFFFFFu;
         }
+#if TAU_LIBRARY
+        {   /* one small alert per boot when there is no library and something is playing */
+            static uint8_t legacy_told;
+            if (!legacy_told && !idle && lib_state == LIB_ST_NONE) { legacy_told = 1u; ui_toast_msg("LEGACY PLAYLIST MODE"); }
+        }
+        if (lib_play_req) {
+            stop_req = 0;
+            if (lib_play_start()) { ui_mode_dirty = 1u; continue; }
+            ui_toast_msg("TRACK WOULD NOT OPEN");
+        }
+#endif
         if (pl_ui_play_req) {
             pl_ui_play_req = 0;
             if (pl_count && pl_ui_sel < pl_count) {
@@ -10025,8 +10451,7 @@ int main(void)
                  * non-repeating list), and the old replay-this-track behaviour
                  * is the fallback -- so a single file still loops as before. */
                 if (pl_advance_auto()) { ui_mode_dirty = 1; continue; }
-                if (pl_count && rep_mode == REP_OFF &&
-                    pl_pos + 1u >= pl_count) {
+                if (list_ended()) {
                     paused |= 1u;              /* end of the list: stop here */
                     ui_toast_msg("END OF PLAYLIST");
                 }
@@ -10070,12 +10495,14 @@ int main(void)
              * not here: once per frame is 9.6 Hz and looks delayed. */
             if (fe == FLAC_END || fe == FLAC_ERR_SHORT) {
                 if (pl_advance_auto()) { ui_mode_dirty = 1; continue; }
-                if (pl_count && rep_mode == REP_OFF &&
-                    pl_pos + 1u >= pl_count) {
+                if (list_ended()) {
                     paused |= 1u;
                     ui_toast_msg("END OF PLAYLIST");
                 }
-                soft_restart_req = 1;
+                /* NOT soft_restart_req: that re-creates the Helix decoder, which cannot be allocated while the
+                 * FLAC buffers hold the arena, so a FLAC at the end of a list (or repeat-one, or a single file)
+                 * ended on LOAD FAILED. stop_req reopens the FLAC from 0:00, staying paused if paused above. */
+                stop_req = 1;
                 continue;
             }
             if (fe != FLAC_OK) { errs++; REG(R_STAT2) = 0xC2000000u | fe; }
