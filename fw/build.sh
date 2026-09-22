@@ -11,6 +11,8 @@
 #   ./build.sh sdram-cpu-log-probe # A-081 target-write/flush result discriminator
 #   ./build.sh sdram-cpu-log-readback # A-083 target slot readback discriminator
 #   ./build.sh psram-diag # B-004 PSRAM mailbox diagnostic (needs a TAU_PSRAM_PROBE RBF)
+#   ./build.sh player-profile # Phase F step 1: per-stage MP3/FLAC decode cost, on the shipped RBF
+#   ./build.sh player-library-diagnostic-profile # B-088/B-089: the same, reported via the Check QR record
 #
 # The .rom is loaded from SD into BRAM by data_loader at boot, exactly like an
 # arcade core's ROM -- which is the point: firmware changes cost seconds here
@@ -20,6 +22,7 @@ set -e
 TARGET="${1:-player}"
 STRESS_CFLAGS=""
 HEAP_MIN=0
+FLAC_O_CFLAGS=""    # reaches the SEPARATE flac.o compile line below; player-profile sets it
 
 # Resolve the checkout instead of assuming the original author's Windows path.
 # Override RISCV_TOOLCHAIN_BIN and/or RISCV_PREFIX when the tools are not on
@@ -75,6 +78,27 @@ player)
       "$FW/picojpeg.o" "$FW/flac.o"
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    ;;
+player-profile)
+    # Phase F step 1 (docs/PHASE_F_SPEC.md section 14): per-stage decode cost.
+    # Same sources as `player`; only the profiling macros differ. MP3_PROFILE
+    # goes through the normal CFLAGS (mp3dec.c is compiled with the rest of
+    # SRCS below); FLAC_PROFILE also has to reach the SEPARATE flac.o compile
+    # line near the end of this script, which is why FLAC_O_CFLAGS exists.
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/decoder-profile"
+    STRESS_CFLAGS="-DMP3_PROFILE=1 -DFLAC_PROFILE=1 -DUI_SHOW_DECODE_PROFILE=1"
+    FLAC_O_CFLAGS="-DFLAC_PROFILE=1"
     ;;
 player-stress)
     SRCS=(
@@ -137,9 +161,7 @@ player-settings)
     STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1"
     HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB        # release-style build: keep at least 8 KiB of heap gap
     ;;
-release)
-    # The shipped product (A-130): settings menu, Info page and the playlist in SDRAM, built into
-    # dist/. Needs the window RBF (the probe-free seed-2 build, A-114/A-128) in the same package.
+player-library)
     SRCS=(
       "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
       "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
@@ -151,7 +173,46 @@ release)
       "$FW/picojpeg.o" "$FW/flac.o"
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
-    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1"
+    OUT="$ROOT/work/diagnostics/library"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1 -DTAU_LIBRARY=1 -DTAU_COLD=1"
+    COLD_PACK=1
+    HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB        # release-style build: keep at least 8 KiB of heap gap
+    ;;
+player-library-check)
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/library-check"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1 -DTAU_LIBRARY=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-2}"
+    COLD_PACK=1
+    HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB        # release-style build: keep at least 8 KiB of heap gap
+    ;;
+release)
+    # The shipped product: settings menu, Info page, the playlist in SDRAM, the media library and Phase G (cold
+    # code in PSRAM), built into dist/. v0.4.0 (B-078): TAU_LIBRARY/TAU_COLD/TAU_COLD_CODE/TAU_G4 added -- the
+    # Check (TAU_CHECK) stays Diagnostic-Build-only (B-073 decision), and TAU_DIAG_TESTS/TAU_SDRAM_STRESS stay off.
+    # Needs the G3 window+ifetch RBF in the same package (the seed-1 build, B-050) and its cold image (COLD_PACK=1).
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1 -DTAU_LIBRARY=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_G4=${G4:-2}"
+    COLD_PACK=1
     HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB
     ;;
 player-diagnostic)
@@ -169,6 +230,64 @@ player-diagnostic)
     OUT="$ROOT/work/diagnostics/diagnostic-build"
     STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1"
     HEAP_MIN=4096        # developer build: the tests may use the space, never below 4 KiB
+    ;;
+player-cold-diagnostic)
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/cold-diagnostic"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1"
+    COLD_PACK=1
+    HEAP_MIN=4096        # developer build: the tests may use the space, never below 4 KiB
+    ;;
+player-library-diagnostic)
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/library-diagnostic"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_LIBRARY=1 -DTAU_METER_THUMBS=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-2}"
+    COLD_PACK=1
+    HEAP_MIN=4096        # developer build: the tests may use the space, never below 4 KiB
+    ;;
+player-library-diagnostic-profile)
+    # B-088/B-089 (docs/TEST_SUITE_SPEC.md section 11): the Diagnostic Build
+    # above, plus MP3_PROFILE/FLAC_PROFILE so Check's CT_AUD window (the
+    # existing 15 s playback-counter test) also reports decode-stage cost in
+    # the QR record (SR_T_DECPROF) -- "boot, run Check, read the QR" instead
+    # of screenshotting the bench-only screen row (B-086/B-087). MP3_PROFILE/
+    # FLAC_PROFILE stay off everywhere else; this is the one opt-in variant.
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/library-diagnostic-profile"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_LIBRARY=1 -DTAU_METER_THUMBS=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-2} -DMP3_PROFILE=1 -DFLAC_PROFILE=1"
+    FLAC_O_CFLAGS="-DFLAC_PROFILE=1"
+    COLD_PACK=1
+    HEAP_MIN=4096
     ;;
 player-sdram-pl-fault)
     SRCS=(
@@ -292,7 +411,7 @@ psram-diag)
     OUT="$ROOT/work/diagnostics/psram-diag"
     ;;
 *)
-    echo "usage: $0 {player|player-stress|player-stress-window|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback|sdram-cpu-log-probe|sdram-cpu-log-readback|sdram-cpu-log-open|sdram-cpu-log-settle|sdram-cpu-log-write-read|sdram-cpu-log-source|sdram-cpu-log-bridge|sdram-cpu-log-table|sdram-cpu-log-interact|sdram-cpu-disc|sdram-cpu-latency|sdram-cpu-soak|sdram-cpu-full|psram-diag|psram-diag-sim}"; exit 1 ;;
+    echo "usage: $0 {player|player-profile|player-library-diagnostic-profile|player-stress|player-stress-window|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback|sdram-cpu-log-probe|sdram-cpu-log-readback|sdram-cpu-log-open|sdram-cpu-log-settle|sdram-cpu-log-write-read|sdram-cpu-log-source|sdram-cpu-log-bridge|sdram-cpu-log-table|sdram-cpu-log-interact|sdram-cpu-disc|sdram-cpu-latency|sdram-cpu-soak|sdram-cpu-full|psram-diag|psram-diag-sim}"; exit 1 ;;
 esac
 
 # Build flags are selected by target rather than remembered in a shell history.
@@ -320,7 +439,7 @@ rm -f "$FW/fw.elf"
 # MP3 path keeps -O2: it needs 45.7 MHz of 60 and cannot afford the loss.
 # If FLAC turns out CPU-bound, this is the first thing to revisit.
 rm -f "$FW/flac.o"
-if ! "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -Os -ffreestanding -c         -o "$FW/flac.o" "$FW/flac.c" > "$FW/build.log" 2>&1; then
+if ! "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -Os -ffreestanding $FLAC_O_CFLAGS -c         -o "$FW/flac.o" "$FW/flac.c" > "$FW/build.log" 2>&1; then
     cat "$FW/build.log" >&2
     echo "*** flac.c FAILED TO COMPILE ***" >&2
     exit 1
@@ -346,10 +465,12 @@ fi
 grep -v "LOAD segment with RWX" "$FW/build.log" >&2 || true
 
 "$SIZE" "$FW/fw.elf"
-"$OBJCOPY" -O binary "$FW/fw.elf" "$OUT/$ROM"
+"$OBJCOPY" -O binary -R .cold_data -R .cold_text "$FW/fw.elf" "$OUT/$ROM"      # cold data is not part of the ROM image
 # GNU objcopy inherits the ELF executable bit on Unix. A ROM is data, and the
 # shipped artifact is tracked as 0644, so normalize it for reproducible status.
 chmod 0644 "$OUT/$ROM"
+# Phase G1: split the cold data into tau-cold.bin and bind it to this ROM (the ROM carries the layout id).
+if [ "${COLD_PACK:-0}" = 1 ]; then "$PYTHON" "$ROOT/tools/pack_cold.py" pack "$FW/fw.elf" "$OUT" --rom "$OUT/$ROM"; fi
 
 "$PYTHON" -c "
 import os
