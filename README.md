@@ -5,7 +5,7 @@ SD card, with album art, tags and meters.
 
 Decoding runs in software, on a RISC-V CPU built into the Pocket's FPGA.
 
-Current version **v0.3.0**.
+Current version **v0.4.0**.
 
 Tau is a derivative of
 **[HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player)**
@@ -92,12 +92,46 @@ Nothing is written to your music folder.
 - **Bitrate and sample rate**, with the encoder that made the file where it
   says so — `128 kbps - 44.1 kHz - LAME3.100`.
 
-Tapping **Select** replaces this screen with the
-[playlist browser](#the-playlist-browser) until you close it.
+Tapping **Select** opens the [media library](#media-library) if you have one, or the
+[playlist browser](#playlists) otherwise, until you close it.
 
 CBR and VBR **MPEG-1 and MPEG-2** Layer III at every standard bitrate and sample
 rate, mono or stereo, plus FLAC — see [below](#flac). MPEG-2 covers the lower
 sample rates common in spoken-word recordings.<br clear="right">
+
+## Media library
+
+Point the sync tool at your music and it builds a browsable library on the card:
+
+```bash
+python3 tools/sync_media.py /path/to/your/music --all-tau --library
+```
+
+That copies the audio (converting nothing, tags untouched), embeds folder covers into files that
+don't have their own, writes ASCII-only names and playlists (some characters have no glyph on the
+Pocket's font), and builds the index (`tau-library.tdb`) the player reads at startup. Re-run it any
+time your music changes; it only touches what's different.
+
+With a library present, **Select** opens it instead of the plain playlist browser:
+
+| Pocket | Action |
+|---|---|
+| **Up** / **Down** | Move the cursor — hold to run through a long list |
+| **L** / **R** (shoulder buttons) | Jump to the next/previous letter |
+| **Right** or **A** | Open a folder, or play a track |
+| **Left**, **B** or **Select** | Go back a level, or close |
+| **X** | Play everything under the cursor (an artist, an album, or a playlist) |
+
+**Artists**, **Albums**, **Tracks** (every track, A–Z) and **Shuffle All** are the four top-level
+views; playlists carried over from your own `.m3u` files sit alongside them. History is kept: after
+a restart the library reopens what you were last playing — loaded, not started, so nothing plays
+without you pressing anything.
+
+Turning the library off (Settings > Library) makes the player behave exactly as it did before one
+existed: the core menu's **Load MP3** / **Load Playlist** pick a file or list directly, and Select
+opens the plain playlist browser below. This is **Legacy Playlist Mode**; a small note explains it
+the first time you see it, and Settings > How it works has the fuller version. No library is ever
+required — everything below applies whether or not you build one.
 
 ## Playlists
 
@@ -131,10 +165,13 @@ hidden while you look.
 | Pocket | Action |
 |---|---|
 | **Up** / **Down** | Move the cursor — hold to run through a long list |
-| **Left** / **Right** | Page up / down a screenful at a time |
+| **L** / **R** (shoulder buttons) | Page up / down a screenful at a time |
 | **Y** | Jump back to the track that's playing |
-| **A** | Play whatever's under the cursor |
-| **Select** or **B** | Close without changing anything |
+| **A** or **Right** | Play whatever's under the cursor |
+| **Select**, **B** or **Left** | Close without changing anything |
+
+In every menu and list, **Right** goes forward (opens or selects, like **A**) and **Left** goes back (like **B**);
+on a switch or the volume, Left and Right change the value instead.
 
 Rows show filenames rather than tags — a tag lives inside its file, so naming
 every row would mean opening all 256 of them. With shuffle on, the list is the
@@ -264,6 +301,26 @@ listening, because the stress tests deliberately load the memory system.
 **A run:** open the core, start music, open the test or stress page, note the
 result, then **Quit** to the menu (some results are only saved when you quit).
 
+### Check: one button that produces a report (Diagnostic Build only)
+
+**Settings > Diagnostics > Check** (Diagnostic Build) runs a fixed set of checks in about 30 seconds while music keeps
+playing: the SDRAM and PSRAM memory tests and their speed, the cold-code path, the library, 15 seconds of playback
+counters and what the start-up found. The result page lists each check as PASS, FAIL or SKIPPED (playback is skipped if
+nothing is playing) and gives a verdict. **B** stops a run, **Y** runs it again, **A** shows the report as a **QR code**.
+
+Take a screenshot of the result page and of the QR page (**Menu + Start**). The QR code carries the whole report
+(build, memory timings, load times, library, error codes) and is read exactly from the screenshot; the 36-character code
+under the verdict is a short fallback. When you **Quit** the core, the Pocket also saves a four-number summary in
+`Settings/<core>/Interact/_core/interact_persist.json`. The Diagnostic Build has four profiles, chosen on the first page with the d-pad (Up/Down picks the row, Left/Right changes it):
+**USER CHECK** (about 30 s), **STANDARD** (adds 10 track changes, 20 cold-code runs and three 30-second stress levels, about
+6 minutes), **FULL** (STANDARD plus a soak) and **ENDURANCE** (the soak alone, with a cold-code test every minute). The soak
+length (5, 15, 30 or 60 minutes) and stress level (R1-R3) can be set; FULL starts at 5 minutes and ENDURANCE at 30.
+While a long profile runs you can leave the screen alone; **B** stops it and switches the stress traffic off.
+
+Send the screenshots (and that file if asked). For the report on a computer:
+`python3 tools/decode_tau_suite.py --qr screenshot.png` (needs `opencv-python`), or `--interact persist.json`, or `--code`
+with the short code.
+
 ### Sending results
 
 Open an issue at <https://github.com/alfatreze/Tau-Alpha/issues> and include:
@@ -279,7 +336,8 @@ Open an issue at <https://github.com/alfatreze/Tau-Alpha/issues> and include:
 5. A short description of the music: format, bitrate, whether it has a cover and its size.
 
 A `PASS` on the Info and Tests pages together with a screenshot is enough for a
-good report; you do not need to send anything else from the card.
+good report; you do not need to send anything else from the card. With the Check
+it is even simpler: screenshots of its result page and QR page are the report.
 
 ## FLAC
 

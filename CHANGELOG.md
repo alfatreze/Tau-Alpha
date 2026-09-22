@@ -2,6 +2,34 @@
 
 What changed in each release, newest first.
 
+## v0.4.0 — 22 September 2026
+
+- **Media library.** Point the sync tool at your music (`tools/sync_media.py --library`) and Select opens a
+  browsable library instead of a plain playlist: Artists, Albums, Tracks and Shuffle All, playlists carried over
+  from your `.m3u` files, and history that resumes what you were playing (loaded, not started) after a restart.
+  A library is entirely optional; without one the player works exactly as before (now called Legacy Playlist Mode,
+  explained under Settings > How it works).
+- **More free memory.** Cold, less-time-critical code (the settings menus, the library browser, the playlist
+  overlay, the loading screen, and cover-art handling) now runs from the Pocket's PSRAM instead of sitting
+  permanently in on-chip memory, the same way the album-art buffer already did. This roughly quadruples the
+  player's free memory with no change to playback; a bitstream without PSRAM instruction support falls back
+  cleanly (no library, no menus, single-file playback still works).
+- **Left and Right are consistent everywhere.** In every menu, list and the playlist, Right now opens or selects
+  (like A) and Left goes back (like B); on a switch or the Volume row they still change the value. Previously
+  Left/Right in the settings menus and the playlist paged through the list, which on a short list looked like it
+  jumped to the start or end; that paging moved to the shoulder buttons (L/R) in the playlist.
+- **Menus scroll continuously** on a held Up/Down, matching the playlist and library lists (previously one tap
+  moved one row).
+- **Fixed:** Left/Right in the settings menus (including Volume) briefly seeked the currently playing track
+  instead of only changing the setting. Also fixed: album art could go blank after changing tracks within an
+  album, and a track change while browsing a library could report "no playlist" instead of skipping.
+- **Playlist list restyled** to match the settings and library rows (taller, centred, the same selection style)
+  instead of the older, denser list look.
+- A separate Diagnostic Build (`alfatreze.TAU_DIAGNOSTIC`) ships as before, with the library, the developer test
+  menus, and a new one-button **Check** (Settings > Diagnostics > Check): a self-test with a plain-language
+  result, a QR code carrying the full report, and longer soak profiles for testers. It is not in the normal
+  release.
+
 ## v0.3.0 — 21 September 2026
 
 - **PSRAM support.** The bitstream now drives the Pocket's PSRAM chips as a second memory area
