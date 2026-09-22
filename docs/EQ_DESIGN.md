@@ -4,8 +4,16 @@ How a preset equalizer would fit this core. Written before any code so the
 decisions that are awkward to reverse — where it sits, what rate it runs at, what
 it is allowed to consume — are settled on paper.
 
-Nothing here is built. See [ROADMAP.md](../ROADMAP.md) for why this ranks ahead
-of new formats.
+**Status correction, 2026-09-22: this is built and shipped.** `eq_biquad` is instantiated
+in `src/fpga/core/mp3_soc.v`, listed in `src/fpga/ap_core.qsf`, wired to `R_EQ` (0x68), and
+was confirmed on hardware. The rest of this document is kept as the design record - it is
+what was built from, and its resource reasoning still holds. The one line worth carrying
+forward into every later block: **the EQ must not use M10K**, solved with
+`ramstyle = "MLAB, no_rw_check"`. That precedent is now the basis of the block-RAM release
+plan in `docs/PHASE_F_SPEC.md`.
+
+Originally written before any code; see [ROADMAP.md](../ROADMAP.md) for why this ranked
+ahead of new formats.
 
 ## The one-paragraph version
 
