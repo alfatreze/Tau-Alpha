@@ -587,9 +587,14 @@ COLD_TEXT static void sw_sample(uint32_t elapsed)
     { uint32_t rt = flac_res_total_cyc + flac_lpc_total_cyc;
       r = (uint16_t)(rt ? (flac_res_total_cyc * 100u) / rt : 0u); }
 #endif
-    uint8_t t[9] = { (uint8_t)sw_idx, (uint8_t)h, (uint8_t)(h >> 8), (uint8_t)i, (uint8_t)(i >> 8),
-                     (uint8_t)s, (uint8_t)(s >> 8), (uint8_t)r, (uint8_t)(r >> 8) };
-    sr_tlv(&sw_rec, SR_T_DECSWEEP, t, 9);
+    /* B-092: the active speed as a percent (100 = 1.00x), so a future kernel
+     * change can be checked against "did this hold across speeds" from the
+     * record alone, without assuming the B-087 finding (speed doesn't move
+     * H/I/S/R because the resampler runs downstream of decode) still holds. */
+    uint8_t speed_pct = (uint8_t)((uint32_t)speed_num[speed_idx] * 100u / speed_den[speed_idx]);
+    uint8_t t[10] = { (uint8_t)sw_idx, speed_pct, (uint8_t)h, (uint8_t)(h >> 8), (uint8_t)i, (uint8_t)(i >> 8),
+                      (uint8_t)s, (uint8_t)(s >> 8), (uint8_t)r, (uint8_t)(r >> 8) };
+    sr_tlv(&sw_rec, SR_T_DECSWEEP, t, 10);
     sw_done_n++;
 }
 
