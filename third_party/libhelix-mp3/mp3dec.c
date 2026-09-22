@@ -61,11 +61,15 @@
 #include "mp3_profile.h"
 uint32_t (*mp3_tick)(void);
 uint32_t mp3_huff_cyc, mp3_imdct_cyc, mp3_sub_cyc;
+uint32_t mp3_huff_total_cyc, mp3_imdct_total_cyc, mp3_sub_total_cyc;
 #define MPROF_T0()   uint32_t mprof_t0 = mp3_tick ? mp3_tick() : 0u
-#define MPROF_ADD(A) do { if (mp3_tick) (A) += mp3_tick() - mprof_t0; } while (0)
+/* Two targets, one tick() read: the per-second screen counter (A) and the
+ * Check-record run total (AT) advance by the SAME delta, so a build with
+ * both features on never has them drift apart from being sampled twice. */
+#define MPROF_ADD(A, AT) do { if (mp3_tick) { uint32_t _mprof_d = mp3_tick() - mprof_t0; (A) += _mprof_d; (AT) += _mprof_d; } } while (0)
 #else
 #define MPROF_T0()   do {} while (0)
-#define MPROF_ADD(A) do {} while (0)
+#define MPROF_ADD(A, AT) do {} while (0)
 #endif
 
 /**************************************************************************************
@@ -421,7 +425,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			/* unpack scale factors and compute size of scale factor block */
 			prevBitOffset = bitOffset;
 			offset = UnpackScaleFactors(mp3DecInfo, mainPtr, &bitOffset, mainBits, gr, ch);
-			MPROF_ADD(mp3_huff_cyc); }
+			MPROF_ADD(mp3_huff_cyc, mp3_huff_total_cyc); }
 			#ifdef PROFILE
 				time = systime_get() - time;
 				printf("UnpackScaleFactors: %i ms\n", time);
@@ -444,7 +448,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			/* decode Huffman code words */
 			prevBitOffset = bitOffset;
 			offset = DecodeHuffman(mp3DecInfo, mainPtr, &bitOffset, huffBlockBits, gr, ch);
-			MPROF_ADD(mp3_huff_cyc); }
+			MPROF_ADD(mp3_huff_cyc, mp3_huff_total_cyc); }
 			if (offset < 0) {
 				MP3ClearBadFrame(mp3DecInfo, outbuf);
 				return ERR_MP3_INVALID_HUFFCODES;
@@ -467,7 +471,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			MP3ClearBadFrame(mp3DecInfo, outbuf);
 			return ERR_MP3_INVALID_DEQUANTIZE;
 		}
-		MPROF_ADD(mp3_imdct_cyc); }
+		MPROF_ADD(mp3_imdct_cyc, mp3_imdct_total_cyc); }
 		#ifdef PROFILE
 			time = systime_get() - time;
 			printf("Dequantize: %i ms\n", time);
@@ -484,7 +488,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 				MP3ClearBadFrame(mp3DecInfo, outbuf);
 				return ERR_MP3_INVALID_IMDCT;
 			}
-			MPROF_ADD(mp3_imdct_cyc);
+			MPROF_ADD(mp3_imdct_cyc, mp3_imdct_total_cyc);
 		#ifdef PROFILE
 			time = systime_get() - time;
 			printf("IMDCT: %i ms\n", time);
@@ -500,7 +504,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			MP3ClearBadFrame(mp3DecInfo, outbuf);
 			return ERR_MP3_INVALID_SUBBAND;
 		}
-		MPROF_ADD(mp3_sub_cyc); }
+		MPROF_ADD(mp3_sub_cyc, mp3_sub_total_cyc); }
 		#ifdef PROFILE
 			time = systime_get() - time;
 			printf("Subband: %i ms\n", time);

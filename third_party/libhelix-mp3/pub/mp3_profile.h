@@ -26,4 +26,14 @@ extern uint32_t mp3_huff_cyc;   /* UnpackScaleFactors + DecodeHuffman, both chan
 extern uint32_t mp3_imdct_cyc;  /* Dequantize + IMDCT (alias reduction is inside IMDCT) */
 extern uint32_t mp3_sub_cyc;    /* Subband -- the polyphase synthesis filterbank        */
 
+/* B-088/B-089 (docs/TEST_SUITE_SPEC.md section 11): a SECOND, independent set
+ * of accumulators for the Check/QR record (fw/suite.inc's CT_AUD test), so
+ * that feature and the UI_SHOW_DECODE_PROFILE screen row above share the
+ * instrumented call sites but no mutable state -- the screen row resets
+ * every second, these are reset once when a Check audio window starts and
+ * read once when it ends. Same fields, same meaning, just not on a clock. */
+extern uint32_t mp3_huff_total_cyc;
+extern uint32_t mp3_imdct_total_cyc;
+extern uint32_t mp3_sub_total_cyc;
+
 #endif

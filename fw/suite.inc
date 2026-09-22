@@ -1,0 +1,554 @@
+/* ================================================================== CHECK (TAU_CHECK): the user-facing diagnostics
+ * Menu > Settings > Check runs one fixed profile (docs/TEST_SUITE_SPEC.md sections 7-8): memory tests, playback counters,
+ * startup status. Result: a verdict, one line per test, a QR code with the full report (fw/suite_core.h record, decoded by
+ * tools/decode_tau_suite.py) and a 36-character short code. The four-word summary is also stored in the persisted
+ * settings words 8-11 (saved by the Pocket when the core is quit); the legacy playlist-name resume that used them does not
+ * exist in library builds. The tests, the report builder and the QR encoder are COLD CODE (run from PSRAM), so the
+ * resident cost is a few hundred bytes; without the cold image the page says so and nothing else is affected.
+ * Never touches the framebuffer, the library index, the queue or the playlist buffers: scratch is SDRAM physical 8 MiB
+ * (the Tests page's area), PSRAM 26 MiB (unused) and PSRAM 0x3000 (report buffers). */
+#if TAU_CHECK
+#if !TAU_COLD_CODE || !TAU_LIBRARY || !TAU_PL_SDRAM
+#error "TAU_CHECK needs TAU_LIBRARY and TAU_COLD_CODE (the tests and the QR encoder are cold code)"
+#endif
+#define SR_FN COLD_TEXT static
+#include "suite_core.h"
+#define QR_FN COLD_TEXT static
+#define QR_TBL COLD_DATA
+#include "qrcode.h"
+
+#define CHK_QR      ((uint8_t *)(uintptr_t)0xA4003000u)     /* QR working buffer, QR_BUF_LEN = 13,206 B (to 0x6398) */
+#define CHK_REC     ((uint8_t *)(uintptr_t)0xA4007000u)     /* record, 2,048 B */
+#define CHK_TXT     ((char *)(uintptr_t)0xA4007800u)        /* QR text, 2,800 B (version 38 at level L holds 2,699 B) */
+#define CHK_REC_CAP 2048u
+#define CHK_TXT_CAP 2800u
+#define CHK_QR_MAXV 38u
+#define CHK_SDRAM   0xA0800000u                             /* physical 8 MiB, as the Tests page */
+#define CHK_PSRAM   0xA5A00000u                             /* PSRAM offset 26 MiB */
+#define CHK_AUDIO_S 15u                                     /* length of the playback counter test */
+#if TAU_DIAG_TESTS                                          /* Diagnostic Build: Check sits in SETTINGS > DIAGNOSTICS */
+#define CHK_PARENT  SET_DGN
+#else
+#define CHK_PARENT  SET_DIAG
+#endif
+#define CHK_BASE    7u                                      /* the USER CHECK: test ids 0..6 */
+#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW               /* Diagnostic Build: STANDARD and FULL add stress and a soak (ids 7..10) */
+#define CHK_DEV     1
+#define CHK_MAX     13u
+#else
+#define CHK_DEV     0
+#define CHK_MAX     7u
+#endif
+static void set_close(void);
+enum { CK_IDLE = 0, CK_RUN, CK_DONE, CK_QR };
+enum { CT_SDW = 0, CT_SDC, CT_PSW, CT_COLD, CT_LIB, CT_AUD, CT_START, CT_R1, CT_R2, CT_R3, CT_SOAK, CT_TRK, CT_CX };   /* test ids */
+#define CHK_TRK_N    10u                                    /* track changes in the track-change test */
+#define CHK_STRESS_S 30u                                    /* seconds per stress level */
+
+static uint8_t  chk_state, chk_step, chk_run, chk_n = CHK_BASE;
+static uint8_t  chk_prof, chk_sel, chk_soak = 1u, chk_lvl = 2u;   /* profile 0-3, option row, soak length index (set_soak_min), stress level */
+/* Per-test results live in the PSRAM scratch (uncached window, valid only while the cold image is), not in scarce fast RAM. */
+struct chk_mem { uint32_t val[CHK_MAX]; uint16_t sd[6], ps[6]; uint8_t res[CHK_MAX]; uint8_t ti, tph;
+                 uint32_t tc0, tnext, tsettle, cold_at, cold_runs, cold_fails, tlast; };   /* sd/ps: read min/avg/max, write min/avg/max */
+#define CKM ((struct chk_mem *)(uintptr_t)0xA4008400u)
+#define chk_val (CKM->val)
+#define chk_sd  (CKM->sd)
+#define chk_ps  (CKM->ps)
+#define chk_res (CKM->res)
+static uint32_t chk_at, chk_u0, chk_s0, chk_under, chk_stall, chk_qr_len, chk_qr_ver;
+/* B-088/B-089: latched once when the CT_AUD window ends, from the run-total
+ * accumulators (mp3_*_total_cyc / flac_*_total_cyc), so chk_finish() reads a
+ * stable value instead of touching the profiling globals directly. */
+static uint16_t chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r;
+
+/* All text of the page in one cold blob (NUL separated), fetched by index. */
+enum { CS_N0 = 0, CS_PASS = 7, CS_FAIL, CS_SKIP, CS_NA, CS_INTRO = 11, CS_RUNNING = 20, CS_H_IDLE, CS_H_RUN, CS_H_DONE, CS_TITLE,
+       CS_DOTS, CS_S, CS_ONEF, CS_MANYF, CS_OKP, CS_OKALL, CS_VER, CS_RUNL, CS_SHOT, CS_X0, CS_PROF = CS_X0 + 6, CS_PROFL = CS_PROF + 4, CS_SOAKL, CS_LVLL, CS_H_DEV, CS_TENTH };
+COLD_DATA static const char chk_blob[] =
+    "SDRAM WINDOW\0" "SDRAM SPEED\0" "PSRAM WINDOW\0" "COLD CODE\0" "LIBRARY\0" "PLAYBACK\0" "STARTUP\0"
+    "PASS\0" "FAIL\0" "SKIPPED\0" "N/A\0"
+    "Checks the memory, playlist and\0" "startup of this core and, if music\0" "is playing, 15 seconds of playback.\0" "\0"
+    "It takes about 30 seconds. Music\0" "keeps playing.\0" "\0" "The result is a code you can send\0" "with a screenshot.\0"
+    "RUNNING\0" "A START   B BACK\0" "B STOP\0" "A QR CODE   Y AGAIN   B BACK\0" "CHECK\0"
+    "...\0" " S\0" " CHECK FAILED\0" " CHECKS FAILED\0" "PASSED (PLAY MUSIC FOR ALL)\0" "ALL CHECKS PASSED\0"
+    "VERSION \0" "   RUN \0" "MENU+START SCREENSHOT   B BACK\0"
+    "STRESS R1\0" "STRESS R2\0" "STRESS R3\0" "SOAK\0" "TRACK CHANGES\0" "COLD X20\0"
+    "USER CHECK\0" "STANDARD\0" "FULL\0" "ENDURANCE\0"
+    "PROFILE  \0" "SOAK LENGTH  \0" "SOAK LEVEL  R\0" "A START  B BACK  UP DOWN ROW  L R CHANGE\0" "/10";
+COLD_TEXT static const char *chk_s(uint32_t i)
+{
+    const char *p = chk_blob;
+    while (i--) { while (*p) p++; p++; }
+    return p;
+}
+
+COLD_TEXT static uint32_t chk_pat(uint32_t a) { return (a * 2654435761u) ^ 0xA5C3E17Bu; }
+
+/* Words written and read back-to-back, sub-word merges, and one address per address line, in a scratch window at `base`.
+ * Line addresses are base ^ (1 << k) for the lines that stay inside memory nobody else uses. */
+COLD_TEXT static uint32_t chk_window(uint32_t base, uint32_t lo, uint32_t hi, uint32_t skip, uint32_t *checks)
+{
+    volatile uint32_t *p = (volatile uint32_t *)(uintptr_t)base;
+    uint32_t bad = 0, n = 65u;
+    for (uint32_t i = 0; i < 64u; i++) p[i] = chk_pat(i);
+    for (uint32_t i = 0; i < 64u; i++) if (p[i] != chk_pat(i)) bad++;
+    p[64] = 0xFFFFFFFFu;
+    volatile uint8_t *b = (volatile uint8_t *)(uintptr_t)base;
+    volatile uint16_t *h = (volatile uint16_t *)(uintptr_t)base;
+    b[256] = 0x11u; b[257] = 0x22u; h[129] = 0x4433u;
+    if (p[64] != 0x44332211u) bad++;
+    uint32_t off = base & 0x03FFFFFFu, top = base & ~0x03FFFFFFu;
+    for (uint32_t k = lo; k <= hi; k++) {
+        if ((skip >> k) & 1u) continue;
+        *(volatile uint32_t *)(uintptr_t)(top | (off ^ (1u << k))) = chk_pat(k + 9u);
+    }
+    for (uint32_t k = lo; k <= hi; k++) {
+        if ((skip >> k) & 1u) continue;
+        n++;
+        if (*(volatile uint32_t *)(uintptr_t)(top | (off ^ (1u << k))) != chk_pat(k + 9u)) bad++;
+    }
+    *checks = n;
+    return bad;
+}
+
+/* Net cycles per access over 256 accesses: best, average and worst. Contention (album-art decode, drawing, audio DMA) inflates
+ * the average and the worst, so the pass rule judges the best case, which only a healthy path reaches; all three are reported. */
+COLD_TEXT static void chk_cost(uint32_t base, int write, uint16_t *out)
+{
+    volatile uint32_t *p = (volatile uint32_t *)(uintptr_t)base;
+    uint32_t ovh = 0xFFFFFFFFu, mn = 0xFFFFFFFFu, mx = 0, sum = 0;
+    for (uint32_t i = 0; i < 16u; i++) { uint32_t t = cycles(); uint32_t d = cycles() - t; if (d < ovh) ovh = d; }
+    for (uint32_t i = 0; i < 256u; i++) {
+        uint32_t t = cycles();
+        if (write) p[i & 63u] = i; else (void)p[i & 63u];
+        uint32_t d = cycles() - t; d = d > ovh ? d - ovh : 0u;
+        if (d < mn) mn = d;
+        if (d > mx) mx = d;
+        sum += d;
+    }
+    out[0] = (uint16_t)(mn > 0xFFFFu ? 0xFFFFu : mn); out[1] = (uint16_t)(sum / 256u); out[2] = (uint16_t)(mx > 0xFFFFu ? 0xFFFFu : mx);
+}
+
+COLD_TEXT static void chk_set(uint32_t ok, uint32_t v) { chk_res[chk_step] = (uint8_t)ok; chk_val[chk_step] = v; }   /* results are per step */
+
+/* Steps after the seven base checks, per profile (0 USER CHECK, 1 STANDARD, 2 FULL, 3 ENDURANCE). */
+COLD_DATA static const uint8_t chk_ex[4][6] = { { 0 }, { CT_TRK, CT_CX, CT_R1, CT_R2, CT_R3, 0 },
+                                                { CT_TRK, CT_CX, CT_R1, CT_R2, CT_R3, CT_SOAK }, { CT_SOAK, 0, 0, 0, 0, 0 } };
+COLD_DATA static const uint8_t chk_exn[4] = { 0, 5, 6, 1 };
+COLD_TEXT static uint32_t chk_id(uint32_t step) { return step < CHK_BASE ? step : chk_ex[chk_prof][step - CHK_BASE]; }
+
+#if CHK_DEV
+/* One pass of the cold-code checks (the Tests page's COLD CODE TEST without its timing): calls in and out, a call back into
+ * hot code, and 12 KB of code that cannot stay in the I-cache. Counts runs and failures. */
+COLD_TEXT static void chk_cold_once(void)
+{
+    uint32_t f = 0;
+    if (cold_add(40u, 2u) != 42u) f++;
+    if (cold_loop(100u) != 15150u) f++;
+    if (cold_calls_hot(21u) != 43u) f++;
+    if (cold_big(7u) != 3007u) f++;
+    CKM->cold_runs++;
+    if (f) CKM->cold_fails++;
+}
+#endif
+
+/* One step of the run. Steps 0-4 and 6 finish at once; step 5 (playback) spans CHK_AUDIO_S seconds and is re-entered
+ * until done (returns 0 while waiting). */
+COLD_TEXT static int chk_do(uint32_t id)
+{
+    switch (id) {
+    case CT_SDW:
+#if TAU_PL_SDRAM
+        if (!pl_sdram_ready()) { chk_set(SR_FAIL, 0xFFFFu); break; }
+        { uint32_t n, bad = chk_window(CHK_SDRAM, 2u, 25u, 1u << 23, &n);       /* bit 23 would fold onto the framebuffer */
+          chk_set(bad ? SR_FAIL : SR_PASS, bad ? bad : n); }
+#else
+        chk_set(SR_NA, 0);
+#endif
+        break;
+    case CT_SDC:
+#if TAU_PL_SDRAM
+        if (!pl_sdram_ready()) { chk_set(SR_FAIL, 0xFFFFu); break; }
+        chk_cost(CHK_SDRAM, 0, &chk_sd[0]); chk_cost(CHK_SDRAM, 1, &chk_sd[3]);
+        chk_set((chk_sd[0] <= 60u && chk_sd[3] <= 45u) ? SR_PASS : SR_FAIL, chk_sd[0]);     /* best case: 48 read, 31 write when healthy */
+#else
+        chk_set(SR_NA, 0);
+#endif
+        break;
+    case CT_PSW: {
+        if (!REG(0x80000088u) || REG(0x80000088u) != 0x50535231u) { chk_set(SR_NA, 0); break; }
+        uint32_t n, bad = chk_window(CHK_PSRAM, 2u, 24u, 0u, &n);
+        chk_cost(CHK_PSRAM, 0, &chk_ps[0]); chk_cost(CHK_PSRAM, 1, &chk_ps[3]);
+        if (chk_ps[0] > 48u || chk_ps[3] > 40u) bad++;          /* 39/30 measured on the G3 bitstream (32/26 on P4): its arbiter adds a few cycles */
+        chk_set(bad ? SR_FAIL : SR_PASS, bad ? bad : n);
+        break; }
+    case CT_COLD:
+        /* this function is itself cold code, so being here proves the fetch path; also require the probe to return */
+        chk_set((COLD_READY() && cold_probe(6u, 7u) == 43u) ? SR_PASS : SR_FAIL, cold_err);
+        break;
+    case CT_LIB:
+        if (lib_disabled || lib_state == LIB_ST_NONE) { chk_set(SR_NA, pl_count); break; }
+        if (lib_state != LIB_ST_OK) { chk_set(SR_FAIL, lib_err); break; }
+        {
+            uint32_t bad = 0, n = lib.n_tracks, step = n > 128u ? n / 128u : 1u;
+            char buf[128];
+            for (uint32_t i = 0; i < n; i += step) {
+                lib_track_t t; lib_track(&lib, i, &t);
+                if (!lib_path(&lib, i, buf, sizeof(buf)) || t.album >= lib.n_albums) bad++;
+            }
+            chk_set(bad ? SR_FAIL : SR_PASS, bad ? bad : n);
+        }
+        break;
+    case CT_AUD:
+        if (!chk_at) {                                          /* first entry: is anything playing? */
+            if (!track_hz || paused || stopped) { chk_set(SR_SKIP, 0); break; }
+            chk_u0 = pcm_under_n; chk_s0 = REG(R_FB_STALL); chk_at = (cycles() + CHK_AUDIO_S * CLK_HZ) | 1u;
+            chk_val[chk_step] = 0;
+#if MP3_PROFILE
+            mp3_huff_total_cyc = mp3_imdct_total_cyc = mp3_sub_total_cyc = 0u;
+#endif
+#if FLAC_PROFILE
+            flac_res_total_cyc = flac_lpc_total_cyc = 0u;
+#endif
+            return 0;
+        }
+        if ((int32_t)(cycles() - chk_at) < 0) { chk_val[chk_step] = (uint32_t)((int32_t)(chk_at - cycles()) / (int32_t)CLK_HZ + 1); return 0; }
+        chk_under = pcm_under_n - chk_u0;
+        chk_stall = (REG(R_FB_STALL) - chk_s0) / (CLK_HZ / 1000u);
+        /* B-088/B-089: latch this window's decode-stage percentages once,
+         * here, at the exact moment the run-total accumulators stop moving --
+         * same CHK_AUDIO_S/CLK_HZ arithmetic as the screen row's per-second
+         * version, just over the whole window instead of one second. */
+#if MP3_PROFILE
+        chk_dec_h = (uint16_t)(mp3_huff_total_cyc  / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+        chk_dec_i = (uint16_t)(mp3_imdct_total_cyc / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+        chk_dec_s = (uint16_t)(mp3_sub_total_cyc   / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+#endif
+#if FLAC_PROFILE
+        { uint32_t rt = flac_res_total_cyc + flac_lpc_total_cyc;
+          chk_dec_r = (uint16_t)(rt ? (flac_res_total_cyc * 100u) / rt : 0u); }
+#endif
+        chk_set((chk_under == 0u && chk_stall < 50u) ? SR_PASS : SR_FAIL, chk_under);
+        break;
+#if CHK_DEV
+    case CT_R1: case CT_R2: case CT_R3:                         /* stress pump beside playback: no mismatch, no late underrun */
+        if (!chk_at) {
+            stress_set_level(0u); stress_set_level((uint8_t)(id - CT_R1 + 1u));
+            if (!stress_on) { chk_set(SR_FAIL, 0xFFFFu); break; }
+            chk_u0 = stress_und_late; chk_at = (cycles() + CHK_STRESS_S * CLK_HZ) | 1u; chk_val[chk_step] = CHK_STRESS_S;
+            return 0;
+        }
+        if ((int32_t)(cycles() - chk_at) < 0 && stress_on && !stress_failures) { chk_val[chk_step] = (uint32_t)((int32_t)(chk_at - cycles()) / (int32_t)CLK_HZ + 1); return 0; }
+        {
+            uint32_t late = stress_und_late - chk_u0;
+            int ok = stress_on && !stress_failures && !late;
+            stress_set_level(0u);
+            chk_set(ok ? SR_PASS : SR_FAIL, late);
+        }
+        break;
+    case CT_SOAK:                                               /* the Diagnostics soak; ENDURANCE adds a cold-code test a minute */
+        if (!chk_at) {
+            stress_set_level(0u); stress_set_level(chk_lvl);
+            if (!stress_on) { chk_set(SR_FAIL, 0xFFFFu); break; }
+            dg_soak_start(chk_soak);                            /* keeps the level just set */
+            if (dg_soak_res != 1u) { stress_set_level(0u); chk_set(SR_FAIL, 0xFFFFu); break; }
+            CKM->cold_runs = 0u; CKM->cold_fails = 0u; CKM->cold_at = (cycles() + 60u * CLK_HZ) | 1u;
+            chk_at = 1u; chk_val[chk_step] = dg_soak_left;
+            return 0;
+        }
+        if (dg_soak_res == 1u) {
+            if (chk_prof == 3u && COLD_READY() && (int32_t)(cycles() - CKM->cold_at) >= 0) { CKM->cold_at = (cycles() + 60u * CLK_HZ) | 1u; chk_cold_once(); }
+            chk_val[chk_step] = dg_soak_left;
+            return 0;
+        }
+        chk_set((dg_soak_res == 2u && !stress_und_late && !CKM->cold_fails) ? SR_PASS : SR_FAIL, stress_und_late);
+        dg_soak_cancel(); stress_set_level(0u);
+        break;
+    case CT_TRK:                                                /* CHK_TRK_N track changes, next and previous alternating, each waited out */
+        if (!chk_at) {
+            {
+                uint32_t nq = lib_src ? lib_qn : pl_count;        /* entries in the current queue or playlist */
+                if (nq < 2u) { chk_set(SR_SKIP, nq); break; }     /* nothing to change to (value = entries) */
+            }
+            CKM->ti = 0u; CKM->tph = 0u; CKM->tc0 = chk_loads; chk_val[chk_step] = 0u;
+            skip_req = 1u; CKM->tnext = (cycles() + 60u * CLK_HZ) | 1u; chk_at = 1u;
+            return 0;
+        }
+        if (CKM->tph == 0u) {
+            if (chk_loads != (uint16_t)CKM->tc0) {              /* a load finished */
+                CKM->ti++; chk_val[chk_step] = CKM->ti;
+                if (CKM->ti >= CHK_TRK_N) { chk_set(SR_PASS, CKM->ti); break; }
+                CKM->tph = 1u; CKM->tsettle = (cycles() + CLK_HZ / 2u) | 1u;
+                return 0;
+            }
+            if ((int32_t)(cycles() - CKM->tnext) >= 0) { chk_set(SR_FAIL, CKM->ti); break; }   /* a queue of two or more, yet no load finished in 60 s: stuck (value = changes done) */
+            return 0;
+        }
+        if ((int32_t)(cycles() - CKM->tsettle) < 0) return 0;
+        CKM->tph = 0u; CKM->tc0 = chk_loads; skip_req = (CKM->ti & 1u) ? (uint32_t)-1 : 1u; CKM->tnext = (cycles() + 60u * CLK_HZ) | 1u;
+        return 0;
+    case CT_CX:                                                 /* the cold-code test 20 times */
+        if (!COLD_READY()) { chk_set(SR_FAIL, 0xFFFFu); break; }
+        CKM->cold_runs = 0u; CKM->cold_fails = 0u;
+        for (uint32_t k = 0; k < 20u; k++) chk_cold_once();
+        chk_set(CKM->cold_fails ? SR_FAIL : SR_PASS, CKM->cold_fails ? CKM->cold_fails : CKM->cold_runs);
+        break;
+#endif
+    default: {                                                  /* CT_START: what the boot found */
+        uint32_t bad = 0;
+        if (cold_state != 1u || cold_err) bad++;
+#if TAU_PL_SDRAM
+        if (pl_sdram_state == 2u) bad++;
+#endif
+        chk_set(bad ? SR_FAIL : SR_PASS, ld_total);
+        break; }
+    }
+    return 1;
+}
+
+/* Build the report: record, QR text, persisted words, short code. */
+COLD_TEXT static void chk_finish(void)
+{
+    sr_t s;
+    uint32_t fails = 0, doneall = 1;
+    sr_init(&s, CHK_REC, CHK_REC_CAP, chk_prof == 0u ? 1u : chk_prof == 1u ? 3u : chk_prof == 2u ? 4u : 5u);
+    uint32_t flags = (uint32_t)(TAU_LIBRARY ? 1u : 0u) | 2u | 4u | (uint32_t)(TAU_DIAG_TESTS ? 8u : 0u) | (uint32_t)(TAU_PL_SDRAM ? 16u : 0u)
+                   | (uint32_t)(TAU_ART_PSRAM ? 32u : 0u);
+    uint32_t fwv = ((uint32_t)(APP_VER[0] - '0') << 16) | ((uint32_t)(APP_VER[2] - '0') << 8) | (uint32_t)(APP_VER[4] - '0');
+    uint32_t build[4] = { fwv, REG(R_VERSION), flags, (uint32_t)(&_heap_end - &_heap_start) };
+    sr_vals(&s, SR_T_BUILD, 4, build, 4);
+    for (uint32_t i = 0; i < chk_n; i++) {
+        sr_test(&s, chk_id(i), chk_res[i], chk_val[i]);
+        if (chk_res[i] == SR_FAIL) fails |= 1u << i;
+        if (chk_res[i] == SR_SKIP) doneall = 0;
+    }
+    uint32_t v[6];
+    for (uint32_t i = 0; i < 6u; i++) v[i] = chk_sd[i];
+    sr_vals(&s, SR_T_SDRAM, 2, v, 6);
+    for (uint32_t i = 0; i < 6u; i++) v[i] = chk_ps[i];
+    sr_vals(&s, SR_T_PSRAM, 2, v, 6);
+    uint32_t cold[4] = { cold_err, cold_ms, CHK_DEV ? CKM->cold_runs : 0u, CHK_DEV ? CKM->cold_fails : 0u };   /* err, ms, soak/repeat runs, fails */
+    sr_vals(&s, SR_T_COLD, 2, cold, 4);
+#if CHK_DEV
+    if (chk_prof >= 2u) { uint8_t st[2] = { set_soak_min[chk_soak], chk_lvl }; sr_tlv(&s, SR_T_SET, st, 2); }   /* soak minutes, stress level */
+#endif
+    uint32_t tm[4] = { ld_head, ld_size, ld_art, ld_total };
+    sr_vals(&s, SR_T_TIME, 4, tm, 4);
+    uint32_t au[4] = { chk_under, 0u, chk_stall, CHK_AUDIO_S };
+    sr_vals(&s, SR_T_AUDIO, 2, au, 4);
+#if MP3_PROFILE || FLAC_PROFILE
+    { uint32_t dp[4] = { chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r };
+      sr_vals(&s, SR_T_DECPROF, 2, dp, 4); }
+#endif
+    uint32_t lb[4] = { lib_state == LIB_ST_OK ? lib.n_tracks : 0u, lib_ms, (uint32_t)lib_err | ((uint32_t)lib_state << 8), lib_disabled };
+    sr_vals(&s, SR_T_LIB, 4, lb, 4);
+    uint8_t er[3] = { lib_err, cold_err, (uint8_t)pl_sdram_state };
+    sr_tlv(&s, SR_T_ERR, er, 3);
+    uint32_t len = sr_finish(&s);
+    chk_qr_len = 0;
+    if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
+        uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
+        uint32_t ver = 0, mask = 0;
+        /* fixed mask: the automatic choice scores eight masks by reading the uncached PSRAM buffer, about half a second of
+         * blocked main loop (an audible gap); any mask decodes */
+        uint32_t sz = qr_encode((const uint8_t *)CHK_TXT, txtlen, 1u, CHK_QR_MAXV, 0, CHK_QR, &ver, &mask);
+        if (sz) { chk_qr_len = sz; chk_qr_ver = ver; }
+    }
+    sp_t p;
+    p.profile = chk_prof == 0u ? 1u : chk_prof == 1u ? 3u : chk_prof == 2u ? 4u : 5u; p.run = (chk_rec_on ? ((chk_w[0] >> 7) & 255u) : 0u) + 1u; chk_run = (uint8_t)p.run;
+    p.verdict = fails ? 2u : (doneall ? 1u : 3u);
+    p.pass = 0; p.fail = 0;
+    for (uint32_t i = 0; i < chk_n; i++) { if (chk_res[i] == SR_PASS) p.pass |= 1u << chk_id(i); if (chk_res[i] == SR_FAIL) p.fail |= 1u << chk_id(i); }
+    p.worst = chk_sd[2] > chk_sd[5] ? chk_sd[2] : chk_sd[5]; p.cold10 = 0; p.late = chk_under; p.stall = chk_stall;
+    p.load100 = ld_total / 100u; p.lib_err = lib_err; p.cold_err = cold_err; p.fw_minor = (uint32_t)(APP_VER[2] - '0');
+    sp_pack(&p, chk_w);
+    chk_rec_on = 1u;
+    for (uint32_t i = 0; i < 4u; i++) set_wr(SW_PLN0 + i, chk_w[i]);
+    settings_mark_dirty();
+}
+
+/* ---- drawing (cold): intro / progress, summary, QR ---- */
+COLD_TEXT static void chk_row(uint32_t i, uint32_t rh, const char *label, const char *val)
+{
+    uint32_t y = PL_UI_LIST_Y + i * rh;
+    fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, rh, UI_PANEL);
+    fb_set_color(UI_DIM, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, y, label, TS_1X, TS_1X, 170u);
+    uint32_t w = fb_text_width(val, TS_1X);
+    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, y, val, TS_1X, TS_1X, w + 2u);
+}
+
+COLD_TEXT static void chk_draw_qr(void)
+{
+    const uint32_t sz = chk_qr_len;
+    uint32_t m = 354u / (sz + 8u);                                  /* module size in pixels: 4 down to 2 (version 38) */
+    if (m > 4u) m = 4u;
+    const uint32_t side = (sz + 8u) * m, x0 = (FB_W - side) / 2u;
+    fb_rect(0u, 0u, FB_W, FB_H, UI_BG);
+    fb_rect(x0, 0u, side, side, 0xFFFFu);                       /* quiet zone (4 modules) is part of the white square */
+    for (uint32_t y = 0; y < sz; y++) {
+        uint32_t x = 0;
+        while (x < sz) {
+            if (!qr_get(CHK_QR, sz, (int)x, (int)y)) { x++; continue; }
+            uint32_t e = x + 1u;
+            while (e < sz && qr_get(CHK_QR, sz, (int)e, (int)y)) e++;
+            fb_rect(x0 + (x + 4u) * m, (y + 4u) * m, (e - x) * m, m, 0x0000u);
+            x = e;
+        }
+    }
+    if (side + 44u > FB_H) return;                                  /* no room for the caption: the code fills the screen */
+    char t[40], *q = t;
+    q = set_str(q, chk_s(CS_VER)); q = ui_dec(q, chk_qr_ver); q = set_str(q, chk_s(CS_RUNL)); q = ui_dec(q, chk_run); *q = 0;
+    fb_set_color(UI_DIM, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, side + 6u, t, TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_set_color(UI_FAINT, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, chk_s(CS_SHOT), TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
+/* One result row (also repainted alone once a second while a timed step counts down, so a run does not redraw the whole page:
+ * a full redraw of a long profile costs more CPU time than the audio FIFO holds). */
+COLD_TEXT static void chk_line(uint32_t i)
+{
+    char v[24], *q = v;
+    uint32_t id = chk_id(i);
+    if (chk_state == CK_RUN && i > chk_step) q = set_str(q, "");
+    else if (chk_state == CK_RUN && i == chk_step) {
+        if (chk_at && id == CT_SOAK) { q = ui_mmss(q, chk_val[i]); }
+        else if (chk_at && id == CT_TRK) { q = ui_dec(q, chk_val[i]); q = set_str(q, chk_s(CS_TENTH)); }
+        else if (chk_at) { q = ui_dec(q, chk_val[i]); q = set_str(q, chk_s(CS_S)); }
+        else q = set_str(q, chk_s(CS_DOTS));
+    }
+    else q = set_str(q, chk_s(CS_PASS + (chk_res[i] & 3u)));
+    *q = 0;
+    chk_row(i, chk_n > 12u ? 20u : PL_UI_ROW_H, chk_s(id < CHK_BASE ? id : CS_X0 + id - CHK_BASE), v);
+}
+
+COLD_TEXT static void chk_draw(void)
+{
+    if (chk_state == CK_QR && chk_qr_len) { chk_draw_qr(); return; }
+    uint32_t f = 0, sk = 0;
+    char head[32], *hq = head;
+    *hq = 0;
+    if (chk_state == CK_DONE) {
+        for (uint32_t i = 0; i < chk_n; i++) { f += chk_res[i] == SR_FAIL; sk += chk_res[i] == SR_SKIP; }
+        if (chk_n > CHK_BASE) {                                 /* long profiles: the verdict goes in the title bar, the rows need the room */
+            if (f) { hq = ui_dec(hq, f); hq = set_str(hq, chk_s(f == 1u ? CS_ONEF : CS_MANYF)); }
+            else hq = set_str(hq, chk_s(sk ? CS_OKP : CS_OKALL));
+            *hq = 0;
+        }
+    }
+    ov_frame(chk_s(CS_TITLE), chk_state == CK_RUN ? chk_s(CS_RUNNING) : head,
+             chk_s(chk_state == CK_IDLE ? (CHK_DEV ? CS_H_DEV : CS_H_IDLE) : chk_state == CK_RUN ? CS_H_RUN : CS_H_DONE));
+    if (chk_state == CK_IDLE) {
+        fb_set_color(UI_WHITE, UI_PANEL);
+        for (uint32_t i = 0; i < 9u; i++) fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + i * PL_UI_ROW_H, chk_s(CS_INTRO + i), TS_1X, TS_1X, PL_UI_W - 32u);
+#if CHK_DEV
+        for (uint32_t r = 0; r < 3u; r++) {                     /* Up/Down pick the row, Left/Right change it */
+            char ln[48], *q = ln;
+            if (r == 0u) { q = set_str(q, chk_s(CS_PROFL)); q = set_str(q, chk_s(CS_PROF + chk_prof)); }
+            else if (r == 1u) { q = set_str(q, chk_s(CS_SOAKL)); q = set_str(q, set_soak_nm[chk_soak]); }
+            else { q = set_str(q, chk_s(CS_LVLL)); q = ui_dec(q, chk_lvl); }
+            *q = 0;
+            fb_set_color(r == chk_sel ? ui_accent : UI_DIM, UI_PANEL);
+            fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + (9u + r) * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
+        }
+#endif
+        return;
+    }
+    for (uint32_t i = 0; i < chk_n; i++) chk_line(i);
+    if (chk_state == CK_DONE && chk_n == CHK_BASE) {
+        char v[40], *q = v;
+        if (f) { q = ui_dec(q, f); q = set_str(q, chk_s(f == 1u ? CS_ONEF : CS_MANYF)); }
+        else q = set_str(q, chk_s(sk ? CS_OKP : CS_OKALL));
+        *q = 0;
+        fb_set_color(f ? UI_WHITE : ui_accent, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 8u * PL_UI_ROW_H, v, TS_1X, TS_1X, PL_UI_W - 32u);
+        char sc[40];
+        sp_short(chk_w, REG(R_VERSION), sc);
+        char cl[2][21];                                         /* the short code in groups of six, three groups a line */
+        for (uint32_t l = 0; l < 2u; l++) {
+            char *p = cl[l];
+            for (uint32_t g = 0; g < 3u; g++) {
+                for (uint32_t k = 0; k < 6u; k++) *p++ = sc[(l * 3u + g) * 6u + k];
+                if (g < 2u) *p++ = ' ';
+            }
+            *p = 0;
+        }
+        fb_set_color(UI_DIM, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 9u * PL_UI_ROW_H + 4u, cl[0], TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 10u * PL_UI_ROW_H + 4u, cl[1], TS_1X, TS_1X, PL_UI_W - 32u);
+    }
+}
+
+/* Hot glue: the main loop calls chk_tick(); the work is cold. */
+COLD_TEXT static void chk_advance(void)
+{
+    if (!COLD_READY()) { chk_state = CK_IDLE; set_dirty = 1u; return; }
+    if (!chk_do(chk_id(chk_step))) {
+        if (chk_at) {                                            /* waiting: repaint the countdown once a second */
+            if ((int32_t)(cycles() - CKM->tlast) >= 0) {
+                CKM->tlast = cycles() + CLK_HZ;
+                uint8_t o = ov_draw; ov_draw = 1u; chk_line(chk_step); ov_draw = o;     /* just the running row */
+            }
+        } else set_dirty = 1u;
+        return;
+    }
+    chk_at = 0u;
+    if (++chk_step >= chk_n) { chk_finish(); chk_state = CK_DONE; }
+    set_dirty = 1u;
+}
+COLD_TEXT static void chk_begin(void)
+{
+#if CHK_DEV
+    chk_n = (uint8_t)(CHK_BASE + chk_exn[chk_prof]);
+#endif
+    chk_state = CK_RUN; chk_step = 0u; chk_at = 0u;
+    for (uint32_t i = 0; i < CHK_MAX; i++) chk_res[i] = SR_NA;
+    set_dirty = 1u;
+}
+COLD_TEXT static void chk_abort(void)                           /* B, or the page was left: stop what the run started */
+{
+#if CHK_DEV
+    stress_set_level(0u); dg_soak_cancel();
+#endif
+    chk_state = CK_IDLE; chk_at = 0u; set_dirty = 1u;
+}
+static void chk_open(void) { chk_state = CK_IDLE; }
+static void chk_tick(void)
+{
+    if (chk_state != CK_RUN) return;
+    if (set_open && set_page == SET_CHECK_PG) chk_advance(); else chk_abort();
+}
+/* Returns 1 when the page consumed the key. */
+COLD_TEXT static int chk_input(uint32_t edge)
+{
+    if (edge & KEY_START) {                                     /* Start closes the menu, except on the result pages: it is half of */
+        if (chk_state == CK_IDLE || chk_state == CK_RUN) set_close();   /* the Menu+Start screenshot combination */
+        return 1;
+    }
+    if (chk_state == CK_IDLE) {
+        if (edge & KEY_A) { if (COLD_READY()) chk_begin(); }
+#if CHK_DEV
+        else if (edge & (KEY_UP | KEY_DOWN)) { chk_sel = (uint8_t)((chk_sel + ((edge & KEY_DOWN) ? 1u : 2u)) % 3u); set_dirty = 1u; }
+        else if (edge & (KEY_LEFT | KEY_RIGHT)) {
+            uint32_t up = (edge & KEY_RIGHT) ? 1u : 0u;
+            if (chk_sel == 0u) { chk_prof = (uint8_t)((chk_prof + (up ? 1u : 3u)) % 4u); chk_soak = chk_prof == 3u ? 3u : 1u; }   /* ENDURANCE defaults to 30 min */
+            else if (chk_sel == 1u) chk_soak = (uint8_t)(1u + (chk_soak - 1u + (up ? 1u : 3u)) % 4u);
+            else chk_lvl = (uint8_t)(1u + (chk_lvl - 1u + (up ? 1u : 2u)) % 3u);
+            set_dirty = 1u;
+        }
+#endif
+        else if (edge & (KEY_B | (CHK_DEV ? 0u : KEY_LEFT))) { set_page = CHK_PARENT; set_dirty = 1u; }
+    } else if (chk_state == CK_RUN) {
+        if (edge & KEY_B) chk_abort();
+    } else if (chk_state == CK_DONE) {
+        if ((edge & (KEY_A | KEY_RIGHT)) && chk_qr_len) { chk_state = CK_QR; set_dirty = 1u; }
+        else if (edge & KEY_Y) chk_begin();
+        else if (edge & (KEY_B | KEY_LEFT)) { chk_state = CK_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
+    } else {
+        if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { chk_state = CK_DONE; set_dirty = 1u; }
+    }
+    return 1;
+}
+#endif
