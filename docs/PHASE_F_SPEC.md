@@ -317,10 +317,27 @@ kernel have each claimed registers ad hoc is the expensive version.
 | `TAU_FONT_REPACK` | Section 3 item 1. Functionally inert. |
 | `TAU_SDRAM_BUSY` | The busy-cycle counter (B7). |
 
-**Step 1 — synthesis only, no fit (~5 min, not ~45).** Run `TAU_MLAB_MIGRATE` + `TAU_FONT_REPACK` through
-synthesis alone and read the RAM summary. Both are functionally inert, so the **block-count drop is the entire
-result** — it confirms the expected ~11 blocks (7 + 4) before a real Quartus slot is spent, and needs no
-hardware. This is the pattern the SignalTap proof build already established.
+**Step 1 — synthesis only, no fit (~5-6 min, not ~45). Done 2026-09-22 (B-100); corrected from this
+paragraph's original claim.** Ran `TAU_MLAB_MIGRATE` + `TAU_FONT_REPACK` through `quartus_map` (compared
+against a same-tree baseline with both macros off) and read the RAM summary. The result is **not** simply "the
+block-count drop is the entire result" — that holds for one of the two pieces but not the other:
+
+- **MLAB migration: confirmed at this stage, and this stage is sufficient.** The RAM Summary table's `Type`
+  column is a direct report of what Quartus resolved each RAM to, and `glyphbuf` and the `sound_i2s` dcfifo both
+  resolved to `MLAB` (baseline: 0 MLAB bits; step 1: 2,176 MLAB bits, and the M10K-pool bit total dropped by
+  exactly that much). A `ramstyle`/`lpm_hint` request either resolves to the requested type or it doesn't — the
+  SignalTap proof build hit the *doesn't* case (an MLAB request silently fell back to M10K over capacity), so a
+  synthesis-stage type check is a real, load-bearing thing to confirm before spending a fit.
+- **Font ROM repack: synthesis-only is the wrong tool for this question, and cannot confirm it.** `quartus_map`
+  reports each RAM's *declared content size* — 4x 24,320 bits (97,280 total), identical to the original single
+  3,040x32 array's 97,280 bits, because it is the same content in different lanes. Whether four 8-bit-wide ROMs
+  actually pack into *fewer physical M10K primitives* than one 32-bit-wide ROM (the entire point — going from
+  ~74% packing efficiency to something tighter) is decided by the **fitter's block-allocation pass**, which
+  synthesis does not run and does not preview. Checked the full `quartus_map` log for any packing/physical-block
+  hint; there is none. **This piece's win is genuinely unconfirmed until Step 2's fit.**
+
+So step 1 de-risks the MLAB piece (go ahead with confidence) but does not de-risk the font repack the way this
+document originally claimed — that risk transfers to step 2 unchanged. Evidence: `docs/AUDIT_TRAIL.md` B-100.
 
 **Step 2 — one full build, multi-seed**, with everything bundled (the counter is needed to validate the engine,
 so they belong together):
@@ -428,7 +445,7 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 |---|---|---|---|
 | **1** | **Profile the software decoder** | No | **Done — B-086..B-098, on hardware** |
 | **2** | Decide the MMIO descriptor model in RTL terms (section 9) | No | **Done — B-085** |
-| **3** | **Blit engine Tier 1/2 + MLAB migration + font repack + busy-cycle counter** | Yes, one (plus a ~5 min synthesis-only pre-check) | 2 — met, **this is the next item** |
+| **3** | **Blit engine Tier 1/2 + MLAB migration + font repack + busy-cycle counter** | Yes, one (the ~5 min synthesis-only pre-check is **done**, B-100) | 2 — met, **this is the next item** |
 | 4 | Meters to cold code | No (firmware) | 3 |
 | 5 | Main RAM 256 -> 192 KB | Yes | 4, and the peak-usage gate in section 4.1 |
 | 6 | Spectrum filter bank in RTL (section 7) | Yes — can ride a later build | Nothing; cheap in blocks |
@@ -443,10 +460,24 @@ on different content — that gap is open, not resolved. A real cross-format mea
 leaking into the MP3 reading shown right after a FLAC track) was found and fixed (B-097) before trusting the
 numbers. Full detail: `docs/ARCHITECTURE_ROADMAP.md` section 2, `docs/AUDIT_TRAIL.md` B-086..B-098.
 
+### Item 3, step 1 result (for the record)
+
+**B-100, 2026-09-22.** Ran the synthesis-only pre-check (`quartus_map`, no fit) with `TAU_MLAB_MIGRATE` +
+`TAU_FONT_REPACK`, compared against a same-tree baseline with both off. **MLAB migration confirmed and
+de-risked** — `glyphbuf` and the `sound_i2s` dcfifo both resolved to `MLAB` in the RAM Summary table (0 -> 2,176
+MLAB bits, an exact 1:1 move out of the M10K-bit pool); only 2 of the 4 candidates from section 2 are in scope
+(`cmd_mem` and the VexRiscv regfile deliberately excluded, per their own risk/awkwardness notes there).
+**Font ROM repack's actual win is still unconfirmed** — synthesis reports declared content bits, which are
+identical before and after by construction (same content, different lanes), so the real question (does the
+fitter pack four 8-bit ROMs into fewer physical M10K blocks than one 32-bit ROM) needs step 2's fit. This is a
+correction to section 10's original framing of what synthesis-only would prove — see that section for detail.
+Evidence: `docs/AUDIT_TRAIL.md` B-100.
+
 ### Next item, in enough detail to start cold
 
-**Blit engine Tier 1/2**, starting with the synthesis-only pre-check (no Quartus fit, no card write) to confirm
-the MLAB migration and font repack close before spending a full fit. Both gates (decoder profile, MMIO
-descriptor model) are met. See sections 3-6 and 9-13 above for the feature tiers, M10K budget, and
-build/verification/fail-safe plan. Owner chose to hold this step for a fresh session rather than start it here
-(2026-09-22).
+**Blit engine Tier 1/2 + step 2**, the multi-seed fit that bundles the MLAB migration and font repack with the
+new blit opcodes and the SDRAM busy-cycle counter (section 10). The synthesis-only pre-check for the two inert
+pieces is done (above); the font repack's real block-count result still needs this fit to be known. Both gates
+(decoder profile, MMIO descriptor model) are met. See sections 3-6 and 9-13 above for the feature tiers, M10K
+budget, and build/verification/fail-safe plan. Owner chose to hold the blit engine itself for a fresh session
+(2026-09-22) — the step 1 pre-check was run in this session as a discrete, separable piece of that item.

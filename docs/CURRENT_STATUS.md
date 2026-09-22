@@ -91,10 +91,17 @@ by two clean re-runs). Also found and deliberately parked B-093 (track-open is f
 for after the blit engine frees up M10Ks and the UI model changes. Owner decision: **follow the roadmap's own
 order** - kernel work stays gated behind the blit engine, do not jump ahead.
 
-**Next item: the Phase F blit engine**, starting with the synthesis-only proof build (no Quartus fit, no card
-write). `docs/PHASE_F_SPEC.md` section 14 has enough detail to start cold; items 1 (decoder profile) and 2
-(MMIO descriptor model) in its build-order table are both already done, so the blit engine is next up
-unblocked. Owner chose to **hold this for a fresh session** rather than start it here.
+**Blit engine step 1 (synthesis-only pre-check): done, 2026-09-22 (B-100).** MLAB migration confirmed and
+de-risked (`glyphbuf` + `sound_i2s` dcfifo both resolved to MLAB in the RAM Summary table, a clean 1:1 bit move
+out of the M10K pool). **Font ROM repack's actual win is not confirmed** — synthesis reports declared content
+bits, which the repack leaves unchanged by construction, so whether it actually reduces physical M10K blocks is
+a fitter question, not a synthesis one; this corrects `PHASE_F_SPEC.md` section 10's original claim that
+synthesis-only would settle both pieces. Full detail: `docs/AUDIT_TRAIL.md` B-100.
+
+**Next item: the Phase F blit engine, step 2** — the multi-seed fit bundling the new blit opcodes, MLAB
+migration, font repack and SDRAM busy-cycle counter (`docs/PHASE_F_SPEC.md` section 10). Both prerequisite gates
+(decoder profile, MMIO descriptor model) are done. Owner chose to **hold the blit engine itself for a fresh
+session**; the step-1 pre-check was run in this session as a separable, low-risk piece of that item.
 
 ## Where to look
 
