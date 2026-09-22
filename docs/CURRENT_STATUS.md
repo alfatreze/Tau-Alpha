@@ -132,9 +132,16 @@ built as RTL-only** — the literal Amiga bit-packed mechanism doesn't translate
 what it would buy for blits, B1's addressing already provides. The real gap (CHAR sub-glyph clipping, the
 marquee's limitation) needs a firmware change first (`fb_char()` never writes `R_FB_SIZE`), out of scope here.
 
-**Next item:** step 2 of section 10's build plan — the first real multi-seed fit of the blit engine (`TAU_BLIT`
-+`TAU_BLIT_BLEND`, bundled with the already-fitted B7 counter). Software reference renderer + pixel-diff fixtures
-(section 12) and the `COLD_READY()` fail-safe are still open ahead of any card install.
+**Step 2's real multi-seed fit: launched, result pending, 2026-09-22 (B-107).** Two seeds running on the VM
+(`tau-local/blit-engine-s1-20260922`, `-s2-20260922`) — the full bundle (MLAB migration, font repack, B7 counter,
+`TAU_BLIT`+`TAU_BLIT_BLEND`) per section 10's original step-2 definition, so the result reflects the real final
+bitstream. This is the first real Quartus spend on the blit engine RTL; it will settle whether `TAU_BLIT_BLEND`
+trips the documented -1.888 ns timing-cliff risk (section 11) — simulation cannot answer that. **Check
+`make_fpga.log` in each directory first**, and once complete, `ap_core.fit.summary` + the four-corner timing
+slack, before trusting either result. Full detail: `docs/AUDIT_TRAIL.md` B-107.
+
+**Next after that:** software reference renderer + pixel-diff fixtures (section 12) and the `COLD_READY()`
+fail-safe are still open ahead of any card install, regardless of how this fit turns out.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
