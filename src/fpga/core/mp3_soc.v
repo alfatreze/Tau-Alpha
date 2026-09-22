@@ -53,7 +53,12 @@ module mp3_soc #(
     parameter PHASE2_WINDOW_ENABLE = 0,
     // Uncached PSRAM CPU window at 0xA400_0000..A5FF_FFFF (B-016). Needs the Phase 2
     // decode (PHASE2_WINDOW_ENABLE): the legacy decode aliases that range onto MMIO.
-    parameter PSRAM_WINDOW_ENABLE = 0
+    parameter PSRAM_WINDOW_ENABLE = 0,
+    // Phase G2: instruction fetch from PSRAM. Cold code runs from the instruction alias 0x2400_0000..0x25FF_FFFF
+    // (32 MiB, PSRAM byte offset = address - 0x2400_0000), read-only, through a second tau_psram_bus and a two-client
+    // arbiter on the existing PSRAM port. Needs PSRAM_WINDOW_ENABLE. Inert (identical netlist) when 0.
+    parameter PSRAM_IFETCH_ENABLE = 0,
+    parameter IFETCH_GAP = 2                // test hook: idle cycles after each PSRAM transaction (0 reproduces back-to-back requests)
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -300,6 +305,16 @@ module mp3_soc #(
     wire        d_is_psram;
     wire        psram_wb_ack, psram_wb_unsupported;
     wire [31:0] psram_wb_dat;
+    // The data-window client's controller-side signals (the port outputs are driven by the arbiter below).
+    wire        dctl_req, dctl_we, dctl_done;
+    wire [22:0] dctl_word;
+    wire [31:0] dctl_wdata;
+    wire [3:0]  dctl_be;
+    // Phase G2 instruction-fetch client and its counters
+    wire        i_is_psram = (PSRAM_IFETCH_ENABLE != 0) && (iADR[29:23] == 7'h12);   // 0x2400_0000..0x25FF_FFFF
+    wire        ipsram_ack;
+    wire [31:0] ipsram_dat;
+    wire [31:0] if_n_rd, if_cyc_rd;
     tau_sdram_addr_decode u_sdram_addr_decode (
         .dadr(dADR), .bram_cached(dec_bram_cached),
         .bram_uncached(dec_bram_uncached), .mmio(dec_mmio),
@@ -340,6 +355,18 @@ module mp3_soc #(
                 .bridge_rdata(sdram_wb_rdata)
             );
 
+`ifdef TAU_SIGNALTAP
+            // SignalTap proof tap (docs/JTAG_DEBUG_ACCESS.md section 5); diagnostic builds only.
+            // Bit map is mirrored in tools/gen_signaltap_stp.py: keep both in step.
+            tau_signaltap_tap u_stp_tap (
+                .clk(clk),
+                .d({sdram_wb_rdata[0], rst, d_bus_err, dACK,
+                    sdram_wb_addr[19:0],
+                    sdram_wb_done, sdram_wb_accept, sdram_wb_write, sdram_wb_req,
+                    sdram_wb_unsupported, sdram_wb_ack, dWE, (dCYC & d_is_sdram & dSTB)})
+            );
+`endif
+
             // Unsupported bursts and unmapped data addresses terminate as a
             // Wishbone error instead of silently hanging the CPU bus.
             assign d_is_psram = dec_psram && (PSRAM_WINDOW_ENABLE != 0);
@@ -353,17 +380,17 @@ module mp3_soc #(
                     .wb_adr(dec_psram_word), .wb_dat_i(dDAT_MOSI), .wb_sel(dSEL),
                     .wb_dat_o(psram_wb_dat), .wb_ack(psram_wb_ack), .wb_err(),
                     .wb_unsupported(psram_wb_unsupported),
-                    .ctl_req(psram_req), .ctl_we(psram_we), .ctl_word(psram_word),
-                    .ctl_wdata(psram_wdata), .ctl_be(psram_be),
-                    .ctl_done(psram_done), .ctl_rdata(psram_rdata), .ctl_guard(psram_guard)
+                    .ctl_req(dctl_req), .ctl_we(dctl_we), .ctl_word(dctl_word),
+                    .ctl_wdata(dctl_wdata), .ctl_be(dctl_be),
+                    .ctl_done(dctl_done), .ctl_rdata(psram_rdata), .ctl_guard(psram_guard)
                 );
             end else begin : g_no_psram
                 assign psram_wb_dat = 32'd0;
                 assign psram_wb_ack = 1'b0;
                 assign psram_wb_unsupported = 1'b0;
-                assign psram_req = 1'b0;   assign psram_we = 1'b0;
-                assign psram_word = 23'd0; assign psram_wdata = 32'd0;
-                assign psram_be = 4'd0;
+                assign dctl_req = 1'b0;   assign dctl_we = 1'b0;
+                assign dctl_word = 23'd0; assign dctl_wdata = 32'd0;
+                assign dctl_be = 4'd0;
             end
 
             assign d_bus_err = sdram_wb_unsupported | psram_wb_unsupported |
@@ -378,9 +405,9 @@ module mp3_soc #(
             assign psram_wb_dat      = 32'd0;
             assign psram_wb_ack      = 1'b0;
             assign psram_wb_unsupported = 1'b0;
-            assign psram_req = 1'b0;   assign psram_we = 1'b0;
-            assign psram_word = 23'd0; assign psram_wdata = 32'd0;
-            assign psram_be = 4'd0;
+            assign dctl_req = 1'b0;   assign dctl_we = 1'b0;
+            assign dctl_word = 23'd0; assign dctl_wdata = 32'd0;
+            assign dctl_be = 4'd0;
             assign d_sdram_addr      = 25'd0;
             assign sdram_wb_req      = 1'b0;
             assign sdram_wb_write    = 1'b0;
@@ -412,7 +439,7 @@ module mp3_soc #(
     wire        d_mmio_req = d_req & d_is_mmio;
     wire        d_ram_req  = d_req & d_is_ram;
     wire        serve_d    = d_ram_req & ~ld_req;
-    wire        serve_i    = i_req & ~d_ram_req & ~ld_req;
+    wire        serve_i    = i_req & ~i_is_psram & ~d_ram_req & ~ld_req;      // BRAM fetches only
 
     // ONE always block, ONE address -> Quartus infers M10K cleanly.
     //
@@ -737,26 +764,30 @@ module mp3_soc #(
             R_STAT1:   mmio_rdata = status1;
             R_STAT2:   mmio_rdata = status2;
             R_STAT3:   mmio_rdata = status3;
+            8'hB0:     mmio_rdata = if_n_rd;                              // instruction beats served from PSRAM
+            8'hB4:     mmio_rdata = if_cyc_rd;                            // cycles the fetch stage waited on PSRAM
+            8'hB8:     mmio_rdata = {31'd0, (PSRAM_IFETCH_ENABLE != 0)};  // feature present (write = clear counters)
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end
 
     // --------------------------------------------------------- bus returns ---
-    reg d_was_mmio, d_was_sdram, d_was_psram;
+    reg d_was_mmio, d_was_sdram, d_was_psram, i_was_psram;
     always @(posedge clk) begin
         if (rst) begin
             dACK <= 1'b0; iACK <= 1'b0;
-            d_was_mmio <= 1'b0; d_was_sdram <= 1'b0; d_was_psram <= 1'b0;
+            d_was_mmio <= 1'b0; d_was_sdram <= 1'b0; d_was_psram <= 1'b0; i_was_psram <= 1'b0;
         end else begin
             dACK       <= 1'b0;
             iACK       <= 1'b0;
             d_was_mmio <= d_mmio_req;
             d_was_sdram<= sdram_wb_ack;
             d_was_psram<= psram_wb_ack;
+            i_was_psram<= ipsram_ack;
             // Ack only what actually got the port this cycle; anything blocked
             // by the loader simply retries (Wishbone masters hold their request).
             if (d_mmio_req | serve_d | sdram_wb_ack | psram_wb_ack) dACK <= 1'b1;
-            if (serve_i)              iACK <= 1'b1;
+            if (serve_i | ipsram_ack) iACK <= 1'b1;      // registered once more, as dACK (KB-024)
         end
     end
 
@@ -764,7 +795,68 @@ module mp3_soc #(
         dDAT_MISO = d_was_mmio  ? mmio_rdata :
                     d_was_sdram ? sdram_wb_cpu_rdata :
                     d_was_psram ? psram_wb_dat : a_rdata;
-        iDAT_MISO = a_rdata;
+        iDAT_MISO = i_was_psram ? ipsram_dat : a_rdata;
     end
+
+    // ------------------------------------------- Phase G2: PSRAM instruction fetch ---
+    // One classic beat per instruction-bus beat (a cache line fill is eight of them: the wrapper does not care that the
+    // beats are consecutive), read-only. The arbiter shares the single PSRAM controller port between this client and the
+    // data window: the data client wins a tie, a granted transaction is never interrupted, and after every done pulse the
+    // port is held idle for two cycles so back-to-back transactions from different clients never look like one request
+    // (the KB-024 lesson: a client's req may fall one cycle after done).
+    generate
+        if (PSRAM_IFETCH_ENABLE != 0) begin : g_ifetch
+            wire        ictl_req, ictl_we, ictl_done;
+            wire [22:0] ictl_word;
+            wire [31:0] ictl_wdata;
+            wire [3:0]  ictl_be;
+            tau_psram_bus #(.REL_CYC(2), .GUARD_ERR(0)) u_psram_ibus (
+                .clk(clk), .rst(rst),
+                .wb_cyc(iCYC & i_is_psram), .wb_stb(iSTB), .wb_we(1'b0), .wb_cti(3'b000),
+                .wb_adr(iADR[22:0]), .wb_dat_i(32'd0), .wb_sel(4'b1111),
+                .wb_dat_o(ipsram_dat), .wb_ack(ipsram_ack), .wb_err(), .wb_unsupported(),
+                .ctl_req(ictl_req), .ctl_we(ictl_we), .ctl_word(ictl_word),
+                .ctl_wdata(ictl_wdata), .ctl_be(ictl_be),
+                .ctl_done(ictl_done), .ctl_rdata(psram_rdata), .ctl_guard(psram_guard)
+            );
+            reg       busy, gi;
+            reg [1:0] gap;
+            wire      sel_i = busy ? gi : (~dctl_req & ictl_req);
+            wire      any_req = busy ? (gi ? ictl_req : dctl_req) : (dctl_req | ictl_req);
+            assign psram_req   = any_req & (gap == 2'd0);
+            assign psram_we    = sel_i ? ictl_we    : dctl_we;
+            assign psram_word  = sel_i ? ictl_word  : dctl_word;
+            assign psram_wdata = sel_i ? ictl_wdata : dctl_wdata;
+            assign psram_be    = sel_i ? ictl_be    : dctl_be;
+            assign dctl_done   = psram_done & busy & ~gi;
+            assign ictl_done   = psram_done & busy &  gi;
+            always @(posedge clk) begin
+                if (rst) begin busy <= 1'b0; gi <= 1'b0; gap <= 2'd0; end
+                else begin
+                    if (gap != 2'd0) gap <= gap - 2'd1;
+                    if (!busy && psram_req) begin busy <= 1'b1; gi <= sel_i; end
+                    else if (busy && psram_done) begin busy <= 1'b0; gap <= IFETCH_GAP[1:0]; end
+                end
+            end
+            // Counters: instruction beats served from PSRAM, and cycles the fetch stage held a PSRAM request.
+            reg [31:0] n_r, cyc_r;
+            wire       clr = d_req & d_is_mmio & dWE & (mmio_reg == 8'hB8);
+            always @(posedge clk) begin
+                if (rst | clr) begin n_r <= 32'd0; cyc_r <= 32'd0; end
+                else begin
+                    if (ipsram_ack) n_r <= n_r + 32'd1;
+                    if (iCYC & iSTB & i_is_psram) cyc_r <= cyc_r + 32'd1;
+                end
+            end
+            assign if_n_rd = n_r;
+            assign if_cyc_rd = cyc_r;
+        end else begin : g_no_ifetch
+            assign psram_req = dctl_req;   assign psram_we = dctl_we;
+            assign psram_word = dctl_word; assign psram_wdata = dctl_wdata;
+            assign psram_be = dctl_be;     assign dctl_done = psram_done;
+            assign ipsram_ack = 1'b0;      assign ipsram_dat = 32'd0;
+            assign if_n_rd = 32'd0;        assign if_cyc_rd = 32'd0;
+        end
+    endgenerate
 
 endmodule

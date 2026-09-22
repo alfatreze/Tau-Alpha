@@ -165,6 +165,15 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_PSRAM_WIN_EN 0
 `endif
+// Phase G2: instruction fetch from PSRAM (alias 0x2400_0000, docs/PHASE_G_SPEC.md). Needs the PSRAM window.
+`ifdef TAU_PSRAM_IFETCH
+`ifndef TAU_PSRAM_WINDOW
+`error "TAU_PSRAM_IFETCH requires TAU_PSRAM_WINDOW"
+`endif
+`define TAU_PSRAM_IFE_EN 1
+`else
+`define TAU_PSRAM_IFE_EN 0
+`endif
 wire        soc_psram_req, soc_psram_we;
 wire [22:0] soc_psram_word;
 wire [31:0] soc_psram_wdata, soc_psram_rdata;
@@ -177,7 +186,7 @@ wire        soc_xm_wr;
 wire [31:0] soc_xm_wdata;
 wire [31:0] soc_xm_rdata;
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN)) u_soc (
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN)) u_soc (
 `else
 mp3_soc u_soc (
 `endif
