@@ -64,7 +64,12 @@ module mp3_fb #(
     // in make test-rtl-fb-mutation): 1 makes OP_BLIT step by the fixed 512 stride
     // COPY uses instead of the sticky blt_*_stride registers, reproducing the exact
     // hardcoded-stride bug B1 exists to fix. Never set outside that test.
-    parameter BUG_IGNORE_BLIT_STRIDE = 0
+    parameter BUG_IGNORE_BLIT_STRIDE = 0,
+    // Mutation-test hook only (-PBUG_IGNORE_KEY=1, make test-rtl-fb-mutation): 1
+    // disables B2's colour-key compare in A_COPYRD, so a keyed source pixel
+    // always overwrites the destination instead of being dropped. Never set
+    // outside that test.
+    parameter BUG_IGNORE_KEY = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -91,6 +96,11 @@ module mp3_fb #(
     input  wire [9:0]  blt_src_stride,
     input  wire [24:0] blt_dst_base,
     input  wire [9:0]  blt_dst_stride,
+    // Phase F B2: colour-key transparency. Read only when blit_mode (OP_BLIT);
+    // OP_COPY is untouched and never keys, matching B1's own precedent of
+    // leaving COPY as the simple, unmodified case.
+    input  wire        blt_key_en,
+    input  wire [15:0] blt_key,
 
     // SDRAM master port (clk_sdram) -> wired to sdram_fb in core_game.vh ----
     input  wire        sdram_init_complete,
@@ -130,7 +140,7 @@ module mp3_fb #(
     localparam [24:0] FB_BASE = 25'd0;
 
     localparam [2:0] OP_RUN = 3'd0, OP_RECT = 3'd1, OP_CHAR = 3'd2, OP_COPY = 3'd3,
-                     OP_BLIT = 3'd4;
+                     OP_BLIT = 3'd4, OP_BAR = 3'd5;
     // COPY moves a w x h block SDRAM->SDRAM. It exists for the album-art panel:
     // sliding an image by re-sending its pixels from the CPU would be thousands
     // of commands per animation step and would starve the decoder, whereas the
@@ -148,6 +158,18 @@ module mp3_fb #(
     // limit COPY already has (`glyphbuf` is 128 entries, so widths above 127
     // silently truncate) -- fixing that needs a wider row buffer, which is an
     // M10K/MLAB cost decision of its own, not bundled into an addressing change.
+    //
+    // BAR (Phase F B6, section 5): "A bar is (x, base_y, height, lit, unlit)."
+    // Reuses RECT's exact single-row-per-cycle write loop TWICE per command --
+    // no new burst mechanism -- chained by the existing rect_rows==1 completion
+    // check in A_WRWAIT. cmd_addr is the top-left of the whole height-row span
+    // (same top-left convention every other opcode uses); cmd_w/cmd_h are the
+    // span's width/height exactly as RECT; cmd_glyph (otherwise unused outside
+    // CHAR) carries the LIT row count, clamped to cmd_h. Convention, since nothing
+    // upstream pins one down: lit rows are the BOTTOM of the span (the usual
+    // meter-fills-from-the-floor reading of "base_y"), unlit rows the top. Colours
+    // reuse cmd_fg (lit) / cmd_bg (unlit), the same "no other use for these
+    // fields" reasoning COPY's source-address packing already established.
 
     // Declared before the scale helpers consume them. Quartus accepted the
     // former declaration-after-use ordering, but standards-strict simulators
@@ -263,6 +285,11 @@ module mp3_fb #(
     assign q_sx = cmd_q[8:7];
     assign q_sy = cmd_q[6:5];
 
+    // BAR (B6): lit-row count from cmd_glyph, clamped to the span height.
+    wire [8:0] bar_lit_raw = {2'd0, q_glyph};
+    wire [8:0] bar_lit     = (bar_lit_raw > q_h) ? q_h : bar_lit_raw;
+    wire [8:0] bar_unlit   = q_h - bar_lit;
+
     // ======================================================================
     // Scanout line buffer: parity-split double buffer, exactly as
     // pocket_vector_fb.sv -- one half drains to clk_vid while the other half
@@ -309,7 +336,7 @@ module mp3_fb #(
     // between any two bursts.
     // ======================================================================
     localparam A_IDLE=3'd0, A_FILL=3'd1, A_FILL_END=3'd2, A_WRWAIT=3'd3,
-               A_ROWFETCH=3'd4, A_COMPOSE=3'd5, A_COPYRD=3'd6;
+               A_ROWFETCH=3'd4, A_COMPOSE=3'd5, A_COPYRD=3'd6, A_KEYDST=3'd7;
     reg [2:0]  astate = A_IDLE;
     reg [10:0] fill_cnt = 0;
 
@@ -366,6 +393,21 @@ module mp3_fb #(
     // the glyphbuf streaming write) is shared, unmodified COPY logic.
     reg        blit_mode;
     reg [24:0] blit_dst_addr, blit_src_addr;
+
+    // BAR state (Phase F B6). A second, queued RECT segment: when the first
+    // segment's last row retires in A_WRWAIT, if bar2_pending is set, the
+    // engine re-arms rect_active with these values instead of going idle --
+    // the width (rect_w) is shared between both segments and untouched.
+    reg        bar2_pending;
+    reg [18:0] bar2_addr;
+    reg [8:0]  bar2_rows;
+    reg [15:0] bar2_fg;
+
+    // B2 state: whether THIS row's destination has already been pre-read into
+    // glyphbuf. Set when A_KEYDST's burst completes, cleared at the end of
+    // every A_COPYRD (so it is always fresh 0 at the start of a new row/command
+    // regardless of what the previous command left it at).
+    reg        key_dst_done = 1'b0;
 
     // ---- 4bpp coverage sampling (combinational) --------------------------
     // rowbits holds the CURRENT source row: 16 pixels x 4 bits, fetched as two
@@ -453,6 +495,8 @@ module mp3_fb #(
             char_row_ready <= 1'b0;
             copy_mode <= 1'b0;
             blit_mode <= 1'b0;
+            bar2_pending <= 1'b0;
+            key_dst_done <= 1'b0;
             rd_ptr <= 0; rd_ptr_g <= 0;
         end else begin
             case (astate)
@@ -489,6 +533,19 @@ module mp3_fb #(
                     // Composing needs no SDRAM, so it runs only once nothing
                     // else wants the bus -- it can never delay a fill by more
                     // than the one row it is part-way through.
+                    // B2: a keyed BLIT pre-reads the destination row into
+                    // glyphbuf before the source row, so A_COPYRD's per-word
+                    // compare below has something to fall back to. Every other
+                    // case (COPY, an unkeyed BLIT) goes straight to A_COPYRD
+                    // exactly as before -- key_dst_done starts each row/command
+                    // at 0, so this adds nothing unless blt_key_en is set.
+                    end else if (copy_mode && char_rows_left_nz
+                                 && !char_row_ready && can_sdram
+                                 && blit_mode && blt_key_en && !key_dst_done) begin
+                        p0_addr   <= blit_dst_addr;
+                        p0_rd_req <= 1'b1;
+                        copy_cnt  <= 8'd0;
+                        astate    <= A_KEYDST;
                     end else if (copy_mode && char_rows_left_nz
                                  && !char_row_ready && can_sdram) begin
                         p0_addr   <= blit_mode ? blit_src_addr : (FB_BASE + {6'd0, copy_src});
@@ -509,6 +566,7 @@ module mp3_fb #(
                                 char_bg   <= q_bg;
                                 copy_mode <= 1'b0;
                                 blit_mode <= 1'b0;
+                                bar2_pending <= 1'b0;
                                 char_sx   <= q_sx;
                                 char_sy   <= q_sy;
                                 // EPX doubles 8x8 -> 16x16, then each axis is
@@ -536,11 +594,13 @@ module mp3_fb #(
                                 rect_rows   <= q_h;
                                 rect_active <= (q_h != 9'd0) && (q_w != 9'd0);
                                 blit_mode   <= 1'b0;
+                                bar2_pending <= 1'b0;
                             end
                             OP_COPY: begin
                                 copy_src  <= {q_fg[2:0], q_bg};
                                 copy_mode <= 1'b1;
                                 blit_mode <= 1'b0;
+                                bar2_pending <= 1'b0;
                                 char_addr <= q_addr;
                                 char_w    <= q_w[6:0];
                                 char_rows_left    <= q_h;
@@ -555,11 +615,36 @@ module mp3_fb #(
                             OP_BLIT: begin
                                 copy_mode <= 1'b1;
                                 blit_mode <= 1'b1;
+                                bar2_pending <= 1'b0;
                                 blit_dst_addr <= blt_dst_base + {6'd0, q_addr};
                                 blit_src_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
                                 char_w    <= q_w[6:0];
                                 char_rows_left    <= q_h;
                                 char_rows_left_nz <= (q_h != 9'd0) && (q_w != 9'd0);
+                            end
+                            // Phase F B6: two chained RECT fills (see the module-header
+                            // comment above for the field convention). Phase 1 fires now
+                            // (unlit, top of the span, if any rows); phase 2 (lit, bottom)
+                            // is queued and fires from A_WRWAIT when phase 1's last row
+                            // retires. If there is no unlit segment, skip straight to lit.
+                            OP_BAR: begin
+                                blit_mode <= 1'b0;
+                                rect_addr <= q_addr;
+                                rect_w    <= q_w;
+                                if (bar_unlit != 9'd0) begin
+                                    rect_rows    <= bar_unlit;
+                                    rect_active  <= (q_w != 9'd0);
+                                    char_fg      <= q_bg;   // unlit colour first
+                                    bar2_addr    <= q_addr + {1'b0, bar_unlit, 9'd0};
+                                    bar2_rows    <= bar_lit;
+                                    bar2_fg      <= q_fg;   // lit colour, queued
+                                    bar2_pending <= (bar_lit != 9'd0) && (q_w != 9'd0);
+                                end else begin
+                                    rect_rows    <= bar_lit;
+                                    rect_active  <= (bar_lit != 9'd0) && (q_w != 9'd0);
+                                    char_fg      <= q_fg;   // fully-lit bar, no phase 2
+                                    bar2_pending <= 1'b0;
+                                end
                             end
                             default: begin   // OP_RUN -- a one-row rect
                                 rect_addr   <= q_addr;
@@ -567,6 +652,7 @@ module mp3_fb #(
                                 rect_rows   <= 9'd1;
                                 rect_active <= (q_w != 9'd0);
                                 blit_mode   <= 1'b0;
+                                bar2_pending <= 1'b0;
                             end
                         endcase
                     end
@@ -616,18 +702,57 @@ module mp3_fb #(
                     end else begin
                         rect_addr <= rect_addr + 19'd512;        // next row
                         rect_rows <= rect_rows - 9'd1;
-                        if (rect_rows == 9'd1) rect_active <= 1'b0;
+                        if (rect_rows == 9'd1) begin
+                            // Phase F B6: the last row of the current segment just
+                            // retired. If a second (lit) segment is queued, re-arm
+                            // rect_active with it instead of going idle -- these
+                            // overrides win over the two lines above (same cycle,
+                            // same always block: last non-blocking assign to a
+                            // signal wins).
+                            if (bar2_pending) begin
+                                rect_addr    <= bar2_addr;
+                                rect_rows    <= bar2_rows;
+                                rect_active  <= 1'b1;
+                                char_fg      <= bar2_fg;
+                                bar2_pending <= 1'b0;
+                            end else begin
+                                rect_active <= 1'b0;
+                            end
+                        end
                     end
                     astate <= A_IDLE;
                 end
 
                 // ------------------------------------------- copy row read --
+                // B2: when this row's destination was pre-read (key_dst_done),
+                // a source word equal to the sticky KEY colour is dropped --
+                // glyphbuf already holds that destination pixel from A_KEYDST,
+                // so simply not overwriting it IS the "show destination
+                // through" behaviour, with no separate select/blend stage.
                 A_COPYRD: begin
+                    if (p0_data_available) begin
+                        if (BUG_IGNORE_KEY || !(key_dst_done && (p0_q == blt_key)))
+                            glyphbuf[copy_cnt[6:0]] <= p0_q;
+                        if (copy_cnt == char_w[6:0] - 7'd1) begin
+                            p0_end_burst_req <= 1'b1;
+                            char_row_ready   <= 1'b1;
+                            key_dst_done     <= 1'b0;   // fresh for the next row
+                            astate <= A_IDLE;
+                        end else copy_cnt <= copy_cnt + 8'd1;
+                    end
+                end
+
+                // -------------------------------- B2: destination pre-read --
+                // Structurally identical to A_COPYRD's own read loop (same
+                // burst-into-glyphbuf shape), but unconditional -- every
+                // destination pixel is kept until the source phase decides
+                // whether to overwrite it.
+                A_KEYDST: begin
                     if (p0_data_available) begin
                         glyphbuf[copy_cnt[6:0]] <= p0_q;
                         if (copy_cnt == char_w[6:0] - 7'd1) begin
                             p0_end_burst_req <= 1'b1;
-                            char_row_ready   <= 1'b1;
+                            key_dst_done     <= 1'b1;
                             astate <= A_IDLE;
                         end else copy_cnt <= copy_cnt + 8'd1;
                     end

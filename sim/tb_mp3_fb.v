@@ -20,6 +20,7 @@
 
 module tb_mp3_fb;
     parameter BUG_IGNORE_BLIT_STRIDE = 0;   // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
+    parameter BUG_IGNORE_KEY = 0;           // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
 
     reg clk_sdram = 0, clk_sys = 0, clk_vid = 0, reset = 1;
     always #5    clk_sdram = ~clk_sdram;   // 100 MHz
@@ -40,6 +41,9 @@ module tb_mp3_fb;
     // addressing -- the equivalence test below relies on that.
     reg  [24:0] blt_src_base = 25'd0, blt_dst_base = 25'd0;
     reg  [9:0]  blt_src_stride = 10'd512, blt_dst_stride = 10'd512;
+    // Phase F B2: colour-key transparency, left disabled by default.
+    reg         blt_key_en = 1'b0;
+    reg  [15:0] blt_key = 16'd0;
 
     wire [24:0] p0_addr;
     wire [15:0] p0_data;
@@ -51,13 +55,14 @@ module tb_mp3_fb;
     reg  [10:0] wsrc_addr = 0;
     wire [15:0] wsrc_q;
 
-    mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE)) dut (
+    mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
         .cmd_glyph(cmd_glyph), .cmd_sx(cmd_sx), .cmd_sy(cmd_sy), .cmd_full(cmd_full),
         .blt_src_base(blt_src_base), .blt_src_stride(blt_src_stride),
         .blt_dst_base(blt_dst_base), .blt_dst_stride(blt_dst_stride),
+        .blt_key_en(blt_key_en), .blt_key(blt_key),
         .sdram_init_complete(1'b1),
         .p0_addr(p0_addr), .p0_data(p0_data), .p0_byte_en(p0_byte_en),
         .p0_wr_len(p0_wr_len), .p0_wr_stream(p0_wr_stream), .p0_q(p0_q),
@@ -268,6 +273,65 @@ module tb_mp3_fb;
               "BLIT custom: src stride 64");
         blt_src_base = 25'd0; blt_src_stride = 10'd512;   // restore defaults for anything added after this
         blt_dst_base = 25'd0; blt_dst_stride = 10'd512;
+
+        // ---- BLIT with colour key (B2) -------------------------------------
+        // dest 0x5000, src 0x6000 (offset via fg/bg), 4 wide x 2 tall, defaults
+        // otherwise. Source row 0 reads back as 0x6001/0x6002/0x6003/0x6004;
+        // KEY = 0x6002 keys out word 1 only. Destination row 0 pre-reads as
+        // 0x5001/0x5002/0x5003/0x5004 (same readable-memory model, dest
+        // address), so a keyed word must show 0x5002 (the destination's own
+        // value), not 0x6002 (what a plain BLIT would have written there).
+        rows_written = 0;
+        blt_key_en = 1'b1; blt_key = 16'h6002;
+        cmd_fg <= 16'd0; cmd_bg <= 16'h6000;      // src offset 0x6000
+        push(3'd4, 19'h5000, 9'd4, 9'd2, 7'd0, 2'd0, 2'd0);   // dest offset 0x5000
+        wait (rows_written == 2); repeat (30) @(posedge clk_sdram);
+        check(rows_written == 2, "BLIT keyed: 2 rows written");
+        check(row_pix[0][0] == 16'h6001, "BLIT keyed: word 0 = src");
+        check(row_pix[0][1] == 16'h5002, "BLIT keyed: word 1 = dest (KEY)");
+        check(row_pix[0][2] == 16'h6003, "BLIT keyed: word 2 = src");
+        check(row_pix[0][3] == 16'h6004, "BLIT keyed: word 3 = src");
+        check(row_pix[1][0] == 16'h6201 && row_pix[1][1] == 16'h6202
+              && row_pix[1][2] == 16'h6203 && row_pix[1][3] == 16'h6204,
+              "BLIT keyed: row1 no match=src");
+        blt_key_en = 1'b0; blt_key = 16'd0;
+
+        // ---- Same BLIT, key disabled: must behave like plain BLIT ---------
+        rows_written = 0;
+        cmd_fg <= 16'd0; cmd_bg <= 16'h6000;
+        push(3'd4, 19'h5000, 9'd4, 9'd2, 7'd0, 2'd0, 2'd0);
+        wait (rows_written == 2); repeat (30) @(posedge clk_sdram);
+        check(row_pix[0][1] == 16'h6002, "BLIT unkeyed: word 1 = src");
+
+        // ---- BAR (B6): split bar, 3 unlit rows on top of 2 lit rows -------
+        rows_written = 0;
+        cmd_fg <= 16'hABCD; cmd_bg <= 16'h1234;   // lit / unlit colours
+        push(3'd5, 19'd1000, 9'd4, 9'd5, 7'd2, 2'd0, 2'd0);   // h=5, lit=2 -> unlit=3
+        wait (rows_written == 5); repeat (30) @(posedge clk_sdram);
+        check(rows_written == 5, "BAR split: 5 rows total");
+        check(row_addr[0] == 19'd1000, "BAR split: starts at top-left");
+        check(row_addr[2] == 19'd1000 + 2*512, "BAR split: unlit row stride");
+        check(row_pix[0][0] == 16'h1234 && row_pix[2][0] == 16'h1234, "BAR split: unlit = bg colour");
+        check(row_addr[3] == 19'd1000 + 3*512, "BAR split: lit after unlit");
+        check(row_addr[4] == 19'd1000 + 4*512, "BAR split: lit row stride");
+        check(row_pix[3][0] == 16'hABCD && row_pix[4][0] == 16'hABCD, "BAR split: lit = fg colour");
+
+        // ---- BAR, fully lit (lit clamps to height, no unlit segment) ------
+        rows_written = 0;
+        cmd_fg <= 16'h5555; cmd_bg <= 16'h6666;
+        push(3'd5, 19'd2000, 9'd3, 9'd3, 7'd9, 2'd0, 2'd0);   // lit=9 clamps to h=3
+        wait (rows_written == 3); repeat (30) @(posedge clk_sdram);
+        check(rows_written == 3, "BAR full lit: 3 rows");
+        check(row_addr[0] == 19'd2000, "BAR full lit: no unlit phase");
+        check(row_pix[0][0] == 16'h5555 && row_pix[2][0] == 16'h5555, "BAR full lit: all fg colour");
+
+        // ---- BAR, fully unlit (lit=0, no phase 2 queued) -------------------
+        rows_written = 0;
+        cmd_fg <= 16'h7777; cmd_bg <= 16'h8888;
+        push(3'd5, 19'd3000, 9'd2, 9'd4, 7'd0, 2'd0, 2'd0);   // lit=0
+        wait (rows_written == 4); repeat (30) @(posedge clk_sdram);
+        check(rows_written == 4, "BAR full unlit: 4 rows");
+        check(row_pix[0][0] == 16'h8888 && row_pix[3][0] == 16'h8888, "BAR full unlit: all bg colour");
 
         // ---- RUN ----------------------------------------------------------
         rows_written = 0;

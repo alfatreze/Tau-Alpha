@@ -101,18 +101,27 @@ a usable lever; PSRAM is now the only real path to font-related blocks. Seed 2 i
 glyphbuf MLAB write path, recorded as a genuine near-zero-margin finding, not discarded as noise. Full detail:
 `docs/AUDIT_TRAIL.md` B-100/B-101/B-102, `docs/PHASE_F_SPEC.md` sections 4 and 14.
 
-**The blit engine: started, 2026-09-22 (B-103).** MMIO descriptor register file (section 9) built —
-`R_BLT_IDX`/`R_BLT_DATA` at 0xC0/0xC4, plus `R_FB_GO`'s opcode field widened 2->3 bits to carry the new opcode,
-reusing the existing proven per-command path instead of adding a parallel one. First opcode, **B1 (generalised
-blit)**, built as a genuine extension of `OP_COPY`: independent 25-bit source/destination addresses and
-per-row stride, both sticky (configurable via the new registers), not COPY's fixed FB_BASE=0/512 — verified in
-simulation both for equivalence (defaults = byte-identical to `OP_COPY`) and independence (custom base/stride
-match hand-computed values exactly), plus a real mutation test (`make test-rtl-fb-mutation`) confirming a
-reverted-to-hardcoded-stride bug is actually caught. `make test` (host + RTL) passes, 0 failures. **Not done:**
-B2-B6 (colour key, skew/masks, scaled blit, alpha blend, meter primitive) — B1 alone was scoped as a complete,
-verified foundation rather than shallow progress everywhere. No Quartus slot spent yet.
+**The blit engine: started, 2026-09-22 (B-103/B-104).** MMIO descriptor register file (section 9) built —
+`R_BLT_IDX`/`R_BLT_DATA` at 0xC0/0xC4 (5 sticky fields now, widened for B2 below), plus `R_FB_GO`'s opcode field
+widened 2->3 bits to carry the new opcodes, reusing the existing proven per-command path instead of adding a
+parallel one. Three opcodes built and simulation-verified:
+- **B1 (generalised blit, `OP_BLIT`)**: independent 25-bit source/destination addresses and per-row stride,
+  both sticky, not `OP_COPY`'s fixed FB_BASE=0/512 — verified for both equivalence (defaults = byte-identical to
+  `OP_COPY`) and independence (custom base/stride match hand-computed values), plus a mutation test confirming
+  a reverted-to-hardcoded-stride bug is actually caught.
+- **B2 (colour-key transparency)**: needed a genuine destination pre-read phase to be correct (showing the
+  destination through a keyed pixel requires reading it, which the write-only blit/copy path never did before)
+  — added, verified with a keyed blit where one word of four correctly keeps the destination's value while the
+  rest take the source, plus a mutation test confirming a "colour key does nothing" bug is caught.
+- **B6 (meter column, `OP_BAR`)**: two chained `RECT` fills (no new burst mechanism) for a split lit/unlit bar,
+  with the lit-portion-at-the-bottom convention documented since nothing upstream pinned it down — verified for
+  a split bar, a fully-lit bar (no phantom second phase) and a fully-unlit bar (no phase 2 fires at all).
 
-**Next item:** the rest of Tier 1 (B2-B6, `PHASE_F_SPEC.md` section 14), building on B1's addressing foundation.
+`make test` (host + RTL, including 4 mutation cases now) passes, 0 failures. **Not done:** `TAU_BLIT_BLEND`,
+B3 (sub-pixel skew/masks), B4 (scaled blit), B5 (alpha blend, the one with the documented -1.888 ns timing-cliff
+risk) — no Quartus slot spent yet.
+
+**Next item:** B3/B4 (section 5), both `0` M10K and no new pipeline depth, before B5's own macro.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
