@@ -3,6 +3,9 @@
 import argparse, hashlib, json, re, shutil, sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tau_data_slots as slots_lib
+
 root = Path(__file__).resolve().parent.parent
 src = root / "dist"
 out = root / "work/diagnostics/sdram-stress/pocket"
@@ -25,20 +28,42 @@ def main():
                     help="with --playlist-sdram: package the Diagnostic Build (settings + Info + tests)")
     ap.add_argument("--settings", action="store_true",
                     help="with --playlist-sdram: package the A-115 settings-UI player (SDRAM playlist + settings)")
+    ap.add_argument("--library", action="store_true",
+                    help="with --playlist-sdram --settings: package the media library build (fw/build.sh player-library) and add data slot 5 (tau-library.tdb)")
+    ap.add_argument("--cold", action="store_true",
+                    help="with --diagnostic: package the cold-code Diagnostic Build (fw/build.sh player-cold-diagnostic) with tau-cold.bin (data slot 6); with --settings --library (no --diagnostic): the release-style build with Settings > Check (fw/build.sh player-library-check)")
     ap.add_argument("--nowin", action="store_true",
                     help="with --playlist-sdram: pair the normal SDRAM-playlist ROM with a no-window RBF (A-110)")
     ap.add_argument("--fault", action="store_true",
                     help="with --playlist-sdram: package the fault-injection ROM (A-109)")
+    ap.add_argument("--profile", action="store_true",
+                    help="package the Phase D step 1 decoder-profile player (fw/build.sh player-profile, B-086); "
+                         "reuses the current dist/ bitstream unchanged, no --rbf needed")
     ap.add_argument("--number", type=int,
-                    help="with --settings/--diagnostic: name the core 'TAU PSRAM NN' (numbered test build; "
-                         "output work/diagnostics/tau-psram-NN/pocket)")
+                    help="with --settings/--diagnostic/--profile: name the core 'TAU DEV NN' (numbered test build; "
+                         "output work/diagnostics/tau-dev-NN/pocket)")
     ap.add_argument("--note", help="with --number: replaces the text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="raw RBF (window mode requires it)")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
     args = ap.parse_args()
+    already_reversed = False
     if args.window and args.playlist_sdram:
         sys.exit("--window and --playlist-sdram are mutually exclusive")
-    if args.window or args.playlist_sdram:
+    if args.profile and (args.window or args.playlist_sdram):
+        sys.exit("--profile is mutually exclusive with --window/--playlist-sdram")
+    if args.profile:
+        # No RTL change (docs/AUDIT_TRAIL.md B-086): the profiling macros are
+        # firmware-only, so this reuses the CURRENT dist/ bitstream as-is --
+        # already bit-reversed for the card, not a raw Quartus .rbf like the
+        # other modes -- hence already_reversed and no --rbf/--rbf-sha256.
+        already_reversed = True
+        rbf = src / "Cores/alfatreze.TAU/bitstream.rbf_r"
+        rom = root / "work/diagnostics/decoder-profile/tau.rom"
+        out = root / "work/diagnostics/decoder-profile/pocket"
+        core_id, platform = "alfatreze.TAU_PROFILE", "tau_profile"
+        short, title, desc = ("TAU_PROFILE", "TAU Decoder Profile",
+                              "TAU developer build: per-stage MP3/FLAC decode cost (Phase D step 1, B-086)")
+    elif args.window or args.playlist_sdram:
         flag = "--window" if args.window else "--playlist-sdram"
         if not args.rbf or not args.rbf_sha256:
             sys.exit(f"{flag} requires --rbf and --rbf-sha256 (refusing an unaudited RBF)")
@@ -46,8 +71,8 @@ def main():
             out = root / "work/diagnostics/sdram-stress-window/pocket"
             core_id, platform = "alfatreze.TAU_SDRAM_WSTRESS", "tau_sdram_wst"
         else:
-            d = ("playlist-sdram-fault" if args.fault else "settings-ui" if args.settings
-                 else "diagnostic-build" if args.diagnostic else "playlist-sdram")
+            d = ("playlist-sdram-fault" if args.fault else "library-diagnostic" if (args.library and args.diagnostic) else "library-check" if (args.library and args.cold) else "library" if args.library else "settings-ui" if args.settings
+                 else "cold-diagnostic" if (args.diagnostic and args.cold) else "diagnostic-build" if args.diagnostic else "playlist-sdram")
             out = root / f"work/diagnostics/{'playlist-sdram-nowin' if args.nowin else d}/pocket"
             core_id, platform = (("alfatreze.TAU_PLSDRAMF", "tau_plsdramf") if args.fault
                                  else ("alfatreze.TAU_SETTINGS", "tau_settings") if args.settings
@@ -82,31 +107,43 @@ def main():
         rom = root / "work/diagnostics/sdram-stress/tau.rom"
         short, title, desc = ("TAU_SDRAM_STRESS", "TAU SDRAM Stress",
                               "TAU developer SDRAM contention stress player")
+    if args.library and not (args.playlist_sdram and (args.settings or args.diagnostic)):
+        sys.exit("--library needs --playlist-sdram with --settings or --diagnostic")
     if args.number is not None:
-        if not (args.playlist_sdram and (args.settings or args.diagnostic)):
-            sys.exit("--number needs --playlist-sdram with --settings or --diagnostic")
+        if not (args.profile or (args.playlist_sdram and (args.settings or args.diagnostic))):
+            sys.exit("--number needs --profile, or --playlist-sdram with --settings or --diagnostic")
         nn = f"{args.number:02d}"
-        kind = "diagnostic build" if args.diagnostic else "release-style build"
-        core_id, platform = f"alfatreze.TAU_PSRAM_{nn}", f"tau_psram_{nn}"
-        short, title = f"TAU_PSRAM_{nn}", f"TAU PSRAM {nn}"
-        desc = f"TAU numbered test build {nn}: {kind}, " + (args.note or "album art in PSRAM")
-        out = root / f"work/diagnostics/tau-psram-{nn}/pocket"
+        kind = ("decoder-profile build" if args.profile else
+                "diagnostic build with the media library" if (args.diagnostic and args.library) else "diagnostic build" if args.diagnostic else "media library build" if args.library else "release-style build")
+        core_id, platform = f"alfatreze.TAU_DEV_{nn}", f"tau_dev_{nn}"
+        short, title = f"TAU_DEV_{nn}", f"TAU DEV {nn}"
+        desc = f"TAU numbered test build {nn}: {kind}, " + (args.note or ("per-stage MP3/FLAC decode cost, Phase D step 1" if args.profile else "browse and play from tau-library.tdb" if args.library else "album art in PSRAM"))
+        out = root / f"work/diagnostics/tau-dev-{nn}/pocket"
     if out.exists(): shutil.rmtree(out)
     c = out / "Cores" / core_id
     shutil.copytree(src / "Cores/alfatreze.TAU", c)
-    bitrev(rbf, c / "bitstream.rbf_r")
+    if already_reversed:
+        shutil.copy2(rbf, c / "bitstream.rbf_r")
+    else:
+        bitrev(rbf, c / "bitstream.rbf_r")
     j = json.loads((c / "core.json").read_text())
     m = j["core"]["metadata"]; m["shortname"] = short; m["platform_ids"] = [platform]
     m["description"] = desc; save(c / "core.json", j)
+    if args.library:                              # data slot 5 + persist words 24-27 (B-078: shared with package.py)
+        slots_lib.add_library_slot(c)
     if len(platform) > 15 or not re.fullmatch(r"[a-z0-9][a-z0-9_]*", platform):
         raise ValueError(f"invalid Analogue Pocket platform shortname: {platform!r}")
     if len(m["shortname"]) > 31:
         raise ValueError(f"core shortname exceeds Pocket limit: {m['shortname']!r}")
     if c.name != f"{m['author']}.{m['shortname']}":
         raise ValueError("core folder does not match author.shortname metadata")
+    if (rom.parent / "tau-cold.bin").exists() and (args.library or args.cold):   # Phase G: cold image = data slot 6
+        slots_lib.add_cold_slot(c)
     a = out / "Assets" / platform
     (a / "common").mkdir(parents=True); (a / core_id).mkdir()
     shutil.copy2(rom, a / "common/tau.rom")
+    if (args.library or args.cold) and (rom.parent / "tau-cold.bin").exists():
+        shutil.copy2(rom.parent / "tau-cold.bin", a / "common/tau-cold.bin")
     shutil.copy2(src / "Assets/tau/common/tau-loading.bin", a / "common/tau-loading.bin")
     save(a / core_id / f"{title}.json", {"instance":{"magic":"APF_VER_1","variant_select":{"id":0,"select":False},"data_path":"","data_slots":[{"id":1,"filename":"tau.rom"}],"memory_writes":[]}})
     p = out / "Platforms"; (p / "_images").mkdir(parents=True)
