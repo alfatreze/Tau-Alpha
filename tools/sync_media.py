@@ -9,6 +9,7 @@ verifies every file by SHA-256 and can write a manifest.
   sync_media.py "Nausicaa OST" playlist.m3u --core alfatreze.TAU_PSRAM_03 --core alfatreze.TAU_PSRAM_04
   sync_media.py MUSIC_DIR --all-tau                      # every alfatreze.TAU* core on the card
   sync_media.py MUSIC_DIR --from-core alfatreze.TAU --core alfatreze.TAU_PSRAM_05   # clone one core's media
+  add --library to build and verify the media library index (tau-library.tdb) in each destination after copying,
   add --dry-run to see the plan, --mirror to delete files in the destination folder that are not in the source,
   --manifest FILE to write what was done as JSON.
 
@@ -268,6 +269,7 @@ def main():
     ap.add_argument("--cover-max", type=int, help="shrink embedded covers to at most this many pixels on the long side (the screen shows 92 px)")
     ap.add_argument("--dest-suffix", default="", help="append this text to every copied top-level folder name (keep two variants side by side)")
     ap.add_argument("--manifest", help="write a JSON record of the run to this file")
+    ap.add_argument("--library", action="store_true", help="after copying, build and verify tau-library.tdb in each destination (tools/tau_library.py)")
     args = ap.parse_args()
 
     card = Path(args.card)
@@ -450,6 +452,14 @@ def main():
                         p.unlink()
                     except FileNotFoundError:
                         pass
+            if args.library and not args.dry_run:
+                import tau_library
+                print(f"  building library index for {core} ...")
+                try:
+                    tau_library.build_dir(base, playlists=True)
+                except (SystemExit, tau_library.LibError) as e:
+                    print(f"  LIBRARY INDEX FAILED: {e}", file=sys.stderr)
+                    bad += 1
         if img_skipped:
             print(f"\n{img_skipped} loose image file(s) not copied (the player only reads art inside the track; "
                   f"use --embed-cover, or --copy-images)")

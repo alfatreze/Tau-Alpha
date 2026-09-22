@@ -411,7 +411,7 @@ static uint8_t pl_status;
  * bytes. Halving down finds the largest read the tail will actually serve --
  * all the way to a single byte, because stopping at 4 left the last 1-3 bytes
  * of the file unread and silently truncated the final track's name. */
-static uint32_t pl_read_raw(void)
+COLD_FN2 static uint32_t pl_read_raw(void)
 {
     uint32_t got = 0;
     int any = 0;
@@ -472,7 +472,7 @@ static uint32_t pl_read_raw(void)
 /* Split the .m3u into names. Blank lines and #-comments are skipped, which
  * covers the extended format's #EXTM3U / #EXTINF lines, so both plain and
  * extended .m3u work with no separate parser. */
-static void pl_parse(uint32_t len)
+COLD_FN2 static void pl_parse(uint32_t len)
 {
     pl_count = 0;
     uint32_t i = 0;
@@ -544,7 +544,9 @@ static void pl_resync(uint16_t file_idx)
 
 /* --------------------------------------------------------------- interface */
 
-static void ui_toast_msg(const char *msg);
+#if !TAU_LIBRARY
+static void ui_toast_msg(const char *msg);   /* already defined above; a second declaration inside the size-optimised region only warns */
+#endif
 
 /* Why the LAST attempt failed. Only reached when the walk below has given up
  * on the whole request -- a single bad entry it steps over says nothing. */
@@ -648,6 +650,9 @@ static int pl_play_span(uint16_t pos, int dir, uint16_t span)
             pl_pos = at;
             track_from_pl = 1u;      /* the playlist started this track */
             if (pl_open_name(&pl_text[pl_off[file_idx]])) {
+#if TAU_LIBRARY
+                lib_src = 0u;                /* the playlist owns playback again */
+#endif
                 pl_arm_load(leaving_id);
                 /* ONE line about the whole walk, not one per bad entry: a list
                  * half mistyped would otherwise queue toasts faster than they
@@ -695,8 +700,15 @@ static int pl_play_at(uint16_t pos)           { return pl_play_dir(pos, +1); }
 /* delta = +1 next, -1 previous. Wraps in both directions regardless of repeat
  * mode: a MANUAL skip past the end should go to track 1, not stop dead.
  * Repeat only governs what happens when a track ends on its own. */
+#if TAU_LIBRARY
+static int lib_skip(int delta);
+static int lib_advance_auto(void);
+#endif
 static int pl_skip(int delta)
 {
+#if TAU_LIBRARY
+    if (lib_src) return lib_skip(delta);
+#endif
     if (pl_count < 1u) return 0;
     uint16_t next = (uint16_t)((pl_pos + pl_count + (delta > 0 ? 1u : (uint16_t)(pl_count - 1u)))
                                % pl_count);
@@ -709,6 +721,9 @@ static int pl_skip(int delta)
  * caller should fall back to its own end-of-track handling. */
 static int pl_advance_auto(void)
 {
+#if TAU_LIBRARY
+    if (lib_src) return lib_advance_auto();
+#endif
     if (rep_mode == REP_ONE) return 0;          /* caller replays this track */
     if (!pl_count) return 0;
 
@@ -832,7 +847,7 @@ static int pl_stem_eq(const char *a, const char *b)
  * Folded to 31 bits: APF stores settings words SIGNED, and a word that looks
  * negative is clamped to the range and comes back wrong. Zero is reserved for
  * "nothing remembered", so a hash that lands there is nudged. */
-static uint32_t pl_name_hash(const char *name)
+COLD_FN2 static uint32_t pl_name_hash(const char *name)
 {
     uint32_t h = 2166136261u;
     for (uint32_t i = 0; name[i]; i++) {
@@ -852,7 +867,7 @@ static uint32_t pl_name_hash(const char *name)
  * a hash can be taken from the name alone, with no file access at all.
  *
  * Returns 1 if a matching entry was opened. */
-static int pl_open_by_hash(uint32_t want)
+COLD_FN2 static int pl_open_by_hash(uint32_t want)
 {
     if (!want) return 0;
     if (!pl_open_into(PL_SLOT_ID, PL_INDEX_NAME)) return 0;
@@ -904,7 +919,7 @@ static int pl_open_by_hash(uint32_t want)
 /* Remember whichever list is loaded, so the next boot can reopen it. Called
  * once a playlist has actually parsed -- an unreadable file must not overwrite
  * a good remembered name. */
-static void pl_remember(void)
+COLD_FN2 static void pl_remember(void)
 {
     /* The hash is taken over the FULL name and is what makes a long one
      * rememberable; the stem still goes alongside it, because it is what
@@ -977,8 +992,11 @@ static int pl_sdram_ready(void)
 #define pl_sdram_ready() 1
 #endif
 
-static void pl_load(void)
+COLD_FN2 static void pl_load(void)
 {
+#if TAU_LIBRARY
+    lib_src = 0u;
+#endif
     pl_count = 0; pl_pos = 0; pl_status = PL_OK;
     if (!pl_sdram_ready()) { pl_status = PL_ERR_SDRAM; return; }
     /* A new list means new entries: nothing carries over. This is also the only

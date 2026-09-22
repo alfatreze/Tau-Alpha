@@ -21,7 +21,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DIAG = ROOT / "work/diagnostics/diagnostic-build/pocket"
+DIAG = ROOT / "work/diagnostics/library-diagnostic/pocket"   # B-078: the Diagnostic Build now includes the media library and Check
 OUT = ROOT / "release"
 
 
@@ -89,11 +89,11 @@ def main():
 
     env = dict(os.environ)
     sh(["bash", "-n", "fw/build.sh"])
-    sh(["bash", "fw/build.sh", "release"], env=env)
-    sh(["bash", "fw/build.sh", "player-diagnostic"], env=env)
-    sh([sys.executable, "package.py", "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256])
+    sh(["bash", "fw/build.sh", "release"], env=env)                       # v0.4.0 (B-078): library + Phase G, no Check
+    sh(["bash", "fw/build.sh", "player-library-diagnostic"], env=env)     # Diagnostic Build: adds Tests/Stress and the Check
+    sh([sys.executable, "package.py", "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256, "--release-library"])
     sh([sys.executable, "tools/check_tau_package.py"])
-    sh([sys.executable, "tools/package_sdram_stress.py", "--playlist-sdram", "--diagnostic",
+    sh([sys.executable, "tools/package_sdram_stress.py", "--playlist-sdram", "--diagnostic", "--library", "--cold",
         "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256])
     if args.test:
         sh(["make", "test-host"])

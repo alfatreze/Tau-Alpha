@@ -124,6 +124,8 @@ static uint32_t art_jpg_pos, art_jpg_end;   /* file offsets of the image data */
  * progressive cover comes back as PJPG_UNSUPPORTED_MODE and the user saw an
  * empty frame with no reason for it. */
 static uint8_t art_fail_code;
+#define ART_ERR_NOFRAME 0xF0u   /* B-073: a valid ID3 tag was present but no APIC/FLAC picture frame was found in it */
+#define ART_ERR_LOOP    0xF1u   /* the frame walk fell off the end of the tag before finding one */
 static uint32_t art_win_len, art_win_pos;   /* window currently held in tagbuf */
 
 /* picojpeg asks for at most 255 bytes at a time. Serving each of those with its
@@ -154,7 +156,7 @@ static unsigned char art_need_bytes(unsigned char *pBuf, unsigned char buf_size,
  * on its own and skips by the declared size rather than scanning a buffer:
  * cover art is often hundreds of KB, so the frame we want usually sits well
  * past anything worth holding in RAM. */
-static int art_find_apic(uint32_t tag_len)
+COLD_FN2 static int art_find_apic(uint32_t tag_len)
 {
     if (tag_len < 20u) return 0;
     if (!target_read_slot(MP3_SLOT_ID, 0, TAG_OFF, 16u)) return 0;
@@ -164,18 +166,18 @@ static int art_find_apic(uint32_t tag_len)
     uint32_t p = 10;
     while (p + 10u <= tag_len) {
         if (!target_read_slot(MP3_SLOT_ID, p, TAG_OFF, 16u)) return 0;
-        if (tagbuf[0] == 0) return 0;                     /* padding reached */
+        if (tagbuf[0] == 0) { art_fail_code = ART_ERR_NOFRAME; return 0; }  /* padding reached, no picture frame */
 
         uint32_t fsize = (major >= 4)
             ? (((uint32_t)(tagbuf[4] & 0x7Fu) << 21) | ((uint32_t)(tagbuf[5] & 0x7Fu) << 14) |
                ((uint32_t)(tagbuf[6] & 0x7Fu) << 7)  |  (uint32_t)(tagbuf[7] & 0x7Fu))
             : (((uint32_t)tagbuf[4] << 24) | ((uint32_t)tagbuf[5] << 16) |
                ((uint32_t)tagbuf[6] << 8)  |  (uint32_t)tagbuf[7]);
-        if (!fsize || p + 10u + fsize > tag_len) return 0;
+        if (!fsize || p + 10u + fsize > tag_len) { art_fail_code = ART_ERR_LOOP; return 0; }
 
         if (tagbuf[0] == 'A' && tagbuf[1] == 'P' &&
             tagbuf[2] == 'I' && tagbuf[3] == 'C') {
-            if (fsize > ART_MAX_BYTES) return 0;          /* refuse the absurd */
+            if (fsize > ART_MAX_BYTES) { art_fail_code = ART_ERR_NOFRAME; return 0; }          /* refuse the absurd */
 
             /* Payload: encoding, MIME (NUL-terminated), picture type,
              * description (NUL-terminated; two NULs when UTF-16), then image. */
@@ -196,7 +198,7 @@ static int art_find_apic(uint32_t tag_len)
                         c = tagbuf[k+2] | 0x20u;
                 if (a == 'j' && b2 == 'p' && (c == 'e' || c == 'g')) { jpg = 1; break; }
             }
-            if (!jpg) return 0;
+            if (!jpg) { art_fail_code = ART_ERR_NOFRAME; return 0; }
 
             i++;                                     /* past the MIME NUL     */
             i++;                                     /* picture type byte     */
@@ -207,7 +209,7 @@ static int art_find_apic(uint32_t tag_len)
                 while (i < win && tagbuf[i]) i++;
                 i++;
             }
-            if (i >= win) return 0;
+            if (i >= win) { art_fail_code = ART_ERR_LOOP; return 0; }
 
             art_jpg_pos = body + i;
             art_jpg_end = p + 10u + fsize;
@@ -217,6 +219,7 @@ static int art_find_apic(uint32_t tag_len)
         }
         p += 10u + fsize;
     }
+    art_fail_code = ART_ERR_NOFRAME;   /* walked to the end of the tag: no APIC frame in it */
     return 0;
 }
 
@@ -256,7 +259,7 @@ static uint32_t art_last_sy(uint32_t ay, uint32_t sh, uint32_t ah)
  * pixels -- so no per-cell counter is needed. Neither count can be zero: the
  * accumulator is never larger than the source on either axis, so the map onto
  * it is onto. Magnification happens on the way OUT instead, in art_emit_row. */
-static void art_flush_row(uint32_t ay, uint32_t aw, uint32_t ah)
+COLD_FN2 static void art_flush_row(uint32_t ay, uint32_t aw, uint32_t ah)
 {
     uint32_t slot = ay % ART_ACC_ROWS;
     uint32_t rc   = art_rowcnt[ay];
@@ -300,7 +303,7 @@ static uint32_t art_be32(const uint8_t *p)
          | ((uint32_t)p[2] << 8)  |  (uint32_t)p[3];
 }
 
-static int art_find_flac_picture(void)
+COLD_FN2 static int art_find_flac_picture(void)
 {
     if (!target_read_slot(MP3_SLOT_ID, 0, TAG_OFF, 4u)) return 0;
     if (tagbuf[0] != 'f' || tagbuf[1] != 'L' ||
@@ -392,7 +395,7 @@ static int art_find_flac_picture(void)
  * decode.
  *
  * Returns 0 when there is no image, which never matches a cached signature. */
-static uint32_t art_sig_of(uint32_t tag_len)
+COLD_FN2 static uint32_t art_sig_of(uint32_t tag_len)
 {
     int found = (track_fmt == FMT_FLAC)
               ? art_find_flac_picture()
@@ -417,7 +420,7 @@ static uint32_t art_sig_of(uint32_t tag_len)
     return h ? h : 1u;
 }
 
-static int art_decode(uint32_t tag_len)
+COLD_FN2 static int art_decode(uint32_t tag_len)
 {
     /* Same decoder, different finder. */
     art_fail_code = 0;
