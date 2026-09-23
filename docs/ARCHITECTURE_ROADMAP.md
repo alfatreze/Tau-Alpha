@@ -165,6 +165,8 @@ does not shorten a firmware iteration (JTAG reload re-initialises the core and r
 
 **Parked behind more free CPU RAM (owner, 2026-09-21):** library resume by second, the Diagnostic Build library page, negative-test indexes, fixtures for the new screens, Settings-style legacy playlist overlay, per-colour text colours, release 0.4 documents; list and memory sources in `docs/MEDIA_LIBRARY_0.4_SPEC.md` section 14. RAM is expected mainly from Phase G (cold code in the cached PSRAM window); Phases D and F give less unless the software audio path is retired.
 
+**Open question, not yet investigated (owner, 2026-09-23):** does the media library index (`tau-library.tdb`) or the cold image (`tau-cold.bin`) need a migration path across real Tau version updates — a schema bump, playlist entries surviving a re-sync, an old index on new firmware? Prompted by B-136 (`docs/AUDIT_TRAIL.md`), a stale-index bug in a test-build install, not a real version update, but it exposed a real coupling worth designing for deliberately. Full writeup, what's already covered vs genuinely open, and next steps: `docs/MEDIA_LIBRARY_0.4_SPEC.md` section 15.
+
 ### UI/UX redesign - ground-up rethink, not yet scoped (owner, 2026-09-23, B-115)
 
 The current UI (now-playing, library, settings, playlist, diagnostics) grew incrementally across
