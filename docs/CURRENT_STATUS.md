@@ -37,7 +37,11 @@ The gate is closed: audio kernel work is confirmed still ordered after the blit 
   new "UI/UX redesign" item) and may change or remove the boot/idle code path this bug lives in entirely.
   `docs/issues/021-boot-restore-release-vs-diagnostic-mismatch.md` has the full history and says explicitly not to
   re-investigate until the redesign's boot/idle flow is settled. **Still parked, unrelated:** the missing loading-message on
-  an album pick - not reproduced from source, needs a description/screenshot of the gap when revisited.
+  an album pick - not reproduced from source, needs a description/screenshot of the gap when revisited. **Open question,
+  not yet investigated (owner, 2026-09-23):** does the library index or the cold image need a migration path across real
+  Tau version updates - a schema bump, playlist entries surviving a re-sync, an old index on new firmware. Prompted by
+  B-136 (a stale-index bug in a test-build install, not a real version update, but a real coupling worth designing for
+  deliberately). Full writeup: `docs/MEDIA_LIBRARY_0.4_SPEC.md` section 15.
 
 ## Evidence that closes the Phase G / library gates (Pocket unless stated)
 
