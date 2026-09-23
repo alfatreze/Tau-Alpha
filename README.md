@@ -409,6 +409,67 @@ framework bugs that had to be found first — is in
   60 available, so the decoder occasionally can't keep up. Normal speed is
   unaffected.
 
+## For core developers
+
+Working on this core, or building something similar on Cyclone V with Quartus — an openFPGA
+blit/GPU engine, a soft CPU, a tight block-RAM budget? A few things this project ran into while
+building the in-progress blit engine are worth knowing before you hit them yourself. Full detail,
+evidence and sources for everything below: `docs/AUDIT_TRAIL.md` (search for `B-109` through
+`B-121`) and the knowledge base linked at the end of this section.
+
+### Issues faced, and what fixed them
+
+- **A new DSP-heavy feature broke timing on logic that had nothing to do with it.** Adding the
+  blit engine's alpha-blend pipeline didn't just cost DSP blocks — it changed placement congestion
+  around *unrelated* existing arithmetic, pushing an address adder Quartus had synthesized onto a
+  DSP block into a real setup violation. The failing path traced back through
+  `report_timing -detail full_path`, not assumption: the obvious suspect (the new blend logic) had
+  nothing to do with the actual violating path. **Lesson: don't trust which feature "must" be
+  causing a timing failure — trace the real path before fixing anything.**
+- **Removing the DSP-heavy feature fixed the failure, then exposed a second, unrelated one** —
+  and a third, once the second was fixed. Each fix only revealed the next-worst pre-existing
+  marginal path; the device had several genuinely tight paths, not one bug. **Fix, applied three
+  times to three different paths:** retime the arithmetic to compute off the *same raw memory read*
+  a downstream register already uses, on the *same* clock edge, instead of chaining combinational
+  logic after that register. Same function, same cycle-accurate behavior relative to everything
+  else, zero functional change — verified bit-for-bit against the existing test suite each time.
+- **A plausible-sounding explanation for a timing fix turned out to be wrong**, and a follow-up
+  check caught it before it was trusted for a second build. ("Removing feature X fixed the
+  violation because it directly reduced logic feeding the same write port" — false; the real
+  mechanism was DSP-block placement congestion, confirmed by re-running `report_timing` against
+  the original failing build and finding zero trace of the suspected logic anywhere in the
+  violating paths.) **Lesson: verify a fix's mechanism, not just its result, before relying on it
+  to keep working.**
+- **The Fitter's own effort setting can silently cap how hard it tries.** `FITTER_EFFORT` at
+  `AUTO FIT` (this project's current setting) explicitly stops optimizing once it estimates
+  "good enough" and skips optimizations that affect timing, specifically to save compile time —
+  worth checking before assuming a design is genuinely at its real timing limit.
+- **Synthesis-stage resource reports don't reveal physical memory packing.** A font-ROM repack
+  expected to reduce M10K block usage measured *identical* declared content bits at the synthesis
+  stage, by construction — only a real Fitter run revealed the actual physical block count, which
+  showed no improvement at all. Don't trust a synthesis-only report to answer a packing question.
+
+### Techniques and approaches found useful
+
+| Approach | What it solves | Confidence |
+|---|---|---|
+| Retime a combinational chain off the *raw* memory read instead of the registered value downstream | A register-to-register timing path running through non-trivial logic (compares, subtracts, muxes) fed from a BRAM/MLAB output | Hardware-track: RTL/simulation-verified on this project, 3 separate times |
+| Per-instance `DSP_BLOCK_BALANCING` (`set_instance_assignment -name DSP_BLOCK_BALANCING "LOGIC ELEMENTS" -to <instance>`) | Forcing one specific adder off DSP-block mapping without disturbing real multiplies elsewhere in the same design | Documented by Intel; not yet tried on this project |
+| `FITTER_EFFORT STANDARD FIT` instead of the default `AUTO FIT` | Recovering timing margin the Fitter otherwise leaves unclaimed to save compile time — at the cost of a build that can run 2×+ longer | Documented by Intel; not yet tried on this project |
+| Quartus Rapid Recompile (no design partitions needed, unlike full incremental compilation) | Cutting iteration time (~65% average per Intel's own figures) for a small, isolated RTL change inside an otherwise-unchanged large design | Documented by Intel; not yet tried on this project |
+| Gray-coded counter for a free-running value crossing clock domains | The standard, simulation-provable way to move a multi-bit counter across domains without a synchronizer racing on a multi-bit change | Built and unit-tested on this project (`src/fpga/core/tau_cdc_gray_ctr.sv`) |
+| An evidence-graded local knowledge base (community-reported / docs-verified / hardware-validated) | Not re-deriving the same debugging steps across sessions, and being explicit about how much to trust a claim before acting on it | In active use on this project |
+
+### The developer skill this project maintains
+
+Development on this core uses an
+**[Analogue Pocket / openFPGA development skill](https://github.com/alfatreze/analogue-pocket-dev-skill)**
+for Claude Code — a reference covering `core.json`/`data.json`/`interact.json`, the BRIDGE bus and
+host/target commands, save persistence, Chip32, SD packaging, JTAG/SignalTap debugging, and an
+evidence-graded community knowledge base built from the official developer docs, the open-fpga repos
+and community cores. It's public and MIT-licensed; findings like the ones above get folded into it as
+they're found, so a future session (or another developer) doesn't have to rediscover them.
+
 ## Credits
 
 This core stands on other people's work. Where code is included, the name comes
