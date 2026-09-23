@@ -45,8 +45,17 @@ def main():
                          "bitstream unchanged, no --rbf needed; adds data slots 5/6 like --library --cold")
     ap.add_argument("--number", type=int,
                     help="with --settings/--diagnostic/--profile/--diagnostic-profile: name the core 'TAU DEV NN' "
-                         "(numbered test build; output work/diagnostics/tau-dev-NN/pocket)")
-    ap.add_argument("--note", help="with --number: replaces the text after the build kind in the description")
+                         "(numbered test build; output work/diagnostics/tau-dev-NN/pocket). Superseded by --semver "
+                         "for builds that represent a real feature milestone (2026-09-23 owner decision) -- kept "
+                         "for quick day-to-day bring-up/debug iterations that aren't worth a version number.")
+    ap.add_argument("--semver",
+                    help="with --settings/--diagnostic/--profile/--diagnostic-profile: name the core after the "
+                         "release it is working toward, e.g. '0.5.0-alpha.1' or '0.5.0-beta.2' (X.Y.Z-tag.N). "
+                         "Use this instead of --number for anything that represents a real feature milestone, not "
+                         "a throwaway bring-up iteration -- increment N on each install of the same feature line, "
+                         "bump alpha -> beta -> the plain X.Y.Z release as it stabilizes. Output "
+                         "work/diagnostics/tau-<x.y.z-tag.n, sanitized>/pocket.")
+    ap.add_argument("--note", help="with --number/--semver: replaces the text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="raw RBF (window mode requires it)")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
     args = ap.parse_args()
@@ -137,17 +146,42 @@ def main():
                               "TAU developer SDRAM contention stress player")
     if args.library and not (args.playlist_sdram and (args.settings or args.diagnostic)):
         sys.exit("--library needs --playlist-sdram with --settings or --diagnostic")
-    if args.number is not None:
+    if args.number is not None and args.semver:
+        sys.exit("--number and --semver are mutually exclusive -- pick one naming scheme")
+    if args.number is not None or args.semver:
         if not (args.profile or args.diagnostic_profile or (args.playlist_sdram and (args.settings or args.diagnostic))):
-            sys.exit("--number needs --profile, --diagnostic-profile, or --playlist-sdram with --settings or --diagnostic")
-        nn = f"{args.number:02d}"
+            sys.exit("--number/--semver needs --profile, --diagnostic-profile, or --playlist-sdram with --settings or --diagnostic")
         kind = ("diagnostic build with the media library plus decoder profiling" if args.diagnostic_profile else
                 "decoder-profile build" if args.profile else
                 "diagnostic build with the media library" if (args.diagnostic and args.library) else "diagnostic build" if args.diagnostic else "media library build" if args.library else "release-style build")
-        core_id, platform = f"alfatreze.TAU_DEV_{nn}", f"tau_dev_{nn}"
-        short, title = f"TAU_DEV_{nn}", f"TAU DEV {nn}"
-        desc = f"TAU numbered test build {nn}: {kind}, " + (args.note or ("per-stage MP3/FLAC decode cost in the Check QR record, B-088/B-089" if args.diagnostic_profile else "per-stage MP3/FLAC decode cost, Phase D step 1" if args.profile else "browse and play from tau-library.tdb" if args.library else "album art in PSRAM"))
-        out = root / f"work/diagnostics/tau-dev-{nn}/pocket"
+        default_note = ("per-stage MP3/FLAC decode cost in the Check QR record, B-088/B-089" if args.diagnostic_profile else
+                        "per-stage MP3/FLAC decode cost, Phase D step 1" if args.profile else
+                        "browse and play from tau-library.tdb" if args.library else "album art in PSRAM")
+        if args.semver:
+            # 2026-09-23 owner decision: feature-milestone test builds are named after the
+            # release they are working toward (X.Y.Z-tag.N), not an ever-incrementing dev
+            # number, so a build can be found again by what it was FOR rather than only when
+            # it happened. Pocket platform ids must match [a-z0-9][a-z0-9_]* and stay <=15
+            # chars, so the semver string is sanitized (dots/dashes -> underscores) there;
+            # the human-facing shortname/title/description keep the real string.
+            if not re.fullmatch(r"\d+\.\d+\.\d+-(alpha|beta|rc)\.\d+", args.semver):
+                sys.exit(f"--semver must look like '0.5.0-alpha.1' (X.Y.Z-tag.N, tag one of alpha/beta/rc): got {args.semver!r}")
+            sv = args.semver
+            sv_id = re.sub(r"[.\-]", "_", sv)          # 0.5.0-alpha.1 -> 0_5_0_alpha_1
+            sv_id = re.sub(r"alpha", "a", sv_id); sv_id = re.sub(r"beta", "b", sv_id)   # keep it inside 15 chars
+            platform = f"tau_{sv_id}"
+            if len(platform) > 15:
+                sys.exit(f"--semver '{sv}' produces a platform id over 15 chars ({platform!r}) -- shorten it")
+            core_id = f"alfatreze.TAU_{sv_id.upper()}"
+            short, title = f"TAU_{sv_id.upper()}", f"TAU {sv}"   # shortname must equal the folder's own identity (author.shortname); title stays human-readable
+            desc = f"TAU feature-milestone build {sv}: {kind}, " + (args.note or default_note)
+            out = root / f"work/diagnostics/tau-{sv_id}/pocket"
+        else:
+            nn = f"{args.number:02d}"
+            core_id, platform = f"alfatreze.TAU_DEV_{nn}", f"tau_dev_{nn}"
+            short, title = f"TAU_DEV_{nn}", f"TAU DEV {nn}"
+            desc = f"TAU numbered test build {nn}: {kind}, " + (args.note or default_note)
+            out = root / f"work/diagnostics/tau-dev-{nn}/pocket"
     if out.exists(): shutil.rmtree(out)
     c = out / "Cores" / core_id
     shutil.copytree(src / "Cores/alfatreze.TAU", c)
@@ -157,7 +191,9 @@ def main():
         bitrev(rbf, c / "bitstream.rbf_r")
     j = json.loads((c / "core.json").read_text())
     m = j["core"]["metadata"]; m["shortname"] = short; m["platform_ids"] = [platform]
-    m["description"] = desc; save(c / "core.json", j)
+    m["description"] = desc
+    if args.semver: m["version"] = args.semver   # traceable to the release line this build is working toward
+    save(c / "core.json", j)
     if args.library or args.diagnostic_profile:    # data slot 5 + persist words 24-27 (B-078: shared with package.py)
         slots_lib.add_library_slot(c)
     if len(platform) > 15 or not re.fullmatch(r"[a-z0-9][a-z0-9_]*", platform):
