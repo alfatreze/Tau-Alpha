@@ -191,10 +191,17 @@ verified one, recorded plainly in `docs/AUDIT_TRAIL.md` B-124.
 scene through the real `cmd_push` interface) and `sim/test_blit_reference.py` (the diff driver, wired into
 `make test-rtl`) — all 4 existing mutation hooks confirmed caught. This closes the first half of section 12.
 
-**Next, in order:** (1) the `COLD_READY()`-style fail-safe (the other half of section 12) is still open; (2)
-the blit-storm Check test (section 12.1) and a firmware consumer for the busy-cycle counter, ahead of any card
-install. `TAU_BLIT_BLEND` itself stays shelved — the `glyphbuf` write-port chain would need its own retiming
-(or `KB-045`'s `DSP_BLOCK_BALANCING` idea) before blend can safely return.
+**`BLIT_READY()` fail-safe done, 2026-09-23 (B-126) — with a real finding along the way.** Building this found
+`TAU_BLIT` doesn't actually gate the opcodes at the RTL level at all (no bitstream feature bit exists, unlike
+PSRAM/cold code); every bitstream since B-103 has the full opcode set unconditionally. `fw/blit_probe.inc`
+detects the real distinction instead — an old (pre-B-103) bitstream's 2-bit opcode decode silently truncates
+`OP_BLIT` to `OP_RUN` — via a 2-row custom-stride probe into never-displayed framebuffer padding. Gated behind
+`TAU_BLIT_PROBE` (default off, product ROM confirmed byte-identical); nothing calls it operationally yet.
+This closes section 12 in full.
+
+**Next, in order:** (1) the blit-storm Check test (section 12.1) and a firmware consumer for the busy-cycle
+counter, ahead of any card install. `TAU_BLIT_BLEND` itself stays shelved — the `glyphbuf` write-port chain
+would need its own retiming (or `KB-045`'s `DSP_BLOCK_BALANCING` idea) before blend can safely return.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in

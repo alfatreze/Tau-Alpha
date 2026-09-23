@@ -100,6 +100,25 @@ player-profile)
     STRESS_CFLAGS="-DMP3_PROFILE=1 -DFLAC_PROFILE=1 -DUI_SHOW_DECODE_PROFILE=1"
     FLAC_O_CFLAGS="-DFLAC_PROFILE=1"
     ;;
+player-blit-probe)
+    # PHASE_F_SPEC.md section 12: the BLIT_READY() fail-safe probe (fw/blit_probe.inc).
+    # Same sources as `player`; only TAU_BLIT_PROBE differs. Nothing calls BLIT_READY()
+    # operationally yet (no feature uses the blit engine), so this exists purely to prove
+    # the probe itself works before any real caller depends on it.
+    SRCS=(
+      "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
+      "$HELIX/real/bitstream.c" "$HELIX/real/buffers.c" "$HELIX/real/dct32.c"
+      "$HELIX/real/dequant.c" "$HELIX/real/dqchan.c" "$HELIX/real/huffman.c"
+      "$HELIX/real/hufftabs.c" "$HELIX/real/imdct.c" "$HELIX/real/polyphase.c"
+      "$HELIX/real/scalfact.c" "$HELIX/real/stproc.c" "$HELIX/real/subband.c"
+      "$HELIX/real/trigtabs.c"
+      "$FW/start.S" "$FW/player.c" "$FW/sysio.c" "$FW/alloc.c"
+      "$FW/picojpeg.o" "$FW/flac.o"
+    )
+    INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
+    OUT="$ROOT/work/diagnostics/blit-probe"
+    STRESS_CFLAGS="-DTAU_BLIT_PROBE=1"
+    ;;
 player-stress)
     SRCS=(
       "$HELIX/mp3dec.c" "$HELIX/mp3tabs.c"
@@ -411,7 +430,7 @@ psram-diag)
     OUT="$ROOT/work/diagnostics/psram-diag"
     ;;
 *)
-    echo "usage: $0 {player|player-profile|player-library-diagnostic-profile|player-stress|player-stress-window|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback|sdram-cpu-log-probe|sdram-cpu-log-readback|sdram-cpu-log-open|sdram-cpu-log-settle|sdram-cpu-log-write-read|sdram-cpu-log-source|sdram-cpu-log-bridge|sdram-cpu-log-table|sdram-cpu-log-interact|sdram-cpu-disc|sdram-cpu-latency|sdram-cpu-soak|sdram-cpu-full|psram-diag|psram-diag-sim}"; exit 1 ;;
+    echo "usage: $0 {player|player-profile|player-library-diagnostic-profile|player-blit-probe|player-stress|player-stress-window|bringup|sdram-diag|sdram-cpu-diag|sdram-cpu-readback|sdram-cpu-log-probe|sdram-cpu-log-readback|sdram-cpu-log-open|sdram-cpu-log-settle|sdram-cpu-log-write-read|sdram-cpu-log-source|sdram-cpu-log-bridge|sdram-cpu-log-table|sdram-cpu-log-interact|sdram-cpu-disc|sdram-cpu-latency|sdram-cpu-soak|sdram-cpu-full|psram-diag|psram-diag-sim}"; exit 1 ;;
 esac
 
 # Build flags are selected by target rather than remembered in a shell history.

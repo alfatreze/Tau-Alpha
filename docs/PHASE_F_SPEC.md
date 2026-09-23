@@ -429,8 +429,21 @@ encoder were all validated against host-side references before hardware):
   tests. **Done above.**
 - The `tools/host` harness already exists and is the natural home for the reference renderer. **Done above.**
 
-**Fail-safe**, following `COLD_READY()`: firmware must detect that the bitstream lacks the new opcodes —
-feature bit plus a probe call — and degrade to the existing RUN/RECT/CHAR/COPY paths rather than hanging.
+**Fail-safe — done, 2026-09-23 (B-126), but not the way this row originally assumed.** Reading the RTL to
+build this found that `TAU_BLIT` doesn't actually gate the opcodes at all — `mp3_fb.sv` has no
+`` `ifdef TAU_BLIT `` and `mp3_soc.v`'s own comment says the register file exists "regardless of
+`BLIT_ENABLE`." There is no bitstream feature bit the way PSRAM's `PS_ID` or cold code's `IF_CFG` provides;
+every bitstream from B-103 onward already has the full opcode set unconditionally. The real distinction is
+"pre-B-103 bitstream" vs everything since, detected via `fw/blit_probe.inc`'s `BLIT_READY()`: exploits the
+one real difference an old bitstream shows — its 2-bit opcode decode silently truncates `OP_BLIT` to
+`OP_RUN` — by issuing a 2-row, custom-stride `OP_BLIT` into never-displayed framebuffer padding (columns
+400-511) and checking via the CPU's uncached SDRAM window whether the second row actually got written.
+Gated behind a new `TAU_BLIT_PROBE` macro (default off, byte-identical product ROM confirmed); nothing
+calls `BLIT_READY()` operationally yet since no feature uses the blit engine. The "real BLIT honours a
+custom stride" half is indirectly verified by B-125's own scene test; the "old 2-bit decode truncates to
+RUN" half rests on B-103's documented claim, not a fresh RTL-in-the-loop test — full detail and the exact
+limit of what's verified: `docs/AUDIT_TRAIL.md` B-126.
+
 Firmware ships from the SD card independently of the bitstream, so new-firmware-on-old-bitstream is a real
 configuration that has already bitten this project once (the E18 cold-code refusal, which behaved correctly).
 

@@ -7270,6 +7270,7 @@ static int32_t *fl_buf;            /* one blocksize of int32, from the arena */
 #endif
 #include "playlist.inc"
 #include "cold.inc"
+#include "blit_probe.inc"
 #if TAU_G4 && TAU_COLD_CODE
 #define COLD_FN COLD_TEXT      /* G4: a function moved to PSRAM; every entry from hot code is gated on COLD_READY() or on state that implies it */
 #else
@@ -9146,6 +9147,9 @@ int main(void)
      * separate wait and deliberately do not claim this label. */
 #if TAU_COLD
     cold_boot_load();                 /* first: the cold image holds data the menus need */
+#endif
+#if TAU_BLIT_PROBE
+    blit_probe();                     /* PHASE_F_SPEC.md section 12: BLIT_READY() fail-safe, no feature reads it yet */
 #endif
 #if TAU_LIBRARY
     ui_boot_note("LOADING LIBRARY");
