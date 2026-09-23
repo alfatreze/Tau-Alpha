@@ -192,7 +192,14 @@ def main():
     j = json.loads((c / "core.json").read_text())
     m = j["core"]["metadata"]; m["shortname"] = short; m["platform_ids"] = [platform]
     m["description"] = desc
-    if args.semver: m["version"] = args.semver   # traceable to the release line this build is working toward
+    # B-141: core.json's "version" field is left as whatever the copied dist/ core.json already
+    # carries (a plain X.Y.Z, e.g. "0.4.0") -- every core in this project's history that has ever
+    # shown up on the Pocket used that format, and 0.5.0-alpha.2 (the first --semver build, the
+    # only core.json to ever hold a non-numeric/pre-release-suffixed version string) did not show
+    # up on the device at all. Untested whether the Pocket's own parser is what rejects it, but
+    # it's the one deviation every prior working core lacked, so it stops here rather than being
+    # asserted as safe without hardware evidence either way. The real semver identity already
+    # lives in shortname/description/the platform id, which is what --semver actually needed.
     save(c / "core.json", j)
     if args.library or args.diagnostic_profile:    # data slot 5 + persist words 24-27 (B-078: shared with package.py)
         slots_lib.add_library_slot(c)
