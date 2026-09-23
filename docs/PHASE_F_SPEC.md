@@ -514,12 +514,34 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 |---|---|---|---|
 | **1** | **Profile the software decoder** | No | **Done — B-086..B-098, on hardware** |
 | **2** | Decide the MMIO descriptor model in RTL terms (section 9) | No | **Done — B-085** |
-| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; **Tier 1 RTL/sim complete, first real fit run and mostly-fixed (B-103..B-112)**: real multi-seed fit failed timing (B-107/B-109), bisect (drop `TAU_BLIT_BLEND`, B-110) recovered nearly all of it, retiming fix for the exposed BAR path is done and sim-verified (B-111). **Next, per the full audit (B-112): retime `OP_SBLIT` the same way before the next fit** (identical bug shape, not yet fixed), then verify the blend/`glyphbuf` write-port theory, then re-fit. B3 analysed, needs firmware coordination, not RTL-only. |
+| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; **Tier 1 RTL/sim complete, timing mostly closed, one re-fit in progress (B-103..B-117)**: real multi-seed fit failed timing (B-107/B-109), bisect (drop `TAU_BLIT_BLEND`, B-110) recovered nearly all of it, both exposed retiming bugs fixed (B-111 BAR, B-114 SBLIT/CHAR), the blend/`glyphbuf` theory independently verified as congestion relief not a direct fix (B-116). **A re-fit combining all three fixes is the open question** (B-117, interrupted once by a VM power outage, relaunched) — see the timing-experiment backlog below before any further manual RTL work. B3 analysed, needs firmware coordination, not RTL-only. |
 | **3a** | MLAB migration (`glyphbuf` + dcfifo) + font repack + busy-cycle counter, scoped out from 3 as everything not needing the blit opcodes | **Done — B-101/B-102, real multi-seed fit, both seeds Successful** | none |
 | 4 | Meters to cold code | No (firmware) | 3 |
 | 5 | Main RAM 256 -> 192 KB | Yes | 4, and the peak-usage gate in section 4.1 |
 | 6 | Spectrum filter bank in RTL (section 7) | Yes — can ride a later build | Nothing; cheap in blocks |
 | 7 | Audio kernels, smallest first (FLAC bit reader) | Yes | **1** — done, unblocked, but stays ordered after 3-5 (owner decision, 2026-09-22) |
+
+### Timing-experiment backlog (added 2026-09-23, B-118..B-120)
+
+Zero-RTL-change experiments to try before any further manual retiming, cheapest/least-disruptive first. None
+of these are tried yet; each has a KB entry with a concrete validation plan.
+
+1. **`FITTER_EFFORT` to `STANDARD FIT`** (`KB-048`) — `ap_core.qsf` currently reads `AUTO FIT`, which
+   Intel's own docs say explicitly stops optimizing once "good enough" and skips timing-affecting
+   optimizations to save compile time. Try this on the next timing-marginal build (e.g. re-run B-117's
+   no-blend + B-111 + B-114 combination) before assuming more manual retiming is needed — if it closes a gap
+   on its own, it's a strictly better fix, since it applies automatically to any future marginal path too.
+   Real cost: builds may run 2x+ longer (already 50 min-1h45m today).
+2. **Per-instance `DSP_BLOCK_BALANCING`** (`KB-045`) — only relevant if/when `TAU_BLIT_BLEND` is revisited.
+   Forces the specific `Add32~8` adder off DSP-block mapping without touching the real blend/EQ multiplies,
+   targeting the exact placement collision B-116 confirmed. Cheaper than the RTL-restructure fallback also
+   listed there.
+3. **Quartus Rapid Recompile** (`KB-046`) — a workflow/iteration-speed item, not a timing-closure fix; see
+   the roadmap's Tooling track item 5. Worth enabling once build-iteration count becomes the bottleneck again
+   rather than timing itself.
+4. **M10K native-width check** (`KB-047`) — not a Phase F item, belongs to the still-unexecuted Phase G RAM
+   shrink; listed here only so it isn't missed when that work starts (also cross-referenced in the Phase G
+   section of `docs/ARCHITECTURE_ROADMAP.md`).
 
 ### Item 1 result (for the record)
 
