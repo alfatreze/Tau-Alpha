@@ -244,14 +244,19 @@ the first real use of B-131's semver naming — with `player-library-diagnostic-
 `SDRAM_BUSY=1`; `check_tau_package.py` PASS. **Not yet installed** — awaiting owner confirmation before any
 SD-card write, doubly so after B-130.
 
-**Installed on the Pocket, 2026-09-23 (B-135): `TAU 0.5.0-alpha.1`**, additively alongside `TAU`/`TAU_DIAGNOSTIC`/
-`TAU_DEV_42` (all untouched). Bitstream/firmware macro pairing re-checked one more time before the write (the
-exact check that would have caught B-130) -- full match this time. All hashes verified after copy. **Not yet
-run** -- first correct hardware verdict on the blit engine, `BLIT_READY()`, `CT_BLT` and `R_SDR_BUSY` is the
-owner's next Check run (Settings > Diagnostics > Check, any profile exercises `CT_BLT`).
+**MILESTONE, 2026-09-23 (B-146): the blit engine's first real hardware load test — PASS.** After the install
+finally worked (three unrelated card bugs found and fixed in between: a mis-rooted library index B-136,
+`core.json`'s undocumented-to-us field limits B-141/B-142, and a stale Pocket catalog cache B-143), `TAU
+0.5.0-alpha.4` ran STANDARD and FULL Check twice each: **`Blit storm` PASS both times, SDRAM 15.8% busy over
+the window, audio confirmed continuous throughout (not ambiguous the way an earlier run was) — zero late
+underruns.** The engine is now correct in simulation, timing-closed on real hardware, and load-tested on real
+hardware with real audio — all three legs of proof this phase needed. `Track changes (10)` still fails in
+both runs, unexplained. Separately: Start now closes the library/legacy-playlist overlays outright (B-145,
+owner request), not yet installed/run on hardware.
 
-**Next, in order:** read that result, then Tier 2 (B8-B11) or the M10K/RAM-shrink track, per the roadmap's own
-ordering.
+**Next, in order:** rebuild/repackage/install the corrected build with B-145's fix (as `0.5.0-alpha.5`,
+following `docs/CARD_INSTALL_PROCEDURE.md` in full this time), investigate the `Track changes` failure, then
+Tier 2 (B8-B11) or the M10K/RAM-shrink track, per the roadmap's own ordering.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in

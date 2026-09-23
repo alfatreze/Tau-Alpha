@@ -470,12 +470,21 @@ a scaled-blit firmware helper doesn't exist yet. Widen this test once either lan
 fixed test in all three profiles, not scaled like `CT_R1`-`CT_R3`'s three intensity levels or `CT_SOAK`'s
 level/duration options** (owner question, 2026-09-23, `AskUserQuestion`: decided "not now — decide after the
 first hardware run," rather than guess at intensity levels with no real busy-percentage number yet to reason
-from). Revisit once the corrected `0.5.0-alpha.1` build has run and a real number exists. `make test-host` passes,
-the release (`player`) ROM is confirmed byte-identical (CT_BLT is entirely `#if CHK_DEV`). **Not yet run on
-hardware** — needs the B-117 no-blend bitstream fitted/packaged/installed with `-DTAU_SDRAM_BUSY=1` added to
-the firmware build for this specific target, which hasn't happened yet (B-117 itself never left the VM).
-Predicted busy percentage not yet recorded — do that before the first hardware run, per the standing
-convention, once the actual pump rate is known from real profiling rather than guessed.
+from). `make test-host` passes, the release (`player`) ROM is confirmed byte-identical (CT_BLT is entirely
+`#if CHK_DEV`).
+
+**Hardware result: PASS, 2026-09-23 (B-146) — MILESTONE.** After B-134's timing closure and a run of card
+bugs unrelated to the engine itself (B-136, B-141, B-142, B-143), `TAU_0_5_0_A_4` ran STANDARD and FULL twice
+each independently: **`Blit storm (30 s)` PASS both times, SDRAM 15.8% busy over the window (`busy_permille`
+158), audio confirmed continuous the entire 30 s (B-139's `audio_full` flag true both runs) — zero late
+underruns.** This is not ambiguous the way B-138 was: the audio-continuity check exists specifically to rule
+out "passed because nothing was actually contending," and it reads clean. The predicted-busy-percentage
+convention this row asked for was never actually recorded before the first run (a process gap, not backfilled
+retroactively now that the real number is known) — 15.8% is the first real number to reason from for any
+future scaling decision. Real margin remains before the SDRAM port would be a concern. `Track changes (10)`
+failed in both runs, same as B-138, still unexplained and not investigated. **This closes the loop section 12
+always intended: correct in simulation (B-125), timing-closed on real hardware (B-134), and now load-tested
+on real hardware with real audio (this result) — the blit engine's foundation is proven, not just built.**
 
 ## 13. Parked — revisit after this phase
 
