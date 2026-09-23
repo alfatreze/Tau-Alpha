@@ -232,9 +232,16 @@ the product's PSRAM/window RTL, which adds its own real logic/routing/DSP pressu
 registers per B-018/B-021). A genuinely new "full G3 macros + blit engine" fit, never yet attempted, is needed
 before this bitstream family is trusted again. Full account: `docs/AUDIT_TRAIL.md` B-130.
 
-**Next, in order:** stage and run that combined fit (G3 macros + `blit_step2_noblend_qsf_append.txt`'s four),
-re-verify timing closure against the real product configuration, then package/install a build that actually has
-everything the firmware needs — before any further hardware test of the blit engine, `BLIT_READY()`, or `CT_BLT`.
+**The combined fit closed cleanly, 2026-09-23 (B-134) — first attempt, real margin, no further RTL needed.**
+Both seeds Successful, 0 timing failures, same 298/308 RAM / 11/66 DSP as the blit-only fits; seed 1 (better
+margin on all four corners: setup +0.634/+0.501 ns, hold +0.322/+0.305 ns) selected. B-111/B-114's retiming
+survives combination with the real PSRAM/window RTL with no changes needed. Packaged as **`0.5.0-alpha.1`** —
+the first real use of B-131's semver naming — with `player-library-diagnostic-profile` firmware built with
+`SDRAM_BUSY=1`; `check_tau_package.py` PASS. **Not yet installed** — awaiting owner confirmation before any
+SD-card write, doubly so after B-130.
+
+**Next, in order:** install `0.5.0-alpha.1`, read the first correct hardware result for `CT_BLT`/`BLIT_READY()`/
+`R_SDR_BUSY`, then Tier 2 (B8-B11) or the M10K/RAM-shrink track, per the roadmap's own ordering.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
