@@ -6403,3 +6403,10 @@ Both seeds pass Slow 85C and both fail Slow 0C by essentially the same tiny marg
 - **Skill link**: `https://github.com/alfatreze/analogue-pocket-dev-skill` (confirmed as the correct, already-published public repo URL from this project's own history, not guessed).
 **Deliberately excluded:** full narrative detail (kept in `docs/AUDIT_TRAIL.md`), any claim of a technique being proven when it's actually still `docs-verified`/untested on this project (the confidence column states this plainly rather than implying otherwise), and the project's own internal numbering (B-1xx) which means nothing to an outside reader -- the section points to "search AUDIT_TRAIL.md for B-109 through B-121" once, not per-item.
 **Not done:** no other README sections restructured; this is additive only.
+
+### B-123 — Pushed 10 commits to origin
+**Date:** 2026-09-23
+**Evidence:** `git push origin main` -- `8311d36..ac39472`, 10 commits.
+**Owner instruction:** "let's publish in the meanwhile" -- while the B-117 relaunch re-fit continued running on the VM.
+**Reviewed before pushing:** listed the 10 commits ahead of `origin/main` (`git log origin/main..HEAD`) before pushing -- the blit-engine B1-B6 feature commits (B-103..B-106, already reviewed in earlier sessions) plus this session's four docs commits (B-107/B-108/B-112/B-115 write-ups, B-109..B-120 timing saga and research, the timing-experiment backlog, the README developer section). Nothing sensitive, nothing outside this project's own work.
+**Not done:** `src/fpga/core/mp3_fb.sv` (B-111/B-114's RTL fix) is still uncommitted and therefore not pushed -- staying consistent with verify-before-commit; it will be committed and pushed once the in-flight re-fit confirms it. The re-fit itself (B-117 relaunch) is unaffected and still running.
