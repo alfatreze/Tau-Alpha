@@ -500,6 +500,17 @@ COLD_FN static void lib_request(uint8_t kind, uint16_t first, uint16_t n, uint16
 COLD_FN static void lib_ui_input(uint32_t *edge_p, uint32_t *fall_p, uint32_t *keys_p)
 {
     uint32_t edge = *edge_p, keys = *keys_p;
+    /* B-145: Start closes the library outright, from any depth, the same shortcut set_input()
+     * already gives Settings -- browsing Artists -> an artist -> its Albums used to mean three
+     * presses of B (one per level) just to get back to the player. Left as one press with A/B/L/R
+     * still fully working underneath. Matches lib_request()'s own precedent of NOT resetting
+     * lib_depth on close (browse position is remembered for the next open), so this behaves like
+     * "I'm done, not I made a mistake" -- a fresh B-by-B backout still resets depth to 0 as before. */
+    if (edge & KEY_START) {
+        lib_ui_close();
+        *edge_p = edge & KEY_SELECT; *fall_p &= KEY_SELECT; *keys_p = keys & KEY_SELECT;
+        return;
+    }
     lib_lv_t *v = &LIB_CUR;
     if (v->kind == LV_HOME) v->count = (uint16_t)lib_home_n();
     uint32_t n = v->count ? v->count : 1u;      /* never divide by zero on an empty list */
