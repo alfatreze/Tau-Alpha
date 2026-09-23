@@ -31,9 +31,13 @@ The gate is closed: audio kernel work is confirmed still ordered after the blit 
   of the 0.4 handoff), not just patched around.
 - **Not validated / deliberately open:** restart-based Check tests, a "browse while playing" regression test (G4's real risk,
   currently only manually tested), BUG-001 (accented file names), the meter/visualizer split and the JPEG decoder (both still
-  hot, waiting on the blit engine to be worth doing). **Parked (B-082, owner: UX friction, not blocking):** the release-vs-
-  diagnostic boot-restore mismatch and the missing loading-message on an album pick - both cosmetic, evidence/instrumentation
-  left in place for whenever they're picked back up.
+  hot, waiting on the blit engine to be worth doing). **Re-parked deliberately (owner, 2026-09-23, B-115):** the release-vs-
+  diagnostic boot-restore mismatch has no known mechanism in the code (escalated by the B-112 audit from its earlier "UX
+  friction" framing), but investigating it now is judged premature - a ground-up UI/UX redesign is planned (see the roadmap's
+  new "UI/UX redesign" item) and may change or remove the boot/idle code path this bug lives in entirely.
+  `docs/issues/021-boot-restore-release-vs-diagnostic-mismatch.md` has the full history and says explicitly not to
+  re-investigate until the redesign's boot/idle flow is settled. **Still parked, unrelated:** the missing loading-message on
+  an album pick - not reproduced from source, needs a description/screenshot of the gap when revisited.
 
 ## Evidence that closes the Phase G / library gates (Pocket unless stated)
 
@@ -132,20 +136,60 @@ built as RTL-only** — the literal Amiga bit-packed mechanism doesn't translate
 what it would buy for blits, B1's addressing already provides. The real gap (CHAR sub-glyph clipping, the
 marquee's limitation) needs a firmware change first (`fb_char()` never writes `R_FB_SIZE`), out of scope here.
 
-**Step 2's real multi-seed fit: launched, result pending, 2026-09-22 (B-107).** Two seeds running on the VM
-(`tau-local/blit-engine-s1-20260922`, `-s2-20260922`) — the full bundle (MLAB migration, font repack, B7 counter,
-`TAU_BLIT`+`TAU_BLIT_BLEND`) per section 10's original step-2 definition, so the result reflects the real final
-bitstream. This is the first real Quartus spend on the blit engine RTL; it will settle whether `TAU_BLIT_BLEND`
-trips the documented -1.888 ns timing-cliff risk (section 11) — simulation cannot answer that. **Check
-`make_fpga.log` in each directory first**, and once complete, `ap_core.fit.summary` + the four-corner timing
-slack, before trusting either result. Full detail: `docs/AUDIT_TRAIL.md` B-107.
+**Step 2's real multi-seed fit: both seeds Successful, but timing FAILS — and not where predicted, 2026-09-23
+(B-107/B-109).** Both seeds (`tau-local/blit-engine-s1-20260922`, `-s2-20260922`) compiled cleanly (0 errors,
+RAM 298/308, matching the already fit-proven MLAB+font+counter baseline) but violate setup on both Slow corners
+(-2.5 to -2.9 ns, worse than the -1.888 ns figure previously cited). **`report_timing` traced the actual
+violating path to `glyphbuf`'s existing MLAB write-data arithmetic — the exact near-zero-margin path `B-102`
+already flagged, before the blit engine existed — not to the new `TAU_BLIT_BLEND` pipeline section 11 blamed.**
+The documented "drop `TAU_BLIT_BLEND`" bisect is therefore not a proven fix; it's the cheapest next experiment,
+but the evidence-based fallback is pipelining that specific `glyphbuf` write-data path directly. `docs/PHASE_F_SPEC.md`
+sections 10 and 11 corrected. Full detail: `docs/AUDIT_TRAIL.md` B-109.
 
-**Next after that:** software reference renderer + pixel-diff fixtures (section 12) and the `COLD_READY()`
-fail-safe are still open ahead of any card install, regardless of how this fit turns out.
+**Bisect run, both seeds — recovered almost all of it, but the worst path moved, 2026-09-23 (B-110).** Dropping
+`TAU_BLIT_BLEND` took Slow-corner setup slack from -2.5/-2.6 ns to +0.02/-0.11 ns (seed 2) and +0.05/-0.10 ns
+(seed 1) — both seeds land in the same tight range, confirming a real structural gap, not seed noise. The
+`glyphbuf` violation is gone, but a *different*, pre-existing path (B6/BAR's lit/unlit row-split arithmetic,
+`cmd_q` -> `char_fg` through a compare+subtract chain) became the new worst case once it did.
+
+**Fixed, RTL/simulation-verified, 2026-09-23 (B-111).** Retimed the BAR arithmetic to compute off the same raw
+BRAM read `cmd_q` itself registers from, on the same clock edge, instead of combinationally after it — same
+function, same cycle timing, bit-for-bit unchanged behaviour, verified against `tb_mp3_fb.v`'s full BAR test
+suite and all 4 existing mutation cases. **Not yet fit-tested** — simulation proves correctness, not timing.
+
+**Full audit, 2026-09-23 (B-112, `docs/FULL_AUDIT_2026-09-23.md`):** the BAR bug was one instance of a pattern,
+not a one-off — `OP_SBLIT`'s dispatch has the *identical* structural shape (same source register, never
+retimed) and should get the same fix before the next fit. Separately, the blend write-back into `glyphbuf`
+(`TAU_BLIT_BLEND`-only) lands on the exact write port B-102/B-109 already flagged — meaning the bisect may have
+fixed the *original* violation directly (one less input to that write port's mux) rather than merely relieving
+routing congestion as first theorized; unverified either way, cheap to check with a targeted `report_timing`
+query before assuming the same bisect works again once blend returns.
+
+**`OP_SBLIT`/`OP_CHAR` retimed, RTL/simulation-verified, 2026-09-23 (B-114).** Same technique as B-111, applied
+to `OP_SBLIT`'s output-extent compute and `OP_CHAR`'s glyph-base compute (the two other instances of the same
+bug shape B-112 found) — both retimed off the raw BRAM read on `cmd_q`'s own clock edge. `tb_mp3_fb.v`'s full
+CHAR/SBLIT test suite and all 4 mutation cases pass unchanged.
+
+**Blend/`glyphbuf` write-port theory resolved, 2026-09-23 (B-116): congestion relief confirmed, not a direct
+fix.** A `report_timing` query against the still-present full-blend build (no re-fit needed) showed all 10 worst
+violated paths are the identical `Add32~8`/`Selector222~1` chain B-109 found, with zero blend-related cells
+anywhere in them. `Add32~8` is DSP-mapped; freeing the 3 DSP blocks `TAU_BLIT_BLEND` used relieves placement
+pressure around it without changing its logical fan-in — B-110's original theory was right.
+
+**Next, in order:** (1) a re-fit of the current no-blend + B-111 + B-114 combination to confirm the remaining
+-0.1 ns gap actually closes — this is now the only open timing step, the blend question is settled; (2) the
+software reference renderer + pixel-diff fixtures (section 12) and the `COLD_READY()`-style fail-safe are still
+open ahead of any card install, regardless of how the timing work concludes.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
 `PHASE_F_SPEC.md` section 13. Revisit there if this becomes a real near-term want.
+
+**Re-parked deliberately, non-blit (owner, 2026-09-23, B-115):** the release-vs-diagnostic boot-restore mismatch
+(escalated by the B-112 audit, no known mechanism) is left parked on purpose — a ground-up UI/UX redesign is
+planned (`docs/ARCHITECTURE_ROADMAP.md`'s new "UI/UX redesign" item) and may change or remove the boot/idle code
+path this bug lives in, so investigating it now risks wasted work. See the "Not validated / deliberately open"
+bullet above and `docs/issues/021-boot-restore-release-vs-diagnostic-mismatch.md`.
 
 ## Where to look
 

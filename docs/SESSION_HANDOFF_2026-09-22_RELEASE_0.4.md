@@ -39,10 +39,13 @@ Use the `analogue-pocket-dev` skill for anything about the Pocket, APF, SDRAM/PS
 - **Open smoke-test items from the first v0.4.0 boot** (B-080, fixes now installed, not yet re-confirmed on hardware):
   1. Fixed: closing the library with nothing loaded showed a blank screen with "UNKNOWN TRACK"; now shows "Select a track from
      your library" and reuses the same screen at boot, so there is one "nothing loaded" screen everywhere, not two.
-  2. **Parked (B-082, owner: UX friction, not blocking):** `TAU` booted to the idle card instead of restoring the last-played
-     album, while `TAU_DIAGNOSTIC` restored correctly - a real behavioural difference between builds that share the same source.
-     Info's LIBRARY row still ends `R1`/`R0` (boot restore opened something, or not) so the evidence isn't lost whenever this
-     is picked back up.
+  2. **Escalated (B-112, 2026-09-23, was parked as B-082 "UX friction, not blocking"):** `TAU` booted to the idle card
+     instead of restoring the last-played album, while `TAU_DIAGNOSTIC` restored correctly - a real behavioural difference
+     between builds that share the same source. The full audit's firmware pass confirmed there is still no known mechanism
+     for this in the code - both builds call the identical `lib_boot_restore()` through the identical gate - so "cosmetic"
+     was never actually established. Write-up and suggested next step: `docs/issues/021-boot-restore-release-vs-diagnostic-
+     mismatch.md`. Info's LIBRARY row still ends `R1`/`R0` (boot restore opened something, or not) so the evidence isn't
+     lost whenever this is picked back up.
   3. **Parked (B-082, owner: UX friction, not blocking):** selecting an album does not show the loading spinner over the cover,
      although the code path is identical to an ordinary track skip (which does show it, as far as anyone has confirmed). Needs
      a description or screenshot of exactly what appears during that gap whenever this is revisited.
@@ -178,9 +181,10 @@ elsewhere in the pipeline (timing, redraw ordering, caching) rather than re-read
    every RTL build so far so each one's timing changes stayed attributable; the blit-engine build already changes RTL and
    firmware together, so it rides along there instead of spending its own slot) - and unlocks item 6 and a real PSRAM-vs-BRAM
    album-art comparison (parked since B-028).
-9. **Parked (B-082, owner: UX friction, not blocking)**: the `TAU` vs `TAU_DIAGNOSTIC` boot-restore mismatch (Info `R0`/`R1`
-   evidence already on the card, read whenever this is picked back up) and the missing loading-message on an album pick
-   (needs a description/screenshot of the gap when revisited).
+9. **The `TAU` vs `TAU_DIAGNOSTIC` boot-restore mismatch is escalated, not parked** (was B-082 "UX friction, not blocking";
+   B-112's full audit found no known mechanism for it in the code - see item 2 above and `docs/issues/021-boot-restore-
+   release-vs-diagnostic-mismatch.md`). **Still parked:** the missing loading-message on an album pick (needs a
+   description/screenshot of the gap when revisited).
 
 ## 8. Where to look for anything specific
 

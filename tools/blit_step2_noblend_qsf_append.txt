@@ -1,0 +1,12 @@
+# PHASE_F_SPEC.md section 10 bisect, first move after B-107/B-109's timing failure: same
+# bundle as blit_step2_full_qsf_append.txt but with TAU_BLIT_BLEND dropped. B-109 traced the
+# actual violating path to glyphbuf's pre-existing MLAB write-data arithmetic (the path
+# B-102 already flagged as near-zero-margin, before the blit engine existed), not to this
+# macro's compose pipeline -- so this build is a genuine experiment, not a proven fix: it
+# tests whether less overall logic/routing pressure is enough to recover the flagged path's
+# margin, not a targeted fix for it.
+# Appended to the STAGED src/fpga/ap_core.qsf, after any base macro set + a SEED line.
+set_global_assignment -name VERILOG_MACRO "TAU_MLAB_MIGRATE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_FONT_REPACK=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_BUSY=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BLIT=1"
