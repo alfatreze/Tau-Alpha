@@ -191,6 +191,73 @@ it is already proven in software.**
 | **B10** | **Hardware RLE source blit** | 0-1 | Cover-art rows and meter thumbnails are *already* RLE-encoded in firmware and pushed one command per run. Reading `(run, value)` pairs from a source buffer collapses that. Architecture model is the 3DO Cel Engine's DUP/PDC split — a streaming decompressor stage ahead of a conventional pixel pipeline [EXT]. No adaptable RTL exists; design it fresh. |
 | **B11** | **Hardware rounded-rect** | 0 | Replaces `fb_round_rect_on`'s software corner-overpaint, used on every selection highlight. |
 
+### B8 detailed design (2026-09-23) — grounded in the real target, not designed in the abstract
+
+Before writing any RTL: `fw/meter_thumbs.h`'s `set_draw_thumb()` (`fw/settingsui.inc`) is the exact,
+already-shipping use case B8/B10 exist to accelerate — worth reading before designing either, and not
+previously done. Each of the 11 meter previews (56x32 = 1,792 pixels) is stored as an **8-entry palette**
+(`meter_thumb_pal[viz][8]`, real RGB565) plus an **RLE byte stream** (`meter_thumb_rle`, one byte per run:
+top 3 bits palette index, bottom 5 bits `run_length - 1`), decoded entirely in cold-code software today —
+one `fb_rect` call per run, further split every time a run crosses a row boundary (56-pixel rows mean this
+happens often). A single thumbnail can cost dozens of draw-engine commands, each round-tripping through cold
+code. This is real production data, in a real production format, right now — the design below targets it
+directly rather than inventing a new palette format speculatively.
+
+**Recommendation: split B8 into two steps, don't build the whole thing in one commit.**
+
+**Step 1 (B8 proper) — plain CLUT blit, no RLE decode.** The smaller, safer, immediately buildable piece:
+- **Opcode 7** (`OP_CBLIT`) — the last value the existing 3-bit `cmd_op` field has room for, no width change
+  needed (a nice coincidence, not a constraint that shaped the design).
+- **A 256-entry x 16-bit CLUT RAM, one M10K** (matches the table's own budget), written by the CPU through a
+  dedicated indexed pair — `R_CLUT_IDX` (0-255) / `R_CLUT_DATA` (RGB565) — kept **separate** from
+  `R_BLT_IDX`/`R_BLT_DATA` rather than folded in: those five sticky fields are small, mostly-static per-command
+  config; a 256-entry table load is a different kind of write traffic (an infrequent bulk load, once per
+  palette swap) and conflating the two would make the sticky-field address space do double duty for no benefit.
+- **Source format for step 1: one palette index per 16-bit SDRAM word** (low byte used, high byte unused) —
+  matches every other opcode's "one word = one pixel" convention exactly, at the cost of wasting 8 bits per
+  source word. Deliberately not packing 2 indices/word yet: B4's own finding was that this engine's design
+  already accepts one word per output pixel as fine (no line buffer needed, because the source is
+  randomly-addressable, not streaming) — packing now would be optimizing a cost this design doesn't actually
+  have evidence is a problem, before the simpler version has even been tried.
+- **Dispatch: extends `OP_BLIT`'s own addressing exactly** (sticky `SRC_BASE`/`SRC_STRIDE`/`DST_BASE`/`DST_STRIDE`,
+  the same per-row stepping `A_WRWAIT` already does) — the only change is what happens to the source word once
+  read: instead of writing it straight to `glyphbuf` (what `OP_BLIT` does), index the CLUT with its low byte
+  and write *that* value instead. One new mux, no new addressing logic, no new state machine.
+- **No key/blend interaction in this step** — `OP_CBLIT` is independent, matching `OP_COPY`'s own precedent of
+  "never keys" (B2's header comment). Layering key/blend onto a CLUT blit is a real question (key against the
+  *index* or the *resolved colour*?) worth its own decision later, not bundled in here.
+- This alone would let `set_draw_thumb()` issue **one command per thumbnail** instead of dozens, if firmware
+  pre-expands the RLE into a flat 56x32 index buffer once (in PSRAM, off the hot path) — real savings, but not
+  the full win, since the RLE expansion itself still costs cold-code cycles once per thumbnail-set change.
+
+**Step 2 (folds in B10 for this exact format) — read the RLE bytes directly, no firmware expansion at all.**
+Once step 1's CLUT exists, add a second small mode (a sticky enable bit, not a new opcode) that reads the
+*same* `(idx<<5 | run-1)` byte stream `meter_thumb_rle` already produces, unpacking two bytes per 16-bit
+source word (even byte first) and running a small counter that writes `run` pixels before advancing to the
+next byte, wrapping at the sticky destination width exactly like `set_draw_thumb()`'s own `col`/`seg` loop
+does today. This is `B10`'s "3DO Cel Engine DUP/PDC split" in miniature: a tiny run-length front end feeding
+the same CLUT-indexed pixel pipeline step 1 already built, rather than a second unrelated design. **Explicitly
+deferred, not designed further here** — it needs its own state machine (byte-vs-word source addressing is new
+to this engine, everything else has been word-per-pixel) and its own mutation-test coverage, and step 1 should
+prove the CLUT mechanism itself works before adding a decoder on top of it.
+
+**What this is NOT yet solving:** icon rendering (mentioned in the Tier 1 table's own B8 note) wasn't read for
+this design pass — icons may already be small enough that the draw-call overhead this targets doesn't apply to
+them; check before assuming B8 helps there too.
+
+**The one open RTL question, deliberately not decided solo:** a 256x16 M10K CLUT has a real read latency —
+present the address one cycle, the data is valid the next — unlike `A_COPYRD`'s current behaviour of writing
+`p0_q` straight to `glyphbuf` the same cycle it arrives. Inserting the CLUT lookup means either (a) a new
+one-cycle sub-state in the shared `A_COPYRD` path specifically for `cblit_mode` (latch the source byte, wait
+one cycle for the CLUT to answer, then write), or (b) some other pipelining approach not yet considered. Either
+way, this touches the exact shared state `OP_COPY` and `OP_BLIT` both still depend on — the state that just
+passed its first real hardware load test (B-146). Modifying it for a new, as-yet-unbuilt feature the same
+night that milestone landed, with no chance to re-verify against real silicon before the next session, is the
+kind of judgement call worth the owner's review rather than a solo late-night decision — so this stops here as
+a fully-specified next step, not implemented yet. `sim/tb_mp3_fb.v` and `tools/host/blit_reference.py` both
+already have the exact harness/mutation-test scaffolding this would reuse once the pipelining question is
+settled.
+
 ### Tier 3 — after this phase (see section 13)
 
 2.5D primitives, an overlay compositing layer, double buffering.
