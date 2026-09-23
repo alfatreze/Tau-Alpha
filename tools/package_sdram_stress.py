@@ -59,10 +59,20 @@ def main():
         sys.exit("--diagnostic-profile is mutually exclusive with --window/--playlist-sdram/--profile")
     if args.diagnostic_profile:
         # Same reasoning as --profile (B-086): MP3_PROFILE/FLAC_PROFILE are
-        # firmware-only, no RTL change, so this reuses the CURRENT dist/
-        # bitstream as-is.
-        already_reversed = True
-        rbf = src / "Cores/alfatreze.TAU/bitstream.rbf_r"
+        # firmware-only, no RTL change, so by default this reuses the CURRENT
+        # dist/ bitstream as-is. B-127 needs an exception: pairing this build
+        # with the not-yet-released blit-engine bitstream (the one bitstream
+        # with TAU_SDRAM_BUSY wired), so --rbf/--rbf-sha256 are accepted here
+        # too, same audited-hash requirement as --window/--playlist-sdram.
+        if args.rbf:
+            if not args.rbf_sha256:
+                sys.exit("--diagnostic-profile with --rbf also needs --rbf-sha256 (refusing an unaudited RBF)")
+            rbf = args.rbf if args.rbf.is_absolute() else root / args.rbf
+            if digest(rbf) != args.rbf_sha256:
+                sys.exit(f"RBF hash mismatch: expected {args.rbf_sha256}, got {digest(rbf)}")
+        else:
+            already_reversed = True
+            rbf = src / "Cores/alfatreze.TAU/bitstream.rbf_r"
         rom = root / "work/diagnostics/library-diagnostic-profile/tau.rom"
         out = root / "work/diagnostics/library-diagnostic-profile/pocket"
         core_id, platform = "alfatreze.TAU_DIAG_PROFILE", "tau_diag_profile"

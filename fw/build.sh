@@ -303,7 +303,11 @@ player-library-diagnostic-profile)
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     OUT="$ROOT/work/diagnostics/library-diagnostic-profile"
-    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_LIBRARY=1 -DTAU_METER_THUMBS=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-2} -DMP3_PROFILE=1 -DFLAC_PROFILE=1"
+    # SDRAM_BUSY=1 (default 0): pair with a bitstream built with TAU_SDRAM_BUSY=1 (Phase F B7).
+    # Kept opt-in, not a default, because R_SDR_BUSY reads a hardwired 0 on any OTHER bitstream
+    # (mp3_soc.v gates it on SDRAM_BUSY_ENABLE) -- turning this on against the wrong bitstream
+    # would report a real-looking but false "0% busy" instead of CT_BLT's own N/A sentinel.
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_LIBRARY=1 -DTAU_METER_THUMBS=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-2} -DMP3_PROFILE=1 -DFLAC_PROFILE=1 -DTAU_SDRAM_BUSY=${SDRAM_BUSY:-0}"
     FLAC_O_CFLAGS="-DFLAC_PROFILE=1"
     COLD_PACK=1
     HEAP_MIN=4096
