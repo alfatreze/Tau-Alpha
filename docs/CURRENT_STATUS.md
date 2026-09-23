@@ -240,8 +240,14 @@ the first real use of B-131's semver naming — with `player-library-diagnostic-
 `SDRAM_BUSY=1`; `check_tau_package.py` PASS. **Not yet installed** — awaiting owner confirmation before any
 SD-card write, doubly so after B-130.
 
-**Next, in order:** install `0.5.0-alpha.1`, read the first correct hardware result for `CT_BLT`/`BLIT_READY()`/
-`R_SDR_BUSY`, then Tier 2 (B8-B11) or the M10K/RAM-shrink track, per the roadmap's own ordering.
+**Installed on the Pocket, 2026-09-23 (B-135): `TAU 0.5.0-alpha.1`**, additively alongside `TAU`/`TAU_DIAGNOSTIC`/
+`TAU_DEV_42` (all untouched). Bitstream/firmware macro pairing re-checked one more time before the write (the
+exact check that would have caught B-130) -- full match this time. All hashes verified after copy. **Not yet
+run** -- first correct hardware verdict on the blit engine, `BLIT_READY()`, `CT_BLT` and `R_SDR_BUSY` is the
+owner's next Check run (Settings > Diagnostics > Check, any profile exercises `CT_BLT`).
+
+**Next, in order:** read that result, then Tier 2 (B8-B11) or the M10K/RAM-shrink track, per the roadmap's own
+ordering.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
