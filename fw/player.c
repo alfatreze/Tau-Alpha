@@ -6508,7 +6508,7 @@ static void poll_input(void)
         if (edge & KEY_Y) { pl_ui_sel = pl_pos; pl_ui_follow(); pl_ui_dirty = 1u; }
 
         if (edge & KEY_A) { pl_ui_play_req = 1u; pl_ui_open = 0u; pl_ui_restore = 1u; }
-        if (edge & KEY_B) { pl_ui_open = 0u; pl_ui_restore = 1u; }
+        if (edge & (KEY_B | KEY_START)) { pl_ui_open = 0u; pl_ui_restore = 1u; }   /* B-145: Start closes too, matching Settings/Library */
         edge &= KEY_SELECT;
         fall &= KEY_SELECT;
         keys &= KEY_SELECT;
