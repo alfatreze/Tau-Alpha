@@ -162,6 +162,25 @@ class Renderer:
                     s = blend_px(b, s, blend_mode, blend_alpha)
                 self.mem[d_addr] = s
 
+    def cblit(
+        self,
+        dst_addr: int,
+        src_addr: int,
+        w: int,
+        h: int,
+        clut: list[int],
+        dst_stride: int = STRIDE,
+        src_stride: int = STRIDE,
+    ) -> None:
+        """OP_CBLIT (B8, PHASE_F_SPEC.md section 5 "B8 detailed design"): one
+        palette index per source word (low byte), looked up in a 256-entry
+        CLUT. Reuses OP_BLIT's addressing exactly; no key/blend interaction,
+        mirroring OP_COPY's own established "never keys" precedent."""
+        for r in range(h):
+            for c in range(w):
+                s = self.src_read(src_addr + r * src_stride + c)
+                self.mem[dst_addr + r * dst_stride + c] = clut[s & 0xFF]
+
     def bar(self, addr: int, w: int, h: int, fg: int, bg: int, lit_rows: int) -> None:
         """OP_BAR (B6): two chained RECT fills, unlit segment on top, lit on
         the bottom -- the convention mp3_fb.sv's own comment states."""

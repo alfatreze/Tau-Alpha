@@ -205,7 +205,27 @@ directly rather than inventing a new palette format speculatively.
 
 **Recommendation: split B8 into two steps, don't build the whole thing in one commit.**
 
-**Step 1 (B8 proper) — plain CLUT blit, no RLE decode.** The smaller, safer, immediately buildable piece:
+**Step 1: done, 2026-09-23 (B-148), RTL/sim only.** After review (the owner's "do it" following this section's
+own "stops here" note), implemented and verified exactly as designed below — with one real bug found and fixed
+along the way: the first cut registered `clut_raddr` (set the SAME edge `A_CBLIT_RD` captured the source word,
+valid only the edge AFTER), which puts the CLUT's answer one cycle later than `A_CBLIT_WAIT` expects it —
+simulation caught this immediately as an `x` in the scene dump, not spotted in review. Fixed by making
+`clut_raddr` combinational (`p0_q`'s low byte directly), so `clut_q`'s own registered update — which fires on
+the *same* edge `A_CBLIT_RD` transitions to `A_CBLIT_WAIT` — already sees the right address that cycle, landing
+correctly one cycle later. Not a redesign, the exact two-state shape below, just a wiring correction. **Zero
+regression on the full existing suite**, including the shared `A_COPYRD`/`A_WRWAIT` paths `OP_COPY`/`OP_BLIT`
+depend on (`make test-rtl`, full pass, before and after) — the risk this section flagged didn't materialize,
+because the design (a completely separate one-word-per-transaction path, mirroring `OP_SBLIT`, never touching
+`A_COPYRD` at all) held up exactly as intended. New coverage: `sim/tb_blit_scene.v`'s scene gained a 12th
+command (a real `OP_CBLIT` with a 5-entry preloaded CLUT), `tools/host/blit_reference.py` gained a matching
+`cblit()` method, and a new mutation hook `BUG_CBLIT_NO_LOOKUP` (writes the raw index instead of the CLUT's
+answer) is caught by the pixel-diff, same convention as every other opcode's mutation test.
+**Firmware integration (the "one command per thumbnail" win) is NOT part of this entry** — no `player.c`
+register defines, no `set_draw_thumb()` change, no hardware/Quartus run. This closes only the RTL+simulation
+half of step 1; a real hardware timing fit is still needed before this can ship, and firmware wiring is its
+own follow-up.
+
+**The two-state design, as built:**
 - **Opcode 7** (`OP_CBLIT`) — the last value the existing 3-bit `cmd_op` field has room for, no width change
   needed (a nice coincidence, not a constraint that shaped the design).
 - **A 256-entry x 16-bit CLUT RAM, one M10K** (matches the table's own budget), written by the CPU through a
@@ -245,18 +265,18 @@ prove the CLUT mechanism itself works before adding a decoder on top of it.
 this design pass — icons may already be small enough that the draw-call overhead this targets doesn't apply to
 them; check before assuming B8 helps there too.
 
-**The one open RTL question, deliberately not decided solo:** a 256x16 M10K CLUT has a real read latency —
-present the address one cycle, the data is valid the next — unlike `A_COPYRD`'s current behaviour of writing
-`p0_q` straight to `glyphbuf` the same cycle it arrives. Inserting the CLUT lookup means either (a) a new
-one-cycle sub-state in the shared `A_COPYRD` path specifically for `cblit_mode` (latch the source byte, wait
-one cycle for the CLUT to answer, then write), or (b) some other pipelining approach not yet considered. Either
-way, this touches the exact shared state `OP_COPY` and `OP_BLIT` both still depend on — the state that just
-passed its first real hardware load test (B-146). Modifying it for a new, as-yet-unbuilt feature the same
-night that milestone landed, with no chance to re-verify against real silicon before the next session, is the
-kind of judgement call worth the owner's review rather than a solo late-night decision — so this stops here as
-a fully-specified next step, not implemented yet. `sim/tb_mp3_fb.v` and `tools/host/blit_reference.py` both
-already have the exact harness/mutation-test scaffolding this would reuse once the pipelining question is
-settled.
+**What the open RTL question resolved to:** rather than pipeline the CLUT lookup into the shared `A_COPYRD`
+burst path (the option this section originally weighed, and the one that would have touched `OP_COPY`/`OP_BLIT`'s
+own state), `OP_CBLIT` got its own two-state path (`A_CBLIT_RD`/`A_CBLIT_WAIT`, new `astate` values 9/10),
+structurally identical to `OP_SBLIT`'s existing one-word-per-transaction shape — `A_COPYRD` itself was never
+touched. This is a deliberately slower-per-pixel design (one full read transaction per pixel, like `SBLIT`, not
+one burst per row like `BLIT`/`COPY`) traded for zero risk to the already-hardware-verified shared path; a
+future step could burst-read a whole row's indices and pipeline the CLUT lookups if this trade turns out to
+matter in practice, once there's a real workload to measure it against.
+
+**Not done:** no Quartus fit (RTL/sim only, per this entry's own scope); no firmware register defines or
+`set_draw_thumb()` change (the actual "one command per thumbnail" win needs both, and is its own follow-up);
+step 2 (B10's RLE decode) untouched, waiting on step 1 to prove out on real hardware first.
 
 ### Tier 3 — after this phase (see section 13)
 

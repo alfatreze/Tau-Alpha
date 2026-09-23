@@ -239,7 +239,19 @@ module mp3_soc #(
     // Phase F B5: alpha blend, sticky field 5 (section 9's BLEND).
     output wire         blt_blend_en,
     output wire [2:0]   blt_blend_mode,
-    output wire [7:0]   blt_blend_alpha
+    output wire [7:0]   blt_blend_alpha,
+
+    // Phase F B8 ("B8 detailed design", PHASE_F_SPEC.md section 5): CLUT load,
+    // from mp3_soc's own R_CLUT_IDX/R_CLUT_DATA. A plain indexed write, not one
+    // of the section-9 sticky fields (a 256-entry bulk table load is a
+    // different kind of write traffic than five mostly-static config fields,
+    // so it gets its own register pair rather than sharing BLT_IDX/DATA's).
+    // Driven regardless of BLIT_ENABLE, same convention as the sticky fields
+    // above; only OP_CBLIT in mp3_fb.sv reads the CLUT, and that opcode does
+    // not exist unless TAU_BLIT is built there too.
+    output wire         clut_wr,
+    output wire [7:0]   clut_waddr,
+    output wire [15:0]  clut_wdata
 );
 
     // ---------------------------------------------------------------- CPU ---
@@ -622,6 +634,13 @@ module mp3_soc #(
     // the whole state with one index write. Inert (no logic reads these) unless
     // TAU_BLIT is built.
     localparam [7:0] R_BLT_IDX = 8'hC0, R_BLT_DATA = 8'hC4;
+    // Phase F B8 ("B8 detailed design"): CLUT load. R_CLUT_IDX selects one of
+    // 256 entries; each R_CLUT_DATA write stores the RGB565 value there and
+    // auto-increments the index (wraps 255->0), so a burst of 256 DATA writes
+    // loads the whole palette after one index write -- same convenience as
+    // R_BLT_IDX/R_BLT_DATA's own auto-increment. Inert (no logic reads it)
+    // unless TAU_BLIT is built.
+    localparam [7:0] R_CLUT_IDX = 8'hC8, R_CLUT_DATA = 8'hCC;
 
     // Bitstream/firmware interlock. Firmware compares this against its own
     // expected value and refuses to run on a mismatch.
@@ -655,6 +674,17 @@ module mp3_soc #(
     assign blt_blend_en   = (BLIT_ENABLE != 0) ? blt_blend_en_r   : 1'b0;
     assign blt_blend_mode = (BLIT_ENABLE != 0) ? blt_blend_mode_r : 3'd0;
     assign blt_blend_alpha= (BLIT_ENABLE != 0) ? blt_blend_alpha_r: 8'd0;
+
+    // Phase F B8: CLUT load state. clut_wr_r is a one-cycle pulse (not a level),
+    // matching how mp3_fb.sv's own clut_wr port is meant to be driven -- a
+    // single dDAT_MOSI write should write exactly one CLUT entry, not hold the
+    // write-enable high across whatever the next unrelated MMIO write is.
+    reg  [7:0]  clut_idx = 8'd0;
+    reg         clut_wr_r = 1'b0;
+    reg  [15:0] clut_wdata_r = 16'd0;
+    assign clut_wr    = (BLIT_ENABLE != 0) ? clut_wr_r    : 1'b0;
+    assign clut_waddr = clut_idx;
+    assign clut_wdata = clut_wdata_r;
 
     // Expansion window 0x88..0xAC (see docs/MMIO_ALLOCATION.md).
     assign xm_reg   = mmio_reg;
@@ -721,6 +751,7 @@ module mp3_soc #(
         dt_wren     <= 1'b0;
         set_wr      <= 1'b0;
         sdram_start <= 1'b0;
+        clut_wr_r   <= 1'b0;
 
         if (rst) begin
             status0 <= 32'd0; status1 <= 32'd0;
@@ -807,6 +838,12 @@ module mp3_soc #(
                     // writes loads the whole state and a 7th harmlessly restarts
                     // at SRC_BASE instead of landing on an unused index.
                     blt_idx <= (blt_idx == 3'd5) ? 3'd0 : blt_idx + 3'd1;
+                end
+                R_CLUT_IDX:  clut_idx <= dDAT_MOSI[7:0];
+                R_CLUT_DATA: begin
+                    clut_wdata_r <= dDAT_MOSI[15:0];
+                    clut_wr_r    <= 1'b1;
+                    clut_idx     <= clut_idx + 8'd1;   // wraps 255->0 naturally (8-bit)
                 end
                 default: ;
             endcase
