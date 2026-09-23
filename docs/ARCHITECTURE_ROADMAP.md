@@ -108,6 +108,14 @@ corrected. The EQ's one DSP is already inside the 11/66 figure in section 2.
    decision *not* to build an FFT: `docs/PHASE_F_SPEC.md` section 7.
 **Exit:** per-stage resource line added to section 2; no underrun regression.
 
+**Parked, independent of this phase (owner, 2026-09-23): MOD/tracker format support.** Full
+design in `docs/MOD_TRACKER_SUPPORT_SPEC.md` - software mixer first (profile before any RTL,
+same discipline as step 1 above), toggleable Amiga output filter (cutoff value OPEN pending a
+verified source), quantization effect (needs disambiguation: linear 8-bit vs. non-linear
+companding, not the same feature), and a tracker pattern-view UI gated on the Phase F blit
+engine's ticker/overlay primitives. Architecturally independent of this phase's kernel work - no
+shared code path with MP3/FLAC, not a Phase D sub-item.
+
 ### Phase E - media library
 - Firmware and data layout first: indexes and sorted tables in SDRAM/PSRAM, loaded
   on demand; large-list behaviour already proven to 240-256 entries (A-108).
@@ -141,15 +149,65 @@ does not shorten a firmware iteration (JTAG reload re-initialises the core and r
    build rather than paying for its own. Also reconsider if firmware iteration count is still the bottleneck after items 1 and 2. Rules: separate dev bitstream, never the
    product one (B-021: shared RTL changes even with macros off); needs a host tool to drive the JTAG chain (VM blaster or a host tool); full gates if it ever touches shared RTL.
 4. **VM stays RTL-only.** The media library needs no RTL and no Quartus build.
+5. **Quartus Rapid Recompile, for the fit side rather than firmware (added 2026-09-23, KB-046).** A distinct
+   cost from the above: this project's own recent history is ~15+ full Quartus fits across the Phase F blit
+   engine work alone, each 50 min-1h45m, almost all touching only one file (`mp3_fb.sv`) while the VexRiscv
+   core, SDRAM/PSRAM controllers and `apf_top` stayed unchanged. Quartus's **Rapid Recompile** feature
+   (distinct from full incremental compilation, which needs explicit design partitions and is judged not
+   worth the setup for a single-owner, single-partition-in-practice design like this one) reuses prior
+   fit/routing results for small isolated changes with **no partition setup required** - Intel's own figures
+   are ~65% average compile-time reduction for exactly this shape of change. Not yet tried on this project.
+   Before trusting it as the default: confirm the installed Quartus edition supports it, and verify the
+   *timing result* doesn't silently degrade from reused placement (compare against a from-scratch fit of the
+   same RTL once). Full detail and a validation plan: `KB-046` in the `analogue-pocket-dev` skill's local KB.
 
 **Parked in Phase E (owner, 2026-09-21):** a Settings (advanced) switch to disable / enable the library, with a confirmation and an explanation of what it does; design notes in `docs/MEDIA_LIBRARY_0.4_SPEC.md` section 13. Also open in Phase E: library resume (two persist words) and a Diagnostic Build library check page.
 
 **Parked behind more free CPU RAM (owner, 2026-09-21):** library resume by second, the Diagnostic Build library page, negative-test indexes, fixtures for the new screens, Settings-style legacy playlist overlay, per-colour text colours, release 0.4 documents; list and memory sources in `docs/MEDIA_LIBRARY_0.4_SPEC.md` section 14. RAM is expected mainly from Phase G (cold code in the cached PSRAM window); Phases D and F give less unless the software audio path is retired.
 
+### UI/UX redesign - ground-up rethink, not yet scoped (owner, 2026-09-23, B-115)
+
+The current UI (now-playing, library, settings, playlist, diagnostics) grew incrementally across
+releases 0.2-0.4, each screen solving its own immediate problem rather than being designed against
+a single interaction model. The owner wants to revisit the whole UI design and rethink the UX from
+the ground up, rather than keep patching individual screens one bug at a time.
+
+**Not scoped yet** - this entry exists so the intent is on record, not to pre-commit to a shape.
+When picked up, a real spec should live in its own doc (matching the project's convention: see
+`docs/PHASE_F_SPEC.md`, `docs/MEDIA_LIBRARY_0.4_SPEC.md` for the template) covering at minimum:
+screen inventory and navigation model, what state persists across boot vs. session, and how it
+interacts with the Phase F blit engine (a redesign is the natural point to also decide the
+tracker-visualization idea from `docs/MOD_TRACKER_SUPPORT_SPEC.md` section 5 and the parked
+"per-colour text colours"/"Settings-style legacy playlist overlay" items above).
+
+**Several currently-open or currently-parked items may be superseded rather than fixed by this,
+and should be re-checked against whatever the redesign produces before being independently
+investigated:**
+- The release-vs-diagnostic boot-restore mismatch (`docs/issues/021-boot-restore-release-vs-
+  diagnostic-mismatch.md`, escalated by the B-112 audit, deliberately left parked pending this).
+- The missing loading-message on an album pick (parked under the old B-082 numbering).
+- Library browse-position memory (not a bug, a design question, noted in the 0.4 handoff).
+- The meter/visualizer split (`docs/CURRENT_STATUS.md`, waiting on the blit engine anyway).
+
+**Relationship to Phase F:** independent in principle (Phase F is backend rendering capability;
+this is frontend interaction design), but sequencing matters - a redesign decided before the blit
+engine's primitives (tickers, overlays, scaled blits) exist risks specifying UI that then has to be
+reworked against what actually got built, the same trap already noted for async track loading
+above. Recommend treating the blit engine's completion as a soft gate for finalizing (not
+necessarily starting) this redesign's spec.
+
 ### Phase F - GPU (at the current resolution)
 **Full spec, written 2026-09-22: `docs/PHASE_F_SPEC.md`.** It carries the feature tiers,
 the M10K release plan bundled into this same build, the prior-art/licensing review, the
 verification and fail-safe plan, and the parked-ideas list. Summary only here.
+
+**Status, 2026-09-23:** Tier 1 (B1/B2/B4/B5/B6) is RTL/simulation-complete; the first real
+multi-seed fit found and (mostly) fixed a genuine timing violation (B-107..B-111), and a
+full audit (B-112, `docs/FULL_AUDIT_2026-09-23.md`) found the same bug shape recurs
+elsewhere in the engine and should be fixed proactively before the next fit. Current
+detail lives in `docs/PHASE_F_SPEC.md` sections 10/11/14 and `docs/CURRENT_STATUS.md` -
+this line exists so a reader of the roadmap alone isn't left thinking Phase F is still
+just a plan.
 
 - Extend the `mp3_fb` command set. Tier 1: generalised blit (arbitrary rect, independent
   stride), colour-key transparency, **sub-pixel skew + first/last column masks** (the
@@ -216,6 +274,13 @@ What remains is the third step, **returning main RAM to the M10K pool**, now spe
   and picojpeg (~8 KB) cold, and the meters wait on Phase F.
 - Measure the hot set *with* margin and write down a floor before shrinking: this trades a
   scarce resource for another one, and heap gap has repeatedly been driven to its floor.
+- **Before fixing the two arrays' widths, check each against M10K's native shapes (added
+  2026-09-23, KB-047)** - roughly 8Kx1, 4Kx2, 2Kx4/5, 1Kx8/9, 512x16/18, 256x32/36/40. A
+  power-of-two *total size* doesn't guarantee an efficient *per-word width* - an off-native
+  width wastes a fraction of every block it's built from, the same class of surprise B-100
+  already hit once with the font ROM repack (synthesis-stage reports don't reveal physical
+  packing, only a real fit does). Cheap to check on paper before committing to the shrink's
+  exact array shapes; expensive to discover after a fit shows more blocks used than expected.
 
 ### Phase H - 720 (last)
 1. Check the maximum video mode in the APF docs snapshot (`video.json`); not yet
@@ -242,10 +307,12 @@ What remains is the third step, **returning main RAM to the M10K pool**, now spe
   word either - widening `cmd_mem` to carry a full descriptor would take it from 3 M10K to
   ~7, eating most of what the MLAB migration frees. Instead: sticky state (bases, strides,
   colour key, alpha, palette, scale) lives in flops; only op/x/y/w/h/offset ride the FIFO.
-  Three registers total - `R_BLT_IDX`, `R_BLT_DATA` (both auto-incrementing), `R_BLT_GO` -
-  give an unbounded number of state fields for 3 of the 17 free words. This is the Amiga
-  split (`BLTCON`/`BLTAFWM` persist; only the size write triggers). Do it before any Phase F
-  RTL exists; retrofitting after three features have claimed registers is the expensive version.
+  **As built (B-103, corrected from this row's original plan): two registers, not three** -
+  `R_BLT_IDX`, `R_BLT_DATA` (both auto-incrementing) - plus the existing `R_FB_GO`'s opcode
+  field widened 2->3 bits, rather than a new dedicated `R_BLT_GO`. Reuse achieved the same
+  "unbounded state fields for few registers" goal more cheaply than a duplicate GO register
+  would have. This is the Amiga split (`BLTCON`/`BLTAFWM` persist; only the size write
+  triggers). Full detail: `docs/MMIO_ALLOCATION.md` 0xC0-0xC4.
 - **Tau is MIT, so copyleft RTL cannot be copied in.** (An earlier version of this line
   wrongly claimed there was no LICENSE file - there is, MIT, tracked since the first commit,
   with both HarpMudd's and Tau's copyright lines; `NOTICE.md` and the README Credits already

@@ -362,6 +362,35 @@ so they belong together):
 **If timing fails:** first bisect is dropping `TAU_BLIT_BLEND`. Keep the inert items on — they change no
 behaviour, so any trouble they cause is a packing/routing effect that the multi-seed convention should absorb.
 
+**Timing failed on both seeds (B-107/B-109, 2026-09-23) — but not on the path this bisect assumes.**
+`report_timing` shows the violation is entirely inside `glyphbuf`'s existing MLAB write-data arithmetic, the
+same path `B-102` already flagged as near-zero-margin *before* the blit engine existed, not on the new
+`TAU_BLIT_BLEND` pipeline. Dropping `TAU_BLIT_BLEND` is still the cheapest next experiment (less logic overall
+may relieve the congestion pushing this path over), but it is not a proven fix for the actual failing path — see
+section 11's corrected row. If it doesn't recover positive slack, the real fix is pipelining that specific
+`glyphbuf` write-data path (an extra register stage on the address-to-write-port arithmetic), independent of
+the blit engine's own macros.
+
+**Bisect run (B-110, 2026-09-23): recovered almost everything, but the worst path moved.** Both seeds went from
+-2.5/-2.6 ns to +0.02/-0.11 ns (seed 2) and +0.05/-0.10 ns (seed 1) — consistent across seeds, so a real
+structural gap remains, not noise. The `glyphbuf` violation itself is gone; the new worst case is a *different*
+pre-existing path, B6/BAR's `cmd_q` -> `char_fg` clamp+subtract chain (same anti-pattern: combinational logic
+off a BRAM-registered value, straight into another register, same cycle). **Fixed by retiming (B-111)**: computed
+the same arithmetic off the raw BRAM read `cmd_q` itself registers from, on the same clock edge, instead of
+after it — same function, same timing relative to everything else, verified bit-for-bit in simulation. Not yet
+re-fit to confirm it closes the gap.
+
+**The full audit (B-112) found this bug shape recurs and should be fixed proactively, not one path at a time.**
+`OP_SBLIT`'s dispatch (`sblit_ext` clamp/shift off raw `cmd_q`, registered same-cycle) has the identical
+structure to the just-fixed BAR bug and was not caught only because BAR happened to be what Quartus reported as
+worst first. `OP_CHAR`'s `char_base` compute is a milder variant. **Recommended before the next fit: apply
+B-111's exact retiming technique to `OP_SBLIT` (and optionally `OP_CHAR`) at the same time**, rather than
+discover each one via another failed multi-seed build. Separately: the blend write-back into `glyphbuf`
+(`A_COPYRD`, `TAU_BLIT_BLEND`-only) lands on the same write port as the original violation — meaning B-110's
+"congestion relief" theory may be incomplete; a direct fix (one fewer input to that port's write-data mux) is at
+least as plausible and hasn't been distinguished from the congestion theory yet. Full detail: `docs/AUDIT_TRAIL.md`
+B-112, `docs/FULL_AUDIT_2026-09-23.md`.
+
 Compare the product-config build against the shipped RBF as B-018 did, noting B-021's finding that shared-RTL
 changes make bit-identity unattainable even with macros off — it is a review aid, not a gate.
 
@@ -373,9 +402,10 @@ unattainable even with macros off, so the comparison is a review aid, not a gate
 
 | Risk | Why it is real here | Mitigation |
 |---|---|---|
-| **Timing cliff** | The roadmap records an upstream **-1.888 ns** cliff from adding a pipeline path at 100 MHz. Alpha blend and scaling both add pipeline depth. | Multi-seed; keep the blend/scale stages behind their own macro so they can be dropped without losing the build. |
-| **The L0 invariant** | Every stress run to date reports **zero late underruns**. It is the strongest quality signal this project has, and a new SDRAM master is exactly what threatens it. | The busy-cycle counter (B7) is the instrument; the blit-storm Check test (section 12.1) is the regression net. |
-| **MLAB Fmax on deep chains** | The 256-deep command FIFO needs ~8-deep MLAB chaining; the penalty is undocumented [EST]. | Do the three easy migrations first; treat the FIFO separately, and consider reducing its depth instead. |
+| **Timing cliff — hit, mostly fixed, one instance of a wider pattern (B-109..B-116)** | The real multi-seed fit failed setup on both Slow corners, both seeds (-2.5 to -2.9 ns). `report_timing` traced it to `glyphbuf`'s MLAB write-data arithmetic (`Add32~8` -> `Selector222~1` into the write port, B-102's pre-existing near-zero-margin path), not the new `TAU_BLIT_BLEND` pipeline. Dropping `TAU_BLIT_BLEND` (B-110) recovered nearly all of it (+0.02/-0.11 ns) but exposed a *different* pre-existing path as new worst case: B6/BAR's `cmd_q` -> `char_fg` clamp+subtract chain, fixed by retiming (B-111); `OP_SBLIT`'s dispatch had the identical shape and `OP_CHAR`'s `char_base` a milder variant, both also fixed by retiming (B-114) after the full audit (B-112) found the pattern recurs. **Blend/`glyphbuf` theory resolved (B-116): the bisect's fix was congestion relief, not a direct write-port fan-in change.** A `report_timing` query against the still-present full-blend build showed all 10 worst violated paths are the identical `Add32~8`/`Selector222~1` chain with zero blend-related cells anywhere in them — `Add32~8` is DSP-mapped, and freeing the 3 DSP blocks `TAU_BLIT_BLEND` used (14 -> 11) relieves placement/routing pressure around it without touching its logical fan-in. | (1) Re-fit with the current no-blend + B-111 + B-114 combination to confirm the remaining -0.1 ns gap actually closes — this is now the only open timing step. (2) The `glyphbuf` write-port chain (`Add32~8`/`Selector222~1`) itself has never been retimed (it wasn't the worst path once `TAU_BLIT_BLEND` was dropped) — if it resurfaces later (e.g. `TAU_BLIT_BLEND` re-added, or another DSP-heavy feature reintroduces the same congestion), the same targeted pipelining technique applies, not a new investigation. Full detail: `docs/AUDIT_TRAIL.md` B-109..B-116, `docs/FULL_AUDIT_2026-09-23.md`. |
+| **The L0 invariant** | Every stress run to date reports **zero late underruns**. It is the strongest quality signal this project has, and a new SDRAM master is exactly what threatens it. Confirmed still true of the full history in the B-112 audit (~59 mentions, one explained early false-positive, no confirmed contention-caused late underrun ever recorded). | The busy-cycle counter (B7, built, RTL-only — **no firmware consumer yet**, confirmed by B-112) is the instrument; the blit-storm Check test (section 12.1, **not built yet**, deliberately deferred per B-101 since no firmware issues blit commands to generate the traffic pattern it would test) is the regression net. Current exposure is low precisely because nothing exercises the blit engine's SDRAM traffic yet — revisit urgency once firmware starts issuing real blit commands during playback, not before. |
+| **MLAB Fmax on deep chains** | The 256-deep command FIFO needs ~8-deep MLAB chaining; the chain depth is now confirmed exactly (a Cyclone V MLAB is a fixed 32x20/640-bit block, so 256/32 = 8 chained instances is precisely right, per Intel's Embedded Memory Blocks docs, 2026-09-23), but the **Fmax penalty of chaining them is still undocumented [EST]**. | Do the three easy migrations first; treat the FIFO separately, and consider reducing its depth instead. |
+| **`FITTER_EFFORT` is `AUTO FIT`, not `STANDARD FIT` (found 2026-09-23, `KB-048`)** | Auto Fit explicitly stops optimizing once it estimates "good enough" and skips optimizations that affect timing/routability, specifically to save compile time -- confirmed as Tau's actual current qsf setting. Given this project has spent B-107..B-117 chasing sub-nanosecond violations by hand, it's plausible the Fitter itself has been leaving real margin unclaimed the whole time. | Try `STANDARD FIT` on the next timing-marginal build before further manual retiming -- if it closes a gap on its own, it's a strictly better fix (applies automatically to any future marginal path too), at the cost of a build that may run 2x+ longer. Full validation plan: `KB-048`. |
 | **RAM shrink trades scarcity** | Heap gap has hit its floor repeatedly as features landed. | Measure the hot set with margin and write down a floor before shrinking. Reversible only by another build. |
 | **720 (Phase H) invalidates bandwidth assumptions** | Scanout goes from ~12% to 35-45% of SDRAM cycles [EST]. | Parametrise width/height/stride/base now, as Phase F already requires. |
 | **Licence** | Tau's own code is **MIT**, so copyleft RTL cannot be copied in; the best references are GPLv2/GPLv3 (Minimig, PSX_MiSTer) or carry no stated licence at all (AtariST_MiSTer, Saturn_MiSTer). | Reimplement from technique; never copy from a GPL or unlicensed repo. Verify VexRiscv's licence properly — the README asserts MIT but the generated `VexRiscv_Full.v` carries no header. |
@@ -484,7 +514,7 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 |---|---|---|---|
 | **1** | **Profile the software decoder** | No | **Done — B-086..B-098, on hardware** |
 | **2** | Decide the MMIO descriptor model in RTL terms (section 9) | No | **Done — B-085** |
-| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; **Tier 1 functionally complete in RTL/simulation** (B-103/B-104/B-105/B-106): MMIO register file + B1/B2/B4/B5/B6 built, `TAU_BLIT_BLEND` wired separately per section 10; B3 analysed, needs firmware coordination, not RTL-only; no Quartus slot spent yet, step 2's real fit is next |
+| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; **Tier 1 RTL/sim complete, first real fit run and mostly-fixed (B-103..B-112)**: real multi-seed fit failed timing (B-107/B-109), bisect (drop `TAU_BLIT_BLEND`, B-110) recovered nearly all of it, retiming fix for the exposed BAR path is done and sim-verified (B-111). **Next, per the full audit (B-112): retime `OP_SBLIT` the same way before the next fit** (identical bug shape, not yet fixed), then verify the blend/`glyphbuf` write-port theory, then re-fit. B3 analysed, needs firmware coordination, not RTL-only. |
 | **3a** | MLAB migration (`glyphbuf` + dcfifo) + font repack + busy-cycle counter, scoped out from 3 as everything not needing the blit opcodes | **Done — B-101/B-102, real multi-seed fit, both seeds Successful** | none |
 | 4 | Meters to cold code | No (firmware) | 3 |
 | 5 | Main RAM 256 -> 192 KB | Yes | 4, and the peak-usage gate in section 4.1 |
