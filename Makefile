@@ -59,7 +59,7 @@ test-host:
 	$(PYTHON) sim/test_cold_fw.py
 	$(PYTHON) sim/test_suite.py
 
-test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -83,6 +83,15 @@ test-rtl-fb-mutation: | $(RTL_BUILD_DIR)
 	run -Ptb_mp3_fb.BUG_IGNORE_KEY=1; \
 	run -Ptb_mp3_fb.BUG_SBLIT_NO_SCALE=1; \
 	run -Ptb_mp3_fb.BUG_BLEND_ALWAYS_SRC=1
+
+# PHASE_F_SPEC.md section 12: software reference renderer + pixel-diff
+# fixtures, run the whole scene through the RTL sim and through
+# tools/host/blit_reference.py, diff exactly, and confirm every existing
+# mutation hook is caught by the diff (the "injected-fault case" section 12
+# asks for). Needs its own recipe, not a .vvp rule, since it invokes iverilog
+# itself (once clean, once per mutation).
+test-rtl-blit-reference: | $(RTL_BUILD_DIR)
+	$(PYTHON) sim/test_blit_reference.py
 
 $(RTL_BUILD_DIR)/tb_tgt_cmd.vvp: sim/tb_tgt_cmd.v src/fpga/core/tgt_cmd.v | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^

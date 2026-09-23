@@ -415,11 +415,19 @@ unattainable even with macros off, so the comparison is a review aid, not a gate
 **Verification, following the pattern this project already uses** (the library loader, cold code and the QR
 encoder were all validated against host-side references before hardware):
 
-- A **software reference renderer** implementing each opcode, plus **pixel-diff fixtures** — render the same
-  scene through the reference and through the RTL simulation and compare buffers exactly.
+- **Done, 2026-09-23 (B-125).** `tools/host/blit_reference.py` (a from-scratch Python reimplementation of every
+  opcode — RUN/RECT/COPY/BLIT with key+blend/BAR/SBLIT/CHAR with the real gamma-fitted anti-aliasing table,
+  CHAR's glyph data parsed from the shipped `font_rom.v` rather than re-rasterised) plus `sim/tb_blit_scene.v`
+  (an 11-command scene through the real `cmd_push` interface) and `sim/test_blit_reference.py` (the diff
+  driver), wired into `make test-rtl` as `test-rtl-blit-reference`. All 4 existing mutation hooks
+  (`BUG_IGNORE_BLIT_STRIDE`, `BUG_IGNORE_KEY`, `BUG_SBLIT_NO_SCALE`, `BUG_BLEND_ALWAYS_SRC`) confirmed caught
+  by the pixel-diff, reused rather than reinvented, satisfying the injected-fault requirement below. Two real
+  testbench-modelling bugs found and fixed along the way (a keyed pixel re-writes the pre-read destination,
+  it doesn't skip the write; the scene needed a non-default sticky stride for `BUG_IGNORE_BLIT_STRIDE` to have
+  anything to diverge on) — see `docs/AUDIT_TRAIL.md` B-125 for the full account.
 - Put it in `make test-rtl`, with an injected-fault case that must be caught, matching the PSRAM/G3 mutation
-  tests.
-- The `tools/host` harness already exists and is the natural home for the reference renderer.
+  tests. **Done above.**
+- The `tools/host` harness already exists and is the natural home for the reference renderer. **Done above.**
 
 **Fail-safe**, following `COLD_READY()`: firmware must detect that the bitstream lacks the new opcodes —
 feature bit plus a probe call — and degrade to the existing RUN/RECT/CHAR/COPY paths rather than hanging.
