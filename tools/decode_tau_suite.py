@@ -71,7 +71,13 @@ def parse_record(rec: bytes) -> dict:
         i += 2 + n
         if tag == 3 and n == 6:
             tid, res, val = v[0], v[1], struct.unpack("<I", v[2:])[0]
-            out["tests"].append({"id": tid, "name": TESTS.get(tid, f"test {tid}"), "result": RESULTS.get(res, str(res)), "value": val})
+            entry = {"id": tid, "name": TESTS.get(tid, f"test {tid}"), "result": RESULTS.get(res, str(res)), "value": val}
+            if tid == 13:   # CT_BLT (B-127/B-139): value packs busy-permille (low 16 bits) + "audio ran the whole
+                            # window" in bit 16, since a PASS/FAIL here only means something if playback didn't drop
+                busy = val & 0xFFFF
+                entry["busy_permille"] = None if busy == 0xFFFF else busy   # 0xFFFF = TAU_SDRAM_BUSY off for this bitstream
+                entry["audio_full"] = bool(val & 0x10000)
+            out["tests"].append(entry)
         elif tag == 14 and n >= 10:              # Decode Profile Sweep: one entry per track (B-090/B-091/B-092/B-096), repeatable
             track_idx, speed_pct = v[0], v[1]
             h, i2, s, r = (int.from_bytes(v[k:k + 2], "little") for k in range(2, 10, 2))
@@ -92,6 +98,11 @@ def parse_record(rec: bytes) -> dict:
                     vals = dict(zip(("read_avg", "read_max", "write_avg", "write_max"), vals))
                 elif tag == 13 and len(vals) == 4:         # decoder stage cost, CT_AUD window (B-088/B-089)
                     vals = dict(zip(("h_pct", "i_pct", "s_pct", "r_pct"), vals))
+                elif tag == 8 and len(vals) == 4:          # SR_T_AUDIO, CT_AUD (word[1] repurposed by B-139:
+                                                            # 1 if playback ran the whole window, 0 if it never
+                                                            # started or dropped out partway through)
+                    vals = dict(zip(("late_underruns", "audio_full", "stall_ms", "window_s"), vals))
+                    vals["audio_full"] = bool(vals["audio_full"])
                 out["entries"][TAGS[tag]] = vals
         else:
             out["unknown"].append({"tag": tag, "hex": v.hex()})
