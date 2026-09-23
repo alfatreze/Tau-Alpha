@@ -1,0 +1,46 @@
+# B-130/B-132: the "full G3 + blit engine" combined fit -- the first time the blit engine
+# (and its MLAB migration/font repack/SDRAM busy-cycle counter companions) has ever been built
+# together with the actual shipped product's PSRAM/window RTL paths (TAU_PHASE2_WINDOW,
+# TAU_PSRAM_PROBE, TAU_PSRAM_WINDOW, TAU_PSRAM_IFETCH). Every prior blit-engine fit (B-100
+# through B-117) was built WITHOUT these, which is what made TAU DEV 43 unusable on hardware
+# (docs/AUDIT_TRAIL.md B-130) -- this file exists so that mistake cannot be repeated silently.
+#
+# Contents: tools/psram_window_qsf_append.txt (verbatim: TAU_PHASE2_WINDOW/TAU_PSRAM_PROBE/
+# TAU_PSRAM_WINDOW + the 22 FAST_* CRAM register-packing lines) + tools/psram_ifetch_qsf_append.txt
+# (TAU_PSRAM_IFETCH) -- this exact pair, in this exact order, is what the shipped v0.4.0 "G3"
+# bitstream (rbf_r c81b33f9...) was built from (docs/AUDIT_TRAIL.md, the PSRAM G3 build entries)
+# -- plus tools/blit_step2_noblend_qsf_append.txt's four macros (TAU_MLAB_MIGRATE, TAU_FONT_REPACK,
+# TAU_SDRAM_BUSY, TAU_BLIT; deliberately NOT TAU_BLIT_BLEND, which stays shelved pending its own
+# timing fix per PHASE_F_SPEC.md section 11).
+#
+# Appended to the STAGED src/fpga/ap_core.qsf, after nothing else except a SEED line.
+set_global_assignment -name VERILOG_MACRO "TAU_PHASE2_WINDOW=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_PROBE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_WINDOW=1"
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_lb_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_lb_n
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_IFETCH=1"
+set_global_assignment -name VERILOG_MACRO "TAU_MLAB_MIGRATE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_FONT_REPACK=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_BUSY=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BLIT=1"
