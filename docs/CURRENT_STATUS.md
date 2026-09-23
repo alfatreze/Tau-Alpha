@@ -218,9 +218,11 @@ has been fitted/packaged/installed; that's the same B-117 no-blend bitstream, st
 itself stays shelved — the `glyphbuf` write-port chain would need its own retiming (or `KB-045`'s
 `DSP_BLOCK_BALANCING` idea) before blend can safely return.
 
-**Next, in order:** package and install the B-117 no-blend bitstream (with `-DTAU_SDRAM_BUSY=1` added to the
-firmware build) to get the blit-storm test and busy-cycle counter their first hardware run; then Tier 2
-(B8-B11) or the M10K/RAM-shrink track, per the roadmap's own ordering.
+**Installed on the Pocket, 2026-09-23 (B-128/B-129): TAU DEV 43** -- the B-117 no-blend bitstream, packaged with
+`-DTAU_SDRAM_BUSY=1`, all hashes verified after copy. Card renumbered 40 -> 43 on finding the card already had a
+`TAU_DEV_42` from a session not reflected in this file. **Not yet run** -- first hardware verdict on the blit
+engine, `BLIT_READY()` and `R_SDR_BUSY` is the owner's next boot. **Next, in order:** read that result, then
+Tier 2 (B8-B11) or the M10K/RAM-shrink track, per the roadmap's own ordering.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
