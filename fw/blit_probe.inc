@@ -30,10 +30,8 @@
  * -- can firmware detect the blit engine's absence and degrade gracefully -- ahead of the first
  * real feature that will need `BLIT_READY()` to make that call. */
 #if TAU_BLIT_PROBE
-#define R_BLT_IDX  0x800000C0u
-#define R_BLT_DATA 0x800000C4u
-#define FB_OP_BLIT 4u
-
+/* R_BLT_IDX/R_BLT_DATA/FB_OP_BLIT now live in player.c's shared register block
+ * (B-127 promoted them there for the blit-storm Check test to use too). */
 static uint8_t blit_ready;
 #define BLIT_READY() (blit_ready != 0u)
 

@@ -34,22 +34,31 @@
 #define CHK_BASE    7u                                      /* the USER CHECK: test ids 0..6 */
 #if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW               /* Diagnostic Build: STANDARD and FULL add stress and a soak (ids 7..10) */
 #define CHK_DEV     1
-#define CHK_MAX     13u
+#define CHK_MAX     14u
 #else
 #define CHK_DEV     0
 #define CHK_MAX     7u
 #endif
 static void set_close(void);
 enum { CK_IDLE = 0, CK_RUN, CK_DONE, CK_QR };
-enum { CT_SDW = 0, CT_SDC, CT_PSW, CT_COLD, CT_LIB, CT_AUD, CT_START, CT_R1, CT_R2, CT_R3, CT_SOAK, CT_TRK, CT_CX };   /* test ids */
+enum { CT_SDW = 0, CT_SDC, CT_PSW, CT_COLD, CT_LIB, CT_AUD, CT_START, CT_R1, CT_R2, CT_R3, CT_SOAK, CT_TRK, CT_CX, CT_BLT };   /* test ids -- CT_BLT (B-127) is 13, still inside sp_t's 15-bit pass/fail masks (ids 0..14) */
 #define CHK_TRK_N    10u                                    /* track changes in the track-change test */
 #define CHK_STRESS_S 30u                                    /* seconds per stress level */
+/* B-127: the blit-storm scratch strip -- framebuffer columns 400-511 of every displayed row (never shown;
+ * mp3_fb.sv's own header says only columns 0-399 of the 512-word stride are displayed), reusing the exact
+ * "never displayed" trick B-126's BLIT_READY() probe already proved safe, widened to the full off-screen
+ * width (112 words, under OP_BLIT's 127-word glyphbuf limit) for a closer-to-worst-case load. This needs
+ * no custom DST_STRIDE: the default sticky stride (512) already steps one real scanline per row, so a
+ * single command with h=FB_H issues the whole frame's rows at once -- the "no line buffer needed" case
+ * PHASE_F_SPEC.md section 5 (B4) describes for a randomly-addressable source. Never touches columns 0-399. */
+#define CHK_BLT_COL  400u
+#define CHK_BLT_W    112u
 
 static uint8_t  chk_state, chk_step, chk_run, chk_n = CHK_BASE;
 static uint8_t  chk_prof, chk_sel, chk_soak = 1u, chk_lvl = 2u;   /* profile 0-3, option row, soak length index (set_soak_min), stress level */
 /* Per-test results live in the PSRAM scratch (uncached window, valid only while the cold image is), not in scarce fast RAM. */
 struct chk_mem { uint32_t val[CHK_MAX]; uint16_t sd[6], ps[6]; uint8_t res[CHK_MAX]; uint8_t ti, tph;
-                 uint32_t tc0, tnext, tsettle, cold_at, cold_runs, cold_fails, tlast; };   /* sd/ps: read min/avg/max, write min/avg/max */
+                 uint32_t tc0, tnext, tsettle, cold_at, cold_runs, cold_fails, tlast, blt_busy0; };   /* sd/ps: read min/avg/max, write min/avg/max; blt_busy0: R_SDR_BUSY at CT_BLT start (B-127) */
 #define CKM ((struct chk_mem *)(uintptr_t)0xA4008400u)
 #define chk_val (CKM->val)
 #define chk_sd  (CKM->sd)
@@ -63,7 +72,7 @@ static uint16_t chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r;
 
 /* All text of the page in one cold blob (NUL separated), fetched by index. */
 enum { CS_N0 = 0, CS_PASS = 7, CS_FAIL, CS_SKIP, CS_NA, CS_INTRO = 11, CS_RUNNING = 20, CS_H_IDLE, CS_H_RUN, CS_H_DONE, CS_TITLE,
-       CS_DOTS, CS_S, CS_ONEF, CS_MANYF, CS_OKP, CS_OKALL, CS_VER, CS_RUNL, CS_SHOT, CS_X0, CS_PROF = CS_X0 + 6, CS_PROFL = CS_PROF + 4, CS_SOAKL, CS_LVLL, CS_H_DEV, CS_TENTH };
+       CS_DOTS, CS_S, CS_ONEF, CS_MANYF, CS_OKP, CS_OKALL, CS_VER, CS_RUNL, CS_SHOT, CS_X0, CS_PROF = CS_X0 + 7 /* B-127: +1 for BLIT STORM */, CS_PROFL = CS_PROF + 4, CS_SOAKL, CS_LVLL, CS_H_DEV, CS_TENTH };
 COLD_DATA static const char chk_blob[] =
     "SDRAM WINDOW\0" "SDRAM SPEED\0" "PSRAM WINDOW\0" "COLD CODE\0" "LIBRARY\0" "PLAYBACK\0" "STARTUP\0"
     "PASS\0" "FAIL\0" "SKIPPED\0" "N/A\0"
@@ -72,7 +81,7 @@ COLD_DATA static const char chk_blob[] =
     "RUNNING\0" "A START   B BACK\0" "B STOP\0" "A QR CODE   Y AGAIN   B BACK\0" "CHECK\0"
     "...\0" " S\0" " CHECK FAILED\0" " CHECKS FAILED\0" "PASSED (PLAY MUSIC FOR ALL)\0" "ALL CHECKS PASSED\0"
     "VERSION \0" "   RUN \0" "MENU+START SCREENSHOT   B BACK\0"
-    "STRESS R1\0" "STRESS R2\0" "STRESS R3\0" "SOAK\0" "TRACK CHANGES\0" "COLD X20\0"
+    "STRESS R1\0" "STRESS R2\0" "STRESS R3\0" "SOAK\0" "TRACK CHANGES\0" "COLD X20\0" "BLIT STORM\0"
     "USER CHECK\0" "STANDARD\0" "FULL\0" "ENDURANCE\0"
     "PROFILE  \0" "SOAK LENGTH  \0" "SOAK LEVEL  R\0" "A START  B BACK  UP DOWN ROW  L R CHANGE\0" "/10";
 COLD_TEXT static const char *chk_s(uint32_t i)
@@ -131,10 +140,12 @@ COLD_TEXT static void chk_cost(uint32_t base, int write, uint16_t *out)
 
 COLD_TEXT static void chk_set(uint32_t ok, uint32_t v) { chk_res[chk_step] = (uint8_t)ok; chk_val[chk_step] = v; }   /* results are per step */
 
-/* Steps after the seven base checks, per profile (0 USER CHECK, 1 STANDARD, 2 FULL, 3 ENDURANCE). */
-COLD_DATA static const uint8_t chk_ex[4][6] = { { 0 }, { CT_TRK, CT_CX, CT_R1, CT_R2, CT_R3, 0 },
-                                                { CT_TRK, CT_CX, CT_R1, CT_R2, CT_R3, CT_SOAK }, { CT_SOAK, 0, 0, 0, 0, 0 } };
-COLD_DATA static const uint8_t chk_exn[4] = { 0, 5, 6, 1 };
+/* Steps after the seven base checks, per profile (0 USER CHECK, 1 STANDARD, 2 FULL, 3 ENDURANCE).
+ * B-127 adds CT_BLT to all three dev profiles per PHASE_F_SPEC.md section 12.1 ("Add to STANDARD,
+ * FULL and ENDURANCE"), widening the row from 6 to 7. */
+COLD_DATA static const uint8_t chk_ex[4][7] = { { 0 }, { CT_TRK, CT_CX, CT_R1, CT_R2, CT_R3, CT_BLT, 0 },
+                                                { CT_TRK, CT_CX, CT_R1, CT_R2, CT_R3, CT_SOAK, CT_BLT }, { CT_SOAK, CT_BLT, 0, 0, 0, 0, 0 } };
+COLD_DATA static const uint8_t chk_exn[4] = { 0, 6, 7, 2 };
 COLD_TEXT static uint32_t chk_id(uint32_t step) { return step < CHK_BASE ? step : chk_ex[chk_prof][step - CHK_BASE]; }
 
 #if CHK_DEV
@@ -251,6 +262,45 @@ COLD_TEXT static int chk_do(uint32_t id)
             int ok = stress_on && !stress_failures && !late;
             stress_set_level(0u);
             chk_set(ok ? SR_PASS : SR_FAIL, late);
+        }
+        break;
+    case CT_BLT:  /* B-127, PHASE_F_SPEC.md section 12.1: the L0 regression net for the blit engine's new SDRAM traffic.
+                   * Full-height OP_BLIT commands into the never-displayed columns 400-511, re-issued the instant the
+                   * draw engine goes idle (non-blocking poll, not fb_wait() -- a blocking wait here would itself risk
+                   * starving the main loop and manufacturing an underrun unrelated to the blit engine's real cost).
+                   * Verdict is late underruns only, exactly like CT_R1-3; the value carried out is the SDRAM busy
+                   * permille over the window (0xFFFF if TAU_SDRAM_BUSY is off for this bitstream) -- informational,
+                   * not a pass/fail criterion, per section 12.1's "this is the half that matters" note. */
+        if (!chk_at) {
+            if (!track_hz || paused || stopped) { chk_set(SR_NA, 0); break; }   /* needs real playback, like CT_AUD */
+            chk_u0 = pcm_under_n;
+#if TAU_SDRAM_BUSY
+            CKM->blt_busy0 = REG(R_SDR_BUSY);
+#endif
+            chk_at = (cycles() + CHK_STRESS_S * CLK_HZ) | 1u; chk_val[chk_step] = CHK_STRESS_S;
+            return 0;
+        }
+        if ((int32_t)(cycles() - chk_at) < 0) {
+            if (!(REG(R_FB_GO) & 1u)) {
+                REG(R_FB_ADDR)  = CHK_BLT_COL;
+                REG(R_FB_SIZE)  = (FB_H << 9) | CHK_BLT_W;
+                REG(R_FB_COLOR) = 0u;                       /* src offset 0 -- a benign, read-only flat SDRAM read */
+                REG(R_FB_GO)    = FB_OP_BLIT;
+                fb_color_shadow = 0xFFFFFFFFu;              /* BLIT clobbers the colour regs for its own use, same as COPY */
+            }
+            chk_val[chk_step] = (uint32_t)((int32_t)(chk_at - cycles()) / (int32_t)CLK_HZ + 1); return 0;
+        }
+        {
+            uint32_t late = pcm_under_n - chk_u0;
+            uint32_t busy_permille = 0xFFFFu;
+#if TAU_SDRAM_BUSY
+            {
+                uint32_t delta = REG(R_SDR_BUSY) - CKM->blt_busy0;
+                uint32_t total_k = CHK_STRESS_S * (SDR_CLK_HZ / 1000u);   /* window length in clk_sdram cycles, pre-divided by 1000 (exact) to keep delta/total_k overflow-free at 32 bits */
+                busy_permille = delta / total_k;
+            }
+#endif
+            chk_set(late == 0u ? SR_PASS : SR_FAIL, busy_permille);
         }
         break;
     case CT_SOAK:                                               /* the Diagnostics soak; ENDURANCE adds a cold-code test a minute */
