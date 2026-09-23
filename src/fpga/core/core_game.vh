@@ -132,6 +132,10 @@ wire [15:0] soc_blt_key;
 wire        soc_blt_blend_en;
 wire [2:0]  soc_blt_blend_mode;
 wire [7:0]  soc_blt_blend_alpha;
+// Phase F B8 ("B8 detailed design"): CLUT load, mp3_soc -> mp3_fb.
+wire        soc_clut_wr;
+wire [7:0]  soc_clut_waddr;
+wire [15:0] soc_clut_wdata;
 
 // SDRAM Phase 1 diagnostic mailbox.  These are MMIO-only controls; no normal
 // instruction or data fetch is routed to external memory at this stage.
@@ -365,7 +369,11 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN)) u_so
     .blt_key        (soc_blt_key),
     .blt_blend_en   (soc_blt_blend_en),
     .blt_blend_mode (soc_blt_blend_mode),
-    .blt_blend_alpha(soc_blt_blend_alpha)
+    .blt_blend_alpha(soc_blt_blend_alpha),
+
+    .clut_wr   (soc_clut_wr),
+    .clut_waddr(soc_clut_waddr),
+    .clut_wdata(soc_clut_wdata)
 );
 
 // PSRAM diagnostic (P2). Opt-in TAU_PSRAM_PROBE only; it owns the CRAM pins and
@@ -734,6 +742,10 @@ mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN)) u_fb (
     .blt_blend_en   (soc_blt_blend_en),
     .blt_blend_mode (soc_blt_blend_mode),
     .blt_blend_alpha(soc_blt_blend_alpha),
+
+    .clut_wr   (soc_clut_wr),
+    .clut_waddr(soc_clut_waddr),
+    .clut_wdata(soc_clut_wdata),
 
     .sdram_init_complete(sdram_init_complete),
     .p0_addr(fb_p0_addr), .p0_data(fb_p0_data), .p0_byte_en(fb_p0_byte_en),

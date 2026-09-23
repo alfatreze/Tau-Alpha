@@ -50,6 +50,10 @@ module tb_mp3_fb;
     reg         blt_blend_en = 1'b0;
     reg  [2:0]  blt_blend_mode = 3'd0;
     reg  [7:0]  blt_blend_alpha = 8'd0;
+    // Phase F B8: CLUT load, idle unless a test drives it.
+    reg         clut_wr = 1'b0;
+    reg  [7:0]  clut_waddr = 8'd0;
+    reg  [15:0] clut_wdata = 16'd0;
 
     wire [24:0] p0_addr;
     wire [15:0] p0_data;
@@ -72,6 +76,7 @@ module tb_mp3_fb;
         .blt_dst_base(blt_dst_base), .blt_dst_stride(blt_dst_stride),
         .blt_key_en(blt_key_en), .blt_key(blt_key),
         .blt_blend_en(blt_blend_en), .blt_blend_mode(blt_blend_mode), .blt_blend_alpha(blt_blend_alpha),
+        .clut_wr(clut_wr), .clut_waddr(clut_waddr), .clut_wdata(clut_wdata),
         .sdram_init_complete(1'b1),
         .p0_addr(p0_addr), .p0_data(p0_data), .p0_byte_en(p0_byte_en),
         .p0_wr_len(p0_wr_len), .p0_wr_stream(p0_wr_stream), .p0_q(p0_q),

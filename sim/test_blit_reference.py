@@ -56,6 +56,11 @@ def reference_scene() -> dict[int, int]:
     r.blit(16384, 600, 4, 2, dst_stride=96, src_stride=64)
     # 11. CHAR: 'A' (0x41), scale 1x1, fg=0xFFFF, bg=0x0000, addr=12800
     r.char(12800, 0x41, 0xFFFF, 0x0000, 0, 0)
+    # 12. CBLIT (B8): dest addr=20480, w=4, h=2, source offset=255. CLUT entries
+    #     0..4 preloaded (indices actually used: 0-3 row 0, 1-4 row 1).
+    clut = [0] * 256
+    clut[0], clut[1], clut[2], clut[3], clut[4] = 0x1001, 0x1002, 0x1003, 0x1004, 0x1005
+    r.cblit(20480, 255, 4, 2, clut)
     return r.mem
 
 
@@ -118,6 +123,7 @@ def main() -> int:
         "BUG_IGNORE_KEY",
         "BUG_SBLIT_NO_SCALE",
         "BUG_BLEND_ALWAYS_SRC",
+        "BUG_CBLIT_NO_LOOKUP",
     ]
     for mut in mutations:
         mutated = run_rtl_scene(mutation=mut)

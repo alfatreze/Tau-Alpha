@@ -85,7 +85,13 @@ module mp3_fb #(
     // Mutation-test hook only (-PBUG_BLEND_ALWAYS_SRC=1, make test-rtl-fb-mutation):
     // 1 makes a blended blit silently behave like a plain one (always write the
     // source pixel, ignoring blend_active entirely). Never set outside that test.
-    parameter BUG_BLEND_ALWAYS_SRC = 0
+    parameter BUG_BLEND_ALWAYS_SRC = 0,
+    // Mutation-test hook only (-PBUG_CBLIT_NO_LOOKUP=1, make test-rtl-fb-mutation):
+    // 1 makes OP_CBLIT write the raw palette INDEX (zero-extended) instead of
+    // looking it up in the CLUT -- proves the test actually exercises the CLUT
+    // mechanism, not just that some value lands at the right address. Never set
+    // outside that test.
+    parameter BUG_CBLIT_NO_LOOKUP = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -123,6 +129,16 @@ module mp3_fb #(
     input  wire        blt_blend_en,
     input  wire [2:0]  blt_blend_mode,   // 0=DSP alpha, 1-4=PSX shift-add ratios
     input  wire [7:0]  blt_blend_alpha,  // DSP mode only, 0-255
+
+    // Phase F B8 (section 5, "B8 detailed design"): 256-entry CLUT, loaded by
+    // the CPU (clk_sys) through mp3_soc.v's R_CLUT_IDX/R_CLUT_DATA. Independent
+    // write (clk_sys) / read (clk_sdram) ports, a standard dual-clock M10K --
+    // no synchronizer needed for the block RAM itself, and the write side is
+    // CPU-paced configuration (a palette load, not a value sampled every
+    // cycle), the same informal-CDC precedent blt_src_base etc. already use.
+    input  wire        clut_wr,
+    input  wire [7:0]  clut_waddr,
+    input  wire [15:0] clut_wdata,
 
     // SDRAM master port (clk_sdram) -> wired to sdram_fb in core_game.vh ----
     input  wire        sdram_init_complete,
@@ -162,7 +178,7 @@ module mp3_fb #(
     localparam [24:0] FB_BASE = 25'd0;
 
     localparam [2:0] OP_RUN = 3'd0, OP_RECT = 3'd1, OP_CHAR = 3'd2, OP_COPY = 3'd3,
-                     OP_BLIT = 3'd4, OP_BAR = 3'd5, OP_SBLIT = 3'd6;
+                     OP_BLIT = 3'd4, OP_BAR = 3'd5, OP_SBLIT = 3'd6, OP_CBLIT = 3'd7;
     // COPY moves a w x h block SDRAM->SDRAM. It exists for the album-art panel:
     // sliding an image by re-sending its pixels from the CPU would be thousands
     // of commands per animation step and would starve the decoder, whereas the
@@ -448,6 +464,22 @@ module mp3_fb #(
     wire [31:0] font_q;
     font_rom u_font (.clk(clk_sdram), .addr(font_addr), .q(font_q));
 
+    // ---- Phase F B8: 256-entry CLUT (one M10K, per PHASE_F_SPEC.md's budget) --
+    // Independent write (clk_sys) / read (clk_sdram) ports -- a standard
+    // dual-clock block RAM, same registered-read idiom as glyph_q above.
+    reg [15:0] clut [0:255];
+    always @(posedge clk_sys) if (clut_wr) clut[clut_waddr] <= clut_wdata;
+    // clut_raddr is COMBINATIONAL (p0_q's low byte, valid whenever a source word
+    // is present), not a register: clut_q's own update below fires on the SAME
+    // clk_sdram edge A_CBLIT_RD captures p0_q, so it needs the address available
+    // that same cycle to land in clut_q one cycle later, in A_CBLIT_WAIT. A
+    // registered clut_raddr (set <= this edge, valid only NEXT edge) would put
+    // the CLUT's answer a cycle later than A_CBLIT_WAIT expects it -- found by
+    // simulation (an 'x' in the dump), not spotted in review.
+    wire [7:0] clut_raddr = p0_q[7:0];
+    reg [15:0] clut_q;
+    always @(posedge clk_sdram) clut_q <= clut[clut_raddr];
+
     // ======================================================================
     // Engine + arbiter (clk_sdram).
     //
@@ -457,7 +489,7 @@ module mp3_fb #(
     // ======================================================================
     localparam A_IDLE=4'd0, A_FILL=4'd1, A_FILL_END=4'd2, A_WRWAIT=4'd3,
                A_ROWFETCH=4'd4, A_COMPOSE=4'd5, A_COPYRD=4'd6, A_KEYDST=4'd7,
-               A_SBLIT=4'd8;
+               A_SBLIT=4'd8, A_CBLIT_RD=4'd9, A_CBLIT_WAIT=4'd10;
     reg [3:0]  astate = A_IDLE;
     reg [10:0] fill_cnt = 0;
 
@@ -539,6 +571,15 @@ module mp3_fb #(
     reg        sblit_mode;
     reg [8:0]  sblit_ex;              // current source column, 0..source_w-1
     reg [24:0] sblit_src_row_addr;    // current source ROW's base address
+
+    // B8 (Phase F, section 5 detailed design) state. cblit_mode selects the
+    // one-pixel-at-a-time read path (A_CBLIT_RD/A_CBLIT_WAIT below) over
+    // COPY/BLIT's multi-word A_COPYRD burst -- deliberately, so the CLUT's own
+    // one-cycle M10K read latency never has to be pipelined into that shared,
+    // already-hardware-verified burst loop. blit_mode is ALSO set (reused,
+    // exactly as OP_SBLIT already does) purely to get blit_dst_addr/
+    // blit_src_addr's existing per-row sticky-stride step in A_WRWAIT for free.
+    reg        cblit_mode;
 
     // ---- 4bpp coverage sampling (combinational) --------------------------
     // rowbits holds the CURRENT source row: 16 pixels x 4 bits, fetched as two
@@ -682,6 +723,7 @@ module mp3_fb #(
             bar2_pending <= 1'b0;
             key_dst_done <= 1'b0;
             sblit_mode   <= 1'b0;
+            cblit_mode   <= 1'b0;
             rd_ptr <= 0; rd_ptr_g <= 0;
         end else begin
             case (astate)
@@ -748,7 +790,16 @@ module mp3_fb #(
                         p0_rd_req <= 1'b1;
                         astate    <= A_SBLIT;
 
-                    end else if (!copy_mode && !sblit_mode && char_rows_left_nz && !char_row_ready) begin
+                    // Phase F B8: one source word per pixel, same shape as SBLIT's own
+                    // one-word-per-transaction read above -- copy_cnt tracks the column
+                    // within the row (reset at dispatch, and again per row in A_WRWAIT).
+                    end else if (cblit_mode && char_rows_left_nz
+                                 && !char_row_ready && can_sdram) begin
+                        p0_addr   <= blit_src_addr + {17'd0, copy_cnt};
+                        p0_rd_req <= 1'b1;
+                        astate    <= A_CBLIT_RD;
+
+                    end else if (!copy_mode && !sblit_mode && !cblit_mode && char_rows_left_nz && !char_row_ready) begin
                         rowf_cnt <= 2'd0;
                         astate   <= A_ROWFETCH;
 
@@ -764,6 +815,7 @@ module mp3_fb #(
                                 blit_mode <= 1'b0;
                                 bar2_pending <= 1'b0;
                                 sblit_mode   <= 1'b0;
+                                cblit_mode   <= 1'b0;
                                 char_sx   <= q_sx;
                                 char_sy   <= q_sy;
                                 // EPX doubles 8x8 -> 16x16, then each axis is
@@ -791,6 +843,7 @@ module mp3_fb #(
                                 blit_mode   <= 1'b0;
                                 bar2_pending <= 1'b0;
                                 sblit_mode   <= 1'b0;
+                                cblit_mode   <= 1'b0;
                             end
                             OP_COPY: begin
                                 copy_src  <= {q_fg[2:0], q_bg};
@@ -798,6 +851,7 @@ module mp3_fb #(
                                 blit_mode <= 1'b0;
                                 bar2_pending <= 1'b0;
                                 sblit_mode   <= 1'b0;
+                                cblit_mode   <= 1'b0;
                                 char_addr <= q_addr;
                                 char_w    <= q_w[6:0];
                                 char_rows_left    <= q_h;
@@ -814,6 +868,7 @@ module mp3_fb #(
                                 blit_mode <= 1'b1;
                                 bar2_pending <= 1'b0;
                                 sblit_mode   <= 1'b0;
+                                cblit_mode   <= 1'b0;
                                 blit_dst_addr <= blt_dst_base + {6'd0, q_addr};
                                 blit_src_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
                                 char_w    <= q_w[6:0];
@@ -828,6 +883,7 @@ module mp3_fb #(
                             OP_BAR: begin
                                 blit_mode  <= 1'b0;
                                 sblit_mode <= 1'b0;
+                                cblit_mode <= 1'b0;
                                 rect_addr <= q_addr;
                                 rect_w    <= q_w;
                                 if (bar_unlit != 9'd0) begin
@@ -853,6 +909,7 @@ module mp3_fb #(
                                 copy_mode  <= 1'b0;   // NOT the COPY/BLIT burst-read path
                                 blit_mode  <= 1'b1;   // reuse blit_dst_addr's per-row dest step
                                 sblit_mode <= 1'b1;
+                                cblit_mode <= 1'b0;
                                 bar2_pending <= 1'b0;
                                 blit_dst_addr      <= blt_dst_base + {6'd0, q_addr};
                                 sblit_src_row_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
@@ -866,11 +923,32 @@ module mp3_fb #(
                                 sblit_ex <= 9'd0; acc_x <= 3'd0; acc_y <= 3'd0;
                                 copy_cnt <= 8'd0;
                             end
+                            // Phase F B8 ("B8 detailed design", PHASE_F_SPEC.md section 5): CLUT
+                            // blit. Reuses OP_BLIT's own addressing (blit_dst_addr/blit_src_addr,
+                            // sticky base+stride via blit_mode) but reads ONE source word per
+                            // pixel (A_CBLIT_RD/A_CBLIT_WAIT below), like OP_SBLIT's single-word
+                            // transactions -- not OP_COPY/OP_BLIT's multi-word A_COPYRD burst --
+                            // specifically so the CLUT's one-cycle M10K read latency never has to
+                            // be pipelined into that shared, already-hardware-verified burst loop.
+                            OP_CBLIT: begin
+                                copy_mode  <= 1'b0;
+                                blit_mode  <= 1'b1;   // reuse blit_dst_addr/blit_src_addr's per-row stride step
+                                sblit_mode <= 1'b0;
+                                cblit_mode <= 1'b1;
+                                bar2_pending <= 1'b0;
+                                blit_dst_addr <= blt_dst_base + {6'd0, q_addr};
+                                blit_src_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
+                                char_w    <= q_w[6:0];
+                                char_rows_left    <= q_h;
+                                char_rows_left_nz <= (q_h != 9'd0) && (q_w != 9'd0);
+                                copy_cnt  <= 8'd0;
+                            end
                             default: begin   // OP_RUN -- a one-row rect
                                 rect_addr   <= q_addr;
                                 rect_w      <= q_w;
                                 rect_rows   <= 9'd1;
                                 rect_active <= (q_w != 9'd0);
+                                cblit_mode  <= 1'b0;
                                 blit_mode   <= 1'b0;
                                 bar2_pending <= 1'b0;
                                 sblit_mode   <= 1'b0;
@@ -912,6 +990,7 @@ module mp3_fb #(
                             copy_mode         <= 1'b0;
                             blit_mode         <= 1'b0;
                             sblit_mode        <= 1'b0;
+                            cblit_mode        <= 1'b0;
                         end
                         // B4: reset the per-row pixel scan for the NEXT output row.
                         // Dead but harmless for every other op (same reasoning as the
@@ -922,6 +1001,9 @@ module mp3_fb #(
                             sblit_ex <= 9'd0;
                             acc_x    <= 3'd0;
                         end
+                        // B8: same per-row reset, cblit's own column counter only
+                        // (it has no source-column Bresenham state to reset).
+                        if (cblit_mode) copy_cnt <= 8'd0;
                         // Bresenham step in Y: same accumulator idea as X, so
                         // vertical scaling can be fractional too. SBLIT steps its
                         // OWN source-row address (sblit_src_row_addr, by the sticky
@@ -1030,6 +1112,31 @@ module mp3_fb #(
                         end
                         astate <= A_IDLE;
                     end
+                end
+
+                // -------------------------------------- B8: CLUT blit read --
+                // Two cycles per pixel, same "one word, its own transaction"
+                // shape as A_SBLIT above: A_CBLIT_RD ends the single-word burst
+                // the instant the source word arrives (clut_raddr, a wire, is
+                // already presenting p0_q's low byte to the CLUT that same
+                // cycle); A_CBLIT_WAIT is the one cycle clut_q's registered
+                // (M10K) output needs to become valid, then writes it into
+                // glyphbuf exactly where every other opcode's per-pixel write
+                // lands.
+                A_CBLIT_RD: begin
+                    if (p0_data_available) begin
+                        p0_end_burst_req <= 1'b1;
+                        astate           <= A_CBLIT_WAIT;
+                    end
+                end
+                A_CBLIT_WAIT: begin
+                    glyphbuf[copy_cnt[6:0]] <= BUG_CBLIT_NO_LOOKUP ? {8'd0, clut_raddr} : clut_q;
+                    if (copy_cnt == char_w[6:0] - 7'd1) begin
+                        char_row_ready <= 1'b1;
+                    end else begin
+                        copy_cnt <= copy_cnt + 8'd1;
+                    end
+                    astate <= A_IDLE;
                 end
 
                 // ----------------------------------------- glyph row fetch --

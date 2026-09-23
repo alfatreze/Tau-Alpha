@@ -38,6 +38,7 @@ module tb_blit_scene;
     parameter BUG_IGNORE_KEY = 0;
     parameter BUG_SBLIT_NO_SCALE = 0;
     parameter BUG_BLEND_ALWAYS_SRC = 0;
+    parameter BUG_CBLIT_NO_LOOKUP = 0;
 
     reg clk_sdram = 0, clk_sys = 0, clk_vid = 0, reset = 1;
     always #5    clk_sdram = ~clk_sdram;   // 100 MHz
@@ -60,6 +61,9 @@ module tb_blit_scene;
     reg         blt_blend_en = 1'b0;
     reg  [2:0]  blt_blend_mode = 3'd0;
     reg  [7:0]  blt_blend_alpha = 8'd0;
+    reg         clut_wr = 1'b0;
+    reg  [7:0]  clut_waddr = 8'd0;
+    reg  [15:0] clut_wdata = 16'd0;
 
     wire [24:0] p0_addr;
     wire [15:0] p0_data;
@@ -73,7 +77,8 @@ module tb_blit_scene;
 
     mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY),
              .BUG_SBLIT_NO_SCALE(BUG_SBLIT_NO_SCALE), .BLIT_BLEND_ENABLE(1),
-             .BUG_BLEND_ALWAYS_SRC(BUG_BLEND_ALWAYS_SRC)) dut (
+             .BUG_BLEND_ALWAYS_SRC(BUG_BLEND_ALWAYS_SRC),
+             .BUG_CBLIT_NO_LOOKUP(BUG_CBLIT_NO_LOOKUP)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
@@ -82,6 +87,7 @@ module tb_blit_scene;
         .blt_dst_base(blt_dst_base), .blt_dst_stride(blt_dst_stride),
         .blt_key_en(blt_key_en), .blt_key(blt_key),
         .blt_blend_en(blt_blend_en), .blt_blend_mode(blt_blend_mode), .blt_blend_alpha(blt_blend_alpha),
+        .clut_wr(clut_wr), .clut_waddr(clut_waddr), .clut_wdata(clut_wdata),
         .sdram_init_complete(1'b1),
         .p0_addr(p0_addr), .p0_data(p0_data), .p0_byte_en(p0_byte_en),
         .p0_wr_len(p0_wr_len), .p0_wr_stream(p0_wr_stream), .p0_q(p0_q),
@@ -184,6 +190,17 @@ module tb_blit_scene;
         end
     endtask
 
+    // B8: one CLUT write (clk_sys domain), matching mp3_soc.v's own one-write-
+    // per-entry contract (clut_wr is a single-cycle pulse).
+    task clut_load(input [7:0] idx, input [15:0] data);
+        begin
+            @(posedge clk_sys);
+            clut_waddr <= idx; clut_wdata <= data; clut_wr <= 1'b1;
+            @(posedge clk_sys);
+            clut_wr <= 1'b0;
+        end
+    endtask
+
     integer dumpf;
     reg [1023:0] dump_path;
     integer k;
@@ -248,6 +265,15 @@ module tb_blit_scene;
         // 11. CHAR: 'A' (0x41), scale 1x1, fg=0xFFFF, bg=0x0000, addr=12800
         push(3'd2, 19'd12800, 9'd0, 9'd0, 16'hFFFF, 16'h0000, 7'h41, 2'd0, 2'd0);
         wait (out_n == 8+18+8+8+8+4+4+20+16+8+256); repeat (20) @(posedge clk_sdram);
+
+        // 12. CBLIT (B8): dest addr=20480, w=4, h=2, source offset=255. src_read(255+c)
+        //     = 256+c for row 0 (low byte = c, i.e. indices 0..3) and src_read(767+c)
+        //     = 769+c for row 1 (indices 1..4, since 769 & 0xFF = 1) -- CLUT entries
+        //     0..4 preloaded with distinct values so every index used is checkable.
+        clut_load(8'd0, 16'h1001); clut_load(8'd1, 16'h1002); clut_load(8'd2, 16'h1003);
+        clut_load(8'd3, 16'h1004); clut_load(8'd4, 16'h1005);
+        push(3'd7, 19'd20480, 9'd4, 9'd2, 16'h0000, 16'h00FF, 7'd0, 2'd0, 2'd0);
+        wait (out_n == 8+18+8+8+8+4+4+20+16+8+256+8); repeat (10) @(posedge clk_sdram);
 
         // ---- dump every written word ---------------------------------------
         if (!$value$plusargs("DUMP=%s", dump_path)) dump_path = "/dev/null";
