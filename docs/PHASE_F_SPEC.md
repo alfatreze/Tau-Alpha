@@ -466,7 +466,11 @@ bitstream is actually installed; reports N/A rather than a false 0% when the cou
 actually shipped is narrower than "full-screen scaled and blended":** this is B1 (generalised blit) load only,
 across 112 of the 512-word stride (the safe off-screen strip, not the full 400-column display width), and does
 not exercise B4 (scaled) or B5 (blended) traffic — blend is shelved pending its own timing fix (section 11) and
-a scaled-blit firmware helper doesn't exist yet. Widen this test once either lands. `make test-host` passes,
+a scaled-blit firmware helper doesn't exist yet. Widen this test once either lands. **Deliberately kept as one
+fixed test in all three profiles, not scaled like `CT_R1`-`CT_R3`'s three intensity levels or `CT_SOAK`'s
+level/duration options** (owner question, 2026-09-23, `AskUserQuestion`: decided "not now — decide after the
+first hardware run," rather than guess at intensity levels with no real busy-percentage number yet to reason
+from). Revisit once the corrected `0.5.0-alpha.1` build has run and a real number exists. `make test-host` passes,
 the release (`player`) ROM is confirmed byte-identical (CT_BLT is entirely `#if CHK_DEV`). **Not yet run on
 hardware** — needs the B-117 no-blend bitstream fitted/packaged/installed with `-DTAU_SDRAM_BUSY=1` added to
 the firmware build for this specific target, which hasn't happened yet (B-117 itself never left the VM).
