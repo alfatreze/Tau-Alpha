@@ -349,26 +349,66 @@ module mp3_fb #(
     end
     wire fifo_empty = (rd_ptr_g == wr_ptr_g_s2);
 
+    wire [CW-1:0] cmd_mem_rd = cmd_mem[rd_ptr[FAW-1:0]];
     reg [CW-1:0] cmd_q;
-    always @(posedge clk_sdram) cmd_q <= cmd_mem[rd_ptr[FAW-1:0]];
+    always @(posedge clk_sdram) cmd_q <= cmd_mem_rd;
     wire [2:0]  q_op    = cmd_q[87:85];
     wire [18:0] q_addr  = cmd_q[84:66];
     wire [15:0] q_fg    = cmd_q[65:50];
     wire [15:0] q_bg    = cmd_q[49:34];
     wire [8:0]  q_w     = cmd_q[33:25];
     wire [8:0]  q_h     = cmd_q[24:16];
-    wire [6:0]  q_glyph = cmd_q[15:9];
     assign q_sx = cmd_q[8:7];
     assign q_sy = cmd_q[6:5];
 
     // BAR (B6): lit-row count from cmd_glyph, clamped to the span height.
-    wire [8:0] bar_lit_raw = {2'd0, q_glyph};
-    wire [8:0] bar_lit     = (bar_lit_raw > q_h) ? q_h : bar_lit_raw;
-    wire [8:0] bar_unlit   = q_h - bar_lit;
+    // Retimed (B-110): computed off cmd_mem_rd -- the same raw BRAM read data
+    // cmd_q itself registers from -- on the SAME clock edge as cmd_q, instead
+    // of combinationally from cmd_q afterward. This was found to be the tail
+    // of the worst setup path once TAU_BLIT_BLEND's congestion was removed
+    // (a clamp compare + subtract feeding straight into the char_fg register
+    // in the same cycle as cmd_q's own BRAM-output register): q_bar_lit/
+    // q_bar_unlit are already valid registers by the time cmd_q is used for
+    // dispatch, so the OP_BAR mux below only sees a plain 2:1 select, not the
+    // compare/subtract chain. Same function of the same source data, so BAR
+    // command behaviour is bit-for-bit unchanged -- only the pipeline stage
+    // the arithmetic sits in moved.
+    wire [8:0] pre_bar_lit_raw = {2'd0, cmd_mem_rd[15:9]};   // cmd_glyph field
+    wire [8:0] pre_bar_h       = cmd_mem_rd[24:16];          // cmd_h field
+    wire [8:0] pre_bar_lit     = (pre_bar_lit_raw > pre_bar_h) ? pre_bar_h : pre_bar_lit_raw;
+    reg  [8:0] q_bar_lit, q_bar_unlit;
+    always @(posedge clk_sdram) begin
+        q_bar_lit   <= pre_bar_lit;
+        q_bar_unlit <= pre_bar_h - pre_bar_lit;
+    end
+    wire [8:0] bar_lit   = q_bar_lit;
+    wire [8:0] bar_unlit = q_bar_unlit;
 
     // B4 (OP_SBLIT): output extent from source width/height (q_w/q_h) and scale.
-    wire [8:0] sblit_out_w = sblit_ext(q_w, q_sx);
-    wire [8:0] sblit_out_h = sblit_ext(q_h, q_sy);
+    // Retimed (B-113, following the audit that found this has the identical shape
+    // to the BAR bug B-111 fixed): computed off cmd_mem_rd -- the same raw BRAM
+    // read cmd_q itself registers from -- on the SAME clock edge as cmd_q, instead
+    // of combinationally after it (multiply/shift + compare + clamp, chained
+    // straight into char_w/char_rows_left in OP_SBLIT's dispatch). Same function
+    // of the same source data, so SBLIT output-extent behaviour is unchanged.
+    reg [8:0] q_sblit_out_w, q_sblit_out_h;
+    always @(posedge clk_sdram) begin
+        q_sblit_out_w <= sblit_ext(cmd_mem_rd[33:25], cmd_mem_rd[8:7]);   // q_w, q_sx
+        q_sblit_out_h <= sblit_ext(cmd_mem_rd[24:16], cmd_mem_rd[6:5]);   // q_h, q_sy
+    end
+    wire [8:0] sblit_out_w = q_sblit_out_w;
+    wire [8:0] sblit_out_h = q_sblit_out_h;
+
+    // OP_CHAR: glyph-atlas base offset, retimed the same way (B-113) -- a milder
+    // instance of the same shape (two compares, a subtract, a mux) off raw
+    // cmd_q/q_glyph, chained into char_base in the dispatch cycle. Computed off
+    // cmd_mem_rd on cmd_q's own clock edge instead.
+    wire [6:0] pre_glyph = cmd_mem_rd[15:9];
+    reg [11:0] q_char_base;
+    always @(posedge clk_sdram)
+        q_char_base <= ((pre_glyph >= 7'h20) && (pre_glyph <= 7'h7E))
+                     ? {1'b0, (pre_glyph - 7'h20), 5'd0}
+                     : 12'd0;
 
     // ======================================================================
     // Scanout line buffer: parity-split double buffer, exactly as
@@ -739,9 +779,7 @@ module mp3_fb #(
                                 ey <= 4'd0; acc_y <= 3'd0;
                                 /* Glyphs below 0x20 or above 0x7E fall back to
                                  * space rather than reading past the atlas. */
-                                char_base <= ((q_glyph >= 7'h20) && (q_glyph <= 7'h7E))
-                                           ? {1'b0, (q_glyph - 7'h20), 5'd0}
-                                           : 12'd0;
+                                char_base <= q_char_base;
                                 rowf_cnt  <= 2'd0;
                                 astate    <= A_ROWFETCH;
                             end
