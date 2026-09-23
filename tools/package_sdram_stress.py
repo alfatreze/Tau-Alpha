@@ -191,15 +191,24 @@ def main():
         bitrev(rbf, c / "bitstream.rbf_r")
     j = json.loads((c / "core.json").read_text())
     m = j["core"]["metadata"]; m["shortname"] = short; m["platform_ids"] = [platform]
+    # B-142: core.json's own documented limit is description<=63 (references/json-files.md in the
+    # analogue-pocket-dev skill: "cores also disappear from the openFPGA menu if json is invalid").
+    # Every description this script has ever built for --number/--semver/--diagnostic-profile etc.
+    # has been well over that (this one alone was 264 chars) -- B-141's "revert the version field"
+    # theory turned out to be wrong once the actual spec was read (version<=31 SemVer is exactly
+    # what --semver writes, well within limits), but this real, documented, always-violated limit
+    # was sitting right there the whole time. Truncated hard at 63; the full text -- what B-141
+    # tried to preserve by putting it in the description -- goes to info.txt instead (documented,
+    # <=32 lines, shown in the Pocket's own About screen), which is what that field is actually for.
+    if len(desc) > 63:
+        (c / "info.txt").write_text(desc + "\n")
+        desc = desc[:60] + "..."
     m["description"] = desc
     # B-141: core.json's "version" field is left as whatever the copied dist/ core.json already
-    # carries (a plain X.Y.Z, e.g. "0.4.0") -- every core in this project's history that has ever
-    # shown up on the Pocket used that format, and 0.5.0-alpha.2 (the first --semver build, the
-    # only core.json to ever hold a non-numeric/pre-release-suffixed version string) did not show
-    # up on the device at all. Untested whether the Pocket's own parser is what rejects it, but
-    # it's the one deviation every prior working core lacked, so it stops here rather than being
-    # asserted as safe without hardware evidence either way. The real semver identity already
-    # lives in shortname/description/the platform id, which is what --semver actually needed.
+    # carries (a plain X.Y.Z, e.g. "0.4.0"). Correction: the skill's own docs confirm version<=31
+    # is meant to hold SemVer, including pre-release suffixes, so this was NOT actually required --
+    # kept anyway since it's harmless and every other core already matches this format, but B-142's
+    # description-length fix is the change that actually mattered.
     save(c / "core.json", j)
     if args.library or args.diagnostic_profile:    # data slot 5 + persist words 24-27 (B-078: shared with package.py)
         slots_lib.add_library_slot(c)
@@ -207,6 +216,8 @@ def main():
         raise ValueError(f"invalid Analogue Pocket platform shortname: {platform!r}")
     if len(m["shortname"]) > 31:
         raise ValueError(f"core shortname exceeds Pocket limit: {m['shortname']!r}")
+    if len(m["description"]) > 63:
+        raise ValueError(f"core description exceeds Pocket's documented 63-char limit: {m['description']!r}")
     if c.name != f"{m['author']}.{m['shortname']}":
         raise ValueError("core folder does not match author.shortname metadata")
     if (rom.parent / "tau-cold.bin").exists() and (args.library or args.cold or args.diagnostic_profile):   # Phase G: cold image = data slot 6
