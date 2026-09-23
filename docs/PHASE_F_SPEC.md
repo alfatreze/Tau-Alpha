@@ -455,13 +455,23 @@ busy-cycle counter's readout and any new Check tests are Diagnostic-Build surfac
 The zero-late-underrun record is this project's strongest quality signal, and it has so far been *observed*
 rather than *defended*. A new SDRAM master is exactly what threatens it, so it needs a test, not a habit.
 
-- **New Check test:** a sustained worst-case blit load during playback — full-screen scaled *and* blended
-  blits, issued back to back — counting late underruns and worst-case window access for the duration.
-- **Add to STANDARD, FULL and ENDURANCE.**
-- **Report the busy-cycle percentage alongside the verdict.** This is the half that matters: a line reading
-  "0 late, SDRAM 38% busy" says how much margin remains; "0 late" alone only says the wall has not been hit
-  yet. Publishing the busy figure is the entire reason the counter is in this build.
-- **Record the predicted busy percentage before the first hardware run**, per the standing convention.
+**Done, 2026-09-23 (B-127), with a scope correction from this row's original wording.** New `CT_BLT` in
+`fw/suite.inc`: full-height `OP_BLIT` commands into framebuffer columns 400-511 (the never-displayed strip
+B-126's `BLIT_READY()` probe already proved safe), re-issued the instant the draw engine goes idle — a
+non-blocking poll rather than `fb_wait()`, so the test cannot itself manufacture an underrun by blocking the
+main loop. **Added to STANDARD, FULL and ENDURANCE**, as specified. Verdict is late underruns only (same rule
+as CT_R1-3); the SDRAM busy permille over the window rides along as the test's reported value — the first real
+consumer of the B7 counter, gated behind a new firmware macro `TAU_SDRAM_BUSY` (default off, matching whichever
+bitstream is actually installed; reports N/A rather than a false 0% when the counter isn't wired). **Scope
+actually shipped is narrower than "full-screen scaled and blended":** this is B1 (generalised blit) load only,
+across 112 of the 512-word stride (the safe off-screen strip, not the full 400-column display width), and does
+not exercise B4 (scaled) or B5 (blended) traffic — blend is shelved pending its own timing fix (section 11) and
+a scaled-blit firmware helper doesn't exist yet. Widen this test once either lands. `make test-host` passes,
+the release (`player`) ROM is confirmed byte-identical (CT_BLT is entirely `#if CHK_DEV`). **Not yet run on
+hardware** — needs the B-117 no-blend bitstream fitted/packaged/installed with `-DTAU_SDRAM_BUSY=1` added to
+the firmware build for this specific target, which hasn't happened yet (B-117 itself never left the VM).
+Predicted busy percentage not yet recorded — do that before the first hardware run, per the standing
+convention, once the actual pump rate is known from real profiling rather than guessed.
 
 ## 13. Parked — revisit after this phase
 
@@ -535,7 +545,7 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 |---|---|---|---|
 | **1** | **Profile the software decoder** | No | **Done — B-086..B-098, on hardware** |
 | **2** | Decide the MMIO descriptor model in RTL terms (section 9) | No | **Done — B-085** |
-| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; **Tier 1 RTL/sim complete, timing CLOSED for the no-blend configuration (B-103..B-117)**: real multi-seed fit failed timing (B-107/B-109), bisect (drop `TAU_BLIT_BLEND`, B-110) recovered nearly all of it, both exposed retiming bugs fixed (B-111 BAR, B-114 SBLIT/CHAR), the blend/`glyphbuf` theory independently verified as congestion relief not a direct fix (B-116). **The re-fit combining all three fixes closed cleanly on every corner (B-117 final, seed 2): Slow 85C +0.727 ns, Slow 0C +0.597 ns.** Next: confirm with a second seed, commit the RTL fix, then decide the software reference renderer/fail-safe work (section 12) before any card install. B3 analysed, needs firmware coordination, not RTL-only. |
+| **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; **Tier 1 RTL/sim complete, timing CLOSED for the no-blend configuration (B-103..B-117), RTL fix committed (B-124, second seed deliberately skipped — accepted risk), and verification/fail-safe/Check-test work all done (B-125/B-126/B-127, section 12/12.1 closed).** Real multi-seed fit failed timing (B-107/B-109), bisect (drop `TAU_BLIT_BLEND`, B-110) recovered nearly all of it, both exposed retiming bugs fixed (B-111 BAR, B-114 SBLIT/CHAR), the blend/`glyphbuf` theory independently verified as congestion relief not a direct fix (B-116); the re-fit combining all three fixes closed cleanly on every corner (B-117 final, seed 2: Slow 85C +0.727 ns, Slow 0C +0.597 ns). Software reference renderer (B-125), `BLIT_READY()` fail-safe (B-126) and the blit-storm Check test + busy-counter consumer (B-127) are all built and host-verified. **Not yet done: fit/package/install the B-117 no-blend bitstream** (with `-DTAU_SDRAM_BUSY=1` in the firmware build) for the first hardware run of any of this. B3 analysed, needs firmware coordination, not RTL-only. |
 | **3a** | MLAB migration (`glyphbuf` + dcfifo) + font repack + busy-cycle counter, scoped out from 3 as everything not needing the blit opcodes | **Done — B-101/B-102, real multi-seed fit, both seeds Successful** | none |
 | 4 | Meters to cold code | No (firmware) | 3 |
 | 5 | Main RAM 256 -> 192 KB | Yes | 4, and the peak-usage gate in section 4.1 |

@@ -72,6 +72,10 @@
 #define R_SDR_CTRL  0x8000007Cu
 #define R_SDR_RDATA 0x80000080u
 #define R_SDR_STATUS 0x80000084u
+#define R_BLT_IDX   0x800000C0u   /* Phase F: sticky blit-engine field select (W) */
+#define R_BLT_DATA  0x800000C4u   /* Phase F: sticky blit-engine field value  (W) */
+#define R_SDR_BUSY  0x800000BCu   /* Phase F B7: SDRAM port-busy cycles, free-running (0 if TAU_SDRAM_BUSY is off) */
+#define SDR_CLK_HZ  100000000u    /* clk_sdram, for R_SDR_BUSY deltas -- see docs/MMIO_ALLOCATION.md 0xBC */
 
 /* Target command selector, written to R_TGT_GO bits [1:0]. */
 #define TGT_READ     0u   /* 0180 */
@@ -90,6 +94,7 @@
 #define FB_OP_RECT  1u
 #define FB_OP_CHAR  2u
 #define FB_OP_COPY  3u
+#define FB_OP_BLIT  4u   /* Phase F B1 */
 
 /* Album-art panel. The image is decoded ONCE into an off-screen SDRAM stash
  * (row 400+, past the 360 visible rows) and then blitted into place with a
@@ -189,6 +194,15 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * with TAU_PHASE2_WINDOW; the pump refuses to start without a window preflight. */
 #ifndef TAU_SDRAM_STRESS_WINDOW
 #define TAU_SDRAM_STRESS_WINDOW 0
+#endif
+/* Phase F B7: whether this bitstream has the SDRAM port-busy-cycle counter (R_SDR_BUSY,
+ * MMIO 0xBC) wired to something other than a hardwired 0 -- see docs/MMIO_ALLOCATION.md.
+ * A firmware build flag, not a hardware probe: the counter has no ready-detect of its own
+ * (unlike PSRAM's PS_ID or cold code's IF_CFG), so this must be set to match the bitstream
+ * actually installed, the same convention TAU_PHASE2_WINDOW already uses for its own
+ * hardware-support macro. */
+#ifndef TAU_SDRAM_BUSY
+#define TAU_SDRAM_BUSY 0
 #endif
 /* A-103: place the playlist buffers (pl_text, pl_off, pl_order: 13,312 B) in SDRAM
  * behind the uncached CPU window instead of BRAM. Needs an RBF built with

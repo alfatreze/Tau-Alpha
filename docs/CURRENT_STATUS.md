@@ -199,9 +199,28 @@ detects the real distinction instead — an old (pre-B-103) bitstream's 2-bit op
 `TAU_BLIT_PROBE` (default off, product ROM confirmed byte-identical); nothing calls it operationally yet.
 This closes section 12 in full.
 
-**Next, in order:** (1) the blit-storm Check test (section 12.1) and a firmware consumer for the busy-cycle
-counter, ahead of any card install. `TAU_BLIT_BLEND` itself stays shelved — the `glyphbuf` write-port chain
-would need its own retiming (or `KB-045`'s `DSP_BLOCK_BALANCING` idea) before blend can safely return.
+**Blit-storm Check test + busy-cycle consumer done, 2026-09-23 (B-127).** New `CT_BLT` in `fw/suite.inc`, added
+to STANDARD/FULL/ENDURANCE: full-height `OP_BLIT` commands into framebuffer columns 400-511 (never displayed,
+the exact safe strip B-126's probe already proved), re-issued the instant the draw engine goes idle — a
+non-blocking poll, not `fb_wait()`, so the test itself cannot manufacture an underrun by stalling the main loop.
+Verdict is late underruns only (same rule as CT_R1-3); the SDRAM busy permille over the window rides along as
+the test's reported value, first real consumer of the B7 counter (`R_SDR_BUSY`, MMIO 0xBC), gated behind a new
+firmware macro `TAU_SDRAM_BUSY` (default off — the counter has no hardware ready-detect of its own, so this
+must be set to match whichever bitstream is actually installed; reads 0xFFFF/"N/A" when off, never a false 0%).
+`R_BLT_IDX`/`R_BLT_DATA`/`FB_OP_BLIT` promoted from `blit_probe.inc` into player.c's shared register block so
+both features use one definition. Verified: `make test-host` passes unchanged, `player-library-diagnostic-profile`
+builds clean (heap gap 28,112 B), the plain `player` (release) ROM is confirmed byte-identical (CT_BLT is fully
+inside `#if CHK_DEV`). **Honest scope note:** this exercises B1 (generalised blit) load only, at 112 of the
+frame's 512-word stride (the never-displayed strip) — not literally the full 400-column width, and not B4
+scaled or B5 blended traffic, since blend is shelved and a scaled-blit firmware helper doesn't exist yet; widen
+this test later if either of those lands. Not yet run on hardware — no bitstream with `TAU_SDRAM_BUSY` wired
+has been fitted/packaged/installed; that's the same B-117 no-blend bitstream, still VM-only. `TAU_BLIT_BLEND`
+itself stays shelved — the `glyphbuf` write-port chain would need its own retiming (or `KB-045`'s
+`DSP_BLOCK_BALANCING` idea) before blend can safely return.
+
+**Next, in order:** package and install the B-117 no-blend bitstream (with `-DTAU_SDRAM_BUSY=1` added to the
+firmware build) to get the blit-storm test and busy-cycle counter their first hardware run; then Tier 2
+(B8-B11) or the M10K/RAM-shrink track, per the roadmap's own ordering.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
