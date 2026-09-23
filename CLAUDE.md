@@ -14,7 +14,7 @@
 0. **Starting new work rather than finishing something?** `docs/PHASE_F_SPEC.md` is the active plan (blit engine, M10K release, spectrum, the no-3D and kernel decisions, parked ideas). Its section 14 names the next item and gives enough detail to start cold.
 1. `docs/SESSION_HANDOFF_2026-09-22_RELEASE_0.4.md` (latest: v0.4.0 release - media library, Phase G cold code, on-device diagnostics; rules, procedures, decisions, open items), then `docs/CURRENT_STATUS.md`. Superseded but still correct for the SDRAM/PSRAM P0-P4 history: `docs/SESSION_HANDOFF_2026-09-21_RELEASE_0.3.md`, `docs/SESSION_HANDOFF_2026-09-21.md`.
 2. `docs/AUDIT_TRAIL.md`: A-NNN = SDRAM/UI/firmware series (ends A-137), B-NNN = PSRAM through the media library, Phase G, the Check and this release; log every hardware result with an evidence label.
-3. Commit only your own files; never stage another session's uncommitted RTL/sim/PSRAM docs. Ask before any SD-card write and follow the backup / clear-catalog / verify-SHA-256 / eject procedure.
+3. Commit only your own files; never stage another session's uncommitted RTL/sim/PSRAM docs. Ask before any SD-card write and follow the backup / clear-catalog / verify-SHA-256 / eject procedure -- concrete checklist, exact cache filenames and known pitfalls (a stale catalog cache, a mis-rooted library index, an over-length core.json field): `docs/CARD_INSTALL_PROCEDURE.md`.
 
 ## 3. Strict Project Rules
 - Never modify this repository's upstream tracking references.
