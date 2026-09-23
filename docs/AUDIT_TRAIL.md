@@ -6410,3 +6410,25 @@ Both seeds pass Slow 85C and both fail Slow 0C by essentially the same tiny marg
 **Owner instruction:** "let's publish in the meanwhile" -- while the B-117 relaunch re-fit continued running on the VM.
 **Reviewed before pushing:** listed the 10 commits ahead of `origin/main` (`git log origin/main..HEAD`) before pushing -- the blit-engine B1-B6 feature commits (B-103..B-106, already reviewed in earlier sessions) plus this session's four docs commits (B-107/B-108/B-112/B-115 write-ups, B-109..B-120 timing saga and research, the timing-experiment backlog, the README developer section). Nothing sensitive, nothing outside this project's own work.
 **Not done:** `src/fpga/core/mp3_fb.sv` (B-111/B-114's RTL fix) is still uncommitted and therefore not pushed -- staying consistent with verify-before-commit; it will be committed and pushed once the in-flight re-fit confirms it. The re-fit itself (B-117 relaunch) is unaffected and still running.
+
+### B-117 (final) — MILESTONE: no-blend + B-111 + B-114 closes cleanly, first genuinely clean blit-engine timing candidate since B-107
+**Date:** 2026-09-23
+**Evidence:** `tau-local/blit-refit-s2-20260923`, seed 2. Full Compilation Successful, 0 errors, 360 warnings (49m16s elapsed, 1h26m58s total CPU). `ap_core.fit.summary`: ALMs 6,387/18,480 (35%), RAM 298/308 (97%, matching every prior no-blend/blend fit), DSP 11/66 (17%, matching the no-blend baseline -- confirms `TAU_BLIT_BLEND` is genuinely off), registers 8,251.
+**Result -- all four corners positive, with real margin, not a bare pass:**
+| Corner | Setup slack | Hold slack |
+|---|---|---|
+| Slow 85C | **+0.727 ns** | +0.309 ns |
+| Slow 0C | **+0.597 ns** | +0.294 ns |
+| Fast 85C | +5.547 ns | +0.133 ns |
+| Fast 0C | +5.771 ns | +0.123 ns |
+**Comparison to the pre-fix baseline (B-110, no-blend alone, same seed):** Slow 85C was +0.023 ns, Slow 0C was **-0.112 ns** (violated). B-111 (BAR retiming) and B-114 (SBLIT/CHAR retiming) together didn't just close that -0.112 ns gap to zero -- they moved the worst corner to +0.597 ns, a genuinely comfortable margin. This is strong evidence the retiming fixes addressed the real bottleneck cleanly, not a lucky seed: B-110's own two-seed comparison showed near-identical -0.095/-0.112 ns results on both seeds for the *unfixed* case (a real structural gap, not noise), so a jump to +0.6-0.7 ns margin on the same seed after the fix is a large, structurally-explained improvement, not statistical variance.
+**This is the first build in the entire B-107..B-117 sequence with zero known timing violations on any corner.** The blend/glyphbuf congestion theory (B-116) is confirmed correct, the BAR/SBLIT/CHAR retiming pattern (B-111/B-114) is confirmed to work in real silicon timing, not just simulation.
+**Not done:** only one seed run so far on this exact combination -- this session's own established discipline (B-110) is to confirm with a second seed before treating a result as a stable candidate rather than a lucky placement, even though the margin here is large enough that seed-to-seed variance (this session has seen up to ~1 ns spread on identical RTL) is very unlikely to flip it negative. `TAU_BLIT_BLEND` itself is still not part of this candidate -- it remains shelved (see the owner's earlier full-audit discussion) unless the DSP_BLOCK_BALANCING/pipelining ideas in `KB-045` are tried and shown to let it back in without reopening this violation. The RTL fix (`src/fpga/core/mp3_fb.sv`) is still uncommitted -- now a strong candidate to commit given this real, positive hardware-adjacent result. No card write -- this is a Quartus fit result, not yet installed or tested on the Pocket.
+
+### B-124 — RTL fix committed; second-seed confirmation deliberately skipped
+**Date:** 2026-09-23
+**Evidence:** commit `612698f`, `src/fpga/core/mp3_fb.sv` (48 insertions, 10 deletions).
+**Owner instruction:** "let's skip the seed[,] don't jinx it" -- declining the second-seed confirmation this session's own convention (B-110) would normally call for, and asking to commit the fix as-is.
+**Judgement call, stated plainly:** the margin on this single seed (+0.727/+0.597 ns) is large relative to the seed-to-seed spread this session has actually observed on identical RTL (up to ~1 ns on *borderline* cases specifically, e.g. B-110's -0.095 vs -0.112 ns). A comfortable positive margin moving further positive on a second seed is far more likely than a ~0.6-0.7 ns swing to negative, but it is not proven -- this is accepted risk, not verified safety, and it's worth remembering if a future card install ever shows a timing-adjacent symptom on this specific bitstream.
+**Committed, not yet pushed:** the RTL fix by itself, matching this session's convention of one focused commit per unit of work (see the two prior docs-only commits from the same combination). Not bundled with any doc changes since those were already committed separately (B-121..B-124's write-ups landed in `docs/` before this commit).
+**Not done:** not pushed to `origin` yet -- pending an explicit "publish" instruction as this session has done for every push so far, not assumed automatically from this commit alone.

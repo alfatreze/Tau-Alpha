@@ -176,10 +176,18 @@ violated paths are the identical `Add32~8`/`Selector222~1` chain B-109 found, wi
 anywhere in them. `Add32~8` is DSP-mapped; freeing the 3 DSP blocks `TAU_BLIT_BLEND` used relieves placement
 pressure around it without changing its logical fan-in — B-110's original theory was right.
 
-**Next, in order:** (1) a re-fit of the current no-blend + B-111 + B-114 combination to confirm the remaining
--0.1 ns gap actually closes — this is now the only open timing step, the blend question is settled; (2) the
-software reference renderer + pixel-diff fixtures (section 12) and the `COLD_READY()`-style fail-safe are still
-open ahead of any card install, regardless of how the timing work concludes.
+**MILESTONE — timing CLOSED for the no-blend configuration, 2026-09-23 (B-117 final).** The re-fit combining
+no-blend + B-111 + B-114 (seed 2, after one relaunch following a VM power outage) closed cleanly on every
+corner: Slow 85C **+0.727 ns**, Slow 0C **+0.597 ns** setup slack (vs. -0.112 ns before the fixes) — real
+margin, not a bare pass. RAM 298/308, DSP 11/66, both matching every prior no-blend fit exactly. This is the
+first build in the entire B-107..B-117 sequence with zero known timing violations on any corner.
+
+**Next, in order:** (1) confirm with a second seed before treating this as a stable candidate (this session's
+own convention, though the margin is large enough that seed variance is very unlikely to flip it); (2) commit
+the RTL fix (`src/fpga/core/mp3_fb.sv`, currently uncommitted); (3) the software reference renderer + pixel-diff
+fixtures (section 12) and the `COLD_READY()`-style fail-safe are still open ahead of any card install.
+`TAU_BLIT_BLEND` itself stays shelved — the `glyphbuf` write-port chain would need its own retiming (or
+`KB-045`'s `DSP_BLOCK_BALANCING` idea) before blend can safely return.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
