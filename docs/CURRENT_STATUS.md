@@ -182,12 +182,19 @@ corner: Slow 85C **+0.727 ns**, Slow 0C **+0.597 ns** setup slack (vs. -0.112 ns
 margin, not a bare pass. RAM 298/308, DSP 11/66, both matching every prior no-blend fit exactly. This is the
 first build in the entire B-107..B-117 sequence with zero known timing violations on any corner.
 
-**Next, in order:** (1) confirm with a second seed before treating this as a stable candidate (this session's
-own convention, though the margin is large enough that seed variance is very unlikely to flip it); (2) commit
-the RTL fix (`src/fpga/core/mp3_fb.sv`, currently uncommitted); (3) the software reference renderer + pixel-diff
-fixtures (section 12) and the `COLD_READY()`-style fail-safe are still open ahead of any card install.
-`TAU_BLIT_BLEND` itself stays shelved — the `glyphbuf` write-port chain would need its own retiming (or
-`KB-045`'s `DSP_BLOCK_BALANCING` idea) before blend can safely return.
+**RTL fix committed, 2026-09-23 (B-124):** the owner deliberately skipped the second-seed confirmation
+("don't jinx it") and committed `src/fpga/core/mp3_fb.sv` as-is — an accepted-risk judgement call, not a
+verified one, recorded plainly in `docs/AUDIT_TRAIL.md` B-124.
+
+**Software reference renderer + pixel-diff fixtures done, 2026-09-23 (B-125).** `tools/host/blit_reference.py`
+(every opcode reimplemented in Python, CHAR's anti-aliasing included), `sim/tb_blit_scene.v` (an 11-command
+scene through the real `cmd_push` interface) and `sim/test_blit_reference.py` (the diff driver, wired into
+`make test-rtl`) — all 4 existing mutation hooks confirmed caught. This closes the first half of section 12.
+
+**Next, in order:** (1) the `COLD_READY()`-style fail-safe (the other half of section 12) is still open; (2)
+the blit-storm Check test (section 12.1) and a firmware consumer for the busy-cycle counter, ahead of any card
+install. `TAU_BLIT_BLEND` itself stays shelved — the `glyphbuf` write-port chain would need its own retiming
+(or `KB-045`'s `DSP_BLOCK_BALANCING` idea) before blend can safely return.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
