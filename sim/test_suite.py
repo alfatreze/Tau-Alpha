@@ -55,7 +55,12 @@ def main():
     check("decode sdram legacy", rec["entries"]["sdram"] == {"read_avg": 48, "read_max": 57, "write_avg": 31, "write_max": 37}, rec["entries"]["sdram"])
     six = D.parse_record(D.build_record(1, [(4, le(2, 48, 219, 506, 31, 62, 325))]))
     check("decode sdram six", six["entries"]["sdram"]["read_min"] == 48 and six["entries"]["sdram"]["write_max"] == 325)
-    check("decode audio", rec["entries"]["audio"] == [2, 0, 3, 380])
+    # CT_BLT (B-139): value packs busy-permille (low 16) + "audio ran the whole window" (bit 16).
+    blt_full = D.parse_record(D.build_record(1, [(3, bytes([13, 0]) + le(4, 42 | 0x10000))]))["tests"][0]
+    check("decode blt full", blt_full["busy_permille"] == 42 and blt_full["audio_full"] is True, blt_full)
+    blt_dropped = D.parse_record(D.build_record(1, [(3, bytes([13, 1]) + le(4, 0xFFFF))]))["tests"][0]
+    check("decode blt dropped/no-counter", blt_dropped["busy_permille"] is None and blt_dropped["audio_full"] is False, blt_dropped)
+    check("decode audio", rec["entries"]["audio"] == {"late_underruns": 2, "audio_full": False, "stall_ms": 3, "window_s": 380}, rec["entries"].get("audio"))
     check("decode decprof", rec["entries"]["decprof"] == {"h_pct": 5, "i_pct": 13, "s_pct": 57, "r_pct": 68}, rec["entries"].get("decprof"))
     check("decode decsweep", rec["entries"]["decsweep"] == [
         {"track": 0, "title": "Trk A", "speed_pct": 100, "h_pct": 3, "i_pct": 11, "s_pct": 55, "r_pct": 0},

@@ -58,12 +58,18 @@ static uint8_t  chk_state, chk_step, chk_run, chk_n = CHK_BASE;
 static uint8_t  chk_prof, chk_sel, chk_soak = 1u, chk_lvl = 2u;   /* profile 0-3, option row, soak length index (set_soak_min), stress level */
 /* Per-test results live in the PSRAM scratch (uncached window, valid only while the cold image is), not in scarce fast RAM. */
 struct chk_mem { uint32_t val[CHK_MAX]; uint16_t sd[6], ps[6]; uint8_t res[CHK_MAX]; uint8_t ti, tph;
-                 uint32_t tc0, tnext, tsettle, cold_at, cold_runs, cold_fails, tlast, blt_busy0; };   /* sd/ps: read min/avg/max, write min/avg/max; blt_busy0: R_SDR_BUSY at CT_BLT start (B-127) */
+                 uint32_t tc0, tnext, tsettle, cold_at, cold_runs, cold_fails, tlast, blt_busy0;
+                 uint8_t aud_full, blt_full; };   /* sd/ps: read min/avg/max, write min/avg/max; blt_busy0: R_SDR_BUSY at CT_BLT start (B-127);
+                                                    * aud_full/blt_full (B-139): latched 0 the instant CT_AUD/CT_BLT sees playback stop/pause
+                                                    * mid-window, so "PASS" can be told apart from "PASS, but audio was not actually running
+                                                    * the whole time" -- the ambiguity the owner hit on the first 0.5.0-alpha.1 Check run. */
 #define CKM ((struct chk_mem *)(uintptr_t)0xA4008400u)
 #define chk_val (CKM->val)
 #define chk_sd  (CKM->sd)
 #define chk_ps  (CKM->ps)
 #define chk_res (CKM->res)
+#define chk_aud_full (CKM->aud_full)
+#define chk_blt_full (CKM->blt_full)
 static uint32_t chk_at, chk_u0, chk_s0, chk_under, chk_stall, chk_qr_len, chk_qr_ver;
 /* B-088/B-089: latched once when the CT_AUD window ends, from the run-total
  * accumulators (mp3_*_total_cyc / flac_*_total_cyc), so chk_finish() reads a
@@ -214,7 +220,7 @@ COLD_TEXT static int chk_do(uint32_t id)
         if (!chk_at) {                                          /* first entry: is anything playing? */
             if (!track_hz || paused || stopped) { chk_set(SR_SKIP, 0); break; }
             chk_u0 = pcm_under_n; chk_s0 = REG(R_FB_STALL); chk_at = (cycles() + CHK_AUDIO_S * CLK_HZ) | 1u;
-            chk_val[chk_step] = 0;
+            chk_val[chk_step] = 0; chk_aud_full = 1u;
 #if MP3_PROFILE
             mp3_huff_total_cyc = mp3_imdct_total_cyc = mp3_sub_total_cyc = 0u;
 #endif
@@ -223,6 +229,11 @@ COLD_TEXT static int chk_do(uint32_t id)
 #endif
             return 0;
         }
+        /* B-139: was playing at entry proves nothing about the other 14 seconds -- a track that
+         * ends mid-window, or a pause the tester didn't intend, would otherwise pass silently on
+         * whatever underrun count happened to be true so far. Latched, not re-armed: one drop is
+         * enough to mark the whole window's result as measured under incomplete playback. */
+        if (!track_hz || paused || stopped) chk_aud_full = 0u;
         if ((int32_t)(cycles() - chk_at) < 0) { chk_val[chk_step] = (uint32_t)((int32_t)(chk_at - cycles()) / (int32_t)CLK_HZ + 1); return 0; }
         chk_under = pcm_under_n - chk_u0;
         chk_stall = (REG(R_FB_STALL) - chk_s0) / (CLK_HZ / 1000u);
@@ -273,13 +284,14 @@ COLD_TEXT static int chk_do(uint32_t id)
                    * not a pass/fail criterion, per section 12.1's "this is the half that matters" note. */
         if (!chk_at) {
             if (!track_hz || paused || stopped) { chk_set(SR_NA, 0); break; }   /* needs real playback, like CT_AUD */
-            chk_u0 = pcm_under_n;
+            chk_u0 = pcm_under_n; chk_blt_full = 1u;
 #if TAU_SDRAM_BUSY
             CKM->blt_busy0 = REG(R_SDR_BUSY);
 #endif
             chk_at = (cycles() + CHK_STRESS_S * CLK_HZ) | 1u; chk_val[chk_step] = CHK_STRESS_S;
             return 0;
         }
+        if (!track_hz || paused || stopped) chk_blt_full = 0u;   /* B-139, same reasoning as CT_AUD: latched, not re-armed */
         if ((int32_t)(cycles() - chk_at) < 0) {
             if (!(REG(R_FB_GO) & 1u)) {
                 REG(R_FB_ADDR)  = CHK_BLT_COL;
@@ -300,7 +312,11 @@ COLD_TEXT static int chk_do(uint32_t id)
                 busy_permille = delta / total_k;
             }
 #endif
-            chk_set(late == 0u ? SR_PASS : SR_FAIL, busy_permille);
+            /* B-139: bit 16 carries chk_blt_full (1 = playback ran the whole window), well clear
+             * of busy_permille's own range (<=1000, or the 0xFFFF "not measured" sentinel) and of
+             * the 16 bits SR_T_TEST's own value field already spends elsewhere -- this field is a
+             * plain uint32, so the extra bit costs nothing and needs no format change. */
+            chk_set(late == 0u ? SR_PASS : SR_FAIL, busy_permille | (chk_blt_full ? 0x10000u : 0u));
         }
         break;
     case CT_SOAK:                                               /* the Diagnostics soak; ENDURANCE adds a cold-code test a minute */
@@ -391,7 +407,10 @@ COLD_TEXT static void chk_finish(void)
 #endif
     uint32_t tm[4] = { ld_head, ld_size, ld_art, ld_total };
     sr_vals(&s, SR_T_TIME, 4, tm, 4);
-    uint32_t au[4] = { chk_under, 0u, chk_stall, CHK_AUDIO_S };
+    /* word[1] used to be a fixed 0; B-139 repurposes it: 1 if CT_AUD's window ran with playback
+     * continuously active start to finish, 0 if it never ran (chk_aud_full stays at its 0 reset
+     * value) or dropped out partway through. */
+    uint32_t au[4] = { chk_under, chk_aud_full, chk_stall, CHK_AUDIO_S };
     sr_vals(&s, SR_T_AUDIO, 2, au, 4);
 #if MP3_PROFILE || FLAC_PROFILE
     { uint32_t dp[4] = { chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r };
@@ -476,7 +495,15 @@ COLD_TEXT static void chk_line(uint32_t i)
         else if (chk_at) { q = ui_dec(q, chk_val[i]); q = set_str(q, chk_s(CS_S)); }
         else q = set_str(q, chk_s(CS_DOTS));
     }
-    else q = set_str(q, chk_s(CS_PASS + (chk_res[i] & 3u)));
+    else {
+        q = set_str(q, chk_s(CS_PASS + (chk_res[i] & 3u)));
+        /* B-139: a PASS/FAIL on CT_AUD/CT_BLT only means something if audio was actually running
+         * the whole window -- mark the row when it wasn't, right where the verdict is, rather than
+         * only in the QR/decoded report (a screenshot alone should be enough to catch this). */
+        if ((chk_res[i] == SR_PASS || chk_res[i] == SR_FAIL) &&
+            ((id == CT_AUD && !chk_aud_full) || (id == CT_BLT && !chk_blt_full)))
+            *q++ = '*';
+    }
     *q = 0;
     chk_row(i, chk_n > 12u ? 20u : PL_UI_ROW_H, chk_s(id < CHK_BASE ? id : CS_X0 + id - CHK_BASE), v);
 }
@@ -562,6 +589,7 @@ COLD_TEXT static void chk_begin(void)
 #endif
     chk_state = CK_RUN; chk_step = 0u; chk_at = 0u;
     for (uint32_t i = 0; i < CHK_MAX; i++) chk_res[i] = SR_NA;
+    chk_aud_full = chk_blt_full = 0u;   /* B-139: a SKIPped CT_AUD/CT_BLT must not report a stale value left over from a previous run */
     set_dirty = 1u;
 }
 COLD_TEXT static void chk_abort(void)                           /* B, or the page was left: stop what the run started */
