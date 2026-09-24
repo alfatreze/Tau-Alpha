@@ -59,10 +59,13 @@ static uint8_t  chk_prof, chk_sel, chk_soak = 1u, chk_lvl = 2u;   /* profile 0-3
 /* Per-test results live in the PSRAM scratch (uncached window, valid only while the cold image is), not in scarce fast RAM. */
 struct chk_mem { uint32_t val[CHK_MAX]; uint16_t sd[6], ps[6]; uint8_t res[CHK_MAX]; uint8_t ti, tph;
                  uint32_t tc0, tnext, tsettle, cold_at, cold_runs, cold_fails, tlast, blt_busy0;
-                 uint8_t aud_full, blt_full; };   /* sd/ps: read min/avg/max, write min/avg/max; blt_busy0: R_SDR_BUSY at CT_BLT start (B-127);
+                 uint8_t aud_full, blt_full;
+                 uint16_t tnq; uint8_t tsrc; };    /* sd/ps: read min/avg/max, write min/avg/max; blt_busy0: R_SDR_BUSY at CT_BLT start (B-127);
                                                     * aud_full/blt_full (B-139): latched 0 the instant CT_AUD/CT_BLT sees playback stop/pause
                                                     * mid-window, so "PASS" can be told apart from "PASS, but audio was not actually running
-                                                    * the whole time" -- the ambiguity the owner hit on the first 0.5.0-alpha.1 Check run. */
+                                                    * the whole time" -- the ambiguity the owner hit on the first 0.5.0-alpha.1 Check run.
+                                                    * tnq/tsrc (B-165): CT_TRK's queue length and lib_src at entry, captured so a FAIL can report
+                                                    * WHY, not just that it happened -- see CT_TRK's own comment. */
 #define CKM ((struct chk_mem *)(uintptr_t)0xA4008400u)
 #define chk_val (CKM->val)
 #define chk_sd  (CKM->sd)
@@ -342,6 +345,7 @@ COLD_TEXT static int chk_do(uint32_t id)
             {
                 uint32_t nq = lib_src ? lib_qn : pl_count;        /* entries in the current queue or playlist */
                 if (nq < 2u) { chk_set(SR_SKIP, nq); break; }     /* nothing to change to (value = entries) */
+                CKM->tnq = (uint16_t)nq; CKM->tsrc = lib_src;     /* B-165: for a FAIL's diagnostic value, below */
             }
             CKM->ti = 0u; CKM->tph = 0u; CKM->tc0 = chk_loads; chk_val[chk_step] = 0u;
             skip_req = 1u; CKM->tnext = (cycles() + 60u * CLK_HZ) | 1u; chk_at = 1u;
@@ -354,7 +358,19 @@ COLD_TEXT static int chk_do(uint32_t id)
                 CKM->tph = 1u; CKM->tsettle = (cycles() + CLK_HZ / 2u) | 1u;
                 return 0;
             }
-            if ((int32_t)(cycles() - CKM->tnext) >= 0) { chk_set(SR_FAIL, CKM->ti); break; }   /* a queue of two or more, yet no load finished in 60 s: stuck (value = changes done) */
+            /* B-165: a queue of two or more, yet no load finished in 60 s -- stuck. Packs, so the
+             * QR/decoder can say WHY instead of just "it failed": bits[7:0] changes done so far
+             * (was the whole value before), bits[23:8] the queue length at entry (CKM->tnq),
+             * bit 24 lib_src at entry, bit 25 whether skip_req is STILL pending right now -- set
+             * means the main loop's own `if (skip_req)` consumer (player.c) never ran/cleared it,
+             * cleared means it WAS consumed but no load ever completed from it (a different bug,
+             * downstream of pl_skip()/lib_skip()). */
+            if ((int32_t)(cycles() - CKM->tnext) >= 0) {
+                uint32_t v = (uint32_t)CKM->ti | ((uint32_t)CKM->tnq << 8) | ((uint32_t)CKM->tsrc << 24)
+                           | ((skip_req != 0u) ? (1u << 25) : 0u);
+                chk_set(SR_FAIL, v);
+                break;
+            }
             return 0;
         }
         if ((int32_t)(cycles() - CKM->tsettle) < 0) return 0;

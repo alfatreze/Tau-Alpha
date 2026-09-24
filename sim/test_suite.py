@@ -60,6 +60,13 @@ def main():
     check("decode blt full", blt_full["busy_permille"] == 42 and blt_full["audio_full"] is True, blt_full)
     blt_dropped = D.parse_record(D.build_record(1, [(3, bytes([13, 1]) + le(4, 0xFFFF))]))["tests"][0]
     check("decode blt dropped/no-counter", blt_dropped["busy_permille"] is None and blt_dropped["audio_full"] is False, blt_dropped)
+    # CT_TRK (B-165): a FAIL packs changes done (low 8) + queue length (next 16) + lib_src (bit 24) + skip_req still pending (bit 25).
+    trk_fail_val = 3 | (11 << 8) | (1 << 24) | (1 << 25)
+    trk_fail = D.parse_record(D.build_record(1, [(3, bytes([11, 1]) + le(4, trk_fail_val))]))["tests"][0]
+    check("decode trk fail", trk_fail == {"id": 11, "name": "Track changes (10)", "result": "FAIL",
+          "value": trk_fail_val, "changes_done": 3, "queue_len": 11, "lib_src": True, "skip_req_pending": True}, trk_fail)
+    trk_pass = D.parse_record(D.build_record(1, [(3, bytes([11, 0]) + le(4, 10))]))["tests"][0]
+    check("decode trk pass (unpacked)", trk_pass == {"id": 11, "name": "Track changes (10)", "result": "PASS", "value": 10}, trk_pass)
     check("decode audio", rec["entries"]["audio"] == {"late_underruns": 2, "audio_full": False, "stall_ms": 3, "window_s": 380}, rec["entries"].get("audio"))
     check("decode decprof", rec["entries"]["decprof"] == {"h_pct": 5, "i_pct": 13, "s_pct": 57, "r_pct": 68}, rec["entries"].get("decprof"))
     check("decode decsweep", rec["entries"]["decsweep"] == [

@@ -77,6 +77,12 @@ def parse_record(rec: bytes) -> dict:
                 busy = val & 0xFFFF
                 entry["busy_permille"] = None if busy == 0xFFFF else busy   # 0xFFFF = TAU_SDRAM_BUSY off for this bitstream
                 entry["audio_full"] = bool(val & 0x10000)
+            elif tid == 11 and entry["result"] == "FAIL":   # CT_TRK (B-165): a FAIL packs why, not just that it
+                                                             # happened -- see CT_TRK's own comment in fw/suite.inc
+                entry["changes_done"] = val & 0xFF
+                entry["queue_len"] = (val >> 8) & 0xFFFF
+                entry["lib_src"] = bool(val & (1 << 24))
+                entry["skip_req_pending"] = bool(val & (1 << 25))
             out["tests"].append(entry)
         elif tag == 14 and n >= 10:              # Decode Profile Sweep: one entry per track (B-090/B-091/B-092/B-096), repeatable
             track_idx, speed_pct = v[0], v[1]
