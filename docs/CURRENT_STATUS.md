@@ -3,12 +3,15 @@
 **Latest session (2026-09-24): full handoff in `docs/SESSION_HANDOFF_2026-09-24_BLIT_TEST.md`.**
 B8 (CLUT blit) is done and proven on real hardware. A new "Blit Test" diagnostic hangs on real
 hardware; four source-level RTL fix attempts did not resolve it, and **ISSP's first real hardware
-read (B-186) now proves why: the draw engine itself is not hung.** A live probe read during the
-hang showed the dispatch state machine cycling normally through idle/scanline-fill, an empty
-command FIFO, and no opcode in flight -- the hang is CPU/firmware-side, not an RTL dispatch-state
-problem, which is what every fix attempt so far was aimed at. Investigation now needs to move to
-firmware, not RTL. Read `docs/JTAG_DEBUG_ACCESS.md` section 6.5 and `docs/AUDIT_TRAIL.md` B-186
-before continuing this thread.
+read (B-186) proved the draw engine itself is not hung** -- normal idle/scanline-fill cycling,
+empty command FIFO, no opcode in flight. A follow-up CPU-side checkpoint probe (B-187/B-188) found
+something bigger: **`bt_begin()`'s own first line never executes at all** -- not "gets stuck early
+inside it," never entered in the first place. Leading hypothesis, not yet confirmed: `bt_begin()`
+is cold code (PSRAM instruction fetch, Phase G4); if that fetch path itself stalls, the CPU hangs
+trying to FETCH the function's first instruction, before any of its own logic runs -- explaining
+every symptom seen so far at once. Next step is a probe on the PSRAM instruction-fetch arbiter
+itself, not another guess inside `fw/suite.inc`. Read `docs/AUDIT_TRAIL.md` B-188 and
+`docs/JTAG_DEBUG_ACCESS.md` section 6.5 before continuing this thread.
 
 **Earlier snapshot:** 2026-09-22. Tau **v0.4.0** is released and installed on the owner's card (media library, Phase G cold code,
 on-device diagnostics; two zips: TAU and TAU_DIAGNOSTIC). Full detail: `docs/SESSION_HANDOFF_2026-09-22_RELEASE_0.4.md`.
