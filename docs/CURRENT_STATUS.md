@@ -1,6 +1,12 @@
 # Current engineering status
 
-**Snapshot:** 2026-09-22. Tau **v0.4.0** is released and installed on the owner's card (media library, Phase G cold code,
+**Latest session (2026-09-24): full handoff in `docs/SESSION_HANDOFF_2026-09-24_BLIT_TEST.md`.**
+B8 (CLUT blit) is done and proven on real hardware. A new "Blit Test" diagnostic hangs on real
+hardware and four source-level fix attempts have not resolved it -- do not attempt another blind
+fix; ISSP (live JTAG register/state readback) is built, fit-proven, and its procedure is verified
+against the real tooling, waiting on cable access. Read that file before continuing this thread.
+
+**Earlier snapshot:** 2026-09-22. Tau **v0.4.0** is released and installed on the owner's card (media library, Phase G cold code,
 on-device diagnostics; two zips: TAU and TAU_DIAGNOSTIC). Full detail: `docs/SESSION_HANDOFF_2026-09-22_RELEASE_0.4.md`.
 Committed locally, not pushed, not tagged. Earlier releases: v0.3.0 (PSRAM in the bitstream) - see
 `docs/SESSION_HANDOFF_2026-09-21_RELEASE_0.3.md`; the SDRAM-side history (A-001..A-137) and PSRAM P0-P4 (B-001..B-023) are
