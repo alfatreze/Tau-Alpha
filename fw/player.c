@@ -75,6 +75,8 @@
 #define R_BLT_IDX   0x800000C0u   /* Phase F: sticky blit-engine field select (W) */
 #define R_BLT_DATA  0x800000C4u   /* Phase F: sticky blit-engine field value  (W) */
 #define R_SDR_BUSY  0x800000BCu   /* Phase F B7: SDRAM port-busy cycles, free-running (0 if TAU_SDRAM_BUSY is off) */
+#define R_CLUT_IDX  0x800000C8u   /* Phase F B8: sticky CLUT index (W), 0-255 */
+#define R_CLUT_DATA 0x800000CCu   /* Phase F B8: CLUT entry at that index (W), RGB565; index auto-increments */
 #define SDR_CLK_HZ  100000000u    /* clk_sdram, for R_SDR_BUSY deltas -- see docs/MMIO_ALLOCATION.md 0xBC */
 
 /* Target command selector, written to R_TGT_GO bits [1:0]. */
@@ -95,6 +97,7 @@
 #define FB_OP_CHAR  2u
 #define FB_OP_COPY  3u
 #define FB_OP_BLIT  4u   /* Phase F B1 */
+#define FB_OP_CBLIT 7u   /* Phase F B8 */
 
 /* Album-art panel. The image is decoded ONCE into an off-screen SDRAM stash
  * (row 400+, past the 360 visible rows) and then blitted into place with a
@@ -454,6 +457,42 @@ static void fb_copy(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
             done += n;
         }
     }
+}
+
+/* Phase F B8: load N palette entries into the 256-entry CLUT, starting at
+ * index 0 (R_CLUT_DATA auto-increments after each write, R_CLUT_IDX=0 resets
+ * it -- see mp3_soc.v R-CLUT_IDX/R_CLUT_DATA). fb_wait() first: the CLUT is a
+ * single shared table the draw engine reads asynchronously, so it must not be
+ * reloaded while an earlier OP_CBLIT command is still draining the FIFO,
+ * exactly the same reasoning fb_rect/fb_char already apply to fg/bg. */
+static void fb_clut_load(const uint16_t *pal, uint32_t n)
+{
+    fb_wait();
+    REG(R_CLUT_IDX) = 0u;
+    for (uint32_t i = 0; i < n; i++) REG(R_CLUT_DATA) = pal[i];
+}
+
+/* Phase F B8: one draw-engine command reading a palette-index source (one
+ * index per 16-bit SDRAM word, low byte) through the CLUT loaded above,
+ * writing resolved RGB565 pixels to the destination -- same addressing
+ * convention as fb_copy_span (source and dest are both `sy_*FB_STRIDE+sx_`
+ * word offsets in the framebuffer's own grid, sticky SRC/DST BASE=0 and
+ * STRIDE=512 at their power-up default, never touched here). Same
+ * FB_COPY_MAX=127 constraint as fb_copy_span (char_w is a 7-bit field; a
+ * width of exactly 128 truncates to 0) -- not enforced here since every
+ * current caller (56px meter thumbnails) is well under it; a caller needing
+ * a wider blit must split itself, same as fb_copy() does for fb_copy_span(). */
+static void fb_cblit(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
+                     uint32_t w, uint32_t h)
+{
+    if (!w || !h || FB_HELD()) return;
+    uint32_t src = sy_ * FB_STRIDE + sx_;
+    fb_wait();
+    REG(R_FB_ADDR)  = dy * FB_STRIDE + dx;
+    REG(R_FB_SIZE)  = (h << 9) | w;
+    REG(R_FB_COLOR) = ((src >> 16) & 0x7u) | ((src & 0xFFFFu) << 16);
+    fb_color_shadow = 0xFFFFFFFFu;      /* colour regs clobbered -- invalidate */
+    REG(R_FB_GO)    = FB_OP_CBLIT;
 }
 
 static void fb_char(uint32_t x, uint32_t y, char ch, uint32_t sx, uint32_t sy)
@@ -9162,8 +9201,12 @@ int main(void)
 #if TAU_COLD
     cold_boot_load();                 /* first: the cold image holds data the menus need */
 #endif
-#if TAU_BLIT_PROBE
-    blit_probe();                     /* PHASE_F_SPEC.md section 12: BLIT_READY() fail-safe, no feature reads it yet */
+#if TAU_BLIT_PROBE || TAU_METER_THUMBS
+    blit_probe();                     /* PHASE_F_SPEC.md section 12/5: BLIT_READY() fail-safe -- section 12's
+                                        * own "no feature reads it yet" is now stale: set_draw_thumb()'s
+                                        * OP_CBLIT path (B8) is the first real consumer, so this now runs
+                                        * whenever meter thumbnails are compiled in, not just the diagnostic
+                                        * opt-in TAU_BLIT_PROBE. */
 #endif
 #if TAU_LIBRARY
     ui_boot_note("LOADING LIBRARY");

@@ -165,11 +165,13 @@ static uint8_t set_lib_confirm;               /* the Library page is waiting for
 #include "meter_thumbs.h"
 _Static_assert(VIZ_COUNT == 11 && VIZ_BARS == 0 && VIZ_LED == 10,
                "meter_thumbs.h is indexed by the VIZ_* enum order (tools/gen_meter_thumbs.py ORDER)");
-/* Draw preview `viz` at (x, y): fill with the dominant colour, then paint every other run as a
- * one-row rectangle (runs may cross row ends). */
-COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
+
+/* Draw preview `viz` at (x, y) by decoding the RLE in software: fill with the dominant colour,
+ * then paint every other run as a one-row rectangle (runs may cross row ends). This is the
+ * original path -- dozens of fb_rect draw-engine round-trips per thumbnail -- kept as the B8
+ * fail-safe for a bitstream without the blit engine (BLIT_READY() == 0, B-126). */
+COLD_FN static void set_draw_thumb_soft(uint32_t x, uint32_t y, uint32_t viz)
 {
-    if (!cold_ready()) { fb_rect(x, y, METER_THUMB_W, METER_THUMB_H, UI_TRACK); return; }   /* cold image not loaded: a plain box */
     const uint16_t *pal = meter_thumb_pal[viz];
     const uint8_t *p = &meter_thumb_rle[meter_thumb_off[viz]], *e = &meter_thumb_rle[meter_thumb_off[viz + 1u]];
     uint32_t pos = 0;
@@ -187,6 +189,54 @@ COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
         }
         pos += n;
     }
+}
+
+/* Phase F B8 firmware integration: VIZ_COUNT flat 56x32 palette-index buffers, one CLUT-blit
+ * source per thumbnail, stashed in the same off-screen-row address space ART_STASH_Y already
+ * uses (row*FB_STRIDE+col, never displayed past FB_H=360) -- not a new SDRAM region, the same
+ * proven convention. Built ONCE, lazily, from the same RLE data set_draw_thumb_soft() decodes,
+ * via the CPU's uncached SDRAM window (the same idiom blit_probe.inc already uses): ~19,712
+ * individual word writes total (11 x 56 x 32), ~49 cycles each per this project's own A-094
+ * uncached-access measurement, ~16 ms one-time -- paid only if/when Settings is ever opened, not
+ * on every boot. After this, every redraw is one fb_clut_load() (8 writes) + one fb_cblit() (one
+ * draw-engine command) instead of dozens of fb_rect calls. */
+#define THUMB_STASH_Y (ART_STASH_Y + ART_H)
+static uint8_t thumb_flat_ready;
+
+COLD_FN static void set_thumb_flat_build(void)
+{
+    for (uint32_t viz = 0; viz < VIZ_COUNT; viz++) {
+        const uint8_t *p = &meter_thumb_rle[meter_thumb_off[viz]], *e = &meter_thumb_rle[meter_thumb_off[viz + 1u]];
+        uint32_t pos = 0;
+        uint32_t base_row = THUMB_STASH_Y + viz * METER_THUMB_H;
+        while (p < e) {
+            uint32_t b = *p++, idx = b >> 5, n = (b & 31u) + 1u;
+            uint32_t at = pos, left = n;
+            while (left) {
+                uint32_t col = at % METER_THUMB_W, row = at / METER_THUMB_W;
+                uint32_t seg = METER_THUMB_W - col;
+                if (seg > left) seg = left;
+                uint32_t word_addr = (base_row + row) * FB_STRIDE + col;
+                for (uint32_t k = 0; k < seg; k++) {
+                    volatile uint16_t *w16 =
+                        (volatile uint16_t *)(uintptr_t)(0xA0000000u + ((word_addr + k) << 1));
+                    *w16 = (uint16_t)idx;
+                }
+                at += seg; left -= seg;
+            }
+            pos += n;
+        }
+    }
+    thumb_flat_ready = 1u;
+}
+
+COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
+{
+    if (!cold_ready()) { fb_rect(x, y, METER_THUMB_W, METER_THUMB_H, UI_TRACK); return; }   /* cold image not loaded: a plain box */
+    if (!BLIT_READY()) { set_draw_thumb_soft(x, y, viz); return; }                          /* B8 fail-safe: old bitstream */
+    if (!thumb_flat_ready) set_thumb_flat_build();
+    fb_clut_load(meter_thumb_pal[viz], 8u);
+    fb_cblit(0u, THUMB_STASH_Y + viz * METER_THUMB_H, x, y, METER_THUMB_W, METER_THUMB_H);
 }
 #endif
 

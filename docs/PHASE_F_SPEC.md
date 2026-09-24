@@ -274,8 +274,18 @@ plus the address/Bresenham advance — breaking the combinational chain that fed
 proven qsf) closed on the first attempt: Slow 85C setup **+1.787 ns** (was -0.086 ns), Slow 0C setup
 **+1.383 ns** (was the reported **-0.025 ns** violation), hold **+0.285 ns**/**+0.270 ns** (both TNS 0.000).
 RAM unchanged at 299/308. **B8 step 1 (CLUT blit) is now RTL/sim-correct AND timing-proven for the product
-configuration.** Not yet packaged, installed, or firmware-integrated — `player.c` register defines and
-`set_draw_thumb()`'s switch to `OP_CBLIT` (the real "one command per thumbnail" win) are the next step.
+configuration.**
+
+**Firmware integration done, 2026-09-24 (B-160).** `fb_clut_load()`/`fb_cblit()` added to `player.c`;
+`set_draw_thumb()` now issues one `OP_CBLIT` per thumbnail instead of dozens of `fb_rect` calls, sourced from
+11 flat 56x32 index buffers built **once, lazily** (~16 ms total, negligible against boot) via the CPU's
+uncached SDRAM window into off-screen rows reusing the art stash's own addressing convention (no new SDRAM
+region). `BLIT_READY()`'s gate widened from diagnostic-only to `TAU_METER_THUMBS`, so the fail-safe (fall back
+to the kept-intact software path, `set_draw_thumb_soft()`) actually runs for this feature instead of being
+dead code — necessary because the blit engine has not shipped in the release bitstream yet. All builds compile
+clean, `dist/`'s release ROM confirmed byte-identical (feature is off there). **Not yet run on real hardware.**
+The considered-and-parked zero-CPU alternative (APF's `data_slots[].address` bridge auto-load pushing a
+pre-baked asset straight into SDRAM) is recorded in section 13.
 
 **The two-state design, as built:**
 - **Opcode 7** (`OP_CBLIT`) — the last value the existing 3-bit `cmd_op` field has room for, no width change
@@ -678,6 +688,13 @@ Kept deliberately, with reasoning, so none of it has to be re-invented. None of 
 
 **Beyond the 2D engine:**
 
+- **APF bridge auto-load (`data_slots[].address`) for bulk SDRAM asset init, parked 2026-09-24.** Considered as
+  a zero-CPU-cost alternative to CPU-driven expansion of the B8/B10 meter-thumbnail flat buffer: today only the
+  `Firmware` slot (`tau.rom`) uses `address` (boot-time bridge push into on-chip BRAM); every other slot is
+  `deferload` + CPU-pulled. Routing a new slot's `address` into SDRAM instead of BRAM would need the core's
+  bridge-write decode extended to accept an SDRAM target — a real RTL question, not investigated further
+  (owner: explore later once there's a better outlook on system performance, not now). The one-time boot-time
+  CPU-uncached-write expand (~16 ms, see B8 step 1 firmware integration) is the interim approach.
 - **True FFT via R2SDF + CORDIC twiddles**, if linear frequency bins are ever genuinely wanted (section 7).
 - **Tile-based 3D**, revisited honestly after the 192 KB shrink frees 64 blocks (section 8).
 - **JPEG hardware acceleration** — the dominant user-visible cost today is decode time (multiple seconds for a
