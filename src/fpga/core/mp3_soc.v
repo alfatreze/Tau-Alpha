@@ -999,6 +999,34 @@ module mp3_soc #(
             end
             assign if_n_rd = n_r;
             assign if_cyc_rd = cyc_r;
+
+            // B-188: DBGM showed bt_begin()'s first line (bt_crumb(1)) never executes at all --
+            // bt_begin() is cold code, fetched through exactly this arbiter, so the leading
+            // hypothesis is a stalled instruction fetch here, not anything inside bt_begin()'s
+            // own logic. This probe answers it directly rather than guessing further: iCYC/iSTB/
+            // i_is_psram show whether the CPU is even asking this window for an instruction right
+            // now; ictl_req/dctl_req/busy/gi show whether the arbiter's own priority (data always
+            // wins a tie -- sel_i's own expression, `~dctl_req & ictl_req`, when not busy) is
+            // starving the instruction side by a data client holding dctl_req continuously; psram_req/
+            // psram_done/ipsram_ack show whether a granted request ever actually completes at the
+            // controller. Same convention as the other two ISSP instances -- TAU_ISSP-gated, never
+            // in the release or the normal Diagnostic Build, read-only.
+`ifdef TAU_ISSP
+            altsource_probe #(
+                .sld_auto_instance_index("YES"),
+                .sld_instance_index(0),
+                .instance_id("IFPS"),
+                .probe_width(10),
+                .source_width(1),
+                .source_initial_value("0"),
+                .enable_metastability("NO")
+            ) u_issp_ifetch (
+                .source_clk (clk),
+                .probe       ({psram_done, psram_req, ipsram_ack, gi, busy,
+                                dctl_req, ictl_req, i_is_psram, iSTB, iCYC}),
+                .source      ()
+            );
+`endif
         end else begin : g_no_ifetch
             assign psram_req = dctl_req;   assign psram_we = dctl_we;
             assign psram_word = dctl_word; assign psram_wdata = dctl_wdata;
