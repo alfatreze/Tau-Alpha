@@ -1000,6 +1000,33 @@ COLD_FN static void bt_checkpoint(const char *msg)
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 5u * PL_UI_ROW_H, msg, TS_1X, TS_1X, PL_UI_W - 32u);
 }
 
+/* B-176: a checkpoint that never touches the draw engine at all -- B-174's own draw-based
+ * checkpoints showed NOTHING on the last run (not even the very first one), which rules out
+ * blit_probe()/CBLIT specifically as the sole cause and raises a harder question: is even a plain,
+ * everywhere-else-proven-safe fb_rect()/fb_text_clipped() call unsafe from THIS calling context
+ * (bt_begin(), reached synchronously from the KEY_A input-handler edge, not from the normal
+ * per-frame set_draw() dispatch every other page's drawing goes through -- no other "begin"
+ * function in this codebase draws directly; checked chk_begin()/sw_begin(), neither does). This
+ * decouples "record where we are" from the draw engine entirely: a raw CPU write to a fixed
+ * off-screen SDRAM word (0xA0000000 + word_addr*2, the same uncached-window idiom blit_probe()
+ * already uses for its own sentinel, but a different word -- column 482, clear of both
+ * blit_probe()'s probe_addr=480 and its probe_row2=480+512=992), no fb_wait(), no R_FB_GO touch,
+ * so it cannot hang even if the draw engine itself is what's stuck. Read back later from the
+ * idle page (drawn through the ordinary, always-safe set_draw() dispatch, not synchronously) --
+ * SDRAM content is expected to survive a forced Quit/reload (not explicitly re-initialised), so
+ * the last value written before a hang should still be there on the next visit to this page. */
+#define BT_CRUMB_ADDR 482u
+static void bt_crumb(uint32_t step)
+{
+    volatile uint16_t *p = (volatile uint16_t *)(uintptr_t)(0xA0000000u + (BT_CRUMB_ADDR << 1));
+    *p = (uint16_t)step;
+}
+static uint32_t bt_crumb_read(void)
+{
+    volatile uint16_t *p = (volatile uint16_t *)(uintptr_t)(0xA0000000u + (BT_CRUMB_ADDR << 1));
+    return *p;
+}
+
 COLD_FN static void bt_finish(void)
 {
     uint32_t len = sr_finish(&bt_rec);
@@ -1022,12 +1049,16 @@ COLD_FN static void bt_finish(void)
  * of where the HUD stopped, not a reported failure. */
 COLD_FN static void bt_advance(void)
 {
+    bt_crumb(12);   /* entered bt_advance() at least once */
     if (!bt_at) {   /* entering a new (op, level) window */
         bt_win0 = cycles(); bt_at = bt_win0 + BT_WIN_S * CLK_HZ; bt_stall0 = REG(R_FB_STALL);
         bt_ops_done = 0u; bt_cx = bt_cy = 0u;
     }
+    bt_crumb(13);   /* about to draw the HUD (fb_text_clipped) */
     bt_hud();
+    bt_crumb(14);   /* HUD drawn -- about to issue this tick's cell(s) */
     for (uint32_t k = 0; k < bt_ops_per_tick[bt_lvl]; k++) bt_draw_cell();
+    bt_crumb(15);   /* this tick's cell(s) all issued without hanging */
     if ((int32_t)(cycles() - bt_at) < 0) return;
     uint32_t window_cyc = BT_WIN_S * CLK_HZ;
     uint32_t stall = REG(R_FB_STALL) - bt_stall0;
@@ -1045,7 +1076,9 @@ COLD_FN static void bt_advance(void)
 
 COLD_FN static void bt_begin(void)
 {
+    bt_crumb(1);   /* entered bt_begin() */
     bt_checkpoint("checkpoint: blit probe...");
+    bt_crumb(2);   /* the checkpoint's own fb_rect()/fb_text_clipped() returned */
 #if TAU_METER_THUMBS
     blit_probe_ensure();   /* B-168: must run BEFORE the BLIT_READY() check below, not after --
                              * it is what actually sets blit_ready. Checking first meant this
@@ -1054,21 +1087,30 @@ COLD_FN static void bt_begin(void)
                              * support -- confirmed a pure ordering bug, not an RTL/hardware issue,
                              * since B-164 already proved OP_BLIT works on this exact bitstream. */
 #endif
+    bt_crumb(3);   /* blit_probe_ensure() returned */
     bt_checkpoint("checkpoint: blit probe OK");
+    bt_crumb(4);
     if (!BLIT_READY()) { bt_state = BT_REFUSED; set_dirty = 1u; return; }
+    bt_crumb(5);   /* BLIT_READY() passed */
     bt_op = bt_lvl = 0u; bt_at = 0u;
     sr_init(&bt_rec, CHK_REC, CHK_REC_CAP, 8u);
     uint32_t fwv = ((uint32_t)(APP_VER[0] - '0') << 16) | ((uint32_t)(APP_VER[2] - '0') << 8) | (uint32_t)(APP_VER[4] - '0');
     uint32_t build[4] = { fwv, REG(R_VERSION), 0u, 0u };
     sr_vals(&bt_rec, SR_T_BUILD, 4, build, 4);
+    bt_crumb(6);
 #if TAU_METER_THUMBS
     bt_checkpoint("checkpoint: thumb build...");
+    bt_crumb(7);   /* about to call set_thumb_flat_build() (or skip it if already built) */
     if (!thumb_flat_ready) set_thumb_flat_build();
+    bt_crumb(8);   /* set_thumb_flat_build() returned, or was skipped */
     bt_checkpoint("checkpoint: thumb build OK");
     bt_checkpoint("checkpoint: clut load...");
+    bt_crumb(9);   /* about to call fb_clut_load() */
     fb_clut_load(meter_thumb_pal[0], 8u);   /* CBLIT's cell reads one corner of viz 0's thumbnail */
+    bt_crumb(10);  /* fb_clut_load() returned */
     bt_checkpoint("checkpoint: clut load OK");
 #endif
+    bt_crumb(11);  /* about to set bt_state = BT_RUN, bt_begin() is otherwise done */
     bt_state = BT_RUN;
     set_dirty = 1u;
 }
@@ -1120,6 +1162,17 @@ COLD_TEXT static void bt_draw(void)
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "levels each -- no audio needed.", TS_1X, TS_1X, PL_UI_W - 32u);
         fb_set_color(UI_FAINT, UI_PANEL);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 4u * PL_UI_ROW_H, "A START   B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+        /* B-176: the last run's furthest crumb, read back from raw SDRAM (never the draw engine) --
+         * so a hang that leaves NOTHING drawn (as the last run did) still leaves this line correct
+         * the next time this page is visited, no cable or screenshot-mid-hang needed. 0 = never run
+         * since boot (a fresh crumb word, or one a different core's session left behind). */
+        {
+            uint32_t c = bt_crumb_read();
+            char ln[32], *q = ln;
+            q = set_str(q, "last run reached: "); q = ui_dec(q, c); *q = 0;
+            fb_set_color(UI_DIM, UI_PANEL);
+            fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 5u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
+        }
         return;
     }
     if (bt_state == BT_REFUSED) {
