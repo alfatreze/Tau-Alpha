@@ -189,11 +189,14 @@ Sequence: this proof build comes **before the blit engine** (Phase F0 in the roa
   type MLAB) or shrink the buffer (512 samples = about 2 blocks) for the proof.
 - Open: the trigger condition is still the GUI default.
 
-## 6. ISSP (In-System Sources and Probes) -- live register/state readback (B-172/B-173/B-178)
+## 6. ISSP (In-System Sources and Probes) -- live register/state readback (B-172/B-173/B-178/B-186)
 
-**Status: build proven (fit closes clean, near-zero M10K cost), readback commands verified against
-a live `system-console` session (no cable connected -- discovery/syntax checked, end-to-end
-readback with real hardware NOT yet exercised).**
+**Status: build proven, and now proven end-to-end on real hardware (B-186, 2026-09-24).** First
+real result: the draw engine is NOT the hang -- see 6.5. **Correction to the procedure below:**
+`open_service issp $path` (documented in B-178, verified only against an empty `get_service_paths`
+result with no cable connected) returns an empty handle with no error once a cable is actually
+connected -- silently unusable. Use `claim_service issp $path ""` instead (step 4 below is now
+correct); B-178's dry-run against a disconnected chain could not have caught this.
 
 ### 6.1 What this is for
 
@@ -239,26 +242,50 @@ changing -- which state it's stuck at says which opcode's dispatch path is invol
    export PATH=/home/taualpha/intelFPGA_lite/25.1std/quartus/sopc_builder/bin:/home/taualpha/intelFPGA_lite/25.1std/quartus/bin:$PATH
    system-console --cli
    ```
-4. **Find the ISSP service path and read the probe** (commands verified against a live session,
-   `get_service_paths issp` returns empty with no cable connected, as expected):
+4. **Find the ISSP service path and read the probe.** `open_service` (B-178's documented form) does
+   NOT work once a real cable is connected -- confirmed on real hardware, B-186 -- it returns an
+   empty handle with no error. Use `claim_service` instead:
    ```tcl
    set path [lindex [get_service_paths issp] 0]
-   set claimed [open_service issp $path]
+   set claimed [claim_service issp $path ""]
    set bits [issp_read_probe_data $claimed]
    puts $bits
    close_service issp $claimed
    ```
    `issp_get_instance_info $claimed` also exists (probe/source width, instance id) if `$path`
    itself needs disambiguating from other ISSP instances later.
-5. **Decode `$bits`** per the table in 6.2 (it comes back as a single bit vector/hex string --
-   exact return format not yet confirmed against real hardware, note it here once seen).
+5. **Decode `$bits`** per the table in 6.2 -- confirmed (B-186) it comes back as a plain Tcl integer
+   (use `format {0x%05X} $bits` for a fixed-width hex view across repeated reads).
 
 ### 6.4 Open items
 
-- End-to-end readback (real cable, real hang, real probe read) not yet done -- the procedure above
-  is real, verified Tcl syntax, not the workflow's actual first live run.
-- `$bits`'s exact return type/format (binary string? hex? a list?) needs recording from the first
-  real read.
+- ~~End-to-end readback~~ Done, B-186 -- see 6.5 for the result.
 - If Blit Test's next hang needs a different install than what's currently on the card, the ISSP
   `.sof` can be loaded via JTAG over whatever core is already running (step 1) without touching the
   SD card at all -- no need to repackage/reinstall just to get the debug bitstream on.
+- Reprogramming via `quartus_pgm` fully reconfigures the FPGA -- it does NOT preserve whatever
+  hung state existed under the previously-running bitstream. The hang must be reproduced fresh on
+  the ISSP-instrumented core (step 2) after loading it, every time, not assumed to carry over.
+- `jtagconfig` reported "JTAG chain broken" until a Tau core was actually loaded and running on the
+  Pocket (not sitting idle/unconfigured) -- load a core first if the chain doesn't show up.
+
+### 6.5 First real result (B-186, 2026-09-24): the draw engine is not the hang
+
+Read 12 times over ~2.5 s while the Blit Test hang was live on `TAU_0_5_0_A_12` (loaded via JTAG
+onto the ISSP build, hang reproduced fresh). Every read was `0x00000` or `0x00001` -- bit 0 alone
+flickers, everything else is rock solid at 0:
+
+- `fifo_fill = 0` constantly -- the command FIFO is empty, nothing queued.
+- All six mode flags 0 constantly -- no multi-cycle opcode (`OP_BLIT`/`OP_CBLIT`/`OP_SBLIT`/`OP_BAR`)
+  is in flight.
+- `astate` alternates only between 0 (`A_IDLE`) and 1 (`A_FILL`) -- the exact pattern of routine,
+  healthy periodic scanline fills during normal video refresh, nothing else.
+
+**Conclusion: the draw engine's dispatch state machine is not stuck on anything.** It is alive,
+accepting no new commands, doing ordinary video scanout. This directly rules out every hypothesis
+this thread has run since B-166 (all aimed at an RTL/dispatch-state hang) and points the hang at the
+CPU/firmware side instead -- something never reaches the point of pushing a new draw command, or
+never gets that far at all. Most likely candidates, none of which this probe can see (it only
+watches `mp3_fb.sv`, not the CPU): `blit_probe()`, `bt_begin()`/`bt_crumb()`'s own state machine, or
+an MMIO poll condition that never resolves. A CPU-side trace is the real next step, not another RTL
+hypothesis -- see `docs/AUDIT_TRAIL.md` B-186 for the full account.

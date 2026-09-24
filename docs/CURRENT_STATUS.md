@@ -2,9 +2,13 @@
 
 **Latest session (2026-09-24): full handoff in `docs/SESSION_HANDOFF_2026-09-24_BLIT_TEST.md`.**
 B8 (CLUT blit) is done and proven on real hardware. A new "Blit Test" diagnostic hangs on real
-hardware and four source-level fix attempts have not resolved it -- do not attempt another blind
-fix; ISSP (live JTAG register/state readback) is built, fit-proven, and its procedure is verified
-against the real tooling, waiting on cable access. Read that file before continuing this thread.
+hardware; four source-level RTL fix attempts did not resolve it, and **ISSP's first real hardware
+read (B-186) now proves why: the draw engine itself is not hung.** A live probe read during the
+hang showed the dispatch state machine cycling normally through idle/scanline-fill, an empty
+command FIFO, and no opcode in flight -- the hang is CPU/firmware-side, not an RTL dispatch-state
+problem, which is what every fix attempt so far was aimed at. Investigation now needs to move to
+firmware, not RTL. Read `docs/JTAG_DEBUG_ACCESS.md` section 6.5 and `docs/AUDIT_TRAIL.md` B-186
+before continuing this thread.
 
 **Earlier snapshot:** 2026-09-22. Tau **v0.4.0** is released and installed on the owner's card (media library, Phase G cold code,
 on-device diagnostics; two zips: TAU and TAU_DIAGNOSTIC). Full detail: `docs/SESSION_HANDOFF_2026-09-22_RELEASE_0.4.md`.
