@@ -97,6 +97,8 @@
 #define FB_OP_CHAR  2u
 #define FB_OP_COPY  3u
 #define FB_OP_BLIT  4u   /* Phase F B1 */
+#define FB_OP_BAR   5u   /* Phase F B6 */
+#define FB_OP_SBLIT 6u   /* Phase F B4 */
 #define FB_OP_CBLIT 7u   /* Phase F B8 */
 
 /* Album-art panel. The image is decoded ONCE into an off-screen SDRAM stash
@@ -493,6 +495,73 @@ static void fb_cblit(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
     REG(R_FB_COLOR) = ((src >> 16) & 0x7u) | ((src & 0xFFFFu) << 16);
     fb_color_shadow = 0xFFFFFFFFu;      /* colour regs clobbered -- invalidate */
     REG(R_FB_GO)    = FB_OP_CBLIT;
+}
+
+/* B-166 (Blit Test): the three opcodes nothing in this firmware has ever
+ * issued before -- OP_RUN as itself (fb_rect always emits OP_RECT even for
+ * h=1, so the RUN opcode has never actually been exercised), OP_BLIT (a
+ * plain, non-CLUT generalised blit; fb_cblit() above only covers B8),
+ * OP_BAR and OP_SBLIT (B6/B4 -- confirmed by the B-112 audit that nothing
+ * had ever called either operationally). All three reuse the exact
+ * addressing/register conventions already proven by fb_cblit()/fb_copy_span()
+ * and blit_probe.inc's own OP_BLIT usage -- no new RTL, no new register. */
+
+/* OP_RUN: a single-row fill, the true opcode 0 (not RECT's h=1 case). */
+static void fb_run(uint32_t x, uint32_t y, uint32_t w, uint16_t color)
+{
+    if (!w || FB_HELD()) return;
+    fb_wait();
+    REG(R_FB_ADDR) = y * FB_STRIDE + x;
+    REG(R_FB_SIZE) = (1u << 9) | w;
+    fb_set_color(color, color);
+    REG(R_FB_GO)   = FB_OP_RUN;
+}
+
+/* OP_BLIT: same addressing as fb_cblit() minus the CLUT -- a raw pixel copy
+ * with independent source/dest via the sticky SRC/DST BASE+STRIDE fields
+ * (left at their power-up default here, same as fb_cblit()). */
+static void fb_blit(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
+                    uint32_t w, uint32_t h)
+{
+    if (!w || !h || FB_HELD()) return;
+    uint32_t src = sy_ * FB_STRIDE + sx_;
+    fb_wait();
+    REG(R_FB_ADDR)  = dy * FB_STRIDE + dx;
+    REG(R_FB_SIZE)  = (h << 9) | w;
+    REG(R_FB_COLOR) = ((src >> 16) & 0x7u) | ((src & 0xFFFFu) << 16);
+    fb_color_shadow = 0xFFFFFFFFu;
+    REG(R_FB_GO)    = FB_OP_BLIT;
+}
+
+/* OP_BAR: (x, base_y) top-left, w wide, h rows total, `lit` of them lit (fg)
+ * at the bottom, the rest unlit (bg) at the top -- mp3_fb.sv's own B6 field
+ * convention (cmd_glyph reused as the lit-row count, clamped to h in RTL). */
+static void fb_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit,
+                   uint16_t fg, uint16_t bg)
+{
+    if (!w || !h || FB_HELD()) return;
+    fb_wait();
+    REG(R_FB_ADDR) = y * FB_STRIDE + x;
+    REG(R_FB_SIZE) = (h << 9) | w;
+    fb_set_color(fg, bg);
+    REG(R_FB_GO)   = FB_OP_BAR | ((lit & 0x7Fu) << 3);
+}
+
+/* OP_SBLIT: same source/dest addressing as fb_blit(), but (w, h) here are
+ * the DESTINATION (scaled) extent, and scale_x/scale_y (0-3 = 1x/1.5x/2x/3x,
+ * CHAR's own encoding, reused verbatim -- mp3_fb.sv's cmd_sx/cmd_sy) ride in
+ * R_FB_GO's sx/sy bits, the same bit positions fb_char() already uses. */
+static void fb_sblit(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
+                     uint32_t w, uint32_t h, uint32_t scale_x, uint32_t scale_y)
+{
+    if (!w || !h || FB_HELD()) return;
+    uint32_t src = sy_ * FB_STRIDE + sx_;
+    fb_wait();
+    REG(R_FB_ADDR)  = dy * FB_STRIDE + dx;
+    REG(R_FB_SIZE)  = (h << 9) | w;
+    REG(R_FB_COLOR) = ((src >> 16) & 0x7u) | ((src & 0xFFFFu) << 16);
+    fb_color_shadow = 0xFFFFFFFFu;
+    REG(R_FB_GO)    = FB_OP_SBLIT | ((scale_x & 3u) << 10) | ((scale_y & 3u) << 12);
 }
 
 static void fb_char(uint32_t x, uint32_t y, char ch, uint32_t sx, uint32_t sy)
@@ -10376,6 +10445,7 @@ int main(void)
 #if MP3_PROFILE || FLAC_PROFILE
         sw_tick();
 #endif
+        bt_tick();
 #endif
 #if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
         dg_soak_tick();

@@ -28,6 +28,9 @@ enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS,
 #define SET_CHECK_PG ((uint8_t)(SET_LIBCFG_PG + 1u)) /* the user-facing diagnostics run (fw/suite.inc) */
 #if MP3_PROFILE || FLAC_PROFILE
 #define SET_SWEEP_PG ((uint8_t)(SET_CHECK_PG + 1u))   /* Decode Profile Sweep, B-090/B-091 (fw/suite.inc) */
+#define SET_BLITTEST_PG ((uint8_t)(SET_SWEEP_PG + 1u))   /* Blit Test, B-166 (fw/suite.inc) */
+#else
+#define SET_BLITTEST_PG ((uint8_t)(SET_CHECK_PG + 1u))   /* Blit Test, B-166 (fw/suite.inc) */
 #endif
 #endif
 #endif
@@ -76,6 +79,7 @@ static const set_row_t set_dgn_rows[] = {
 #if MP3_PROFILE || FLAC_PROFILE
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
 #endif
+    { "BLIT TEST", RT_GROUP, SET_BLITTEST_PG },
 #endif
 #else
     { "INFO", RT_GROUP, SET_INFO_PG },          /* unreachable placeholder: the page exists only in the Diagnostic Build */
@@ -882,6 +886,7 @@ COLD_FN static void set_draw(void)
 #if MP3_PROFILE || FLAC_PROFILE
     else if (set_page == SET_SWEEP_PG)       sw_draw();
 #endif
+    else if (set_page == SET_BLITTEST_PG)    bt_draw();
 #endif
 #endif
 #if TAU_DIAG_INFO
@@ -936,6 +941,7 @@ static int set_input(uint32_t edge, uint32_t keys)
 #if MP3_PROFILE || FLAC_PROFILE
     if (set_page == SET_SWEEP_PG) return sw_input(edge);
 #endif
+    if (set_page == SET_BLITTEST_PG) return bt_input(edge);
 #endif
     if (edge & KEY_START) { set_close(); return 1; }
 #if TAU_LIBRARY
@@ -984,6 +990,7 @@ static int set_input(uint32_t edge, uint32_t keys)
 #if MP3_PROFILE || FLAC_PROFILE
             if (set_page == SET_SWEEP_PG) sw_open();
 #endif
+            if (set_page == SET_BLITTEST_PG) bt_open();
 #endif
         }
         else if (r->type == RT_CHOICE) {
