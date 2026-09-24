@@ -311,10 +311,23 @@ precomputed cut-per-row table via a new sticky MMIO pair, RTL just reads it. Ful
 shape generalising BAR's chained-segment trick, verification plan): `docs/PHASE_F_SPEC.md` section 5's B11
 write-up. Precise enough to build cold next time.
 
-**Next, in order:** B10 (hardware RLE source blit, the remaining unbuilt Tier 2 item) or B11's actual build
-(design is ready). Then investigate the pre-existing `Track changes` Check failure (open since B-138, unrelated
-to B8) and the M10K/RAM-shrink track, per the roadmap's own ordering — both blocked on a card write, deliberately
-deferred until the Blit Test hang has a real diagnosis (ISSP, waiting on JTAG cable access).
+**B10 (hardware RLE source blit), 2026-09-24 — analysed, design only, not built; value re-assessed downward.**
+Read the real target before designing (`set_draw_thumb()`/`set_thumb_flat_build()` in `fw/settingsui.inc`) and
+found B10's original motivation is already substantially met: B8 step 1 (shipped, hardware-proven) already
+avoids per-draw RLE decode by expanding the RLE data into flat index buffers once, lazily, per session (~16 ms
+total) — every redraw is already one `fb_clut_load()` + one `fb_cblit()`. B10 would only additionally save that
+one-time ~16 ms and ~38.5 KB of SDRAM (not the scarce M10K resource). Design recorded anyway for completeness:
+each decoded RLE run becomes a chained `OP_RECT`-shape constant-data burst of `clut[idx]` (cheaper than
+`OP_CBLIT`'s own per-pixel reads), sharing B11's identified `cmd_op`-widening need and its "chain of bursts"
+sequencer shape — the one genuinely new wrinkle is a *data-dependent* source-consumption rate (unlike every
+other opcode's fixed one-word-per-pixel/row rate), which needs its own mutation-test design, not a copy of an
+existing hook. Full design: `docs/PHASE_F_SPEC.md` section 5's B10 write-up.
+
+**Next, in order:** B11 or B10's actual build (both designs are ready; B11 has the larger proven payoff — every
+selected list row and the panel border, versus B10's now-marginal one-time/SDRAM savings). Then investigate the
+pre-existing `Track changes` Check failure (open since B-138, unrelated to B8) and the M10K/RAM-shrink track,
+per the roadmap's own ordering — both blocked on a card write, deliberately deferred until the Blit Test hang
+has a real diagnosis (ISSP, waiting on JTAG cable access).
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
