@@ -1,0 +1,44 @@
+# B-172: the debug-only variant of tools/blit_g3_qsf_append.txt, with TAU_ISSP added.
+#
+# In-System Sources and Probes on mp3_fb.sv's draw-engine dispatch state (astate, command FIFO
+# occupancy, and the multi-cycle-operation mode flags), for live JTAG readback of exactly "what is
+# the draw engine stuck on" when a hang recurs (docs/JTAG_DEBUG_ACCESS.md section 3 -- no internal-
+# signal visibility exists in any shipped bitstream today; this is the cheapest tool for a hang
+# specifically, near-zero M10K unlike SignalTap's capture buffers).
+#
+# Deliberately its own separate qsf append, not folded into blit_g3_qsf_append.txt -- per the
+# owner's own instruction (2026-09-24), this debug logic stays out of the normal Diagnostic Build
+# and the release entirely; only a build that explicitly appends THIS file carries it. Use exactly
+# like blit_g3_qsf_append.txt (same base: TAU_PHASE2_WINDOW/TAU_PSRAM_PROBE/TAU_PSRAM_WINDOW/
+# TAU_PSRAM_IFETCH/TAU_MLAB_MIGRATE/TAU_FONT_REPACK/TAU_SDRAM_BUSY/TAU_BLIT), plus TAU_ISSP.
+set_global_assignment -name VERILOG_MACRO "TAU_PHASE2_WINDOW=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_PROBE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_WINDOW=1"
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_lb_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_lb_n
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_IFETCH=1"
+set_global_assignment -name VERILOG_MACRO "TAU_MLAB_MIGRATE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_FONT_REPACK=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_BUSY=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BLIT=1"
+set_global_assignment -name VERILOG_MACRO "TAU_ISSP=1"

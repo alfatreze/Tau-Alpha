@@ -1287,6 +1287,46 @@ module mp3_fb #(
         video_vs     <= vs_p1;
     end
 
+    // ======================================================================
+    // B-172: In-System Sources and Probes -- live JTAG readback of the draw
+    // engine's dispatch state, for exactly the "what is it stuck on" question
+    // a genuine hang leaves no other way to answer (docs/JTAG_DEBUG_ACCESS.md
+    // section 3: no internal-signal visibility exists in any shipped
+    // bitstream today). Deliberately the cheapest tool for this job, not
+    // SignalTap: a hang is a state that stops changing, so a plain live probe
+    // answers it -- no trigger, no capture depth, near-zero M10K (unlike
+    // SignalTap's capture buffers, which would compete for the ~9-10 free
+    // M10K blocks this project has left). Read-only (source_width kept at its
+    // required minimum; nothing is ever driven back into the design from
+    // JTAG). Default OFF -- gated behind its own macro so it costs nothing
+    // unless a Diagnostic-Build-only debug variant explicitly turns it on;
+    // never part of the release or the normal Diagnostic Build fit.
+    //
+    // Probe bits (19, LSB first): astate[3:0] (the dispatch state itself --
+    // A_IDLE=0 through A_COMPOSE_WR=11, see the astate localparam list
+    // above); fifo_fill[8:0] (command FIFO occupancy, already computed
+    // above -- 0 stuck non-zero would mean commands are queued but never
+    // draining; 256 stuck full would mean the CPU can't even push a new one);
+    // blit_mode, cblit_mode, sblit_mode, copy_mode, rect_active, bar2_pending
+    // (6 bits -- which multi-cycle operation's own path is active, the most
+    // direct answer to "which opcode was it on" a hang can give).
+`ifdef TAU_ISSP
+    altsource_probe #(
+        .sld_auto_instance_index("YES"),
+        .sld_instance_index(0),
+        .instance_id("BLIT"),
+        .probe_width(19),
+        .source_width(1),
+        .source_initial_value("0"),
+        .enable_metastability("NO")
+    ) u_issp_blit (
+        .source_clk (clk_sdram),
+        .probe       ({bar2_pending, rect_active, copy_mode, sblit_mode, cblit_mode, blit_mode,
+                        fifo_fill, astate}),
+        .source      ()
+    );
+`endif
+
 endmodule
 
 `default_nettype wire
