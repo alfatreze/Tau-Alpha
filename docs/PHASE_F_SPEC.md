@@ -231,10 +231,19 @@ this RTL added: `RAM Blocks` 299/308 (exactly +1, the CLUT's own M10K, no surpri
 +0.088 ns / Slow 0C -0.025 ns. Hold clean on both. This is small but real and consistent in direction across
 both seeds — not seed noise — so the CLUT's physical cost (a new dual-clock M10K plus its read/write logic) is
 not free the way B7's busy counter or the MLAB/font-repack work were. **This bitstream is not ready to ship.**
-The exact violating path was not identified before deciding it wasn't worth more time that session (a
-`quartus_sta`/`report_timing` path-query attempt failed on a wrong TCL API call, not retried) — whoever picks
-this up next should get the actual path first (the same technique that found `glyphbuf`'s and `Add32~8`'s
-violations earlier this phase) before guessing at a retiming fix.
+**Path found, 2026-09-24 (B-151):** the worst setup paths all run from `mp3_fb.sv`'s internal muxes into
+`glyphbuf`'s own register inputs — the exact same shared write-data selection network this phase has hit
+marginal three separate times now (B-109's original MLAB-era violation, B-111's BAR retiming fix, B-116's
+`TAU_BLIT_BLEND` congestion finding), each for a different reason, all converging on this one physical
+bottleneck. `OP_CBLIT` is a fourth competing write source feeding it (alongside `A_COMPOSE`/`A_COPYRD`/
+`A_KEYDST`/`A_SBLIT`'s own writes). **Two candidate causes, not yet distinguished:** (a) the
+`BUG_CBLIT_NO_LOOKUP` mutation-test ternary failing to constant-fold away when off, or (b) simply adding a
+fourth mutually-exclusive write source widens whatever select network Quartus builds, regardless of the
+mutation hook. (a) is the less likely explanation on reflection — `BUG_BLEND_ALWAYS_SRC` is a structurally
+similar ternary already in the same write path that hasn't caused a new violation by itself — making (b) a
+real design question (does Quartus merge mutually-exclusive case-arm writes into `glyphbuf` efficiently, or
+not?) rather than a one-line fix to try blind. No re-fit attempted on either hypothesis yet — worth narrowing
+down further before spending another Quartus cycle guessing.
 
 **The two-state design, as built:**
 - **Opcode 7** (`OP_CBLIT`) — the last value the existing 3-bit `cmd_op` field has room for, no width change
