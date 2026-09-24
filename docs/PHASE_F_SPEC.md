@@ -136,6 +136,30 @@ words). So:
 You cannot fund the blit engine out of the RAM shrink. It runs the other way, and that is what fixes the
 ordering of everything below.
 
+**Held, 2026-09-24 — do not start the meter/blit integration until the Blit Test hang has a real diagnosis.**
+The first concrete step toward "meters go cold" was scoped (see the "meter integration" note below), but
+building it right now would mean wiring a new call site onto `blit_probe_ensure()` — the exact function
+implicated in the still-open, unresolved Blit Test hang (`docs/SESSION_HANDOFF_2026-09-24_BLIT_TEST.md`: four
+source-level fix attempts, the last one made it worse, ISSP diagnosis pending a JTAG cable). Its own header
+comment (`fw/blit_probe.inc`) says plainly the current fix is "not confirmed on hardware." A hang triggered
+from `ui_draw_dynamic()` — the live playback path, running continuously while audio decodes — would be a far
+worse regression than a hang on a diagnostics page. Owner's explicit call, 2026-09-24: hold this track entirely
+until ISSP gives a real root cause, rather than proceed even with the safe (`BLIT_READY()` read-only, no new
+probe call) variant. Resume once the hang is diagnosed and, if `blit_probe()` itself was the cause, actually
+fixed and hardware-verified.
+
+**Meter integration, scoped and ready once unblocked (not built).** The plain-bars mode (`fw/player.c`'s
+default `ui_draw_dynamic()` fallthrough, ~line 5085-5115 — the busiest per-frame path, up to `UI_WAVE_N` bars
+every frame) already matches `OP_BAR`'s exact convention: lit rows at the bottom, unlit at top, same colours.
+`fb_bar()` already exists (built for the Blit Test diagnostic, B-166) and needs no RTL change — B6 is already
+proven under real audio load (B-146/B-164's Blit Storm Check test). The change itself is small and surgical:
+replace the two `fb_rect()` calls at lines 5110-5112 with one `fb_bar()` call (the third call, the 1px peak-
+hold marker at line 5113-5114, stays as-is — `OP_BAR` has no marker mode), gated on `BLIT_READY()` with the
+existing two-`fb_rect()` code kept as the software fallback. Other visualizer modes (`VIZ_LEVELS`'s horizontal
+bars, `VIZ_LED`, `VIZ_MIRROR`, `VIZ_SCOPE`, the waterfall) do not match `OP_BAR`'s fixed vertical-only
+convention and were not analysed for conversion this pass — plain bars alone is the single largest per-frame
+command-count win and the natural first step.
+
 **A caution on the shrink itself.** It trades one scarce resource for another. Heap gap has repeatedly been
 driven to its floor as features landed (4,096 B at worst, before Phase G). It is reversible only by another
 45-minute build.
