@@ -140,7 +140,8 @@ static const uint8_t     set_soak_min[5] = { 0u, 5u, 15u, 30u, 60u };
 
 /* Same order as the VIZ_* enum; the label VIZ_LED shares with its toast is SPECTRUM. */
 static const char *const set_viz[] = { "BARS", "WATERFALL", "L/R LEVELS", "PHASE SCOPE",
-    "OSCILLOSCOPE", "VU", "WAVEFORM", "MIRRORED BARS", "PEAK DOTS", "MAGIC EYE", "SPECTRUM" };
+    "OSCILLOSCOPE", "VU", "WAVEFORM", "MIRRORED BARS", "PEAK DOTS", "MAGIC EYE", "SPECTRUM",
+    "CASSETTE" };
 _Static_assert(sizeof(set_viz) / sizeof(set_viz[0]) == VIZ_COUNT,
                "set_viz[] must name every visualizer");
 static const char *const set_rep[3]      = { "OFF", "ALL", "ONE" };
@@ -167,7 +168,7 @@ static uint8_t set_lib_confirm;               /* the Library page is waiting for
 
 #if TAU_METER_THUMBS
 #include "meter_thumbs.h"
-_Static_assert(VIZ_COUNT == 11 && VIZ_BARS == 0 && VIZ_LED == 10,
+_Static_assert(VIZ_COUNT == 12 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_TAPE == 11,
                "meter_thumbs.h is indexed by the VIZ_* enum order (tools/gen_meter_thumbs.py ORDER)");
 
 /* Draw preview `viz` at (x, y) by decoding the RLE in software: fill with the dominant colour,
@@ -282,7 +283,10 @@ static void dg_soak_tick(void)
 
 COLD_FN static uint32_t set_ch_count(uint32_t c)
 {
-    return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_COUNT
+    /* VIZ_CYCLE_COUNT, not VIZ_COUNT: on a build without TAU_METER_THUMBS,
+     * CASSETTE cannot be drawn (see fw/player.c's VIZ_CYCLE_COUNT comment),
+     * so it must not be offered as a choice there either. */
+    return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_CYCLE_COUNT
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
          : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT() : 5u;
 }

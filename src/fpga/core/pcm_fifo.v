@@ -61,6 +61,29 @@ module pcm_fifo #(
     assign full  = (used == DEPTH[AW:0]);
     assign empty = (used == 0);
 
+    // ---- start-up priming --------------------------------------------------
+    // Ported from HarpMudd upstream v1.5.0 (`4d396bf`, "wait for a cushion
+    // before the first sample of a track"). After a flush this FIFO used to
+    // drain the instant the first sample arrived, so the start of every track
+    // ran nearly empty: the decoder had not produced anything yet, the first
+    // tick found it empty, and the output decayed (per the glide below) and
+    // then jumped when audio finally caught up -- the click at second 0.
+    // Upstream measured this on hardware as an underrun at second 0 with a
+    // ~50-sample discontinuity, on tracks with no underrun anywhere else.
+    //
+    // So wait for a cushion before the first sample leaves. Half the FIFO is
+    // ~21 ms at 48 kHz (this FIFO's DEPTH differs from upstream's, so the
+    // absolute time differs too -- the fraction, and therefore the intent,
+    // is the same), inaudible as latency and far more than the decoder needs
+    // to get ahead.
+    //
+    // Cleared ONLY by flush or reset, never by running empty: a mid-track
+    // underrun keeps behaving exactly as before, including raising
+    // `underrun` for the firmware's fade. This is about the start of a
+    // track, and nothing else.
+    localparam [AW:0] PRIME = DEPTH[AW:0] >> 1;
+    reg primed;
+
     // Fractional-rate tick: carry-out of the accumulator is the sample strobe.
     reg [31:0] acc;
     reg        tick;
@@ -92,6 +115,7 @@ module pcm_fifo #(
             out_l    <= 16'd0;
             out_r    <= 16'd0;
             underrun <= 1'b0;
+            primed   <= 1'b0;
         end else if (flush) begin
             // Same effect as reset on the pointers, but does NOT touch
             // out_l/out_r: slamming those to 0 would produce an audible click,
@@ -101,11 +125,14 @@ module pcm_fifo #(
             wptr     <= 0;
             rptr     <= 0;
             underrun <= 1'b0;
+            primed   <= 1'b0;
         end else begin
             if (push && !full) wptr <= wptr + 1'b1;
 
+            if (!primed && used >= PRIME) primed <= 1'b1;
+
             if (tick) begin
-                if (!empty) begin
+                if (primed && !empty) begin
                     // q trails rptr by one cycle, which is irrelevant here:
                     // ticks are ~1041 cycles apart at 48 kHz / 50 MHz, so the
                     // read has long since settled.
@@ -137,7 +164,10 @@ module pcm_fifo #(
                     else                                       out_l <= out_l - (out_l >>> 7);
                     if (out_r > -16'sd128 && out_r < 16'sd128) out_r <= 16'sd0;
                     else                                       out_r <= out_r - (out_r >>> 7);
-                    underrun <= 1'b1;
+                    // Priming is not an underrun: the glide above is carrying
+                    // silence on purpose. Raising the flag here would have the
+                    // firmware fade in every track start it is preventing.
+                    if (primed) underrun <= 1'b1;
                 end
             end
         end

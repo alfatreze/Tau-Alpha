@@ -344,6 +344,42 @@ hang diagnosis directly or on a card write the handoff says to hold until then.
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
 `PHASE_F_SPEC.md` section 13. Revisit there if this becomes a real near-term want.
 
+**Full upstream v1.5.0 review, 2026-09-24: `docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md`.** Correction to the note
+above: Tau's actual fork point is right before v1.5.0 (`git merge-base main v1.5.0`), not an early "v0.3.0"
+baseline — the earlier note conflated Tau's own v0.3.0 release tag with upstream's identically-named tag.
+So none of v1.5.0 has ever reached Tau, not just the CJK font. Also found an active `release/1.5.1` branch
+with real hardware-measured work toward v1.6.0. Three real findings beyond the already-parked font work:
+(1) **`clk_sys` 60 -> 66.667 MHz** (release/1.5.1, hardware-measured, +11.1% CPU headroom) — Tau shares the
+exact same PLL/VCO constraint and has the identical two silent-failure hardcode traps upstream found
+(`eq_biquad`'s `CLK_HZ`, `pcm_rate`'s reset default); directly relevant to the still-gated audio-kernel
+decision, but needs its own Quartus experiment against Tau's own blit-engine timing margins before trusting
+it, not a drive-by port. (2) **PCM FIFO start-of-track cushion** (v1.5.0) — a hardware-confirmed track-start
+glitch fix; Tau's `pcm_fifo.v` is untouched since the fork, so this is a clean, low-risk, self-contained
+port. (3) **Meters yield to audio** (`meter_afford()`, release/1.5.1) — firmware-only CPU-budget technique,
+zero RTL, zero dependency on the blit engine or `blit_probe_ensure()` — buildable right now, in parallel with
+waiting on the Blit Test hang's JTAG diagnosis, and a useful complement to the currently-held meter/blit
+integration (B-182). Smaller items and drops in the review doc.
+
+**Ported, 2026-09-24 (B-184): four of five items, `clk_sys` explicitly parked.** Owner: bring in the PCM
+FIFO cushion, meters-yield-to-audio, the UTF-8/Windows-1252 tag guess, and the cassette meter; park
+`clk_sys` 60->66.667 MHz until after the blit engine and the M10K/RAM-shrink track are done, at a minimum.
+All four built and verified (`make rtl-lint`/`test-rtl`/`test-host` pass, every named firmware build target
+still links). **The cassette meter (new `VIZ_TAPE`) needed real gating, not a drive-by port:** its drawing
+code + hub table cost ~3.6 KB combined with the other three items, which the bare `player` target (no
+library/cold-code infrastructure, `make firmware`'s own build, already at 84.5% of usable RAM) could not
+absorb -- gated the heavy parts behind `TAU_METER_THUMBS` (the same "does this build have room for extras"
+flag the meter-preview thumbnails already use), with a `VIZ_CYCLE_COUNT` that excludes `VIZ_TAPE` from the
+meter-cycle button and the Settings choice list on builds without it, so nothing offers a mode it cannot
+draw. The shipping `release` target has full headroom regardless (34,752 -> 31,088 B heap gap for all four
+items combined). **A real, otherwise-undetected regression found and fixed along the way:** the pre-existing
+`sim/tb_pcm_decay.v` hangs forever with the new priming cushion in place (it pushes one sample at a time,
+which never crosses the cushion) -- confirmed the identical bug exists unfixed in upstream's own
+`release/1.5.1` too, so this was latent, not introduced by the port. Fixed with a single priming burst before
+the first decay check. The cassette's meter-preview thumbnail is a hand-authored placeholder (no source
+photo exists for it, unlike the other ten) -- flagged in `fw/meter_thumbs.h`'s own header comment for a real
+Figma export later. Full account: `docs/AUDIT_TRAIL.md` B-184, `docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md`'s
+status update.
+
 **Re-parked deliberately, non-blit (owner, 2026-09-23, B-115):** the release-vs-diagnostic boot-restore mismatch
 (escalated by the B-112 audit, no known mechanism) is left parked on purpose — a ground-up UI/UX redesign is
 planned (`docs/ARCHITECTURE_ROADMAP.md`'s new "UI/UX redesign" item) and may change or remove the boot/idle code
