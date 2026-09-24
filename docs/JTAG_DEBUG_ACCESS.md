@@ -230,6 +230,13 @@ changing -- which state it's stuck at says which opcode's dispatch path is invol
 
 ### 6.3 Procedure
 
+**Before every read: confirm the ISSP bitstream is still the one actually running.** Loading a core
+through the Pocket's own menu reprograms the FPGA fresh from the SD card's `.rbf` and silently
+overwrites whatever was JTAG-loaded (found in B-190, after the owner reselected `TAU_0_5_0_A_12`
+through the menu between reads and `get_service_paths issp` came back empty). If a read step below
+returns no ISSP paths at all, this is almost always why -- reload the `.sof` (step 1) and have the
+hang reproduced again with plain button presses only, no core reselect.
+
 1. **Load the ISSP `.sof`** via JTAG, exactly like section 2's already-proven reload (no SD card
    write needed -- a core for the same platform must already be running on the card):
    ```
@@ -253,7 +260,11 @@ changing -- which state it's stuck at says which opcode's dispatch path is invol
    close_service issp $claimed
    ```
    `issp_get_instance_info $claimed` also exists (probe/source width, instance id) if `$path`
-   itself needs disambiguating from other ISSP instances later.
+   itself needs disambiguating from other ISSP instances later. **`issp_read_probe_data` takes the
+   claimed path positionally** -- `issp_read_probe_data $claimed`, never `-instance $claimed` (a
+   later ad hoc script in B-190 used the latter and it silently returned the bare string `"error"`
+   as if it were valid data, no exception raised; `help issp_read_probe_data` gives the real
+   signature if this drifts again).
 5. **Decode `$bits`** per the table in 6.2 -- confirmed (B-186) it comes back as a plain Tcl integer
    (use `format {0x%05X} $bits` for a fixed-width hex view across repeated reads).
 
@@ -288,4 +299,29 @@ CPU/firmware side instead -- something never reaches the point of pushing a new 
 never gets that far at all. Most likely candidates, none of which this probe can see (it only
 watches `mp3_fb.sv`, not the CPU): `blit_probe()`, `bt_begin()`/`bt_crumb()`'s own state machine, or
 an MMIO poll condition that never resolves. A CPU-side trace is the real next step, not another RTL
-hypothesis -- see `docs/AUDIT_TRAIL.md` B-186 for the full account.
+hypothesis -- see `docs/AUDIT_TRAIL.md` B-186 for the full account. (B-186 itself is unaffected by
+the 6.6 correction below -- this probe watches `mp3_fb.sv` RTL signals present in every ISSP build
+since B-172, not anything firmware writes.)
+
+### 6.6 A real process gap found (B-188/B-189, 2026-09-24): loading a bitstream via JTAG does not update the card's firmware
+
+B-187/B-188 built a second probe (`DBGM`) reading a new MMIO register (`R_DBG_MARK`) that
+`bt_crumb()` writes. The first read came back `DBGM = 0x00` constant, initially read as "`bt_begin()`
+never starts executing." **That conclusion did not hold up:** `R_DBG_MARK` was added in the same
+commit that built the DBGM probe, but the firmware actually installed on the card's core
+(`TAU_0_5_0_A_12`) was packaged one session earlier, before that register existed. A constant `0x00`
+on a register the running firmware never writes to at all is not evidence about whether `bt_begin()`
+runs -- it's simply expected, regardless of the answer.
+
+**The gap:** loading a `.sof` via JTAG reprograms the FPGA only. It does not touch the SD card's
+`tau.rom`/`tau-cold.bin`. Every ISSP iteration that changes something firmware reads or writes (a
+new MMIO register, a new checkpoint call) needs the SD card's firmware rebuilt and reinstalled to
+match, in addition to the new bitstream being loaded over JTAG -- two independent artifacts, not
+one. B-186's `BLIT` probe never had this problem because it only watches pre-existing `mp3_fb.sv`
+RTL state, nothing firmware-side.
+
+**Going forward:** before trusting any ISSP read that involves a register or memory location
+firmware is supposed to write, confirm (by hash, against the card) that the installed ROM actually
+contains the code being tested -- don't assume a fresh bitstream implies fresh firmware. See
+`docs/AUDIT_TRAIL.md` B-189 for the fix (firmware rebuilt, reinstalled onto `TAU_0_5_0_A_12`,
+byte-verified) and the re-test this leaves outstanding.
