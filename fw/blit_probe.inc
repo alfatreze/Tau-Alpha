@@ -24,12 +24,16 @@
  * around R_SDR_*): the draw engine and the CPU window address the same physical SDRAM, byte
  * offset = word address * 2.
  *
- * Deliberately gated behind its own macro, default off: nothing in this firmware issues an
- * operational OP_BLIT/OP_BAR/OP_SBLIT command yet (confirmed by the B-112 full audit), so there is
- * no feature this result needs to gate today. This exists to answer the question section 12 asks
- * -- can firmware detect the blit engine's absence and degrade gracefully -- ahead of the first
- * real feature that will need `BLIT_READY()` to make that call. */
-#if TAU_BLIT_PROBE
+ * Originally gated behind its own diagnostic-only macro (default off), from when nothing in this
+ * firmware issued an operational OP_BLIT/OP_BAR/OP_SBLIT/OP_CBLIT command yet (confirmed by the
+ * B-112 full audit) and this only existed to answer the question section 12 asks -- can firmware
+ * detect the blit engine's absence and degrade gracefully -- ahead of the first real feature that
+ * would need `BLIT_READY()` to make that call. **That feature now exists (B8/section 5):
+ * `set_draw_thumb()`'s OP_CBLIT path needs a real answer, not a diagnostic one, so this also
+ * compiles and runs whenever TAU_METER_THUMBS is on** -- every settings-UI build, not just the
+ * opt-in diagnostic probe build. TAU_BLIT_PROBE stays for standalone diagnostic builds that want
+ * this probe without the meter-thumbs feature pulling it in. */
+#if TAU_BLIT_PROBE || TAU_METER_THUMBS
 /* R_BLT_IDX/R_BLT_DATA/FB_OP_BLIT now live in player.c's shared register block
  * (B-127 promoted them there for the blit-storm Check test to use too). */
 static uint8_t blit_ready;
