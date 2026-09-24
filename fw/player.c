@@ -9201,13 +9201,10 @@ int main(void)
 #if TAU_COLD
     cold_boot_load();                 /* first: the cold image holds data the menus need */
 #endif
-#if TAU_BLIT_PROBE || TAU_METER_THUMBS
-    blit_probe();                     /* PHASE_F_SPEC.md section 12/5: BLIT_READY() fail-safe -- section 12's
-                                        * own "no feature reads it yet" is now stale: set_draw_thumb()'s
-                                        * OP_CBLIT path (B8) is the first real consumer, so this now runs
-                                        * whenever meter thumbnails are compiled in, not just the diagnostic
-                                        * opt-in TAU_BLIT_PROBE. */
-#endif
+    /* B-162: blit_probe() is NOT called here at boot any more, for TAU_BLIT_PROBE or
+     * TAU_METER_THUMBS -- it hung boot on real hardware (TAU_0_5_0_A_6, first time this function
+     * was ever exercised on real hardware in any build). Deferred to blit_probe_ensure(), first
+     * actual need, in set_draw_thumb(). See fw/blit_probe.inc's header for the full account. */
 #if TAU_LIBRARY
     ui_boot_note("LOADING LIBRARY");
 #if TAU_G4 && TAU_COLD_CODE
