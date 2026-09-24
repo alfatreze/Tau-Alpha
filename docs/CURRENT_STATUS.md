@@ -254,9 +254,18 @@ hardware with real audio — all three legs of proof this phase needed. `Track c
 both runs, unexplained. Separately: Start now closes the library/legacy-playlist overlays outright (B-145,
 owner request), not yet installed/run on hardware.
 
-**Next, in order:** rebuild/repackage/install the corrected build with B-145's fix (as `0.5.0-alpha.5`,
-following `docs/CARD_INSTALL_PROCEDURE.md` in full this time), investigate the `Track changes` failure, then
-Tier 2 (B8-B11) or the M10K/RAM-shrink track, per the roadmap's own ordering.
+**B8 step 1 (CLUT blit) built and simulation-verified, 2026-09-23 (B-148)** — new `OP_CBLIT` opcode, zero
+regression on the hardware-verified paths. **Its Quartus fit did NOT close timing, 2026-09-24 (B-150)** — a
+small but real setup violation on both seeds (worse: -0.196 ns; better: -0.025 ns), the CLUT's physical cost
+(a new dual-clock M10K + logic) eating into B-134's margin. Exact violating path not yet identified. **This
+bitstream is not ready to ship** — don't confuse it with the working `TAU_0_5_0_A_N` line, which is unaffected
+and still the pre-B8 configuration.
+
+**Next, in order:** find B-150's actual violating path (`quartus_sta`/`report_timing`, the same technique that
+found `glyphbuf`'s and `Add32~8`'s violations earlier this phase) and decide a fix; separately, rebuild/
+repackage/install the corrected pre-B8 build with B-145's Start-closes-overlays fix (as `0.5.0-alpha.5`,
+following `docs/CARD_INSTALL_PROCEDURE.md` in full this time), and investigate the `Track changes` Check
+failure. Then Tier 2's remaining items (B9-B11) or the M10K/RAM-shrink track, per the roadmap's own ordering.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
