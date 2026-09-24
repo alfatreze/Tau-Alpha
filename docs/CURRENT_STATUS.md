@@ -7,19 +7,28 @@ read (B-186) proved the draw engine itself is not hung** -- normal idle/scanline
 empty command FIFO, no opcode in flight. A follow-up CPU-side checkpoint probe (B-187/B-188) first
 *looked* like it found something bigger (`bt_begin()`'s own first line never executing), but
 **B-189 found that specific read unconfirmed** (stale firmware predating the probe register) and
-**B-190 redid it correctly**: `bt_begin()` really does never execute (now real evidence), **but the
-PSRAM instruction-fetch arbiter is completely idle when it happens, not stuck mid-request** -- no
-live cycle, no pending request on either client. This weakens rather than confirms the
-PSRAM-fetch-stall hypothesis: if the CPU were blocked waiting on a stalled cold-code fetch, the
-arbiter would show a held request, not silence. The more consistent picture now is that something
-*upstream* of the `bt_begin()` call site, in ordinary on-chip code, holds the CPU first, with no
-instruction-fetch bus activity at all while stuck. **Next step:** the already-committed PCAD probe
-(raw `iADR`/`dADR`, commit `3527cde`) needs its own Quartus fit to reveal the actual frozen address.
+**B-190 redid it correctly**: `bt_begin()` really does never execute, but the PSRAM instruction-fetch
+arbiter is completely idle when it happens -- weakening rather than confirming the PSRAM-fetch-stall
+hypothesis. **B-191 (MILESTONE) resolved it completely**: a fourth ISSP probe (PCAD, raw
+`iADR`/`dADR`/cycle signals) plus a disassembly of the frozen PC found the CPU stuck on
+`lhu s0,964(a5) # a00003c4` -- **`bt_crumb_read()`'s own SDRAM halfword readback**, called from
+`bt_draw()`'s idle-screen branch on *every* redraw, before the user's Start press ever reaches
+`bt_begin()`. The diagnostic checkpoint mechanism B-176 built specifically because it "cannot hang
+even if the draw engine itself is what's stuck" is itself what hangs. Leading hypothesis for *why*
+(not yet confirmed): `blit_probe()` uses the identical unguarded raw-pointer SDRAM-window access and
+works reliably, but only ever runs after `blit_probe_ensure()` has fired at least once (from
+`bt_begin()` or from drawing a meter-preview thumbnail in Settings) -- if the user reaches
+Diagnostics > Blit Test without ever seeing a meter thumbnail first, `bt_crumb_read()`'s access may
+be the very first CPU touch of this SDRAM window all boot. **Next, free, zero-engineering test:**
+visit a Settings screen with meter previews first, then open Blit Test, and see if the hang still
+occurs. If it doesn't explain it, the safe fix regardless of root cause is adding the same
+mailbox-write-then-readback preflight pattern `fw/player.c`'s `stress_window_preflight()` already
+uses, to `bt_crumb()`/`bt_crumb_read()`, before trusting the raw pointer.
 Two real JTAG/tooling gaps found and fixed along the way (B-189/B-190): loading a core through the
 Pocket's own menu silently overwrites a JTAG-loaded debug bitstream with the SD card's own `.rbf`,
 and `issp_read_probe_data`'s correct form is positional (`issp_read_probe_data $path`), not
 `-instance $path` (the latter silently returns the string `"error"` instead of raising). Read
-`docs/AUDIT_TRAIL.md` B-188 through B-190, and `docs/JTAG_DEBUG_ACCESS.md` section 6, before
+`docs/AUDIT_TRAIL.md` B-188 through B-191, and `docs/JTAG_DEBUG_ACCESS.md` section 6, before
 continuing this thread.
 
 **Earlier snapshot:** 2026-09-22. Tau **v0.4.0** is released and installed on the owner's card (media library, Phase G cold code,
