@@ -30,13 +30,30 @@
  * detect the blit engine's absence and degrade gracefully -- ahead of the first real feature that
  * would need `BLIT_READY()` to make that call. **That feature now exists (B8/section 5):
  * `set_draw_thumb()`'s OP_CBLIT path needs a real answer, not a diagnostic one, so this also
- * compiles and runs whenever TAU_METER_THUMBS is on** -- every settings-UI build, not just the
- * opt-in diagnostic probe build. TAU_BLIT_PROBE stays for standalone diagnostic builds that want
- * this probe without the meter-thumbs feature pulling it in. */
+ * compiles whenever TAU_METER_THUMBS is on -- every settings-UI build, not just the opt-in
+ * diagnostic probe build. TAU_BLIT_PROBE stays for standalone diagnostic builds that want this
+ * probe without the meter-thumbs feature pulling it in.
+ *
+ * **B-162 correction, 2026-09-24: NOT called at boot any more.** It briefly was (this same
+ * session), and hung TAU_0_5_0_A_6 on every single boot -- the splash drew correctly (so
+ * A_COMPOSE's retiming and text rendering are fine) but the loading-progress animation, which
+ * starts right after this call in the boot sequence, never appeared; a photographed screenshot of
+ * the stuck splash (empty, unanimated loading bar) confirmed it. Root cause not confirmed without
+ * hardware access to trace it live -- candidates include the draw engine genuinely getting stuck
+ * on THIS specific OP_BLIT shape (DST_STRIDE=8, h=2/w=1, row 0 col 480) on this bitstream, since no
+ * real-CPU-in-the-loop simulation of this exact firmware sequence has ever existed (B-160 already
+ * flagged this verification gap) and no earlier alpha.1-5 build ever actually called this function
+ * at boot (TAU_BLIT_PROBE was never set for player-library-diagnostic-profile, and nothing gated
+ * it on TAU_METER_THUMBS until this session) -- so it may never have run on real hardware before
+ * at all. Deferred to `blit_probe_ensure()` below: first actual use, well after boot, when the
+ * system is fully interactive, so a hang there is recoverable (reboot without opening Settings)
+ * rather than bricking every single boot. This does not confirm the underlying OP_BLIT hang is
+ * fixed -- only that it can no longer block boot. */
 #if TAU_BLIT_PROBE || TAU_METER_THUMBS
 /* R_BLT_IDX/R_BLT_DATA/FB_OP_BLIT now live in player.c's shared register block
  * (B-127 promoted them there for the blit-storm Check test to use too). */
 static uint8_t blit_ready;
+static uint8_t blit_probed;
 #define BLIT_READY() (blit_ready != 0u)
 
 static void blit_probe(void)
@@ -64,6 +81,13 @@ static void blit_probe(void)
      * power-up default, so this probe leaves nothing behind. */
     REG(R_BLT_IDX) = 3u; REG(R_BLT_DATA) = 512u;
 }
+
+/* B-162: run the probe at most once, on first actual need -- never at boot. */
+static void blit_probe_ensure(void)
+{
+    if (!blit_probed) { blit_probe(); blit_probed = 1u; }
+}
 #else
 #define BLIT_READY() 0
+static void blit_probe_ensure(void) {}
 #endif

@@ -233,6 +233,7 @@ COLD_FN static void set_thumb_flat_build(void)
 COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
 {
     if (!cold_ready()) { fb_rect(x, y, METER_THUMB_W, METER_THUMB_H, UI_TRACK); return; }   /* cold image not loaded: a plain box */
+    blit_probe_ensure();                                                                    /* B-162: first need, not at boot */
     if (!BLIT_READY()) { set_draw_thumb_soft(x, y, viz); return; }                          /* B8 fail-safe: old bitstream */
     if (!thumb_flat_ready) set_thumb_flat_build();
     fb_clut_load(meter_thumb_pal[viz], 8u);
