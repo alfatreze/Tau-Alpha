@@ -985,6 +985,21 @@ COLD_FN static void bt_hud(void)
     fb_text_clipped(PL_UI_TEXT_X, FB_H - 18u, b, TS_1X, TS_1X, PL_UI_W - 32u);
 }
 
+/* B-174: bt_begin() runs BEFORE the HUD above ever draws -- its own sub-steps (the blit-engine
+ * probe, the flat-thumbnail-buffer build, the CLUT load) are each a real chance to hang, and the
+ * two hangs already seen on hardware (B-162, B-170) both happened somewhere in this exact
+ * territory. Same "identify where we were" principle as the HUD, one level earlier, using ONLY
+ * fb_rect()/fb_text_clipped() -- already proven safe everywhere else in the UI, including the
+ * idle page bt_begin() is called from -- never the opcodes under test. Fixed-width clear first so
+ * a shorter message never leaves a ghost of a longer one. Row 5 of the idle panel: rows 0-2 are
+ * the description text, row 4 the A/B hint (see bt_draw()'s BT_IDLE branch), row 5 is unused. */
+COLD_FN static void bt_checkpoint(const char *msg)
+{
+    fb_rect(PL_UI_TEXT_X, PL_UI_LIST_Y + 5u * PL_UI_ROW_H, PL_UI_W - 32u, FB_CELL(TS_1X), UI_PANEL);
+    fb_set_color(UI_DIM, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 5u * PL_UI_ROW_H, msg, TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
 COLD_FN static void bt_finish(void)
 {
     uint32_t len = sr_finish(&bt_rec);
@@ -1030,6 +1045,7 @@ COLD_FN static void bt_advance(void)
 
 COLD_FN static void bt_begin(void)
 {
+    bt_checkpoint("checkpoint: blit probe...");
 #if TAU_METER_THUMBS
     blit_probe_ensure();   /* B-168: must run BEFORE the BLIT_READY() check below, not after --
                              * it is what actually sets blit_ready. Checking first meant this
@@ -1038,6 +1054,7 @@ COLD_FN static void bt_begin(void)
                              * support -- confirmed a pure ordering bug, not an RTL/hardware issue,
                              * since B-164 already proved OP_BLIT works on this exact bitstream. */
 #endif
+    bt_checkpoint("checkpoint: blit probe OK");
     if (!BLIT_READY()) { bt_state = BT_REFUSED; set_dirty = 1u; return; }
     bt_op = bt_lvl = 0u; bt_at = 0u;
     sr_init(&bt_rec, CHK_REC, CHK_REC_CAP, 8u);
@@ -1045,8 +1062,12 @@ COLD_FN static void bt_begin(void)
     uint32_t build[4] = { fwv, REG(R_VERSION), 0u, 0u };
     sr_vals(&bt_rec, SR_T_BUILD, 4, build, 4);
 #if TAU_METER_THUMBS
+    bt_checkpoint("checkpoint: thumb build...");
     if (!thumb_flat_ready) set_thumb_flat_build();
+    bt_checkpoint("checkpoint: thumb build OK");
+    bt_checkpoint("checkpoint: clut load...");
     fb_clut_load(meter_thumb_pal[0], 8u);   /* CBLIT's cell reads one corner of viz 0's thumbnail */
+    bt_checkpoint("checkpoint: clut load OK");
 #endif
     bt_state = BT_RUN;
     set_dirty = 1u;
