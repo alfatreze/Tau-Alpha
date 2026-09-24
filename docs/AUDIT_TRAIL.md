@@ -6771,3 +6771,9 @@ Setup margin improved by roughly 1.4-1.9 ns on both corners -- consistent with r
 **Evidence:** Owner: hung on the Blit Test idle screen after pressing A, unresponsive, had to quit the core. Screenshot confirmed the OLD idle page frozen -- `bt_begin()`'s `blit_probe_ensure()` call (now correctly ordered per B-168) never returned. Pattern: `blit_probe()` was the only code anywhere in this codebase that ever wrote a non-default `DST_STRIDE` (8, via the sticky `R_BLT_IDX`/`R_BLT_DATA` write) -- every hardware-proven `OP_BLIT` use (`fb_blit()`, `CT_BLT`, B-146/B-164) uses the default stride (512). Both hangs (original boot hang B-162, this one) trace back to the one thing this probe did that no proven-working caller does. Rewritten: the probe's second row is now the next row at the framebuffer's own default stride, matching `fb_blit()`'s own convention exactly -- `R_BLT_IDX`/`R_BLT_DATA` are never touched. Distinguishing logic unchanged (old RTL's `OP_RUN` fallback only touches row 0). **Hypothesis, not confirmed live** -- no hardware access to trace the actual hang directly. Verified: `make test-host` passes; `player-library-diagnostic-profile` compiles clean; release ROM confirmed byte-identical.
 **Owner instruction:** "fix it", then "write to card".
 **Not done:** not yet packaged/installed at the time of this entry -- next step.
+
+### B-171 — Installed TAU_0_5_0_A_10: blit_probe() default-stride rewrite
+**Date:** 2026-09-24
+**Evidence:** Packaged `player-library-diagnostic-profile` (ROM `51e9039b...`) against the unchanged B-159 RBF, re-verified before touching the card. Installed per `docs/CARD_INSTALL_PROCEDURE.md`: backed up/verified `TAU_0_5_0_A_9`, hash-verified the new core, rebuilt the library index, cleared caches, junk removed, `check_tau_package.py` PASS, ejected. Cores: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_42`, `TAU_0_5_0_A_10`.
+**Owner instruction:** "write to card".
+**Not done:** not yet run.
