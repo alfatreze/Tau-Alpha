@@ -269,12 +269,22 @@ violation), hold positive on both — real margin, not a bare pass. **B8 step 1 
 product configuration.** RBF `9a1bc223...` saved in `work/diagnostics/blit-cblit-b157-20260924/`. B0.5.0 (the
 working `TAU_0_5_0_A_N` line) is unaffected and still the pre-B8, pre-fix configuration on the card.
 
-**Next, in order:** firmware integration for B8 (`player.c` register defines for `R_CLUT_IDX`/`R_CLUT_DATA`,
-`set_draw_thumb()`'s actual switch to `OP_CBLIT` — the real "one command per thumbnail" win, unexercised on
-hardware so far), then package/install/verify per `docs/CARD_INSTALL_PROCEDURE.md`. Separately, still open:
-rebuild/repackage/install the pre-B8 build with B-145's Start-closes-overlays fix (as `0.5.0-alpha.5`), and
-investigate the `Track changes` Check failure. Then Tier 2's remaining items (B9-B11) or the M10K/RAM-shrink
-track, per the roadmap's own ordering.
+**Firmware integration done, 2026-09-24 (B-160).** `fb_clut_load()`/`fb_cblit()` added; `set_draw_thumb()`
+issues one `OP_CBLIT` per thumbnail, sourced from a one-time-at-boot-lazy flat-buffer expand (~16 ms).
+
+**A real boot-blocking bug found and fixed, 2026-09-24 (B-161/B-162).** The first hardware install
+(`TAU_0_5_0_A_6`) hung on every boot — `blit_probe()` ran unconditionally at boot for the first time ever on
+real hardware and its `fb_wait()` never returned. Rolled back the card, deferred the probe to first actual use
+(`blit_probe_ensure()`, never at boot), rebuilt, reinstalled as `TAU_0_5_0_A_7`.
+
+**MILESTONE — B8 proven end to end on real hardware, 2026-09-24 (B-164).** `TAU_0_5_0_A_7` boots normally,
+Settings opens cleanly, and a 30s `Blit storm` Check **PASSED**: SDRAM busy 15.8% (identical to B-146's
+measurement on the pre-CBLIT bitstream — no added contention), audio continuous, zero late underruns. Every
+other test passes except the pre-existing, unrelated `Track changes` failure (confirmed still present, not a
+regression). **B8 is done**: RTL/sim-correct, timing-closed, firmware-integrated, and hardware-verified.
+
+**Next, in order:** investigate the pre-existing `Track changes` Check failure (open since B-138, unrelated to
+B8). Then Tier 2's remaining items (B9-B11) or the M10K/RAM-shrink track, per the roadmap's own ordering.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
