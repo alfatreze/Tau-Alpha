@@ -506,7 +506,8 @@ module mp3_fb #(
     // ======================================================================
     localparam A_IDLE=4'd0, A_FILL=4'd1, A_FILL_END=4'd2, A_WRWAIT=4'd3,
                A_ROWFETCH=4'd4, A_COMPOSE=4'd5, A_COPYRD=4'd6, A_KEYDST=4'd7,
-               A_SBLIT=4'd8, A_CBLIT_RD=4'd9, A_CBLIT_WAIT=4'd10;
+               A_SBLIT=4'd8, A_CBLIT_RD=4'd9, A_CBLIT_WAIT=4'd10,
+               A_COMPOSE_WR=4'd11;
     reg [3:0]  astate = A_IDLE;
     reg [10:0] fill_cnt = 0;
 
@@ -656,6 +657,19 @@ module mp3_fb #(
     wire [10:0] mix_b = char_fg[4:0]   * cov16 + char_bg[4:0]   * inv16;
 
     wire [15:0] px_color = {mix_r[8:4], mix_g[9:4], mix_b[8:4]};
+
+    // Phase F B8 (PHASE_F_SPEC.md section 5, B-157): px_color's own multiply-add
+    // used to feed glyphbuf's write-data port combinationally in the same cycle
+    // as A_COMPOSE's address/write-select logic -- fine on its own, but B8's
+    // OP_CBLIT adds a fourth write source into that same shared network, and
+    // quartus_sta traced the resulting violation to exactly this chain (not to
+    // anything CBLIT computes). Registering px_color one state earlier
+    // (A_COMPOSE_WR below) breaks the combinational chain the same way B-111/
+    // B-114 retimed BAR/SBLIT/CHAR's address computes -- here there is no
+    // existing earlier register to reuse, so it costs one extra cycle per
+    // composed pixel (64 -> 128 worst case for a 4x glyph, ~1.5% -> ~3% of a
+    // scanline's slack -- still cheap against the ~4,167-cycle budget).
+    reg [15:0] px_color_r;
 
     // ---- B5: alpha blend (combinational) ---------------------------------
     // One function, reused for R/G/B by passing the channel's own max value --
@@ -1175,10 +1189,20 @@ module mp3_fb #(
                 end
 
                 // ------------------------------------------ glyph compose --
-                // One output pixel per cycle into glyphbuf. Worst case 64
-                // cycles for a 4x glyph -- 1.5% of a scanline's slack.
+                // B-157: split into two states so px_color's multiply-add
+                // settles into a register (px_color_r) before anything writes
+                // glyphbuf, instead of feeding the write port combinationally
+                // in the same cycle as A_COMPOSE_WR's address/advance logic.
+                // ox/ex/acc_x are unchanged here -- px_color is computed for
+                // THIS ox, and A_COMPOSE_WR uses the same ox to write it, then
+                // advances for the next pixel. Two cycles per pixel now, worst
+                // case 128 for a 4x glyph -- still ~3% of a scanline's slack.
                 A_COMPOSE: begin
-                    glyphbuf[ox[5:0]] <= px_color;
+                    px_color_r <= px_color;
+                    astate     <= A_COMPOSE_WR;
+                end
+                A_COMPOSE_WR: begin
+                    glyphbuf[ox[5:0]] <= px_color_r;
                     if (ox == char_w - 7'd1) begin
                         char_row_ready <= 1'b1;
                         astate <= A_IDLE;
@@ -1190,6 +1214,7 @@ module mp3_fb #(
                         end else begin
                             acc_x <= acc_x + char_num;
                         end
+                        astate <= A_COMPOSE;
                     end
                 end
 

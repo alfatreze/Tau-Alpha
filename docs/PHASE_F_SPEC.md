@@ -245,6 +245,38 @@ real design question (does Quartus merge mutually-exclusive case-arm writes into
 not?) rather than a one-line fix to try blind. No re-fit attempted on either hypothesis yet — worth narrowing
 down further before spending another Quartus cycle guessing.
 
+**Hypothesis (a) ruled out, exact path found, 2026-09-24 (B-154/B-157):** the `generate`-gated experiment
+(B-152/B-153) produced bit-for-bit identical slack to the ternary version — (a) is dead, (b) is confirmed.
+`quartus_sta -t report_timing -detail full_path` against the still-present fit database, queried at the actual
+violating corner (Slow 0C, reproducing the exact -0.025 ns), traced the real worst path: `Mux21~4` (register)
+-> `Add6~2` -> `Add8~8` (**4.5 ns alone — the dominant cost**) -> `Selector224~0` -> `glyphbuf`'s write-data
+bit 0. **No node in this chain has a CBLIT/CLUT-associated name.** By bit position this is `px_color[0]` =
+`mix_b[4]`, the blue-channel term of `A_COMPOSE`'s glyph anti-aliasing blend (`mix_b = char_fg[4:0]*cov16 +
+char_bg[4:0]*inv16`, line 656) — pre-existing arithmetic, unrelated to CBLIT except for sharing `glyphbuf`'s
+write port. **`OP_CBLIT` doesn't need to be slow itself to break this build** — it just has to exist as a
+fourth write source, which widens `Selector224`'s fan-in enough to cost the ~0.11 ns margin an unrelated,
+already-marginal path was living on. Retiming `cblit_wval` (B-154's original suggested next step) would not
+fix this specific violation, since `cblit_wval` isn't on the reported worst path at all.
+**Next step is therefore different from what B-154 proposed:** either (a) add one pipeline cycle to
+`A_COMPOSE` so `px_color` is registered before the write instead of computed combinationally into it (a real
+per-glyph cost, against a path already documented as "1.5% of a scanline's slack" — needs a budget check, not
+just an RTL edit), or (b) restructure so the next pixel's `px_color` is precomputed a cycle ahead of the
+current pixel's write (genuine pipelining, more design work, no added per-glyph cost). Not picked yet — a real
+design tradeoff, not a one-line fix, flagged for the owner rather than guessed at with another Quartus cycle.
+
+**MILESTONE — FIXED, 2026-09-24 (B-158/B-159): timing closes cleanly on all four corners, real margin, first
+attempt.** Owner picked option (a). `A_COMPOSE` split into two states: `A_COMPOSE` now only registers
+`px_color` into a new `px_color_r`, `A_COMPOSE_WR` (new `astate` value 11) does the actual `glyphbuf` write
+plus the address/Bresenham advance — breaking the combinational chain that fed `Add8~8` straight into
+`Selector224`/`glyphbuf`'s write port in one cycle. Cost: one extra cycle per composed pixel, worst case
+64 -> 128 cycles for a 4x glyph, ~1.5% -> ~3% of a scanline's ~4,167-cycle slack. `make rtl-lint`/`test-rtl`/
+`test-host` all pass (CHAR tests content-checked, unaffected by the doubled cycle count). Re-fit (seed 2, same
+proven qsf) closed on the first attempt: Slow 85C setup **+1.787 ns** (was -0.086 ns), Slow 0C setup
+**+1.383 ns** (was the reported **-0.025 ns** violation), hold **+0.285 ns**/**+0.270 ns** (both TNS 0.000).
+RAM unchanged at 299/308. **B8 step 1 (CLUT blit) is now RTL/sim-correct AND timing-proven for the product
+configuration.** Not yet packaged, installed, or firmware-integrated — `player.c` register defines and
+`set_draw_thumb()`'s switch to `OP_CBLIT` (the real "one command per thumbnail" win) are the next step.
+
 **The two-state design, as built:**
 - **Opcode 7** (`OP_CBLIT`) — the last value the existing 3-bit `cmd_op` field has room for, no width change
   needed (a nice coincidence, not a constraint that shaped the design).
