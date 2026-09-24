@@ -323,11 +323,22 @@ sequencer shape — the one genuinely new wrinkle is a *data-dependent* source-c
 other opcode's fixed one-word-per-pixel/row rate), which needs its own mutation-test design, not a copy of an
 existing hook. Full design: `docs/PHASE_F_SPEC.md` section 5's B10 write-up.
 
+**M10K/RAM-shrink track, 2026-09-24 — scoped, then held.** Owner asked whether it's safe to move ahead. Found
+and documented the real gate (`docs/PHASE_F_SPEC.md` section 4): meters must go cold before the shrink, and
+that needs the meter drawing rewritten to use the blit engine first (a much smaller per-frame instruction
+footprint is what makes moving it to PSRAM affordable). Scoped the first concrete step — the plain-bars mode
+matches `OP_BAR`'s exact convention, `fb_bar()` already exists, a small surgical change (two `fb_rect()` calls
+-> one `fb_bar()` call, `BLIT_READY()`-gated with the existing code as fallback). **Then held, deliberately:**
+enabling it means calling `blit_probe_ensure()` from the live playback path, and that function is the one
+implicated in the still-unresolved Blit Test hang. Owner's call: hold the entire track until ISSP gives a real
+diagnosis, rather than build on top of an actively-suspect subsystem even with a safe read-only gate. Full
+write-up: `docs/PHASE_F_SPEC.md` section 4.
+
 **Next, in order:** B11 or B10's actual build (both designs are ready; B11 has the larger proven payoff — every
-selected list row and the panel border, versus B10's now-marginal one-time/SDRAM savings). Then investigate the
-pre-existing `Track changes` Check failure (open since B-138, unrelated to B8) and the M10K/RAM-shrink track,
-per the roadmap's own ordering — both blocked on a card write, deliberately deferred until the Blit Test hang
-has a real diagnosis (ISSP, waiting on JTAG cable access).
+selected list row and the panel border, versus B10's now-marginal one-time/SDRAM savings). Then, once the Blit
+Test hang has a real diagnosis (ISSP, waiting on JTAG cable access): resume the meter/blit integration and the
+pre-existing `Track changes` Check failure (open since B-138, unrelated to B8) — both blocked either on the
+hang diagnosis directly or on a card write the handoff says to hold until then.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
