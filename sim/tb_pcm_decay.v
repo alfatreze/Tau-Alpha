@@ -41,6 +41,22 @@ module tb_pcm_decay;
         end
     endtask
 
+    // Ported from HarpMudd upstream v1.5.0 (`4d396bf`), start-of-track
+    // priming: nothing drains until the FIFO reaches half (PRIME, see
+    // pcm_fifo.v), so a bare single-sample push_sample() never becomes
+    // non-empty here -- `primed` never sets, tick never fires, and the
+    // FIRST check_decay()'s `while (!empty)` waits forever. `primed` is
+    // cleared only by flush or reset, neither of which this testbench ever
+    // asserts after the initial reset, so priming it ONCE, before the first
+    // decay check, is enough for every push_sample() after it to behave
+    // exactly as this file originally assumed.
+    task push_prime(input [15:0] l, input [15:0] r);
+        integer k;
+        begin
+            for (k = 0; k <= 1024; k = k + 1) push_sample(l, r);
+        end
+    endtask
+
     // Drain whatever is queued, then watch the decay from the held value.
     task check_decay(input [15:0] name_val);
         begin
@@ -73,7 +89,10 @@ module tb_pcm_decay;
         repeat (4) @(negedge clk); rst = 0;
 
         // -- positive held sample ------------------------------------------
-        push_sample(16'sd20000, 16'sd20000);
+        // push_prime(), not push_sample(): the first push has to clear the
+        // start-of-track cushion (see push_prime's own comment) before
+        // anything drains at all.
+        push_prime(16'sd20000, 16'sd20000);
         check_decay(16'sd20000);
 
         // -- negative held sample (the case the unsigned version wrapped) --

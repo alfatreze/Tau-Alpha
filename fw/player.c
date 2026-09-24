@@ -1653,6 +1653,12 @@ static uint32_t io_bench_bytes;   /* ...and how much it managed to read      */
 #define UI_WAVE_Y   173u
 #define UI_WAVE_H   72u
 #define UI_WAVE_GAP 2u
+/* The cassette meter (VIZ_TAPE, ported from HarpMudd upstream) is the only
+ * one that draws above UI_WAVE_Y -- TAPE_SHELL_H is 96, 24 rows taller than
+ * UI_WAVE_H. ui_bg_restore() and ui_wave_clear() both need this extra band
+ * included in the range they rebuild, or the strip above the normal meter
+ * box is left with whatever was drawn there before. */
+#define UI_WAVE_TOP 24u
 #define UI_TRANSPORT_Y 262u
 #define UI_TIME_Y   288u
 #define UI_PROG_Y   334u
@@ -1703,7 +1709,24 @@ enum { VIZ_BARS = 0, VIZ_WATER, VIZ_LEVELS, VIZ_SCOPE, VIZ_WAVE, VIZ_VU,
         * that the setting stops persisting and the firmware looks correct
         * throughout while doing it. */
        VIZ_LED,
+       /* Ported from HarpMudd upstream v1.5.0/release-1.5.1 (`3404545`,
+        * `d76267e`, `154234f`, and later hardening: `f0d6b60`, `4024104`,
+        * `42f3853`, `7e9ceec`) -- the cassette meter. Appended, same rule
+        * as VIZ_LED above. */
+       VIZ_TAPE,
        VIZ_COUNT };
+
+/* VIZ_TAPE's drawing code is gated on TAU_METER_THUMBS (see the CASSETTE
+ * header comment) -- selecting it on a build without that macro would show
+ * a blank meter box. The X-button cycle and the persisted-setting clamp
+ * both need to exclude it there, which this expresses once, relying on
+ * VIZ_TAPE being the LAST enum value (the same "appended" rule VIZ_COUNT's
+ * own comment states). */
+#if TAU_METER_THUMBS
+#define VIZ_CYCLE_COUNT VIZ_COUNT
+#else
+#define VIZ_CYCLE_COUNT VIZ_TAPE
+#endif
 
 /* Stereo phase scope. Left against right, rotated 45 degrees so mono lands on
  * the vertical -- the standard goniometer orientation, and the reason it reads
@@ -2091,6 +2114,95 @@ static const uint16_t spec_gain[SPEC_BANDS] = {
 #define LED_MIDC 0xFE60u      /* amber  */
 #define LED_HI   0xF9C0u      /* red    */
 
+/* ============================================================== CASSETTE ==
+ * Ported from HarpMudd upstream v1.5.0/release-1.5.1 (`3404545`, `d76267e`,
+ * `154234f`, `f724d86`, and hardening from `f0d6b60`/`4024104`/`42f3853`/
+ * `7e9ceec`) -- a cassette shell with two reels, drawn in the meter box.
+ *
+ * Three things carry it, in order of how much they matter:
+ *
+ *   1. The reels are DIFFERENT SIZES and the difference moves with the track.
+ *      That is the cassette cue; everything else is decoration.
+ *      (Upstream's own note: an earlier version tried tracking playback
+ *      progress this way and it both never read as progress AND crashed the
+ *      player -- an unclamped ratio at the last second of a track underflowed
+ *      and drew millions of discs. Fixed wind on both reels here from the
+ *      start, not re-derived.)
+ *   2. Angular speed goes as 1/radius on a real deck; this meter does not
+ *      attempt that (fixed wind, see above), so this point is upstream's own
+ *      history, kept for context rather than behaviour ported here.
+ *   3. The shell is NEUTRAL grey with white hubs, not accent-tinted. A grey
+ *      object on the accent-tinted background ramp reads as a physical thing;
+ *      an accent-tinted shell reads as a green graphic. The accent is kept
+ *      for the label, which is also what flashes.
+ */
+/* Gated on TAU_METER_THUMBS, the same "does this build have room for
+ * extras" flag the meter-preview thumbnails already use (its own definition
+ * comment: "Release-style builds only: the Diagnostic Build has no room for
+ * it"). The bare `player` target (fw/build.sh, no STRESS_CFLAGS at all,
+ * `make firmware`'s own build) has no library/cold-code infrastructure to
+ * offload anything to and was already at 84.5% of usable RAM before this
+ * feature -- it does not fit there. Every feature-rich target (`release`
+ * and everything downstream of it) already sets TAU_METER_THUMBS=1 and has
+ * tens of KB of heap gap to spare (measured: 34,752 -> 31,088 B for this
+ * plus the other three ported items combined). tape_face/tape_spd stay
+ * declared unconditionally below -- a few bytes, referenced from
+ * ui_meter_faces_invalidate() and vu_settling regardless of this macro. */
+#if TAU_METER_THUMBS
+#define TAPE_SHELL_W  150u
+#define TAPE_SHELL_H   96u   /* 150x96 is 1.56:1 -- a real cassette */
+
+/* Hub slot masks: bit x set = SLOT (dark), clear = hub face. Six phases span
+ * one tooth pitch -- a six-slot hub repeats every 60 degrees, so that is all
+ * the unique rotation there is. Carried over verbatim from upstream. */
+#define TAPE_HUB_R   9u
+#define TAPE_PACK    5u        /* fixed wind on both reels -- see the header note */
+#define TAPE_HUB_N   19u
+#define TAPE_HUB_PH  6u
+static const uint32_t tape_hub[TAPE_HUB_PH][TAPE_HUB_N] = {
+    { 0x00000, 0x000E0, 0x041E0, 0x0E1C0, 0x0F180, 0x07000, 0x00002, 0x00F9E, 0x00F9E, 0x7CF9F, 0x3CF80, 0x3CF80, 0x20000, 0x00070, 0x00C78, 0x01C38, 0x03C10, 0x03800, 0x00000 },
+    { 0x00000, 0x03060, 0x07070, 0x070F0, 0x038E0, 0x01040, 0x00000, 0x00F80, 0x38F9E, 0x7CF9F, 0x3CF8E, 0x00F80, 0x00000, 0x01040, 0x038E0, 0x07870, 0x07070, 0x03060, 0x00000 },
+    { 0x00000, 0x03800, 0x03830, 0x01838, 0x01C70, 0x00060, 0x00000, 0x38F80, 0x3CF80, 0x7CF9F, 0x00F9E, 0x00F8E, 0x00000, 0x03000, 0x071C0, 0x0E0C0, 0x060E0, 0x000E0, 0x00000 },
+    { 0x00200, 0x01E00, 0x00E00, 0x00E18, 0x00E3C, 0x30038, 0x38030, 0x3CF80, 0x1CF80, 0x00F80, 0x00F9C, 0x00F9E, 0x0600E, 0x0E006, 0x1E380, 0x0C380, 0x00380, 0x003C0, 0x00200 },
+    { 0x00200, 0x00700, 0x00700, 0x00700, 0x1860C, 0x3C01E, 0x3E03E, 0x0CF90, 0x00F80, 0x00F80, 0x00F80, 0x04F98, 0x3E03E, 0x3C01E, 0x1830C, 0x00700, 0x00700, 0x00700, 0x00200 },
+    { 0x00200, 0x00380, 0x00380, 0x08380, 0x1C300, 0x1E006, 0x0601E, 0x00F9E, 0x00F90, 0x00F80, 0x04F80, 0x3CF80, 0x3C030, 0x3003C, 0x0061C, 0x00E08, 0x00E00, 0x00E00, 0x00200 },
+};
+#endif /* TAU_METER_THUMBS */
+
+static uint8_t  tape_face;          /* shell/label frame/window/openings drawn */
+static uint16_t tape_face_w;
+static uint32_t tape_ph_s;          /* hub rotation, 1/256 of a phase step */
+static uint16_t tape_spd;           /* current hub speed -- coasts, see below */
+static uint8_t  tape_rim  = 0xFFu;  /* level bucket the shell rim was at   */
+static uint8_t  tape_glow = 0xFFu;  /* bass bucket last drawn              */
+static uint32_t tape_name_h;        /* playlist name the label carries     */
+
+#if TAU_METER_THUMBS
+/* Half-width of a circle of radius r at row offset dy. Used to CONTOUR the
+ * exposed tape against the two packs: on a real cassette the tape you see
+ * between the reels is bounded by their curves, not by straight edges. */
+static uint32_t tape_hw(uint32_t r, int32_t dy)
+{
+    uint32_t d = (uint32_t)(dy < 0 ? -dy : dy);
+    if (d >= r) return 0;
+    uint32_t rr = r * r, w = r;
+    while (w && w * w + d * d > rr) w--;
+    return w;
+}
+
+/* Filled disc. w descends monotonically with the row, so this is O(r) rather
+ * than a square-root per row. */
+static void tape_disc(uint32_t cx, uint32_t cy, uint32_t r, uint16_t c)
+{
+    uint32_t rr = r * r, w = r;
+    for (uint32_t i = 0; i <= r; i++) {
+        while (w && w * w + i * i > rr) w--;
+        fb_rect(cx - w, cy - i, 2u * w + 1u, 1u, c);
+        if (i) fb_rect(cx - w, cy + i, 2u * w + 1u, 1u, c);
+    }
+}
+#endif /* TAU_METER_THUMBS */
+
 /* Last drawn, so a still passage costs nothing. 0xFF is the sentinel every
  * other meter here uses for "the chrome repainted underneath you". */
 
@@ -2304,7 +2416,7 @@ static void ui_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
     if (!w || !h) return;
     if (!ui_bg_ready) {
-        for (uint32_t yy = UI_WAVE_Y; yy < UI_WAVE_Y + UI_WAVE_H; yy++)
+        for (uint32_t yy = UI_WAVE_Y - UI_WAVE_TOP; yy < UI_WAVE_Y + UI_WAVE_H; yy++)
             fb_rect(UI_BG_X, yy, UI_BG_W, 1, ui_grad_at(yy));
         ui_bg_ready = 1;
     }
@@ -2337,8 +2449,9 @@ static void ui_art_bg_range(uint32_t x, uint32_t w)
  * invites that; a list with a name is at least the place to look. */
 static void ui_meter_faces_invalidate(void)
 {
-    vu_face  = 0;
-    eye_face = 0;
+    vu_face   = 0;
+    eye_face  = 0;
+    tape_face = 0;
 }
 
 /* Blit the stash to the current position, clipped at the right edge. The panel
@@ -2574,7 +2687,7 @@ static void ui_wave_clear(void)
      * that. */
     ui_meter_faces_invalidate();
 
-    for (uint32_t y = UI_WAVE_Y; y < UI_WAVE_Y + UI_WAVE_H && y < FB_H; y++)
+    for (uint32_t y = UI_WAVE_Y - UI_WAVE_TOP; y < UI_WAVE_Y + UI_WAVE_H && y < FB_H; y++)
         fb_rect(UI_MARGIN, y, UI_INNER_W, 1, ui_grad_at(y));
     for (uint32_t i = 0; i < UI_WAVE_N; i++) { wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu;
             for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu; }
@@ -4300,8 +4413,18 @@ static void ui_draw_dynamic(void)
      * back to rest is the movement that makes it look like a tube rather than
      * a graphic, and freezing it half-shut looks broken. eye_v counts DOWN to
      * rest, so "not yet settled" is a non-zero deflection, same as the VU. */
-    uint32_t vu_settling = ((viz_mode == VIZ_VU)  && (vu_l || vu_r)) ||
-                           ((viz_mode == VIZ_EYE) && (eye_l || eye_r));
+    /* And the cassette's reels, for exactly the same reason: they COAST to a
+     * stop rather than halting on the same frame as the audio, and a spin-
+     * down needs frames to happen in. tape_spd is non-zero only while they
+     * are still turning, so it closes the gate by itself once they reach
+     * rest -- the same shape as a needle's remaining deflection. Ported from
+     * HarpMudd upstream, whose own note is worth keeping: missing this is
+     * why a first attempt at the coast did nothing -- the arithmetic was
+     * right, but the meter block is gated on !paused, so pausing bought one
+     * final frame and then silence, with nowhere for the animation to run. */
+    uint32_t vu_settling = ((viz_mode == VIZ_VU)   && (vu_l || vu_r)) ||
+                           ((viz_mode == VIZ_EYE)  && (eye_l || eye_r)) ||
+                           ((viz_mode == VIZ_TAPE) && tape_spd);
     if ((!paused || ui_wave_force || vu_settling) && ++ui_last_vu >= 2u) {
         ui_last_vu = 0;
 
@@ -4421,6 +4544,233 @@ static void ui_draw_dynamic(void)
             }
             goto viz_done;
         }
+
+        /* ---- CASSETTE -------------------------------------------------
+         * Ported from HarpMudd upstream v1.5.0/release-1.5.1 -- see the
+         * CASSETTE header comment above (near TAPE_SHELL_W) for the design
+         * rationale. Redraw discipline, upstream's own:
+         *   face    -- shell, label, bezel, bottom panel, holes, screws. Once.
+         *   stripes -- drawn with the face (static, not per-frame reactive --
+         *              upstream found per-band stripe colour read as glitchy).
+         *   rim     -- only when the level bucket changes.
+         *   tape    -- only when the bass bucket changes.
+         *   hubs    -- every frame; two 19-row mask lookups.
+         */
+#if TAU_METER_THUMBS
+        if (viz_mode == VIZ_TAPE) {
+            const uint16_t c_shell  = 0x3A29u;   /* FB_RGB(0x3E,0x44,0x4C) */
+            const uint16_t c_edge   = 0x5B0Du;   /* FB_RGB(0x58,0x60,0x69) */
+            const uint16_t c_label  = 0xF77Cu;   /* FB_RGB(0xF2,0xEE,0xE4) */
+            const uint16_t c_bezel  = 0x10C3u;   /* FB_RGB(0x17,0x1A,0x1D) */
+            const uint16_t c_hub    = 0xCE9Bu;   /* FB_RGB(0xCE,0xD3,0xD8) */
+            const uint16_t c_slot   = 0x2966u;   /* FB_RGB(0x2A,0x2E,0x33) */
+            const uint16_t c_tape   = 0x5226u;   /* FB_RGB(0x57,0x44,0x33) */
+            const uint16_t c_tape2  = 0x3964u;   /* FB_RGB(0x3C,0x2F,0x24) */
+            /* The EXPOSED tape is nearly black -- a single ribbon seen
+             * edge-on. The packs are brown because a wound reel shows
+             * many layers at once. Two different things, two tones. */
+            const uint16_t c_ribbon = 0x2924u;   /* FB_RGB(0x2C,0x25,0x21) */
+            const uint16_t c_panel  = 0x39E8u;   /* FB_RGB(0x3A,0x3E,0x44) */
+            const uint16_t c_screw  = 0x52ECu;   /* FB_RGB(0x56,0x5C,0x64) */
+
+            uint32_t shw = (ww > TAPE_SHELL_W + 16u) ? TAPE_SHELL_W : (ww - 16u);
+            uint32_t sx  = UI_MARGIN + (ww - shw) / 2u;
+            uint32_t y0  = UI_WAVE_Y + UI_WAVE_H - TAPE_SHELL_H;   /* 96 tall */
+            uint32_t cx0 = sx + shw / 2u;
+            uint32_t bw  = (shw * 62u) / 100u;           /* window bezel width */
+            uint32_t hdx = (bw * 28u) / 100u;            /* hub offset         */
+            uint32_t lx  = sx + 3u, lw = (shw > 6u) ? shw - 6u : 2u;
+            uint32_t hcy = y0 + 48u;
+
+            {   /* A new playlist means a new label. Cheap identity: the
+                 * first character plus the length, which is enough to catch a
+                 * change without keeping a copy of the name. */
+                uint32_t nh = 0;
+                for (uint32_t i = 0; pl_name_full[i] && i < 24u; i++)
+                    nh = nh * 31u + (uint32_t)(unsigned char)pl_name_full[i];
+                if (nh != tape_name_h) { tape_name_h = nh; tape_face = 0; }
+            }
+            if (wf || ww != tape_face_w) tape_face = 0;
+
+            if (!tape_face) {
+                /* Per ROW, and over the TALLER band -- this is the only meter
+                 * that draws above UI_WAVE_Y, so it is the only one that needs
+                 * UI_WAVE_TOP restored. */
+                ui_bg_restore(UI_MARGIN, UI_WAVE_Y - UI_WAVE_TOP, ww,
+                              UI_WAVE_H + UI_WAVE_TOP);
+
+                fb_round_rect(sx, y0, shw, TAPE_SHELL_H, 3u, c_shell);
+                fb_rect(sx + 3u, y0, shw - 6u, 1u, c_edge);
+                fb_rect(sx + 3u, y0 + TAPE_SHELL_H - 1u, shw - 6u, 1u, c_edge);
+                fb_rect(sx, y0 + 3u, 1u, TAPE_SHELL_H - 6u, c_edge);
+                fb_rect(sx + shw - 1u, y0 + 3u, 1u, TAPE_SHELL_H - 6u, c_edge);
+
+                fb_round_rect(lx, y0 + 6u, lw, 50u, 3u, c_label);
+
+                /* The playlist's name, written on the label like a real one.
+                 * Blank for a single track opened with Load MP3 -- there is no
+                 * album to name then, and an empty label is what a blank tape
+                 * looks like anyway. */
+                if (pl_count && pl_name_full[0]) {
+                    /* Without the extension. Nobody writes ".m3u" on a
+                     * cassette label. */
+                    char nm[PL_FULL_MAX + 1u];
+                    uint32_t n = 0;
+                    while (pl_name_full[n] && n < PL_FULL_MAX) {
+                        nm[n] = pl_name_full[n]; n++;
+                    }
+                    nm[n] = 0;
+                    while (n && nm[n - 1u] != '.') n--;
+                    if (n > 1u) nm[n - 1u] = 0;
+                    /* Cannot be made smaller: the font is in the FPGA (font_rom.v)
+                     * and ts_half bottoms out at TS_1X = 16px. Lightened instead,
+                     * so it reads as writing on a label rather than a heading. */
+                    fb_set_color(0x6BAFu /* FB_RGB(0x6E,0x74,0x7C) */, c_label);
+                    /* BOXED: fb_char paints a whole 16px cell while max_w only
+                     * budgets ADVANCES, so a glyph that advances 11px still
+                     * paints 5px further -- bounding the painted cell at the
+                     * label's own right edge keeps the last glyph off the shell. */
+                    fb_text_boxed(lx + 3u, y0 + 14u, nm, TS_1X, TS_1X,
+                                  (lw > 6u) ? lw - 6u : 2u, lx + lw);
+                }
+
+                for (uint32_t i = 0; i < 3u; i++)
+                    fb_rect(lx, y0 + 40u + i * 6u, lw, 4u,
+                            ui_mix(c_label, ui_accent, (i == 1u) ? 3u : 2u, 4u));
+
+                fb_round_rect(cx0 - bw / 2u, y0 + 30u, bw, 36u, 9u, c_bezel);
+
+                /* The wound tape on both reels. Concentric 2px bands rather
+                 * than a flat disc, because one flat tone cannot show that it
+                 * is wound at all. Static -- fixed wind, see the CASSETTE
+                 * header comment -- so it draws with the face and needs no
+                 * per-frame repaint on this single-buffered framebuffer. */
+                for (uint32_t side = 0; side < 2u; side++) {
+                    uint32_t cx = side ? cx0 + hdx : cx0 - hdx;
+                    uint32_t k  = 0;
+                    for (uint32_t rr = TAPE_HUB_R + TAPE_PACK;
+                         rr > TAPE_HUB_R; rr -= 2u, k++)
+                        tape_disc(cx, hcy, rr, (k & 1u) ? c_tape2 : c_tape);
+                }
+
+                fb_round_rect(sx + 16u, y0 + 72u, (shw > 32u) ? shw - 32u : 2u,
+                              20u, 3u, c_panel);
+                {
+                    static const signed char hx[4] = { -38, -15, 15, 38 };
+                    static const unsigned char hw[4] = { 6u, 7u, 7u, 6u };
+                    for (uint32_t k = 0; k < 4u; k++)
+                        fb_rect((uint32_t)((int32_t)cx0
+                                           + hx[k] * (int32_t)shw / 150),
+                                y0 + 77u, hw[k], 8u, c_bezel);
+                }
+                for (uint32_t k = 0; k < 4u; k++) {
+                    uint32_t px = (k & 1u) ? sx + shw - 9u : sx + 4u;
+                    uint32_t py = (k & 2u) ? y0 + 86u : y0 + 5u;
+                    fb_rect(px, py, 5u, 5u, c_screw);
+                }
+                tape_face   = 1u;
+                tape_face_w = (uint16_t)ww;
+                tape_rim    = 0xFFu;
+                tape_glow   = 0xFFu;
+            }
+
+            {   /* The shell RIM takes overall level -- one thin outline
+                 * round the largest perimeter, so it reads at a glance.
+                 * peak_amp scaled LINEARLY: upstream tried driving this from
+                 * the log-scaled spectrum bands instead and reverted it on
+                 * the author's own preference, not a fault -- kept as the
+                 * simpler linear form here, matching what shipped. */
+                uint32_t lvl = (peak_amp * 255u) / 32768u;
+                if (lvl > 255u) lvl = 255u;
+                if (paused) lvl = 0;
+                uint8_t rim = (uint8_t)(lvl >> 5);
+                if (rim != tape_rim) {
+                    tape_rim = rim;
+                    /* A THIRD of the way to the accent at most -- driving it
+                     * to full accent read as two flashing bars rather than a
+                     * shell catching light. */
+                    uint16_t rc = ui_mix(c_edge, ui_accent, rim, 24u);
+                    fb_rect(sx + 3u, y0, shw - 6u, 1u, rc);
+                    fb_rect(sx + 3u, y0 + TAPE_SHELL_H - 1u, shw - 6u, 1u, rc);
+                    fb_rect(sx, y0 + 3u, 1u, TAPE_SHELL_H - 6u, rc);
+                    fb_rect(sx + shw - 1u, y0 + 3u, 1u, TAPE_SHELL_H - 6u, rc);
+                }
+            }
+
+            {   /* The hubs, every frame. Both turn the SAME way at the SAME
+                 * rate. Speed is capped by aliasing, not taste -- see
+                 * upstream's own note: the UI redraws at 38 Hz and a six-slot
+                 * hub repeats every 60 degrees, so above half a tooth pitch
+                 * per frame it appears to turn BACKWARDS; 330 stays under
+                 * that wall. COAST rather than stop dead -- see vu_settling
+                 * above for why the gate has to know about it. */
+                uint16_t want = paused ? 0u : 330u;
+                if (tape_spd < want) {
+                    tape_spd += 40u;
+                    if (tape_spd > want) tape_spd = want;
+                } else if (tape_spd > want) {
+                    tape_spd = (tape_spd > 22u) ? (uint16_t)(tape_spd - 22u) : 0u;
+                }
+                tape_ph_s += tape_spd;
+                uint32_t ph = (tape_ph_s >> 8) % TAPE_HUB_PH;
+
+                /* The hubs take the MID band. Redrawn every frame for the
+                 * rotation anyway, so tinting them is free. */
+                uint32_t mid = ((uint32_t)spec_lvl[8] + (uint32_t)spec_lvl[9]) / 2u;
+                if (paused) mid = 0;
+                uint16_t hubc = ui_mix(c_hub, ui_accent, mid >> 5, 20u);
+
+                {   /* The exposed tape between the packs GLOWS with bass --
+                     * the only thing here reading as beat. The packs are
+                     * static, so this is the only thing inside the window
+                     * that repaints. */
+                    uint32_t bass = ((uint32_t)spec_lvl[SPEC_BANDS - 2u] +
+                                     (uint32_t)spec_lvl[SPEC_BANDS - 1u]) / 2u;
+                    if (paused) bass = 0;
+                    uint8_t glow = (uint8_t)(bass >> 5);
+                    if (glow != tape_glow) {
+                        tape_glow = glow;
+                        uint16_t tc = ui_mix(c_ribbon, ui_accent, glow, 20u);
+
+                        /* Contoured against both reels, row by row. Height
+                         * stops one row short of the radius so every row has
+                         * a defined span at both ends. */
+                        uint32_t rl = TAPE_HUB_R + TAPE_PACK;
+                        uint32_t hh = rl - 1u;
+                        for (int32_t dy = -(int32_t)hh; dy <= (int32_t)hh; dy++) {
+                            /* +1 on the LEFT only -- fb_rect spans xl..xr-1,
+                             * so without it the ribbon's first pixel lands on
+                             * the left reel's outermost one and the right
+                             * stays clear, an asymmetric notch. */
+                            uint32_t xl = (cx0 - hdx) + tape_hw(rl, dy) + 1u;
+                            uint32_t xr = (cx0 + hdx) - tape_hw(rl, dy);
+                            if (xr > xl)
+                                fb_rect(xl, (uint32_t)((int32_t)hcy + dy),
+                                        xr - xl, 1u, tc);
+                        }
+                    }
+                }
+
+                for (uint32_t side = 0; side < 2u; side++) {
+                    uint32_t cx = side ? cx0 + hdx : cx0 - hdx;
+                    tape_disc(cx, hcy, TAPE_HUB_R, hubc);
+                    for (uint32_t iy = 0; iy < TAPE_HUB_N; iy++) {
+                        uint32_t m = tape_hub[ph][iy];
+                        uint32_t y = hcy - TAPE_HUB_R + iy;
+                        for (uint32_t ix = 0; ix < TAPE_HUB_N; ) {
+                            if (!(m & (1u << ix))) { ix++; continue; }
+                            uint32_t run = 0;
+                            while (ix + run < TAPE_HUB_N &&
+                                   (m & (1u << (ix + run)))) run++;
+                            fb_rect(cx - TAPE_HUB_R + ix, y, run, 1u, c_slot);
+                            ix += run;
+                        }
+                    }
+                }
+            }
+            goto viz_done;
+        }
+#endif /* TAU_METER_THUMBS */
 
         if (viz_mode == VIZ_MIRROR) {
             const uint32_t cy = UI_WAVE_Y + UI_WAVE_H / 2u;
@@ -5944,6 +6294,38 @@ static uint8_t * const tagbuf = (uint8_t *)(uintptr_t)(UNCACHED + (uint32_t)(uin
 static uint32_t st0;
 static short pcm[MAX_NCHAN * MAX_NGRAN * MAX_NSAMP];
 
+/* Ported from HarpMudd upstream v1.5.0's release/1.5.1 branch (`8f5eb11`,
+ * "Meters yield to audio when the decoder is about to run dry"): a core that
+ * is about to run out of decoded audio has no business spending CPU
+ * analysing it. Only VIZ_LED calls this -- the octave cascade it runs,
+ * measured (PHASE_F_SPEC.md section 7) at ~1.5% of the CPU, cheaper than
+ * upstream's own ~6% cascade, but the same principle applies whenever a
+ * struggling file is close to the margin.
+ *
+ * TWO thresholds, deliberately -- upstream's own reasoning, unchanged: a
+ * single level sits right where the buffer hovers and the meter would start
+ * and stop every frame, reading as a broken meter rather than a busy one.
+ * Stop at a third full, do not resume until two thirds, so it yields in
+ * stretches, not flickers.
+ *
+ * Degrades the right way by construction: skipping feeds leaves spec_n
+ * smaller but valid (see the accumulation in ui_draw_dynamic), and if a
+ * whole window is skipped spec_n is 0, so the band-update block there is
+ * skipped entirely and the bands HOLD their last values rather than decaying
+ * to nothing -- the meter updates less often, it does not go wrong. */
+#define METER_STOP  (2048u / 3u)        /* FIFO is 2048 entries -- pcm_fifo.v AW=11 */
+#define METER_GO    ((2048u * 2u) / 3u)
+static uint8_t meter_yield;
+
+static int meter_afford(void)
+{
+    if (idle || paused) { meter_yield = 0; return 1; }
+    uint32_t lv = pcm_level();
+    if (meter_yield) { if (lv >= METER_GO)   meter_yield = 0; }
+    else             { if (lv <  METER_STOP) meter_yield = 1; }
+    return !meter_yield;
+}
+
 /* Feeds every meter from one frame of interleaved PCM.
  *
  * Lifted out of the MP3 loop so the FLAC path drives the SAME nine meters
@@ -5975,7 +6357,7 @@ static void meters_feed(const short *pcm, int n, int stereo)
          * SPEC_BANDS. One pass down the ladder per sample, and most samples
          * stop after a stage or two, because the lower stages run at a
          * fraction of the rate. */
-        if (viz_mode == VIZ_LED) {
+        if ((viz_mode == VIZ_LED || viz_mode == VIZ_TAPE) && meter_afford()) {
             for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
                 int32_t x = stereo ? (((int32_t)pcm[i] + (int32_t)pcm[i + 1]) >> 1)
                                    : (int32_t)pcm[i];
@@ -6205,7 +6587,7 @@ static __attribute__((optimize("Os"))) const char *stress_viz_name(void)
 {
     static const char *const names[] = {
         "BARS", "WATER", "LEVELS", "SCOPE", "WAVE", "VU",
-        "SCROLL", "MIRROR", "DOTS", "EYE", "LED"
+        "SCROLL", "MIRROR", "DOTS", "EYE", "LED", "TAPE"
     };
     return (viz_mode < VIZ_COUNT) ? names[viz_mode] : "?";
 }
@@ -6687,7 +7069,7 @@ static void poll_input(void)
         /* Forward only. A reverse on Select+X existed and was dropped: nine
          * modes wrap in a handful of taps, and every Select combo the user has to
          * remember costs more than it saves. */
-        viz_mode = (uint8_t)((viz_mode + 1u) % VIZ_COUNT);
+        viz_mode = (uint8_t)((viz_mode + 1u) % VIZ_CYCLE_COUNT);
         ui_wave_clear();                 /* modes do not share a screen layout */
         ui_wave_force = 1u;
         for (uint32_t i = 0; i < UI_WAVE_N; i++) {
@@ -6705,7 +7087,8 @@ static void poll_input(void)
                    : viz_mode == VIZ_MIRROR ? "METER: MIRRORED BARS"
                    : viz_mode == VIZ_DOTS   ? "METER: PEAK DOTS"
                    : viz_mode == VIZ_EYE    ? "METER: MAGIC EYE"
-                                            : "METER: SPECTRUM");
+                   : viz_mode == VIZ_LED    ? "METER: SPECTRUM"
+                                            : "METER: CASSETTE");
         settings_mark_dirty();
     }
     if (edge & KEY_Y) {
@@ -8169,6 +8552,34 @@ static uint32_t id3_len(const uint8_t *b)
             ((uint32_t)(b[9] & 0x7Fu)));
 }
 
+/* Whether b[0..n) validates as UTF-8 (RFC 3629 lead/continuation shape,
+ * 1-4 byte sequences). Ported from HarpMudd upstream v1.5.0's encoding-0
+ * guess ("taken as UTF-8 when it validates, else Windows-1252") -- adapted
+ * for Tau, which does not have the extended font that release also shipped:
+ * a codepoint's actual value is never inspected here (overlong/surrogate
+ * sequences are accepted as "UTF-8 enough"), since fb_glyph() already turns
+ * every codepoint outside 0x20..0x7E into a space regardless of how it got
+ * decoded -- the only thing this changes is the placeholder COUNT, one per
+ * real character instead of one per raw byte (see id3_text_body below). */
+static int id3_bytes_are_utf8(const uint8_t *b, uint32_t n)
+{
+    uint32_t i = 0;
+    while (i < n && b[i]) {
+        uint8_t  c = b[i];
+        uint32_t cont;
+        if (c < 0x80u) { i++; continue; }
+        else if (c >= 0xC2u && c <= 0xDFu) cont = 1u;
+        else if (c >= 0xE0u && c <= 0xEFu) cont = 2u;
+        else if (c >= 0xF0u && c <= 0xF4u) cont = 3u;
+        else return 0;
+        if (i + cont >= n) return 0;
+        for (uint32_t k = 1u; k <= cont; k++)
+            if ((b[i + k] & 0xC0u) != 0x80u) return 0;
+        i += cont + 1u;
+    }
+    return 1;
+}
+
 /* Extracts a text frame (TIT2, TPE2, TALB, ...) from a tag already in memory.
  * Scoped deliberately: only what the caller loaded, and only ISO-8859-1/UTF-8
  * -- UTF-16 is reported as its own case rather than silently garbled. Handles
@@ -8182,7 +8593,24 @@ static uint32_t id3_len(const uint8_t *b)
  * is what several taggers emit by default -- one of the ten tracks on the test
  * card has every text frame in it. The font atlas is ASCII 0x20..0x7E, so
  * anything above Latin-1 could not be drawn regardless; a code unit that does
- * not fit becomes '?', which loses an accent but keeps the title. */
+ * not fit becomes '?', which loses an accent but keeps the title.
+ *
+ * Encoding 0 (nominally ISO-8859-1) used to be copied through byte-for-byte,
+ * which meant a UTF-8-tagged file -- common; plenty of taggers write UTF-8
+ * under encoding 0 despite the spec calling for Latin-1 there -- left every
+ * continuation byte of an accented character as its own garbage byte in the
+ * title (mojibake), each one still eating a character cell even though
+ * fb_glyph() draws it as a space. Ported from HarpMudd upstream v1.5.0
+ * ("encoding 0 taken as UTF-8 when it validates, else Windows-1252"): the
+ * byte range is checked with id3_bytes_are_utf8() first; if it validates,
+ * each multi-byte UTF-8 character collapses to ONE placeholder byte (0xFF,
+ * which fb_glyph() already turns into a space -- no '?' is drawn, matching
+ * this codebase's own established out-of-range convention rather than
+ * upstream's, which has the extended font to actually draw '?' with).
+ * Anything that does not validate falls back to the original byte-for-byte
+ * copy (Windows-1252 and Latin-1 draw identically here regardless -- the
+ * font cannot render either one's non-ASCII range, so there is nothing to
+ * gain telling them apart). */
 static int id3_text_body(const uint8_t *b, uint32_t fsize, char *out,
                          uint32_t out_size)
 {
@@ -8207,10 +8635,24 @@ static int id3_text_body(const uint8_t *b, uint32_t fsize, char *out,
         }
     } else {
         if (n > out_size - 1u) n = out_size - 1u;
-        for (i = 0; i < n; i++) {
-            uint8_t c = b[1u + i];
-            if (c == 0) break;
-            out[i] = (char)c;
+        if (id3_bytes_are_utf8(&b[1], n)) {
+            uint32_t s = 1u;
+            while (s < 1u + n && i + 1u < out_size) {
+                uint8_t c = b[s];
+                if (!c) break;
+                if (c < 0x80u) { out[i++] = (char)c; s += 1u; }
+                else {
+                    uint32_t cont = (c >= 0xF0u) ? 3u : (c >= 0xE0u) ? 2u : 1u;
+                    out[i++] = (char)0xFFu;   /* placeholder; fb_glyph() spaces it */
+                    s += cont + 1u;
+                }
+            }
+        } else {
+            for (i = 0; i < n; i++) {
+                uint8_t c = b[1u + i];
+                if (c == 0) break;
+                out[i] = (char)c;
+            }
         }
     }
     out[i] = 0;
