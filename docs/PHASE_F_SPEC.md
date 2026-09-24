@@ -283,9 +283,23 @@ uncached SDRAM window into off-screen rows reusing the art stash's own addressin
 region). `BLIT_READY()`'s gate widened from diagnostic-only to `TAU_METER_THUMBS`, so the fail-safe (fall back
 to the kept-intact software path, `set_draw_thumb_soft()`) actually runs for this feature instead of being
 dead code — necessary because the blit engine has not shipped in the release bitstream yet. All builds compile
-clean, `dist/`'s release ROM confirmed byte-identical (feature is off there). **Not yet run on real hardware.**
+clean, `dist/`'s release ROM confirmed byte-identical (feature is off there).
 The considered-and-parked zero-CPU alternative (APF's `data_slots[].address` bridge auto-load pushing a
 pre-baked asset straight into SDRAM) is recorded in section 13.
+
+**Boot-blocking bug found and fixed, 2026-09-24 (B-162).** The first hardware install (`TAU_0_5_0_A_6`) hung on
+every boot — `blit_probe()`'s gate had been widened to run unconditionally at boot for any `TAU_METER_THUMBS`
+build, the first time that function had ever executed on real hardware in any build. Its `fb_wait()` never
+returned, freezing the firmware right before the loading-progress animation. Deferred to `blit_probe_ensure()`,
+run at most once on first actual need (`set_draw_thumb()`), never at boot.
+
+**MILESTONE — proven on real hardware, 2026-09-24 (B-164).** `TAU_0_5_0_A_7` (the B-162 fix) booted normally
+and Settings opened cleanly — real evidence `OP_BLIT` itself was never broken, only running the probe too
+early in boot. A 30s `Blit storm` Check test **PASSED**: SDRAM busy 15.8% (identical to B-146's own measurement
+on the pre-CBLIT bitstream — this session's RTL changes cost nothing extra), audio continuous the whole
+window, zero late underruns. Every other test passes except the pre-existing, unrelated `Track changes` bug.
+**B8 is now proven end to end**: RTL/sim-correct, timing-closed, firmware-integrated, and hardware-verified
+under sustained load with real audio — the same three-legs-of-proof bar B1 met at B-146.
 
 **The two-state design, as built:**
 - **Opcode 7** (`OP_CBLIT`) — the last value the existing 3-bit `cmd_op` field has room for, no width change
