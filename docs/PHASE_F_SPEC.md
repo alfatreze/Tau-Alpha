@@ -225,6 +225,17 @@ register defines, no `set_draw_thumb()` change, no hardware/Quartus run. This cl
 half of step 1; a real hardware timing fit is still needed before this can ship, and firmware wiring is its
 own follow-up.
 
+**Quartus fit result, 2026-09-24 (B-150): did NOT close.** The same proven G3+blit qsf combination, re-fit with
+this RTL added: `RAM Blocks` 299/308 (exactly +1, the CLUT's own M10K, no surprise usage) on both seeds, but
+**a real setup violation on both** — seed 1 Slow 85C -0.086 ns / Slow 0C -0.196 ns; seed 2 (better) Slow 85C
++0.088 ns / Slow 0C -0.025 ns. Hold clean on both. This is small but real and consistent in direction across
+both seeds — not seed noise — so the CLUT's physical cost (a new dual-clock M10K plus its read/write logic) is
+not free the way B7's busy counter or the MLAB/font-repack work were. **This bitstream is not ready to ship.**
+The exact violating path was not identified before deciding it wasn't worth more time that session (a
+`quartus_sta`/`report_timing` path-query attempt failed on a wrong TCL API call, not retried) — whoever picks
+this up next should get the actual path first (the same technique that found `glyphbuf`'s and `Add32~8`'s
+violations earlier this phase) before guessing at a retiming fix.
+
 **The two-state design, as built:**
 - **Opcode 7** (`OP_CBLIT`) — the last value the existing 3-bit `cmd_op` field has room for, no width change
   needed (a nice coincidence, not a constraint that shaped the design).
