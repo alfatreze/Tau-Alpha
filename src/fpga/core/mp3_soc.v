@@ -648,6 +648,17 @@ module mp3_soc #(
     // R_BLT_IDX/R_BLT_DATA's own auto-increment. Inert (no logic reads it)
     // unless TAU_BLIT is built.
     localparam [7:0] R_CLUT_IDX = 8'hC8, R_CLUT_DATA = 8'hCC;
+    // B-186 (docs/AUDIT_TRAIL.md): ISSP proved the draw engine is NOT the Blit Test hang --
+    // dispatch state cycled normally through idle/scanline-fill the whole time the CPU was
+    // stuck. This register is the CPU-side equivalent of that same idea: firmware writes a
+    // small checkpoint number here (fw/suite.inc's bt_crumb(), same call sites as its existing
+    // SDRAM-word crumb, now writing both), and TAU_ISSP wires it out to a second, independent
+    // probe instance -- readable live over JTAG regardless of whether the CPU itself is stuck,
+    // the same property that made the BLIT probe useful. Plain write-only register, no side
+    // effect if written on a bitstream without TAU_ISSP (same "inert unless built" convention
+    // every Phase F register already uses). Never in the release or the normal Diagnostic
+    // Build -- gated behind TAU_ISSP exactly like u_issp_blit in mp3_fb.sv.
+    localparam [7:0] R_DBG_MARK = 8'hD0;
 
     // Bitstream/firmware interlock. Firmware compares this against its own
     // expected value and refuses to run on a mismatch.
@@ -694,6 +705,11 @@ module mp3_soc #(
     assign clut_wr    = (BLIT_ENABLE != 0) ? clut_wr_r    : 1'b0;
     assign clut_waddr = clut_idx;
     assign clut_wdata = clut_wdata_r;
+
+    // B-186: plain CPU-write scratch register, read live by TAU_ISSP's second probe instance
+    // below. No enable gating (unlike clut_wr_r's pulse) -- this is meant to just SIT at its
+    // last-written value forever, which is exactly what makes it readable after a hang.
+    reg  [7:0]  dbg_mark = 8'd0;
 
     // Expansion window 0x88..0xAC (see docs/MMIO_ALLOCATION.md).
     assign xm_reg   = mmio_reg;
@@ -855,6 +871,7 @@ module mp3_soc #(
                     clut_wr_r    <= 1'b1;
                     clut_idx     <= clut_idx + 8'd1;   // wraps 255->0 naturally (8-bit)
                 end
+                R_DBG_MARK: dbg_mark <= dDAT_MOSI[7:0];
                 default: ;
             endcase
         end
@@ -990,5 +1007,26 @@ module mp3_soc #(
             assign if_n_rd = 32'd0;        assign if_cyc_rd = 32'd0;
         end
     endgenerate
+
+    // B-186: second, independent ISSP instance -- the CPU-side checkpoint register above,
+    // not the draw engine (u_issp_blit, mp3_fb.sv). Same convention: default OFF, gated
+    // behind TAU_ISSP, never in the release or the normal Diagnostic Build, read-only
+    // (source_width kept at its required minimum). sld_auto_instance_index avoids any manual
+    // coordination with u_issp_blit's own index.
+`ifdef TAU_ISSP
+    altsource_probe #(
+        .sld_auto_instance_index("YES"),
+        .sld_instance_index(0),
+        .instance_id("DBGM"),
+        .probe_width(8),
+        .source_width(1),
+        .source_initial_value("0"),
+        .enable_metastability("NO")
+    ) u_issp_dbgmark (
+        .source_clk (clk),
+        .probe       (dbg_mark),
+        .source      ()
+    );
+`endif
 
 endmodule
