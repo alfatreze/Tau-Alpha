@@ -1057,4 +1057,30 @@ module mp3_soc #(
     );
 `endif
 
+    // B-188/B-189: fourth ISSP instance -- IFPS (the ifetch-arbiter probe, section 6's own
+    // g_ifetch generate block) showed the arbiter itself idle, not stuck mid-transaction, which
+    // does not confirm a stalled cold fetch the way B-188's DBGM result suggested. The direct
+    // follow-up: capture the CPU's actual instruction AND data addresses (word addresses, iADR/
+    // dADR are both 30 bits) plus each bus's own cycle/strobe/ack, in one read -- enough to know
+    // exactly which instruction the CPU is frozen on (match against the firmware .elf's symbol
+    // table) and whether it is an instruction fetch, a data access, or neither that is actually
+    // stuck. Unlike u_issp_ifetch, not inside the PSRAM_IFETCH_ENABLE generate block -- iADR/
+    // dADR/iCYC/iSTB/dCYC/dSTB/dACK all exist unconditionally at module scope. Same convention:
+    // TAU_ISSP-gated, never in the release or the normal Diagnostic Build, read-only.
+`ifdef TAU_ISSP
+    altsource_probe #(
+        .sld_auto_instance_index("YES"),
+        .sld_instance_index(0),
+        .instance_id("PCAD"),
+        .probe_width(65),
+        .source_width(1),
+        .source_initial_value("0"),
+        .enable_metastability("NO")
+    ) u_issp_pcaddr (
+        .source_clk (clk),
+        .probe       ({dADR, dCYC, dSTB, dACK, iADR, iCYC, iSTB}),
+        .source      ()
+    );
+`endif
+
 endmodule
