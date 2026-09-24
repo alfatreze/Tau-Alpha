@@ -479,6 +479,23 @@ module mp3_fb #(
     wire [7:0] clut_raddr = p0_q[7:0];
     reg [15:0] clut_q;
     always @(posedge clk_sdram) clut_q <= clut[clut_raddr];
+    // B-151: cblit_wval used to be an inline ternary (BUG_CBLIT_NO_LOOKUP ? ... : clut_q) at the
+    // glyphbuf write site itself -- B-150's fit found a new setup violation there, on the exact
+    // shared glyphbuf write-data network this phase has hit marginal three times before (B-109,
+    // B-111, B-116), and it wasn't clear whether the ternary itself (relying on Quartus folding a
+    // parameter-constant condition, never actually verified for any of this file's mutation hooks)
+    // was contributing extra width there. `generate` gives a HARD elaboration-time guarantee the
+    // alternate branch doesn't exist in the netlist at all when off, stronger than hoping a ternary
+    // folds -- cheapest possible experiment to isolate that one variable before assuming a real
+    // retiming fix (B-111/B-114's own technique) is needed instead.
+    wire [15:0] cblit_wval;
+    generate
+        if (BUG_CBLIT_NO_LOOKUP) begin : g_cblit_bug
+            assign cblit_wval = {8'd0, clut_raddr};
+        end else begin : g_cblit_ok
+            assign cblit_wval = clut_q;
+        end
+    endgenerate
 
     // ======================================================================
     // Engine + arbiter (clk_sdram).
@@ -1130,7 +1147,7 @@ module mp3_fb #(
                     end
                 end
                 A_CBLIT_WAIT: begin
-                    glyphbuf[copy_cnt[6:0]] <= BUG_CBLIT_NO_LOOKUP ? {8'd0, clut_raddr} : clut_q;
+                    glyphbuf[copy_cnt[6:0]] <= cblit_wval;
                     if (copy_cnt == char_w[6:0] - 7'd1) begin
                         char_row_ready <= 1'b1;
                     end else begin
