@@ -6795,3 +6795,9 @@ Setup margin improved by roughly 1.4-1.9 ns on both corners -- consistent with r
 **Evidence:** Owner: no JTAG cable available right now to use B-172/B-173's ISSP; asked whether there's another useful diagnostic in the meantime. Both hangs so far (B-162, B-170) happened somewhere in `bt_begin()`, before the HUD (which only starts once `bt_advance()` runs) ever draws -- so the *specific* sub-step (blit-engine probe, flat-thumbnail-buffer build, CLUT load) has never actually been identified. Added `bt_checkpoint()`, a small status line drawn with `fb_rect()`/`fb_text_clipped()` -- primitives already proven safe everywhere else in the UI, including the idle page `bt_begin()` runs from -- before and after each sub-step, on the idle panel's unused row 5. A recurrence now pins down which one is hanging, with no cable required. Verified: `make test-host` passes; `player-library-diagnostic-profile` compiles clean; release ROM confirmed byte-identical.
 **Owner instruction:** "process with you rsuggestion" (proceed with the checkpoint suggestion).
 **Not done:** not packaged or installed yet.
+
+### B-175 — Installed TAU_0_5_0_A_11: Blit Test checkpoint breadcrumbs
+**Date:** 2026-09-24
+**Evidence:** Packaged `player-library-diagnostic-profile` (ROM `c84c43b3...`) against the unchanged B-159 RBF, re-verified before touching the card. Installed per `docs/CARD_INSTALL_PROCEDURE.md`: backed up/verified `TAU_0_5_0_A_10`, hash-verified the new core, rebuilt the library index, cleared caches, junk removed, `check_tau_package.py` PASS, ejected. Cores: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_42`, `TAU_0_5_0_A_11`.
+**Owner instruction:** "go".
+**Not done:** not yet run.
