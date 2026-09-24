@@ -1030,6 +1030,14 @@ COLD_FN static void bt_advance(void)
 
 COLD_FN static void bt_begin(void)
 {
+#if TAU_METER_THUMBS
+    blit_probe_ensure();   /* B-168: must run BEFORE the BLIT_READY() check below, not after --
+                             * it is what actually sets blit_ready. Checking first meant this
+                             * refused unconditionally on a fresh boot (blit_ready defaults to 0
+                             * until something runs the probe), regardless of real hardware
+                             * support -- confirmed a pure ordering bug, not an RTL/hardware issue,
+                             * since B-164 already proved OP_BLIT works on this exact bitstream. */
+#endif
     if (!BLIT_READY()) { bt_state = BT_REFUSED; set_dirty = 1u; return; }
     bt_op = bt_lvl = 0u; bt_at = 0u;
     sr_init(&bt_rec, CHK_REC, CHK_REC_CAP, 8u);
@@ -1037,7 +1045,6 @@ COLD_FN static void bt_begin(void)
     uint32_t build[4] = { fwv, REG(R_VERSION), 0u, 0u };
     sr_vals(&bt_rec, SR_T_BUILD, 4, build, 4);
 #if TAU_METER_THUMBS
-    blit_probe_ensure();
     if (!thumb_flat_ready) set_thumb_flat_build();
     fb_clut_load(meter_thumb_pal[0], 8u);   /* CBLIT's cell reads one corner of viz 0's thumbnail */
 #endif
