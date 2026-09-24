@@ -11,6 +11,9 @@
 #if !TAU_COLD_CODE || !TAU_LIBRARY || !TAU_PL_SDRAM
 #error "TAU_CHECK needs TAU_LIBRARY and TAU_COLD_CODE (the tests and the QR encoder are cold code)"
 #endif
+#if !TAU_METER_THUMBS
+#error "TAU_CHECK needs TAU_METER_THUMBS (Blit Test, B-166, reuses THUMB_STASH_Y/meter_thumb_pal/blit_probe_ensure() unconditionally, and every real build target already bundles the two together)"
+#endif
 #define SR_FN COLD_TEXT static
 #include "suite_core.h"
 #define QR_FN COLD_TEXT static
@@ -916,4 +919,214 @@ COLD_TEXT static int sw_input(uint32_t edge)
     return 1;
 }
 #endif
+
+/* ================================================================== BLIT TEST (B-166)
+ * Exercises every draw-engine opcode individually, full-screen, at increasing concurrency,
+ * without needing audio -- deliberately separate from Check (which assumes playback context) and
+ * from Decode Sweep (decoder-cost, not draw-engine). Opcode correctness is already covered by
+ * B-125's reference-renderer/mutation tests; this measures real hardware throughput/coverage and
+ * is, for OP_RUN/OP_BLIT/OP_BAR/OP_SBLIT, the FIRST operational use of those opcodes from firmware
+ * at all (fb_rect always emits OP_RECT even for a 1-row fill; B-112's audit found nothing had ever
+ * called OP_BLIT/OP_BAR/OP_SBLIT operationally before fb_cblit()/CT_BLT existed, and neither of
+ * those covers RUN/BAR/SBLIT).
+ *
+ * B-162's lesson applied directly, twice over: never runs at boot (menu-driven only, same as
+ * Decode Sweep), and the HUD line is drawn BEFORE each tick's risky draw command, not after -- so
+ * a real hang leaves the screen showing exactly which op/level/cell it was attempting, per the
+ * owner's own request. BLIT_READY() gates entry the same way set_draw_thumb() already does: an old
+ * bitstream without the blit engine gets a clear refusal, not a hang on OP_RUN's truncated
+ * fallback (OP_RUN is opcode 0, so an old 2-bit decode reads it as itself -- the one opcode B-103's
+ * fail-safe does NOT catch, which is exactly why the explicit BLIT_READY() check matters here). */
+#define BT_OPS      8u          /* RUN RECT CHAR COPY BLIT BAR SBLIT CBLIT, mp3_fb.sv's own OP_* order */
+#define BT_LEVELS   3u
+#define BT_WIN_S    2u          /* per (op, level) window */
+#define BT_CELL     16u         /* test-cell size, tiled across the full 400x360 visible screen */
+#define BT_COLS     (FB_W / BT_CELL)
+#define BT_ROWS     (FB_H / BT_CELL)
+enum { BT_IDLE = 0, BT_RUN, BT_REFUSED, BT_DONE, BT_QR };
+static const uint8_t bt_ops_per_tick[BT_LEVELS] = { 1u, 4u, 16u };   /* concurrency: commands issued per bt_advance() call */
+static const char *const bt_op_name[BT_OPS] = { "RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT" };
+static uint8_t  bt_state, bt_op, bt_lvl;
+static uint32_t bt_at, bt_win0, bt_stall0, bt_ops_done, bt_cx, bt_cy, bt_last_stall_pct;
+static sr_t     bt_rec;
+static uint8_t  bt_qr_len, bt_qr_ver;
+
+/* One cell's worth of one opcode, at the current (bt_cx, bt_cy) grid position, then advances the
+ * grid (row-major, wrapping). Source data for COPY/BLIT/SBLIT comes from the off-screen art stash
+ * (ART_STASH_Y, never displayed past FB_H -- always holds valid SDRAM content, its actual pixels
+ * do not matter here); CBLIT reuses the meter-thumbnail flat buffers (THUMB_STASH_Y) and CLUT
+ * already built for B8, loaded once in bt_begin(), not per cell. */
+COLD_FN static void bt_draw_cell(void)
+{
+    uint32_t x = bt_cx * BT_CELL, y = bt_cy * BT_CELL;
+    uint16_t c1 = (uint16_t)(0x1F * (bt_cx & 1u) | (0x3F * (bt_cy & 1u)) << 5 | (0x1F * ((bt_cx + bt_cy) & 1u)) << 11);
+    uint16_t c2 = (uint16_t)~c1;
+    switch (bt_op) {
+    case 0: fb_run(x, y, BT_CELL, c1); break;
+    case 1: fb_rect(x, y, BT_CELL, BT_CELL, c1); break;
+    case 2: fb_set_color(c1, c2); fb_char(x, y, (char)('A' + (bt_cx + bt_cy) % 26), 1u, 1u); break;
+    case 3: fb_copy(0u, ART_STASH_Y, x, y, BT_CELL, BT_CELL); break;
+    case 4: fb_blit(0u, ART_STASH_Y, x, y, BT_CELL, BT_CELL); break;
+    case 5: fb_bar(x, y, BT_CELL, BT_CELL, (bt_cx * 3u) % (BT_CELL + 1u), c1, c2); break;
+    case 6: fb_sblit(0u, ART_STASH_Y, x, y, BT_CELL, BT_CELL, 2u, 2u); break;   /* 2x from an 8x8 source */
+    default: fb_cblit(0u, THUMB_STASH_Y, x, y, BT_CELL, BT_CELL); break;        /* one meter-thumb-sized corner */
+    }
+    if (++bt_cx >= BT_COLS) { bt_cx = 0u; if (++bt_cy >= BT_ROWS) bt_cy = 0u; }
+    bt_ops_done++;
+}
+
+COLD_FN static void bt_hud(void)
+{
+    char b[48], *q = b;
+    q = set_str(q, bt_op_name[bt_op]); q = set_str(q, " L"); q = ui_dec(q, bt_lvl + 1u);
+    q = set_str(q, "  X"); q = ui_dec(q, bt_cx); q = set_str(q, " Y"); q = ui_dec(q, bt_cy);
+    q = set_str(q, "  STALL"); q = ui_dec(q, bt_last_stall_pct); q = set_str(q, "%"); *q = 0;
+    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, FB_H - 18u, b, TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
+COLD_FN static void bt_finish(void)
+{
+    uint32_t len = sr_finish(&bt_rec);
+    bt_qr_len = 0;
+    if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
+        uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
+        uint32_t ver = 0, mask = 0;
+        uint32_t sz = qr_encode((const uint8_t *)CHK_TXT, txtlen, 1u, CHK_QR_MAXV, 0, CHK_QR, &ver, &mask);
+        if (sz) { bt_qr_len = sz; bt_qr_ver = ver; }
+    }
+}
+
+/* Advances one (op, level) window at a time: draws the HUD (the last-known-good state, so a hang
+ * in the cell(s) that follow still leaves an identifying line on screen), issues this level's
+ * concurrency worth of cells, and on window expiry records one SR_T_BLITTEST entry and moves to
+ * the next level or opcode. Reaching a window's expiry at all IS the pass condition -- there is no
+ * timeout on the draw-engine primitives to recover from a genuine hang, so a FAIL entry is never
+ * actually written; its absence (this op/level missing from the report, or the whole run never
+ * reaching SR_finish) is itself the evidence, same as B-162's own diagnosis relied on a screenshot
+ * of where the HUD stopped, not a reported failure. */
+COLD_FN static void bt_advance(void)
+{
+    if (!bt_at) {   /* entering a new (op, level) window */
+        bt_win0 = cycles(); bt_at = bt_win0 + BT_WIN_S * CLK_HZ; bt_stall0 = REG(R_FB_STALL);
+        bt_ops_done = 0u; bt_cx = bt_cy = 0u;
+    }
+    bt_hud();
+    for (uint32_t k = 0; k < bt_ops_per_tick[bt_lvl]; k++) bt_draw_cell();
+    if ((int32_t)(cycles() - bt_at) < 0) return;
+    uint32_t window_cyc = BT_WIN_S * CLK_HZ;
+    uint32_t stall = REG(R_FB_STALL) - bt_stall0;
+    bt_last_stall_pct = (stall > window_cyc) ? 100u : stall * 100u / window_cyc;
+    uint8_t t[6] = { bt_op, bt_lvl, SR_PASS, (uint8_t)bt_last_stall_pct,
+                     (uint8_t)bt_ops_done, (uint8_t)(bt_ops_done >> 8) };
+    sr_tlv(&bt_rec, SR_T_BLITTEST, t, 6);
+    bt_at = 0u;
+    if (++bt_lvl >= BT_LEVELS) {
+        bt_lvl = 0u;
+        if (++bt_op >= BT_OPS) { bt_finish(); bt_state = bt_qr_len ? BT_QR : BT_DONE; return; }
+    }
+    set_dirty = 1u;
+}
+
+COLD_FN static void bt_begin(void)
+{
+    if (!BLIT_READY()) { bt_state = BT_REFUSED; set_dirty = 1u; return; }
+    bt_op = bt_lvl = 0u; bt_at = 0u;
+    sr_init(&bt_rec, CHK_REC, CHK_REC_CAP, 8u);
+    uint32_t fwv = ((uint32_t)(APP_VER[0] - '0') << 16) | ((uint32_t)(APP_VER[2] - '0') << 8) | (uint32_t)(APP_VER[4] - '0');
+    uint32_t build[4] = { fwv, REG(R_VERSION), 0u, 0u };
+    sr_vals(&bt_rec, SR_T_BUILD, 4, build, 4);
+#if TAU_METER_THUMBS
+    blit_probe_ensure();
+    if (!thumb_flat_ready) set_thumb_flat_build();
+    fb_clut_load(meter_thumb_pal[0], 8u);   /* CBLIT's cell reads one corner of viz 0's thumbnail */
+#endif
+    bt_state = BT_RUN;
+    set_dirty = 1u;
+}
+static void bt_open(void) { bt_state = BT_IDLE; }
+static void bt_tick(void)
+{
+    if (bt_state != BT_RUN) return;
+    if (set_open && set_page == SET_BLITTEST_PG) bt_advance(); else bt_state = BT_IDLE;
+}
+
+COLD_TEXT static void bt_draw_qr(void)
+{
+    const uint32_t sz = bt_qr_len;
+    uint32_t m = 354u / (sz + 8u);
+    if (m > 4u) m = 4u;
+    const uint32_t side = (sz + 8u) * m, x0 = (FB_W - side) / 2u;
+    fb_rect(0u, 0u, FB_W, FB_H, UI_BG);
+    fb_rect(x0, 0u, side, side, 0xFFFFu);
+    for (uint32_t y = 0; y < sz; y++) {
+        uint32_t x = 0;
+        while (x < sz) {
+            if (!qr_get(CHK_QR, sz, (int)x, (int)y)) { x++; continue; }
+            uint32_t e = x + 1u;
+            while (e < sz && qr_get(CHK_QR, sz, (int)e, (int)y)) e++;
+            fb_rect(x0 + (x + 4u) * m, (y + 4u) * m, (e - x) * m, m, 0x0000u);
+            x = e;
+        }
+    }
+    if (side + 44u > FB_H) return;
+    char t[32], *q = t;
+    q = set_str(q, "BLIT TEST DONE"); *q = 0;
+    fb_set_color(ui_accent, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, side + 6u, t, TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_set_color(UI_FAINT, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, "MENU+START FOR A SCREENSHOT", TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
+COLD_TEXT static void bt_draw(void)
+{
+    if (bt_state == BT_QR && bt_qr_len) { bt_draw_qr(); return; }
+    if (bt_state == BT_RUN) return;   /* the test itself owns the whole screen; the HUD is its only chrome */
+    ov_frame("BLIT TEST",
+             bt_state == BT_REFUSED ? "REFUSED" : bt_state == BT_DONE ? "DONE" : "",
+             bt_state == BT_IDLE ? "A START   B BACK" : "B BACK");
+    if (bt_state == BT_IDLE) {
+        fb_set_color(UI_WHITE, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, "Runs every draw-engine opcode,", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, "full screen, at 3 concurrency", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "levels each -- no audio needed.", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 4u * PL_UI_ROW_H, "A START   B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+        return;
+    }
+    if (bt_state == BT_REFUSED) {
+        fb_set_color(UI_RED, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, "BLIT ENGINE NOT DETECTED", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+        return;
+    }
+    char ln[40], *q = ln;
+    q = set_str(q, "op "); q = ui_dec(q, (uint32_t)bt_op * BT_LEVELS + bt_lvl); q = set_str(q, " / "); q = ui_dec(q, BT_OPS * BT_LEVELS); *q = 0;
+    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_set_color(bt_qr_len ? ui_accent : UI_RED, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, bt_qr_len ? "done" : "record did not fit", TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_set_color(UI_FAINT, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, bt_qr_len ? "A QR   B BACK" : "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
+COLD_TEXT static int bt_input(uint32_t edge)
+{
+    if (edge & KEY_START) { if (bt_state != BT_RUN) set_close(); return 1; }
+    if (bt_state == BT_IDLE) {
+        if (edge & KEY_A) bt_begin();
+        else if (edge & (KEY_B | KEY_LEFT)) { set_page = CHK_PARENT; set_dirty = 1u; }
+    } else if (bt_state == BT_REFUSED) {
+        if (edge & (KEY_B | KEY_LEFT | KEY_A)) { bt_state = BT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
+    } else if (bt_state == BT_RUN) {
+        if (edge & KEY_B) bt_state = BT_IDLE;   /* abort */
+    } else if (bt_state == BT_DONE) {
+        if ((edge & (KEY_A | KEY_RIGHT)) && bt_qr_len) { bt_state = BT_QR; set_dirty = 1u; }
+        else if (edge & (KEY_B | KEY_LEFT)) { bt_state = BT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
+    } else {   /* BT_QR */
+        if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { bt_state = BT_DONE; set_dirty = 1u; }
+    }
+    return 1;
+}
 #endif

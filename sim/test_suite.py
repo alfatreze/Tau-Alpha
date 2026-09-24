@@ -67,6 +67,9 @@ def main():
           "value": trk_fail_val, "changes_done": 3, "queue_len": 11, "lib_src": True, "skip_req_pending": True}, trk_fail)
     trk_pass = D.parse_record(D.build_record(1, [(3, bytes([11, 0]) + le(4, 10))]))["tests"][0]
     check("decode trk pass (unpacked)", trk_pass == {"id": 11, "name": "Track changes (10)", "result": "PASS", "value": 10}, trk_pass)
+    # Blit Test (B-166): one entry per (opcode, level) -- op_id u8, level u8, result u8, stall_pct u8, ops_done u16 LE.
+    bt = D.parse_record(D.build_record(8, [(15, bytes([4, 2, 0, 37]) + le(2, 812))]))["entries"]["blittest"]
+    check("decode blit test", bt == [{"op": "BLIT", "level": 2, "result": "PASS", "stall_pct": 37, "ops_done": 812}], bt)
     check("decode audio", rec["entries"]["audio"] == {"late_underruns": 2, "audio_full": False, "stall_ms": 3, "window_s": 380}, rec["entries"].get("audio"))
     check("decode decprof", rec["entries"]["decprof"] == {"h_pct": 5, "i_pct": 13, "s_pct": 57, "r_pct": 68}, rec["entries"].get("decprof"))
     check("decode decsweep", rec["entries"]["decsweep"] == [

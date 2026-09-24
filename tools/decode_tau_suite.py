@@ -15,7 +15,8 @@ import sys
 import zlib
 
 FMT = 1
-PROFILES = {0: "none", 1: "USER CHECK", 2: "QUICK", 3: "STANDARD", 4: "FULL", 5: "ENDURANCE", 6: "CUSTOM", 7: "RESTART-SET"}
+PROFILES = {0: "none", 1: "USER CHECK", 2: "QUICK", 3: "STANDARD", 4: "FULL", 5: "ENDURANCE", 6: "CUSTOM", 7: "RESTART-SET",
+            8: "BLIT TEST"}
 VERDICTS = {0: "no result", 1: "all checks passed", 2: "some checks failed", 3: "check incomplete"}
 RESULTS = {0: "PASS", 1: "FAIL", 2: "SKIPPED", 3: "N/A"}
 TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window test", 3: "Cold code test",
@@ -23,7 +24,8 @@ TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window te
          8: "Stress R2 (30 s)", 9: "Stress R3 (30 s)", 10: "Soak", 11: "Track changes (10)", 12: "Cold code x20",
          13: "Blit storm (30 s)"}   # B-127, CT_BLT: needs live playback like id 5, or reports N/A/SKIP the same way
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
-        10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep"}
+        10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest"}
+BLIT_OPS = ["RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT"]
 B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 
@@ -90,6 +92,12 @@ def parse_record(rec: bytes) -> dict:
             title = v[10:n].decode("ascii", "replace")   # truncated, not NUL-terminated (B-096)
             out["entries"].setdefault("decsweep", []).append(
                 {"track": track_idx, "title": title, "speed_pct": speed_pct, "h_pct": h, "i_pct": i2, "s_pct": s, "r_pct": r})
+        elif tag == 15 and n == 6:               # Blit Test: one entry per (opcode, level), repeatable (B-166)
+            op_id, level, res = v[0], v[1], v[2]
+            ops_done = int.from_bytes(v[4:6], "little")
+            out["entries"].setdefault("blittest", []).append(
+                {"op": BLIT_OPS[op_id] if op_id < len(BLIT_OPS) else f"op{op_id}", "level": level,
+                 "result": RESULTS.get(res, str(res)), "stall_pct": v[3], "ops_done": ops_done})
         elif tag in TAGS:
             w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1}[tag]
             if tag == 1:

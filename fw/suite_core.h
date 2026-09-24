@@ -15,7 +15,7 @@
 #endif
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
-       SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP };
+       SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST };
 /* SR_T_DECPROF (B-088/B-089, docs/TEST_SUITE_SPEC.md section 11): u16 x 4 --
  * h_pct, i_pct, s_pct (MP3 Huffman/IMDCT/Subband, percent of the CT_AUD
  * window's real time, uncapped), r_pct (FLAC bit-reader share of channel 0's
@@ -35,6 +35,15 @@ enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, S
  * (different wire size, and now variable-length besides) rather than
  * overloading it by length, because a sweep record and a single Check sample
  * are different concerns with no reason to share a format. */
+/* SR_T_BLITTEST (B-166, Blit Test): ONE entry per (opcode, level) combination, repeated -- op_id u8
+ * (0=RUN 1=RECT 2=CHAR 3=COPY 4=BLIT 5=BAR 6=SBLIT 7=CBLIT, matching mp3_fb.sv's own OP_* encoding),
+ * level u8 (0-2, concurrency depth -- how many commands are queued ahead before waiting), result u8
+ * (SR_PASS/SR_FAIL, see below -- FAIL means the fixed window did not complete, which in practice
+ * means it hung, since there is no timeout on fb_wait() to recover from a real one), stall_pct u8
+ * (R_FB_STALL delta over the window / window cycles * 100 -- the fraction of the window the CPU
+ * spent blocked because the draw FIFO was full, this test's "how loaded" number, the same busy-
+ * cycle convention B7/R_SDR_BUSY established for SDRAM), ops_done u16 LE (draw-engine commands
+ * actually issued in the window, the throughput number). 6 bytes fixed. */
 /* SR_T_TEST entries (len 6): id u8, result u8 (0 pass, 1 fail, 2 skipped, 3 not applicable), value u32 (test specific). */
 enum { SR_PASS = 0, SR_FAIL = 1, SR_SKIP = 2, SR_NA = 3 };
 
