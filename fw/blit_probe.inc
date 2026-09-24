@@ -37,18 +37,23 @@
  * **B-162 correction, 2026-09-24: NOT called at boot any more.** It briefly was (this same
  * session), and hung TAU_0_5_0_A_6 on every single boot -- the splash drew correctly (so
  * A_COMPOSE's retiming and text rendering are fine) but the loading-progress animation, which
- * starts right after this call in the boot sequence, never appeared; a photographed screenshot of
- * the stuck splash (empty, unanimated loading bar) confirmed it. Root cause not confirmed without
- * hardware access to trace it live -- candidates include the draw engine genuinely getting stuck
- * on THIS specific OP_BLIT shape (DST_STRIDE=8, h=2/w=1, row 0 col 480) on this bitstream, since no
- * real-CPU-in-the-loop simulation of this exact firmware sequence has ever existed (B-160 already
- * flagged this verification gap) and no earlier alpha.1-5 build ever actually called this function
- * at boot (TAU_BLIT_PROBE was never set for player-library-diagnostic-profile, and nothing gated
- * it on TAU_METER_THUMBS until this session) -- so it may never have run on real hardware before
- * at all. Deferred to `blit_probe_ensure()` below: first actual use, well after boot, when the
- * system is fully interactive, so a hang there is recoverable (reboot without opening Settings)
- * rather than bricking every single boot. This does not confirm the underlying OP_BLIT hang is
- * fixed -- only that it can no longer block boot. */
+ * starts right after this call in the boot sequence, never appeared. Deferred to
+ * `blit_probe_ensure()` below: first actual use, well after boot, so a hang there is recoverable
+ * rather than bricking every single boot.
+ *
+ * **B-170 correction, 2026-09-24: the custom DST_STRIDE was the actual cause, not the timing.**
+ * The deferred probe hung AGAIN on `TAU_0_5_0_A_9` (Blit Test's first real call to it, well after
+ * boot -- ruling out "too early" as the explanation). Pattern once spotted: this function was the
+ * ONLY code anywhere in this codebase that ever wrote a non-default `DST_STRIDE` (8, via the
+ * sticky `R_BLT_IDX`/`R_BLT_DATA` mechanism) -- both hangs trace back to the one thing this probe
+ * did that no proven-working `OP_BLIT` caller (`fb_blit()`, `CT_BLT`, hardware-verified B-146/
+ * B-164) ever does. Rewritten to use the SAME default-stride (512) addressing every other caller
+ * already relies on: the second probe row is the NEXT row at the framebuffer's own stride, not a
+ * custom 8-word step, so `R_BLT_IDX`/`R_BLT_DATA` are never touched at all. The distinguishing
+ * logic is unchanged (old RTL's `OP_RUN` fallback only ever touches row 0; a real `OP_BLIT` with
+ * h=2 touches both) -- only the addressing convention changed, to one already proven twice on real
+ * hardware. Still not confirmed on hardware as of this entry -- the hypothesis is strong (the one
+ * differentiating factor across two separate hangs) but not directly traced live. */
 #if TAU_BLIT_PROBE || TAU_METER_THUMBS
 /* R_BLT_IDX/R_BLT_DATA/FB_OP_BLIT now live in player.c's shared register block
  * (B-127 promoted them there for the blit-storm Check test to use too). */
@@ -58,17 +63,17 @@ static uint8_t blit_probed;
 
 static void blit_probe(void)
 {
-    const uint32_t probe_addr = 480u;   /* row 0, column 480 -- past the displayed 0..399 */
-    const uint32_t probe_stride = 8u;   /* tiny and non-default, so row 1 lands at 488 */
-    const uint32_t probe_row2 = probe_addr + probe_stride;
+    const uint32_t probe_addr = 480u;                    /* row 0, column 480 -- past the displayed 0..399 */
+    const uint32_t probe_row2 = probe_addr + FB_STRIDE;  /* next row at the DEFAULT stride (512) -- B-170:
+                                                           * never touches R_BLT_IDX/R_BLT_DATA, same
+                                                           * addressing convention fb_blit()/CT_BLT already
+                                                           * use successfully on real hardware. */
     volatile uint16_t *sentinel =
         (volatile uint16_t *)(uintptr_t)(0xA0000000u + (probe_row2 << 1));
 
     *sentinel = 0xDEADu;
 
     fb_wait();
-    REG(R_BLT_IDX) = 2u; REG(R_BLT_DATA) = 0u;              /* DST_BASE = 0 */
-    REG(R_BLT_IDX) = 3u; REG(R_BLT_DATA) = probe_stride;    /* DST_STRIDE = 8, not the usual 512 */
     REG(R_FB_ADDR)  = probe_addr;
     REG(R_FB_SIZE)  = (2u << 9) | 1u;                       /* h=2, w=1 */
     REG(R_FB_COLOR) = 0u;                                   /* fg=bg=0 -> source offset 0 (a benign read) */
@@ -76,10 +81,6 @@ static void blit_probe(void)
     fb_wait();
 
     blit_ready = (*sentinel != 0xDEADu) ? 1u : 0u;
-
-    /* Restore the sticky state every real BLIT caller will expect as its
-     * power-up default, so this probe leaves nothing behind. */
-    REG(R_BLT_IDX) = 3u; REG(R_BLT_DATA) = 512u;
 }
 
 /* B-162: run the probe at most once, on first actual need -- never at boot. */
