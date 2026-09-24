@@ -188,3 +188,77 @@ Sequence: this proof build comes **before the blit engine** (Phase F0 in the roa
   use about 7 of the 8 free M10K blocks, so either find the MLAB spelling (save a GUI file with RAM
   type MLAB) or shrink the buffer (512 samples = about 2 blocks) for the proof.
 - Open: the trigger condition is still the GUI default.
+
+## 6. ISSP (In-System Sources and Probes) -- live register/state readback (B-172/B-173/B-178)
+
+**Status: build proven (fit closes clean, near-zero M10K cost), readback commands verified against
+a live `system-console` session (no cable connected -- discovery/syntax checked, end-to-end
+readback with real hardware NOT yet exercised).**
+
+### 6.1 What this is for
+
+A live, always-current read of `mp3_fb.sv`'s draw-engine dispatch state -- for exactly the "what is
+it stuck on" question a genuine hang leaves no other way to answer without a cable. Unlike
+SignalTap, no trigger or capture depth: a hang is a state that stops changing, so reading it once,
+any time after the freeze, is enough. Built behind `TAU_ISSP` (`tools/blit_g3_issp_qsf_append.txt`),
+fit-proven 2026-09-24 (`work/diagnostics/blit-issp-20260924/`, RBF `3beed3ac...`, `.sof` on the VM at
+`~/tau-local/issp-synth-20260924/src/fpga/output_files/ap_core.sof`) -- timing closed on all four
+corners (setup +1.99/+1.87 ns), RAM identical to the non-ISSP build (299/308), so this costs nothing
+worth worrying about. **Never in the release or the normal Diagnostic Build** -- its own qsf variant
+only (owner instruction, 2026-09-24).
+
+### 6.2 Probe bit layout (`mp3_fb.sv`, instance `u_issp_blit`, `instance_id "BLIT"`)
+
+19 bits, MSB to LSB:
+
+| Bits | Signal | Meaning |
+|---|---|---|
+| [18] | `bar2_pending` | B6/BAR's queued second (lit) segment waiting to fire |
+| [17] | `rect_active` | a RECT/RUN/BAR row-burst is in flight |
+| [16] | `copy_mode` | OP_COPY/OP_BLIT's shared burst-read path is active |
+| [15] | `sblit_mode` | OP_SBLIT's one-pixel-per-transaction path is active |
+| [14] | `cblit_mode` | OP_CBLIT's path is active |
+| [13] | `blit_mode` | OP_BLIT/OP_CBLIT/OP_SBLIT's shared per-row stride step is active |
+| [12:4] | `fifo_fill` | command FIFO occupancy, 0-256 (256 = CPU can't even push a new command) |
+| [3:0] | `astate` | dispatch state: 0=A_IDLE 1=A_FILL 2=A_FILL_END 3=A_WRWAIT 4=A_ROWFETCH 5=A_COMPOSE 6=A_COPYRD 7=A_KEYDST 8=A_SBLIT 9=A_CBLIT_RD 10=A_CBLIT_WAIT 11=A_COMPOSE_WR (see `mp3_fb.sv`'s own `astate` `localparam` list) |
+
+A genuine hang almost always means `astate` stuck at a non-`A_IDLE` value while `fifo_fill` stops
+changing -- which state it's stuck at says which opcode's dispatch path is involved.
+
+### 6.3 Procedure
+
+1. **Load the ISSP `.sof`** via JTAG, exactly like section 2's already-proven reload (no SD card
+   write needed -- a core for the same platform must already be running on the card):
+   ```
+   cd ~/tau-local/issp-synth-20260924/src/fpga/output_files
+   quartus_pgm -m jtag -o "p;ap_core.sof"
+   ```
+2. **Reproduce the hang** (open Blit Test, whatever sequence triggers it).
+3. **Launch `system-console`** -- note the real path, it is NOT in the main `quartus/bin`:
+   ```
+   export PATH=/home/taualpha/intelFPGA_lite/25.1std/quartus/sopc_builder/bin:/home/taualpha/intelFPGA_lite/25.1std/quartus/bin:$PATH
+   system-console --cli
+   ```
+4. **Find the ISSP service path and read the probe** (commands verified against a live session,
+   `get_service_paths issp` returns empty with no cable connected, as expected):
+   ```tcl
+   set path [lindex [get_service_paths issp] 0]
+   set claimed [open_service issp $path]
+   set bits [issp_read_probe_data $claimed]
+   puts $bits
+   close_service issp $claimed
+   ```
+   `issp_get_instance_info $claimed` also exists (probe/source width, instance id) if `$path`
+   itself needs disambiguating from other ISSP instances later.
+5. **Decode `$bits`** per the table in 6.2 (it comes back as a single bit vector/hex string --
+   exact return format not yet confirmed against real hardware, note it here once seen).
+
+### 6.4 Open items
+
+- End-to-end readback (real cable, real hang, real probe read) not yet done -- the procedure above
+  is real, verified Tcl syntax, not the workflow's actual first live run.
+- `$bits`'s exact return type/format (binary string? hex? a list?) needs recording from the first
+  real read.
+- If Blit Test's next hang needs a different install than what's currently on the card, the ISSP
+  `.sof` can be loaded via JTAG over whatever core is already running (step 1) without touching the
+  SD card at all -- no need to repackage/reinstall just to get the debug bitstream on.
