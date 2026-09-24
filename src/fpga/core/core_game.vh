@@ -132,6 +132,8 @@ wire [15:0] soc_blt_key;
 wire        soc_blt_blend_en;
 wire [2:0]  soc_blt_blend_mode;
 wire [7:0]  soc_blt_blend_alpha;
+// Phase F B9 (Tier 2): palette re-index offset, sticky field 6.
+wire [7:0]  soc_blt_reindex;
 // Phase F B8 ("B8 detailed design"): CLUT load, mp3_soc -> mp3_fb.
 wire        soc_clut_wr;
 wire [7:0]  soc_clut_waddr;
@@ -370,6 +372,7 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN)) u_so
     .blt_blend_en   (soc_blt_blend_en),
     .blt_blend_mode (soc_blt_blend_mode),
     .blt_blend_alpha(soc_blt_blend_alpha),
+    .blt_reindex    (soc_blt_reindex),
 
     .clut_wr   (soc_clut_wr),
     .clut_waddr(soc_clut_waddr),
@@ -742,6 +745,7 @@ mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN)) u_fb (
     .blt_blend_en   (soc_blt_blend_en),
     .blt_blend_mode (soc_blt_blend_mode),
     .blt_blend_alpha(soc_blt_blend_alpha),
+    .blt_reindex    (soc_blt_reindex),
 
     .clut_wr   (soc_clut_wr),
     .clut_waddr(soc_clut_waddr),

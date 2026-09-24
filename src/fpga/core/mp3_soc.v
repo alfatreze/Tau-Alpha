@@ -241,6 +241,12 @@ module mp3_soc #(
     output wire [2:0]   blt_blend_mode,
     output wire [7:0]   blt_blend_alpha,
 
+    // Phase F B9 (Tier 2, section 5): palette re-index offset, sticky field 6
+    // (section 9's REINDEX). Added to OP_CBLIT's palette index before the CLUT
+    // lookup in mp3_fb.sv; default 0 is a true no-op, so there is no separate
+    // enable bit the way B2/B5 have one.
+    output wire [7:0]   blt_reindex,
+
     // Phase F B8 ("B8 detailed design", PHASE_F_SPEC.md section 5): CLUT load,
     // from mp3_soc's own R_CLUT_IDX/R_CLUT_DATA. A plain indexed write, not one
     // of the section-9 sticky fields (a 256-entry bulk table load is a
@@ -625,14 +631,15 @@ module mp3_soc #(
                      R_SDR_DATA= 8'h78, R_SDR_CTRL= 8'h7C,
                      R_SDR_RDATA=8'h80, R_SDR_STATUS=8'h84;
     // Phase F section 9: sticky blit-engine state (source/dest base+stride, B2's
-    // colour key, B5's blend mode), never entering the per-command FIFO. R_BLT_IDX
-    // selects a field (0=SRC_BASE, 1=SRC_STRIDE, 2=DST_BASE, 3=DST_STRIDE, 4=KEY:
-    // bit16=enable, bits[15:0]=RGB565 colour; 5=BLEND: bit0=enable, bits[3:1]=mode
-    // -- 0=DSP 0-255 alpha, 1=PSX B/2+F/2, 2=PSX B+F clamp, 3=PSX B-F clamp,
-    // 4=PSX B+F/4 clamp -- bits[15:8]=alpha level, DSP mode only); each R_BLT_DATA
-    // write stores it and auto-increments the index, so a burst of 6 writes loads
-    // the whole state with one index write. Inert (no logic reads these) unless
-    // TAU_BLIT is built.
+    // colour key, B5's blend mode, B9's palette re-index), never entering the
+    // per-command FIFO. R_BLT_IDX selects a field (0=SRC_BASE, 1=SRC_STRIDE,
+    // 2=DST_BASE, 3=DST_STRIDE, 4=KEY: bit16=enable, bits[15:0]=RGB565 colour;
+    // 5=BLEND: bit0=enable, bits[3:1]=mode -- 0=DSP 0-255 alpha, 1=PSX B/2+F/2,
+    // 2=PSX B+F clamp, 3=PSX B-F clamp, 4=PSX B+F/4 clamp -- bits[15:8]=alpha
+    // level, DSP mode only; 6=REINDEX: bits[7:0]=offset added to OP_CBLIT's
+    // palette index, 0=no-op); each R_BLT_DATA write stores it and auto-
+    // increments the index, so a burst of 7 writes loads the whole state with
+    // one index write. Inert (no logic reads these) unless TAU_BLIT is built.
     localparam [7:0] R_BLT_IDX = 8'hC0, R_BLT_DATA = 8'hC4;
     // Phase F B8 ("B8 detailed design"): CLUT load. R_CLUT_IDX selects one of
     // 256 entries; each R_CLUT_DATA write stores the RGB565 value there and
@@ -665,6 +672,7 @@ module mp3_soc #(
     reg         blt_blend_en_r = 1'b0;
     reg  [2:0]  blt_blend_mode_r = 3'd0;
     reg  [7:0]  blt_blend_alpha_r = 8'd0;
+    reg  [7:0]  blt_reindex_r = 8'd0;
     assign blt_src_base   = (BLIT_ENABLE != 0) ? blt_src_base_r   : 25'd0;
     assign blt_src_stride = (BLIT_ENABLE != 0) ? blt_src_stride_r : 10'd0;
     assign blt_dst_base   = (BLIT_ENABLE != 0) ? blt_dst_base_r   : 25'd0;
@@ -674,6 +682,7 @@ module mp3_soc #(
     assign blt_blend_en   = (BLIT_ENABLE != 0) ? blt_blend_en_r   : 1'b0;
     assign blt_blend_mode = (BLIT_ENABLE != 0) ? blt_blend_mode_r : 3'd0;
     assign blt_blend_alpha= (BLIT_ENABLE != 0) ? blt_blend_alpha_r: 8'd0;
+    assign blt_reindex    = (BLIT_ENABLE != 0) ? blt_reindex_r    : 8'd0;
 
     // Phase F B8: CLUT load state. clut_wr_r is a one-cycle pulse (not a level),
     // matching how mp3_fb.sv's own clut_wr port is meant to be driven -- a
@@ -827,17 +836,18 @@ module mp3_soc #(
                             blt_key_en_r <= dDAT_MOSI[16];
                             blt_key_r    <= dDAT_MOSI[15:0];
                         end
-                        default: begin
+                        3'd5: begin
                             blt_blend_en_r    <= dDAT_MOSI[0];
                             blt_blend_mode_r  <= dDAT_MOSI[3:1];
                             blt_blend_alpha_r <= dDAT_MOSI[15:8];
                         end
+                        default: blt_reindex_r <= dDAT_MOSI[7:0];   // field 6: REINDEX
                     endcase
-                    // 6 real fields (0..5): wraps back to 0 after BLEND rather
-                    // than counting up to 3'd6, so a burst of exactly 6 DATA
-                    // writes loads the whole state and a 7th harmlessly restarts
+                    // 7 real fields (0..6): wraps back to 0 after REINDEX rather
+                    // than counting up to 3'd7, so a burst of exactly 7 DATA
+                    // writes loads the whole state and an 8th harmlessly restarts
                     // at SRC_BASE instead of landing on an unused index.
-                    blt_idx <= (blt_idx == 3'd5) ? 3'd0 : blt_idx + 3'd1;
+                    blt_idx <= (blt_idx == 3'd6) ? 3'd0 : blt_idx + 3'd1;
                 end
                 R_CLUT_IDX:  clut_idx <= dDAT_MOSI[7:0];
                 R_CLUT_DATA: begin

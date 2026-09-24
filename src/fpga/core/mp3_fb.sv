@@ -91,7 +91,13 @@ module mp3_fb #(
     // looking it up in the CLUT -- proves the test actually exercises the CLUT
     // mechanism, not just that some value lands at the right address. Never set
     // outside that test.
-    parameter BUG_CBLIT_NO_LOOKUP = 0
+    parameter BUG_CBLIT_NO_LOOKUP = 0,
+    // Mutation-test hook only (-PBUG_IGNORE_REINDEX=1, make test-rtl-fb-mutation):
+    // 1 forces the CLUT read address to the raw source index always, ignoring
+    // the sticky blt_reindex offset -- proves B9's own test actually exercises
+    // the offset add, not just that a CBLIT with reindex=0 still works. Never
+    // set outside that test.
+    parameter BUG_IGNORE_REINDEX = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -129,6 +135,14 @@ module mp3_fb #(
     input  wire        blt_blend_en,
     input  wire [2:0]  blt_blend_mode,   // 0=DSP alpha, 1-4=PSX shift-add ratios
     input  wire [7:0]  blt_blend_alpha,  // DSP mode only, 0-255
+
+    // Phase F B9 (section 5, Tier 2): palette re-index for dim/highlight. An
+    // 8-bit offset added to OP_CBLIT's palette index before the CLUT lookup --
+    // the Genesis shadow/highlight trick (re-index, don't blend). Read only
+    // when cblit_mode; every other opcode is unaffected. Default 0 is a true
+    // no-op (index + 0 = index), so this needs no separate enable bit the way
+    // B2/B5 do.
+    input  wire [7:0]  blt_reindex,
 
     // Phase F B8 (section 5, "B8 detailed design"): 256-entry CLUT, loaded by
     // the CPU (clk_sys) through mp3_soc.v's R_CLUT_IDX/R_CLUT_DATA. Independent
@@ -476,7 +490,16 @@ module mp3_fb #(
     // registered clut_raddr (set <= this edge, valid only NEXT edge) would put
     // the CLUT's answer a cycle later than A_CBLIT_WAIT expects it -- found by
     // simulation (an 'x' in the dump), not spotted in review.
-    wire [7:0] clut_raddr = p0_q[7:0];
+    //
+    // B9 (Tier 2, section 5): blt_reindex is added here, not looked up as a
+    // second table -- "re-index, don't blend" means firmware pre-bakes a
+    // shadow/highlight variant of a palette into a different 8-byte-aligned
+    // CLUT segment and this offset just selects which one, at zero extra
+    // read-port cost (one 8-bit adder, same as B1's addressing already pays).
+    // Wraps naturally (8-bit add, no overflow check), same "near free" reasoning
+    // as every other sticky field here. BUG_IGNORE_REINDEX forces the plain
+    // add away for the mutation test.
+    wire [7:0] clut_raddr = p0_q[7:0] + (BUG_IGNORE_REINDEX ? 8'd0 : blt_reindex);
     reg [15:0] clut_q;
     always @(posedge clk_sdram) clut_q <= clut[clut_raddr];
     // B-151: cblit_wval used to be an inline ternary (BUG_CBLIT_NO_LOOKUP ? ... : clut_q) at the

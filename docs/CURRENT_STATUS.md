@@ -289,8 +289,32 @@ measurement on the pre-CBLIT bitstream — no added contention), audio continuou
 other test passes except the pre-existing, unrelated `Track changes` failure (confirmed still present, not a
 regression). **B8 is done**: RTL/sim-correct, timing-closed, firmware-integrated, and hardware-verified.
 
-**Next, in order:** investigate the pre-existing `Track changes` Check failure (open since B-138, unrelated to
-B8). Then Tier 2's remaining items (B9-B11) or the M10K/RAM-shrink track, per the roadmap's own ordering.
+**B9 (palette re-index), 2026-09-24 (B-179) — RTL/sim only, no Quartus fit.** Built while waiting on JTAG cable
+access for the Blit Test hang (see the 2026-09-24 session handoff) — independent of that thread and of the card,
+which stays untouched. An 8-bit sticky offset (`blt_reindex`, section 9 field 6) added to `OP_CBLIT`'s palette
+index before the CLUT lookup — "re-index, don't blend," the Genesis shadow/highlight trick — reusing B8's CLUT
+read port exactly, one adder, no new state. Verified: `tb_blit_scene.v`'s scene gained a 13th command (reindexed
+CBLIT through a separate preloaded CLUT bank), `blit_reference.py`'s `cblit()` gained a matching parameter, new
+mutation hook `BUG_IGNORE_REINDEX` caught. `make rtl-lint`/`test-rtl`/`test-host` all pass, 0 failures, zero
+regression anywhere (confirmed via the full `make test-rtl` suite, not just the touched testbenches). Not done:
+Quartus fit, firmware integration (no shadow/highlight palette baked yet) — full detail: `docs/PHASE_F_SPEC.md`
+section 5's B9 write-up, `docs/AUDIT_TRAIL.md` B-179.
+
+**B11 (hardware rounded-rect), 2026-09-24 — analysed, design only, not built.** Owner chose design-only over a
+full build this pass, given real scope found: `cmd_op` is already full (all 8 values of the 3-bit field taken,
+`OP_CBLIT` was explicitly "the last value it has room for"), so a new opcode needs it widened to 4 bits — the
+FIFO already has exactly enough reserved padding to do this for free, but it touches the shared, hardware-
+verified `R_FB_GO`/`cmd_op` decode path every existing opcode depends on. The corner-cut geometry (an iterative
+quarter-circle search) should NOT be computed live in RTL, per this session's own repeated lesson about single-
+cycle timing margins (B-109/B-111/B-150/B-157) — the right analogue is B8's own choice: firmware loads a small
+precomputed cut-per-row table via a new sticky MMIO pair, RTL just reads it. Full design (field reuse, dispatch
+shape generalising BAR's chained-segment trick, verification plan): `docs/PHASE_F_SPEC.md` section 5's B11
+write-up. Precise enough to build cold next time.
+
+**Next, in order:** B10 (hardware RLE source blit, the remaining unbuilt Tier 2 item) or B11's actual build
+(design is ready). Then investigate the pre-existing `Track changes` Check failure (open since B-138, unrelated
+to B8) and the M10K/RAM-shrink track, per the roadmap's own ordering — both blocked on a card write, deliberately
+deferred until the Blit Test hang has a real diagnosis (ISSP, waiting on JTAG cable access).
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in

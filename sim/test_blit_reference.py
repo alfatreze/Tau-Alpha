@@ -4,11 +4,12 @@ tools/host/blit_reference.py (the software reference renderer) and through
 RTL simulation (sim/tb_blit_scene.v), then diff the two buffers exactly.
 
 Also confirms the diff is a real regression net, not just a passing test: it
-re-runs the RTL scene with each of tb_mp3_fb.v's existing mutation
-parameters (BUG_IGNORE_BLIT_STRIDE, BUG_IGNORE_KEY, BUG_SBLIT_NO_SCALE,
-BUG_BLEND_ALWAYS_SRC) and requires the diff to catch every one -- the
-"injected-fault case that must be caught" section 12 asks for, reusing the
-mutation hooks that already exist rather than inventing new ones.
+re-runs the RTL scene with each mutation hook mp3_fb.sv defines
+(BUG_IGNORE_BLIT_STRIDE, BUG_IGNORE_KEY, BUG_SBLIT_NO_SCALE,
+BUG_BLEND_ALWAYS_SRC, BUG_CBLIT_NO_LOOKUP, BUG_IGNORE_REINDEX) and requires
+the diff to catch every one -- the "injected-fault case that must be caught"
+section 12 asks for, reusing the mutation hooks that already exist rather
+than inventing new ones.
 
 The scene's literal addresses/values are hand-picked to avoid any unintended
 overlap between commands, and MUST match sim/tb_blit_scene.v's own scene
@@ -61,6 +62,11 @@ def reference_scene() -> dict[int, int]:
     clut = [0] * 256
     clut[0], clut[1], clut[2], clut[3], clut[4] = 0x1001, 0x1002, 0x1003, 0x1004, 0x1005
     r.cblit(20480, 255, 4, 2, clut)
+    # 13. CBLIT with B9 re-index: dest addr=24576, w=4, h=1, source offset=255
+    #     (same source bytes as command 12's row 0), reindex=32 -> a separate
+    #     "shadow" bank, CLUT entries 32-35 preloaded.
+    clut[32], clut[33], clut[34], clut[35] = 0x2001, 0x2002, 0x2003, 0x2004
+    r.cblit(24576, 255, 4, 1, clut, reindex=32)
     return r.mem
 
 
@@ -124,6 +130,7 @@ def main() -> int:
         "BUG_SBLIT_NO_SCALE",
         "BUG_BLEND_ALWAYS_SRC",
         "BUG_CBLIT_NO_LOOKUP",
+        "BUG_IGNORE_REINDEX",
     ]
     for mut in mutations:
         mutated = run_rtl_scene(mutation=mut)

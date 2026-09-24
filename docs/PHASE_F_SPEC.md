@@ -187,9 +187,9 @@ it is already proven in software.**
 | ID | Feature | M10K | Notes |
 |---|---|---|---|
 | **B8** | **CLUT / palette blit** | 1 | Unifies glyph, thumbnail and icon rendering into one pixel path. Also enables B9. |
-| **B9** | **Palette re-index for dim/highlight** | 0 | The Genesis shadow/highlight trick: do not blend, just re-index to a shadow or highlight palette [EXT]. Near-free dimmed/selected UI states, and a nearly free theme or dark-mode swap once a CLUT exists. |
+| **B9** | **Palette re-index for dim/highlight — done, 2026-09-24, RTL/sim only** | 0 | The Genesis shadow/highlight trick: do not blend, just re-index to a shadow or highlight palette [EXT]. Near-free dimmed/selected UI states, and a nearly free theme or dark-mode swap once a CLUT exists. See the write-up after the B8 section for the as-built design. |
 | **B10** | **Hardware RLE source blit** | 0-1 | Cover-art rows and meter thumbnails are *already* RLE-encoded in firmware and pushed one command per run. Reading `(run, value)` pairs from a source buffer collapses that. Architecture model is the 3DO Cel Engine's DUP/PDC split — a streaming decompressor stage ahead of a conventional pixel pipeline [EXT]. No adaptable RTL exists; design it fresh. |
-| **B11** | **Hardware rounded-rect** | 0 | Replaces `fb_round_rect_on`'s software corner-overpaint, used on every selection highlight. |
+| **B11** | **Hardware rounded-rect — analysed 2026-09-24, not built (design below)** | 0 | Replaces `fb_round_rect_on`'s software corner-overpaint, used on every selection highlight. |
 
 ### B8 detailed design (2026-09-23) — grounded in the real target, not designed in the abstract
 
@@ -341,6 +341,39 @@ prove the CLUT mechanism itself works before adding a decoder on top of it.
 this design pass — icons may already be small enough that the draw-call overhead this targets doesn't apply to
 them; check before assuming B8 helps there too.
 
+### B9 (palette re-index), 2026-09-24 — RTL/sim, no Quartus fit yet
+
+Built while waiting on JTAG cable access for the Blit Test hang (see the 2026-09-24 session handoff) — Tier 2,
+0 M10K, no dependency on the hang or on any hardware. **Design: an 8-bit sticky offset (`blt_reindex`, section 9
+field 6), added to `OP_CBLIT`'s palette index before the CLUT lookup.** Not a second table, not a blend — the
+Genesis trick is precisely "re-index, don't blend": firmware pre-bakes a shadow or highlight variant of a
+palette into a different segment of the same 256-entry CLUT (e.g. the meter thumbnails' 8-colour palette at
+indices 0-7, a dimmed copy at 32-39, a highlighted copy at 64-71 — any 8-aligned bank the firmware picks), and
+this offset just selects which segment a given `OP_CBLIT` reads from. Default 0 is a true no-op (`index + 0 =
+index`), so — unlike B2/B5 — there is no separate enable bit to gate: cost is one 8-bit adder feeding the CLUT's
+existing read address (`clut_raddr = p0_q[7:0] + blt_reindex`), reusing B8's own read port and CDC-free registered-
+read idiom exactly, no new state, no new dispatch path. Wraps naturally (8-bit add), same "near free" reasoning
+every other sticky field here already uses.
+
+MMIO: `R_BLT_IDX`/`R_BLT_DATA` field 6 (`bits[7:0]` = offset), the sticky-field burst now 7 writes instead of 6
+(wraps 6->0). `docs/MMIO_ALLOCATION.md` updated.
+
+Verified: `sim/tb_blit_scene.v`'s scene gained a 13th command — a second `OP_CBLIT` reading the *same* source
+bytes as command 12's row 0 (so any regression in command 12's own reindex=0 default would show up too) but with
+`blt_reindex=32`, landing on a separate CLUT bank preloaded with distinct values; `tools/host/blit_reference.py`'s
+`cblit()` gained a `reindex` parameter (`idx = ((s & 0xFF) + reindex) & 0xFF`, the same 8-bit wrap as the RTL); new
+mutation hook `BUG_IGNORE_REINDEX` (forces the CLUT read address to the raw index always) confirmed caught by the
+pixel-diff (4 mismatches, exactly the reindexed command's own words). `make rtl-lint`/`test-rtl`/`test-host` all
+pass, 0 failures, zero regression on every existing opcode/mutation case (6 mutation hooks for this file now, all
+independently caught).
+
+**Not done:** no Quartus fit (this is RTL/sim-only, matching B8 step 1's own "prove correctness before spending a
+Quartus cycle" convention); no firmware register defines or a real shadow/highlight palette baked by
+`meter_thumbs.h`'s tooling — the actual "near-free dimmed/selected UI state" product win needs both, and is its
+own follow-up once B8's CLUT mechanism itself has a hardware timing fit that includes this addition (the next
+full G3+blit re-fit should bundle B9 in, the same way B-101/B-132 bundled the running set of Tier 1/2 features
+rather than fitting each in isolation).
+
 **What the open RTL question resolved to:** rather than pipeline the CLUT lookup into the shared `A_COPYRD`
 burst path (the option this section originally weighed, and the one that would have touched `OP_COPY`/`OP_BLIT`'s
 own state), `OP_CBLIT` got its own two-state path (`A_CBLIT_RD`/`A_CBLIT_WAIT`, new `astate` values 9/10),
@@ -353,6 +386,81 @@ matter in practice, once there's a real workload to measure it against.
 **Not done:** no Quartus fit (RTL/sim only, per this entry's own scope); no firmware register defines or
 `set_draw_thumb()` change (the actual "one command per thumbnail" win needs both, and is its own follow-up);
 step 2 (B10's RLE decode) untouched, waiting on step 1 to prove out on real hardware first.
+
+### B11 (hardware rounded-rect) — analysed 2026-09-24, design only, not built
+
+Read the real target before designing (same discipline B8 used): `fw/player.c`'s `fb_round_rect`/
+`fb_round_rect_on` (lines ~2234-2276). Two variants exist, only one is in scope here.
+
+**`fb_round_rect_on(x, y, w, h, r, color, bg)` — the one this targets.** One full `w x h` fill in
+`color`, then for each of `r` rows: an integer quarter-circle search (`while (inner+1)^2 + dy^2 <= r^2:
+inner++`) gives that row's corner inset `cut`; if `cut != 0`, four 1-row rects punch `bg` into the top-
+left/top-right/bottom-left/bottom-right corners. Up to `1 + 4r` separate `cmd_push`es today — for the
+panel border (`r=8`) that is up to 33 commands for one shape, the same per-frame-command-count problem
+B6 (BAR) already solved for meters. **`fb_round_rect(x, y, w, h, r, color)` (no `bg`) is a different,
+harder problem — out of scope for this design.** It samples `ui_grad_at()` (the background gradient) at
+each corner row instead of a flat colour, so replicating it in RTL means porting the gradient LUT too;
+it has exactly 2 call sites (the panel border) versus `fb_round_rect_on`'s 6 (every selected list row,
+in `library.inc`/`settingsui.inc`/`player.c`'s playlist), so the flat-`bg` variant alone captures almost
+all of the actual per-frame command-count win.
+
+**Real blocker found, not assumed: `cmd_op` is already full.** All 3 bits (values 0-7) are taken —
+`OP_CBLIT` (B8) is explicitly documented as "the last value the existing 3-bit field has room for". A
+new opcode needs `cmd_op` widened to 4 bits. This is a smaller change than it sounds: the FIFO's 88-bit
+command word already reserves `5'd0` as unused padding (`{cmd_op, cmd_addr, cmd_fg, cmd_bg, cmd_w,
+cmd_h, cmd_glyph, cmd_sx, cmd_sy, 5'd0}` in `mp3_fb.sv`'s FIFO-write logic), so taking one padding bit
+for `cmd_op` costs nothing in FIFO width — but it does touch `mp3_soc.v`'s `R_FB_GO` decode
+(`fb_cmd_op <= dDAT_MOSI[2:0]`) and every `cmd_op`-width declaration in both files and `core_game.vh`,
+a shared, hardware-verified path every existing opcode depends on. Purely additive (existing values 0-7
+keep their exact meaning) and nowhere near the `glyphbuf` write-select network B8's own timing fight was
+about, but it is not a zero-risk change and deserves its own careful re-verification of all 8 existing
+opcodes before trusting a re-fit, not just the new one.
+
+**Do NOT compute the quarter-circle search live in RTL.** This session's own history — B-109 (`glyphbuf`
+write-data arithmetic), B-111/B-114 (BAR/SBLIT/CHAR retiming), B-150/B-157 (`OP_CBLIT` exposing an
+unrelated marginal path) — is a long, consistent lesson that single-cycle combinational arithmetic chains
+on this device run out of margin fast, and the firmware's search is a *data-dependent iterative* multiply-
+compare loop (unbounded in the sense that its depth depends on `r`, not a fixed small function like
+`cov_weight` or `scale_nd`). The right analogue is **B8's own choice**: offload the computation to
+firmware (which already computes it correctly, is the reference implementation, and never has to run in
+one clock edge) and give RTL a small **lookup table** to read from instead of logic to compute. Concretely:
+a new sticky table, own MMIO pair (own register pair, not folded into `R_BLT_IDX`/`DATA` — same reasoning
+B8's own CLUT-vs-sticky-field split gives: a bulk table load is different write traffic from five mostly-
+static per-command fields), e.g. `R_RC_IDX`/`R_RC_DATA`: 16 entries x 5 bits (`cut(dy)` for `dy` 0..15,
+covering every radius this UI actually uses — 3, 4, 5, 8 — many times over; 16 x 5 = 80 bits, plain flops,
+no M10K, matching the table's own "0 M10K" budget), loaded once whenever the corner radius set changes
+(rare — a handful of fixed radii across the whole UI), not once per command.
+
+**Field reuse, following B6's own precedent exactly:** `cmd_glyph` (7 bits, "otherwise unused outside
+CHAR", already reused by BAR for the lit-row count) carries the radius `r` (max 127, the UI's actual max
+is 8). `cmd_fg`/`cmd_bg` are already the fill/corner colours — no new command fields needed at all beyond
+the wider opcode.
+
+**Dispatch shape — generalises BAR's `bar2_pending` from one chained segment to a counted sequence.**
+`OP_RRECT` dispatch: (1) arm the exact same `rect_active` full-`w`-x-`h` fill in `cmd_fg` `OP_RECT`
+already does — no new logic there at all; (2) queue a corner pass behind it: a row counter `rr_row`
+(0..r-1) and a 2-bit segment counter `rr_seg` (0..3, selecting TL/TR/BL/BR) drive a small sequencer that
+fires when the main fill's last row retires (same trigger BAR's `bar2_pending` uses), each step computing
+one 1-row rect from `(x, y, w, h, rr_row, cut_lut[rr_row])` and re-arming `rect_active` with `bg` — same
+single-row burst write A_WRWAIT already does for every other opcode, so no new SDRAM-facing machinery,
+only new *sequencing* logic. **Rows where `cut_lut[rr_row] == 0` must be skipped without emitting any
+segment** (the firmware's own `if (!cut) continue;`) — a combinational read of `cut_lut[rr_row]` at the
+point the sequencer would otherwise arm a segment, advancing `rr_row` instead when it reads 0. Bounded to
+at most `r` (<=127) skip cycles, and skipping only ever happens between bursts (at `A_IDLE`-equivalent
+dispatch points), so it cannot delay a pending scanline fill the way anything mid-burst could.
+
+**Verification plan, before any of this is built:** extend `tb_mp3_fb.v` with a direct port of
+`fb_round_rect_on`'s own algorithm as the check (the same "independent reference, not a copy of the RTL"
+discipline `tools/host/blit_reference.py` already established for B1-B9) rather than hand-computing a
+handful of cases; a mutation hook forcing `cut_lut` reads to always return 0 (degenerates to a square rect
+— must be caught) is the natural first one, mirroring `BUG_CBLIT_NO_LOOKUP`'s own "prove the mechanism is
+actually exercised" role. Re-run the full existing `mp3_fb.sv` suite afterward specifically because of the
+`cmd_op` width change, even though nothing about it should logically affect opcodes 0-7.
+
+**Not done:** no RTL, no MMIO register, no testbench changes — this is the design pass only, per the
+owner's explicit choice (2026-09-24) to keep this session's remaining Tier 2 work lower-risk after B9,
+rather than build a second multi-part change (widened shared opcode field + new sticky table + new chained
+sequencer) in the same session without a chance to re-verify each piece separately.
 
 ### Tier 3 — after this phase (see section 13)
 

@@ -171,15 +171,21 @@ class Renderer:
         clut: list[int],
         dst_stride: int = STRIDE,
         src_stride: int = STRIDE,
+        reindex: int = 0,
     ) -> None:
         """OP_CBLIT (B8, PHASE_F_SPEC.md section 5 "B8 detailed design"): one
         palette index per source word (low byte), looked up in a 256-entry
         CLUT. Reuses OP_BLIT's addressing exactly; no key/blend interaction,
-        mirroring OP_COPY's own established "never keys" precedent."""
+        mirroring OP_COPY's own established "never keys" precedent.
+
+        `reindex` is B9 (Tier 2): an 8-bit offset added to the index before
+        the lookup (wrapping mod 256, matching mp3_fb.sv's plain 8-bit adder),
+        the "re-index to a shadow/highlight palette" trick instead of a blend."""
         for r in range(h):
             for c in range(w):
                 s = self.src_read(src_addr + r * src_stride + c)
-                self.mem[dst_addr + r * dst_stride + c] = clut[s & 0xFF]
+                idx = ((s & 0xFF) + reindex) & 0xFF
+                self.mem[dst_addr + r * dst_stride + c] = clut[idx]
 
     def bar(self, addr: int, w: int, h: int, fg: int, bg: int, lit_rows: int) -> None:
         """OP_BAR (B6): two chained RECT fills, unlit segment on top, lit on

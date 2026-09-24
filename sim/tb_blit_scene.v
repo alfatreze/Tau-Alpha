@@ -39,6 +39,7 @@ module tb_blit_scene;
     parameter BUG_SBLIT_NO_SCALE = 0;
     parameter BUG_BLEND_ALWAYS_SRC = 0;
     parameter BUG_CBLIT_NO_LOOKUP = 0;
+    parameter BUG_IGNORE_REINDEX = 0;
 
     reg clk_sdram = 0, clk_sys = 0, clk_vid = 0, reset = 1;
     always #5    clk_sdram = ~clk_sdram;   // 100 MHz
@@ -61,6 +62,7 @@ module tb_blit_scene;
     reg         blt_blend_en = 1'b0;
     reg  [2:0]  blt_blend_mode = 3'd0;
     reg  [7:0]  blt_blend_alpha = 8'd0;
+    reg  [7:0]  blt_reindex = 8'd0;
     reg         clut_wr = 1'b0;
     reg  [7:0]  clut_waddr = 8'd0;
     reg  [15:0] clut_wdata = 16'd0;
@@ -78,7 +80,8 @@ module tb_blit_scene;
     mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY),
              .BUG_SBLIT_NO_SCALE(BUG_SBLIT_NO_SCALE), .BLIT_BLEND_ENABLE(1),
              .BUG_BLEND_ALWAYS_SRC(BUG_BLEND_ALWAYS_SRC),
-             .BUG_CBLIT_NO_LOOKUP(BUG_CBLIT_NO_LOOKUP)) dut (
+             .BUG_CBLIT_NO_LOOKUP(BUG_CBLIT_NO_LOOKUP),
+             .BUG_IGNORE_REINDEX(BUG_IGNORE_REINDEX)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
@@ -87,6 +90,7 @@ module tb_blit_scene;
         .blt_dst_base(blt_dst_base), .blt_dst_stride(blt_dst_stride),
         .blt_key_en(blt_key_en), .blt_key(blt_key),
         .blt_blend_en(blt_blend_en), .blt_blend_mode(blt_blend_mode), .blt_blend_alpha(blt_blend_alpha),
+        .blt_reindex(blt_reindex),
         .clut_wr(clut_wr), .clut_waddr(clut_waddr), .clut_wdata(clut_wdata),
         .sdram_init_complete(1'b1),
         .p0_addr(p0_addr), .p0_data(p0_data), .p0_byte_en(p0_byte_en),
@@ -274,6 +278,19 @@ module tb_blit_scene;
         clut_load(8'd3, 16'h1004); clut_load(8'd4, 16'h1005);
         push(3'd7, 19'd20480, 9'd4, 9'd2, 16'h0000, 16'h00FF, 7'd0, 2'd0, 2'd0);
         wait (out_n == 8+18+8+8+8+4+4+20+16+8+256+8); repeat (10) @(posedge clk_sdram);
+
+        // 13. CBLIT with B9 re-index: dest addr=24576, w=4, h=1, source
+        //     offset=255 -- SAME source bytes as command 12's row 0 (indices
+        //     0..3), but blt_reindex=32 shifts every CLUT read up by 32, to a
+        //     separate "shadow" bank preloaded with distinct values. Proves
+        //     the offset is actually applied (not just that reindex=0, this
+        //     command's own default up to now, happens to be a no-op).
+        clut_load(8'd32, 16'h2001); clut_load(8'd33, 16'h2002);
+        clut_load(8'd34, 16'h2003); clut_load(8'd35, 16'h2004);
+        blt_reindex <= 8'd32;
+        push(3'd7, 19'd24576, 9'd4, 9'd1, 16'h0000, 16'h00FF, 7'd0, 2'd0, 2'd0);
+        wait (out_n == 8+18+8+8+8+4+4+20+16+8+256+8+4); repeat (10) @(posedge clk_sdram);
+        blt_reindex <= 8'd0;
 
         // ---- dump every written word ---------------------------------------
         if (!$value$plusargs("DUMP=%s", dump_path)) dump_path = "/dev/null";
