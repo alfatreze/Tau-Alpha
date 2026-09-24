@@ -4,14 +4,23 @@
 B8 (CLUT blit) is done and proven on real hardware. A new "Blit Test" diagnostic hangs on real
 hardware; four source-level RTL fix attempts did not resolve it, and **ISSP's first real hardware
 read (B-186) proved the draw engine itself is not hung** -- normal idle/scanline-fill cycling,
-empty command FIFO, no opcode in flight. A follow-up CPU-side checkpoint probe (B-187/B-188) found
-something bigger: **`bt_begin()`'s own first line never executes at all** -- not "gets stuck early
-inside it," never entered in the first place. Leading hypothesis, not yet confirmed: `bt_begin()`
-is cold code (PSRAM instruction fetch, Phase G4); if that fetch path itself stalls, the CPU hangs
-trying to FETCH the function's first instruction, before any of its own logic runs -- explaining
-every symptom seen so far at once. Next step is a probe on the PSRAM instruction-fetch arbiter
-itself, not another guess inside `fw/suite.inc`. Read `docs/AUDIT_TRAIL.md` B-188 and
-`docs/JTAG_DEBUG_ACCESS.md` section 6.5 before continuing this thread.
+empty command FIFO, no opcode in flight. A follow-up CPU-side checkpoint probe (B-187/B-188) first
+*looked* like it found something bigger (`bt_begin()`'s own first line never executing), but
+**B-189 found that specific read unconfirmed** (stale firmware predating the probe register) and
+**B-190 redid it correctly**: `bt_begin()` really does never execute (now real evidence), **but the
+PSRAM instruction-fetch arbiter is completely idle when it happens, not stuck mid-request** -- no
+live cycle, no pending request on either client. This weakens rather than confirms the
+PSRAM-fetch-stall hypothesis: if the CPU were blocked waiting on a stalled cold-code fetch, the
+arbiter would show a held request, not silence. The more consistent picture now is that something
+*upstream* of the `bt_begin()` call site, in ordinary on-chip code, holds the CPU first, with no
+instruction-fetch bus activity at all while stuck. **Next step:** the already-committed PCAD probe
+(raw `iADR`/`dADR`, commit `3527cde`) needs its own Quartus fit to reveal the actual frozen address.
+Two real JTAG/tooling gaps found and fixed along the way (B-189/B-190): loading a core through the
+Pocket's own menu silently overwrites a JTAG-loaded debug bitstream with the SD card's own `.rbf`,
+and `issp_read_probe_data`'s correct form is positional (`issp_read_probe_data $path`), not
+`-instance $path` (the latter silently returns the string `"error"` instead of raising). Read
+`docs/AUDIT_TRAIL.md` B-188 through B-190, and `docs/JTAG_DEBUG_ACCESS.md` section 6, before
+continuing this thread.
 
 **Earlier snapshot:** 2026-09-22. Tau **v0.4.0** is released and installed on the owner's card (media library, Phase G cold code,
 on-device diagnostics; two zips: TAU and TAU_DIAGNOSTIC). Full detail: `docs/SESSION_HANDOFF_2026-09-22_RELEASE_0.4.md`.
