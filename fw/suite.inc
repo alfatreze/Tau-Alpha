@@ -1020,6 +1020,11 @@ static void bt_crumb(uint32_t step)
 {
     volatile uint16_t *p = (volatile uint16_t *)(uintptr_t)(0xA0000000u + (BT_CRUMB_ADDR << 1));
     *p = (uint16_t)step;
+    /* B-186: same checkpoint, also written to a plain MMIO register a JTAG ISSP probe can read
+     * live regardless of whether the CPU itself is stuck -- the SDRAM crumb above needs the
+     * firmware to reach the idle page's normal draw path to read it back, which a genuine CPU
+     * hang never lets happen. This write is a no-op on any bitstream without TAU_ISSP built. */
+    REG(R_DBG_MARK) = step;
 }
 static uint32_t bt_crumb_read(void)
 {

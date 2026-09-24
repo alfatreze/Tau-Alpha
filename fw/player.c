@@ -76,6 +76,7 @@
 #define R_BLT_DATA  0x800000C4u   /* Phase F: sticky blit-engine field value  (W) */
 #define R_SDR_BUSY  0x800000BCu   /* Phase F B7: SDRAM port-busy cycles, free-running (0 if TAU_SDRAM_BUSY is off) */
 #define R_CLUT_IDX  0x800000C8u   /* Phase F B8: sticky CLUT index (W), 0-255 */
+#define R_DBG_MARK  0x800000D0u   /* B-186: CPU-side checkpoint, read live by TAU_ISSP's DBGM probe -- see fw/suite.inc's bt_crumb(). Harmless write if TAU_ISSP isn't built. */
 #define R_CLUT_DATA 0x800000CCu   /* Phase F B8: CLUT entry at that index (W), RGB565; index auto-increments */
 #define SDR_CLK_HZ  100000000u    /* clk_sdram, for R_SDR_BUSY deltas -- see docs/MMIO_ALLOCATION.md 0xBC */
 
