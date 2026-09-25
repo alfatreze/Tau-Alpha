@@ -168,7 +168,7 @@ static int settings_store(void)
     set_wr(SW_REP,  rep_mode);
     set_wr(SW_SHUF, shuffle_on ? 1u : 0u);
     set_wr(SW_RESUME, resume_word);
-    set_wr(SW_VIZ,  viz_mode);
+    set_wr(SW_VIZ,  (viz_mode == VIZ_BARS && bars_layout) ? VIZ_RETIRED_MIRROR : viz_mode);
     set_wr(SW_EQ,   eq_idx);
     set_wr(SW_RESUMEON, resume_on ? 1u : 0u);
 #if TAU_DIAGNOSTIC
@@ -220,12 +220,11 @@ static int settings_load(void)
      * validated where it is used, against the playlist length and the file
      * actually open. A garbage word can only fail to resume. */
     resume_word = set_rd(SW_RESUME);
-    /* Excludes VIZ_TAPE explicitly, not just a range check: a settings word saved
-     * with VIZ_TAPE by a build that has it selectable must not silently select an
-     * unrendered mode on one that does not (see viz_sel_to_mode()'s comment,
-     * fw/player.c). VIZ_TAPE now sits in the middle of the enum (B-215), so this
-     * can no longer be a single upper-bound compare. */
-    v = set_rd(SW_VIZ);   if (v < VIZ_COUNT && v != VIZ_TAPE)  viz_mode = (uint8_t)v;
+    /* Only modes in viz_order[] are restored, not just a range check: a settings word saved with a RETIRED meter (cassette, magic eye,
+     * L/R levels) must not select a mode that no longer has a drawing block (see viz_sel_to_mode(), fw/player.c). */
+    v = set_rd(SW_VIZ);
+    if (v == VIZ_RETIRED_MIRROR) { viz_mode = VIZ_BARS; bars_layout = 1u; }          /* the saved form of BARS in its mirrored layout */
+    else if (v < VIZ_COUNT && viz_selectable(v))  viz_mode = (uint8_t)v;
     v = set_rd(SW_EQ);    if (v < EQ_COUNT)      { eq_idx = (uint8_t)v;
                                                    REG(R_EQ) = eq_idx; }
     v = set_rd(SW_RESUMEON); resume_on = v ? 1u : 0u;

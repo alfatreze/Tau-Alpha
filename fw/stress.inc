@@ -20,8 +20,8 @@ static void stress_stop(const char *why)
 static __attribute__((optimize("Os"))) const char *stress_viz_name(void)
 {
     static const char *const names[] = {
-        "BARS", "WATER", "LEVELS", "SCOPE", "WAVE", "VU",
-        "SCROLL", "MIRROR", "DOTS", "EYE", "LED", "TAPE"
+        "BARS", "WATER", "-", "SCOPE", "WAVE", "VU",
+        "SCROLL", "-", "DOTS", "-", "LED", "-", "WINAMP B", "WINAMP S", "CHLADNI"
     };
     return (viz_mode < VIZ_COUNT) ? names[viz_mode] : "?";
 }

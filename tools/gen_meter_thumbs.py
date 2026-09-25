@@ -18,10 +18,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 W, H, K = 56, 32, 8
 # File stem -> VIZ_* enum name (same order as fw/player.c and fw/settingsui.inc set_viz[]).
-ORDER = [("meter-bars", "VIZ_BARS"), ("meter-waterfall", "VIZ_WATER"), ("meter-lr-levels", "VIZ_LEVELS"),
+# NOTE (2026-09-26): entries 2, 7 and 9 are RETIRED meters -- fw/meter_thumbs.h now holds empty streams for them and entries 11-14
+# are hand-authored, so regenerating the header from this script would undo both. Treat the header as the source of truth.
+ORDER = [("meter-bars", "VIZ_BARS"), ("meter-waterfall", "VIZ_WATER"), ("meter-lr-levels", "VIZ_RETIRED_LEVELS"),
          ("meter-phasescope", "VIZ_SCOPE"), ("meter-oscilloscope", "VIZ_WAVE"), ("meter-vu", "VIZ_VU"),
-         ("meter-waveform", "VIZ_SCROLL"), ("meter-mirrored-bars", "VIZ_MIRROR"),
-         ("meter-peak-dots", "VIZ_DOTS"), ("meter-magic-eye", "VIZ_EYE"), ("meter-spectrum", "VIZ_LED")]
+         ("meter-waveform", "VIZ_SCROLL"), ("meter-mirrored-bars", "VIZ_RETIRED_MIRROR"),
+         ("meter-peak-dots", "VIZ_DOTS"), ("meter-magic-eye", "VIZ_RETIRED_EYE"), ("meter-spectrum", "VIZ_LED")]
 
 
 def decode(path):

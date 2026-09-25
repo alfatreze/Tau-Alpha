@@ -115,8 +115,8 @@ STATES = [
     *[{"id": f"visualizer-{name}", "status": "model",
        "file": f"visualizer-{name}.framebuffer.png",
        "note": "Frozen deterministic instance of the production visualizer family."}
-      for name in ("bars", "waterfall", "levels", "phase-scope", "oscilloscope",
-                   "waveform", "mirrored-bars", "peak-dots", "magic-eye", "spectrum", "vu")],
+      for name in ("bars", "waterfall", "phase-scope", "oscilloscope",
+                   "waveform", "peak-dots", "spectrum", "vu")],
     {"id": "battery-full", "status": "pending"},
     {"id": "battery-medium", "status": "pending"},
     {"id": "battery-low", "status": "pending"},
