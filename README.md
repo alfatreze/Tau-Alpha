@@ -61,7 +61,7 @@ The controls:
 | **B** | Restart the current track from the beginning |
 | **X** | Cycle the meter (ten styles) |
 | **Y** | Cycle the EQ preset (eight) |
-| **Select** | *Tap* — playlist browser; *Hold* — show / hide the album art panel |
+| **Select** | *Tap* — playlist browser; (album art on/off is in Settings) |
 | **L** / **R** | Cycle the accent color (12 shades) |
 | **Select** + **L** | Repeat: off → all → one |
 | **Select** + **R** | Shuffle on / off |

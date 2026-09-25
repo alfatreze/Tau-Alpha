@@ -128,10 +128,8 @@ enum { SW_VOL = 0, SW_PAL, SW_REP, SW_SHUF, SW_RESUME, SW_VIZ, SW_EQ,
         * five free slots buy thirty-two characters and the name that prompted
         * this is forty-two. See pl_saved_hash. */
        SW_PLHASH,
-#if TAU_LIBRARY
        /* rev 22 library: what was playing, the index it refers to, the Shuffle All seed, and the on/off switch. */
        SW_LIBH, SW_LIBB, SW_LIBS, SW_LIBOFF,
-#endif
        SW_N };
 
 /* What we last published. Initialised to a value APF can never write for
@@ -143,9 +141,7 @@ static uint32_t set_pub[SW_N] = { 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu,
                                   0xFFFFFFFFu, 0xFFFFFFFFu,
                                   0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu,
                                   0xFFFFFFFFu
-#if TAU_LIBRARY
                                   , 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu
-#endif
                                   };
 
 static uint32_t set_rd(uint32_t w) { REG(R_SET_IDX) = w; return REG(R_SET_DAT); }
@@ -158,7 +154,7 @@ static void     set_wr(uint32_t w, uint32_t v)
 
 /* Publish every current value. Called at boot after adopting, and whenever a
  * setting changes. Two MMIO writes per word -- nothing to debounce. */
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
 /* fw/suite.inc keeps its four-word summary in the words the legacy playlist name/hash used (8-11), which library builds do not
  * use. While a summary is held it is what gets published; a stem or hash word is recognised by its first character being
  * printable, a summary by (word & 15) == 1 with that character below 0x20. */
@@ -175,7 +171,7 @@ static int settings_store(void)
     set_wr(SW_VIZ,  viz_mode);
     set_wr(SW_EQ,   eq_idx);
     set_wr(SW_RESUMEON, resume_on ? 1u : 0u);
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
     if (chk_rec_on) { for (uint32_t k = 0; k < 4u; k++) set_wr(SW_PLN0 + k, chk_w[k] & 0x7FFFFFFFu); } else {
 #endif
     for (uint32_t k = 0; k < 3u; k++) {
@@ -189,15 +185,13 @@ static int settings_store(void)
         set_wr(SW_PLN0 + k, w);
     }
     set_wr(SW_PLHASH, pl_saved_hash & 0x7FFFFFFFu);
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
     }
 #endif
-#if TAU_LIBRARY
     set_wr(SW_LIBH, lib_h & 0x7FFFFFFFu);
     set_wr(SW_LIBB, lib_hb & 0x7FFFFFFFu);
     set_wr(SW_LIBS, lib_hs & 0x7FFFFFFFu);
     set_wr(SW_LIBOFF, lib_disabled ? 1u : 0u);
-#endif
     return 1;
 }
 
@@ -235,7 +229,7 @@ static int settings_load(void)
     v = set_rd(SW_EQ);    if (v < EQ_COUNT)      { eq_idx = (uint8_t)v;
                                                    REG(R_EQ) = eq_idx; }
     v = set_rd(SW_RESUMEON); resume_on = v ? 1u : 0u;
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
     chk_rec_on = 0u;
     { uint32_t w0 = set_rd(SW_PLN0);
       if ((w0 & 15u) == 1u && (w0 & 0x7Fu) < 0x20u) { chk_rec_on = 1u; for (uint32_t k = 0; k < 4u; k++) chk_w[k] = set_rd(SW_PLN0 + k); } }
@@ -253,15 +247,13 @@ static int settings_load(void)
     /* No range to check: any value is a legal hash. A wrong one simply fails
      * to match anything in playlists.m3u and the stem takes over. */
     pl_saved_hash = set_rd(SW_PLHASH) & 0x7FFFFFFFu;
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
     }
 #endif
-#if TAU_LIBRARY
     lib_h = set_rd(SW_LIBH) & 0x7FFFFFFFu;      /* validated where used: against the index and its build id */
     lib_hb = set_rd(SW_LIBB) & 0x7FFFFFFFu;
     lib_hs = set_rd(SW_LIBS) & 0x7FFFFFFFu;
     lib_disabled = set_rd(SW_LIBOFF) ? 1u : 0u;
-#endif
     settings_adopted = 1u;
     return 1;
 }

@@ -8461,3 +8461,89 @@ dangling after B-245's entry instead. Moved it back to directly follow B-244's o
 or changed, only its position. Lesson for future edits to this file: verify an insertion anchor is the
 section's true final line (e.g. by reading a few lines past the phrase first), not just that the phrase
 itself is unique.
+
+### B-247 — Now-playing UI pass 1, IN PROGRESS: layout redesign against Figma node 163:57, one build still short
+**Date:** 2026-09-25
+**Evidence:** Owner: first pass at redesigning the now-playing screen against a Figma design (node 163:57,
+file `rT7ux8u0R7SS3D34J4Idsq`), "taking advantage of the new UI layer" (Helios). Figma MCP access to that
+file never worked this session (repeated "you don't have edit access" even after the owner re-shared it) --
+worked instead from a real 4x screenshot capture the owner pasted directly, plus the owner's own clarification
+that the bar heights shown are illustrative, not literal data to replicate.
+
+**Layout changes in `fw/player.c`** (all confined to the now-playing chrome; splash/LOAD FAILED screens keep
+their own untouched `UI_TITLE_Y`/`UI_CARD_H`): album art moved from a right-side panel that shared rows with
+the meter (`ART_X=276`, `ART_Y` derived from `UI_WAVE_Y+UI_WAVE_H`) to a static top-left mount (`ART_X=20`,
+`ART_Y=16`, fixed); a genre pill (new `UI_GENRE_Y/H`) sits above a new `UI_TEXT_X`-anchored title/artist/album
+column beside the art (replacing a full-width text column below/behind a solid `UI_PANEL` card, now removed
+-- text blends against the live gradient per row via `ui_grad_at(y)`, the same convention every other
+un-carded element on this screen already used); the meter (`VIZ_BARS` and friends) is now full-width and
+~1.53x taller (`UI_WAVE_H` 72 -> 110, confirmed fully parametric by reading `wviz_bars_tick()`'s call site --
+no RTL/opcode limit, the "bottom-center it if not adjustable" fallback the owner allowed for wasn't needed
+here) with `ui_wave_w()` simplified to always return full width now that art no longer shares its rows;
+progress bar/time row/the existing transport-and-mode-icon row (which turned out to already implement
+essentially the whole mockup's bottom status bar -- play/pause label with a breathing arrow, repeat/shuffle/
+volume icons, EQ name, track position, all pre-existing and left untouched) were re-spaced to fit below the
+taller meter, with the pre-existing `UI_TOAST_Y`/`UI_STRESS_BAR_Y` gaps re-checked by hand to confirm no
+overlap. Two placeholders, both flagged and neither backed by real data: a genre pill with static "GENRE"
+text (no ID3 TCON / FLAC GENRE parsing exists anywhere in this firmware) and a plain colored-rect "note"
+icon in the art mount for tracks with no cover (real icon asset is a `docs/HELIOS_SPEC.md` section 7.2
+follow-up, matching the owner's own "colored rect until we add it" instruction).
+
+**Helios integration**: `ui_draw_chrome()` (the whole-screen chrome repaint) is now Helios's first real
+screen region -- registered once, dispatched through `helios_mark_dirty()`+`helios_flush()` via a new
+`ui_chrome_paint()` wrapper that replaced all 9 direct `ui_draw_chrome();` call sites. Checked each call site
+by hand first: several have code immediately after that depends on the repaint having already happened
+synchronously this same pass (most concretely `ui_art_draw()`/`ui_wave_force=1u` right after the overlay-close
+site), so deferred (vblank-gated) flushing is NOT safe yet without auditing each site individually -- not
+attempted this pass. The wrapper marks dirty and flushes immediately (same timing as calling
+`ui_draw_chrome()` directly), so this is honestly scoped as "Helios is now the real dispatch path" rather
+than "Helios now defers anything" -- the actual anti-tearing benefit is future work once H0 is hardware-
+confirmed and these 9 sites are individually cleared for it.
+
+**A real regression found and partially fixed**: the new code (genre pill + art placeholder + the Helios
+wrapper's region/array machinery) added ~730 B to `player`, the bare bring-up target with no cold-code
+capability and apparently near-zero pre-existing margin (it printed no heap-gap warning before today because
+nothing monitors it, not because it had real slack) -- confirmed by a `git stash`/rebuild bisection against
+today's own baseline. Fixed by gating the genre pill AND the art placeholder behind `#if TAU_SETTINGS_UI`
+(off for `player`/`player-profile`, on for every real product/diagnostic target) and by making
+`ui_chrome_paint()` skip the Helios wrapper entirely for non-`TAU_SETTINGS_UI` builds (falls back to a
+bare `ui_draw_chrome()` call, since the wrapper buys nothing functional yet anyway) -- `player` is back to
+215,854 B (only +8 B over its own pre-session baseline of 215,846 B). **`player-diagnostic` is NOT fixed**:
+it already carries `TAU_SETTINGS_UI=1` so neither gate helps it, and it is short by 352 B (heap gap 3,744 B
+against its 4,096 B floor) -- this is the one open item blocking a clean `make test-host`-equivalent full
+build sweep.
+
+**Verified:** `make test-host` passes; `release`, `player`, `player-library-check`,
+`player-library-diagnostic`, `player-library-diagnostic-profile` all rebuild clean; `player-diagnostic` fails
+as described above. Not committed. Not installed, not hardware-tested -- this is source-level and host-test
+verification only; `tools/ui_snapshot_renderer.py`'s own now-playing section reads several of these layout
+constants directly from `fw/player.c` via regex but has other now-playing-specific pixel offsets hardcoded as
+plain literals (368, 352, 262, 288, 334, 173, 72) that are now stale against this pass's real layout --
+flagged, not fixed, since updating it is a real, separate parallel-implementation effort with its own risk
+of introducing a different mismatch without hardware to cross-check either version against.
+**Session paused here at the owner's request** (save session, prompt to resume) with `player-diagnostic`
+still short by 352 B.
+
+### B-248 (2026-09-25) — B-247 size fix, B-246 fit status
+- New `TAU_NP_POLISH` gate (default = `TAU_SETTINGS_UI`) covers the now-playing art mount, genre pill and Helios chrome wrapper; `player-diagnostic` (non-cold target) builds with `-DTAU_NP_POLISH=0`. Heap gap 3,744 -> 4,368 B (floor 4,096). All six targets rebuild clean (release 62,416 B), `make test-host` PASSED. `dist/` restored by rebuilding `release` last. Not hardware-tested, not committed.
+- B-246 fit (`rrect-vblank-noshrink-s1-20260925`): still in `quartus_fit` (placement) at check time; no result yet.
+- Still open: stale pixel literals in `tools/ui_snapshot_renderer.py`, genre pill has no data source, art-slide animation distance.
+
+### B-249 (2026-09-25) — bare `player` and `player-profile` targets removed
+- Owner decision: only the full build remains; a missing cold file means nothing works, accepted. `fw/build.sh` no longer has `player` or `player-profile` (default target is now `release`); `make firmware` / `make firmware-advanced` build `release`; `tools/package_sdram_stress.py --profile` removed (`--diagnostic-profile` covers decoder profiling). Also this session: art slide animation and the Select-hold art toggle removed (Settings > Album Art now switches instantly); the now-playing pill shows the applied EQ preset, not a genre.
+- All remaining targets rebuild clean (release 62,432 B gap; player-diagnostic 4,976 B), `make test-host` PASSED. `TAU_NP_POLISH` is still needed for `player-diagnostic` only. Not committed, not hardware-tested.
+
+### B-250 (2026-09-25) — dead-code cleanup after removing the stale build targets
+- Backup: git tag `backup/pre-cleanup-2026-09-25` (before any of this). Removed from `fw/build.sh`: `player-diagnostic`, `player-cold-diagnostic`, `player-library`, `player-library-check`, `player-settings`, `player-sdram-pl(-fault)`, `player-stress(-window)`, `player-blit-probe`; `make firmware-sdram-stress` removed.
+- Every macro that is now on in all remaining targets (`TAU_SETTINGS_UI`, `TAU_PL_SDRAM`, `TAU_DIAG_INFO`, `TAU_METER_THUMBS`, `TAU_LIBRARY`, `TAU_COLD`, `TAU_COLD_CODE`, `TAU_NP_POLISH`) collapsed to unconditional code: 111 `#if` blocks folded, dead `#else` branches deleted, `-D` flags dropped from `build.sh`. One hidden coupling found and fixed: the picojpeg-to-cold step tested the flag string; it now tests `COLD_PACK`.
+- Verified: `tau.rom` and `tau-cold.bin` of `release`, `player-library-diagnostic` and `player-library-diagnostic-profile` are byte-identical to the pre-change builds; `make test-host` PASSED.
+- Remaining conditionals are the genuinely diagnostic-only ones (`TAU_CHECK`, `TAU_DIAG_TESTS`, `TAU_SDRAM_STRESS*`, `TAU_STRESS_HUD`, profile macros) plus the older `sdram-cpu-*`/`psram-diag` probe firmwares. Next: isolate those into functions/files, and decide on the old probes.
+
+### B-251 (2026-09-25) — diagnostic-only code isolated; old probes pruned
+- Dead code removed (always-off macros: `DEBUG_DIAG`, `TAU_COLD_FRAME_PROBE`, `COLDFRAME_BIG/EVICT`, `TAU_PL_SDRAM_FAULT`, `TAU_ADVANCED_BUILD` and `fw/build_config.h`, `TAU_BLIT_PROBE || 1`, `1 || ...` guards).
+- The five diagnostic switches (`TAU_CHECK`, `TAU_DIAG_TESTS`, `TAU_SDRAM_STRESS`, `TAU_SDRAM_STRESS_WINDOW`, `TAU_STRESS_HUD`) were always on or off together, so they are now ONE macro, `TAU_DIAGNOSTIC` (default 0 in `fw/player.c`; `-DTAU_DIAGNOSTIC=1` for the two diagnostic targets). `CHK_DEV` folded to constants.
+- Diagnostic-only blocks moved out of `player.c`/`settingsui.inc` unchanged into `fw/stress_defs.inc`, `fw/stress.inc`, `fw/settings_diag.inc`, `fw/wvcfg_export.inc` (each included under `#if TAU_DIAGNOSTIC`); `fw/suite.inc` was already a whole-file guard.
+- Pruned: `bringup` and all `sdram-*` targets, `fw/main.c`, `fw/sdram_diag.c`, `tools/package_sdram_diagnostic.py`, `tools/package_sdram_cpu_diagnostic.py`, `make firmware-advanced/-sdram-stress/-sdram-cpu-*`. Kept: `psram-diag`, `psram-diag-sim` (`make test-rtl-psram-fw` uses it), `tools/decode_tau_diag_log.py` (PSRAM tests use it).
+- `tools/package_sdram_stress.py` (217 lines, most modes for removed targets) replaced by `tools/package_dev_build.py`: `--semver`/`--number`, `--variant profile|diagnostic`, optional audited `--rbf`, and `--release-diagnostic` for `tools/make_release.py`. Its `--release-diagnostic` output tree is byte-identical to the old tool's.
+- Verified after every step: `tau.rom` and `tau-cold.bin` of `release`, `player-library-diagnostic`, `player-library-diagnostic-profile` byte-identical to the pre-cleanup builds; `make test` passes. Backup: git tag `backup/pre-cleanup-2026-09-25`. Not committed.
+- Left alone: RTL probe modules and their testbenches (`tau_sdram_cpu_window_probe` etc.), `tools/ui_snapshot_renderer.py`'s SDRAM-diagnostic fixtures and its dead `#if TAU_COLD` regex, docs that mention the removed targets (history).

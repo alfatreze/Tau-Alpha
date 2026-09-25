@@ -544,9 +544,6 @@ COLD_FN2 static void pl_resync(uint16_t file_idx)
 
 /* --------------------------------------------------------------- interface */
 
-#if !TAU_LIBRARY
-static void ui_toast_msg(const char *msg);   /* already defined above; a second declaration inside the size-optimised region only warns */
-#endif
 
 /* Why the LAST attempt failed. Only reached when the walk below has given up
  * on the whole request -- a single bad entry it steps over says nothing. */
@@ -650,9 +647,7 @@ COLD_FN2 static int pl_play_span(uint16_t pos, int dir, uint16_t span)
             pl_pos = at;
             track_from_pl = 1u;      /* the playlist started this track */
             if (pl_open_name(&pl_text[pl_off[file_idx]])) {
-#if TAU_LIBRARY
                 lib_src = 0u;                /* the playlist owns playback again */
-#endif
                 pl_arm_load(leaving_id);
                 /* ONE line about the whole walk, not one per bad entry: a list
                  * half mistyped would otherwise queue toasts faster than they
@@ -700,15 +695,11 @@ static int pl_play_at(uint16_t pos)           { return pl_play_dir(pos, +1); }
 /* delta = +1 next, -1 previous. Wraps in both directions regardless of repeat
  * mode: a MANUAL skip past the end should go to track 1, not stop dead.
  * Repeat only governs what happens when a track ends on its own. */
-#if TAU_LIBRARY
 static int lib_skip(int delta);
 static int lib_advance_auto(void);
-#endif
 COLD_FN2 static int pl_skip(int delta)
 {
-#if TAU_LIBRARY
     if (lib_src) return lib_skip(delta);
-#endif
     if (pl_count < 1u) return 0;
     uint16_t next = (uint16_t)((pl_pos + pl_count + (delta > 0 ? 1u : (uint16_t)(pl_count - 1u)))
                                % pl_count);
@@ -721,9 +712,7 @@ COLD_FN2 static int pl_skip(int delta)
  * caller should fall back to its own end-of-track handling. */
 COLD_FN2 static int pl_advance_auto(void)
 {
-#if TAU_LIBRARY
     if (lib_src) return lib_advance_auto();
-#endif
     if (rep_mode == REP_ONE) return 0;          /* caller replays this track */
     if (!pl_count) return 0;
 
@@ -940,10 +929,9 @@ COLD_FN2 static void pl_remember(void)
     settings_mark_dirty();
 }
 
-#if TAU_DIAG_TESTS
+#if TAU_DIAGNOSTIC
 static uint32_t pl_dg_len, pl_dg_sig;            /* parsed-text length and hash (Playlist check) */
 #endif
-#if TAU_PL_SDRAM
 /* The playlist buffers live at 0xA0100000..0xA01033FF (linker section .sdram). On a
  * bitstream without the CPU window that alias decodes to MMIO, so no store may be
  * issued until the window is proven: write a pattern through the Phase 1 mailbox
@@ -967,11 +955,6 @@ static int pl_sdram_prove(void)
     while ((uint32_t)(cycles() - t) < 128u) { }
     while (REG(R_SDR_STATUS) & 1u)
         if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return 0;
-#if TAU_PL_SDRAM_FAULT
-    /* Fault injection (A-109): read a word the mailbox never wrote, so the window
-     * check fails on a healthy bitstream and exercises the feature-off path. */
-    w0 = (volatile uint32_t *)(uintptr_t)(PL_SDRAM_BASE + 0x40u);
-#endif
     uint32_t t1 = cycles();
     uint32_t got = *w0;
     pl_win_rd = cycles() - t1;
@@ -988,15 +971,10 @@ COLD_FN2 static int pl_sdram_ready(void)
     if (!pl_sdram_state) pl_sdram_state = pl_sdram_prove() ? 1u : 2u;
     return pl_sdram_state == 1u;
 }
-#else
-#define pl_sdram_ready() 1
-#endif
 
 COLD_FN2 static void pl_load(void)
 {
-#if TAU_LIBRARY
     lib_src = 0u;
-#endif
     pl_count = 0; pl_pos = 0; pl_status = PL_OK;
     if (!pl_sdram_ready()) { pl_status = PL_ERR_SDRAM; return; }
     /* A new list means new entries: nothing carries over. This is also the only
@@ -1088,7 +1066,7 @@ COLD_FN2 static void pl_load(void)
     }
 
     pl_parse(len);
-#if TAU_DIAG_TESTS
+#if TAU_DIAGNOSTIC
     /* Diagnostic Build: remember the parsed text's length and FNV so the Playlist check can
      * detect a change in SDRAM later (pl_sig above is taken BEFORE parsing rewrites the text). */
     pl_dg_len = len;
@@ -1126,9 +1104,7 @@ COLD_FN2 static void pl_report(void)
                                                        " TRACKS");
     else if (pl_count)                    ui_toast_set("PLAYLIST", pl_live_count(),
                                                        " TRACKS");
-#if TAU_PL_SDRAM
     else if (pl_status == PL_ERR_SDRAM)   ui_toast_msg("NO SDRAM PLAYLIST");
-#endif
     else if (pl_status == PL_ERR_NOFILE)  ui_toast_msg("NO PLAYLIST FILE");
     else                                  ui_toast_msg("PLAYLIST HAS NO TRACKS");
 }

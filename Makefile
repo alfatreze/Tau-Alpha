@@ -1,4 +1,4 @@
-.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware firmware-advanced firmware-sdram-stress firmware-sdram-cpu-diag firmware-sdram-cpu-readback fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -18,25 +18,7 @@ check-fpga:
 	bash tools/check_build_env.sh fpga
 
 firmware:
-	bash fw/build.sh player
-
-# Capability build for the future in-app Advanced section. No advanced option
-# becomes visible merely by compiling this profile; the user must opt in at
-# runtime once the settings screen exists.
-firmware-advanced:
-	EXTRA_CFLAGS="-DTAU_ADVANCED_BUILD=1" bash fw/build.sh player
-
-# Separate developer artifact: the normal TAU ROM remains untouched.
-firmware-sdram-stress:
-	EXTRA_CFLAGS="-Os" bash fw/build.sh player-stress
-
-# Separate Phase 2 diagnostic ROM. It performs real CPU loads/stores through
-# the opt-in uncached SDRAM mapping, rather than the Phase 1 mailbox path.
-firmware-sdram-cpu-diag:
-	bash fw/build.sh sdram-cpu-diag
-
-firmware-sdram-cpu-readback:
-	bash fw/build.sh sdram-cpu-readback
+	bash fw/build.sh release
 
 fpga:
 	cd src/fpga && $(QUARTUS_SH) --flow compile ap_core.qpf

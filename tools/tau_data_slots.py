@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Shared data-slot / persist-variable declarations for a packaged Tau core, used by both package.py (the shipped
-release, dist/) and tools/package_sdram_stress.py (numbered test builds and the Diagnostic Build). Kept in one place
+release, dist/) and tools/package_dev_build.py (numbered test builds and the Diagnostic Build). Kept in one place
 so the two never drift: the ids, filenames and persist words for the library index and the cold image must be
 identical wherever a core declares them."""
 import json
