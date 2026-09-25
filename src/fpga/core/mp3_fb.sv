@@ -97,7 +97,13 @@ module mp3_fb #(
     // the sticky blt_reindex offset -- proves B9's own test actually exercises
     // the offset add, not just that a CBLIT with reindex=0 still works. Never
     // set outside that test.
-    parameter BUG_IGNORE_REINDEX = 0
+    parameter BUG_IGNORE_REINDEX = 0,
+    // Mutation-test hook only (-PBUG_IGNORE_RC_CUT=1, make test-rtl-fb-mutation): 1 forces
+    // rrect_cut to always read 0, degenerating B11's rounded-rect into a square rect (the LUT
+    // mechanism is never actually exercised) -- proves the test catches a corner-cut table that
+    // silently does nothing, not just that an RRECT with a real table still draws a fill. Never
+    // set outside that test.
+    parameter BUG_IGNORE_RC_CUT = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -106,7 +112,7 @@ module mp3_fb #(
 
     // CPU draw command (clk_sys domain) -------------------------------------
     input  wire        cmd_push,
-    input  wire [2:0]  cmd_op,      // 0=RUN 1=RECT 2=CHAR 3=COPY 4=BLIT (Phase F B1)
+    input  wire [3:0]  cmd_op,      // 0=RUN 1=RECT 2=CHAR 3=COPY 4=BLIT 5=BAR 6=SBLIT 7=CBLIT 8=RRECT (B11)
     input  wire [18:0] cmd_addr,    // word address of top-left, y*512+x
     input  wire [8:0]  cmd_w,       // RUN: run length; RECT: width (words)
     input  wire [8:0]  cmd_h,       // RECT: height (rows)
@@ -135,6 +141,15 @@ module mp3_fb #(
     input  wire        blt_blend_en,
     input  wire [2:0]  blt_blend_mode,   // 0=DSP alpha, 1-4=PSX shift-add ratios
     input  wire [7:0]  blt_blend_alpha,  // DSP mode only, 0-255
+
+    // B11 (section 5): the corner-cut lookup table, loaded by the CPU (clk_sys) through
+    // mp3_soc.v's R_RC_IDX/R_RC_DATA -- a bulk table load, own register pair (not folded into
+    // R_BLT_IDX/DATA, same reasoning B8's own CLUT-vs-sticky-field split already gives). 16
+    // entries x 5 bits, indexed by dy = r - row (never by the row itself -- see the module-header
+    // comment on OP_RRECT). Plain flops (80 bits, no M10K), informal CDC: CPU-paced configuration
+    // loaded once per radius change, not sampled every cycle, same precedent blt_src_base etc.
+    // already use.
+    input  wire [79:0] rc_cut_lut,
 
     // Phase F B9 (section 5, Tier 2): palette re-index for dim/highlight. An
     // 8-bit offset added to OP_CBLIT's palette index before the CLUT lookup --
@@ -191,8 +206,19 @@ module mp3_fb #(
     localparam [9:0]  STRIDE = 10'd512;             // words/line, page-aligned
     localparam [24:0] FB_BASE = 25'd0;
 
-    localparam [2:0] OP_RUN = 3'd0, OP_RECT = 3'd1, OP_CHAR = 3'd2, OP_COPY = 3'd3,
-                     OP_BLIT = 3'd4, OP_BAR = 3'd5, OP_SBLIT = 3'd6, OP_CBLIT = 3'd7;
+    localparam [3:0] OP_RUN = 4'd0, OP_RECT = 4'd1, OP_CHAR = 4'd2, OP_COPY = 4'd3,
+                     OP_BLIT = 4'd4, OP_BAR = 4'd5, OP_SBLIT = 4'd6, OP_CBLIT = 4'd7,
+                     OP_RRECT = 4'd8;
+    // B11 (PHASE_F_SPEC.md section 5): hardware rounded-rect, the first opcode past the original
+    // 3-bit field's 0-7 range -- cmd_op widened to 4 bits (the FIFO word already reserved 5 bits
+    // of padding, see the cmd_mem pack below; this claims one of them, purely additive, every
+    // existing value 0-7 keeps its exact meaning). Same shape as OP_RECT (fills cmd_addr/cmd_w/
+    // cmd_h in cmd_fg), then a sequencer chains a bounded run of 1-row corner segments behind it
+    // -- generalising OP_BAR's own one-shot bar2_pending to a counted, LUT-driven sequence. The
+    // firmware-computed corner geometry (a data-dependent iterative search, exactly the kind of
+    // live-in-RTL arithmetic this session has repeatedly found timing-marginal -- B-109/B-111/
+    // B-150/B-157) is never computed here: R_RC_IDX/R_RC_DATA load a 16-entry cut(dy) table once
+    // per radius change, and dispatch only ever reads it.
     // COPY moves a w x h block SDRAM->SDRAM. It exists for the album-art panel:
     // sliding an image by re-sending its pixels from the CPU would be thousands
     // of commands per animation step and would starve the decoder, whereas the
@@ -365,9 +391,12 @@ module mp3_fb #(
         if (reset) begin
             wr_ptr <= 0; wr_ptr_g <= 0;
         end else if (cmd_push && !cmd_full) begin
+            // B11: cmd_op widened 3->4 bits, taking one of the FIFO word's own 5 padding bits
+            // (now 4) -- every other field shifts down by exactly 1 bit, purely mechanical, no
+            // width changes to any of them.
             cmd_mem[wr_ptr[FAW-1:0]] <= {cmd_op, cmd_addr, cmd_fg, cmd_bg,
                                          cmd_w, cmd_h, cmd_glyph,
-                                         cmd_sx, cmd_sy, 5'd0};
+                                         cmd_sx, cmd_sy, 4'd0};
             wr_ptr   <= wr_ptr + 1'b1;
             wr_ptr_g <= b2g(wr_ptr + 1'b1);
         end
@@ -382,14 +411,14 @@ module mp3_fb #(
     wire [CW-1:0] cmd_mem_rd = cmd_mem[rd_ptr[FAW-1:0]];
     reg [CW-1:0] cmd_q;
     always @(posedge clk_sdram) cmd_q <= cmd_mem_rd;
-    wire [2:0]  q_op    = cmd_q[87:85];
-    wire [18:0] q_addr  = cmd_q[84:66];
-    wire [15:0] q_fg    = cmd_q[65:50];
-    wire [15:0] q_bg    = cmd_q[49:34];
-    wire [8:0]  q_w     = cmd_q[33:25];
-    wire [8:0]  q_h     = cmd_q[24:16];
-    assign q_sx = cmd_q[8:7];
-    assign q_sy = cmd_q[6:5];
+    wire [3:0]  q_op    = cmd_q[87:84];
+    wire [18:0] q_addr  = cmd_q[83:65];
+    wire [15:0] q_fg    = cmd_q[64:49];
+    wire [15:0] q_bg    = cmd_q[48:33];
+    wire [8:0]  q_w     = cmd_q[32:24];
+    wire [8:0]  q_h     = cmd_q[23:15];
+    assign q_sx = cmd_q[7:6];
+    assign q_sy = cmd_q[5:4];
 
     // BAR (B6): lit-row count from cmd_glyph, clamped to the span height.
     // Retimed (B-110): computed off cmd_mem_rd -- the same raw BRAM read data
@@ -403,8 +432,8 @@ module mp3_fb #(
     // compare/subtract chain. Same function of the same source data, so BAR
     // command behaviour is bit-for-bit unchanged -- only the pipeline stage
     // the arithmetic sits in moved.
-    wire [8:0] pre_bar_lit_raw = {2'd0, cmd_mem_rd[15:9]};   // cmd_glyph field
-    wire [8:0] pre_bar_h       = cmd_mem_rd[24:16];          // cmd_h field
+    wire [8:0] pre_bar_lit_raw = {2'd0, cmd_mem_rd[14:8]};   // cmd_glyph field
+    wire [8:0] pre_bar_h       = cmd_mem_rd[23:15];          // cmd_h field
     wire [8:0] pre_bar_lit     = (pre_bar_lit_raw > pre_bar_h) ? pre_bar_h : pre_bar_lit_raw;
     reg  [8:0] q_bar_lit, q_bar_unlit;
     always @(posedge clk_sdram) begin
@@ -423,8 +452,8 @@ module mp3_fb #(
     // of the same source data, so SBLIT output-extent behaviour is unchanged.
     reg [8:0] q_sblit_out_w, q_sblit_out_h;
     always @(posedge clk_sdram) begin
-        q_sblit_out_w <= sblit_ext(cmd_mem_rd[33:25], cmd_mem_rd[8:7]);   // q_w, q_sx
-        q_sblit_out_h <= sblit_ext(cmd_mem_rd[24:16], cmd_mem_rd[6:5]);   // q_h, q_sy
+        q_sblit_out_w <= sblit_ext(cmd_mem_rd[32:24], cmd_mem_rd[7:6]);   // q_w, q_sx
+        q_sblit_out_h <= sblit_ext(cmd_mem_rd[23:15], cmd_mem_rd[5:4]);   // q_h, q_sy
     end
     wire [8:0] sblit_out_w = q_sblit_out_w;
     wire [8:0] sblit_out_h = q_sblit_out_h;
@@ -433,12 +462,22 @@ module mp3_fb #(
     // instance of the same shape (two compares, a subtract, a mux) off raw
     // cmd_q/q_glyph, chained into char_base in the dispatch cycle. Computed off
     // cmd_mem_rd on cmd_q's own clock edge instead.
-    wire [6:0] pre_glyph = cmd_mem_rd[15:9];
+    wire [6:0] pre_glyph = cmd_mem_rd[14:8];
     reg [11:0] q_char_base;
     always @(posedge clk_sdram)
         q_char_base <= ((pre_glyph >= 7'h20) && (pre_glyph <= 7'h7E))
                      ? {1'b0, (pre_glyph - 7'h20), 5'd0}
                      : 12'd0;
+
+    // B11: radius from cmd_glyph (the same field BAR reuses for its own lit-row count), clamped
+    // to 15 -- the 16-entry cut(dy) LUT's own range, comfortably above every radius this project's
+    // UI actually uses (max 8). Retimed off cmd_mem_rd on cmd_q's own clock edge, same convention
+    // as pre_glyph/pre_bar_lit above (a clamp compare feeding straight into a dispatch register,
+    // the exact shape B-109/B-111/B-114 found timing-marginal when left combinational after cmd_q).
+    wire [6:0] pre_rrect_r = cmd_mem_rd[14:8];
+    reg  [3:0] q_glyph_r;
+    always @(posedge clk_sdram)
+        q_glyph_r <= (pre_rrect_r > 7'd15) ? 4'd15 : pre_rrect_r[3:0];
 
     // ======================================================================
     // Scanout line buffer: parity-split double buffer, exactly as
@@ -596,6 +635,41 @@ module mp3_fb #(
     reg [18:0] bar2_addr;
     reg [8:0]  bar2_rows;
     reg [15:0] bar2_fg;
+
+    // B11 state (hardware rounded-rect). Generalises bar2_pending from ONE queued follow-up
+    // segment to a bounded, LUT-driven SEQUENCE: after the main w x h fill (armed exactly like
+    // OP_RECT) retires, rrect_pending hands off into rrect_active mode, which A_IDLE drives one
+    // decision at a time -- either skip a whole row with no burst at all (cut(dy)==0, one A_IDLE
+    // cycle, matching the design's "bounded skip that cannot delay a pending scanline fill"
+    // requirement, since A_IDLE is the single point scanout FILL can always preempt from), or arm
+    // rect_active for exactly one 1-row corner segment (TL/TR/BL/BR, rrect_seg 0..3) and let the
+    // ordinary A_WRWAIT one-row-burst path carry it, same as every other opcode's row write.
+    // rrect_x0/rrect_w/rrect_h/rrect_bg are captured at dispatch (same convention as bar2_*);
+    // rrect_r is the radius (cmd_glyph, clamped to the 16-entry LUT's own range, matching BAR's
+    // own clamp-at-dispatch precedent for the same field).
+    reg        rrect_pending;    // set at dispatch: the main fill about to run is an OP_RRECT's
+    reg        rrect_active;     // true from the main fill's retirement until the last corner
+    reg [3:0]  rrect_r;          // radius, 0..15 (dy = r - row is looked up in rc_cut_lut)
+    reg [18:0] rrect_x0;         // word address of the rect's top-left corner
+    reg [8:0]  rrect_w, rrect_h;
+    reg [15:0] rrect_bg;
+    reg [3:0]  rrect_row;        // 0..r-1
+    reg [1:0]  rrect_seg;        // 0=TL 1=TR 2=BL 3=BR
+
+    // dy = r - row (never row itself -- fw/player.c's fb_round_rect_on() computes cut() as a
+    // function of distance from the corner CENTRE, dy = r - i, not the row index). One subtract,
+    // one 16-entry LUT read, both combinational -- a 16-entry read is a small mux, nothing like
+    // the iterative multiply-compare search this table exists specifically to avoid computing here.
+    wire [3:0] rrect_dy  = rrect_r - rrect_row;
+    wire [4:0] rrect_cut = BUG_IGNORE_RC_CUT ? 5'd0 : rc_cut_lut[rrect_dy*5 +: 5];
+    // Segment address: TL/BL start at column x0 (rrect_x0's own low bits), TR/BR start cut words
+    // short of the right edge (x0 + w - cut); TL/TR read row (y0 + row), BL/BR read the mirrored
+    // row (y0 + h - 1 - row). STRIDE (512) per row is a plain left-shift, no multiplier -- the
+    // same "cheap because STRIDE is a power of two" property every other opcode's row step relies on.
+    wire [18:0] rrect_row_addr = rrect_x0 + {6'd0, rrect_row, 9'd0};
+    wire [18:0] rrect_mirror_addr = rrect_x0 + {(rrect_h - 9'd1 - {5'd0, rrect_row}), 9'd0};
+    wire [18:0] rrect_seg_addr = (rrect_seg[1] ? rrect_mirror_addr : rrect_row_addr)
+                               + (rrect_seg[0] ? {10'd0, rrect_w - {4'd0, rrect_cut}} : 19'd0);
 
     // B2 state: whether THIS row's destination has already been pre-read into
     // glyphbuf. Set when A_KEYDST's burst completes, cleared at the end of
@@ -775,6 +849,8 @@ module mp3_fb #(
             copy_mode <= 1'b0;
             blit_mode <= 1'b0;
             bar2_pending <= 1'b0;
+            rrect_pending <= 1'b0;
+            rrect_active  <= 1'b0;
             key_dst_done <= 1'b0;
             sblit_mode   <= 1'b0;
             cblit_mode   <= 1'b0;
@@ -810,6 +886,25 @@ module mp3_fb #(
                         p0_wr_req    <= 1'b1;
                         wr_is_char   <= 1'b0;
                         astate       <= A_WRWAIT;
+
+                    // B11: the corner sequence, one row/segment decision per A_IDLE cycle -- the
+                    // single dispatch point scanout FILL can always preempt from, matching the
+                    // design's "skipping only ever happens between bursts" requirement. A row
+                    // whose cut(dy) is 0 is skipped with no SDRAM traffic at all (just advancing
+                    // rrect_row here, or finishing); a nonzero cut arms rect_active for exactly
+                    // ONE 1-row segment and lets the branch above issue it the following cycle,
+                    // the same one-cycle-later pattern bar2_pending's own re-arm already uses.
+                    end else if (rrect_active && !rect_active && can_sdram) begin
+                        if (rrect_cut == 5'd0) begin
+                            if (rrect_row + 4'd1 >= rrect_r) rrect_active <= 1'b0;
+                            else rrect_row <= rrect_row + 4'd1;
+                        end else begin
+                            rect_addr   <= rrect_seg_addr;
+                            rect_w      <= {4'd0, rrect_cut};
+                            rect_rows   <= 9'd1;
+                            rect_active <= 1'b1;
+                            char_fg     <= rrect_bg;
+                        end
 
                     // Composing needs no SDRAM, so it runs only once nothing
                     // else wants the bus -- it can never delay a fill by more
@@ -868,6 +963,8 @@ module mp3_fb #(
                                 copy_mode <= 1'b0;
                                 blit_mode <= 1'b0;
                                 bar2_pending <= 1'b0;
+                                rrect_pending <= 1'b0;
+                                rrect_active  <= 1'b0;
                                 sblit_mode   <= 1'b0;
                                 cblit_mode   <= 1'b0;
                                 char_sx   <= q_sx;
@@ -896,14 +993,43 @@ module mp3_fb #(
                                 rect_active <= (q_h != 9'd0) && (q_w != 9'd0);
                                 blit_mode   <= 1'b0;
                                 bar2_pending <= 1'b0;
+                                rrect_pending <= 1'b0;
+                                rrect_active  <= 1'b0;
                                 sblit_mode   <= 1'b0;
                                 cblit_mode   <= 1'b0;
+                            end
+                            // B11: identical arm to OP_RECT above (the main w x h fill, cmd_fg) --
+                            // rrect_pending is the only difference, handing off into the corner
+                            // sequencer (A_WRWAIT's tail, below) once this fill's last row retires.
+                            // Radius (cmd_glyph, "otherwise unused outside CHAR", already reused by
+                            // BAR for the lit-row count) is clamped to 15, the LUT's own range --
+                            // no UI radius this project uses is anywhere near that (max is 8).
+                            OP_RRECT: begin
+                                rect_addr   <= q_addr;
+                                rect_w      <= q_w;
+                                rect_rows   <= q_h;
+                                rect_active <= (q_h != 9'd0) && (q_w != 9'd0);
+                                blit_mode   <= 1'b0;
+                                bar2_pending <= 1'b0;
+                                sblit_mode   <= 1'b0;
+                                cblit_mode   <= 1'b0;
+                                rrect_pending <= (q_h != 9'd0) && (q_w != 9'd0) && (q_glyph_r != 4'd0);
+                                rrect_active  <= 1'b0;
+                                rrect_r    <= q_glyph_r;
+                                rrect_x0   <= q_addr;
+                                rrect_w    <= q_w;
+                                rrect_h    <= q_h;
+                                rrect_bg   <= q_bg;
+                                rrect_row  <= 4'd0;
+                                rrect_seg  <= 2'd0;
                             end
                             OP_COPY: begin
                                 copy_src  <= {q_fg[2:0], q_bg};
                                 copy_mode <= 1'b1;
                                 blit_mode <= 1'b0;
                                 bar2_pending <= 1'b0;
+                                rrect_pending <= 1'b0;
+                                rrect_active  <= 1'b0;
                                 sblit_mode   <= 1'b0;
                                 cblit_mode   <= 1'b0;
                                 char_addr <= q_addr;
@@ -921,6 +1047,8 @@ module mp3_fb #(
                                 copy_mode <= 1'b1;
                                 blit_mode <= 1'b1;
                                 bar2_pending <= 1'b0;
+                                rrect_pending <= 1'b0;
+                                rrect_active  <= 1'b0;
                                 sblit_mode   <= 1'b0;
                                 cblit_mode   <= 1'b0;
                                 blit_dst_addr <= blt_dst_base + {6'd0, q_addr};
@@ -948,11 +1076,15 @@ module mp3_fb #(
                                     bar2_rows    <= bar_lit;
                                     bar2_fg      <= q_fg;   // lit colour, queued
                                     bar2_pending <= (bar_lit != 9'd0) && (q_w != 9'd0);
+                                    rrect_pending <= 1'b0;
+                                    rrect_active  <= 1'b0;
                                 end else begin
                                     rect_rows    <= bar_lit;
                                     rect_active  <= (bar_lit != 9'd0) && (q_w != 9'd0);
                                     char_fg      <= q_fg;   // fully-lit bar, no phase 2
                                     bar2_pending <= 1'b0;
+                                    rrect_pending <= 1'b0;
+                                    rrect_active  <= 1'b0;
                                 end
                             end
                             // Phase F B4: see the module-header comment above. Output
@@ -965,6 +1097,8 @@ module mp3_fb #(
                                 sblit_mode <= 1'b1;
                                 cblit_mode <= 1'b0;
                                 bar2_pending <= 1'b0;
+                                rrect_pending <= 1'b0;
+                                rrect_active  <= 1'b0;
                                 blit_dst_addr      <= blt_dst_base + {6'd0, q_addr};
                                 sblit_src_row_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
                                 char_num  <= nd_x[5:3];
@@ -990,6 +1124,8 @@ module mp3_fb #(
                                 sblit_mode <= 1'b0;
                                 cblit_mode <= 1'b1;
                                 bar2_pending <= 1'b0;
+                                rrect_pending <= 1'b0;
+                                rrect_active  <= 1'b0;
                                 blit_dst_addr <= blt_dst_base + {6'd0, q_addr};
                                 blit_src_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
                                 char_w    <= q_w[6:0];
@@ -1005,6 +1141,8 @@ module mp3_fb #(
                                 cblit_mode  <= 1'b0;
                                 blit_mode   <= 1'b0;
                                 bar2_pending <= 1'b0;
+                                rrect_pending <= 1'b0;
+                                rrect_active  <= 1'b0;
                                 sblit_mode   <= 1'b0;
                             end
                         endcase
@@ -1087,6 +1225,35 @@ module mp3_fb #(
                                 rect_active  <= 1'b1;
                                 char_fg      <= bar2_fg;
                                 bar2_pending <= 1'b0;
+                                rrect_pending <= 1'b0;
+                                rrect_active  <= 1'b0;
+                            end else if (rrect_pending) begin
+                                // B11: the main w x h fill just retired -- hand off into the
+                                // corner sequence. A_IDLE drives every subsequent step (skip or
+                                // arm one segment) one decision at a time from here.
+                                rect_active   <= 1'b0;
+                                rrect_pending <= 1'b0;
+                                rrect_active  <= 1'b1;
+                                rrect_row     <= 4'd0;
+                                rrect_seg     <= 2'd0;
+                            end else if (rrect_active) begin
+                                // B11: one corner segment (TL/TR/BL/BR) just retired. Advance to
+                                // the next segment of the same row, or -- after BR -- to the next
+                                // row (A_IDLE re-checks cut(dy) for it; a row whose cut is 0 is
+                                // skipped there with no burst at all). Finish once every row 0..r-1
+                                // has been visited.
+                                rect_active <= 1'b0;
+                                if (rrect_seg == 2'd3) begin
+                                    if (rrect_row + 4'd1 >= rrect_r) rrect_active <= 1'b0;
+                                    else begin
+                                        rrect_row <= rrect_row + 4'd1;
+                                        rrect_seg <= 2'd0;
+                                        rrect_active <= 1'b1;
+                                    end
+                                end else begin
+                                    rrect_seg    <= rrect_seg + 2'd1;
+                                    rrect_active <= 1'b1;
+                                end
                             end else begin
                                 rect_active <= 1'b0;
                             end

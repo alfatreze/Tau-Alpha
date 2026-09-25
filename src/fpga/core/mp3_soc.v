@@ -132,7 +132,9 @@ module mp3_soc #(
     // fb_cmd_full is checked before pushing; pushing while full is silently
     // dropped by mp3_fb's FIFO.
     output reg          fb_cmd_push,
-    output reg  [2:0]   fb_cmd_op,   // 3 bits: bit 2 was GO's unused padding bit, claimed for OP_BLIT (Phase F B1)
+    output reg  [3:0]   fb_cmd_op,   // 4 bits: bit 2 was GO's unused padding bit (OP_BLIT, B1); bit 3 is
+                                     // R_FB_GO's dDAT_MOSI[14] (B11) -- free (glyph/sx/sy already occupy
+                                     // bits 3-13, so this needed no other field to move).
     output reg  [18:0]  fb_cmd_addr,
     output reg  [8:0]   fb_cmd_w,
     output reg  [8:0]   fb_cmd_h,
@@ -257,7 +259,13 @@ module mp3_soc #(
     // not exist unless TAU_BLIT is built there too.
     output wire         clut_wr,
     output wire [7:0]   clut_waddr,
-    output wire [15:0]  clut_wdata
+    output wire [15:0]  clut_wdata,
+
+    // B11 (section 5): corner-cut lookup table, from mp3_soc's own R_RC_IDX/R_RC_DATA -- a bulk
+    // table load, own register pair (same reasoning as R_CLUT_IDX/DATA above: a 16-entry table
+    // load is different write traffic from a handful of sticky per-command fields). Driven
+    // regardless of BLIT_ENABLE, same convention as every other blt_*/clut_* signal here.
+    output wire [79:0]  rc_cut_lut
 );
 
     // ---------------------------------------------------------------- CPU ---
@@ -659,6 +667,10 @@ module mp3_soc #(
     // every Phase F register already uses). Never in the release or the normal Diagnostic
     // Build -- gated behind TAU_ISSP exactly like u_issp_blit in mp3_fb.sv.
     localparam [7:0] R_DBG_MARK = 8'hD0;
+    // B11 (section 5): corner-cut LUT load. R_RC_IDX selects one of 16 entries; each R_RC_DATA
+    // write stores the 5-bit cut(dy) value there and auto-increments, same convention as
+    // R_CLUT_IDX/R_CLUT_DATA. Inert (no logic reads it) unless TAU_BLIT is built.
+    localparam [7:0] R_RC_IDX = 8'hD4, R_RC_DATA = 8'hD8;
 
     // Bitstream/firmware interlock. Firmware compares this against its own
     // expected value and refuses to run on a mismatch.
@@ -705,6 +717,13 @@ module mp3_soc #(
     assign clut_wr    = (BLIT_ENABLE != 0) ? clut_wr_r    : 1'b0;
     assign clut_waddr = clut_idx;
     assign clut_wdata = clut_wdata_r;
+
+    // B11: corner-cut LUT. 16 entries x 5 bits as one packed register (plain flops, no M10K --
+    // matches the table's own "0 M10K" budget); R_RC_IDX selects an entry, R_RC_DATA writes it
+    // and auto-increments, same convention as R_CLUT_IDX/DATA.
+    reg  [3:0]  rc_idx = 4'd0;
+    reg  [79:0] rc_cut_lut_r = 80'd0;
+    assign rc_cut_lut = (BLIT_ENABLE != 0) ? rc_cut_lut_r : 80'd0;
 
     // B-186: plain CPU-write scratch register, read live by TAU_ISSP's second probe instance
     // below. No enable gating (unlike clut_wr_r's pulse) -- this is meant to just SIT at its
@@ -836,7 +855,7 @@ module mp3_soc #(
                 /* GO carries the per-glyph fields (op/char/scale) so drawing a
                  * string is two MMIO writes per character -- address, then this
                  * -- with colour and size left standing in their registers. */
-                R_FB_GO:   begin fb_cmd_op    <= dDAT_MOSI[2:0];
+                R_FB_GO:   begin fb_cmd_op    <= {dDAT_MOSI[14], dDAT_MOSI[2:0]};   // bit 3: B11's OP_RRECT
                                  fb_cmd_glyph <= dDAT_MOSI[9:3];
                                  fb_cmd_sx    <= dDAT_MOSI[11:10];
                                  fb_cmd_sy    <= dDAT_MOSI[13:12];
@@ -872,6 +891,11 @@ module mp3_soc #(
                     clut_idx     <= clut_idx + 8'd1;   // wraps 255->0 naturally (8-bit)
                 end
                 R_DBG_MARK: dbg_mark <= dDAT_MOSI[7:0];
+                R_RC_IDX:  rc_idx <= dDAT_MOSI[3:0];
+                R_RC_DATA: begin
+                    rc_cut_lut_r[rc_idx*5 +: 5] <= dDAT_MOSI[4:0];
+                    rc_idx <= rc_idx + 4'd1;   // wraps 15->0 naturally (4-bit)
+                end
                 default: ;
             endcase
         end

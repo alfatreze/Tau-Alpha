@@ -564,41 +564,76 @@ source data" convention, just two RLE units per word here instead of one pixel).
 `meter_thumb_off[]` byte-offset table already exists in firmware to delimit them (reusable as-is: firmware
 would pass the same offsets it already uses for `set_draw_thumb_soft()`/`set_thumb_flat_build()`).
 
-**Design, if built later.** New opcode (shares B11's already-identified `cmd_op` widening — if both B10 and
-B11 are ever built, widen `cmd_op` once, in the same change, rather than twice). Reuses B8's CLUT (`clut_q`)
-for the colour lookup exactly as `OP_CBLIT` does, and — the actual insight here — a *decoded run* is just a
-solid-colour horizontal span, which is precisely what `OP_RECT`'s existing **constant-data burst** write
-already does (`p0_wr_stream = 0`, `p0_data` latched once per burst) — cheaper than `OP_CBLIT`'s own one-
-word-per-pixel read path, not a new write mechanism. So each run becomes one RECT-shape burst of
-`clut_q[idx]`, for `seg` words, where `seg` is the run clamped to however many columns remain before the
-sticky destination width wraps (mirroring `set_thumb_flat_build()`'s own `seg = width - col` split exactly)
-— i.e. this generalises the SAME "queued chain of RECT-shape bursts" shape B11's design above already needs,
-just with segments computed live from decoded source bytes instead of read from a firmware-loaded LUT. A
-run longer than one row's remaining width chains multiple burst segments, same as the software version's own
-inner `while (left)` loop.
+**Design, refined 2026-09-25 after B11 shipped (`cmd_op` is already 4 bits — B10 is `OP_RLEBLIT = 4'd9`,
+the next free value, no further widening needed).** Reuses B8's CLUT (`clut_q`) for the colour lookup
+exactly as `OP_CBLIT` does, and — the actual insight here — a *decoded run* is just a solid-colour
+horizontal span, which is precisely what `OP_RECT`'s existing **constant-data burst** write already does
+(`p0_wr_stream = 0`, `p0_data` latched once per burst) — cheaper than `OP_CBLIT`'s own one-word-per-pixel
+read path, not a new write mechanism. So each run becomes one RECT-shape burst of `clut_q[idx]`, for `seg`
+words, where `seg` is the run clamped to however many columns remain before the destination width wraps
+(mirroring `set_thumb_flat_build()`'s own `seg = width - col` split exactly) — i.e. this generalises the
+SAME "queued chain of RECT-shape bursts" shape B11 already built. A run longer than one row's remaining
+width chains multiple burst segments, same as the software version's own inner `while (left)` loop.
 
-State needed: a source-word register holding the current 16-bit word (2 packed bytes), a byte-select bit
-(low/high half already consumed), the current decoded `(idx, run_left)` pair, the running output column
-`rr_col` (wraps at the sticky destination width, reusing B1's own addressing base+stride so this is not
-pinned to the flat-buffer convention), and the running output row. Source word advances (one new 1-word
-SDRAM read, same shape as `A_CBLIT_RD`) every time both bytes of the current word are consumed — i.e. every
-*other* run boundary, not every run, since two runs share one word. The command's total pixel count (`w*h`
-of the destination, matching every other opcode's own convention) bounds the loop; unlike B11's LUT-driven
-skip-ahead, there is no "skip this segment" case here — every decoded run always produces at least one
-output word, so the state machine is simpler in that one respect than B11's.
+**Real gap found while starting the RTL, not previously flagged: the RLE byte stream needs staging into
+SDRAM first, which is the same class of one-time cost B10 exists to avoid.** `meter_thumb_rle[]` lives in
+cold PSRAM/on-chip data today, not the framebuffer's SDRAM chip — the draw engine's `p0_addr` port only
+ever reaches that one physical SDRAM, the same one pixel data lives in, never PSRAM or on-chip RAM
+directly. For `OP_RLEBLIT` to read the RLE bytes via `p0_addr` (the only way any opcode reads a "source"),
+firmware must copy `meter_thumb_rle` into a small SDRAM staging area once per session (the same "prove it
+once, reuse it" shape `set_thumb_flat_build()` already has) — smaller than the current flat-buffer expansion
+(raw RLE bytes, not fully-decoded palette indices, so still meaningfully less data and less one-time cost),
+but not the *zero*-staging design the Tier 2 table's original framing implied. This does not remove B10's
+value (the ~38.5 KB SDRAM saving and the smaller one-time cost both still hold), but it is a real correction
+to record before anyone assumes this opcode needs no firmware-side preparation at all.
+
+**Real conflict found while starting the RTL: B10 and `OP_CBLIT` cannot share `clut_raddr` unmodified.**
+`clut_raddr` (`mp3_fb.sv`) is deliberately **combinational off `p0_q[7:0]`** — the just-arrived SDRAM word,
+valid only in the exact cycle `A_CBLIT_RD` captures a fresh source read, timed so `clut_q`'s registered
+update lands correctly one cycle later in `A_CBLIT_WAIT` (B-148's own hard-won fix: a registered `clut_raddr`
+put the answer a cycle late). B10's palette index does NOT come from a live `p0_q` at the moment it is
+needed — it comes from a byte already sitting in a **register** (decoded out of a previously-fetched source
+word, `rle_idx` below), stable for as long as needed, not a one-cycle-only value. The two addressing sources
+must be muxed (`clut_raddr = rle_mode ? (rle_idx + reindex) : (p0_q[7:0] + reindex)`, safe since `OP_CBLIT`
+and `OP_RLEBLIT` are never in flight together, the same "never simultaneous" precedent `OP_CHAR`/`OP_SBLIT`
+already share), and — because `rle_idx` becomes valid on a REGISTER edge, not combinationally in the same
+cycle a fresh word arrives the way `p0_q` does — B10 needs its own explicit two-cycle wait after decoding a
+byte before `clut_q` can be trusted (one cycle for `rle_idx` itself to settle, one for `clut_q`'s own
+registered read to catch up), mirroring `A_CBLIT_RD`/`A_CBLIT_WAIT`'s two-state shape but for a different
+reason (waiting on a decode+lookup pipeline, not a fresh SDRAM read).
+
+**State needed, refined to avoid a live multiply:** the original note's "total pixel count (`w x h`)" would
+need a real `w*h` multiply to bound the loop — exactly the kind of live arithmetic this whole phase has
+learned to avoid (B-109/B-111/B-150/B-157). Reuse `char_w`/`char_rows_left`/`char_rows_left_nz` **unchanged**
+instead — the same row-count-register-decremented-once-per-row shape `OP_COPY`/`OP_BLIT`/`OP_CBLIT` already
+use, needing no multiply at all: `char_w` bounds each row's column wrap, `char_rows_left` counts rows down,
+exactly like every other multi-row opcode. Full register list: `rle_word` (16 bits, the current fetched
+word), `rle_hi` (which byte is next to consume), `rle_idx` (3 bits, current run's palette index), `rle_run_left`
+(6 bits, current run's remaining pixel count, 0 = "need to decode the next byte"), `rle_col` (9 bits, output
+column within the row, reusing `blit_dst_addr`'s own per-row sticky-stride step for the row-to-row advance,
+not pinned to the flat-buffer convention), and a 1-bit CLUT-settle counter for the two-cycle wait above.
+Source word advances (one new 1-word SDRAM read, same shape as `A_CBLIT_RD`) every time both bytes of the
+current word are consumed — every *other* run boundary, not every run, since two runs share one word.
 
 **What is genuinely new versus every other opcode built so far:** every existing opcode advances through
 source/destination data at a *fixed, address-computable* rate (one word per pixel, or one word per row).
 B10's source-side rate is *data-dependent* — how many destination pixels one source word covers depends on
-the two run lengths it decodes to, which can only be known after reading it. This does not change the
-verification approach (still an independent Python reference in `blit_reference.py`, still a pixel-diff
-scene command, still a mutation hook — e.g. `BUG_RLE_IGNORE_RUN` forcing every run to length 1, which would
-still produce byte-identical *pixels* but wrong *source word consumption*, so the mutation would need to be
-checked via source-side over-read/under-read, not just output content — a detail the other opcodes' mutation
-tests haven't needed and worth designing carefully rather than copying one of the existing hooks blind).
+the two run lengths it decodes to, which can only be known after reading it. Unlike B11's LUT-driven
+skip-ahead, there is no "skip this segment" case here — every decoded run always produces at least one
+output word, so the state machine is simpler in that one respect than B11's, but the data-dependent
+consumption rate itself has no precedent in this codebase to copy from.
 
-**Not done:** no RTL, no MMIO, no testbench, no firmware change — design-only, and explicitly lower priority
-than the table originally implied now that B8 step 1's real-world payoff is known.
+**Verification plan for later:** an independent Python reference in `blit_reference.py`, a pixel-diff scene
+command in `tb_blit_scene.v` (matching the "not a copy of the RTL" discipline every opcode since B1 has
+used), and a mutation hook — `BUG_RLE_IGNORE_RUN`, forcing every decoded run to length 1 — needs checking via
+**source-word over-read/under-read**, not just output pixel content, since a run-length bug can still
+produce byte-identical pixels while consuming the wrong number of source bytes (a detail no other opcode's
+mutation test has needed, worth designing carefully rather than copying one of the existing hooks blind).
+
+**Not done:** no RTL, no MMIO, no testbench, no firmware change — design-only (owner's explicit choice,
+2026-09-25, to design now and build/verify properly in a dedicated later pass rather than in the same
+sitting as B11), and still lower priority than the table originally implied, now doubly so given the
+SDRAM-staging gap found above reduces the "zero firmware preparation" framing the original note implied.
 
 ### B11 (hardware rounded-rect) — analysed 2026-09-24, design only, not built
 

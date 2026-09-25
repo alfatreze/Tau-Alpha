@@ -23,6 +23,7 @@ module tb_mp3_fb;
     parameter BUG_IGNORE_KEY = 0;           // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
     parameter BUG_SBLIT_NO_SCALE = 0;       // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
     parameter BUG_BLEND_ALWAYS_SRC = 0;     // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
+    parameter BUG_IGNORE_RC_CUT = 0;        // mutation hook: 1 must fail this bench (make test-rtl-fb-mutation)
 
     reg clk_sdram = 0, clk_sys = 0, clk_vid = 0, reset = 1;
     always #5    clk_sdram = ~clk_sdram;   // 100 MHz
@@ -30,7 +31,7 @@ module tb_mp3_fb;
     always #41.7 clk_vid   = ~clk_vid;     //  12 MHz
 
     reg         cmd_push = 0;
-    reg  [2:0]  cmd_op = 0;
+    reg  [3:0]  cmd_op = 0;
     reg  [18:0] cmd_addr = 0;
     reg  [8:0]  cmd_w = 0, cmd_h = 0;
     reg  [15:0] cmd_fg = 16'hFFFF, cmd_bg = 16'h0000;
@@ -56,6 +57,8 @@ module tb_mp3_fb;
     reg         clut_wr = 1'b0;
     reg  [7:0]  clut_waddr = 8'd0;
     reg  [15:0] clut_wdata = 16'd0;
+    // B11: corner-cut LUT, all zero (every "row" cuts nothing) unless a test loads it.
+    reg  [79:0] rc_cut_lut = 80'd0;
 
     wire [24:0] p0_addr;
     wire [15:0] p0_data;
@@ -69,7 +72,8 @@ module tb_mp3_fb;
 
     mp3_fb #(.BUG_IGNORE_BLIT_STRIDE(BUG_IGNORE_BLIT_STRIDE), .BUG_IGNORE_KEY(BUG_IGNORE_KEY),
              .BUG_SBLIT_NO_SCALE(BUG_SBLIT_NO_SCALE), .BLIT_BLEND_ENABLE(1),
-             .BUG_BLEND_ALWAYS_SRC(BUG_BLEND_ALWAYS_SRC)) dut (
+             .BUG_BLEND_ALWAYS_SRC(BUG_BLEND_ALWAYS_SRC),
+             .BUG_IGNORE_RC_CUT(BUG_IGNORE_RC_CUT)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
@@ -80,6 +84,7 @@ module tb_mp3_fb;
         .blt_blend_en(blt_blend_en), .blt_blend_mode(blt_blend_mode), .blt_blend_alpha(blt_blend_alpha),
         .blt_reindex(blt_reindex),
         .clut_wr(clut_wr), .clut_waddr(clut_waddr), .clut_wdata(clut_wdata),
+        .rc_cut_lut(rc_cut_lut),
         .sdram_init_complete(1'b1),
         .p0_addr(p0_addr), .p0_data(p0_data), .p0_byte_en(p0_byte_en),
         .p0_wr_len(p0_wr_len), .p0_wr_stream(p0_wr_stream), .p0_q(p0_q),
@@ -159,7 +164,7 @@ module tb_mp3_fb;
     end
 
     // ---- helpers ------------------------------------------------------------
-    task push(input [2:0] op, input [18:0] a, input [8:0] w, input [8:0] h,
+    task push(input [3:0] op, input [18:0] a, input [8:0] w, input [8:0] h,
               input [6:0] g, input [1:0] sx, input [1:0] sy);
         begin
             @(posedge clk_sys);
@@ -415,6 +420,41 @@ module tb_mp3_fb;
         repeat (60) @(posedge clk_sdram);
         check(rows_written == 1, "RUN is a single row");
         check(row_len[0] == 7,   "RUN length honoured");
+
+        // ---- RRECT (B11): w=10 h=6 r=2, cut(dy=2)=1 (real segments), cut(dy=1)=0
+        // (skipped, then finishes) -- exercises both the skip path and a real
+        // corner-segment burst in one command. dy = r - row, never row itself
+        // (fb_round_rect_on()'s own convention). Expected sequence: main fill,
+        // then TL/TR/BL/BR for row 0 only (row 1 is skipped with no burst).
+        rows_written = 0;
+        rc_cut_lut[2*5 +: 5] = 5'd1;   // dy=2 (row 0): cut=1
+        rc_cut_lut[1*5 +: 5] = 5'd0;   // dy=1 (row 1): cut=0, skip
+        cmd_fg <= 16'hAAAA; cmd_bg <= 16'hBBBB;   // fill / corner colours
+        push(4'd8, 19'd5000, 9'd10, 9'd6, 7'd2, 2'd0, 2'd0);   // w=10 h=6 r=2
+        // The main fill retires as 6 separate row bursts (h=6, one entry per row,
+        // same as any other multi-row RECT-shape fill), THEN the 4 corner segments
+        // for row 0 (row 1 is skipped with no burst at all) -- 10 entries total.
+        // A bounded wait, not wait(rows_written==10): the BUG_IGNORE_RC_CUT mutation
+        // makes 10 unreachable (every row looks like cut=0, so BOTH rows are skipped
+        // and only the 6-row fill ever happens) -- an unbounded wait would hang until
+        // the global timeout, which prints "TIMEOUT", not "FAILED", so the mutation
+        // test's own grep-for-FAILED convention would never catch a survivor this way.
+        repeat (200) @(posedge clk_sdram);
+        check(rows_written == 10, "RRECT: 6-row main fill + 4 corner segments (row 1 skipped)");
+        check(row_addr[0] == 19'd5000 && row_len[0] == 10, "RRECT: main fill at (x0,w)");
+        check(row_pix[0][0] == 16'hAAAA, "RRECT: main fill colour");
+        check(row_addr[6] == 19'd5000        && row_len[6] == 1, "RRECT: TL at x0, width=cut");
+        check(row_addr[7] == 19'd5009        && row_len[7] == 1, "RRECT: TR at x0+w-cut");
+        check(row_addr[8] == 19'd5000+5*512  && row_len[8] == 1, "RRECT: BL at row h-1-0");
+        check(row_addr[9] == 19'd5009+5*512  && row_len[9] == 1, "RRECT: BR at row h-1-0, x0+w-cut");
+        check(row_pix[6][0] == 16'hBBBB && row_pix[9][0] == 16'hBBBB, "RRECT: corners use bg colour");
+
+        // ---- RRECT, r=0: no corner sequence at all, just the plain h-row fill ---
+        rows_written = 0;
+        cmd_fg <= 16'hCCCC; cmd_bg <= 16'hDDDD;
+        push(4'd8, 19'd6000, 9'd4, 9'd4, 7'd0, 2'd0, 2'd0);   // r=0
+        repeat (100) @(posedge clk_sdram);
+        check(rows_written == 4, "RRECT r=0: 4-row fill only, no corner segments");
 
         $display("\n%0s (%0d failures)", errors ? "FAILED" : "PASSED", errors);
         $finish;

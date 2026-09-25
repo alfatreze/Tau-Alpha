@@ -47,7 +47,7 @@ module tb_blit_scene;
     always #41.7 clk_vid   = ~clk_vid;     //  12 MHz
 
     reg         cmd_push = 0;
-    reg  [2:0]  cmd_op = 0;
+    reg  [3:0]  cmd_op = 0;
     reg  [18:0] cmd_addr = 0;
     reg  [8:0]  cmd_w = 0, cmd_h = 0;
     reg  [15:0] cmd_fg = 16'h0000, cmd_bg = 16'h0000;
@@ -66,6 +66,7 @@ module tb_blit_scene;
     reg         clut_wr = 1'b0;
     reg  [7:0]  clut_waddr = 8'd0;
     reg  [15:0] clut_wdata = 16'd0;
+    reg  [79:0] rc_cut_lut = 80'd0;
 
     wire [24:0] p0_addr;
     wire [15:0] p0_data;
@@ -92,6 +93,7 @@ module tb_blit_scene;
         .blt_blend_en(blt_blend_en), .blt_blend_mode(blt_blend_mode), .blt_blend_alpha(blt_blend_alpha),
         .blt_reindex(blt_reindex),
         .clut_wr(clut_wr), .clut_waddr(clut_waddr), .clut_wdata(clut_wdata),
+        .rc_cut_lut(rc_cut_lut),
         .sdram_init_complete(1'b1),
         .p0_addr(p0_addr), .p0_data(p0_data), .p0_byte_en(p0_byte_en),
         .p0_wr_len(p0_wr_len), .p0_wr_stream(p0_wr_stream), .p0_q(p0_q),
@@ -181,7 +183,7 @@ module tb_blit_scene;
         endcase
     end
 
-    task push(input [2:0] op, input [18:0] a, input [8:0] w, input [8:0] h,
+    task push(input [3:0] op, input [18:0] a, input [8:0] w, input [8:0] h,
               input [15:0] fg, input [15:0] bg, input [6:0] g,
               input [1:0] sx, input [1:0] sy);
         begin
