@@ -77,6 +77,10 @@
 #define R_CLUT_IDX  0x800000C8u   /* Phase F B8: sticky CLUT index (W), 0-255 */
 #define R_DBG_MARK  0x800000D0u   /* B-186: CPU-side checkpoint, read live by TAU_ISSP's DBGM probe -- see fw/suite.inc's bt_crumb(). Harmless write if TAU_ISSP isn't built. */
 #define R_CLUT_DATA 0x800000CCu   /* Phase F B8: CLUT entry at that index (W), RGB565; index auto-increments */
+#define R_SPEC_IDX  0x800000DCu   /* B-263: spectrum bank -- write the band index 0..15 */
+#define R_SPEC_DATA 0x800000E0u   /* read: the window mean |band| of band SPEC_IDX (20 bits) */
+#define R_SPEC_ST   0x800000E4u   /* read: bit 0 = the bank is built into this bitstream, bits 31:16 = windows completed */
+#define R_SCAN      0x800000E8u   /* B-267 Helios beam position: bit 9 = present (TAU_BEAM bitstream), bits 8:0 = video line counter */
 #define R_VBLANK    0x800000D0u   /* Helios/Talos H0: bit 0 = vblank status, CDC'd from clk_vid; 0 when TAU_VBLANK is off */
 #define SDR_CLK_HZ  100000000u    /* clk_sdram, for R_SDR_BUSY deltas -- see docs/MMIO_ALLOCATION.md 0xBC */
 
@@ -2135,6 +2139,21 @@ static uint32_t spec_cnt[SPEC_OCT];       /* per-stage rate dividers         */
 static uint32_t spec_acc[SPEC_BANDS];     /* |band| summed over the window   */
 static uint32_t spec_n;                   /* samples in the window           */
 static unsigned char spec_lvl[SPEC_BANDS];    /* published, 0..255           */
+static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardware filter bank (probed once at boot) */
+static uint32_t spec_win_seen;            /* last hardware window counter consumed */
+
+/* B-263: the hardware bank (src/fpga/core/tau_spec_bank.sv) runs the same cascade continuously, at zero CPU cost, and
+ * publishes the mean |band| of every 1024-sample window. Returns 1 and fills m[] when a NEW window is available; 0 when
+ * there is nothing new, or the window rolled over while we were reading (then simply try again next frame). */
+static int spec_hw_fetch(uint32_t *m)
+{
+    uint32_t w0 = (REG(R_SPEC_ST) >> 16) & 0xFFFFu;
+    if (w0 == spec_win_seen) return 0;
+    for (uint32_t b = 0; b < SPEC_BANDS; b++) { REG(R_SPEC_IDX) = b; m[b] = REG(R_SPEC_DATA) & 0xFFFFFu; }
+    if (((REG(R_SPEC_ST) >> 16) & 0xFFFFu) != w0) return 0;
+    spec_win_seen = w0;
+    return 1;
+}
 /* Last drawn as a ROW COUNT, not as a level.
  *
  * This is what stopped the flicker. Comparing the 0..255 level means something
@@ -4563,12 +4582,19 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * the window would make every band below the first read low by exactly
          * the factor it was downsampled by, which is a convincing-looking
          * wrong answer. */
-        if (spec_n) {
+        uint32_t hw_mean[SPEC_BANDS];
+        int have = spec_hw ? ((viz_mode == VIZ_LED || viz_mode == VIZ_TAPE || viz_mode == VIZ_WINAMP_BARS)
+                              && spec_hw_fetch(hw_mean))
+                           : (spec_n != 0u);
+        if (have) {
             for (uint32_t b = 0; b < SPEC_BANDS; b++) {
                 /* Both halves of an octave were fed at that OCTAVE's rate, so
-                 * the divisor is per stage, not per band. */
-                uint32_t cnt  = spec_n >> (b / 2u);
-                uint32_t mean = cnt ? (spec_acc[b] / cnt) : 0u;
+                 * the divisor is per stage, not per band. (The hardware bank
+                 * already divides: its window is 1024 samples and stage o saw
+                 * 1024 >> o of them, so its mean is a shift.) */
+                uint32_t mean;
+                if (spec_hw) mean = hw_mean[b];
+                else { uint32_t cnt = spec_n >> (b / 2u); mean = cnt ? (spec_acc[b] / cnt) : 0u; }
                 uint32_t v    = (mean * spec_gain[SPEC_BANDS - 1u - b]) >> 4;
 
                 /* LOGARITHMIC, because loudness is.
@@ -4658,7 +4684,11 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
     uint32_t vu_settling = ((viz_mode == VIZ_VU)   && (vu_l || vu_r)) ||
                            ((viz_mode == VIZ_EYE)  && (eye_l || eye_r)) ||
                            ((viz_mode == VIZ_TAPE) && tape_spd);
-    if ((!paused || ui_wave_force || vu_settling) && ++ui_last_vu >= 2u) {
+    /* B-267: draw the meter only when the scanning beam is not inside its rows (or about to be) -- the frame's
+     * tear-free window. If the beam is in the way, ui_last_vu stays >= 2 and the very next pass tries again, so
+     * nothing is lost, the meter just waits (at most a fraction of a frame) for the beam to move on. */
+    if ((!paused || ui_wave_force || vu_settling) && ++ui_last_vu >= 2u
+        && helios_rows_safe_counted(UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H - 1u)) {
         ui_last_vu = 0;
 
         uint32_t wf = ui_wave_force; ui_wave_force = 0;
@@ -6597,21 +6627,27 @@ static int meter_afford(void)
  * ui_blank_touch() already use -- called every main-loop pass regardless of what page is showing,
  * since the sample rate has to be fast enough to catch every edge, not just while a diagnostic
  * page happens to be open. */
-static uint32_t vblank_last;
-static uint32_t vblank_edges;
-static uint32_t vblank_rate;
+static uint32_t vblank_cnt0;       /* hardware frame counter at the start of the current window */
+static uint32_t vblank_t0;         /* cycles() at the start of the current window */
+static uint32_t vblank_rate;       /* frames per second over the last full window (0 until the second window) */
 static uint32_t vblank_win_at;
+static uint8_t  vblank_primed;
 
+/* B-260: reads the hardware frame counter (MMIO 0xD0 bits 31:16, tau_vs_counter.sv) instead of polling the level.
+ * The vsync pulse is only ~167 us wide and this runs once per main-loop pass, milliseconds apart, so the level
+ * polling above (B-242) read 0/S on the Pocket. The counter cannot miss an edge; rate = frames counted over the
+ * measured elapsed time (not an assumed 1 s, the pass timing jitters). Reads 0 on a bitstream without TAU_VBLANK. */
 static void vblank_sample(void)
 {
-    uint32_t lvl = REG(R_VBLANK) & 1u;
-    if (lvl && !vblank_last) vblank_edges++;
-    vblank_last = lvl;
-    if ((int32_t)(cycles() - vblank_win_at) >= 0) {
-        vblank_rate  = vblank_edges;
-        vblank_edges = 0u;
-        vblank_win_at = cycles() + CLK_HZ;
+    uint32_t now = cycles();
+    if ((int32_t)(now - vblank_win_at) < 0) return;
+    uint32_t c = (REG(R_VBLANK) >> 16) & 0xFFFFu;
+    if (vblank_primed) {
+        uint32_t dt = now - vblank_t0, df = (c - vblank_cnt0) & 0xFFFFu;
+        vblank_rate = dt ? (df * (CLK_HZ / 1000u) + (dt / 2000u)) / (dt / 1000u) : 0u;
     }
+    vblank_primed = 1u; vblank_cnt0 = c; vblank_t0 = now;
+    vblank_win_at = now + CLK_HZ;
 }
 
 /* Feeds every meter from one frame of interleaved PCM.
@@ -6645,7 +6681,7 @@ static void meters_feed(const short *pcm, int n, int stereo)
          * SPEC_BANDS. One pass down the ladder per sample, and most samples
          * stop after a stage or two, because the lower stages run at a
          * fraction of the rate. */
-        if ((viz_mode == VIZ_LED || viz_mode == VIZ_TAPE || viz_mode == VIZ_WINAMP_BARS) && meter_afford()) {
+        if (!spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_TAPE || viz_mode == VIZ_WINAMP_BARS) && meter_afford()) {
             for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
                 int32_t x = stereo ? (((int32_t)pcm[i] + (int32_t)pcm[i + 1]) >> 1)
                                    : (int32_t)pcm[i];
@@ -9513,6 +9549,8 @@ int main(void)
         REG(R_STAT2) = 0xAAAAAAAAu; REG(R_STAT3) = 0x55555555u;
         for (;;) { }
     }
+    helios_beam_ok = (uint8_t)((REG(R_SCAN) >> 9) & 1u);   /* B-267: beam position present on this bitstream? */
+    spec_hw = (uint8_t)(REG(R_SPEC_ST) & 1u);      /* B-263: hardware spectrum bank present? (0 on any other bitstream) */
 
     /* Clear the screen FIRST. SDRAM powers up holding garbage and the scanout
      * engine displays it the moment video comes alive, so anything slow before

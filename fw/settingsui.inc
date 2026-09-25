@@ -498,7 +498,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 15u   /* B-073: +1 for COVER (art_bad_code, for the "no
+#define SET_INFO_ROWS 17u   /* B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
                                               * freeze, see its own comment in fw/player.c); B-238:
@@ -512,7 +512,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     "COLD IMAGE",
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
     , "LIBRARY"
-    , "METER YIELD", "VBLANK"
+    , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM"
     };
 static uint32_t set_info_at;
 
@@ -569,8 +569,19 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         else q = set_str(q, "OK");
         if (meter_yield_worst) { q = set_str(q, " (WORST "); q = ui_dec(q, meter_yield_worst); q = set_str(q, "S)"); }
         break;
-    default:   /* VBLANK (B-238): last row either way -- see vblank_sample()'s own comment */
+    case 14:   /* VBLANK (B-238) -- see vblank_sample()'s own comment */
         q = ui_dec(q, vblank_rate); q = set_str(q, "/S");
+        break;
+    case 15:   /* SPECTRUM (B-263): which analyser is running, and for the hardware one how many windows it has finished */
+        if (spec_hw) { q = set_str(q, "HW W"); q = ui_dec(q, (REG(R_SPEC_ST) >> 16) & 0xFFFFu); }
+        else q = set_str(q, "SOFTWARE");
+        break;
+    default:   /* BEAM (B-267): Helios beam-aware drawing -- share of meter updates that had to wait for the beam */
+        if (!helios_beam_ok) q = set_str(q, "NONE");
+        else {
+            uint32_t tot = helios_drawn_n + helios_deferred_n;
+            q = set_str(q, "OK "); q = ui_dec(q, tot ? (helios_deferred_n * 100u) / tot : 0u); q = set_str(q, "% WAITED");
+        }
         break;
     }
     *q = 0;
