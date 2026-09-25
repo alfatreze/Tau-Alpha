@@ -607,6 +607,12 @@ bullet above and `docs/issues/021-boot-restore-release-vs-diagnostic-mismatch.md
 ## Parked: firmware modularization
 `docs/FIRMWARE_MODULARIZATION_PLAN.md` (B-254): phased plan to turn the monolithic `fw/player.c` into real modules. Not started; waits for the key features and the owner's architecture decisions (its section 5).
 
+## Parked: RAM shrink to 192 KB
+`docs/RAM_SHRINK_192K_PLAN.md` (B-262): firmware needs +3.3 KB to link and +9.4 KB to keep the heap floor at 192 KB; sources and gains listed. The 64 freed M10K blocks are headroom, not a requirement for any planned feature (about 4 planned vs 9 already free), so the recommendation is to defer it. Not started.
+
+## Parked: Winamp meter configurator
+The on-device Configure page (B-215..B-218) has open issues and is parked (B-266). The owner may remove it and offer meter configuration only via Tau Omega. Do not extend it meanwhile.
+
 ## Where to look
 
 - **The active plan for what's next: `docs/PHASE_F_SPEC.md`** (see the section above).

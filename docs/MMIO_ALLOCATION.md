@@ -36,8 +36,14 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0xC4 | BLT_DATA | W | Writes the field BLT_IDX selects, then auto-increments BLT_IDX (wraps 6->0) -- a burst of 7 writes loads the whole state after one index write. `FB_GO`'s existing opcode field (now 3 bits, was 2) carries `OP_BLIT`/`OP_BAR`/`OP_SBLIT`/`OP_CBLIT`; no new GO register. |
 | 0xC8 | CLUT_IDX | W | Phase F B8 ("B8 detailed design", section 5): selects one of 256 CLUT entries (0-255). Read only when `TAU_BLIT` is built; the CLUT itself is inert (never read) unless `OP_CBLIT` is dispatched. |
 | 0xCC | CLUT_DATA | W | Writes the RGB565 value at `CLUT_IDX`, then auto-increments `CLUT_IDX` (wraps 255->0, natural 8-bit rollover) -- a burst of 256 writes loads the whole palette after one index write. `FB_GO`'s opcode field carries the new `OP_CBLIT` (3'd7, the last value the existing 3-bit field has room for); no new GO register. |
-| 0xD0 | VBLANK | R | Helios/Talos H0 (`docs/HELIOS_SPEC.md` section 9): bit 0 = vblank status, CDC'd from `mp3_fb.sv`'s own `vid_vs_w` (clk_vid) into clk_sys via a plain single-bit synchroniser (`tau_cdc_sync1.sv`, NOT the Gray-code technique `tau_cdc_gray_ctr.sv` uses for multi-bit counters -- a single level has no multi-bit-hazard to guard against). Reads 0 when `TAU_VBLANK` is off. |
-| 0xD4-0xFC | free | | next claimants: RLE decode enable (B10), rounded-rect (B11) is already opcode 8, not MMIO; allocate here |
+| 0xD0 | VBLANK | R | Helios/Talos H0 (B-260: bits 31:16 are now a free-running frame counter from `tau_vs_counter.sv`, because the pulse is ~167 us and cannot be polled) -- (`docs/HELIOS_SPEC.md` section 9): bit 0 = vblank status, CDC'd from `mp3_fb.sv`'s own `vid_vs_w` (clk_vid) into clk_sys via a plain single-bit synchroniser (`tau_cdc_sync1.sv`, NOT the Gray-code technique `tau_cdc_gray_ctr.sv` uses for multi-bit counters -- a single level has no multi-bit-hazard to guard against). Reads 0 when `TAU_VBLANK` is off. |
+| 0xD4 | RC_IDX | W | B11 (`OP_RRECT`): selects one of 16 corner-cut LUT entries. (Was missing from this table.) |
+| 0xD8 | RC_DATA | W | B11: writes the 5-bit cut(dy) at `RC_IDX`, auto-increments. (Was missing from this table.) |
+| 0xDC | SPEC_IDX | W | B-263 spectrum filter bank (`tau_spec_bank.sv`, `TAU_SPEC`): band index 0..15 whose window mean `SPEC_DATA` returns. |
+| 0xE0 | SPEC_DATA | R | 20-bit mean \|band\| over the last completed 1024-sample window for band `SPEC_IDX` (stage `o` saw `1024>>o` samples, so mean = acc >> (10-o)). 0 when `TAU_SPEC` is off. |
+| 0xE4 | SPEC_ST | R | bit 0 = the bank is built in; bits 31:16 = windows completed (increments every 1024 samples). Read it before and after reading the 16 means and retry if it changed. 0 when `TAU_SPEC` is off. |
+| 0xE8 | SCAN | R | Helios beam position (B-267, `TAU_BEAM`): bit 9 = present, bits 8:0 = the video line counter `vc` (0..399), carried clk_vid -> clk_sys in Gray code by `tau_cdc_gray_bus.sv`. The row being scanned is `vc - 4` while `4 <= vc < 364`; rows are prefetched one line ahead. May read a wrong value for about one sample around the 399 -> 0 wrap (inside vertical blanking, where every draw is safe). 0 when `TAU_BEAM` is off. |
+| 0xEC-0xFC | free | | next claimants: RLE decode enable (B10); allocate here |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 

@@ -848,6 +848,8 @@ open-source licence, which the existing don't-edit rule already handles.
 
 ## 7. Spectrum — a hardware filter bank, not an FFT
 
+**Status 2026-09-25 (B-263): built in RTL and simulated, not yet fitted or run on hardware.** `src/fpga/core/tau_spec_bank.sv` is the firmware cascade below, bit for bit (sequential FSM, no multiplier, logic registers so no M10K), fed from the PCM FIFO's sample strobe; it publishes 16 window means (1024 samples) at MMIO 0xDC/0xE0/0xE4. `sim/tb_tau_spec_bank.v` compares it against a behavioural model of the firmware loop over four windows and two mutants are caught. Firmware uses it when `R_SPEC_ST` bit 0 is set (software cascade stays as the fallback); Info > SPECTRUM shows HW/SOFTWARE. Gain table, log scale and ballistics stay in firmware.
+
 Per D1. What ships today is an **octave cascade of one-pole low-passes**, gated to run only while its meter is
 on screen, at ~1.5% CPU [SRC]. The firmware comment is explicit that this is "NOT an FFT, and not a bank of
 parallel band-passes — both are far too expensive here", and that a real filter bank was the one addition that
