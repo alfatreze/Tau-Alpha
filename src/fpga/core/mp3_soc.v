@@ -66,7 +66,11 @@ module mp3_soc #(
     // Phase F B1 (PHASE_F_SPEC.md section 5): the sticky blit-state registers always exist (a few
     // flops, harmless either way) but blt_src_base/stride and blt_dst_base/stride are only wired
     // out to mp3_fb when this is set -- inert (identical netlist) when 0.
-    parameter BLIT_ENABLE = 0
+    parameter BLIT_ENABLE = 0,
+    // Helios/Talos H0 (docs/HELIOS_SPEC.md section 9): vblank status. The synchroniser itself
+    // lives outside this module, in clk_vid, and is CDC'd in by the caller (tau_cdc_sync1) --
+    // this just gates whether 0xD0 exposes it or reads zero. Inert (identical netlist) when 0.
+    parameter VBLANK_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -226,6 +230,10 @@ module mp3_soc #(
     // do not wire this port are unaffected -- same convention as xm_rdata above.
     input  wire [31:0]  sdram_busy_rd,
 
+    // Helios/Talos H0: already-CDC'd vblank level (clk_sys domain, sourced from clk_vid by the
+    // caller). Unread when VBLANK_ENABLE is 0, same convention as sdram_busy_rd above.
+    input  wire         vblank_rd,
+
     // Phase F B1: sticky blit-engine addressing state (section 9). Driven from mp3_soc's own
     // R_BLT_IDX/R_BLT_DATA registers regardless of BLIT_ENABLE; only OP_BLIT in mp3_fb.sv reads
     // them, and that opcode does not exist unless TAU_BLIT is built there too.
@@ -330,10 +338,58 @@ module mp3_soc #(
     // ------------------------------------------------------- RAM (4 banks) ---
     // Four byte-wide arrays so both ports get byte enables and Quartus infers
     // true dual-port M10K without a read-modify-write.
+    //
+    // TAU_RAM_192K (opt-in, off by default, docs/PHASE_F_SPEC.md section 4/4.1):
+    // the proposed 256 KB -> 192 KB main-RAM shrink, factored out into
+    // tau_main_ram.sv (its own module, its own testbench) rather than inlined
+    // here a second time. RAM_WORDS itself does not change -- the module
+    // internally splits its backing store into two power-of-two-sized regions
+    // (32768 + 16384 words/lane = 192 KB total) instead of one 49152-word
+    // array, which is not synthesizable onto M10K cleanly (see that module's
+    // own header for the exact prior failure this avoids). Default (off):
+    // behaviourally and structurally identical to the single 65536-word array
+    // this replaces -- see tau_main_ram.sv's WORDS_B=0 case. NOT YET ENABLED
+    // in any build: a synthesis-only Quartus check (M10K/MLAB inference for
+    // both regions) is required before a real fit, and a real fit before any
+    // hardware install -- see docs/AUDIT_TRAIL.md B-223 and tau_main_ram.sv's
+    // own header for why this is a real, not theoretical, risk.
+`ifdef TAU_RAM_PROBE_A
+    // EXPERIMENT ONLY (B-226): isolates whether a module port boundary alone
+    // (no generate, no split-region logic -- a literal copy of the array
+    // below) still infers M10K. Delete tau_ram_probe_a.sv and this branch
+    // once the question is answered. Not a real feature.
+    tau_ram_probe_a #(.WORDS(RAM_WORDS), .AW(RAM_AW)) u_ram_probe_a (
+        .clk(clk), .addr(mem_addr), .wdata(mem_wdata), .be(mem_be), .we(mem_we), .rdata(a_rdata)
+    );
+`elsif TAU_RAM_192K_INLINE
+    // EXPERIMENT / fallback (B-226): the SAME two-region split as
+    // tau_main_ram.sv, but written directly here -- same file/scope as the
+    // original working array, no module port boundary, no `generate` block
+    // (both are open suspects for tau_main_ram.sv's synthesis failure).
+    // Region select is a plain runtime if/else in the always block below,
+    // not a generate-time choice -- both arrays always exist. If this
+    // infers cleanly where the module version did not, ship this shape
+    // instead and retire tau_main_ram.sv's module-based approach.
+    localparam RS_WORDS_A = 32768, RS_AW_A = 15;
+    localparam RS_WORDS_B = 16384, RS_AW_B = 14;
+    reg [7:0] ra0 [0:RS_WORDS_A-1];
+    reg [7:0] ra1 [0:RS_WORDS_A-1];
+    reg [7:0] ra2 [0:RS_WORDS_A-1];
+    reg [7:0] ra3 [0:RS_WORDS_A-1];
+    reg [7:0] rb0 [0:RS_WORDS_B-1];
+    reg [7:0] rb1 [0:RS_WORDS_B-1];
+    reg [7:0] rb2 [0:RS_WORDS_B-1];
+    reg [7:0] rb3 [0:RS_WORDS_B-1];
+`elsif TAU_RAM_192K
+    tau_main_ram #(.WORDS_A(32768), .WORDS_B(16384), .AW(RAM_AW)) u_main_ram (
+        .clk(clk), .addr(mem_addr), .wdata(mem_wdata), .be(mem_be), .we(mem_we), .rdata(a_rdata)
+    );
+`else
     reg [7:0] ram0 [0:RAM_WORDS-1];
     reg [7:0] ram1 [0:RAM_WORDS-1];
     reg [7:0] ram2 [0:RAM_WORDS-1];
     reg [7:0] ram3 [0:RAM_WORDS-1];
+`endif
 
     // Port A: CPU (dBus has priority; iBus retries while stalled)
     //
@@ -513,7 +569,44 @@ module mp3_soc #(
     wire              mem_we    = ld_req | (serve_d & dWE);
     wire [3:0]        mem_be    = ld_req ? (4'b0001 << ld_addr[1:0]) : dSEL;
     wire [31:0]       mem_wdata = ld_req ? {4{ld_data}} : dDAT_MOSI;
-    reg  [31:0]       a_rdata;
+
+`ifdef TAU_RAM_PROBE_A
+    wire [31:0] a_rdata;   // driven structurally by u_ram_probe_a, EXPERIMENT ONLY
+`elsif TAU_RAM_192K_INLINE
+    // See the array declarations above (RS_WORDS_A/RS_AW_A/RS_WORDS_B/RS_AW_B)
+    // for why this addressing works without a subtractor. Plain runtime
+    // if/else, no generate -- both suspects removed at once, see the comment
+    // at this branch's array declarations.
+    reg [31:0] a_rdata;
+    wire       rs_sel_b = mem_addr[RS_AW_A];
+
+    always @(posedge clk) begin
+        if (mem_we & mem_be[0]) begin
+            if (rs_sel_b) rb0[mem_addr[RS_AW_B-1:0]] <= mem_wdata[7:0];
+            else          ra0[mem_addr[RS_AW_A-1:0]] <= mem_wdata[7:0];
+        end
+        if (mem_we & mem_be[1]) begin
+            if (rs_sel_b) rb1[mem_addr[RS_AW_B-1:0]] <= mem_wdata[15:8];
+            else          ra1[mem_addr[RS_AW_A-1:0]] <= mem_wdata[15:8];
+        end
+        if (mem_we & mem_be[2]) begin
+            if (rs_sel_b) rb2[mem_addr[RS_AW_B-1:0]] <= mem_wdata[23:16];
+            else          ra2[mem_addr[RS_AW_A-1:0]] <= mem_wdata[23:16];
+        end
+        if (mem_we & mem_be[3]) begin
+            if (rs_sel_b) rb3[mem_addr[RS_AW_B-1:0]] <= mem_wdata[31:24];
+            else          ra3[mem_addr[RS_AW_A-1:0]] <= mem_wdata[31:24];
+        end
+        a_rdata <= rs_sel_b
+                 ? {rb3[mem_addr[RS_AW_B-1:0]], rb2[mem_addr[RS_AW_B-1:0]], rb1[mem_addr[RS_AW_B-1:0]], rb0[mem_addr[RS_AW_B-1:0]]}
+                 : {ra3[mem_addr[RS_AW_A-1:0]], ra2[mem_addr[RS_AW_A-1:0]], ra1[mem_addr[RS_AW_A-1:0]], ra0[mem_addr[RS_AW_A-1:0]]};
+    end
+`elsif TAU_RAM_192K
+    // a_rdata is driven structurally by u_main_ram (declared above, alongside
+    // the array declarations it replaces) -- must be a net, not a reg, here.
+    wire [31:0] a_rdata;
+`else
+    reg  [31:0] a_rdata;
 
     always @(posedge clk) begin
         if (mem_we & mem_be[0]) ram0[mem_addr] <= mem_wdata[7:0];
@@ -522,6 +615,7 @@ module mp3_soc #(
         if (mem_we & mem_be[3]) ram3[mem_addr] <= mem_wdata[31:24];
         a_rdata <= {ram3[mem_addr], ram2[mem_addr], ram1[mem_addr], ram0[mem_addr]};
     end
+`endif
 
     // ------------------------------------------------------------- cycles ---
     reg [31:0] cycle_ctr;
@@ -940,6 +1034,7 @@ module mp3_soc #(
             8'hB4:     mmio_rdata = if_cyc_rd;                            // cycles the fetch stage waited on PSRAM
             8'hB8:     mmio_rdata = {31'd0, (PSRAM_IFETCH_ENABLE != 0)};  // feature present (write = clear counters)
             8'hBC:     mmio_rdata = (SDRAM_BUSY_ENABLE != 0) ? sdram_busy_rd : 32'd0;  // B7: SDRAM port-busy cycles, free-running since reset
+            8'hD0:     mmio_rdata = {31'd0, (VBLANK_ENABLE != 0) ? vblank_rd : 1'b0};  // Helios/Talos H0: vblank status, bit 0
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end

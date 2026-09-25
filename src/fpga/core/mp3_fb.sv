@@ -660,16 +660,43 @@ module mp3_fb #(
     // function of distance from the corner CENTRE, dy = r - i, not the row index). One subtract,
     // one 16-entry LUT read, both combinational -- a 16-entry read is a small mux, nothing like
     // the iterative multiply-compare search this table exists specifically to avoid computing here.
-    wire [3:0] rrect_dy  = rrect_r - rrect_row;
-    wire [4:0] rrect_cut = BUG_IGNORE_RC_CUT ? 5'd0 : rc_cut_lut[rrect_dy*5 +: 5];
+    //
+    // B-211/B-231: this used to be plain combinational wires read directly by A_IDLE's dispatch
+    // (rrect_row -> dy -> cut -> two address adders -> straight into rect_addr, all in the SAME
+    // cycle as the dispatch decision) -- 8 logic levels, -2.366 ns worst setup slack, the same
+    // *shape* of bug already fixed three times elsewhere (B-111 BAR, B-114 SBLIT/CHAR): a multi-
+    // stage arithmetic chain feeding an address register combinationally instead of a cycle ahead.
+    // Fixed the same way: turned into functions, called at each of the three points rrect_row/
+    // rrect_seg is actually decided (dispatch, the A_IDLE skip-advance, and WRWAIT retirement) to
+    // register q_rrect_cut/q_rrect_seg_addr for the row/segment ABOUT TO become current, one cycle
+    // before A_IDLE's dispatch needs them -- dispatch then just reads the registers directly, zero
+    // extra logic. Same total work, computed a cycle ahead of consumption instead of on the same
+    // edge as the wide case-priority decision that also has to select what feeds rect_addr.
+    function [4:0] f_rrect_cut(input [3:0] r, input [3:0] row);
+        reg [3:0] dy;
+        begin
+            dy = r - row;
+            f_rrect_cut = BUG_IGNORE_RC_CUT ? 5'd0 : rc_cut_lut[dy*5 +: 5];
+        end
+    endfunction
+
     // Segment address: TL/BL start at column x0 (rrect_x0's own low bits), TR/BR start cut words
     // short of the right edge (x0 + w - cut); TL/TR read row (y0 + row), BL/BR read the mirrored
     // row (y0 + h - 1 - row). STRIDE (512) per row is a plain left-shift, no multiplier -- the
     // same "cheap because STRIDE is a power of two" property every other opcode's row step relies on.
-    wire [18:0] rrect_row_addr = rrect_x0 + {6'd0, rrect_row, 9'd0};
-    wire [18:0] rrect_mirror_addr = rrect_x0 + {(rrect_h - 9'd1 - {5'd0, rrect_row}), 9'd0};
-    wire [18:0] rrect_seg_addr = (rrect_seg[1] ? rrect_mirror_addr : rrect_row_addr)
-                               + (rrect_seg[0] ? {10'd0, rrect_w - {4'd0, rrect_cut}} : 19'd0);
+    function [18:0] f_rrect_seg_addr(input [18:0] x0, input [8:0] w, input [8:0] h,
+                                      input [3:0] row, input [1:0] seg, input [4:0] cut);
+        reg [18:0] row_addr, mirror_addr;
+        begin
+            row_addr    = x0 + {6'd0, row, 9'd0};
+            mirror_addr = x0 + {(h - 9'd1 - {5'd0, row}), 9'd0};
+            f_rrect_seg_addr = (seg[1] ? mirror_addr : row_addr)
+                             + (seg[0] ? {10'd0, w - {4'd0, cut}} : 19'd0);
+        end
+    endfunction
+
+    reg [4:0]  q_rrect_cut;         // cut for the row/seg about to be current (registered ahead)
+    reg [18:0] q_rrect_seg_addr;    // address for the row/seg about to be current (registered ahead)
 
     // B2 state: whether THIS row's destination has already been pre-read into
     // glyphbuf. Set when A_KEYDST's burst completes, cleared at the end of
@@ -895,12 +922,20 @@ module mp3_fb #(
                     // ONE 1-row segment and lets the branch above issue it the following cycle,
                     // the same one-cycle-later pattern bar2_pending's own re-arm already uses.
                     end else if (rrect_active && !rect_active && can_sdram) begin
-                        if (rrect_cut == 5'd0) begin
+                        if (q_rrect_cut == 5'd0) begin
                             if (rrect_row + 4'd1 >= rrect_r) rrect_active <= 1'b0;
-                            else rrect_row <= rrect_row + 4'd1;
+                            else begin
+                                rrect_row        <= rrect_row + 4'd1;
+                                // B-231: still on the skip path, so seg stays 0 -- register cut/
+                                // addr for the NEXT row now, a cycle ahead of needing them again.
+                                q_rrect_cut      <= f_rrect_cut(rrect_r, rrect_row + 4'd1);
+                                q_rrect_seg_addr <= f_rrect_seg_addr(rrect_x0, rrect_w, rrect_h,
+                                                        rrect_row + 4'd1, 2'd0,
+                                                        f_rrect_cut(rrect_r, rrect_row + 4'd1));
+                            end
                         end else begin
-                            rect_addr   <= rrect_seg_addr;
-                            rect_w      <= {4'd0, rrect_cut};
+                            rect_addr   <= q_rrect_seg_addr;
+                            rect_w      <= {4'd0, q_rrect_cut};
                             rect_rows   <= 9'd1;
                             rect_active <= 1'b1;
                             char_fg     <= rrect_bg;
@@ -1231,11 +1266,18 @@ module mp3_fb #(
                                 // B11: the main w x h fill just retired -- hand off into the
                                 // corner sequence. A_IDLE drives every subsequent step (skip or
                                 // arm one segment) one decision at a time from here.
+                                // B-231: register q_rrect_cut/q_rrect_seg_addr for row0/seg0 HERE,
+                                // the real hand-off point, one cycle ahead of A_IDLE's first read --
+                                // not at OP_RRECT dispatch, which could be many rows-of-the-main-
+                                // fill earlier and would be stale by the time this fires.
                                 rect_active   <= 1'b0;
                                 rrect_pending <= 1'b0;
                                 rrect_active  <= 1'b1;
                                 rrect_row     <= 4'd0;
                                 rrect_seg     <= 2'd0;
+                                q_rrect_cut      <= f_rrect_cut(rrect_r, 4'd0);
+                                q_rrect_seg_addr <= f_rrect_seg_addr(rrect_x0, rrect_w, rrect_h,
+                                                        4'd0, 2'd0, f_rrect_cut(rrect_r, 4'd0));
                             end else if (rrect_active) begin
                                 // B11: one corner segment (TL/TR/BL/BR) just retired. Advance to
                                 // the next segment of the same row, or -- after BR -- to the next
@@ -1249,10 +1291,19 @@ module mp3_fb #(
                                         rrect_row <= rrect_row + 4'd1;
                                         rrect_seg <= 2'd0;
                                         rrect_active <= 1'b1;
+                                        // B-231: new row -- cut may change, recompute both.
+                                        q_rrect_cut      <= f_rrect_cut(rrect_r, rrect_row + 4'd1);
+                                        q_rrect_seg_addr <= f_rrect_seg_addr(rrect_x0, rrect_w, rrect_h,
+                                                                rrect_row + 4'd1, 2'd0,
+                                                                f_rrect_cut(rrect_r, rrect_row + 4'd1));
                                     end
                                 end else begin
                                     rrect_seg    <= rrect_seg + 2'd1;
                                     rrect_active <= 1'b1;
+                                    // B-231: same row -- cut is unchanged, reuse the already-
+                                    // registered q_rrect_cut rather than recomputing it.
+                                    q_rrect_seg_addr <= f_rrect_seg_addr(rrect_x0, rrect_w, rrect_h,
+                                                            rrect_row, rrect_seg + 2'd1, q_rrect_cut);
                                 end
                             end else begin
                                 rect_active <= 1'b0;
