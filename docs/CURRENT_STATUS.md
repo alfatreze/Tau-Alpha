@@ -407,6 +407,20 @@ library + large playlist + fresh cover decode + browse-while-playing + every met
 but given the margin already shown, the real worst case would need to be ~9x deeper to become a
 concern. That comparison is the one test still needed before the RTL shrink itself is scoped.
 
+**MILESTONE, 2026-09-25 (B-205): B11 (hardware rounded-rect) built and verified in RTL/simulation.**
+`cmd_op` widened 3->4 bits (mechanical, every existing opcode's full test suite passes unchanged);
+new `OP_RRECT` generalises `OP_BAR`'s one-shot `bar2_pending` into a bounded, LUT-driven corner
+sequence (`R_RC_IDX`/`R_RC_DATA`, MMIO 0xD4/0xD8, 16 entries x 5 bits, never computed live in RTL).
+Verified with hand-computed test cases (mixed real-segment/skipped-row + a plain `r=0` case) and a
+new mutation hook (`BUG_IGNORE_RC_CUT`) confirmed caught -- found and fixed a real bug in the test
+itself along the way (an unbounded `wait()` that a row-count-reducing mutation makes unreachable,
+hitting the global timeout instead of a "FAILED" verdict). Full `make test-rtl` passes clean, no
+regression. Not yet fit on Quartus, no firmware integration. **B10 (RLE source blit) was scoped
+alongside it but two real gaps surfaced while starting its RTL** (the source data needs staging into
+SDRAM first -- a cost the design assumed it avoided; the CLUT read address can't be shared with
+`OP_CBLIT` unmodified) -- design refined and recorded (`PHASE_F_SPEC.md`), owner chose to defer the
+actual build to its own dedicated pass rather than rush it alongside B11.
+
 **MILESTONE, 2026-09-25 (B-203): picojpeg moved to cold code, the RAM-shrink's headroom target is
 now cleared.** `objcopy --rename-section` on the vendored, unmodified `third_party/picojpeg/
 picojpeg.c` object file (it compiles separately from the project's own `.inc` translation unit, so

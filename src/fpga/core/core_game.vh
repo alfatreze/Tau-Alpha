@@ -115,7 +115,7 @@ wire [7:0]  soc_tgt_seq;
 wire [2:0]  soc_tgt_err;
 
 wire        soc_fb_cmd_push;
-wire [2:0]  soc_fb_cmd_op;
+wire [3:0]  soc_fb_cmd_op;
 wire [18:0] soc_fb_cmd_addr;
 wire [8:0]  soc_fb_cmd_w, soc_fb_cmd_h;
 wire [15:0] soc_fb_cmd_fg, soc_fb_cmd_bg;
@@ -138,6 +138,8 @@ wire [7:0]  soc_blt_reindex;
 wire        soc_clut_wr;
 wire [7:0]  soc_clut_waddr;
 wire [15:0] soc_clut_wdata;
+// B11 (section 5): corner-cut LUT, mp3_soc -> mp3_fb.
+wire [79:0] soc_rc_cut_lut;
 
 // SDRAM Phase 1 diagnostic mailbox.  These are MMIO-only controls; no normal
 // instruction or data fetch is routed to external memory at this stage.
@@ -376,7 +378,9 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN)) u_so
 
     .clut_wr   (soc_clut_wr),
     .clut_waddr(soc_clut_waddr),
-    .clut_wdata(soc_clut_wdata)
+    .clut_wdata(soc_clut_wdata),
+
+    .rc_cut_lut(soc_rc_cut_lut)
 );
 
 // PSRAM diagnostic (P2). Opt-in TAU_PSRAM_PROBE only; it owns the CRAM pins and
@@ -750,6 +754,7 @@ mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN)) u_fb (
     .clut_wr   (soc_clut_wr),
     .clut_waddr(soc_clut_waddr),
     .clut_wdata(soc_clut_wdata),
+    .rc_cut_lut(soc_rc_cut_lut),
 
     .sdram_init_complete(sdram_init_complete),
     .p0_addr(fb_p0_addr), .p0_data(fb_p0_data), .p0_byte_en(fb_p0_byte_en),

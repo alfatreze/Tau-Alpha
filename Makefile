@@ -82,7 +82,8 @@ test-rtl-fb-mutation: | $(RTL_BUILD_DIR)
 	run -Ptb_mp3_fb.BUG_IGNORE_BLIT_STRIDE=1; \
 	run -Ptb_mp3_fb.BUG_IGNORE_KEY=1; \
 	run -Ptb_mp3_fb.BUG_SBLIT_NO_SCALE=1; \
-	run -Ptb_mp3_fb.BUG_BLEND_ALWAYS_SRC=1
+	run -Ptb_mp3_fb.BUG_BLEND_ALWAYS_SRC=1; \
+	run -Ptb_mp3_fb.BUG_IGNORE_RC_CUT=1
 
 # PHASE_F_SPEC.md section 12: software reference renderer + pixel-diff
 # fixtures, run the whole scene through the RTL sim and through
