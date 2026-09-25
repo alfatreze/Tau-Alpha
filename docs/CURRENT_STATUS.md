@@ -604,6 +604,9 @@ planned (`docs/ARCHITECTURE_ROADMAP.md`'s new "UI/UX redesign" item) and may cha
 path this bug lives in, so investigating it now risks wasted work. See the "Not validated / deliberately open"
 bullet above and `docs/issues/021-boot-restore-release-vs-diagnostic-mismatch.md`.
 
+## Parked: firmware modularization
+`docs/FIRMWARE_MODULARIZATION_PLAN.md` (B-254): phased plan to turn the monolithic `fw/player.c` into real modules. Not started; waits for the key features and the owner's architecture decisions (its section 5).
+
 ## Where to look
 
 - **The active plan for what's next: `docs/PHASE_F_SPEC.md`** (see the section above).
