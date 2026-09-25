@@ -1045,16 +1045,26 @@ static uint32_t bt_crumb_read(void)
     return *p;
 }
 
+/* B-194: this whole function had zero bt_crumb() coverage -- if the hang is actually here (the
+ * last (op, level) window's tick is exactly where bt_advance() first falls through past its usual
+ * early return, so it's a strong suspect for a hang that only shows up after many ticks of normal
+ * operation), the crumb would freeze at 15 forever with no way to tell finish from any of its three
+ * real sub-steps. */
 COLD_FN static void bt_finish(void)
 {
+    bt_crumb(30);   /* entered bt_finish() */
     uint32_t len = sr_finish(&bt_rec);
+    bt_crumb(31);   /* sr_finish() returned */
     bt_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
+        bt_crumb(32);   /* sr_text() returned nonzero */
         uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
         uint32_t ver = 0, mask = 0;
         uint32_t sz = qr_encode((const uint8_t *)CHK_TXT, txtlen, 1u, CHK_QR_MAXV, 0, CHK_QR, &ver, &mask);
+        bt_crumb(33);   /* qr_encode() returned */
         if (sz) { bt_qr_len = sz; bt_qr_ver = ver; }
     }
+    bt_crumb(34);   /* bt_finish() about to return */
 }
 
 /* Advances one (op, level) window at a time: draws the HUD (the last-known-good state, so a hang
@@ -1075,19 +1085,40 @@ COLD_FN static void bt_advance(void)
     bt_crumb(13);   /* about to draw the HUD (fb_text_clipped) */
     bt_hud();
     bt_crumb(14);   /* HUD drawn -- about to issue this tick's cell(s) */
-    for (uint32_t k = 0; k < bt_ops_per_tick[bt_lvl]; k++) bt_draw_cell();
+    /* B-194: per-cell checkpoint (0x2000 | k) so a hang *inside* one of the bt_ops_per_tick[bt_lvl]
+     * (1/4/16) calls this tick leaves the index of the last cell that fully returned, distinct from
+     * crumb(14)/(15) which only bracket the whole loop. */
+    for (uint32_t k = 0; k < bt_ops_per_tick[bt_lvl]; k++) { bt_draw_cell(); bt_crumb(0x2000u | k); }
     bt_crumb(15);   /* this tick's cell(s) all issued without hanging */
-    if ((int32_t)(cycles() - bt_at) < 0) return;
+    if ((int32_t)(cycles() - bt_at) < 0) { bt_crumb(16); return; }   /* window not yet expired -- the
+                                                                       * common case, most ticks return
+                                                                       * here without reaching 17+ */
+    bt_crumb(17);   /* window expired -- about to record this (op, level)'s result */
     uint32_t window_cyc = BT_WIN_S * CLK_HZ;
     uint32_t stall = REG(R_FB_STALL) - bt_stall0;
     bt_last_stall_pct = (stall > window_cyc) ? 100u : stall * 100u / window_cyc;
     uint8_t t[6] = { bt_op, bt_lvl, SR_PASS, (uint8_t)bt_last_stall_pct,
                      (uint8_t)bt_ops_done, (uint8_t)(bt_ops_done >> 8) };
     sr_tlv(&bt_rec, SR_T_BLITTEST, t, 6);
+    bt_crumb(18);   /* result recorded -- about to advance level/op or finish */
     bt_at = 0u;
     if (++bt_lvl >= BT_LEVELS) {
         bt_lvl = 0u;
-        if (++bt_op >= BT_OPS) { bt_finish(); bt_state = bt_qr_len ? BT_QR : BT_DONE; return; }
+        if (++bt_op >= BT_OPS) {
+            bt_crumb(19);   /* last op/level reached -- about to call bt_finish() */
+            bt_finish();
+            bt_crumb(20);   /* bt_finish() returned */
+            bt_state = bt_qr_len ? BT_QR : BT_DONE;
+            /* B-197 root cause: set_draw() (fw/player.c) only redraws `if (set_open && set_dirty)`
+             * -- this finishing return never set it, so the whole test silently completes (QR
+             * encoded, bt_finish() done) and the screen never once redraws to show BT_DONE/BT_QR.
+             * It isn't hung: it's finished, frozen on the last running HUD frame forever, with zero
+             * visual indication, which is exactly what B-194 observed. Every other transition in
+             * this function (the plain "advance to next level/op" path just below) already sets
+             * this; only the terminal one didn't. */
+            set_dirty = 1u;
+            return;
+        }
     }
     set_dirty = 1u;
 }
@@ -1133,10 +1164,17 @@ COLD_FN static void bt_begin(void)
     set_dirty = 1u;
 }
 static void bt_open(void) { bt_state = BT_IDLE; }
+/* B-196: this else branch silently drops bt_state to BT_IDLE with no crumb and no set_dirty -- if
+ * this ever fires even once while BT_RUN, bt_advance() is never called again and the screen is
+ * left frozen on whatever it last drew, forever, with nothing to distinguish it from a genuine
+ * hang. Distinct crumbs for each half so a live JTAG read of DBGM can tell "this fired" (41/42)
+ * from "bt_tick() itself is somehow not being called at all any more" (crumb stays wherever
+ * bt_advance() last left it, e.g. 16). */
 static void bt_tick(void)
 {
     if (bt_state != BT_RUN) return;
-    if (set_open && set_page == SET_BLITTEST_PG) bt_advance(); else bt_state = BT_IDLE;
+    if (set_open && set_page == SET_BLITTEST_PG) bt_advance();
+    else { bt_crumb(set_open ? 41u : 42u); bt_state = BT_IDLE; }
 }
 
 COLD_TEXT static void bt_draw_qr(void)
