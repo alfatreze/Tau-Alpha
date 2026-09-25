@@ -331,6 +331,8 @@ interrupt just for PCM refill, not general preemption) than what was proposed he
 
 ## 9. Phased build plan
 
+**Status 2026-09-25 (B-267): beam-aware drawing built, waiting for its bitstream.** H0 is hardware-proven (the frame counter reads about 60/S, B-266). A vblank *pulse* alone cannot schedule drawing (it is 167 us wide and the blanking interval only 1.7 ms, against tens of ms for a full repaint), so H1 now uses the scanning beam's position instead ("racing the beam"): `tau_cdc_gray_bus.sv` carries the video line counter to the CPU (MMIO `R_SCAN`, macro `TAU_BEAM`), and `helios_rows_safe(y0, y1)` (fw/helios.inc) lets a draw through only when the beam is in blanking, has already passed the region (it shows next frame), or is safely ahead of it (draw runs about 8x faster than the beam). Regions register their row extent (`helios_region_register_rows`); the full-screen chrome stays immediate (a full repaint needs double buffering, H2). First adopter: the meter block in `ui_draw_dynamic_cold` (rows 126..259), which waits instead of drawing across the beam. Info > BEAM shows the share of updates that had to wait. Rule verified exhaustively on the host (`sim/test_helios_beam.py`, 837,600 cases). Without a `TAU_BEAM` bitstream everything is safe (old behaviour). Next adopters: progress/clock/transport rows, toasts.
+
 Matching this project's synthesis-first, measure-before-committing discipline (B-100 precedent):
 
 - **Phase H0 (RTL, cheap, foundational).** CDC the internal `vs_pulse`/scan-position into `clk_sys` (the
