@@ -1,6 +1,21 @@
 # Current engineering status
 
-**Latest session (2026-09-24): full handoff in `docs/SESSION_HANDOFF_2026-09-24_BLIT_TEST.md`.**
+**MILESTONE, 2026-09-25 (B-197): the whole B-166..B-194 "Blit Test hangs" saga is fully resolved.**
+The test was never hanging. `bt_advance()`'s terminal branch (`fw/suite.inc`) set `bt_state` to
+`BT_DONE`/`BT_QR` on completion but never set `set_dirty` -- the one flag `fw/player.c:10882` gates
+the entire UI redraw dispatch on -- so the screen froze on the last running HUD frame forever with
+zero visual difference between "still running," "just finished," and "genuinely hung." Found via a
+live JTAG read of the `DBGM` checkpoint (B-195/B-196's own new instrumentation) showing it constant
+at crumb 20 -- `bt_finish()`'s own last checkpoint -- while `PCAD`/`IFPS` kept changing (real CPU
+execution continuing elsewhere) and `BLIT` stayed idle: the test had actually *completed*, not
+stalled. One-line fix (`set_dirty = 1u;` before the terminal `return;`), hardware-confirmed: the
+Blit Test now reliably shows "BLIT TEST DONE" with a QR report, and the first full run decoded
+clean -- **all 24 (op, level) windows PASS, 0% stall, across every opcode (RUN/RECT/CHAR/COPY/BLIT/
+BAR/SBLIT/CBLIT) at all three concurrency levels.** The entire blit engine (Tier 1 B1/B2/B4/B5/B6
+plus B8's CBLIT) is now validated together in one clean hardware pass. Full account:
+`docs/AUDIT_TRAIL.md` B-195 through B-197 (the addendum has the decoded QR result).
+
+**Earlier in the same session (2026-09-24): full handoff in `docs/SESSION_HANDOFF_2026-09-24_BLIT_TEST.md`.**
 B8 (CLUT blit) is done and proven on real hardware. A new "Blit Test" diagnostic hangs on real
 hardware; four source-level RTL fix attempts did not resolve it, and **ISSP's first real hardware
 read (B-186) proved the draw engine itself is not hung** -- normal idle/scanline-fill cycling,
@@ -51,11 +66,19 @@ Pocket's own menu silently overwrites a JTAG-loaded debug bitstream with the SD 
 and `issp_read_probe_data`'s correct form is positional (`issp_read_probe_data $path`), not
 `-instance $path` (the latter silently returns the string `"error"` instead of raising).
 
-**Uncommitted at session end:** `fw/blit_probe.inc`, `fw/settingsui.inc`, `fw/suite.inc` (all three
-B-193 fixes), plus `dist/Assets/tau/common/{tau.rom,tau-cold.bin}` (the shipped `release` target
-rebuilt clean with the same fixes, since it also sets `TAU_METER_THUMBS`). Card has the latest
-all-three-fixes build on `TAU_0_5_0_A_12`; other cores untouched. Read `docs/AUDIT_TRAIL.md`
-B-188 through B-194, and `docs/JTAG_DEBUG_ACCESS.md` section 6, before continuing this thread.
+**B-195: B-194 follow-up, firmware-only, not yet run on hardware.** Added the cheap-first-step
+instrumentation the handoff suggested instead of a new ISSP probe: per-cell checkpoints inside
+`bt_draw_cell()`'s loop, and full coverage of `bt_finish()`'s three sub-steps
+(`sr_finish`/`sr_text`/`qr_encode`, previously zero crumb coverage and the single least-tested path
+in the whole test) plus the post-loop fall-through in `bt_advance()`. `make test-host` and every
+firmware target build clean; `dist/`'s release ROM rebuilt with the same change (Blit Test isn't
+`CHK_DEV`-gated). Not installed — awaiting the owner before the next card write.
+
+**Uncommitted at session end:** `fw/blit_probe.inc`, `fw/settingsui.inc`, `fw/suite.inc` (B-193's
+three fixes plus B-195's new checkpoints), plus `dist/Assets/tau/common/{tau.rom,tau-cold.bin}` (the
+shipped `release` target rebuilt clean with the same fixes, since it also sets `TAU_METER_THUMBS`).
+Card has the pre-B-195 build on `TAU_0_5_0_A_12`; other cores untouched. Read `docs/AUDIT_TRAIL.md`
+B-188 through B-195, and `docs/JTAG_DEBUG_ACCESS.md` section 6, before continuing this thread.
 
 **Earlier snapshot:** 2026-09-22. Tau **v0.4.0** is released and installed on the owner's card (media library, Phase G cold code,
 on-device diagnostics; two zips: TAU and TAU_DIAGNOSTIC). Full detail: `docs/SESSION_HANDOFF_2026-09-22_RELEASE_0.4.md`.
@@ -374,16 +397,17 @@ sequencer shape — the one genuinely new wrinkle is a *data-dependent* source-c
 other opcode's fixed one-word-per-pixel/row rate), which needs its own mutation-test design, not a copy of an
 existing hook. Full design: `docs/PHASE_F_SPEC.md` section 5's B10 write-up.
 
-**M10K/RAM-shrink track, 2026-09-24 — scoped, then held.** Owner asked whether it's safe to move ahead. Found
-and documented the real gate (`docs/PHASE_F_SPEC.md` section 4): meters must go cold before the shrink, and
-that needs the meter drawing rewritten to use the blit engine first (a much smaller per-frame instruction
-footprint is what makes moving it to PSRAM affordable). Scoped the first concrete step — the plain-bars mode
-matches `OP_BAR`'s exact convention, `fb_bar()` already exists, a small surgical change (two `fb_rect()` calls
--> one `fb_bar()` call, `BLIT_READY()`-gated with the existing code as fallback). **Then held, deliberately:**
-enabling it means calling `blit_probe_ensure()` from the live playback path, and that function is the one
-implicated in the still-unresolved Blit Test hang. Owner's call: hold the entire track until ISSP gives a real
-diagnosis, rather than build on top of an actively-suspect subsystem even with a safe read-only gate. Full
-write-up: `docs/PHASE_F_SPEC.md` section 4.
+**M10K/RAM-shrink track, 2026-09-24 — scoped, held, now unblocked (2026-09-25, B-197).** Owner asked whether
+it's safe to move ahead. Found and documented the real gate (`docs/PHASE_F_SPEC.md` section 4): meters must go
+cold before the shrink, and that needs the meter drawing rewritten to use the blit engine first (a much smaller
+per-frame instruction footprint is what makes moving it to PSRAM affordable). Scoped the first concrete step —
+the plain-bars mode matches `OP_BAR`'s exact convention, `fb_bar()` already exists, a small surgical change (two
+`fb_rect()` calls -> one `fb_bar()` call, `BLIT_READY()`-gated with the existing code as fallback). **Held at the
+time** because enabling it meant calling `blit_probe_ensure()` from the live playback path, and that function
+was implicated in the then-unresolved Blit Test hang. **B-197 resolved that hang completely and found it was a
+UI redraw bug unrelated to `blit_probe_ensure()`/`BLIT_READY()`/the draw engine itself** (B-193 had already
+fixed the actual `blit_probe()` SDRAM bug, and B-197's own hardware run proved the whole opcode set + probe path
+clean, 0 stalls) — the original reason to hold no longer applies. Full write-up: `docs/PHASE_F_SPEC.md` section 4.
 
 **Next, in order:** B11 or B10's actual build (both designs are ready; B11 has the larger proven payoff — every
 selected list row and the panel border, versus B10's now-marginal one-time/SDRAM savings). Then, once the Blit

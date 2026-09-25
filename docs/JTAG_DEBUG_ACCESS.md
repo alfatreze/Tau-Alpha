@@ -1,6 +1,10 @@
 # JTAG debug access from the Mac (USB-Blaster + Quartus VM)
 
-Status: **working, verified 2026-09-21** (programming only; no debug logic in any shipped bitstream yet).
+Status: **working end-to-end, verified repeatedly through 2026-09-25.** Bitstream reload (section 2)
+verified 2026-09-21; ISSP live register/state readback (section 6) verified 2026-09-24/25 across
+multiple sessions and multiple probe instances, and was the deciding evidence in root-causing both
+the original Blit Test hang (B-191/B-192/B-193) and its B-194 follow-up (B-197) -- see section 6.5
+onward. SignalTap (section 5) is still planning-only, never built past a synthesis-only proof.
 
 ## 1. Setup that works
 
@@ -10,13 +14,25 @@ Status: **working, verified 2026-09-21** (programming only; no debug logic in an
   (UTM VM settings > Input > "Share USB devices from host" on; then with the VM running, the
   toolbar USB icon > USB-Blaster > **Connect...**; "Auto connect on start" is optional).
   Do not pick "USB JTAG/serial debug unit".
-- VM (see `SESSION_HANDOFF_2026-09-21.md` section 4 for ssh): needs one udev rule, already
-  installed: `/etc/udev/rules.d/51-usbblaster.rules` =
+- VM: `ssh -i ~/.ssh/taualpha_vm_ed25519 -p 2222 taualpha@127.0.0.1` (key already present on the
+  Mac; this is the one command every prior session had to go dig out of
+  `SESSION_HANDOFF_2026-09-21.md` section 4 -- kept here directly so this file is self-contained).
+  Needs one udev rule, already installed: `/etc/udev/rules.d/51-usbblaster.rules` =
   `SUBSYSTEM=="usb", ATTR{idVendor}=="09fb", MODE="0666"`. Without it `jtagconfig` says
   "Insufficient port permissions". Installing it needs the VM sudo password (a person types
   it; the assistant does not enter passwords).
 - Tools live in `/home/taualpha/intelFPGA_lite/25.1std/quartus/bin`
-  (`jtagconfig`, `jtagd`, `quartus_pgm`, `quartus_stp`; add `system-console` if present).
+  (`jtagconfig`, `jtagd`, `quartus_pgm`, `quartus_stp`); `system-console` is a separate path, see
+  section 6.3 step 3. **A non-interactive `ssh` session's `$PATH` does NOT include this directory**
+  (confirmed 2026-09-25 -- `which quartus_pgm` fails over a bare `ssh host 'cmd'` even though the
+  file is present and works fine from an interactive login shell that sources `.bashrc`). Every
+  command below assumes:
+  ```
+  export PATH=/home/taualpha/intelFPGA_lite/25.1std/quartus/bin:$PATH
+  ```
+  has already been run in that same `ssh` invocation (or piped/heredoc'd into one `ssh` call
+  together with the real command) -- a bare `ssh host quartus_pgm ...` will silently fail with
+  "command not found" otherwise.
 
 ## 2. Procedures
 
@@ -27,6 +43,7 @@ Check the chain (Pocket powered, a core running):
 
 Reload a bitstream without touching the SD card (about 5-10 s):
 
+    export PATH=/home/taualpha/intelFPGA_lite/25.1std/quartus/bin:$PATH
     cd <stage>/src/fpga/output_files
     quartus_pgm -m jtag -o "p;ap_core.sof"
 
@@ -34,6 +51,13 @@ Reload a bitstream without touching the SD card (about 5-10 s):
 - A core for the same platform must already be installed on the card and running. The Pocket
   detects the heartbeat loss and repeats the whole load with the same start conditions
   (verified: the core reloads). JSON files are re-read; other state is lost.
+- **From the owner's side of the Pocket, this looks exactly like a spontaneous reboot** (screen
+  goes blank/black for a second or two, then the core reloads on its own) -- confirmed 2026-09-25,
+  right after a `quartus_pgm` reload while diagnosing B-194. If you (the person running JTAG
+  commands) just issued a reload and the owner then reports "it rebooted by itself," that is very
+  likely this, not a new hardware fault -- ask if a reload was just done before treating a reported
+  reboot as new evidence of anything (e.g. do NOT conflate this with B-194's own separately-observed
+  spontaneous self-reset, which happens with no JTAG activity at all).
 - The `.sof` must be the same build as the RBF on the card unless a different behaviour is
   intended; the card content and the loaded bitstream then differ, so record which was used.
 - Only genuine or well-behaved Blasters are advised by Analogue; observe ESD care.

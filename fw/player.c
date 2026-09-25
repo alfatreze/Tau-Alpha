@@ -3526,6 +3526,15 @@ static void ui_icon_dot(uint32_t x, uint32_t y, uint16_t c)
         fb_rect(x + inset[i], y + i, 7u - 2u * inset[i], 1u, c);
 }
 
+/* Relocated here (2026-09-25, B-197 meter/blit integration) from its previous spot alongside
+ * cold.inc/playlist.inc, at PHASE_F_SPEC.md section 4's own scoped design -- BLIT_READY()/
+ * blit_probe_ensure() are needed by ui_draw_dynamic()'s plain-bars fast path below, which is
+ * defined earlier in this file than the old include site. All of blit_probe.inc's own
+ * dependencies (REG()/cycles()/fb_wait()/FB_STRIDE/etc.) are already in scope well before this
+ * point. This moves it out of the TAU_LIBRARY `-Os` pragma block it happened to share with
+ * playlist.inc/cold.inc -- harmless, it was never size-sensitive itself, just adjacent. */
+#include "blit_probe.inc"
+
 static void ui_draw_dynamic(void);
 
 /* The player-screen loader: eight dots turning round the middle of the album art plate, with "Loading track" under
@@ -5458,9 +5467,21 @@ static void ui_draw_dynamic(void)
             uint16_t lit_c = paused ? ui_mix(UI_TRACK, ui_accent, 1u, 3u)
                                     : ui_accent;
             uint16_t c = ui_mix(UI_TRACK, lit_c, i + 1u, UI_WAVE_N);
-            fb_rect(x, UI_WAVE_Y + UI_WAVE_H - h, lit, h, c);
-            if (UI_WAVE_H > h)
-                fb_rect(x, UI_WAVE_Y, lit, UI_WAVE_H - h, bed);
+            /* B-197 meter/blit integration (PHASE_F_SPEC.md section 4): one OP_BAR command
+             * replaces the pair of fb_rect() calls below -- the busiest per-frame draw-engine
+             * path, up to UI_WAVE_N commands halved to UI_WAVE_N/2 worth of traffic. blit_ready
+             * is the same lazily-probed, hardware-confirmed (B-146/B-164/B-197) flag every other
+             * BLIT_READY() call site uses; the two-fb_rect() path stays as the fallback for a
+             * bitstream without the blit engine. The 1px peak-hold marker below is unchanged --
+             * OP_BAR has no marker mode of its own. */
+            blit_probe_ensure();
+            if (BLIT_READY()) {
+                fb_bar(x, UI_WAVE_Y, lit, UI_WAVE_H, h, c, bed);
+            } else {
+                fb_rect(x, UI_WAVE_Y + UI_WAVE_H - h, lit, h, c);
+                if (UI_WAVE_H > h)
+                    fb_rect(x, UI_WAVE_Y, lit, UI_WAVE_H - h, bed);
+            }
             if (pk > h + 1u)                       /* 1 px peak-hold marker */
                 fb_rect(x, UI_WAVE_Y + UI_WAVE_H - pk, lit, 1, UI_WHITE);
         }
@@ -7776,7 +7797,8 @@ static int32_t *fl_buf;            /* one blocksize of int32, from the arena */
 #endif
 #include "playlist.inc"
 #include "cold.inc"
-#include "blit_probe.inc"
+/* blit_probe.inc moved earlier in this file (see the include site before ui_draw_dynamic()) --
+ * BLIT_READY()/blit_probe_ensure() are needed there, which comes before this point. */
 #if TAU_G4 && TAU_COLD_CODE
 #define COLD_FN COLD_TEXT      /* G4: a function moved to PSRAM; every entry from hot code is gated on COLD_READY() or on state that implies it */
 #else

@@ -75,6 +75,17 @@ is that it was skipped for an entire session despite being named in `CLAUDE.md`'
 - Re-run `tools/check_tau_package.py` against the source package directory if you haven't already.
 - `diskutil eject` (or the platform equivalent) before removing the card or considering the write done.
 
+## Reading results back off the card (screenshots, persist files)
+
+`interact_persist.json` is documented elsewhere as written only on Quit. **A screenshot
+(`Memories/Screenshots/*.png`) can show the same symptom** -- confirmed 2026-09-25 (B-197): a
+freshly-taken screenshot did not appear in a directory listing of the already-mounted card, nor
+after a plain `diskutil eject` + physical reinsert; it only showed up after the owner properly
+Quit the core back to the Pocket menu. Not confirmed whether this is the Pocket buffering the
+write until Quit (same as the persist file) or a stale macOS exFAT directory-entry cache on the
+already-mounted volume -- either way, if a file the owner says they just created isn't showing up,
+ask them to Quit the core (not just eject/reinsert the card) before concluding anything is wrong.
+
 ## A note on card operation weight
 
 A session in 2026-09-23 (B-141..B-143) triggered a macOS filesystem-extension (`fskit`) hang from repeated
