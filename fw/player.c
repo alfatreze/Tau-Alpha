@@ -2565,6 +2565,11 @@ static uint16_t ui_grad_at(uint32_t y)
  * one's own definition line, not assumed. */
 #include "blit_probe.inc"
 
+/* Helios's display-list core (docs/HELIOS_SPEC.md section 4/9) -- inert until a real region is
+ * converted to it, see fw/helios.inc's own header. Only depends on REG()/R_VBLANK, both already in
+ * scope well before this point. */
+#include "helios.inc"
+
 /* Rounded rect. The engine has no corner primitive, so the corners are cut
  * back out afterwards with the GRADIENT's local colour at each row -- a flat
  * background colour would leave four visible notches against the ramp. r rows
@@ -10419,6 +10424,13 @@ int main(void)
          * looks more broken than no indicator. Returns immediately unless a
          * note is armed. */
         ui_boot_tick();
+
+        /* Helios's display-list flush (docs/HELIOS_SPEC.md section 4/9). Placed here, not at the
+         * loop's bottom, for the same reason as ui_blank_pump()/resume_pump()/ui_boot_tick() just
+         * above: paused/stopped/idle all `continue` before reaching the bottom, and a parked screen
+         * still needs its dirty regions drawn. No region is registered yet (fw/helios.inc's own
+         * header explains why), so this call costs one bounded loop over zero entries today. */
+        helios_flush();
 
         /* A reload is NOT acted on the instant it is announced: 008A fires
          * when the user PICKS a file, not when the slot is readable. The old

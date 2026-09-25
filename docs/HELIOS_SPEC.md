@@ -339,9 +339,14 @@ Matching this project's synthesis-first, measure-before-committing discipline (B
 - **Phase H1 (firmware, Helios itself) — in progress, 2026-09-25.** `fb_round_rect_on()` converted to
   `OP_RRECT` behind a real hardware-capability probe (`RRECT_READY()`, matching `BLIT_READY()`'s precedent —
   the bitstream currently on the card predates B11 entirely, so this cannot be wired in unconditionally
-  without a runtime check, see section 10) — done, not yet hardware-tested. Still to build: the display-
-  list/dirty-region/vblank-flush core described in section 4. B13's gradient-panel region type is NOT part of
-  this phase any more (section 6 — held to the end of Talos/Helios, real cost found bigger than scoped).
+  without a runtime check, see section 10) — done, not yet hardware-tested. **The display-list/dirty-
+  region/vblank-flush core itself (section 4) is started**: `fw/helios.inc` (region registration,
+  `helios_mark_dirty()`, `helios_flush()`, `vblank_active()`) exists and is wired into the main loop, but
+  deliberately inert — no real screen has been converted to it yet, held until H0's vblank MMIO is itself
+  hardware-confirmed (the fit that would carry `TAU_VBLANK` to the card, B-239, came back with blend
+  re-enabled and blend not closing timing, B-243 — the no-blend bitstream that WILL carry `TAU_VBLANK`,
+  B-235, still hasn't been installed). B13's gradient-panel region type is NOT part of this phase any more
+  (section 6 — held to the end of Talos/Helios, real cost found bigger than scoped).
 - **Phase H2 (RTL, held).** True double buffering via pointer-swap (section 5), once H0/H1 are built and
   measured, not before.
 

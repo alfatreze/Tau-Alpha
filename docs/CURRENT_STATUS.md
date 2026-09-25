@@ -517,7 +517,13 @@ MILESTONE). The RAM shrink's own firmware side is NOT yet usable, though: `fw/li
 ceiling was built (with a real toolchain gotcha found along the way — `DEFINED()` has no effect inside a
 `MEMORY` block's `LENGTH` in this toolchain) and, correctly wired, shows `release` currently **short by
 ~12.6 KB** against the 192 KB target — the earlier "+29 KB clears it" accounting has been eroded by real
-feature growth since (B-236). Separately: the long-reported UI tearing was root-caused (no frame-synchronized
+feature growth since (B-236). **B-244 (2026-09-25) closed part of that gap:** all of `fw/playlist.inc`
+(except `pl_cmd`, deliberately left hot) and `fw/settingsui.inc`'s remaining functions converted to cold
+code, each confirmed reachable only via the same top-level `COLD_READY()` gate `library.inc`/`art.inc`
+already rely on — a measured 4,416 B recovered, leaving `release` short by **~8.5 KB**, not ~12.6 KB. The
+remaining candidates (`read_track_head`/`load_track`/`id3_text_body`, core UI functions in `player.c`) need
+individual boot-order tracing before converting — `settings_load()` was checked and rejected this pass since
+it runs before `cold_boot_load()` at boot and would crash if made cold. Separately: the long-reported UI tearing was root-caused (no frame-synchronized
 draw commit exists anywhere) and a full UI-controller/graphics-library design was written up after prior-art
 research (Amiga Copper/blitter, PS1 Ordering Tables, LVGL, u8g2, MiSTer OSD) — named **Helios** (the library)
 over **Talos** (the blit engine RTL, B1-B11). `docs/HELIOS_SPEC.md` is the complete proposal, superseding
@@ -525,8 +531,32 @@ over **Talos** (the blit engine RTL, B1-B11). `docs/HELIOS_SPEC.md` is the compl
 `docs/HELIOS_SPEC.md` section 9 (H0 vblank MMIO / H1 Helios core + `OP_RRECT` conversion + B13's gradient
 bar / H2 double buffering, held). Four Winamp Bars/Scope bugs from the same session were found and fixed
 (B-234), installed as `TAU_DEV_51` after a card cleanup down to three cores (`TAU`/`TAU_DIAGNOSTIC`/
-`TAU_DEV_51`) — not yet run on hardware. The 192 KB shrink's own remaining firmware trim (~12-13 KB) and the
-pre-existing `Track changes` Check failure (open since B-138) both remain open, unrelated to Helios/Talos.
+`TAU_DEV_51`) — not yet run on hardware. The 192 KB shrink's own remaining firmware trim is down to **~8.5 KB**
+after B-244's playlist/settingsui cold-code conversion. **H1's display-list core itself is started**
+(`fw/helios.inc`, B-244/H1 entry) but deliberately inert — no real screen routes through it yet, held until
+H0's vblank MMIO is hardware-confirmed. **B-239's "try blend alongside everything else" experiment came back
+negative (B-243):** `TAU_BLIT_BLEND` re-enabled on top of B11's fix + the RAM shrink + H0 does NOT close
+timing (worst-case setup -2.972 ns) — blend stays shelved; the no-blend B-235 fit (timing-clean) is still the
+one that will actually carry `TAU_VBLANK`/the RAM shrink to the card, and hasn't been installed yet. The
+pre-existing `Track changes` Check failure (open since B-138) remains open, unrelated to Helios/Talos.
+**B-245: caught before any card write** — B-235's RBF physically only has 192 KB of on-chip RAM
+(`TAU_RAM_192K` removes 64 KB of BRAM at synthesis time, not a runtime toggle), and NO current firmware
+build links within 192 KB yet (checked all five actively-used targets, all fail the same way `release` did
+in B-244). Installing it with any of today's 256 KB-linked firmware would silently alias/corrupt RAM on
+hardware — `fw/link.ld`'s own comment already named this exact danger and assumed it couldn't arise.
+**Hold this whole install until at least one real firmware build actually links under `RAM_192K=1`** — the
+~8.5 KB (or more, for other targets) cold-code trim is now a hard prerequisite for adopting the RAM shrink
+at all, not just a nice-to-have.
+
+**B-246: sidestepping the blocker for now, per the owner's "most functionality now" call.** Launched a
+separate fit with B11's fix + H0 vblank but WITHOUT `TAU_RAM_192K` (RAM stays physically 256 KB — no firmware
+trim needed, every existing build is safe on it) and without `TAU_BLIT_BLEND` (B-243: doesn't close). Reuses
+B-134's already-proven `blit_g3` macro bundle, which closed cleanly two days ago; adding B11's already-clean
+retiming fix and a small vblank CDC on top is expected to close at least as well as B-235 did (which carried
+strictly more logic, the RAM-shrink RTL, and still closed). Result pending on the VM. If clean, this becomes
+the first hardware install path for both B11 (`OP_RRECT`) and H0 (vblank) — unblocking Helios H1's next real
+step without waiting on the RAM shrink at all. The RAM shrink itself stays exactly where B-245 left it,
+untouched by this.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in

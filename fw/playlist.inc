@@ -135,7 +135,7 @@ static uint32_t pl_template(uint32_t slot, uint8_t *buf, uint32_t *name_at)
 /* Open `name` into ANY slot. The target used to be hardwired to the MP3 slot;
  * slot 3 needs it too now that the playlist slot no longer declares a default
  * filename and has to be filled by the core on a fresh card. */
-static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_slot)
+COLD_FN2 static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_slot)
 {
     pl_open_err = PLO_OK; pl_open_errcode = 0; pl_open_timeout = 0;
 
@@ -232,7 +232,7 @@ static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_slot)
  * will not open, the other is worth a go before giving up -- except on
  * PL_ERRCODE_NOFILE, which means the entry genuinely is not there and no
  * directory will change that. */
-static int pl_open_into(uint32_t slot, const char *name)
+COLD_FN2 static int pl_open_into(uint32_t slot, const char *name)
 {
     if (pl_open_try(slot, name, PL_SLOT_ID)) return 1;
     if (pl_open_errcode == PL_ERRCODE_NOFILE) return 0;
@@ -252,7 +252,7 @@ enum {
     PLF_FATAL           /* not about this entry at all: stop trying entries   */
 };
 
-static uint8_t pl_classify_failure(void)
+COLD_FN2 static uint8_t pl_classify_failure(void)
 {
     switch (pl_open_err) {
     /* No template from EITHER slot. That is the 0190 path failing, which has
@@ -312,7 +312,7 @@ static void pl_mark_dead(uint16_t f)
  * that costs a directory walk per entry and switches the MP3 slot as a side
  * effect. So the count is exact for everything the walk has reached and
  * optimistic beyond it, correcting itself as entries are visited. */
-static uint16_t pl_live_count(void)
+COLD_FN2 static uint16_t pl_live_count(void)
 {
     return (uint16_t)(pl_count - pl_dead_n);
 }
@@ -330,7 +330,7 @@ static uint16_t pl_live_count(void)
  *
  * Dead entries -- ones that failed to open -- are skipped so the total from
  * pl_live_count() and this ordinal are counting the same set. */
-static uint16_t pl_live_ordinal(uint16_t pos)
+COLD_FN2 static uint16_t pl_live_ordinal(uint16_t pos)
 {
     uint16_t f = (pos < pl_count) ? pl_order[pos] : 0u;
     uint16_t n = 0;
@@ -354,7 +354,7 @@ static void pl_dead_clear(void)
  * reasoning from outside will settle it. One photograph of this screen shows
  * the real layout. Bound to Select+B; harmless to leave in.
  */
-static void pl_dump_struct(void)
+COLD_FN2 static void pl_dump_struct(void)
 {
     if (!pl_cmd(TGT_GETFILE, MP3_SLOT_ID, CLK_HZ)) { /* show what is there anyway */ }
 
@@ -519,7 +519,7 @@ static uint32_t pl_rand(void)
     return pl_rng;
 }
 
-static void pl_reorder(void)
+COLD_FN2 static void pl_reorder(void)
 {
     for (uint16_t i = 0; i < pl_count; i++) pl_order[i] = i;
     if (!shuffle_on || pl_count < 2u) return;
@@ -535,7 +535,7 @@ static void pl_reorder(void)
 
 /* Keep playing what is playing when the order changes: find the current track
  * in the new order rather than jumping to whatever landed at the same index. */
-static void pl_resync(uint16_t file_idx)
+COLD_FN2 static void pl_resync(uint16_t file_idx)
 {
     for (uint16_t i = 0; i < pl_count; i++)
         if (pl_order[i] == file_idx) { pl_pos = i; return; }
@@ -550,7 +550,7 @@ static void ui_toast_msg(const char *msg);   /* already defined above; a second 
 
 /* Why the LAST attempt failed. Only reached when the walk below has given up
  * on the whole request -- a single bad entry it steps over says nothing. */
-static void pl_toast_open_fail(void)
+COLD_FN2 static void pl_toast_open_fail(void)
 {
     switch (pl_open_err) {
     case PLO_GETFILE: ui_toast_msg("OPEN FAIL: NO 0190");   break;
@@ -575,7 +575,7 @@ static void pl_toast_open_fail(void)
  * Rather than re-implement loading, arm the very same gate the menu reload
  * uses, with the OUTGOING file's identity as the reference so 0190 can confirm
  * the switch actually happened before the track is loaded. */
-static void pl_arm_load(uint32_t leaving_id)
+COLD_FN2 static void pl_arm_load(uint32_t leaving_id)
 {
     for (uint32_t i = 0; i < sizeof(stale_ref_title); i++)
         stale_ref_title[i] = last_title[i];
@@ -612,7 +612,7 @@ static void pl_arm_load(uint32_t leaving_id)
  * hiccup into an infinite loop. Auto-advance with repeat OFF passes a shorter
  * span so that walking past a missing last entry ends the playlist instead of
  * wrapping round and restarting it. */
-static int pl_play_span(uint16_t pos, int dir, uint16_t span)
+COLD_FN2 static int pl_play_span(uint16_t pos, int dir, uint16_t span)
 {
     if (!pl_count || !span) return 0;
     if (span > pl_count) span = pl_count;
@@ -704,7 +704,7 @@ static int pl_play_at(uint16_t pos)           { return pl_play_dir(pos, +1); }
 static int lib_skip(int delta);
 static int lib_advance_auto(void);
 #endif
-static int pl_skip(int delta)
+COLD_FN2 static int pl_skip(int delta)
 {
 #if TAU_LIBRARY
     if (lib_src) return lib_skip(delta);
@@ -719,7 +719,7 @@ static int pl_skip(int delta)
 
 /* A track finished by itself. Returns 1 if a new track was started, 0 if the
  * caller should fall back to its own end-of-track handling. */
-static int pl_advance_auto(void)
+COLD_FN2 static int pl_advance_auto(void)
 {
 #if TAU_LIBRARY
     if (lib_src) return lib_advance_auto();
@@ -753,7 +753,7 @@ static int pl_advance_auto(void)
  * names a playlist, it just reads whatever is in slot 3, so if resume behaves
  * differently for audiobook.m3u than for playlist.m3u the difference has to be
  * in what APF put there. Showing the name settles that in one boot. */
-static void pl_name_read(void)
+COLD_FN2 static void pl_name_read(void)
 {
     pl_name[0] = 0; pl_name_raw[0] = 0;
     uint8_t buf[DT_WORDS * 4u];
@@ -983,7 +983,7 @@ static int pl_sdram_prove(void)
     return 1;
 }
 
-static int pl_sdram_ready(void)
+COLD_FN2 static int pl_sdram_ready(void)
 {
     if (!pl_sdram_state) pl_sdram_state = pl_sdram_prove() ? 1u : 2u;
     return pl_sdram_state == 1u;
@@ -1120,7 +1120,7 @@ COLD_FN2 static void pl_load(void)
 
 /* One line saying what happened, so a playlist that did not load says why
  * rather than just not working. */
-static void pl_report(void)
+COLD_FN2 static void pl_report(void)
 {
     if (pl_count && pl_truncated)         ui_toast_set("CLIPPED AT ", pl_live_count(),
                                                        " TRACKS");

@@ -827,7 +827,7 @@ COLD_FN static void set_stat_value(uint32_t i, char *o)
 #endif
 
 /* Once a second while a value page is open: repaint the rows only, never the panel. */
-static void set_info_tick(void)
+COLD_FN static void set_info_tick(void)
 {
     if (!set_open || set_page < SET_INFO_PG) return;
     if ((int32_t)(cycles() - set_info_at) < 0) return;
@@ -970,7 +970,7 @@ static void wvcfg_open(void)
     wviz_force = 1u;   /* B-234: entering at a different rect than the player screen's own */
 }
 
-static void wvcfg_follow(void)
+COLD_FN static void wvcfg_follow(void)
 {
     if (wvcfg_sel < wvcfg_top) wvcfg_top = wvcfg_sel;
     else if (wvcfg_sel >= wvcfg_top + WVCFG_ROWS_VISIBLE) wvcfg_top = (uint8_t)(wvcfg_sel - WVCFG_ROWS_VISIBLE + 1u);
@@ -1076,7 +1076,7 @@ COLD_FN static void wvcfg_value_text(uint32_t row, char *o)
     *q = 0;
 }
 
-static void wvcfg_adjust(uint32_t row, int32_t dir)
+COLD_FN static void wvcfg_adjust(uint32_t row, int32_t dir)
 {
     int scope = (viz_mode == VIZ_WINAMP_SCOPE);
     if (row == WVR_PRESET) {
@@ -1213,7 +1213,7 @@ COLD_FN static void set_draw(void)
     ov_draw = o;
 }
 
-static void set_close(void)
+COLD_FN static void set_close(void)
 {
     set_open = 0u; set_page = SET_HOME; pl_ui_restore = 1u;
 #if TAU_LIBRARY
