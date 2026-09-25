@@ -62,7 +62,6 @@
  * h=2 touches both) -- only the addressing convention changed, to one already proven twice on real
  * hardware. Still not confirmed on hardware as of this entry -- the hypothesis is strong (the one
  * differentiating factor across two separate hangs) but not directly traced live. */
-#if TAU_BLIT_PROBE || TAU_METER_THUMBS
 /* R_BLT_IDX/R_BLT_DATA/FB_OP_BLIT now live in player.c's shared register block
  * (B-127 promoted them there for the blit-storm Check test to use too). */
 static uint8_t blit_ready;
@@ -181,9 +180,3 @@ static void rrect_probe_ensure(void)
 {
     if (!rrect_probed) { rrect_probe(); rrect_probed = 1u; }
 }
-#else
-#define BLIT_READY() 0
-static void blit_probe_ensure(void) {}
-#define RRECT_READY() 0
-static void rrect_probe_ensure(void) {}
-#endif

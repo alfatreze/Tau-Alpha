@@ -3,7 +3,6 @@
  * It is loaded at boot from the data slot file tau-cold.bin (tools/pack_cold.py), checked (size, layout id, CRC) and proven
  * before first use. If anything is wrong the cold features switch OFF (the previews and help show a plain fallback); playback
  * is unaffected. */
-#if TAU_COLD
 #include "cold_core.h"
 
 #define COLD_SLOT_ID 6u
@@ -22,7 +21,6 @@ static int cold_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)
     return target_read_slot(COLD_SLOT_ID, off, TAG_OFF, len);
 }
 
-#if TAU_COLD_CODE
 /* Cold CODE (Phase G2/G4): functions marked COLD_TEXT are linked at the instruction alias 0x24xx_xxxx and run from PSRAM through
  * the I-cache. They may only be called after cold_code_ok is set (see cold_boot_load); hot code reaches them through
  * COLD_READY() checks, never blindly.
@@ -61,8 +59,8 @@ static void coldframe_record(uint32_t dt)
     if (dt > coldframe_cyc_max) coldframe_cyc_max = dt;
 }
 
-#if TAU_DIAG_TESTS || TAU_COLD_FRAME_PROBE
-/* cold_big moved out from under TAU_DIAG_TESTS alone (B-199): it is also the deliberate worst-case
+#if TAU_DIAGNOSTIC
+/* cold_big moved out from under TAU_DIAGNOSTIC alone (B-199): it is also the deliberate worst-case
  * probe for the per-audio-frame cold-code measurement (PHASE_F_SPEC.md section 4.2), which needs it
  * without pulling in the rest of the Diagnostics > Tests > COLD CODE TEST machinery below. */
 /* 3,000 instructions (12 KB): three times the 4 KiB I-cache, so every run refills all of it. */
@@ -72,7 +70,7 @@ __asm__(".pushsection .cold_text,\"ax\",@progbits\n"
 extern uint32_t cold_big(uint32_t x);
 #endif
 
-#if TAU_DIAG_TESTS
+#if TAU_DIAGNOSTIC
 /* Diagnostic Build: functions for Diagnostics > Tests > COLD CODE TEST (same shapes as the simulation firmware sim/fw_ifetch). */
 static uint32_t cold_hot_twice(uint32_t x) { return x * 2u; }        /* BRAM: cold code calls back into hot code */
 COLD_TEXT static uint32_t cold_add(uint32_t a, uint32_t b) { return a + b; }
@@ -85,47 +83,7 @@ COLD_TEXT static uint32_t cold_loop(uint32_t n)
 COLD_TEXT static uint32_t cold_calls_hot(uint32_t x) { return cold_hot_twice(x) + 1u; }
 #endif
 
-#if TAU_COLD_FRAME_PROBE
-/* B-199 (PHASE_F_SPEC.md section 4.2): per-audio-frame cold-code cost measurement. 100 instructions
- * (~400 B) -- well inside the 4 KiB / 128-line I-cache, the "small, expected to stay resident"
- * bound this measurement is meant to answer, distinct from cold_big's deliberate 3x-oversize
- * worst case above. Neither probe does real work; only the fetch/dispatch cost is being measured,
- * exactly like cold_big's own existing convention. */
-__asm__(".pushsection .cold_text,\"ax\",@progbits\n"
-        ".globl cold_frame_small\n.type cold_frame_small,@function\ncold_frame_small:\n"
-        ".rept 100\n addi a0, a0, 1\n.endr\n ret\n.size cold_frame_small, .-cold_frame_small\n.popsection\n");
-extern uint32_t cold_frame_small(uint32_t x);
-
-/* Called once per ui_draw_dynamic() invocation (fw/player.c) when this macro is on -- the same
- * call frequency (~38 Hz, FL_UI_PERIOD) the real "meters go cold" question is about. Picks the
- * probe via COLDFRAME_BIG (a separate build-time toggle) so both bounds can be measured without
- * two firmware variants sharing a single macro.
- *
- * B-199 section 4.3: COLDFRAME_EVICT simulates the browse-while-playing worst case -- some OTHER
- * cold function (a settings/library redraw) having just run immediately before this meter draw --
- * without driving real UI navigation. cold_big() is called untimed and its result discarded purely
- * to force a full I-cache eviction (it is 3x the cache's own capacity by construction, so this is
- * unconditional, not probabilistic); only the probe call that follows is timed. This is a harsher
- * interleaving than real browsing produces (real browsing does not evict on every single tick),
- * making it a genuine upper bound, not a realistic-frequency simulation. */
-static void coldframe_tick(void)
-{
-    if (!COLD_READY()) return;   /* same fail-safe as every other cold call site: no cold, no probe */
-#if COLDFRAME_EVICT
-    (void)cold_big(0xEEu);   /* untimed, discarded -- see the comment above */
-#endif
-    uint32_t t0 = cycles();
-#if COLDFRAME_BIG
-    (void)cold_big(t0);
-#else
-    (void)cold_frame_small(t0);
-#endif
-    coldframe_record(cycles() - t0);
-}
-#else
 static void coldframe_tick(void) {}
-#endif
-#endif
 
 static int cold_psram_prove(void)
 {
@@ -155,19 +113,10 @@ static void cold_boot_load(void)
     if (e) { cold_err = (uint8_t)e; return; }
     cold_bytes = size;
     cold_state = 1u;
-#if TAU_COLD_CODE
     /* Cold CODE: only when the bitstream has instruction fetch from PSRAM (IF_CFG bit 0), and only after a probe call has
      * come back right. A bitstream without the feature would fetch the alias as an aliased copy of RAM. */
     if (!(REG(0x800000B8u) & 1u)) { cold_err = COLD_E_NOFETCH; return; }
     if (cold_probe(6u, 7u) != 43u) { cold_err = COLD_E_PROBE; return; }
     cold_code_ok = 1u;
-#endif
 }
 #define cold_ready() (cold_state == 1u)
-#else
-#define cold_ready() 1
-#endif
-#if !TAU_COLD_CODE
-#define COLD_READY() 0
-static void coldframe_tick(void) {}   /* B-199: no cold code in this build at all, so nothing to measure */
-#endif

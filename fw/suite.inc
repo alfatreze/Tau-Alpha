@@ -1,4 +1,4 @@
-/* ================================================================== CHECK (TAU_CHECK): the user-facing diagnostics
+/* ================================================================== CHECK (TAU_DIAGNOSTIC): the user-facing diagnostics
  * Menu > Settings > Check runs one fixed profile (docs/TEST_SUITE_SPEC.md sections 7-8): memory tests, playback counters,
  * startup status. Result: a verdict, one line per test, a QR code with the full report (fw/suite_core.h record, decoded by
  * tools/decode_tau_suite.py) and a 36-character short code. The four-word summary is also stored in the persisted
@@ -7,13 +7,7 @@
  * resident cost is a few hundred bytes; without the cold image the page says so and nothing else is affected.
  * Never touches the framebuffer, the library index, the queue or the playlist buffers: scratch is SDRAM physical 8 MiB
  * (the Tests page's area), PSRAM 26 MiB (unused) and PSRAM 0x3000 (report buffers). */
-#if TAU_CHECK
-#if !TAU_COLD_CODE || !TAU_LIBRARY || !TAU_PL_SDRAM
-#error "TAU_CHECK needs TAU_LIBRARY and TAU_COLD_CODE (the tests and the QR encoder are cold code)"
-#endif
-#if !TAU_METER_THUMBS
-#error "TAU_CHECK needs TAU_METER_THUMBS (Blit Test, B-166, reuses THUMB_STASH_Y/meter_thumb_pal/blit_probe_ensure() unconditionally, and every real build target already bundles the two together)"
-#endif
+#if TAU_DIAGNOSTIC
 #define SR_FN COLD_TEXT static
 #include "suite_core.h"
 #define QR_FN COLD_TEXT static
@@ -29,22 +23,12 @@
 #define CHK_SDRAM   0xA0800000u                             /* physical 8 MiB, as the Tests page */
 #define CHK_PSRAM   0xA5A00000u                             /* PSRAM offset 26 MiB */
 #define CHK_AUDIO_S 15u                                     /* length of the playback counter test */
-#if TAU_DIAG_TESTS                                          /* Diagnostic Build: Check sits in SETTINGS > DIAGNOSTICS */
 #define CHK_PARENT  SET_DGN
-#else
-#define CHK_PARENT  SET_DIAG
-#endif
 #define CHK_BASE    7u                                      /* the USER CHECK: test ids 0..6 */
-#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW               /* Diagnostic Build: STANDARD and FULL add stress and a soak (ids 7..10) */
-#define CHK_DEV     1
 #if TAU_COLDFRAME_ON
 #define CHK_MAX     15u    /* B-199: CT_COLDFRAME is id 14, the last id sp_t's 15-bit mask can hold */
 #else
 #define CHK_MAX     14u
-#endif
-#else
-#define CHK_DEV     0
-#define CHK_MAX     7u
 #endif
 static void set_close(void);
 enum { CK_IDLE = 0, CK_RUN, CK_DONE, CK_QR };
@@ -174,7 +158,6 @@ COLD_DATA static const uint8_t chk_exn[4] = { 0, 6, 7, 2 };
 #endif
 COLD_TEXT static uint32_t chk_id(uint32_t step) { return step < CHK_BASE ? step : chk_ex[chk_prof][step - CHK_BASE]; }
 
-#if CHK_DEV
 /* One pass of the cold-code checks (the Tests page's COLD CODE TEST without its timing): calls in and out, a call back into
  * hot code, and 12 KB of code that cannot stay in the I-cache. Counts runs and failures. */
 COLD_TEXT static void chk_cold_once(void)
@@ -187,7 +170,6 @@ COLD_TEXT static void chk_cold_once(void)
     CKM->cold_runs++;
     if (f) CKM->cold_fails++;
 }
-#endif
 
 /* One step of the run. Steps 0-4 and 6 finish at once; step 5 (playback) spans CHK_AUDIO_S seconds and is re-entered
  * until done (returns 0 while waiting). */
@@ -195,22 +177,14 @@ COLD_TEXT static int chk_do(uint32_t id)
 {
     switch (id) {
     case CT_SDW:
-#if TAU_PL_SDRAM
         if (!pl_sdram_ready()) { chk_set(SR_FAIL, 0xFFFFu); break; }
         { uint32_t n, bad = chk_window(CHK_SDRAM, 2u, 25u, 1u << 23, &n);       /* bit 23 would fold onto the framebuffer */
           chk_set(bad ? SR_FAIL : SR_PASS, bad ? bad : n); }
-#else
-        chk_set(SR_NA, 0);
-#endif
         break;
     case CT_SDC:
-#if TAU_PL_SDRAM
         if (!pl_sdram_ready()) { chk_set(SR_FAIL, 0xFFFFu); break; }
         chk_cost(CHK_SDRAM, 0, &chk_sd[0]); chk_cost(CHK_SDRAM, 1, &chk_sd[3]);
         chk_set((chk_sd[0] <= 60u && chk_sd[3] <= 45u) ? SR_PASS : SR_FAIL, chk_sd[0]);     /* best case: 48 read, 31 write when healthy */
-#else
-        chk_set(SR_NA, 0);
-#endif
         break;
     case CT_PSW: {
         if (!REG(0x80000088u) || REG(0x80000088u) != 0x50535231u) { chk_set(SR_NA, 0); break; }
@@ -279,7 +253,6 @@ COLD_TEXT static int chk_do(uint32_t id)
 #endif
         chk_set((chk_under == 0u && chk_stall < 50u) ? SR_PASS : SR_FAIL, chk_under);
         break;
-#if CHK_DEV
     case CT_R1: case CT_R2: case CT_R3:                         /* stress pump beside playback: no mismatch, no late underrun */
         if (!chk_at) {
             stress_set_level(0u); stress_set_level((uint8_t)(id - CT_R1 + 1u));
@@ -427,13 +400,10 @@ COLD_TEXT static int chk_do(uint32_t id)
         for (uint32_t k = 0; k < 20u; k++) chk_cold_once();
         chk_set(CKM->cold_fails ? SR_FAIL : SR_PASS, CKM->cold_fails ? CKM->cold_fails : CKM->cold_runs);
         break;
-#endif
     default: {                                                  /* CT_START: what the boot found */
         uint32_t bad = 0;
         if (cold_state != 1u || cold_err) bad++;
-#if TAU_PL_SDRAM
         if (pl_sdram_state == 2u) bad++;
-#endif
         chk_set(bad ? SR_FAIL : SR_PASS, ld_total);
         break; }
     }
@@ -464,7 +434,7 @@ COLD_TEXT static void chk_finish(void)
     sr_t s;
     uint32_t fails = 0, doneall = 1;
     sr_init(&s, CHK_REC, CHK_REC_CAP, chk_prof == 0u ? 1u : chk_prof == 1u ? 3u : chk_prof == 2u ? 4u : 5u);
-    uint32_t flags = (uint32_t)(TAU_LIBRARY ? 1u : 0u) | 2u | 4u | (uint32_t)(TAU_DIAG_TESTS ? 8u : 0u) | (uint32_t)(TAU_PL_SDRAM ? 16u : 0u)
+    uint32_t flags = 1u | 2u | 4u | 8u | 16u
                    | (uint32_t)(TAU_ART_PSRAM ? 32u : 0u);
     uint32_t fwv = ((uint32_t)(APP_VER[0] - '0') << 16) | ((uint32_t)(APP_VER[2] - '0') << 8) | (uint32_t)(APP_VER[4] - '0');
     uint32_t build[4] = { fwv, REG(R_VERSION), flags, (uint32_t)(&_heap_end - &_heap_start) };
@@ -481,11 +451,9 @@ COLD_TEXT static void chk_finish(void)
     sr_vals(&s, SR_T_SDRAM, 2, v, 6);
     for (uint32_t i = 0; i < 6u; i++) v[i] = chk_ps[i];
     sr_vals(&s, SR_T_PSRAM, 2, v, 6);
-    uint32_t cold[4] = { cold_err, cold_ms, CHK_DEV ? CKM->cold_runs : 0u, CHK_DEV ? CKM->cold_fails : 0u };   /* err, ms, soak/repeat runs, fails */
+    uint32_t cold[4] = { cold_err, cold_ms, CKM->cold_runs, CKM->cold_fails };   /* err, ms, soak/repeat runs, fails */
     sr_vals(&s, SR_T_COLD, 2, cold, 4);
-#if CHK_DEV
     if (chk_prof >= 2u) { uint8_t st[2] = { set_soak_min[chk_soak], chk_lvl }; sr_tlv(&s, SR_T_SET, st, 2); }   /* soak minutes, stress level */
-#endif
     uint32_t tm[4] = { ld_head, ld_size, ld_art, ld_total };
     sr_vals(&s, SR_T_TIME, 4, tm, 4);
     /* word[1] used to be a fixed 0; B-139 repurposes it: 1 if CT_AUD's window ran with playback
@@ -604,11 +572,10 @@ COLD_TEXT static void chk_draw(void)
         }
     }
     ov_frame(chk_s(CS_TITLE), chk_state == CK_RUN ? chk_s(CS_RUNNING) : head,
-             chk_s(chk_state == CK_IDLE ? (CHK_DEV ? CS_H_DEV : CS_H_IDLE) : chk_state == CK_RUN ? CS_H_RUN : CS_H_DONE));
+             chk_s(chk_state == CK_IDLE ? CS_H_DEV : chk_state == CK_RUN ? CS_H_RUN : CS_H_DONE));
     if (chk_state == CK_IDLE) {
         fb_set_color(UI_WHITE, UI_PANEL);
         for (uint32_t i = 0; i < 9u; i++) fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + i * PL_UI_ROW_H, chk_s(CS_INTRO + i), TS_1X, TS_1X, PL_UI_W - 32u);
-#if CHK_DEV
         for (uint32_t r = 0; r < 3u; r++) {                     /* Up/Down pick the row, Left/Right change it */
             char ln[48], *q = ln;
             if (r == 0u) { q = set_str(q, chk_s(CS_PROFL)); q = set_str(q, chk_s(CS_PROF + chk_prof)); }
@@ -618,7 +585,6 @@ COLD_TEXT static void chk_draw(void)
             fb_set_color(r == chk_sel ? ui_accent : UI_DIM, UI_PANEL);
             fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + (9u + r) * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
         }
-#endif
         return;
     }
     for (uint32_t i = 0; i < chk_n; i++) chk_line(i);
@@ -665,9 +631,7 @@ COLD_TEXT static void chk_advance(void)
 }
 COLD_TEXT static void chk_begin(void)
 {
-#if CHK_DEV
     chk_n = (uint8_t)(CHK_BASE + chk_exn[chk_prof]);
-#endif
     chk_state = CK_RUN; chk_step = 0u; chk_at = 0u;
     for (uint32_t i = 0; i < CHK_MAX; i++) chk_res[i] = SR_NA;
     chk_aud_full = chk_blt_full = 0u;   /* B-139: a SKIPped CT_AUD/CT_BLT must not report a stale value left over from a previous run */
@@ -675,9 +639,7 @@ COLD_TEXT static void chk_begin(void)
 }
 COLD_TEXT static void chk_abort(void)                           /* B, or the page was left: stop what the run started */
 {
-#if CHK_DEV
     stress_set_level(0u); dg_soak_cancel();
-#endif
     chk_state = CK_IDLE; chk_at = 0u; set_dirty = 1u;
 }
 static void chk_open(void) { chk_state = CK_IDLE; }
@@ -695,7 +657,6 @@ COLD_TEXT static int chk_input(uint32_t edge)
     }
     if (chk_state == CK_IDLE) {
         if (edge & KEY_A) { if (COLD_READY()) chk_begin(); }
-#if CHK_DEV
         else if (edge & (KEY_UP | KEY_DOWN)) { chk_sel = (uint8_t)((chk_sel + ((edge & KEY_DOWN) ? 1u : 2u)) % 3u); set_dirty = 1u; }
         else if (edge & (KEY_LEFT | KEY_RIGHT)) {
             uint32_t up = (edge & KEY_RIGHT) ? 1u : 0u;
@@ -704,8 +665,7 @@ COLD_TEXT static int chk_input(uint32_t edge)
             else chk_lvl = (uint8_t)(1u + (chk_lvl - 1u + (up ? 1u : 2u)) % 3u);
             set_dirty = 1u;
         }
-#endif
-        else if (edge & (KEY_B | (CHK_DEV ? 0u : KEY_LEFT))) { set_page = CHK_PARENT; set_dirty = 1u; }
+        else if (edge & (KEY_B | 0u)) { set_page = CHK_PARENT; set_dirty = 1u; }
     } else if (chk_state == CK_RUN) {
         if (edge & KEY_B) chk_abort();
     } else if (chk_state == CK_DONE) {
@@ -1190,14 +1150,12 @@ COLD_FN static void bt_begin(void)
     bt_crumb(1);   /* entered bt_begin() */
     bt_checkpoint("checkpoint: blit probe...");
     bt_crumb(2);   /* the checkpoint's own fb_rect()/fb_text_clipped() returned */
-#if TAU_METER_THUMBS
     blit_probe_ensure();   /* B-168: must run BEFORE the BLIT_READY() check below, not after --
                              * it is what actually sets blit_ready. Checking first meant this
                              * refused unconditionally on a fresh boot (blit_ready defaults to 0
                              * until something runs the probe), regardless of real hardware
                              * support -- confirmed a pure ordering bug, not an RTL/hardware issue,
                              * since B-164 already proved OP_BLIT works on this exact bitstream. */
-#endif
     bt_crumb(3);   /* blit_probe_ensure() returned */
     bt_checkpoint("checkpoint: blit probe OK");
     bt_crumb(4);
@@ -1209,7 +1167,6 @@ COLD_FN static void bt_begin(void)
     uint32_t build[4] = { fwv, REG(R_VERSION), 0u, 0u };
     sr_vals(&bt_rec, SR_T_BUILD, 4, build, 4);
     bt_crumb(6);
-#if TAU_METER_THUMBS
     bt_checkpoint("checkpoint: thumb build...");
     bt_crumb(7);   /* about to call set_thumb_flat_build() (or skip it if already built) */
     if (!thumb_flat_ready) set_thumb_flat_build();
@@ -1220,7 +1177,6 @@ COLD_FN static void bt_begin(void)
     fb_clut_load(meter_thumb_pal[0], 8u);   /* CBLIT's cell reads one corner of viz 0's thumbnail */
     bt_crumb(10);  /* fb_clut_load() returned */
     bt_checkpoint("checkpoint: clut load OK");
-#endif
     bt_crumb(11);  /* about to set bt_state = BT_RUN, bt_begin() is otherwise done */
     bt_state = BT_RUN;
     set_dirty = 1u;

@@ -1,4 +1,3 @@
-#if TAU_SETTINGS_UI
 /* In-app settings (A-115/A-116): a full-screen overlay sharing the playlist's frame
  * (ov_frame, PL_UI_* geometry). A home lists Appearance / Audio / Playback; each page lists
  * settings with their current value. Two kinds of value:
@@ -22,19 +21,17 @@ enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS,
 #define SET_INFO_PG ((uint8_t)(SET_MENUS + CH_N))
 #define SET_STAT_PG ((uint8_t)(SET_INFO_PG + 1u))   /* stress status (Diagnostic Build) */
 #define SET_WVIZCFG_PG ((uint8_t)(SET_STAT_PG + 1u))   /* Meter > Configure, B-215/B-216 -- always
-                                                         * available, not gated on TAU_LIBRARY/TAU_CHECK
+                                                         * available, not gated on TAU_LIBRARY/TAU_DIAGNOSTIC
                                                          * like the pages below. */
-#if TAU_LIBRARY
 #define SET_HELP_PG ((uint8_t)(SET_WVIZCFG_PG + 1u))   /* how files, playlists and the library are loaded */
 #define SET_LIBCFG_PG ((uint8_t)(SET_HELP_PG + 1u)) /* library on/off with a confirmation */
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
 #define SET_CHECK_PG ((uint8_t)(SET_LIBCFG_PG + 1u)) /* the user-facing diagnostics run (fw/suite.inc) */
 #if MP3_PROFILE || FLAC_PROFILE
 #define SET_SWEEP_PG ((uint8_t)(SET_CHECK_PG + 1u))   /* Decode Profile Sweep, B-090/B-091 (fw/suite.inc) */
 #define SET_BLITTEST_PG ((uint8_t)(SET_SWEEP_PG + 1u))   /* Blit Test, B-166 (fw/suite.inc) */
 #else
 #define SET_BLITTEST_PG ((uint8_t)(SET_CHECK_PG + 1u))   /* Blit Test, B-166 (fw/suite.inc) */
-#endif
 #endif
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
@@ -46,9 +43,7 @@ typedef struct { const char *label; uint8_t type, arg; } set_row_t;
 static const set_row_t set_home_rows[] = {
     { "APPEARANCE", RT_GROUP, SET_APPEAR }, { "AUDIO", RT_GROUP, SET_AUDIO },
     { "PLAYBACK", RT_GROUP, SET_PLAY },
-#if TAU_DIAG_INFO
     { "SETTINGS", RT_GROUP, SET_DIAG },
-#endif
 };
 static const set_row_t set_appear_rows[] = {
     { "COLOUR", RT_CHOICE, CH_COLOUR }, { "METER", RT_CHOICE, CH_METER },
@@ -61,30 +56,23 @@ static const set_row_t set_play_rows[] = {
     { "RESUME", RT_TOGGLE, TG_RESUME }, { "SPEED", RT_CHOICE, CH_SPEED } };
 static const set_row_t set_diag_rows[] = {
     { "INFO", RT_GROUP, SET_INFO_PG },
-#if TAU_LIBRARY
     { "LIBRARY", RT_GROUP, SET_LIBCFG_PG },
-#if TAU_CHECK && !TAU_DIAG_TESTS
-    { "CHECK", RT_GROUP, SET_CHECK_PG },
-#endif
     { "HOW IT WORKS", RT_GROUP, SET_HELP_PG },
-#endif
-#if TAU_DIAG_TESTS
+#if TAU_DIAGNOSTIC
     { "DIAGNOSTICS", RT_GROUP, SET_DGN },
 #endif
 };
 /* Diagnostic Build only: reached from SETTINGS > DIAGNOSTICS. */
 static const set_row_t set_dgn_rows[] = {
-#if TAU_DIAG_TESTS
+#if TAU_DIAGNOSTIC
     { "TESTS", RT_GROUP, SET_TESTS },
     { "STRESS", RT_GROUP, SET_STRESS },
     { "ALL SPEEDS", RT_TOGGLE, TG_SPEEDS },
-#if TAU_CHECK
     { "CHECK", RT_GROUP, SET_CHECK_PG },
 #if MP3_PROFILE || FLAC_PROFILE
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
 #endif
     { "BLIT TEST", RT_GROUP, SET_BLITTEST_PG },
-#endif
 #else
     { "INFO", RT_GROUP, SET_INFO_PG },          /* unreachable placeholder: the page exists only in the Diagnostic Build */
 #endif
@@ -94,9 +82,7 @@ enum { DG_WIN = 0, DG_RD, DG_WR, DG_PLC, DG_COLD, DG_CLR, DG_N };
 static const set_row_t set_tests_rows[] = {
     { "WINDOW TEST", RT_ACTION, DG_WIN }, { "READ CYCLES", RT_ACTION, DG_RD },
     { "WRITE CYCLES", RT_ACTION, DG_WR }, { "PLAYLIST CHECK", RT_ACTION, DG_PLC },
-#if TAU_COLD_CODE
     { "COLD CODE TEST", RT_ACTION, DG_COLD },
-#endif
     { "CLEAR COUNTERS", RT_ACTION, DG_CLR } };
 /* Stress (Diagnostic Build): the pump level and a timed soak, both choice lists, and a live status page. */
 static const set_row_t set_stress_rows[] = {
@@ -122,7 +108,7 @@ static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, 
  * player.c for the resampler / decoder work and return here by raising SET_SPEED_SHOWN. */
 #define SET_SPEED_SHOWN 5u
 _Static_assert(SET_SPEED_SHOWN <= SPEED_N, "speed list longer than the speed table");
-#if TAU_DIAG_TESTS
+#if TAU_DIAGNOSTIC
 static const char *const set_speed_nm[SPEED_N] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.20X",
     "1.30X", "1.50X", "1.75X", "2.00X", "2.50X" };
 #else
@@ -130,7 +116,7 @@ static const char *const set_speed_nm[SET_SPEED_SHOWN] = { "0.85X", "0.95X", "1.
 #endif
 /* Diagnostic Build only: Diagnostics > ALL SPEEDS offers the whole speed table (up to 2.50x) in the speed list, as a
  * test bed for the audio work. Not persisted; off at every start; turning it off returns a fast speed to 1.00x. */
-#if TAU_DIAG_TESTS
+#if TAU_DIAGNOSTIC
 static uint8_t set_speed_all;
 #define SET_SPEED_COUNT() ((uint32_t)(set_speed_all ? SPEED_N : SET_SPEED_SHOWN))
 #else
@@ -160,17 +146,12 @@ static const uint8_t     set_blank[5]    = { 0u, 1u, 5u, 10u, 30u };
 #define SET_TH_W       56u
 #define SET_TH_H       32u
 #define SET_LIST_H     (PL_UI_ROWS * PL_UI_ROW_H)     /* 264 px of list area */
-#if TAU_LIBRARY
 _Static_assert(LIB_ROW_H == SET_MENU_ROW_H, "the library rows must match the settings rows");
 _Static_assert(PLIST_ROW_H == SET_MENU_ROW_H && PLIST_ROWS == LIB_ROWS, "the playlist rows must match the settings/library rows (B-073)");
-#endif
 
 static uint8_t set_page, set_sel[SET_MENUS], set_ch_cur[CH_N], set_ch_top[CH_N];
-#if TAU_LIBRARY
 static uint8_t set_lib_confirm;               /* the Library page is waiting for a second A */
-#endif
 
-#if TAU_METER_THUMBS
 #include "meter_thumbs.h"
 _Static_assert(VIZ_COUNT == 14 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_TAPE == 11 &&
                VIZ_WINAMP_BARS == 12 && VIZ_WINAMP_SCOPE == 13,
@@ -253,9 +234,8 @@ COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
     fb_clut_load(meter_thumb_pal[viz], 8u);
     fb_cblit(0u, THUMB_STASH_Y + viz * METER_THUMB_H, x, y, METER_THUMB_W, METER_THUMB_H);
 }
-#endif
 
-#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+#if TAU_DIAGNOSTIC
 /* ---- Timed soak (Diagnostic Build): runs the stress pump for N minutes beside normal playback,
  * then stops it and reports PASS (no data mismatch or timeout) or FAIL. Late underruns are counted
  * and shown on the status page but are not part of the verdict (at R3 they can be CPU starvation). ---- */
@@ -308,7 +288,7 @@ COLD_FN static uint32_t set_blank_idx(void)
 COLD_FN static uint32_t set_ch_active(uint32_t c)
 {
     if (c == CH_STRESS) {
-#if TAU_SDRAM_STRESS_WINDOW
+#if TAU_DIAGNOSTIC
         return stress_on ? stress_level : 0u;
 #else
         return 0u;
@@ -335,7 +315,7 @@ COLD_FN static uint32_t set_ch_visible(uint32_t c) { return SET_LIST_H / set_ch_
 COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
 {
     if (c == CH_STRESS || c == CH_SOAK) {
-#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+#if TAU_DIAGNOSTIC
         if (c == CH_STRESS) { dg_soak_cancel(); stress_set_level((uint8_t)i); }
         else                dg_soak_start(i);
 #endif
@@ -388,7 +368,7 @@ COLD_FN static void set_toggle(uint32_t t)
             pl_resync(cur);                      /* keep playing what is playing */
         }
         ui_mode_dirty = 1u;
-#if TAU_DIAG_TESTS
+#if TAU_DIAGNOSTIC
     } else if (t == TG_SPEEDS) {
         set_speed_all = (uint8_t)!set_speed_all;
         if (!set_speed_all && speed_idx >= SET_SPEED_SHOWN) {
@@ -414,160 +394,9 @@ COLD_FN static void set_volume(int dir)
     settings_mark_dirty();
 }
 
-#if TAU_DIAG_INFO || TAU_DIAG_TESTS
 static char *set_str(char *q, const char *s) { while (*s) *q++ = *s++; return q; }
-#endif
-#if TAU_DIAG_TESTS
-/* ---- Diagnostic Build tests (A-125). Short, blocking (well under a millisecond to a few ms),
- * run only from the menu. They use the CPU window at a SCRATCH area (physical 8 MiB), never the
- * playlist buffers (1 MiB..+13 KiB), the framebuffer (below 1 MiB) or anything on the card, and
- * refuse to run unless the window check passed. Results are short strings shown in the row. ---- */
-#define DG_SCRATCH 0xA0800000u              /* physical 8 MiB */
-static char dg_res[DG_N][22];
-static uint32_t dg_base_under, dg_base_stall;
-
-COLD_FN static void dg_set(uint32_t id, const char *a, uint32_t v, const char *b)
-{
-    char *q = set_str(dg_res[id], a);
-    if (v != 0xFFFFFFFFu) q = ui_dec(q, v);
-    q = set_str(q, b);
-    *q = 0;
-}
-COLD_FN static uint32_t dg_pat(uint32_t a) { return (a * 2654435761u) ^ 0xA5C3E17Bu; }
-
-COLD_FN static int dg_window_ok(uint32_t id)
-{
-#if TAU_PL_SDRAM
-    if (pl_sdram_ready()) return 1;
-#endif
-    dg_set(id, "NO WINDOW", 0xFFFFFFFFu, "");
-    return 0;
-}
-
-/* Words written then read back-to-back (the A-093 bug read the previous beat), sub-word
- * writes with a merged read-back, and one distinct address per address line 2..25. */
-COLD_FN static void dg_window_test(void)
-{
-    if (!dg_window_ok(DG_WIN)) return;
-    volatile uint32_t *p = (volatile uint32_t *)(uintptr_t)DG_SCRATCH;
-    uint32_t checks = 0, fail = 0, first = 0;
-    for (uint32_t i = 0; i < 64u; i++) p[i] = dg_pat(i);
-    for (uint32_t i = 0; i < 64u; i++) {
-        uint32_t v = p[i]; checks++;
-        if (v != dg_pat(i)) { if (!fail) first = i; fail++; }
-    }
-    p[64] = 0xFFFFFFFFu;
-    volatile uint8_t  *b = (volatile uint8_t *)(uintptr_t)DG_SCRATCH;
-    volatile uint16_t *h = (volatile uint16_t *)(uintptr_t)DG_SCRATCH;
-    b[256] = 0x11u; b[257] = 0x22u; h[129] = 0x4433u;
-    checks++;
-    if (p[64] != 0x44332211u) { if (!fail) first = 64u; fail++; }
-    uint32_t addr[26], n = 0;
-    addr[n++] = 0x00800000u;                              /* bit 23, the base */
-    for (uint32_t k = 2; k <= 25u; k++)
-        if (k != 23u) addr[n++] = 0x00800000u | (1u << k);
-    for (uint32_t i = 0; i < n; i++)
-        *(volatile uint32_t *)(uintptr_t)(0xA0000000u + addr[i]) = dg_pat(addr[i] + 7u);
-    for (uint32_t i = 0; i < n; i++) {
-        uint32_t v = *(volatile uint32_t *)(uintptr_t)(0xA0000000u + addr[i]); checks++;
-        if (v != dg_pat(addr[i] + 7u)) { if (!fail) first = 100u + i; fail++; }
-    }
-    if (fail) { dg_set(DG_WIN, "FAIL ", fail, " OF "); char *q = dg_res[DG_WIN]; while (*q) q++;
-                q = ui_dec(q, checks); *q = 0; }
-    else      dg_set(DG_WIN, "PASS ", checks, "");
-    (void)first;
-}
-
-/* Net cycles per access (loop and cycles() overhead subtracted), min/avg/max over 256. */
-COLD_FN static void dg_latency(uint32_t id, int write)
-{
-    if (!dg_window_ok(id)) return;
-    volatile uint32_t *p = (volatile uint32_t *)(uintptr_t)DG_SCRATCH;
-    uint32_t ovh = 0xFFFFFFFFu;
-    for (uint32_t i = 0; i < 16u; i++) { uint32_t t = cycles(); uint32_t d = cycles() - t; if (d < ovh) ovh = d; }
-    uint32_t mn = 0xFFFFFFFFu, mx = 0, sum = 0;
-    for (uint32_t i = 0; i < 256u; i++) {
-        uint32_t t = cycles();
-        if (write) p[i & 63u] = i; else (void)p[i & 63u];
-        uint32_t d = cycles() - t; d = d > ovh ? d - ovh : 0u;
-        if (d < mn) mn = d;
-        if (d > mx) mx = d;
-        sum += d;
-    }
-    char *q = dg_res[id];
-    q = ui_dec(q, mn); *q++ = '/'; q = ui_dec(q, sum / 256u); *q++ = '/'; q = ui_dec(q, mx);
-    *q = 0;
-}
-
-/* pl_order is a permutation of 0..count-1, every pl_off points inside the parsed text at a
- * non-comment NUL-terminated name, and the parsed text still hashes to what it did at load. */
-COLD_FN static void dg_playlist_check(void)
-{
-    if (!pl_count) { dg_set(DG_PLC, "NO PLAYLIST", 0xFFFFFFFFu, ""); return; }
-    if (!dg_window_ok(DG_PLC)) return;
-    uint8_t seen[(PL_MAX + 7u) / 8u];
-    for (uint32_t i = 0; i < sizeof(seen); i++) seen[i] = 0;
-    uint32_t bad = 0;
-    for (uint32_t i = 0; i < pl_count; i++) {
-        uint32_t f = pl_order[i];
-        if (f >= pl_count || (seen[f >> 3] >> (f & 7u)) & 1u) { bad++; continue; }
-        seen[f >> 3] |= (uint8_t)(1u << (f & 7u));
-    }
-    for (uint32_t i = 0; i < pl_count; i++) {
-        uint32_t o = pl_off[i];
-        if (o >= pl_dg_len || pl_text[o] == '#' || pl_text[o] == 0 || (i && o <= pl_off[i - 1u])) bad++;
-    }
-    uint32_t h = 2166136261u;
-    for (uint32_t i = 0; i < pl_dg_len; i++) { h ^= (uint32_t)(uint8_t)pl_text[i]; h *= 16777619u; }
-    if (h != pl_dg_sig) bad++;
-    if (bad) dg_set(DG_PLC, "FAIL ", bad, "");
-    else     dg_set(DG_PLC, "PASS ", pl_count, "");
-}
-
-#if TAU_COLD_CODE
-/* Cold code run from PSRAM: correctness of calls into and out of it, that a second call from the cache fetches nothing,
- * and the cost of executing 12 KB of code that cannot stay cached (cycles per instruction word, one decimal). */
-COLD_FN static void dg_cold_test(void)
-{
-    if (!COLD_READY()) { dg_set(DG_COLD, "NOT LOADED E", cold_err, ""); return; }
-    uint32_t fails = 0;
-    volatile uint32_t *ifn = (volatile uint32_t *)(uintptr_t)0x800000B0u;
-    REG(0x800000B8u) = 1u;                                   /* clear the fetch counters */
-    if (cold_add(40u, 2u) != 42u) fails++;
-    if (cold_loop(100u) != 15150u) fails++;
-    if (cold_calls_hot(21u) != 43u) fails++;
-    uint32_t n0 = *ifn;
-    if (cold_add(1u, 1u) != 2u) fails++;
-    if (*ifn != n0) fails++;                                 /* served from the I-cache: no new fills */
-    uint32_t t0 = cycles(), b0 = *ifn;
-    if (cold_big(7u) != 3007u) fails++;
-    uint32_t t1 = cycles(), b1 = *ifn;
-    if (cold_big(9u) != 3009u) fails++;
-    uint32_t t2 = cycles(), b2 = *ifn;
-    if (b1 - b0 < 2900u || b2 - b1 < 2900u) fails++;        /* the cache cannot hold it: both runs refill */
-    if (fails) { dg_set(DG_COLD, "FAIL ", fails, ""); return; }
-    uint32_t cpw10 = ((t2 - t1) * 10u) / 3000u;              /* cycles per instruction word x 10 */
-    char *q = set_str(dg_res[DG_COLD], "PASS ");
-    q = ui_dec(q, cpw10 / 10u); *q++ = '.'; q = ui_dec(q, cpw10 % 10u); q = set_str(q, " C/W"); *q = 0;
-    (void)t0; (void)t1;
-}
-#endif
-
-COLD_FN static void dg_run(uint32_t id)
-{
-    if (id == DG_WIN)      dg_window_test();
-    else if (id == DG_RD)  dg_latency(DG_RD, 0);
-    else if (id == DG_WR)  dg_latency(DG_WR, 1);
-    else if (id == DG_PLC) dg_playlist_check();
-#if TAU_COLD_CODE
-    else if (id == DG_COLD) dg_cold_test();
-#endif
-    else {                                    /* CLEAR COUNTERS: Info shows counts since now */
-        dg_base_under = pcm_under_n;
-        dg_base_stall = REG(R_FB_STALL);
-        dg_set(DG_CLR, "DONE", 0xFFFFFFFFu, "");
-    }
-}
+#if TAU_DIAGNOSTIC
+#include "settings_diag.inc"
 #else
 #define dg_base_under 0u
 #define dg_base_stall 0u
@@ -578,7 +407,7 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     const char *s = "";
     char *q = o;
     if (r->type == RT_GROUP) s = "";
-#if TAU_DIAG_TESTS
+#if TAU_DIAGNOSTIC
     else if (r->type == RT_ACTION) s = dg_res[r->arg];
 #else
     else if (r->type == RT_ACTION) s = "";
@@ -658,11 +487,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
         }
         uint32_t tx = mx + 24u;
         if (c == CH_METER) {                      /* preview placeholder */
-#if TAU_METER_THUMBS
             set_draw_thumb(tx, y + (rowh - 2u - SET_TH_H) / 2u, i);
-#else
-            fb_rect(tx, y + (rowh - 2u - SET_TH_H) / 2u, SET_TH_W, SET_TH_H, UI_DIM);
-#endif
             tx += SET_TH_W + 14u;
         }
         fb_set_color(sel ? UI_PANEL : UI_WHITE, bg);
@@ -671,10 +496,9 @@ COLD_FN static void set_draw_choice(uint32_t c)
     }
 }
 
-#if TAU_DIAG_INFO
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS (14u + TAU_LIBRARY)   /* B-073: +1 for COVER (art_bad_code, for the "no
+#define SET_INFO_ROWS 15u   /* B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
                                               * freeze, see its own comment in fw/player.c); B-238:
@@ -685,15 +509,9 @@ extern char _heap_start, _heap_end;
                                               * bitstream, see vblank_sample()'s own comment). */
 static const char *const set_info_label[SET_INFO_ROWS] = {
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM", "PLAYLIST",
-#if TAU_COLD
     "COLD IMAGE",
-#else
-    "LIST CLIPPED",
-#endif
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
-#if TAU_LIBRARY
     , "LIBRARY"
-#endif
     , "METER YIELD", "VBLANK"
     };
 static uint32_t set_info_at;
@@ -709,19 +527,11 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         for (int sh = 24; sh >= 0; sh -= 8) q = ui_hex2(q, (uint8_t)(v >> sh));
         break; }
     case 2:
-#if TAU_PL_SDRAM
         q = set_str(q, pl_sdram_state == 1u ? "OK" : pl_sdram_state == 2u ? "FAILED" : "UNTESTED");
-#else
-        q = set_str(q, "OFF");
-#endif
         break;
     case 3:
-#if TAU_PL_SDRAM
         if (pl_win_rd) { q = ui_dec(q, pl_win_rd); q = set_str(q, " CYC"); }
         else q = set_str(q, "-");
-#else
-        q = set_str(q, "-");
-#endif
         break;
     case 4: q = ui_dec(q, (uint32_t)(&_heap_end - &_heap_start)); q = set_str(q, " B"); break;
     case 5:
@@ -729,17 +539,11 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         else q = set_str(q, "NONE");
         break;
     case 6:
-#if TAU_COLD
         if (cold_state == 1u) { q = ui_dec(q, cold_bytes); q = set_str(q, " B "); q = ui_dec(q, cold_ms); q = set_str(q, " MS");
-#if TAU_COLD_CODE
             if (COLD_READY()) q = set_str(q, " CODE");
             else if (cold_err) { q = set_str(q, " E"); q = ui_dec(q, cold_err); }   /* image loaded but cold code refused */
-#endif
         }
         else { q = set_str(q, "OFF E"); q = ui_dec(q, cold_err); }
-#else
-        q = set_str(q, pl_truncated ? "YES" : "NO");
-#endif
         break;
     case 7:
         if (!track_hz) { q = set_str(q, "NONE"); break; }
@@ -758,14 +562,8 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = ui_dec(q, ld_head); *q++ = '/'; q = ui_dec(q, ld_size); *q++ = '/';
         q = ui_dec(q, ld_art);  *q++ = '/'; q = ui_dec(q, ld_total);
         break;
-#if TAU_LIBRARY
     case 12: q = lib_info_text(q); break;
-#endif
-#if TAU_LIBRARY
     case 13:
-#else
-    case 12:
-#endif
         /* METER YIELD (B-234) -- see meter_afford()'s own comment */
         if (meter_yield) { q = set_str(q, "YIELD "); q = ui_dec(q, meter_yield_secs); q = set_str(q, "S"); }
         else q = set_str(q, "OK");
@@ -796,7 +594,7 @@ COLD_FN static void set_draw_ro(int full, const char *title, const char *const *
     }
 }
 
-#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+#if TAU_DIAGNOSTIC
 #define SET_STAT_ROWS 11u
 static const char *const set_stat_label[SET_STAT_ROWS] = {
     "LEVEL", "STATE", "PASSES", "OPERATIONS", "FAILURES", "EARLY UNDERRUNS", "LATE UNDERRUNS",
@@ -834,14 +632,12 @@ COLD_FN static void set_info_tick(void)
     set_info_at = cycles() + CLK_HZ;
     uint8_t o = ov_draw; ov_draw = 1u;
     if (set_page == SET_INFO_PG) set_draw_ro(0, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
-#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+#if TAU_DIAGNOSTIC
     else if (set_page == SET_STAT_PG) set_draw_ro(0, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
 #endif
     ov_draw = o;
 }
-#endif
 
-#if TAU_LIBRARY
 /* How music gets into the player. Two texts: with a library loaded, and without one (legacy playlist mode). */
 /* The text is one blob per mode, lines separated by NUL, so it can live in the cold image (PSRAM). */
 #define SET_HELP_LINES 12u
@@ -873,9 +669,7 @@ COLD_FN static void set_draw_help(void)
         p++;
     }
 }
-#endif
 
-#if TAU_LIBRARY
 /* Library on/off. Off = the player behaves as before the library existed (legacy playlist mode); the index stays on the card. */
 COLD_FN static void set_draw_libcfg(void)
 {
@@ -899,9 +693,8 @@ COLD_FN static void set_draw_libcfg(void)
         fb_text_clipped(PL_UI_TEXT_X, y + PL_UI_ROW_H + 8u, lib_disabled ? "Press A to turn it on." : "Press A to turn it off.", TS_1X, TS_1X, PL_UI_W - 32u);
     }
 }
-#endif
 
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
 #include "suite.inc"
 #endif
 
@@ -914,7 +707,7 @@ COLD_FN static void set_draw_libcfg(void)
  * B-216 for why not). Placed after suite.inc's own #include (not where the
  * rest of this file's Settings pages live) because the QR export row below
  * needs sr_tlv()/qr_encode() from suite_core.h/qrcode.h, which only exist
- * under TAU_CHECK.
+ * under TAU_DIAGNOSTIC.
  *
  * B-234: rows are now filtered by mode -- Bars shows only its own fields
  * (bands, easing, attack/release, peak cap/fall/hold), Scope shows only its
@@ -981,70 +774,10 @@ COLD_FN static void wvcfg_follow(void)
  * sr_finish/sr_text/qr_encode, the CHK_REC/CHK_TXT/CHK_QR SDRAM staging
  * buffers) rather than inventing a second channel -- this page and Check/Blit
  * Test are never open at the same time, so sharing those buffers is safe.
- * Diagnostic-Build only (TAU_CHECK), same as every other QR feature here;
+ * Diagnostic-Build only (TAU_DIAGNOSTIC), same as every other QR feature here;
  * outside a Diagnostic Build the row is present but inert (see below). */
-#if TAU_CHECK
-static uint32_t wvcfg_qr_len, wvcfg_qr_ver;
-static uint8_t  wvcfg_qr_up;
-
-COLD_FN static void wvcfg_build_qr(void)
-{
-    uint8_t buf[13];
-    buf[0]  = (viz_mode == VIZ_WINAMP_SCOPE) ? 1u : 0u;
-    buf[1]  = (viz_mode == VIZ_WINAMP_SCOPE) ? wvcfg_preset_idx_scope : wvcfg_preset_idx_bars;
-    buf[2]  = wviz_cfg_bars.bands;
-    buf[3]  = wviz_cfg_bars.ease_mode;
-    buf[4]  = wviz_cfg_bars.attack;
-    buf[5]  = wviz_cfg_bars.release;
-    buf[6]  = wviz_cfg_bars.peak_on;
-    buf[7]  = wviz_cfg_bars.peak_gravity;
-    buf[8]  = (uint8_t)(wviz_cfg_bars.peak_hold_ms & 0xFFu);
-    buf[9]  = (uint8_t)(wviz_cfg_bars.peak_hold_ms >> 8);
-    buf[10] = wviz_cfg_bars.peak_fall;
-    buf[11] = wviz_cfg_scope.scope_smooth;
-    buf[12] = wviz_cfg_scope.scope_trail;
-
-    sr_t s;
-    sr_init(&s, CHK_REC, CHK_REC_CAP, 0u);
-    sr_tlv(&s, (uint8_t)SR_T_WVIZCFG, buf, sizeof(buf));
-    uint32_t len = sr_finish(&s);
-    wvcfg_qr_len = 0;
-    if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
-        uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
-        uint32_t ver = 0, mask = 0;
-        uint32_t sz = qr_encode((const uint8_t *)CHK_TXT, txtlen, 1u, CHK_QR_MAXV, 0, CHK_QR, &ver, &mask);
-        if (sz) { wvcfg_qr_len = sz; wvcfg_qr_ver = ver; }
-    }
-}
-
-/* Same rendering as bt_draw_qr() (fw/suite.inc) -- a plain module grid plus
- * a caption -- kept as its own small copy rather than a shared helper: the
- * two QR screens have different captions/hints and this is the only thing
- * that differs. */
-COLD_TEXT static void wvcfg_draw_qr(void)
-{
-    const uint32_t sz = wvcfg_qr_len;
-    uint32_t m = 354u / (sz + 8u);
-    if (m > 4u) m = 4u;
-    const uint32_t side = (sz + 8u) * m, x0 = (FB_W - side) / 2u;
-    fb_rect(0u, 0u, FB_W, FB_H, UI_BG);
-    fb_rect(x0, 0u, side, side, 0xFFFFu);
-    for (uint32_t y = 0; y < sz; y++) {
-        uint32_t x = 0;
-        while (x < sz) {
-            if (!qr_get(CHK_QR, sz, (int)x, (int)y)) { x++; continue; }
-            uint32_t e = x + 1u;
-            while (e < sz && qr_get(CHK_QR, sz, (int)e, (int)y)) e++;
-            fb_rect(x0 + (x + 4u) * m, (y + 4u) * m, (e - x) * m, m, 0x0000u);
-            x = e;
-        }
-    }
-    if (side + 44u > FB_H) return;
-    fb_set_color(ui_accent, UI_BG);
-    fb_text_clipped(PL_UI_TEXT_X, side + 6u, "METER CONFIG", TS_1X, TS_1X, PL_UI_W - 32u);
-    fb_set_color(UI_FAINT, UI_BG);
-    fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
-}
+#if TAU_DIAGNOSTIC
+#include "wvcfg_export.inc"
 #endif
 
 COLD_FN static void wvcfg_value_text(uint32_t row, char *o)
@@ -1066,7 +799,7 @@ COLD_FN static void wvcfg_value_text(uint32_t row, char *o)
     case WVR_SCOPE_SMOOTH:  q = ui_dec(q, wviz_cfg_scope.scope_smooth); q = set_str(q, "%"); break;
     case WVR_SCOPE_TRAIL:   q = ui_dec(q, wviz_cfg_scope.scope_trail); q = set_str(q, "%"); break;
     default:                /* WVR_EXPORT */
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
         q = set_str(q, "PRESS A");
 #else
         q = set_str(q, "DIAG BUILD ONLY");
@@ -1133,7 +866,7 @@ COLD_FN static void wvcfg_adjust(uint32_t row, int32_t dir)
 
 COLD_FN static void wvcfg_draw(void)
 {
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
     if (wvcfg_qr_up) { wvcfg_draw_qr(); return; }
 #endif
     ov_frame("METER CONFIGURE", "", "L/R ADJUST   B BACK");
@@ -1168,7 +901,7 @@ COLD_FN static void wvcfg_draw(void)
 
 static int wvcfg_input(uint32_t edge)
 {
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
     if (wvcfg_qr_up) {                             /* QR screen: anything closes it */
         if (edge & (KEY_A | KEY_B | KEY_START)) { wvcfg_qr_up = 0u; set_dirty = 1u; }
         return 1;
@@ -1179,7 +912,7 @@ static int wvcfg_input(uint32_t edge)
     if (edge & KEY_DOWN)  { wvcfg_sel = (uint8_t)((wvcfg_sel + 1u) % wvcfg_vis_n); wvcfg_follow(); set_dirty = 1u; }
     if (edge & KEY_LEFT)  { wvcfg_adjust(wvcfg_row(wvcfg_sel), -1); set_dirty = 1u; }
     if (edge & KEY_RIGHT) { wvcfg_adjust(wvcfg_row(wvcfg_sel),  1); set_dirty = 1u; }
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
     if ((edge & KEY_A) && wvcfg_row(wvcfg_sel) == WVR_EXPORT) { wvcfg_build_qr(); wvcfg_qr_up = 1u; set_dirty = 1u; }
 #endif
     return 1;
@@ -1190,22 +923,18 @@ COLD_FN static void set_draw(void)
     uint8_t o = ov_draw; ov_draw = 1u;
     if (set_page < SET_MENUS)                set_draw_menu(set_page);
     else if (set_page == SET_WVIZCFG_PG)     wvcfg_draw();
-#if TAU_LIBRARY
     else if (set_page == SET_LIBCFG_PG)      set_draw_libcfg();
     else if (set_page == SET_HELP_PG)        set_draw_help();
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
     else if (set_page == SET_CHECK_PG)       chk_draw();
 #if MP3_PROFILE || FLAC_PROFILE
     else if (set_page == SET_SWEEP_PG)       sw_draw();
 #endif
     else if (set_page == SET_BLITTEST_PG)    bt_draw();
 #endif
-#endif
-#if TAU_DIAG_INFO
     else if (set_page == SET_INFO_PG)
         set_draw_ro(1, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
-#endif
-#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+#if TAU_DIAGNOSTIC
     else if (set_page == SET_STAT_PG)
         set_draw_ro(1, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
 #endif
@@ -1216,9 +945,7 @@ COLD_FN static void set_draw(void)
 COLD_FN static void set_close(void)
 {
     set_open = 0u; set_page = SET_HOME; pl_ui_restore = 1u;
-#if TAU_LIBRARY
     set_lib_confirm = 0u;
-#endif
 }
 
 COLD_FN static void set_ch_follow(uint32_t c)
@@ -1233,22 +960,20 @@ static int set_input(uint32_t edge, uint32_t keys)
 {
     if (!set_open) {
         if ((edge & KEY_START) && !(keys & KEY_SELECT)) {
-#if TAU_G4 && TAU_COLD_CODE
+#if TAU_G4
             if (!COLD_READY()) { ui_toast_msg("MENU OFF: NO COLD IMAGE"); return 0; }   /* the menus are cold code; say why nothing opened */
 #endif
             /* One overlay at a time: an open playlist would keep repainting its marquee row
              * over the settings (its rows draw through the ov_draw gate), so it is closed
              * here. Closing settings returns to the player, not to the list. */
             pl_ui_open = 0u;
-#if TAU_LIBRARY
             lib_ui_open = 0u;
-#endif
             set_open = 1u; set_page = SET_HOME; set_dirty = 1u;
             return 1;
         }
         return 0;
     }
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
     if (set_page == SET_CHECK_PG) return chk_input(edge);      /* first: Start is handled there (it must not close the result pages) */
 #if MP3_PROFILE || FLAC_PROFILE
     if (set_page == SET_SWEEP_PG) return sw_input(edge);
@@ -1257,7 +982,6 @@ static int set_input(uint32_t edge, uint32_t keys)
 #endif
     if (set_page == SET_WVIZCFG_PG) return wvcfg_input(edge);
     if (edge & KEY_START) { set_close(); return 1; }
-#if TAU_LIBRARY
     if (set_page == SET_LIBCFG_PG) {              /* library on/off: A asks, a second A confirms, B cancels or goes back */
         if ((edge & KEY_A) || ((edge & KEY_RIGHT) && !set_lib_confirm)) {     /* Right may ask, only A confirms */
             if (!set_lib_confirm) set_lib_confirm = 1u;
@@ -1270,7 +994,6 @@ static int set_input(uint32_t edge, uint32_t keys)
         }
         return 1;
     }
-#endif
     if (set_page >= SET_INFO_PG) {                /* read-only value page: only B (back) */
         if (edge & (KEY_B | KEY_LEFT)) { set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info, How it works -> SETTINGS */
         return 1;
@@ -1299,7 +1022,7 @@ static int set_input(uint32_t edge, uint32_t keys)
         if (r->type == RT_GROUP) {
             set_page = r->arg; set_dirty = 1u;
             if (set_page == SET_WVIZCFG_PG) wvcfg_open();
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
             if (set_page == SET_CHECK_PG) chk_open();
 #if MP3_PROFILE || FLAC_PROFILE
             if (set_page == SET_SWEEP_PG) sw_open();
@@ -1313,7 +1036,7 @@ static int set_input(uint32_t edge, uint32_t keys)
             set_ch_follow(r->arg);
             set_dirty = 1u;
         } else if (r->type == RT_TOGGLE) { set_toggle(r->arg); set_dirty = 1u; }
-#if TAU_DIAG_TESTS
+#if TAU_DIAGNOSTIC
         else if (r->type == RT_ACTION && (edge & KEY_A)) { dg_run(r->arg); set_dirty = 1u; }
 #endif
         else if (r->type == RT_VOL && (edge & KEY_RIGHT)) { set_volume(1); set_dirty = 1u; }
@@ -1329,4 +1052,3 @@ static int set_input(uint32_t edge, uint32_t keys)
     }
     return 1;
 }
-#endif

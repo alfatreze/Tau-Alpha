@@ -24,7 +24,6 @@
 // =============================================================================
 
 #include <stdint.h>
-#include "build_config.h"
 #include "mp3dec.h"
 #include "font_metrics.h"
 /* Up here, not down beside the FLAC glue where it used to sit. The diagnostic
@@ -126,19 +125,14 @@
 #define ART_IMG  92u               /* cover; 4px smaller buys the card 4px back */
 #define ART_W    (ART_IMG + 2u * ART_PAD)
 #define ART_H    (ART_IMG + 2u * ART_PAD)
-#define ART_X    276u              /* rests flush with the shared right margin */
-
-/* Vertical relationship to the meter, in ONE place.
- *
- * The two share a baseline by design, but that made them impossible to tune
- * separately -- nudging the meter dragged the art with it. ART_NUDGE breaks
- * that without abandoning the relationship: the art still tracks the meter if
- * the meter moves or changes height, and this is the only number to touch when
- * the art alone needs to shift. Negative is up. */
-#define ART_NUDGE  4        /* holds the art while the meter moved up */
-/* Bottom-aligned with the waveform (180 + 72 = 252) so the two read as one
- * band on a common baseline rather than two overlapping objects. */
-#define ART_Y    (UI_WAVE_Y + UI_WAVE_H - ART_H + ART_NUDGE)
+/* Now-playing UI pass 1 (Figma node 163:57, first Helios-era layout): the art
+ * panel moved from the right (flush with the meter's baseline) to a static
+ * top-left mount beside the title block, matching the new design. ART_X is a
+ * literal, not UI_MARGIN, because UI_MARGIN is defined much later in this
+ * file and this block is used before it -- keep the two in sync by hand if
+ * either ever changes (same pre-existing constraint the old ART_X had). */
+#define ART_X    20u                /* == UI_MARGIN */
+#define ART_Y    16u                /* fixed: no longer tracks the meter */
 #define ART_STASH_Y 400u           /* off-screen: below the visible frame */
 
 /* R_PCM_ST layout -- MUST match mp3_soc.v:
@@ -183,30 +177,17 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * Keep it in step with the status line in README.md; nothing enforces that. */
 #define APP_VER "0.4.0"
 
-/* Developer diagnostics, OFF in a release build. Flip to 1 to bring back
- * Select+A (APF slot table, boot vs live), Select+B (the framework's file
- * descriptor) and Select+Start (load-phase timings in ms).
- *
- * These earned their place -- the slot table is what proved the fix for the
- * bug that was corrupting .mp3 files, and the load timings are how the next
- * question about a slow load gets answered with a measurement instead of a
- * guess. They are compiled out rather than deleted so that turning them back
- * on is a one-line change, not an archaeology exercise. */
-#ifndef DEBUG_DIAG
-#define DEBUG_DIAG 0
+/* The Diagnostic Build switch. One macro for everything that must not be in the shipped release: the
+ * Check and its QR report (fw/suite.inc), the Tests and Stress pages, the SDRAM stress pump, soak and
+ * HUD, and the diagnostic menus. Off in `release`; on in `player-library-diagnostic` and
+ * `player-library-diagnostic-profile` (fw/build.sh). Needs the same RBF features as the release. */
+#ifndef TAU_DIAGNOSTIC
+#define TAU_DIAGNOSTIC 0
 #endif
-#ifndef TAU_SDRAM_STRESS
-#define TAU_SDRAM_STRESS 0
-#endif
-#ifndef TAU_STRESS_HUD
-#define TAU_STRESS_HUD 0
-#endif
+
 /* Developer-only: drive the Phase 2 CPU-window (uncached alias 0xA0100000) from
  * the stress pump instead of the Phase 1 MMIO mailbox. Requires an RBF built
  * with TAU_PHASE2_WINDOW; the pump refuses to start without a window preflight. */
-#ifndef TAU_SDRAM_STRESS_WINDOW
-#define TAU_SDRAM_STRESS_WINDOW 0
-#endif
 /* Phase F B7: whether this bitstream has the SDRAM port-busy-cycle counter (R_SDR_BUSY,
  * MMIO 0xBC) wired to something other than a hardwired 0 -- see docs/MMIO_ALLOCATION.md.
  * A firmware build flag, not a hardware probe: the counter has no ready-detect of its own
@@ -220,9 +201,6 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * behind the uncached CPU window instead of BRAM. Needs an RBF built with
  * TAU_PHASE2_WINDOW; pl_load() proves the window first and turns the playlist
  * feature off (no BRAM fallback) if it does not answer. Off by default. */
-#ifndef TAU_PL_SDRAM
-#define TAU_PL_SDRAM 0
-#endif
 /* P5: place the album-art accumulator (art_acc, 11,040 B) in PSRAM behind the uncached CPU
  * window at 0xA4000000 instead of BRAM. Needs the P4 bitstream (PSRAM window); art_prove()
  * checks for it before the first store and turns cover art off (no BRAM fallback) if it is
@@ -237,53 +215,25 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #endif
 /* A-115: in-app settings (Start opens it; the Start stop function is removed in such a
  * build). Off by default so the standard build stays byte-identical until it is versioned. */
-#ifndef TAU_SETTINGS_UI
-#define TAU_SETTINGS_UI 0
-#endif
 /* Media library (spec docs/MEDIA_LIBRARY_0.4_SPEC.md): browse and play from a host-built index in PSRAM.
  * Off by default; needs the PSRAM window bitstream (proven at boot, feature off if absent). */
-#ifndef TAU_LIBRARY
-#define TAU_LIBRARY 0
-#endif
 /* Phase G1 (docs/PHASE_G_SPEC.md): read-only data that is only needed occasionally lives in PSRAM (section .cold_data,
  * loaded from tau-cold.bin at boot). Off: COLD_DATA is empty and the data stays in the ROM image. */
-#ifndef TAU_COLD
-#define TAU_COLD 0
-#endif
-#if TAU_COLD
 #define COLD_DATA __attribute__((section(".cold_data")))
-#else
-#define COLD_DATA
-#endif
 /* Phase G4: cold CODE run from PSRAM (needs TAU_COLD and a bitstream with PSRAM_IFETCH_ENABLE; checked at boot). */
-#ifndef TAU_COLD_CODE
-#define TAU_COLD_CODE 0
-#endif
-#if TAU_COLD_CODE && !TAU_COLD
-#error "TAU_COLD_CODE needs TAU_COLD"
-#endif
 /* A-118/A-119: Diagnostics group in the settings menu. TAU_DIAG_INFO adds the read-only Info
- * page and is part of the release-style build; TAU_DIAG_TESTS is reserved for the on-demand
+ * page and is part of the release-style build; TAU_DIAGNOSTIC is reserved for the on-demand
  * tests, stress pump and soak of the "Diagnostic Build" (no code behind it yet). */
 /* A-132: the real meter previews in the settings menu (fw/meter_thumbs.h, about 6 KiB of ROM);
  * builds without it keep the grey placeholder. Release-style builds only: the Diagnostic Build has
  * no room for it. */
-#ifndef TAU_METER_THUMBS
-#define TAU_METER_THUMBS 0
-#endif
-#ifndef TAU_DIAG_INFO
-#define TAU_DIAG_INFO 0
-#endif
-#ifndef TAU_DIAG_TESTS
-#define TAU_DIAG_TESTS 0
-#endif
 #ifndef TAU_G4
 #define TAU_G4 0               /* Phase G4: library and settings UI code runs from PSRAM (cold code); needs TAU_COLD_CODE */
 #endif
 /* G4 step 2-3 (TAU_G4 >= 2): the playlist loader and overlay drawing and the cover-art decoder glue also run from PSRAM. The
  * attribute is spelled out here because the overlay code sits above where cold.inc defines COLD_TEXT. The picojpeg callback
  * art_need_bytes stays hot: it runs many times per cover and would refetch from PSRAM each time. */
-#if TAU_G4 >= 2 && TAU_COLD_CODE
+#if TAU_G4 >= 2
 #define COLD_FN2 __attribute__((section(".cold_text"), noinline))
 #else
 #define COLD_FN2
@@ -293,36 +243,16 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * rather than folded into TAU_G4>=2 for exactly that reason. See fw/cold.inc's own comment (right
  * above coldframe_record()) for the measurement that justifies this. Spelled out here for the same
  * textual-ordering reason as COLD_FN2. */
-#if TAU_G4 >= 3 && TAU_COLD_CODE
+#if TAU_G4 >= 3
 #define COLD_FN3 __attribute__((section(".cold_text"), noinline))
 #else
 #define COLD_FN3
 #endif
-#ifndef TAU_COLD_FRAME_PROBE
-#define TAU_COLD_FRAME_PROBE 0 /* B-199: default-off per-audio-frame cold-code cost measurement (fw/cold.inc, PHASE_F_SPEC.md section 4.2) */
-#endif
-#ifndef COLDFRAME_BIG
-#define COLDFRAME_BIG 0        /* 0 = small (I-cache-resident) probe, 1 = cold_big's guaranteed-refill worst case */
-#endif
-#ifndef COLDFRAME_EVICT
-#define COLDFRAME_EVICT 0      /* B-199 section 4.3: force a full I-cache eviction (via a discarded cold_big() call)
-                                 * immediately before the timed probe, simulating browse-while-playing's worst case */
-#endif
 /* True when CT_COLDFRAME (fw/suite.inc) has anything to measure -- either the synthetic-probe
  * experiment or the real ui_draw_dynamic_cold() conversion. Defined once here so suite.inc's three
  * separate gates (enum/CHK_MAX, chk_ex, the case block) can't drift out of sync with each other. */
-#define TAU_COLDFRAME_ON (TAU_COLD_FRAME_PROBE || (TAU_G4 >= 3 && TAU_COLD_CODE))
-#ifndef TAU_CHECK
-#define TAU_CHECK 0            /* Settings > Check (fw/suite.inc): needs TAU_LIBRARY and TAU_COLD_CODE */
-#endif
-#ifndef TAU_PL_SDRAM_FAULT
-#define TAU_PL_SDRAM_FAULT 0
-#endif
-#if TAU_PL_SDRAM
+#define TAU_COLDFRAME_ON (TAU_G4 >= 3)
 #define PL_SDRAM __attribute__((section(".sdram")))
-#else
-#define PL_SDRAM
-#endif
 
 /* Framebuffer: 400x360 RGB565, one word/pixel, 512-word (page-aligned) stride.
  * See mp3_fb.sv for the full rationale. */
@@ -379,7 +309,6 @@ static inline void fb_wait(void) { while (REG(R_FB_GO) & 1u) { } }
  * player -- meter, clock, progress bar, toasts, art -- cannot punch through it. The
  * repaint on close (pl_ui_restore) already redraws and invalidates all of it. */
 static uint8_t pl_ui_open;         /* playlist overlay is up */
-#if TAU_LIBRARY
 static uint8_t lib_ui_open;          /* library browse overlay is up */
 static uint8_t lib_src;              /* the current track came from the library queue */
 static uint16_t lib_qn, lib_qpos;    /* the library queue: length and position */
@@ -389,24 +318,15 @@ static uint32_t lib_h, lib_hb, lib_hs;
 static uint8_t  lib_disabled;
 enum { LIB_ST_NONE = 0, LIB_ST_OK, LIB_ST_OFF };
 static uint8_t lib_state;            /* LIB_ST_*: no index / loaded / switched off by an error */
-#if TAU_LIBRARY
 static uint8_t  lib_boot_ok;          /* B-080 evidence: did lib_boot_restore() open something at this boot */
-#endif
 static uint8_t lib_ui_dirty;         /* repaint the browse overlay */
 static void lib_ui_draw(void);
 static void lib_ui_close(void);
 static void lib_ui_enter(void);
 static void lib_ui_input(uint32_t *edge_p, uint32_t *fall_p, uint32_t *keys_p);
 #define LIB_OVL lib_ui_open
-#else
-#define LIB_OVL 0
-#endif
-#if TAU_SETTINGS_UI
 static uint8_t set_open;           /* settings overlay is up */
 #define UI_OVERLAY_UP (pl_ui_open || set_open || LIB_OVL)
-#else
-#define UI_OVERLAY_UP (pl_ui_open || LIB_OVL)
-#endif
 static uint8_t ov_draw;            /* the overlay itself is painting */
 #define FB_HELD() (UI_OVERLAY_UP && !ov_draw)
 
@@ -812,7 +732,7 @@ static uint8_t  ui_size_warned;
  * dominates it is the hiccup. Measured rather than reasoned about: four
  * attempts at this were aimed by theory and three of them made it worse. */
 static uint16_t ld_head, ld_size, ld_art, ld_pre, ld_total;
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
 static uint16_t chk_loads;              /* completed track loads (the Check's track-change test waits on it) */
 #endif
 static uint8_t  ui_ld_shown;
@@ -943,51 +863,8 @@ static uint32_t fade_left;
 static uint8_t  under_shadow;   /* underrun already faded this flush epoch */
 static uint32_t pcm_under_n;    /* underrun EDGES since boot, for the diag  */
 
-#if TAU_SDRAM_STRESS
-/* Developer-only contention pump. This is deliberately MMIO-only: it never
- * changes the player linker map or exposes mapped SDRAM. */
-#if TAU_PL_SDRAM
-/* The playlist buffers live at physical 1 MiB (A-105); the pump must not touch them, so it
- * works on 2..3 MiB instead. (Word units of 16 bits, like the mailbox address.) */
-#define STRESS_BASE 0x00100000u
-#define STRESS_LAST 0x0017FFFEu
-#else
-#define STRESS_BASE 0x00080000u
-#define STRESS_LAST 0x000FFFFEu
-#endif
-#define STRESS_WORDS_PER_PASS (((STRESS_LAST - STRESS_BASE) / 2u) + 1u)
-#define STRESS_GAP  (CLK_HZ / 16000u)
-#define STRESS_TIMEOUT (CLK_HZ / 4u)
-static uint8_t stress_on, stress_read;
-static uint32_t stress_addr, stress_due, stress_started, stress_expect;
-static uint32_t stress_words, stress_passes, stress_failures, stress_crc;
-static uint32_t stress_under0, stress_fb0;
-#if TAU_SDRAM_STRESS_WINDOW
-static uint8_t stress_level;                    /* 0 off, 1..3 = 16k/64k/128k ops/s */
-static uint32_t stress_rd_max, stress_wr_max;   /* worst window access, cycles   */
-static uint8_t stress_win_ok;                   /* preflight verified the window */
-static uint32_t stress_frames_at_flush;          /* decoded-frame counter at the last pcm flush */
-static uint32_t stress_und_early, stress_und_late; /* underruns <1 s / >=1 s after a flush */
-static uint32_t stress_rate_words;              /* words at the last HUD tick       */
-static uint32_t stress_rate;                    /* achieved ops per second          */
-/* An underrun is EARLY if fewer than 9 frames (about 0.2 s of audio) were decoded since
- * the last flush (track start, seek, resume, including long cover decodes before the first
- * frame), LATE otherwise. `frames` is reset to 0 at track load, hence the wrap guard. */
-static inline void stress_note_underrun(void)
-{
-    uint32_t d = (frames >= stress_frames_at_flush) ? frames - stress_frames_at_flush : frames;
-    if (d < 9u) stress_und_early++; else stress_und_late++;
-}
-#endif
-#if TAU_STRESS_HUD
-/* R_CYCLES is a 32-bit 60 MHz counter: it wraps every 71.58 s.  Keep a
- * small wrap-safe stopwatch by consuming deltas every main-loop iteration;
- * do not retain a raw start/end difference as a multi-minute pass duration. */
-static uint32_t stress_clock_prev, stress_pass_secs, stress_pass_rem;
-static uint32_t stress_last_secs, stress_last_pass;
-static uint32_t stress_hud_tick = 0xFFFFFFFFu;
-static const char *stress_fault;
-#endif
+#if TAU_DIAGNOSTIC
+#include "stress_defs.inc"
 #endif
 
 /* FIRST underrun of the current track, latched with its circumstances.
@@ -1128,12 +1005,10 @@ static uint16_t pl_pos;                  /* index INTO pl_order                 
 /* Overlay state, declared HERE rather than with its drawing code:
  * ui_draw_chrome() repaints the overlay on top of itself and sits a
  * thousand lines earlier in the file. */
-#if TAU_SETTINGS_UI
 static uint8_t  set_dirty;
 static int  set_input(uint32_t edge, uint32_t keys);
 static void set_draw(void);
 static void set_close(void);
-#endif
 static uint8_t  pl_ui_play_req;    /* main loop: start pl_ui_sel             */
 static uint8_t  pl_ui_dirty;       /* repaint wanted                         */
 static uint8_t  pl_ui_restore;     /* overlay closed: repaint the player      */
@@ -1503,6 +1378,7 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
 #define UI_BG      0x0862u   /* near-black navy */
 #define UI_WHITE   0xFFFFu
 #define UI_DIM     0x94B2u   /* mid-gray, for the artist line */
+#define UI_PILL_BG 0x0320u   /* now-playing genre pill: dark green, one flat swatch */
 /* Accent palette, cycled with the L/R shoulder triggers. Deriving the accent
  * from the cover art was tried and dropped -- it changed on every track and
  * read as inconsistency. A colour the USER picks is stable, which is the
@@ -1690,38 +1566,52 @@ static uint16_t io_kbps;          /* measured sustained sequential read rate */
 static uint32_t io_bench_bytes;   /* ...and how much it managed to read      */
 
 #define UI_MARGIN   20u
-#define UI_TITLE_Y  30u
+#define UI_TITLE_Y  30u   /* splash / LOAD FAILED only now -- see UI_NP_TITLE_Y for the player screen */
 /* Scrolling amplitude history, drawn as bars -- the "waveform" element from
  * the reference art. Bars are cheap (one rect each) now that the engine owns
  * the row loop, and a rolling history reads as motion in a way a single
  * left-to-right level bar never does. */
 /* ---- vertical layout knobs -------------------------------------------------
- * Every band's position lives here. ART_Y is derived from the meter (see
- * ART_NUDGE) so the two keep their shared baseline; everything else is
- * independent, so moving one band cannot silently drag another.
+ * Every band's position lives here.
  *
- *   card      16 .. 16+UI_CARD_H
- *   art       tracks the meter, offset by ART_NUDGE
+ * Now-playing UI pass 1 (Figma node 163:57, first Helios-era layout,
+ * 2026-09-25): art moved to a static top-left mount (ART_X/ART_Y, no longer
+ * derived from the meter), the text block moved beside it (UI_TEXT_X), a
+ * genre pill sits above the title (UI_GENRE_Y/H), the old solid card panel
+ * behind the text is gone (text now blends against the gradient per row,
+ * like every other un-carded element already does), and the meter got
+ * bigger and full-width now that nothing shares its rows any more. Splash
+ * and LOAD FAILED keep the OLD UI_TITLE_Y/UI_CARD_H layout untouched --
+ * those are different screens, not moved by this pass.
+ *
+ *   art       ART_Y .. +ART_H (fixed, top-left)
+ *   pill      UI_GENRE_Y .. +UI_GENRE_H
+ *   title     UI_NP_TITLE_Y (text column starts at UI_TEXT_X)
  *   meter     UI_WAVE_Y .. +UI_WAVE_H
- *   transport UI_TRANSPORT_Y
- *   clock     UI_TIME_Y
  *   toast     UI_TOAST_Y
  *   progress  UI_PROG_Y
+ *   clock     UI_TIME_Y
+ *   transport UI_TRANSPORT_Y
  */
+#define UI_GENRE_Y   16u
+#define UI_GENRE_H   22u
+#define UI_NP_TITLE_Y (UI_GENRE_Y + UI_GENRE_H + 8u)   /* 46 */
+#define UI_TEXT_X    (ART_X + ART_W + 16u)             /* 140 */
 #define UI_WAVE_N   36u
-#define UI_WAVE_Y   173u
-#define UI_WAVE_H   72u
+#define UI_WAVE_Y   150u
+#define UI_WAVE_H   110u
 #define UI_WAVE_GAP 2u
 /* The cassette meter (VIZ_TAPE, ported from HarpMudd upstream) is the only
  * one that draws above UI_WAVE_Y -- TAPE_SHELL_H is 96, 24 rows taller than
  * UI_WAVE_H. ui_bg_restore() and ui_wave_clear() both need this extra band
  * included in the range they rebuild, or the strip above the normal meter
- * box is left with whatever was drawn there before. */
+ * box is left with whatever was drawn there before. VIZ_TAPE is parked
+ * (B-208) but the macro stays -- cheap insurance if it ever comes back. */
 #define UI_WAVE_TOP 24u
-#define UI_TRANSPORT_Y 262u
-#define UI_TIME_Y   288u
-#define UI_PROG_Y   334u
+#define UI_PROG_Y   284u
 #define UI_PROG_H   5u
+#define UI_TIME_Y   296u
+#define UI_TRANSPORT_Y 316u
 #define UI_STRESS_BAR_Y 341u
 #define UI_STRESS_HUD_Y 344u
 #define UI_INNER_W  (FB_W - 2u * UI_MARGIN)
@@ -2062,7 +1952,7 @@ static unsigned char lvl_l, lvl_r, lvl_pl, lvl_pr;
  * 9 and never pegs. */
 #define LED_ROWS 12u
 #define LED_GAPV 1u
-#define LED_BLKH (UI_WAVE_H / LED_ROWS - LED_GAPV)     /* 5 px */
+#define LED_BLKH (UI_WAVE_H / LED_ROWS - LED_GAPV)     /* 8 px, now-playing UI pass 1: was 5 px at the old UI_WAVE_H=72 */
 #define SPEC_GAPX 3u                                   /* between columns */
 
 /* ---- WINAMP-STYLE BARS/SCOPE (B-215/B-216) ------------------------------
@@ -2365,7 +2255,6 @@ static const uint16_t spec_gain[SPEC_BANDS] = {
  * plus the other three ported items combined). tape_face/tape_spd stay
  * declared unconditionally below -- a few bytes, referenced from
  * ui_meter_faces_invalidate() and vu_settling regardless of this macro. */
-#if TAU_METER_THUMBS
 #define TAPE_SHELL_W  150u
 #define TAPE_SHELL_H   96u   /* 150x96 is 1.56:1 -- a real cassette */
 
@@ -2384,7 +2273,6 @@ static const uint32_t tape_hub[TAPE_HUB_PH][TAPE_HUB_N] = {
     { 0x00200, 0x00700, 0x00700, 0x00700, 0x1860C, 0x3C01E, 0x3E03E, 0x0CF90, 0x00F80, 0x00F80, 0x00F80, 0x04F98, 0x3E03E, 0x3C01E, 0x1830C, 0x00700, 0x00700, 0x00700, 0x00200 },
     { 0x00200, 0x00380, 0x00380, 0x08380, 0x1C300, 0x1E006, 0x0601E, 0x00F9E, 0x00F90, 0x00F80, 0x04F80, 0x3CF80, 0x3C030, 0x3003C, 0x0061C, 0x00E08, 0x00E00, 0x00E00, 0x00200 },
 };
-#endif /* TAU_METER_THUMBS */
 
 static uint8_t  tape_face;          /* shell/label frame/window/openings drawn */
 static uint16_t tape_face_w;
@@ -2394,7 +2282,6 @@ static uint8_t  tape_rim  = 0xFFu;  /* level bucket the shell rim was at   */
 static uint8_t  tape_glow = 0xFFu;  /* bass bucket last drawn              */
 static uint32_t tape_name_h;        /* playlist name the label carries     */
 
-#if TAU_METER_THUMBS
 /* Half-width of a circle of radius r at row offset dy. Used to CONTOUR the
  * exposed tape against the two packs: on a real cassette the tape you see
  * between the reels is bounded by their curves, not by straight edges. */
@@ -2418,7 +2305,6 @@ static void tape_disc(uint32_t cx, uint32_t cy, uint32_t r, uint16_t c)
         if (i) fb_rect(cx - w, cy + i, 2u * w + 1u, 1u, c);
     }
 }
-#endif /* TAU_METER_THUMBS */
 
 /* Last drawn, so a still passage costs nothing. 0xFF is the sentinel every
  * other meter here uses for "the chrome repainted underneath you". */
@@ -2455,7 +2341,7 @@ static uint8_t  art_bad_code;     /* which picojpeg complaint, for the label  */
 /* A track is loading on the player screen: the frame is drawn without the old track's text (ui_loading, during the
  * repaint) and the album art plate shows an animated loader with a caption (ui_loader_on, until the load ends). */
 static uint8_t ui_loading, ui_loader_on, ui_loader_txt;
-static uint32_t art_toggle, art_next;   /* rolling amplitude history, 0..UI_WAVE_H */
+static uint32_t art_toggle;   /* rolling amplitude history, 0..UI_WAVE_H */
 static int      ui_underrun_shown;
 
 /* Linear blend of two RGB565s, t in 0..UI_BANDS. Per channel so the ramp keeps
@@ -2635,11 +2521,12 @@ static void fb_round_rect_on(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
     }
 }
 
-/* The waveform gives up its right-hand end to the art panel, which occupies
- * the same rows. */
+/* Now-playing UI pass 1: the art panel moved to its own static row above the
+ * meter (UI_TEXT_X/UI_NP_TITLE_Y), so it no longer shares columns with the
+ * waveform -- full width always, art shown or not. */
 static uint32_t ui_wave_w(void)
 {
-    return art_shown ? (ART_X - UI_MARGIN - 4u) : UI_INNER_W;
+    return UI_INNER_W;
 }
 
 /* A copy of the meter box's BACKGROUND, parked in the columns the scanout
@@ -3105,7 +2992,7 @@ static void ui_marq_init(ui_marquee_t *m, const char *text,
     uint32_t painted = (adv_w > last) ? (adv_w - last + FB_CELL(scale))
                                       : FB_CELL(scale);
     m->on = (adv_w > ui_text_w) ||
-            (UI_MARGIN + painted > UI_CARD_TEXT_R);
+            (UI_TEXT_X + painted > UI_CARD_TEXT_R);
 }
 
 /* One step. Repaints the whole row first, because the window that follows may
@@ -3123,10 +3010,11 @@ static void ui_marq_step(ui_marquee_t *m, uint16_t fg)
     /* Erase the full paintable width, not just the layout budget: a glyph
      * cell reaches past the budget, and anything painted outside the erased
      * strip is never cleaned up -- it accumulated as the text scrolled. */
-    fb_rect(UI_MARGIN, m->y, UI_CARD_TEXT_R - UI_MARGIN,
-            FB_CELL(m->scale), UI_PANEL);
-    fb_set_color(fg, UI_PANEL);
-    fb_text_boxed(UI_MARGIN, m->y, m->text + m->pos,
+    uint16_t bg = ui_grad_at(m->y);
+    fb_rect(UI_TEXT_X, m->y, UI_CARD_TEXT_R - UI_TEXT_X,
+            FB_CELL(m->scale), bg);
+    fb_set_color(fg, bg);
+    fb_text_boxed(UI_TEXT_X, m->y, m->text + m->pos,
                   m->scale, m->scale, ui_text_w, UI_CARD_TEXT_R);
 }
 
@@ -3136,9 +3024,23 @@ static int list_ended(void);
 static void pl_ui_draw(void);   /* defined with the overlay, below */
 static void pl_ui_row(uint32_t i);
 
-#if TAU_LIBRARY
 __attribute__((optimize("Os")))       /* one-off frame paint at a track change */
-#endif
+/* EQ pill: the currently applied EQ preset (FLAT, BASS, ...). Fixed width so
+ * a shorter name never leaves the previous one's edges behind; text centred.
+ * Redrawn from the chrome and again whenever the preset changes. */
+#define UI_EQ_PILL_W 100u
+static void ui_eq_pill(void)
+{
+    uint16_t pbg = ui_grad_at(UI_GENRE_Y + UI_GENRE_H / 2u);
+    fb_round_rect_on(UI_TEXT_X, UI_GENRE_Y, UI_EQ_PILL_W, UI_GENRE_H, UI_GENRE_H / 2u,
+                     UI_PILL_BG, pbg);
+    const char *n = eq_name[eq_idx];
+    uint32_t w = fb_text_width(n, TS_1X);
+    if (w > UI_EQ_PILL_W - 12u) w = UI_EQ_PILL_W - 12u;
+    fb_set_color(eq_idx ? ui_accent : UI_FAINT, UI_PILL_BG);
+    fb_text_clipped(UI_TEXT_X + (UI_EQ_PILL_W - w) / 2u, UI_GENRE_Y + 4u, n, TS_1X, TS_1X, w);
+}
+
 static void ui_draw_chrome(void)
 {
     /* Draw nothing at all while blanked -- a track change must not light the
@@ -3164,14 +3066,12 @@ static void ui_draw_chrome(void)
     char namebuf[TITLE_MAX];
     const char *title = track_title;
     if (ui_loading) title = "";                /* nothing known yet: leave it blank, do not invent a name */
-#if TAU_LIBRARY
     /* B-080: nothing loaded at all (a fresh boot with no history, or the library overlay closed without a pick) used
      * to fall through to the filename branch below, find no track_file either, and show "UNKNOWN TRACK" -- a
      * debugging label, not something a track-less screen should say. The chrome is drawn either way (closing the
      * library always repaints it, see pl_ui_restore), so this is the one place that has to carry the message. */
     else if (!track_title[0] && !track_file[0] && lib_state == LIB_ST_OK && !lib_disabled)
         title = "Select a track from your library";
-#endif
     else if (!track_title[0]) {
         /* Last path component, extension dropped: the slot holds a full path
          * ("/Assets/tau/common/Flodown.mp3"). */
@@ -3195,26 +3095,31 @@ static void ui_draw_chrome(void)
         title = n ? namebuf : "UNKNOWN TRACK";
     }
 
-    /* Fixed, deliberately. Reflowing the text when the panel slides made the
-     * whole layout jump on a button press; the waveform yields the space
-     * instead, since it shares the panel's rows.
-     *
-     * MUST be set before the card below, which is sized from it. It used to be
-     * assigned afterwards, so on the FIRST call it was still 0 and the card was
-     * drawn 16 px wide -- invisible. Every later call inherited the previous
-     * call's value and looked correct, which is why it only ever went wrong at
-     * boot and looked fine after a reload. */
-    /* One right edge for everything. The card used to overhang it by 8 px,
-     * so the card, art panel and waveform all ended at different x -- the
-     * single biggest reason the layout read as unaligned. Text bounds + 8 px
-     * padding, with that padding landing exactly on the shared margin. */
-    ui_text_w = UI_INNER_W - 8u;
+    /* Now-playing UI pass 1 (Figma node 163:57): art panel moved to a static
+     * top-left mount, beside a genre pill + the title/artist/album stack
+     * instead of a full-width card behind them. The solid UI_PANEL card is
+     * gone -- text now blends against the actual gradient at its own row,
+     * same convention every un-carded element on this screen already uses
+     * (ui_grad_at(y)). ART_H > ART_W never happens, so a single rrect call
+     * at ART_X,ART_Y is the whole mount when there's no cover yet; a real
+     * cover overwrites it later via ui_art_draw()'s fb_copy once ready. The
+     * note glyph is a plain colored rect -- a real icon asset is a follow-up
+     * (docs/HELIOS_SPEC.md section 7.2), not this pass. Gated with the genre
+     * pill below: the bare `player`/`player-profile` targets have no RAM
+     * margin left to spend on placeholder polish (measured: pushed `player`
+     * from a positive to a negative heap gap when this and the pill were
+     * both unconditional). Those builds just leave the top-left corner
+     * blank there, same as before this pass, until real cover-art assets or
+     * a size trim make it affordable. */
+    fb_round_rect(ART_X, ART_Y, ART_W, ART_H, 12u, UI_PANEL);
+    fb_rect(ART_X + ART_W / 2u - 14u, ART_Y + ART_H / 2u - 14u, 28u, 28u, ui_accent);
 
-    /* Card behind the type. Text paints its own background, so the panel
-     * colour has to be what the glyphs blend against or every character sits
-     * in a little rectangle of the wrong shade. */
-    fb_round_rect(UI_MARGIN - 8u, UI_TITLE_Y - 14u,
-                  ui_text_w + 16u, UI_CARD_H, 8u, UI_PANEL);
+    ui_eq_pill();
+
+    /* One right edge for everything -- UI_CARD_TEXT_R is an absolute x
+     * (UI_MARGIN + UI_INNER_W), so it stays correct as the right margin no
+     * matter where the text column starts. */
+    ui_text_w = (FB_W - UI_MARGIN) - UI_TEXT_X - 8u;
 
     /* Keep each line's text + scale so its marquee can repaint that row. */
     /* Capped at 2x rather than 3x: with album and format lines below it, a 48px
@@ -3229,28 +3134,25 @@ static void ui_draw_chrome(void)
     /* Fixed at 2x. Auto-fitting meant the title changed size with its LENGTH:
      * measured across a real library, nine of eleven fitted at 2x and the two
      * longest dropped to 1.5x, so those two looked wrong rather than looking
-     * fitted -- and one of them missed by eight pixels. The text column is a
-     * constant 352 px (it deliberately does not narrow when the art panel
-     * slides in), so which side of the line a title falls on is pure chance.
-     *
-     * One size for every track, and ui_marq_init below turns the scroll on for
-     * anything that overflows -- which is what the marquee was already for, and
-     * why it almost never ran. */
+     * fitted -- and one of them missed by eight pixels. One size for every
+     * track, and ui_marq_init below turns the scroll on for anything that
+     * overflows -- which is what the marquee was already for, and why it
+     * almost never ran. */
     uint32_t ts = TS_2X;
-    ui_marq_init(&ui_mq_title, title, UI_TITLE_Y, ts);
-    fb_set_color(UI_WHITE, UI_PANEL);
-    fb_text_boxed(UI_MARGIN, UI_TITLE_Y, ui_mq_title.text, ts, ts,
+    ui_marq_init(&ui_mq_title, title, UI_NP_TITLE_Y, ts);
+    fb_set_color(UI_WHITE, ui_grad_at(UI_NP_TITLE_Y));
+    fb_text_boxed(UI_TEXT_X, UI_NP_TITLE_Y, ui_mq_title.text, ts, ts,
                   ui_text_w, UI_CARD_TEXT_R);
 
     /* Artist one step down from the title, never below 1.5x -- that step only
      * exists because the engine can scale fractionally now. */
     uint32_t as = (ts > TS_15X) ? (ts - 1u) : TS_15X;
     ui_mq_artist.on = 0;      /* no artist -> no leftover scroll from the last track */
-    uint32_t y = UI_TITLE_Y + FB_CELL(ts) + 6u;
+    uint32_t y = UI_NP_TITLE_Y + FB_CELL(ts) + 6u;
     if (!ui_loading && track_artist[0]) {
-        fb_set_color(UI_DIM, UI_PANEL);
+        fb_set_color(ui_accent, ui_grad_at(y));
         ui_marq_init(&ui_mq_artist, track_artist, y, as);
-        fb_text_boxed(UI_MARGIN, y, ui_mq_artist.text, as, as,
+        fb_text_boxed(UI_TEXT_X, y, ui_mq_artist.text, as, as,
                       ui_text_w, UI_CARD_TEXT_R);
         y += FB_CELL(as) + 3u;
     }
@@ -3277,8 +3179,8 @@ static void ui_draw_chrome(void)
         /* This row doubles as the warning line for a file the core will not
          * play. Grey reads as another piece of metadata; red reads as a
          * problem, which is the entire point of putting it there. */
-        fb_set_color(ui_warn_row ? UI_RED : UI_DIM, UI_PANEL);
-        fb_text_boxed(UI_MARGIN, y, b, TS_1X, TS_1X,
+        fb_set_color(ui_warn_row ? UI_RED : UI_DIM, ui_grad_at(y));
+        fb_text_boxed(UI_TEXT_X, y, b, TS_1X, TS_1X,
                       ui_text_w, UI_CARD_TEXT_R);
         y += FB_CELL(TS_1X) + 2u;
     }
@@ -3350,7 +3252,7 @@ static void ui_draw_chrome(void)
      * Resetting a new track's clock belongs to load_track, which is the only
      * place that knows a new track started. It does it now. */
     ui_prog_sec   = 0xFFFFFFFFu;
-#if TAU_SDRAM_STRESS && TAU_STRESS_HUD
+#if TAU_DIAGNOSTIC
     /* Chrome repaints the bottom strip too; make the 1 Hz stress HUD restore
      * itself on the next main-loop pass rather than waiting for another tick. */
     stress_hud_tick = 0xFFFFFFFFu;
@@ -3373,13 +3275,33 @@ static void ui_draw_chrome(void)
      * Putting it here rather than in the main loop means EVERY repaint route
      * is covered by construction, including ones added later. */
     if (pl_ui_open) pl_ui_draw();
-#if TAU_LIBRARY
     else if (lib_ui_open) lib_ui_draw();
-#endif
-#if TAU_SETTINGS_UI
     else if (set_open) set_draw();
-#endif
 
+}
+
+/* Helios's first real screen region (docs/HELIOS_SPEC.md section 4): the
+ * whole now-playing chrome repaint, registered once and dispatched through
+ * mark_dirty()/flush() instead of a bare function-pointer call. Several of
+ * ui_draw_chrome()'s own call sites have code immediately after them that
+ * depends on it having ALREADY run synchronously this same pass -- most
+ * concretely the one at the overlay-close site, where the very next line is
+ * `ui_art_draw()`, which paints the album art into a background this
+ * function has to have repainted first, and `ui_wave_force = 1u` right
+ * after that, which only makes sense once the chrome it invalidates exists.
+ * Real deferred (vblank-gated) batching would need each of those sites
+ * individually re-audited for that ordering assumption -- not done here, so
+ * this wrapper marks the region dirty and flushes IMMEDIATELY, same timing
+ * as calling ui_draw_chrome() directly, but through Helios's real
+ * region/flush API rather than a bare call. Deferred flushing (the actual
+ * anti-tearing benefit) is a follow-up once H0 is hardware-confirmed and
+ * these call sites are individually cleared for it, not this pass. */
+static uint8_t ui_chrome_region = 0xFFu;
+static void ui_chrome_paint(void)
+{
+    if (ui_chrome_region == 0xFFu) ui_chrome_region = helios_region_register(ui_draw_chrome);
+    helios_mark_dirty(ui_chrome_region);
+    helios_flush();
 }
 
 /* A load failure used to spin in `for(;;){}`, which is the worst possible
@@ -3972,7 +3894,7 @@ static void ui_loader_begin_ex(int with_text)
      * The plate briefly shows the OUTGOING track's cover under the spinner instead of a neutral grey -- correct far
      * more often than it is not, since most tracks share their album's cover, and only ever wrong for the length of
      * one load. */
-    ui_draw_chrome();
+    ui_chrome_paint();
     ui_loading = 0u;
     {   /* transport row, clock and progress bar with nothing elapsed */
         uint32_t s0 = ui_sec, t0 = track_secs;
@@ -4137,15 +4059,9 @@ static inline uint32_t dt_read(uint32_t word);   /* defined with the playlist co
  * DEBUG_DIAG. In a release build this was a kilobyte of BSS taken from
  * the heap Helix mallocs its decoder out of, to feed a screen that
  * cannot be reached. */
-#if DEBUG_DIAG
-static uint32_t dt_snap[256];
-#endif
 
 static void dt_snapshot(void)
 {
-#if DEBUG_DIAG
-    for (uint32_t w = 0; w < 256u; w++) dt_snap[w] = dt_read(w);
-#endif
 }
 
 /* APF's dataslot ID/size table, BOOT value against LIVE value.
@@ -4159,89 +4075,6 @@ static void dt_snapshot(void)
  * and LIVE still agree, the table survived and the fix holds. If LIVE has
  * turned into path characters, something is still writing over it.
  */
-#if DEBUG_DIAG
-static void dt_dump_boot(void)
-{
-    fb_rect(0, 0, FB_W, FB_H, UI_BG);
-    fb_set_color(ui_accent, UI_BG);
-    fb_text_clipped(UI_MARGIN, 6u, "SLOT TABLE  boot / live", TS_1X, TS_1X,
-                    UI_INNER_W);
-
-    char b[44], *q;
-    uint32_t y = 26u;
-    int bad = 0;
-
-    for (uint32_t w = 0; w < 8u; w++) {
-        uint32_t live = dt_read(w);
-        /* A size entry is ALLOWED to change: APF updates it when the slot's
-         * file changes, which is the whole point of the table. Slot 2 is the
-         * MP3 slot and moves on every track change -- flagging that as damage
-         * was wrong and reported a healthy table as clobbered.
-         *
-         * What must never move: the slot IDs (even words), and the sizes of
-         * the three files that are fixed for the session. */
-        int may_change = (w == 3u);          /* slot 2's size */
-        if (live != dt_snap[w] && !may_change) bad = 1;
-        q = b;
-        *q++ = 'w'; q = ui_dec(q, w);
-        while (q - b < 4) *q++ = ' ';
-        *q++ = ' ';
-        for (int sh = 28; sh >= 0; sh -= 4) {
-            uint32_t n = (dt_snap[w] >> sh) & 0xFu;
-            *q++ = (char)(n < 10u ? ('0' + n) : ('A' + n - 10u));
-        }
-        *q++ = ' ';
-        *q++ = (live == dt_snap[w]) ? '=' : (may_change ? '~' : '!');
-        *q++ = ' ';
-        for (int sh = 28; sh >= 0; sh -= 4) {
-            uint32_t n = (live >> sh) & 0xFu;
-            *q++ = (char)(n < 10u ? ('0' + n) : ('A' + n - 10u));
-        }
-        *q = 0;
-        fb_set_color((live == dt_snap[w]) ? UI_WHITE
-                                          : (may_change ? UI_DIM : UI_RED), UI_BG);
-        fb_text_clipped(UI_MARGIN, y, b, TS_1X, TS_1X, UI_INNER_W);
-        y += 17u;
-    }
-
-    y += 8u;
-    fb_set_color(bad ? UI_RED : ui_accent, UI_BG);
-    fb_text_clipped(UI_MARGIN, y, bad ? "TABLE CLOBBERED" : "TABLE INTACT  (~ = ok)",
-                    TS_1X, TS_1X, UI_INNER_W);
-    y += 22u;
-
-    /* Where our own structs live now, so the screen is self-describing. */
-    fb_set_color(UI_DIM, UI_BG);
-    fb_text_clipped(UI_MARGIN, y, "resp w64  param w128  set w192",
-                    TS_1X, TS_1X, UI_INNER_W);
-    y += 17u;
-
-    /* And the live words our structs occupy, to confirm they are where we
-     * think and not somewhere unexpected. */
-    q = b;
-    const char *t = "w64 "; while (*t) *q++ = *t++;
-    for (int sh = 28; sh >= 0; sh -= 4) {
-        uint32_t n = (dt_read(64u) >> sh) & 0xFu;
-        *q++ = (char)(n < 10u ? ('0' + n) : ('A' + n - 10u));
-    }
-    t = "  w128 "; while (*t) *q++ = *t++;
-    for (int sh = 28; sh >= 0; sh -= 4) {
-        uint32_t n = (dt_read(128u) >> sh) & 0xFu;
-        *q++ = (char)(n < 10u ? ('0' + n) : ('A' + n - 10u));
-    }
-    *q = 0;
-    fb_text_clipped(UI_MARGIN, y, b, TS_1X, TS_1X, UI_INNER_W);
-}
-
-/* One line of the getting-started screen.
- *
- * The background comes from ui_grad_at(y), NOT from one colour sampled once:
- * glyphs paint their own background, so a line drawn low on the screen with a
- * colour taken from the middle sits in a rectangle of visibly the wrong shade.
- * The old three-line block spanned 70 px and got away with it; this one spans
- * nearly 200. Clipped to UI_INNER_W so there is a real right margin -- the
- * previous FB_W - UI_MARGIN let a long line run to the very edge. */
-#endif
 
 static void ui_gs_line(uint32_t y, const char *s, uint16_t fg, uint32_t ts)
 {
@@ -4254,7 +4087,6 @@ static void ui_gs_line(uint32_t y, const char *s, uint16_t fg, uint32_t ts)
  * getting-started card rather than a bare error -- the three steps are the
  * whole setup, in the order they have to happen. Widths were measured against
  * font_metrics.h; the widest line is 310 px of the 360 available. */
-#if TAU_LIBRARY
 /* Nothing playing but a library is loaded: point at it instead of the legacy getting-started steps. */
 static void ui_idle_library(void)
 {
@@ -4264,7 +4096,6 @@ static void ui_idle_library(void)
     ui_gs_line(268u, "Menu > Settings > How it works", UI_DIM, TS_1X);
     ui_gs_line(286u, "explains playlists and updates.", UI_DIM, TS_1X);
 }
-#endif
 
 static void ui_idle_screen(const char *reason)
 {
@@ -4273,10 +4104,8 @@ static void ui_idle_screen(const char *reason)
     ui_splash_art_active = 0u;
     ui_gradient();
     ui_splash_card(1u, 1u);
-#if TAU_LIBRARY
     if (lib_state == LIB_ST_OK) { ui_idle_library(); return; }
     if (!reason && lib_state == LIB_ST_NONE) reason = "LEGACY PLAYLIST MODE";   /* no library file: see Menu > Settings > How it works */
-#endif
 
     /* Sits between the card (ends at 136) and the heading (170), 8 px clear of
      * each. At 148 it crowded the heading and read as part of it rather than
@@ -4444,7 +4273,7 @@ static void ui_rate_unsupported(void)
     art_shown = 0;
     art_x     = FB_W;
     ui_gradient();
-    ui_draw_chrome();
+    ui_chrome_paint();
 
     /* Stay alive so a reload can rescue us, exactly as the failure screen
      * does -- the difference is only what the user is looking at. */
@@ -4795,7 +4624,7 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * continuously, so it should stay under the FIFO's reserve -- but this
          * is the thing to listen for if a colour change ever ticks. */
         ui_grad_set(ui_accent);
-        ui_draw_chrome();
+        ui_chrome_paint();
         /* No invalidation list here any more. This used to repeat most of
          * ui_draw_chrome's, and keeping two copies is exactly how the mode row
          * ended up missing from the one that mattered. ui_draw_chrome repaints
@@ -4979,7 +4808,6 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          *   tape    -- only when the bass bucket changes.
          *   hubs    -- every frame; two 19-row mask lookups.
          */
-#if TAU_METER_THUMBS
         if (viz_mode == VIZ_TAPE) {
             const uint16_t c_shell  = 0x3A29u;   /* FB_RGB(0x3E,0x44,0x4C) */
             const uint16_t c_edge   = 0x5B0Du;   /* FB_RGB(0x58,0x60,0x69) */
@@ -5193,7 +5021,6 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
             }
             goto viz_done;
         }
-#endif /* TAU_METER_THUMBS */
 
         if (viz_mode == VIZ_MIRROR) {
             const uint32_t cy = UI_WAVE_Y + UI_WAVE_H / 2u;
@@ -5992,39 +5819,6 @@ ui_tail:
         }
     }
 
-    /* Slide the art panel toward its target. Each step is a background repaint
-     * of the strip plus ONE copy command, so the animation costs about a dozen
-     * commands per step -- the whole reason the copy primitive exists. */
-    {
-        uint32_t target = art_shown ? ART_X : FB_W;
-        if (art_x != target && (int32_t)(cycles() - art_next) >= 0) {
-            art_next = cycles() + CLK_HZ / 60u;
-            uint32_t stepn = 10u, prev = art_x;
-            if (art_x > target) art_x = (art_x - target > stepn) ? art_x - stepn : target;
-            else                art_x = (target - art_x > stepn) ? art_x + stepn : target;
-
-            /* Repaint everything the panel no longer covers -- on BOTH sides.
-             *
-             * Moving right leaves a gap on the left, which was already handled.
-             * The missed case was moving LEFT: while sliding in, the panel is
-             * clipped at the screen edge, so at x=390 it painted 390..400, at
-             * x=380 it painted 380..400, and so on. Once it settles at its rest
-             * position its right edge is at 380 and everything it had drawn in
-             * 380..400 during the slide was never cleaned up. That is the
-             * residue on the right. */
-            uint32_t right = art_x + ART_W;
-            uint32_t dirty = 0;
-            if (art_x > prev) { ui_art_bg_range(prev, art_x - prev); dirty = 1; }
-            if (right < FB_W) { ui_art_bg_range(right, FB_W - right); dirty = 1; }
-            if (dirty)
-                for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-                    wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu;
-            for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu;
-                }
-            ui_art_draw();
-        }
-    }
-
     /* Marquee. Steps by whole characters rather than pixels: the engine draws
      * a glyph at any x but does not clip one partially off the left edge, so a
      * pixel scroll would need clipping support that does not exist. One step
@@ -6039,8 +5833,8 @@ ui_tail:
      * question -- not something to mention in a toast that scrolls away. */
     if (size_suspect && !ui_size_warned && !UI_OVERLAY_UP) {
         ui_size_warned = 1;
-        fb_set_color(UI_RED, UI_PANEL);
-        fb_text_clipped(UI_MARGIN, ui_info_y, "! FILE SIZE WRONG - CHECK SD CARD",
+        fb_set_color(UI_RED, ui_grad_at(ui_info_y));
+        fb_text_clipped(UI_TEXT_X, ui_info_y, "! FILE SIZE WRONG - CHECK SD CARD",
                         TS_1X, TS_1X, ui_text_w);
     }
 
@@ -6114,8 +5908,8 @@ ui_tail:
                  *t && q < b + sizeof(b) - 1u; ) *q++ = *t++;
         }
         *q = 0;
-        fb_set_color(UI_FAINT, UI_PANEL);
-        fb_text_clipped(UI_MARGIN, ui_info_y, b, TS_1X, TS_1X, ui_text_w);
+        fb_set_color(UI_FAINT, ui_grad_at(ui_info_y));
+        fb_text_clipped(UI_TEXT_X, ui_info_y, b, TS_1X, TS_1X, ui_text_w);
     }
 
     /* Thin progress bar. Total length comes from the file size APF reports
@@ -6377,10 +6171,8 @@ ui_tail:
              * will not open is not a song. Both halves use the same counting or
              * the position could exceed the total. */
             uint32_t cnt_x = 0, cnt_y = 0;
-#if TAU_LIBRARY
             if (lib_src && lib_qn) { cnt_x = (uint32_t)lib_qpos + 1u; cnt_y = lib_qn; }      /* the library queue */
             else
-#endif
             if (pl_count) { cnt_x = pl_live_ordinal(pl_pos); cnt_y = pl_live_count(); }
             if (cnt_x) {
                 char pos[16]; char *q = pos;
@@ -6789,7 +6581,6 @@ static int meter_afford(void)
     return !meter_yield;
 }
 
-#if TAU_DIAG_INFO
 /* Helios/Talos H0 (docs/HELIOS_SPEC.md section 9): proves the new vblank MMIO end to end on real
  * hardware before anything (Helios's own flush logic) is built on top of an unproven register --
  * this project's own repeated "prove the primitive, then build on it" discipline (BLIT_READY()/
@@ -6818,7 +6609,6 @@ static void vblank_sample(void)
         vblank_win_at = cycles() + CLK_HZ;
     }
 }
-#endif
 
 /* Feeds every meter from one frame of interleaved PCM.
  *
@@ -6988,17 +6778,13 @@ static void ui_blank_wake(void)
 {
     if (!screen_blank) return;
     screen_blank = 0;
-    ui_draw_chrome();          /* everything suppressed while blank, redrawn */
+    ui_chrome_paint();          /* everything suppressed while blank, redrawn */
     /* ui_draw_chrome just painted the PLAYER. If the overlay was up when the
      * screen blanked it is still logically open and still eating the d-pad,
      * so without this the user would be left driving an invisible list. */
     if (pl_ui_open) pl_ui_dirty = 1u;
-#if TAU_LIBRARY
     if (lib_ui_open) lib_ui_dirty = 1u;
-#endif
-#if TAU_SETTINGS_UI
     if (set_open) set_dirty = 1u;
-#endif
 }
 
 /* One call per main-loop pass. Re-arms from NOW rather than advancing by a
@@ -7057,332 +6843,14 @@ static void ui_blank_pump(void)
     if (blank_sec >= blank_min * 60u) ui_blank_enter();
 }
 
-#if TAU_SDRAM_STRESS
-static uint32_t stress_pattern(uint32_t a) { return 0xA55AA55Au ^ (a * 0x9E3779B9u); }
-static uint32_t stress_crc_word(uint32_t crc, uint32_t v)
-{
-    for (uint32_t n = 0; n < 4u; n++, v >>= 8) {
-        crc ^= v & 0xFFu;
-        for (uint32_t b = 0; b < 8u; b++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
-    }
-    return crc;
-}
-static void stress_stop(const char *why)
-{
-    stress_on = 0; stress_failures++;
-#if TAU_STRESS_HUD
-    stress_fault = why;
-#endif
-    ui_toast_msg(why);
-}
-
-#if TAU_STRESS_HUD
-static __attribute__((optimize("Os"))) const char *stress_viz_name(void)
-{
-    static const char *const names[] = {
-        "BARS", "WATER", "LEVELS", "SCOPE", "WAVE", "VU",
-        "SCROLL", "MIRROR", "DOTS", "EYE", "LED", "TAPE"
-    };
-    return (viz_mode < VIZ_COUNT) ? names[viz_mode] : "?";
-}
-
-/* The HUD is deliberately tiny and clocks at 1 Hz. It is part of the stress
- * workload, so drawing it every frame would alter the contention it reports.
- * The bottom 16 px is otherwise unused; its text cell ends exactly at FB_H. */
-static __attribute__((optimize("Os"))) void stress_hud_draw(void)
-{
-    if (screen_blank) return;
-    uint32_t now = cycles(), tick = now / CLK_HZ;
-    if (tick == stress_hud_tick) return;
-    stress_hud_tick = tick;
-
-    uint32_t done = 0, elapsed = 0;
-    if (stress_on) {
-        done = (stress_addr - STRESS_BASE) / 2u;
-        if (done > STRESS_WORDS_PER_PASS) done = STRESS_WORDS_PER_PASS;
-        elapsed = stress_pass_secs;
-    }
-    uint32_t pct = (done * 100u) / STRESS_WORDS_PER_PASS;
-    uint32_t fill = (UI_INNER_W * pct) / 100u;
-    uint16_t bg = ui_grad_at(UI_STRESS_HUD_Y);
-    fb_rect(UI_MARGIN, UI_STRESS_BAR_Y, UI_INNER_W, 2u, UI_TRACK);
-    if (fill) fb_rect(UI_MARGIN, UI_STRESS_BAR_Y, fill, 2u, ui_accent);
-
-#if TAU_SDRAM_STRESS_WINDOW
-    /* Window mode: the live counters come FIRST so the 360 px line cannot clip them.
-     * U = audio underruns since the run started (since boot while off), M = worst
-     * window access in cycles, S = draw-engine stall in ms, R = rate level. */
-    char b[56], *q = b;
-    if (stress_fault) {
-        const char *f = "FAIL ";
-        while (*f) *q++ = *f++;
-        q = ui_dec(q, stress_failures); *q++ = ' ';
-    }
-    /* Achieved rate over the last HUD tick (about 1 s). */
-    stress_rate = stress_words - stress_rate_words;
-    stress_rate_words = stress_words;
-    *q++ = 'E'; q = ui_dec(q, stress_und_early);
-    *q++ = ' '; *q++ = 'L'; q = ui_dec(q, stress_und_late);
-    *q++ = ' '; *q++ = 'M';
-    q = ui_dec(q, stress_rd_max > stress_wr_max ? stress_rd_max : stress_wr_max);
-    *q++ = ' '; *q++ = 'S';
-    q = ui_dec(q, (REG(R_FB_STALL) - stress_fb0) / (CLK_HZ / 1000u));
-    *q++ = ' '; *q++ = 'R'; q = ui_dec(q, stress_level);
-    *q++ = ' '; *q++ = 'K'; q = ui_dec(q, stress_rate / 1000u);
-    *q++ = '.'; q = ui_dec(q, (stress_rate % 1000u) / 100u);
-    if (stress_on) {
-        *q++ = ' '; *q++ = 'P'; q = ui_dec(q, stress_passes + 1u);
-        *q++ = ' '; q = ui_dec(q, pct); *q++ = '%';
-    }
-#else
-    char b[56], *q = b;
-    *q++ = 'S'; *q++ = 'T'; *q++ = ' ';
-    const char *v = stress_viz_name();
-    while (*v && q < b + sizeof(b) - 1u) *q++ = *v++;
-    *q++ = ' ';
-    if (stress_fault) {
-        const char *f = "FAIL";
-        while (*f) *q++ = *f++;
-        *q++ = ' '; q = ui_dec(q, stress_failures);
-    } else if (!stress_on) {
-        const char *off = "OFF";
-        while (*off) *q++ = *off++;
-    } else {
-        *q++ = 'P'; q = ui_dec(q, stress_passes + 1u);
-        *q++ = ' '; q = ui_dec(q, pct); *q++ = '%';
-        *q++ = ' '; q = ui_mmss(q, elapsed);
-    }
-    *q++ = ' '; *q++ = 'L';
-    if (stress_last_pass) {
-        q = ui_dec(q, stress_last_pass);
-        *q++ = ' '; q = ui_mmss(q, stress_last_secs);
-    } else {
-        *q++ = '-'; *q++ = ' '; *q++ = '-'; *q++ = '-'; *q++ = ':';
-        *q++ = '-'; *q++ = '-';
-    }
-#endif
-    *q = 0;
-    fb_rect(UI_MARGIN, UI_STRESS_HUD_Y, UI_INNER_W, FB_CELL(TS_1X), bg);
-    fb_set_color(stress_fault ? UI_RED : (stress_on ? ui_accent : UI_DIM), bg);
-    fb_text_clipped(UI_MARGIN, UI_STRESS_HUD_Y, b, TS_1X, TS_1X, UI_INNER_W);
-}
-
-/* Accumulate a pass duration in whole seconds without 64-bit helpers.  The
- * main loop samples R_CYCLES far more frequently than its 71.58 s wrap, and
- * unsigned subtraction makes each sampled delta wrap-safe. */
-static __attribute__((optimize("Os"))) void stress_time_tick(void)
-{
-    uint32_t now = cycles(), delta = now - stress_clock_prev;
-    uint32_t secs = delta / CLK_HZ, rem = delta % CLK_HZ;
-    stress_clock_prev = now;
-    stress_pass_secs += secs;
-    if (rem && stress_pass_rem >= CLK_HZ - rem) {
-        stress_pass_secs++;
-        stress_pass_rem -= CLK_HZ - rem;
-    } else {
-        stress_pass_rem += rem;
-    }
-}
-#endif
-
-#if TAU_SDRAM_STRESS_WINDOW
-/* Write one pattern word through the mailbox, then read it back through the CPU
- * window. On a bitstream without the window the alias decodes to MMIO and this
- * fails harmlessly (a read), so the pump never issues window STORES blind. */
-static int stress_window_preflight(void)
-{
-    uint32_t t = cycles();
-    REG(R_SDR_ADDR) = STRESS_BASE; REG(R_SDR_DATA) = 0x43505550u;
-    REG(R_SDR_CTRL) = 0x3Fu;
-    while ((uint32_t)(cycles() - t) < 128u) { }
-    while (REG(R_SDR_STATUS) & 1u)
-        if ((uint32_t)(cycles() - t) > STRESS_TIMEOUT) return 0;
-    return *(volatile uint32_t *)(uintptr_t)(0xA0000000u + (STRESS_BASE << 1)) == 0x43505550u;
-}
-
-static void stress_pump(void)
-{
-    /* Level 1 is PACED at 16k ops/s (3,750 cycles per operation), the Phase 1 rate.
-     * Levels 2 and 3 are UNPACED bursts of 8 and 32 operations on every call (about
-     * 20 and 90 us): this pump runs from poll_input(), mostly inside the loop that
-     * waits for the audio FIFO to drain, so bursts consume only idle time, and the
-     * achieved rate (K on the HUD) is whatever that idle time allows. An earlier
-     * paced version reached only 13k ops/s at its top level because the wait loop
-     * calls this rarely. */
-    uint32_t now = cycles(), n, g = 3750u;
-    if (!stress_on) return;
-    if (stress_level <= 1u) {
-        if ((int32_t)(now - stress_due) < 0) return;
-        n = 1u + (uint32_t)((int32_t)(now - stress_due)) / g;
-        if (n > 32u) n = 32u;
-    } else {
-        n = (stress_level == 2u) ? 8u : 32u;
-    }
-    for (uint32_t k = 0; k < n; k++) {
-        uint32_t t0, d, got, exp;
-        volatile uint32_t *p = (volatile uint32_t *)(uintptr_t)(0xA0000000u + (stress_addr << 1));
-        exp = stress_pattern(stress_addr);
-        t0 = cycles(); *p = exp;  d = cycles() - t0; if (d > stress_wr_max) stress_wr_max = d;
-        t0 = cycles(); got = *p;  d = cycles() - t0; if (d > stress_rd_max) stress_rd_max = d;
-        if (got != exp) { stress_stop("SDRAM MISMATCH"); return; }
-        stress_crc = stress_crc_word(stress_crc, got);
-        stress_words++;
-        stress_addr += 2u;
-        if (stress_addr > STRESS_LAST) {
-#if TAU_STRESS_HUD
-            stress_last_secs = stress_pass_secs;
-            stress_addr = STRESS_BASE; stress_passes++; stress_last_pass = stress_passes;
-            stress_pass_secs = stress_pass_rem = 0; stress_crc ^= 0xFFFFFFFFu;
-#else
-            stress_addr = STRESS_BASE; stress_passes++; stress_crc ^= 0xFFFFFFFFu;
-#endif
-            ui_toast_set("SDRAM PASS", stress_passes, 0);
-        }
-    }
-    if (stress_level <= 1u) {
-        stress_due += n * g;
-        if ((int32_t)(cycles() - stress_due) > (int32_t)(32u * g)) stress_due = cycles();
-    }
-}
-#else
-static void stress_pump(void)
-{
-    uint32_t now = cycles(), st;
-    if (!stress_on) return;
-    st = REG(R_SDR_STATUS);
-    if (st & 1u) {
-        if ((uint32_t)(now - stress_started) > STRESS_TIMEOUT) stress_stop("SDRAM TIMEOUT");
-        return;
-    }
-    if (stress_read == 2u) {
-        /* mp3_soc asserts busy on the clock after the MMIO start pulse. Do
-         * not mistake that one-cycle acceptance gap for write completion. */
-        if ((uint32_t)(now - stress_started) < 128u) return;
-        REG(R_SDR_ADDR) = stress_addr; REG(R_SDR_CTRL) = 0x3Du;
-        stress_started = now; stress_read = 1u; return;
-    }
-    if (stress_read == 1u) {
-        uint32_t got = REG(R_SDR_RDATA);
-        if (got != stress_expect) { stress_stop("SDRAM MISMATCH"); return; }
-        stress_crc = stress_crc_word(stress_crc, got);
-        stress_words++;
-        stress_addr += 2u;
-        if (stress_addr > STRESS_LAST) {
-#if TAU_STRESS_HUD
-            stress_last_secs = stress_pass_secs;
-            stress_addr = STRESS_BASE; stress_passes++; stress_last_pass = stress_passes;
-            stress_pass_secs = stress_pass_rem = 0; stress_crc ^= 0xFFFFFFFFu;
-#else
-            stress_addr = STRESS_BASE; stress_passes++; stress_crc ^= 0xFFFFFFFFu;
-#endif
-            ui_toast_set("SDRAM PASS", stress_passes, 0);
-        }
-        stress_read = 0; stress_due = now + STRESS_GAP; return;
-    }
-    if ((int32_t)(now - stress_due) < 0) return;
-    stress_expect = stress_pattern(stress_addr);
-    REG(R_SDR_ADDR) = stress_addr; REG(R_SDR_DATA) = stress_expect;
-    REG(R_SDR_CTRL) = 0x3Fu; /* start, write, all byte lanes */
-    stress_started = now; stress_read = 2u;
-    /* state 2 means the next idle observation issues a read, not validates. */
-}
-#endif
-static void stress_tick(void)
-{
-#if TAU_STRESS_HUD
-    if (stress_on) stress_time_tick();
-#endif
-    stress_pump();
-#if TAU_STRESS_HUD
-    stress_hud_draw();
-#endif
-}
-static void stress_toggle(void)
-{
-#if TAU_SDRAM_STRESS_WINDOW
-    stress_level = (uint8_t)((stress_level + 1u) & 3u);        /* off,1,2,3 */
-    if (stress_level == 1u && !stress_win_ok) {
-        stress_win_ok = (uint8_t)stress_window_preflight();
-        if (!stress_win_ok) {
-            stress_level = 0u; stress_on = 0u;
-            ui_toast_msg("NO SDRAM WINDOW");
-            return;
-        }
-    }
-    stress_on = (uint8_t)(stress_level != 0u);
-    if (stress_on && stress_level > 1u) {
-        stress_due = cycles();
-        ui_toast_set("WIN STRESS RATE", stress_level, 0);
-        return;
-    }
-    if (stress_on) stress_rd_max = stress_wr_max = 0u;
-#else
-    stress_on ^= 1u;
-#endif
-    if (stress_on) {
-        stress_read = 0; stress_addr = STRESS_BASE; stress_due = cycles();
-        stress_words = stress_passes = stress_failures = 0; stress_crc = 0xFFFFFFFFu;
-#if TAU_STRESS_HUD
-        stress_last_secs = stress_last_pass = 0; stress_fault = 0;
-        stress_clock_prev = stress_due; stress_pass_secs = stress_pass_rem = 0;
-        stress_hud_tick = 0xFFFFFFFFu;
-#endif
-        stress_under0 = pcm_under_n; stress_fb0 = REG(R_FB_STALL);
-#if TAU_SDRAM_STRESS_WINDOW
-        stress_und_early = stress_und_late = 0u; stress_rate_words = 0u; stress_rate = 0u;
-#endif
-        ui_toast_msg("SDRAM STRESS ON");
-    } else {
-#if TAU_STRESS_HUD
-        stress_hud_tick = 0xFFFFFFFFu;
-#endif
-        ui_toast_msg("SDRAM STRESS OFF");
-    }
-}
-
-#if TAU_SDRAM_STRESS_WINDOW
-/* Menu entry point (Diagnostic Build): set the pump to an absolute level, 0 = off. A change
- * between running levels keeps the counters; starting from off zeroes them, as stress_toggle()
- * does. */
-static void stress_set_level(uint8_t lvl)
-{
-    if (lvl > 3u) lvl = 3u;
-    if (lvl && !stress_win_ok) {
-        stress_win_ok = (uint8_t)stress_window_preflight();
-        if (!stress_win_ok) {
-            stress_level = 0u; stress_on = 0u;
-            ui_toast_msg("NO SDRAM WINDOW");
-            return;
-        }
-    }
-    uint8_t was = stress_on;
-    stress_level = lvl;
-    stress_on = (uint8_t)(lvl != 0u);
-#if TAU_STRESS_HUD
-    stress_hud_tick = 0xFFFFFFFFu;
-#endif
-    if (!stress_on) return;
-    stress_due = cycles();
-    if (was) return;
-    stress_rd_max = stress_wr_max = 0u;
-    stress_read = 0; stress_addr = STRESS_BASE;
-    stress_words = stress_passes = stress_failures = 0; stress_crc = 0xFFFFFFFFu;
-#if TAU_STRESS_HUD
-    stress_last_secs = stress_last_pass = 0; stress_fault = 0;
-    stress_clock_prev = stress_due; stress_pass_secs = stress_pass_rem = 0;
-#endif
-    stress_under0 = pcm_under_n; stress_fb0 = REG(R_FB_STALL);
-    stress_und_early = stress_und_late = 0u; stress_rate_words = 0u; stress_rate = 0u;
-}
-#endif
+#if TAU_DIAGNOSTIC
+#include "stress.inc"
 #endif
 
 /* Black the whole frame. Only the framebuffer -- there is no way to switch the
  * panel itself off from a core, so "blank" means every pixel black. The
  * backlight stays on regardless; see the note on blank_min. */
-#if TAU_LIBRARY
 __attribute__((optimize("Os")))       /* button handling: no timing role; RAM is the constraint in the library build */
-#endif
 static void poll_input(void)
 {
     static uint32_t prev;
@@ -7392,7 +6860,7 @@ static void poll_input(void)
     static uint32_t sel_t0;              /* when Select went down              */
     static uint8_t  sel_held;            /* the hold action already ran        */
     static uint32_t pl_rep_at;           /* next overlay scroll repeat         */
-#if TAU_SDRAM_STRESS
+#if TAU_DIAGNOSTIC
     stress_tick();
 #endif
     uint32_t in   = REG(R_INPUT);
@@ -7421,7 +6889,6 @@ static void poll_input(void)
      * so nothing downstream also acts on them. Select is deliberately left in
      * `keys`/`fall`: its tap-to-close is the same code that opened it, and its
      * hold timer reads `keys` directly. */
-#if TAU_SETTINGS_UI
     /* Select is left in edge/fall: tapping it while Settings is up leaves Settings for the list (below),
      * the inverse of Start closing the list. */
     if (set_input(edge, keys)) {
@@ -7431,10 +6898,7 @@ static void poll_input(void)
          * track by 5 s per press (B-065). Select stays: its tap and hold logic read it directly. */
         keys &= KEY_SELECT;
     }
-#endif
-#if TAU_LIBRARY
     if (lib_ui_open) lib_ui_input(&edge, &fall, &keys);
-#endif
     if (pl_ui_open && !pl_count) {      /* list emptied underneath it */
         pl_ui_open = 0u; pl_ui_restore = 1u;
     }
@@ -7514,51 +6978,17 @@ static void poll_input(void)
      * use. Firing the tap action on the press instead would mean a long press
      * pauses AND changes speed -- it is on the way into every hold. */
     {
-#if !TAU_SETTINGS_UI
-        /* The 1.2x hold gesture exists only in builds WITHOUT the settings menu. Where the menu
-         * is present, Speed lives in Settings > Playback and a long press of A is just a press:
-         * it was too easy to trigger by accident (A-121). */
-        static uint32_t a_t0;
-        static uint8_t  a_fired;      /* the hold action already ran this press */
-        const uint32_t  a_hold_cy = CLK_HZ / 1000u * SPEED_HOLD_MS;
-
-        if (edge & KEY_A) { a_t0 = cycles(); a_fired = 0; }
-
-        if ((keys & KEY_A) && !a_fired &&
-            (int32_t)(cycles() - a_t0) >= (int32_t)a_hold_cy) {
-            a_fired = 1;
-            speed_idx = (speed_idx == SPEED_1X) ? 4u : SPEED_1X;       /* 1.20x toggle */
-            pcm_rate_apply(track_hz);
-            /* Name the speed. An unlabelled 1.2x just sounds like a bad rip,
-             * and the only other clue is the elapsed clock running fast. */
-            ui_toast_msg(speed_idx != SPEED_1X ? "SPEED 1.20x" : "SPEED NORMAL");
-            /* Repaint the indicator now rather than at the next second tick:
-             * it is drawn with the elapsed time, which only redraws when the
-             * seconds change. */
-            ui_last_sec = 0xFFFFFFFFu;
-        }
-#else
         static const uint8_t a_fired = 0u;    /* no hold action: every release is a tap */
-#endif
 
         if ((fall & KEY_A) && !a_fired) {
             /* Select+A shows the boot datatable snapshot, mirroring Select+B
              * for the 0190 struct. Plain A still plays/pauses. */
-#if DEBUG_DIAG
-            if (keys & KEY_SELECT) { sel_used = 1; dt_dump_req = 1u; }
-            else
-#endif
             {
                 paused ^= 1u;
                 if (!(paused & 1u)) stopped = 0;  /* playing is never "stopped" */
             }
         }
     }
-#if TAU_SDRAM_STRESS && !TAU_SETTINGS_UI
-    if ((edge & KEY_X) && (keys & KEY_SELECT)) {
-        sel_used = 1; stress_toggle(); return;
-    }
-#endif
     if (edge & KEY_X) {
         /* Forward only. A reverse on Select+X existed and was dropped: nine
          * modes wrap in a handful of taps, and every Select combo the user has to
@@ -7595,7 +7025,7 @@ static void poll_input(void)
         eq_idx = (uint8_t)((eq_idx + 1u) % EQ_COUNT);
         eq_apply = 1u;
     }
-#if TAU_SDRAM_STRESS && TAU_STRESS_HUD
+#if TAU_DIAGNOSTIC
     /* The normal Start action stops playback. In the developer stress build,
      * Select+Start is an explicit HUD refresh and MUST consume the combo: the
      * test is only meaningful while audio and visualizer traffic continue. */
@@ -7608,72 +7038,11 @@ static void poll_input(void)
     }
 #endif
     if (edge & KEY_START) {
-#if DEBUG_DIAG
-        /* Seek state, live. Kept after the hold-to-seek fault: that took five
-         * attempts and four of them were guesses, so the next question about
-         * this subsystem should start from numbers.
-         *
-         * COMBO: hold Select AND L, then press START. Not "Select+L", which is
-         * the repeat toggle -- the first write-up of this said that and the
-         * readout duly never appeared.
-         *
-         *   P = file_pos/1k   L = computed limit/1k   Z = slot_size/1k
-         *   S = ui_sec        R = ui_byte_rate */
-        if ((keys & KEY_SELECT) && (keys & KEY_L1)) {
-            sel_used = 1;
-            char b[24]; uint32_t i = 0;
-            uint32_t rate = ui_seek_rate();
-            uint32_t lim  = (slot_size > audio_start && rate)
-                          ? slot_size - 3u * rate : 0u;
-            const uint32_t v[5] = { file_pos >> 10, lim >> 10, slot_size >> 10,
-                                    ui_sec, ui_byte_rate() };
-            const char *lbl = "PLZSR";
-            for (uint32_t k = 0; k < 5u && i + 7u < sizeof(b); k++) {
-                b[i++] = lbl[k];
-                uint32_t n = v[k], div = 10000u; int lead = 0;
-                while (div) {
-                    uint32_t d = n / div % 10u;
-                    if (d || lead || div == 1u) { b[i++] = (char)('0' + d); lead = 1; }
-                    div /= 10u;
-                }
-                if (k < 3u) b[i++] = ' ';
-            }
-            b[i] = 0;
-            ui_toast_set(b, 0xFFFFFFFFu, 0);
-            return;
-        }
-        if (keys & KEY_SELECT) {
-            /* Load-phase breakdown for the track just loaded, in ms: Head read,
-             * Size probe, Art decode, Prefill, Total. Measured all along but
-             * never surfaced, so every question about a slow load used to be
-             * answered by estimating. */
-            sel_used = 1;
-            char b[24];
-            uint32_t i = 0;
-            const char *lbl = "HSAT";
-            const uint16_t v[4] = { ld_head, ld_size, ld_art, ld_total };
-            for (uint32_t k = 0; k < 4u && i + 6u < sizeof(b); k++) {
-                b[i++] = lbl[k];
-                uint16_t n = v[k];
-                if (n >= 1000u) { b[i++] = (char)('0' + n / 1000u % 10u); }
-                if (n >= 100u)  { b[i++] = (char)('0' + n / 100u  % 10u); }
-                if (n >= 10u)   { b[i++] = (char)('0' + n / 10u   % 10u); }
-                b[i++] = (char)('0' + n % 10u);
-                if (k < 4u) b[i++] = ' ';
-            }
-            b[i] = 0;
-            ui_toast_set(b, 0xFFFFFFFFu, 0);
-        } else
-#endif
         if (!stopped) {
             stopped = 1u; paused |= 1u; stop_req = 1u;
         }
     }
     if (edge & KEY_B) {
-#if DEBUG_DIAG
-        if (keys & KEY_SELECT) { sel_used = 1; pl_dump_req = 1u; }
-        else
-#endif
         stop_req = 1u;              /* restart = reposition, NOT a cold reload */
     }
 
@@ -7720,11 +7089,7 @@ static void poll_input(void)
                     /* B-073: with a library loaded, skip_req must fire off the library queue (lib_qn), not the legacy
                      * playlist count -- pl_load() is never called in that mode, so pl_count stayed 0 forever and every
                      * tap read as "no playlist" although a library track was playing. */
-#if TAU_LIBRARY
                     uint32_t has = lib_src ? (lib_qn > 0u) : (pl_count > 0u);
-#else
-                    uint32_t has = pl_count > 0u;
-#endif
                     if (has) skip_req = i ? 1u : (uint32_t)-1;
                     else     ui_toast_msg("NO PLAYLIST");
                 }
@@ -7768,16 +7133,6 @@ static void poll_input(void)
 
     /* ---- Select as a modifier for L/R ---- */
     if (edge & KEY_SELECT) { sel_used = 0; sel_t0 = cycles(); sel_held = 0; }
-
-    /* HOLD toggles the art panel, which is what a TAP used to do. The tap now
-     * opens the playlist, and this fires on the threshold rather than on
-     * release so the panel moves while the button is still down -- otherwise
-     * a hold and a tap feel identical until you let go. */
-    if ((keys & KEY_SELECT) && !sel_used && !sel_held &&
-        (int32_t)(cycles() - sel_t0) >= (int32_t)(CLK_HZ / 1000u * PL_HOLD_MS)) {
-        sel_held    = 1u;
-        art_toggle  = 1u;
-    }
 
     if (keys & KEY_SELECT) {
         if (edge & KEY_L1) {
@@ -7826,14 +7181,10 @@ static void poll_input(void)
      * Opening lands the cursor on what is playing, which is the row a user
      * wants nine times in ten. */
     if ((fall & KEY_SELECT) && !sel_used && !sel_held) {
-#if TAU_SETTINGS_UI
         if (set_open) set_close();
-#endif
         if (pl_ui_open) { pl_ui_open = 0u; pl_ui_restore = 1u; }
-#if TAU_LIBRARY
         else if (lib_ui_open) lib_ui_close();
         else if (lib_state == LIB_ST_OK) lib_ui_enter();
-#endif
         else if (pl_count) {
             pl_ui_open = 1u;
             pl_ui_sel  = pl_pos;
@@ -7889,7 +7240,7 @@ static inline void pcm_flush(void)
     REG(R_PCM_ST) = 1u;
     fade_left    = FADE_SAMPLES;  /* every flush is a discontinuity */
     under_shadow = 0;             /* flush clears the sticky underrun flag */
-#if TAU_SDRAM_STRESS_WINDOW
+#if TAU_DIAGNOSTIC
     stress_frames_at_flush = frames;
 #endif
 }
@@ -8268,10 +7619,8 @@ static flac_t   fl;
 static int32_t *fl_buf;            /* one blocksize of int32, from the arena */
 
 #include "art.inc"
-#if TAU_LIBRARY
 #pragma GCC push_options
 #pragma GCC optimize ("Os")          /* playlist control code: no timing role, RAM is the constraint in the library build */
-#endif
 #include "playlist.inc"
 #include "cold.inc"
 /* blit_probe.inc moved earlier in this file (see the include site before ui_draw_dynamic()) --
@@ -8291,7 +7640,7 @@ static int32_t *fl_buf;            /* one blocksize of int32, from the arena */
  * exactly the original function, just with the section 4.2 synthetic-probe hook still available. */
 static void ui_draw_dynamic(void)
 {
-#if TAU_G4 >= 3 && TAU_COLD_CODE
+#if TAU_G4 >= 3
     if (!COLD_READY()) return;
     uint32_t t0 = cycles();
     ui_draw_dynamic_cold();
@@ -8302,37 +7651,27 @@ static void ui_draw_dynamic(void)
 #endif
 }
 
-#if TAU_G4 && TAU_COLD_CODE
+#if TAU_G4
 #define COLD_FN COLD_TEXT      /* G4: a function moved to PSRAM; every entry from hot code is gated on COLD_READY() or on state that implies it */
 #else
 #define COLD_FN
 #endif
-#if TAU_LIBRARY
 #pragma GCC pop_options
-#endif
-#if TAU_LIBRARY
 /* Size-optimised: the library is browse UI and one-time load code, and the RAM it costs comes out of the heap gap. */
 #pragma GCC push_options
 #pragma GCC optimize ("Os")
 #include "library.inc"
 #pragma GCC pop_options
-#endif
-#if TAU_LIBRARY
 /* Settings is menu code with no timing role; size-optimise it in the library build, where RAM is the constraint. */
 #pragma GCC push_options
 #pragma GCC optimize ("Os")
-#endif
 #include "settings.inc"
 #include "settingsui.inc"
-#if TAU_LIBRARY
 #pragma GCC pop_options
-#endif
 
 static int list_ended(void)
 {
-#if TAU_LIBRARY
     if (lib_src) return rep_mode == REP_OFF && (uint32_t)lib_qpos + 1u >= lib_qn;
-#endif
     return pl_count && rep_mode == REP_OFF && pl_pos + 1u >= pl_count;
 }
 
@@ -9710,9 +9049,7 @@ static int read_track_head(void)
 
 /* Everything needed to start a track from the beginning, shared by boot and by
  * a reload. ONE function deliberately -- two copies of this drift apart. */
-#if TAU_LIBRARY
 __attribute__((optimize("Os")))       /* runs between tracks (audio silent), dominated by SD reads: size matters more than speed here */
-#endif
 static int load_track(void)
 {
     /* Release the FLAC buffer FIRST. This runs before the format is known --
@@ -9935,14 +9272,12 @@ static int load_track(void)
     }
     ld_size = LD_MS(cycles() - tphase); tphase = cycles();
 
-#if TAU_LIBRARY
     /* Library track: show the title, artist and album at once (taken from the index), and let the cover art and the
      * rest of the details follow once the file has fully loaded. The panel is parked so the early frame has no stale cover. */
     if (lib_src) {
         lib_meta_apply();
         ui_loader_begin_ex(1);      /* full frame with the index's title/artist/album; the loader turns in the empty art plate until the cover arrives */
     }
-#endif
     /* Cover art BEFORE the chrome, because whether it exists decides the
      * layout: no art means no panel and a full-width waveform. Also before
      * prefill, so its blocking reads cannot starve playback. */
@@ -9970,7 +9305,7 @@ static int load_track(void)
          * Must happen BEFORE ui_art_mount(), which fills the stash with the
          * panel colour -- checking afterwards would compare against an image
          * it had already destroyed. */
-#if TAU_G4 >= 2 && TAU_COLD_CODE
+#if TAU_G4 >= 2
         uint32_t sig = COLD_READY() ? art_sig_of(audio_start) : 0u;     /* cold code */
 #else
         uint32_t sig = art_sig_of(audio_start);
@@ -9990,7 +9325,7 @@ static int load_track(void)
             art_bad = 1;
         } else {
             ui_art_mount();
-#if TAU_G4 >= 2 && TAU_COLD_CODE
+#if TAU_G4 >= 2
             has_art = COLD_READY() ? art_decode(audio_start) : 0;     /* cold code: no cover without it */
 #else
             has_art = art_decode(audio_start);
@@ -10032,7 +9367,7 @@ static int load_track(void)
     art_shown = (uint32_t)(ART_PANEL_WANTED && art_pref);
     art_x     = art_shown ? ART_X : FB_W;
 
-    ui_draw_chrome();   /* title/artist are populated now -- draw the UI */
+    ui_chrome_paint();   /* title/artist are populated now -- draw the UI */
     ui_boot_cancel();   /* the loader is over: prefill()'s reads tick ui_boot_tick(), which would otherwise keep painting the spinner and its caption over the cover */
 
     if (!prefill()) { REG(R_STAT2) = 0xD0000000u; return 0; }
@@ -10126,7 +9461,7 @@ static int load_track(void)
 
     ld_pre   = LD_MS(cycles() - tphase);
     ld_total = LD_MS(cycles() - t0);
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
     chk_loads++;
 #endif
 
@@ -10235,31 +9570,23 @@ int main(void)
     /* Armed only around this call, so the indicator means "reading the .m3u"
      * and nothing else -- the track open and artwork decode that follow are a
      * separate wait and deliberately do not claim this label. */
-#if TAU_COLD
     cold_boot_load();                 /* first: the cold image holds data the menus need */
-#endif
     /* B-162: blit_probe() is NOT called here at boot any more, for TAU_BLIT_PROBE or
      * TAU_METER_THUMBS -- it hung boot on real hardware (TAU_0_5_0_A_6, first time this function
      * was ever exercised on real hardware in any build). Deferred to blit_probe_ensure(), first
      * actual need, in set_draw_thumb(). See fw/blit_probe.inc's header for the full account. */
-#if TAU_LIBRARY
     ui_boot_note("LOADING LIBRARY");
-#if TAU_G4 && TAU_COLD_CODE
+#if TAU_G4
     if (COLD_READY()) lib_boot_load();
     else { lib_state = LIB_ST_OFF; lib_err = 18u; }     /* the library UI is cold code: without it the library stays off (Info shows E18) */
 #else
     lib_boot_load();
 #endif
-#if TAU_PL_SDRAM
     (void)pl_sdram_ready();           /* library mode never reaches pl_load(), which used to be the only place the window was proven */
-#endif
     ui_boot_clear();
-#endif
     ui_boot_note("LOADING PLAYLIST");
-#if TAU_LIBRARY
     if (lib_state != LIB_ST_OK)      /* with a library the core-menu playlist is not used (Menu > Settings > How it works) */
-#endif
-#if TAU_G4 >= 2 && TAU_COLD_CODE
+#if TAU_G4 >= 2
     if (COLD_READY()) pl_load();          /* cold code: without it no playlist (single files still play) */
 #else
     pl_load();
@@ -10269,10 +9596,12 @@ int main(void)
      * answered a moment later by the idle screen saying the same thing at
      * length, and saying it twice in two places reads as a fault. */
     if (pl_count) ui_splash_summary(pl_live_count());
-    /* Land it HERE. Running on through load_track() was tried and looked wrong:
-     * ART_Y sits inside the meter band, so the artwork panel paints over the
-     * bars while the animation is still redrawing them, and the settle never
-     * gets a clean frame. */
+    /* Land it HERE. Running on through load_track() was tried and looked wrong.
+     * (Historical note, now-playing UI pass 1: this was originally because
+     * ART_Y sat inside the meter band and the art panel painted over the bars
+     * mid-animation -- art moved to its own static row above the meter, so
+     * that specific race no longer applies, but stopping the settle animation
+     * at this exact boot point is still the right call regardless.) */
     ui_wave_anim_stop();
 
     /* Try whatever is already in the slot -- a file picked from the Pocket's
@@ -10312,15 +9641,11 @@ int main(void)
             from_list = pl_play_at(pl_pos);
         }
     }
-#if TAU_LIBRARY
     /* Library: open what the user was last playing (or the first track) but do not start it. */
     if (lib_state == LIB_ST_OK) { from_lib = lib_boot_restore();
-#if TAU_LIBRARY
         lib_boot_ok = (uint8_t)from_lib;   /* B-080: shown on Info so a release-vs-diagnostic mismatch has evidence, not a guess */
-#endif
     }
     if (lib_state != LIB_ST_OK)      /* a library is browsed from the Select button; no auto-start from the file slot */
-#endif
     if (!from_list) from_slot = load_track();
     /* The splash is already up; leave it while the playlist track loads
      * rather than flashing instructions that are about to be replaced.
@@ -10381,14 +9706,12 @@ int main(void)
     } else if (!from_list && !from_lib) {
         idle = 1;
         ui_wave_anim_stop();
-#if TAU_LIBRARY
         /* B-080: a library with nothing to restore (a first boot, or an index with no playable history) used to show
          * the separate "Library ready" getting-started card here, then the ordinary player chrome once the library
          * was opened and closed -- two different screens for the same "nothing loaded" state. ui_draw_chrome() now
          * carries its own message for this case (above), so it is the one screen, consistent with every other way of
          * reaching it. */
-        if (lib_state == LIB_ST_OK && !lib_disabled) { ui_draw_chrome(); goto boot_idle_drawn; }
-#endif
+        if (lib_state == LIB_ST_OK && !lib_disabled) { ui_chrome_paint(); goto boot_idle_drawn; }
         /* Say WHICH nothing this is. A playlist whose every entry is
          * mistyped and no playlist at all both land here, and the idle
          * screen is otherwise indistinguishable from the splash that was
@@ -10465,9 +9788,7 @@ int main(void)
              * itself here. */
             resume_seek_req = 0;
             track_from_pl  = 0u;            /* the user chose this one */
-#if TAU_LIBRARY
             lib_src = 0u;
-#endif
 
             REG(R_RELOAD)  = 1;             /* ack */
             reload_pending = 0;
@@ -10603,23 +9924,12 @@ int main(void)
             }
         }
 
-#if DEBUG_DIAG
-        /* Select+B: freeze on the raw 0190 struct. Press again to resume;
-         * decoding continues throughout, only drawing is suspended. */
-        if (dt_dump_req) {
-            dt_dump_req = 0;
-            ui_dump_mode ^= 1u;
-            if (ui_dump_mode) dt_dump_boot();
-            else              ui_draw_chrome();
-            continue;
-        }
-#endif
 
         if (pl_dump_req) {
             pl_dump_req = 0;
             ui_dump_mode ^= 1u;
             if (ui_dump_mode) pl_dump_struct();
-            else              ui_draw_chrome();
+            else              ui_chrome_paint();
             continue;
         }
 
@@ -10675,13 +9985,11 @@ int main(void)
             if (slot_changed()) reload_pending = 1u;
         }
 
-#if TAU_LIBRARY
         if (lib_state == LIB_ST_OK && (pl_check_req || pl_reload_pending)) {
             pl_check_req = 0;                       /* library mode: playlists live in the library */
             if (pl_reload_pending) { pl_reload_pending = 0; REG(R_RELOAD) = RL_PL_RELOAD; }
             continue;
         }
-#endif
         if (pl_check_req) {
             pl_check_req = 0;
             pl_name_read();
@@ -10777,7 +10085,7 @@ int main(void)
                     refill_drain();
                     ring_fill = 0; ring_rd = 0;
                     uint32_t sig_was = pl_sig;
-#if TAU_G4 >= 2 && TAU_COLD_CODE
+#if TAU_G4 >= 2
                     if (COLD_READY()) pl_load();
 #else
                     pl_load();
@@ -10908,11 +10216,7 @@ int main(void)
                  * offset would read the wrong file. Drop them; stay silent
                  * until the reload lands. */
                 ring_fill = 0; ring_rd = 0;
-#if TAU_LIBRARY
                 ui_toast_set("TRACK", lib_src ? (uint32_t)lib_qpos + 1u : (uint32_t)pl_live_ordinal(pl_pos), 0);
-#else
-                ui_toast_set("TRACK", (uint32_t)pl_live_ordinal(pl_pos), 0);
-#endif
                 ui_mode_dirty = 1;
             }
             continue;
@@ -10924,6 +10228,7 @@ int main(void)
         if (eq_apply) {
             eq_apply = 0;
             REG(R_EQ) = eq_idx;
+            ui_eq_pill();
             ui_mode_dirty = 1u;          /* the mode row NAMES the preset */
             settings_mark_dirty();
         }
@@ -10974,9 +10279,9 @@ int main(void)
             art_pref  = (uint8_t)!art_pref;
             art_shown = (uint32_t)(art_pref && ART_PANEL_WANTED);
             settings_mark_dirty();
-            art_next   = cycles();          /* start moving immediately */
-            /* Only the waveform changes shape; repainting the whole chrome
-             * here would flash the text for no reason. */
+            /* Instant, no slide: jump to the target and repaint the screen. */
+            art_x = art_shown ? ART_X : FB_W;
+            ui_chrome_paint();
             ui_wave_clear();
         }
 
@@ -11410,7 +10715,6 @@ int main(void)
          * overlay is up draws straight through it -- and the '>' marker has
          * moved anyway. Comparing against what was last drawn catches both,
          * and any other route that changes the position. */
-#if TAU_SETTINGS_UI
         /* B-234: the Meter > Configure page's live preview reads real playing
          * audio (spec_lvl[]/wav_v[]) every draw, same as the player screen's
          * own meter box -- but unlike every other Settings page, it needs to
@@ -11424,25 +10728,20 @@ int main(void)
          * music" -- previously it only ever redrew once per key press. */
         if (set_open && set_page == SET_WVIZCFG_PG) set_dirty = 1u;
         if (set_open && set_dirty) { set_dirty = 0u; set_draw(); }
-#if TAU_DIAG_INFO
         vblank_sample();
         set_info_tick();
-#endif
-#if TAU_CHECK
+#if TAU_DIAGNOSTIC
         chk_tick();
 #if MP3_PROFILE || FLAC_PROFILE
         sw_tick();
 #endif
         bt_tick();
 #endif
-#if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW
+#if TAU_DIAGNOSTIC
         dg_soak_tick();
 #endif
-#endif
-#if TAU_LIBRARY
         if (lib_ui_open && lib_ui_dirty) { lib_ui_dirty = 0u; lib_ui_draw(); }
         if (lib_ui_open) lib_ui_marquee();
-#endif
         if (pl_ui_open && pl_ui_drawn_pos != pl_pos) pl_ui_dirty = 1u;
         if (pl_ui_open && pl_ui_dirty) {
             pl_ui_dirty = 0;
@@ -11485,7 +10784,7 @@ int main(void)
             pl_ui_restore = 0;
             /* ui_draw_chrome() paints the gradient itself -- calling it here
                too would push ~360 rects twice for one repaint. */
-            ui_draw_chrome();
+            ui_chrome_paint();
             if (art_ready && art_shown) ui_art_draw();
             /* The meters cache what they last drew; the overlay painted over
              * all of it, so every column has to be considered stale. */
@@ -11499,7 +10798,6 @@ int main(void)
             ui_last_sec   = 0xFFFFFFFFu;
             ui_prog_sec   = 0xFFFFFFFFu;
         }
-#if TAU_LIBRARY
         {   /* one small alert per boot when there is no library and something is playing */
             static uint8_t legacy_told;
             if (!legacy_told && !idle && lib_state == LIB_ST_NONE) { legacy_told = 1u; ui_toast_msg("LEGACY PLAYLIST MODE"); }
@@ -11509,7 +10807,6 @@ int main(void)
             if (lib_play_start()) { ui_mode_dirty = 1u; continue; }
             ui_toast_msg("TRACK WOULD NOT OPEN");
         }
-#endif
         if (pl_ui_play_req) {
             pl_ui_play_req = 0;
             if (pl_count && pl_ui_sel < pl_count) {
@@ -11600,7 +10897,7 @@ int main(void)
             if (!under_shadow && pcm_underrun()) {
                 under_shadow = 1u;
                 pcm_under_n++;
-#if TAU_SDRAM_STRESS_WINDOW
+#if TAU_DIAGNOSTIC
                 stress_note_underrun();
 #endif
                 fade_left    = FADE_SAMPLES;
@@ -11742,7 +11039,7 @@ int main(void)
         if (!under_shadow && pcm_underrun()) {
             under_shadow = 1u;
             pcm_under_n++;
-#if TAU_SDRAM_STRESS_WINDOW
+#if TAU_DIAGNOSTIC
             stress_note_underrun();
 #endif
             fade_left    = FADE_SAMPLES;

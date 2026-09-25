@@ -8,7 +8,7 @@ Pocket base folders (Cores, Platforms, Assets). Version and date come from dist/
   python3 tools/make_release.py --rbf PATH_TO_RAW.rbf --rbf-sha256 HASH [--test]
 
 Steps: build both ROMs, package the normal core (package.py), package the diagnostic core
-(tools/package_sdram_stress.py --diagnostic), check both, write release/<name>.zip x2 and release/SHA256SUMS.txt.
+(tools/package_dev_build.py --release-diagnostic), check both, write release/<name>.zip x2 and release/SHA256SUMS.txt.
 Bump the version first (fw/player.c APP_VER, core.json, README 'Current version', CHANGELOG); build.sh refuses a mismatch.
 """
 import argparse
@@ -93,7 +93,7 @@ def main():
     sh(["bash", "fw/build.sh", "player-library-diagnostic"], env=env)     # Diagnostic Build: adds Tests/Stress and the Check
     sh([sys.executable, "package.py", "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256, "--release-library"])
     sh([sys.executable, "tools/check_tau_package.py"])
-    sh([sys.executable, "tools/package_sdram_stress.py", "--playlist-sdram", "--diagnostic", "--library", "--cold",
+    sh([sys.executable, "tools/package_dev_build.py", "--release-diagnostic",
         "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256])
     if args.test:
         sh(["make", "test-host"])
