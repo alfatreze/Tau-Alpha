@@ -194,7 +194,10 @@ module mp3_fb #(
     output reg  [23:0] video_rgb,
     output reg         video_de,
     output reg         video_hs,
-    output reg         video_vs
+    output reg         video_vs,
+    // Helios beam position (B-267): the video line counter, 0..V_TOT-1 (V_TOT is 400, so 9 bits). The row being scanned
+    // is vc - VOFF while VOFF <= vc < VOFF + V_ACT. Carried to the CPU by tau_cdc_gray_bus (it steps by +1 per line).
+    output wire [8:0]  scan_vc
 );
 
     // ---- Geometry ----------------------------------------------------------
@@ -1468,6 +1471,7 @@ module mp3_fb #(
     // Video timing (clk_vid domain) -- same structure as pocket_vector_fb.sv.
     // ======================================================================
     reg [10:0] hc = 0, vc = 0;
+    assign scan_vc = vc[8:0];
     always @(posedge clk_vid) begin
         if (reset) begin hc <= 0; vc <= 0; end
         else if (hc == H_TOT - 1'b1) begin

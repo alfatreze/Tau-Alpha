@@ -201,6 +201,12 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `define TAU_SDR_BUSY_EN 0
 `endif
 
+`ifdef TAU_SPEC
+`define TAU_SPEC_EN 1
+`else
+`define TAU_SPEC_EN 0
+`endif
+
 `ifdef TAU_VBLANK
 `define TAU_VBLANK_EN 1
 `else
@@ -258,19 +264,32 @@ assign soc_sdram_busy_rd = 32'd0;
 // synchroniser -- NOT tau_cdc_gray_ctr's Gray-code technique, which exists for multi-bit
 // counters, not a single level (see tau_cdc_sync1.sv's own header for why a plain synchroniser
 // is the correct, sufficient tool here).
-wire soc_vblank_rd;
+// Helios beam position (B-267): the video line counter, clk_vid -> clk_sys in Gray code (it steps by one line at a time),
+// so the firmware can draw only rows the scanning beam is not about to read. soc_scan_rd = {present, vc[8:0]}.
+wire [8:0] vid_vc_w;
+wire [9:0] soc_scan_rd;
+`ifdef TAU_BEAM
+wire [8:0] scan_vc_sys;
+tau_cdc_gray_bus #(.W(9), .STAGES(3)) u_scan_cdc (.clk_src(clk_vid), .d_src(vid_vc_w), .clk_dst(clk_sys), .q_dst(scan_vc_sys));
+assign soc_scan_rd = {1'b1, scan_vc_sys};
+`else
+assign soc_scan_rd = 10'd0;
+`endif
+
+wire [16:0] soc_vblank_rd;
 `ifdef TAU_VBLANK
-tau_cdc_sync1 #(.STAGES(3)) u_vblank_sync (
-    .clk_dst(clk_sys), .d_src(vid_vs_w), .q_dst(soc_vblank_rd)
+// B-260: level plus a free-running frame counter (the pulse is only ~167 us wide -- the CPU cannot poll it).
+tau_vs_counter #(.STAGES(3), .W(16)) u_vblank_cnt (
+    .clk_dst(clk_sys), .d_src(vid_vs_w), .q(soc_vblank_rd)
 );
 `else
-assign soc_vblank_rd = 1'b0;
+assign soc_vblank_rd = 17'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN)) u_soc (
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN)) u_soc (
 `else
-mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN)) u_soc (
+mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -386,6 +405,7 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
 
     .sdram_busy_rd (soc_sdram_busy_rd),
     .vblank_rd     (soc_vblank_rd),
+    .scan_rd       (soc_scan_rd),
 
     .blt_src_base   (soc_blt_src_base),
     .blt_src_stride (soc_blt_src_stride),
@@ -785,7 +805,7 @@ mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN)) u_fb (
     .p0_wr_req(fb_p0_wr_req), .p0_rd_req(fb_p0_rd_req), .p0_end_burst_req(fb_p0_end_burst_req),
     .p0_available(fb_p0_available), .p0_ready(fb_p0_ready), .p0_data_available(fb_p0_data_available),
 
-    .video_rgb(vid_rgb_w), .video_de(vid_de_w), .video_hs(vid_hs_w), .video_vs(vid_vs_w)
+    .video_rgb(vid_rgb_w), .video_de(vid_de_w), .video_hs(vid_hs_w), .video_vs(vid_vs_w), .scan_vc(vid_vc_w)
 );
 
 `ifdef TAU_PHASE2_PROBE

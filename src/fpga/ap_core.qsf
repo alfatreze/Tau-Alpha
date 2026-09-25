@@ -762,6 +762,9 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/tau_psram_bus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_psram_probe.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cdc_gray_ctr.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cdc_sync1.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_vs_counter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_spec_bank.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cdc_gray_bus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_main_ram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_ram_probe_a.sv
 set_global_assignment -name VERILOG_FILE core/tgt_cmd.v

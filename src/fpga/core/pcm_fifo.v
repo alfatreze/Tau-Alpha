@@ -48,7 +48,8 @@ module pcm_fifo #(
     // mistake cannot come back.
     output reg signed [15:0] out_l,
     output reg signed [15:0] out_r,
-    output reg         underrun
+    output reg         underrun,
+    output wire        sample_tick     // the fractional-rate sample strobe (one clk pulse per output sample), for the spectrum bank
 );
 
     localparam DEPTH = (1 << AW);
@@ -87,6 +88,7 @@ module pcm_fifo #(
     // Fractional-rate tick: carry-out of the accumulator is the sample strobe.
     reg [31:0] acc;
     reg        tick;
+    assign sample_tick = tick;
     always @(posedge clk) begin
         if (rst) begin
             acc  <= 32'd0;
