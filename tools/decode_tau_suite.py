@@ -22,7 +22,9 @@ RESULTS = {0: "PASS", 1: "FAIL", 2: "SKIPPED", 3: "N/A"}
 TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window test", 3: "Cold code test",
          4: "Playlist / library check", 5: "Playback counters", 6: "Timings", 7: "Stress R1 (30 s)",
          8: "Stress R2 (30 s)", 9: "Stress R3 (30 s)", 10: "Soak", 11: "Track changes (10)", 12: "Cold code x20",
-         13: "Blit storm (30 s)"}   # B-127, CT_BLT: needs live playback like id 5, or reports N/A/SKIP the same way
+         13: "Blit storm (30 s)",   # B-127, CT_BLT: needs live playback like id 5, or reports N/A/SKIP the same way
+         14: "Cold frame (30 s)"}   # B-199/B-200, CT_COLDFRAME: worst single-call cost of a synthetic cold probe
+                                     # called once per ui_draw_dynamic() (~38 Hz); diagnostic-only, TAU_COLD_FRAME_PROBE builds
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
         10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest"}
 BLIT_OPS = ["RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT"]

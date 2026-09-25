@@ -282,6 +282,30 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #else
 #define COLD_FN2
 #endif
+/* G4 step 4 (TAU_G4 >= 3, B-199..B-201): ui_draw_dynamic_cold() (below) also runs from PSRAM -- the
+ * first cold code on the live playback path itself, not just menus/settings, kept as its own tier
+ * rather than folded into TAU_G4>=2 for exactly that reason. See fw/cold.inc's own comment (right
+ * above coldframe_record()) for the measurement that justifies this. Spelled out here for the same
+ * textual-ordering reason as COLD_FN2. */
+#if TAU_G4 >= 3 && TAU_COLD_CODE
+#define COLD_FN3 __attribute__((section(".cold_text"), noinline))
+#else
+#define COLD_FN3
+#endif
+#ifndef TAU_COLD_FRAME_PROBE
+#define TAU_COLD_FRAME_PROBE 0 /* B-199: default-off per-audio-frame cold-code cost measurement (fw/cold.inc, PHASE_F_SPEC.md section 4.2) */
+#endif
+#ifndef COLDFRAME_BIG
+#define COLDFRAME_BIG 0        /* 0 = small (I-cache-resident) probe, 1 = cold_big's guaranteed-refill worst case */
+#endif
+#ifndef COLDFRAME_EVICT
+#define COLDFRAME_EVICT 0      /* B-199 section 4.3: force a full I-cache eviction (via a discarded cold_big() call)
+                                 * immediately before the timed probe, simulating browse-while-playing's worst case */
+#endif
+/* True when CT_COLDFRAME (fw/suite.inc) has anything to measure -- either the synthetic-probe
+ * experiment or the real ui_draw_dynamic_cold() conversion. Defined once here so suite.inc's three
+ * separate gates (enum/CHK_MAX, chk_ex, the case block) can't drift out of sync with each other. */
+#define TAU_COLDFRAME_ON (TAU_COLD_FRAME_PROBE || (TAU_G4 >= 3 && TAU_COLD_CODE))
 #ifndef TAU_CHECK
 #define TAU_CHECK 0            /* Settings > Check (fw/suite.inc): needs TAU_LIBRARY and TAU_COLD_CODE */
 #endif
@@ -3536,6 +3560,13 @@ static void ui_icon_dot(uint32_t x, uint32_t y, uint16_t c)
 #include "blit_probe.inc"
 
 static void ui_draw_dynamic(void);
+/* fw/cold.inc defines both of these (B-199..B-201, PHASE_F_SPEC.md sections 4.2-4.3) -- forward-
+ * declared for the same textual-ordering reason as blit_probe.inc above: cold.inc's own #include
+ * comes much later in this file. Both are themselves hot code; coldframe_tick() calls INTO a
+ * synthetic cold probe, coldframe_record() just accumulates a cycle count the real cold
+ * ui_draw_dynamic_cold() call (below) already measured itself. */
+static void coldframe_tick(void);
+static void coldframe_record(uint32_t dt);
 
 /* The player-screen loader: eight dots turning round the middle of the album art plate, with "Loading track" under
  * them, the pair centred in the plate (owner request). Drawn every tick over the plate colour; the caption is drawn once
@@ -4282,7 +4313,12 @@ COLD_FN2 static void pl_ui_draw(void)
     ov_draw = o;
 }
 
-static void ui_draw_dynamic(void)
+/* G4 step 4 (B-199..B-201): the real "meters go cold" conversion. Body unchanged from the original
+ * ui_draw_dynamic() (still calls ordinary hot fb_rect()/fb_bar()/etc. from cold code -- the same
+ * "cold calls hot" pattern G4 steps 1-3 and fw/cold.inc's own cold_calls_hot() already prove safe),
+ * just relocated and renamed so the thin wrapper below can time it and apply the COLD_READY()
+ * fail-safe. */
+COLD_FN3 static void ui_draw_dynamic_cold(void)
 {
     if (screen_blank) return;
     /* The overlay covers the meters, the card and the transport row. Letting
@@ -6272,6 +6308,9 @@ ui_tail:
     }
 #endif
 }
+/* ui_draw_dynamic() itself (the thin wrapper) is defined later in this file, right after
+ * #include "cold.inc" -- it needs COLD_READY(), which isn't visible yet at this point (same
+ * textual-ordering constraint as everything else cold-code-related in this file). */
 
 
 /* cont1_key bit assignments (APF standard layout) */
@@ -7799,6 +7838,32 @@ static int32_t *fl_buf;            /* one blocksize of int32, from the arena */
 #include "cold.inc"
 /* blit_probe.inc moved earlier in this file (see the include site before ui_draw_dynamic()) --
  * BLIT_READY()/blit_probe_ensure() are needed there, which comes before this point. */
+
+/* B-199..B-201: thin hot wrapper around ui_draw_dynamic_cold() (defined much earlier in this file,
+ * before this #include -- see the comment left there). Needs COLD_READY(), just defined above, so
+ * it lives here rather than immediately after the function it wraps. When TAU_G4>=3 makes
+ * ui_draw_dynamic_cold() actually cold, this applies the same fail-safe every other G4 cold-code
+ * entry point uses (checked, never called blindly) and times every real call into the SAME
+ * accumulator CT_COLDFRAME (fw/suite.inc) reads -- a permanent regression guard on the real
+ * function, not the one-off synthetic-probe experiment section 4.2 started with. On an old
+ * bitstream without PSRAM instruction fetch, this just stops updating the meters (screen keeps
+ * whatever was last drawn); everything else -- single-file playback included -- is unaffected, the
+ * same degrade-cleanly convention every other G4 fail-safe already uses. On any build below this
+ * tier (TAU_G4 < 3, every release so far), ui_draw_dynamic_cold() is ordinary hot code and this is
+ * exactly the original function, just with the section 4.2 synthetic-probe hook still available. */
+static void ui_draw_dynamic(void)
+{
+#if TAU_G4 >= 3 && TAU_COLD_CODE
+    if (!COLD_READY()) return;
+    uint32_t t0 = cycles();
+    ui_draw_dynamic_cold();
+    coldframe_record(cycles() - t0);
+#else
+    coldframe_tick();
+    ui_draw_dynamic_cold();
+#endif
+}
+
 #if TAU_G4 && TAU_COLD_CODE
 #define COLD_FN COLD_TEXT      /* G4: a function moved to PSRAM; every entry from hot code is gated on COLD_READY() or on state that implies it */
 #else
