@@ -70,7 +70,10 @@ module mp3_soc #(
     // Helios/Talos H0 (docs/HELIOS_SPEC.md section 9): vblank status. The synchroniser itself
     // lives outside this module, in clk_vid, and is CDC'd in by the caller (tau_cdc_sync1) --
     // this just gates whether 0xD0 exposes it or reads zero. Inert (identical netlist) when 0.
-    parameter VBLANK_ENABLE = 0
+    parameter VBLANK_ENABLE = 0,
+    // Spectrum filter bank (PHASE_F_SPEC.md section 7, B-263): tau_spec_bank.sv fed from the PCM FIFO's sample strobe;
+    // 16 band means readable at R_SPEC_IDX/R_SPEC_DATA, status/window counter at R_SPEC_ST. Inert (reads 0) when 0.
+    parameter SPEC_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -232,7 +235,8 @@ module mp3_soc #(
 
     // Helios/Talos H0: already-CDC'd vblank level (clk_sys domain, sourced from clk_vid by the
     // caller). Unread when VBLANK_ENABLE is 0, same convention as sdram_busy_rd above.
-    input  wire         vblank_rd,
+    input  wire [9:0]   scan_rd,     // {present, vc[8:0]} video line counter (B-267), 0 when TAU_BEAM is off
+    input  wire [16:0]  vblank_rd,   // {frame count[15:0], level} from tau_vs_counter (B-260)
 
     // Phase F B1: sticky blit-engine addressing state (section 9). Driven from mp3_soc's own
     // R_BLT_IDX/R_BLT_DATA registers regardless of BLIT_ENABLE; only OP_BLIT in mp3_fb.sv reads
@@ -850,6 +854,7 @@ module mp3_soc #(
     wire        pcm_full, pcm_empty, pcm_underrun;
     wire [11:0] pcm_level;
     wire signed [15:0] fifo_l, fifo_r;
+    wire        pcm_sample_tick;
     reg   [2:0] eq_preset;
 
     pcm_fifo #(.AW(11)) u_pcm (
@@ -864,8 +869,26 @@ module mp3_soc #(
         .rate_inc (pcm_rate),
         .out_l    (fifo_l),
         .out_r    (fifo_r),
-        .underrun (pcm_underrun)
+        .underrun (pcm_underrun),
+        .sample_tick (pcm_sample_tick)
     );
+
+
+    // ---- spectrum filter bank (B-263) --------------------------------------------------------------------------------
+    localparam [7:0] R_SPEC_IDX = 8'hDC, R_SPEC_DATA = 8'hE0, R_SPEC_ST = 8'hE4;
+    reg  [3:0]  spec_idx = 4'd0;
+    wire [19:0] spec_mean;
+    wire [15:0] spec_win;
+    generate
+        if (SPEC_ENABLE != 0) begin : g_spec
+            tau_spec_bank #(.WIN_LOG2(10)) u_spec (
+                .clk(clk), .rst(rst), .tick(pcm_sample_tick), .in_l(fifo_l), .in_r(fifo_r),
+                .rd_idx(spec_idx), .rd_mean(spec_mean), .win_ctr(spec_win));
+        end else begin : g_nospec
+            assign spec_mean = 20'd0;
+            assign spec_win  = 16'd0;
+        end
+    endgenerate
 
     // Preset EQ, spliced between the FIFO and this module's audio outputs.
     // Entirely inside clk_sys, so no new CDC -- sound_i2s already crosses into
@@ -954,6 +977,7 @@ module mp3_soc #(
                                  fb_cmd_sx    <= dDAT_MOSI[11:10];
                                  fb_cmd_sy    <= dDAT_MOSI[13:12];
                                  fb_cmd_push  <= 1'b1; end
+                R_SPEC_IDX: spec_idx <= dDAT_MOSI[3:0];
                 R_BLT_IDX:  blt_idx <= dDAT_MOSI[2:0];
                 R_BLT_DATA: begin
                     case (blt_idx)
@@ -1034,7 +1058,10 @@ module mp3_soc #(
             8'hB4:     mmio_rdata = if_cyc_rd;                            // cycles the fetch stage waited on PSRAM
             8'hB8:     mmio_rdata = {31'd0, (PSRAM_IFETCH_ENABLE != 0)};  // feature present (write = clear counters)
             8'hBC:     mmio_rdata = (SDRAM_BUSY_ENABLE != 0) ? sdram_busy_rd : 32'd0;  // B7: SDRAM port-busy cycles, free-running since reset
-            8'hD0:     mmio_rdata = {31'd0, (VBLANK_ENABLE != 0) ? vblank_rd : 1'b0};  // Helios/Talos H0: vblank status, bit 0
+            8'hD0:     mmio_rdata = (VBLANK_ENABLE != 0) ? {vblank_rd[16:1], 15'd0, vblank_rd[0]} : 32'd0;  // Helios/Talos H0: bit 0 vblank level, bits 31:16 free-running frame count (B-260)
+            8'hE8:     mmio_rdata = {22'd0, scan_rd};                                  // Helios beam position: bit 9 present, bits 8:0 video line counter (B-267)
+            8'hE0:     mmio_rdata = {12'd0, spec_mean};                                // spectrum bank: mean of band SPEC_IDX (B-263)
+            8'hE4:     mmio_rdata = (SPEC_ENABLE != 0) ? {spec_win, 15'd0, 1'b1} : 32'd0;  // spectrum bank: bit 0 present, bits 31:16 window counter
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end
