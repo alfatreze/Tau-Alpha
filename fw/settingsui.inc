@@ -577,20 +577,33 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
 }
 
 /* Read-only value pages share one painter: labels on the left, values right-aligned. */
+/* Read-only value pages (Info, Stress status) show up to SET_RO_VIS rows at once and scroll with Up/Down when they
+ * have more (B-257: Info grew to 15 rows and the 15th fell off the bottom of the screen). */
+#define SET_RO_VIS 14u
+static uint8_t set_ro_top;                       /* first visible row; reset to 0 when the page is left */
+
 COLD_FN static void set_draw_ro(int full, const char *title, const char *const *labels, uint32_t n,
                         void (*value)(uint32_t, char *))
 {
-    if (full) ov_frame(title, "", "B BACK");
-    for (uint32_t i = 0; i < n; i++) {
-        uint32_t y = PL_UI_LIST_Y + i * PL_UI_ROW_H;
+    const uint32_t vis = (n < SET_RO_VIS) ? n : SET_RO_VIS;
+    uint32_t top = set_ro_top;
+    if (top + vis > n) top = n - vis;
+    if (full) ov_frame(title, "", (n > vis) ? "UP DOWN SCROLL   B BACK" : "B BACK");
+    if (n > vis) {                               /* scroll track, as the lists */
+        const uint32_t tx = PL_UI_X + PL_UI_W - 11u, lh = vis * PL_UI_ROW_H, th = lh * vis / n;
+        fb_rect(tx, PL_UI_LIST_Y - 2u, 3u, lh, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
+        fb_rect(tx, PL_UI_LIST_Y - 2u + (lh - th) * top / (n - vis), 3u, th, ui_accent);
+    }
+    for (uint32_t k = 0; k < vis; k++) {
+        const uint32_t i = top + k, y = PL_UI_LIST_Y + k * PL_UI_ROW_H;
         char v[40];
         value(i, v);
-        fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H, UI_PANEL);
+        fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 16u, PL_UI_ROW_H, UI_PANEL);
         fb_set_color(UI_DIM, UI_PANEL);
         fb_text_clipped(PL_UI_TEXT_X, y, labels[i], TS_1X, TS_1X, 170u);
         uint32_t w = fb_text_width(v, TS_1X);
         fb_set_color(UI_WHITE, UI_PANEL);
-        fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, y, v, TS_1X, TS_1X, w + 2u);
+        fb_text_clipped(PL_UI_X + PL_UI_W - 20u - w, y, v, TS_1X, TS_1X, w + 2u);
     }
 }
 
@@ -994,8 +1007,15 @@ static int set_input(uint32_t edge, uint32_t keys)
         }
         return 1;
     }
-    if (set_page >= SET_INFO_PG) {                /* read-only value page: only B (back) */
-        if (edge & (KEY_B | KEY_LEFT)) { set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info, How it works -> SETTINGS */
+    if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
+        uint32_t n = SET_INFO_ROWS;
+#if TAU_DIAGNOSTIC
+        if (set_page == SET_STAT_PG) n = SET_STAT_ROWS;
+#endif
+        const uint32_t maxtop = (n > SET_RO_VIS) ? n - SET_RO_VIS : 0u;
+        if ((edge & KEY_UP)   && set_ro_top > 0u)      { set_ro_top--; set_dirty = 1u; }
+        if ((edge & KEY_DOWN) && set_ro_top < maxtop)  { set_ro_top++; set_dirty = 1u; }
+        if (edge & (KEY_B | KEY_LEFT)) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info, How it works -> SETTINGS */
         return 1;
     }
     /* B-073: Up/Down auto-repeat while held, the same shape as the playlist and library lists (a step on the edge, a

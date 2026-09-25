@@ -1608,10 +1608,10 @@ static uint32_t io_bench_bytes;   /* ...and how much it managed to read      */
  * box is left with whatever was drawn there before. VIZ_TAPE is parked
  * (B-208) but the macro stays -- cheap insurance if it ever comes back. */
 #define UI_WAVE_TOP 24u
-#define UI_PROG_Y   284u
+#define UI_PROG_Y   282u
 #define UI_PROG_H   5u
-#define UI_TIME_Y   296u
-#define UI_TRANSPORT_Y 316u
+#define UI_TIME_Y   292u
+#define UI_TRANSPORT_Y 320u   /* clock (24 px cell) ends at UI_TIME_Y + 24 = 316: a 4 px gap, no overlap (B-256) */
 #define UI_STRESS_BAR_Y 341u
 #define UI_STRESS_HUD_Y 344u
 #define UI_INNER_W  (FB_W - 2u * UI_MARGIN)
@@ -6050,7 +6050,7 @@ ui_tail:
      * The note owns the row until ui_boot_cancel(), whose callers already
      * force a full transport repaint after it. */
     if (!ui_boot_msg || ui_loader_on) {
-        uint16_t tbg = ui_grad_at((UI_TIME_Y + 10u));
+        uint16_t tbg = ui_grad_at(UI_TRANSPORT_Y + 8u);
         /* Left end of its own row. The arrows sit at a FIXED x derived from
          * the WIDER of the two words, so switching PLAYING <-> PAUSED cannot
          * shuffle them sideways. */
@@ -6533,19 +6533,23 @@ static short pcm[MAX_NCHAN * MAX_NGRAN * MAX_NSAMP];
  * upstream's own ~6% cascade, but the same principle applies whenever a
  * struggling file is close to the margin.
  *
- * TWO thresholds, deliberately -- upstream's own reasoning, unchanged: a
- * single level sits right where the buffer hovers and the meter would start
- * and stop every frame, reading as a broken meter rather than a busy one.
- * Stop at a third full, do not resume until two thirds, so it yields in
- * stretches, not flickers.
+ * TWO thresholds plus a hard cap (B-260). Upstream's reasoning for two thresholds stands: a single level would
+ * make the meter start and stop every frame. But upstream's numbers (stop at a third full, resume at two
+ * thirds) do not survive contact with this core: meter_afford() is called from the decode loop at the TROUGH of
+ * the FIFO's fill/drain cycle (just before the next frame is pushed), where the level almost never reaches two
+ * thirds, so ONE dip below a third -- a menu redraw is enough -- latched the meter off until the track ended
+ * (measured on the Pocket: METER YIELD 31 s and counting, the bars frozen after the menu closed). Both
+ * thresholds are therefore lower and meant to be read at the trough: yield only when the FIFO is nearly
+ * starved (a sixth), resume from a third, and never stay off longer than METER_YIELD_MAX_S regardless, since
+ * the cascade costs ~1.5% of the CPU and a wrongly-running meter is a far smaller failure than a frozen one.
  *
- * Degrades the right way by construction: skipping feeds leaves spec_n
- * smaller but valid (see the accumulation in ui_draw_dynamic), and if a
- * whole window is skipped spec_n is 0, so the band-update block there is
- * skipped entirely and the bands HOLD their last values rather than decaying
- * to nothing -- the meter updates less often, it does not go wrong. */
-#define METER_STOP  (2048u / 3u)        /* FIFO is 2048 entries -- pcm_fifo.v AW=11 */
-#define METER_GO    ((2048u * 2u) / 3u)
+ * Degrades the right way by construction: skipping feeds leaves spec_n smaller but valid (see the accumulation
+ * in ui_draw_dynamic), and if a whole window is skipped spec_n is 0, so the band-update block there is skipped
+ * entirely and the bands HOLD their last values rather than decaying to nothing -- the meter updates less
+ * often, it does not go wrong. */
+#define METER_STOP  (2048u / 6u)        /* FIFO is 2048 entries -- pcm_fifo.v AW=11; read at the trough */
+#define METER_GO    (2048u / 3u)
+#define METER_YIELD_MAX_S 2u            /* never yield longer than this many seconds in a row */
 static uint8_t meter_yield;
 
 /* B-234: a cheap diagnostic to confirm or rule out a suspected cause of the
@@ -6568,7 +6572,7 @@ static int meter_afford(void)
     if (idle || paused) { meter_yield = 0; meter_yield_secs = 0; return 1; }
     uint32_t lv = pcm_level();
     if (meter_yield) {
-        if (lv >= METER_GO) {
+        if (lv >= METER_GO || meter_yield_secs >= METER_YIELD_MAX_S) {
             meter_yield = 0; meter_yield_secs = 0;
         } else if ((int32_t)(cycles() - meter_yield_deadline) >= 0) {
             meter_yield_secs++;
@@ -10786,6 +10790,10 @@ int main(void)
                too would push ~360 rects twice for one repaint. */
             ui_chrome_paint();
             if (art_ready && art_shown) ui_art_draw();
+            /* The meters' background strip lives in the invisible columns 400..511 of the meter rows, and the Check's
+             * blit storm and the Blit Test write into those same columns. Rebuild it on every return to the player
+             * screen, or the next erase copies the test's leftovers back as three 112 px tiles (B-256). */
+            ui_bg_ready = 0;
             /* The meters cache what they last drew; the overlay painted over
              * all of it, so every column has to be considered stale. */
             ui_wave_force = 1u;
