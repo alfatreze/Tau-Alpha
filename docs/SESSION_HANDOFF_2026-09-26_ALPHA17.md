@@ -26,11 +26,12 @@ fullscreen; the cassette removal (B-281) is newer than the install, so the next 
 Already confirmed on hardware this session (owner): VBLANK frame counter reads about 60/S (B-266), meters keep moving after menus (the
 meter-yield latch fix, B-260), scrolling Info page, layout fixes, Blit Test 24/24 PASS, Check PASS except the old `Track changes` failure.
 
-## 3. Uncommitted / commit state
-Everything from B-256 on is committed locally except the work listed in section 6 (see `git status`). Local `main` is ahead of
-`origin/main`; **nothing after `9c3bb65` is pushed**. The other session's untracked files (`docs/CHLADNI_METER_SPEC.md`,
-`docs/METER_MODULE_SPEC.md`, `docs/DECISIONS.md`, `docs/THEME_SPEC.md`, `tools/lab/`) are theirs; `fw/chladni_core.h` and its tests
-are theirs too but are committed because the firmware needs them to build.
+## 3. Commit state
+All of my work is committed locally (the last four commits: Chladni core, cassette archive, docs, and the Chladni/fullscreen/presets/meter-cleanup
+feature commit `57e7c1c`); **those four are not pushed** (`origin/main` is at `9c3bb65`). Still untracked and NOT mine (the other session's
+work): `docs/CHLADNI_METER_SPEC.md`, `docs/METER_MODULE_SPEC.md`, `docs/DECISIONS.md`, `docs/THEME_SPEC.md`, `tools/lab/`. `fw/chladni_core.h`
+and its tests are theirs too but are committed because the firmware needs them to build. Also untracked by design: `work/`, `release/`,
+`docs/vendor/`, `.claude/`, `UniClaudeProxy/`.
 
 ## 4. Decisions the owner made this session (do not re-litigate)
 - Cold file missing = nothing works, accepted (no fallback UI in hot code). Stale build targets and dead code are removed; backups are
