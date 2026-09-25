@@ -41,6 +41,26 @@ _start:
 	addi x31, zero, 0
 
 	la sp, _stack_top
+
+	# B-204 (PHASE_F_SPEC.md section 4.1): paint the whole 16 KB stack region with a
+	# known sentinel before anything can push a single byte onto it, so a later
+	# high-water-mark scan (stack_high_water(), fw/suite.inc) can tell how deep
+	# execution has ever actually gone -- the standard embedded technique. `la`
+	# on a plain linker-script scalar (here `_stack_size`) yields its VALUE, the
+	# same "address of" trick this codebase already uses for `_cold_img_size`
+	# etc. Must run before the bss-clear loop below, which is itself the first
+	# thing capable of using the stack (branch return addresses, however small).
+	la a0, _stack_size
+	la a1, _stack_top
+	sub a0, a1, a0
+	li a2, 0xDEADC0DE
+3:
+	bge a0, a1, 4f
+	sw a2, 0(a0)
+	addi a0, a0, 4
+	j 3b
+4:
+
 	la a0, __bss_start
 	la a1, __bss_end
 1:

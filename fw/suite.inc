@@ -440,6 +440,24 @@ COLD_TEXT static int chk_do(uint32_t id)
     return 1;
 }
 
+/* B-204 (PHASE_F_SPEC.md section 4.1): the whole 16 KB stack region is painted with a sentinel at
+ * boot (fw/start.S, before anything -- even the bss-clear loop -- can push a single byte onto it).
+ * Scanning from the low end (the deepest possible point) upward for the first word that no longer
+ * matches finds the high-water mark: everything below that point has never been touched by any call
+ * depth reached so far. This function's own tiny frame is itself part of "how deep has execution
+ * gone" at the moment it runs, same as any other call -- it cannot under-report, only ever read the
+ * true historical peak or (if called at a new deepest point) extend it by its own negligible depth. */
+extern char _stack_top, _stack_size;
+#define STACK_SENTINEL 0xDEADC0DEu
+COLD_TEXT static uint32_t stack_high_water(void)
+{
+    uint32_t total = (uint32_t)(uintptr_t)&_stack_size;
+    volatile uint32_t *low = (volatile uint32_t *)((char *)&_stack_top - total);
+    uint32_t n = total / 4u, i = 0;
+    while (i < n && low[i] == STACK_SENTINEL) i++;
+    return total - i * 4u;
+}
+
 /* Build the report: record, QR text, persisted words, short code. */
 COLD_TEXT static void chk_finish(void)
 {
@@ -451,6 +469,8 @@ COLD_TEXT static void chk_finish(void)
     uint32_t fwv = ((uint32_t)(APP_VER[0] - '0') << 16) | ((uint32_t)(APP_VER[2] - '0') << 8) | (uint32_t)(APP_VER[4] - '0');
     uint32_t build[4] = { fwv, REG(R_VERSION), flags, (uint32_t)(&_heap_end - &_heap_start) };
     sr_vals(&s, SR_T_BUILD, 4, build, 4);
+    uint32_t stackv[2] = { stack_high_water(), (uint32_t)(uintptr_t)&_stack_size };
+    sr_vals(&s, SR_T_STACK, 4, stackv, 2);
     for (uint32_t i = 0; i < chk_n; i++) {
         sr_test(&s, chk_id(i), chk_res[i], chk_val[i]);
         if (chk_res[i] == SR_FAIL) fails |= 1u << i;

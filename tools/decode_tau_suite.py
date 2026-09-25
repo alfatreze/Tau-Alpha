@@ -26,7 +26,7 @@ TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window te
          14: "Cold frame (30 s)"}   # B-199/B-200, CT_COLDFRAME: worst single-call cost of a synthetic cold probe
                                      # called once per ui_draw_dynamic() (~38 Hz); diagnostic-only, TAU_COLD_FRAME_PROBE builds
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
-        10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest"}
+        10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest", 16: "stack"}
 BLIT_OPS = ["RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT"]
 B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
@@ -101,7 +101,7 @@ def parse_record(rec: bytes) -> dict:
                 {"op": BLIT_OPS[op_id] if op_id < len(BLIT_OPS) else f"op{op_id}", "level": level,
                  "result": RESULTS.get(res, str(res)), "stall_pct": v[3], "ops_done": ops_done})
         elif tag in TAGS:
-            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1}[tag]
+            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1, 16: 4}[tag]
             if tag == 1:
                 fw, rev, flags, gap = (struct.unpack("<I", v[k:k + 4])[0] for k in range(0, 16, 4))
                 out["entries"]["build"] = {"firmware": f"{fw >> 16 & 255}.{fw >> 8 & 255}.{fw & 255}", "bitstream": f"{rev:08X}",
@@ -119,6 +119,9 @@ def parse_record(rec: bytes) -> dict:
                                                             # started or dropped out partway through)
                     vals = dict(zip(("late_underruns", "audio_full", "stall_ms", "window_s"), vals))
                     vals["audio_full"] = bool(vals["audio_full"])
+                elif tag == 16 and len(vals) == 2:         # SR_T_STACK (B-204): stack high-water mark
+                    vals = dict(zip(("peak_bytes", "stack_size"), vals))
+                    vals["free_bytes"] = vals["stack_size"] - vals["peak_bytes"]
                 out["entries"][TAGS[tag]] = vals
         else:
             out["unknown"].append({"tag": tag, "hex": v.hex()})

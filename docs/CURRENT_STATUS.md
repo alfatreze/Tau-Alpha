@@ -397,6 +397,30 @@ sequencer shape — the one genuinely new wrinkle is a *data-dependent* source-c
 other opcode's fixed one-word-per-pixel/row rate), which needs its own mutation-test design, not a copy of an
 existing hook. Full design: `docs/PHASE_F_SPEC.md` section 5's B10 write-up.
 
+**MILESTONE, 2026-09-25 (B-204): the peak-usage gate is built and gives a first real, reassuring
+number.** Stack-painting high-water-mark measurement (`fw/start.S` paints the whole 16 KB stack with
+a sentinel at boot; `stack_high_water()`/new `SR_T_STACK` report tag reads it back) — the standard
+embedded technique, wired into every Check run. First hardware result (FULL profile, stress R1-3 +
+Soak + Blit storm): **peak 1,980 B of 16,384 (12%), 14,404 B free** — a large margin under a
+genuinely demanding load. Not yet section 4.1's actual prescribed worst case (ENDURANCE + full
+library + large playlist + fresh cover decode + browse-while-playing + every meter mode combined),
+but given the margin already shown, the real worst case would need to be ~9x deeper to become a
+concern. That comparison is the one test still needed before the RTL shrink itself is scoped.
+
+**MILESTONE, 2026-09-25 (B-203): picojpeg moved to cold code, the RAM-shrink's headroom target is
+now cleared.** `objcopy --rename-section` on the vendored, unmodified `third_party/picojpeg/
+picojpeg.c` object file (it compiles separately from the project's own `.inc` translation unit, so
+the usual `COLD_FN` attribute didn't apply) -- `art_decode()`, picojpeg's only caller, is already
+cold and already `COLD_READY()`-gated, so no new gate was needed. **+11,456 B measured** (bigger
+than the ~8 KB estimate `PHASE_F_SPEC.md` had cited). Combined with the meter conversion's +19,520 B:
+**+30,992 B total, clearing the ~29 KB the RAM shrink needs.** New opt-in toggle `PICOJPEG_COLD`
+(default off) -- a real process gap was caught and fixed along the way: the first cut gated only on
+`TAU_COLD_CODE=1`, which `release` already sets, so a routine rebuild silently changed the shipped
+ROM with zero hardware validation before this was caught via `git status`. Not yet hardware-tested;
+`release` itself is untouched. Next: install a diagnostic build with `PICOJPEG_COLD=1` and confirm
+real cover-art decode still works, then section 4.1's peak-usage gate is the one remaining blocker
+before the actual RTL shrink.
+
 **MILESTONE, 2026-09-25 (B-202 addendum): hardware-confirmed.** First real run on `TAU_DEV_47`:
 `CT_COLDFRAME` **PASSED, 27,308 cycles worst-case** (~455 microseconds, ~1.73% of the 26.3 ms
 budget) for the real `ui_draw_dynamic_cold()`, 0 late underruns, `audio_full: true`. Higher than the
@@ -451,11 +475,14 @@ UI redraw bug unrelated to `blit_probe_ensure()`/`BLIT_READY()`/the draw engine 
 fixed the actual `blit_probe()` SDRAM bug, and B-197's own hardware run proved the whole opcode set + probe path
 clean, 0 stalls) — the original reason to hold no longer applies. Full write-up: `docs/PHASE_F_SPEC.md` section 4.
 
-**Next, in order:** B11 or B10's actual build (both designs are ready; B11 has the larger proven payoff — every
-selected list row and the panel border, versus B10's now-marginal one-time/SDRAM savings). Then, once the Blit
-Test hang has a real diagnosis (ISSP, waiting on JTAG cable access): resume the meter/blit integration and the
-pre-existing `Track changes` Check failure (open since B-138, unrelated to B8) — both blocked either on the
-hang diagnosis directly or on a card write the handoff says to hold until then.
+**Next, in order (updated 2026-09-25 — the Blit Test hang, B10/B11, and the meter/blit integration are
+all done; see the B-197/B-198/B-199..B-202 milestones above):** per `docs/PHASE_F_SPEC.md` section
+14's table, step 4 ("meters to cold code") is done and step 5 ("main RAM 256 -> 192 KB") is next in
+line. Its real remaining blocker is **section 4.1's peak-usage gate** (paint the stack, measure the
+high-water mark under the worst real profile, gate the shrink on `measured peak + 16 KB margin < 192
+KB`) — not yet built. Also still needed to reach the full ~29 KB the shrink wants: picojpeg's own
+~8 KB moved cold (not yet scoped; the meters alone freed ~19.5 KB). The pre-existing `Track changes`
+Check failure (open since B-138, unrelated to any of this) remains open and un-investigated.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
