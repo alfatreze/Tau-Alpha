@@ -8,6 +8,21 @@ Pocket's menu and two rounds of plausible-but-wrong root-causing (B-141, B-142) 
 found. Follow this list top to bottom; don't skip a step because a fix earlier in the session seems to have
 already explained the symptom.
 
+## Use the script (owner rule, 2026-09-25)
+
+**Do not hand-type this procedure. Run `tools/install_dev_core.py`** -- it does steps 1 to 6 below and the eject,
+stops on the first failed check, and refuses to touch the release cores unless told to:
+
+```
+python3 tools/install_dev_core.py work/diagnostics/tau-0_5_0_a_14/pocket \
+    --carry-from alfatreze.TAU_0_5_0_A_13 --remove alfatreze.TAU_0_5_0_A_13          # dry run: prints the plan
+python3 tools/install_dev_core.py <same arguments> --yes                             # writes
+```
+
+Still needs explicit approval for the write (section 0). If any step of this document changes, change the script
+(and `sim/test_install_dev_core.py`, part of `make test-host`) in the same commit; the list below is the spec the
+script implements, kept for reference and for the rare manual case.
+
 ## 0. Before touching the card
 
 - Get explicit approval for the write (per-action, not assumed from an earlier approval).
@@ -48,7 +63,7 @@ own `author.shortname`), `description<=63`, `author<=31`, `url<=63`, `version<=3
 suffixes like `-alpha.1` are the documented, intended use -- **not** a source of trouble by itself).
 Per `references/sd-packaging-assets.md`: **"cores also disappear from the openFPGA menu if json is
 invalid"** -- a `description` over 63 characters is exactly this class of defect, and the failure mode is
-silent (no error, the core just isn't in the list). `tools/package_sdram_stress.py` now enforces this
+silent (no error, the core just isn't in the list). `tools/package_dev_build.py` now enforces this
 (truncates over-length descriptions, writes the full text to `info.txt`, the documented About-screen field)
 -- if hand-editing a `core.json` instead, check these limits yourself.
 
