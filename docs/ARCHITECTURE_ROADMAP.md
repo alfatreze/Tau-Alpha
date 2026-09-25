@@ -182,6 +182,33 @@ interacts with the Phase F blit engine (a redesign is the natural point to also 
 tracker-visualization idea from `docs/MOD_TRACKER_SUPPORT_SPEC.md` section 5 and the parked
 "per-colour text colours"/"Settings-style legacy playlist overlay" items above).
 
+**2026-09-25 (B-232): a first real, evidence-based answer to "how it interacts with the Phase F
+blit engine"** — `docs/PHASE_F_SPEC.md` section 15 investigates the long-reported minor UI
+tearing/glitching (root cause confirmed by reading the actual video-timing RTL: no frame-synchronized
+draw commit exists anywhere, only a one-row-ahead scanout *read* prefetch with zero protection for
+CPU *writes*) and designs a phased UI controller (T0: expose vblank/scan-position via a CDC'd MMIO
+register, the same proven technique as B7's SDRAM busy counter; T1: convert `fb_round_rect`/
+`fb_round_rect_on` — used for nearly every panel and every selected list row in the whole UI — from
+a ~33-transaction-per-call software loop to one `OP_RRECT` command, plus a real vblank-aware draw-
+batching layer; T2: true double buffering, held since SDRAM capacity is not the blocker but RTL/
+firmware-convention complexity is). Design only, nothing built.
+
+**2026-09-25 (B-237): named and completed as `docs/HELIOS_SPEC.md`.** Owner named the UI controller/graphics
+library **Helios** and the blit engine RTL **Talos**, asked for prior-art research before finalizing the
+design, and asked whether UI should be decoupled from audio/decode via real concurrency. Research (Amiga
+Copper/blitter, PS1 Ordering Tables, LVGL, u8g2, MiSTer's OSD compositing) grounded the final architecture: a
+PS1-OT-style flat per-frame display list, LVGL-style per-region dirty tracking simplified for Tau's
+fixed-layout UI, vblank-gated flush (B-232's T0), and — a genuinely new finding from the Amiga research —
+real double buffering via base-address pointer-swap (matching Talos's existing sticky `SRC/DST_BASE`
+mechanism) rather than pixel-copying, revising B-232's earlier T2 assessment. UI/audio decoupling via real
+concurrency (threads or an interrupt controller, neither of which exists in this design today) was assessed
+and declined: the reentrancy risk across this firmware's entire global state and the risk to the
+audio-never-glitches guarantee outweigh the benefit, and the bounded vblank-flush design already prevents a
+large UI paint from itself blocking audio, which was the more realistic direction of the actual risk.
+`docs/PHASE_F_SPEC.md` section 15 is superseded by `docs/HELIOS_SPEC.md` as the complete proposal; nothing
+built yet, phased as H0 (vblank MMIO)/H1 (Helios core + `OP_RRECT` conversion + B13's gradient bar)/H2
+(double buffering, held).
+
 **Several currently-open or currently-parked items may be superseded rather than fixed by this,
 and should be re-checked against whatever the redesign produces before being independently
 investigated:**

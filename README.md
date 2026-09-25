@@ -409,13 +409,77 @@ framework bugs that had to be found first — is in
   60 available, so the decoder occasionally can't keep up. Normal speed is
   unaffected.
 
+## Performance: measured, not assumed
+
+A hardware "blit engine" (the chip drawing shapes directly instead of the CPU pushing pixels one at
+a time) plus moving several features into the Pocket's extra PSRAM chip have changed how this player
+uses its resources. Here's what that means in practice, in plain terms, and the real numbers behind
+each claim. **TBD** means the measurement is planned and we have the tools to run it, but haven't
+gotten a real number back from hardware yet — this table gets updated as those come in, not left to
+go stale.
+
+| What we checked | In plain terms | The numbers | Roughly speaking |
+|---|---|---|---|
+| Room left for new features | How much of the chip's memory is free for whatever comes next | 61,808 bytes free, was 30,528 | **about 2× more free memory** |
+| Memory pressure | How much of the chip's memory is in use right now | 65% used, was 83% | **noticeably less full** |
+| Drawing the classic bar meter | How much work the chip does to paint the moving bars, every single frame | 36 drawing steps/frame, was 72 | **50% less work, every frame** |
+| Music stability under the heaviest load | Whether the audio ever stutters or glitches, even with the busiest visuals running flat out for 30 seconds straight | 0 glitches, every time it's been tried | **rock solid, no exceptions found** |
+| Extra cost of moving meter-drawing code to PSRAM | The one real cost behind the "room left" row above — code in PSRAM is a little slower to fetch than code kept on-chip | worst case ~28,800 chip cycles per draw, about 1.7% of the time budget for one audio frame | **a small, deliberate trade for the memory gained** |
+| New Winamp-style bar/scope meters vs. the classic one | Whether the new meters cost more or less than the one they're modeled after | **TBD** | **TBD** |
+| Opening the live meter-tuning screen while music plays | Whether tweaking a meter's settings live can be heard as a hiccup | **TBD** | **TBD** |
+| Battery life with the new visuals on | Whether the fancier meters noticeably drain the battery faster | **TBD** | **TBD** |
+| Menus and library feeling snappier | Whether moving menu/library code to PSRAM changed how quickly they respond | **TBD** | **TBD** |
+
+<details>
+<summary>Technical detail, for anyone who wants the exact mechanism and source</summary>
+
+Phase F added the blit engine (generalized rect/copy, a meter-column primitive, scaled and CLUT
+blits); Phase G moved menus, the library, and now the meter draw path itself off on-chip RAM and
+into PSRAM. Every number above is a real hardware measurement recorded in `docs/AUDIT_TRAIL.md`, not
+a synthetic estimate:
+
+| Metric | Before | After | Source |
+|---|---|---|---|
+| Draw commands per frame, bar meter (36 columns) | 72 (`fb_rect` pair per column) | 36 (one `OP_BAR` per column) | B-198 |
+| New Winamp-style bars/scope meter | — (didn't exist) | 16–32 commands/frame, still under the 36-command bar-meter baseline | B-215 |
+| Free RAM (heap gap), release build | 30,528 B (82.6% used) | 61,808 B (65.3% used) | B-199…B-203, B-213/B-214 |
+| Free RAM, overall since the media library shipped (v0.4.0) | on-chip only | menus/library/settings code in PSRAM, "roughly quadruples the player's free memory" | CHANGELOG v0.4.0 |
+| Sustained blit load during real playback | not measurable (no counter existed) | 15.8% of SDRAM cycles busy, 0 late underruns over a 30 s blit-storm + audio test | B-146 |
+| Cost of moving the meter draw path to PSRAM | n/a | 27,308–28,847 CPU cycles worst-case per call (~1.7% of the 26.3 ms audio-frame budget) | B-202, B-213 |
+| Audio safety invariant | 0 late underruns | 0 late underruns, held across every stress/soak/ENDURANCE run to date, including under the added blit and cold-code load | B-146, B-213 |
+
+</details>
+
+### Tradeoffs and honest limits
+
+Not everything paid off, and not everything is finished — recorded here instead of left implicit:
+
+- **A font-ROM repack, expected to free block RAM, measured a net +0 blocks.** Synthesis-stage
+  reports can't see physical packing; only a real Fitter run could, and it showed no improvement —
+  a negative result kept on record rather than quietly dropped (B-101/B-102).
+- **Hardware rounded-rect corners (`OP_RRECT`) currently fail timing** (−2.37 ns worst-case
+  setup), a real, unresolved regression traced to a specific combinational chain in the corner
+  sequencer, not yet fixed (B-211).
+- **Alpha blending is built but shelved.** It works in simulation, but its DSP-block placement
+  cost pushed unrelated existing logic into a timing violation elsewhere on the chip; removing it
+  recovered the margin, so it isn't in any shipped bitstream yet.
+- **The on-chip RAM shrink this whole PSRAM push was aiming at (256 → 192 KB) hasn't happened
+  yet.** The freed 64 blocks are the actual payoff of this track, gated on a stack peak-usage
+  measurement under the worst realistic profile that hasn't been run.
+- **The new Winamp-style meters' settings are session-only.** Tuning them in the on-device editor
+  doesn't survive a restart yet — the obvious channel (the settings-persist register) is a
+  hardwired 4-bit index already fully used by existing settings, so adding one means an RTL
+  change, not a firmware one. A config-export path (QR code, reusing the existing diagnostics
+  report format) exists as a stopgap.
+
 ## For core developers
 
 Working on this core, or building something similar on Cyclone V with Quartus — an openFPGA
 blit/GPU engine, a soft CPU, a tight block-RAM budget? A few things this project ran into while
 building the in-progress blit engine are worth knowing before you hit them yourself. Full detail,
 evidence and sources for everything below: `docs/AUDIT_TRAIL.md` (search for `B-109` through
-`B-121`) and the knowledge base linked at the end of this section.
+`B-121`, and `B-224` through `B-237` for the RAM-shrink/RRECT/Helios-Talos arc) and the knowledge
+base linked at the end of this section.
 
 ### Issues faced, and what fixed them
 
@@ -448,6 +512,29 @@ evidence and sources for everything below: `docs/AUDIT_TRAIL.md` (search for `B-
   expected to reduce M10K block usage measured *identical* declared content bits at the synthesis
   stage, by construction — only a real Fitter run revealed the actual physical block count, which
   showed no improvement at all. Don't trust a synthesis-only report to answer a packing question.
+- **A RAM-inference pattern-matcher can be pickier than it looks.** Splitting one memory into two
+  power-of-two regions (to work around an odd total size Quartus refused to infer as block RAM at
+  all) kept failing the *same* way even after removing every suspect in turn — a local address wire,
+  a module boundary, a `generate` block. The real cause: every failing version read the result
+  through a ternary selecting between two *different* multi-array concatenations in one statement,
+  unlike every successfully-inferred RAM in the same file, which reads exactly one array
+  unconditionally. Fix: give each region its own plain, unconditional, directly-addressed registered
+  read, and mux the *already-registered* values together afterward — nothing being selected between
+  is an array reference any more, so it carries no inference weight at all.
+- **A linker script's own `DEFINED()` can silently do nothing in the wrong context.** Making a
+  memory region's size conditional via `LENGTH = DEFINED(SYM) ? A : B` inside a `MEMORY` block had
+  zero effect in this toolchain (`riscv-none-elf-ld`) — both settings linked an identical image with
+  the derived stack-top address unchanged, with no linker error or warning at all. Caught only by
+  checking the actual symbol values with `nm` after the build. `DEFINED()` in an ordinary symbol
+  assignment elsewhere in the script (`_limit = DEFINED(SYM) ? A : B; _stack_top = _limit;`) is the
+  well-supported form. **Lesson: a silently-ignored linker conditional is a real failure mode —
+  verify the actual linked addresses, don't trust "it built with no errors."**
+- **A "shared read port" fear can be a timing question in disguise, not a real contention problem.**
+  Two draw-engine opcodes reading the same small lookup table looked like a resource-contention risk
+  on paper. In a design that dispatches one command at a time (no real concurrency), they can never
+  actually read it simultaneously — the real cost of adding a second address source is the extra
+  combinational fan-in into the shared read-address expression, a timing-margin question the same
+  retiming technique below already answers, not a functional one requiring arbitration logic.
 
 ### Techniques and approaches found useful
 

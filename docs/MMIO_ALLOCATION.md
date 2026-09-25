@@ -36,7 +36,8 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0xC4 | BLT_DATA | W | Writes the field BLT_IDX selects, then auto-increments BLT_IDX (wraps 6->0) -- a burst of 7 writes loads the whole state after one index write. `FB_GO`'s existing opcode field (now 3 bits, was 2) carries `OP_BLIT`/`OP_BAR`/`OP_SBLIT`/`OP_CBLIT`; no new GO register. |
 | 0xC8 | CLUT_IDX | W | Phase F B8 ("B8 detailed design", section 5): selects one of 256 CLUT entries (0-255). Read only when `TAU_BLIT` is built; the CLUT itself is inert (never read) unless `OP_CBLIT` is dispatched. |
 | 0xCC | CLUT_DATA | W | Writes the RGB565 value at `CLUT_IDX`, then auto-increments `CLUT_IDX` (wraps 255->0, natural 8-bit rollover) -- a burst of 256 writes loads the whole palette after one index write. `FB_GO`'s opcode field carries the new `OP_CBLIT` (3'd7, the last value the existing 3-bit field has room for); no new GO register. |
-| 0xD0-0xFC | free | | next claimants: RLE decode enable (B10), rounded-rect (B11); allocate here |
+| 0xD0 | VBLANK | R | Helios/Talos H0 (`docs/HELIOS_SPEC.md` section 9): bit 0 = vblank status, CDC'd from `mp3_fb.sv`'s own `vid_vs_w` (clk_vid) into clk_sys via a plain single-bit synchroniser (`tau_cdc_sync1.sv`, NOT the Gray-code technique `tau_cdc_gray_ctr.sv` uses for multi-bit counters -- a single level has no multi-bit-hazard to guard against). Reads 0 when `TAU_VBLANK` is off. |
+| 0xD4-0xFC | free | | next claimants: RLE decode enable (B10), rounded-rect (B11) is already opcode 8, not MMIO; allocate here |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
