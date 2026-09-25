@@ -8322,3 +8322,142 @@ the installed bitstream predates `TAU_VBLANK` entirely, so this row will correct
 lands and gets installed. Once it does, this is the first real, on-hardware confirmation that H0's whole CDC
 chain (`vid_vs_w` -> `tau_cdc_sync1` -> MMIO 0xD0 -> firmware readback) works end to end, which the rest of
 Helios's design depends on.
+
+### B-244 — RAM-shrink cold-code trim: playlist.inc fully converted, ~4.4 KB recovered, ~8.5 KB still short
+**Date:** 2026-09-25
+**Evidence:** Owner: while B-239's fit was still running on the VM (checked, still active, no other fit
+queued), picked up B-236's open firmware task -- ~12.6 KB more cold-code conversion needed before `release`
+actually links against the 192 KB (`RAM_192K=1`) ceiling, independent of the RTL (already timing-clean,
+B-235). Surveyed every function in `fw/playlist.inc`/`fw/settingsui.inc`/`fw/library.inc`/`fw/art.inc` by
+symbol size and cold/hot address (`nm --size-sort -S`, addresses `0x2480xxxx` = already cold): `library.inc`
+and `art.inc` are already 100% converted from earlier phases, `playlist.inc` had 17 functions still hot,
+`settingsui.inc` had 4.
+
+**Verified reachability before converting, not assumed:** every `COLD_FN`/`COLD_FN2`/`COLD_FN3` function in
+this codebase is only ever reachable after a top-level cold gate has already succeeded (`set_open` menu entry
+checks `COLD_READY()` and refuses with "MENU OFF: NO COLD IMAGE" otherwise; `pl_load()` itself only runs
+`if (COLD_READY())`; `pl_count` therefore stays 0, and every button handler that could reach `pl_skip`/
+`pl_play_at` gates on `pl_count > 0` first) -- confirmed by tracing `skip_req`'s only set-site back through
+that chain, not assumed by analogy. This matches the precedent already set by every one of `library.inc`'s
+own functions (all cold, all reachable only via the same top-level gate). Converted 16 of `playlist.inc`'s 17
+hot functions to `COLD_FN2` (its established tier, matching `pl_load`/`pl_parse`/`pl_remember` etc. already
+there) -- **deliberately excluded `pl_cmd`**, the low-level target-command primitive that busy-waits up to 3 s
+calling `refill_drain()` in its own poll loop; moving its dispatch/poll logic to PSRAM would add fetch latency
+to code that exists specifically to keep audio fed while blocked, the same reasoning that already keeps
+`target_read_slot()` hot. Converted all 4 remaining `settingsui.inc` functions (`wvcfg_adjust`, `set_info_tick`
+-- confirmed "once a second" by its own comment, `wvcfg_follow`, `set_close`) to `COLD_FN`, matching their
+neighbors' tier.
+
+**Measured, not estimated:** `release`'s `_heap_start` moved from `0x26c80` (158,336) to `0x25940` (153,920),
+a real 4,416 B recovered from the 192 KB budget's `_tag_start` ceiling (`0x25000`/151,552); the 256 KB build's
+own reported heap gap grew 58,240 -> 63,168 B (+4,928 B, the larger figure since it also counts the small
+`.rodata`/`.cold_data` shift). `RAM_192K=1 bash fw/build.sh release` still fails the same
+"collides with reserved DMA buffers" link assertion, but the shortfall is now precisely 2,368 B for a bare
+zero-byte heap (down from ~6,784 B), or ~8,512 B once `HEAP_MIN`'s 6,144 B floor is counted back in (down from
+~12,928 B) -- real, current numbers from the linked symbols, not the earlier estimate. **Not closed yet.**
+
+Considered and rejected as unsafe for this pass, all in `player.c` and needing individual boot-order tracing
+rather than the same "already gated by a proven top-level check" shortcut: `settings_load()` (confirmed via
+`main()`'s own call order to run *before* `cold_boot_load()` -- marking it cold would be a genuine chicken-
+and-egg boot crash, not a hypothetical one), `read_track_head()`/`load_track()`/`id3_text_body()` (core
+track-loading/tag path used in every playback mode including plain single-file, not gated behind the
+playlist/library cold-feature tree the way everything converted this pass is), `ui_failed_msg`/`ui_boot_tick`/
+`ui_splash`/`ui_idle_screen`/`ui_draw_chrome`/`meters_feed` (mixed boot-path and live-playback UI code in
+`player.c`, needing the same individual reachability check `settings_load` just failed, not batch-converted
+by size alone).
+
+**Verified:** `make test-host` passes (25/25); rebuilt and confirmed clean links for `player`, `release`,
+`player-diagnostic`, `player-library-check`, `player-library-diagnostic`, `player-library-diagnostic-profile`
+(the actively-used/shipped target set). `player-library` fails to link ("no room left for even a token
+heap") -- confirmed via `git stash` this is **pre-existing, not caused by this change**: it builds with
+`TAU_COLD=1` but no `TAU_COLD_CODE`, so every `COLD_FN*` macro this pass touched expands to nothing there: a
+stale bring-up target from the Phase G0/G1 era, not part of the current shipped/tested set, left as-is.
+`dist/`'s release ROM/cold-image show only the expected diff (`git status`). Not committed, not installed --
+firmware-only change, no card/VM touched by this entry. Remaining ~8.5 KB needs the riskier `player.c`
+functions above, each traced individually, or further size trimming elsewhere -- a real next step, not
+finished this pass.
+
+### B-243 — B-239's blend-test fit finished: TAU_BLIT_BLEND does NOT close, even combined with B11's fix + RAM-shrink + H0
+**Date:** 2026-09-25
+**Evidence:** Checked the VM (`ps aux | grep quartus_fit`) periodically while working on B-244/Helios H1 in
+parallel; the fit finished after ~85 minutes. `Fitter Status: Successful`, RAM Blocks 235/308 (76%, matching
+the RAM-shrink RTL, unchanged from B-235), DSP 14/66 (matching B-116's "with blend" count, vs 11 without) --
+the shrink and the other bundled changes are all present and correct in this build. **Timing did NOT close**:
+`Info (332146): Worst-case setup slack is -2.972` (hold is fine, `+0.316`) -- worse than B-109's original
+`-2.5`/`-2.9 ns` finding for the SAME shared glyphbuf write-network before B-111/B-114's retiming fix even
+existed, despite this build carrying that fix. Re-enabling `TAU_BLIT_BLEND` costs roughly 3.5-4.4 ns relative
+to the clean no-blend fit (B-235: `+0.556`/`+1.406 ns` on the two corners checked there) -- a real, larger cost
+than B-116's "congestion, not a direct fan-in fix" finding would predict on its own, though this run did not
+re-trace the exact violating path with `report_timing` the way B-109/B-116/B-151 did, so whether it is still
+the same glyphbuf network or a new path introduced by the blend compose logic itself is not yet known --
+flagged, not assumed either way.
+
+**Conclusion for now: blend stays shelved.** This was a "let's try one and see" experiment (owner, B-110's own
+framing repeated for blend) rather than a committed build target -- the result answers the question (no, it
+does not close for free alongside the RAM shrink and H0) without yet spending the time to find the exact path,
+which would be the real next step only if the owner wants to keep pursuing it (a targeted retime, following
+B-111/B-114/B-231's own proven technique, or `DSP_BLOCK_BALANCING` per KB-045). No card write from this
+result -- the fit that will actually go on the card is the no-blend one (B-235, timing-clean, seed 1), which
+this result does not affect or invalidate. VM staging (`~/tau-local/blend-test-s2-20260925`) left in place for
+reference, not cleaned up.
+
+### B-245 — Caught before the card: B-235's RBF physically only has 192 KB RAM, and NO firmware build fits yet
+**Date:** 2026-09-25
+**Evidence:** Owner approved installing B-235's RBF (proven timing-clean, contains B11's fix + the RAM-shrink
+RTL, does not contain H0's vblank CDC) to get B11's `OP_RRECT` conformance onto real hardware for the first
+time. Before writing anything to the card, re-read `tau_main_ram.sv`'s actual instantiation
+(`mp3_soc.v`: `tau_main_ram #(.WORDS_A(32768), .WORDS_B(16384), ...)` under `TAU_RAM_192K`) and confirmed
+this is not a parameterization firmware can toggle — **it is a synthesis-time RTL parameter that physically
+removes 64 KB of on-chip BRAM from the bitstream**, exactly why B-235's fit reports RAM Blocks 235/308 instead
+of the usual ~298-300/308. `fw/link.ld`'s own comment already named the danger directly: "the dangerous
+direction would be a 256 KB-linked image running on a NEW 192 KB bitstream, which this build never produces"
+— written as a reassurance that the situation couldn't arise, not as a runtime-checked guarantee. It can now:
+B-235 IS that new 192 KB bitstream. Checked `RAM_192K=1` against every actively-used firmware target
+(`player`, `player-diagnostic`, `player-library-check`, `player-library-diagnostic`,
+`player-library-diagnostic-profile`) — **all five fail to link** with the same "collides with reserved DMA
+buffers" error B-244 measured for `release` alone; none of today's firmware fits in 192 KB. Traced
+`tau_main_ram.sv`'s `g_split` region-select logic (`sel_b = addr[AW_A]`, region B indexed by only its own
+low 14 bits) to confirm the actual failure mode for a mismatched pair: not a clean crash, silent address
+aliasing into the wrong physical row — real data corruption, not a theoretical concern.
+
+**Held the install.** No firmware exists today that is both real/testable and fits within 192 KB, so there is
+no safe way to run B-235's RBF right now regardless of what firmware accompanies it. B-235's RBF and the
+RAM-shrink RTL itself remain exactly as good as B-235 already found them (timing-clean, real M10K reduction)
+— this finding is purely about the *pairing*, not a regression in the RTL work. The card was never touched;
+nothing installed. Next real step for this track is finishing the firmware trim (B-244 got `release` to
+~8.5 KB short; the other targets haven't been individually measured but are in the same range) until at least
+one real build links cleanly under `RAM_192K=1`, at which point that exact firmware+RBF pairing is what's
+safe to install — not before.
+
+### B-246 — Launched: B11 + H0 vblank WITHOUT the RAM shrink (sidesteps B-245's firmware-pairing blocker)
+**Date:** 2026-09-25
+**Evidence:** Owner: "let's move with what will give us the most functionality now and then fix stuff
+afterwards" -- rather than wait on the cold-code trim (B-244/B-245), staged a fit that drops
+`TAU_RAM_192K` entirely: the product-config + blit-engine bundle (`tools/blit_g3_qsf_append.txt`, the exact
+macro set B-134 already proved closes cleanly two days ago) plus `TAU_VBLANK=1` (H0), with B11's already-
+committed retiming fix (`40d3b56`) riding along in the ordinary `TAU_BLIT` compile -- no RAM-shrink RTL, no
+`TAU_BLIT_BLEND`. This sidesteps B-245's blocker entirely: with the RAM physically still 256 KB, every
+existing 256 KB-linked firmware build is safe to pair with it, no trim required. Expected to close at least
+as well as B-235 (which had MORE logic present, the RAM-shrink RTL, and still closed cleanly) -- reasoned
+from real fit history (B-134), not assumed without one. New `tools/blit_g3_vblank_qsf_append.txt` (B-134's
+proven bundle + `TAU_VBLANK=1`, documented inline). Staged via `git archive HEAD` (RTL tree fully committed,
+no stash needed -- confirmed `git status --short src/fpga/` clean before archiving; today's uncommitted
+firmware changes ride along harmlessly, Quartus never reads `fw/`), scp'd to a fresh VM directory
+(`rrect-vblank-noshrink-s1-20260925`), confirmed `q_rrect_cut`/`q_rrect_seg_addr` (B11's retiming registers)
+and the `TAU_VBLANK` `ifdef` both present in the staged copy before launching -- not assumed from the local
+commit alone. Found `quartus_sh` isn't on this VM's `PATH` in a fresh non-interactive session (same class of
+gap as B-132); located it via `QSYS_ROOTDIR` in `.bashrc`
+(`/home/taualpha/intelFPGA_lite/25.1std/quartus/bin/quartus_sh`). Launched (single seed, matching the
+"yes/no experiment" convention this session already uses for a config with strong prior evidence of closing),
+confirmed via `ps` as its own detached process, not a child of the SSH session. Result pending, typical
+50 min-1h45m. If clean: package with any current firmware build (no trim needed) and this becomes the first
+real hardware install of both B11 (`OP_RRECT`) and H0 (vblank MMIO) -- unblocking Helios H1's next real step
+(converting `fb_round_rect_on()`'s callers) without waiting on the RAM-shrink track at all.
+
+**Correction, same entry:** while fixing this up, found and repaired a document-structure bug in this file
+from an earlier turn today -- inserting B-243 using an anchor phrase that (unnoticed) matched partway through
+B-244's own body, not at its true end, split B-244's concluding paragraph away from its section and left it
+dangling after B-245's entry instead. Moved it back to directly follow B-244's own text; no content was lost
+or changed, only its position. Lesson for future edits to this file: verify an insertion anchor is the
+section's true final line (e.g. by reading a few lines past the phrase first), not just that the phrase
+itself is unique.
