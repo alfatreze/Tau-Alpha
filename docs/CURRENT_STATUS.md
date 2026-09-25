@@ -19,17 +19,43 @@ even if the draw engine itself is what's stuck" is itself what hangs. Leading hy
 works reliably, but only ever runs after `blit_probe_ensure()` has fired at least once (from
 `bt_begin()` or from drawing a meter-preview thumbnail in Settings) -- if the user reaches
 Diagnostics > Blit Test without ever seeing a meter thumbnail first, `bt_crumb_read()`'s access may
-be the very first CPU touch of this SDRAM window all boot. **Next, free, zero-engineering test:**
-visit a Settings screen with meter previews first, then open Blit Test, and see if the hang still
-occurs. If it doesn't explain it, the safe fix regardless of root cause is adding the same
-mailbox-write-then-readback preflight pattern `fw/player.c`'s `stress_window_preflight()` already
-uses, to `bt_crumb()`/`bt_crumb_read()`, before trusting the raw pointer.
+be the very first CPU touch of this SDRAM window all boot. **B-192 A/B-tested and ruled this out**:
+the identical hang occurs on pre-HarpMudd firmware, on the real shipped (non-ISSP) bitstream, and
+even right after a proven-passing Window Test -- it is a real, pre-existing, unconditional bug, not
+caused by anything built this session. Root cause, confirmed: `0xA0000000`-relative raw CPU
+pointers hang unconditionally (the draw engine's own framebuffer/guard region, below the CPU's
+actually-mapped SDRAM window which starts a full 1 MiB later at `PL_SDRAM_BASE`/`0xA0100000`).
+
+**B-193 fixed all three affected functions**: `bt_crumb()`/`bt_crumb_read()` (B-176's own
+checkpoint) relocated onto `PL_SDRAM_BASE`; `blit_probe()` rewritten to use the SDRAM mailbox
+instead of a raw pointer (its sentinel can't simply move -- `fb_cmd_addr` is hard-capped at 19 bits,
+so the draw engine can never reach `PL_SDRAM_BASE` at all); `set_thumb_flat_build()` (same bug, found
+proactively) rewritten to issue `fb_rect()` draw-engine commands instead of per-pixel CPU writes.
+Two secondary bugs found and fixed along the way in `blit_probe()`'s mailbox rewrite: an unverified
+partial byte-enable assumption (caused a false "not detected"), and a genuine cross-client race
+between the draw engine's SDRAM write and the CPU mailbox's own readback (fixed with an explicit
+settling delay). After all three: the Blit Test idle screen no longer hangs, `BLIT_READY()` passes,
+and `bt_begin()` completes into `bt_advance()`'s normal per-tick loop.
+
+**B-194: a new anomaly, not yet resolved.** Past all three fixes, the Blit Test itself now runs far
+longer than its fixed ~48-second design duration (`BT_OPS*BT_LEVELS*BT_WIN_S`) without completing,
+hanging on one instruction, or resetting -- live-monitored for 5+ minutes with the PC still visibly
+moving but the CPU-side checkpoint stuck reading exactly the same value the entire time, suggesting
+`bt_advance()` isn't being freshly re-entered as a new tick any more even though something is still
+executing. Diagnosis paused here at the owner's call ("we might well be here hours") rather than
+keep waiting live. Needs a new ISSP probe (`bt_op`/`bt_lvl`/`bt_at`/`bt_ops_done`) to pin down
+precisely -- not yet built.
+
 Two real JTAG/tooling gaps found and fixed along the way (B-189/B-190): loading a core through the
 Pocket's own menu silently overwrites a JTAG-loaded debug bitstream with the SD card's own `.rbf`,
 and `issp_read_probe_data`'s correct form is positional (`issp_read_probe_data $path`), not
-`-instance $path` (the latter silently returns the string `"error"` instead of raising). Read
-`docs/AUDIT_TRAIL.md` B-188 through B-191, and `docs/JTAG_DEBUG_ACCESS.md` section 6, before
-continuing this thread.
+`-instance $path` (the latter silently returns the string `"error"` instead of raising).
+
+**Uncommitted at session end:** `fw/blit_probe.inc`, `fw/settingsui.inc`, `fw/suite.inc` (all three
+B-193 fixes), plus `dist/Assets/tau/common/{tau.rom,tau-cold.bin}` (the shipped `release` target
+rebuilt clean with the same fixes, since it also sets `TAU_METER_THUMBS`). Card has the latest
+all-three-fixes build on `TAU_0_5_0_A_12`; other cores untouched. Read `docs/AUDIT_TRAIL.md`
+B-188 through B-194, and `docs/JTAG_DEBUG_ACCESS.md` section 6, before continuing this thread.
 
 **Earlier snapshot:** 2026-09-22. Tau **v0.4.0** is released and installed on the owner's card (media library, Phase G cold code,
 on-device diagnostics; two zips: TAU and TAU_DIAGNOSTIC). Full detail: `docs/SESSION_HANDOFF_2026-09-22_RELEASE_0.4.md`.

@@ -199,12 +199,20 @@ COLD_FN static void set_draw_thumb_soft(uint32_t x, uint32_t y, uint32_t viz)
 /* Phase F B8 firmware integration: VIZ_COUNT flat 56x32 palette-index buffers, one CLUT-blit
  * source per thumbnail, stashed in the same off-screen-row address space ART_STASH_Y already
  * uses (row*FB_STRIDE+col, never displayed past FB_H=360) -- not a new SDRAM region, the same
- * proven convention. Built ONCE, lazily, from the same RLE data set_draw_thumb_soft() decodes,
- * via the CPU's uncached SDRAM window (the same idiom blit_probe.inc already uses): ~19,712
- * individual word writes total (11 x 56 x 32), ~49 cycles each per this project's own A-094
- * uncached-access measurement, ~16 ms one-time -- paid only if/when Settings is ever opened, not
- * on every boot. After this, every redraw is one fb_clut_load() (8 writes) + one fb_cblit() (one
- * draw-engine command) instead of dozens of fb_rect calls. */
+ * proven convention. Built ONCE, lazily, from the same RLE data set_draw_thumb_soft() decodes.
+ *
+ * B-192 correction, 2026-09-25: this used to write each pixel via a raw CPU pointer at
+ * 0xA0000000+word_addr*2 -- the SAME broken idiom blit_probe.inc's sentinel used (B-191/B-192),
+ * hanging forever the first time this ever ran on real hardware (that address is the draw
+ * engine's own framebuffer/guard region, below the CPU's mapped SDRAM window, which starts a
+ * full 1 MiB later at PL_SDRAM_BASE). Unlike blit_probe()'s single sentinel word, a mailbox
+ * round-trip per pixel here (~21,504 individual writes total, VIZ_COUNT x 56 x 32) would cost
+ * far more than the original ~16ms one-time budget. Fixed properly instead: one fb_rect() draw-
+ * engine command per RLE run-segment (the exact same grouping set_draw_thumb_soft() already uses
+ * successfully for its own, proven-working software-fallback path) -- fb_rect() only ever issues
+ * MMIO writes (R_FB_ADDR/SIZE/COLOR/GO), never a CPU pointer into this region, so it reaches the
+ * stash rows correctly regardless. This also drops run-length from individual-word to
+ * one-command-per-run, faster than either the old raw-pointer loop or a mailbox rewrite would be. */
 #define THUMB_STASH_Y (ART_STASH_Y + ART_H)
 static uint8_t thumb_flat_ready;
 
@@ -221,17 +229,13 @@ COLD_FN static void set_thumb_flat_build(void)
                 uint32_t col = at % METER_THUMB_W, row = at / METER_THUMB_W;
                 uint32_t seg = METER_THUMB_W - col;
                 if (seg > left) seg = left;
-                uint32_t word_addr = (base_row + row) * FB_STRIDE + col;
-                for (uint32_t k = 0; k < seg; k++) {
-                    volatile uint16_t *w16 =
-                        (volatile uint16_t *)(uintptr_t)(0xA0000000u + ((word_addr + k) << 1));
-                    *w16 = (uint16_t)idx;
-                }
+                fb_rect(col, base_row + row, seg, 1u, (uint16_t)idx);
                 at += seg; left -= seg;
             }
             pos += n;
         }
     }
+    fb_wait();
     thumb_flat_ready = 1u;
 }
 

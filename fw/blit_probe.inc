@@ -19,10 +19,18 @@
  * comment says is never displayed (stride is 512 words/line, only 400 are shown), so this can
  * never corrupt or visibly flash a real pixel regardless of the result.
  *
- * Readback uses the same CPU-uncached-window idiom already proven elsewhere in this firmware
- * (the SDRAM stress test's `*(volatile uint16_t*)(0xA0000000u + (word_addr << 1))`, fw/player.c
- * around R_SDR_*): the draw engine and the CPU window address the same physical SDRAM, byte
- * offset = word address * 2.
+ * **B-192 correction, 2026-09-25: the raw CPU pointer this used to use here was never actually
+ * safe.** `0xA0000000` is the draw engine's OWN framebuffer/guard region (the first ~1 MiB of
+ * SDRAM -- `fb_cmd_addr` is hard-capped at 19 bits, so the draw engine can never even reach
+ * further in), which the CPU's uncached SDRAM window does NOT cover at all: that window starts a
+ * full 1 MiB later, at `PL_SDRAM_BASE` (0xA0100000, `fw/playlist.inc`). A raw CPU load/store below
+ * that hits no decoded range and the bus never gets an ACK -- it hangs forever, live-diagnosed via
+ * JTAG ISSP (docs/AUDIT_TRAIL.md B-191/B-192) tracing the exact stuck instruction to this
+ * function's own sentinel read. Fixed by using the SDRAM mailbox (R_SDR_ADDR/DATA/CTRL/RDATA/
+ * STATUS) instead, the same mechanism `fw/playlist.inc`'s `pl_sdram_prove()` already uses -- unlike
+ * a CPU pointer, the mailbox addresses SDRAM directly and reaches this region fine. Byte-enable
+ * `0b0011` (the low 16 bits of the 32-bit mailbox transaction) keeps the write to exactly the one
+ * halfword the original pointer touched, not its neighbour.
  *
  * Originally gated behind its own diagnostic-only macro (default off), from when nothing in this
  * firmware issued an operational OP_BLIT/OP_BAR/OP_SBLIT/OP_CBLIT command yet (confirmed by the
@@ -68,10 +76,19 @@ static void blit_probe(void)
                                                            * never touches R_BLT_IDX/R_BLT_DATA, same
                                                            * addressing convention fb_blit()/CT_BLT already
                                                            * use successfully on real hardware. */
-    volatile uint16_t *sentinel =
-        (volatile uint16_t *)(uintptr_t)(0xA0000000u + (probe_row2 << 1));
+    uint32_t t;
 
-    *sentinel = 0xDEADu;
+    /* Mailbox write, all four byte lanes -- byte_en=0b1111, exactly pl_sdram_prove()'s own
+     * proven 0x3F pattern (this project has no precedent anywhere for a PARTIAL byte_en
+     * write, so this doesn't guess at one). probe_row2 is already in 16-bit-SDRAM-word units,
+     * the same units R_SDR_ADDR takes; the write also touches the next word (probe_row2+1,
+     * unused scratch padding, harmless) since one mailbox transaction covers 32 bits. */
+    t = cycles();
+    REG(R_SDR_ADDR) = probe_row2; REG(R_SDR_DATA) = 0x0000DEADu;
+    REG(R_SDR_CTRL) = 0x3Fu;                                /* start, write, all lanes */
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u)
+        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) { blit_ready = 0u; return; }
 
     fb_wait();
     REG(R_FB_ADDR)  = probe_addr;
@@ -80,7 +97,29 @@ static void blit_probe(void)
     REG(R_FB_GO)    = FB_OP_BLIT;
     fb_wait();
 
-    blit_ready = (*sentinel != 0xDEADu) ? 1u : 0u;
+    /* fb_wait() only confirms the command was accepted into the draw engine's own dispatch
+     * FIFO, not that the underlying multi-cycle SDRAM write has actually landed -- this
+     * project's own measurements (A-094/A-100) cite up to ~380 cycles worst-case for a single
+     * SDRAM access. Give it time to settle before the mailbox readback, or an intermittent
+     * false "not detected" is possible (a genuine read-before-write-completes race between the
+     * draw engine's own SDRAM client and the CPU mailbox's separate one, both on the same
+     * single-port arbiter). */
+    t = cycles();
+    while ((uint32_t)(cycles() - t) < 512u) { }
+
+    t = cycles();
+    REG(R_SDR_ADDR) = probe_row2; REG(R_SDR_CTRL) = 0x3Du;  /* start, read, all lanes */
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u)
+        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) { blit_ready = 0u; return; }
+
+    /* Compare the full 32-bit readback against the full written pattern, not just one
+     * 16-bit half -- this project has no existing precedent pinning down which half of a
+     * 32-bit mailbox transaction maps to the lower-numbered SDRAM word, so don't guess.
+     * The draw engine's OP_BLIT only ever touches the probe_row2 pixel itself; if it
+     * changed, the full 32-bit value differs from what was written regardless of which
+     * half that pixel occupies. */
+    blit_ready = (REG(R_SDR_RDATA) != 0x0000DEADu) ? 1u : 0u;
 }
 
 /* B-162: run the probe at most once, on first actual need -- never at boot. */

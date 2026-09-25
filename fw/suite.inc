@@ -1014,11 +1014,24 @@ COLD_FN static void bt_checkpoint(const char *msg)
  * so it cannot hang even if the draw engine itself is what's stuck. Read back later from the
  * idle page (drawn through the ordinary, always-safe set_draw() dispatch, not synchronously) --
  * SDRAM content is expected to survive a forced Quit/reload (not explicitly re-initialised), so
- * the last value written before a hang should still be there on the next visit to this page. */
-#define BT_CRUMB_ADDR 482u
+ * the last value written before a hang should still be there on the next visit to this page.
+ *
+ * B-191/B-192 correction: the original base here, 0xA0000000, is NOT the CPU's mapped uncached
+ * SDRAM window -- it is the first 1 MiB of SDRAM, reserved for the draw engine's own framebuffer
+ * (tau_sdram_addr_decode.sv's own SDRAM_U_BASE is 0xA0100000, matching PL_SDRAM_BASE below, and
+ * fb_cmd_addr is hard-capped at 19 bits -- max ~1 MiB -- so the draw engine can never even reach
+ * past this boundary). A raw CPU load/store below 0xA0100000 hits no decoded range at all and the
+ * Wishbone bus never gets an ACK, hanging forever -- this was the actual root cause of the whole
+ * Blit Test hang investigated since B-166: this checkpoint mechanism, built specifically because
+ * it "cannot hang even if the draw engine itself is what's stuck," was hanging on its own address.
+ * Moved onto PL_SDRAM_BASE (a proven, working base -- playlist SDRAM, the Window Test's
+ * DG_SCRATCH, and the SDRAM stress pump all already use it successfully) at a fixed offset well
+ * clear of the playlist's own reserved bytes (kilobytes) and the stress pump's region (1-2 MiB
+ * further in) -- 64 KiB in is comfortably isolated from both. */
+#define BT_CRUMB_BASE (PL_SDRAM_BASE + 0x00010000u)
 static void bt_crumb(uint32_t step)
 {
-    volatile uint16_t *p = (volatile uint16_t *)(uintptr_t)(0xA0000000u + (BT_CRUMB_ADDR << 1));
+    volatile uint16_t *p = (volatile uint16_t *)(uintptr_t)BT_CRUMB_BASE;
     *p = (uint16_t)step;
     /* B-186: same checkpoint, also written to a plain MMIO register a JTAG ISSP probe can read
      * live regardless of whether the CPU itself is stuck -- the SDRAM crumb above needs the
@@ -1028,7 +1041,7 @@ static void bt_crumb(uint32_t step)
 }
 static uint32_t bt_crumb_read(void)
 {
-    volatile uint16_t *p = (volatile uint16_t *)(uintptr_t)(0xA0000000u + (BT_CRUMB_ADDR << 1));
+    volatile uint16_t *p = (volatile uint16_t *)(uintptr_t)BT_CRUMB_BASE;
     return *p;
 }
 
