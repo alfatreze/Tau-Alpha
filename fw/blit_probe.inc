@@ -127,7 +127,63 @@ static void blit_probe_ensure(void)
 {
     if (!blit_probed) { blit_probe(); blit_probed = 1u; }
 }
+
+/* Helios/Talos H1 (docs/HELIOS_SPEC.md section 10): the same class of probe as blit_probe()
+ * above, but for B11's OP_RRECT specifically -- a DIFFERENT bitstream boundary than BLIT_READY()
+ * answers. `OP_BLIT`/`OP_BAR` fit within the 3-bit cmd_op decode B-103 already widened, so
+ * BLIT_READY() says nothing about B11's own later widening to 4 bits (R_FB_GO bit 14, mp3_soc.v:
+ * `fb_cmd_op <= {dDAT_MOSI[14], dDAT_MOSI[2:0]}`). On the bitstream shipped as of this session
+ * (predates commit 1278cc7, B11), writing FB_OP_RRECT's bit 14 is silently dropped by the old
+ * 3-bit-wide decode, truncating cmd_op to 0 (OP_RUN) -- a single 1px line, not a hang, but a real,
+ * silent visual regression for `fb_round_rect`/`fb_round_rect_on` (section 10's own fail-safe
+ * requirement) if this were ever skipped. Same technique as blit_probe(): a small `h=2`, `radius=0`
+ * command into the same proven-safe off-screen columns (400-511) -- radius=0 means the corner
+ * engine never arms (`rrect_pending` requires a nonzero radius), so this degenerates to exactly
+ * the same "does h=2 actually write both rows" test BLIT_READY() already uses, just through the
+ * new opcode's own decode path instead of the old one. */
+static uint8_t rrect_ready;
+static uint8_t rrect_probed;
+#define RRECT_READY() (rrect_ready != 0u)
+
+static void rrect_probe(void)
+{
+    const uint32_t probe_addr = 480u;
+    const uint32_t probe_row2 = probe_addr + FB_STRIDE;
+    uint32_t t;
+
+    t = cycles();
+    REG(R_SDR_ADDR) = probe_row2; REG(R_SDR_DATA) = 0x0000DEADu;
+    REG(R_SDR_CTRL) = 0x3Fu;
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u)
+        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) { rrect_ready = 0u; return; }
+
+    fb_wait();
+    REG(R_FB_ADDR)  = probe_addr;
+    REG(R_FB_SIZE)  = (2u << 9) | 1u;                       /* h=2, w=1 */
+    REG(R_FB_COLOR) = 0u;                                   /* fg=bg=0 -> source offset 0 (a benign read) */
+    REG(R_FB_GO)    = FB_OP_RRECT;                          /* radius=0 -- no corner engine, plain h=2 fill */
+    fb_wait();
+
+    t = cycles();
+    while ((uint32_t)(cycles() - t) < 512u) { }
+
+    t = cycles();
+    REG(R_SDR_ADDR) = probe_row2; REG(R_SDR_CTRL) = 0x3Du;
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u)
+        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) { rrect_ready = 0u; return; }
+
+    rrect_ready = (REG(R_SDR_RDATA) != 0x0000DEADu) ? 1u : 0u;
+}
+
+static void rrect_probe_ensure(void)
+{
+    if (!rrect_probed) { rrect_probe(); rrect_probed = 1u; }
+}
 #else
 #define BLIT_READY() 0
 static void blit_probe_ensure(void) {}
+#define RRECT_READY() 0
+static void rrect_probe_ensure(void) {}
 #endif

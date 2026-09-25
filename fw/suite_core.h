@@ -15,7 +15,13 @@
 #endif
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
-       SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK };
+       SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK, SR_T_WVIZCFG };
+/* SR_T_WVIZCFG (B-218): a one-off export of the Winamp Bars/Scope config page's live wviz_cfg
+ * (fw/settingsui.inc), NOT part of a Check run -- built and shown on demand from Settings >
+ * Appearance > Meter > Configure > Export QR. 13 raw bytes, no sub-length prefix beyond the TLV's
+ * own: mode(u8: 0=bars,1=scope), preset_idx(u8: 0xFF=custom), bands(u8), ease_mode(u8: 0=instant
+ * 1=linear 2=exponential 3=spring), attack(u8), release(u8), peak_on(u8), peak_gravity(u8: 0=linear
+ * 1=gravity), peak_hold_ms(u16 LE), peak_fall(u8), scope_smooth(u8), scope_trail(u8). */
 /* SR_T_STACK (B-204, PHASE_F_SPEC.md section 4.1): u32 x 2 -- peak bytes used (the high-water mark,
  * measured by painting the whole stack region with a sentinel at boot and scanning for where it was
  * first disturbed), stack region size in bytes (currently 16384, `_stack_size` in fw/link.ld) so the

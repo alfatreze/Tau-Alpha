@@ -78,6 +78,14 @@ def main():
     # SR_T_STACK (B-204): peak bytes used (the stack-painting high-water mark) + the region size, u32 each.
     stack = D.parse_record(D.build_record(1, [(16, le(4, 2048, 16384))]))["entries"]["stack"]
     check("decode stack", stack == {"peak_bytes": 2048, "stack_size": 16384, "free_bytes": 14336}, stack)
+    # SR_T_WVIZCFG (B-218): a one-off Configure-page export, not part of a Check run -- 13 raw bytes,
+    # mixed widths (see fw/suite_core.h's own comment for the exact layout).
+    wviz_bytes = bytes([1, 0xFF, 12, 3, 60, 25, 1, 1]) + (250).to_bytes(2, "little") + bytes([30, 45, 20])
+    wviz = D.parse_record(D.build_record(0, [(17, wviz_bytes)]))["entries"]["wvizcfg"]
+    check("decode wvizcfg", wviz == {
+        "mode": "scope", "preset": None, "bands": 12, "ease_mode": "spring", "attack": 60, "release": 25,
+        "peak_on": True, "peak_gravity": True, "peak_hold_ms": 250, "peak_fall": 30,
+        "scope_smooth": 45, "scope_trail": 20}, wviz)
     # persisted words: fields at the documented bit positions
     w = [int(x, 16) for x in fw["WORDS"].split()]
     exp = [1 | 1 << 4 | 7 << 7 | 2 << 15, 0x0007 | 0x0008 << 15, 380 | 316 << 9 | 0 << 18 | 3 << 24, 154 | 0 << 12 | 18 << 18 | 3 << 24]

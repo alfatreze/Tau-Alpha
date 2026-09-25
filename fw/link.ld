@@ -1,7 +1,9 @@
 /* Firmware link map.
- * RAM is 256 KB of on-chip BRAM at 0x0000_0000 (cached). MMIO lives at
- * 0x8000_0000 and an uncached alias of this same RAM at 0xC000_0000 -- neither
- * is in the link map; firmware reaches them through volatile pointers.
+ * RAM is 256 KB of on-chip BRAM at 0x0000_0000 (cached) by default -- 192 KB
+ * on the opt-in RAM-shrink RTL (`TAU_RAM_192K`, docs/PHASE_F_SPEC.md section 4,
+ * docs/AUDIT_TRAIL.md B-223..B-235). MMIO lives at 0x8000_0000 and an uncached
+ * alias of this same RAM at 0xC000_0000 -- neither is in the link map;
+ * firmware reaches them through volatile pointers.
  *
  * Layout, low -> high:
  *   .text/.rodata/.data/.bss
@@ -15,7 +17,10 @@
  */
 
 MEMORY {
-	ram : ORIGIN = 0x00000000, LENGTH = 0x00040000   /* 256 KB */
+	ram : ORIGIN = 0x00000000, LENGTH = 0x00040000   /* 256 KB, the true physical maximum on every
+	                                                   * bitstream -- see _ram_limit below for the
+	                                                   * artificial, opt-in 192 KB ceiling instead
+	                                                   * of shrinking this region itself. */
 	/* A-103: uncached CPU window onto SDRAM (physical 1 MiB up). Only the playlist
 	 * buffers, 13,312 B, and only in TAU_PL_SDRAM builds; the section is empty
 	 * otherwise. NOLOAD: never in the ROM image, contents undefined at boot. */
@@ -93,7 +98,29 @@ SECTIONS {
 	. = ALIGN(16);
 	_heap_start = .;
 
-	_stack_top  = ORIGIN(ram) + LENGTH(ram);
+	/* RAM_192K: linked with `-Wl,--defsym=RAM_192K=1` (fw/build.sh's opt-in
+	 * override, same style as SDRAM_BUSY) caps the firmware's own usable
+	 * ceiling at 192 KB instead of the full 256 KB region -- the RAM-shrink
+	 * RTL's real benefit (docs/PHASE_F_SPEC.md section 4, timing-closed
+	 * B-235, not yet card-tested). Deliberately NOT done by shrinking the
+	 * `ram` MEMORY region's own LENGTH above: `DEFINED()` inside a MEMORY
+	 * block's LENGTH expression was tried first and silently had NO effect
+	 * in this toolchain (`riscv-none-elf-ld` from `xpack-riscv-none-elf-gcc-
+	 * 15.2.0`) -- both settings linked identical images with `_stack_top`
+	 * unchanged, caught only by checking the actual `nm` symbol values
+	 * after the build, not by any error. `DEFINED()` in an ordinary symbol
+	 * assignment (here) is the standard, well-supported form instead.
+	 *
+	 * A 192 KB-linked image is always safe to run on the OLD 256 KB
+	 * bitstream too (a smaller link fitting in less space than the physical
+	 * RAM provides is never a problem, just wastes the unused 64 KB) -- the
+	 * dangerous direction would be a 256 KB-linked image running on a NEW
+	 * 192 KB bitstream, which this build never produces, so no runtime
+	 * feature-detection is needed here the way PSRAM/blit-engine features
+	 * need BLIT_READY()/COLD_READY() style checks for the reverse case (old
+	 * firmware assuming a capability a bitstream lacks). */
+	_ram_limit  = DEFINED(RAM_192K) ? (ORIGIN(ram) + 0x00030000) : (ORIGIN(ram) + LENGTH(ram));
+	_stack_top  = _ram_limit;
 	_ring_start = _stack_top - _stack_size - _ring_size;
 
 	/* Separate landing zone for the periodic ID3 re-probe. It must NOT share
