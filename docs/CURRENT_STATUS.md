@@ -1,5 +1,10 @@
 # Current engineering status
 
+> **Latest (2026-09-26): read `docs/SESSION_HANDOFF_2026-09-26_ALPHA17.md` first.** 0.5.0-alpha.17 is on the test card (frame counter, hardware
+> spectrum bank, beam position, Chladni meter, fullscreen, presets, meter cleanup); its first hardware run decides the open items in that
+> document's section 2. Since then the cassette meter was removed and archived (next package: alpha.18). Release cores `TAU`/`TAU_DIAGNOSTIC`
+> are still v0.4.0. RAM shrink deferred, modularization parked, Winamp configurator parked.
+
 **MILESTONE, 2026-09-25 (B-197): the whole B-166..B-194 "Blit Test hangs" saga is fully resolved.**
 The test was never hanging. `bt_advance()`'s terminal branch (`fw/suite.inc`) set `bt_state` to
 `BT_DONE`/`BT_QR` on completion but never set `set_dirty` -- the one flag `fw/player.c:10882` gates

@@ -206,3 +206,12 @@ has been captured from real hardware as of this writing, see §6's own caveat), 
 own tag-17 branch if this table and that code ever disagree. Record what you verify, and what's still
 open, in your own `docs/FIRMWARE_SYNC.md` — that is the correct home for an Omega-side tracking
 checklist, not a second copy of this file.
+
+## Update 2026-09-26: meter list, retired slots, presets
+The `VIZ_*` enum stays append-only (the setting persists an INDEX) but the Settings list and the X cycle are no longer in enum order:
+`viz_order[]` in `fw/player.c` is Winamp Oscilloscope, Winamp Bars, Chladni, Bars, Waterfall, Phase Scope, Oscilloscope, VU, Waveform,
+Peak Dots, Spectrum. Retired slots keep their number and are ignored on restore: `VIZ_RETIRED_LEVELS` (2), `VIZ_RETIRED_MIRROR` (7,
+now also the SAVED form of Bars in its mirrored layout), `VIZ_RETIRED_EYE` (9), `VIZ_RETIRED_TAPE` (11, archived in
+`archive/cassette_meter/`). `VIZ_CHLADNI` is 14. Select+X cycles presets (Chladni 2, Winamp 5 each, Bars up/mirrored); Select+Y is the
+fullscreen toggle (Chladni only). The Meter slider max in `interact.json` is 14. Any generator or Tau Omega reader must use `viz_order[]`
+for list order and treat the retired numbers as "no meter".
