@@ -479,6 +479,30 @@ if ! "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -Os -ffreestanding         -I "
     exit 1
 fi
 
+# B-203: moved to cold code (PSRAM) when opted in, same TAU_G4>=2 tier art_decode() (fw/art.inc)
+# itself already uses -- it is picojpeg's ONLY caller, already COLD_READY()-gated at every one of
+# art_decode()'s own call sites in player.c, so picojpeg needs no gate of its own: it can only ever
+# be reached through that already-gated path. Lower risk than the meters (B-199..B-202): this
+# comment's own reasoning above already establishes picojpeg is never on the audio path, only a
+# one-time per-track-load decode with seconds of slack, not a ~26 ms per-frame budget. Vendored
+# source (third_party/picojpeg/picojpeg.c) is left untouched -- objcopy renames the whole object's
+# .text/.rodata to .cold_text/.cold_data after an ordinary compile, which fw/link.ld already
+# collects (the same output sections every other cold function/data already uses). ~11 KB of .text
+# moves (measured, not the ~8 KB estimate PHASE_F_SPEC.md cited before this was built).
+#
+# PICOJPEG_COLD defaults to 0 (off): not yet hardware-tested, so `release`'s default build must NOT
+# silently pick this up -- the same staged-rollout discipline every other G4 tier used (build it as
+# an explicit opt-in override first, prove it on a diagnostic build, only then flip the default).
+# Set PICOJPEG_COLD=1 to build the cold variant for testing.
+if [[ "${PICOJPEG_COLD:-0}" == "1" ]] && [[ "$STRESS_CFLAGS" == *"TAU_COLD_CODE=1"* ]]; then
+    if ! "$OBJCOPY" --rename-section .text=.cold_text --rename-section .rodata=.cold_data \
+            "$FW/picojpeg.o" > "$FW/build.log" 2>&1; then
+        cat "$FW/build.log" >&2
+        echo "*** picojpeg.o objcopy (cold-code section rename) FAILED ***" >&2
+        exit 1
+    fi
+fi
+
 if ! "$GCC" $CFLAGS "${INC[@]}" -T "$FW/link.ld" -o "$FW/fw.elf" "${SRCS[@]}" -lm \
         > "$FW/build.log" 2>&1; then
     grep -v "LOAD segment with RWX" "$FW/build.log" >&2 || true

@@ -15,7 +15,13 @@
 #endif
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
-       SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST };
+       SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK };
+/* SR_T_STACK (B-204, PHASE_F_SPEC.md section 4.1): u32 x 2 -- peak bytes used (the high-water mark,
+ * measured by painting the whole stack region with a sentinel at boot and scanning for where it was
+ * first disturbed), stack region size in bytes (currently 16384, `_stack_size` in fw/link.ld) so the
+ * decoder never has to hardcode that constant. Present on every Check run (not gated on CHK_DEV,
+ * unlike most `SR_T_*` extras) since it answers a safety question relevant to every build, not just
+ * developer diagnostics. */
 /* SR_T_DECPROF (B-088/B-089, docs/TEST_SUITE_SPEC.md section 11): u16 x 4 --
  * h_pct, i_pct, s_pct (MP3 Huffman/IMDCT/Subband, percent of the CT_AUD
  * window's real time, uncapped), r_pct (FLAC bit-reader share of channel 0's

@@ -75,6 +75,9 @@ def main():
     check("decode decsweep", rec["entries"]["decsweep"] == [
         {"track": 0, "title": "Trk A", "speed_pct": 100, "h_pct": 3, "i_pct": 11, "s_pct": 55, "r_pct": 0},
         {"track": 1, "title": "Trk B", "speed_pct": 125, "h_pct": 0, "i_pct": 0, "s_pct": 0, "r_pct": 68}], rec["entries"].get("decsweep"))
+    # SR_T_STACK (B-204): peak bytes used (the stack-painting high-water mark) + the region size, u32 each.
+    stack = D.parse_record(D.build_record(1, [(16, le(4, 2048, 16384))]))["entries"]["stack"]
+    check("decode stack", stack == {"peak_bytes": 2048, "stack_size": 16384, "free_bytes": 14336}, stack)
     # persisted words: fields at the documented bit positions
     w = [int(x, 16) for x in fw["WORDS"].split()]
     exp = [1 | 1 << 4 | 7 << 7 | 2 << 15, 0x0007 | 0x0008 << 15, 380 | 316 << 9 | 0 << 18 | 3 << 24, 154 | 0 << 12 | 18 << 18 | 3 << 24]
