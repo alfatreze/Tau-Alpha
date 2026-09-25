@@ -37,14 +37,18 @@
 #define CHK_BASE    7u                                      /* the USER CHECK: test ids 0..6 */
 #if TAU_DIAG_TESTS && TAU_SDRAM_STRESS_WINDOW               /* Diagnostic Build: STANDARD and FULL add stress and a soak (ids 7..10) */
 #define CHK_DEV     1
+#if TAU_COLDFRAME_ON
+#define CHK_MAX     15u    /* B-199: CT_COLDFRAME is id 14, the last id sp_t's 15-bit mask can hold */
+#else
 #define CHK_MAX     14u
+#endif
 #else
 #define CHK_DEV     0
 #define CHK_MAX     7u
 #endif
 static void set_close(void);
 enum { CK_IDLE = 0, CK_RUN, CK_DONE, CK_QR };
-enum { CT_SDW = 0, CT_SDC, CT_PSW, CT_COLD, CT_LIB, CT_AUD, CT_START, CT_R1, CT_R2, CT_R3, CT_SOAK, CT_TRK, CT_CX, CT_BLT };   /* test ids -- CT_BLT (B-127) is 13, still inside sp_t's 15-bit pass/fail masks (ids 0..14) */
+enum { CT_SDW = 0, CT_SDC, CT_PSW, CT_COLD, CT_LIB, CT_AUD, CT_START, CT_R1, CT_R2, CT_R3, CT_SOAK, CT_TRK, CT_CX, CT_BLT, CT_COLDFRAME };   /* test ids -- CT_BLT (B-127) is 13; CT_COLDFRAME (B-199) is 14, the LAST id sp_t's 15-bit pass/fail mask (ids 0..14) can ever hold */
 #define CHK_TRK_N    10u                                    /* track changes in the track-change test */
 #define CHK_STRESS_S 30u                                    /* seconds per stress level */
 /* B-127: the blit-storm scratch strip -- framebuffer columns 400-511 of every displayed row (never shown;
@@ -84,7 +88,7 @@ static uint16_t chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r;
 
 /* All text of the page in one cold blob (NUL separated), fetched by index. */
 enum { CS_N0 = 0, CS_PASS = 7, CS_FAIL, CS_SKIP, CS_NA, CS_INTRO = 11, CS_RUNNING = 20, CS_H_IDLE, CS_H_RUN, CS_H_DONE, CS_TITLE,
-       CS_DOTS, CS_S, CS_ONEF, CS_MANYF, CS_OKP, CS_OKALL, CS_VER, CS_RUNL, CS_SHOT, CS_X0, CS_PROF = CS_X0 + 7 /* B-127: +1 for BLIT STORM */, CS_PROFL = CS_PROF + 4, CS_SOAKL, CS_LVLL, CS_H_DEV, CS_TENTH };
+       CS_DOTS, CS_S, CS_ONEF, CS_MANYF, CS_OKP, CS_OKALL, CS_VER, CS_RUNL, CS_SHOT, CS_X0, CS_PROF = CS_X0 + 8 /* B-127: +1 for BLIT STORM; B-199: +1 for COLD FRAME */, CS_PROFL = CS_PROF + 4, CS_SOAKL, CS_LVLL, CS_H_DEV, CS_TENTH };
 COLD_DATA static const char chk_blob[] =
     "SDRAM WINDOW\0" "SDRAM SPEED\0" "PSRAM WINDOW\0" "COLD CODE\0" "LIBRARY\0" "PLAYBACK\0" "STARTUP\0"
     "PASS\0" "FAIL\0" "SKIPPED\0" "N/A\0"
@@ -93,7 +97,7 @@ COLD_DATA static const char chk_blob[] =
     "RUNNING\0" "A START   B BACK\0" "B STOP\0" "A QR CODE   Y AGAIN   B BACK\0" "CHECK\0"
     "...\0" " S\0" " CHECK FAILED\0" " CHECKS FAILED\0" "PASSED (PLAY MUSIC FOR ALL)\0" "ALL CHECKS PASSED\0"
     "VERSION \0" "   RUN \0" "MENU+START SCREENSHOT   B BACK\0"
-    "STRESS R1\0" "STRESS R2\0" "STRESS R3\0" "SOAK\0" "TRACK CHANGES\0" "COLD X20\0" "BLIT STORM\0"
+    "STRESS R1\0" "STRESS R2\0" "STRESS R3\0" "SOAK\0" "TRACK CHANGES\0" "COLD X20\0" "BLIT STORM\0" "COLD FRAME\0"
     "USER CHECK\0" "STANDARD\0" "FULL\0" "ENDURANCE\0"
     "PROFILE  \0" "SOAK LENGTH  \0" "SOAK LEVEL  R\0" "A START  B BACK  UP DOWN ROW  L R CHANGE\0" "/10";
 COLD_TEXT static const char *chk_s(uint32_t i)
@@ -154,10 +158,20 @@ COLD_TEXT static void chk_set(uint32_t ok, uint32_t v) { chk_res[chk_step] = (ui
 
 /* Steps after the seven base checks, per profile (0 USER CHECK, 1 STANDARD, 2 FULL, 3 ENDURANCE).
  * B-127 adds CT_BLT to all three dev profiles per PHASE_F_SPEC.md section 12.1 ("Add to STANDARD,
- * FULL and ENDURANCE"), widening the row from 6 to 7. */
+ * FULL and ENDURANCE"), widening the row from 6 to 7. B-199..B-201 (PHASE_F_SPEC.md sections 4.2-4.3)
+ * add CT_COLDFRAME right after CT_BLT in the same three profiles, but only when TAU_COLDFRAME_ON
+ * (either the one-off synthetic-probe experiment, or the real G4-step-4 conversion it now also
+ * permanently guards) -- every build below that stays at the original width, CT_COLDFRAME's id
+ * simply never reachable. */
+#if TAU_COLDFRAME_ON
+COLD_DATA static const uint8_t chk_ex[4][8] = { { 0 }, { CT_TRK, CT_CX, CT_R1, CT_R2, CT_R3, CT_BLT, CT_COLDFRAME, 0 },
+                                                { CT_TRK, CT_CX, CT_R1, CT_R2, CT_R3, CT_SOAK, CT_BLT, CT_COLDFRAME }, { CT_SOAK, CT_BLT, CT_COLDFRAME, 0, 0, 0, 0, 0 } };
+COLD_DATA static const uint8_t chk_exn[4] = { 0, 7, 8, 3 };
+#else
 COLD_DATA static const uint8_t chk_ex[4][7] = { { 0 }, { CT_TRK, CT_CX, CT_R1, CT_R2, CT_R3, CT_BLT, 0 },
                                                 { CT_TRK, CT_CX, CT_R1, CT_R2, CT_R3, CT_SOAK, CT_BLT }, { CT_SOAK, CT_BLT, 0, 0, 0, 0, 0 } };
 COLD_DATA static const uint8_t chk_exn[4] = { 0, 6, 7, 2 };
+#endif
 COLD_TEXT static uint32_t chk_id(uint32_t step) { return step < CHK_BASE ? step : chk_ex[chk_prof][step - CHK_BASE]; }
 
 #if CHK_DEV
@@ -325,6 +339,34 @@ COLD_TEXT static int chk_do(uint32_t id)
             chk_set(late == 0u ? SR_PASS : SR_FAIL, busy_permille | (chk_blt_full ? 0x10000u : 0u));
         }
         break;
+#if TAU_COLDFRAME_ON
+    case CT_COLDFRAME:  /* B-199, PHASE_F_SPEC.md section 4.2: does calling a synthetic cold probe once per
+                          * ui_draw_dynamic() call (~38 Hz, exactly the real "meters go cold" question) ever
+                          * cost enough to cause a late underrun. coldframe_tick() (fw/cold.inc) already runs
+                          * unconditionally at that rate whenever this macro is on; this test only arms the
+                          * accumulator window and reads it back at close, the same shape as CT_BLT. */
+        if (!chk_at) {
+            if (!track_hz || paused || stopped) { chk_set(SR_NA, 0); break; }   /* needs real playback, like CT_AUD/CT_BLT */
+            chk_u0 = pcm_under_n;
+            coldframe_calls = 0u; coldframe_cyc_sum = 0u; coldframe_cyc_max = 0u; coldframe_cyc_min = 0xFFFFFFFFu;
+            chk_at = (cycles() + CHK_STRESS_S * CLK_HZ) | 1u; chk_val[chk_step] = CHK_STRESS_S;
+            return 0;
+        }
+        if ((int32_t)(cycles() - chk_at) < 0) { chk_val[chk_step] = (uint32_t)((int32_t)(chk_at - cycles()) / (int32_t)CLK_HZ + 1); return 0; }
+        {
+            uint32_t late = pcm_under_n - chk_u0;
+            /* Worst single-call cost seen over the window, full 32 bits -- sr_test()'s value field
+             * is a plain uint32 (fw/suite_core.h), not 16 bits; an earlier cut of this code capped
+             * it to 0xFFFF for no real reason and saturated on the very first COLDFRAME_BIG run
+             * (B-200 addendum: 65,535 exactly, the cap firing, not the real number). The
+             * safety-relevant number is the worst single call (did any one spike badly), not the
+             * average; min/avg stay in the plain globals for now (coldframe_cyc_min/_sum/_calls),
+             * readable over JTAG or a future decoder extension if this experiment graduates past a
+             * one-off measurement. */
+            chk_set(late == 0u ? SR_PASS : SR_FAIL, coldframe_cyc_max);
+        }
+        break;
+#endif
     case CT_SOAK:                                               /* the Diagnostics soak; ENDURANCE adds a cold-code test a minute */
         if (!chk_at) {
             stress_set_level(0u); stress_set_level(chk_lvl);

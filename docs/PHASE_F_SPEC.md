@@ -182,6 +182,135 @@ driven to its floor as features landed (4,096 B at worst, before Phase G). It is
 
 `RAM_WORDS` is already a `localparam`, so reverting is a one-line change plus a build.
 
+### 4.2 Per-audio-frame cold-code measurement — scoped 2026-09-25, not yet built
+
+**The conflict this resolves.** `fw/cold.inc` states, as a deliberate rule written during Phase G1
+(commit `c693044`, 2026-09-21): *"Nothing that runs per audio frame may be cold."* `ui_draw_dynamic()`
+(the meter/visualiser draw, section 4's whole "meters go cold" premise) runs on exactly that path —
+confirmed by its own call sites, gated on `FL_UI_PERIOD = CLK_HZ / 38` (`fw/player.c`), i.e. about
+every 26.3 ms, ~38 Hz, not literally once per decoded MP3/FLAC frame but close enough in spirit that
+the rule plainly means to cover it. **This rule predates the blit engine by a full day** (Phase G1
+landed 2026-09-21, Phase F/the blit engine started 2026-09-22) and was written when PSRAM
+instruction-fetch cost against the audio decode budget was a total unknown -- it reads as a
+conservative default, not a measured limit. It has never been re-examined since real numbers
+existed. Before either converting `ui_draw_dynamic()` or accepting the shrink is foreclosed, measure.
+
+**What is already known, not re-derived:**
+- PSRAM instruction fetch is a genuinely separate bus/arbiter from the audio path's SDRAM traffic
+  (`tau_psram_bus`, its own two-client arbiter -- B-047), so the risk is CPU stall time competing with
+  the decode loop's own deadline, not bus contention with audio DMA directly.
+- A cold cache-line-fill costs **~31.6 cycles/word**, hardware-confirmed (B-047 sim, B-054 hardware,
+  a 30-minute soak with 0 failures) -- but that was measured for menu/settings/library code, entered
+  rarely, never for something called ~38 times a second.
+- The I-cache is 4 KiB / 128 lines, direct-mapped (section 1's M10K map). A cold function that fits
+  inside it and isn't evicted between calls should pay the ~31.6 cycles/word cost **once**, then run
+  at full (BRAM-equivalent) speed on every subsequent call until something else evicts those lines.
+  `fw/cold.inc`'s own `cold_big` (3,000 instructions / 12 KB, deliberately 3x the I-cache) exists
+  specifically to force a refill on every call, as the worst-case reference point.
+
+**The real open question is eviction, not raw fetch cost:** does anything else run between two
+consecutive `ui_draw_dynamic()` calls (other cold code -- menus, library browsing, the Check, the
+Decode Sweep) that would evict its lines and force a refill on the very next meter draw, turning a
+one-time cost into a sustained ~38 Hz one? Idle playback (nothing else touching cold code) is the
+best case; browsing the library or opening Settings while a track plays (G4's own known-risky case,
+already flagged elsewhere in this document as "not otherwise regression-tested") is very plausibly
+the worst case.
+
+**Proposed measurement, before any real conversion:**
+1. Two synthetic `COLD_TEXT` probes, not the real `ui_draw_dynamic()` yet: one sized to roughly match
+   the blit-converted plain-bars draw path's own instruction count (small, expected to fit and stay
+   resident in the I-cache), one reusing the existing `cold_big` shape (12 KB, guaranteed refill every
+   call) as the deliberate worst case. Call one of them from the *same* call sites `ui_draw_dynamic()`
+   already uses (behind a new, default-off diagnostic macro, so the real feature is untouched), timed
+   with `cycles()` around the call exactly like every other `SR_T_*`/`CT_*` Check measurement in this
+   codebase.
+2. A new Check test (`CT_COLDFRAME`, alongside `CT_BLT`'s own convention) reporting min/avg/max cycles
+   per call over a real playback window, plus the existing late-underrun verdict machinery -- so a
+   real regression fails the same objective way every other test here does, not a one-off eyeballed
+   number.
+3. Run it under the worst-case eviction scenario above (idle playback first, then browse-while-playing
+   with the library/settings open concurrently) -- the exact profile section 4.1 already prescribes for
+   the RAM-shrink safety gate, reused rather than invented fresh.
+4. **Predictions, written down before running, per the standing discipline:** idle playback shows the
+   small probe's cost amortize to near-zero after the first call (a few cycles of overhead, no refill);
+   the 12 KB worst-case probe pays the full ~31.6 cycles/word refill on *every* call (~94,800 cycles /
+   ~1.58 ms per call at 60 MHz, out of a 1,578,947-cycle/26.3 ms budget -- ~6%, likely tolerable alone
+   but the real test is combined with everything else the decode loop already does); browse-while-
+   playing is the case most likely to force repeated evictions and is where a real problem, if one
+   exists, should show up first.
+5. **Gate:** if the small probe's steady-state cost stays negligible and even the worst-case probe
+   never produces a late underrun across the full test matrix, `cold.inc`'s blanket rule can be
+   narrowed (e.g. "small cold functions that fit the I-cache are fine on the per-frame path; large
+   ones are not") and the real `ui_draw_dynamic()` conversion can proceed with a permanent `CT_COLDFRAME`-
+   style regression test guarding it forever after, the same way `CT_BLT` now guards the blit engine's
+   own SDRAM traffic. If it fails, the rule stands as written and the RAM shrink needs a different
+   ~29 KB source (font-to-PSRAM's own +12 blocks, section 3, is independent of this question entirely
+   -- it moves draw-engine *data* through the existing hardware PSRAM window, not CPU cold *code*, so
+   none of this applies to it).
+
+**Built and measured, 2026-09-25 (B-200).** Both probes and `CT_COLDFRAME` built exactly as scoped
+(gated behind default-off `TAU_COLD_FRAME_PROBE`/`COLDFRAME_BIG`, zero cost in any real build). Real
+hardware results, both isolated (idle playback, not yet under the browse-while-playing worst case):
+
+| Probe | Worst-case cycles | % of 26.3 ms budget | Late underruns |
+|---|---|---|---|
+| Small (`cold_frame_small`, 100 instructions, I-cache-resident) | 3,309 | ~0.21% | 0 |
+| Big (`cold_big`, 3,000 instructions, guaranteed refill every call) | **94,801** | ~6% | 0 |
+
+The big-probe number matches this section's own prediction (~94,800 cycles) to within 1 cycle -- the
+31.6-cycles/word model (B-047/B-054) holds exactly, not just approximately. **Even the deliberately
+worst physically-plausible case -- a function 3x oversized for the I-cache, forced to refill on
+every single one of ~38 calls/second, sustained 30 seconds -- produced zero late underruns.** This
+does not survive as a blanket "nothing per audio frame may be cold" rule; at minimum it needs
+narrowing to something like "a cold function whose cost is within the measured margin here is fine."
+
+**Not yet done at the time, the real remaining gate:** both runs measured the synthetic probe in
+isolation against ordinary playback -- neither tested the browse-while-playing scenario (Settings/
+Library open while a track plays) this section itself flagged as the likely real eviction case,
+where OTHER cold code (menu drawing, library browsing) could contend for the same I-cache lines the
+meter draw needs, turning an occasional refill into a sustained one.
+
+### 4.3 Browse-while-playing (guaranteed-eviction) measurement — scoped and built 2026-09-25
+
+Driving real UI navigation programmatically (synthetic key edges into `lib_ui_input()`/`set_input()`,
+risking visible on-screen state changes mid-Check) is fragile and roundabout for what's actually being
+asked: does something ELSE cold running immediately before a meter draw force that draw back to a
+cold miss, and does that cost compound into anything worse than a plain refill (direct-mapped-cache
+thrashing, not just occasional cold misses). Simulating the interleaving directly answers this without
+touching real navigation: a new build toggle, `COLDFRAME_EVICT`, makes `coldframe_tick()` call
+`cold_big()` **untimed and discarded** immediately before the timed probe call -- `cold_big` is
+already guaranteed to evict the entire I-cache (3x its capacity by construction), so this reproduces
+exactly what "another cold function just ran" does to the cache, worse than realistic browsing would
+(real browsing doesn't evict on literally every single ~38 Hz tick the way this forces). If the timed
+small probe's cost under forced eviction stays close to its own known cold-miss cost (~3,160 cycles,
+100 instructions x 31.6 cycles/word) rather than something larger, that rules out pathological
+thrashing beyond ordinary refill cost. **Predictions, written down before running:** the evicted small
+probe should land close to 3,300-3,400 cycles (matching the already-measured near-cold-start number,
+B-200's small-probe run, almost by coincidence already close to a full refill); no late underruns,
+since even `cold_big` alone at ~94,801 cycles/call already passed clean.
+
+**Measured, 2026-09-25 (B-201): 3,067 cycles, PASS, 0 late underruns** -- matching the prediction and,
+more importantly, matching the isolated (non-evicted) small-probe result (3,309) closely enough to
+rule out cache-thrashing amplification: forcing a full eviction before every single call does not
+push the cost above the function's own ordinary cold-miss cost. **The full measurement matrix is
+complete:**
+
+| Scenario | Worst-case cycles | Late underruns |
+|---|---|---|
+| Small probe, idle playback | 3,309 | 0 |
+| Small probe, forced eviction every call | 3,067 | 0 |
+| Big probe, always-cold by construction | 94,801 | 0 |
+
+**Conclusion: `cold.inc`'s blanket "nothing per audio frame may be cold" rule does not survive
+contact with these numbers.** Every scenario this measurement was built to stress -- ordinary
+operation, the theoretical worst single-call cost, and adversarial forced-eviction interleaving --
+produced zero late underruns. This is evidence, not a hopeful assumption. **Recommended next steps:**
+(1) narrow `cold.inc`'s rule to something evidence-based rather than a blanket ban; (2) convert the
+real `ui_draw_dynamic()` to `COLD_FN`, keeping a `CT_COLDFRAME`-descended permanent regression test
+the way `CT_BLT` now permanently guards the blit engine's own SDRAM traffic, so a future regression
+(a much bigger meter mode added later, say) is caught automatically rather than assumed safe forever
+from this one measurement.
+
 ## 5. Blit engine — feature spec
 
 Existing engine, for reference [SRC]: opcodes `RUN`/`RECT` (flat fill), `CHAR` (AA glyph, coverage-blended

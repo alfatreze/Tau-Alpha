@@ -397,6 +397,48 @@ sequencer shape — the one genuinely new wrinkle is a *data-dependent* source-c
 other opcode's fixed one-word-per-pixel/row rate), which needs its own mutation-test design, not a copy of an
 existing hook. Full design: `docs/PHASE_F_SPEC.md` section 5's B10 write-up.
 
+**MILESTONE, 2026-09-25 (B-202 addendum): hardware-confirmed.** First real run on `TAU_DEV_47`:
+`CT_COLDFRAME` **PASSED, 27,308 cycles worst-case** (~455 microseconds, ~1.73% of the 26.3 ms
+budget) for the real `ui_draw_dynamic_cold()`, 0 late underruns, `audio_full: true`. Higher than the
+tiny synthetic probe (expected -- real function, real visualizer code) but well within budget with
+real margin. G4 step 4 is functionally proven on real audio playback. Next: an ENDURANCE soak before
+considering promoting `G4=3` to release's default.
+
+**MILESTONE, 2026-09-25 (B-202): the real meter/cold-code conversion is built.** `ui_draw_dynamic()`
+split into a thin hot wrapper and `ui_draw_dynamic_cold()` (`COLD_FN3`, a new G4 step 4 gated on
+`TAU_G4 >= 3`), with the exact same `COLD_READY()` fail-safe every other G4 step uses and `CT_COLDFRAME`
+now permanently measuring the real function (not just the synthetic probes B-199-201 built it with).
+Built and confirmed: `G4=3` heap gap **23,440 -> 42,960 B (+19,520 B)**, matching the ~17-20 KB
+"meters" estimate almost exactly. `release` stays `G4=2` (untouched functionally; a 400 B code-size
+cost from the wrapper split itself, not a behavior change). **Not yet hardware-tested** -- next step
+is installing a `G4=3` build and running `CT_COLDFRAME` for real numbers on the actual function, plus
+an extended soak, before considering promoting this tier to release's default.
+
+**MILESTONE, 2026-09-25 (B-199/B-200/B-201): the M10K/RAM-shrink track's cold-code question is fully
+measured, and the answer is clean.** Three scenarios, all hardware-measured over real 30 s playback
+windows at `ui_draw_dynamic()`'s own real ~38 Hz call rate: a small I-cache-resident probe under
+ordinary idle playback (3,309 cycles worst-case), the same small probe under a forced full-eviction-
+every-call worst case simulating browse-while-playing (3,067 cycles -- no thrashing amplification),
+and `cold_big`'s deliberate always-cold worst case (94,801 cycles, matching the written prediction to
+within 1 cycle). **All three PASS, zero late underruns.** This does not support `cold.inc`'s blanket
+"nothing per audio frame may be cold" rule -- it was written a day before the blit engine existed and
+has now been tested against every scenario it was meant to guard against. Recommended next: narrow
+the rule's wording, then convert the real `ui_draw_dynamic()` to `COLD_FN` with a permanent
+`CT_COLDFRAME`-descended regression test, the same way `CT_BLT` guards the blit engine's own SDRAM
+traffic. `docs/PHASE_F_SPEC.md` sections 4.2-4.3 have the full numbers and reasoning.
+
+**M10K/RAM-shrink track, 2026-09-25 (B-199): a real conflict found and a measurement scoped, not yet
+resolved.** Continuing the track after B-197/B-198 unblocked it, found that `fw/cold.inc`'s own
+Phase G1 rule ("nothing that runs per audio frame may be cold") directly forbids the planned
+`ui_draw_dynamic()` COLD_FN move -- a real conflict between two of this project's own documented
+decisions, not a new external constraint. The rule predates the blit engine by a day and was written
+against a total unknown; it has never been re-measured against real PSRAM-fetch numbers that now
+exist (B-047/B-054). `docs/PHASE_F_SPEC.md` section 4.2 scopes a concrete measurement (two synthetic
+cold probes, a new `CT_COLDFRAME` Check test, run under idle playback and the browse-while-playing
+worst case) to settle whether the rule can be narrowed before either converting the real meter code
+or accepting the shrink is off the table. Not yet built. Font-to-PSRAM (+12 blocks, section 3) is
+confirmed independent of this question and remains a standing, unstarted option either way.
+
 **M10K/RAM-shrink track, 2026-09-24 — scoped, held, now unblocked (2026-09-25, B-197).** Owner asked whether
 it's safe to move ahead. Found and documented the real gate (`docs/PHASE_F_SPEC.md` section 4): meters must go
 cold before the shrink, and that needs the meter drawing rewritten to use the blit engine first (a much smaller
