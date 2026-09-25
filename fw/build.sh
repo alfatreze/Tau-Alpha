@@ -210,7 +210,7 @@ player-library-check)
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     OUT="$ROOT/work/diagnostics/library-check"
-    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1 -DTAU_LIBRARY=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-2}"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1 -DTAU_LIBRARY=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-3}"
     COLD_PACK=1
     HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB        # release-style build: keep at least 8 KiB of heap gap
     ;;
@@ -230,7 +230,7 @@ release)
       "$FW/picojpeg.o" "$FW/flac.o"
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
-    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1 -DTAU_LIBRARY=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_G4=${G4:-2}"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_METER_THUMBS=1 -DTAU_LIBRARY=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_G4=${G4:-3}"
     COLD_PACK=1
     HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB
     ;;
@@ -280,7 +280,7 @@ player-library-diagnostic)
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     OUT="$ROOT/work/diagnostics/library-diagnostic"
-    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_LIBRARY=1 -DTAU_METER_THUMBS=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-2}"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_LIBRARY=1 -DTAU_METER_THUMBS=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-3}"
     COLD_PACK=1
     HEAP_MIN=4096        # developer build: the tests may use the space, never below 4 KiB
     ;;
@@ -307,7 +307,7 @@ player-library-diagnostic-profile)
     # Kept opt-in, not a default, because R_SDR_BUSY reads a hardwired 0 on any OTHER bitstream
     # (mp3_soc.v gates it on SDRAM_BUSY_ENABLE) -- turning this on against the wrong bitstream
     # would report a real-looking but false "0% busy" instead of CT_BLT's own N/A sentinel.
-    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_LIBRARY=1 -DTAU_METER_THUMBS=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-2} -DMP3_PROFILE=1 -DFLAC_PROFILE=1 -DTAU_SDRAM_BUSY=${SDRAM_BUSY:-0}"
+    STRESS_CFLAGS="-DTAU_SETTINGS_UI=1 -DTAU_PL_SDRAM=1 -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAG_INFO=1 -DTAU_DIAG_TESTS=1 -DTAU_SDRAM_STRESS=1 -DTAU_SDRAM_STRESS_WINDOW=1 -DTAU_STRESS_HUD=1 -DTAU_COLD=1 -DTAU_COLD_CODE=1 -DTAU_LIBRARY=1 -DTAU_METER_THUMBS=1 -DTAU_CHECK=1 -DTAU_G4=${G4:-3} -DMP3_PROFILE=1 -DFLAC_PROFILE=1 -DTAU_SDRAM_BUSY=${SDRAM_BUSY:-0}"
     FLAC_O_CFLAGS="-DFLAC_PROFILE=1"
     COLD_PACK=1
     HEAP_MIN=4096
@@ -442,6 +442,19 @@ esac
 # placing developer contention behavior in the normal TAU artifact.
 CFLAGS="$CFLAGS $STRESS_CFLAGS"
 
+# RAM_192K=1 (default 0, every target): links against 192 KB instead of 256 KB (fw/link.ld's
+# _ram_limit) -- the RAM-shrink RTL's own real benefit, timing-closed B-235, not yet card-tested.
+# Applied here globally rather than per-target-case, so it always reaches the link step
+# regardless of which target is chosen (an earlier version added this only to
+# player-library-diagnostic-profile's own STRESS_CFLAGS and it silently did nothing for
+# `release` -- caught only by comparing `nm` symbols after the build, not by any error).
+# Always safe to combine with any target: a 192 KB-linked image still runs fine on the current
+# 256 KB bitstream (see fw/link.ld's own comment on _ram_limit), so this is purely opt-in
+# testing, not a bitstream-mismatch hazard.
+if [[ "${RAM_192K:-0}" == "1" ]]; then
+    CFLAGS="$CFLAGS -Wl,--defsym=RAM_192K=1"
+fi
+
 # A specialised target may redirect OUT away from the release Assets folder.
 # Create it after target selection so objcopy never fails on a missing staging
 # directory (the first sdram-diag build exposed the old ordering).
@@ -490,11 +503,10 @@ fi
 # collects (the same output sections every other cold function/data already uses). ~11 KB of .text
 # moves (measured, not the ~8 KB estimate PHASE_F_SPEC.md cited before this was built).
 #
-# PICOJPEG_COLD defaults to 0 (off): not yet hardware-tested, so `release`'s default build must NOT
-# silently pick this up -- the same staged-rollout discipline every other G4 tier used (build it as
-# an explicit opt-in override first, prove it on a diagnostic build, only then flip the default).
-# Set PICOJPEG_COLD=1 to build the cold variant for testing.
-if [[ "${PICOJPEG_COLD:-0}" == "1" ]] && [[ "$STRESS_CFLAGS" == *"TAU_COLD_CODE=1"* ]]; then
+# PICOJPEG_COLD defaults to 1 (on): promoted 2026-09-25 (B-213) after TAU_DEV_47's ENDURANCE soak
+# hardware-confirmed it alongside G4=3 (0 failures across all 10 checks, including a 30s Blit storm
+# and Cold frame run together). Set PICOJPEG_COLD=0 to build the pre-promotion (BRAM) variant.
+if [[ "${PICOJPEG_COLD:-1}" == "1" ]] && [[ "$STRESS_CFLAGS" == *"TAU_COLD_CODE=1"* ]]; then
     if ! "$OBJCOPY" --rename-section .text=.cold_text --rename-section .rodata=.cold_data \
             "$FW/picojpeg.o" > "$FW/build.log" 2>&1; then
         cat "$FW/build.log" >&2

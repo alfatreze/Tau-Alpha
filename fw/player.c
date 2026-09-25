@@ -78,6 +78,7 @@
 #define R_CLUT_IDX  0x800000C8u   /* Phase F B8: sticky CLUT index (W), 0-255 */
 #define R_DBG_MARK  0x800000D0u   /* B-186: CPU-side checkpoint, read live by TAU_ISSP's DBGM probe -- see fw/suite.inc's bt_crumb(). Harmless write if TAU_ISSP isn't built. */
 #define R_CLUT_DATA 0x800000CCu   /* Phase F B8: CLUT entry at that index (W), RGB565; index auto-increments */
+#define R_VBLANK    0x800000D0u   /* Helios/Talos H0: bit 0 = vblank status, CDC'd from clk_vid; 0 when TAU_VBLANK is off */
 #define SDR_CLK_HZ  100000000u    /* clk_sdram, for R_SDR_BUSY deltas -- see docs/MMIO_ALLOCATION.md 0xBC */
 
 /* Target command selector, written to R_TGT_GO bits [1:0]. */
@@ -101,6 +102,11 @@
 #define FB_OP_BAR   5u   /* Phase F B6 */
 #define FB_OP_SBLIT 6u   /* Phase F B4 */
 #define FB_OP_CBLIT 7u   /* Phase F B8 */
+/* B11: opcode 8 needed a 4th cmd_op bit, which mp3_soc.v adds by pulling in
+ * R_FB_GO's bit 14 (`fb_cmd_op <= {dDAT_MOSI[14], dDAT_MOSI[2:0]}`) rather
+ * than shifting the existing 3-bit field -- so this is a bit position, not a
+ * plain small integer like every opcode above it. */
+#define FB_OP_RRECT (1u << 14)   /* Phase F B11 */
 
 /* Album-art panel. The image is decoded ONCE into an off-screen SDRAM stash
  * (row 400+, past the 360 visible rows) and then blitted into place with a
@@ -570,6 +576,34 @@ static void fb_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit,
     REG(R_FB_SIZE) = (h << 9) | w;
     fb_set_color(fg, bg);
     REG(R_FB_GO)   = FB_OP_BAR | ((lit & 0x7Fu) << 3);
+}
+
+/* OP_RRECT (B11, Helios/Talos H1): (x, y) top-left, w x h the full rect,
+ * radius 0..15 corners cut to `bg` -- matching fb_round_rect_on()'s own
+ * fg/bg convention exactly (the main body fills with `color`, corner cuts
+ * reveal `bg`): mp3_fb.sv's OP_RRECT dispatch leaves char_fg at its default
+ * (q_fg, the same as OP_RECT) for the main fill and only overrides it to
+ * rrect_bg (q_bg) for the corner segments. radius reuses cmd_glyph, the same
+ * field BAR uses for its own lit-row count, clamped to the 16-entry
+ * corner-cut LUT's own range in RTL (mp3_fb.sv: q_glyph_r). radius=0
+ * degenerates to a plain rect (rrect_pending never arms), matching
+ * fb_round_rect_on()'s own r=0 case for free.
+ *
+ * Caller MUST check RRECT_READY() first (fw/blit_probe.inc) -- the
+ * bitstream currently shipped predates B11 entirely; on that hardware,
+ * writing FB_OP_RRECT's bit 14 is silently dropped by the old 3-bit cmd_op
+ * decode, truncating to cmd_op=0 (OP_RUN) and drawing a single 1px line
+ * instead of a rounded rect, not a hang -- but a real, silent visual
+ * regression if called unconditionally. */
+static void fb_rrect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t radius,
+                     uint16_t color, uint16_t bg)
+{
+    if (!w || !h || FB_HELD()) return;
+    fb_wait();
+    REG(R_FB_ADDR) = y * FB_STRIDE + x;
+    REG(R_FB_SIZE) = (h << 9) | w;
+    fb_set_color(color, bg);
+    REG(R_FB_GO)   = FB_OP_RRECT | ((radius & 0x7Fu) << 3);
 }
 
 /* OP_SBLIT: same source/dest addressing as fb_blit(), but (w, h) here are
@@ -1739,19 +1773,35 @@ enum { VIZ_BARS = 0, VIZ_WATER, VIZ_LEVELS, VIZ_SCOPE, VIZ_WAVE, VIZ_VU,
         * `42f3853`, `7e9ceec`) -- the cassette meter. Appended, same rule
         * as VIZ_LED above. */
        VIZ_TAPE,
+       /* Classic Winamp-style bars/scope (research doc entry #6, priority rank #2), but with a
+        * fluid easing layer on top of the raw octave-filter data instead of an instant snap --
+        * see the Fluid Bars Lab sandbox. Two separate modes (not a mode-internal toggle) so each
+        * is independently selectable/cyclable, matching every other meter here. Appended after
+        * VIZ_TAPE, same rule as above -- and see VIZ_SEL_TO_MODE()/VIZ_MODE_TO_SEL() just below,
+        * since VIZ_TAPE now sits in the MIDDLE of the enum rather than at the end. */
+       VIZ_WINAMP_BARS,
+       VIZ_WINAMP_SCOPE,
        VIZ_COUNT };
 
-/* VIZ_TAPE's drawing code is gated on TAU_METER_THUMBS (see the CASSETTE
- * header comment) -- selecting it on a build without that macro would show
- * a blank meter box. The X-button cycle and the persisted-setting clamp
- * both need to exclude it there, which this expresses once, relying on
- * VIZ_TAPE being the LAST enum value (the same "appended" rule VIZ_COUNT's
- * own comment states). */
-#if TAU_METER_THUMBS
-#define VIZ_CYCLE_COUNT VIZ_COUNT
-#else
-#define VIZ_CYCLE_COUNT VIZ_TAPE
-#endif
+/* VIZ_TAPE (the cassette meter) is parked: the owner dislikes its visuals
+ * and plans to replace it with their own design in a future ground-up
+ * rebuild. Its drawing code, enum slot and asset (fw/meter_thumbs.h entry
+ * 11) are kept in place for reference, not deleted -- only excluded from
+ * selection. This also covers the pre-existing TAU_METER_THUMBS gate
+ * (selecting it on a build without that macro would show a blank meter
+ * box), so no separate check is needed for that case any more.
+ *
+ * VIZ_TAPE sitting in the MIDDLE of the append-only enum (VIZ_WINAMP_BARS/
+ * VIZ_WINAMP_SCOPE were appended after it, B-215) means "everything before
+ * some threshold is selectable" no longer holds -- a single index is
+ * excluded, so selection is a row<->mode remap around that one gap instead
+ * of a plain count. VIZ_SEL_COUNT is the number of SELECTABLE modes (one
+ * fewer than VIZ_COUNT); the Settings choice list, the X-button cycle and
+ * the persisted-setting restore all go through these two functions rather
+ * than duplicating the "skip VIZ_TAPE" logic three times. */
+#define VIZ_SEL_COUNT (VIZ_COUNT - 1u)
+static inline uint32_t viz_sel_to_mode(uint32_t row)  { return row >= VIZ_TAPE ? row + 1u : row; }
+static inline uint32_t viz_mode_to_sel(uint32_t mode) { return mode > VIZ_TAPE ? mode - 1u : mode; }
 
 /* Stereo phase scope. Left against right, rotated 45 degrees so mono lands on
  * the vertical -- the standard goniometer orientation, and the reason it reads
@@ -2015,6 +2065,147 @@ static unsigned char lvl_l, lvl_r, lvl_pl, lvl_pr;
 #define LED_BLKH (UI_WAVE_H / LED_ROWS - LED_GAPV)     /* 5 px */
 #define SPEC_GAPX 3u                                   /* between columns */
 
+/* ---- WINAMP-STYLE BARS/SCOPE (B-215/B-216) ------------------------------
+ *
+ * Classic Winamp bars/scope (research doc entry #6, priority rank #2), but
+ * with a fluid easing layer sitting on top of the octave cascade's own
+ * instant-attack/exponential-release smoothing (spec_lvl[], above), plus a
+ * proper falling peak-cap per band -- neither VIZ_LED nor VIZ_BARS has one.
+ * Tuned in the Fluid Bars Lab sandbox before being written here.
+ *
+ * SESSION-ONLY for now (B-216): every field below lives in plain RAM, reset
+ * to a built-in preset at boot. No persistence decision has been made --
+ * the obvious channel (fw/settings.inc's SW_* register) is a hardwired
+ * 4-bit index already fully used with the library on, so adding a slot
+ * needs an RTL change, not a firmware one. This is deliberately being
+ * tried first without solving that, per the owner's own call. */
+/* B-234: split into two fully independent configs -- Bars and Scope share no
+ * fields any more (they never did semantically; a single struct just made it
+ * look that way and made one shared preset/CUSTOM state apply to both modes
+ * at once, which is the bug the owner reported: editing Bars then picking a
+ * preset while still notionally "in Bars" silently reset fields Scope also
+ * displayed a row for, and vice versa). Each mode now owns its own struct,
+ * its own preset table, its own preset index/CUSTOM tracker -- see
+ * wvcfg_preset_idx_bars/scope and wvcfg_build_vis() in fw/settingsui.inc. */
+typedef struct {
+    uint8_t  bands;         /* WVIZ_BANDS_MIN..WVIZ_BANDS_MAX columns */
+    uint8_t  ease_mode;     /* 0 instant, 1 linear, 2 exponential, 3 spring */
+    uint8_t  attack;        /* 1..100 */
+    uint8_t  release;       /* 1..100 */
+    uint8_t  peak_on;
+    uint8_t  peak_gravity;  /* 0 linear fall, 1 accelerating (gravity) */
+    uint16_t peak_hold_ms;  /* 0..800 */
+    uint8_t  peak_fall;     /* 1..100 */
+} wviz_bars_cfg_t;
+
+typedef struct {
+    uint8_t  scope_smooth;  /* 0..90 percent */
+    uint8_t  scope_trail;   /* 0..80 percent -- reserved: a real soft trail needs
+                              * B5 alpha blend (shelved); until that is un-shelved
+                              * this value is accepted but has no visible effect,
+                              * a plain full erase is used regardless. */
+} wviz_scope_cfg_t;
+
+#define WVIZ_BANDS_MIN 4u
+#define WVIZ_BANDS_MAX 16u          /* = SPEC_BANDS (defined below): the octave cascade's
+                                     * real band count -- more would mean interpolating
+                                     * fake data. Not written as SPEC_BANDS itself since
+                                     * that macro isn't declared until further down this
+                                     * file; a _Static_assert right after it confirms they
+                                     * still agree. */
+
+/* Five built-in presets per mode (Fluid Bars Lab naming); index 0 doubles as
+ * the boot default for each. The five "personalities" are the same across
+ * both tables (same names, same relative feel) -- only the field SUBSET each
+ * mode actually reads differs, values carried over unchanged from the
+ * original shared table's own bars/scope columns. */
+static const wviz_bars_cfg_t wviz_bars_presets[5] = {
+    /* bands, ease_mode, attack, release, peak_on, peak_gravity, peak_hold_ms, peak_fall */
+    { 16, 2,  55,  22, 1, 1, 200, 35 },   /* FLUID (default) */
+    { 16, 0, 100, 100, 1, 0,   0, 60 },   /* CLASSIC -- instant, no easing */
+    { 12, 3,  60,  25, 1, 1, 250, 30 },   /* BOUNCY -- spring */
+    {  8, 2,  30,  12, 1, 0, 500, 15 },   /* SLOW FADE */
+    { 16, 1,  90,  90, 1, 1, 100, 70 },   /* SNAPPY -- linear, fast */
+};
+static const wviz_scope_cfg_t wviz_scope_presets[5] = {
+    /* scope_smooth, scope_trail */
+    { 35, 30 },   /* FLUID (default) */
+    {  0,  0 },   /* CLASSIC */
+    { 45, 20 },   /* BOUNCY */
+    { 55, 40 },   /* SLOW FADE */
+    { 15,  5 },   /* SNAPPY */
+};
+static const char *const wviz_preset_nm[5] = { "FLUID", "CLASSIC", "BOUNCY", "SLOW FADE", "SNAPPY" };
+#define WVIZ_PRESET_N (sizeof(wviz_preset_nm) / sizeof(wviz_preset_nm[0]))
+
+static wviz_bars_cfg_t  wviz_cfg_bars  = { 16, 2, 55, 22, 1, 1, 200, 35 };
+static wviz_scope_cfg_t wviz_cfg_scope = { 35, 30 };
+
+/* B-234: forces the next wviz_bars_tick()/wviz_scope_tick() call to repaint
+ * everything, bypassing the per-band change cache and re-seeding scope's own
+ * smoothing state, and (bars only) clearing the whole preview rect first.
+ * Set whenever the drawing CONTEXT changes -- a preset applied, the mode
+ * toggled, or the Configure page opened/closed -- since the change-cache and
+ * the scope's temporal smoothing both assume a stable position/geometry
+ * between calls, which stops being true the moment the caller moves the
+ * preview to a different rect (player screen vs. Configure) or the config
+ * itself jumps to different values. Without this, a band whose newly-computed
+ * height happens to equal what was last drawn (very likely right after a
+ * preset switch, when several fields reset toward similar values) silently
+ * skips its redraw -- exactly the reported "bars invisible after choosing a
+ * preset." Consumed by whichever tick function runs next, since only one of
+ * the two ever executes per redraw (mode-gated by the caller). */
+static uint8_t wviz_force;
+
+static uint8_t  wviz_disp[WVIZ_BANDS_MAX];        /* displayed height, 0..255 */
+static int16_t  wviz_vel[WVIZ_BANDS_MAX];         /* spring mode velocity only */
+static uint8_t  wviz_peak[WVIZ_BANDS_MAX];
+static uint8_t  wviz_peak_vel[WVIZ_BANDS_MAX];    /* gravity mode only: fall speed, grows while falling */
+static uint16_t wviz_peak_hold[WVIZ_BANDS_MAX];   /* ms remaining before it starts falling */
+static uint8_t  wviz_drawn[WVIZ_BANDS_MAX], wviz_peak_drawn[WVIZ_BANDS_MAX];
+static int16_t  wviz_scope_y[WAVE_COLS];          /* smoothed scope trace, signed pixel offset */
+static uint8_t  wviz_scope_init;
+
+/* One value toward one target, by one of the four curves above. `rate` is
+ * 1..100 (attack or release, whichever applies this tick); `vel` is only
+ * touched by the spring mode, and only meaningful across successive calls
+ * for the SAME band (the caller owns one wviz_vel[] slot per band). Integer
+ * fixed-point throughout -- this core has no hardware float (rv32im). */
+static uint8_t wviz_ease_step(uint8_t cur, uint8_t target, uint32_t mode,
+                              uint32_t rate, int16_t *vel)
+{
+    if (mode == 0u) return target;                     /* instant */
+    if (mode == 1u) {                                   /* linear: fixed step/tick */
+        int32_t step = 1 + (int32_t)rate / 6;           /* ~1..17 per ~26 ms tick */
+        int32_t d = (int32_t)target - (int32_t)cur;
+        if (d > step) d = step; else if (d < -step) d = -step;
+        return (uint8_t)((int32_t)cur + d);
+    }
+    if (mode == 2u) {                                   /* exponential (spec_lvl's own
+                                                          * shape, just tunable) */
+        int32_t k = 8 + ((int32_t)rate * 248) / 100;     /* Q8-ish, 8..256 */
+        int32_t d = (((int32_t)target - (int32_t)cur) * k) / 256;
+        return (uint8_t)((int32_t)cur + d);
+    }
+    {                                                    /* spring -- approximated, not
+                                                          * exact critical damping: damping
+                                                          * is tied to stiffness by a fixed
+                                                          * ratio rather than derived via a
+                                                          * sqrt, cheap and stable, slightly
+                                                          * underdamped (a small overshoot
+                                                          * is the point -- "bouncy"). */
+        int32_t stiff = 6 + ((int32_t)rate * 58) / 100;
+        int32_t accel = (((int32_t)target - (int32_t)cur) * stiff) / 256
+                       - ((int32_t)*vel * stiff) / 512;
+        int32_t v = (int32_t)*vel + accel;
+        if (v > 60) v = 60; else if (v < -60) v = -60;
+        *vel = (int16_t)v;
+        int32_t p = (int32_t)cur + v;
+        if (p < 0) p = 0; else if (p > 255) p = 255;
+        return (uint8_t)p;
+    }
+}
+
 /* ---- OCTAVE FILTER BANK -----------------------------------------------
  *
  * Eight bands of real frequency content, so the columns move independently and
@@ -2046,6 +2237,7 @@ static unsigned char lvl_l, lvl_r, lvl_pl, lvl_pr;
 #define SPEC_BANDS (SPEC_OCT * 2u)         /* each octave split in half     */
 #define SPEC_SH    1u                      /* octave split                  */
 #define SPEC_SH2   2u                      /* the half-octave split within  */
+_Static_assert(WVIZ_BANDS_MAX == SPEC_BANDS, "WVIZ_BANDS_MAX must track SPEC_BANDS");
 
 static int32_t  spec_lp[SPEC_OCT];        /* the cascade's filter state      */
 static int32_t  spec_slp[SPEC_OCT];       /* the half-octave splitter        */
@@ -2364,6 +2556,15 @@ static uint16_t ui_grad_at(uint32_t y)
     return (uint16_t)((lv[0] << 11) | (lv[1] << 5) | lv[2]);
 }
 
+/* Relocated here (2026-09-25, B-197 meter/blit integration; moved earlier again the same day,
+ * Helios/Talos H1) -- BLIT_READY()/blit_probe_ensure() were needed by ui_draw_dynamic()'s plain-
+ * bars fast path further down; RRECT_READY()/rrect_probe_ensure() (B11) are needed here instead,
+ * by fb_round_rect_on() immediately below, which is defined well before that fast path. All of
+ * blit_probe.inc's own dependencies (REG(), cycles(), fb_wait(), FB_STRIDE, the R_FB_ and R_SDR_
+ * registers) are already in scope well before this point either way -- confirmed by reading each
+ * one's own definition line, not assumed. */
+#include "blit_probe.inc"
+
 /* Rounded rect. The engine has no corner primitive, so the corners are cut
  * back out afterwards with the GRADIENT's local colour at each row -- a flat
  * background colour would leave four visible notches against the ramp. r rows
@@ -2394,10 +2595,27 @@ static void fb_round_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
  * fb_round_rect above cuts to ui_grad_at(), which is right for anything
  * sitting directly on the background and wrong for anything sitting on a
  * PANEL -- the corners would be four holes showing the gradient through it.
- * The playlist overlay is the case: a rounded row inside a rounded panel. */
+ * The playlist overlay is the case: a rounded row inside a rounded panel.
+ *
+ * Helios/Talos H1 (docs/HELIOS_SPEC.md section 10, B11): this is the ONE of
+ * the two round-rect functions that can move to hardware as-is -- its `bg`
+ * is a single flat colour for every corner, exactly what OP_RRECT's own
+ * `rrect_bg` register holds. `fb_round_rect()` above CANNOT convert the same
+ * way: its corner cuts read a DIFFERENT gradient colour per row
+ * (`ui_grad_at(y+i)`), and OP_RRECT has no per-row background source (one
+ * sticky register, not a lookup) -- B13's proposed gradient-bar CLUT read
+ * would be the RTL that could someday close this gap for `OP_BAR`, but
+ * nothing analogous exists for RRECT yet, so `fb_round_rect()` stays
+ * software-only here, correctly, not by oversight. This function alone is
+ * still the high-value case: it is what draws every selected row in every
+ * list/menu/playlist/settings page (`fw/settingsui.inc`'s own list-row
+ * painters), the single most-executed draw pattern this session's own
+ * investigation found (section 2/15.2). */
 static void fb_round_rect_on(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                              uint32_t r, uint16_t color, uint16_t bg)
 {
+    rrect_probe_ensure();   /* B-162's own "lazy, on first actual need, never at boot" convention */
+    if (RRECT_READY()) { fb_rrect(x, y, w, h, r, color, bg); return; }
     fb_rect(x, y, w, h, color);
     for (uint32_t i = 0; i < r; i++) {
         uint32_t dy = r - i;
@@ -3550,14 +3768,149 @@ static void ui_icon_dot(uint32_t x, uint32_t y, uint16_t c)
         fb_rect(x + inset[i], y + i, 7u - 2u * inset[i], 1u, c);
 }
 
-/* Relocated here (2026-09-25, B-197 meter/blit integration) from its previous spot alongside
- * cold.inc/playlist.inc, at PHASE_F_SPEC.md section 4's own scoped design -- BLIT_READY()/
- * blit_probe_ensure() are needed by ui_draw_dynamic()'s plain-bars fast path below, which is
- * defined earlier in this file than the old include site. All of blit_probe.inc's own
- * dependencies (REG()/cycles()/fb_wait()/FB_STRIDE/etc.) are already in scope well before this
- * point. This moves it out of the TAU_LIBRARY `-Os` pragma block it happened to share with
- * playlist.inc/cold.inc -- harmless, it was never size-sensitive itself, just adjacent. */
-#include "blit_probe.inc"
+/* Winamp bars/scope drawing, factored out of ui_draw_dynamic_cold()'s own
+ * VIZ_WINAMP_BARS/VIZ_WINAMP_SCOPE blocks (below) so the Settings > Meter >
+ * Configure page (fw/settingsui.inc, B-215/B-216) can render the SAME live,
+ * audio-reactive meter at its own position instead of a second copy of this
+ * logic -- one source of truth for both places. Explicit (x0, y, w, h)
+ * rather than reading UI_MARGIN/UI_WAVE_Y/ww/UI_WAVE_H directly, precisely
+ * so the Configure page can pin the preview wherever its own layout wants. */
+COLD_FN3 static void wviz_bars_tick(uint32_t x0, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
+{
+    uint32_t bands = wviz_cfg_bars.bands;
+    if (bands < WVIZ_BANDS_MIN) bands = WVIZ_BANDS_MIN;
+    if (bands > WVIZ_BANDS_MAX) bands = WVIZ_BANDS_MAX;
+    uint32_t gap  = 2u;
+    uint32_t colw = (w > gap * (bands - 1u)) ? (w - gap * (bands - 1u)) / bands : 1u;
+    uint32_t dec_ms = 26u;   /* ~1 UI tick; FL_UI_PERIOD (CLK_HZ/38u) isn't declared until later
+                              * in this file, so this is written out rather than derived -- see
+                              * FL_UI_PERIOD's own comment for the ~38 Hz/~26.3 ms figure this
+                              * matches. */
+
+    /* B-234: context just changed (preset applied, mode switched, page opened/
+     * closed) -- wipe the whole preview rect once so no leftover pixels from a
+     * DIFFERENT geometry or a different mode's draw survive, then force every
+     * band to redraw below regardless of the change cache. */
+    if (wviz_force) fb_rect(x0, y, w, h, bg);
+
+    for (uint32_t b = 0; b < bands; b++) {
+        uint32_t lo = (b * SPEC_BANDS) / bands, hi = ((b + 1u) * SPEC_BANDS) / bands;
+        if (hi <= lo) hi = lo + 1u;
+        uint32_t sum = 0, n = 0;
+        for (uint32_t k = lo; k < hi && k < SPEC_BANDS; k++) { sum += spec_lvl[k]; n++; }
+        uint32_t target = n ? sum / n : 0u;
+        if (paused) target = 0u;
+
+        uint32_t rate = (target >= wviz_disp[b]) ? wviz_cfg_bars.attack : wviz_cfg_bars.release;
+        wviz_disp[b] = wviz_ease_step(wviz_disp[b], (uint8_t)target, wviz_cfg_bars.ease_mode,
+                                      rate, &wviz_vel[b]);
+
+        if (wviz_cfg_bars.peak_on) {
+            if (wviz_disp[b] >= wviz_peak[b]) {
+                wviz_peak[b] = wviz_disp[b];
+                wviz_peak_hold[b] = wviz_cfg_bars.peak_hold_ms;
+                wviz_peak_vel[b] = 0u;
+            } else if (wviz_peak_hold[b] > 0u) {
+                wviz_peak_hold[b] = (wviz_peak_hold[b] > dec_ms)
+                                   ? (uint16_t)(wviz_peak_hold[b] - dec_ms) : 0u;
+            } else {
+                uint32_t fall;
+                if (wviz_cfg_bars.peak_gravity) {
+                    uint32_t nv = wviz_peak_vel[b] + 1u + wviz_cfg_bars.peak_fall / 20u;
+                    wviz_peak_vel[b] = (uint8_t)((nv > 255u) ? 255u : nv);
+                    fall = 1u + (wviz_peak_vel[b] >> 3);
+                } else {
+                    fall = 1u + wviz_cfg_bars.peak_fall / 12u;
+                }
+                wviz_peak[b] = (wviz_peak[b] > fall) ? (uint8_t)(wviz_peak[b] - fall) : 0u;
+                if (wviz_peak[b] < wviz_disp[b]) wviz_peak[b] = wviz_disp[b];
+            }
+        } else {
+            wviz_peak[b] = wviz_disp[b];
+        }
+
+        if (!wviz_force && wviz_disp[b] == wviz_drawn[b] && wviz_peak[b] == wviz_peak_drawn[b]) continue;
+        wviz_drawn[b] = wviz_disp[b]; wviz_peak_drawn[b] = wviz_peak[b];
+
+        uint32_t x = x0 + b * (colw + gap);
+        uint32_t bh = (wviz_disp[b] * h) / 255u;
+        if (bh < 2u) bh = 2u;
+
+        blit_probe_ensure();
+        if (BLIT_READY()) {
+            fb_bar(x, y, colw, h, bh, ui_accent, bg);
+        } else {
+            fb_rect(x, y + h - bh, colw, bh, ui_accent);
+            if (h > bh) fb_rect(x, y, colw, h - bh, bg);
+        }
+        if (wviz_cfg_bars.peak_on) {
+            uint32_t ph = (wviz_peak[b] * h) / 255u;
+            if (ph > bh + 1u && ph < h)
+                fb_rect(x, y + h - ph, colw, 1u, UI_WHITE);
+        }
+    }
+    wviz_force = 0u;
+}
+
+/* Classic Winamp oscilloscope -- reuses wav_v[]/SCOPE_UNIT and the span-per-
+ * column draw exactly as VIZ_WAVE does, plus temporal smoothing. scope_trail
+ * is accepted but has no visible effect yet: a real soft trail needs B5
+ * alpha blend (shelved). Explicit geometry, same reason as wviz_bars_tick().
+ *
+ * B-234: `use_gradient` picks how the trace's old position is erased.
+ * ui_bg_restore() copies from a gradient strip pre-rendered ONLY for the
+ * player screen's own UI_WAVE_Y row range (fw/player.c's UI_BG_X/UI_BG_W
+ * comment) -- calling it with a `y` outside that range (as the Configure
+ * page's own preview position does) reads whatever garbage happens to sit in
+ * that off-screen memory for those rows, which is the reported "Scope
+ * preview garbled." The player screen passes use_gradient=1 (its call site's
+ * y IS UI_WAVE_Y, so the cache is valid there); Configure passes 0 and a flat
+ * panel colour, matching how wviz_bars_tick() already takes an explicit bg
+ * for exactly this reason. */
+COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32_t h,
+                                      int use_gradient, uint16_t bg)
+{
+    const int32_t  ey = (int32_t)(h / 2u) - 1;
+    const uint32_t cy = y + h / 2u;
+
+    /* B-234: context just changed -- re-seed the smoothing state cleanly
+     * instead of lerping from a stale wviz_scope_y[] left over from a
+     * different geometry or a different preset's smoothing amount. */
+    if (wviz_force) { wviz_scope_init = 0u; wviz_force = 0u; }
+
+    if (use_gradient) ui_bg_restore(x0, y, w, h);
+    else              fb_rect(x0, y, w, h, bg);
+    fb_rect(x0, cy, w, 1, UI_TRACK);
+
+    if (!paused) {
+        int32_t smooth = wviz_cfg_scope.scope_smooth;      /* 0..90 */
+        int32_t prev_y = 0;
+        for (uint32_t c = 0; c < WAVE_COLS; c++) {
+            uint32_t cx  = x0 + (c * w) / WAVE_COLS;
+            uint32_t cxn = x0 + ((c + 1u) * w) / WAVE_COLS;
+            uint32_t cw  = (cxn > cx) ? (cxn - cx) : 1u;
+
+            int32_t raw = (wav_v[c] * ey) / SCOPE_UNIT;
+            if (raw >  ey) raw =  ey;
+            if (raw < -ey) raw = -ey;
+            if (!wviz_scope_init) wviz_scope_y[c] = (int16_t)raw;
+            wviz_scope_y[c] = (int16_t)(wviz_scope_y[c]
+                             + (((raw - wviz_scope_y[c]) * (100 - smooth)) / 100));
+            int32_t v = wviz_scope_y[c];
+
+            int32_t a  = (c == 0) ? v : prev_y;
+            int32_t lo = (a < v) ? a : v;
+            int32_t hi = (a < v) ? v : a;
+            prev_y = v;
+
+            uint32_t top = (uint32_t)((int32_t)cy - hi);
+            uint32_t rh  = (uint32_t)(hi - lo) + 2u;
+            if (top + rh > y + h) rh = y + h - top;
+            fb_rect(cx, top, cw, rh, ui_accent);
+        }
+        wviz_scope_init = 1u;
+    }
+}
 
 static void ui_draw_dynamic(void);
 /* fw/cold.inc defines both of these (B-199..B-201, PHASE_F_SPEC.md sections 4.2-4.3) -- forward-
@@ -4588,6 +4941,25 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
                     fb_rect(x0, y, bw, LED_BLKH, c);
                 }
             }
+            goto viz_done;
+        }
+
+        /* ---- WINAMP BARS -----------------------------------------------
+         * Classic Winamp bars, drawn at the normal meter box's own position
+         * -- see wviz_bars_tick() (defined earlier in this file, alongside
+         * wviz_ease_step()) for the actual drawing/easing logic, shared with
+         * the Settings > Meter > Configure page (fw/settingsui.inc) so both
+         * places animate from one source of truth. */
+        if (viz_mode == VIZ_WINAMP_BARS) {
+            wviz_bars_tick(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed);
+            goto viz_done;
+        }
+
+        /* ---- WINAMP SCOPE ------------------------------------------------
+         * Classic Winamp oscilloscope -- see wviz_scope_tick() for the actual
+         * drawing/smoothing logic, shared with the Configure page. */
+        if (viz_mode == VIZ_WINAMP_SCOPE) {
+            wviz_scope_tick(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, 1, 0u);
             goto viz_done;
         }
 
@@ -6358,8 +6730,9 @@ static short pcm[MAX_NCHAN * MAX_NGRAN * MAX_NSAMP];
 /* Ported from HarpMudd upstream v1.5.0's release/1.5.1 branch (`8f5eb11`,
  * "Meters yield to audio when the decoder is about to run dry"): a core that
  * is about to run out of decoded audio has no business spending CPU
- * analysing it. Only VIZ_LED calls this -- the octave cascade it runs,
- * measured (PHASE_F_SPEC.md section 7) at ~1.5% of the CPU, cheaper than
+ * analysing it. VIZ_LED and VIZ_WINAMP_BARS call this (B-215; both read the
+ * same spec_lvl[] octave cascade) -- that cascade, measured (PHASE_F_SPEC.md
+ * section 7) at ~1.5% of the CPU, cheaper than
  * upstream's own ~6% cascade, but the same principle applies whenever a
  * struggling file is close to the margin.
  *
@@ -6378,14 +6751,69 @@ static short pcm[MAX_NCHAN * MAX_NGRAN * MAX_NSAMP];
 #define METER_GO    ((2048u * 2u) / 3u)
 static uint8_t meter_yield;
 
+/* B-234: a cheap diagnostic to confirm or rule out a suspected cause of the
+ * reported "spectrum meter freezes" -- METER_STOP/METER_GO's hysteresis band
+ * covers nearly half the FIFO's depth, so if steady playback keeps the level
+ * oscillating in a range that dips below METER_STOP sometimes but rarely
+ * climbs back to METER_GO, meter_yield could latch on indefinitely. Counts
+ * whole SECONDS, not cycles() directly -- cycles() is a 32-bit counter at
+ * 60 MHz that wraps every ~71.6 s (see ui_blank_touch()'s own comment on the
+ * same pitfall), and a real stuck period could easily run longer than that.
+ * Re-arming a one-second deadline each tick, the same technique ui_blank_touch
+ * already uses, keeps every individual comparison window safely under that
+ * limit regardless of how long the overall stuck period turns out to be. */
+static uint32_t meter_yield_secs;      /* current consecutive seconds yielding, live */
+static uint32_t meter_yield_worst;     /* worst consecutive seconds ever seen, since boot */
+static uint32_t meter_yield_deadline;  /* cycles() deadline for the next +1 s tick while yielding */
+
 static int meter_afford(void)
 {
-    if (idle || paused) { meter_yield = 0; return 1; }
+    if (idle || paused) { meter_yield = 0; meter_yield_secs = 0; return 1; }
     uint32_t lv = pcm_level();
-    if (meter_yield) { if (lv >= METER_GO)   meter_yield = 0; }
-    else             { if (lv <  METER_STOP) meter_yield = 1; }
+    if (meter_yield) {
+        if (lv >= METER_GO) {
+            meter_yield = 0; meter_yield_secs = 0;
+        } else if ((int32_t)(cycles() - meter_yield_deadline) >= 0) {
+            meter_yield_secs++;
+            meter_yield_deadline = cycles() + CLK_HZ;
+            if (meter_yield_secs > meter_yield_worst) meter_yield_worst = meter_yield_secs;
+        }
+    } else if (lv < METER_STOP) {
+        meter_yield = 1; meter_yield_secs = 0; meter_yield_deadline = cycles() + CLK_HZ;
+    }
     return !meter_yield;
 }
+
+#if TAU_DIAG_INFO
+/* Helios/Talos H0 (docs/HELIOS_SPEC.md section 9): proves the new vblank MMIO end to end on real
+ * hardware before anything (Helios's own flush logic) is built on top of an unproven register --
+ * this project's own repeated "prove the primitive, then build on it" discipline (BLIT_READY()/
+ * COLD_READY() before any real feature used them). A single sampled level would just look like it
+ * flickers randomly on a 1 Hz-refreshed Info row (vblank toggles far faster than that) -- counting
+ * rising edges over a real one-second window and showing the rate is a much stronger proof: it
+ * confirms both that the signal actually toggles AND that it does so at roughly the right cadence
+ * for this core's own video timing, not just "sometimes reads 1". Counts whole seconds via a
+ * re-armed deadline, the same wraparound-safe technique meter_afford()'s own yield counter and
+ * ui_blank_touch() already use -- called every main-loop pass regardless of what page is showing,
+ * since the sample rate has to be fast enough to catch every edge, not just while a diagnostic
+ * page happens to be open. */
+static uint32_t vblank_last;
+static uint32_t vblank_edges;
+static uint32_t vblank_rate;
+static uint32_t vblank_win_at;
+
+static void vblank_sample(void)
+{
+    uint32_t lvl = REG(R_VBLANK) & 1u;
+    if (lvl && !vblank_last) vblank_edges++;
+    vblank_last = lvl;
+    if ((int32_t)(cycles() - vblank_win_at) >= 0) {
+        vblank_rate  = vblank_edges;
+        vblank_edges = 0u;
+        vblank_win_at = cycles() + CLK_HZ;
+    }
+}
+#endif
 
 /* Feeds every meter from one frame of interleaved PCM.
  *
@@ -6418,7 +6846,7 @@ static void meters_feed(const short *pcm, int n, int stereo)
          * SPEC_BANDS. One pass down the ladder per sample, and most samples
          * stop after a stage or two, because the lower stages run at a
          * fraction of the rate. */
-        if ((viz_mode == VIZ_LED || viz_mode == VIZ_TAPE) && meter_afford()) {
+        if ((viz_mode == VIZ_LED || viz_mode == VIZ_TAPE || viz_mode == VIZ_WINAMP_BARS) && meter_afford()) {
             for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
                 int32_t x = stereo ? (((int32_t)pcm[i] + (int32_t)pcm[i + 1]) >> 1)
                                    : (int32_t)pcm[i];
@@ -7130,9 +7558,12 @@ static void poll_input(void)
         /* Forward only. A reverse on Select+X existed and was dropped: nine
          * modes wrap in a handful of taps, and every Select combo the user has to
          * remember costs more than it saves. */
-        viz_mode = (uint8_t)((viz_mode + 1u) % VIZ_CYCLE_COUNT);
+        viz_mode = (uint8_t)viz_sel_to_mode((viz_mode_to_sel(viz_mode) + 1u) % VIZ_SEL_COUNT);
         ui_wave_clear();                 /* modes do not share a screen layout */
         ui_wave_force = 1u;
+        wviz_force = 1u;                 /* B-234: same reason -- Winamp Bars/Scope's own
+                                           * change-cache/smoothing state must not carry over
+                                           * from whatever was last drawn in this position. */
         for (uint32_t i = 0; i < UI_WAVE_N; i++) {
             wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu;
             for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu;
@@ -7149,6 +7580,8 @@ static void poll_input(void)
                    : viz_mode == VIZ_DOTS   ? "METER: PEAK DOTS"
                    : viz_mode == VIZ_EYE    ? "METER: MAGIC EYE"
                    : viz_mode == VIZ_LED    ? "METER: SPECTRUM"
+                   : viz_mode == VIZ_WINAMP_BARS  ? "METER: WINAMP BARS"
+                   : viz_mode == VIZ_WINAMP_SCOPE ? "METER: WINAMP SCOPE"
                                             : "METER: CASSETTE");
         settings_mark_dirty();
     }
@@ -10966,8 +11399,21 @@ int main(void)
          * moved anyway. Comparing against what was last drawn catches both,
          * and any other route that changes the position. */
 #if TAU_SETTINGS_UI
+        /* B-234: the Meter > Configure page's live preview reads real playing
+         * audio (spec_lvl[]/wav_v[]) every draw, same as the player screen's
+         * own meter box -- but unlike every other Settings page, it needs to
+         * ANIMATE continuously, not just repaint when the user presses a key.
+         * Every other page is dirty-tracked because its content only changes
+         * on input; this one's content changes on its own, every tick, which
+         * set_dirty's edge-only model has no way to express. Forcing it here
+         * (matching ui_blank_wake()'s own "if (set_open) set_dirty = 1u"
+         * idiom for the same "something outside input changed" reason) was
+         * the missing piece behind the reported "preview wasn't active with
+         * music" -- previously it only ever redrew once per key press. */
+        if (set_open && set_page == SET_WVIZCFG_PG) set_dirty = 1u;
         if (set_open && set_dirty) { set_dirty = 0u; set_draw(); }
 #if TAU_DIAG_INFO
+        vblank_sample();
         set_info_tick();
 #endif
 #if TAU_CHECK

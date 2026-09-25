@@ -100,6 +100,20 @@ def parse_record(rec: bytes) -> dict:
             out["entries"].setdefault("blittest", []).append(
                 {"op": BLIT_OPS[op_id] if op_id < len(BLIT_OPS) else f"op{op_id}", "level": level,
                  "result": RESULTS.get(res, str(res)), "stall_pct": v[3], "ops_done": ops_done})
+        elif tag == 17 and n == 13:               # SR_T_WVIZCFG (B-218): a one-off export of the Winamp
+                                                    # Bars/Scope Configure page's live wviz_cfg, not part
+                                                    # of a Check run -- see fw/suite_core.h's own comment
+            peak_hold_ms = int.from_bytes(v[8:10], "little")
+            out["entries"]["wvizcfg"] = {
+                "mode": "scope" if v[0] else "bars",
+                "preset": None if v[1] == 0xFF else v[1],
+                "bands": v[2],
+                "ease_mode": ["instant", "linear", "exponential", "spring"][v[3]] if v[3] < 4 else v[3],
+                "attack": v[4], "release": v[5],
+                "peak_on": bool(v[6]), "peak_gravity": bool(v[7]),
+                "peak_hold_ms": peak_hold_ms, "peak_fall": v[10],
+                "scope_smooth": v[11], "scope_trail": v[12],
+            }
         elif tag in TAGS:
             w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1, 16: 4}[tag]
             if tag == 1:

@@ -226,10 +226,12 @@ static int settings_load(void)
      * validated where it is used, against the playlist length and the file
      * actually open. A garbage word can only fail to resume. */
     resume_word = set_rd(SW_RESUME);
-    /* VIZ_CYCLE_COUNT, not VIZ_COUNT: a settings word saved with VIZ_TAPE by a
-     * build that has it must not silently select an unrendered mode on one
-     * that does not (see the VIZ_CYCLE_COUNT comment, fw/player.c). */
-    v = set_rd(SW_VIZ);   if (v < VIZ_CYCLE_COUNT)  viz_mode = (uint8_t)v;
+    /* Excludes VIZ_TAPE explicitly, not just a range check: a settings word saved
+     * with VIZ_TAPE by a build that has it selectable must not silently select an
+     * unrendered mode on one that does not (see viz_sel_to_mode()'s comment,
+     * fw/player.c). VIZ_TAPE now sits in the middle of the enum (B-215), so this
+     * can no longer be a single upper-bound compare. */
+    v = set_rd(SW_VIZ);   if (v < VIZ_COUNT && v != VIZ_TAPE)  viz_mode = (uint8_t)v;
     v = set_rd(SW_EQ);    if (v < EQ_COUNT)      { eq_idx = (uint8_t)v;
                                                    REG(R_EQ) = eq_idx; }
     v = set_rd(SW_RESUMEON); resume_on = v ? 1u : 0u;
