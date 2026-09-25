@@ -200,6 +200,12 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_SDR_BUSY_EN 0
 `endif
+
+`ifdef TAU_VBLANK
+`define TAU_VBLANK_EN 1
+`else
+`define TAU_VBLANK_EN 0
+`endif
 // Phase F B1: blit engine, starting with the generalised blit (section 5) and its sticky
 // addressing state (section 9). Independent of the macros above.
 `ifdef TAU_BLIT
@@ -246,10 +252,25 @@ tau_cdc_gray_ctr #(.WIDTH(32)) u_sdram_busy_ctr (
 assign soc_sdram_busy_rd = 32'd0;
 `endif
 
-`ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN)) u_soc (
+// Helios/Talos H0 (docs/HELIOS_SPEC.md section 9): vblank status, CDC'd from mp3_fb.sv's own
+// vid_vs_w (clk_vid domain, the module's real registered vsync pulse -- `vs_p1` internally,
+// already routed to this wire regardless of TAU_VBLANK) into clk_sys via a plain single-bit
+// synchroniser -- NOT tau_cdc_gray_ctr's Gray-code technique, which exists for multi-bit
+// counters, not a single level (see tau_cdc_sync1.sv's own header for why a plain synchroniser
+// is the correct, sufficient tool here).
+wire soc_vblank_rd;
+`ifdef TAU_VBLANK
+tau_cdc_sync1 #(.STAGES(3)) u_vblank_sync (
+    .clk_dst(clk_sys), .d_src(vid_vs_w), .q_dst(soc_vblank_rd)
+);
 `else
-mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN)) u_soc (
+assign soc_vblank_rd = 1'b0;
+`endif
+
+`ifdef TAU_PHASE2_WINDOW
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN)) u_soc (
+`else
+mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -364,6 +385,7 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN)) u_so
     .psram_guard (soc_psram_guard),
 
     .sdram_busy_rd (soc_sdram_busy_rd),
+    .vblank_rd     (soc_vblank_rd),
 
     .blt_src_base   (soc_blt_src_base),
     .blt_src_stride (soc_blt_src_stride),

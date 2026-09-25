@@ -1,4 +1,4 @@
-.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware firmware-advanced firmware-sdram-stress firmware-sdram-cpu-diag firmware-sdram-cpu-readback fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware firmware-advanced firmware-sdram-stress firmware-sdram-cpu-diag firmware-sdram-cpu-readback fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -59,7 +59,7 @@ test-host:
 	$(PYTHON) sim/test_cold_fw.py
 	$(PYTHON) sim/test_suite.py
 
-test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -137,6 +137,20 @@ $(RTL_BUILD_DIR)/tb_tau_cdc_gray_ctr.vvp: sim/tb_tau_cdc_gray_ctr.v src/fpga/cor
 	$(IVERILOG) -g2012 -o $@ $^
 
 test-rtl-cdc-gray-ctr: $(RTL_BUILD_DIR)/tb_tau_cdc_gray_ctr.vvp
+	$(VVP) $<
+
+# ---- Helios/Talos H0: vblank status's single-bit clock-domain crossing (docs/HELIOS_SPEC.md section 9) ----
+$(RTL_BUILD_DIR)/tb_tau_cdc_sync1.vvp: sim/tb_tau_cdc_sync1.v src/fpga/core/tau_cdc_sync1.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ $^
+
+test-rtl-cdc-sync1: $(RTL_BUILD_DIR)/tb_tau_cdc_sync1.vvp
+	$(VVP) $<
+
+# ---- Phase G RAM-shrink: main RAM's two-region split (docs/PHASE_F_SPEC.md section 4/4.1) ----
+$(RTL_BUILD_DIR)/tb_tau_main_ram.vvp: sim/tb_tau_main_ram.v src/fpga/core/tau_main_ram.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ $^
+
+test-rtl-main-ram: $(RTL_BUILD_DIR)/tb_tau_main_ram.vvp
 	$(VVP) $<
 
 $(RTL_BUILD_DIR)/tb_tau_sdram_cpu_bridge.vvp: sim/tb_tau_sdram_cpu_bridge.v src/fpga/core/tau_sdram_cpu_bridge.sv | $(RTL_BUILD_DIR)
@@ -294,6 +308,8 @@ rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_wb_adapter src/fpga/core/tau_sdram_wb_adapter.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_bridge_mux src/fpga/core/tau_sdram_bridge_mux.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cdc_gray_ctr src/fpga/core/tau_cdc_gray_ctr.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cdc_sync1 src/fpga/core/tau_cdc_sync1.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_main_ram src/fpga/core/tau_main_ram.sv
 
 card-check:
 	$(PYTHON) tools/library_check.py
