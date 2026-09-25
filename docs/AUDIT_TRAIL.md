@@ -8615,3 +8615,119 @@ still short by 352 B.
 - RTL: `mp3_fb.sv` exports its line counter (`scan_vc`, 9 bits); `tau_cdc_gray_bus.sv` carries it clk_vid -> clk_sys in Gray code (steps by one line, so a capture is the old or the new value; caveat: the 399 -> 0 wrap can read wrong for one sample, inside blanking where everything is safe); `mp3_soc.v` MMIO 0xE8 `SCAN` {present, vc}; macro `TAU_BEAM`. `sim/tb_tau_cdc_gray_bus.v` (decoded value within one step of the truth across two frames, every line observed) in `make test-rtl`; `make test-rtl`, `make rtl-lint` pass.
 - Firmware: `fw/helios.inc` `helios_rows_safe()` / `helios_rows_safe_counted()`, `helios_region_register_rows()` with per-region extents (flush skips a dirty region while the beam is in the way; the chrome stays immediate), `helios_beam_ok` probed at boot; the meter block gate in `ui_draw_dynamic_cold` now also requires `helios_rows_safe_counted(126, 259)` (a deferred pass keeps `ui_last_vu` at 2 so the next pass retries, nothing is lost). New Info row BEAM (`NONE` or `OK <n>% WAITED`, 17 rows, scrolls). `sim/test_helios_beam.py` (in `make test-host`) compiles the real C rule and compares 837,600 table entries to an independent model. All build targets link (release 61,936 B gap).
 - Fit: the spec-only fits `spec-b263` were stopped (half done) and replaced by `beam-b267` seeds 1 and 2 (`tools/blit_g3_full_qsf_append.txt`: B-246 macro set + `TAU_VBLANK` + `TAU_SPEC` + `TAU_BEAM`), launched 22:02, expected about 22:55-23:00. That bitstream carries the frame counter, the spectrum bank AND the beam position, so one install tests all three. On the current alpha.16 bitstream the firmware reports BEAM NONE and behaves as before. Not committed, not installed.
+
+## B-268 -- Chladni meters: algorithm study, preview lab, blit-engine proposals (2026-09-25)
+
+**Scope:** design and preview only. No firmware, RTL, card or VM touched.
+**Delivered:** `docs/CHLADNI_METER_SPEC.md`; `tools/lab/chladni_lab.html` (three engines, Q14 kernel, RGB565 meter box,
+cost model, benchmark, mode gallery).
+**Evidence labels:** kernel behaviour and benchmark numbers are lab-simulated on a synthetic demo track; every
+blit-cycle figure is a model estimate, not a hardware measurement.
+**Findings:**
+- Live field, sand and dictionary compared on flicker and trigger punch. Slowly integrated mode weights cut steady
+  flicker from about 13 to 2-4 percent of cells per frame (punch 1.4 to 4). Slow signals pick the figure, fast
+  signals only drive brightness, width and agitation.
+- Sand on a steady tone: 93-99 percent of grains on the nodal set within 5 s (lab). It costs 480-1,700 draw commands
+  per frame, so it waits for a scatter/accumulate primitive.
+- Existing `OP_SBLIT` (one SDRAM read per output pixel) is about 8 percent of SDRAM per frame for one plate, 25 for
+  three; a row-burst scaled blit is modelled at 0.6 and 1.7.
+- B16 (point list in SDRAM) would not reduce CPU cost: window stores (~0.8 us) are slower than draw commands.
+**Proposed (not built):** B18 row-burst scaled blit with CLUT/key, B19 flip flags, B20 index-plane saturating
+add/sub. Each touches the shared write network that has cost timing margin before; each needs its own fit.
+**Next:** run the lab on real music; build the dictionary meter on today's engine; measure with CT_BLT.
+
+### B-269 -- Chladni meter: tiled fill of the whole meter box (2026-09-25)
+
+Owner asked for the pattern to occupy the full 400x110 draw area with a sane zoom and audio headroom. Lab and spec
+updated (`docs/CHLADNI_METER_SPEC.md` section 5b); nothing built.
+- Same-parity-class mode mixes are exactly periodic per tile (lab: 0.003 max difference, Q14 rounding), so one tile
+  is computed and replicated with `OP_BLIT` copies (existing, hardware-proven). CPU is 4x lower than one wide plate.
+- Default zoom 4 tiles across, 3 px cells, modes up to order 11 (rule: `m <= tile_px / (3 * cell)`).
+- Modelled cost at default: 4 commands, 1.2-1.6 ms CPU, 2.9 % SDRAM per 30 fps frame; 15 fps halves both. Budget
+  used: SDRAM 5 % (one third of the 15.8 % proven by the blit storm), CPU 10 %. Estimates, not measurements.
+- B19 (flip) also removes the parity restriction; sand tiles with a wrapped domain.
+
+### B-270 -- Chladni meter: five templates (2026-09-25)
+Lab Template selector with Lattice, Sand Table, Gallery Plate, Triptych, Shimmer; all pass the 5 % SDRAM / 10 % CPU headroom model. Spec section 5c. Lab and model only; not optimized, built or measured for the device.
+
+### B-271 -- Chladni meter as a firmware module (core) and multicolour assessment (2026-09-25)
+
+- New `fw/chladni_core.h`: portable fixed-point core (Q14 field, Q12 weights, streaming 3-row render, trigger and mode
+  state machine, two presets). `tools/host/chladni_harness.c` + `sim/test_chladni_core.py` (in `make test-host`):
+  cosine table, field against a float reference, exact tile periodicity, mixed parity is not periodic, pure-mode
+  zeros, determinism, refractory time, parity/order rules, never-blank. All pass.
+- Finding: one rect per run of equal level is 642 commands per update (Lattice) and 362 (Shimmer). Rect drawing is
+  not viable; the module must render a plane through `OP_SBLIT`.
+- Multicolour (heat fill) is reasonable: on the blit path colour count is free; cost table in spec section 5d.
+- Not done: firmware module (`fw/chladni.inc`), player.c hooks, thumbnails, build switch. Nothing on a card.
+
+### B-272 -- Chladni meter: symmetry study (2026-09-25)
+
+Question: is the blit engine used to best effect for the figures' symmetry types? Answer: no, only translation was used.
+- Three symmetries, each proven in `sim/test_chladni_core.py`: edge mirror (any modes), centre mirror (one parity
+  class, any blend), diagonal (single family sign +-1). Cross-class centre mirror and blended-family diagonal fail as
+  predicted.
+- Lab: `fieldFold` (D2 quarter, D4 eighth) equals the full computation to 7 LSB; per update 1.59 ms to 1.06 ms (D2),
+  1.09 ms (D4, larger tile). The plane store (0.49 ms) dominates the rest and only engine-side flips (B19) remove it.
+- Mirror tiling needs B19 (152 commands without it) but lifts the parity restriction. Lab model, not measured.
+- Spec section 5e. Not built in firmware.
+
+### B-273 -- Chladni core: quarter (D2) fold (2026-09-25)
+
+`chl_render` gained a `half` buffer: rows y < Ry/2 are computed for x < Rx/2 only, mirrored in x within the row and in y
+from stored rows, sign (-1)^m. `chl_cfg_t.fold`, on in both presets. `sim/test_chladni_core.py` (in `make test-host`)
+checks fold against the full path on 24 random mixes over four tile sizes (odd and even), exact mirror symmetry, and the
+multiply-add ratio. Host only; no firmware module, hardware or timing measurement yet.
+
+
+### B-274 -- Meter module structure and preview stack (2026-09-25)
+
+Design only. `docs/METER_MODULE_SPEC.md`: meters split into a compile-time code module (fixed C contract, `mtr_desc_t`
+plus `mtr_in_t`, primitives only, per-meter state, `force` and no colour literals as rules) and a data plugin Omega can
+write (validated read-only `tau-assets.bin` container, `METR` and `THEM` sections, clamp against compiled tables, bad
+file falls back to built-ins). One `meter.json` manifest per meter drives a generator (enum, descriptor table,
+thumbnails, `meters_schema.json` for Omega and the lab); generic Configure page and `SR_T_METERCFG` replace the bespoke
+Winamp page and 13-byte tag. Preview stack: one browser bundle (framebuffer, theme, audio incl. recorded hardware
+traces, firmware ballistics, manifest-generated controls, cost panel) with golden-frame diffs against the C module.
+Build order M0..M6 and five owner decisions in section 10. Nothing built; no firmware, RTL, card or VM touched.
+
+Addendum (same day): spec part 2 adds a capability registry with status-gated requests (a meter may only use registered capabilities, shelved ones rejected, fallbacks required), a shared `fw/meter_core.h` of transversal functions taken from duplicated code (Winamp ease/peak cap, 37 `ui_mix` sites, per-meter redraw caches, Chladni onset), and structural, operational and maintenance rules. Design only.
+
+Addendum 2 (same day): spec part 3 defines the property model, templates (registry-level, can lock/hide properties), layered resolution, and the `.tmeter` / `.tmeterpack` / `tau-meter:` sharing formats for Omega. Design only.
+
+Addendum 3 (same day): all open decisions resolved (spec section 25, `docs/DECISIONS.md` D-M01..D-M13); MIT for shared presets; public preset gallery parked (D-M12).
+
+### B-275 (2026-09-25) - combined fit closed; alpha.17 packaged
+- `beam-b267` (B-246 macro set + TAU_VBLANK + TAU_SPEC + TAU_BEAM; vsync counter, hardware spectrum bank, beam position), both seeds Successful, all four corners positive, RAM 299/308 (the bank uses logic registers, no M10K), DSP 11/66. Seed 1: setup Slow 85C/0C +1.526/+1.234, hold +0.309/+0.302, Fast hold +0.140/+0.099. Seed 2: setup +1.352/+0.976, hold +0.314/+0.265, Fast 0C hold +0.058. Seed 1 selected (better on every reported corner). RBF `092331f1...` collected with tools/vm_fit.py (hash verified against the VM copy).
+- Packaged as `alfatreze.TAU_0_5_0_A_17` (`tools/package_dev_build.py --semver 0.5.0-alpha.17`) with the current firmware (SDRAM_BUSY=1 diagnostic-profile build). Expect on the Pocket: Info > SPECTRUM = HW W<n> (window counter increasing), BEAM = OK <n>% WAITED, VBLANK about 60/S. check_tau_package PASS. NOT installed.
+
+### B-276 (2026-09-26) - Chladni meter integrated in firmware (alpha.17), first hardware run pending
+- Owner asked for Chladni in the package. The other session's `fw/chladni_core.h` (portable fixed-point core) and spec were the base; the firmware module did not exist. Built `fw/chladni.inc` (VIZ_CHLADNI appended after VIZ_WINAMP_SCOPE, id 14): `chl_render` streams the tile row by row, each row packed two pixels per 32-bit word and written through the SDRAM MAILBOX into off-screen framebuffer rows 984..1023 (below the thumbnail stash, which ends at row 984); ONE `OP_SBLIT` scales the plane 3x into the meter box, `OP_BLIT` copies replicate it across (99 -> 198 -> 360 px, at most 120 words per copy). Preset 0 (Lattice), 15 figures a second, live field with the quarter fold. It never touches the sticky blit fields (R_BLT_IDX/R_BLT_DATA: implicated in two earlier hangs, never proven on hardware); it uses only the mailbox (as `blit_probe` does), default-addressed SBLIT and BLIT.
+- Safety: only runs while VIZ_CHLADNI is selected; first use runs `chl_probe()` (never at boot): writes 0xF80007E0 at a stash word, copies it with the engine, reads the copy back through the mailbox, and thereby determines the mailbox half order (or disables the meter and toasts CHLADNI UNAVAILABLE if the path does not behave); skipped while the audio FIFO is low (`meter_afford`), gated by the Helios beam check of the meter block. Spectrum source: `spec_lvl` from the hardware bank (gating conditions extended to VIZ_CHLADNI).
+- Registration: enum, `set_viz` name, toast name, `stress_viz_name` (the array had 12 names for 14 modes, out-of-bounds for Winamp modes, now 15), thumbnail entry 14 (procedural render of the real figure, palette/offset/RLE arrays grown; `meter_thumbs.h`), `_Static_assert` updated, Meter slider max in `dist/Cores/alfatreze.TAU/interact.json` raised 10 -> 14 (it silently stopped the newer meters persisting). New Info row CHLADNI (NOT USED / OK [SWAP] n DRAWN m SKIP / UNAVAILABLE), 18 rows.
+- Tests: `sim/test_chladni_module.py` (in `make test-host`, harness `sim/chladni_module_harness.c`) emulates the mailbox and the engine's BLIT/SBLIT: with both mailbox half orders the 360x110 box equals an independent rendering pixel for pixel (39,600 pixels), rate limit and audio-FIFO gating hold, a broken mailbox disables the meter. This proves the logic only; the real engine, mailbox timing and SBLIT-from-stash of a CPU-written plane are unproven on hardware.
+- Cost: release heap gap 61,936 -> 57,152 B; diagnostic builds about -9.5 KB (not yet explained, likely inlining). Packaged in `alfatreze.TAU_0_5_0_A_17` with the beam-b267 bitstream. NOT installed. Not committed. Coordination: another session owns `chladni_core.h`, `docs/CHLADNI_METER_SPEC.md` and `docs/METER_MODULE_SPEC.md`; I changed none of them.
+
+### B-277 (2026-09-26) - fullscreen visualiser, Select+X presets, meter list reordered and cleaned (alpha.17, not on hardware)
+- Fullscreen (Select+Y, `fw/fullscreen.inc`): design from the owner's Figma export (node 190-779 and the playing variant; Figma MCP access was refused, "no edit access", so the layout comes from the images): figure y 0..322 full width, black bar y 323..359 with `TITLE . ARTIST . ALBUM [YEAR]` (white / accent / grey) and a 2 px progress line (accent while playing, red #F04848 stopped or paused, dark track #1A2028, small tick), and a top-right label `SELECT+Y  NN%` (hint and CPU load). Only Chladni is fullscreen-capable (the other meters use fixed box constants in hundreds of places); Select+Y on another meter toasts "FULLSCREEN: CHLADNI ONLY", choosing another meter leaves fullscreen. Mechanism: `ui_fullscreen` makes `FB_HELD()` true exactly as under an overlay, so every ordinary draw is a silent no-op while the state machines keep running (elapsed time, resume and audio untouched); fullscreen draws with `ov_draw` set; leaving repaints through `pl_ui_restore`. The whole-figure draw is gated by `helios_rows_safe_counted(0, 322)` (beam past the figure or in blanking). Chladni generalised: `chladni_tick_box(x0,y0,w,h,ground)` replicates the tile in both directions (horizontal doubling then vertical, copies at most 120 words wide), scale code from the preset's cell size (3x for Lattice, 2x for Shimmer), black ground in fullscreen.
+- CPU load (`ui_cpu_pct()`, Info > CPU LOAD, and the fullscreen label): 100 minus the latched per-second idle percentage the decode loop already measures while blocked on a full PCM FIFO; 0 while stopped or paused. Info page now 19 rows.
+- Select+X: next preset of the current meter (`meter_preset_next`): Chladni Lattice/Shimmer (the firmware's live-field engine can draw only those two of the lab's five templates; Sand Table, Gallery Plate and Triptych need other engines), Winamp Bars/Scope (5 each), Bars UP/MIRRORED. Both Select combos consume the key so plain Y (EQ) and X (next meter) do not also fire.
+- Meter list order is now Winamp Oscilloscope, Winamp Bars, Chladni, then Bars, Waterfall, Phase Scope, Oscilloscope, VU, Waveform, Peak Dots, Spectrum (`viz_order[]`; list rows and enum values are translated by `viz_sel_to_mode`/`viz_mode_to_sel`, the enum itself stays append-only because the setting persists an index). Removed at the owner's request: Magic Eye and L/R Levels (code, state, thumbnails and preview fixtures deleted; enum slots kept as `VIZ_RETIRED_EYE` / `VIZ_RETIRED_LEVELS`); Mirrored Bars merged into Bars as a layout (`bars_layout`, `VIZ_RETIRED_MIRROR` slot is now how the mirrored layout is SAVED, so an old saved Mirrored Bars keeps meaning mirrored); the parked Cassette stays excluded. Mirrored costs 2 `OP_BAR` per changed column (was up to 3: two background copies and a rect): the upper half is a normal bar, the lower half is the same bar inverted (colours swapped, the EMPTY part lit), flat bed per half. Better still would be a vertical flip flag on `OP_BLIT` (the spec's B19): one half drawn, one flipped copy. Thumbnails: retired entries emptied (-1,391 bytes of cold data). Backup tag `backup/pre-meter-removal-2026-09-26`. `tools/eye_preview.py` deleted; `ui_snapshot_renderer` reads the list order from the firmware (61 fixtures).
+- Persistence: the Meter slider max in `interact.json` raised 10 -> 14 (it silently stopped the newer meters persisting).
+- Cost (measured): release heap gap 61,936 -> 47,472 B, diagnostic 54,736 -> 40,096 B (Chladni's kernel `chladni_tick_box` alone is 4.6 KB of hot code, plus 2.5 KB of buffers; the rest is the fullscreen module and CPU-load plumbing). At a 192 KB ceiling the release now needs about 24 KB more headroom, not 9.4 KB (RAM_SHRINK_192K_PLAN.md); moving the Chladni kernel to cold code is the obvious first candidate.
+- Tests: `make test-host` passes (Chladni module test extended earlier, renderer check 61 fixtures); not run on hardware. Packaged in `alfatreze.TAU_0_5_0_A_17`. NOT installed, not committed.
+
+### B-278 (2026-09-26) - two meter-preset questions answered (analysis only)
+- Peak Dots as a Winamp Bars preset: not identical, but a close cousin is cheap. Peak Dots draws the scrolling LOUDNESS HISTORY (`wave_pk[]`, 36 columns, newest at the right, sinking slowly) as 2 px dots; Winamp Bars draws the 16 spectrum BANDS with easing and 1 px white caps. So a Winamp preset would show spectrum dots, not a loudness contour. It needs two new `wviz_bars_cfg_t` fields: `bars_on` (0 = draw only the cap) and `cap_h` (2), plus a preset with `peak_gravity` 0 (linear fall, "no gravity"; that already exists) and no hold; cost per changed band would be 2 commands (a background fill and the cap). The bars-off flag is also what a future "peaks only" preset needs. Recommendation: build it as preset 6 of Winamp Bars, keep Peak Dots until the owner has seen it, then retire the slot the same way as Mirrored Bars. Complication: the 5 presets are shared by index between Winamp Bars and Scope, so a bars-only preset needs per-mode preset counts.
+- Waveform (`VIZ_SCROLL`) with mono and stereo presets: feasible. Today it is one mono envelope (`peak_amp`) scrolled by a single `OP_COPY` with a mirrored new column. Stereo = two lanes (L above R, each mirrored about its own centre line, half height): the per-channel amplitudes already exist (`peak_l`/`peak_r`, previously used only by L/R Levels); per frame it costs one extra column draw (a few `OP_RECT`), the scroll copy is unchanged. Layout flag like `bars_layout`; the retired `VIZ_RETIRED_LEVELS` slot is a natural way to save "Waveform, stereo" (it kept its meaning: the stereo meter). Not built.
+
+### B-279 (2026-09-26) - Chladni and fullscreen moved to cold code; per-meter size comparison
+- Chladni (`CHL_COLD` = `COLD_FN3` + `flatten`, so every callee from `chladni_core.h` is folded into the cold entry point and no hot copy survives; the other session's header is untouched) and the whole fullscreen/preset module (`COLD_FN3`) are now cold. Hot entries are gated: `ui_fs_dynamic` after the `COLD_READY()` check in `ui_draw_dynamic`, the Select+X/Y combos on `cold_code_ok` (COLD_READY() is not visible that early in the file), `ui_fs_frame` only while `ui_fullscreen` is set. Release heap gap 47,472 -> 58,032 B (Chladni plus fullscreen now cost 3.9 KB of RAM in total, all of it buffers and tables); diagnostic builds 50,656 / 52,064 B. `make test-host` passes (the Chladni harness defines `COLD_FN3` empty).
+- Marginal size per meter, measured by rebuilding the release with that meter's drawing block removed (cold code in PSRAM; RAM = change in heap gap, i.e. hot code + rodata + bss): Bars both layouts 1,024 B cold / 304 B RAM; Waterfall 256 / 16; Phase Scope 724 / 0; Oscilloscope 776 / 0; VU 2,592 / 112; Waveform 524 / 0; Peak Dots 440 / 0; Spectrum 656 / 160; Cassette (parked) 2,708 / 816; Winamp Bars block 532 (+ `wviz_bars_tick` 1,424) and Winamp Scope block 212 (+ `wviz_scope_tick` 644), Winamp state 460 B RAM shared with the Configure page; Chladni 8,320 B cold / 3,319 B RAM; fullscreen and preset glue 4,420 B cold / 6 B RAM. Shared state: wave arrays 144 B, software spectrum cascade 164 B plus its hot code in `meters_feed` (dead weight while the hardware bank is present), scope arrays 384 B, cassette rodata 456 B. Alpha.17 repackaged.
+
+### B-280 (2026-09-26) - installed TAU_0_5_0_A_17 with `tools/install_dev_core.py`
+- Alpha.16 and the five catalog caches backed up and verified (`work/card-backups/20260926-002900`); bitstream `c5e3264a...` (beam-b267: frame counter, hardware spectrum bank, beam position), ROM `c21ed1f2...`, cold image `e38253e8...` SHA-256-identical; 47 media files carried, library index OK (root `/Assets/tau_0_5_0_a_17/common/`); alpha.16 removed; caches deleted; 16 junk files cleaned; ejected. First hardware run of: the hardware spectrum bank (Info > SPECTRUM should read `HW W<n>`), the beam position (Info > BEAM `OK <n>% WAITED`), the Chladni meter (Info > CHLADNI), fullscreen (Select+Y), Select+X presets, the reordered meter list, merged Bars layouts, CPU load. Cold-frame Check with Chladni selected is the performance gate for the cold Chladni kernel. Not yet run.
+
+### B-281 (2026-09-26) - cassette meter removed from the build and archived
+- Owner: remove the cassette from the build and archive it for reference. Archive: `archive/cassette_meter/` (`cassette_meter_code.c.txt`: the definitions/state/helpers, the drawing block and the `vu_settling` term, verbatim and not compiled; `thumbnail_entry_11.txt`; `README.md` with provenance (HarpMudd upstream v1.5.0 / release-1.5.1 commits), what was removed and how to restore) and git tag `archive/cassette-meter` (the last commit with it in `fw/player.c`).
+- Removed: enum slot `VIZ_TAPE` -> `VIZ_RETIRED_TAPE` (append-only, a saved cassette setting is ignored), the 5.2 KB definitions block, the 12.6 KB drawing branch, the `tape_face` reset, the `vu_settling` term, spectrum-gating mentions, the toast fallback, the Settings and stress-HUD names, and thumbnail entry 11 (stream and palette emptied); `UI_WAVE_TOP` kept (comment updated). Measured: release heap gap 58,032 -> 58,864 B (+832 B of RAM: hot text, `tape_hub` rodata, state), cold code -2,708 B; diagnostic builds 51,488 / 52,896 B. `make test-host` passes. Not on the card (alpha.17 still has it); the next package should be alpha.18. Not committed.

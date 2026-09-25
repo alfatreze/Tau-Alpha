@@ -82,6 +82,8 @@ section 2's rule exists.
 | Persisted settings (`interact_persist.json`) | `fw/settings.inc` (the `SW_*` enum and `set_wr`/`set_rd` mapping), `fw/player.c` | The register behind this is a hardwired 4-bit index, already fully used with the library on — relevant to any future persisted meter setting, see `docs/METER_CONFIG_SPEC.md` §4 |
 | Check/QR diagnostics report | `fw/suite_core.h` (the `SR_T_*` tag enum and each tag's own layout comment), `tools/decode_tau_suite.py` | Diagnostic-Build-only by standing decision; a release-core card has no Check report |
 | Visualizer/meter identity and config | `docs/METER_CONFIG_SPEC.md` (new, this pass) | The `VIZ_*` enum is append-only — a saved index must never be reinterpreted after a firmware update |
+| Meter list order and retired meters (2026-09-26) | `fw/player.c` `viz_order[]` and the `VIZ_RETIRED_*` slots, `docs/METER_CONFIG_SPEC.md` "Update 2026-09-26" | List order is NOT enum order any more; retired numbers 2, 7, 9, 11 mean "no meter" (7 is also the saved form of Bars in its mirrored layout); Chladni is 14; the Meter slider max in `interact.json` is 14. Persisted `Meter` value = the enum number |
+| Planned: meter registry, `tau-assets.bin` (`METR`/`THEM`), `SR_T_METERCFG` | `docs/METER_MODULE_SPEC.md` (design only, nothing built) | Omega consumes a generated `meters_schema.json` from a tagged release; slot number not assigned |
 
 Add a row here whenever a new interface surface is created — this table, not either project's
 memory of the conversation that created it, is what a future session should find first.
