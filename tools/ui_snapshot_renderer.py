@@ -272,13 +272,6 @@ def draw_visualizer(frame, mode):
             color = blend(UI_ACCENT, UI_TRACK, h * 16 // height)
             frame.rect(x0 + xx, y0 + height - h, 1, h, color)
             frame.rect(x0 + xx, y0 + height - h, 1, 1, UI_WHITE)
-    elif mode == "levels":
-        for i, fraction in enumerate((58, 81)):
-            y = y0 + i * 25
-            amount = width * fraction // 100
-            frame.rect(x0, y, amount, 23, UI_ACCENT)
-            frame.rect(x0 + amount, y, width - amount, 23, UI_TRACK)
-            frame.rect(x0 + min(width - 1, amount + 15), y, 1, 23, UI_WHITE)
     elif mode == "phase-scope":
         cx, cy = x0 + width // 2, y0 + height // 2
         frame.rect(cx, y0, 1, height, UI_TRACK)
@@ -304,13 +297,6 @@ def draw_visualizer(frame, mode):
             h = 1 + int((math.sin(xx * .10) + 1) * 13)
             frame.rect(x0 + xx, cy - h, 1, h * 2 + 1,
                        blend(UI_ACCENT, UI_TRACK, h * 16 // 28))
-    elif mode == "mirrored-bars":
-        count, gap, cy = 36, 2, y0 + height // 2
-        bar_w = (width - gap * (count - 1)) // count
-        for index in range(count):
-            h, x = level(index) // 2, x0 + index * (bar_w + gap)
-            frame.rect(x, cy - h, bar_w, h * 2 + 1,
-                       blend(UI_ACCENT, UI_TRACK, (index + 1) * 16 // count))
     elif mode == "peak-dots":
         count, gap = 36, 2
         bar_w = (width - gap * (count - 1)) // count
@@ -318,13 +304,6 @@ def draw_visualizer(frame, mode):
             h, x = level(index), x0 + index * (bar_w + gap)
             frame.rect(x, y0 + height - h, bar_w, 2,
                        blend(UI_ACCENT, UI_TRACK, (index + 1) * 16 // count))
-    elif mode == "magic-eye":
-        tube_w, gap, tx = 46, 24, x0 + (width - 116) // 2
-        for channel in range(2):
-            x, lit = tx + channel * (tube_w + gap), 42 + channel * 12
-            frame.rect(x, y0 + 6, tube_w, 58, blend(UI_ACCENT, UI_TRACK, 5))
-            frame.rect(x + 13, y0 + 64 - lit, 20, lit, UI_ACCENT)
-            frame.rect(x + 9, y0 + 65, 28, 5, blend(UI_ACCENT, UI_TRACK, 5))
     elif mode == "spectrum":
         columns, rows = 8, 8
         col_w = width // columns
@@ -448,6 +427,15 @@ def overlay_geometry():
         expr = re.sub(r"(\d+)u\b", r"\1", match.group(1).split("/*")[0]).strip()
         env[name] = eval(expr, {}, env)
     return env
+
+
+def viz_rows():
+    """The Settings > Meter list, top to bottom, as enum values: read from viz_order[] in fw/player.c (the list is no longer in
+    enum order, and retired meters have no row)."""
+    enum = re.sub(r"/\*.*?\*/", "", re.search(r"enum \{ VIZ_BARS = 0,(.*?)VIZ_COUNT \};", PLAYER, re.S).group(1), flags=re.S)
+    names = ["VIZ_BARS"] + re.findall(r"\b(VIZ_[A-Z_]+)\b", enum)
+    order = re.findall(r"\b(VIZ_[A-Z_]+)\b", re.search(r"viz_order\[[A-Z_]+\] = \{(.*?)\};", PLAYER, re.S).group(1))
+    return [names.index(n) for n in order]
 
 
 def meter_thumb(viz):
@@ -678,7 +666,7 @@ def settings_menu(page, selected):
 
 
 INFO_SAMPLE = ("0.1.0", "4D503317", "OK", "52 CYC", "16112 B", "13 TRACKS", "NO",
-               "MP3 320K 44.1K", "OK", "0", "0 MS", "12/8/41/118", "7180 TRK 1.2 S", "OK", "60/S", "HW W42", "OK 23% WAITED")
+               "MP3 320K 44.1K", "OK", "0", "0 MS", "12/8/41/118", "7180 TRK 1.2 S", "OK", "60/S", "HW W42", "OK 23% WAITED", "OK 214 DRAWN 3 SKIP", "23%")
 STAT_SAMPLE = ("R2", "RUNNING", "3", "786432", "0", "4", "0", "372 CYC", "0 MS", "13.4K OPS/S",
                "12:41 LEFT")
 
@@ -769,7 +757,7 @@ def settings_choice(choice, cursor, active, top=0):
         names = _names(PLAYER, "ui_palette_name")
         colours = [int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{4})u,\s*/\*", PLAYER.split("ui_palette[] = {")[1].split("};")[0])]
     else:
-        names = {"meter": lambda: _names(SETTINGS_SRC, "set_viz"),
+        names = {"meter": lambda: [_names(SETTINGS_SRC, "set_viz")[m] for m in viz_rows()],
                  "eq": lambda: _names(EQ_SRC, "eq_name"),
                  "repeat": lambda: _names(SETTINGS_SRC, "set_rep"),
                  "blank": lambda: _names(SETTINGS_SRC, "set_blank_nm"),
@@ -805,7 +793,7 @@ def settings_choice(choice, cursor, active, top=0):
         tx = mx + 24
         if choice == "meter":
             ty = y + (row_h - 2 - _sconst("SET_TH_H")) // 2
-            for rx, ry, rw, rh, rc in meter_thumb(i):
+            for rx, ry, rw, rh, rc in meter_thumb(viz_rows()[i]):
                 frame.rect(tx + rx, ty + ry, rw, rh, rc)
             tx += _sconst("SET_TH_W") + 14
         frame.text(tx, y + (row_h - 2 - 16) // 2, names[i], "TS_1X",
@@ -973,8 +961,8 @@ FIXTURES = {
     "sdram-cpu-preflight-readback-fail": sdram_cpu_preflight_readback_failure,
     "sdram-cpu-probe-bar": sdram_cpu_probe_bar,
     **{f"visualizer-{name}": (lambda mode=name: now_playing_base(visualizer=mode))
-       for name in ("bars", "waterfall", "levels", "phase-scope", "oscilloscope",
-                    "waveform", "mirrored-bars", "peak-dots", "magic-eye", "spectrum", "vu")},
+       for name in ("bars", "waterfall", "phase-scope", "oscilloscope",
+                    "waveform", "peak-dots", "spectrum", "vu")},
 }
 
 

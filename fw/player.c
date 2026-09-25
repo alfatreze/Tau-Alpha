@@ -332,7 +332,11 @@ static void lib_ui_input(uint32_t *edge_p, uint32_t *fall_p, uint32_t *keys_p);
 static uint8_t set_open;           /* settings overlay is up */
 #define UI_OVERLAY_UP (pl_ui_open || set_open || LIB_OVL)
 static uint8_t ov_draw;            /* the overlay itself is painting */
-#define FB_HELD() (UI_OVERLAY_UP && !ov_draw)
+/* Fullscreen visualiser (fw/fullscreen.inc, Select+Y): while it is up every ordinary draw call is held exactly as under an
+ * overlay (the state machines keep running), and the fullscreen code draws with ov_draw set. */
+static uint8_t ui_fullscreen;
+static uint8_t cold_code_ok;       /* the cold image is loaded and verified (again, tentatively, in fw/cold.inc, which is included later) */
+#define FB_HELD() ((UI_OVERLAY_UP || ui_fullscreen) && !ov_draw)
 
 static void fb_set_color(uint16_t fg, uint16_t bg)
 {
@@ -939,7 +943,7 @@ static uint32_t clk_max;                 /* largest jump seen, any time */
  * same size, and comparing counts of them would prove nothing. */
 static uint32_t fl_idle_cyc, fl_io_cyc;    /* accumulating, this second     */
 static uint32_t fl_rate_hz;                /* mirrors fl.rate, declared later */
-static uint8_t  fl_idle_pct, fl_io_pct;
+static uint8_t  fl_io_pct;
 static uint32_t ui_last_prof;              /* UI_SHOW_DECODE_PROFILE latch, Phase F step 1 */
 static int32_t  vol_gain = 256;          /* Q8: 256 == unity */
 
@@ -1117,6 +1121,12 @@ static uint32_t ui_mode_dirty = 1u;      /* repaint the mode icons / N-of-M   */
 static uint32_t idle;                    /* nothing loaded: waiting on the user */
 static uint8_t  stopped;                 /* Start: at 0:00, not merely paused  */
 static uint8_t  hold_paused;             /* stay paused across a track change  */
+
+/* Processor load for display (the playing bar's percentage, Info > CPU LOAD): the share of the last second NOT spent
+ * waiting for room in the PCM FIFO. The decode loop blocks there when it is ahead of the DAC, so the blocked time is the
+ * idle time (fl_idle_pct, latched once a second, capped at 99). Nothing is decoding while stopped or paused, so 0. */
+static uint8_t fl_idle_pct;
+static inline uint32_t ui_cpu_pct(void) { return (idle || paused) ? 0u : 100u - (uint32_t)fl_idle_pct; }
 static uint32_t stop_req;
 
 #define PL_HOLD_MS 400u                  /* Left/Right held this long = skip  */
@@ -1605,12 +1615,9 @@ static uint32_t io_bench_bytes;   /* ...and how much it managed to read      */
 #define UI_WAVE_Y   150u
 #define UI_WAVE_H   110u
 #define UI_WAVE_GAP 2u
-/* The cassette meter (VIZ_TAPE, ported from HarpMudd upstream) is the only
- * one that draws above UI_WAVE_Y -- TAPE_SHELL_H is 96, 24 rows taller than
- * UI_WAVE_H. ui_bg_restore() and ui_wave_clear() both need this extra band
- * included in the range they rebuild, or the strip above the normal meter
- * box is left with whatever was drawn there before. VIZ_TAPE is parked
- * (B-208) but the macro stays -- cheap insurance if it ever comes back. */
+/* Extra rows above the meter box that ui_bg_restore() and ui_wave_clear() also rebuild. Only the cassette meter (archived 2026-09-26, see
+ * archive/cassette_meter/) drew above UI_WAVE_Y; nothing does now, but the range is kept so a meter that does can be added without
+ * touching the two rebuilders. */
 #define UI_WAVE_TOP 24u
 #define UI_PROG_Y   282u
 #define UI_PROG_H   5u
@@ -1653,8 +1660,8 @@ static ui_marquee_t ui_mq_title, ui_mq_artist;
  * viz_mode is persisted as an INDEX, so moving an entry silently repoints
  * every user's saved meter at a different one. Same rule as the interact.json
  * ids. New modes go immediately before VIZ_COUNT. */
-enum { VIZ_BARS = 0, VIZ_WATER, VIZ_LEVELS, VIZ_SCOPE, VIZ_WAVE, VIZ_VU,
-       VIZ_SCROLL, VIZ_MIRROR, VIZ_DOTS, VIZ_EYE,
+enum { VIZ_BARS = 0, VIZ_WATER, VIZ_RETIRED_LEVELS, VIZ_SCOPE, VIZ_WAVE, VIZ_VU,
+       VIZ_SCROLL, VIZ_RETIRED_MIRROR, VIZ_DOTS, VIZ_RETIRED_EYE,
        /* APPENDED, and it must stay that way: viz_mode persists as an INDEX,
         * so inserting a meter anywhere but the end silently repoints every
         * saved preference at a different one. Adding this also required the
@@ -1666,36 +1673,41 @@ enum { VIZ_BARS = 0, VIZ_WATER, VIZ_LEVELS, VIZ_SCOPE, VIZ_WAVE, VIZ_VU,
         * `d76267e`, `154234f`, and later hardening: `f0d6b60`, `4024104`,
         * `42f3853`, `7e9ceec`) -- the cassette meter. Appended, same rule
         * as VIZ_LED above. */
-       VIZ_TAPE,
+       VIZ_RETIRED_TAPE,
        /* Classic Winamp-style bars/scope (research doc entry #6, priority rank #2), but with a
         * fluid easing layer on top of the raw octave-filter data instead of an instant snap --
         * see the Fluid Bars Lab sandbox. Two separate modes (not a mode-internal toggle) so each
         * is independently selectable/cyclable, matching every other meter here. Appended after
-        * VIZ_TAPE, same rule as above -- and see VIZ_SEL_TO_MODE()/VIZ_MODE_TO_SEL() just below,
-        * since VIZ_TAPE now sits in the MIDDLE of the enum rather than at the end. */
+        * VIZ_RETIRED_TAPE (now retired), same rule as above -- and see viz_order[] just below, since the list
+        * is no longer in enum order. */
        VIZ_WINAMP_BARS,
        VIZ_WINAMP_SCOPE,
+       /* Chladni nodal-line figures (fw/chladni.inc, B-276). Appended, same rule. */
+       VIZ_CHLADNI,
        VIZ_COUNT };
 
-/* VIZ_TAPE (the cassette meter) is parked: the owner dislikes its visuals
- * and plans to replace it with their own design in a future ground-up
- * rebuild. Its drawing code, enum slot and asset (fw/meter_thumbs.h entry
- * 11) are kept in place for reference, not deleted -- only excluded from
- * selection. This also covers the pre-existing TAU_METER_THUMBS gate
- * (selecting it on a build without that macro would show a blank meter
- * box), so no separate check is needed for that case any more.
+/* RETIRED meters keep their enum slot (viz_mode persists as an INDEX, so slots can never be reused or shifted) but have no code,
+ * no thumbnail data and no row in the list: VIZ_RETIRED_TAPE (the cassette meter, archived in archive/cassette_meter/), VIZ_RETIRED_LEVELS (L/R levels) and VIZ_RETIRED_EYE
+ * (magic eye) and VIZ_RETIRED_MIRROR (mirrored bars, now a layout of BARS), all removed 2026-09-26 at the owner's request. Their drawing code is in git (tag backup/pre-meter-removal-2026-09-26).
  *
- * VIZ_TAPE sitting in the MIDDLE of the append-only enum (VIZ_WINAMP_BARS/
- * VIZ_WINAMP_SCOPE were appended after it, B-215) means "everything before
- * some threshold is selectable" no longer holds -- a single index is
- * excluded, so selection is a row<->mode remap around that one gap instead
- * of a plain count. VIZ_SEL_COUNT is the number of SELECTABLE modes (one
- * fewer than VIZ_COUNT); the Settings choice list, the X-button cycle and
- * the persisted-setting restore all go through these two functions rather
- * than duplicating the "skip VIZ_TAPE" logic three times. */
-#define VIZ_SEL_COUNT (VIZ_COUNT - 1u)
-static inline uint32_t viz_sel_to_mode(uint32_t row)  { return row >= VIZ_TAPE ? row + 1u : row; }
-static inline uint32_t viz_mode_to_sel(uint32_t mode) { return mode > VIZ_TAPE ? mode - 1u : mode; }
+ * The list (Settings > Meter, and the X button) is NOT in enum order any more: the owner's order is Winamp Oscilloscope,
+ * Winamp Bars, Chladni, then the rest as before. viz_order[] is that order; the two functions below translate between a list
+ * row and the persisted mode value, and every consumer (choice list, X cycle, restore of the saved setting) goes through them. */
+#define VIZ_SEL_COUNT 11u
+static const uint8_t viz_order[VIZ_SEL_COUNT] = {
+    VIZ_WINAMP_SCOPE, VIZ_WINAMP_BARS, VIZ_CHLADNI,
+    VIZ_BARS, VIZ_WATER, VIZ_SCOPE, VIZ_WAVE, VIZ_VU, VIZ_SCROLL, VIZ_DOTS, VIZ_LED };
+
+/* BARS has two layouts (Select+X): 0 = up from the bottom, 1 = mirrored about the centre line. Mirrored Bars used to be its own meter; its
+ * slot VIZ_RETIRED_MIRROR is now how the mirrored layout is SAVED (settings hold viz_mode as an index, so a saved MIRRORED BARS keeps
+ * meaning "mirrored"): the setting is written as VIZ_RETIRED_MIRROR and read back as VIZ_BARS + layout 1. */
+static uint8_t bars_layout;
+static inline uint32_t viz_sel_to_mode(uint32_t row)  { return viz_order[row < VIZ_SEL_COUNT ? row : 0u]; }
+static inline uint32_t viz_mode_to_sel(uint32_t mode) {
+    for (uint32_t i = 0; i < VIZ_SEL_COUNT; i++) if (viz_order[i] == mode) return i;
+    return 0u;
+}
+static inline int viz_selectable(uint32_t mode) { for (uint32_t i = 0; i < VIZ_SEL_COUNT; i++) if (viz_order[i] == mode) return 1; return 0; }
 
 /* Stereo phase scope. Left against right, rotated 45 degrees so mono lands on
  * the vertical -- the standard goniometer orientation, and the reason it reads
@@ -1745,156 +1757,6 @@ static uint8_t  vu_face;          /* the static face is on screen        */
 static uint16_t vu_face_w;        /* ...and the width it was drawn for   */
 static uint8_t  vu_shown_l, vu_shown_r;   /* deflection currently drawn   */
 
-/* ---- Magic eye (EM84 indicator tube) ----------------------------------
- *
- * The BAR type: two glass tubes side by side, each with a vertical
- * fluorescent strip whose LENGTH follows its channel.
- *
- * The first attempt was a rounded rect with a solid bar in it and read as
- * generic, correctly -- that describes a bar meter, and this screen has
- * two of those already. What makes a tube look like a tube is not its
- * outline, it is the GLASS and the BLOOM:
- *
- *   - the envelope is shaded PER COLUMN, bright near the left and falling
- *     off both ways, so it reads as a cylinder rather than a slab;
- *   - the top is DOMED, by a per-column offset off the same circle search
- *     fb_round_rect uses, with a pip above it;
- *   - a getter flash sits inside the crown, the silvery patch every real
- *     tube carries;
- *   - the phosphor has a bright core, two halo layers either side, and a
- *     bloom that spills ABOVE the tip -- a hard-edged bar is the single
- *     biggest reason a glow reads as a rectangle;
- *   - the glow reflects in the base plate, the way the photographed pair
- *     reflects in its acrylic.
- *
- * Nearly all of that is in the CACHED pass, so the per-frame cost is the
- * strip and its reflection -- about eleven rects a channel.
- *
- * CYAN-GREEN, not the accent. Everything else here is a tone of ui_accent
- * on purpose (see the VU face); this breaks it knowingly, because the glow
- * IS the instrument. The base plate is accent-tinted instead -- a chassis
- * can follow the theme where the phosphor cannot. */
-#define EYE_GLASS_D 0x18E4u       /* envelope, in shadow                   */
-#define EYE_GLASS_L 0x530Du       /* envelope, on the specular streak      */
-#define EYE_GETTER  0x6BD0u       /* getter flash inside the crown         */
-#define EYE_SOCKET  0x1082u       /* base of the envelope, in the socket   */
-/* The scale ticks and the plinth are the ONLY parts of this meter that follow
- * the accent, and they have to, for the reason written on the VU face: with a
- * fixed palette throughout, cycling the colour moved nothing and the meter
- * looked broken. The phosphor cannot take the accent -- the glow is the
- * instrument -- so the etched scale carries it instead. */
-#define EYE_DARK    0x0082u       /* strip window, unexcited               */
-#define EYE_H2      0x0A89u       /* outer halo                            */
-#define EYE_H1      0x1DC3u       /* inner halo                            */
-#define EYE_LIT     0x57FCu       /* the phosphor itself                   */
-#define EYE_TUBE_W  38u
-#define EYE_TUBE_G  10u           /* gap between the pair                  */
-#define EYE_BAR_W    6u           /* the strip core; halos add 4 each side */
-#define EYE_DOME     9u           /* rows the crown curves through         */
-/* Sized to the last pixel of the meter box: pip on row 0, plinth ending on
- * row 71 of 72. Growing either dimension again means taking it from the
- * plinth or the dome, not from spare space -- there is none. */
-#define EYE_TUBE_H  62u
-/* The plinth. Overlaps the tube's last row on purpose -- those rows are socket
- * shadow, so the glass reads as seated IN the base rather than balanced on it,
- * which is how the photographed pair sits. Wider than the tubes now that the
- * glow stops above it. */
-#define EYE_BASE_H   8u
-#define EYE_BASE_PAD 8u           /* overhang each side                     */
-static uint32_t eye_l, eye_r;     /* Q8 deflection, 0..255                 */
-static uint8_t  eye_face;         /* envelopes and dark strips are drawn   */
-static uint16_t eye_face_w;       /* ...and the width they were drawn for  */
-static uint8_t  eye_shown_l, eye_shown_r;  /* strip height currently lit   */
-
-/* Light thrown onto the panel beside each tube. The pair occupies 78 px of a
- * box nearly four times that, and spill is what a bright tube in a dark case
- * does with the space.
- *
- * Anchored to the MIDDLE of the tube, not to the tip of its strip. Tracking
- * the tip was the first attempt and looked wrong for a reason worth keeping:
- * the strip grows upward from the bottom, so at low level the tip -- and with
- * it the whole pool of light -- sat down at the tube's base, as though the
- * glow came from the socket. A tube lights the room from where the tube is.
- *
- * Elliptical falloff, so it reads as a pool rather than a wedge, and it
- * reaches further out than the cone did.
- *
- * Driven by a SEPARATE, heavily smoothed level rather than by the strip.
- * Light in a room does not snap, and this is a wash behind an instrument that
- * is already showing the fast movement -- the smoothing is what makes it
- * atmosphere instead of a second meter. It also pays for itself: quantised to
- * a few steps, most frames leave it alone entirely.
- *
- * Self-erasing: bands past the current reach are painted with the background
- * itself, so there is no separate erase pass. Quantised into 4-row strips to
- * keep the rect count down; the ramp moves well under one level across four
- * rows, so stepping it there is not visible where a flat fill was. */
-#define EYE_GLOW_RX    72u        /* how far the light reaches outward    */
-#define EYE_GLOW_RY    20u        /* ...and half how tall the pool is     */
-#define EYE_GLOW_NB     9u        /* bands across that reach -- 8px each  */
-#define EYE_GLOW_S      4u        /* rows per quantised strip             */
-#define EYE_GLOW_STEPS  6u        /* intensity steps                      */
-#define EYE_GLOW_PEAK  26u        /* strongest mix, out of 64             */
-#define EYE_GLOW_POS    8u        /* vertical positions across the travel */
-/* The band the pool is repainted over, FIXED, covering every position it can
- * take. It has to be: the pool moves, and a redraw that only covered its own
- * span left up to 54 rows of the previous position on screen -- seen as a
- * faint line above the light. Self-erasing only works if the repainted area
- * does not move, so the area is the union and the rest is painted bed. */
-#define EYE_GLOW_TOP   16u        /* first row of that band, from the box  */
-/* Spans the whole box. Shortening it to clear the plinth was tried and looked
- * worse: the pools reach 72px past each tube while the base is 102px wide, so
- * the light was chopped flat in mid-air either side of it rather than stopping
- * at anything. On the base's OWN rows the pools skip its 8px of overhang
- * instead, which is the only part they would otherwise paint over. */
-#define EYE_GLOW_ROWS  56u        /* rows 16..71                            */
-/* The GAP between the tubes is lit by BOTH of them, and leaving it dark was
- * the one place the illusion broke: two lamps 10px apart cannot leave the
- * space between them the darkest thing on the panel.
- *
- * It is a separate pass because it depends on both channels at once, where
- * everything else here is per tube. Cheap -- one rect per row-strip, because
- * across 10px the two falloffs very nearly cancel and the sum is flat, so a
- * gradient across it would be invisible.
- *
- * It stops ABOVE the plinth. The gap sits over the middle of the base plate,
- * and painting the bed there would chew a notch out of it -- the same fault
- * the overhanging plinth had at its ends. */
-#define EYE_GAP_ROWS   48u        /* rows of the gap that are lit          */
-/* POSITION and BRIGHTNESS come from different places, and that split is the
- * point.
- *
- * The pool sits on the MIDDLE OF THE LIT STRIP, taken from the same fast
- * value the strip itself is drawn from, so the two cannot drift apart --
- * driving the position from the slow follower is what made the light lag
- * visibly behind the bars. As the strip grows upward its midpoint rises, so
- * the light rises with it; at rest it sits low, where the lit part actually
- * is. That is also the earlier "it comes from the socket" complaint answered
- * properly: the light was following the TIP, which is the one part of the
- * strip that is nowhere near the middle of the glow.
- *
- * Brightness keeps the slow follower. Light in a room does not snap, and this
- * is a wash behind an instrument already showing the fast movement.
- *
- * Both are quantised -- eight positions, six intensities -- so a redraw costs
- * only when one of them actually steps. */
-static uint32_t eye_gl_l, eye_gl_r;        /* slow-smoothed level         */
-static uint8_t  eye_cast_l = 0xFFu, eye_cast_r = 0xFFu;   /* step drawn   */
-static uint8_t  eye_gap_l  = 0xFFu, eye_gap_r  = 0xFFu;   /* ...for the gap */
-
-/* Half-width of the glow ellipse at a given distance from its centre row.
- * Three callers now -- both pools and the gap -- so it stops being copied. */
-static uint32_t eye_glow_rx(uint32_t dy)
-{
-    if (dy >= EYE_GLOW_RY) return 0;
-    uint32_t q = 0;
-    while ((q + 1u) * (q + 1u) + dy * dy
-           <= EYE_GLOW_RY * EYE_GLOW_RY) q++;
-    return (EYE_GLOW_RX * q) / EYE_GLOW_RY;
-}
-
-
-
 /* Needle angle, -50 to +50 degrees from vertical in 16 steps: a 100 degree
  * sweep, which is what a real VU movement travels. The first attempt built one
  * table and tried to derive both components from it by index arithmetic; the
@@ -1938,7 +1800,6 @@ static signed char scope_x[SCOPE_HIST][SCOPE_N], scope_y[SCOPE_HIST][SCOPE_N];
 static uint8_t     scope_head;   /* newest frame */
 static uint8_t  viz_mode;
 static uint32_t peak_l, peak_r;          /* per-channel, for LEVELS */
-static unsigned char lvl_l, lvl_r, lvl_pl, lvl_pr;
 
 /* ---- LED LADDER -------------------------------------------------------
  * Two channels, nine rows, three blocks across each row.
@@ -2032,6 +1893,7 @@ static const wviz_scope_cfg_t wviz_scope_presets[5] = {
 static const char *const wviz_preset_nm[5] = { "FLUID", "CLASSIC", "BOUNCY", "SLOW FADE", "SNAPPY" };
 #define WVIZ_PRESET_N (sizeof(wviz_preset_nm) / sizeof(wviz_preset_nm[0]))
 
+static uint8_t wvcfg_preset_idx_bars, wvcfg_preset_idx_scope;  /* 0..WVIZ_PRESET_N-1, or 0xFF = CUSTOM (was in settingsui.inc; Select+X needs it earlier) */
 static wviz_bars_cfg_t  wviz_cfg_bars  = { 16, 2, 55, 22, 1, 1, 200, 35 };
 static wviz_scope_cfg_t wviz_cfg_scope = { 35, 30 };
 
@@ -2239,91 +2101,6 @@ static const uint16_t spec_gain[SPEC_BANDS] = {
 #define LED_LO   0x0600u      /* green  */
 #define LED_MIDC 0xFE60u      /* amber  */
 #define LED_HI   0xF9C0u      /* red    */
-
-/* ============================================================== CASSETTE ==
- * Ported from HarpMudd upstream v1.5.0/release-1.5.1 (`3404545`, `d76267e`,
- * `154234f`, `f724d86`, and hardening from `f0d6b60`/`4024104`/`42f3853`/
- * `7e9ceec`) -- a cassette shell with two reels, drawn in the meter box.
- *
- * Three things carry it, in order of how much they matter:
- *
- *   1. The reels are DIFFERENT SIZES and the difference moves with the track.
- *      That is the cassette cue; everything else is decoration.
- *      (Upstream's own note: an earlier version tried tracking playback
- *      progress this way and it both never read as progress AND crashed the
- *      player -- an unclamped ratio at the last second of a track underflowed
- *      and drew millions of discs. Fixed wind on both reels here from the
- *      start, not re-derived.)
- *   2. Angular speed goes as 1/radius on a real deck; this meter does not
- *      attempt that (fixed wind, see above), so this point is upstream's own
- *      history, kept for context rather than behaviour ported here.
- *   3. The shell is NEUTRAL grey with white hubs, not accent-tinted. A grey
- *      object on the accent-tinted background ramp reads as a physical thing;
- *      an accent-tinted shell reads as a green graphic. The accent is kept
- *      for the label, which is also what flashes.
- */
-/* Gated on TAU_METER_THUMBS, the same "does this build have room for
- * extras" flag the meter-preview thumbnails already use (its own definition
- * comment: "Release-style builds only: the Diagnostic Build has no room for
- * it"). The bare `player` target (fw/build.sh, no STRESS_CFLAGS at all,
- * `make firmware`'s own build) has no library/cold-code infrastructure to
- * offload anything to and was already at 84.5% of usable RAM before this
- * feature -- it does not fit there. Every feature-rich target (`release`
- * and everything downstream of it) already sets TAU_METER_THUMBS=1 and has
- * tens of KB of heap gap to spare (measured: 34,752 -> 31,088 B for this
- * plus the other three ported items combined). tape_face/tape_spd stay
- * declared unconditionally below -- a few bytes, referenced from
- * ui_meter_faces_invalidate() and vu_settling regardless of this macro. */
-#define TAPE_SHELL_W  150u
-#define TAPE_SHELL_H   96u   /* 150x96 is 1.56:1 -- a real cassette */
-
-/* Hub slot masks: bit x set = SLOT (dark), clear = hub face. Six phases span
- * one tooth pitch -- a six-slot hub repeats every 60 degrees, so that is all
- * the unique rotation there is. Carried over verbatim from upstream. */
-#define TAPE_HUB_R   9u
-#define TAPE_PACK    5u        /* fixed wind on both reels -- see the header note */
-#define TAPE_HUB_N   19u
-#define TAPE_HUB_PH  6u
-static const uint32_t tape_hub[TAPE_HUB_PH][TAPE_HUB_N] = {
-    { 0x00000, 0x000E0, 0x041E0, 0x0E1C0, 0x0F180, 0x07000, 0x00002, 0x00F9E, 0x00F9E, 0x7CF9F, 0x3CF80, 0x3CF80, 0x20000, 0x00070, 0x00C78, 0x01C38, 0x03C10, 0x03800, 0x00000 },
-    { 0x00000, 0x03060, 0x07070, 0x070F0, 0x038E0, 0x01040, 0x00000, 0x00F80, 0x38F9E, 0x7CF9F, 0x3CF8E, 0x00F80, 0x00000, 0x01040, 0x038E0, 0x07870, 0x07070, 0x03060, 0x00000 },
-    { 0x00000, 0x03800, 0x03830, 0x01838, 0x01C70, 0x00060, 0x00000, 0x38F80, 0x3CF80, 0x7CF9F, 0x00F9E, 0x00F8E, 0x00000, 0x03000, 0x071C0, 0x0E0C0, 0x060E0, 0x000E0, 0x00000 },
-    { 0x00200, 0x01E00, 0x00E00, 0x00E18, 0x00E3C, 0x30038, 0x38030, 0x3CF80, 0x1CF80, 0x00F80, 0x00F9C, 0x00F9E, 0x0600E, 0x0E006, 0x1E380, 0x0C380, 0x00380, 0x003C0, 0x00200 },
-    { 0x00200, 0x00700, 0x00700, 0x00700, 0x1860C, 0x3C01E, 0x3E03E, 0x0CF90, 0x00F80, 0x00F80, 0x00F80, 0x04F98, 0x3E03E, 0x3C01E, 0x1830C, 0x00700, 0x00700, 0x00700, 0x00200 },
-    { 0x00200, 0x00380, 0x00380, 0x08380, 0x1C300, 0x1E006, 0x0601E, 0x00F9E, 0x00F90, 0x00F80, 0x04F80, 0x3CF80, 0x3C030, 0x3003C, 0x0061C, 0x00E08, 0x00E00, 0x00E00, 0x00200 },
-};
-
-static uint8_t  tape_face;          /* shell/label frame/window/openings drawn */
-static uint16_t tape_face_w;
-static uint32_t tape_ph_s;          /* hub rotation, 1/256 of a phase step */
-static uint16_t tape_spd;           /* current hub speed -- coasts, see below */
-static uint8_t  tape_rim  = 0xFFu;  /* level bucket the shell rim was at   */
-static uint8_t  tape_glow = 0xFFu;  /* bass bucket last drawn              */
-static uint32_t tape_name_h;        /* playlist name the label carries     */
-
-/* Half-width of a circle of radius r at row offset dy. Used to CONTOUR the
- * exposed tape against the two packs: on a real cassette the tape you see
- * between the reels is bounded by their curves, not by straight edges. */
-static uint32_t tape_hw(uint32_t r, int32_t dy)
-{
-    uint32_t d = (uint32_t)(dy < 0 ? -dy : dy);
-    if (d >= r) return 0;
-    uint32_t rr = r * r, w = r;
-    while (w && w * w + d * d > rr) w--;
-    return w;
-}
-
-/* Filled disc. w descends monotonically with the row, so this is O(r) rather
- * than a square-root per row. */
-static void tape_disc(uint32_t cx, uint32_t cy, uint32_t r, uint16_t c)
-{
-    uint32_t rr = r * r, w = r;
-    for (uint32_t i = 0; i <= r; i++) {
-        while (w && w * w + i * i > rr) w--;
-        fb_rect(cx - w, cy - i, 2u * w + 1u, 1u, c);
-        if (i) fb_rect(cx - w, cy + i, 2u * w + 1u, 1u, c);
-    }
-}
 
 /* Last drawn, so a still passage costs nothing. 0xFF is the sentinel every
  * other meter here uses for "the chrome repainted underneath you". */
@@ -2604,8 +2381,6 @@ static void ui_art_bg_range(uint32_t x, uint32_t w)
 static void ui_meter_faces_invalidate(void)
 {
     vu_face   = 0;
-    eye_face  = 0;
-    tape_face = 0;
 }
 
 /* Blit the stash to the current position, clipped at the right edge. The panel
@@ -3060,12 +2835,14 @@ static void ui_eq_pill(void)
     fb_text_clipped(UI_TEXT_X + (UI_EQ_PILL_W - w) / 2u, UI_GENRE_Y + 4u, n, TS_1X, TS_1X, w);
 }
 
+static void ui_fs_frame(void);
 static void ui_draw_chrome(void)
 {
     /* Draw nothing at all while blanked -- a track change must not light the
      * screen back up. ui_blank_wake() calls this again on the way out, so the
      * skipped work is simply deferred rather than lost. */
     if (screen_blank) return;
+    if (ui_fullscreen) { ui_fs_frame(); return; }          /* fullscreen visualiser: its own frame (fw/fullscreen.inc) */
     ui_splash_art_active = 0u;
     ui_gradient();
 
@@ -4519,6 +4296,9 @@ COLD_FN2 static void pl_ui_draw(void)
     ov_draw = o;
 }
 
+#include "chladni.inc"
+#include "fullscreen.inc"
+
 /* G4 step 4 (B-199..B-201): the real "meters go cold" conversion. Body unchanged from the original
  * ui_draw_dynamic() (still calls ordinary hot fb_rect()/fb_bar()/etc. from cold code -- the same
  * "cold calls hot" pattern G4 steps 1-3 and fw/cold.inc's own cold_calls_hot() already prove safe),
@@ -4583,7 +4363,7 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * the factor it was downsampled by, which is a convincing-looking
          * wrong answer. */
         uint32_t hw_mean[SPEC_BANDS];
-        int have = spec_hw ? ((viz_mode == VIZ_LED || viz_mode == VIZ_TAPE || viz_mode == VIZ_WINAMP_BARS)
+        int have = spec_hw ? ((viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI)
                               && spec_hw_fetch(hw_mean))
                            : (spec_n != 0u);
         if (have) {
@@ -4672,18 +4452,7 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
      * back to rest is the movement that makes it look like a tube rather than
      * a graphic, and freezing it half-shut looks broken. eye_v counts DOWN to
      * rest, so "not yet settled" is a non-zero deflection, same as the VU. */
-    /* And the cassette's reels, for exactly the same reason: they COAST to a
-     * stop rather than halting on the same frame as the audio, and a spin-
-     * down needs frames to happen in. tape_spd is non-zero only while they
-     * are still turning, so it closes the gate by itself once they reach
-     * rest -- the same shape as a needle's remaining deflection. Ported from
-     * HarpMudd upstream, whose own note is worth keeping: missing this is
-     * why a first attempt at the coast did nothing -- the arithmetic was
-     * right, but the meter block is gated on !paused, so pausing bought one
-     * final frame and then silence, with nowhere for the animation to run. */
-    uint32_t vu_settling = ((viz_mode == VIZ_VU)   && (vu_l || vu_r)) ||
-                           ((viz_mode == VIZ_EYE)  && (eye_l || eye_r)) ||
-                           ((viz_mode == VIZ_TAPE) && tape_spd);
+    uint32_t vu_settling = (viz_mode == VIZ_VU) && (vu_l || vu_r);
     /* B-267: draw the meter only when the scanning beam is not inside its rows (or about to be) -- the frame's
      * tear-free window. If the beam is in the way, ui_last_vu stays >= 2 and the very next pass tries again, so
      * nothing is lost, the meter just waits (at most a fraction of a frame) for the beam to move on. */
@@ -4814,6 +4583,11 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * wviz_ease_step()) for the actual drawing/easing logic, shared with
          * the Settings > Meter > Configure page (fw/settingsui.inc) so both
          * places animate from one source of truth. */
+        if (viz_mode == VIZ_CHLADNI) {
+            if (!ui_fullscreen) chladni_tick(UI_MARGIN, UI_WAVE_Y, ww, wf);
+            goto viz_done;
+        }
+
         if (viz_mode == VIZ_WINAMP_BARS) {
             wviz_bars_tick(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed);
             goto viz_done;
@@ -4824,274 +4598,6 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * drawing/smoothing logic, shared with the Configure page. */
         if (viz_mode == VIZ_WINAMP_SCOPE) {
             wviz_scope_tick(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, 1, 0u);
-            goto viz_done;
-        }
-
-        /* ---- CASSETTE -------------------------------------------------
-         * Ported from HarpMudd upstream v1.5.0/release-1.5.1 -- see the
-         * CASSETTE header comment above (near TAPE_SHELL_W) for the design
-         * rationale. Redraw discipline, upstream's own:
-         *   face    -- shell, label, bezel, bottom panel, holes, screws. Once.
-         *   stripes -- drawn with the face (static, not per-frame reactive --
-         *              upstream found per-band stripe colour read as glitchy).
-         *   rim     -- only when the level bucket changes.
-         *   tape    -- only when the bass bucket changes.
-         *   hubs    -- every frame; two 19-row mask lookups.
-         */
-        if (viz_mode == VIZ_TAPE) {
-            const uint16_t c_shell  = 0x3A29u;   /* FB_RGB(0x3E,0x44,0x4C) */
-            const uint16_t c_edge   = 0x5B0Du;   /* FB_RGB(0x58,0x60,0x69) */
-            const uint16_t c_label  = 0xF77Cu;   /* FB_RGB(0xF2,0xEE,0xE4) */
-            const uint16_t c_bezel  = 0x10C3u;   /* FB_RGB(0x17,0x1A,0x1D) */
-            const uint16_t c_hub    = 0xCE9Bu;   /* FB_RGB(0xCE,0xD3,0xD8) */
-            const uint16_t c_slot   = 0x2966u;   /* FB_RGB(0x2A,0x2E,0x33) */
-            const uint16_t c_tape   = 0x5226u;   /* FB_RGB(0x57,0x44,0x33) */
-            const uint16_t c_tape2  = 0x3964u;   /* FB_RGB(0x3C,0x2F,0x24) */
-            /* The EXPOSED tape is nearly black -- a single ribbon seen
-             * edge-on. The packs are brown because a wound reel shows
-             * many layers at once. Two different things, two tones. */
-            const uint16_t c_ribbon = 0x2924u;   /* FB_RGB(0x2C,0x25,0x21) */
-            const uint16_t c_panel  = 0x39E8u;   /* FB_RGB(0x3A,0x3E,0x44) */
-            const uint16_t c_screw  = 0x52ECu;   /* FB_RGB(0x56,0x5C,0x64) */
-
-            uint32_t shw = (ww > TAPE_SHELL_W + 16u) ? TAPE_SHELL_W : (ww - 16u);
-            uint32_t sx  = UI_MARGIN + (ww - shw) / 2u;
-            uint32_t y0  = UI_WAVE_Y + UI_WAVE_H - TAPE_SHELL_H;   /* 96 tall */
-            uint32_t cx0 = sx + shw / 2u;
-            uint32_t bw  = (shw * 62u) / 100u;           /* window bezel width */
-            uint32_t hdx = (bw * 28u) / 100u;            /* hub offset         */
-            uint32_t lx  = sx + 3u, lw = (shw > 6u) ? shw - 6u : 2u;
-            uint32_t hcy = y0 + 48u;
-
-            {   /* A new playlist means a new label. Cheap identity: the
-                 * first character plus the length, which is enough to catch a
-                 * change without keeping a copy of the name. */
-                uint32_t nh = 0;
-                for (uint32_t i = 0; pl_name_full[i] && i < 24u; i++)
-                    nh = nh * 31u + (uint32_t)(unsigned char)pl_name_full[i];
-                if (nh != tape_name_h) { tape_name_h = nh; tape_face = 0; }
-            }
-            if (wf || ww != tape_face_w) tape_face = 0;
-
-            if (!tape_face) {
-                /* Per ROW, and over the TALLER band -- this is the only meter
-                 * that draws above UI_WAVE_Y, so it is the only one that needs
-                 * UI_WAVE_TOP restored. */
-                ui_bg_restore(UI_MARGIN, UI_WAVE_Y - UI_WAVE_TOP, ww,
-                              UI_WAVE_H + UI_WAVE_TOP);
-
-                fb_round_rect(sx, y0, shw, TAPE_SHELL_H, 3u, c_shell);
-                fb_rect(sx + 3u, y0, shw - 6u, 1u, c_edge);
-                fb_rect(sx + 3u, y0 + TAPE_SHELL_H - 1u, shw - 6u, 1u, c_edge);
-                fb_rect(sx, y0 + 3u, 1u, TAPE_SHELL_H - 6u, c_edge);
-                fb_rect(sx + shw - 1u, y0 + 3u, 1u, TAPE_SHELL_H - 6u, c_edge);
-
-                fb_round_rect(lx, y0 + 6u, lw, 50u, 3u, c_label);
-
-                /* The playlist's name, written on the label like a real one.
-                 * Blank for a single track opened with Load MP3 -- there is no
-                 * album to name then, and an empty label is what a blank tape
-                 * looks like anyway. */
-                if (pl_count && pl_name_full[0]) {
-                    /* Without the extension. Nobody writes ".m3u" on a
-                     * cassette label. */
-                    char nm[PL_FULL_MAX + 1u];
-                    uint32_t n = 0;
-                    while (pl_name_full[n] && n < PL_FULL_MAX) {
-                        nm[n] = pl_name_full[n]; n++;
-                    }
-                    nm[n] = 0;
-                    while (n && nm[n - 1u] != '.') n--;
-                    if (n > 1u) nm[n - 1u] = 0;
-                    /* Cannot be made smaller: the font is in the FPGA (font_rom.v)
-                     * and ts_half bottoms out at TS_1X = 16px. Lightened instead,
-                     * so it reads as writing on a label rather than a heading. */
-                    fb_set_color(0x6BAFu /* FB_RGB(0x6E,0x74,0x7C) */, c_label);
-                    /* BOXED: fb_char paints a whole 16px cell while max_w only
-                     * budgets ADVANCES, so a glyph that advances 11px still
-                     * paints 5px further -- bounding the painted cell at the
-                     * label's own right edge keeps the last glyph off the shell. */
-                    fb_text_boxed(lx + 3u, y0 + 14u, nm, TS_1X, TS_1X,
-                                  (lw > 6u) ? lw - 6u : 2u, lx + lw);
-                }
-
-                for (uint32_t i = 0; i < 3u; i++)
-                    fb_rect(lx, y0 + 40u + i * 6u, lw, 4u,
-                            ui_mix(c_label, ui_accent, (i == 1u) ? 3u : 2u, 4u));
-
-                fb_round_rect(cx0 - bw / 2u, y0 + 30u, bw, 36u, 9u, c_bezel);
-
-                /* The wound tape on both reels. Concentric 2px bands rather
-                 * than a flat disc, because one flat tone cannot show that it
-                 * is wound at all. Static -- fixed wind, see the CASSETTE
-                 * header comment -- so it draws with the face and needs no
-                 * per-frame repaint on this single-buffered framebuffer. */
-                for (uint32_t side = 0; side < 2u; side++) {
-                    uint32_t cx = side ? cx0 + hdx : cx0 - hdx;
-                    uint32_t k  = 0;
-                    for (uint32_t rr = TAPE_HUB_R + TAPE_PACK;
-                         rr > TAPE_HUB_R; rr -= 2u, k++)
-                        tape_disc(cx, hcy, rr, (k & 1u) ? c_tape2 : c_tape);
-                }
-
-                fb_round_rect(sx + 16u, y0 + 72u, (shw > 32u) ? shw - 32u : 2u,
-                              20u, 3u, c_panel);
-                {
-                    static const signed char hx[4] = { -38, -15, 15, 38 };
-                    static const unsigned char hw[4] = { 6u, 7u, 7u, 6u };
-                    for (uint32_t k = 0; k < 4u; k++)
-                        fb_rect((uint32_t)((int32_t)cx0
-                                           + hx[k] * (int32_t)shw / 150),
-                                y0 + 77u, hw[k], 8u, c_bezel);
-                }
-                for (uint32_t k = 0; k < 4u; k++) {
-                    uint32_t px = (k & 1u) ? sx + shw - 9u : sx + 4u;
-                    uint32_t py = (k & 2u) ? y0 + 86u : y0 + 5u;
-                    fb_rect(px, py, 5u, 5u, c_screw);
-                }
-                tape_face   = 1u;
-                tape_face_w = (uint16_t)ww;
-                tape_rim    = 0xFFu;
-                tape_glow   = 0xFFu;
-            }
-
-            {   /* The shell RIM takes overall level -- one thin outline
-                 * round the largest perimeter, so it reads at a glance.
-                 * peak_amp scaled LINEARLY: upstream tried driving this from
-                 * the log-scaled spectrum bands instead and reverted it on
-                 * the author's own preference, not a fault -- kept as the
-                 * simpler linear form here, matching what shipped. */
-                uint32_t lvl = (peak_amp * 255u) / 32768u;
-                if (lvl > 255u) lvl = 255u;
-                if (paused) lvl = 0;
-                uint8_t rim = (uint8_t)(lvl >> 5);
-                if (rim != tape_rim) {
-                    tape_rim = rim;
-                    /* A THIRD of the way to the accent at most -- driving it
-                     * to full accent read as two flashing bars rather than a
-                     * shell catching light. */
-                    uint16_t rc = ui_mix(c_edge, ui_accent, rim, 24u);
-                    fb_rect(sx + 3u, y0, shw - 6u, 1u, rc);
-                    fb_rect(sx + 3u, y0 + TAPE_SHELL_H - 1u, shw - 6u, 1u, rc);
-                    fb_rect(sx, y0 + 3u, 1u, TAPE_SHELL_H - 6u, rc);
-                    fb_rect(sx + shw - 1u, y0 + 3u, 1u, TAPE_SHELL_H - 6u, rc);
-                }
-            }
-
-            {   /* The hubs, every frame. Both turn the SAME way at the SAME
-                 * rate. Speed is capped by aliasing, not taste -- see
-                 * upstream's own note: the UI redraws at 38 Hz and a six-slot
-                 * hub repeats every 60 degrees, so above half a tooth pitch
-                 * per frame it appears to turn BACKWARDS; 330 stays under
-                 * that wall. COAST rather than stop dead -- see vu_settling
-                 * above for why the gate has to know about it. */
-                uint16_t want = paused ? 0u : 330u;
-                if (tape_spd < want) {
-                    tape_spd += 40u;
-                    if (tape_spd > want) tape_spd = want;
-                } else if (tape_spd > want) {
-                    tape_spd = (tape_spd > 22u) ? (uint16_t)(tape_spd - 22u) : 0u;
-                }
-                tape_ph_s += tape_spd;
-                uint32_t ph = (tape_ph_s >> 8) % TAPE_HUB_PH;
-
-                /* The hubs take the MID band. Redrawn every frame for the
-                 * rotation anyway, so tinting them is free. */
-                uint32_t mid = ((uint32_t)spec_lvl[8] + (uint32_t)spec_lvl[9]) / 2u;
-                if (paused) mid = 0;
-                uint16_t hubc = ui_mix(c_hub, ui_accent, mid >> 5, 20u);
-
-                {   /* The exposed tape between the packs GLOWS with bass --
-                     * the only thing here reading as beat. The packs are
-                     * static, so this is the only thing inside the window
-                     * that repaints. */
-                    uint32_t bass = ((uint32_t)spec_lvl[SPEC_BANDS - 2u] +
-                                     (uint32_t)spec_lvl[SPEC_BANDS - 1u]) / 2u;
-                    if (paused) bass = 0;
-                    uint8_t glow = (uint8_t)(bass >> 5);
-                    if (glow != tape_glow) {
-                        tape_glow = glow;
-                        uint16_t tc = ui_mix(c_ribbon, ui_accent, glow, 20u);
-
-                        /* Contoured against both reels, row by row. Height
-                         * stops one row short of the radius so every row has
-                         * a defined span at both ends. */
-                        uint32_t rl = TAPE_HUB_R + TAPE_PACK;
-                        uint32_t hh = rl - 1u;
-                        for (int32_t dy = -(int32_t)hh; dy <= (int32_t)hh; dy++) {
-                            /* +1 on the LEFT only -- fb_rect spans xl..xr-1,
-                             * so without it the ribbon's first pixel lands on
-                             * the left reel's outermost one and the right
-                             * stays clear, an asymmetric notch. */
-                            uint32_t xl = (cx0 - hdx) + tape_hw(rl, dy) + 1u;
-                            uint32_t xr = (cx0 + hdx) - tape_hw(rl, dy);
-                            if (xr > xl)
-                                fb_rect(xl, (uint32_t)((int32_t)hcy + dy),
-                                        xr - xl, 1u, tc);
-                        }
-                    }
-                }
-
-                for (uint32_t side = 0; side < 2u; side++) {
-                    uint32_t cx = side ? cx0 + hdx : cx0 - hdx;
-                    tape_disc(cx, hcy, TAPE_HUB_R, hubc);
-                    for (uint32_t iy = 0; iy < TAPE_HUB_N; iy++) {
-                        uint32_t m = tape_hub[ph][iy];
-                        uint32_t y = hcy - TAPE_HUB_R + iy;
-                        for (uint32_t ix = 0; ix < TAPE_HUB_N; ) {
-                            if (!(m & (1u << ix))) { ix++; continue; }
-                            uint32_t run = 0;
-                            while (ix + run < TAPE_HUB_N &&
-                                   (m & (1u << (ix + run)))) run++;
-                            fb_rect(cx - TAPE_HUB_R + ix, y, run, 1u, c_slot);
-                            ix += run;
-                        }
-                    }
-                }
-            }
-            goto viz_done;
-        }
-
-        if (viz_mode == VIZ_MIRROR) {
-            const uint32_t cy = UI_WAVE_Y + UI_WAVE_H / 2u;
-            const uint32_t half = UI_WAVE_H / 2u - 1u;
-            for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-                uint32_t x   = UI_MARGIN + (i * ww) / UI_WAVE_N;
-                uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
-                uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
-                uint32_t h   = (wave[i] * half) / UI_WAVE_H;
-                if (!h) h = 1u;
-
-                /* Skip a column whose height has not moved, exactly as the
-                 * plain bars do. On a scroll most columns land on the height
-                 * already drawn there, and each skip saves the erase and the
-                 * fill both. */
-                if (h == wave_drawn[i]) continue;
-                wave_drawn[i] = (unsigned char)h;
-
-                uint16_t lc  = paused ? ui_mix(UI_TRACK, ui_accent, 1u, 3u) : ui_accent;
-                uint16_t c   = ui_mix(UI_TRACK, lc, i + 1u, UI_WAVE_N);
-
-                /* Restore ONLY around the bar, never underneath it.
-                 *
-                 * This used to blank the whole column and then paint the bar
-                 * back into it, so every column was briefly empty every frame.
-                 * The panel scans out asynchronously, so some of those gaps
-                 * were visible -- the faint artifacting on fast movement, and
-                 * a side effect of moving these meters onto the gradient
-                 * (a flat `bed` fill used to double as the erase).
-                 *
-                 * The two spans plus the bar always sum to exactly UI_WAVE_H,
-                 * and the bar's own pixels are now written once, not twice. */
-                uint32_t top = cy - h;                      /* first bar row */
-                uint32_t bot = cy + h;                      /* last bar row  */
-                uint32_t end = UI_WAVE_Y + UI_WAVE_H;       /* one past box   */
-                if (top > UI_WAVE_Y)
-                    ui_bg_restore(x, UI_WAVE_Y, lit, top - UI_WAVE_Y);
-                if (bot + 1u < end)
-                    ui_bg_restore(x, bot + 1u, lit, end - (bot + 1u));
-                fb_rect(x, top, lit, h * 2u + 1u, c);
-            }
             goto viz_done;
         }
 
@@ -5272,318 +4778,6 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
             goto viz_done;
         }
 
-        /* ---- MAGIC EYE (EM84) ---------------------------------------------
-         * Two tubes, one per channel. See the EYE_* block for why the glass
-         * is shaded per column and why the glow blooms. */
-        if (viz_mode == VIZ_EYE) {
-            if (wf || ww != eye_face_w) eye_face = 0;
-
-            uint32_t pair = 2u * EYE_TUBE_W + EYE_TUBE_G;
-            uint32_t ty   = UI_WAVE_Y + 3u;
-            uint32_t x0   = UI_MARGIN + ((ww > pair) ? (ww - pair) / 2u : 0u);
-            uint32_t by   = ty + EYE_DOME + 7u;      /* strip window top    */
-            /* Grew with the envelope, so the taller tube is also a longer
-              * throw for the strip rather than just more glass. */
-             uint32_t bh   = 38u;                     /* ...and its height   */
-            uint32_t basy = ty + EYE_TUBE_H - 1u;    /* plinth              */
-            uint16_t basc = ui_mix(ui_grad_at(ty + EYE_TUBE_H - 1u),
-                                   ui_accent, 1u, 3u);
-
-            if (!eye_face) {
-                /* Per ROW, not one flat fill.
-                 *
-                 * Every other meter fills this box with `bed` -- the gradient
-                 * sampled once at the box's top row -- and gets away with it
-                 * because its content covers the box. This meter is the first
-                 * with large EMPTY areas, so it is the first to show that a
-                 * flat slab on a per-row gradient is a visible rectangle: the
-                 * ramp falls from 16.1/31 at the top of the box to 9.9/31 at
-                 * the bottom, and the slab holds the top value throughout.
-                 *
-                 * Painting the real ramp means the meter has no background of
-                 * its own -- it sits on the screen's, and the glow fans into
-                 * it with nothing to fan against. */
-                for (uint32_t y = UI_WAVE_Y; y < UI_WAVE_Y + UI_WAVE_H; y++)
-                    fb_rect(UI_MARGIN, y, ww, 1, ui_grad_at(y));
-
-                for (uint32_t ch = 0; ch < 2u; ch++) {
-                    uint32_t tx = x0 + ch * (EYE_TUBE_W + EYE_TUBE_G);
-                    uint32_t hw = EYE_TUBE_W / 2u;
-
-                    /* One vertical rect per column: the shade makes it a
-                     * cylinder, and the crown's curve is a per-column top
-                     * offset, so both come out of the same pass. */
-                    for (uint32_t i = 0; i < EYE_TUBE_W; i++) {
-                        uint32_t dx = (i < hw) ? (hw - i) : (i - hw);
-                        uint32_t yc = 0;             /* circle, as elsewhere */
-                        while ((yc + 1u) * (yc + 1u) + dx * dx <= hw * hw) yc++;
-                        uint32_t off = EYE_DOME - (EYE_DOME * yc) / hw;
-
-                        /* Specular streak left of centre, falling off faster
-                         * to the right -- lit from the upper left, like the
-                         * rest of the screen's shading. */
-                        uint32_t dl = (i < 9u) ? (9u - i) * 2u
-                                               : ((i - 9u) * 5u) / 4u;
-                        uint32_t lv = (dl < 28u) ? (31u - dl) : 3u;
-                        fb_rect(tx + i, ty + off, 1, EYE_TUBE_H - off,
-                                ui_mix(EYE_GLASS_D, EYE_GLASS_L, lv, 31u));
-                    }
-
-                    /* Pip on the crown, and the getter flash under it. */
-                    fb_rect(tx + hw - 2u, ty - 3u, 4, 4, EYE_GLASS_D);
-                    fb_rect(tx + 6u, ty + EYE_DOME + 1u,
-                            EYE_TUBE_W - 12u, 3, EYE_GETTER);
-                    /* Socket end: the glass goes into a base, so the bottom
-                     * rows are shadow rather than more cylinder. */
-                    fb_rect(tx + 1u, ty + EYE_TUBE_H - 6u,
-                            EYE_TUBE_W - 2u, 6, EYE_SOCKET);
-
-                    uint32_t bx = tx + (EYE_TUBE_W - EYE_BAR_W) / 2u;
-                    fb_rect(bx - 4u, by, EYE_BAR_W + 8u, bh, EYE_DARK);
-
-                    /* Scale ticks etched beside the strip, as on the real
-                     * tube's faceplate, in the accent. Mixed toward the glass
-                     * rather than laid on pure, so they read as printed ON it
-                     * instead of floating above it -- and the TOP tick goes on
-                     * full, marking the loud end the way the VU's face marks
-                     * its peak zone. */
-                    for (uint32_t t = 1; t < 4u; t++)
-                        fb_rect(bx + EYE_BAR_W + 5u, by + (bh * t) / 4u,
-                                2, 1,
-                                (t == 1u) ? ui_accent
-                                          : ui_mix(EYE_GLASS_L, ui_accent,
-                                                   3u, 4u));
-                }
-
-                /* Exactly the width of the pair, not wider. Overhanging it
-                  * put 8px of plinth under each pool, and the pool repaints
-                  * that span with the bed -- which chewed the ends off the
-                  * base plate and read as a gap in the light. It cannot gain
-                  * substance by growing sideways, so it gains it by being
-                  * shaded: a lit top edge and a shadowed underside turn a flat
-                  * bar into a slab with thickness. Six rows, which is every
-                  * one left between the socket and the bottom of the box. */
-                fb_round_rect(x0 - EYE_BASE_PAD, basy,
-                              pair + 2u * EYE_BASE_PAD, EYE_BASE_H, 2u, basc);
-                fb_rect(x0 - EYE_BASE_PAD + 2u, basy,
-                        pair + 2u * EYE_BASE_PAD - 4u, 1,
-                        ui_mix(basc, UI_WHITE, 1u, 4u));
-                fb_rect(x0 - EYE_BASE_PAD + 2u, basy + EYE_BASE_H - 1u,
-                        pair + 2u * EYE_BASE_PAD - 4u, 1,
-                        ui_mix(basc, 0x0000u, 1u, 2u));
-                eye_shown_l = eye_shown_r = 0xFFu;   /* force both strips */
-                /* The box was just cleared, so there is no old cone to
-                 * erase -- and after a width change its coordinates would
-                 * point at the previous layout. */
-                eye_cast_l  = eye_cast_r  = 0xFFu;
-                eye_gap_l   = eye_gap_r   = 0xFFu;
-            }
-
-            /* Kept per channel so the gap pass below can evaluate BOTH
-             * pools at a row without recomputing either. */
-            uint32_t gcy_of[2], amt_of[2];
-            uint8_t  key_of[2];
-
-            for (uint32_t ch = 0; ch < 2u; ch++) {
-                /* VU ballistics per channel -- the tubes are imitating the
-                 * same era of gear as the needles, and two different feels
-                 * would read as two different instruments. */
-                uint32_t pk  = ch ? peak_r : peak_l;
-                uint32_t tgt = (pk * 255u) / 32768u;
-                if (tgt > 255u) tgt = 255u;
-                if (paused) tgt = 0;
-                uint32_t *v = ch ? &eye_r : &eye_l;
-                if (tgt > *v) { *v += VU_ATT; if (*v > tgt) *v = tgt; }
-                else          { *v = (*v > VU_DEC) ? (*v - VU_DEC) : 0u;
-                                if (*v < tgt) *v = tgt; }
-
-                /* A second, slower follower -- for the cast light's
-                 * BRIGHTNESS only. Its position comes off the strip. */
-                uint32_t *g = ch ? &eye_gl_r : &eye_gl_l;
-                if (*v > *g) *g += (*v - *g + 7u) / 8u;
-                else         *g -= (*g - *v) / 8u;
-
-                uint32_t tx = x0 + ch * (EYE_TUBE_W + EYE_TUBE_G);
-                uint32_t bx = tx + (EYE_TUBE_W - EYE_BAR_W) / 2u;
-
-                uint8_t  lit   = (uint8_t)((*v * bh) / 255u);
-                /* A real tube is never fully dark -- the strip sits at a
-                 * short resting length with no signal, because the heater is
-                 * on. Going to zero made the pair look switched OFF during
-                 * quiet passages, which is the opposite of the impression a
-                 * glowing tube is here to give. */
-                if (lit < 3u) lit = 3u;
-                uint8_t *shown = ch ? &eye_shown_r : &eye_shown_l;
-
-                if (!eye_face || lit != *shown) {
-                    uint32_t ly = by + bh - lit;      /* the strip grows UP */
-
-                    /* Dark first, then the glow over it, so the window is
-                     * fully covered whichever way the strip moved. */
-                    if (lit < bh) fb_rect(bx - 4u, by, EYE_BAR_W + 8u,
-                                          bh - lit, EYE_DARK);
-                    fb_rect(bx - 4u, ly, 2, lit, EYE_H2);
-                    fb_rect(bx - 2u, ly, 2, lit, EYE_H1);
-                    fb_rect(bx, ly, EYE_BAR_W, lit, EYE_LIT);
-                    fb_rect(bx + EYE_BAR_W, ly, 2, lit, EYE_H1);
-                    fb_rect(bx + EYE_BAR_W + 2u, ly, 2, lit, EYE_H2);
-                    /* Bloom ABOVE the tip. Without it the strip ends on a
-                     * hard edge and the whole thing reads as a rectangle
-                     * rather than as something glowing. */
-                    if (ly >= by + 2u) {
-                        fb_rect(bx - 2u, ly - 1u, EYE_BAR_W + 4u, 1, EYE_H1);
-                        fb_rect(bx - 1u, ly - 2u, EYE_BAR_W + 2u, 1, EYE_H2);
-                    }
-
-                    /* ...and reflected in the plinth, the way the
-                     * photographed pair reflects in its acrylic. */
-                    uint32_t rf = (lit * 4u) / bh + 1u;
-                    for (uint32_t k = 0; k < 3u; k++)
-                        fb_rect(bx - 3u, basy + 1u + k, EYE_BAR_W + 6u, 1,
-                                (k < rf) ? ui_mix(basc, EYE_LIT, 3u - k, 9u)
-                                         : basc);
-                    *shown = lit;
-                }
-
-                /* The pool of light beside the tube. See the EYE_GLOW_*
-                 * block: fixed centre, elliptical, slow, and only touched
-                 * when its quantised level actually changes. */
-                uint8_t  step = (uint8_t)((*g * EYE_GLOW_STEPS) / 256u);
-                uint32_t pos  = ((uint32_t)lit * EYE_GLOW_POS) / bh;
-                uint8_t  key  = (uint8_t)(step * 16u + pos);
-                uint8_t *cast = ch ? &eye_cast_r : &eye_cast_l;
-
-                /* Midpoint of the lit strip, held so the pool stays inside
-                 * its repaint band. Computed whether or not the pool is
-                 * redrawn -- the gap pass needs it either way. */
-                uint32_t gcy = by + bh - (pos * bh) / (2u * EYE_GLOW_POS);
-                uint32_t top = UI_WAVE_Y + EYE_GLOW_TOP;
-                /* Both ends. The upper clamp was dropped while the band was
-                 * temporarily shortened and not restored with it, which let
-                 * the pool sit five rows lower than intended and run into the
-                 * bottom of the box. */
-                if (gcy < top + EYE_GLOW_RY) gcy = top + EYE_GLOW_RY;
-                if (gcy + EYE_GLOW_RY > top + EYE_GLOW_ROWS)
-                    gcy = top + EYE_GLOW_ROWS - EYE_GLOW_RY;
-                uint32_t amt = (step * EYE_GLOW_PEAK) / EYE_GLOW_STEPS;
-
-                gcy_of[ch] = gcy; amt_of[ch] = amt; key_of[ch] = key;
-
-                if (!eye_face || key != *cast) {
-                    uint32_t bw   = EYE_GLOW_RX / EYE_GLOW_NB;
-                    uint32_t base = ch ? (tx + EYE_TUBE_W)
-                                       : (tx - EYE_GLOW_RX);
-
-                    for (uint32_t k = 0; k < EYE_GLOW_ROWS; k += EYE_GLOW_S) {
-                        uint32_t y   = top + k;
-                        uint32_t mid = y + EYE_GLOW_S / 2u;
-                        uint32_t dy  = (mid > gcy) ? (mid - gcy) : (gcy - mid);
-                        /* The real ramp for this row, matching what the box
-                         * is now painted with. An earlier attempt used the
-                         * flat `bed` instead: that removed the dark band, and
-                         * replaced it with a lighter slab that did not match
-                         * the gradient either. The band was never the bug --
-                         * the flat box fill was. */
-                        uint16_t bg  = ui_grad_at(y);
-
-                        /* Rows outside the pool get rx 0 and fall straight
-                         * through to the bed fill, which is what erases the
-                         * old position. */
-                        uint32_t rx = eye_glow_rx(dy);
-
-                        uint32_t nb = 0;
-                        while (nb < EYE_GLOW_NB
-                               && (nb * bw + bw / 2u) < rx) nb++;
-
-                        /* The base overhangs the tubes by exactly one band,
-                         * so on its rows the innermost band belongs to it and
-                         * the pool must not touch it -- neither to light it
-                         * nor to erase it. */
-                        uint32_t b0 = (y >= basy) ? 1u : 0u;
-
-                        for (uint32_t b = b0; b < nb; b++) {
-                            uint32_t d   = b * bw + bw / 2u;   /* from tube */
-                            uint32_t wgt = (amt * (rx - d)) / EYE_GLOW_RX;
-                            uint32_t gx  = ch
-                                         ? (base + b * bw)
-                                         : (base + (EYE_GLOW_NB - 1u - b) * bw);
-                            fb_rect(gx, y, bw, EYE_GLOW_S,
-                                    wgt ? ui_mix(bg, EYE_LIT, wgt, 64u) : bg);
-                        }
-
-                        /* Everything the pool does not reach, in ONE rect --
-                         * so the whole band is repainted every time and the
-                         * pool cleans up after its own previous position,
-                         * without a separate erase pass. Bands are 8px and
-                         * tile the reach exactly, so the two tubes always
-                         * light identical areas. */
-                        /* PER ROW, unlike the lit bands above.
-                         *
-                         * This span is pure background -- it is what makes the
-                         * meter continuous with the screen -- so it has to be
-                         * the exact ramp, dither and all. Painting it in 4-row
-                         * strips like the lit bands gave every strip its top
-                         * row's colour, which reads as horizontal stepping
-                         * against the smoothly dithered box around it, worst
-                         * near the bottom where the ramp is darkest.
-                         *
-                         * The lit bands can stay quantised: the cyan mixed
-                         * into them dominates, and any step is invisible under
-                         * it. Costs ~42 extra rects a channel on a redraw. */
-                        uint32_t r0 = (nb > b0) ? nb : b0;
-                        if (r0 < EYE_GLOW_NB) {
-                            uint32_t rx0 = ch ? (base + r0 * bw) : base;
-                            uint32_t rw  = (EYE_GLOW_NB - r0) * bw;
-                            for (uint32_t r = 0; r < EYE_GLOW_S; r++)
-                                fb_rect(rx0, y + r, rw, 1, ui_grad_at(y + r));
-                        }
-                    }
-                    *cast = key;
-                }
-            }
-
-            /* The gap, lit by BOTH tubes. See EYE_GAP_ROWS. */
-            if (!eye_face || key_of[0] != eye_gap_l
-                          || key_of[1] != eye_gap_r) {
-                uint32_t gx  = x0 + EYE_TUBE_W;
-                uint32_t top = UI_WAVE_Y + EYE_GLOW_TOP;
-                /* Distance from each tube's inner face to the middle of the
-                 * gap -- the same for both, which is why the sum is flat. */
-                uint32_t d = EYE_TUBE_G / 2u;
-
-                for (uint32_t k = 0; k < EYE_GAP_ROWS; k += EYE_GLOW_S) {
-                    uint32_t y = top + k;
-                    uint32_t h = EYE_GAP_ROWS - k;
-                    if (h > EYE_GLOW_S) h = EYE_GLOW_S;
-
-                    uint32_t wgt = 0;
-                    for (uint32_t ch = 0; ch < 2u; ch++) {
-                        uint32_t mid = y + h / 2u;
-                        uint32_t dy  = (mid > gcy_of[ch])
-                                     ? (mid - gcy_of[ch])
-                                     : (gcy_of[ch] - mid);
-                        uint32_t rx  = eye_glow_rx(dy);
-                        if (d < rx)
-                            wgt += (amt_of[ch] * (rx - d)) / EYE_GLOW_RX;
-                    }
-                    /* Two sources add, but not without limit -- past this the
-                     * gap stops reading as lit glass and starts reading as a
-                     * solid block between the tubes. */
-                    if (wgt > 40u) wgt = 40u;
-
-                    uint16_t bg = ui_grad_at(y);
-                    fb_rect(gx, y, EYE_TUBE_G, h,
-                            wgt ? ui_mix(bg, EYE_LIT, wgt, 64u) : bg);
-                }
-                eye_gap_l = key_of[0];
-                eye_gap_r = key_of[1];
-            }
-
-            eye_face   = 1;
-            eye_face_w = (uint16_t)ww;
-            goto viz_done;
-        }
-
         /* ---- OSCILLOSCOPE -------------------------------------------------
          * One clear, then one vertical rect per column: ~65 commands, fewer
          * than the bars. */
@@ -5684,34 +4878,6 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
             goto viz_done;
         }
 
-        /* ---- L/R LEVELS ---------------------------------------------------
-         * The only mode that uses stereo information; the others collapse both
-         * channels into one number. Two bars plus two peak-hold markers. */
-        if (viz_mode == VIZ_LEVELS) {
-            uint32_t la = (peak_l * ww) / 32768u; if (la > ww) la = ww;
-            uint32_t ra = (peak_r * ww) / 32768u; if (ra > ww) ra = ww;
-            if (!paused) { lvl_l = (unsigned char)(la * 255u / (ww ? ww : 1u));
-                           lvl_r = (unsigned char)(ra * 255u / (ww ? ww : 1u)); }
-            if (lvl_l > lvl_pl) lvl_pl = lvl_l; else if (lvl_pl) lvl_pl--;
-            if (lvl_r > lvl_pr) lvl_pr = lvl_r; else if (lvl_pr) lvl_pr--;
-
-            const uint32_t bh = UI_WAVE_H / 3u;          /* bar height */
-            const uint32_t gap = UI_WAVE_H - 2u * bh;    /* space between */
-            uint16_t lit = paused ? ui_mix(UI_TRACK, ui_accent, 1u, 3u) : ui_accent;
-            for (int ch = 0; ch < 2; ch++) {
-                uint32_t y  = UI_WAVE_Y + (ch ? bh + gap : 0u);
-                uint32_t v  = ch ? lvl_r : lvl_l;
-                uint32_t pk = ch ? lvl_pr : lvl_pl;
-                uint32_t bw = (v  * ww) / 255u;
-                uint32_t px = (pk * ww) / 255u;
-                if (bw) fb_rect(UI_MARGIN, y, bw, bh, lit);
-                if (bw < ww) fb_rect(UI_MARGIN + bw, y, ww - bw, bh, UI_TRACK);
-                if (px > bw + 1u && px < ww)
-                    fb_rect(UI_MARGIN + px, y, 1, bh, UI_WHITE);
-            }
-            goto viz_done;
-        }
-
         for (uint32_t i = 0; i < UI_WAVE_N; i++) {
             /* Bar edges come from scaling the index across the full width, so
              * the row always reaches its right edge. A single per-bar width
@@ -5722,11 +4888,12 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
             uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
             uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
             uint32_t h = wave[i];
-            if (h < 2u) h = 2u;                      /* always show a floor */
+            if (bars_layout) { h = (h * (UI_WAVE_H / 2u - 1u)) / UI_WAVE_H; if (h < 1u) h = 1u; }   /* mirrored: each half is half the box */
+            else if (h < 2u) h = 2u;                 /* always show a floor */
             /* A scroll moves every bar, but in quiet or steady passages most
              * land on the height already drawn there. Skipping those costs one
              * compare and saves two SDRAM rect bursts each. */
-            uint32_t pk = wave_pk[i];
+            uint32_t pk = bars_layout ? h : wave_pk[i];
             if (pk < h) pk = h;
             if (h == wave_drawn[i] && pk == wave_pk_drawn[i]) continue;
             wave_drawn[i]    = (unsigned char)h;
@@ -5745,6 +4912,24 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
              * bitstream without the blit engine. The 1px peak-hold marker below is unchanged --
              * OP_BAR has no marker mode of its own. */
             blit_probe_ensure();
+            if (bars_layout) {
+                /* MIRRORED: two OP_BAR commands per changed column (it was up to three: two background copies and a rect). The upper
+                 * half is an ordinary bar, lit rows at ITS bottom, which is the centre line. The lower half is the same bar inverted:
+                 * OP_BAR always lights the bottom of its span, so swap the colours and light the EMPTY part instead (top h rows in
+                 * the bar colour, the remaining hh - h rows in the bed colour). Flat bed per half, as plain bars already accepted. */
+                const uint32_t hh = UI_WAVE_H / 2u, cy = UI_WAVE_Y + hh;
+                const uint16_t bed_up = ui_grad_at(UI_WAVE_Y + hh / 2u), bed_lo = ui_grad_at(cy + hh / 2u);
+                if (BLIT_READY()) {
+                    fb_bar(x, UI_WAVE_Y, lit, hh, h, c, bed_up);
+                    fb_bar(x, cy, lit, hh, hh - h, bed_lo, c);
+                } else {
+                    fb_rect(x, cy - h, lit, h, c);
+                    if (hh > h) fb_rect(x, UI_WAVE_Y, lit, hh - h, bed_up);
+                    fb_rect(x, cy, lit, h, c);
+                    if (hh > h) fb_rect(x, cy + h, lit, hh - h, bed_lo);
+                }
+                continue;
+            }
             if (BLIT_READY()) {
                 fb_bar(x, UI_WAVE_Y, lit, UI_WAVE_H, h, c, bed);
             } else {
@@ -6681,7 +5866,7 @@ static void meters_feed(const short *pcm, int n, int stereo)
          * SPEC_BANDS. One pass down the ladder per sample, and most samples
          * stop after a stage or two, because the lower stages run at a
          * fraction of the rate. */
-        if (!spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_TAPE || viz_mode == VIZ_WINAMP_BARS) && meter_afford()) {
+        if (!spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI) && meter_afford()) {
             for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
                 int32_t x = stereo ? (((int32_t)pcm[i] + (int32_t)pcm[i + 1]) >> 1)
                                    : (int32_t)pcm[i];
@@ -7029,6 +6214,17 @@ static void poll_input(void)
             }
         }
     }
+    /* Select+Y: fullscreen visualiser on/off. Select+X: next preset of the current meter. Both consume the key so the plain
+     * actions (EQ preset on Y, next meter on X) do not also fire, and mark Select as used so releasing it does not open the
+     * playlist. */
+    if ((keys & KEY_SELECT) && (edge & (KEY_X | KEY_Y))) {
+        sel_used = 1u;
+        if (cold_code_ok) {                       /* both are cold code (COLD_READY() is not visible this early in the file) */
+            if (edge & KEY_Y) ui_fs_toggle();
+            if (edge & KEY_X) meter_preset_next();
+        }
+        edge &= ~(uint32_t)(KEY_X | KEY_Y);
+    }
     if (edge & KEY_X) {
         /* Forward only. A reverse on Select+X existed and was dropped: nine
          * modes wrap in a handful of taps, and every Select combo the user has to
@@ -7046,18 +6242,16 @@ static void poll_input(void)
         if (art_ready && art_shown) ui_art_draw();
         ui_toast_msg(viz_mode == VIZ_BARS   ? "METER: BARS"
                    : viz_mode == VIZ_WATER  ? "METER: WATERFALL"
-                   : viz_mode == VIZ_LEVELS ? "METER: L/R LEVELS"
                    : viz_mode == VIZ_SCOPE  ? "METER: PHASE SCOPE"
                    : viz_mode == VIZ_WAVE   ? "METER: OSCILLOSCOPE"
                    : viz_mode == VIZ_VU     ? "METER: VU"
                    : viz_mode == VIZ_SCROLL ? "METER: WAVEFORM"
-                   : viz_mode == VIZ_MIRROR ? "METER: MIRRORED BARS"
                    : viz_mode == VIZ_DOTS   ? "METER: PEAK DOTS"
-                   : viz_mode == VIZ_EYE    ? "METER: MAGIC EYE"
                    : viz_mode == VIZ_LED    ? "METER: SPECTRUM"
                    : viz_mode == VIZ_WINAMP_BARS  ? "METER: WINAMP BARS"
                    : viz_mode == VIZ_WINAMP_SCOPE ? "METER: WINAMP SCOPE"
-                                            : "METER: CASSETTE");
+                   : viz_mode == VIZ_CHLADNI      ? "METER: CHLADNI"
+                                            : "METER");
         settings_mark_dirty();
     }
     if (edge & KEY_Y) {
@@ -7685,9 +6879,11 @@ static void ui_draw_dynamic(void)
     uint32_t t0 = cycles();
     ui_draw_dynamic_cold();
     coldframe_record(cycles() - t0);
+    if (ui_fullscreen) ui_fs_dynamic();
 #else
     coldframe_tick();
     ui_draw_dynamic_cold();
+    if (ui_fullscreen) ui_fs_dynamic();
 #endif
 }
 

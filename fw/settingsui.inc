@@ -129,9 +129,9 @@ static const char *const set_soak_nm[5] = { "OFF", "5 MIN", "15 MIN", "30 MIN", 
 static const uint8_t     set_soak_min[5] = { 0u, 5u, 15u, 30u, 60u };
 
 /* Same order as the VIZ_* enum; the label VIZ_LED shares with its toast is SPECTRUM. */
-static const char *const set_viz[] = { "BARS", "WATERFALL", "L/R LEVELS", "PHASE SCOPE",
-    "OSCILLOSCOPE", "VU", "WAVEFORM", "MIRRORED BARS", "PEAK DOTS", "MAGIC EYE", "SPECTRUM",
-    "CASSETTE", "WINAMP BARS", "WINAMP SCOPE" };
+static const char *const set_viz[] = { "BARS", "WATERFALL", "-", "PHASE SCOPE",
+    "OSCILLOSCOPE", "VU", "WAVEFORM", "-", "PEAK DOTS", "-", "SPECTRUM",
+    "-", "WINAMP BARS", "WINAMP SCOPE", "CHLADNI" };
 _Static_assert(sizeof(set_viz) / sizeof(set_viz[0]) == VIZ_COUNT,
                "set_viz[] must name every visualizer");
 static const char *const set_rep[3]      = { "OFF", "ALL", "ONE" };
@@ -153,8 +153,8 @@ static uint8_t set_page, set_sel[SET_MENUS], set_ch_cur[CH_N], set_ch_top[CH_N];
 static uint8_t set_lib_confirm;               /* the Library page is waiting for a second A */
 
 #include "meter_thumbs.h"
-_Static_assert(VIZ_COUNT == 14 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_TAPE == 11 &&
-               VIZ_WINAMP_BARS == 12 && VIZ_WINAMP_SCOPE == 13,
+_Static_assert(VIZ_COUNT == 15 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_RETIRED_TAPE == 11 &&
+               VIZ_WINAMP_BARS == 12 && VIZ_WINAMP_SCOPE == 13 && VIZ_CHLADNI == 14,
                "meter_thumbs.h is indexed by the VIZ_* enum order (tools/gen_meter_thumbs.py ORDER)");
 
 /* Draw preview `viz` at (x, y) by decoding the RLE in software: fill with the dominant colour,
@@ -272,9 +272,8 @@ static void dg_soak_tick(void)
 
 COLD_FN static uint32_t set_ch_count(uint32_t c)
 {
-    /* VIZ_SEL_COUNT, not VIZ_COUNT: VIZ_TAPE is parked (B-208) and excluded from
-     * selection, so the choice list must offer one fewer row than the enum has
-     * values -- see viz_sel_to_mode()/viz_mode_to_sel() in fw/player.c. */
+    /* VIZ_SEL_COUNT, not VIZ_COUNT: retired meters (cassette, magic eye, L/R levels, mirrored bars)
+     * have no row, so the choice list offers fewer rows than the enum has values -- see viz_sel_to_mode()/viz_mode_to_sel() in fw/player.c. */
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_SEL_COUNT
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
          : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT() : 5u;
@@ -498,7 +497,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 17u   /* B-073: +1 for COVER (art_bad_code, for the "no
+#define SET_INFO_ROWS 19u   /* B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
                                               * freeze, see its own comment in fw/player.c); B-238:
@@ -512,7 +511,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     "COLD IMAGE",
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
     , "LIBRARY"
-    , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM"
+    , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD"
     };
 static uint32_t set_info_at;
 
@@ -576,12 +575,24 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         if (spec_hw) { q = set_str(q, "HW W"); q = ui_dec(q, (REG(R_SPEC_ST) >> 16) & 0xFFFFu); }
         else q = set_str(q, "SOFTWARE");
         break;
-    default:   /* BEAM (B-267): Helios beam-aware drawing -- share of meter updates that had to wait for the beam */
+    case 16:   /* BEAM (B-267): Helios beam-aware drawing -- share of meter updates that had to wait for the beam */
         if (!helios_beam_ok) q = set_str(q, "NONE");
         else {
             uint32_t tot = helios_drawn_n + helios_deferred_n;
             q = set_str(q, "OK "); q = ui_dec(q, tot ? (helios_deferred_n * 100u) / tot : 0u); q = set_str(q, "% WAITED");
         }
+        break;
+    case 17:   /* CHLADNI (B-276): first-use probe result, mailbox half order, figures drawn and skipped */
+        if (chl_ok == 0u) q = set_str(q, "NOT USED");
+        else if (chl_ok == 2u) q = set_str(q, "UNAVAILABLE");
+        else {
+            q = set_str(q, chl_swap ? "OK SWAP " : "OK ");
+            q = ui_dec(q, chl_drawn_n); q = set_str(q, " DRAWN ");
+            q = ui_dec(q, chl_skipped_n); q = set_str(q, " SKIP");
+        }
+        break;
+    default:   /* CPU LOAD: share of the last second the decode loop was not waiting on the audio FIFO */
+        q = ui_dec(q, ui_cpu_pct()); q = set_str(q, "%");
         break;
     }
     *q = 0;
@@ -751,7 +762,6 @@ static const char *const wvcfg_ease_nm[4] = { "INSTANT", "LINEAR", "EXPONENTIAL"
 static const char *const wvcfg_grav_nm[2] = { "LINEAR", "GRAVITY" };
 #define WVCFG_ROWS_VISIBLE 8u
 static uint8_t wvcfg_sel, wvcfg_top;
-static uint8_t wvcfg_preset_idx_bars, wvcfg_preset_idx_scope;  /* 0..WVIZ_PRESET_N-1, or 0xFF = CUSTOM */
 static uint8_t wvcfg_vis[WVR_N], wvcfg_vis_n;
 
 static void wvcfg_build_vis(void)
