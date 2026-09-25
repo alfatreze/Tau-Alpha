@@ -180,6 +180,17 @@ driven to its floor as features landed (4,096 B at worst, before Phase G). It is
    **16 KB** (~8% of 192 KB). Pick and record it before seeing the number, not after.
 4. **Gate:** shrink only if `measured peak + margin < 192 KB` under the worst profile above.
 
+**Result (B-230, 2026-09-25):** `TAU_DEV_49`'s stack instrumentation was read back from the prescribed
+worst-case exercise (Stress R3 + heavy scroll/seek/track-switch + MP3 and FLAC with different covers,
+finished with a USER CHECK). **Peak stack: 1,672 B of 16,384 B (10.2%)** — conclusively trivial, all 7
+checks PASS, 0 errors, audio continuous the whole window. A real gap was found in the same reading: only
+peak *stack* was ever instrumented, not peak *heap* as this section originally asked for — the QR report's
+`heap_gap` field is a link-time constant (heap capacity), not a runtime measurement; `arena_limit()` (newlib's
+malloc high-water mark, already used on the Info page) was never wired into Check/QR. **Owner decision:**
+proceed on the existing evidence (stack trivial, a full heavy pass with zero failures); wiring `arena_limit()`
+into Check/QR for a literal heap-peak number is parked as a later-build addition, not a prerequisite. Gate
+considered met.
+
 `RAM_WORDS` is already a `localparam`, so reverting is a one-line change plus a build.
 
 ### 4.2 Per-audio-frame cold-code measurement — scoped 2026-09-25, not yet built
@@ -342,7 +353,7 @@ it is already proven in software.**
 | **B8** | **CLUT / palette blit** | 1 | Unifies glyph, thumbnail and icon rendering into one pixel path. Also enables B9. |
 | **B9** | **Palette re-index for dim/highlight — done, 2026-09-24, RTL/sim only** | 0 | The Genesis shadow/highlight trick: do not blend, just re-index to a shadow or highlight palette [EXT]. Near-free dimmed/selected UI states, and a nearly free theme or dark-mode swap once a CLUT exists. See the write-up after the B8 section for the as-built design. |
 | **B10** | **Hardware RLE source blit — analysed 2026-09-24, not built (design below); value re-assessed downward** | 0-1 | Cover-art rows and meter thumbnails are *already* RLE-encoded in firmware and pushed one command per run. Reading `(run, value)` pairs from a source buffer collapses that. Architecture model is the 3DO Cel Engine's DUP/PDC split — a streaming decompressor stage ahead of a conventional pixel pipeline [EXT]. No adaptable RTL exists; design it fresh. |
-| **B11** | **Hardware rounded-rect — analysed 2026-09-24, not built (design below)** | 0 | Replaces `fb_round_rect_on`'s software corner-overpaint, used on every selection highlight. |
+| **B11** | **Hardware rounded-rect — RTL/sim built 2026-09-24 (B-205); Quartus fit FAILED timing 2026-09-25 (B-211), root cause found, not yet fixed** | 0 | Replaces `fb_round_rect_on`'s software corner-overpaint, used on every selection highlight. |
 
 ### B8 detailed design (2026-09-23) — grounded in the real target, not designed in the abstract
 
@@ -637,6 +648,21 @@ SDRAM-staging gap found above reduces the "zero firmware preparation" framing th
 
 ### B11 (hardware rounded-rect) — analysed 2026-09-24, design only, not built
 
+**Status update, 2026-09-25 (B-211): the Quartus fit for this design FAILED timing.** RTL/sim below is
+still correct and unchanged; the fit combining it with the proven G3+blit-engine macro set (the same
+combination B-134 already closed cleanly) came back **-2.366 ns worst-case setup slack**, contrary to
+this section's own expectation (below) that B11 would avoid B8's timing fight by never touching the
+shared `glyphbuf` write-data network. It does avoid that network — but `quartus_sta -t report_timing`
+found a *different*, genuinely new combinational chain inside B11's own corner sequencer: `rrect_row`
+(register) -> `rrect_dy` (subtract) -> `rc_cut_lut` read -> two wide address adders (`rrect_seg_addr`)
+-> straight into `rect_addr`, all evaluated in one cycle (8 logic levels, 12.1 ns against a ~10 ns
+period). This is the same *shape* of bug as B-111 (`OP_BAR`) and B-114 (`OP_SBLIT`/`OP_CHAR`) — an
+address computed by a multi-stage arithmetic chain feeding a register combinationally, needing exactly
+their proven fix: register `rrect_cut`/`rrect_seg_addr` one cycle ahead of when `rect_addr` consumes
+them (computed at each of the three points `rrect_row` changes: dispatch, the `cut==0` skip case, and
+row/segment retirement), the same `cmd_mem_rd`-style lookahead those two fixes already used. **Not yet
+fixed** — full detail and the exact violating path in `docs/AUDIT_TRAIL.md` B-211.
+
 Read the real target before designing (same discipline B8 used): `fw/player.c`'s `fb_round_rect`/
 `fb_round_rect_on` (lines ~2234-2276). Two variants exist, only one is in scope here.
 
@@ -709,6 +735,62 @@ actually exercised" role. Re-run the full existing `mp3_fb.sv` suite afterward s
 owner's explicit choice (2026-09-24) to keep this session's remaining Tier 2 work lower-risk after B9,
 rather than build a second multi-part change (widened shared opcode field + new sticky table + new chained
 sequencer) in the same session without a chance to re-verify each piece separately.
+
+### Meter redesign audit and proposed bar-family opcodes (2026-09-25) — analysed, not built
+
+**Why this exists.** B-208 (`docs/AUDIT_TRAIL.md`) surveyed the 10 visualizer modes other than `VIZ_BARS`
+against `OP_BAR`'s exact shape and found none of them match it — each was independently designed (different
+sessions, different eras of the firmware, well before the blit engine existed) with its own bespoke draw
+sequence. The owner asked two follow-on questions: what would we change about how these are *designed*, not
+just retrofitted, to fit the blit engine better; and what other hardware accelerator primitives — beyond
+patching today's 10 modes — are worth having on the books, including for meters the owner designs later.
+
+**The core insight.** Every "bar-shaped" mode (`BARS`, `WATER`, `SCROLL`, `MIRROR`, `LEVELS`, and `LED` in
+spirit) is really the same idea — *a column (or row) divided into a lit region and the rest* — wearing five
+different, independently-reinvented costumes: different anchor (bottom-edge, top-edge, centred, left-edge),
+different background (flat colour vs. a per-row gradient), and different fill discipline (continuous vs.
+gapped/segmented). `OP_BAR` only covers one point in that space (bottom-anchored, flat bg, continuous). The
+redesign lesson, independent of any new RTL: **future meters should be designed as configurations of one
+small parametric "column primitive" family, not as bespoke draw code each time** — matching the same
+discipline `docs/PHASE_F_SPEC.md` section 9 already applied to the MMIO register file itself (sticky state +
+small per-command fields, not a new register per feature). Concretely, that means a firmware-side
+`fb_bar2(x, y, w, h, anchor, lit, fg, bg_mode)`-shaped API from day one for any new meter, so the *visual*
+design and the *hardware mapping* are decided together instead of the hardware being reverse-fitted onto a
+shape chosen for other reasons (as happened here). Three specific, low-effort redesign levers, no new RTL:
+
+- **`VIZ_LEVELS` can be made `OP_BAR`-exact for free by reorienting it, not by changing the hardware.**
+  Its horizontal left-lit/right-unlit bars are horizontal only because that is what "L/R levels side by
+  side" happened to look like when it was written. A vertical pair of dual channel bars (the classic
+  vertical peak-meter layout, distinct from `BARS`'s 36-column moving history) is `OP_BAR`'s exact shape —
+  bottom-anchored, flat bg, continuous — with zero RTL cost. This is the cheapest possible win in the whole
+  survey and worth doing on its own regardless of any new opcode.
+- **`WATER`/`SCROLL`'s gradient background is a design choice, not a technical requirement.** Both are
+  already only 3-4 hardware ops per updated column (not a real bottleneck today), so there's no efficiency
+  case for touching them — but if a future redesign wants them cheaper still, dropping the per-row gradient
+  for a flat bg would let them use `OP_BAR` directly, at the cost of the visual richness the gradient gives.
+  Recorded as a real tradeoff to make deliberately, not a recommendation either way.
+- **`LED`'s gapped/delta discipline is already close to the right hardware shape for a *segmented* bar** —
+  see B15 below — but is a case where a purpose-built opcode, not a redesign, is the right lever, because
+  the gaps and delta-only redraw are the point of the visual, not an accident of how it was written.
+
+**Proposed new opcodes**, in the same B-numbered Tier scheme as B1-B11, none built yet:
+
+| ID | Feature | M10K | Notes |
+|---|---|---|---|
+| **B12** | **`OP_HBAR` — column-split bar (axis-mirrored `OP_BAR`)** | 0 | Same convention as `OP_BAR` but splits along **columns** instead of rows: `w` total, `lit` of them from one edge. Directly solves `VIZ_LEVELS` if it stays horizontal (see redesign note above — a vertical reorientation makes this opcode unnecessary for that one case, but a generic "fill from the side" primitive is broadly useful for any future horizontal gauge, e.g. a progress bar, a pitch/tempo slider, a battery icon). Expected near-mechanical: `OP_BAR`'s row-counter compare becomes a column-counter compare against the *burst* index instead of the *row* index; reuses the same `bar2_pending`-style two-segment sequencer B6 already built, just walking the other axis. Real risk, not yet assessed: `OP_BAR`'s row-wise split is cheap because each row is already a natural burst unit (one SDRAM burst per row); a column-wise split works *within* a burst, which may need a different, less trivial mechanism (masking columns inside one row's burst rather than choosing which whole rows to write) — this needs to be checked against the RTL, not assumed free, before treating it as B6-equivalent effort. |
+| **B13** | **Gradient-fill bar (row-indexed background via B8's CLUT) — HELD, 2026-09-25 (`docs/HELIOS_SPEC.md` section 6)** | 0 (reuses B8's CLUT) | Would extend `OP_BAR` so `bg` can optionally read a per-row colour from B8's existing 256-entry CLUT instead of one flat register. The CLUT read-port contention risk was re-assessed as a timing-margin question, not functional (Talos dispatches one command at a time). **But `OP_BAR`'s actual RTL, read for the first time while scoping this build, is not a row-by-row iterator at all** — it is two stacked solid-colour rectangle BURSTS (unlit segment, lit segment), each capable of covering many rows in one SDRAM transaction, which is exactly why it is cheap. A genuinely per-row gradient needs one burst PER ROW instead, giving up that whole-segment efficiency — for a tall panel (the stated `WATER`/`SCROLL` target), that could mean dozens of transactions instead of two, potentially *worse* than the 3-op software sequence it was meant to replace. Held pending a real cost/benefit re-scope once Helios/Talos otherwise ships. |
+| **B14** | **Floating/offset bar (lit region not anchored to an edge)** | 0 | Generalises `OP_BAR`'s fixed `[h-lit, h)` lit range to an arbitrary `[top, top+lit)` window within the `h`-row span, unlit both above and below. Solves `MIRROR` (a bar centred on the meter's mid-line) directly, and is the natural primitive for any future centred gauge (a bipolar level meter, a pan/balance indicator). Cheap in registers (one more field, `top`, alongside `lit`) but the *dispatch* logic changes from a single edge compare to two boundary compares — closer in shape to B11's already-built two-boundary corner sequencer than to B6's one-boundary original, so B11's as-built RTL is the right reference to generalise from, not B6's. |
+| **B15** | **Segmented/gapped bar (LED-style stepped fill)** | 0 | A repeating `(segment, gap)` pitch along the fill axis instead of a continuous run — the real shape `LED` already draws by hand. Useful beyond `LED` for any stepped/retro meter aesthetic (the kind of look the owner has said they intend to design themselves later). The real open question, flagged honestly: `LED`'s current firmware also does *delta-only* partial-column redraw (only rows whose lit/unlit state actually changed get touched), which a single whole-column `OP_BAR`-family call — segmented or not — cannot reproduce, since one command always redraws its whole span. Whether the single-command win (fewer commands, more pixels touched per change) beats the current many-small-command-but-fewer-total-pixels approach is a real measurement question (the same class as B-116's DSP-congestion finding), not something to assume either way — worth a real before/after SDRAM-busy-percentage comparison (reusing B7's counter and the B-127 blit-storm Check discipline) before committing to it. |
+| **B16** | **Point/dot-list command (batched scatter fill)** — bigger lift, Tier 3/4 | TBD | `SCOPE`, `DOTS`, and `EYE`'s glow pool are all scatter/point patterns (many independent 1x1-2x2 fills), where the real cost is likely **CPU-side dispatch overhead** (one `fb_wait()` + register-write sequence per point, up to ~200/frame for `SCOPE`'s full history) more than SDRAM traffic itself. A command that reads a short list of `(dx, dy, colour)` offsets from a source buffer and issues each as its own small fill without a CPU round-trip per point would help this class broadly, including whatever scatter/trace-style meters the owner designs later. This is architecturally bigger than B1-B15 — it needs a source-list read path B1-B11 don't have (closer to B10's shelved RLE-source-blit problem than to any bar variant) — and should stay Tier 3/4 until there's a concrete design, not folded into this list's cost estimates. |
+| **B17** | **Hardware line draw (Bresenham, single or N-px wide)** — Tier 3/4 | TBD | `WAVE` already does the "span from previous sample to this one" trick per column by hand (a cheap column-local approximation, not a real line); `SCOPE` connects its newest trace with individual midpoint dots rather than real segments, explicitly to avoid tripling the command count. A real connected-line primitive would serve any future line-graph or connected-trace style meter more directly than B16's dot-list would, and is a classic 2D-blitter feature many chips of this era had. More speculative than B12-B15 (no concrete target in today's firmware forces it the way `VIZ_LEVELS` forces B12), so it is recorded as an idea worth having on the books rather than scoped in detail here. |
+
+**Priority read, for an owner decision, not a recommendation to build all of it:** B12 and B14 are the two
+with a concrete, named target in today's firmware (`LEVELS`, `MIRROR`) and the clearest RTL reuse story (B6
+and B11 respectively); B13 is the one with the broadest reuse beyond meters but the least-checked shared-CLUT
+risk; B15 has an open measurement question before it is even known to be a win; B16/B17 are real ideas but
+belong to a later, more speculative pass. None of B12-B17 has any RTL, MMIO, or testbench work started —
+this is the design-and-options pass only, matching the discipline B9/B10/B11 already established (design
+first, verify the real cost/win before committing a Quartus slot).
 
 ### Tier 3 — after this phase (see section 13)
 
@@ -1087,7 +1169,7 @@ Steps 3 and 4 are strictly ordered; the rest have some freedom.
 | **3** | Blit engine Tier 1/2 (opcodes + MMIO register file) | Yes | 2 — met; **Tier 1 RTL/sim complete, verification/fail-safe/Check-test work all done (B-125/B-126/B-127, section 12/12.1 closed). B-130's caveat RESOLVED by B-134: the real full-G3-macros + blit-engine fit closed cleanly on both seeds (seed 1: setup +0.634/+0.501 ns, hold +0.322/+0.305 ns; seed 2: +0.395/+0.310/+0.311/+0.302 ns), same 298/308 RAM and 11/66 DSP as the blit-only fits — B-111/B-114's retiming survives the real product configuration with no further RTL change. Packaged as 0.5.0-alpha.1 (B-131's semver convention), not yet installed.** Real multi-seed fit failed timing (B-107/B-109), bisect (drop `TAU_BLIT_BLEND`, B-110) recovered nearly all of it, both exposed retiming bugs fixed (B-111 BAR, B-114 SBLIT/CHAR), the blend/`glyphbuf` theory independently verified as congestion relief not a direct fix (B-116); the re-fit combining all three fixes closed cleanly on every corner (B-117 final, seed 2: Slow 85C +0.727 ns, Slow 0C +0.597 ns). **B-130 found that every one of B-100 through B-117's fits, including this one, was built with ONLY `TAU_MLAB_MIGRATE`/`TAU_FONT_REPACK`/`TAU_SDRAM_BUSY`/`TAU_BLIT` on top of the bare `USE_SDRAM=1` base — none of them ever included the shipped product's own `TAU_PHASE2_WINDOW`/`TAU_PSRAM_PROBE`/`TAU_PSRAM_WINDOW`/`TAU_PSRAM_IFETCH` macros.** Packaging B-117's RBF with real product firmware (`player-library-diagnostic-profile`) made this concrete: on hardware, TAU DEV 43 loaded nothing and had no menu access at all, because that firmware needs the window/PSRAM paths this bitstream never had, and the "no BRAM fallback" playlist path (since A-105) has nothing to fall back to. **The recorded timing margin is not proven to survive combining with the full product configuration** — a genuinely new, not-yet-run "full G3 macros + blit engine" fit is required before this bitstream family can be trusted as a product candidate. Software reference renderer (B-125), `BLIT_READY()` fail-safe (B-126) and the blit-storm Check test + busy-counter consumer (B-127) are all built and host-verified, and remain correct RTL/firmware — only the *bitstream pairing* was wrong. B3 analysed, needs firmware coordination, not RTL-only. |
 | **3a** | MLAB migration (`glyphbuf` + dcfifo) + font repack + busy-cycle counter, scoped out from 3 as everything not needing the blit opcodes | **Done — B-101/B-102, real multi-seed fit, both seeds Successful** | none |
 | 4 | Meters to cold code | No (firmware) | **Done — B-199..B-202.** Cold-code-per-audio-frame question measured (3 scenarios, all clean, `cold.inc`'s blanket rule corrected) and the real `ui_draw_dynamic()` -> `ui_draw_dynamic_cold()` (G4 step 4, `TAU_G4>=3`) conversion built and hardware-confirmed: 27,308 cycles worst-case (~1.73% of budget), 0 late underruns, +19,520 B heap gap freed. `release` stays `G4=2` pending an ENDURANCE soak (owner deferred, to run at their own convenience) before promoting. |
-| 5 | Main RAM 256 -> 192 KB | Yes | 4 — met (pending the owner's own ENDURANCE confirmation) **and picojpeg — done, B-203: +11,456 B measured (bigger than the ~8 KB estimate), combined with the meters' +19,520 B for a total +30,992 B, comfortably clearing the ~29 KB target.** Both moves are firmware-only, opt-in (`G4=3`/`PICOJPEG_COLD=1`), not yet promoted to `release`'s defaults pending hardware confirmation of each. **The peak-usage gate in section 4.1 is the one remaining blocker before the actual RTL shrink** — not yet built. |
+| 5 | Main RAM 256 -> 192 KB | Yes | 4 — met, **and now hardware-confirmed under sustained load (B-213, 2026-09-25): `TAU_DEV_47`'s ENDURANCE soak passed all 10 checks (0 late underruns, cold-frame cost 28,847 cycles, consistent with B-202's original measurement)** — the "hardware confirmation of each" gate this row named is met. Picojpeg — done, B-203: +11,456 B measured (bigger than the ~8 KB estimate), combined with the meters' +19,520 B for a total +30,992 B, comfortably clearing the ~29 KB target. Both moves are firmware-only and, as of B-214 (2026-09-25), **promoted to `release`'s defaults** — `release`'s heap gap jumped from 30,528 B to 61,808 B (RAM usage 82.6% -> 65.3%). **The section 4.1 peak-usage gate is met (B-230, 2026-09-25):** `TAU_DEV_49`'s stack instrumentation read back from the full prescribed worst case (Stress R3 + heavy scroll/seek/track-switch + MP3/FLAC with different covers + USER CHECK) shows peak stack 1,672 B of 16,384 B (10.2%), all checks PASS, 0 errors. Heap-peak instrumentation (`arena_limit()` into Check/QR) was never built and is parked as a later-build addition per the owner's explicit call, not a blocker. **RTL work done, timing-clean (B-235, 2026-09-25):** `tau_main_ram.sv` (B-223) hit and resolved a real RAM-inference failure (B-224..B-228: a split-region ternary read broke Quartus's inference pattern-matcher; fixed by giving each region its own plain registered read, muxed only after being already-registered values); a combined fit with B11's own timing fix (B-231) closed cleanly on both seeds, all four corners positive (seed 1 selected: setup min +1.406 ns, hold min +0.098 ns), RAM Blocks 235/308 (76%, down from ~298-300/308). **Firmware-side gate NOT met (B-236, 2026-09-25):** `fw/link.ld`'s opt-in `RAM_192K=1` ceiling was built (a real toolchain gotcha found and fixed along the way — `DEFINED()` has no effect inside a `MEMORY` block's `LENGTH` in this toolchain, moved to a plain symbol expression instead) and, once correctly wired, shows `release` currently **short by ~12.6 KB** against the 192 KB target — the B-203/B-214 "+29 KB clears it" accounting has been eroded by real feature growth since (the Winamp Bars/Scope editor, the meter-yield diagnostic, others). Not a blocker for the RTL itself, but a real, separate, measured firmware task before the shrink can actually be adopted; no card install has happened for any of this. |
 | 6 | Spectrum filter bank in RTL (section 7) | Yes — can ride a later build | Nothing; cheap in blocks |
 | 7 | Audio kernels, smallest first (FLAC bit reader) | Yes | **1** — done, unblocked, but stays ordered after 3-5 (owner decision, 2026-09-22) |
 
@@ -1340,3 +1422,104 @@ Software reference renderer + pixel-diff fixtures (section 12) and the `COLD_REA
 are still open items ahead of any card install — this session's RTL testbenches cover functional correctness
 per-opcode, not yet the full render-a-scene-and-diff-the-buffer pattern section 12 describes. See sections 3-6
 and 9-13 for the rest of the plan.
+
+## 15. UI controller — tearing investigation and a blit-engine-native render path
+
+**Trigger (2026-09-25, B-232):** owner reported "very minor glitching and tearing... seems to be due to
+partial screen updates" as a long-standing, low-level UI artifact, and asked whether menu/UI drawing takes
+advantage of the blit engine, then asked for a real investigation plus a scoped design for a UI controller
+that does, considering other parked features (rounded corners named explicitly) and where they'd benefit.
+
+### 15.1 Root cause, confirmed by reading the actual RTL (not inferred)
+
+**There is no frame-synchronized draw commit anywhere in this core.** Traced the full video pipeline in
+`src/fpga/core/mp3_fb.sv`'s video-timing block (`hc`/`vc` counters, `H_TOT`/`V_TOT`): the core already does
+row-level *read* pipelining for scanout — `do_fill`/`fill_line_req`/`linebuf` prefetch the NEXT scanline's
+row from SDRAM into a small on-chip line buffer one full scanline period ahead of when it's displayed, so
+the actual pixel *fetch* is isolated from live SDRAM read latency. **This protects reads for display. It
+does nothing for CPU writes.** The CPU's draw commands (`fb_rect`/`fb_char`/`OP_BLIT`/etc., arbitrated only
+against the SDRAM port via `can_sdram`) land in SDRAM the instant arbitration allows, with zero relationship
+to where the scanout beam currently is beyond that one-row prefetch. A UI update spanning multiple rows can
+have its top rows already scanned (showing OLD content) while the CPU is still writing the lower rows (which
+then show NEW content) — a horizontal tear visible for exactly one frame, worse the more separate draw
+transactions one logical update needs, since more transactions means more elapsed time between "first row
+touched" and "last row touched."
+
+**Confirmed available hooks, neither wired up today:**
+- `core_top.v` has a real, **already-unused** `vblank` *input* port, fed by APF's own video/scaler pipeline
+  (`apf_top.v` line ~425) — flagged as literally dead in a Quartus warning read earlier this session
+  ("No output dependent on input pin vblank"). Using it needs a CDC synchronizer into `clk_sys` (it arrives
+  in whatever clock domain APF drives it in, not necessarily `clk_sys`).
+- The core also **generates its own internal vertical sync** (`vs_pulse`, from the same `hc`/`vc` counters
+  already described, in the `clk_vid` domain) — a cleaner source than the external `vblank` pin for CPU-side
+  gating, since it's derived from the exact same timing the scanout itself uses (no ambiguity about which
+  frame it corresponds to). CDC into `clk_sys` is the same proven Gray-code technique `tau_cdc_gray_ctr.sv`
+  already uses for B7's SDRAM busy counter (B-101) — a genuinely reusable pattern, not a new invention.
+
+### 15.2 A concrete, high-value adoption opportunity found in the same investigation: `OP_RRECT` for `fb_round_rect`/`fb_round_rect_on`
+
+`fb_round_rect`/`fb_round_rect_on` (`fw/player.c`) are **pure software**: a per-row iterative nearest-integer
+circle search (`while ((inner+1)^2 + dy^2 <= r^2) inner++`), each row issuing up to 4 separate `fb_rect`
+calls for the corner cuts plus one for the main fill — for the radius-8 rounded rects used everywhere
+(the whole player-screen title panel, every selected row in every list/menu/playlist/settings page, the
+tape meter's shell/label/bezel, the magic-eye base), that's up to ~33 separate small SDRAM transactions
+**per rounded rectangle**, issued on every single list-navigation key press across the entire UI. This is
+almost certainly the single most frequently executed draw pattern in the whole firmware, and — per section
+15.1 — also close to a worst case for tear exposure, since it spreads one "logical" visual update across
+dozens of independent SDRAM writes with real elapsed time between the first and the last.
+
+**B11 (`OP_RRECT`, B-205, timing-fixed B-231) already does exactly this shape in hardware** — one CPU command
+composes the main fill plus all four corner segments via a precomputed cut-per-row LUT, no live search, far
+fewer separate transactions for the same visual result. Converting `fb_round_rect`/`fb_round_rect_on` to
+`fb_rrect()` (a new thin wrapper, mirroring `fb_bar()`'s own convention) once B11's re-fit (B-229/B-231's
+pairing, still pending) confirms clean timing is a direct win on both CPU cost and tear-window size, and
+needs no new opcode design — it is squarely what B11 was built for, just not yet wired into any caller.
+
+### 15.3 Design: a phased UI controller, cheapest lever first
+
+Matching this project's own synthesis-first, measure-before-committing discipline (B-100 precedent) — no
+Quartus slot spent, no firmware change made yet, this section is the scoped plan:
+
+**Phase T0 — RTL, cheap, foundational.** CDC the internal `vs_pulse`/scan-position into `clk_sys` (the
+proven B7/`tau_cdc_gray_ctr.sv` technique), expose as new MMIO: a vblank-active bit at minimum, ideally also
+a "lines remaining until the beam reaches row N" figure if cheap (a plain compare against the CDC'd `vc`).
+No behavior change by itself — this is purely giving firmware a real, hardware-verified answer to "how much
+safe time is left this frame," which does not exist anywhere in the CPU-visible register file today.
+
+**Phase T1 — firmware, the actual "UI controller."** Two independent, separable pieces:
+1. **Convert `fb_round_rect`/`fb_round_rect_on` to `OP_RRECT`** (section 15.2) — a direct, self-contained win,
+   buildable the moment B11's re-fit is confirmed clean, independent of T0.
+2. **A real draw-batching layer**, replacing the current pattern of scattered immediate `fb_rect`/`fb_char`
+   calls throughout `settingsui.inc`/`player.c` with: collect what changed for this frame, then flush it as
+   one pass timed to start right at vblank (using T0's new MMIO), using the fewest possible hardware-composed
+   commands (`OP_BAR`/`OP_RRECT`/`OP_BLIT`/`OP_CBLIT` over multiple small `fb_rect` calls wherever a pattern
+   already matches one, per the same "batch into fewer transactions" principle B8/B9/B11 all embody). This is
+   the part that most directly answers "does the UI controller take full advantage of the blit engine" —
+   today only the *meter* draw code has been converted (B-198, B-215/B-216); Settings/menus/overlays have not
+   been touched at all and are a real, scoped opportunity of their own.
+
+**Phase T2 — RTL, invasive, hold until T0/T1 are tried and measured insufficient.** True double buffering.
+**SDRAM capacity is not the blocker** — the chip is 64 MiB (`mp3_fb.sv`'s own header comment, confirmed
+against `docs/UPSTREAM_MEMORY_AUDIO_KNOWLEDGE.md`) and the entire visible framebuffer plus every existing
+off-screen stash region (art stash, thumbnail flat buffers, playlist/library SDRAM regions) together occupy
+well under 2 MiB — a second full framebuffer costs a rounding error against total capacity. The real cost is
+RTL complexity (a buffer-select mux gated cleanly by vblank on both the CPU write-address path and the
+scanout prefetch's read-address path, synchronized so neither flips mid-frame) and firmware-side auditing of
+every fixed-address convention (`FB_BASE`, the off-screen stash rows) to confirm none of them need duplicating
+across both buffers. Worth real design work only if T0/T1 measurably fail to eliminate the reported artifact.
+
+### 15.4 Other parked capabilities this same controller would naturally pick up
+
+Once a real batching/vblank-aware draw layer exists, it is also the natural adopter for opcodes already
+designed or built but not yet wired into any real UI caller: **B8's CLUT** (already used for meter thumbnails,
+section 12; the same palette-indexed blit could serve any multi-colour icon/badge), **B9's palette re-index**
+(built, unused — a re-themed icon set without a second CLUT upload), and **B13's proposed gradient-fill bar**
+(section 5; would collapse `WATER`/`SCROLL`'s current 3-op shift/gradient/fill sequence into one command, and
+generalises to any "flat panel against the themed gradient backdrop" — which is most of this UI). None of
+these are re-scoped here; they are simply the concrete backlog a real UI controller would draw from once T1
+exists, cross-referenced from `docs/ARCHITECTURE_ROADMAP.md`'s "UI/UX redesign" placeholder (B-115), which
+this section now gives a first real, evidence-based answer to its own open question of "how it interacts
+with the Phase F blit engine."
+
+**Not done:** no RTL, no firmware, no Quartus slot spent on any of this section. Investigation and design
+only, awaiting an owner decision on whether to proceed to T0.

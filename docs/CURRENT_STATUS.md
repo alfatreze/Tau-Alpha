@@ -407,6 +407,14 @@ library + large playlist + fresh cover decode + browse-while-playing + every met
 but given the margin already shown, the real worst case would need to be ~9x deeper to become a
 concern. That comparison is the one test still needed before the RTL shrink itself is scoped.
 
+**Status update, 2026-09-25 (B-211): B11's Quartus fit FAILED timing (-2.366 ns worst setup slack).**
+RTL/sim (B-205, below) is still correct; the fit found a genuinely new combinational chain inside B11's
+own corner sequencer (`rrect_row` -> subtract -> cut-LUT read -> two wide address adders -> `rect_addr`,
+all in one cycle) — the same *shape* of bug as B-111/B-114, a different instance, not the `glyphbuf`
+congestion that hit B8. Root cause found via `quartus_sta`, fix understood (retime the cut/address
+computation one cycle ahead, matching B-111/B-114's technique) but **not yet applied**. Full detail:
+`docs/AUDIT_TRAIL.md` B-211, `docs/PHASE_F_SPEC.md`'s B11 section.
+
 **MILESTONE, 2026-09-25 (B-205): B11 (hardware rounded-rect) built and verified in RTL/simulation.**
 `cmd_op` widened 3->4 bits (mechanical, every existing opcode's full test suite passes unchanged);
 new `OP_RRECT` generalises `OP_BAR`'s one-shot `bar2_pending` into a bounded, LUT-driven corner
@@ -441,6 +449,18 @@ budget) for the real `ui_draw_dynamic_cold()`, 0 late underruns, `audio_full: tr
 tiny synthetic probe (expected -- real function, real visualizer code) but well within budget with
 real margin. G4 step 4 is functionally proven on real audio playback. Next: an ENDURANCE soak before
 considering promoting `G4=3` to release's default.
+
+**MILESTONE, 2026-09-25 (B-213): the ENDURANCE soak is in and PASSED.** `TAU_DEV_47`'s full ENDURANCE
+profile: **all 10 checks passed**, including Blit storm (30s) and Cold frame (30s) together -- 0 late
+underruns, `audio_full: true`, `stall_ms: 0`, cold-frame cost 28,847 cycles (consistent with the
+27,308-cycle figure above, now reconfirmed under sustained load rather than a single run). This is the
+hardware-confirmation gate `PHASE_F_SPEC.md` section 14 row 5 named as the remaining blocker before
+promoting `G4=3`/`PICOJPEG_COLD=1` to `release`'s defaults -- met, and **done (B-214, same day):**
+`fw/build.sh`'s defaults flipped, `release` rebuilt (heap gap 30,528 -> 61,808 B, RAM 82.6% -> 65.3%),
+every other build target reverified clean, `make test-host` passes. Not committed yet. Separately read (opportunistically) `TAU_DEV_49`'s
+persist file: FULL profile, clean except the pre-existing unrelated `Track changes` failure -- not the
+same thing as section 4.1's own prescribed worst-case stack exercise, whose actual peak-byte reading
+still hasn't been read back from a QR screenshot of that specific run.
 
 **MILESTONE, 2026-09-25 (B-202): the real meter/cold-code conversion is built.** `ui_draw_dynamic()`
 split into a thin hot wrapper and `ui_draw_dynamic_cold()` (`COLD_FN3`, a new G4 step 4 gated on
@@ -489,14 +509,24 @@ UI redraw bug unrelated to `blit_probe_ensure()`/`BLIT_READY()`/the draw engine 
 fixed the actual `blit_probe()` SDRAM bug, and B-197's own hardware run proved the whole opcode set + probe path
 clean, 0 stalls) — the original reason to hold no longer applies. Full write-up: `docs/PHASE_F_SPEC.md` section 4.
 
-**Next, in order (updated 2026-09-25 — the Blit Test hang, B10/B11, and the meter/blit integration are
-all done; see the B-197/B-198/B-199..B-202 milestones above):** per `docs/PHASE_F_SPEC.md` section
-14's table, step 4 ("meters to cold code") is done and step 5 ("main RAM 256 -> 192 KB") is next in
-line. Its real remaining blocker is **section 4.1's peak-usage gate** (paint the stack, measure the
-high-water mark under the worst real profile, gate the shrink on `measured peak + 16 KB margin < 192
-KB`) — not yet built. Also still needed to reach the full ~29 KB the shrink wants: picojpeg's own
-~8 KB moved cold (not yet scoped; the meters alone freed ~19.5 KB). The pre-existing `Track changes`
-Check failure (open since B-138, unrelated to any of this) remains open and un-investigated.
+**MILESTONE, 2026-09-25 — the active plan is now `docs/HELIOS_SPEC.md` (Helios/Talos).** Same-day arc:
+B11's real timing violation was found and fixed (retiming, same technique as B-111/B-114) and the RAM-shrink
+RTL's own inference bug was found and fixed (a split-region ternary read broke Quartus's pattern-matcher) —
+**a combined fit closes cleanly on both seeds, all four corners positive, RAM Blocks 235/308** (B-235,
+MILESTONE). The RAM shrink's own firmware side is NOT yet usable, though: `fw/link.ld`'s opt-in 192 KB
+ceiling was built (with a real toolchain gotcha found along the way — `DEFINED()` has no effect inside a
+`MEMORY` block's `LENGTH` in this toolchain) and, correctly wired, shows `release` currently **short by
+~12.6 KB** against the 192 KB target — the earlier "+29 KB clears it" accounting has been eroded by real
+feature growth since (B-236). Separately: the long-reported UI tearing was root-caused (no frame-synchronized
+draw commit exists anywhere) and a full UI-controller/graphics-library design was written up after prior-art
+research (Amiga Copper/blitter, PS1 Ordering Tables, LVGL, u8g2, MiSTer OSD) — named **Helios** (the library)
+over **Talos** (the blit engine RTL, B1-B11). `docs/HELIOS_SPEC.md` is the complete proposal, superseding
+`docs/PHASE_F_SPEC.md` section 15 (B-232, B-237). Owner: "let's build Talos and Helios" — build order is
+`docs/HELIOS_SPEC.md` section 9 (H0 vblank MMIO / H1 Helios core + `OP_RRECT` conversion + B13's gradient
+bar / H2 double buffering, held). Four Winamp Bars/Scope bugs from the same session were found and fixed
+(B-234), installed as `TAU_DEV_51` after a card cleanup down to three cores (`TAU`/`TAU_DIAGNOSTIC`/
+`TAU_DEV_51`) — not yet run on hardware. The 192 KB shrink's own remaining firmware trim (~12-13 KB) and the
+pre-existing `Track changes` Check failure (open since B-138) both remain open, unrelated to Helios/Talos.
 
 **Parked (2026-09-22, not acted on):** broader type/font support — CJK, crispness at scale, multiple typefaces —
 researched against upstream HarpMudd v1.5.0's hardware-verified Japanese/UTF-8 work and recorded in
