@@ -58,3 +58,18 @@ def add_cold_slot(core_dir: Path) -> None:
     dj["data"]["data_slots"].append({"name": "Cold image", "id": 6, "required": False, "deferload": True,
                                       "parameters": "0x1", "filename": "tau-cold.bin"})
     save(core_dir / "data.json", dj)
+
+
+def add_cover_slot(core_dir: Path) -> None:
+    """Data slot 7: the pre-converted cover image (TAU_ART_TIMG, B-285, docs/COVER_TIMG_READER.md). Opened BY NAME at run time
+    (the same 0192 mechanism as the playlist slot); no filename, so nothing is loaded at boot. Only cores built with the
+    ART_TIMG firmware need it."""
+    dj = json.loads((core_dir / "data.json").read_text())
+    expect = {"name": "Cover image", "id": 7, "required": False, "deferload": True, "parameters": "0x1", "extensions": ["timg"]}
+    existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 7), None)
+    if existing is not None:
+        assert existing == expect, f"data slot 7 already declared, and differently: {existing}"
+        return
+    dj["data"]["data_slots"].append(expect)
+    save(core_dir / "data.json", dj)
+
