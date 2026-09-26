@@ -73,7 +73,10 @@ module mp3_soc #(
     parameter VBLANK_ENABLE = 0,
     // Spectrum filter bank (PHASE_F_SPEC.md section 7, B-263): tau_spec_bank.sv fed from the PCM FIFO's sample strobe;
     // 16 band means readable at R_SPEC_IDX/R_SPEC_DATA, status/window counter at R_SPEC_ST. Inert (reads 0) when 0.
-    parameter SPEC_ENABLE = 0
+    parameter SPEC_ENABLE = 0,
+    // Level and waveform meters (B-283): tau_wave_meter.sv fed from the same sample strobe. Peak L/R, and a 256-column
+    // min/max scope capture with its own zero-crossing trigger. Registers 0xEC-0xFC. Inert (reads 0) when 0.
+    parameter WAVE_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -780,7 +783,13 @@ module mp3_soc #(
     // than what it was. BUMP THIS whenever the MMIO map changes.
     localparam [31:0] CORE_VERSION = 32'h4D503317;   // "MP3" + rev 23 (target data-slot flush)
 
-    wire [7:0] mmio_reg = {dADR[5:0], 2'b00};   // byte offset within MMIO page
+    // MMIO is 128 word slots (512 bytes): bit 8 of the offset is new (B-287). Offsets 0x00-0xFF keep their meaning exactly, so nothing
+    // that already exists changes; new blocks take 0x100 upward. Every `8'hXX` compare below zero-extends against this 9-bit
+    // value, so it needs no edit. The two places that must know about bit 8 are the PSRAM probe's expansion window (its
+    // xm_reg is 8 bits: writes are gated below so a 0x1xx write can never alias into 0x0xx there) and xm_range (already
+    // bounded to 0x88-0xAC, which cannot match with bit 8 set). Before this the decode ignored dADR[6] entirely, so every
+    // register also answered at +0x100; nothing in the firmware used that.
+    wire [8:0] mmio_reg = {dADR[6:0], 2'b00};   // byte offset within the MMIO page
 
     // Phase F section 9: sticky blit-engine state. Plain flops, no logic reads
     // them unless BLIT_ENABLE -- see the port declarations above and the reset
@@ -829,8 +838,8 @@ module mp3_soc #(
     reg  [7:0]  dbg_mark = 8'd0;
 
     // Expansion window 0x88..0xAC (see docs/MMIO_ALLOCATION.md).
-    assign xm_reg   = mmio_reg;
-    assign xm_wr    = d_req & d_is_mmio & dWE;
+    assign xm_reg   = mmio_reg[7:0];
+    assign xm_wr    = d_req & d_is_mmio & dWE & ~mmio_reg[8];   // the expansion window is offsets 0x88-0xAC only
     assign xm_wdata = dDAT_MOSI;
     wire   xm_range = (mmio_reg >= 8'h88) && (mmio_reg <= 8'hAC);
 
@@ -890,6 +899,24 @@ module mp3_soc #(
         end
     endgenerate
 
+    // ---- level / waveform meters (B-283) -----------------------------------------------------------------------------
+    localparam [7:0] R_WAVE_CTL = 8'hEC, R_WAVE_IDX = 8'hF0;
+    reg         wave_ctl_we = 1'b0, wave_idx_we = 1'b0;
+    reg  [11:0] wave_ctl_d  = 12'd0;
+    reg  [7:0]  wave_idx_d  = 8'd0;
+    wire [31:0] wave_rd, wave_status;
+    wire [15:0] wave_pk_l, wave_pk_r;
+    generate
+        if (WAVE_ENABLE != 0) begin : g_wave
+            tau_wave_meter #(.COLS(256), .TRIG_MAX(2048)) u_wave (
+                .clk(clk), .rst(rst), .tick(pcm_sample_tick), .in_l(fifo_l), .in_r(fifo_r),
+                .ctl_we(wave_ctl_we), .ctl_data(wave_ctl_d), .idx_we(wave_idx_we), .idx_data(wave_idx_d),
+                .rd_data(wave_rd), .pk_l(wave_pk_l), .pk_r(wave_pk_r), .status(wave_status));
+        end else begin : g_nowave
+            assign wave_rd = 32'd0; assign wave_pk_l = 16'd0; assign wave_pk_r = 16'd0; assign wave_status = 32'd0;
+        end
+    endgenerate
+
     // Preset EQ, spliced between the FIFO and this module's audio outputs.
     // Entirely inside clk_sys, so no new CDC -- sound_i2s already crosses into
     // clk_74a through its own sync_fifo and this sits on the near side of that.
@@ -909,6 +936,7 @@ module mp3_soc #(
         con_wr      <= 1'b0;
         tgt_go      <= 1'b0;
         fb_cmd_push <= 1'b0;
+        wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0;
         dt_wren     <= 1'b0;
         set_wr      <= 1'b0;
         sdram_start <= 1'b0;
@@ -978,6 +1006,8 @@ module mp3_soc #(
                                  fb_cmd_sy    <= dDAT_MOSI[13:12];
                                  fb_cmd_push  <= 1'b1; end
                 R_SPEC_IDX: spec_idx <= dDAT_MOSI[3:0];
+                R_WAVE_CTL: begin wave_ctl_d <= dDAT_MOSI[11:0]; wave_ctl_we <= 1'b1; end
+                R_WAVE_IDX: begin wave_idx_d <= dDAT_MOSI[7:0];  wave_idx_we <= 1'b1; end
                 R_BLT_IDX:  blt_idx <= dDAT_MOSI[2:0];
                 R_BLT_DATA: begin
                     case (blt_idx)
@@ -1060,6 +1090,9 @@ module mp3_soc #(
             8'hBC:     mmio_rdata = (SDRAM_BUSY_ENABLE != 0) ? sdram_busy_rd : 32'd0;  // B7: SDRAM port-busy cycles, free-running since reset
             8'hD0:     mmio_rdata = (VBLANK_ENABLE != 0) ? {vblank_rd[16:1], 15'd0, vblank_rd[0]} : 32'd0;  // Helios/Talos H0: bit 0 vblank level, bits 31:16 free-running frame count (B-260)
             8'hE8:     mmio_rdata = {22'd0, scan_rd};                                  // Helios beam position: bit 9 present, bits 8:0 video line counter (B-267)
+            8'hF4:     mmio_rdata = wave_rd;                                            // scope column {min, max} at WAVE_IDX (B-283)
+            8'hF8:     mmio_rdata = {wave_pk_r, wave_pk_l};                             // level meters: max |R|, max |L| since cleared
+            8'hFC:     mmio_rdata = wave_status;                                        // bit 0 present, bit 1 capturing, bit 2 trigger timeout, 15:8 capture number
             8'hE0:     mmio_rdata = {12'd0, spec_mean};                                // spectrum bank: mean of band SPEC_IDX (B-263)
             8'hE4:     mmio_rdata = (SPEC_ENABLE != 0) ? {spec_win, 15'd0, 1'b1} : 32'd0;  // spectrum bank: bit 0 present, bits 31:16 window counter
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
