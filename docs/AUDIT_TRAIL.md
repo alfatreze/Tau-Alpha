@@ -9006,3 +9006,6 @@ Addendum 3 (same day): all open decisions resolved (spec section 25, `docs/DECIS
 
 ### B-326 (2026-09-26) - Alpha blend timing review
 Read-only STA on the B-107, B-239 and noblend fit databases: one path family (glyphbuf MLAB read -> unregistered DSP -> write select, ~12.8 ns vs ~10 ns). Ranked workarounds, pipelining recommended, blend stays shelved. See `docs/ALPHA_BLEND_ANALYSIS.md`, local KB-065. No RTL, card or VM change.
+
+### B-327 (2026-09-26) - Pipelined alpha blend (RTL, sim green, fit launched)
+`mp3_fb.sv` A_COPYRD blend split in three stages (capture src+dst / blend_px from registers / write) with a drain before the row is released (`bl_drain`, also gating dispatch and `engine_busy`); plain and keyed paths untouched. `make test-rtl` (incl. blit-reference and all mutants) passes. Commit `dd9d05a`. Fit `blend-pipe-b327` (seeds 1, 2, poly bitstream macros + `TAU_BLIT_BLEND=1`, `tools/blit_g3_poly_blend_qsf_append.txt`) launched on the VM; check with `python3 tools/vm_fit.py status blend-pipe-b327`. Prediction: the glyphbuf->DSP->write path (B-326) is gone; watch RAM (304/308 expected) and whether another path becomes worst. Scan-out blending deferred until this result.
