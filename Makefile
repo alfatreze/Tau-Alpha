@@ -38,6 +38,7 @@ test-host:
 	$(PYTHON) tools/gen_meters.py --check
 	$(PYTHON) tools/check_meter_deps.py
 	$(PYTHON) sim/test_meter_core.py --check
+	$(PYTHON) sim/test_meter_module.py
 	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js && $(PYTHON) sim/test_meter_golden.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
 	$(PYTHON) tools/gen_themes.py --check
 	$(PYTHON) tools/meter_cost_estimate.py

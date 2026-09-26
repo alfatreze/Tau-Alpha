@@ -1842,68 +1842,22 @@ static uint32_t peak_l, peak_r;          /* per-channel, for LEVELS */
  * 4-bit index already fully used with the library on, so adding a slot
  * needs an RTL change, not a firmware one. This is deliberately being
  * tried first without solving that, per the owner's own call. */
-/* B-234: split into two fully independent configs -- Bars and Scope share no
- * fields any more (they never did semantically; a single struct just made it
- * look that way and made one shared preset/CUSTOM state apply to both modes
- * at once, which is the bug the owner reported: editing Bars then picking a
- * preset while still notionally "in Bars" silently reset fields Scope also
- * displayed a row for, and vice versa). Each mode now owns its own struct,
- * its own preset table, its own preset index/CUSTOM tracker -- see
- * wvcfg_preset_idx_bars/scope and wvcfg_build_vis() in fw/settingsui.inc. */
-typedef struct {
-    uint8_t  bands;         /* WVIZ_BANDS_MIN..WVIZ_BANDS_MAX columns */
-    uint8_t  ease_mode;     /* 0 instant, 1 linear, 2 exponential, 3 spring */
-    uint8_t  attack;        /* 1..100 */
-    uint8_t  release;       /* 1..100 */
-    uint8_t  peak_on;
-    uint8_t  peak_gravity;  /* 0 linear fall, 1 accelerating (gravity) */
-    uint16_t peak_hold_ms;  /* 0..800 */
-    uint8_t  peak_fall;     /* 1..100 */
-} wviz_bars_cfg_t;
-
-typedef struct {
-    uint8_t  scope_smooth;  /* 0..90 percent */
-    uint8_t  scope_trail;   /* 0..80 percent -- reserved: a real soft trail needs
-                              * B5 alpha blend (shelved); until that is un-shelved
-                              * this value is accepted but has no visible effect,
-                              * a plain full erase is used regardless. */
-} wviz_scope_cfg_t;
-
+/* M2 (docs/METER_MODULE_SPEC.md): the Winamp pair's parameters, presets and live values are generated from meters/winamp_bars and
+ * meters/winamp_scope (fw/meters_gen.h); state is per meter (B-234's lesson) and the values are read through MV_<METER>(name).
+ * WVIZ_BANDS_MIN/MAX bound the band count (= SPEC_BANDS, the octave cascade's real band count: more would mean interpolating fake data;
+ * the manifest range and a _Static_assert below keep them equal). */
+#include "meter_module.h"
+#include "meters_gen.h"
 #define WVIZ_BANDS_MIN 4u
-#define WVIZ_BANDS_MAX 16u          /* = SPEC_BANDS (defined below): the octave cascade's
-                                     * real band count -- more would mean interpolating
-                                     * fake data. Not written as SPEC_BANDS itself since
-                                     * that macro isn't declared until further down this
-                                     * file; a _Static_assert right after it confirms they
-                                     * still agree. */
+#define WVIZ_BANDS_MAX 16u
+_Static_assert(WVIZ_BANDS_MAX == 16u && WVIZ_BANDS_MIN == 4u, "manifest range for bands is 4..16");
 
-/* Five built-in presets per mode (Fluid Bars Lab naming); index 0 doubles as
- * the boot default for each. The five "personalities" are the same across
- * both tables (same names, same relative feel) -- only the field SUBSET each
- * mode actually reads differs, values carried over unchanged from the
- * original shared table's own bars/scope columns. */
-static const wviz_bars_cfg_t wviz_bars_presets[5] = {
-    /* bands, ease_mode, attack, release, peak_on, peak_gravity, peak_hold_ms, peak_fall */
-    { 16, 2,  55,  22, 1, 1, 200, 35 },   /* FLUID (default) */
-    { 16, 0, 100, 100, 1, 0,   0, 60 },   /* CLASSIC -- instant, no easing */
-    { 12, 3,  60,  25, 1, 1, 250, 30 },   /* BOUNCY -- spring */
-    {  8, 2,  30,  12, 1, 0, 500, 15 },   /* SLOW FADE */
-    { 16, 1,  90,  90, 1, 1, 100, 70 },   /* SNAPPY -- linear, fast */
-};
-static const wviz_scope_cfg_t wviz_scope_presets[5] = {
-    /* scope_smooth, scope_trail */
-    { 35, 30 },   /* FLUID (default) */
-    {  0,  0 },   /* CLASSIC */
-    { 45, 20 },   /* BOUNCY */
-    { 55, 40 },   /* SLOW FADE */
-    { 15,  5 },   /* SNAPPY */
-};
-static const char *const wviz_preset_nm[5] = { "FLUID", "CLASSIC", "BOUNCY", "SLOW FADE", "SNAPPY" };
-#define WVIZ_PRESET_N (sizeof(wviz_preset_nm) / sizeof(wviz_preset_nm[0]))
-
-static uint8_t wvcfg_preset_idx_bars, wvcfg_preset_idx_scope;  /* 0..WVIZ_PRESET_N-1, or 0xFF = CUSTOM (was in settingsui.inc; Select+X needs it earlier) */
-static wviz_bars_cfg_t  wviz_cfg_bars  = { 16, 2, 55, 22, 1, 1, 200, 35 };
-static wviz_scope_cfg_t wviz_cfg_scope = { 35, 30 };
+/* The module whose parameters the Configure page and Select+X edit for the meter `viz`, or 0. */
+static const mtr_data_t *mtr_of(uint32_t viz)
+{
+    for (uint32_t i = 0; i < MTR_MODULE_N; i++) if (mtr_modules[i]->viz == viz) return mtr_modules[i];
+    return 0;
+}
 
 /* B-234: forces the next wviz_bars_tick()/wviz_scope_tick() call to repaint
  * everything, bypassing the per-band change cache and re-seeding scope's own
@@ -3501,7 +3455,7 @@ static void ui_icon_dot(uint32_t x, uint32_t y, uint16_t c)
  * so the Configure page can pin the preview wherever its own layout wants. */
 COLD_FN3 static void wviz_bars_tick(uint32_t x0, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
 {
-    uint32_t bands = wviz_cfg_bars.bands;
+    uint32_t bands = MV_WINAMP_BARS(BANDS);
     if (bands < WVIZ_BANDS_MIN) bands = WVIZ_BANDS_MIN;
     if (bands > WVIZ_BANDS_MAX) bands = WVIZ_BANDS_MAX;
     uint32_t gap  = 2u;
@@ -3521,10 +3475,10 @@ COLD_FN3 static void wviz_bars_tick(uint32_t x0, uint32_t y, uint32_t w, uint32_
         uint32_t target = mtr_band_target(spec_lvl, SPEC_BANDS, bands, b);
         if (paused) target = 0u;
 
-        uint32_t rate = (target >= wviz_disp[b]) ? wviz_cfg_bars.attack : wviz_cfg_bars.release;
-        wviz_disp[b] = mtr_ease(wviz_disp[b], (uint8_t)target, wviz_cfg_bars.ease_mode, rate, &wviz_vel[b]);
+        uint32_t rate = (target >= wviz_disp[b]) ? MV_WINAMP_BARS(ATTACK) : MV_WINAMP_BARS(RELEASE);
+        wviz_disp[b] = mtr_ease(wviz_disp[b], (uint8_t)target, MV_WINAMP_BARS(EASE), rate, &wviz_vel[b]);
 
-        const mtr_peak_cfg_t pcfg = { wviz_cfg_bars.peak_on, wviz_cfg_bars.peak_gravity, wviz_cfg_bars.peak_hold_ms, wviz_cfg_bars.peak_fall };
+        const mtr_peak_cfg_t pcfg = { MV_WINAMP_BARS(PEAK_ON), MV_WINAMP_BARS(PEAK_GRAVITY), MV_WINAMP_BARS(PEAK_HOLD_MS), MV_WINAMP_BARS(PEAK_FALL) };
         mtr_peak_step(&wviz_pk[b], wviz_disp[b], &pcfg, dec_ms);
 
         if (!mtr_delta(&wviz_drawn[b], &wviz_peak_drawn[b], wviz_disp[b], wviz_pk[b].peak, wviz_force)) continue;
@@ -3540,7 +3494,7 @@ COLD_FN3 static void wviz_bars_tick(uint32_t x0, uint32_t y, uint32_t w, uint32_
             fb_rect(x, y + h - bh, colw, bh, ui_accent);
             if (h > bh) fb_rect(x, y, colw, h - bh, bg);
         }
-        if (wviz_cfg_bars.peak_on) {
+        if (MV_WINAMP_BARS(PEAK_ON)) {
             uint32_t ph = (wviz_pk[b].peak * h) / 255u;
             if (ph > bh + 1u && ph < h)
                 fb_rect(x, y + h - ph, colw, 1u, UI_WHITE);
@@ -3591,7 +3545,7 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
         static uint8_t  sc_armed;
         if (!sc_armed) { REG(R_WAVE_CTL) = 2u | (1u << 8); sc_armed = 1u; return; }   /* nothing captured yet */
         if (!paused && !(REG(R_WAVE_ST) & 2u)) {
-            const int32_t smooth = wviz_cfg_scope.scope_smooth;
+            const int32_t smooth = MV_WINAMP_SCOPE(SCOPE_SMOOTH);
             const int percol = ui_fullscreen;               /* fullscreen: erase per column, see the software path */
             if (!percol) {
                 if (use_gradient) ui_bg_restore(x0, y, w, h);
@@ -3653,7 +3607,7 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
     }
 
     if (!paused) {
-        int32_t smooth = wviz_cfg_scope.scope_smooth;      /* 0..90 */
+        int32_t smooth = MV_WINAMP_SCOPE(SCOPE_SMOOTH);      /* 0..90 */
         int32_t prev_y = 0;
         for (uint32_t c = 0; c < WAVE_COLS; c++) {
             uint32_t cx  = x0 + (c * w) / WAVE_COLS;
@@ -3685,6 +3639,14 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
         }
         wviz_scope_init = 1u;
     }
+}
+
+/* Draws the meter `viz` into an arbitrary rect against a flat background: the Configure page's live preview. The one hand-written binding
+ * between a generated parameter module and its drawing function (a meter module's `tick`, docs/METER_MODULE_SPEC.md section 3). */
+COLD_FN3 static void mtr_preview(uint32_t viz, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
+{
+    if (viz == VIZ_WINAMP_SCOPE) wviz_scope_tick(x, y, w, h, 0, bg);
+    else                         wviz_bars_tick(x, y, w, h, bg);
 }
 
 static void ui_draw_dynamic(void);

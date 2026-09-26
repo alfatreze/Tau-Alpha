@@ -809,56 +809,34 @@ COLD_FN static void set_draw_libcfg(void)
 #include "suite.inc"
 #endif
 
-/* Settings > Appearance > Meter > Configure (B-215/B-216/B-217/B-218, row
- * filtering + independent per-mode presets B-234): a live preview of
- * whichever Winamp meter is selected -- still reading real playing audio --
- * pinned to the top of the page, with a scrollable list of its parameters
- * below. Session-only: every change here writes straight into the live
- * wviz_cfg_bars/wviz_cfg_scope (fw/player.c); nothing is persisted (see
- * B-216 for why not). Placed after suite.inc's own #include (not where the
- * rest of this file's Settings pages live) because the QR export row below
- * needs sr_tlv()/qr_encode() from suite_core.h/qrcode.h, which only exist
- * under TAU_DIAGNOSTIC.
+/* Settings > Appearance > Meter > Configure (B-215..B-218, B-234; generic since M2, docs/METER_MODULE_SPEC.md section 5): a live preview
+ * of the meter being edited -- still reading real playing audio -- pinned to the top, with a scrollable list of that meter's parameters
+ * below. Nothing here is specific to a meter: rows come from the generated parameter tables (fw/meters_gen.h) through the generic logic
+ * in fw/meter_module.h, so a new meter with parameters gets this page for free. Session-only: every change writes straight into the
+ * meter's live values; nothing is persisted (B-216).
  *
- * B-234: rows are now filtered by mode -- Bars shows only its own fields
- * (bands, easing, attack/release, peak cap/fall/hold), Scope shows only its
- * own (scope smooth/trail); PRESET, MODE and EXPORT QR are common to both.
- * `wvcfg_vis[]`/`wvcfg_vis_n` hold the current mode's visible row list;
- * `wvcfg_sel` indexes INTO that list (a "visible index"), not the WVR_* enum
- * directly -- wvcfg_row(k) maps one to the other. Rebuilt on open and on
- * every MODE toggle (wvcfg_build_vis()). */
-enum { WVR_PRESET = 0, WVR_MODE, WVR_BANDS, WVR_EASE, WVR_ATTACK, WVR_RELEASE,
-       WVR_PEAK_ON, WVR_PEAK_GRAV, WVR_PEAK_HOLD, WVR_PEAK_FALL,
-       WVR_SCOPE_SMOOTH, WVR_SCOPE_TRAIL, WVR_EXPORT, WVR_N };
-static const char *const wvcfg_row_nm[WVR_N] = {
-    "PRESET", "MODE", "BANDS", "EASING", "ATTACK", "RELEASE",
-    "PEAK CAP", "PEAK FALL", "PEAK HOLD MS", "PEAK FALL SPEED",
-    "SCOPE SMOOTH", "SCOPE TRAIL", "EXPORT QR" };
-static const char *const wvcfg_ease_nm[4] = { "INSTANT", "LINEAR", "EXPONENTIAL", "SPRING" };
-static const char *const wvcfg_grav_nm[2] = { "LINEAR", "GRAVITY" };
+ * Rows: PRESET, METER (cycles the meters that have parameters), the meter's parameters that are visible under their `when` clause,
+ * EXPORT QR. Placed after suite.inc's own #include because the QR export needs sr_tlv()/qr_encode() (Diagnostic Build only). */
+#define WVR_PRESET 0u
+#define WVR_METER  1u
+#define WVR_P0     2u              /* parameter i is row WVR_P0 + i */
+#define WVR_EXPORT 250u
 #define WVCFG_ROWS_VISIBLE 8u
+#define WVCFG_MAX_ROWS 16u
 static uint8_t wvcfg_sel, wvcfg_top;
-static uint8_t wvcfg_vis[WVR_N], wvcfg_vis_n;
+static uint8_t wvcfg_vis[WVCFG_MAX_ROWS], wvcfg_vis_n;
+static const mtr_data_t *wvcfg_md;
 
 static void wvcfg_build_vis(void)
 {
-    uint8_t n = 0;
-    wvcfg_vis[n++] = WVR_PRESET;
-    if (viz_mode == VIZ_WINAMP_BARS) {
-        wvcfg_vis[n++] = WVR_BANDS;
-        wvcfg_vis[n++] = WVR_EASE;
-        wvcfg_vis[n++] = WVR_ATTACK;
-        wvcfg_vis[n++] = WVR_RELEASE;
-        wvcfg_vis[n++] = WVR_PEAK_ON;
-        wvcfg_vis[n++] = WVR_PEAK_GRAV;
-        wvcfg_vis[n++] = WVR_PEAK_HOLD;
-        wvcfg_vis[n++] = WVR_PEAK_FALL;
-    } else {
-        wvcfg_vis[n++] = WVR_SCOPE_SMOOTH;
-        wvcfg_vis[n++] = WVR_SCOPE_TRAIL;
-    }
-    wvcfg_vis[n++] = WVR_EXPORT;
-    wvcfg_vis_n = n;
+    uint32_t n = 0;
+    wvcfg_md = mtr_of(viz_mode);
+    wvcfg_vis[n++] = (uint8_t)WVR_PRESET;
+    wvcfg_vis[n++] = (uint8_t)WVR_METER;
+    for (uint32_t i = 0; wvcfg_md && i < wvcfg_md->n && n + 1u < WVCFG_MAX_ROWS; i++)
+        if (mtr_visible(wvcfg_md, i)) wvcfg_vis[n++] = (uint8_t)(WVR_P0 + i);
+    wvcfg_vis[n++] = (uint8_t)WVR_EXPORT;
+    wvcfg_vis_n = (uint8_t)n;
     if (wvcfg_sel >= wvcfg_vis_n) wvcfg_sel = (uint8_t)(wvcfg_vis_n - 1u);
 }
 
@@ -867,7 +845,7 @@ static inline uint32_t wvcfg_row(uint32_t k) { return wvcfg_vis[k]; }
 static void wvcfg_open(void)
 {
     wvcfg_sel = 0u; wvcfg_top = 0u;
-    if (viz_mode != VIZ_WINAMP_BARS && viz_mode != VIZ_WINAMP_SCOPE) viz_mode = VIZ_WINAMP_BARS;
+    if (!mtr_of(viz_mode)) viz_mode = mtr_modules[0]->viz;      /* editing a meter without parameters: start with the first that has some */
     wvcfg_build_vis();
     wviz_force = 1u;   /* B-234: entering at a different rect than the player screen's own */
 }
@@ -878,99 +856,67 @@ COLD_FN static void wvcfg_follow(void)
     else if (wvcfg_sel >= wvcfg_top + WVCFG_ROWS_VISIBLE) wvcfg_top = (uint8_t)(wvcfg_sel - WVCFG_ROWS_VISIBLE + 1u);
 }
 
-/* B-218: exports the live wviz_cfg_bars/wviz_cfg_scope as a QR code, reusing the exact record/text/
- * QR pipeline fw/suite.inc already built for Check/Blit Test (sr_init/sr_tlv/
- * sr_finish/sr_text/qr_encode, the CHK_REC/CHK_TXT/CHK_QR SDRAM staging
- * buffers) rather than inventing a second channel -- this page and Check/Blit
- * Test are never open at the same time, so sharing those buffers is safe.
- * Diagnostic-Build only (TAU_DIAGNOSTIC), same as every other QR feature here;
- * outside a Diagnostic Build the row is present but inert (see below). */
+/* B-218/M2: exports the live values of the meter being edited as a QR code (SR_T_METERCFG), reusing the record/text/QR pipeline
+ * fw/suite.inc built for Check/Blit Test (this page and those are never open together, so sharing their SDRAM staging is safe).
+ * Diagnostic-Build only, like every QR feature here; outside one the row is present but inert. */
 #if TAU_DIAGNOSTIC
 #include "wvcfg_export.inc"
 #include "info_export.inc"
 #endif
 
+COLD_FN static void wvcfg_row_name(uint32_t row, char *o)
+{
+    const char *t = row == WVR_PRESET ? "PRESET" : row == WVR_METER ? "METER" : row == WVR_EXPORT ? "EXPORT QR"
+                  : (wvcfg_md && row >= WVR_P0 && row - WVR_P0 < wvcfg_md->n) ? wvcfg_md->p[row - WVR_P0].label : "";
+    char *q = set_str(o, t);
+    *q = 0;
+}
+
 COLD_FN static void wvcfg_value_text(uint32_t row, char *o)
 {
     char *q = o;
-    int scope = (viz_mode == VIZ_WINAMP_SCOPE);
-    uint8_t pidx = scope ? wvcfg_preset_idx_scope : wvcfg_preset_idx_bars;
-    switch (row) {
-    case WVR_PRESET:        q = set_str(q, (pidx < WVIZ_PRESET_N) ? wviz_preset_nm[pidx] : "CUSTOM"); break;
-    case WVR_MODE:          q = set_str(q, scope ? "SCOPE" : "BARS"); break;
-    case WVR_BANDS:         q = ui_dec(q, wviz_cfg_bars.bands); break;
-    case WVR_EASE:          q = set_str(q, wvcfg_ease_nm[wviz_cfg_bars.ease_mode & 3u]); break;
-    case WVR_ATTACK:        q = ui_dec(q, wviz_cfg_bars.attack); break;
-    case WVR_RELEASE:       q = ui_dec(q, wviz_cfg_bars.release); break;
-    case WVR_PEAK_ON:       q = set_str(q, wviz_cfg_bars.peak_on ? "ON" : "OFF"); break;
-    case WVR_PEAK_GRAV:     q = set_str(q, wvcfg_grav_nm[wviz_cfg_bars.peak_gravity & 1u]); break;
-    case WVR_PEAK_HOLD:     q = ui_dec(q, wviz_cfg_bars.peak_hold_ms); q = set_str(q, " MS"); break;
-    case WVR_PEAK_FALL:     q = ui_dec(q, wviz_cfg_bars.peak_fall); break;
-    case WVR_SCOPE_SMOOTH:  q = ui_dec(q, wviz_cfg_scope.scope_smooth); q = set_str(q, "%"); break;
-    case WVR_SCOPE_TRAIL:   q = ui_dec(q, wviz_cfg_scope.scope_trail); q = set_str(q, "%"); break;
-    default:                /* WVR_EXPORT */
+    if (row == WVR_PRESET) {
+        uint8_t pi = wvcfg_md ? *wvcfg_md->pre_idx : MTR_CUSTOM;
+        q = set_str(q, (wvcfg_md && pi < wvcfg_md->npre) ? wvcfg_md->pre_names[pi] : "CUSTOM");
+    } else if (row == WVR_METER) {
+        q = set_str(q, wvcfg_md ? wvcfg_md->name : "");
+    } else if (row == WVR_EXPORT) {
 #if TAU_DIAGNOSTIC
         q = set_str(q, "PRESS A");
 #else
         q = set_str(q, "DIAG BUILD ONLY");
 #endif
-        break;
+    } else if (wvcfg_md && row >= WVR_P0 && row - WVR_P0 < wvcfg_md->n) {
+        const mtr_param_t *p = &wvcfg_md->p[row - WVR_P0];
+        const uint32_t v = wvcfg_md->val[row - WVR_P0];
+        if (p->type == MTR_ENUM) q = set_str(q, p->enums[v]);
+        else if (p->type == MTR_BOOL) q = set_str(q, v ? "ON" : "OFF");
+        else { q = ui_dec(q, v); q = set_str(q, p->unit); }
     }
     *q = 0;
 }
 
 COLD_FN static void wvcfg_adjust(uint32_t row, int32_t dir)
 {
-    int scope = (viz_mode == VIZ_WINAMP_SCOPE);
+    if (!wvcfg_md || row == WVR_EXPORT) return;                   /* EXPORT is an A-only action */
     if (row == WVR_PRESET) {
-        uint8_t *pidx = scope ? &wvcfg_preset_idx_scope : &wvcfg_preset_idx_bars;
-        int32_t p = (*pidx < WVIZ_PRESET_N) ? (int32_t)*pidx : 0;
-        p += dir;
-        if (p < 0) p = (int32_t)WVIZ_PRESET_N - 1; else if (p >= (int32_t)WVIZ_PRESET_N) p = 0;
-        *pidx = (uint8_t)p;
-        if (scope) wviz_cfg_scope = wviz_scope_presets[*pidx];
-        else       wviz_cfg_bars  = wviz_bars_presets[*pidx];
+        mtr_preset_step(wvcfg_md, dir);
         wviz_force = 1u;    /* B-234: geometry/values just jumped -- see wviz_force's own comment */
+        wvcfg_build_vis();  /* a preset can change which rows are visible (a `when` clause) */
         return;
     }
-    if (row == WVR_MODE) {                        /* mode isn't a wviz_cfg_* field -- doesn't mark CUSTOM */
-        viz_mode = scope ? VIZ_WINAMP_BARS : VIZ_WINAMP_SCOPE;
+    if (row == WVR_METER) {                                       /* another meter with parameters; not a value, so no CUSTOM */
+        uint32_t k = 0;
+        while (k < MTR_MODULE_N && mtr_modules[k] != wvcfg_md) k++;
+        k = (dir > 0) ? (k + 1u) % MTR_MODULE_N : (k + MTR_MODULE_N - 1u) % MTR_MODULE_N;
+        viz_mode = mtr_modules[k]->viz;
         wvcfg_build_vis();
         wviz_force = 1u;
         return;
     }
-    if (row == WVR_EXPORT) return;                 /* A-only action, not Left/Right-adjustable */
-    if (scope) wvcfg_preset_idx_scope = 0xFFu; else wvcfg_preset_idx_bars = 0xFFu;   /* any other field -> CUSTOM */
-    int32_t v;
-    switch (row) {
-    case WVR_BANDS:
-        v = (int32_t)wviz_cfg_bars.bands + dir;
-        if (v < (int32_t)WVIZ_BANDS_MIN) v = WVIZ_BANDS_MIN; else if (v > (int32_t)WVIZ_BANDS_MAX) v = WVIZ_BANDS_MAX;
-        wviz_cfg_bars.bands = (uint8_t)v; break;
-    case WVR_EASE:
-        v = (int32_t)wviz_cfg_bars.ease_mode + dir;
-        if (v < 0) v = 3; else if (v > 3) v = 0;
-        wviz_cfg_bars.ease_mode = (uint8_t)v; break;
-    case WVR_ATTACK:
-        v = (int32_t)wviz_cfg_bars.attack + dir * 5; if (v < 1) v = 1; else if (v > 100) v = 100;
-        wviz_cfg_bars.attack = (uint8_t)v; break;
-    case WVR_RELEASE:
-        v = (int32_t)wviz_cfg_bars.release + dir * 5; if (v < 1) v = 1; else if (v > 100) v = 100;
-        wviz_cfg_bars.release = (uint8_t)v; break;
-    case WVR_PEAK_ON:     wviz_cfg_bars.peak_on = wviz_cfg_bars.peak_on ? 0u : 1u; break;
-    case WVR_PEAK_GRAV:   wviz_cfg_bars.peak_gravity = wviz_cfg_bars.peak_gravity ? 0u : 1u; break;
-    case WVR_PEAK_HOLD:
-        v = (int32_t)wviz_cfg_bars.peak_hold_ms + dir * 20; if (v < 0) v = 0; else if (v > 800) v = 800;
-        wviz_cfg_bars.peak_hold_ms = (uint16_t)v; break;
-    case WVR_PEAK_FALL:
-        v = (int32_t)wviz_cfg_bars.peak_fall + dir * 5; if (v < 1) v = 1; else if (v > 100) v = 100;
-        wviz_cfg_bars.peak_fall = (uint8_t)v; break;
-    case WVR_SCOPE_SMOOTH:
-        v = (int32_t)wviz_cfg_scope.scope_smooth + dir * 5; if (v < 0) v = 0; else if (v > 90) v = 90;
-        wviz_cfg_scope.scope_smooth = (uint8_t)v; break;
-    default:
-        v = (int32_t)wviz_cfg_scope.scope_trail + dir * 5; if (v < 0) v = 0; else if (v > 80) v = 80;
-        wviz_cfg_scope.scope_trail = (uint8_t)v; break;
+    if (row >= WVR_P0 && row - WVR_P0 < wvcfg_md->n) {
+        mtr_adjust(wvcfg_md, row - WVR_P0, dir);
+        wvcfg_build_vis();  /* e.g. turning the peak cap off hides its dependent rows */
     }
 }
 
@@ -990,8 +936,7 @@ COLD_FN static void wvcfg_draw(void)
     uint32_t px = PL_UI_TEXT_X, pw = PL_UI_X + PL_UI_W - 8u - px, py = PL_UI_LIST_Y, ph = UI_WAVE_H;
     fb_rect(px - 4u, py - 4u, pw + 8u, ph + 8u, UI_PANEL);
     wviz_force = 1u;                      /* the panel was just wiped: the meters' change caches must repaint everything */
-    if (viz_mode == VIZ_WINAMP_SCOPE) wviz_scope_tick(px, py, pw, ph, 0, UI_PANEL);
-    else                              wviz_bars_tick(px, py, pw, ph, UI_PANEL);
+    mtr_preview(viz_mode, px, py, pw, ph, UI_PANEL);
 
     uint32_t list_y = py + ph + 16u;
     if (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) {                      /* scroll track, as the other lists */
@@ -1006,9 +951,11 @@ COLD_FN static void wvcfg_draw(void)
         if (sel) fb_round_rect_on(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H, 5u, bg, UI_PANEL);
         else     fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H, UI_PANEL);
         char v[24];
+        char nm[24];
         wvcfg_value_text(i, v);
+        wvcfg_row_name(i, nm);
         fb_set_color(sel ? UI_PANEL : UI_DIM, bg);
-        fb_text_clipped(PL_UI_TEXT_X, y, wvcfg_row_nm[i], TS_1X, TS_1X, 190u);
+        fb_text_clipped(PL_UI_TEXT_X, y, nm, TS_1X, TS_1X, 190u);
         uint32_t w = fb_text_width(v, TS_1X);
         fb_set_color(sel ? UI_PANEL : UI_WHITE, bg);
         fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, y, v, TS_1X, TS_1X, w + 2u);
@@ -1025,8 +972,7 @@ COLD_FN static void wvcfg_preview_tick(void)
 #endif
     const uint8_t o = ov_draw; ov_draw = 1u;
     const uint32_t px = PL_UI_TEXT_X, pw = PL_UI_X + PL_UI_W - 8u - px, py = PL_UI_LIST_Y, ph = UI_WAVE_H;
-    if (viz_mode == VIZ_WINAMP_SCOPE) wviz_scope_tick(px, py, pw, ph, 0, UI_PANEL);
-    else                              wviz_bars_tick(px, py, pw, ph, UI_PANEL);
+    mtr_preview(viz_mode, px, py, pw, ph, UI_PANEL);
     ov_draw = o;
 }
 

@@ -1,4 +1,4 @@
-/* Winamp meter configure page: QR export of the session config (B-218).
+/* Meter configure page: QR export of the meter being edited (B-218, generic since M2).
  * Diagnostic Build only: included from settingsui.inc under #if TAU_DIAGNOSTIC (never compiled into `release`).
  * Moved out of that file unchanged (B-251); behaviour and generated code are identical. */
 static uint32_t wvcfg_qr_len, wvcfg_qr_ver;
@@ -6,24 +6,22 @@ static uint8_t  wvcfg_qr_up;
 
 COLD_FN static void wvcfg_build_qr(void)
 {
-    uint8_t buf[13];
-    buf[0]  = (viz_mode == VIZ_WINAMP_SCOPE) ? 1u : 0u;
-    buf[1]  = (viz_mode == VIZ_WINAMP_SCOPE) ? wvcfg_preset_idx_scope : wvcfg_preset_idx_bars;
-    buf[2]  = wviz_cfg_bars.bands;
-    buf[3]  = wviz_cfg_bars.ease_mode;
-    buf[4]  = wviz_cfg_bars.attack;
-    buf[5]  = wviz_cfg_bars.release;
-    buf[6]  = wviz_cfg_bars.peak_on;
-    buf[7]  = wviz_cfg_bars.peak_gravity;
-    buf[8]  = (uint8_t)(wviz_cfg_bars.peak_hold_ms & 0xFFu);
-    buf[9]  = (uint8_t)(wviz_cfg_bars.peak_hold_ms >> 8);
-    buf[10] = wviz_cfg_bars.peak_fall;
-    buf[11] = wviz_cfg_scope.scope_smooth;
-    buf[12] = wviz_cfg_scope.scope_trail;
+    /* SR_T_METERCFG (fw/suite_core.h): meter id, schema, preset, nparams, then each value (u16 parameters are two bytes, LE). */
+    uint8_t buf[4 + 2 * WVCFG_MAX_ROWS];
+    uint32_t n = 0;
+    const mtr_data_t *md = wvcfg_md;
+    buf[n++] = (uint8_t)md->viz;
+    buf[n++] = 1u;
+    buf[n++] = *md->pre_idx;
+    buf[n++] = md->n;
+    for (uint32_t i = 0; i < md->n; i++) {
+        buf[n++] = (uint8_t)(md->val[i] & 0xFFu);
+        if (md->p[i].type == MTR_U16) buf[n++] = (uint8_t)(md->val[i] >> 8);
+    }
 
     sr_t s;
     sr_init(&s, CHK_REC, CHK_REC_CAP, 0u);
-    sr_tlv(&s, (uint8_t)SR_T_WVIZCFG, buf, sizeof(buf));
+    sr_tlv(&s, (uint8_t)SR_T_METERCFG, buf, n);
     uint32_t len = sr_finish(&s);
     wvcfg_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
