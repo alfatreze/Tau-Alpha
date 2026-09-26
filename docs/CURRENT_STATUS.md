@@ -24,6 +24,11 @@ frame counter, beam position, blit engine incl. rounded rect) and diagnostic fir
 - Boot-restore mismatch between release and diagnostic builds (`docs/issues/021`), re-parked until the UI redesign.
 - M10K: the poly bitstream uses 304 of 308 blocks. The 192 KB RAM shrink (RTL fit-proven, B-235) would release 64 blocks, but the firmware does not fit yet (`docs/RAM_SHRINK_192K_PLAN.md`).
 
+## Built since alpha.30, host-verified only (no Pocket run yet)
+- **Theme system** roadmap item 0 (steps 0a-0d), corrected accent palette, the Light-polarity text weight table (RTL, fit `gamma-b316` running or done: check `python3 tools/vm_fit.py status gamma-b316`).
+- **Meter modules M0-M5** (B-317..B-323): capability registry with evidence gating, shared `meter_core`, generated parameter modules (Winamp pair and Chladni), generic Configure page, `SR_T_METERCFG`/`SR_T_METERTRACE`, `tau-assets.bin` `METR` presets, meter preview lab (`python3 tools/meters/preview/build.py --out work/meters/meter_lab.html`). Proofs: `make test-host` (firmware drawing code equals the JS ports command for command, 35,562 commands; generic parameter logic equals the original Configure page over 300,000 operations; sanitiser sweep of Chladni's parameter ranges; every byte flip of the assets file refused).
+- The packaged `alfatreze.TAU_0_5_0_A_32` predates all of this.
+
 ## Uncommitted or not mine
 Not committed: `dist/` ROM and cold image. Belongs to the other sessions and left alone: `tools/sync_media.py`, `tools/tau_image.py`, `tools/lab/`,
 `sim/test_tau_image.py`, `docs/DECISIONS.md`, `docs/IMAGE_FORMATS.md`, `docs/CHLADNI_METER_SPEC.md`, `docs/METER_MODULE_SPEC.md`, `docs/THEME_SPEC.md`, `docs/vendor/`.

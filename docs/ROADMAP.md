@@ -14,7 +14,7 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 | 1 | Close alpha.30 | Hardware-confirmed good (404,712 slots, 0 BAD, 1.75x clean) | Optional like-for-like unit-off run; find the speed where audio breaks; HarpMudd comparison later | B-308, B-309 |
 | 2 | Batched drawing for the hardware wave/scope path | Compiled out since B-302 (256 columns cost ~21x a normal meter) | Design batching (few `fb_rect`/`OP_BAR`-style commands per frame), re-enable, prove with Meter Sweep | B-298..B-302, `HARDWARE_METER_IDEAS` #6 |
 | 3 | Remove software paths made redundant by hardware | Spectrum cascade already removed | After 2: delete software level/scope in `meters_feed` and `wviz_scope_tick` | ALPHA22 handoff item 3 |
-| 4 | Meter module M1 to M2 | M0 done (B-294) | Not before 0.5 (owner, 2026-09-26: theme first); M2 depends on theme roles (D-M05) | `METER_MODULE_SPEC` section 17 |
+| 4 | Meter modules: **M0 to M5 built and host-verified (B-294, B-317..B-323)**; M6 (wrapping the legacy meters) deliberately not done | Winamp pair, Chladni and every future meter with parameters run on generated modules, a generic Configure page, `SR_T_METERCFG`, the METR presets file, the meter trace recorder and a preview lab whose ports are proven command-for-command against the firmware. Open: hardware run of alpha builds carrying it; reorder/hide meters from a file; a JS twin for Chladni; Omega's METR writer | `docs/AUDIT_TRAIL.md` B-317..B-323, `METER_MODULE_SPEC` |
 
 ## 2. Next (needs an owner call first)
 
