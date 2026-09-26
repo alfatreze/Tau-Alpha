@@ -1,0 +1,8 @@
+{
+  "key": "wave",
+  "enum": "VIZ_WAVE",
+  "index": 4,
+  "name": "OSCILLOSCOPE",
+  "selectable": true,
+  "sel_index": 6
+}

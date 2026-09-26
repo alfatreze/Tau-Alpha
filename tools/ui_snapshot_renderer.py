@@ -19,6 +19,10 @@ from capture_splash_frame import WIDTH, HEIGHT, write_capture
 
 ROOT = Path(__file__).resolve().parent.parent
 PLAYER = (ROOT / "fw/player.c").read_text(encoding="utf-8")
+# The VIZ_* enum and viz_order[] moved out of player.c into generated headers (meter module M0,
+# tools/gen_meters.py); splice them in so the #include lines still resolve for the regexes below.
+PLAYER += (ROOT / "fw/meter_gen_enum.h").read_text(encoding="utf-8")
+PLAYER += (ROOT / "fw/meter_gen_order.h").read_text(encoding="utf-8")
 METRICS = (ROOT / "fw/font_metrics.h").read_text(encoding="utf-8")
 ROM = (ROOT / "src/fpga/core/font_rom.v").read_text(encoding="utf-8")
 
@@ -398,6 +402,8 @@ def now_playing_base(state="playing", seeking=False, title="NIGHT DRIVE",
 
 
 SETTINGS_SRC = (ROOT / "fw/settingsui.inc").read_text(encoding="utf-8")
+# set_viz[] moved into a generated header (meter module M0, tools/gen_meters.py); splice it in.
+SETTINGS_SRC += (ROOT / "fw/meter_gen_names.h").read_text(encoding="utf-8")
 # Fixtures model the standard (non-cold) build: take the #else branch of "#if TAU_COLD ... #else ... #endif" blocks.
 SETTINGS_SRC = re.sub(r"#if TAU_COLD\n(.*?)#else\n(.*?)#endif\n", r"\2", SETTINGS_SRC, flags=re.S)
 EQ_SRC = (ROOT / "fw/eq_curve.h").read_text(encoding="utf-8")

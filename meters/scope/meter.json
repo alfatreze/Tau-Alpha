@@ -1,0 +1,8 @@
+{
+  "key": "scope",
+  "enum": "VIZ_SCOPE",
+  "index": 3,
+  "name": "PHASE SCOPE",
+  "selectable": true,
+  "sel_index": 5
+}
