@@ -12,8 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gen_themes as gt          # noqa: E402
 import ui_snapshot_renderer as R  # noqa: E402
 
-PAL = [0x0843, 0xF79E, 0x2D40, 0xEEE0, 0x8925, 0xD925, 0xE68F, 0x5D6D, 0x4F5D, 0x9B9D,
-       0xFFC0, 0xE68F, 0xD925, 0xE97D, 0x4F5D, 0x5D6D, 0x6B59, 0xC0E0, 0x8C63]
+PAL = [c for _, c in gt.palette()]
 
 
 def ramp_fn(top, bot):
