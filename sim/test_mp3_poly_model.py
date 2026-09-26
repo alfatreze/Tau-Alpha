@@ -23,6 +23,7 @@ with tempfile.TemporaryDirectory() as td:
     s = s.replace('#include "assembly.h"', '#include "assembly.h"\nextern int wlog[64], wn;\n#define WRLOG(d, s) do { d[0] = d[8] = (s); wlog[wn++] = (s); } while (0)', 1)
     (td / "dct32.c").write_text(s)
     (td / "tables.h").write_text(G.render_h(taps, cf))
+    shutil.copy(ROOT / "sim/mp3_poly_model_core.h", td / "mp3_poly_model_core.h")
     exe = td / "model"
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DTABLES_H=\"tables.h\"", "-I", str(td), "-I", str(H / "pub"), "-I", str(H / "real"), "-o", str(exe),
                         str(ROOT / "sim/mp3_poly_model.c"), str(td / "dct32.c"), str(td / "polyphase.c"), str(td / "trigtabs.c")], capture_output=True, text=True)

@@ -85,6 +85,22 @@
 #define R_WAVE_PK   0x800000F8u   /* read: {max |R| [31:16], max |L| [15:0]} since the last clear */
 #define R_WAVE_ST   0x800000FCu   /* read: bit 0 = the block is built in, bit 1 = a capture is running, bit 2 = trigger timed out */
 #define WAVE_HW_COLS 256u
+#define R_POLY_CTL  0x80000100u   /* B-292 MP3 window unit: write: bit 0 clear history, bit 1 go (compute the pending slot) */
+#define R_POLY_PUSH 0x80000104u   /* write: one FDCT32 output word in push order, 64 per slot (channel 0's 32, then channel 1's) */
+#define R_POLY_IDX  0x80000108u   /* write: PCM word 0..31 to present at R_POLY_OUT */
+#define R_POLY_OUT  0x8000010Cu   /* read: {R sample [31:16], L sample [15:0]} of the last computed slot, Helix's own interleave */
+#define R_POLY_ST   0x80000110u   /* read: bit 0 = built in, bit 1 = busy, bits 31:16 = slots computed */
+/* B-307: redirect FDCT32's captured output words to the MP3 window unit from inside Subband() itself
+ * (third_party/libhelix-mp3/real/subband.c, gated by the same macro). Off by default -- byte-identical
+ * to the unmodified decoder; no build target defines this yet (docs/MP3_FILTERBANK_KERNEL_DESIGN.md
+ * section 6 step 4 is not shipped in any build). fw/mp3_poly_hw.inc implements fw/mp3_poly_hw.h, which
+ * subband.c (a separate translation unit) declares extern. */
+#ifndef TAU_POLY_FW
+#define TAU_POLY_FW 0
+#endif
+#if TAU_POLY_FW
+#include "mp3_poly_hw.inc"
+#endif
 #define R_SPEC_ST   0x800000E4u   /* read: bit 0 = the bank is built into this bitstream, bits 31:16 = windows completed */
 #define R_SCAN      0x800000E8u   /* B-267 Helios beam position: bit 9 = present (TAU_BEAM bitstream), bits 8:0 = video line counter */
 #define R_VBLANK    0x800000D0u   /* Helios/Talos H0: bit 0 = vblank status, CDC'd from clk_vid; 0 when TAU_VBLANK is off */
@@ -2020,6 +2036,7 @@ _Static_assert(WVIZ_BANDS_MAX == SPEC_BANDS, "WVIZ_BANDS_MAX must track SPEC_BAN
 static unsigned char spec_lvl[SPEC_BANDS];    /* published, 0..255           */
 static uint8_t  wave_hw;                  /* B-283: the bitstream has the level/scope block (probed once at boot) */
 static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardware filter bank (probed once at boot) */
+static uint8_t  hw_poly;                  /* B-292: the bitstream has the MP3 window unit (probed once at boot) */
 static uint32_t spec_win_seen;            /* last hardware window counter consumed */
 
 /* B-263: the hardware bank (src/fpga/core/tau_spec_bank.sv) runs the same cascade continuously, at zero CPU cost, and
@@ -8780,6 +8797,10 @@ int main(void)
     helios_beam_ok = (uint8_t)((REG(R_SCAN) >> 9) & 1u);   /* B-267: beam position present on this bitstream? */
     wave_hw = (uint8_t)(REG(R_WAVE_ST) & 1u);      /* B-283: hardware level/scope block present? */
     spec_hw = (uint8_t)(REG(R_SPEC_ST) & 1u);      /* B-263: hardware spectrum bank present? (0 on any other bitstream) */
+    hw_poly = (uint8_t)(REG(R_POLY_ST) & 1u);      /* B-292: hardware MP3 window unit present? (0 on any other bitstream) */
+#if TAU_POLY_FW
+    tau_poly_hw_enable = hw_poly;
+#endif
 
     /* Clear the screen FIRST. SDRAM powers up holding garbage and the scanout
      * engine displays it the moment video comes alive, so anything slow before
