@@ -715,6 +715,18 @@ module mp3_fb #(
     // every A_COPYRD (so it is always fresh 0 at the start of a new row/command
     // regardless of what the previous command left it at).
     reg        key_dst_done = 1'b0;
+    // ---- B5 blend pipeline (B-327) --------------------------------------
+    // The old single-cycle read-modify-write (MLAB read -> DSP multiply -> mode
+    // mux -> MLAB write, ~12.8 ns vs ~10 ns, B-326) is split in three:
+    //   S0 (A_COPYRD): capture source word, read destination word from glyphbuf
+    //   S1           : blend_px() from registers only -> bl_r
+    //   S2           : write bl_r into glyphbuf
+    // Words of one row have distinct indices, so no read-after-write hazard.
+    // The row is only released (char_row_ready) once the pipe has drained;
+    // bl_drain also blocks new dispatch meanwhile.
+    reg        bl_v0 = 1'b0, bl_v1 = 1'b0, bl_drain = 1'b0;
+    reg [15:0] bl_fg, bl_bg, bl_r;
+    reg [6:0]  bl_i0, bl_i1;
 
     // B4 (OP_SBLIT) state. sblit_mode selects the conditional (Y-Bresenham-
     // gated) source row step in A_WRWAIT over BLIT's own unconditional one;
@@ -885,7 +897,7 @@ module mp3_fb #(
 
     // Dispatch guards: a new command may only be popped once the previous one
     // has fully retired, and any SDRAM work needs the controller idle.
-    wire engine_busy = rect_active || char_rows_left_nz || char_row_ready;
+    wire engine_busy = rect_active || char_rows_left_nz || char_row_ready || bl_drain;
     wire can_sdram   = p0_available && sdram_init_complete;
 
     always @(posedge clk_sdram) begin
@@ -914,10 +926,23 @@ module mp3_fb #(
             rrect_pending <= 1'b0;
             rrect_active  <= 1'b0;
             key_dst_done <= 1'b0;
+            bl_v0 <= 1'b0; bl_v1 <= 1'b0; bl_drain <= 1'b0;
             sblit_mode   <= 1'b0;
             cblit_mode   <= 1'b0;
             rd_ptr <= 0; rd_ptr_g <= 0;
         end else begin
+            // B5 blend pipeline stages S1/S2 (S0 is in A_COPYRD below)
+            bl_v0 <= 1'b0;
+            bl_v1 <= bl_v0;
+            if (bl_v0) begin
+                bl_r  <= blend_px(bl_bg, bl_fg, blt_blend_mode, blt_blend_alpha);
+                bl_i1 <= bl_i0;
+            end
+            if (bl_v1) glyphbuf[bl_i1] <= bl_r;
+            if (bl_drain && !bl_v0 && !bl_v1) begin
+                bl_drain       <= 1'b0;
+                char_row_ready <= 1'b1;
+            end
             case (astate)
                 // ---------------------------------------------------- IDLE --
                 A_IDLE: begin
@@ -987,14 +1012,14 @@ module mp3_fb #(
                     // row/command at 0, so this adds nothing unless one of the
                     // two sticky enables is set.
                     end else if (copy_mode && char_rows_left_nz
-                                 && !char_row_ready && can_sdram
+                                 && !char_row_ready && !bl_drain && can_sdram
                                  && blit_mode && (blt_key_en || blend_active) && !key_dst_done) begin
                         p0_addr   <= blit_dst_addr;
                         p0_rd_req <= 1'b1;
                         copy_cnt  <= 8'd0;
                         astate    <= A_KEYDST;
                     end else if (copy_mode && char_rows_left_nz
-                                 && !char_row_ready && can_sdram) begin
+                                 && !char_row_ready && !bl_drain && can_sdram) begin
                         p0_addr   <= blit_mode ? blit_src_addr : (FB_BASE + {6'd0, copy_src});
                         p0_rd_req <= 1'b1;
                         copy_cnt  <= 8'd0;
@@ -1004,7 +1029,7 @@ module mp3_fb #(
                     // comment) -- scanout can preempt between any two pixels,
                     // not just between rows.
                     end else if (sblit_mode && char_rows_left_nz
-                                 && !char_row_ready && can_sdram) begin
+                                 && !char_row_ready && !bl_drain && can_sdram) begin
                         p0_addr   <= sblit_src_row_addr + {16'd0, sblit_ex};
                         p0_rd_req <= 1'b1;
                         astate    <= A_SBLIT;
@@ -1013,12 +1038,12 @@ module mp3_fb #(
                     // one-word-per-transaction read above -- copy_cnt tracks the column
                     // within the row (reset at dispatch, and again per row in A_WRWAIT).
                     end else if (cblit_mode && char_rows_left_nz
-                                 && !char_row_ready && can_sdram) begin
+                                 && !char_row_ready && !bl_drain && can_sdram) begin
                         p0_addr   <= blit_src_addr + {17'd0, copy_cnt};
                         p0_rd_req <= 1'b1;
                         astate    <= A_CBLIT_RD;
 
-                    end else if (!copy_mode && !sblit_mode && !cblit_mode && char_rows_left_nz && !char_row_ready) begin
+                    end else if (!copy_mode && !sblit_mode && !cblit_mode && char_rows_left_nz && !char_row_ready && !bl_drain) begin
                         rowf_cnt <= 2'd0;
                         astate   <= A_ROWFETCH;
 
@@ -1364,15 +1389,20 @@ module mp3_fb #(
                 A_COPYRD: begin
                     if (p0_data_available) begin
                         if (!pixel_keyed) begin
-                            if (key_dst_done && blend_active && !BUG_BLEND_ALWAYS_SRC)
-                                glyphbuf[copy_cnt[6:0]] <= blend_px(glyphbuf[copy_cnt[6:0]], p0_q,
-                                                                     blt_blend_mode, blt_blend_alpha);
-                            else
+                            if (key_dst_done && blend_active && !BUG_BLEND_ALWAYS_SRC) begin
+                                bl_fg <= p0_q;
+                                bl_bg <= glyphbuf[copy_cnt[6:0]];
+                                bl_i0 <= copy_cnt[6:0];
+                                bl_v0 <= 1'b1;
+                            end else
                                 glyphbuf[copy_cnt[6:0]] <= p0_q;
                         end
                         if (copy_cnt == char_w[6:0] - 7'd1) begin
                             p0_end_burst_req <= 1'b1;
-                            char_row_ready   <= 1'b1;
+                            if (key_dst_done && blend_active && !BUG_BLEND_ALWAYS_SRC)
+                                bl_drain <= 1'b1;      // released once S1/S2 drain
+                            else
+                                char_row_ready <= 1'b1;
                             key_dst_done     <= 1'b0;   // fresh for the next row
                             astate <= A_IDLE;
                         end else copy_cnt <= copy_cnt + 8'd1;
