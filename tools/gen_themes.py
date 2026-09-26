@@ -37,6 +37,13 @@ RULES = [("text_primary", ["surface", "base", "ramp"], 4.5), ("text_secondary", 
          ("text_secondary", ["ramp"], 2.6)]
 
 
+def palette():
+    """The firmware's accent palette [(name, rgb565)] read from fw/player.c, so the checks use what the device really has."""
+    src = (ROOT / "fw" / "player.c").read_text()
+    blk = src[src.index("static const uint16_t ui_palette[]"):src.index("#define UI_PALETTE_N")]
+    return [(m.group(2), int(m.group(1), 16)) for m in re.finditer(r"0x([0-9A-Fa-f]{4})u,\s+/\*\s+([A-Z_]+)", blk)]
+
+
 def snap(v):
     if isinstance(v, str) and v.lower().startswith("0x"):
         return int(v, 16)
@@ -130,7 +137,7 @@ def emit(themes):
 def gamma_report(themes):
     rtl = [int(m) for m in re.findall(r"4'd\d+\s*:\s*cov_weight\s*=\s*5'd(\d+);", gtg.FB.read_text())]
     ident = list(range(15)) + [16]
-    accents = [0xF79E, 0x2D40, 0xEEE0, 0xD925, 0x4F5D, 0x6B59]
+    accents = [c for _, c in palette()]
     rows = []
     for t in themes:
         for pol in POLS:
@@ -157,7 +164,7 @@ def gamma_report(themes):
     return rows
 
 
-SAMPLE_ACCENTS = [0xF79E, 0xEEE0, 0xD925, 0x4F5D, 0x6B59, 0x2D40, 0x0843, 0xFFC0]
+SAMPLE_ACCENTS = [c for _, c in palette()]      # every accent the device offers
 
 
 def check_theme(t, verbose=False):
@@ -190,7 +197,7 @@ def check_theme(t, verbose=False):
 
 def light_fit(themes):
     """Best 16-entry weight table for the Light polarity (what an RTL polarity bit would select), fitted like gen_text_gamma.py."""
-    accents = [0xF79E, 0xEEE0, 0xD925, 0x4F5D, 0x6B59, 0x2D40, 0x0843, 0xFFC0]
+    accents = [c for _, c in palette()]
     fg, bgs = [], []
     for t in themes:
         d = t["light"]

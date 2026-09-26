@@ -1421,31 +1421,33 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
  * it disappears, nothing so pale it competes with the white type. RGB565. */
 static const uint16_t ui_palette[] = {
     /* Analogue Pocket hardware edition colours (RGB565), per HANDOFF_PROMPT_pocket_colors_theme_replacement.md.
-     * The comment on each is the text colour the handoff validated on it. */
+     * The comment on each is the text colour the handoff validated on it.
+     * Values are the RGB565 of the reference hex list (analogue-pocket-colors notes, B-315); the earlier table had the right red
+     * field but wrong green and blue fields (SILVER read red-orange, SMOKE dark red, CLEAR yellow). */
     /* Standard Edition */
-    0x0843u,   /* BLACK            - white text */
-    0xF79Eu,   /* WHITE            - black text */
+    0x18C3u,   /* BLACK           - white text */
+    0xF7BEu,   /* WHITE           - black text */
     /* Glow Limited Edition */
-    0x2D40u,   /* GLOW             - white text */
+    0x2A83u,   /* GLOW            - white text */
     /* Transparent Limited Edition (warm to cool) */
-    0xEEE0u,   /* TRANS_CLEAR      - black text */
-    0x8925u,   /* TRANS_SMOKE      - white text */
-    0xD925u,   /* TRANS_RED        - white text */
-    0xE68Fu,   /* TRANS_ORANGE     - black text */
-    0x5D6Du,   /* TRANS_GREEN      - black text */
-    0x4F5Du,   /* TRANS_BLUE       - white text */
-    0x9B9Du,   /* TRANS_PURPLE     - black text */
+    0xE73Bu,   /* TRANS_CLEAR     - black text */
+    0x8C51u,   /* TRANS_SMOKE     - white text */
+    0xD1E6u,   /* TRANS_RED       - white text */
+    0xE429u,   /* TRANS_ORANGE    - black text */
+    0x5D0Du,   /* TRANS_GREEN     - black text */
+    0x4BD4u,   /* TRANS_BLUE      - white text */
+    0x9BF6u,   /* TRANS_PURPLE    - black text */
     /* Classic and GBC Limited Edition (hue sequence) */
-    0xFFC0u,   /* CLASSIC_YELLOW   - black text */
-    0xE68Fu,   /* CLASSIC_ORANGE   - black text */
-    0xD925u,   /* CLASSIC_RED      - white text */
-    0xE97Du,   /* CLASSIC_PINK     - black text */
-    0x4F5Du,   /* CLASSIC_BLUE     - white text */
-    0x5D6Du,   /* CLASSIC_GREEN    - black text */
-    0x6B59u,   /* CLASSIC_INDIGO   - white text */
-    0xC0E0u,   /* CLASSIC_SILVER   - black text */
+    0xFEA0u,   /* CLASSIC_YELLOW  - black text */
+    0xE429u,   /* CLASSIC_ORANGE  - black text */
+    0xD1E6u,   /* CLASSIC_RED     - white text */
+    0xE4B6u,   /* CLASSIC_PINK    - black text */
+    0x4BD4u,   /* CLASSIC_BLUE    - white text */
+    0x5D0Du,   /* CLASSIC_GREEN   - black text */
+    0x6AD2u,   /* CLASSIC_INDIGO  - white text */
+    0xBDF7u,   /* CLASSIC_SILVER  - black text */
     /* Aluminum Limited Edition */
-    0x8C63u,   /* ALUMINUM         - white text */
+    0x8C71u,   /* ALUMINUM        - white text */
 };
 #define UI_PALETTE_N (sizeof(ui_palette) / sizeof(ui_palette[0]))
 
@@ -1467,7 +1469,7 @@ _Static_assert(sizeof(ui_palette_name) / sizeof(ui_palette_name[0]) == UI_PALETT
 /* Default: WHITE (index 1). The handoff left BLACK or WHITE to the implementer; BLACK (0x0843) is darker than the UI
  * background, and the accent is also used as text and as fills that carry dark text, so a BLACK default would make the
  * first screen unreadable. interact.json's Color default is 1 to match. */
-#define UI_ACCENT  0xF79Eu
+#define UI_ACCENT  0xF7BEu
 static uint16_t ui_accent = UI_ACCENT;
 static uint32_t ui_pal_idx = 1u;      /* WHITE, the default (see UI_ACCENT) */
 
