@@ -52,8 +52,8 @@ only use `hardware-proven` ones. `cost_basis` says whether the cost is measured 
 | scroll | - | none (base rect) |  |
 | dots | - | none (base rect) |  |
 | led | 1 | hw_spectrum |  |
-| winamp_bars | 0 | bar | Solid per-band bars are exactly OP_BAR's shape; peak caps are one rect each. |
-| winamp_scope | 1 | none (base rect) | hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used. |
+| winamp_bars | 1 | bar | Solid per-band bars are exactly OP_BAR's shape; peak caps are one rect each. |
+| winamp_scope | 2 | none (base rect) | hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used. |
 | chladni | 2 | sblit, sdram_plane, hw_spectrum, vsync_beam | Per-cell rect runs cost 360-640 commands; one scaled blit of a mailbox-written plane replaced them (B-276). B18-B20 would cut CPU further. |
 
 Capabilities no meter uses: rect, cblit, rrect, hw_wave, stereo, alpha_blend, blit_flip, row_burst_sblit, index_plane_math, beat_detect.

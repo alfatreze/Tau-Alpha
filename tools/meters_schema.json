@@ -1,0 +1,445 @@
+{
+ "registry_version": 1,
+ "meters": [
+  {
+   "id": 0,
+   "key": "bars",
+   "name": "BARS",
+   "enum": "VIZ_BARS",
+   "selectable": true,
+   "retired": false,
+   "cost_class": 0,
+   "caps": [
+    "bar"
+   ],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null,
+   "list_position": 3
+  },
+  {
+   "id": 1,
+   "key": "waterfall",
+   "name": "WATERFALL",
+   "enum": "VIZ_WATER",
+   "selectable": true,
+   "retired": false,
+   "cost_class": null,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null,
+   "list_position": 4
+  },
+  {
+   "id": 2,
+   "key": "retired_levels",
+   "name": "-",
+   "enum": "VIZ_RETIRED_LEVELS",
+   "selectable": false,
+   "retired": true,
+   "cost_class": null,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null
+  },
+  {
+   "id": 3,
+   "key": "scope",
+   "name": "PHASE SCOPE",
+   "enum": "VIZ_SCOPE",
+   "selectable": true,
+   "retired": false,
+   "cost_class": null,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null,
+   "list_position": 5
+  },
+  {
+   "id": 4,
+   "key": "wave",
+   "name": "OSCILLOSCOPE",
+   "enum": "VIZ_WAVE",
+   "selectable": true,
+   "retired": false,
+   "cost_class": null,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null,
+   "list_position": 6
+  },
+  {
+   "id": 5,
+   "key": "vu",
+   "name": "VU",
+   "enum": "VIZ_VU",
+   "selectable": true,
+   "retired": false,
+   "cost_class": null,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null,
+   "list_position": 7
+  },
+  {
+   "id": 6,
+   "key": "scroll",
+   "name": "WAVEFORM",
+   "enum": "VIZ_SCROLL",
+   "selectable": true,
+   "retired": false,
+   "cost_class": null,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null,
+   "list_position": 8
+  },
+  {
+   "id": 7,
+   "key": "retired_mirror",
+   "name": "-",
+   "enum": "VIZ_RETIRED_MIRROR",
+   "selectable": false,
+   "retired": true,
+   "cost_class": null,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null
+  },
+  {
+   "id": 8,
+   "key": "dots",
+   "name": "PEAK DOTS",
+   "enum": "VIZ_DOTS",
+   "selectable": true,
+   "retired": false,
+   "cost_class": null,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null,
+   "list_position": 9
+  },
+  {
+   "id": 9,
+   "key": "retired_eye",
+   "name": "-",
+   "enum": "VIZ_RETIRED_EYE",
+   "selectable": false,
+   "retired": true,
+   "cost_class": null,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null
+  },
+  {
+   "id": 10,
+   "key": "led",
+   "name": "SPECTRUM",
+   "enum": "VIZ_LED",
+   "selectable": true,
+   "retired": false,
+   "cost_class": 1,
+   "caps": [
+    "hw_spectrum"
+   ],
+   "needs_hw_spec": true,
+   "params": [],
+   "presets": [],
+   "default_preset": null,
+   "list_position": 10
+  },
+  {
+   "id": 11,
+   "key": "retired_tape",
+   "name": "-",
+   "enum": "VIZ_RETIRED_TAPE",
+   "selectable": false,
+   "retired": true,
+   "cost_class": null,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [],
+   "presets": [],
+   "default_preset": null
+  },
+  {
+   "id": 12,
+   "key": "winamp_bars",
+   "name": "WINAMP BARS",
+   "enum": "VIZ_WINAMP_BARS",
+   "selectable": true,
+   "retired": false,
+   "cost_class": 1,
+   "caps": [
+    "bar"
+   ],
+   "needs_hw_spec": false,
+   "params": [
+    {
+     "key": "bands",
+     "label": "Bands",
+     "type": "u8",
+     "min": 4,
+     "max": 16,
+     "step": 1,
+     "default": 16
+    },
+    {
+     "key": "ease",
+     "label": "Easing",
+     "type": "enum",
+     "values": [
+      "INSTANT",
+      "LINEAR",
+      "EXPONENTIAL",
+      "SPRING"
+     ],
+     "default": 2
+    },
+    {
+     "key": "attack",
+     "label": "Attack",
+     "type": "u8",
+     "min": 1,
+     "max": 100,
+     "step": 5,
+     "default": 55
+    },
+    {
+     "key": "release",
+     "label": "Release",
+     "type": "u8",
+     "min": 1,
+     "max": 100,
+     "step": 5,
+     "default": 22
+    },
+    {
+     "key": "peak_on",
+     "label": "Peak cap",
+     "type": "bool",
+     "default": 1
+    },
+    {
+     "key": "peak_gravity",
+     "label": "Peak fall style",
+     "type": "enum",
+     "values": [
+      "LINEAR",
+      "GRAVITY"
+     ],
+     "default": 1,
+     "when": {
+      "peak_on": 1
+     }
+    },
+    {
+     "key": "peak_hold_ms",
+     "label": "Peak hold",
+     "type": "u16",
+     "min": 0,
+     "max": 800,
+     "step": 20,
+     "default": 200,
+     "unit": "ms",
+     "when": {
+      "peak_on": 1
+     }
+    },
+    {
+     "key": "peak_fall",
+     "label": "Peak fall speed",
+     "type": "u8",
+     "min": 1,
+     "max": 100,
+     "step": 5,
+     "default": 35,
+     "when": {
+      "peak_on": 1
+     }
+    }
+   ],
+   "presets": [
+    {
+     "name": "FLUID",
+     "values": {
+      "bands": 16,
+      "ease": 2,
+      "attack": 55,
+      "release": 22,
+      "peak_on": 1,
+      "peak_gravity": 1,
+      "peak_hold_ms": 200,
+      "peak_fall": 35
+     }
+    },
+    {
+     "name": "CLASSIC",
+     "values": {
+      "bands": 16,
+      "ease": 0,
+      "attack": 100,
+      "release": 100,
+      "peak_on": 1,
+      "peak_gravity": 0,
+      "peak_hold_ms": 0,
+      "peak_fall": 60
+     }
+    },
+    {
+     "name": "BOUNCY",
+     "values": {
+      "bands": 12,
+      "ease": 3,
+      "attack": 60,
+      "release": 25,
+      "peak_on": 1,
+      "peak_gravity": 1,
+      "peak_hold_ms": 250,
+      "peak_fall": 30
+     }
+    },
+    {
+     "name": "SLOW FADE",
+     "values": {
+      "bands": 8,
+      "ease": 2,
+      "attack": 30,
+      "release": 12,
+      "peak_on": 1,
+      "peak_gravity": 0,
+      "peak_hold_ms": 500,
+      "peak_fall": 15
+     }
+    },
+    {
+     "name": "SNAPPY",
+     "values": {
+      "bands": 16,
+      "ease": 1,
+      "attack": 90,
+      "release": 90,
+      "peak_on": 1,
+      "peak_gravity": 1,
+      "peak_hold_ms": 100,
+      "peak_fall": 70
+     }
+    }
+   ],
+   "default_preset": 0,
+   "list_position": 1
+  },
+  {
+   "id": 13,
+   "key": "winamp_scope",
+   "name": "WINAMP SCOPE",
+   "enum": "VIZ_WINAMP_SCOPE",
+   "selectable": true,
+   "retired": false,
+   "cost_class": 2,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [
+    {
+     "key": "scope_smooth",
+     "label": "Scope smooth",
+     "type": "u8",
+     "min": 0,
+     "max": 90,
+     "step": 5,
+     "default": 35,
+     "unit": "%"
+    },
+    {
+     "key": "scope_trail",
+     "label": "Scope trail",
+     "type": "u8",
+     "min": 0,
+     "max": 80,
+     "step": 5,
+     "default": 30,
+     "unit": "%",
+     "note": "reserved: a real trail needs alpha blend (shelved); accepted, no visible effect"
+    }
+   ],
+   "presets": [
+    {
+     "name": "FLUID",
+     "values": {
+      "scope_smooth": 35,
+      "scope_trail": 30
+     }
+    },
+    {
+     "name": "CLASSIC",
+     "values": {
+      "scope_smooth": 0,
+      "scope_trail": 0
+     }
+    },
+    {
+     "name": "BOUNCY",
+     "values": {
+      "scope_smooth": 45,
+      "scope_trail": 20
+     }
+    },
+    {
+     "name": "SLOW FADE",
+     "values": {
+      "scope_smooth": 55,
+      "scope_trail": 40
+     }
+    },
+    {
+     "name": "SNAPPY",
+     "values": {
+      "scope_smooth": 15,
+      "scope_trail": 5
+     }
+    }
+   ],
+   "default_preset": 0,
+   "list_position": 0
+  },
+  {
+   "id": 14,
+   "key": "chladni",
+   "name": "CHLADNI",
+   "enum": "VIZ_CHLADNI",
+   "selectable": true,
+   "retired": false,
+   "cost_class": 2,
+   "caps": [
+    "sblit",
+    "sdram_plane",
+    "hw_spectrum",
+    "vsync_beam"
+   ],
+   "needs_hw_spec": true,
+   "params": [],
+   "presets": [],
+   "default_preset": null,
+   "list_position": 2
+  }
+ ]
+}

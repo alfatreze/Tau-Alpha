@@ -6,6 +6,67 @@
   "selectable": true,
   "sel_index": 0,
   "caps": [],
-  "cost_class": 1,
-  "considered": "hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used."
+  "cost_class": 2,
+  "considered": "hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used.",
+  "params": [
+    {
+      "key": "scope_smooth",
+      "label": "Scope smooth",
+      "type": "u8",
+      "min": 0,
+      "max": 90,
+      "step": 5,
+      "default": 35,
+      "unit": "%"
+    },
+    {
+      "key": "scope_trail",
+      "label": "Scope trail",
+      "type": "u8",
+      "min": 0,
+      "max": 80,
+      "step": 5,
+      "default": 30,
+      "unit": "%",
+      "note": "reserved: a real trail needs alpha blend (shelved); accepted, no visible effect"
+    }
+  ],
+  "presets": [
+    {
+      "name": "FLUID",
+      "values": {
+        "scope_smooth": 35,
+        "scope_trail": 30
+      }
+    },
+    {
+      "name": "CLASSIC",
+      "values": {
+        "scope_smooth": 0,
+        "scope_trail": 0
+      }
+    },
+    {
+      "name": "BOUNCY",
+      "values": {
+        "scope_smooth": 45,
+        "scope_trail": 20
+      }
+    },
+    {
+      "name": "SLOW FADE",
+      "values": {
+        "scope_smooth": 55,
+        "scope_trail": 40
+      }
+    },
+    {
+      "name": "SNAPPY",
+      "values": {
+        "scope_smooth": 15,
+        "scope_trail": 5
+      }
+    }
+  ],
+  "default_preset": 0
 }
