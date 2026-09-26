@@ -3629,9 +3629,12 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
         if (!sc_armed) { REG(R_WAVE_CTL) = 2u | (1u << 8); sc_armed = 1u; return; }   /* nothing captured yet */
         if (!paused && !(REG(R_WAVE_ST) & 2u)) {
             const int32_t smooth = wviz_cfg_scope.scope_smooth;
-            if (use_gradient) ui_bg_restore(x0, y, w, h);
-            else              fb_rect(x0, y, w, h, bg);
-            fb_rect(x0, cy, w, 1, UI_TRACK);
+            const int percol = ui_fullscreen;               /* fullscreen: erase per column, see the software path */
+            if (!percol) {
+                if (use_gradient) ui_bg_restore(x0, y, w, h);
+                else              fb_rect(x0, y, w, h, bg);
+                fb_rect(x0, cy, w, 1, UI_TRACK);
+            }
             uint32_t npk = 1u;
             for (uint32_t c = 0; c < WAVE_HW_COLS; c++) {
                 REG(R_WAVE_IDX) = c;
@@ -3650,7 +3653,9 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
                 const uint32_t cx = x0 + (c * w) / WAVE_HW_COLS, cxn = x0 + ((c + 1u) * w) / WAVE_HW_COLS;
                 uint32_t top = (uint32_t)((int32_t)cy - (mid + half)), rh = (uint32_t)(2 * half) + 2u;
                 if (top + rh > y + h) rh = y + h - top;
-                fb_rect(cx, top, (cxn > cx) ? (cxn - cx) : 1u, rh, ui_accent);
+                const uint32_t cwid = (cxn > cx) ? (cxn - cx) : 1u;
+                if (percol) { fb_rect(cx, y, cwid, h, bg); fb_rect(cx, cy, cwid, 1, UI_TRACK); }
+                fb_rect(cx, top, cwid, rh, ui_accent);
             }
             sc_pk = npk;
             wviz_scope_init = 1u;
@@ -3661,9 +3666,16 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
     }
 
 
-    if (use_gradient) ui_bg_restore(x0, y, w, h);
-    else              fb_rect(x0, y, w, h, bg);
-    fb_rect(x0, cy, w, 1, UI_TRACK);
+    /* Fullscreen: erase COLUMN BY COLUMN, each just before its own trace segment, instead of one clear of the whole box. A
+     * whole-box clear is only tear-free if the beam is kept out of the way (which is what starved the fullscreen frame rate), and
+     * leaves a blank frame on screen if the beam catches it between the clear and the redraw. Per column, every column is always
+     * either the old picture or the new one. The same pixel count; more, smaller commands. */
+    const int percol = ui_fullscreen;
+    if (!percol) {
+        if (use_gradient) ui_bg_restore(x0, y, w, h);
+        else              fb_rect(x0, y, w, h, bg);
+        fb_rect(x0, cy, w, 1, UI_TRACK);
+    }
 
     if (!paused) {
         int32_t smooth = wviz_cfg_scope.scope_smooth;      /* 0..90 */
@@ -3689,6 +3701,7 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
             uint32_t top = (uint32_t)((int32_t)cy - hi);
             uint32_t rh  = (uint32_t)(hi - lo) + 2u;
             if (top + rh > y + h) rh = y + h - top;
+            if (percol) { fb_rect(cx, y, cw, h, bg); fb_rect(cx, cy, cw, 1, UI_TRACK); }
             fb_rect(cx, top, cw, rh, ui_accent);
         }
         wviz_scope_init = 1u;
@@ -4430,7 +4443,7 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * the factor it was downsampled by, which is a convincing-looking
          * wrong answer. */
         uint32_t hw_mean[SPEC_BANDS];
-        int have = spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI || viz_mode == VIZ_WATER || viz_mode == VIZ_DOTS)
+        int have = spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI)
                    && spec_hw_fetch(hw_mean);
         if (have) {
             for (uint32_t b = 0; b < SPEC_BANDS; b++) {
@@ -4669,26 +4682,26 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * the loudness contour. ~2 commands a column and the sparsest mode
          * here. */
         if (viz_mode == VIZ_DOTS) {
-            /* One dot per hardware-bank band with a falling peak: it jumps to the band's level and drops a couple of pixels
-             * per update. (It used to trace the loudness history in 36 columns.) */
-            static uint8_t dpk[SPEC_BANDS];
-            const uint32_t bw = ww / SPEC_BANDS;
-            for (uint32_t i = 0; i < SPEC_BANDS; i++) {
-                uint32_t lvp = (spec_lvl[i] * UI_WAVE_H) / 255u;
-                if (paused) lvp = 0u;
-                uint32_t pk = dpk[i];
-                pk = (lvp >= pk) ? lvp : ((pk > lvp + 2u) ? pk - 2u : lvp);
-                dpk[i] = (uint8_t)pk;
+            for (uint32_t i = 0; i < UI_WAVE_N; i++) {
+                uint32_t x   = UI_MARGIN + (i * ww) / UI_WAVE_N;
+                uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
+                uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
+                uint32_t pk  = wave_pk[i];
                 if (pk < 2u) pk = 2u;
+
+                /* Same treatment as the mirrored bars: skip an unmoved column,
+                 * and restore around the dot rather than through it. */
                 if (pk == wave_pk_drawn[i]) continue;
                 wave_pk_drawn[i] = (unsigned char)pk;
 
-                const uint32_t x   = UI_MARGIN + i * bw, lit = (bw > UI_WAVE_GAP) ? bw - UI_WAVE_GAP : 1u;
-                const uint16_t c   = ui_mix(UI_TRACK, ui_accent, i + 1u, SPEC_BANDS);
-                const uint32_t top = UI_WAVE_Y + UI_WAVE_H - pk, end = UI_WAVE_Y + UI_WAVE_H;
-                if (top > UI_WAVE_Y)   ui_bg_restore(x, UI_WAVE_Y, lit, top - UI_WAVE_Y);
-                if (top + 3u < end)    ui_bg_restore(x, top + 3u, lit, end - (top + 3u));
-                fb_rect(x, top, lit, 3u, c);
+                uint16_t c   = ui_mix(UI_TRACK, ui_accent, i + 1u, UI_WAVE_N);
+                uint32_t top = UI_WAVE_Y + UI_WAVE_H - pk;   /* first dot row */
+                uint32_t end = UI_WAVE_Y + UI_WAVE_H;        /* one past box  */
+                if (top > UI_WAVE_Y)
+                    ui_bg_restore(x, UI_WAVE_Y, lit, top - UI_WAVE_Y);
+                if (top + 2u < end)
+                    ui_bg_restore(x, top + 2u, lit, end - (top + 2u));
+                fb_rect(x, top, lit, 2u, c);
             }
             goto viz_done;
         }
@@ -4698,17 +4711,17 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
             if (!paused) {
                 fb_copy(x0 + 1u, UI_WAVE_Y, x0, UI_WAVE_Y, w - 1u, UI_WAVE_H);
 
-                /* SPECTROGRAM: one new column per update, each of the 16 hardware-bank bands a horizontal slice of it
-                 * (band 0 at the bottom), brighter with level. The old column was the loudness alone. One restore for the
-                 * whole column, then one rect per band that is loud enough to see: at most 17 commands. */
-                const uint32_t cx = x0 + w - 1u;
-                ui_bg_restore(cx, UI_WAVE_Y, 1, UI_WAVE_H);
-                for (uint32_t b = 0; b < SPEC_BANDS; b++) {
-                    const uint32_t lv = spec_lvl[b];
-                    if (lv < 24u) continue;
-                    const uint32_t y1 = UI_WAVE_Y + UI_WAVE_H - (b * UI_WAVE_H) / SPEC_BANDS;
-                    const uint32_t y0 = UI_WAVE_Y + UI_WAVE_H - ((b + 1u) * UI_WAVE_H) / SPEC_BANDS;
-                    fb_rect(cx, y0, 1, y1 - y0, lv > 230u ? UI_WHITE : ui_mix(UI_TRACK, ui_accent, lv, 230u));
+                uint32_t a = (peak_amp * UI_WAVE_H) / 32768u;
+                if (a > UI_WAVE_H) a = UI_WAVE_H;
+
+                /* Column drawn as three bands -- quiet bed, body, hot tip --
+                 * so loud passages read as brighter AND taller. */
+                uint32_t cx = x0 + w - 1u;
+                ui_bg_restore(cx, UI_WAVE_Y, 1, UI_WAVE_H - a);
+                if (a) {
+                    uint16_t c = ui_mix(UI_TRACK, ui_accent, a, UI_WAVE_H);
+                    fb_rect(cx, UI_WAVE_Y + UI_WAVE_H - a, 1, a, c);
+                    fb_rect(cx, UI_WAVE_Y + UI_WAVE_H - a, 1, 1, UI_WHITE);
                 }
             }
             goto viz_done;

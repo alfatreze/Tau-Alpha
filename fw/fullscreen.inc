@@ -118,15 +118,17 @@ COLD_FN3 static void ui_fs_dynamic(void)
     if (UI_OVERLAY_UP) return;
     if (!fs_capable()) { ui_fullscreen = 0u; pl_ui_restore = 1u; ui_wave_force = 1u; return; }
     const uint8_t o = ov_draw; ov_draw = 1u;
+    /* NO beam gate here (B-288). It used to require the whole 323-row figure to be clear of the beam, which is true only in vertical
+     * blanking and while the beam is in the last 40 rows: about 19 percent of the time. ui_draw_dynamic() is called once per decoded frame
+     * (26 ms), not polled, so a closed gate meant no figure at all until the NEXT frame: about 38 x 0.19 = 7 figures a second, which is
+     * the "very slow" fullscreen. The figures are all drawn so that a partly finished frame is still a coherent picture (Winamp Bars
+     * redraw only changed bars, the scope erases and redraws column by column, Chladni copies tile rows). */
     if (viz_mode != VIZ_CHLADNI) {                                          /* Winamp Bars / Scope: explicit geometry, black ground */
         if (fs_force) { wviz_force = 1u; fb_rect(0, 0, FS_W, FS_FIG_H, 0u); }
-        if (fs_force || helios_rows_safe_counted(0u, FS_FIG_H - 1u)) {
-            if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(0u, 0u, FS_W, FS_FIG_H, 0u);
-            else                             wviz_scope_tick(0u, 0u, FS_W, FS_FIG_H, 0, 0u);
-            fs_force = 0u; fs_draw_label();
-        }
-    } else
-    if (fs_force || helios_rows_safe_counted(0u, FS_FIG_H - 1u)) {           /* whole figure: only with the beam out of the way */
+        if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(0u, 0u, FS_W, FS_FIG_H, 0u);
+        else                             wviz_scope_tick(0u, 0u, FS_W, FS_FIG_H, 0, 0u);
+        fs_force = 0u; fs_draw_label();
+    } else {
         if (chladni_tick_box(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force)) { fs_force = 0u; fs_draw_label(); }
     }
     if (ui_sec != fs_last_sec || (uint8_t)(paused ? 1u : stopped ? 2u : 0u) != fs_last_state) fs_draw_progress();
