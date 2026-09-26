@@ -1921,54 +1921,13 @@ static wviz_scope_cfg_t wviz_cfg_scope = { 35, 30 };
  * the two ever executes per redraw (mode-gated by the caller). */
 static uint8_t wviz_force;
 
+#include "meter_core.h"   /* M1.5: ease, peak cap, band mapping, redraw cache (was inline in wviz_bars_tick) */
 static uint8_t  wviz_disp[WVIZ_BANDS_MAX];        /* displayed height, 0..255 */
 static int16_t  wviz_vel[WVIZ_BANDS_MAX];         /* spring mode velocity only */
-static uint8_t  wviz_peak[WVIZ_BANDS_MAX];
-static uint8_t  wviz_peak_vel[WVIZ_BANDS_MAX];    /* gravity mode only: fall speed, grows while falling */
-static uint16_t wviz_peak_hold[WVIZ_BANDS_MAX];   /* ms remaining before it starts falling */
+static mtr_peak_t wviz_pk[WVIZ_BANDS_MAX];       /* peak cap state per band: level, gravity fall speed, ms of hold left */
 static uint8_t  wviz_drawn[WVIZ_BANDS_MAX], wviz_peak_drawn[WVIZ_BANDS_MAX];
 static int16_t  wviz_scope_y[256];          /* smoothed scope trace, signed pixel offset */
 static uint8_t  wviz_scope_init;
-
-/* One value toward one target, by one of the four curves above. `rate` is
- * 1..100 (attack or release, whichever applies this tick); `vel` is only
- * touched by the spring mode, and only meaningful across successive calls
- * for the SAME band (the caller owns one wviz_vel[] slot per band). Integer
- * fixed-point throughout -- this core has no hardware float (rv32im). */
-static uint8_t wviz_ease_step(uint8_t cur, uint8_t target, uint32_t mode,
-                              uint32_t rate, int16_t *vel)
-{
-    if (mode == 0u) return target;                     /* instant */
-    if (mode == 1u) {                                   /* linear: fixed step/tick */
-        int32_t step = 1 + (int32_t)rate / 6;           /* ~1..17 per ~26 ms tick */
-        int32_t d = (int32_t)target - (int32_t)cur;
-        if (d > step) d = step; else if (d < -step) d = -step;
-        return (uint8_t)((int32_t)cur + d);
-    }
-    if (mode == 2u) {                                   /* exponential (spec_lvl's own
-                                                          * shape, just tunable) */
-        int32_t k = 8 + ((int32_t)rate * 248) / 100;     /* Q8-ish, 8..256 */
-        int32_t d = (((int32_t)target - (int32_t)cur) * k) / 256;
-        return (uint8_t)((int32_t)cur + d);
-    }
-    {                                                    /* spring -- approximated, not
-                                                          * exact critical damping: damping
-                                                          * is tied to stiffness by a fixed
-                                                          * ratio rather than derived via a
-                                                          * sqrt, cheap and stable, slightly
-                                                          * underdamped (a small overshoot
-                                                          * is the point -- "bouncy"). */
-        int32_t stiff = 6 + ((int32_t)rate * 58) / 100;
-        int32_t accel = (((int32_t)target - (int32_t)cur) * stiff) / 256
-                       - ((int32_t)*vel * stiff) / 512;
-        int32_t v = (int32_t)*vel + accel;
-        if (v > 60) v = 60; else if (v < -60) v = -60;
-        *vel = (int16_t)v;
-        int32_t p = (int32_t)cur + v;
-        if (p < 0) p = 0; else if (p > 255) p = 255;
-        return (uint8_t)p;
-    }
-}
 
 /* ---- OCTAVE FILTER BANK -----------------------------------------------
  *
@@ -3559,43 +3518,16 @@ COLD_FN3 static void wviz_bars_tick(uint32_t x0, uint32_t y, uint32_t w, uint32_
     if (wviz_force) fb_rect(x0, y, w, h, bg);
 
     for (uint32_t b = 0; b < bands; b++) {
-        uint32_t lo = (b * SPEC_BANDS) / bands, hi = ((b + 1u) * SPEC_BANDS) / bands;
-        if (hi <= lo) hi = lo + 1u;
-        uint32_t sum = 0, n = 0;
-        for (uint32_t k = lo; k < hi && k < SPEC_BANDS; k++) { sum += spec_lvl[k]; n++; }
-        uint32_t target = n ? sum / n : 0u;
+        uint32_t target = mtr_band_target(spec_lvl, SPEC_BANDS, bands, b);
         if (paused) target = 0u;
 
         uint32_t rate = (target >= wviz_disp[b]) ? wviz_cfg_bars.attack : wviz_cfg_bars.release;
-        wviz_disp[b] = wviz_ease_step(wviz_disp[b], (uint8_t)target, wviz_cfg_bars.ease_mode,
-                                      rate, &wviz_vel[b]);
+        wviz_disp[b] = mtr_ease(wviz_disp[b], (uint8_t)target, wviz_cfg_bars.ease_mode, rate, &wviz_vel[b]);
 
-        if (wviz_cfg_bars.peak_on) {
-            if (wviz_disp[b] >= wviz_peak[b]) {
-                wviz_peak[b] = wviz_disp[b];
-                wviz_peak_hold[b] = wviz_cfg_bars.peak_hold_ms;
-                wviz_peak_vel[b] = 0u;
-            } else if (wviz_peak_hold[b] > 0u) {
-                wviz_peak_hold[b] = (wviz_peak_hold[b] > dec_ms)
-                                   ? (uint16_t)(wviz_peak_hold[b] - dec_ms) : 0u;
-            } else {
-                uint32_t fall;
-                if (wviz_cfg_bars.peak_gravity) {
-                    uint32_t nv = wviz_peak_vel[b] + 1u + wviz_cfg_bars.peak_fall / 20u;
-                    wviz_peak_vel[b] = (uint8_t)((nv > 255u) ? 255u : nv);
-                    fall = 1u + (wviz_peak_vel[b] >> 3);
-                } else {
-                    fall = 1u + wviz_cfg_bars.peak_fall / 12u;
-                }
-                wviz_peak[b] = (wviz_peak[b] > fall) ? (uint8_t)(wviz_peak[b] - fall) : 0u;
-                if (wviz_peak[b] < wviz_disp[b]) wviz_peak[b] = wviz_disp[b];
-            }
-        } else {
-            wviz_peak[b] = wviz_disp[b];
-        }
+        const mtr_peak_cfg_t pcfg = { wviz_cfg_bars.peak_on, wviz_cfg_bars.peak_gravity, wviz_cfg_bars.peak_hold_ms, wviz_cfg_bars.peak_fall };
+        mtr_peak_step(&wviz_pk[b], wviz_disp[b], &pcfg, dec_ms);
 
-        if (!wviz_force && wviz_disp[b] == wviz_drawn[b] && wviz_peak[b] == wviz_peak_drawn[b]) continue;
-        wviz_drawn[b] = wviz_disp[b]; wviz_peak_drawn[b] = wviz_peak[b];
+        if (!mtr_delta(&wviz_drawn[b], &wviz_peak_drawn[b], wviz_disp[b], wviz_pk[b].peak, wviz_force)) continue;
 
         uint32_t x = x0 + b * (colw + gap);
         uint32_t bh = (wviz_disp[b] * h) / 255u;
@@ -3609,7 +3541,7 @@ COLD_FN3 static void wviz_bars_tick(uint32_t x0, uint32_t y, uint32_t w, uint32_
             if (h > bh) fb_rect(x, y, colw, h - bh, bg);
         }
         if (wviz_cfg_bars.peak_on) {
-            uint32_t ph = (wviz_peak[b] * h) / 255u;
+            uint32_t ph = (wviz_pk[b].peak * h) / 255u;
             if (ph > bh + 1u && ph < h)
                 fb_rect(x, y + h - ph, colw, 1u, UI_WHITE);
         }
