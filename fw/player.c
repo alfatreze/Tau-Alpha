@@ -2157,7 +2157,7 @@ static uint16_t ui_grad_top_c = UI_GRAD_TOP;
  * neutral and several others land within one level of it, so a tint would have
  * been invisible on half the palette. 45 buys enough levels to tell them apart
  * while keeping the background far below the white type it sits under. */
-#define UI_GRAD_LUMA 45u
+#define UI_GRAD_LUMA th_bg_luma   /* per theme and polarity (fw/theme.h); 45 in the built-in dark themes */
 
 /* Accent -> a dark tinted ramp top. Normalising to a FIXED luma rather than
  * scaling the accent directly is what keeps this safe: every colour lands at
@@ -2226,13 +2226,54 @@ static uint16_t ui_grad_at(uint32_t y)
     uint32_t lv[3] = { (uint32_t)((ui_grad_top_c >> 11) & 0x1Fu),
                        (uint32_t)((ui_grad_top_c >> 5)  & 0x3Fu),
                        (uint32_t)(ui_grad_top_c & 0x1Fu) };
+    /* Bottom colour from the theme (black in the dark themes, which reduces to the original ramp exactly). The ramp runs from
+     * the tinted top to the bottom; a light theme has a top DARKER than its bottom, so both directions are handled. */
+    const uint16_t bc = th_role[TR_BG_BOTTOM];
+    const uint32_t bt[3] = { (uint32_t)((bc >> 11) & 0x1Fu), (uint32_t)((bc >> 5) & 0x3Fu), (uint32_t)(bc & 0x1Fu) };
     for (uint32_t k = 0; k < 3u; k++) {
-        uint32_t num  = lv[k] * rem;
-        uint32_t base = num / den;
-        if ((num - base * den) * 8u > t * den) base++;
-        lv[k] = base;
+        if (lv[k] >= bt[k]) {
+            uint32_t num  = (lv[k] - bt[k]) * rem;
+            uint32_t base = num / den;
+            if ((num - base * den) * 8u > t * den) base++;
+            lv[k] = bt[k] + base;
+        } else {
+            uint32_t num  = (bt[k] - lv[k]) * y;
+            uint32_t base = num / den;
+            if ((num - base * den) * 8u > t * den) base++;
+            lv[k] += base;
+        }
     }
     return (uint16_t)((lv[0] << 11) | (lv[1] << 5) | lv[2]);
+}
+
+/* Theme step 0b (docs/THEME_SPEC.md). The accent is the user's palette pick; in the Light polarity a bright pick would vanish on a
+ * light ramp, so it is scaled down to TH_LIGHT_ACC_MAX_L (hue kept). tools/gen_themes.py mirrors this to check contrast. */
+static uint16_t th_accent_of(uint32_t idx)
+{
+    uint16_t a = ui_palette[idx];
+    if (!th_pol) return a;
+    uint32_t r = ((a >> 11) & 0x1Fu) * 255u / 31u, g = ((a >> 5) & 0x3Fu) * 255u / 63u, b = (a & 0x1Fu) * 255u / 31u;
+    uint32_t l = (2126u * r + 7152u * g + 722u * b) / 10000u;
+    if (l > TH_LIGHT_ACC_MAX_L) {
+        r = r * TH_LIGHT_ACC_MAX_L / l; g = g * TH_LIGHT_ACC_MAX_L / l; b = b * TH_LIGHT_ACC_MAX_L / l;
+        a = (uint16_t)((((r * 31u + 127u) / 255u) << 11) | (((g * 63u + 127u) / 255u) << 5) | ((b * 31u + 127u) / 255u));
+    }
+    return a;
+}
+
+/* Load the selected theme and polarity into the role table, then re-derive everything that depends on it: the accent, the tinted
+ * background ramp (its luma is per theme) and, through ui_accent_changed, a full repaint of the player screen. Bg/top, accent
+ * and accent-2 are not table entries (derived / user pick). */
+static void th_apply(void)
+{
+    const th_theme_t *t = &th_themes[th_theme < TH_THEME_N ? th_theme : 0u];
+    const uint32_t p = th_pol ? 1u : 0u;
+    for (uint32_t i = 0; i < TR_COUNT; i++)
+        if (i != TR_BG_TOP && i != TR_ACCENT && i != TR_ACCENT2) th_role[i] = t->role[p][i];
+    th_bg_luma = t->bg_luma[p];
+    ui_accent = th_accent_of(ui_pal_idx);
+    ui_grad_set(ui_accent);
+    ui_accent_changed = 1u;
 }
 
 /* Relocated here (2026-09-25, B-197 meter/blit integration; moved earlier again the same day,
@@ -4276,7 +4317,7 @@ static void ov_hint_repaint(const char *hint)
 static void ov_frame(const char *title, const char *right, const char *hint)
 {
     fb_rect(0u, 0u, FB_W, OV_HEAD_H, OV_CHROME_BG);
-    fb_rect(0u, OV_HEAD_H, FB_W, OV_HINT_Y - OV_HEAD_H, 0x0000u);
+    fb_rect(0u, OV_HEAD_H, FB_W, OV_HINT_Y - OV_HEAD_H, th_role[TR_BG_BOTTOM]);
     fb_set_color(ui_accent, OV_CHROME_BG);
     fb_text_clipped(PL_UI_TEXT_X, 7u, title, TS_1X, TS_1X, 230u);
     if (right && right[0]) {
@@ -4518,7 +4559,7 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
      * explicitly rather than waiting for the music to move them. */
     if (ui_accent_changed) {
         ui_accent_changed = 0;
-        ui_accent = ui_palette[ui_pal_idx];
+        ui_accent = th_accent_of(ui_pal_idx);
         /* The BACKGROUND is tinted from the accent now, so a colour change is
          * no longer a matter of recolouring a few elements -- the whole screen
          * is a different colour underneath them, and every cached element sits
@@ -6439,14 +6480,14 @@ static void poll_input(void)
          * repaint everything in the PREVIOUS accent, so the choice appeared to
          * be forgotten. ui_accent_changed still drives the invalidation work. */
         if (edge & KEY_R1) { ui_pal_idx = (ui_pal_idx + 1u) % UI_PALETTE_N;
-                             ui_accent = ui_palette[ui_pal_idx];
+                             ui_accent = th_accent_of(ui_pal_idx);
                              ui_grad_set(ui_accent);
                              ui_accent_changed = 1u;
                              ui_toast_set("COLOR: ", 0xFFFFFFFFu,
                                           ui_palette_name[ui_pal_idx]);
                              settings_mark_dirty(); }
         if (edge & KEY_L1) { ui_pal_idx = (ui_pal_idx + UI_PALETTE_N - 1u) % UI_PALETTE_N;
-                             ui_accent = ui_palette[ui_pal_idx];
+                             ui_accent = th_accent_of(ui_pal_idx);
                              ui_grad_set(ui_accent);
                              ui_accent_changed = 1u;
                              ui_toast_set("COLOR: ", 0xFFFFFFFFu,

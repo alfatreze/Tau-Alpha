@@ -196,7 +196,7 @@ COLD_FN static void lib_tile(uint32_t x, uint32_t y, uint32_t n, int sel)
     char d[3] = { (char)('0' + n / 10u), (char)('0' + n % 10u), 0 };
     if (sel) fb_round_rect_on(x - 1u, y - 1u, LIB_TILE_W + 2u, LIB_TILE_H + 2u, 4u, UI_PANEL, ui_accent);
     fb_round_rect_on(x, y, LIB_TILE_W, LIB_TILE_H, 3u, ui_accent, UI_PANEL);
-    fb_set_color(0x0000u, ui_accent);
+    fb_set_color(UI_ON_ACCENT, ui_accent);
     uint32_t w = fb_text_width(d, TS_1X);
     fb_text_clipped(x + (LIB_TILE_W - w) / 2u, y + (LIB_TILE_H - FB_CELL(TS_1X)) / 2u, d, TS_1X, TS_1X, w + 2u);
 }

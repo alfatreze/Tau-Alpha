@@ -16,7 +16,7 @@
 /* The home is titled MENU. SET_DIAG is the SETTINGS group (Info, How it works, and in the Diagnostic Build a
  * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). */
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
-enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_N };
+enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_N };
 #if TAU_DIAGNOSTIC
 static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced by set_info_tick() below its own include */
 #endif
@@ -51,7 +51,8 @@ static const set_row_t set_home_rows[] = {
     { "SETTINGS", RT_GROUP, SET_DIAG },
 };
 static const set_row_t set_appear_rows[] = {
-    { "COLOUR", RT_CHOICE, CH_COLOUR }, { "METER", RT_CHOICE, CH_METER },
+    { "COLOUR", RT_CHOICE, CH_COLOUR }, { "THEME", RT_CHOICE, CH_THEME }, { "MODE", RT_CHOICE, CH_MODE },
+    { "METER", RT_CHOICE, CH_METER },
     { "METER: CONFIGURE", RT_GROUP, SET_WVIZCFG_PG },
     { "ALBUM ART", RT_TOGGLE, TG_ART }, { "SCREEN BLANK", RT_CHOICE, CH_BLANK } };
 static const set_row_t set_audio_rows[] = {
@@ -98,7 +99,7 @@ static const set_row_t *const set_menu_rows[SET_MENUS] = {
     set_home_rows, set_appear_rows, set_audio_rows, set_play_rows, set_diag_rows,
     set_tests_rows, set_stress_rows, set_dgn_rows };
 static const uint8_t set_menu_n[SET_MENUS] = {
-    SET_COUNT(set_home_rows), 4u, 2u, 4u, SET_COUNT(set_diag_rows), SET_COUNT(set_tests_rows),
+    SET_COUNT(set_home_rows), SET_COUNT(set_appear_rows), 2u, 4u, SET_COUNT(set_diag_rows), SET_COUNT(set_tests_rows),
     SET_COUNT(set_stress_rows), SET_COUNT(set_dgn_rows) };
 static const char *const set_menu_title[SET_MENUS] = {
     "MENU", "APPEARANCE", "AUDIO", "PLAYBACK", "SETTINGS", "TESTS", "STRESS", "DIAGNOSTICS" };
@@ -106,9 +107,9 @@ static const char *const set_menu_title[SET_MENUS] = {
 static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME, SET_HOME, SET_HOME,
     SET_DGN, SET_DGN, SET_DIAG };
 static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
-    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK" };
+    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE" };
 static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
-    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS };
+    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR };
 /* Only the speeds that play cleanly are offered (A-133/A-135: 1.30x and above degrade and 1.25x micro-stuttered on some
  * material, the decoder budget at 60 MHz allows about 1.20x). The higher entries stay in speed_num/speed_den in
  * player.c for the resampler / decoder work and return here by raising SET_SPEED_SHOWN. */
@@ -281,7 +282,8 @@ COLD_FN static uint32_t set_ch_count(uint32_t c)
      * have no row, so the choice list offers fewer rows than the enum has values -- see viz_sel_to_mode()/viz_mode_to_sel() in fw/player.c. */
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_SEL_COUNT
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
-         : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT() : 5u;
+         : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT()
+         : c == CH_THEME ? (uint32_t)TH_THEME_N : c == CH_MODE ? 2u : 5u;
 }
 COLD_FN static uint32_t set_blank_idx(void)
 {
@@ -300,6 +302,8 @@ COLD_FN static uint32_t set_ch_active(uint32_t c)
     }
     if (c == CH_SOAK) return dg_soak_active();
     if (c == CH_SPEED) return speed_idx;
+    if (c == CH_THEME) return th_theme;
+    if (c == CH_MODE) return th_pol;
     return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode_to_sel(viz_mode) : c == CH_EQ ? eq_idx
          : c == CH_REPEAT ? rep_mode : set_blank_idx();
 }
@@ -308,7 +312,8 @@ COLD_FN static const char *set_ch_name(uint32_t c, uint32_t i)
     return c == CH_COLOUR ? ui_palette_name[i] : c == CH_METER ? set_viz[viz_sel_to_mode(i)]
          : c == CH_EQ ? eq_name[i] : c == CH_REPEAT ? set_rep[i]
          : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i]
-         : c == CH_SPEED ? set_speed_nm[i] : set_blank_nm[i];
+         : c == CH_SPEED ? set_speed_nm[i] : c == CH_THEME ? th_themes[i].name
+         : c == CH_MODE ? (i ? "LIGHT" : "DARK") : set_blank_nm[i];
 }
 COLD_FN static uint32_t set_ch_rowh(uint32_t c)
 {
@@ -332,9 +337,15 @@ COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
         ui_mode_dirty = 1u;
         return;                                  /* not persisted */
     }
+    if (c == CH_THEME || c == CH_MODE) {          /* session-only (step 0b): reapplies every colour, nothing persisted */
+        if (c == CH_THEME) th_theme = (uint8_t)i; else th_pol = (uint8_t)i;
+        th_apply();
+        ui_last_sec = 0xFFFFFFFFu;
+        return;
+    }
     if (c == CH_COLOUR) {
         ui_pal_idx = i;
-        ui_accent = ui_palette[i];
+        ui_accent = th_accent_of(i);
         ui_grad_set(ui_accent);
         ui_accent_changed = 1u;
     } else if (c == CH_METER) {
