@@ -666,7 +666,7 @@ def settings_menu(page, selected):
 
 
 INFO_SAMPLE = ("0.1.0", "4D503317", "OK", "52 CYC", "16112 B", "13 TRACKS", "NO",
-               "MP3 320K 44.1K", "OK", "0", "0 MS", "12/8/41/118", "7180 TRK 1.2 S", "OK", "60/S", "HW W42", "OK 23% WAITED", "OK 214 DRAWN 3 SKIP", "23%")
+               "MP3 320K 44.1K", "OK", "0", "0 MS", "12/8/41/118", "7180 TRK 1.2 S", "OK", "60/S", "HW W42", "OK 23% WAITED", "OK 214 DRAWN 3 SKIP", "23%", "4 LOADED 31 MS E0")
 STAT_SAMPLE = ("R2", "RUNNING", "3", "786432", "0", "4", "0", "372 CYC", "0 MS", "13.4K OPS/S",
                "12:41 LEFT")
 

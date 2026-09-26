@@ -23,6 +23,7 @@ static uint8_t  timg_last_err;       /* TIMG_E_* of the last attempt, for the In
 static uint32_t timg_miss_sig;       /* cover path known to be absent/bad: not retried for every track of an album */
 static uint16_t timg_w, timg_h;
 static uint32_t timg_ms;             /* last load time, ms */
+static uint32_t timg_loaded_n, timg_fail_n;   /* covers shown from a TIM1 file / attempts that fell back (Info > TIM1 COVER) */
 
 static int timg_mb_write(uint32_t word_addr, uint32_t data)
 {
@@ -141,7 +142,8 @@ COLD_FN3 static int timg_cover(uint32_t sig, const char *path)
     ui_art_mount();
     int e = timg_load(path);
     timg_last_err = (uint8_t)e;
-    if (e) { timg_miss_sig = sig; return 0; }
+    if (e) { timg_miss_sig = sig; timg_fail_n++; return 0; }
     timg_draw_art();
+    timg_loaded_n++;
     return 1;
 }
