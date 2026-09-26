@@ -634,7 +634,7 @@ def _sconst(name):
     return int(re.search(rf"#define\s+{name}\s+(\d+)u", SETTINGS_SRC).group(1))
 
 
-SAMPLE_VALUE = {"COLOUR": "AMBER", "METER": "OSCILLOSCOPE", "EQUALIZER": "FLAT",
+SAMPLE_VALUE = {"COLOUR": "AMBER", "THEME": "TAU", "MODE": "DARK", "METER": "OSCILLOSCOPE", "EQUALIZER": "FLAT",
                 "REPEAT": "OFF", "SCREEN BLANK": "NEVER", "ALBUM ART": "ON", "SHUFFLE": "ON",
                 "RESUME": "ON", "SPEED": "1.00X", "VOLUME": "65%",
                 "WINDOW TEST": "PASS 89", "READ CYCLES": "48/50/362", "WRITE CYCLES": "47/49/361",

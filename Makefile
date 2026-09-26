@@ -36,6 +36,7 @@ test-host:
 	$(PYTHON) tools/check_ui_snapshot_renderer.py
 	$(PYTHON) tools/check_audit_trail.py
 	$(PYTHON) tools/gen_meters.py --check
+	$(PYTHON) tools/gen_themes.py --check
 	$(PYTHON) tools/meter_cost_estimate.py
 	$(PYTHON) sim/test_psram_decode.py
 	$(PYTHON) sim/test_library_index.py
@@ -52,6 +53,7 @@ test-host:
 	$(PYTHON) sim/test_mp3_poly_subband.py
 	$(PYTHON) sim/test_chladni_core.py
 	$(PYTHON) sim/test_helios_rect.py
+	$(PYTHON) sim/test_theme.py
 
 test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 

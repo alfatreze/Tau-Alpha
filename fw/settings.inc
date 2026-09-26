@@ -213,7 +213,7 @@ static int settings_load(void)
 
     v = set_rd(SW_VOL);   if (v <= VOL_MAX)      { volume = v; vol_apply(); }
     v = set_rd(SW_PAL);   if (v < UI_PALETTE_N)  { ui_pal_idx = v;
-                                                   ui_accent = ui_palette[v]; }
+                                                   ui_accent = th_accent_of(v); }
     v = set_rd(SW_REP);   if (v <= REP_ONE)        rep_mode = (uint8_t)v;
     v = set_rd(SW_SHUF);  shuffle_on = v ? 1u : 0u;
     /* Not range-checked as a whole -- it is three packed fields and each is

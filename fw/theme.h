@@ -35,6 +35,7 @@ enum {
 #define TH_DEF_OK            0x0600u
 #define TH_DEF_WARN          0xFE60u
 #define TH_DEF_DANGER        0xF9C0u
+#define TH_DEF_ON_ACCENT     0x0000u
 #define TH_DEF_BASE          0x0862u
 #define TH_DEF_CHROME        0x10E5u
 #define TH_DEF_PILL          0x0320u
@@ -48,12 +49,13 @@ enum {
 static uint16_t th_role[TR_COUNT] = {
     [TR_BG_BOTTOM] = TH_DEF_BG_BOTTOM, [TR_SURFACE] = TH_DEF_SURFACE, [TR_SURFACE_TRACK] = TH_DEF_SURFACE_TRACK,
     [TR_TEXT_PRIMARY] = TH_DEF_TEXT_PRIMARY, [TR_TEXT_SECONDARY] = TH_DEF_TEXT_SECONDARY,
-    [TR_OK] = TH_DEF_OK, [TR_WARN] = TH_DEF_WARN, [TR_DANGER] = TH_DEF_DANGER,
+    [TR_ON_ACCENT] = TH_DEF_ON_ACCENT, [TR_OK] = TH_DEF_OK, [TR_WARN] = TH_DEF_WARN, [TR_DANGER] = TH_DEF_DANGER,
     [TR_BASE] = TH_DEF_BASE, [TR_CHROME] = TH_DEF_CHROME, [TR_PILL] = TH_DEF_PILL, [TR_ERROR] = TH_DEF_ERROR,
     [TR_FAINT] = TH_DEF_FAINT, [TR_SPLASH_BG] = TH_DEF_SPLASH_BG, [TR_SPLASH_BAR] = TH_DEF_SPLASH_BAR,
     [TR_FS_RED] = TH_DEF_FS_RED, [TR_FS_TRACK] = TH_DEF_FS_TRACK,
 };
 
+#define UI_ON_ACCENT th_role[TR_ON_ACCENT]   /* text on an accent-coloured fill where a role (not the surface colour) is wanted */
 #define UI_PANEL   th_role[TR_SURFACE]
 #define UI_TRACK   th_role[TR_SURFACE_TRACK]
 #define UI_WHITE   th_role[TR_TEXT_PRIMARY]
@@ -70,5 +72,12 @@ static uint16_t th_role[TR_COUNT] = {
 #define TAU_SPLASH_BAR_C th_role[TR_SPLASH_BAR]
 #define FS_RED     th_role[TR_FS_RED]
 #define FS_TRACK   th_role[TR_FS_TRACK]
+
+/* Built-in themes (generated from themes/*.json by tools/gen_themes.py), the selected theme and polarity (0 dark, 1 light),
+ * and the luma the background ramp is normalised to. Session-only in step 0b: nothing here is persisted. Applied by th_apply()
+ * in fw/player.c, which also re-derives the accent, the ramp and forces a full repaint. */
+#include "theme_data.h"
+static uint8_t th_theme, th_pol;
+static uint8_t th_bg_luma = 45u;
 
 #endif
