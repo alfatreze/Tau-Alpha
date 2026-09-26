@@ -4,5 +4,10 @@
   "index": 12,
   "name": "WINAMP BARS",
   "selectable": true,
-  "sel_index": 1
+  "sel_index": 1,
+  "caps": [
+    "bar"
+  ],
+  "cost_class": 0,
+  "considered": "Solid per-band bars are exactly OP_BAR's shape; peak caps are one rect each."
 }

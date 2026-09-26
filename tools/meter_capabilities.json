@@ -1,0 +1,163 @@
+{
+ "schema": 1,
+ "registry_version": 1,
+ "statuses": [
+  "hardware-proven",
+  "sim-only",
+  "fit-timing-open",
+  "shelved",
+  "design-only"
+ ],
+ "capabilities": [
+  {
+   "key": "rect",
+   "provider": "OP_RECT via fb_rect()",
+   "status": "hardware-proven",
+   "ready_probe": "none (always present)",
+   "cost": "1 command per span",
+   "cost_basis": "measured",
+   "fallback": "none needed",
+   "note": "The base primitive every meter uses."
+  },
+  {
+   "key": "bar",
+   "provider": "OP_BAR via fb_bar() (B6)",
+   "status": "hardware-proven",
+   "ready_probe": "BLIT_READY()",
+   "cost": "1 command for a lit+unlit column (2 chained bursts)",
+   "cost_basis": "measured",
+   "fallback": "two fb_rect() calls per column",
+   "note": "VIZ_BARS is the cost baseline: 36 commands."
+  },
+  {
+   "key": "sblit",
+   "provider": "OP_SBLIT via fb_sblit() (B4)",
+   "status": "hardware-proven",
+   "ready_probe": "BLIT_READY()",
+   "cost": "1 command per plane scale",
+   "cost_basis": "measured",
+   "fallback": "per-cell fb_rect() runs (hundreds of commands)",
+   "note": "Chladni draws its plane with one scaled blit; the source must be written through the SDRAM mailbox, never a raw pointer (B-192)."
+  },
+  {
+   "key": "cblit",
+   "provider": "OP_CBLIT via fb_cblit() (B8, B9 re-index)",
+   "status": "hardware-proven",
+   "ready_probe": "BLIT_READY()",
+   "cost": "1 command per palette-indexed bitmap",
+   "cost_basis": "measured",
+   "fallback": "software RLE decode with fb_rect() runs",
+   "note": "Meter previews and cover art use it."
+  },
+  {
+   "key": "rrect",
+   "provider": "OP_RRECT via fb_rrect() (B11)",
+   "status": "sim-only",
+   "ready_probe": "RRECT_READY()",
+   "cost": "1 command per rounded rectangle",
+   "cost_basis": "model",
+   "fallback": "fb_round_rect() software corners",
+   "note": "Timing closed in a fit (B-235) but not yet run on a Pocket."
+  },
+  {
+   "key": "hw_spectrum",
+   "provider": "tau_spec_bank.sv, MMIO 0xDC-0xE4 (B-263)",
+   "status": "hardware-proven",
+   "ready_probe": "spec_hw (R_SPEC_ST bit 0)",
+   "cost": "~0 CPU; 16 bands per window",
+   "cost_basis": "measured",
+   "fallback": "none: the software octave cascade was removed, meters needing it show idle without the unit",
+   "note": "Gates meters through meter_afford()'s caller list (needs_hw_spec)."
+  },
+  {
+   "key": "hw_wave",
+   "provider": "tau_wave_meter.sv, MMIO 0xEC-0xFC (B-283)",
+   "status": "hardware-proven",
+   "ready_probe": "wave_hw (R_WAVE_ST bit 0)",
+   "cost": "capture is free; DRAWING 256 columns cost ~21x a bars meter",
+   "cost_basis": "measured",
+   "fallback": "64-column software path",
+   "note": "The capture is proven; the per-column draw path is compiled out since B-302 until it is batched, so a meter must not rely on it."
+  },
+  {
+   "key": "sdram_plane",
+   "provider": "mailbox-written plane (fw/chladni.inc, B-276)",
+   "status": "hardware-proven",
+   "ready_probe": "chl_ok",
+   "cost": "CPU writes plane words through the SDRAM mailbox",
+   "cost_basis": "measured",
+   "fallback": "none (meter shows nothing)",
+   "note": "Only via the mailbox; raw 0xA0000000 pointers hang (B-192)."
+  },
+  {
+   "key": "vsync_beam",
+   "provider": "helios_rows_safe(), R_SCAN (B-267)",
+   "status": "hardware-proven",
+   "ready_probe": "helios beam probe",
+   "cost": "a compare per gated draw",
+   "cost_basis": "measured",
+   "fallback": "ungated drawing",
+   "note": "Owned by the host; a module never gates itself."
+  },
+  {
+   "key": "stereo",
+   "provider": "peak_l/peak_r and per-channel spectrum",
+   "status": "hardware-proven",
+   "ready_probe": "none",
+   "cost": "~0",
+   "cost_basis": "model",
+   "fallback": "mono mix",
+   "note": "Per-channel history for waveform presets does not exist yet."
+  },
+  {
+   "key": "alpha_blend",
+   "provider": "OP_BLIT blend, TAU_BLIT_BLEND (B5)",
+   "status": "shelved",
+   "ready_probe": "n/a",
+   "cost": "1 command per blended blit",
+   "cost_basis": "model",
+   "fallback": "plain copy",
+   "note": "Never closed timing (-2.97 ns, B-243). Rejected for any selectable meter."
+  },
+  {
+   "key": "blit_flip",
+   "provider": "OP_BLIT flip flags (B19)",
+   "status": "design-only",
+   "ready_probe": "n/a",
+   "cost": "1 command",
+   "cost_basis": "model",
+   "fallback": "unflipped blit or per-row copies",
+   "note": "Wanted by Chladni mirror tiling."
+  },
+  {
+   "key": "row_burst_sblit",
+   "provider": "scaled blit with row bursts (B18)",
+   "status": "design-only",
+   "ready_probe": "n/a",
+   "cost": "1 command",
+   "cost_basis": "model",
+   "fallback": "OP_SBLIT one word per pixel",
+   "note": "Chladni cost lever."
+  },
+  {
+   "key": "index_plane_math",
+   "provider": "index-plane add/sub (B20)",
+   "status": "design-only",
+   "ready_probe": "n/a",
+   "cost": "1 command",
+   "cost_basis": "model",
+   "fallback": "CPU plane update",
+   "note": "Chladni sand mode."
+  },
+  {
+   "key": "beat_detect",
+   "provider": "hardware onset detector",
+   "status": "design-only",
+   "ready_probe": "n/a",
+   "cost": "~0",
+   "cost_basis": "model",
+   "fallback": "software mtr_onset from the spectrum",
+   "note": "docs/HARDWARE_METER_IDEAS.md item 1."
+  }
+ ]
+}

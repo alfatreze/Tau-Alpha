@@ -5,5 +5,13 @@
   "name": "CHLADNI",
   "selectable": true,
   "sel_index": 2,
-  "needs_hw_spec": true
+  "needs_hw_spec": true,
+  "caps": [
+    "sblit",
+    "sdram_plane",
+    "hw_spectrum",
+    "vsync_beam"
+  ],
+  "cost_class": 2,
+  "considered": "Per-cell rect runs cost 360-640 commands; one scaled blit of a mailbox-written plane replaced them (B-276). B18-B20 would cut CPU further."
 }
