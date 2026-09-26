@@ -2266,7 +2266,7 @@ static uint16_t th_accent_of(uint32_t idx)
  * and accent-2 are not table entries (derived / user pick). */
 static void th_apply(void)
 {
-    const th_theme_t *t = &th_themes[th_theme < TH_THEME_N ? th_theme : 0u];
+    const th_theme_t *t = th_get(th_theme < TH_COUNT() ? th_theme : 0u);
     const uint32_t p = th_pol ? 1u : 0u;
     for (uint32_t i = 0; i < TR_COUNT; i++)
         if (i != TR_BG_TOP && i != TR_ACCENT && i != TR_ACCENT2) th_role[i] = t->role[p][i];
@@ -6981,6 +6981,7 @@ static void ui_draw_dynamic(void)
 #pragma GCC push_options
 #pragma GCC optimize ("Os")
 #include "library.inc"
+#include "assets.inc"     /* theme step 0d: extra themes from tau-assets.bin (data slot 8) */
 #pragma GCC pop_options
 #if TAU_ART_TIMG
 #include "timg.inc"
@@ -8923,6 +8924,11 @@ int main(void)
     else { lib_state = LIB_ST_OFF; lib_err = 18u; }     /* the library UI is cold code: without it the library stays off (Info shows E18) */
 #else
     lib_boot_load();
+#endif
+#if TAU_G4
+    if (COLD_READY()) th_assets_load();
+#else
+    th_assets_load();
 #endif
     (void)pl_sdram_ready();           /* library mode never reaches pl_load(), which used to be the only place the window was proven */
     ui_boot_clear();

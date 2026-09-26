@@ -135,6 +135,8 @@ def main():
             sys.exit(1)
         tau_data_slots.add_cold_slot(pathlib.Path(DIST_CORE))
         print("Added data slot 6 (cold image)")
+        tau_data_slots.add_assets_slot(pathlib.Path(DIST_CORE))
+        print("Added data slot 8 (tau-assets.bin, optional themes file)")
 
     # 3. Summary
     print("\n=== Package contents ===")

@@ -157,6 +157,37 @@ def gamma_report(themes):
     return rows
 
 
+SAMPLE_ACCENTS = [0xF79E, 0xEEE0, 0xD925, 0x4F5D, 0x6B59, 0x2D40, 0x0843, 0xFFC0]
+
+
+def check_theme(t, verbose=False):
+    """Contrast rules for one theme dict (both polarities); returns a list of problems. Shared with tools/tau_assets.py."""
+    bad = []
+    for pol in POLS:
+        d = t[pol]
+        for fgk, bgks, need in RULES:
+            worst = 99.0
+            for bk in bgks:
+                if bk == "ramp":
+                    for ac in SAMPLE_ACCENTS:
+                        top = grad_top(acc_eff(ac, pol), d["bg_luma"])
+                        for c in (top, gtg.mix565(top, snap(d["bg_bottom"]), 20, 40)):
+                            worst = min(worst, contrast(snap(d[fgk]), c))
+                else:
+                    worst = min(worst, contrast(snap(d[fgk]), snap(d[bk])))
+            flag = "ok " if worst >= need else "LOW"
+            if verbose:
+                print(f"  {t['name']:6s} {pol:5s} {fgk:15s} vs {'/'.join(bgks):18s} {worst:5.2f} (need {need}) {flag}")
+            if worst < need:
+                bad.append(f"{t['name']} {pol}: {fgk} vs {bgks} = {worst:.2f} < {need}")
+        for ac in SAMPLE_ACCENTS:      # accent as text/fill against the surface
+            e = acc_eff(ac, pol)
+            worst = contrast(e, snap(d["surface"]))
+            if pol == "light" and worst < 3.0:
+                bad.append(f"{t['name']} light: accent 0x{ac:04X} -> 0x{e:04X} vs surface = {worst:.2f} < 3.0")
+    return bad
+
+
 def light_fit(themes):
     """Best 16-entry weight table for the Light polarity (what an RTL polarity bit would select), fitted like gen_text_gamma.py."""
     accents = [0xF79E, 0xEEE0, 0xD925, 0x4F5D, 0x6B59, 0x2D40, 0x0843, 0xFFC0]
@@ -186,30 +217,9 @@ def main():
     for k, v in dflt.items():
         if snap(themes[0]["dark"][k]) != v:
             bad.append(f"theme 0 dark {k} = 0x{snap(themes[0]['dark'][k]):04X}, firmware default 0x{v:04X}")
-    accents = [0xF79E, 0xEEE0, 0xD925, 0x4F5D, 0x6B59, 0x2D40, 0x0843, 0xFFC0]
     print("contrast (WCAG ratio, worst over sample accents)")
     for t in themes:
-        for pol in POLS:
-            d = t[pol]
-            for fgk, bgks, need in RULES:
-                worst = 99.0
-                for bk in bgks:
-                    if bk == "ramp":
-                        for ac in accents:
-                            top = grad_top(acc_eff(ac, pol), d["bg_luma"])
-                            for c in (top, gtg.mix565(top, snap(d["bg_bottom"]), 20, 40)):
-                                worst = min(worst, contrast(snap(d[fgk]), c))
-                    else:
-                        worst = min(worst, contrast(snap(d[fgk]), snap(d[bk])))
-                flag = "ok " if worst >= need else "LOW"
-                print(f"  {t['name']:6s} {pol:5s} {fgk:15s} vs {'/'.join(bgks):18s} {worst:5.2f} (need {need}) {flag}")
-                if worst < need:
-                    bad.append(f"{t['name']} {pol}: {fgk} vs {bgks} = {worst:.2f} < {need}")
-            for ac in accents:      # accent as text/fill against the surface and the ramp
-                e = acc_eff(ac, pol)
-                worst = contrast(e, snap(d["surface"]))
-                if pol == "light" and worst < 3.0:
-                    bad.append(f"{t['name']} light: accent 0x{ac:04X} -> 0x{e:04X} vs surface = {worst:.2f} < 3.0")
+        bad += check_theme(t, verbose=True)
     print("\ntext weights: RMS error of the RTL table vs a plain linear blend, per theme/polarity (lower is better)")
     for name, pol, rtl, ident in gamma_report(themes):
         note = "" if rtl <= ident else "   <-- RTL table serves this worse than linear: needs its own weights"

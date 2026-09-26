@@ -73,3 +73,17 @@ def add_cover_slot(core_dir: Path) -> None:
     dj["data"]["data_slots"].append(expect)
     save(core_dir / "data.json", dj)
 
+
+
+def add_assets_slot(core_dir: Path) -> None:
+    """Data slot 8: tau-assets.bin (theme step 0d, docs/THEME_FILE_FORMAT.md): the one optional file of user-supplied assets (extra
+    themes today; meter config and icons later). Never shipped with the core: written by tools/tau_assets.py or Tau Omega. A missing
+    file is not an error, exactly like the library index."""
+    dj = json.loads((core_dir / "data.json").read_text())
+    expect = {"name": "Assets", "id": 8, "required": False, "deferload": True, "parameters": "0x1", "filename": "tau-assets.bin"}
+    existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 8), None)
+    if existing is not None:
+        assert existing == expect, f"data slot 8 already declared, and differently: {existing}"
+        return
+    dj["data"]["data_slots"].append(expect)
+    save(core_dir / "data.json", dj)

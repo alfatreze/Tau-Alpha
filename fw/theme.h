@@ -80,4 +80,16 @@ static uint16_t th_role[TR_COUNT] = {
 static uint8_t th_theme, th_pol;
 static uint8_t th_bg_luma = 45u;
 
+/* Step 0d: up to TH_FILE_MAX extra themes read from tau-assets.bin (fw/assets.inc) after the built-in ones. th_file_n = how many
+ * loaded (0 when there is no file or it failed), th_file_err = why not (0 none, else an AS_E_* code, shown on Info). */
+#define TH_FILE_MAX 4u
+static th_theme_t th_file[TH_FILE_MAX];
+static char       th_file_name[TH_FILE_MAX][16];
+static uint8_t    th_file_n, th_file_err;
+#define TH_COUNT() ((uint32_t)(TH_THEME_N + th_file_n))
+static const th_theme_t *th_get(uint32_t i)
+{
+    return i < TH_THEME_N ? &th_themes[i] : (i - TH_THEME_N < th_file_n ? &th_file[i - TH_THEME_N] : &th_themes[0]);
+}
+
 #endif
