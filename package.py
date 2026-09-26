@@ -136,7 +136,9 @@ def main():
         tau_data_slots.add_cold_slot(pathlib.Path(DIST_CORE))
         print("Added data slot 6 (cold image)")
         tau_data_slots.add_assets_slot(pathlib.Path(DIST_CORE))
-        print("Added data slot 8 (tau-assets.bin, optional themes file)")
+        print("Added data slot 8 (tau-assets.bin, optional themes and meter presets file)")
+        tau_data_slots.add_cover_slot(pathlib.Path(DIST_CORE))     # firmware built with TAU_ART_TIMG (the default since B-325) opens covers through slot 7
+        print("Added data slot 7 (TIM1 cover image)")
 
     # 3. Summary
     print("\n=== Package contents ===")

@@ -1,6 +1,10 @@
 /* Host harness for fw/timg.inc (B-285): emulates the tag-buffer slot read, the SDRAM mailbox, the draw engine's BLIT/CBLIT and the
  * CLUT on a 512-wide word memory, runs the real firmware code on a real .timg file, and dumps what reached the art stash so
- * sim/test_tau_timg.py can compare it with the Python decoder. Usage: harness <file.timg> <out.bin> <hw_swap 0|1> <mailbox_ok 0|1> */
+ * sim/test_tau_timg.py can compare it with the Python decoder. Usage: harness <file.timg> <out.bin> <hw_swap 0|1> <mailbox_ok 0|1>
+ * [overlay 0|1] [engine_delay_reads N] [retry 0|1]
+ *   overlay: a menu is up (FB_HELD() is true unless ov_draw is set): every engine command outside the exemption is dropped, as on the Pocket
+ *   engine_delay_reads: a queued engine copy only becomes visible after N mailbox reads (the draw engine still working through a burst)
+ *   retry: after a failed attempt fix the mailbox and load again (a probe failure must not be remembered) */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,12 +35,16 @@ static uint32_t cyc;
 static uint32_t cycles(void) { cyc += 100u; return cyc; }
 static uint32_t mb[5];                                        /* addr, data, ctrl, rdata, status */
 static uint32_t *reg_ptr(uint32_t a);
+static int engine_delay, pend_left = -1;
+static uint32_t pb[6];
+static void do_copy(void) { for (uint32_t y = 0; y < pb[5]; y++) for (uint32_t x = 0; x < pb[4]; x++) sdram[(pb[3] + y) * FB_STRIDE + pb[2] + x] = sdram[(pb[1] + y) * FB_STRIDE + pb[0] + x]; }
 #define REG(a) (*reg_ptr(a))
 static uint32_t clut_sink;
 static uint32_t *reg_ptr(uint32_t a) {
     if (a == R_CLUT_IDX) { clut_idx = 0u; return &clut_sink; }                 /* write index 0 */
     if (a == R_CLUT_DATA) return &clut32[clut_idx++ & 255u];                   /* each store lands in the next entry (auto-increment) */
     uint32_t i = (a - R_SDR_ADDR) / 4u;
+    if (a == R_SDR_RDATA && pend_left >= 0) { if (pend_left == 0) { do_copy(); pend_left = -1; } else pend_left--; }
     if ((a == R_SDR_STATUS || a == R_SDR_RDATA) && mb[2] != 0u) {
         uint32_t c = mb[2], addr = mb[0], data = mb[1];
         if (mailbox_ok) {
@@ -49,14 +57,19 @@ static uint32_t *reg_ptr(uint32_t a) {
     return &mb[i];
 }
 
+static uint8_t ov_draw, ov_up;                                 /* B-325: FB_HELD() semantics */
+#define FB_HELD() (ov_up && !ov_draw)
 static void fb_wait(void) {}
 static int  BLIT_READY(void) { return 1; }
 static void blit_probe_ensure(void) {}
 static void fb_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
-    for (uint32_t y = 0; y < h; y++) for (uint32_t x = 0; x < w; x++) sdram[(dy + y) * FB_STRIDE + dx + x] = sdram[(sy + y) * FB_STRIDE + sx + x];
+    if (!w || !h || FB_HELD()) return;
+    pb[0] = sx; pb[1] = sy; pb[2] = dx; pb[3] = dy; pb[4] = w; pb[5] = h;
+    if (engine_delay <= 0) do_copy(); else pend_left = engine_delay;       /* lands after that many mailbox reads */
 }
 static uint32_t cblit_calls, max_cblit_w;
 static void fb_cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
+    if (!w || !h || FB_HELD()) return;
     cblit_calls++; if (w > max_cblit_w) max_cblit_w = w;
     for (uint32_t y = 0; y < h; y++) for (uint32_t x = 0; x < w; x++)
         sdram[(dy + y) * FB_STRIDE + dx + x] = (uint16_t)clut32[sdram[(sy + y) * FB_STRIDE + sx + x] & 0xFFu];
@@ -87,21 +100,31 @@ static int lib_path(const void *l, uint32_t id, char *out, uint32_t cap) { (void
 int main(int argc, char **argv) {
     if (argc < 5) return 2;
     hw_swap = atoi(argv[3]); mailbox_ok = atoi(argv[4]);
+    ov_up = argc > 5 ? (uint8_t)atoi(argv[5]) : 0u;
+    engine_delay = argc > 6 ? atoi(argv[6]) : 0;
+    const int retry = argc > 7 ? atoi(argv[7]) : 0;
+    const int repeat = argc > 8 ? atoi(argv[8]) : 0;
     FILE *f = fopen(argv[1], "rb");
     file_ok = f != NULL;
     if (f) { fseek(f, 0, SEEK_END); file_len = (uint32_t)ftell(f); fseek(f, 0, SEEK_SET); file = malloc(file_len); fread(file, 1, file_len, f); fclose(f); }
     char path[LIB_MAX_PATH + 40u];
     uint32_t sig = timg_cover_path(path, sizeof(path));
     printf("path=%s sig=%u\n", path, sig);
-    int ok = 0;
-    int e = timg_load(path);
-    printf("load=%d ok=%u swap=%u w=%u h=%u\n", e, timg_ok, timg_swap, timg_w, timg_h);
-    if (e == TIMG_OK) { timg_draw_art(); ok = 1; }
-    printf("cblit=%u maxw=%u mounts=%d\n", cblit_calls, max_cblit_w, ui_mounts);
-    if (ok) {
+    int shown = timg_cover(sig, path);                         /* the real entry point, including the FB_HELD exemption */
+    printf("load=%d shown=%d err=%u fail=%u miss=%u ok=%u swap=%u w=%u h=%u\n", timg_last_err, shown, timg_last_err, timg_fail_n, timg_miss_sig == sig,
+           timg_ok, timg_swap, timg_w, timg_h);
+    if (!shown && retry) {                                     /* a failed probe must not be remembered: fix the cause and try again */
+        mailbox_ok = 1;
+        shown = timg_cover(sig, path);
+        printf("retry shown=%d err=%u fail=%u\n", shown, timg_last_err, timg_fail_n);
+    }
+    for (int i = 0; i < repeat; i++) timg_cover(sig, path);      /* the failure cap: repeated probe failures stop probing */
+    if (repeat) printf("repeat fails=%u probe_fails=%u ok=%u\n", timg_fail_n, timg_probe_fails, timg_ok);
+    printf("cblit=%u maxw=%u mounts=%d ovdraw_after=%u\n", cblit_calls, max_cblit_w, ui_mounts, ov_draw);
+    if (shown) {
         FILE *o = fopen(argv[2], "wb");
         for (uint32_t y = 0; y < ART_IMG; y++) fwrite(&sdram[(ART_STASH_Y + ART_PAD + y) * FB_STRIDE + ART_PAD], 2, ART_IMG, o);
         fclose(o);
     }
-    return e;
+    return shown ? 0 : (timg_last_err ? timg_last_err : 1);
 }

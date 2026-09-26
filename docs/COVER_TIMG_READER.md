@@ -1,6 +1,6 @@
 # Cover art from a pre-converted image (TIM1 reader), design and status
 
-Status: **built behind `TAU_ART_TIMG` (default off), host-tested, NOT run on a Pocket.** B-285. The 128 px layout is now the default screen (B-286). Format and encoder: `tools/tau_image.py`,
+Status: **on by default since B-325; host-tested; the first Pocket runs (alpha.22 to alpha.30) never loaded a cover (Info: `TIM1 COVER 0 LOADED ... E6`); the probable causes are fixed and instrumented in B-325 and need one more Pocket run to confirm.** B-285. The 128 px layout is now the default screen (B-286). Format and encoder: `tools/tau_image.py`,
 study: `docs/IMAGE_FORMATS.md`. Owner decision: palette-256, 128 px on the long side, no crop, no letterbox.
 
 ## 1. What it does
@@ -55,3 +55,14 @@ orders, pixels compared with the Python decoder plus the crop rule; 128 px wide 
 truncated / missing / broken mailbox all refused with the right code and nothing drawn. This proves the logic under emulation, not the RTL or the host's
 file behaviour (opening an absolute path with a subfolder into a new slot is the main unverified hardware assumption; B-033 proved absolute-path opens for
 the audio slot).
+
+## 8. B-325: why it never loaded on a Pocket, and what changed
+Evidence: every hardware run showed `TIM1 COVER 0 LOADED 0 MS E6 (1 FAILED)`; the file, its header and data slot 7 were all valid on the card, so it failed before the file was opened,
+in the engine probe (TIMG_E_ENGINE) and the failure was remembered for the whole session. Two causes fit that, both reproduced in `sim/timg_harness.c` and now fixed:
+1. **The probe read too early.** It read the copy's destination a fixed 512 cycles after queueing it. A track load has just queued a burst of chrome drawing ahead of it and `fb_wait()` only says
+   "accepted", so the read came back before the copy landed. Chladni's own probe runs with an empty queue, which is why it works. Now the destination is pre-loaded with a sentinel and polled
+   for up to about 50 ms.
+2. **Engine commands dropped while a menu or fullscreen is up** (`FB_HELD()`); the cover is drawn into the off-screen stash, so the load now runs under the overlay exemption (`ov_draw`).
+Also: a probe failure is no longer remembered as a bad file (only a bad or missing FILE is), three consecutive probe failures stop probing for the session, and the failure is now specific:
+E6 no blit engine, E7 mailbox timeout, E8 the copy never landed or came back wrong (Info then also shows the raw word that was read). The tests fail against the old behaviour (two mutants, both caught).
+Default on: `TAU_ART_TIMG=1` in every firmware target, data slot 7 declared by both packagers. If the reader cannot run, the embedded-JPEG path runs exactly as before.

@@ -9,7 +9,7 @@
 #define TIMG_CLUT_BYTES  512u
 #define TIMG_MAX_DIM     128u       /* the plane is 128 rows; a wider image would also not fit one CBLIT (127-word limit) unsplit */
 
-enum { TIMG_OK = 0, TIMG_E_MAGIC = 1, TIMG_E_FORMAT = 2, TIMG_E_SIZE = 3, TIMG_E_OPEN = 4, TIMG_E_READ = 5, TIMG_E_ENGINE = 6 };
+enum { TIMG_OK = 0, TIMG_E_MAGIC = 1, TIMG_E_FORMAT = 2, TIMG_E_SIZE = 3, TIMG_E_OPEN = 4, TIMG_E_READ = 5, TIMG_E_ENGINE = 6, TIMG_E_MAILBOX = 7, TIMG_E_PROBE = 8 };
 
 typedef struct { uint16_t w, h; uint32_t payload; } timg_hdr_t;
 
