@@ -1,4 +1,4 @@
-.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -45,9 +45,10 @@ test-host:
 	$(PYTHON) sim/test_helios_beam.py
 	$(PYTHON) sim/test_chladni_module.py
 	$(PYTHON) sim/test_tau_timg.py
+	$(PYTHON) sim/test_mp3_poly_probe.py
 	$(PYTHON) sim/test_chladni_core.py
 
-test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -142,6 +143,23 @@ test-rtl-spec-bank: $(RTL_BUILD_DIR)/tb_tau_spec_bank.vvp
 
 $(RTL_BUILD_DIR)/tb_tau_spec_bank.vvp: sim/tb_tau_spec_bank.v src/fpga/core/tau_spec_bank.sv | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
+
+# MP3 window unit (B-292): the vectors come from the golden model, itself checked against Helix's real PolyphaseStereo.
+MP3_POLY_SRC = sim/tb_tau_mp3_poly.v src/fpga/core/tau_mp3_poly.sv src/fpga/core/tau_mp3_poly_rom.svh
+$(RTL_BUILD_DIR)/mp3_poly_vectors.txt: sim/test_mp3_poly_model.py sim/mp3_poly_model.c sim/mp3_poly_map.c tools/gen_mp3_poly_rom.py | $(RTL_BUILD_DIR)
+	$(PYTHON) sim/test_mp3_poly_model.py
+
+$(RTL_BUILD_DIR)/tb_mp3_poly.vvp: $(MP3_POLY_SRC) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -I src/fpga/core -o $@ sim/tb_tau_mp3_poly.v src/fpga/core/tau_mp3_poly.sv
+
+test-rtl-mp3-poly: $(RTL_BUILD_DIR)/tb_mp3_poly.vvp $(RTL_BUILD_DIR)/mp3_poly_vectors.txt
+	$(VVP) $<
+
+# each mutant MUST fail the bench (no rounding constant, +c2 for -c2, history age off by one, no clip)
+test-rtl-mp3-poly-mutation: $(RTL_BUILD_DIR)/mp3_poly_vectors.txt
+	@set -e; for b in 1 2 3 4; do \
+	  $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_mp3_poly.BUG=$$b -o $(RTL_BUILD_DIR)/mp3_poly_mut.vvp sim/tb_tau_mp3_poly.v src/fpga/core/tau_mp3_poly.sv; \
+	  if $(VVP) $(RTL_BUILD_DIR)/mp3_poly_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
 
 test-rtl-wave-meter: $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp
 	$(VVP) $<
@@ -324,6 +342,7 @@ rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cdc_gray_bus src/fpga/core/tau_cdc_gray_bus.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_spec_bank src/fpga/core/tau_spec_bank.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_wave_meter src/fpga/core/tau_wave_meter.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_mp3_poly -Isrc/fpga/core src/fpga/core/tau_mp3_poly.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_vs_counter src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_vs_counter.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_main_ram src/fpga/core/tau_main_ram.sv
 
