@@ -106,6 +106,7 @@ def main():
     if c.name != f"{m['author']}.{short}": raise ValueError("core folder does not match author.shortname metadata")
     if not (rom.parent / "tau-cold.bin").exists(): sys.exit(f"{rom.parent}/tau-cold.bin missing")
     slots_lib.add_cold_slot(c)                          # data slot 6 = the cold image
+    slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
     if args.cover_slot: slots_lib.add_cover_slot(c)     # data slot 7 = the cover image (ART_TIMG firmware)
     a = out / "Assets" / platform
     (a / "common").mkdir(parents=True); (a / core_id).mkdir()

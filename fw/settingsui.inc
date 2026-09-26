@@ -303,7 +303,7 @@ COLD_FN static uint32_t set_ch_count(uint32_t c)
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_SEL_COUNT
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
          : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT()
-         : c == CH_THEME ? (uint32_t)TH_THEME_N : c == CH_MODE ? 2u : 5u;
+         : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : 5u;
 }
 COLD_FN static uint32_t set_blank_idx(void)
 {
@@ -332,7 +332,7 @@ COLD_FN static const char *set_ch_name(uint32_t c, uint32_t i)
     return c == CH_COLOUR ? ui_palette_name[i] : c == CH_METER ? set_viz[viz_sel_to_mode(i)]
          : c == CH_EQ ? eq_name[i] : c == CH_REPEAT ? set_rep[i]
          : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i]
-         : c == CH_SPEED ? set_speed_nm[i] : c == CH_THEME ? th_themes[i].name
+         : c == CH_SPEED ? set_speed_nm[i] : c == CH_THEME ? th_get(i)->name
          : c == CH_MODE ? (i ? "LIGHT" : "DARK") : set_blank_nm[i];
 }
 COLD_FN static uint32_t set_ch_rowh(uint32_t c)
@@ -533,7 +533,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 21u   /* B-073: +1 for COVER (art_bad_code, for the "no
+#define SET_INFO_ROWS 22u   /* B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
                                               * freeze, see its own comment in fw/player.c); B-238:
@@ -547,7 +547,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     "COLD IMAGE",
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
     , "LIBRARY"
-    , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER", "MP3 WINDOW"
+    , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER", "MP3 WINDOW", "THEME FILE"
     };
 static uint32_t set_info_at;
 
@@ -640,7 +640,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "OFF");
 #endif
         break;
-    default:   /* MP3 WINDOW (B-307): the hardware synthesis window -- slots it computed, self-check mismatches, timeouts */
+    case 20:   /* MP3 WINDOW (B-307): the hardware synthesis window -- slots it computed, self-check mismatches, timeouts */
 #if TAU_POLY_FW
         if (!hw_poly) { q = set_str(q, "NO UNIT"); break; }
         q = set_str(q, tau_poly_hw_enable ? "HW " : "SW ");
@@ -650,6 +650,11 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
 #else
         q = set_str(q, "OFF");
 #endif
+        break;
+    default:   /* THEME FILE (step 0d): extra themes read from tau-assets.bin -- how many, or the failure code, or none */
+        if (th_file_err) { q = set_str(q, "E"); q = ui_dec(q, th_file_err); }
+        else if (th_file_n) { q = ui_dec(q, th_file_n); q = set_str(q, " LOADED"); }
+        else q = set_str(q, "NONE");
         break;
     }
     *q = 0;
