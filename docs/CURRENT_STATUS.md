@@ -4,6 +4,8 @@
 > spectrum bank, beam position, Chladni meter, fullscreen, presets, meter cleanup); its first hardware run decides the open items in that
 > document's section 2. Since then the cassette meter was removed and archived (next package: alpha.18). Release cores `TAU`/`TAU_DIAGNOSTIC`
 > are still v0.4.0. RAM shrink deferred, modularization parked, Winamp configurator parked.
+> Image formats (B-284): cover art decided as palette 256 at 128 px, proportional scaling; offline tools and sync support done, firmware reader not
+> started (`docs/IMAGE_FORMATS.md`, `docs/DECISIONS.md` D-I01..D-I05).
 
 **MILESTONE, 2026-09-25 (B-197): the whole B-166..B-194 "Blit Test hangs" saga is fully resolved.**
 The test was never hanging. `bt_advance()`'s terminal branch (`fw/suite.inc`) set `bt_state` to
