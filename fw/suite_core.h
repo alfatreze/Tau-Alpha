@@ -15,7 +15,25 @@
 #endif
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
-       SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK, SR_T_WVIZCFG };
+       SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK, SR_T_WVIZCFG,
+       SR_T_METERSWEEP, SR_T_INFOEXPORT };
+/* SR_T_METERSWEEP (B-301, docs/METER_MODULE_SPEC.md section 15 "meter sweep as a standing
+ * regression"): ONE entry per selectable meter (repeatable, same convention as SR_T_DECSWEEP),
+ * appended in viz_order[] order while music keeps playing underneath -- the real point is that each
+ * meter's own normal tick()/draw runs for real during its window, so the numbers are a real cost
+ * measurement, not a model. 9 bytes: meter_id(u8, the VIZ_* enum value), sdram_busy_permille(u16 LE,
+ * R_SDR_BUSY delta over the window), draw_stall_ms(u16 LE, R_FB_STALL delta, saturates), cpu_pct(u8,
+ * ui_cpu_pct() sampled at window end), late_underruns(u8, pcm_under_n delta, saturates),
+ * yield_worst_growth_s(u8, growth in meter_yield_worst during this window -- 0 does NOT mean no
+ * yielding happened, only that no NEW record streak did; see fw/suite.inc's mw_sample()),
+ * audio_full(u8, 1 if playback never stopped/paused during the window, the same honesty flag
+ * B-139 added for CT_AUD/CT_BLT -- a window with audio_full=0 measured mostly silence, not the
+ * meter under real load). */
+/* SR_T_INFOEXPORT (B-301): a one-off export of the Info page's own live values, on demand (Settings
+ * > Diagnostics > Info > EXPORT QR), not part of a Check run. 20 bytes: fw_major(u8), fw_minor(u8),
+ * fw_patch(u8) (parsed from APP_VER), fpga_rev(u32 LE, REG(R_VERSION)), window_read_cyc(u16 LE),
+ * free_ram(u32 LE), underruns(u16 LE, pcm_under_n), draw_stall_ms(u16 LE, R_FB_STALL/(CLK_HZ/1000)),
+ * load_ms(u16 LE, the LOAD MS row's own total), cpu_pct(u8, ui_cpu_pct()). */
 /* SR_T_WVIZCFG (B-218): a one-off export of the Winamp Bars/Scope config page's live wviz_cfg
  * (fw/settingsui.inc), NOT part of a Check run -- built and shown on demand from Settings >
  * Appearance > Meter > Configure > Export QR. 13 raw bytes, no sub-length prefix beyond the TLV's

@@ -86,6 +86,21 @@ def main():
         "mode": "scope", "preset": None, "bands": 12, "ease_mode": "spring", "attack": 60, "release": 25,
         "peak_on": True, "peak_gravity": True, "peak_hold_ms": 250, "peak_fall": 30,
         "scope_smooth": 45, "scope_trail": 20}, wviz)
+    # SR_T_METERSWEEP (B-301): one entry per meter, repeatable -- meter_id, sdram_busy_permille (u16),
+    # draw_stall_ms (u16), cpu_pct, late_underruns, yield_worst_growth_s, audio_full.
+    ms_bytes = bytes([13]) + (768).to_bytes(2, "little") + (34663).to_bytes(2, "little") + bytes([100, 1, 0, 1])
+    ms = D.parse_record(D.build_record(0, [(18, ms_bytes)]))["entries"]["metersweep"]
+    check("decode metersweep", ms == [{
+        "meter": "WINAMP SCOPE", "sdram_busy_permille": 768, "draw_stall_ms": 34663, "cpu_pct": 100,
+        "late_underruns": 1, "yield_worst_growth_s": 0, "audio_full": True}], ms)
+    # SR_T_INFOEXPORT (B-301): a one-off Info-page export, not part of a Check run -- 20 bytes.
+    ie_bytes = bytes([0, 5, 0]) + (0x4D503317).to_bytes(4, "little") + (43).to_bytes(2, "little") \
+        + (51216).to_bytes(4, "little") + (1).to_bytes(2, "little") + (2).to_bytes(2, "little") \
+        + (18341).to_bytes(2, "little") + bytes([100])
+    ie = D.parse_record(D.build_record(0, [(19, ie_bytes)]))["entries"]["infoexport"]
+    check("decode infoexport", ie == {
+        "firmware": "0.5.0", "fpga_rev": "4D503317", "window_read_cyc": 43, "free_ram": 51216,
+        "underruns": 1, "draw_stall_ms": 2, "load_ms": 18341, "cpu_pct": 100}, ie)
     # persisted words: fields at the documented bit positions
     w = [int(x, 16) for x in fw["WORDS"].split()]
     exp = [1 | 1 << 4 | 7 << 7 | 2 << 15, 0x0007 | 0x0008 << 15, 380 | 316 << 9 | 0 << 18 | 3 << 24, 154 | 0 << 12 | 18 << 18 | 3 << 24]

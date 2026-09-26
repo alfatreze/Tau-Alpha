@@ -17,6 +17,10 @@
  * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). */
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
 enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_N };
+#if TAU_DIAGNOSTIC
+static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced by set_info_tick() below its own include */
+#endif
+
 /* Pages after the menus: one per choice list, then the read-only Info page (diagnostics). */
 #define SET_INFO_PG ((uint8_t)(SET_MENUS + CH_N))
 #define SET_STAT_PG ((uint8_t)(SET_INFO_PG + 1u))   /* stress status (Diagnostic Build) */
@@ -33,6 +37,7 @@ enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS,
 #else
 #define SET_BLITTEST_PG ((uint8_t)(SET_CHECK_PG + 1u))   /* Blit Test, B-166 (fw/suite.inc) */
 #endif
+#define SET_METERSWEEP_PG ((uint8_t)(SET_BLITTEST_PG + 1u))   /* Meter cost sweep, B-301 (fw/suite.inc) */
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
 enum { TG_ART = 0, TG_SHUF, TG_RESUME, TG_SPEEDS };
@@ -73,6 +78,7 @@ static const set_row_t set_dgn_rows[] = {
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
 #endif
     { "BLIT TEST", RT_GROUP, SET_BLITTEST_PG },
+    { "METER SWEEP", RT_GROUP, SET_METERSWEEP_PG },
 #else
     { "INFO", RT_GROUP, SET_INFO_PG },          /* unreachable placeholder: the page exists only in the Diagnostic Build */
 #endif
@@ -510,7 +516,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     "COLD IMAGE",
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
     , "LIBRARY"
-    , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER"
+    , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER", "MP3 WINDOW"
     };
 static uint32_t set_info_at;
 
@@ -621,7 +627,9 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
 /* Read-only value pages share one painter: labels on the left, values right-aligned. */
 /* Read-only value pages (Info, Stress status) show up to SET_RO_VIS rows at once and scroll with Up/Down when they
  * have more (B-257: Info grew to 15 rows and the 15th fell off the bottom of the screen). */
-#define SET_RO_VIS 14u
+/* 12, not 14: PL_UI_LIST_Y..OV_HINT_Y is 272px at PL_UI_ROW_H=22 -- 14 rows (308px) reached past the
+ * action bar (owner: confirmed on a real Info-page screenshot, the last 1-2 rows overlapped it). */
+#define SET_RO_VIS 12u
 static uint8_t set_ro_top;                       /* first visible row; reset to 0 when the page is left */
 
 COLD_FN static void set_draw_ro(int full, const char *title, const char *const *labels, uint32_t n,
@@ -630,7 +638,8 @@ COLD_FN static void set_draw_ro(int full, const char *title, const char *const *
     const uint32_t vis = (n < SET_RO_VIS) ? n : SET_RO_VIS;
     uint32_t top = set_ro_top;
     if (top + vis > n) top = n - vis;
-    if (full) ov_frame(title, "", (n > vis) ? "UP DOWN SCROLL   B BACK" : "B BACK");
+    const char *hint = (n > vis) ? "UP DOWN SCROLL   B BACK" : "B BACK";
+    if (full) ov_frame(title, "", hint);
     if (n > vis) {                               /* scroll track, as the lists */
         const uint32_t tx = PL_UI_X + PL_UI_W - 11u, lh = vis * PL_UI_ROW_H, th = lh * vis / n;
         fb_rect(tx, PL_UI_LIST_Y - 2u, 3u, lh, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
@@ -647,6 +656,12 @@ COLD_FN static void set_draw_ro(int full, const char *title, const char *const *
         fb_set_color(UI_WHITE, UI_PANEL);
         fb_text_clipped(PL_UI_X + PL_UI_W - 20u - w, y, v, TS_1X, TS_1X, w + 2u);
     }
+    /* Unconditional, not `if (full)`: set_info_tick()'s once-a-second partial refresh ("repaint the
+     * rows only, never the panel") calls this with full=0, and used to never touch the hint bar at
+     * all -- meaning any row redraw after the first could silently erase it with nothing to put it
+     * back (owner: "the action bar in info is not always visible"). Cheap even every second: two
+     * fb_rect-scale calls, not a real cost. */
+    ov_hint_repaint(hint);
 }
 
 #if TAU_DIAGNOSTIC
@@ -686,7 +701,12 @@ COLD_FN static void set_info_tick(void)
     if ((int32_t)(cycles() - set_info_at) < 0) return;
     set_info_at = cycles() + CLK_HZ;
     uint8_t o = ov_draw; ov_draw = 1u;
-    if (set_page == SET_INFO_PG) set_draw_ro(0, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
+    if (set_page == SET_INFO_PG) {
+#if TAU_DIAGNOSTIC
+        if (!info_qr_up)
+#endif
+            set_draw_ro(0, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
+    }
 #if TAU_DIAGNOSTIC
     else if (set_page == SET_STAT_PG) set_draw_ro(0, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
 #endif
@@ -831,6 +851,7 @@ COLD_FN static void wvcfg_follow(void)
  * outside a Diagnostic Build the row is present but inert (see below). */
 #if TAU_DIAGNOSTIC
 #include "wvcfg_export.inc"
+#include "info_export.inc"
 #endif
 
 COLD_FN static void wvcfg_value_text(uint32_t row, char *o)
@@ -1005,9 +1026,14 @@ COLD_FN static void set_draw(void)
     else if (set_page == SET_SWEEP_PG)       sw_draw();
 #endif
     else if (set_page == SET_BLITTEST_PG)    bt_draw();
+    else if (set_page == SET_METERSWEEP_PG)  mw_draw();
 #endif
-    else if (set_page == SET_INFO_PG)
+    else if (set_page == SET_INFO_PG) {
+#if TAU_DIAGNOSTIC
+        if (info_qr_up) { info_draw_qr(); ov_draw = o; return; }
+#endif
         set_draw_ro(1, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
+    }
 #if TAU_DIAGNOSTIC
     else if (set_page == SET_STAT_PG)
         set_draw_ro(1, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
@@ -1053,6 +1079,7 @@ static int set_input(uint32_t edge, uint32_t keys)
     if (set_page == SET_SWEEP_PG) return sw_input(edge);
 #endif
     if (set_page == SET_BLITTEST_PG) return bt_input(edge);
+    if (set_page == SET_METERSWEEP_PG) return mw_input(edge);
 #endif
     if (set_page == SET_WVIZCFG_PG) return wvcfg_input(edge);
     if (edge & KEY_START) { set_close(); return 1; }
@@ -1069,11 +1096,20 @@ static int set_input(uint32_t edge, uint32_t keys)
         return 1;
     }
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
+#if TAU_DIAGNOSTIC
+        if (set_page == SET_INFO_PG && info_qr_up) {     /* QR screen: anything closes it */
+            if (edge & (KEY_A | KEY_B | KEY_START)) { info_qr_up = 0u; set_dirty = 1u; }
+            return 1;
+        }
+#endif
         uint32_t n = SET_INFO_ROWS;
 #if TAU_DIAGNOSTIC
         if (set_page == SET_STAT_PG) n = SET_STAT_ROWS;
 #endif
         const uint32_t maxtop = (n > SET_RO_VIS) ? n - SET_RO_VIS : 0u;
+#if TAU_DIAGNOSTIC
+        if (set_page == SET_INFO_PG && (edge & KEY_A)) { info_build_qr(); info_qr_up = 1u; set_dirty = 1u; return 1; }
+#endif
         if ((edge & KEY_UP)   && set_ro_top > 0u)      { set_ro_top--; set_dirty = 1u; }
         if ((edge & KEY_DOWN) && set_ro_top < maxtop)  { set_ro_top++; set_dirty = 1u; }
         if (edge & (KEY_B | KEY_LEFT)) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info, How it works -> SETTINGS */

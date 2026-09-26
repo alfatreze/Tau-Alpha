@@ -87,13 +87,21 @@ COLD_FN3 static void fs_draw_progress(void)
     fs_last_sec = ui_sec; fs_last_state = (uint8_t)(paused ? 1u : stopped ? 2u : 0u);
 }
 
-/* The top-right corner: hint and CPU load on a black plate, redrawn after every figure (the figure covers it). */
+#define FS_LABEL_EXCL 0u   /* helios_excl[] slot reserved for this corner */
+
+/* The top-right corner: hint and CPU load on a black plate. Kept as an exclusion rect (helios.inc)
+ * so the figure's own outer clear skips it instead of covering it and relying on this to repaint
+ * every frame -- that redraw-after approach is what glitched: the beam can pass through this
+ * corner between the figure's clear and this repaint. Still called every frame (the CPU% text
+ * itself changes), which also keeps the exclusion rect's width current for next frame -- see
+ * ui_fs_dynamic()'s use of helios_fill_excl(). */
 COLD_FN3 static void fs_draw_label(void)
 {
     char b[8], *q = b;
     q = ui_dec(q, ui_cpu_pct()); *q++ = '%'; *q = 0;
     const uint32_t wh = fb_text_width("SELECT+Y", TS_1X), wp = fb_text_width(b, TS_1X);
     const uint32_t w = wh + 12u + wp + 14u, x = FS_W - w;
+    helios_exclude_set(FS_LABEL_EXCL, (int32_t)x, 0, (int32_t)w, 22);
     fb_rect(x, 0u, w, 22u, 0u);
     fb_set_color(UI_DIM, 0u);   fb_text_clipped(x + 8u, 3u, "SELECT+Y", TS_1X, TS_1X, wh);
     fb_set_color(UI_WHITE, 0u); fb_text_clipped(x + 8u + wh + 12u, 3u, b, TS_1X, TS_1X, wp);
@@ -124,7 +132,12 @@ COLD_FN3 static void ui_fs_dynamic(void)
      * the "very slow" fullscreen. The figures are all drawn so that a partly finished frame is still a coherent picture (Winamp Bars
      * redraw only changed bars, the scope erases and redraws column by column, Chladni copies tile rows). */
     if (viz_mode != VIZ_CHLADNI) {                                          /* Winamp Bars / Scope: explicit geometry, black ground */
-        if (fs_force) { wviz_force = 1u; fb_rect(0, 0, FS_W, FS_FIG_H, 0u); }
+        /* helios_fill_excl(), not fb_rect(): skip the label's corner (fs_draw_label()'s exclusion
+         * rect) instead of clearing over it every time it's forced -- see fs_draw_label(). This
+         * covers the outer clear; a bar or the scope trace swinging all the way to the top rows
+         * could still touch the corner from inside wviz_bars_tick()/wviz_scope_tick()'s own fills,
+         * which is a separate, deeper follow-up (docs/HELIOS_SPEC.md), not attempted here. */
+        if (fs_force) { wviz_force = 1u; helios_fill_excl(0, 0, FS_W, FS_FIG_H, 0u); }
         if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(0u, 0u, FS_W, FS_FIG_H, 0u);
         else                             wviz_scope_tick(0u, 0u, FS_W, FS_FIG_H, 0, 0u);
         fs_force = 0u; fs_draw_label();

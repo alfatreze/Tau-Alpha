@@ -4253,26 +4253,52 @@ COLD_FN2 static void pl_ui_follow(void)
     if (pl_count <= PLIST_ROWS) pl_ui_top = 0;
 }
 
-/* Frame, header and hint of a full-screen overlay: the UI_BG border, the rounded panel, the
- * accent title (left), an optional dim right-hand text such as a position counter, a hairline
- * under the header and a dim hint line at the bottom. Caller must have set ov_draw. */
+/* Frame, header and hint of a full-screen overlay -- redesigned to the owner's Figma reference
+ * ("Menu Layout", node 196:1840, read for real via get_design_context once Figma access was fixed):
+ * full-bleed edge to edge (no rounded panel, no margin), a solid navy header ("MENU"-style title
+ * left, an optional right-hand status text), a plain black content area, and a navy action bar at
+ * the true bottom edge, the same colour as the header. Caller must have set ov_draw. PL_UI_X/
+ * PL_UI_LIST_Y (the row-content geometry every page already draws against) are UNCHANGED here on
+ * purpose -- only the chrome around them moved, so this stays a one-function change instead of
+ * touching every page's own row-drawing code too.
+ *
+ * Confirmed exact from the design (not guessed): header 28px, footer 28px, both #121C2E -- the
+ * canvas is exactly 28 + 304 + 28 = 360 = FB_H. My first pass guessed a 44px header from the
+ * screenshot alone; that was wrong, corrected here. NOT yet matched (out of scope for this pass,
+ * each needs touching every ov_frame() caller's own row-drawing, not just this function): the
+ * selected-row style (a full-width rounded lime bar with the row's own key letter right-aligned on
+ * it, no background box on unselected rows) and the action bar's real structure (fixed "KEY Action"
+ * slots with gaps, not one free-text sentence -- today's hint strings stay a single line for now). */
+#define OV_HEAD_H 28u
+#define OV_HINT_H 28u
+#define OV_HINT_Y (FB_H - OV_HINT_H)
+#define OV_CHROME_BG 0x10E5u   /* #121C2E: header and action bar share this colour, per the reference */
+
+/* The action-bar strip at the bottom, full width: a SOLID navy bar, reserved exclusively for the
+ * current action hint (owner: pages "all over" were letting their own content draw into that row,
+ * e.g. a partial/rows-only refresh that skips repainting the chrome -- set_info_tick() is one
+ * confirmed case, "repaint the rows only, never the panel"). Any page whose own content could reach
+ * this low should call ov_hint_repaint() again after drawing, the same idea as a persistent overlay
+ * always painted last. */
+static void ov_hint_repaint(const char *hint)
+{
+    fb_rect(0u, OV_HINT_Y, FB_W, OV_HINT_H, OV_CHROME_BG);
+    fb_set_color(UI_FAINT, OV_CHROME_BG);
+    fb_text_clipped(PL_UI_TEXT_X, OV_HINT_Y + 7u, hint, TS_1X, TS_1X, FB_W - 32u);
+}
+
 static void ov_frame(const char *title, const char *right, const char *hint)
 {
-    fb_rect(0u, 0u, FB_W, PL_UI_Y, UI_BG);
-    fb_rect(0u, PL_UI_Y + PL_UI_H, FB_W, FB_H - PL_UI_Y - PL_UI_H, UI_BG);
-    fb_rect(0u, PL_UI_Y, PL_UI_X, PL_UI_H, UI_BG);
-    fb_rect(PL_UI_X + PL_UI_W, PL_UI_Y, FB_W - PL_UI_X - PL_UI_W, PL_UI_H, UI_BG);
-    fb_round_rect_on(PL_UI_X, PL_UI_Y, PL_UI_W, PL_UI_H, 8u, UI_PANEL, UI_BG);
-    fb_set_color(ui_accent, UI_PANEL);
-    fb_text_clipped(PL_UI_TEXT_X, PL_UI_Y + 16u, title, TS_1X, TS_1X, 230u);
+    fb_rect(0u, 0u, FB_W, OV_HEAD_H, OV_CHROME_BG);
+    fb_rect(0u, OV_HEAD_H, FB_W, OV_HINT_Y - OV_HEAD_H, 0x0000u);
+    fb_set_color(ui_accent, OV_CHROME_BG);
+    fb_text_clipped(PL_UI_TEXT_X, 7u, title, TS_1X, TS_1X, 230u);
     if (right && right[0]) {
         uint32_t w = fb_text_width(right, TS_1X);
-        fb_set_color(UI_DIM, UI_PANEL);
-        fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, PL_UI_Y + 16u, right, TS_1X, TS_1X, w + 2u);
+        fb_set_color(UI_DIM, OV_CHROME_BG);
+        fb_text_clipped(FB_W - 16u - w, 7u, right, TS_1X, TS_1X, w + 2u);
     }
-    fb_rect(PL_UI_X + 12u, PL_UI_Y + 34u, PL_UI_W - 24u, 1u, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
-    fb_set_color(UI_FAINT, UI_PANEL);
-    fb_text_clipped(PL_UI_TEXT_X, PL_UI_Y + PL_UI_H - 26u, hint, TS_1X, TS_1X, PL_UI_W - 32u);
+    ov_hint_repaint(hint);
 }
 
 /* One row. Split out so the marquee can repaint just the selected line
@@ -10025,6 +10051,7 @@ int main(void)
         sw_tick();
 #endif
         bt_tick();
+        mw_tick();
 #endif
 #if TAU_DIAGNOSTIC
         dg_soak_tick();
