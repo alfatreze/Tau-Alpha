@@ -27,7 +27,7 @@ MEMORY {
 	sdram : ORIGIN = 0xA0100000, LENGTH = 0x00003400
 	/* P5: uncached CPU window onto PSRAM (0xA4000000). Only the album-art accumulator,
 	 * 11,040 B, and only in TAU_ART_PSRAM builds; empty otherwise. NOLOAD. */
-	psram : ORIGIN = 0xA4000000, LENGTH = 0x00002C00
+	psram : ORIGIN = 0xA4000000, LENGTH = 0x00004000   /* art accumulator: 15,360 B at ART_IMG 128 (was 0x2C00 at 92); the library image starts at +0x10000 */
 	/* Phase G1: cold READ-ONLY DATA (meter previews, help text) lives in PSRAM at 8 MiB and is loaded at boot from the
 	 * data slot file tau-cold.bin (tools/pack_cold.py). Never in the ROM image (build.sh strips it with objcopy -R).
 	 * Empty unless TAU_COLD=1. 1 MiB reserved; the library index (0x010000..0x40FFFF) and queue areas are below. */

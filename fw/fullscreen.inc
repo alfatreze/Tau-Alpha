@@ -15,7 +15,7 @@
  * All of this is COLD code. Hot entries: ui_draw_chrome() -> ui_fs_frame() only while ui_fullscreen is set (which only the cold-gated toggle can
  * do), ui_draw_dynamic() -> ui_fs_dynamic() after its COLD_READY() check, and poll_input() -> the two Select combos, gated on COLD_READY().
  *
- * Only Chladni is fullscreen-capable for now: the other meters use fixed constants for the normal box in hundreds of places.
+ * Chladni and the two Winamp meters are fullscreen-capable for now: the other meters use fixed constants for the normal box in hundreds of places.
  * Choosing another meter while fullscreen leaves fullscreen. */
 
 #define FS_W        400u
@@ -111,11 +111,21 @@ COLD_FN3 static void ui_fs_frame(void)
 }
 
 /* Called every display frame while fullscreen (after the normal, now silent, dynamic pass). */
+static inline int fs_capable(void) { return viz_mode == VIZ_CHLADNI || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE; }
+
 COLD_FN3 static void ui_fs_dynamic(void)
 {
     if (UI_OVERLAY_UP) return;
-    if (viz_mode != VIZ_CHLADNI) { ui_fullscreen = 0u; pl_ui_restore = 1u; ui_wave_force = 1u; return; }
+    if (!fs_capable()) { ui_fullscreen = 0u; pl_ui_restore = 1u; ui_wave_force = 1u; return; }
     const uint8_t o = ov_draw; ov_draw = 1u;
+    if (viz_mode != VIZ_CHLADNI) {                                          /* Winamp Bars / Scope: explicit geometry, black ground */
+        if (fs_force) { wviz_force = 1u; fb_rect(0, 0, FS_W, FS_FIG_H, 0u); }
+        if (fs_force || helios_rows_safe_counted(0u, FS_FIG_H - 1u)) {
+            if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(0u, 0u, FS_W, FS_FIG_H, 0u);
+            else                             wviz_scope_tick(0u, 0u, FS_W, FS_FIG_H, 0, 0u);
+            fs_force = 0u; fs_draw_label();
+        }
+    } else
     if (fs_force || helios_rows_safe_counted(0u, FS_FIG_H - 1u)) {           /* whole figure: only with the beam out of the way */
         if (chladni_tick_box(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force)) { fs_force = 0u; fs_draw_label(); }
     }
@@ -127,7 +137,7 @@ COLD_FN3 static void ui_fs_dynamic(void)
 COLD_FN3 static void ui_fs_toggle(void)
 {
     if (idle) return;
-    if (viz_mode != VIZ_CHLADNI) { ui_toast_msg("FULLSCREEN: CHLADNI ONLY"); return; }
+    if (!fs_capable()) { ui_toast_msg("FULLSCREEN: CHLADNI AND WINAMP ONLY"); return; }
     ui_fullscreen = (uint8_t)!ui_fullscreen;
     pl_ui_restore = 1u;                     /* repaint: the fullscreen frame, or the normal screen again */
     ui_wave_force = 1u;

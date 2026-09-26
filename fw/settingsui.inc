@@ -200,6 +200,10 @@ COLD_FN static void set_draw_thumb_soft(uint32_t x, uint32_t y, uint32_t viz)
  * stash rows correctly regardless. This also drops run-length from individual-word to
  * one-command-per-run, faster than either the old raw-pointer loop or a mailbox rewrite would be. */
 #define THUMB_STASH_Y (ART_STASH_Y + ART_H)
+#if TAU_ART_TIMG
+_Static_assert(TIMG_PLANE_Y == THUMB_STASH_Y + THUMB_LIVE_SLOTS * METER_THUMB_H && TIMG_PLANE_Y + 128u <= 984u,
+               "the cover index plane must sit after the compacted thumbnail stash and end before the Chladni plane (row 984)");
+#endif
 static uint8_t thumb_flat_ready;
 
 COLD_FN static void set_thumb_flat_build(void)
@@ -207,7 +211,7 @@ COLD_FN static void set_thumb_flat_build(void)
     for (uint32_t viz = 0; viz < VIZ_COUNT; viz++) {
         const uint8_t *p = &meter_thumb_rle[meter_thumb_off[viz]], *e = &meter_thumb_rle[meter_thumb_off[viz + 1u]];
         uint32_t pos = 0;
-        uint32_t base_row = THUMB_STASH_Y + viz * METER_THUMB_H;
+        uint32_t base_row = THUMB_STASH_Y + thumb_slot(viz) * METER_THUMB_H;
         while (p < e) {
             uint32_t b = *p++, idx = b >> 5, n = (b & 31u) + 1u;
             uint32_t at = pos, left = n;
@@ -232,7 +236,7 @@ COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
     if (!BLIT_READY()) { set_draw_thumb_soft(x, y, viz); return; }                          /* B8 fail-safe: old bitstream */
     if (!thumb_flat_ready) set_thumb_flat_build();
     fb_clut_load(meter_thumb_pal[viz], 8u);
-    fb_cblit(0u, THUMB_STASH_Y + viz * METER_THUMB_H, x, y, METER_THUMB_W, METER_THUMB_H);
+    fb_cblit(0u, THUMB_STASH_Y + thumb_slot(viz) * METER_THUMB_H, x, y, METER_THUMB_W, METER_THUMB_H);
 }
 
 #if TAU_DIAGNOSTIC
@@ -486,7 +490,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
         }
         uint32_t tx = mx + 24u;
         if (c == CH_METER) {                      /* preview placeholder */
-            set_draw_thumb(tx, y + (rowh - 2u - SET_TH_H) / 2u, i);
+            set_draw_thumb(tx, y + (rowh - 2u - SET_TH_H) / 2u, viz_sel_to_mode(i));
             tx += SET_TH_W + 14u;
         }
         fb_set_color(sel ? UI_PANEL : UI_WHITE, bg);
@@ -573,7 +577,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         break;
     case 15:   /* SPECTRUM (B-263): which analyser is running, and for the hardware one how many windows it has finished */
         if (spec_hw) { q = set_str(q, "HW W"); q = ui_dec(q, (REG(R_SPEC_ST) >> 16) & 0xFFFFu); }
-        else q = set_str(q, "SOFTWARE");
+        else q = set_str(q, "NO HW BANK");
         break;
     case 16:   /* BEAM (B-267): Helios beam-aware drawing -- share of meter updates that had to wait for the beam */
         if (!helios_beam_ok) q = set_str(q, "NONE");
@@ -768,7 +772,6 @@ static void wvcfg_build_vis(void)
 {
     uint8_t n = 0;
     wvcfg_vis[n++] = WVR_PRESET;
-    wvcfg_vis[n++] = WVR_MODE;
     if (viz_mode == VIZ_WINAMP_BARS) {
         wvcfg_vis[n++] = WVR_BANDS;
         wvcfg_vis[n++] = WVR_EASE;
@@ -903,7 +906,7 @@ COLD_FN static void wvcfg_draw(void)
 #if TAU_DIAGNOSTIC
     if (wvcfg_qr_up) { wvcfg_draw_qr(); return; }
 #endif
-    ov_frame("METER CONFIGURE", "", "L/R ADJUST   B BACK");
+    ov_frame("METER CONFIGURE", "", (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) ? "UP DOWN SCROLL   L/R ADJUST   B BACK" : "L/R ADJUST   B BACK");
 
     /* Live preview, pinned to the top of the page -- still reads real playing
      * audio (spec_lvl[]/wav_v[]), same wviz_bars_tick()/wviz_scope_tick() the
@@ -913,10 +916,16 @@ COLD_FN static void wvcfg_draw(void)
      * garbled preview -- see that function's own comment). */
     uint32_t px = PL_UI_TEXT_X, pw = PL_UI_X + PL_UI_W - 8u - px, py = PL_UI_LIST_Y, ph = UI_WAVE_H;
     fb_rect(px - 4u, py - 4u, pw + 8u, ph + 8u, UI_PANEL);
+    wviz_force = 1u;                      /* the panel was just wiped: the meters' change caches must repaint everything */
     if (viz_mode == VIZ_WINAMP_SCOPE) wviz_scope_tick(px, py, pw, ph, 0, UI_PANEL);
     else                              wviz_bars_tick(px, py, pw, ph, UI_PANEL);
 
     uint32_t list_y = py + ph + 16u;
+    if (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) {                      /* scroll track, as the other lists */
+        const uint32_t n = wvcfg_vis_n, vis = WVCFG_ROWS_VISIBLE, tx = PL_UI_X + PL_UI_W - 11u, lh = vis * PL_UI_ROW_H, th = lh * vis / n;
+        fb_rect(tx, list_y - 2u, 3u, lh, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
+        fb_rect(tx, list_y - 2u + (lh - th) * wvcfg_top / (n - vis), 3u, th, ui_accent);
+    }
     for (uint32_t k = 0; k < WVCFG_ROWS_VISIBLE && wvcfg_top + k < wvcfg_vis_n; k++) {
         uint32_t vi = wvcfg_top + k, i = wvcfg_row(vi), y = list_y + k * PL_UI_ROW_H;
         int sel = (vi == wvcfg_sel);
@@ -931,6 +940,21 @@ COLD_FN static void wvcfg_draw(void)
         fb_set_color(sel ? UI_PANEL : UI_WHITE, bg);
         fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, y, v, TS_1X, TS_1X, w + 2u);
     }
+}
+
+/* Once per display frame while the page is open: ONLY the live preview. The rest of the page is drawn on demand (set_dirty);
+ * redrawing it every frame wiped the preview panel under the meters' change caches, which is why bars vanished and the page
+ * glitched. */
+COLD_FN static void wvcfg_preview_tick(void)
+{
+#if TAU_DIAGNOSTIC
+    if (wvcfg_qr_up) return;
+#endif
+    const uint8_t o = ov_draw; ov_draw = 1u;
+    const uint32_t px = PL_UI_TEXT_X, pw = PL_UI_X + PL_UI_W - 8u - px, py = PL_UI_LIST_Y, ph = UI_WAVE_H;
+    if (viz_mode == VIZ_WINAMP_SCOPE) wviz_scope_tick(px, py, pw, ph, 0, UI_PANEL);
+    else                              wviz_bars_tick(px, py, pw, ph, UI_PANEL);
+    ov_draw = o;
 }
 
 static int wvcfg_input(uint32_t edge)
