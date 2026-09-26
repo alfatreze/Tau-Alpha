@@ -8,6 +8,159 @@
   "caps": [
     "bar"
   ],
-  "cost_class": 0,
-  "considered": "Solid per-band bars are exactly OP_BAR's shape; peak caps are one rect each."
+  "cost_class": 1,
+  "considered": "Solid per-band bars are exactly OP_BAR's shape; peak caps are one rect each.",
+  "params": [
+    {
+      "key": "bands",
+      "label": "Bands",
+      "type": "u8",
+      "min": 4,
+      "max": 16,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "key": "ease",
+      "label": "Easing",
+      "type": "enum",
+      "values": [
+        "INSTANT",
+        "LINEAR",
+        "EXPONENTIAL",
+        "SPRING"
+      ],
+      "default": 2
+    },
+    {
+      "key": "attack",
+      "label": "Attack",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 55
+    },
+    {
+      "key": "release",
+      "label": "Release",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 22
+    },
+    {
+      "key": "peak_on",
+      "label": "Peak cap",
+      "type": "bool",
+      "default": 1
+    },
+    {
+      "key": "peak_gravity",
+      "label": "Peak fall style",
+      "type": "enum",
+      "values": [
+        "LINEAR",
+        "GRAVITY"
+      ],
+      "default": 1,
+      "when": {
+        "peak_on": 1
+      }
+    },
+    {
+      "key": "peak_hold_ms",
+      "label": "Peak hold",
+      "type": "u16",
+      "min": 0,
+      "max": 800,
+      "step": 20,
+      "default": 200,
+      "unit": "ms",
+      "when": {
+        "peak_on": 1
+      }
+    },
+    {
+      "key": "peak_fall",
+      "label": "Peak fall speed",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 35,
+      "when": {
+        "peak_on": 1
+      }
+    }
+  ],
+  "presets": [
+    {
+      "name": "FLUID",
+      "values": {
+        "bands": 16,
+        "ease": 2,
+        "attack": 55,
+        "release": 22,
+        "peak_on": 1,
+        "peak_gravity": 1,
+        "peak_hold_ms": 200,
+        "peak_fall": 35
+      }
+    },
+    {
+      "name": "CLASSIC",
+      "values": {
+        "bands": 16,
+        "ease": 0,
+        "attack": 100,
+        "release": 100,
+        "peak_on": 1,
+        "peak_gravity": 0,
+        "peak_hold_ms": 0,
+        "peak_fall": 60
+      }
+    },
+    {
+      "name": "BOUNCY",
+      "values": {
+        "bands": 12,
+        "ease": 3,
+        "attack": 60,
+        "release": 25,
+        "peak_on": 1,
+        "peak_gravity": 1,
+        "peak_hold_ms": 250,
+        "peak_fall": 30
+      }
+    },
+    {
+      "name": "SLOW FADE",
+      "values": {
+        "bands": 8,
+        "ease": 2,
+        "attack": 30,
+        "release": 12,
+        "peak_on": 1,
+        "peak_gravity": 0,
+        "peak_hold_ms": 500,
+        "peak_fall": 15
+      }
+    },
+    {
+      "name": "SNAPPY",
+      "values": {
+        "bands": 16,
+        "ease": 1,
+        "attack": 90,
+        "release": 90,
+        "peak_on": 1,
+        "peak_gravity": 1,
+        "peak_hold_ms": 100,
+        "peak_fall": 70
+      }
+    }
+  ],
+  "default_preset": 0
 }

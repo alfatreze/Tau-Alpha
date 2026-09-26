@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Tau meter lab</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#14181e;--mut:#5f6774;--line:#d0d4da}
+@media (prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e8eaee;--mut:#98a0ad;--line:#2a2f37}}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,sans-serif;padding:16px}
+h1{font-size:18px;margin:0 0 12px}
+.wrap{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
+canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-width:100%}
+.panel{min-width:260px}.panel label{display:flex;gap:8px;align-items:center;margin:4px 0}
+.panel select,.panel input[type=range]{flex:1}.val{min-width:70px;color:var(--mut);font-variant-numeric:tabular-nums}
+.cost{margin-top:12px;color:var(--mut)}.over{color:#c4221b;font-weight:600}
+</style></head><body>
+<h1>Tau meter lab <span class="val" id="tag"></span></h1>
+<div class="wrap">
+ <div><canvas id="cv" width="400" height="360"></canvas><div class="cost" id="cost"></div></div>
+ <div class="panel">
+  <label>Meter <select id="meter"></select></label>
+  <label>Theme <select id="theme"></select></label>
+  <label>Mode <select id="mode"><option value="0">Dark</option><option value="1">Light</option></select></label>
+  <label>Accent <select id="accent"></select></label>
+  <label>Source <select id="src"><option value="demo">Demo (deterministic)</option><option value="sweep">Sweep</option><option value="silence">Silence</option></select></label>
+  <label>Bars use OP_BAR <input type="checkbox" id="barready" checked></label>
+  <div id="controls"></div>
+ </div>
+</div>
+<script id="tau-data" type="application/json">/*DATA*/</script>
+<script>/*SCRIPTS*/</script>
+<script>
+(function(){
+ const D=JSON.parse(document.getElementById('tau-data').textContent), S=D.schema;
+ const $=id=>document.getElementById(id);
+ document.getElementById('tag').textContent='registry v'+S.registry_version+' · model estimates, not measured';
+ const modules=Object.keys(TauMeters);
+ S.meters.filter(m=>modules.includes(m.key)).forEach(m=>{const o=document.createElement('option');o.value=m.key;o.textContent=m.name;$('meter').appendChild(o)});
+ D.themes.forEach((t,i)=>{const o=document.createElement('option');o.value=i;o.textContent=t.name;$('theme').appendChild(o)});
+ D.palette.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.name;$('accent').appendChild(o)});$('accent').value=1;
+ let params={},frame=0,st=null,key=null;
+ const cv=$('cv'),ctx=cv.getContext('2d');
+ function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);TauControls.build($('controls'),m,p=>{params=p;st=null;});}
+ ['meter'].forEach(i=>$(i).onchange=rebuild);rebuild();
+ ['theme','mode','accent','src','barready'].forEach(i=>$(i).onchange=()=>{st=null;});
+ const sources={demo:TauAudio.demo(1),sweep:TauAudio.sweep(),silence:TauAudio.silence()};
+ let fb=null,lvl=TauBallistics.newSpec(),theme=null,mod=null,box={x:16,y:152,w:368,h:122},costs=[];
+ function setup(){const m=S.meters.find(x=>x.key===key);mod=TauMeters[key];theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
+  fb=new TauFb.Fb(400,360);fb.barReady=$('barready').checked;for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));st=mod.state();lvl=TauBallistics.newSpec();costs=[];frame=0;
+  ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);}
+ function step(){if(!st)setup();const src=sources[$('src').value](frame);TauBallistics.specStep(lvl,src.spec);const bg=theme.gradAt(box.y+(box.h>>1));const c0=fb.cmds;
+  mod.tick({fb,x:box.x,y:box.y,w:box.w,h:box.h,bg,theme,spec:lvl,wave:src.wave,paused:src.paused,p:params,st,force:frame===0});
+  costs.push(fb.cmds-c0);if(costs.length>120)costs.shift();frame++;
+  ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);
+  const m=S.meters.find(x=>x.key===key),c=TauCost.summarize(costs,m.cost_class);
+  $('cost').innerHTML='commands/frame: mean '+c.mean+', worst '+c.max+' (class '+m.cost_class+' budget '+c.budget+') · '+c.vsBars+'× VIZ_BARS · <span class="'+(c.over?'over':'')+'">'+(c.over?'OVER BUDGET':'within budget')+'</span> · '+c.basis;}
+ setInterval(step,26);
+})();
+</script></body></html>
