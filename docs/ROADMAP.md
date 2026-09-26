@@ -10,19 +10,20 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 
 | # | Item | Status | Gate / next action | Reference |
 |---|---|---|---|---|
+| **0** | **Theme system, all 4 steps: the 0.5 gate** (owner, 2026-09-26: finish it, do not ship 0.5 with it half done) | Design only (`THEME_SPEC`), nothing built | 0a role table with today's look as the default theme, no visible change; 0b Dark/Light switch plus a second built-in theme, with the text gamma check (`tools/gen_text_gamma.py --check`); 0c VU ladder, meters and thumbnails onto roles and CLUT-from-roles; 0d theme file (`TTHM`, new data slot) loader plus Omega exporter. Theme index and polarity are **session-only** until persist is widened (owner decision, no RTL change). Each step ends with a host test and a card run | `THEME_SPEC`, `HELIOS_SPEC` 7.4 |
 | 1 | Close alpha.30 | Hardware-confirmed good (404,712 slots, 0 BAD, 1.75x clean) | Optional like-for-like unit-off run; find the speed where audio breaks; HarpMudd comparison later | B-308, B-309 |
 | 2 | Batched drawing for the hardware wave/scope path | Compiled out since B-302 (256 columns cost ~21x a normal meter) | Design batching (few `fb_rect`/`OP_BAR`-style commands per frame), re-enable, prove with Meter Sweep | B-298..B-302, `HARDWARE_METER_IDEAS` #6 |
 | 3 | Remove software paths made redundant by hardware | Spectrum cascade already removed | After 2: delete software level/scope in `meters_feed` and `wviz_scope_tick` | ALPHA22 handoff item 3 |
-| 4 | Meter module M1 to M2 | M0 done (B-294) | M1 preview stack, M1.5 shared `meter_core`, M2 Winamp pair as modules | `METER_MODULE_SPEC` section 17 |
+| 4 | Meter module M1 to M2 | M0 done (B-294) | Not before 0.5 (owner, 2026-09-26: theme first); M2 depends on theme roles (D-M05) | `METER_MODULE_SPEC` section 17 |
 
 ## 2. Next (needs an owner call first)
 
 | # | Item | Why it needs a decision | Reference |
 |---|---|---|---|
-| 5 | **Release the MP3 window unit** (make `POLY_FW=1` and the poly bitstream the release build, cut v0.5.0) | The bitstream leaves only 4 free M10K blocks (304/308). Decide before spending more block RAM on anything. *(owner)* | `DECISIONS` (new), B-308/B-309 |
+| 5 | **Release the MP3 window unit** (make `POLY_FW=1` and the poly bitstream the release build, cut v0.5.0, **after item 0**) | The bitstream leaves only 4 free M10K blocks (304/308). Decide before spending more block RAM on anything. *(owner)* | `DECISIONS` (new), B-308/B-309 |
 | 6 | **192 KB RAM shrink** | Old premise "9 blocks free, so defer" is now 4 free. It frees 64 blocks but firmware is 8.5 KB short of linking. Re-decide: do it now, or keep deferring. *(owner)* | `RAM_SHRINK_192K_PLAN`, `PHASE_F_SPEC` section 4 |
-| 7 | Helios H1: convert regions to beam-gated drawing, then the now-playing redesign | H1 core is inert and needs a first real region; the now-playing redesign (Figma node 194:1630) was explicitly parked for its own session | `HELIOS_SPEC` section 9, ALPHA29 handoff part 2.9 |
-| 8 | Theme system (roles, Dark/Light, CLUT-from-roles) | Not started; touches every meter and thumbnail. Confirm it comes before or after 7. *(owner)* | `THEME_SPEC` |
+| 7 | Helios H1: convert regions to beam-gated drawing, then the now-playing redesign | H1 core is inert and needs a first real region; the now-playing redesign (Figma node 194:1630) was explicitly parked for its own session; do it after item 0 so it is written against roles, not fixed colours | `HELIOS_SPEC` section 9, ALPHA29 handoff part 2.9 |
+| 8 | Persist widening in RTL (theme index and polarity, meter Configure settings) | Needs a fit; theme ships session-only until then | `THEME_SPEC` section 5, `METER_CONFIG_SPEC` |
 | 9 | Cover art: TIM1 firmware reader as the default (palette 256 at 128 px) | Offline tools done; reader exists behind `TAU_ART_TIMG`, off by default. Container is still unfrozen (D-I05). Decide when to freeze. *(owner)* | `IMAGE_FORMATS`, `DECISIONS` D-I01..D-I05, `COVER_TIMG_READER` |
 | 10 | Audio kernels beyond the MP3 window: FLAC bit reader first | Was ordered after the blit engine and RAM shrink (owner, 2026-09-22); the first is done. Re-confirm the order. *(owner)* | `PHASE_F_SPEC` section 14 row 7, B-086..B-098 |
 
