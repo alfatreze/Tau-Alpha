@@ -160,7 +160,6 @@ COLD_FN3 static void ui_fs_toggle(void)
 /* Select+X: the next preset of the current meter, if it has any. */
 COLD_FN3 static void meter_preset_next(void)
 {
-    static const char *const wnm[5] = { "PRESET: FLUID", "PRESET: CLASSIC", "PRESET: BOUNCY", "PRESET: SLOW FADE", "PRESET: SNAPPY" };
     if (viz_mode == VIZ_CHLADNI) {
         const char *t = chladni_next_preset();
         if (ui_fullscreen) pl_ui_restore = 1u; else { ui_wave_clear(); ui_wave_force = 1u; }
@@ -171,13 +170,11 @@ COLD_FN3 static void meter_preset_next(void)
         settings_mark_dirty();
         ui_toast_msg(bars_layout ? "PRESET: MIRRORED" : "PRESET: BARS");
     } else if (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE) {
-        const int scope = (viz_mode == VIZ_WINAMP_SCOPE);
-        uint8_t *pidx = scope ? &wvcfg_preset_idx_scope : &wvcfg_preset_idx_bars;
-        const uint32_t p = (*pidx < WVIZ_PRESET_N) ? ((uint32_t)*pidx + 1u) % WVIZ_PRESET_N : 0u;
-        *pidx = (uint8_t)p;
-        if (scope) wviz_cfg_scope = wviz_scope_presets[p]; else wviz_cfg_bars = wviz_bars_presets[p];
+        const mtr_data_t *md = mtr_of(viz_mode);
+        const uint32_t p = (*md->pre_idx < md->npre) ? ((uint32_t)*md->pre_idx + 1u) % md->npre : 0u;   /* from CUSTOM: the first preset */
+        mtr_apply_preset(md, p);
         wviz_force = 1u;
-        ui_toast_msg(wnm[p]);
+        ui_toast_set("PRESET: ", 0xFFFFFFFFu, md->pre_names[p]);
     } else {
         ui_toast_msg("NO PRESETS FOR THIS METER");
     }

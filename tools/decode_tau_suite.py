@@ -61,6 +61,19 @@ def from_text(txt: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
+def _meter_schema(meter_id):
+    """The registry entry for a meter id (tools/meters_schema.json next to this file), or None."""
+    try:
+        import json, os
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "meters_schema.json")) as f:
+            for m in json.load(f)["meters"]:
+                if m["id"] == meter_id:
+                    return m
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
 def parse_record(rec: bytes) -> dict:
     if len(rec) < 8 or rec[:2] != b"TD":
         raise ValueError("bad magic")
@@ -121,6 +134,27 @@ def parse_record(rec: bytes) -> dict:
                 "free_ram": free_ram, "underruns": underruns, "draw_stall_ms": stall_ms, "load_ms": load_ms,
                 "cpu_pct": v[19],
             }
+        elif tag == 20 and n >= 4:                # SR_T_METERCFG (M2): meter id, schema, preset, nparams, values (widths from the registry)
+            meter_id, schema, preset, np_ = v[0], v[1], v[2], v[3]
+            entry = {"meter_id": meter_id, "schema": schema, "preset": None if preset == 0xFF else preset}
+            meter = _meter_schema(meter_id)
+            raw, pos = [], 4
+            for k in range(np_):                # (not i: that is the record cursor)
+                width = 2 if meter and k < len(meter["params"]) and meter["params"][k]["type"] == "u16" else 1
+                if pos + width > n:
+                    break
+                raw.append(int.from_bytes(v[pos:pos + width], "little")); pos += width
+            if meter and np_ == len(meter["params"]) and pos == n:
+                entry["meter"] = meter["key"]
+                if entry["preset"] is not None and entry["preset"] < len(meter["presets"]):
+                    entry["preset_name"] = meter["presets"][entry["preset"]]["name"]
+                entry["values"] = {}
+                for p_, x in zip(meter["params"], raw):
+                    entry["values"][p_["key"]] = (p_["values"][x] if p_["type"] == "enum" and x < len(p_["values"])
+                                                  else bool(x) if p_["type"] == "bool" else x)
+            else:
+                entry["raw_values"] = raw       # unknown meter or a registry that does not match: never guess
+            out["entries"]["metercfg"] = entry
         elif tag == 17 and n == 13:               # SR_T_WVIZCFG (B-218): a one-off export of the Winamp
                                                     # Bars/Scope Configure page's live wviz_cfg, not part
                                                     # of a Check run -- see fw/suite_core.h's own comment

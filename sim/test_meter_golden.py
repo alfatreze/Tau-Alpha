@@ -36,13 +36,12 @@ HARNESS = r'''
 #define FB_W 400u
 #define UI_WHITE g_prim
 #define UI_TRACK g_track
-typedef struct { uint8_t bands, ease_mode, attack, release, peak_on, peak_gravity; uint16_t peak_hold_ms; uint8_t peak_fall; } wviz_bars_cfg_t;
-typedef struct { uint8_t scope_smooth, scope_trail; } wviz_scope_cfg_t;
+#include "meter_gen_enum.h"
+#include "meter_module.h"
+#include "meters_gen.h"
 static uint16_t g_prim, g_track, ui_accent;
 static uint8_t spec_lvl[16], paused, wave_hw, ui_fullscreen;
 static signed char wav_v[64];
-static wviz_bars_cfg_t wviz_cfg_bars;
-static wviz_scope_cfg_t wviz_cfg_scope;
 #include "meter_core.h"
 static uint8_t wviz_force, wviz_disp[16], wviz_peak_drawn[16], wviz_drawn[16], wviz_scope_init;
 static int16_t wviz_vel[16], wviz_scope_y[256];
@@ -61,9 +60,8 @@ int main(int argc, char **argv) {
         fscanf(f, "%d %d %u %u %u %u %u %u %u %u %d", &isbars, &np, &acc, &prim, &track, &bg, &bx, &by, &bw, &bh, &nframes);
         unsigned p[8]; for (int i = 0; i < np; i++) fscanf(f, "%u", &p[i]);
         ui_accent = (uint16_t)acc; g_prim = (uint16_t)prim; g_track = (uint16_t)track;
-        if (isbars) { wviz_cfg_bars.bands = p[0]; wviz_cfg_bars.ease_mode = p[1]; wviz_cfg_bars.attack = p[2]; wviz_cfg_bars.release = p[3]; wviz_cfg_bars.peak_on = p[4];
-                      wviz_cfg_bars.peak_gravity = p[5]; wviz_cfg_bars.peak_hold_ms = p[6]; wviz_cfg_bars.peak_fall = p[7]; }
-        else { wviz_cfg_scope.scope_smooth = p[0]; wviz_cfg_scope.scope_trail = p[1]; }
+        if (isbars) { for (int i = 0; i < np; i++) mtr_v_winamp_bars[i] = (uint16_t)p[i]; }
+        else        { for (int i = 0; i < np; i++) mtr_v_winamp_scope[i] = (uint16_t)p[i]; }
         for (int i = 0; i < 16; i++) { wviz_disp[i] = 0; wviz_vel[i] = 0; wviz_pk[i].peak = 0; wviz_pk[i].vel = 0; wviz_pk[i].hold = 0; wviz_drawn[i] = 0; wviz_peak_drawn[i] = 0; }
         for (int i = 0; i < 256; i++) wviz_scope_y[i] = 0;
         wviz_scope_init = 0; wviz_force = 1;

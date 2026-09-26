@@ -86,6 +86,14 @@ def main():
         "mode": "scope", "preset": None, "bands": 12, "ease_mode": "spring", "attack": 60, "release": 25,
         "peak_on": True, "peak_gravity": True, "peak_hold_ms": 250, "peak_fall": 30,
         "scope_smooth": 45, "scope_trail": 20}, wviz)
+    # SR_T_METERCFG (M2): a generic Configure-page export -- winamp_bars (id 12), custom preset, 8 params (peak_hold_ms is a u16).
+    mc = bytes([12, 1, 0xFF, 8, 12, 3, 60, 25, 1, 1]) + (250).to_bytes(2, "little") + bytes([30])
+    mcd = D.parse_record(D.build_record(0, [(20, mc)]))["entries"]["metercfg"]
+    check("decode metercfg (registry-driven)", mcd == {"meter_id": 12, "schema": 1, "preset": None, "meter": "winamp_bars", "values": {
+        "bands": 12, "ease": "SPRING", "attack": 60, "release": 25, "peak_on": True, "peak_gravity": "GRAVITY", "peak_hold_ms": 250,
+        "peak_fall": 30}}, mcd)
+    mcu = D.parse_record(D.build_record(0, [(20, bytes([99, 1, 2, 2, 7, 9]))]))["entries"]["metercfg"]
+    check("decode metercfg (unknown meter stays raw)", mcu == {"meter_id": 99, "schema": 1, "preset": 2, "raw_values": [7, 9]}, mcu)
     # SR_T_METERSWEEP (B-301): one entry per meter, repeatable -- meter_id, sdram_busy_permille (u16),
     # draw_stall_ms (u16), cpu_pct, late_underruns, yield_worst_growth_s, audio_full.
     ms_bytes = bytes([13]) + (768).to_bytes(2, "little") + (34663).to_bytes(2, "little") + bytes([100, 1, 0, 1])

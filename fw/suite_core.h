@@ -16,7 +16,7 @@
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
        SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK, SR_T_WVIZCFG,
-       SR_T_METERSWEEP, SR_T_INFOEXPORT };
+       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG };
 /* SR_T_METERSWEEP (B-301, docs/METER_MODULE_SPEC.md section 15 "meter sweep as a standing
  * regression"): ONE entry per selectable meter (repeatable, same convention as SR_T_DECSWEEP),
  * appended in viz_order[] order while music keeps playing underneath -- the real point is that each
@@ -34,7 +34,11 @@ enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, S
  * fw_patch(u8) (parsed from APP_VER), fpga_rev(u32 LE, REG(R_VERSION)), window_read_cyc(u16 LE),
  * free_ram(u32 LE), underruns(u16 LE, pcm_under_n), draw_stall_ms(u16 LE, R_FB_STALL/(CLK_HZ/1000)),
  * load_ms(u16 LE, the LOAD MS row's own total), cpu_pct(u8, ui_cpu_pct()). */
-/* SR_T_WVIZCFG (B-218): a one-off export of the Winamp Bars/Scope config page's live wviz_cfg
+/* SR_T_METERCFG (M2, docs/METER_MODULE_SPEC.md section 5): generic replacement for SR_T_WVIZCFG. A one-off export of the meter being edited on
+ * the Configure page, for ANY meter that has parameters: meter_id(u8, the VIZ_* id), schema(u8, 1), preset_idx(u8, 0xFF = custom),
+ * nparams(u8), then the values in manifest order, one byte per u8/bool/enum parameter and two (u16 LE) per u16 parameter. Widths and
+ * names come from tools/meters_schema.json, so a new meter needs no decoder change. */
+/* SR_T_WVIZCFG (B-218, superseded by SR_T_METERCFG; still decodable): a one-off export of the Winamp Bars/Scope config page's live wviz_cfg
  * (fw/settingsui.inc), NOT part of a Check run -- built and shown on demand from Settings >
  * Appearance > Meter > Configure > Export QR. 13 raw bytes, no sub-length prefix beyond the TLV's
  * own: mode(u8: 0=bars,1=scope), preset_idx(u8: 0xFF=custom), bands(u8), ease_mode(u8: 0=instant
