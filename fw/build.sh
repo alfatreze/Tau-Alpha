@@ -69,7 +69,7 @@ release)
       "$FW/picojpeg.o" "$FW/flac.o"
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
-    STRESS_CFLAGS="-DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_G4=${G4:-3}"
+    STRESS_CFLAGS="-DTAU_ART_TIMG=${ART_TIMG:-0} -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_G4=${G4:-3}"
     COLD_PACK=1
     HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB
     ;;
@@ -86,7 +86,7 @@ player-library-diagnostic)
     )
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     OUT="$ROOT/work/diagnostics/library-diagnostic"
-    STRESS_CFLAGS="-DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAGNOSTIC=1 -DTAU_G4=${G4:-3}"
+    STRESS_CFLAGS="-DTAU_ART_TIMG=${ART_TIMG:-0} -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAGNOSTIC=1 -DTAU_G4=${G4:-3}"
     COLD_PACK=1
     HEAP_MIN=4096        # developer build: the tests may use the space, never below 4 KiB
     ;;
@@ -113,7 +113,7 @@ player-library-diagnostic-profile)
     # Kept opt-in, not a default, because R_SDR_BUSY reads a hardwired 0 on any OTHER bitstream
     # (mp3_soc.v gates it on SDRAM_BUSY_ENABLE) -- turning this on against the wrong bitstream
     # would report a real-looking but false "0% busy" instead of CT_BLT's own N/A sentinel.
-    STRESS_CFLAGS="-DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAGNOSTIC=1 -DTAU_G4=${G4:-3} -DMP3_PROFILE=1 -DFLAC_PROFILE=1 -DTAU_SDRAM_BUSY=${SDRAM_BUSY:-0}"
+    STRESS_CFLAGS="-DTAU_ART_TIMG=${ART_TIMG:-0} -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAGNOSTIC=1 -DTAU_G4=${G4:-3} -DMP3_PROFILE=1 -DFLAC_PROFILE=1 -DTAU_SDRAM_BUSY=${SDRAM_BUSY:-0}"
     FLAC_O_CFLAGS="-DFLAC_PROFILE=1"
     COLD_PACK=1
     HEAP_MIN=4096
