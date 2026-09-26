@@ -45,6 +45,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FB = ROOT / "src" / "fpga" / "core" / "mp3_fb.sv"
 
+# The pinned weight table for the Light polarity (dark text on a light ramp), selected in RTL by the text_light input
+# (MMIO 0x114 bit 0). Fitted 2026-09-26 from the built-in light themes with the real accent palette (gen_themes.light_fit);
+# the RTL carries exactly this (cov_weight_light in mp3_fb.sv) and --check asserts it.
+LIGHT_TABLE = [0, 1, 1, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 16]
+
 # ---- the colours this core actually draws --------------------------------
 # Foregrounds: white body text, the dim artist line, every accent.
 FG = [
@@ -199,7 +204,20 @@ def main():
             print("\nMISMATCH: mp3_fb.sv has %s" % (found or "no table"),
                   file=sys.stderr)
             return 1
-        print("\nmp3_fb.sv matches.")
+        found_l = [int(m) for m in re.findall(r"4'd\d+\s*:\s*cov_weight_light\s*=\s*5'd(\d+);", src)]
+        if found_l != LIGHT_TABLE:
+            print("\nMISMATCH: mp3_fb.sv light table is %s, expected %s" % (found_l or "missing", LIGHT_TABLE), file=sys.stderr)
+            return 1
+        print("\nmp3_fb.sv matches (dark and light tables).")
+        # Not a failure: how far the best fit for the CURRENT theme files has drifted from the pinned light table. Changing the
+        # pinned table means an RTL change and a fit, so it is a deliberate step, not something a theme edit should trigger.
+        try:
+            import gen_themes as gt
+            best = gt.light_fit(gt.load())[0]
+            if best != LIGHT_TABLE:
+                print("note: best light fit for the current themes is %s (pinned %s); refit only if text looks off" % (best, LIGHT_TABLE))
+        except Exception as e:      # the drift note is advisory
+            print("note: light drift check skipped (%s)" % e)
         return 0
 
     print()

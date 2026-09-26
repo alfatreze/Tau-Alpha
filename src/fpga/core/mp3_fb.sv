@@ -98,6 +98,10 @@ module mp3_fb #(
     // the offset add, not just that a CBLIT with reindex=0 still works. Never
     // set outside that test.
     parameter BUG_IGNORE_REINDEX = 0,
+    // Mutation-test hook only (-PBUG_IGNORE_TEXT_LIGHT=1, make test-rtl-fb-mutation): 1 ignores
+    // the text_light input and always uses the dark-polarity weight table -- proves the scene test
+    // really exercises the second table. Never set outside that test.
+    parameter BUG_IGNORE_TEXT_LIGHT = 0,
     // Mutation-test hook only (-PBUG_IGNORE_RC_CUT=1, make test-rtl-fb-mutation): 1 forces
     // rrect_cut to always read 0, degenerating B11's rounded-rect into a square rect (the LUT
     // mechanism is never actually exercised) -- proves the test catches a corner-cut table that
@@ -122,6 +126,11 @@ module mp3_fb #(
     input  wire [1:0]  cmd_sx,      // CHAR: h scale 0=1x 1=1.5x 2=2x 3=3x
     input  wire [1:0]  cmd_sy,      // CHAR: v scale, same encoding
     output wire        cmd_full,
+    // Theme step 0b/gamma (docs/THEME_SPEC.md, tools/gen_text_gamma.py): 0 = the text weight table
+    // fitted for light text on a dark ramp (cov_weight), 1 = the table fitted for dark text on a
+    // light ramp (cov_weight_light). Already in the clk_sdram domain (the caller synchronises it);
+    // quasi-static, changed only by the theme switch which repaints everything afterwards.
+    input  wire        text_light,
 
     // Phase F B1 (section 9): sticky blit addressing state, from mp3_soc.v's
     // R_BLT_IDX/R_BLT_DATA registers. Read only by OP_BLIT below; RUN/RECT/
@@ -776,7 +785,30 @@ module mp3_fb #(
         endcase
     endfunction
 
-    wire [4:0] cov16 = cov_weight(cov);
+    // Light polarity: dark text on a light ramp. Fitted by tools/gen_text_gamma.py (LIGHT_TABLE); the
+    // dark table above serves it about 9x worse (RMS 0.17 against 0.02), which reads as heavy, blobby text.
+    function [4:0] cov_weight_light(input [3:0] c);
+        case (c)
+            4'd0 : cov_weight_light = 5'd0;
+            4'd1 : cov_weight_light = 5'd1;
+            4'd2 : cov_weight_light = 5'd1;
+            4'd3 : cov_weight_light = 5'd2;
+            4'd4 : cov_weight_light = 5'd3;
+            4'd5 : cov_weight_light = 5'd3;
+            4'd6 : cov_weight_light = 5'd4;
+            4'd7 : cov_weight_light = 5'd5;
+            4'd8 : cov_weight_light = 5'd6;
+            4'd9 : cov_weight_light = 5'd7;
+            4'd10: cov_weight_light = 5'd8;
+            4'd11: cov_weight_light = 5'd9;
+            4'd12: cov_weight_light = 5'd10;
+            4'd13: cov_weight_light = 5'd12;
+            4'd14: cov_weight_light = 5'd13;
+            4'd15: cov_weight_light = 5'd16;
+        endcase
+    endfunction
+
+    wire [4:0] cov16 = (text_light && !BUG_IGNORE_TEXT_LIGHT) ? cov_weight_light(cov) : cov_weight(cov);
     wire [4:0] inv16 = 5'd16 - cov16;
 
     wire [10:0] mix_r = char_fg[15:11] * cov16 + char_bg[15:11] * inv16;

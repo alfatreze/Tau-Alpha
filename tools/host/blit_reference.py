@@ -34,6 +34,8 @@ SCALE_ND = {0: (1, 1), 1: (2, 3), 2: (1, 2), 3: (1, 3)}
 SCALE_EXT = {0: 16, 1: 24, 2: 32, 3: 48}
 # cov_weight(): 4-bit coverage -> 5-bit blend weight. mp3_fb.sv function cov_weight.
 COV_WEIGHT = [0, 4, 6, 7, 8, 10, 10, 11, 12, 13, 13, 14, 15, 15, 16, 16]
+# cov_weight_light(): the table for dark text on a light ramp, selected by the text_light input (theme/gamma)
+COV_WEIGHT_LIGHT = [0, 1, 1, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 16]
 
 
 def sblit_ext(src: int, sel: int) -> int:
@@ -227,7 +229,7 @@ class Renderer:
                 acc_y -= den_y
                 ey += 1
 
-    def char(self, addr: int, glyph: int, fg: int, bg: int, sx: int, sy: int) -> None:
+    def char(self, addr: int, glyph: int, fg: int, bg: int, sx: int, sy: int, light: bool = False) -> None:
         """OP_CHAR: 4bpp coverage atlas lookup + gamma-fitted anti-aliasing
         blend (cov_weight), then the same EPX-scale Bresenham stepper SBLIT
         reuses. Address = (glyph-0x20)*32 + row*2 + half, per font_rom.v's
@@ -247,7 +249,7 @@ class Renderer:
             ex, acc_x = 0, 0
             for col in range(ext_w):
                 cov = (rowbits >> (ex * 4)) & 0xF
-                w16 = COV_WEIGHT[cov]
+                w16 = (COV_WEIGHT_LIGHT if light else COV_WEIGHT)[cov]
                 inv16 = 16 - w16
                 mix_r = fg_r * w16 + bg_r * inv16
                 mix_g = fg_g * w16 + bg_g * inv16

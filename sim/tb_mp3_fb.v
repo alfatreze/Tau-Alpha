@@ -53,6 +53,7 @@ module tb_mp3_fb;
     reg  [7:0]  blt_blend_alpha = 8'd0;
     // Phase F B9: palette re-index offset, left at 0 (no-op) by default.
     reg  [7:0]  blt_reindex = 8'd0;
+    reg         text_light = 1'b0;   // theme/gamma: the dark-polarity weight table (default)
     // Phase F B8: CLUT load, idle unless a test drives it.
     reg         clut_wr = 1'b0;
     reg  [7:0]  clut_waddr = 8'd0;
@@ -83,6 +84,7 @@ module tb_mp3_fb;
         .blt_key_en(blt_key_en), .blt_key(blt_key),
         .blt_blend_en(blt_blend_en), .blt_blend_mode(blt_blend_mode), .blt_blend_alpha(blt_blend_alpha),
         .blt_reindex(blt_reindex),
+        .text_light(text_light),
         .clut_wr(clut_wr), .clut_waddr(clut_waddr), .clut_wdata(clut_wdata),
         .rc_cut_lut(rc_cut_lut),
         .sdram_init_complete(1'b1),

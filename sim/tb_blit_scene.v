@@ -40,6 +40,7 @@ module tb_blit_scene;
     parameter BUG_BLEND_ALWAYS_SRC = 0;
     parameter BUG_CBLIT_NO_LOOKUP = 0;
     parameter BUG_IGNORE_REINDEX = 0;
+    parameter BUG_IGNORE_TEXT_LIGHT = 0;
 
     reg clk_sdram = 0, clk_sys = 0, clk_vid = 0, reset = 1;
     always #5    clk_sdram = ~clk_sdram;   // 100 MHz
@@ -63,6 +64,7 @@ module tb_blit_scene;
     reg  [2:0]  blt_blend_mode = 3'd0;
     reg  [7:0]  blt_blend_alpha = 8'd0;
     reg  [7:0]  blt_reindex = 8'd0;
+    reg         text_light = 1'b0;
     reg         clut_wr = 1'b0;
     reg  [7:0]  clut_waddr = 8'd0;
     reg  [15:0] clut_wdata = 16'd0;
@@ -82,7 +84,8 @@ module tb_blit_scene;
              .BUG_SBLIT_NO_SCALE(BUG_SBLIT_NO_SCALE), .BLIT_BLEND_ENABLE(1),
              .BUG_BLEND_ALWAYS_SRC(BUG_BLEND_ALWAYS_SRC),
              .BUG_CBLIT_NO_LOOKUP(BUG_CBLIT_NO_LOOKUP),
-             .BUG_IGNORE_REINDEX(BUG_IGNORE_REINDEX)) dut (
+             .BUG_IGNORE_REINDEX(BUG_IGNORE_REINDEX),
+             .BUG_IGNORE_TEXT_LIGHT(BUG_IGNORE_TEXT_LIGHT)) dut (
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
@@ -92,6 +95,7 @@ module tb_blit_scene;
         .blt_key_en(blt_key_en), .blt_key(blt_key),
         .blt_blend_en(blt_blend_en), .blt_blend_mode(blt_blend_mode), .blt_blend_alpha(blt_blend_alpha),
         .blt_reindex(blt_reindex),
+        .text_light(text_light),
         .clut_wr(clut_wr), .clut_waddr(clut_waddr), .clut_wdata(clut_wdata),
         .rc_cut_lut(rc_cut_lut),
         .sdram_init_complete(1'b1),
@@ -118,8 +122,8 @@ module tb_blit_scene;
     // Every written word lands here: sim can't dynamically grow an array, so
     // size for comfortably more than this scene needs (36 rows x <=8 words).
     integer     out_n = 0;
-    reg [24:0]  out_addr [0:511];
-    reg [15:0]  out_val  [0:511];
+    reg [24:0]  out_addr [0:1023];
+    reg [15:0]  out_val  [0:1023];
 
     // A real persistent memory, unlike sim/tb_mp3_fb.v's stub (which never
     // needs one -- its tests never read back a destination this same run
@@ -293,6 +297,15 @@ module tb_blit_scene;
         push(3'd7, 19'd24576, 9'd4, 9'd1, 16'h0000, 16'h00FF, 7'd0, 2'd0, 2'd0);
         wait (out_n == 8+18+8+8+8+4+4+20+16+8+256+8+4); repeat (10) @(posedge clk_sdram);
         blt_reindex <= 8'd0;
+
+        // 14. CHAR with the light-polarity weight table (theme/gamma): 'A', scale 1x1, dark fg 0x18E3 on a
+        //     light bg 0xEF7D, addr=28672 -- same glyph as command 11 but text_light=1 selects
+        //     cov_weight_light. The reference renders it with the light table; BUG_IGNORE_TEXT_LIGHT makes
+        //     the RTL use the dark table and the diff must catch it.
+        text_light <= 1'b1; repeat (8) @(posedge clk_sdram);
+        push(3'd2, 19'd28672, 9'd0, 9'd0, 16'h18E3, 16'hEF7D, 7'h41, 2'd0, 2'd0);
+        wait (out_n == 8+18+8+8+8+4+4+20+16+8+256+8+4+256); repeat (20) @(posedge clk_sdram);
+        text_light <= 1'b0;
 
         // ---- dump every written word ---------------------------------------
         if (!$value$plusargs("DUMP=%s", dump_path)) dump_path = "/dev/null";

@@ -67,6 +67,8 @@ def reference_scene() -> dict[int, int]:
     #     "shadow" bank, CLUT entries 32-35 preloaded.
     clut[32], clut[33], clut[34], clut[35] = 0x2001, 0x2002, 0x2003, 0x2004
     r.cblit(24576, 255, 4, 1, clut, reindex=32)
+    # 14. CHAR with the light-polarity weight table: 'A', dark fg 0x18E3 on light bg 0xEF7D, addr=28672
+    r.char(28672, 0x41, 0x18E3, 0xEF7D, 0, 0, light=True)
     return r.mem
 
 
@@ -131,6 +133,7 @@ def main() -> int:
         "BUG_BLEND_ALWAYS_SRC",
         "BUG_CBLIT_NO_LOOKUP",
         "BUG_IGNORE_REINDEX",
+        "BUG_IGNORE_TEXT_LIGHT",
     ]
     for mut in mutations:
         mutated = run_rtl_scene(mutation=mut)

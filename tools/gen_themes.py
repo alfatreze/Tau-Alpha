@@ -136,6 +136,7 @@ def emit(themes):
 
 def gamma_report(themes):
     rtl = [int(m) for m in re.findall(r"4'd\d+\s*:\s*cov_weight\s*=\s*5'd(\d+);", gtg.FB.read_text())]
+    rtl_light = [int(m) for m in re.findall(r"4'd\d+\s*:\s*cov_weight_light\s*=\s*5'd(\d+);", gtg.FB.read_text())]
     ident = list(range(15)) + [16]
     accents = [c for _, c in palette()]
     rows = []
@@ -148,7 +149,7 @@ def gamma_report(themes):
                 bgs += ramp(grad_top(acc_eff(a, pol), d["bg_luma"]), snap(d["bg_bottom"]))[::5]
             bgs += [snap(d["surface"]), snap(d["base"]), snap(d["chrome"])]
             score = []
-            for table in (rtl, ident):
+            for table in ((rtl_light if pol == 'light' else rtl), ident):
                 e = n = 0
                 for cov in range(1, 15):
                     a = cov / 15.0
@@ -227,7 +228,7 @@ def main():
     print("contrast (WCAG ratio, worst over sample accents)")
     for t in themes:
         bad += check_theme(t, verbose=True)
-    print("\ntext weights: RMS error of the RTL table vs a plain linear blend, per theme/polarity (lower is better)")
+    print("\ntext weights: RMS error of the RTL table for that polarity vs a plain linear blend (lower is better)")
     for name, pol, rtl, ident in gamma_report(themes):
         note = "" if rtl <= ident else "   <-- RTL table serves this worse than linear: needs its own weights"
         print(f"  {name:6s} {pol:5s} rtl {rtl:.4f}  linear {ident:.4f}{note}")

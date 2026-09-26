@@ -246,6 +246,8 @@ module mp3_soc #(
     // Phase F B1: sticky blit-engine addressing state (section 9). Driven from mp3_soc's own
     // R_BLT_IDX/R_BLT_DATA registers regardless of BLIT_ENABLE; only OP_BLIT in mp3_fb.sv reads
     // them, and that opcode does not exist unless TAU_BLIT is built there too.
+    // Theme/gamma: text weight table select (MMIO 0x114 bit 0), clk_sys domain; synchronised into clk_sdram by the caller.
+    output wire         text_light,
     output wire [24:0]  blt_src_base,
     output wire [9:0]   blt_src_stride,
     output wire [24:0]  blt_dst_base,
@@ -797,6 +799,8 @@ module mp3_soc #(
     // them unless BLIT_ENABLE -- see the port declarations above and the reset
     // block below for the rest of this feature's mp3_soc-side footprint.
     reg  [2:0]  blt_idx = 3'd0;
+    reg         text_light_r = 1'b0;
+    assign text_light = text_light_r;
     reg  [24:0] blt_src_base_r = 25'd0, blt_dst_base_r = 25'd0;
     reg  [9:0]  blt_src_stride_r = 10'd512, blt_dst_stride_r = 10'd512;
     reg         blt_key_en_r = 1'b0;
@@ -1034,6 +1038,7 @@ module mp3_soc #(
                 9'h100:     begin poly_clear <= dDAT_MOSI[0]; poly_go <= dDAT_MOSI[1]; end
                 9'h104:     begin poly_push_d <= dDAT_MOSI; poly_push_we <= 1'b1; end
                 9'h108:     begin poly_idx_d <= dDAT_MOSI[4:0]; poly_idx_we <= 1'b1; end
+                9'h114:     text_light_r <= dDAT_MOSI[0];
                 R_BLT_IDX:  blt_idx <= dDAT_MOSI[2:0];
                 R_BLT_DATA: begin
                     case (blt_idx)
@@ -1117,6 +1122,7 @@ module mp3_soc #(
             8'hD0:     mmio_rdata = (VBLANK_ENABLE != 0) ? {vblank_rd[16:1], 15'd0, vblank_rd[0]} : 32'd0;  // Helios/Talos H0: bit 0 vblank level, bits 31:16 free-running frame count (B-260)
             8'hE8:     mmio_rdata = {22'd0, scan_rd};                                  // Helios beam position: bit 9 present, bits 8:0 video line counter (B-267)
             9'h10C:    mmio_rdata = poly_rd;                                            // MP3 window unit: PCM word at POLY_IDX (B-292)
+            9'h114:    mmio_rdata = {1'b1, 30'd0, text_light_r};                       // text weight table select: bit 31 present (0 on a bitstream without it), bit 0 light
             9'h110:    mmio_rdata = (POLY_ENABLE != 0) ? {poly_slots, 14'd0, poly_busy, 1'b1} : 32'd0;   // bit 0 present, bit 1 busy, 31:16 slots computed
             8'hF4:     mmio_rdata = wave_rd;                                            // scope column {min, max} at WAVE_IDX (B-283)
             8'hF8:     mmio_rdata = {wave_pk_r, wave_pk_l};                             // level meters: max |R|, max |L| since cleared
