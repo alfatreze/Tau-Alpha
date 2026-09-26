@@ -90,6 +90,7 @@ def main():
     ap.add_argument("package", type=Path, help="packaged core directory (has Cores/, Assets/, Platforms/)")
     ap.add_argument("--card", type=Path, default=Path("/Volumes/Pock"))
     ap.add_argument("--carry-from", metavar="CORE_ID", help="copy this core's media to the new core and rebuild the library index")
+    ap.add_argument("--assets", type=Path, metavar="FILE", help="tau-assets.bin (themes/meter presets) to install; default: <package>/../tau-assets.bin, else the --carry-from core's copy")
     ap.add_argument("--remove", action="append", default=[], metavar="CORE_ID", help="core to remove after a verified install (repeatable)")
     ap.add_argument("--replace", action="store_true", help="the new core already exists on the card: back it up and refresh its core files (its media stays)")
     ap.add_argument("--allow-release", action="store_true", help="permit touching alfatreze.TAU / alfatreze.TAU_DIAGNOSTIC")
@@ -191,6 +192,22 @@ def main():
         print(f"   index {v}, root {want_root}")
     else:
         print("\n[3/7] media: skipped (no --carry-from)")
+
+    # 3b. tau-assets.bin (data slot 8: extra themes and meter presets). It is not media, so sync_media skips it, and the packager keeps its
+    # sample next to the package instead of inside it -- alpha.35 was installed without it (B-329). Always place it when one is known.
+    ab = a.assets
+    if ab is None and (pkg.parent / "tau-assets.bin").is_file():
+        ab = pkg.parent / "tau-assets.bin"
+    if ab is None and a.carry_from:
+        cand = core_paths(card, a.carry_from)[1] / "common" / "tau-assets.bin"
+        if cand.is_file(): ab = cand
+    if ab is not None:
+        dst = card / "Assets" / new_plat / "common" / "tau-assets.bin"
+        shutil.copy2(ab, dst)
+        if sha(ab) != sha(dst): die("tau-assets.bin differs after copy")
+        print(f"\n[3b] tau-assets.bin installed ({sha(dst)[:16]}, from {ab})")
+    else:
+        print("\n[3b] tau-assets.bin: none found (Info shows THEME FILE / METER FILE NONE)")
 
     # 4. remove
     print("\n[4/7] remove superseded cores")

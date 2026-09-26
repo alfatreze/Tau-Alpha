@@ -49,6 +49,10 @@ with tempfile.TemporaryDirectory() as td:
     check("--replace refreshes the core and keeps the media", rc == 0 and (card / "Assets/tau/common/my-track.mp3").exists())
     check("--replace backed up the old copy", (td / "bk2/alfatreze.TAU/Cores/alfatreze.TAU").is_dir())
 
+    ta = td / "tau-assets.bin"; ta.write_bytes(b"TAUA-test")
+    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk3", "--replace", "--allow-release", "--assets", ta, "--no-eject", "--yes")
+    check("--assets places tau-assets.bin in common/, verified", rc == 0 and (card / "Assets/tau/common/tau-assets.bin").read_bytes() == b"TAUA-test")
+
     rc, out = run(pkg, "--card", card, "--replace", "--yes")
     check("release cores are protected without --allow-release", rc != 0 and "release core" in out)
 
