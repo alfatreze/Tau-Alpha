@@ -166,7 +166,15 @@ CHL_COLD static int chladni_tick_box(uint32_t x0, uint32_t y0, uint32_t w, uint3
     chl_detect(&chl_st, &chl_cfg, spec_lvl, now);
     chl_update(&chl_st, &chl_cfg, spec_lvl, dt);
     chl_mode_t md[CHL_MAX_K];
-    const uint32_t K = chl_select(&chl_st, &chl_cfg, md);
+    /* Load shedding: the frame rate stays, the cost per figure drops. Every active mode costs one multiply-add per cell, so under
+     * load fewer modes are blended (the figure gets a little plainer, not slower). 1 step above 90 percent CPU, 2 above 96, back
+     * when under 75 (hysteresis, or it would flap: the figure itself is most of that load). ui_cpu_pct() is a one-second average. */
+    static uint8_t shed;
+    { const uint32_t cpu = ui_cpu_pct();
+      if (cpu >= 96u) shed = 2u; else if (cpu >= 90u && shed < 1u) shed = 1u; else if (cpu <= 75u) shed = 0u; }
+    chl_cfg_t sel_cfg = chl_cfg;
+    sel_cfg.topk = (uint8_t)((chl_cfg.topk > shed + 1u) ? chl_cfg.topk - shed : 1u);
+    const uint32_t K = chl_select(&chl_st, &sel_cfg, md);
     const uint32_t rx = chl_pre->Rx, ry = chl_pre->Ry, cell = chl_pre->cell;
     struct chl_ctx ctx;
     ctx.rx = rx; ctx.ok = 1;
@@ -178,8 +186,12 @@ CHL_COLD static int chladni_tick_box(uint32_t x0, uint32_t y0, uint32_t w, uint3
                chl_cxm, chl_cxn, chl_lvl, chl_row, &ctx);
     if (!ctx.ok) { chl_ok = 2u; ui_toast_msg("CHLADNI UNAVAILABLE"); return 0; }
 
-    const uint32_t tw = rx * cell, th = ry * cell, rows = (th < h) ? th : h;
-    fb_sblit(0u, CHL_PLANE_Y, x0, y0, tw, rows, cell == 3u ? 3u : cell == 2u ? 2u : 0u, cell == 3u ? 3u : cell == 2u ? 2u : 0u);
+    /* fb_sblit's w/h are SOURCE cells (the engine scales them to the output, clamped at 127): pass the plane's own size, cut so the
+     * scaled tile never leaves the box. It used to pass the OUTPUT size, so the engine read past the plane (stale rows) and drew
+     * ~16 rows of noise under the meter. */
+    const uint32_t sw = (rx * cell > 127u) ? 127u / cell : rx, sh = (ry * cell > h) ? h / cell : ry;
+    const uint32_t tw = sw * cell, th = sh * cell;
+    fb_sblit(0u, CHL_PLANE_Y, x0, y0, sw, sh, cell == 3u ? 3u : cell == 2u ? 2u : 0u, cell == 3u ? 3u : cell == 2u ? 2u : 0u);
     chl_replicate(x0, y0, tw, th, w, h);
     chl_drawn_n++;
     return 1;

@@ -79,6 +79,12 @@
 #define R_CLUT_DATA 0x800000CCu   /* Phase F B8: CLUT entry at that index (W), RGB565; index auto-increments */
 #define R_SPEC_IDX  0x800000DCu   /* B-263: spectrum bank -- write the band index 0..15 */
 #define R_SPEC_DATA 0x800000E0u   /* read: the window mean |band| of band SPEC_IDX (20 bits) */
+#define R_WAVE_CTL  0x800000ECu   /* B-283: level/scope block -- write: bit 0 clear peaks, bit 1 arm a scope capture, [11:8] = samples per column - 1 */
+#define R_WAVE_IDX  0x800000F0u   /* write: scope column 0..255 to present at R_WAVE_DATA */
+#define R_WAVE_DATA 0x800000F4u   /* read: {min[31:16], max[15:0]} (signed 16-bit each) of the selected column of the last capture */
+#define R_WAVE_PK   0x800000F8u   /* read: {max |R| [31:16], max |L| [15:0]} since the last clear */
+#define R_WAVE_ST   0x800000FCu   /* read: bit 0 = the block is built in, bit 1 = a capture is running, bit 2 = trigger timed out */
+#define WAVE_HW_COLS 256u
 #define R_SPEC_ST   0x800000E4u   /* read: bit 0 = the bank is built into this bitstream, bits 31:16 = windows completed */
 #define R_SCAN      0x800000E8u   /* B-267 Helios beam position: bit 9 = present (TAU_BEAM bitstream), bits 8:0 = video line counter */
 #define R_VBLANK    0x800000D0u   /* Helios/Talos H0: bit 0 = vblank status, CDC'd from clk_vid; 0 when TAU_VBLANK is off */
@@ -125,8 +131,8 @@
  *   ART_PAD      grey border around the cover
  *   ART_IMG      the cover itself
  */
-#define ART_PAD  6u
-#define ART_IMG  92u               /* cover; 4px smaller buys the card 4px back */
+#define ART_PAD  0u                /* 2026-09-26: the design (Figma, shared at 4x) has the cover itself at 128 px with rounded corners, no plate */
+#define ART_IMG  128u              /* cover: 128 px, the size the pre-converted covers (TAU_ART_TIMG) are made at */
 #define ART_W    (ART_IMG + 2u * ART_PAD)
 #define ART_H    (ART_IMG + 2u * ART_PAD)
 /* Now-playing UI pass 1 (Figma node 163:57, first Helios-era layout): the art
@@ -135,9 +141,9 @@
  * literal, not UI_MARGIN, because UI_MARGIN is defined much later in this
  * file and this block is used before it -- keep the two in sync by hand if
  * either ever changes (same pre-existing constraint the old ART_X had). */
-#define ART_X    20u                /* == UI_MARGIN */
-#define ART_Y    16u                /* fixed: no longer tracks the meter */
-#define ART_STASH_Y 400u           /* off-screen: below the visible frame */
+#define ART_X    8u                 /* design: cover at (8, 8) */
+#define ART_Y    8u                 /* fixed: no longer tracks the meter */
+#define ART_STASH_Y 360u           /* off-screen: rows 360..399 are unused, and starting here keeps the stash + thumbnails + cover plane clear of the Chladni plane at 984 */
 
 /* R_PCM_ST layout -- MUST match mp3_soc.v:
  *   {13'd0, underrun, full, empty, 4'd0, level[11:0]}
@@ -209,6 +215,9 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * window at 0xA4000000 instead of BRAM. Needs the P4 bitstream (PSRAM window); art_prove()
  * checks for it before the first store and turns cover art off (no BRAM fallback) if it is
  * absent or fails. Off by default. */
+#ifndef TAU_ART_TIMG
+#define TAU_ART_TIMG 0       /* B-285: the TIM1 cover reader (docs/COVER_TIMG_READER.md); off unless built with ART_TIMG=1 */
+#endif
 #ifndef TAU_ART_PSRAM
 #define TAU_ART_PSRAM 0
 #endif
@@ -1453,7 +1462,7 @@ static uint32_t ui_pal_idx = 1u;      /* WHITE, the default (see UI_ACCENT) */
 /* Transient status line. Volume and seek had no on-screen confirmation at all
  * -- the only functional control feedback missing. Shown briefly, then wiped
  * back to the gradient. */
-#define UI_TOAST_Y  (UI_PROG_Y - 20u)
+#define UI_TOAST_Y  (UI_WAVE_Y + UI_WAVE_H + 2u)
 #define UI_TOAST_H  16u
 #define UI_TOAST_HOLD  (CLK_HZ)            /* full brightness ~1 s   */
 #define UI_TOAST_FADE  (CLK_HZ * 3u / 4u)  /* then dissolve over ~.75 s */
@@ -1579,7 +1588,7 @@ static uint8_t  dg_n, dg_samp, dg_fe, dg_live;
 static uint16_t io_kbps;          /* measured sustained sequential read rate */
 static uint32_t io_bench_bytes;   /* ...and how much it managed to read      */
 
-#define UI_MARGIN   20u
+#define UI_MARGIN   16u
 #define UI_TITLE_Y  30u   /* splash / LOAD FAILED only now -- see UI_NP_TITLE_Y for the player screen */
 /* Scrolling amplitude history, drawn as bars -- the "waveform" element from
  * the reference art. Bars are cheap (one rect each) now that the engine owns
@@ -1607,24 +1616,25 @@ static uint32_t io_bench_bytes;   /* ...and how much it managed to read      */
  *   clock     UI_TIME_Y
  *   transport UI_TRANSPORT_Y
  */
-#define UI_GENRE_Y   16u
-#define UI_GENRE_H   22u
+#define UI_GENRE_Y   22u
+#define UI_GENRE_H   18u
 #define UI_NP_TITLE_Y (UI_GENRE_Y + UI_GENRE_H + 8u)   /* 46 */
 #define UI_TEXT_X    (ART_X + ART_W + 16u)             /* 140 */
 #define UI_WAVE_N   36u
-#define UI_WAVE_Y   150u
-#define UI_WAVE_H   110u
+#define UI_WAVE_Y   152u
+#define UI_WAVE_H   122u
 #define UI_WAVE_GAP 2u
 /* Extra rows above the meter box that ui_bg_restore() and ui_wave_clear() also rebuild. Only the cassette meter (archived 2026-09-26, see
  * archive/cassette_meter/) drew above UI_WAVE_Y; nothing does now, but the range is kept so a meter that does can be added without
  * touching the two rebuilders. */
 #define UI_WAVE_TOP 24u
-#define UI_PROG_Y   282u
-#define UI_PROG_H   5u
-#define UI_TIME_Y   292u
-#define UI_TRANSPORT_Y 320u   /* clock (24 px cell) ends at UI_TIME_Y + 24 = 316: a 4 px gap, no overlap (B-256) */
-#define UI_STRESS_BAR_Y 341u
-#define UI_STRESS_HUD_Y 344u
+#define UI_PROG_Y   295u
+#define UI_PROG_H   6u
+#define UI_TIME_Y   306u
+#define UI_TRANSPORT_Y 334u   /* clock (24 px cell) ends at UI_TIME_Y + 24 = 316: a 4 px gap, no overlap (B-256) */
+/* Diagnostic Build's stress readout: top right, above the EQ pill (rows 0..21), right-aligned, clear of the cover (x >= UI_TEXT_X). */
+#define UI_STRESS_BAR_Y 1u
+#define UI_STRESS_HUD_Y 4u
 #define UI_INNER_W  (FB_W - 2u * UI_MARGIN)
 /* Right edge a painted glyph CELL may not cross on the info card. The card
  * spans UI_MARGIN-8 .. UI_MARGIN-8+UI_INNER_W+16, so this leaves 8px of
@@ -1685,6 +1695,20 @@ enum { VIZ_BARS = 0, VIZ_WATER, VIZ_RETIRED_LEVELS, VIZ_SCOPE, VIZ_WAVE, VIZ_VU,
        /* Chladni nodal-line figures (fw/chladni.inc, B-276). Appended, same rule. */
        VIZ_CHLADNI,
        VIZ_COUNT };
+
+/* TAU_ART_TIMG (docs/COVER_TIMG_READER.md): the thumbnail stash is COMPACTED to the live meters so 128 rows are free for the cover reader's index
+ * plane. The four retired enum slots have no thumbnail data, so they need no rows; every other meter's rows shift up. With the macro off the
+ * mapping is the identity and nothing changes. */
+#if TAU_ART_TIMG
+#define THUMB_LIVE_SLOTS (VIZ_COUNT - 4u)
+static inline uint32_t thumb_slot(uint32_t v)
+{
+    return v - (v > VIZ_RETIRED_LEVELS) - (v > VIZ_RETIRED_MIRROR) - (v > VIZ_RETIRED_EYE) - (v > VIZ_RETIRED_TAPE);
+}
+#else
+#define THUMB_LIVE_SLOTS VIZ_COUNT
+static inline uint32_t thumb_slot(uint32_t v) { return v; }
+#endif
 
 /* RETIRED meters keep their enum slot (viz_mode persists as an INDEX, so slots can never be reused or shifted) but have no code,
  * no thumbnail data and no row in the list: VIZ_RETIRED_TAPE (the cassette meter, archived in archive/cassette_meter/), VIZ_RETIRED_LEVELS (L/R levels) and VIZ_RETIRED_EYE
@@ -1919,7 +1943,7 @@ static uint8_t  wviz_peak[WVIZ_BANDS_MAX];
 static uint8_t  wviz_peak_vel[WVIZ_BANDS_MAX];    /* gravity mode only: fall speed, grows while falling */
 static uint16_t wviz_peak_hold[WVIZ_BANDS_MAX];   /* ms remaining before it starts falling */
 static uint8_t  wviz_drawn[WVIZ_BANDS_MAX], wviz_peak_drawn[WVIZ_BANDS_MAX];
-static int16_t  wviz_scope_y[WAVE_COLS];          /* smoothed scope trace, signed pixel offset */
+static int16_t  wviz_scope_y[256];          /* smoothed scope trace, signed pixel offset */
 static uint8_t  wviz_scope_init;
 
 /* One value toward one target, by one of the four curves above. `rate` is
@@ -1989,18 +2013,12 @@ static uint8_t wviz_ease_step(uint8_t cur, uint8_t target, uint32_t mode,
  * bank as the one addition that could bring audio tics back. Gated on
  * viz_mode, the cost exists only while it is being looked at, and switching
  * meters is an instant way out. */
-#define SPEC_OCT   8u                      /* cascade stages = octaves      */
+#define SPEC_OCT   8u                      /* octaves the bank covers       */
 #define SPEC_BANDS (SPEC_OCT * 2u)         /* each octave split in half     */
-#define SPEC_SH    1u                      /* octave split                  */
-#define SPEC_SH2   2u                      /* the half-octave split within  */
 _Static_assert(WVIZ_BANDS_MAX == SPEC_BANDS, "WVIZ_BANDS_MAX must track SPEC_BANDS");
 
-static int32_t  spec_lp[SPEC_OCT];        /* the cascade's filter state      */
-static int32_t  spec_slp[SPEC_OCT];       /* the half-octave splitter        */
-static uint32_t spec_cnt[SPEC_OCT];       /* per-stage rate dividers         */
-static uint32_t spec_acc[SPEC_BANDS];     /* |band| summed over the window   */
-static uint32_t spec_n;                   /* samples in the window           */
 static unsigned char spec_lvl[SPEC_BANDS];    /* published, 0..255           */
+static uint8_t  wave_hw;                  /* B-283: the bitstream has the level/scope block (probed once at boot) */
 static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardware filter bank (probed once at boot) */
 static uint32_t spec_win_seen;            /* last hardware window counter consumed */
 
@@ -2545,7 +2563,7 @@ static void ui_art_round(void)
      * will occupy, not a flat colour -- otherwise the rounding shows up as four
      * pale wedges instead of disappearing. The gradient runs vertically, so a
      * per-row colour stays correct at every x the panel slides through. */
-    const uint32_t r = 8u;
+    const uint32_t r = 10u;
     for (uint32_t i = 0; i < r; i++) {
         uint32_t dy = r - i, inner = 0;
         while ((inner + 1u) * (inner + 1u) + dy * dy <= r * r) inner++;
@@ -2832,7 +2850,7 @@ static void ui_eq_pill(void)
     uint32_t w = fb_text_width(n, TS_1X);
     if (w > UI_EQ_PILL_W - 12u) w = UI_EQ_PILL_W - 12u;
     fb_set_color(eq_idx ? ui_accent : UI_FAINT, UI_PILL_BG);
-    fb_text_clipped(UI_TEXT_X + (UI_EQ_PILL_W - w) / 2u, UI_GENRE_Y + 4u, n, TS_1X, TS_1X, w);
+    fb_text_clipped(UI_TEXT_X + (UI_EQ_PILL_W - w) / 2u, UI_GENRE_Y + (UI_GENRE_H - FB_CELL(TS_1X)) / 2u, n, TS_1X, TS_1X, w);
 }
 
 static void ui_fs_frame(void);
@@ -3601,6 +3619,48 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
      * different geometry or a different preset's smoothing amount. */
     if (wviz_force) { wviz_scope_init = 0u; wviz_force = 0u; }
 
+    if (wave_hw) {
+        /* B-283: the hardware capture -- 256 columns, each the min..max envelope of the mono mix over 2 samples, started at
+         * its own rising zero crossing. Normalised to the PREVIOUS frame's peak (the software path uses the current
+         * frame's; the peak of consecutive windows barely moves, and this needs no second pass). The capture is re-armed
+         * after every draw and read next time round; while it is still running the last picture stays. */
+        static uint32_t sc_pk = 1u;
+        static uint8_t  sc_armed;
+        if (!sc_armed) { REG(R_WAVE_CTL) = 2u | (1u << 8); sc_armed = 1u; return; }   /* nothing captured yet */
+        if (!paused && !(REG(R_WAVE_ST) & 2u)) {
+            const int32_t smooth = wviz_cfg_scope.scope_smooth;
+            if (use_gradient) ui_bg_restore(x0, y, w, h);
+            else              fb_rect(x0, y, w, h, bg);
+            fb_rect(x0, cy, w, 1, UI_TRACK);
+            uint32_t npk = 1u;
+            for (uint32_t c = 0; c < WAVE_HW_COLS; c++) {
+                REG(R_WAVE_IDX) = c;
+                const uint32_t d = REG(R_WAVE_DATA);
+                int32_t mn = (int16_t)(d >> 16), mx = (int16_t)(d & 0xFFFFu);
+                const uint32_t am = (uint32_t)(mn < 0 ? -mn : mn), ax = (uint32_t)(mx < 0 ? -mx : mx);
+                if (am > npk) npk = am;
+                if (ax > npk) npk = ax;
+                int32_t lo = (mn * ey) / (int32_t)sc_pk, hi = (mx * ey) / (int32_t)sc_pk;
+                if (lo < -ey) lo = -ey; if (hi > ey) hi = ey;
+                if (lo > hi) lo = hi;
+                int32_t mid = (lo + hi) / 2, half = (hi - lo) / 2;
+                if (!wviz_scope_init) wviz_scope_y[c] = (int16_t)mid;
+                wviz_scope_y[c] = (int16_t)(wviz_scope_y[c] + (((mid - wviz_scope_y[c]) * (100 - smooth)) / 100));
+                mid = wviz_scope_y[c];
+                const uint32_t cx = x0 + (c * w) / WAVE_HW_COLS, cxn = x0 + ((c + 1u) * w) / WAVE_HW_COLS;
+                uint32_t top = (uint32_t)((int32_t)cy - (mid + half)), rh = (uint32_t)(2 * half) + 2u;
+                if (top + rh > y + h) rh = y + h - top;
+                fb_rect(cx, top, (cxn > cx) ? (cxn - cx) : 1u, rh, ui_accent);
+            }
+            sc_pk = npk;
+            wviz_scope_init = 1u;
+            REG(R_WAVE_CTL) = 2u | (1u << 8);              /* arm the next capture: 2 samples per column */
+        }
+        if (paused) wviz_scope_init = 0u;
+        return;
+    }
+
+
     if (use_gradient) ui_bg_restore(x0, y, w, h);
     else              fb_rect(x0, y, w, h, bg);
     fb_rect(x0, cy, w, 1, UI_TRACK);
@@ -4350,6 +4410,13 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          *
          * One constant, applied in one place, so all ten meters keep agreeing.
          * tools/meter_preview.py renders the effect from real audio. */
+        if (wave_hw) {                       /* B-283: the block tracks max |L| / |R| continuously; read and clear it */
+            const uint32_t pk = REG(R_WAVE_PK);
+            REG(R_WAVE_CTL) = 1u;
+            peak_acc_l = pk & 0xFFFFu; peak_acc_r = pk >> 16;
+            peak_acc   = (peak_acc_l > peak_acc_r) ? peak_acc_l : peak_acc_r;
+            peak_acc_any = 1u;
+        }
         peak_amp     = (peak_acc   * MTR_HEADROOM_NUM) / MTR_HEADROOM_DEN;
         peak_l       = (peak_acc_l * MTR_HEADROOM_NUM) / MTR_HEADROOM_DEN;
         peak_r       = (peak_acc_r * MTR_HEADROOM_NUM) / MTR_HEADROOM_DEN;
@@ -4363,18 +4430,15 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * the factor it was downsampled by, which is a convincing-looking
          * wrong answer. */
         uint32_t hw_mean[SPEC_BANDS];
-        int have = spec_hw ? ((viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI)
-                              && spec_hw_fetch(hw_mean))
-                           : (spec_n != 0u);
+        int have = spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI || viz_mode == VIZ_WATER || viz_mode == VIZ_DOTS)
+                   && spec_hw_fetch(hw_mean);
         if (have) {
             for (uint32_t b = 0; b < SPEC_BANDS; b++) {
                 /* Both halves of an octave were fed at that OCTAVE's rate, so
                  * the divisor is per stage, not per band. (The hardware bank
                  * already divides: its window is 1024 samples and stage o saw
                  * 1024 >> o of them, so its mean is a shift.) */
-                uint32_t mean;
-                if (spec_hw) mean = hw_mean[b];
-                else { uint32_t cnt = spec_n >> (b / 2u); mean = cnt ? (spec_acc[b] / cnt) : 0u; }
+                const uint32_t mean = hw_mean[b];
                 uint32_t v    = (mean * spec_gain[SPEC_BANDS - 1u - b]) >> 4;
 
                 /* LOGARITHMIC, because loudness is.
@@ -4402,9 +4466,7 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
                  * fall back smoothly. */
                 if (v >= spec_lvl[b]) spec_lvl[b] = (unsigned char)v;
                 else spec_lvl[b] -= (unsigned char)((spec_lvl[b] - v) / 4u + 1u);
-                spec_acc[b] = 0;
             }
-            spec_n = 0;
         }
         if (peak_amp > wave_pend) wave_pend = peak_amp;
     }
@@ -4588,6 +4650,7 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
             goto viz_done;
         }
 
+        if (ui_fullscreen && (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE)) goto viz_done;   /* fullscreen.inc draws these */
         if (viz_mode == VIZ_WINAMP_BARS) {
             wviz_bars_tick(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed);
             goto viz_done;
@@ -4606,26 +4669,26 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * the loudness contour. ~2 commands a column and the sparsest mode
          * here. */
         if (viz_mode == VIZ_DOTS) {
-            for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-                uint32_t x   = UI_MARGIN + (i * ww) / UI_WAVE_N;
-                uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
-                uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
-                uint32_t pk  = wave_pk[i];
+            /* One dot per hardware-bank band with a falling peak: it jumps to the band's level and drops a couple of pixels
+             * per update. (It used to trace the loudness history in 36 columns.) */
+            static uint8_t dpk[SPEC_BANDS];
+            const uint32_t bw = ww / SPEC_BANDS;
+            for (uint32_t i = 0; i < SPEC_BANDS; i++) {
+                uint32_t lvp = (spec_lvl[i] * UI_WAVE_H) / 255u;
+                if (paused) lvp = 0u;
+                uint32_t pk = dpk[i];
+                pk = (lvp >= pk) ? lvp : ((pk > lvp + 2u) ? pk - 2u : lvp);
+                dpk[i] = (uint8_t)pk;
                 if (pk < 2u) pk = 2u;
-
-                /* Same treatment as the mirrored bars: skip an unmoved column,
-                 * and restore around the dot rather than through it. */
                 if (pk == wave_pk_drawn[i]) continue;
                 wave_pk_drawn[i] = (unsigned char)pk;
 
-                uint16_t c   = ui_mix(UI_TRACK, ui_accent, i + 1u, UI_WAVE_N);
-                uint32_t top = UI_WAVE_Y + UI_WAVE_H - pk;   /* first dot row */
-                uint32_t end = UI_WAVE_Y + UI_WAVE_H;        /* one past box  */
-                if (top > UI_WAVE_Y)
-                    ui_bg_restore(x, UI_WAVE_Y, lit, top - UI_WAVE_Y);
-                if (top + 2u < end)
-                    ui_bg_restore(x, top + 2u, lit, end - (top + 2u));
-                fb_rect(x, top, lit, 2u, c);
+                const uint32_t x   = UI_MARGIN + i * bw, lit = (bw > UI_WAVE_GAP) ? bw - UI_WAVE_GAP : 1u;
+                const uint16_t c   = ui_mix(UI_TRACK, ui_accent, i + 1u, SPEC_BANDS);
+                const uint32_t top = UI_WAVE_Y + UI_WAVE_H - pk, end = UI_WAVE_Y + UI_WAVE_H;
+                if (top > UI_WAVE_Y)   ui_bg_restore(x, UI_WAVE_Y, lit, top - UI_WAVE_Y);
+                if (top + 3u < end)    ui_bg_restore(x, top + 3u, lit, end - (top + 3u));
+                fb_rect(x, top, lit, 3u, c);
             }
             goto viz_done;
         }
@@ -4635,17 +4698,17 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
             if (!paused) {
                 fb_copy(x0 + 1u, UI_WAVE_Y, x0, UI_WAVE_Y, w - 1u, UI_WAVE_H);
 
-                uint32_t a = (peak_amp * UI_WAVE_H) / 32768u;
-                if (a > UI_WAVE_H) a = UI_WAVE_H;
-
-                /* Column drawn as three bands -- quiet bed, body, hot tip --
-                 * so loud passages read as brighter AND taller. */
-                uint32_t cx = x0 + w - 1u;
-                ui_bg_restore(cx, UI_WAVE_Y, 1, UI_WAVE_H - a);
-                if (a) {
-                    uint16_t c = ui_mix(UI_TRACK, ui_accent, a, UI_WAVE_H);
-                    fb_rect(cx, UI_WAVE_Y + UI_WAVE_H - a, 1, a, c);
-                    fb_rect(cx, UI_WAVE_Y + UI_WAVE_H - a, 1, 1, UI_WHITE);
+                /* SPECTROGRAM: one new column per update, each of the 16 hardware-bank bands a horizontal slice of it
+                 * (band 0 at the bottom), brighter with level. The old column was the loudness alone. One restore for the
+                 * whole column, then one rect per band that is loud enough to see: at most 17 commands. */
+                const uint32_t cx = x0 + w - 1u;
+                ui_bg_restore(cx, UI_WAVE_Y, 1, UI_WAVE_H);
+                for (uint32_t b = 0; b < SPEC_BANDS; b++) {
+                    const uint32_t lv = spec_lvl[b];
+                    if (lv < 24u) continue;
+                    const uint32_t y1 = UI_WAVE_Y + UI_WAVE_H - (b * UI_WAVE_H) / SPEC_BANDS;
+                    const uint32_t y0 = UI_WAVE_Y + UI_WAVE_H - ((b + 1u) * UI_WAVE_H) / SPEC_BANDS;
+                    fb_rect(cx, y0, 1, y1 - y0, lv > 230u ? UI_WHITE : ui_mix(UI_TRACK, ui_accent, lv, 230u));
                 }
             }
             goto viz_done;
@@ -4878,65 +4941,36 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
             goto viz_done;
         }
 
+        /* Loop invariants, computed once per frame instead of once per changed column: the engine probe, the lit colour
+         * and the mirrored geometry. The plain-rectangle fallback for a bitstream without the blit engine is gone: every
+         * bitstream that can run the cold code has it (OP_BAR since B-104, in every build since alpha.1). */
+        blit_probe_ensure();
+        const uint16_t lit_c = paused ? ui_mix(UI_TRACK, ui_accent, 1u, 3u) : ui_accent;
+        const uint32_t hh = UI_WAVE_H / 2u, cy = UI_WAVE_Y + hh;
         for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-            /* Bar edges come from scaling the index across the full width, so
-             * the row always reaches its right edge. A single per-bar width
-             * (ww / N) throws away the remainder -- at 36 bars in 246 px that
-             * was 30 px of unused space piling up at the end, which is what
-             * made the meter look like it stopped well short of the art. */
-            uint32_t x   = UI_MARGIN + (i * ww) / UI_WAVE_N;
-            uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
-            uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
+            /* Bar edges come from scaling the index across the full width, so the row always reaches its right edge. */
+            const uint32_t x   = UI_MARGIN + (i * ww) / UI_WAVE_N;
+            const uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
+            const uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
             uint32_t h = wave[i];
-            if (bars_layout) { h = (h * (UI_WAVE_H / 2u - 1u)) / UI_WAVE_H; if (h < 1u) h = 1u; }   /* mirrored: each half is half the box */
+            if (bars_layout) { h = (h * (hh - 1u)) / UI_WAVE_H; if (h < 1u) h = 1u; }   /* mirrored: each half is half the box */
             else if (h < 2u) h = 2u;                 /* always show a floor */
-            /* A scroll moves every bar, but in quiet or steady passages most
-             * land on the height already drawn there. Skipping those costs one
-             * compare and saves two SDRAM rect bursts each. */
+            /* Most bars land on the height already drawn there: skip them (one compare instead of a draw command). */
             uint32_t pk = bars_layout ? h : wave_pk[i];
             if (pk < h) pk = h;
             if (h == wave_drawn[i] && pk == wave_pk_drawn[i]) continue;
             wave_drawn[i]    = (unsigned char)h;
             wave_pk_drawn[i] = (unsigned char)pk;
-            /* Newest bars brightest: a cheap sense of direction. */
-            /* Paused pulls the whole meter back toward the bed, so stopping
-             * reads as a state change across the UI rather than one word. */
-            uint16_t lit_c = paused ? ui_mix(UI_TRACK, ui_accent, 1u, 3u)
-                                    : ui_accent;
-            uint16_t c = ui_mix(UI_TRACK, lit_c, i + 1u, UI_WAVE_N);
-            /* B-197 meter/blit integration (PHASE_F_SPEC.md section 4): one OP_BAR command
-             * replaces the pair of fb_rect() calls below -- the busiest per-frame draw-engine
-             * path, up to UI_WAVE_N commands halved to UI_WAVE_N/2 worth of traffic. blit_ready
-             * is the same lazily-probed, hardware-confirmed (B-146/B-164/B-197) flag every other
-             * BLIT_READY() call site uses; the two-fb_rect() path stays as the fallback for a
-             * bitstream without the blit engine. The 1px peak-hold marker below is unchanged --
-             * OP_BAR has no marker mode of its own. */
-            blit_probe_ensure();
+            const uint16_t c = ui_mix(UI_TRACK, lit_c, i + 1u, UI_WAVE_N);       /* newest bars brightest */
             if (bars_layout) {
-                /* MIRRORED: two OP_BAR commands per changed column (it was up to three: two background copies and a rect). The upper
-                 * half is an ordinary bar, lit rows at ITS bottom, which is the centre line. The lower half is the same bar inverted:
-                 * OP_BAR always lights the bottom of its span, so swap the colours and light the EMPTY part instead (top h rows in
-                 * the bar colour, the remaining hh - h rows in the bed colour). Flat bed per half, as plain bars already accepted. */
-                const uint32_t hh = UI_WAVE_H / 2u, cy = UI_WAVE_Y + hh;
-                const uint16_t bed_up = ui_grad_at(UI_WAVE_Y + hh / 2u), bed_lo = ui_grad_at(cy + hh / 2u);
-                if (BLIT_READY()) {
-                    fb_bar(x, UI_WAVE_Y, lit, hh, h, c, bed_up);
-                    fb_bar(x, cy, lit, hh, hh - h, bed_lo, c);
-                } else {
-                    fb_rect(x, cy - h, lit, h, c);
-                    if (hh > h) fb_rect(x, UI_WAVE_Y, lit, hh - h, bed_up);
-                    fb_rect(x, cy, lit, h, c);
-                    if (hh > h) fb_rect(x, cy + h, lit, hh - h, bed_lo);
-                }
+                /* MIRRORED: two OP_BAR per changed column. The upper half is an ordinary bar (lit rows at its bottom, the centre
+                 * line); the lower half is the same bar inverted -- OP_BAR always lights the bottom of its span, so swap the
+                 * colours and light the EMPTY part (top h rows the bar colour, the rest the bed). The bed is the dim track colour. */
+                fb_bar(x, UI_WAVE_Y, lit, hh, h, c, UI_TRACK);
+                fb_bar(x, cy, lit, hh, hh - h, UI_TRACK, c);
                 continue;
             }
-            if (BLIT_READY()) {
-                fb_bar(x, UI_WAVE_Y, lit, UI_WAVE_H, h, c, bed);
-            } else {
-                fb_rect(x, UI_WAVE_Y + UI_WAVE_H - h, lit, h, c);
-                if (UI_WAVE_H > h)
-                    fb_rect(x, UI_WAVE_Y, lit, UI_WAVE_H - h, bed);
-            }
+            fb_bar(x, UI_WAVE_Y, lit, UI_WAVE_H, h, c, bed);
             if (pk > h + 1u)                       /* 1 px peak-hold marker */
                 fb_rect(x, UI_WAVE_Y + UI_WAVE_H - pk, lit, 1, UI_WHITE);
         }
@@ -5862,38 +5896,8 @@ static void meters_feed(const short *pcm, int n, int stereo)
         if ((uint32_t)pkr > peak_acc_r) peak_acc_r = (uint32_t)pkr;
         peak_acc_any = 1u;
 
-        /* The octave cascade, only while its meter is showing -- see
-         * SPEC_BANDS. One pass down the ladder per sample, and most samples
-         * stop after a stage or two, because the lower stages run at a
-         * fraction of the rate. */
-        if (!spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI) && meter_afford()) {
-            for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
-                int32_t x = stereo ? (((int32_t)pcm[i] + (int32_t)pcm[i + 1]) >> 1)
-                                   : (int32_t)pcm[i];
-                for (uint32_t o = 0; o < SPEC_OCT; o++) {
-                    spec_lp[o] += (x - spec_lp[o]) >> SPEC_SH;
-                    int32_t hp = x - spec_lp[o];
-
-                    /* Split the octave in two. Extending the cascade instead
-                     * does NOT give more bands worth having: every extra stage
-                     * halves the frequency AND the rate, so stage 8 is already
-                     * at 86 Hz with four samples per window and stage 12 is at
-                     * 5 Hz with a quarter of one. There are only about eight
-                     * audible octaves; resolution has to come from inside them
-                     * rather than below them. */
-                    spec_slp[o] += (hp - spec_slp[o]) >> SPEC_SH2;
-                    int32_t sl = spec_slp[o];
-                    int32_t sh = hp - sl;
-
-                    spec_acc[o * 2u]      += (uint32_t)(sh < 0 ? -sh : sh);
-                    spec_acc[o * 2u + 1u] += (uint32_t)(sl < 0 ? -sl : sl);
-
-                    if (++spec_cnt[o] & 1u) break;   /* half rate below here */
-                    x = spec_lp[o];
-                }
-            }
-            spec_n += (uint32_t)(stereo ? (n / 2) : n);
-        }
+        /* The spectrum is measured by the hardware bank (tau_spec_bank.sv), read in ui_draw_dynamic(); nothing to do here.
+         * (The software octave cascade was removed once the bank was proven: about 1 KB of hot code in this audio path.) */
 
         /* Even spread across the frame, so the trace covers the whole
          * period rather than clustering at its start. */
@@ -6898,6 +6902,9 @@ static void ui_draw_dynamic(void)
 #pragma GCC optimize ("Os")
 #include "library.inc"
 #pragma GCC pop_options
+#if TAU_ART_TIMG
+#include "timg.inc"
+#endif
 /* Settings is menu code with no timing role; size-optimise it in the library build, where RAM is the constraint. */
 #pragma GCC push_options
 #pragma GCC optimize ("Os")
@@ -8547,6 +8554,18 @@ static int load_track(void)
         uint32_t sig = art_sig_of(audio_start);
 #endif
         art_bad = 0;
+#if TAU_ART_TIMG
+        /* Library track with a pre-converted cover beside it: no JPEG decode at all (docs/COVER_TIMG_READER.md). */
+        char timg_path[LIB_MAX_PATH + 40u];
+        const uint32_t timg_sig = COLD_READY() ? timg_cover_path(timg_path, sizeof(timg_path)) : 0u;
+        if (timg_sig && art_have && timg_sig == art_sig) {
+            has_art = 1;                     /* same album: the stash already holds this cover */
+        } else if (timg_sig && timg_cover(timg_sig, timg_path)) {
+            ui_art_round();
+            art_sig = timg_sig;
+            has_art = 1;
+        } else
+#endif
         if (art_have && sig && sig == art_sig) {
             has_art = 1;                 /* the stash already holds this cover */
         } else if (sig && sig == art_bad_sig) {
@@ -8746,6 +8765,7 @@ int main(void)
         for (;;) { }
     }
     helios_beam_ok = (uint8_t)((REG(R_SCAN) >> 9) & 1u);   /* B-267: beam position present on this bitstream? */
+    wave_hw = (uint8_t)(REG(R_WAVE_ST) & 1u);      /* B-283: hardware level/scope block present? */
     spec_hw = (uint8_t)(REG(R_SPEC_ST) & 1u);      /* B-263: hardware spectrum bank present? (0 on any other bitstream) */
 
     /* Clear the screen FIRST. SDRAM powers up holding garbage and the scanout
@@ -9964,8 +9984,8 @@ int main(void)
          * idiom for the same "something outside input changed" reason) was
          * the missing piece behind the reported "preview wasn't active with
          * music" -- previously it only ever redrew once per key press. */
-        if (set_open && set_page == SET_WVIZCFG_PG) set_dirty = 1u;
         if (set_open && set_dirty) { set_dirty = 0u; set_draw(); }
+        else if (set_open && set_page == SET_WVIZCFG_PG) wvcfg_preview_tick();
         vblank_sample();
         set_info_tick();
 #if TAU_DIAGNOSTIC

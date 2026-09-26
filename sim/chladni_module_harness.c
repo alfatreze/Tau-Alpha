@@ -55,15 +55,19 @@ static void fb_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t
         sdram[(dy + y) * FB_STRIDE + dx + x] = sdram[(sy + y) * FB_STRIDE + sx + x];
 }
 static void fb_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t scx, uint32_t scy) {
-    sblit_calls++; (void)scx; (void)scy;                    /* 3x nearest: what scale code 3 means */
-    for (uint32_t y = 0; y < h; y++) for (uint32_t x = 0; x < w; x++)
-        sdram[(dy + y) * FB_STRIDE + dx + x] = sdram[(sy + y / 3u) * FB_STRIDE + sx + x / 3u];
+    sblit_calls++;                                          /* w, h are SOURCE cells (RTL sblit_ext): output = source * scale, clamped to 127 */
+    uint32_t k = (scx == 3u) ? 3u : (scx == 2u) ? 2u : 1u, ow = w * k, oh = h * k; (void)scy;
+    if (ow > 127u) ow = 127u;
+    if (oh > 127u) oh = 127u;
+    for (uint32_t y = 0; y < oh; y++) for (uint32_t x = 0; x < ow; x++)
+        sdram[(dy + y) * FB_STRIDE + dx + x] = sdram[(sy + y / k) * FB_STRIDE + sx + x / k];
 }
 static int toasts;
 static void ui_toast_msg(const char *m) { (void)m; toasts++; }
 static unsigned char spec_lvl[16];
 static int afford = 1;
 static int meter_afford(void) { return afford; }
+static uint32_t ui_cpu_pct(void) { return 0u; }
 static uint16_t ui_accent = 0x07E0u;
 static uint16_t ui_grad_at(uint32_t y) { (void)y; return 0x1082u; }
 static uint16_t ui_mix(uint16_t a, uint16_t b, uint32_t t, uint32_t d) {      /* per-channel linear blend, as the firmware's */

@@ -43,10 +43,11 @@ static __attribute__((optimize("Os"))) void stress_hud_draw(void)
         elapsed = stress_pass_secs;
     }
     uint32_t pct = (done * 100u) / STRESS_WORDS_PER_PASS;
-    uint32_t fill = (UI_INNER_W * pct) / 100u;
+    const uint32_t hx = UI_TEXT_X, hw = (FB_W - UI_MARGIN) - UI_TEXT_X;      /* top right, beside the cover */
+    uint32_t fill = (hw * pct) / 100u;
     uint16_t bg = ui_grad_at(UI_STRESS_HUD_Y);
-    fb_rect(UI_MARGIN, UI_STRESS_BAR_Y, UI_INNER_W, 2u, UI_TRACK);
-    if (fill) fb_rect(UI_MARGIN, UI_STRESS_BAR_Y, fill, 2u, ui_accent);
+    fb_rect(hx, UI_STRESS_BAR_Y, hw, 2u, UI_TRACK);
+    if (fill) fb_rect(hx, UI_STRESS_BAR_Y, fill, 2u, ui_accent);
 
     /* Window mode: the live counters come FIRST so the 360 px line cannot clip them.
      * U = audio underruns since the run started (since boot while off), M = worst
@@ -74,9 +75,11 @@ static __attribute__((optimize("Os"))) void stress_hud_draw(void)
         *q++ = ' '; q = ui_dec(q, pct); *q++ = '%';
     }
     *q = 0;
-    fb_rect(UI_MARGIN, UI_STRESS_HUD_Y, UI_INNER_W, FB_CELL(TS_1X), bg);
+    fb_rect(hx, UI_STRESS_HUD_Y, hw, FB_CELL(TS_1X), bg);
     fb_set_color(stress_fault ? UI_RED : (stress_on ? ui_accent : UI_DIM), bg);
-    fb_text_clipped(UI_MARGIN, UI_STRESS_HUD_Y, b, TS_1X, TS_1X, UI_INNER_W);
+    uint32_t tw = fb_text_width(b, TS_1X);
+    if (tw > hw) tw = hw;
+    fb_text_clipped(hx + hw - tw, UI_STRESS_HUD_Y, b, TS_1X, TS_1X, tw);                 /* right-aligned */
 }
 
 /* Accumulate a pass duration in whole seconds without 64-bit helpers.  The
