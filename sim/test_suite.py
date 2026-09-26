@@ -94,6 +94,9 @@ def main():
         "peak_fall": 30}}, mcd)
     mcu = D.parse_record(D.build_record(0, [(20, bytes([99, 1, 2, 2, 7, 9]))]))["entries"]["metercfg"]
     check("decode metercfg (unknown meter stays raw)", mcu == {"meter_id": 99, "schema": 1, "preset": 2, "raw_values": [7, 9]}, mcu)
+    # SR_T_METERTRACE (M3): one entry per displayed frame -- dt (u16), 16 spec bytes, 64 signed wave bytes.
+    tr = D.parse_record(D.build_record(8, [(21, (26).to_bytes(2, "little") + bytes(range(16)) + bytes([0xFF, 0x80, 0x7F] + [1] * 61))]))["entries"]["metertrace"]
+    check("decode metertrace", tr == [{"dt_ms": 26, "spec": list(range(16)), "wave": [-1, -128, 127] + [1] * 61}], tr)
     # SR_T_METERSWEEP (B-301): one entry per meter, repeatable -- meter_id, sdram_busy_permille (u16),
     # draw_stall_ms (u16), cpu_pct, late_underruns, yield_worst_growth_s, audio_full.
     ms_bytes = bytes([13]) + (768).to_bytes(2, "little") + (34663).to_bytes(2, "little") + bytes([100, 1, 0, 1])

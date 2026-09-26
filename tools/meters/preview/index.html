@@ -20,7 +20,8 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-wi
   <label>Theme <select id="theme"></select></label>
   <label>Mode <select id="mode"><option value="0">Dark</option><option value="1">Light</option></select></label>
   <label>Accent <select id="accent"></select></label>
-  <label>Source <select id="src"><option value="demo">Demo (deterministic)</option><option value="sweep">Sweep</option><option value="silence">Silence</option></select></label>
+  <label>Source <select id="src"><option value="demo">Demo (deterministic)</option><option value="sweep">Sweep</option><option value="silence">Silence</option><option value="trace">Recorded trace (load file)</option></select></label>
+  <label>Trace file <input type="file" id="tracefile" accept=".json"></label>
   <label>Bars use OP_BAR <input type="checkbox" id="barready" checked></label>
   <div id="controls"></div>
  </div>
@@ -41,7 +42,8 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-wi
  function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);TauControls.build($('controls'),m,p=>{params=p;st=null;});}
  ['meter'].forEach(i=>$(i).onchange=rebuild);rebuild();
  ['theme','mode','accent','src','barready'].forEach(i=>$(i).onchange=()=>{st=null;});
- const sources={demo:TauAudio.demo(1),sweep:TauAudio.sweep(),silence:TauAudio.silence()};
+ const sources={demo:TauAudio.demo(1),sweep:TauAudio.sweep(),silence:TauAudio.silence(),trace:TauAudio.silence()};
+ $('tracefile').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{sources.trace=TauAudio.trace(JSON.parse(t));$('src').value='trace';st=null;});};
  let fb=null,lvl=TauBallistics.newSpec(),theme=null,mod=null,box={x:16,y:152,w:368,h:122},costs=[];
  function setup(){const m=S.meters.find(x=>x.key===key);mod=TauMeters[key];theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
   fb=new TauFb.Fb(400,360);fb.barReady=$('barready').checked;for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));st=mod.state();lvl=TauBallistics.newSpec();costs=[];frame=0;

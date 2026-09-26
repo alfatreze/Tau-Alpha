@@ -15,7 +15,7 @@
     const box = { x: 16, y: 152, w: 368, h: 122 }, bg = theme.gradAt(box.y + (box.h >> 1));
     const lvl = Bal.newSpec(), st = mod.state(), perFrame = [], logs = [];
     for (let n = 0; n < (o.frames == null ? 120 : o.frames); n++) {
-      const src = o.source(n); Bal.specStep(lvl, src.spec);
+      const src = o.source(n); if (src.post) { for (let b = 0; b < 16; b++) lvl[b] = src.spec[b]; } else Bal.specStep(lvl, src.spec);
       const c0 = fb.cmds, l0 = fb.log ? fb.log.length : 0;
       mod.tick({ fb, x: box.x, y: box.y, w: box.w, h: box.h, bg, theme, spec: lvl, wave: src.wave, paused: src.paused, p, st, force: n === 0 });
       perFrame.push(fb.cmds - c0);
