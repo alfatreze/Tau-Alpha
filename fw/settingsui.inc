@@ -535,7 +535,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 22u   /* B-073: +1 for COVER (art_bad_code, for the "no
+#define SET_INFO_ROWS 23u   /* B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
                                               * freeze, see its own comment in fw/player.c); B-238:
@@ -549,7 +549,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     "COLD IMAGE",
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
     , "LIBRARY"
-    , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER", "MP3 WINDOW", "THEME FILE"
+    , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER", "MP3 WINDOW", "THEME FILE", "METER FILE"
     };
 static uint32_t set_info_at;
 
@@ -653,9 +653,14 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "OFF");
 #endif
         break;
-    default:   /* THEME FILE (step 0d): extra themes read from tau-assets.bin -- how many, or the failure code, or none */
+    case 21:   /* THEME FILE (step 0d): extra themes read from tau-assets.bin -- how many, or the failure code, or none */
         if (th_file_err) { q = set_str(q, "E"); q = ui_dec(q, th_file_err); }
         else if (th_file_n) { q = ui_dec(q, th_file_n); q = set_str(q, " LOADED"); }
+        else q = set_str(q, "NONE");
+        break;
+    default:   /* METER FILE (M4): meters whose presets were replaced from tau-assets.bin METR, or the failure code */
+        if (mf_err) { q = set_str(q, "E"); q = ui_dec(q, mf_err); }
+        else if (mf_n) { q = ui_dec(q, mf_n); q = set_str(q, " LOADED"); }
         else q = set_str(q, "NONE");
         break;
     }

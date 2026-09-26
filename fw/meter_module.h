@@ -8,6 +8,8 @@
 #include <stdint.h>
 
 enum { MTR_U8 = 0, MTR_U16, MTR_BOOL, MTR_ENUM };
+#define MTR_MAX_PARAMS 8u            /* the most parameters one meter may declare (bounds the loader's scratch) */
+#define MTR_MAX_PRESET_VALUES (8u * MTR_MAX_PARAMS)
 #define MTR_NO_WHEN 0xFFu
 #define MTR_CUSTOM  0xFFu
 
@@ -26,9 +28,11 @@ typedef struct {
     const char         *name;
     uint8_t             n;           /* parameters */
     const mtr_param_t  *p;
-    uint8_t             npre;
-    const char *const  *pre_names;
-    const uint16_t     *pre;         /* npre x n values, row major */
+    uint8_t             npre;        /* presets in use (built-in, or replaced from tau-assets.bin METR) */
+    uint8_t             maxpre;      /* capacity of pre/pre_names/pre_buf */
+    const char        **pre_names;
+    char              (*pre_buf)[16]; /* storage for names that come from a file */
+    uint16_t           *pre;         /* npre x n values, row major */
     uint16_t           *val;         /* the live values, one array per meter (state is per meter, B-234) */
     uint8_t            *pre_idx;     /* current preset, or MTR_CUSTOM */
 } mtr_data_t;

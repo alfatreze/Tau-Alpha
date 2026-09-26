@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include "library_core.h"      /* lib_crc_update, lib_ld16/32 */
+#include "meter_module.h"       /* mtr_data_t: METR presets are validated against the compiled parameter tables */
 
 enum { AS_OK = 0, AS_E_READ = 30, AS_E_MAGIC = 31, AS_E_VERSION = 32, AS_E_SIZE = 33, AS_E_CRC = 34, AS_E_NOTHEME = 35 };
 #define AS_MAX_SECTIONS 8u
@@ -77,6 +78,67 @@ static int as_themes(const uint8_t *d, uint32_t n, uint32_t cap, uint32_t max, a
         }
     }
     *count = k;
+    return AS_OK;
+}
+
+/* ---- METR: per-meter preset sets (tools/tau_assets.py pack_meters, docs/THEME_FILE_FORMAT.md) ---------------------------------------
+ * "TMTR" | version u16 | 2 pad | crc32 of the rest | count u16 | count x { len u16 | id u8 | schema u8 | flags u8 | order u8 | npre u8 | nparams u8 |
+ * npre x { name[16] | nparams values, u16 parameters two bytes } | default_preset u8 }.
+ * Rules: a meter the firmware does not know, a newer schema, a different parameter count, a size that does not add up or a preset count outside
+ * 1..maxpre skips THAT meter only. Every value is clamped to the compiled table, enum/bool bounds included; names are reduced to printable
+ * upper-case ASCII. A meter is committed only when all its presets parsed. The file replaces a meter's presets and picks its boot preset; it
+ * cannot add a meter. `flags` and `order` are read but not applied yet (reordering and hiding meters is not built). */
+static int as_metr(const uint8_t *d, uint32_t n, mtr_data_t *const *mods, uint32_t nmods, uint32_t *applied)
+{
+    if (n < 14u || d[0] != 'T' || d[1] != 'M' || d[2] != 'T' || d[3] != 'R') return AS_E_MAGIC;
+    if (lib_ld16(d + 4) != 1u) return AS_E_VERSION;
+    if (as_crc(d + 12, n - 12u) != lib_ld32(d + 8)) return AS_E_CRC;
+    uint32_t count = lib_ld16(d + 12), pos = 14u, done = 0;
+    for (uint32_t k = 0; k < count; k++) {
+        if (pos + 2u > n) return AS_E_SIZE;
+        uint32_t len = lib_ld16(d + pos), at = pos + 2u;
+        if (len < 7u || at + len > n) return AS_E_SIZE;
+        pos = at + len;
+        const uint8_t *e = d + at;
+        const uint32_t id = e[0], schema = e[1], npre = e[4], nparams = e[5];
+        mtr_data_t *md = 0;
+        for (uint32_t i = 0; i < nmods; i++) if (mods[i]->viz == id) md = mods[i];
+        if (!md || schema > 1u || nparams != md->n || npre < 1u || npre > md->maxpre) continue;
+        uint32_t psize = 16u;
+        for (uint32_t i = 0; i < md->n; i++) psize += (md->p[i].type == MTR_U16) ? 2u : 1u;
+        if (len != 6u + npre * psize + 1u || e[6u + npre * psize] >= npre) continue;
+        uint16_t vals[MTR_MAX_PRESET_VALUES];
+        char names[8][16];
+        if (md->n > MTR_MAX_PARAMS || npre > 8u) continue;
+        uint32_t q = 6u;
+        for (uint32_t pr = 0; pr < npre; pr++) {
+            uint32_t j = 0;
+            for (uint32_t c = 0; c < 15u; c++) {
+                uint8_t ch = e[q + c];
+                if (!ch) break;
+                if (ch >= 'a' && ch <= 'z') ch = (uint8_t)(ch - 32u);
+                names[pr][j++] = (ch >= 32u && ch < 127u) ? (char)ch : '?';
+            }
+            names[pr][j] = 0;
+            q += 16u;
+            for (uint32_t i = 0; i < md->n; i++) {
+                const mtr_param_t *p = &md->p[i];
+                uint32_t v = e[q++];
+                if (p->type == MTR_U16) v |= (uint32_t)e[q++] << 8;
+                if (v < p->min) v = p->min; else if (v > p->max) v = p->max;
+                vals[pr * MTR_MAX_PARAMS + i] = (uint16_t)v;
+            }
+        }
+        for (uint32_t pr = 0; pr < npre; pr++) {                   /* commit: every preset parsed */
+            for (uint32_t i = 0; i < md->n; i++) md->pre[pr * md->n + i] = vals[pr * MTR_MAX_PARAMS + i];
+            for (uint32_t c = 0; c < 16u; c++) md->pre_buf[pr][c] = names[pr][c];
+            md->pre_names[pr] = md->pre_buf[pr];
+        }
+        md->npre = (uint8_t)npre;
+        mtr_apply_preset(md, e[6u + npre * psize]);
+        done++;
+    }
+    *applied = done;
     return AS_OK;
 }
 #endif
