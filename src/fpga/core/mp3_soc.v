@@ -76,7 +76,9 @@ module mp3_soc #(
     parameter SPEC_ENABLE = 0,
     // Level and waveform meters (B-283): tau_wave_meter.sv fed from the same sample strobe. Peak L/R, and a 256-column
     // min/max scope capture with its own zero-crossing trigger. Registers 0xEC-0xFC. Inert (reads 0) when 0.
-    parameter WAVE_ENABLE = 0
+    parameter WAVE_ENABLE = 0,
+    // MP3 synthesis-window unit (B-292): tau_mp3_poly.sv, registers 0x100-0x110. Inert (reads 0) when 0.
+    parameter POLY_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -917,6 +919,26 @@ module mp3_soc #(
         end
     endgenerate
 
+    // ---- MP3 synthesis window (B-292) ------------------------------------------------------------------------------------
+    // 0x100 POLY_CTL W: bit 0 = clear the history (1,024 clocks, busy), bit 1 = go. 0x104 POLY_PUSH W: one FDCT32 output word (64 per slot: channel 0's
+    // 32 in push order, then channel 1's). 0x108 POLY_IDX W: PCM word 0..31 to present. 0x10C POLY_OUT R: {R sample, L sample}.
+    // 0x110 POLY_ST R: bit 0 = built in, bit 1 = busy, bits 31:16 = slots computed.
+    reg         poly_clear = 1'b0, poly_go = 1'b0, poly_push_we = 1'b0, poly_idx_we = 1'b0;
+    reg  [31:0] poly_push_d = 32'd0;
+    reg  [4:0]  poly_idx_d  = 5'd0;
+    wire        poly_busy;
+    wire [31:0] poly_rd;
+    wire [15:0] poly_slots;
+    generate
+        if (POLY_ENABLE != 0) begin : g_poly
+            tau_mp3_poly u_poly (
+                .clk(clk), .rst(rst), .clear(poly_clear), .push_we(poly_push_we), .push_data(poly_push_d), .go(poly_go), .busy(poly_busy),
+                .out_idx_we(poly_idx_we), .out_idx(poly_idx_d), .rd_data(poly_rd), .slots_done(poly_slots));
+        end else begin : g_nopoly
+            assign poly_busy = 1'b0; assign poly_rd = 32'd0; assign poly_slots = 16'd0;
+        end
+    endgenerate
+
     // Preset EQ, spliced between the FIFO and this module's audio outputs.
     // Entirely inside clk_sys, so no new CDC -- sound_i2s already crosses into
     // clk_74a through its own sync_fifo and this sits on the near side of that.
@@ -937,6 +959,7 @@ module mp3_soc #(
         tgt_go      <= 1'b0;
         fb_cmd_push <= 1'b0;
         wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0;
+        poly_clear <= 1'b0; poly_go <= 1'b0; poly_push_we <= 1'b0; poly_idx_we <= 1'b0;
         dt_wren     <= 1'b0;
         set_wr      <= 1'b0;
         sdram_start <= 1'b0;
@@ -1008,6 +1031,9 @@ module mp3_soc #(
                 R_SPEC_IDX: spec_idx <= dDAT_MOSI[3:0];
                 R_WAVE_CTL: begin wave_ctl_d <= dDAT_MOSI[11:0]; wave_ctl_we <= 1'b1; end
                 R_WAVE_IDX: begin wave_idx_d <= dDAT_MOSI[7:0];  wave_idx_we <= 1'b1; end
+                9'h100:     begin poly_clear <= dDAT_MOSI[0]; poly_go <= dDAT_MOSI[1]; end
+                9'h104:     begin poly_push_d <= dDAT_MOSI; poly_push_we <= 1'b1; end
+                9'h108:     begin poly_idx_d <= dDAT_MOSI[4:0]; poly_idx_we <= 1'b1; end
                 R_BLT_IDX:  blt_idx <= dDAT_MOSI[2:0];
                 R_BLT_DATA: begin
                     case (blt_idx)
@@ -1090,6 +1116,8 @@ module mp3_soc #(
             8'hBC:     mmio_rdata = (SDRAM_BUSY_ENABLE != 0) ? sdram_busy_rd : 32'd0;  // B7: SDRAM port-busy cycles, free-running since reset
             8'hD0:     mmio_rdata = (VBLANK_ENABLE != 0) ? {vblank_rd[16:1], 15'd0, vblank_rd[0]} : 32'd0;  // Helios/Talos H0: bit 0 vblank level, bits 31:16 free-running frame count (B-260)
             8'hE8:     mmio_rdata = {22'd0, scan_rd};                                  // Helios beam position: bit 9 present, bits 8:0 video line counter (B-267)
+            9'h10C:    mmio_rdata = poly_rd;                                            // MP3 window unit: PCM word at POLY_IDX (B-292)
+            9'h110:    mmio_rdata = (POLY_ENABLE != 0) ? {poly_slots, 14'd0, poly_busy, 1'b1} : 32'd0;   // bit 0 present, bit 1 busy, 31:16 slots computed
             8'hF4:     mmio_rdata = wave_rd;                                            // scope column {min, max} at WAVE_IDX (B-283)
             8'hF8:     mmio_rdata = {wave_pk_r, wave_pk_l};                             // level meters: max |R|, max |L| since cleared
             8'hFC:     mmio_rdata = wave_status;                                        // bit 0 present, bit 1 capturing, bit 2 trigger timeout, 15:8 capture number

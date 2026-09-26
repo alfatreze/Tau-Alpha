@@ -48,7 +48,12 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0xF4 | WAVE_DATA | R | `{min[31:16], max[15:0]}`, signed 16-bit each, of the selected column of the last completed capture (the min/max envelope of the mono mix over the column's samples). 0 when `TAU_WAVE` is off. |
 | 0xF8 | WAVE_PK | R | `{max\|R\| [31:16], max\|L\| [15:0]}` since the last clear; free-running. 0 when off. |
 | 0xFC | WAVE_ST | R | bit 0 = the block is built in, bit 1 = a capture is running, bit 2 = the last capture's trigger timed out, bits 15:8 = capture count. 0 when off. |
-| 0x100-0x1FC | free | | B-287: the decode is now 9 bits (128 word slots, `mmio_reg = {dADR[6:0], 2'b00}`), so 0x00-0xFF is full but 0x100-0x1FC is open. Offsets 0x00-0xFF are unchanged. The PSRAM probe's expansion window (0x88-0xAC, 8-bit `xm_reg`) is gated so a write at 0x1xx cannot alias into it. Not yet fitted on Quartus; new blocks should use 0x100 upward. |
+| 0x100 | POLY_CTL | W | B-292 MP3 window unit (`tau_mp3_poly.sv`, `TAU_POLY`): bit 0 = clear the history (writes zeros over the 1,024-word array, busy for 1,024 clocks), bit 1 = go (compute the pending slot, both channels). |
+| 0x104 | POLY_PUSH | W | one FDCT32 output word in push order (P0 = sample 0, P1..16 = samples 16..31, P17..31 = samples 15..1); 64 per slot: channel 0's 32, then channel 1's. Ignored while busy. |
+| 0x108 | POLY_IDX | W | PCM word 0..31 to present at `POLY_OUT`. |
+| 0x10C | POLY_OUT | R | `{R sample [31:16], L sample [15:0]}` of the last computed slot (Helix's interleave). 0 when off. |
+| 0x110 | POLY_ST | R | bit 0 = built in, bit 1 = busy, bits 31:16 = slots computed. 0 when off. |
+| 0x114-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
