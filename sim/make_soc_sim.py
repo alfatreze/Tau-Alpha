@@ -11,7 +11,7 @@ import sys
 
 src = open(sys.argv[1]).read()
 m1 = re.search(r"    localparam \[7:0\] R_CONSOLE.*?R_SDR_STATUS=8'h84;\n", src, re.S)
-m2 = re.search(r"    wire \[7:0\] mmio_reg = \{dADR\[5:0\], 2'b00\};[^\n]*\n", src)
+m2 = re.search(r"    wire \[8:0\] mmio_reg = \{dADR\[6:0\], 2'b00\};[^\n]*\n", src)
 if not (m1 and m2):
     raise SystemExit("mp3_soc.v layout changed: cannot hoist MMIO declarations")
 hoist = m1.group(0) + m2.group(0)

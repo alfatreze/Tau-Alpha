@@ -43,7 +43,12 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0xE0 | SPEC_DATA | R | 20-bit mean \|band\| over the last completed 1024-sample window for band `SPEC_IDX` (stage `o` saw `1024>>o` samples, so mean = acc >> (10-o)). 0 when `TAU_SPEC` is off. |
 | 0xE4 | SPEC_ST | R | bit 0 = the bank is built in; bits 31:16 = windows completed (increments every 1024 samples). Read it before and after reading the 16 means and retry if it changed. 0 when `TAU_SPEC` is off. |
 | 0xE8 | SCAN | R | Helios beam position (B-267, `TAU_BEAM`): bit 9 = present, bits 8:0 = the video line counter `vc` (0..399), carried clk_vid -> clk_sys in Gray code by `tau_cdc_gray_bus.sv`. The row being scanned is `vc - 4` while `4 <= vc < 364`; rows are prefetched one line ahead. May read a wrong value for about one sample around the 399 -> 0 wrap (inside vertical blanking, where every draw is safe). 0 when `TAU_BEAM` is off. |
-| 0xEC-0xFC | free | | next claimants: RLE decode enable (B10); allocate here |
+| 0xEC | WAVE_CTL | W | B-283 level/scope block (`tau_wave_meter.sv`, `TAU_WAVE`): bit 0 clears the peaks, bit 1 arms a scope capture (waits for a rising zero crossing of the mono mix, or gives up after 2048 samples and captures anyway), bits 11:8 = samples per column - 1. |
+| 0xF0 | WAVE_IDX | W | scope column 0..255 presented at `WAVE_DATA` (read the data at least 3 clocks later; the CPU always is). |
+| 0xF4 | WAVE_DATA | R | `{min[31:16], max[15:0]}`, signed 16-bit each, of the selected column of the last completed capture (the min/max envelope of the mono mix over the column's samples). 0 when `TAU_WAVE` is off. |
+| 0xF8 | WAVE_PK | R | `{max\|R\| [31:16], max\|L\| [15:0]}` since the last clear; free-running. 0 when off. |
+| 0xFC | WAVE_ST | R | bit 0 = the block is built in, bit 1 = a capture is running, bit 2 = the last capture's trigger timed out, bits 15:8 = capture count. 0 when off. |
+| 0x100-0x1FC | free | | B-287: the decode is now 9 bits (128 word slots, `mmio_reg = {dADR[6:0], 2'b00}`), so 0x00-0xFF is full but 0x100-0x1FC is open. Offsets 0x00-0xFF are unchanged. The PSRAM probe's expansion window (0x88-0xAC, 8-bit `xm_reg`) is gated so a write at 0x1xx cannot alias into it. Not yet fitted on Quartus; new blocks should use 0x100 upward. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
