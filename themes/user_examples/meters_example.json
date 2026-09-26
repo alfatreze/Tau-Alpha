@@ -1,0 +1,20 @@
+{
+  "meters": [
+    {
+      "key": "winamp_bars",
+      "default_preset": 0,
+      "presets": [
+        { "name": "SMOOTH 12", "values": { "bands": 12, "ease": 2, "attack": 40, "release": 15, "peak_on": 1, "peak_gravity": 1, "peak_hold_ms": 300, "peak_fall": 25 } },
+        { "name": "CLASSIC 16", "values": { "bands": 16, "ease": 0, "attack": 100, "release": 100, "peak_on": 0, "peak_gravity": 0, "peak_hold_ms": 0, "peak_fall": 60 } }
+      ]
+    },
+    {
+      "key": "winamp_scope",
+      "default_preset": 1,
+      "presets": [
+        { "name": "CRISP", "values": { "scope_smooth": 0, "scope_trail": 0 } },
+        { "name": "SILKY", "values": { "scope_smooth": 70, "scope_trail": 40 } }
+      ]
+    }
+  ]
+}

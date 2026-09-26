@@ -1,4 +1,4 @@
-# tau-assets.bin and the theme file (as built, step 0d)
+# tau-assets.bin: the theme file (step 0d) and the meter preset file (M4), as built
 
 Status: **built and host-tested 2026-09-26 (B-313); not yet read by a Pocket, so not frozen.** This is the as-built form of
 `docs/THEME_SPEC.md` section 5 inside the container chosen in `docs/DECISIONS.md` D-M01. Where they differ, this file is right for the code.
@@ -14,7 +14,7 @@ header : "TAUA" | version u16 = 1 | section_count u16 (<= 8) | crc32 of the sect
 table  : section_count x { tag[4] | offset u32 | length u32 | crc32 of the section u32 }                 (16 bytes each)
 data   : the sections; offsets are from the start of the file
 ```
-Sections today: `THEM`. Planned: `METR` (meter config), `ICON`, `FONT`. Unknown tags are ignored. The firmware caps the file at 1 KiB today.
+Sections today: `THEM` (themes) and `METR` (per-meter presets). Planned: `ICON`, `FONT`. The two fail independently. Unknown tags are ignored. The firmware caps the file at 1 KiB today.
 
 ## Section `THEM`
 ```
@@ -51,3 +51,25 @@ same contrast and both-polarities checks, write this file. **Not built here**: t
 importer against, and the rule in `docs/CROSS_PROJECT_INTERFACE.md` is to verify against a real captured artefact, not an invented one. What Omega
 can rely on today: the byte layout above, `tools/tau_assets.py` as a reference writer/reader, and `sim/test_tau_assets.py` as the definition of
 "refused". After a card has read a file, capture that file for Omega's fixtures.
+
+## Section `METR` (M4): per-meter preset sets
+```
+"TMTR" | version u16 = 1 | 2 pad | crc32 of everything after this 12-byte header u32 | count u16
+entry  : len u16 | id u8 | schema u8 | flags u8 | order u8 | npre u8 | nparams u8 | npre x { name[16] | nparams values } | default_preset u8
+value  : one byte per u8, bool and enum parameter, two (LE) per u16 parameter, in the meter's manifest order
+```
+`id`, parameter order and widths come from `tools/meters_schema.json` (generated from `meters/*/meter.json`); the explicit `len` per entry (not in the
+first design sketch) lets an old firmware skip a meter it does not know. What a file can do: **replace a meter's presets** (1 to 8, names of at most 15
+characters) and **pick the boot preset**. What it cannot do: add a meter (meters are code) or change a parameter's range (the compiled table is the only
+authority). Firmware rules: version and CRCs first; a meter the firmware does not know, a newer `schema`, a different `nparams`, a preset count outside
+1..8, a size that does not add up or a default preset out of range skips **that meter only**; every value is clamped to the compiled range; names are
+reduced to upper-case printable ASCII; a meter's presets are committed only when all of them parsed. `flags` (selectable override) and `order` (list
+position) are carried and validated by the tool but **not applied yet**: reordering or hiding meters needs the meter list to become runtime data, which
+touches how saved meter indexes resolve, so it is a separate step. Info > METER FILE shows `NONE`, `n LOADED` or `E<code>`.
+
+```
+python3 tools/tau_assets.py pack themes/user_examples/sunset.json --meters themes/user_examples/meters_example.json -o tau-assets.bin
+```
+The writer validates values against the registry (complete, in range) and refuses what the firmware would clamp. `sim/test_tau_assets.py` compiles the real
+firmware reader with the generated meter tables: valid files apply exactly what the Python reader shows, every byte flip is refused, a corrupted METR
+does not affect THEM, unknown/mismatched/oversized entries are skipped, out-of-range values are clamped.

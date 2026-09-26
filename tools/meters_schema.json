@@ -3,6 +3,7 @@
  "meters": [
   {
    "id": 0,
+   "schema": 1,
    "key": "bars",
    "name": "BARS",
    "enum": "VIZ_BARS",
@@ -20,6 +21,7 @@
   },
   {
    "id": 1,
+   "schema": 1,
    "key": "waterfall",
    "name": "WATERFALL",
    "enum": "VIZ_WATER",
@@ -35,6 +37,7 @@
   },
   {
    "id": 2,
+   "schema": 1,
    "key": "retired_levels",
    "name": "-",
    "enum": "VIZ_RETIRED_LEVELS",
@@ -49,6 +52,7 @@
   },
   {
    "id": 3,
+   "schema": 1,
    "key": "scope",
    "name": "PHASE SCOPE",
    "enum": "VIZ_SCOPE",
@@ -64,6 +68,7 @@
   },
   {
    "id": 4,
+   "schema": 1,
    "key": "wave",
    "name": "OSCILLOSCOPE",
    "enum": "VIZ_WAVE",
@@ -79,6 +84,7 @@
   },
   {
    "id": 5,
+   "schema": 1,
    "key": "vu",
    "name": "VU",
    "enum": "VIZ_VU",
@@ -94,6 +100,7 @@
   },
   {
    "id": 6,
+   "schema": 1,
    "key": "scroll",
    "name": "WAVEFORM",
    "enum": "VIZ_SCROLL",
@@ -109,6 +116,7 @@
   },
   {
    "id": 7,
+   "schema": 1,
    "key": "retired_mirror",
    "name": "-",
    "enum": "VIZ_RETIRED_MIRROR",
@@ -123,6 +131,7 @@
   },
   {
    "id": 8,
+   "schema": 1,
    "key": "dots",
    "name": "PEAK DOTS",
    "enum": "VIZ_DOTS",
@@ -138,6 +147,7 @@
   },
   {
    "id": 9,
+   "schema": 1,
    "key": "retired_eye",
    "name": "-",
    "enum": "VIZ_RETIRED_EYE",
@@ -152,6 +162,7 @@
   },
   {
    "id": 10,
+   "schema": 1,
    "key": "led",
    "name": "SPECTRUM",
    "enum": "VIZ_LED",
@@ -169,6 +180,7 @@
   },
   {
    "id": 11,
+   "schema": 1,
    "key": "retired_tape",
    "name": "-",
    "enum": "VIZ_RETIRED_TAPE",
@@ -183,6 +195,7 @@
   },
   {
    "id": 12,
+   "schema": 1,
    "key": "winamp_bars",
    "name": "WINAMP BARS",
    "enum": "VIZ_WINAMP_BARS",
@@ -350,6 +363,7 @@
   },
   {
    "id": 13,
+   "schema": 1,
    "key": "winamp_scope",
    "name": "WINAMP SCOPE",
    "enum": "VIZ_WINAMP_SCOPE",
@@ -423,6 +437,7 @@
   },
   {
    "id": 14,
+   "schema": 1,
    "key": "chladni",
    "name": "CHLADNI",
    "enum": "VIZ_CHLADNI",

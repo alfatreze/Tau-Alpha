@@ -107,6 +107,8 @@ def parse(blob):
         out["sections"][tag.decode("latin1")] = data
     if "THEM" in out["sections"]:
         out["themes"] = parse_themes(out["sections"]["THEM"])
+    if "METR" in out["sections"]:
+        out["meters"] = parse_meters(out["sections"]["METR"])
     return out
 
 
@@ -132,16 +134,103 @@ def parse_themes(d):
     return themes
 
 
+# ---- METR: per-meter preset sets (docs/THEME_FILE_FORMAT.md) -----------------------------------------------------------------------
+MAX_PRESETS = 8
+SCHEMA_PATH = ROOT / "tools" / "meters_schema.json"
+
+
+def registry():
+    return {m["key"]: m for m in json.loads(SCHEMA_PATH.read_text())["meters"]}
+
+
+def _pw(p):
+    return 2 if p["type"] == "u16" else 1
+
+
+def pack_meters(spec):
+    """spec: {"meters": [{"key", "presets": [{"name", "values": {param: v}}], "default_preset"}]}. Values are validated against the registry (complete,
+    in range, enum index valid); the writer refuses what the firmware would clamp, so a shipped file never relies on clamping."""
+    reg = registry()
+    body = struct.pack("<H", len(spec["meters"]))
+    for e in spec["meters"]:
+        m = reg.get(e["key"])
+        if not m or not m["params"]:
+            raise ValueError(f"meter {e['key']!r} is not in the registry or has no parameters")
+        ps, pres = m["params"], e["presets"]
+        if not 1 <= len(pres) <= MAX_PRESETS:
+            raise ValueError(f"{e['key']}: 1..{MAX_PRESETS} presets")
+        if not 0 <= e.get("default_preset", 0) < len(pres):
+            raise ValueError(f"{e['key']}: default_preset out of range")
+        names = [pr["name"] for pr in pres]
+        if len(set(names)) != len(names) or any(not re.fullmatch(r"[A-Z0-9 _-]{1,15}", n) for n in names):
+            raise ValueError(f"{e['key']}: preset names must be unique, 1..15 of A-Z 0-9 space _ -")
+        ent = struct.pack("<BBBBBB", m["id"], m.get("schema", 1), 0, m.get("list_position", 0) or 0, len(pres), len(ps))
+        for pr in pres:
+            if set(pr["values"]) != {p["key"] for p in ps}:
+                raise ValueError(f"{e['key']}/{pr['name']}: must give exactly {[p['key'] for p in ps]}")
+            ent += pr["name"].encode().ljust(NAME_LEN, b"\0")
+            for p in ps:
+                v = pr["values"][p["key"]]
+                lo, hi = (0, 1) if p["type"] == "bool" else (0, len(p["values"]) - 1) if p["type"] == "enum" else (p["min"], p["max"])
+                if not lo <= v <= hi:
+                    raise ValueError(f"{e['key']}/{pr['name']}: {p['key']}={v} outside {lo}..{hi}")
+                ent += v.to_bytes(_pw(p), "little")
+        ent += bytes([e.get("default_preset", 0)])
+        body += struct.pack("<H", len(ent)) + ent
+    head = b"TMTR" + struct.pack("<HBB", VERSION, 0, 0)
+    return head + struct.pack("<I", crc(body)) + body
+
+
+def parse_meters(d):
+    if len(d) < 14 or d[:4] != b"TMTR":
+        raise ValueError("bad METR magic")
+    ver = struct.unpack("<H", d[4:6])[0]
+    if ver != VERSION:
+        raise ValueError("bad METR version")
+    if crc(d[12:]) != struct.unpack("<I", d[8:12])[0]:
+        raise ValueError("METR CRC mismatch")
+    (count,), pos, out = struct.unpack("<H", d[12:14]), 14, []
+    reg = {m["id"]: m for m in registry().values()}
+    for _ in range(count):
+        (ln,) = struct.unpack("<H", d[pos:pos + 2])
+        e = d[pos + 2:pos + 2 + ln]
+        pos += 2 + ln
+        mid, schema, flags, order, npre, nparams = e[:6]
+        m = reg.get(mid)
+        item = {"id": mid, "schema": schema, "flags": flags, "order": order, "nparams": nparams}
+        if m is None or nparams != len(m["params"]) or schema > m.get("schema", 1):
+            item["skipped"] = True
+            out.append(item)
+            continue
+        q, pres = 6, []
+        for _p in range(npre):
+            name = e[q:q + NAME_LEN].split(b"\0")[0].decode(); q += NAME_LEN
+            vals = {}
+            for p in m["params"]:
+                w = _pw(p); vals[p["key"]] = int.from_bytes(e[q:q + w], "little"); q += w
+            pres.append({"name": name, "values": vals})
+        item.update({"key": m["key"], "presets": pres, "default_preset": e[q]})
+        out.append(item)
+    return out
+
+
 def cmd_pack(a):
     themes = [json.loads(Path(p).read_text()) for p in a.themes]
-    blob = pack_container([(b"THEM", pack_themes(themes))])
+    secs = [(b"THEM", pack_themes(themes))] if themes else []
+    if a.meters:
+        secs.append((b"METR", pack_meters(json.loads(Path(a.meters).read_text()))))
+    if not secs:
+        raise ValueError("nothing to pack: give theme files and/or --meters")
+    blob = pack_container(secs)
+    if len(blob) > 1024:
+        raise ValueError(f"file is {len(blob)} bytes; the firmware reads at most 1024")
     Path(a.output).write_bytes(blob)
-    print(f"wrote {a.output}: {len(blob)} bytes, {len(themes)} theme(s): " + ", ".join(t["name"] for t in themes))
+    print(f"wrote {a.output}: {len(blob)} bytes, {len(themes)} theme(s), sections: " + ", ".join(t.decode() for t, _ in secs))
 
 
 def cmd_dump(a):
     r = parse(Path(a.file).read_bytes())
-    print(json.dumps({"sections": {k: len(v) for k, v in r["sections"].items()},
+    print(json.dumps({"meters": r.get("meters"), "sections": {k: len(v) for k, v in r["sections"].items()},
                       "themes": [{**t, "dark": ["0x%04X" % x for x in t["dark"]], "light": ["0x%04X" % x for x in t["light"]]}
                                  for t in r.get("themes", [])]}, indent=1))
 
@@ -161,7 +250,7 @@ def cmd_install(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("pack"); p.add_argument("themes", nargs="+"); p.add_argument("-o", "--output", required=True); p.set_defaults(fn=cmd_pack)
+    p = sub.add_parser("pack"); p.add_argument("themes", nargs="*"); p.add_argument("--meters", help="meters.json: preset sets per meter");  p.add_argument("-o", "--output", required=True); p.set_defaults(fn=cmd_pack)
     d = sub.add_parser("dump"); d.add_argument("file"); d.set_defaults(fn=cmd_dump)
     i = sub.add_parser("install"); i.add_argument("file"); i.add_argument("--core", required=True); i.add_argument("--card", default="/Volumes/Pock"); i.set_defaults(fn=cmd_install)
     a = ap.parse_args()
