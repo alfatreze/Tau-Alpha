@@ -37,6 +37,7 @@ test-host:
 	$(PYTHON) tools/check_audit_trail.py
 	$(PYTHON) tools/gen_meters.py --check
 	$(PYTHON) tools/check_meter_deps.py
+	$(PYTHON) sim/test_meter_core.py --check
 	$(PYTHON) tools/gen_themes.py --check
 	$(PYTHON) tools/meter_cost_estimate.py
 	$(PYTHON) sim/test_psram_decode.py
