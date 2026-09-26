@@ -1,0 +1,9 @@
+{
+  "key": "retired_eye",
+  "enum": "VIZ_RETIRED_EYE",
+  "index": 9,
+  "name": "-",
+  "selectable": false,
+  "retired": true,
+  "note": "Magic eye, removed 2026-09-26. Slot kept for the same reason."
+}

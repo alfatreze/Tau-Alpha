@@ -35,6 +35,8 @@ test-host:
 	$(PYTHON) tools/check_tau_package.py
 	$(PYTHON) tools/check_ui_snapshot_renderer.py
 	$(PYTHON) tools/check_audit_trail.py
+	$(PYTHON) tools/gen_meters.py --check
+	$(PYTHON) tools/meter_cost_estimate.py
 	$(PYTHON) sim/test_psram_decode.py
 	$(PYTHON) sim/test_library_index.py
 	$(PYTHON) sim/test_library_fw.py

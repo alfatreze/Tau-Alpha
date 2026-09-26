@@ -1,0 +1,8 @@
+{
+  "key": "winamp_scope",
+  "enum": "VIZ_WINAMP_SCOPE",
+  "index": 13,
+  "name": "WINAMP SCOPE",
+  "selectable": true,
+  "sel_index": 0
+}

@@ -1,0 +1,9 @@
+{
+  "key": "retired_tape",
+  "enum": "VIZ_RETIRED_TAPE",
+  "index": 11,
+  "name": "-",
+  "selectable": false,
+  "retired": true,
+  "note": "Cassette meter (HarpMudd port), parked/removed. Slot kept for the same reason. Archived in archive/cassette_meter/."
+}

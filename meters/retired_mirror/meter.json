@@ -1,0 +1,9 @@
+{
+  "key": "retired_mirror",
+  "enum": "VIZ_RETIRED_MIRROR",
+  "index": 7,
+  "name": "-",
+  "selectable": false,
+  "retired": true,
+  "note": "Mirrored bars, removed 2026-09-26; now BARS layout 1. Slot kept for the same reason."
+}

@@ -1,0 +1,8 @@
+{
+  "key": "winamp_bars",
+  "enum": "VIZ_WINAMP_BARS",
+  "index": 12,
+  "name": "WINAMP BARS",
+  "selectable": true,
+  "sel_index": 1
+}

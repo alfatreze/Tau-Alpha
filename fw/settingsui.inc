@@ -128,12 +128,7 @@ static const char *const set_stress_nm[4] = { "OFF", "R1  16K OPS/S PACED", "R2 
 static const char *const set_soak_nm[5] = { "OFF", "5 MIN", "15 MIN", "30 MIN", "60 MIN" };
 static const uint8_t     set_soak_min[5] = { 0u, 5u, 15u, 30u, 60u };
 
-/* Same order as the VIZ_* enum; the label VIZ_LED shares with its toast is SPECTRUM. */
-static const char *const set_viz[] = { "BARS", "WATERFALL", "-", "PHASE SCOPE",
-    "OSCILLOSCOPE", "VU", "WAVEFORM", "-", "PEAK DOTS", "-", "SPECTRUM",
-    "-", "WINAMP BARS", "WINAMP SCOPE", "CHLADNI" };
-_Static_assert(sizeof(set_viz) / sizeof(set_viz[0]) == VIZ_COUNT,
-               "set_viz[] must name every visualizer");
+#include "meter_gen_names.h"
 static const char *const set_rep[3]      = { "OFF", "ALL", "ONE" };
 static const char *const set_blank_nm[5] = { "NEVER", "1 MIN", "5 MIN", "10 MIN", "30 MIN" };
 static const uint8_t     set_blank[5]    = { 0u, 1u, 5u, 10u, 30u };

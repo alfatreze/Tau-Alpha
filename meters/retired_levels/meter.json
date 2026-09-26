@@ -1,0 +1,9 @@
+{
+  "key": "retired_levels",
+  "enum": "VIZ_RETIRED_LEVELS",
+  "index": 2,
+  "name": "-",
+  "selectable": false,
+  "retired": true,
+  "note": "L/R levels, removed 2026-09-26. Slot kept: viz_mode persists as an index. Drawing code archived, tag backup/pre-meter-removal-2026-09-26."
+}

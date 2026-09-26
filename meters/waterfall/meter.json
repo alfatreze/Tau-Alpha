@@ -1,0 +1,8 @@
+{
+  "key": "waterfall",
+  "enum": "VIZ_WATER",
+  "index": 1,
+  "name": "WATERFALL",
+  "selectable": true,
+  "sel_index": 4
+}

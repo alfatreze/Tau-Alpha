@@ -1,0 +1,9 @@
+{
+  "key": "chladni",
+  "enum": "VIZ_CHLADNI",
+  "index": 14,
+  "name": "CHLADNI",
+  "selectable": true,
+  "sel_index": 2,
+  "needs_hw_spec": true
+}

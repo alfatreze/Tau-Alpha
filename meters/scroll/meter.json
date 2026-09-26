@@ -1,0 +1,8 @@
+{
+  "key": "scroll",
+  "enum": "VIZ_SCROLL",
+  "index": 6,
+  "name": "WAVEFORM",
+  "selectable": true,
+  "sel_index": 8
+}

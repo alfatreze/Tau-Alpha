@@ -28,6 +28,9 @@ TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window te
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
         10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest", 16: "stack"}
 BLIT_OPS = ["RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT"]
+# meters/*/meter.json (meter module M0, tools/gen_meters.py) index order -- the VIZ_* enum.
+VIZ_NAMES = ["BARS", "WATERFALL", "-", "PHASE SCOPE", "OSCILLOSCOPE", "VU", "WAVEFORM", "-", "PEAK DOTS", "-",
+             "SPECTRUM", "-", "WINAMP BARS", "WINAMP SCOPE", "CHLADNI"]
 B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 

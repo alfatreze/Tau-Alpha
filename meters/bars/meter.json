@@ -1,0 +1,8 @@
+{
+  "key": "bars",
+  "enum": "VIZ_BARS",
+  "index": 0,
+  "name": "BARS",
+  "selectable": true,
+  "sel_index": 3
+}
