@@ -501,7 +501,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 20u   /* B-073: +1 for COVER (art_bad_code, for the "no
+#define SET_INFO_ROWS 21u   /* B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
                                               * freeze, see its own comment in fw/player.c); B-238:
@@ -598,12 +598,23 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
     case 18:   /* CPU LOAD: share of the last second the decode loop was not waiting on the audio FIFO */
         q = ui_dec(q, ui_cpu_pct()); q = set_str(q, "%");
         break;
-    default:   /* TIM1 COVER (B-288): how covers were shown -- files loaded, the last load time, and the last failure code (0 = none) */
+    case 19:   /* TIM1 COVER (B-288): how covers were shown -- files loaded, the last load time, and the last failure code (0 = none) */
 #if TAU_ART_TIMG
         q = ui_dec(q, timg_loaded_n); q = set_str(q, " LOADED ");
         q = ui_dec(q, timg_ms); q = set_str(q, " MS E");
         q = ui_dec(q, timg_last_err);
         if (timg_last_err) { q = set_str(q, " ("); q = ui_dec(q, timg_fail_n); q = set_str(q, " FAILED)"); }
+#else
+        q = set_str(q, "OFF");
+#endif
+        break;
+    default:   /* MP3 WINDOW (B-307): the hardware synthesis window -- slots it computed, self-check mismatches, timeouts */
+#if TAU_POLY_FW
+        if (!hw_poly) { q = set_str(q, "NO UNIT"); break; }
+        q = set_str(q, tau_poly_hw_enable ? "HW " : "SW ");
+        q = ui_dec(q, tau_poly_stat_slots); q = set_str(q, " SLOTS ");
+        q = ui_dec(q, tau_poly_stat_mismatch); q = set_str(q, " BAD ");
+        q = ui_dec(q, tau_poly_stat_timeout); q = set_str(q, " TMO");
 #else
         q = set_str(q, "OFF");
 #endif

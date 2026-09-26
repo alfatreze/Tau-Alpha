@@ -45,6 +45,26 @@
 #include "coder.h"
 #include "assembly.h"
 
+/* TAU_POLY_FW: when set, every one of FDCT32's 33 stores into d[0]/d[8] also appends to tau_poly_wlog[]
+ * in call order (index 17 is a duplicate write, see docs/MP3_FILTERBANK_KERNEL_DESIGN.md section 6 step 4).
+ * Off by default -- byte-identical to the unmodified decoder. This mirrors tools/gen_mp3_poly_rom.py's
+ * WRLOG scratch-copy patch, made permanent so firmware can capture the same values in the real path. */
+#ifndef TAU_POLY_FW
+#define TAU_POLY_FW 0
+#endif
+
+#if TAU_POLY_FW
+extern int tau_poly_wlog[33];
+extern int tau_poly_wn;
+/* Bounded: FDCT32 also runs for mono streams and for the per-slot software fallback, where nobody resets tau_poly_wn -- an unbounded log would
+ * write past the 33-entry array (found by sim/test_mp3_poly_subband.py: the mono decode corrupted memory). Only the stereo redirect resets the count. */
+#define TAU_POLY_LOG(d, s) do { if (tau_poly_wn < 33) tau_poly_wlog[tau_poly_wn++] = (s); } while (0)
+#define TAU_POLY_FIX(k, v) do { tau_poly_wlog[k] = (v); } while (0)   /* the guard-bit (es) fixup below rewrites the stored words: keep the log equal to what vbuf now holds */
+#else
+#define TAU_POLY_LOG(d, s) do { } while (0)
+#define TAU_POLY_FIX(k, v) do { } while (0)
+#endif
+
 #define COS0_0  0x4013c251	/* Q31 */
 #define COS0_1  0x40b345bd	/* Q31 */
 #define COS0_2  0x41fa2d6d	/* Q31 */
@@ -201,63 +221,63 @@ void FDCT32(int *buf, int *dest, int offset, int oddBlock, int gb)
 
 	/* sample 0 - always delayed one block */
 	d = dest + 64*16 + ((offset - oddBlock) & 7) + (oddBlock ? 0 : VBUF_LENGTH);
-	s = buf[ 0];				d[0] = d[8] = s;
+	s = buf[ 0];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);
     
 	/* samples 16 to 31 */
 	d = dest + offset + (oddBlock ? VBUF_LENGTH  : 0);
 
-	s = buf[ 1];				d[0] = d[8] = s;	d += 64;
+	s = buf[ 1];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
 
 	tmp = buf[25] + buf[29];
-	s = buf[17] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[ 9] + buf[13];		d[0] = d[8] = s;	d += 64;
-	s = buf[21] + tmp;			d[0] = d[8] = s;	d += 64;
+	s = buf[17] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[ 9] + buf[13];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[21] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
 
 	tmp = buf[29] + buf[27];
-	s = buf[ 5];				d[0] = d[8] = s;	d += 64;
-	s = buf[21] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[13] + buf[11];		d[0] = d[8] = s;	d += 64;
-	s = buf[19] + tmp;			d[0] = d[8] = s;	d += 64;
+	s = buf[ 5];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[21] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[13] + buf[11];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[19] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
 
 	tmp = buf[27] + buf[31];
-	s = buf[ 3];				d[0] = d[8] = s;	d += 64;
-	s = buf[19] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[11] + buf[15];		d[0] = d[8] = s;	d += 64;
-	s = buf[23] + tmp;			d[0] = d[8] = s;	d += 64;
+	s = buf[ 3];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[19] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[11] + buf[15];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[23] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
 
 	tmp = buf[31];
-	s = buf[ 7];				d[0] = d[8] = s;	d += 64;
-	s = buf[23] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[15];				d[0] = d[8] = s;	d += 64;
-	s = tmp;					d[0] = d[8] = s;
+	s = buf[ 7];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[23] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[15];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = tmp;					d[0] = d[8] = s;	TAU_POLY_LOG(d, s);
 
 	/* samples 16 to 1 (sample 16 used again) */
 	d = dest + 16 + ((offset - oddBlock) & 7) + (oddBlock ? 0 : VBUF_LENGTH);
 
-	s = buf[ 1];				d[0] = d[8] = s;	d += 64;
+	s = buf[ 1];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
 
 	tmp = buf[30] + buf[25];
-	s = buf[17] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[14] + buf[ 9];		d[0] = d[8] = s;	d += 64;
-	s = buf[22] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[ 6];				d[0] = d[8] = s;	d += 64;
+	s = buf[17] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[14] + buf[ 9];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[22] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[ 6];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
 
 	tmp = buf[26] + buf[30];
-	s = buf[22] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[10] + buf[14];		d[0] = d[8] = s;	d += 64;
-	s = buf[18] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[ 2];				d[0] = d[8] = s;	d += 64;
+	s = buf[22] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[10] + buf[14];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[18] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[ 2];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
 
 	tmp = buf[28] + buf[26];
-	s = buf[18] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[12] + buf[10];		d[0] = d[8] = s;	d += 64;
-	s = buf[20] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[ 4];				d[0] = d[8] = s;	d += 64;
+	s = buf[18] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[12] + buf[10];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[20] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[ 4];				d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
 
 	tmp = buf[24] + buf[28];
-	s = buf[20] + tmp;			d[0] = d[8] = s;	d += 64;
-	s = buf[ 8] + buf[12];		d[0] = d[8] = s;	d += 64;
-	s = buf[16] + tmp;			d[0] = d[8] = s;
+	s = buf[20] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[ 8] + buf[12];		d[0] = d[8] = s;	TAU_POLY_LOG(d, s);	d += 64;
+	s = buf[16] + tmp;			d[0] = d[8] = s;	TAU_POLY_LOG(d, s);
 
 	/* this is so rarely invoked that it's not worth making two versions of the output
 	 *   shuffle code (one for no shift, one for clip + variable shift) like in IMDCT
@@ -265,16 +285,16 @@ void FDCT32(int *buf, int *dest, int offset, int oddBlock, int gb)
 	 */
 	if (es) {
 		d = dest + 64*16 + ((offset - oddBlock) & 7) + (oddBlock ? 0 : VBUF_LENGTH);
-		s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);
+		s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);	TAU_POLY_FIX(0, s << es);
 	
 		d = dest + offset + (oddBlock ? VBUF_LENGTH  : 0);
 		for (i = 16; i <= 31; i++) {
-			s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);	d += 64;
+			s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);	TAU_POLY_FIX(1 + (i - 16), s << es);	d += 64;
 		}
 
 		d = dest + 16 + ((offset - oddBlock) & 7) + (oddBlock ? 0 : VBUF_LENGTH);
 		for (i = 15; i >= 0; i--) {
-			s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);	d += 64;
+			s = d[0];	CLIP_2N(s, 31 - es);	d[0] = d[8] = (s << es);	TAU_POLY_FIX(17 + (15 - i), s << es);	d += 64;
 		}
 	}
 }

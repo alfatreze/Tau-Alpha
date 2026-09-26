@@ -250,9 +250,18 @@ typedef struct _ScaleFactorInfo {
  *  (in Subband, instead of replicating each block in FDCT32 you would do a memmove on the
  *   last 15 blocks to shift them down one, a hardware style FIFO)
  */ 
+#ifndef TAU_POLY_FW
+#define TAU_POLY_FW 0		/* B-307: MP3 window-unit firmware redirect (see subband.c); must be the same in every translation unit -- build.sh passes -DTAU_POLY_FW */
+#endif
 typedef struct _SubbandInfo {
 	int vbuf[MAX_NCHAN * VBUF_LENGTH];		/* vbuf for fast DCT-based synthesis PQMF - double size for speed (no modulo indexing) */
 	int vindex;								/* internal index for tracking position in vbuf */
+#if TAU_POLY_FW
+	int hwPolyReady;						/* TAU_POLY_FW (B-307): 0 until the hardware window unit's shared history has been cleared for
+											 * THIS decoder instance (malloc'd + zeroed fresh by AllocateBuffers, same as vbuf/vindex above --
+											 * so this needs no separate reset call anywhere: a new decoder is a new hwPolyReady==0 for free).
+											 * Compiled in ONLY with TAU_POLY_FW so the struct (and every sizeof/malloc of it) is unchanged when off. */
+#endif
 } SubbandInfo;
 
 /* bitstream.c */
