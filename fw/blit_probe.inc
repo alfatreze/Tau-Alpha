@@ -66,6 +66,7 @@
  * (B-127 promoted them there for the blit-storm Check test to use too). */
 static uint8_t blit_ready;
 static uint8_t blit_probed;
+static uint8_t blit_probe_tries;     /* B-328: a failed probe is retried (up to 3 times) instead of latching 'not ready' for the session */
 #define BLIT_READY() (blit_ready != 0u)
 
 static void blit_probe(void)
@@ -103,28 +104,36 @@ static void blit_probe(void)
      * false "not detected" is possible (a genuine read-before-write-completes race between the
      * draw engine's own SDRAM client and the CPU mailbox's separate one, both on the same
      * single-port arbiter). */
-    t = cycles();
-    while ((uint32_t)(cycles() - t) < 512u) { }
-
-    t = cycles();
-    REG(R_SDR_ADDR) = probe_row2; REG(R_SDR_CTRL) = 0x3Du;  /* start, read, all lanes */
-    while ((uint32_t)(cycles() - t) < 128u) { }
-    while (REG(R_SDR_STATUS) & 1u)
-        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) { blit_ready = 0u; return; }
+    /* B-328: poll instead of one fixed 512-cycle wait. This probe is first run at the first track load, right after chrome drawing
+     * was queued ahead of it, so the copy can land later than 512 cycles; the old single read then saw the untouched sentinel, set
+     * blit_ready=0 and (blit_probed) never asked again, so BLIT_READY() stayed false for the whole session and every consumer
+     * (TIM1 covers: Info E6 on every run, CBLIT thumbnails) silently fell back. Now wait up to ~50 ms for the word to change. */
+    const uint32_t t0 = cycles();
+    uint32_t rd = 0x0000DEADu;
+    do {
+        t = cycles();
+        while ((uint32_t)(cycles() - t) < 512u) { }
+        t = cycles();
+        REG(R_SDR_ADDR) = probe_row2; REG(R_SDR_CTRL) = 0x3Du;  /* start, read, all lanes */
+        while ((uint32_t)(cycles() - t) < 128u) { }
+        while (REG(R_SDR_STATUS) & 1u)
+            if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) { blit_ready = 0u; return; }
+        rd = REG(R_SDR_RDATA);
+    } while (rd == 0x0000DEADu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
 
     /* Compare the full 32-bit readback against the full written pattern, not just one
-     * 16-bit half -- this project has no existing precedent pinning down which half of a
-     * 32-bit mailbox transaction maps to the lower-numbered SDRAM word, so don't guess.
-     * The draw engine's OP_BLIT only ever touches the probe_row2 pixel itself; if it
-     * changed, the full 32-bit value differs from what was written regardless of which
-     * half that pixel occupies. */
-    blit_ready = (REG(R_SDR_RDATA) != 0x0000DEADu) ? 1u : 0u;
+     * 16-bit half. The draw engine's OP_BLIT only ever touches the probe_row2 pixel itself; if it
+     * changed, the full 32-bit value differs from what was written. */
+    blit_ready = (rd != 0x0000DEADu) ? 1u : 0u;
 }
 
 /* B-162: run the probe at most once, on first actual need -- never at boot. */
 static void blit_probe_ensure(void)
 {
-    if (!blit_probed) { blit_probe(); blit_probed = 1u; }
+    if (!blit_probed) {
+        blit_probe();
+        if (blit_ready || ++blit_probe_tries >= 3u) blit_probed = 1u;
+    }
 }
 
 /* Helios/Talos H1 (docs/HELIOS_SPEC.md section 10): the same class of probe as blit_probe()

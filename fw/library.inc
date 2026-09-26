@@ -195,7 +195,7 @@ COLD_FN static void lib_tile(uint32_t x, uint32_t y, uint32_t n, int sel)
     if (n > 99u) n = 99u;
     char d[3] = { (char)('0' + n / 10u), (char)('0' + n % 10u), 0 };
     if (sel) fb_round_rect_on(x - 1u, y - 1u, LIB_TILE_W + 2u, LIB_TILE_H + 2u, 4u, UI_PANEL, ui_accent);
-    fb_round_rect_on(x, y, LIB_TILE_W, LIB_TILE_H, 3u, ui_accent, UI_PANEL);
+    fb_round_rect_on(x, y, LIB_TILE_W, LIB_TILE_H, 3u, ui_accent, OV_BODY);
     fb_set_color(UI_ON_ACCENT, ui_accent);
     uint32_t w = fb_text_width(d, TS_1X);
     fb_text_clipped(x + (LIB_TILE_W - w) / 2u, y + (LIB_TILE_H - FB_CELL(TS_1X)) / 2u, d, TS_1X, TS_1X, w + 2u);
@@ -207,12 +207,12 @@ COLD_FN static void lib_row_body(uint32_t i)
     uint32_t y = PL_UI_LIST_Y + i * LIB_ROW_H;
     uint32_t pos = (uint32_t)v->top + i;
     uint32_t rw = PL_UI_W - 8u - (v->count > LIB_ROWS ? 12u : 0u);     /* stop short of the scroll bar */
-    if (pos >= v->count) { fb_rect(PL_UI_X + 4u, y, rw, LIB_ROW_H, UI_PANEL); return; }
+    if (pos >= v->count) { fb_rect(PL_UI_X + 4u, y, rw, LIB_ROW_H, OV_BODY); return; }
 
     int sel = (pos == v->sel);
-    uint16_t bg = sel ? ui_accent : UI_PANEL;
-    fb_rect(PL_UI_X + 4u, y, rw, LIB_ROW_H, UI_PANEL);                 /* the whole slot, then the bar on it */
-    if (sel) fb_round_rect_on(PL_UI_X + 4u, y, rw, LIB_ROW_H - 4u, 5u, bg, UI_PANEL);
+    uint16_t bg = sel ? ui_accent : OV_BODY;
+    fb_rect(PL_UI_X + 4u, y, rw, LIB_ROW_H, OV_BODY);                 /* the whole slot, then the bar on it */
+    if (sel) fb_round_rect_on(PL_UI_X + 4u, y, rw, LIB_ROW_H - 4u, 5u, bg, OV_BODY);
 
     char nm[64];
     int32_t tile; uint32_t year;
@@ -275,7 +275,7 @@ COLD_FN static void lib_ui_draw_body(void)
 
     if (v->count > LIB_ROWS) {
         uint32_t track_x = PL_UI_X + PL_UI_W - 11u, track_y = PL_UI_LIST_Y, track_h = LIB_ROWS * LIB_ROW_H - 4u;
-        fb_rect(track_x, track_y, 3u, track_h, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
+        fb_rect(track_x, track_y, 3u, track_h, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
         uint32_t span = v->count - LIB_ROWS;
         uint32_t th = track_h * LIB_ROWS / v->count;
         if (th < 8u) th = 8u;

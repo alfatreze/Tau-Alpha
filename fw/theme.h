@@ -68,6 +68,7 @@ static uint16_t th_role[TR_COUNT] = {
 #define LED_MIDC   th_role[TR_WARN]
 #define LED_HI     th_role[TR_DANGER]
 #define OV_CHROME_BG   th_role[TR_CHROME]
+#define OV_BODY        th_role[TR_BG_BOTTOM]   /* full-screen overlay body (ov_frame): text on it uses this as its background so it reads transparent (B-328) */
 #define TAU_SPLASH_BG  th_role[TR_SPLASH_BG]
 #define TAU_SPLASH_BAR_C th_role[TR_SPLASH_BAR]
 #define FS_RED     th_role[TR_FS_RED]

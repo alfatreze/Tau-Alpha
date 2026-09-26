@@ -163,7 +163,9 @@ COLD_FN3 static int timg_cover(uint32_t sig, const char *path)
     /* The cover is drawn into the OFF-SCREEN art stash, so it is safe while a menu or fullscreen is up; without this exemption every engine
      * command below is dropped when FB_HELD() is true (B-325). */
     const uint8_t ov_saved = ov_draw; ov_draw = 1u;
-    ui_art_mount();
+    /* B-328: NOT mounted here. ui_art_mount() wipes the stash, and a failed attempt returns 0 so the caller falls back to the embedded-cover
+     * path, whose 'same picture' reuse test then trusted a stash this function had just destroyed (covers vanished after the first JPEG
+     * cover, the B-075 symptom again). Mount only once the image is loaded and about to be drawn. */
     int e = timg_load(path);
     timg_last_err = (uint8_t)e;
     if (e) {
@@ -172,6 +174,7 @@ COLD_FN3 static int timg_cover(uint32_t sig, const char *path)
         timg_fail_n++;
         return 0;
     }
+    ui_art_mount();
     timg_draw_art();
     ov_draw = ov_saved;
     timg_loaded_n++;
