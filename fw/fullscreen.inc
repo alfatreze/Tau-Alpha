@@ -25,8 +25,6 @@
 #define FS_PROG_X   8u
 #define FS_PROG_W   384u
 #define FS_PROG_Y   350u
-#define FS_RED      0xF249u          /* #F04848: the stopped/paused progress colour */
-#define FS_TRACK    0x1905u          /* #1A2028: the unplayed part of the line */
 
 static uint32_t fs_last_sec = 0xFFFFFFFFu;
 static uint8_t  fs_last_state = 0xFFu, fs_force;

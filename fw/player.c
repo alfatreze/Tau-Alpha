@@ -1403,6 +1403,7 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
  * scope), so this is a plain dark-mode layout: title/artist, a real
  * amplitude-driven level meter, elapsed time. Colours are RGB565.
  */
+#include "theme.h"   /* named UI colours as roles (step 0a of the theme system); UI_PANEL etc. read th_role[] */
 /* Vertical gradient endpoints. Drawn as horizontal bands rather than a true
  * per-pixel ramp: a rect is ONE engine command, so 40 bands cost 40 commands
  * where a per-row ramp would cost 360 -- and in RGB565 a 40-step ramp across
@@ -1413,11 +1414,6 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
 #define UI_GRAD_BOT 0x0000u   /* black          */
 #define UI_BANDS    40u
 
-#define UI_PANEL   0x2945u   /* card: neutral, one step above the ramp */
-#define UI_BG      0x0862u   /* near-black navy */
-#define UI_WHITE   0xFFFFu
-#define UI_DIM     0x94B2u   /* mid-gray, for the artist line */
-#define UI_PILL_BG 0x0320u   /* now-playing genre pill: dark green, one flat swatch */
 /* Accent palette, cycled with the L/R shoulder triggers. Deriving the accent
  * from the cover art was tried and dropped -- it changed on every track and
  * read as inconsistency. A colour the USER picks is stable, which is the
@@ -1487,12 +1483,7 @@ static char     ui_toast[24];
 static uint32_t ui_toast_t0;               /* 0 = inactive */
 static uint32_t ui_toast_step;             /* 0 = solid, UI_TOAST_STEPS = gone */
 static uint32_t ui_toast_end;              /* x the last toast draw reached    */
-#define UI_TRACK   0x18E3u   /* unfilled part of the meter -- a visible track
-                              * rather than bare background, so the meter reads
-                              * as one object at any level */
-#define UI_RED     0xF800u
 
-#define UI_FAINT   0x6B4Du   /* filename line -- present but recessive */
 #define UI_CARD_H  120u
 #define UI_SHOW_DIAG 0        /* 1 = show A/S/T/F reload diagnostics */
 
@@ -2107,9 +2098,6 @@ static const uint16_t spec_gain[SPEC_BANDS] = {
 /* The ladder's own palette, RGB565. Green low, amber through the middle, red
  * at the top -- fixed rather than accent-derived, because on this meter the
  * colour is information. */
-#define LED_LO   0x0600u      /* green  */
-#define LED_MIDC 0xFE60u      /* amber  */
-#define LED_HI   0xF9C0u      /* red    */
 
 /* Last drawn, so a still passage costs nothing. 0xFF is the sentinel every
  * other meter here uses for "the chrome repainted underneath you". */
@@ -3152,7 +3140,6 @@ static void poll_input(void);
 #define TAU_SPLASH_H        360u
 #define TAU_SPLASH_HEADER   44u
 #define TAU_SPLASH_CHUNK    4096u
-#define TAU_SPLASH_BG       0x0841u
 #define TAU_SPLASH_STATUS_X 104u
 #define TAU_SPLASH_STATUS_Y 256u
 #define TAU_SPLASH_STATUS_W 192u
@@ -3827,7 +3814,7 @@ static void ui_boot_tick(void)
         fb_rect(TAU_SPLASH_BAR_X, TAU_SPLASH_BAR_Y,
                 TAU_SPLASH_BAR_W, TAU_SPLASH_BAR_H, TAU_SPLASH_BG);
         fb_rect(TAU_SPLASH_BAR_X + x, TAU_SPLASH_BAR_Y,
-                TAU_SPLASH_SEG_W, TAU_SPLASH_BAR_H, 0x27ECu);
+                TAU_SPLASH_SEG_W, TAU_SPLASH_BAR_H, TAU_SPLASH_BAR_C);
         return;
     }
 
@@ -4272,7 +4259,6 @@ COLD_FN2 static void pl_ui_follow(void)
 #define OV_HEAD_H 28u
 #define OV_HINT_H 28u
 #define OV_HINT_Y (FB_H - OV_HINT_H)
-#define OV_CHROME_BG 0x10E5u   /* #121C2E: header and action bar share this colour, per the reference */
 
 /* The action-bar strip at the bottom, full width: a SOLID navy bar, reserved exclusively for the
  * current action hint (owner: pages "all over" were letting their own content draw into that row,
