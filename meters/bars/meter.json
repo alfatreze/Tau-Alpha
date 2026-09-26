@@ -4,5 +4,10 @@
   "index": 0,
   "name": "BARS",
   "selectable": true,
-  "sel_index": 3
+  "sel_index": 3,
+  "caps": [
+    "bar"
+  ],
+  "cost_class": 0,
+  "considered": "Two rect spans per column were the original; OP_BAR halves the commands and is the cost baseline."
 }

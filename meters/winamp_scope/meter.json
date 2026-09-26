@@ -4,5 +4,8 @@
   "index": 13,
   "name": "WINAMP SCOPE",
   "selectable": true,
-  "sel_index": 0
+  "sel_index": 0,
+  "caps": [],
+  "cost_class": 1,
+  "considered": "hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used."
 }
