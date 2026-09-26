@@ -23,6 +23,7 @@ PLAYER = (ROOT / "fw/player.c").read_text(encoding="utf-8")
 # tools/gen_meters.py); splice them in so the #include lines still resolve for the regexes below.
 PLAYER += (ROOT / "fw/meter_gen_enum.h").read_text(encoding="utf-8")
 PLAYER += (ROOT / "fw/meter_gen_order.h").read_text(encoding="utf-8")
+PLAYER += (ROOT / "fw/theme.h").read_text(encoding="utf-8")   # default theme colours (TH_DEF_*), theme step 0a
 METRICS = (ROOT / "fw/font_metrics.h").read_text(encoding="utf-8")
 ROM = (ROOT / "src/fpga/core/font_rom.v").read_text(encoding="utf-8")
 
@@ -130,14 +131,14 @@ class Frame:
         return result
 
 
-UI_PANEL = c_uint("UI_PANEL")
-UI_BG = c_uint("UI_BG")
-UI_WHITE = c_uint("UI_WHITE")
-UI_DIM = c_uint("UI_DIM")
-UI_RED = c_uint("UI_RED")
+UI_PANEL = c_uint("TH_DEF_SURFACE")
+UI_BG = c_uint("TH_DEF_BASE")
+UI_WHITE = c_uint("TH_DEF_TEXT_PRIMARY")
+UI_DIM = c_uint("TH_DEF_TEXT_SECONDARY")
+UI_RED = c_uint("TH_DEF_ERROR")
 UI_ACCENT = c_uint("UI_ACCENT")
-UI_TRACK = c_uint("UI_TRACK")
-UI_FAINT = c_uint("UI_FAINT")
+UI_TRACK = c_uint("TH_DEF_SURFACE_TRACK")
+UI_FAINT = c_uint("TH_DEF_FAINT")
 UI_MARGIN = c_dec("UI_MARGIN")
 UI_TITLE_Y = c_dec("UI_TITLE_Y")
 UI_CARD_H = c_dec("UI_CARD_H")
