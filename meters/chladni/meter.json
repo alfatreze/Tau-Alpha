@@ -13,5 +13,129 @@
     "vsync_beam"
   ],
   "cost_class": 2,
-  "considered": "Per-cell rect runs cost 360-640 commands; one scaled blit of a mailbox-written plane replaced them (B-276). B18-B20 would cut CPU further."
+  "considered": "Per-cell rect runs cost 360-640 commands; one scaled blit of a mailbox-written plane replaced them (B-276). B18-B20 would cut CPU further.",
+  "params": [
+    {
+      "key": "layout",
+      "label": "Layout",
+      "type": "enum",
+      "values": [
+        "LATTICE",
+        "SHIMMER"
+      ],
+      "default": 0
+    },
+    {
+      "key": "line_width",
+      "label": "Line width",
+      "type": "u16",
+      "min": 200,
+      "max": 6000,
+      "step": 25,
+      "default": 1245
+    },
+    {
+      "key": "modes",
+      "label": "Modes",
+      "type": "u8",
+      "min": 1,
+      "max": 4,
+      "step": 1,
+      "default": 3
+    },
+    {
+      "key": "rise",
+      "label": "Rise",
+      "type": "u16",
+      "min": 50,
+      "max": 6000,
+      "step": 50,
+      "default": 668
+    },
+    {
+      "key": "fall",
+      "label": "Fall",
+      "type": "u16",
+      "min": 50,
+      "max": 6000,
+      "step": 50,
+      "default": 401
+    },
+    {
+      "key": "morph",
+      "label": "Morph speed",
+      "type": "u16",
+      "min": 0,
+      "max": 1024,
+      "step": 8,
+      "default": 63
+    },
+    {
+      "key": "morph_gain",
+      "label": "Morph gain",
+      "type": "u16",
+      "min": 0,
+      "max": 2048,
+      "step": 16,
+      "default": 391
+    },
+    {
+      "key": "trigger",
+      "label": "Trigger gain",
+      "type": "u8",
+      "min": 4,
+      "max": 100,
+      "step": 1,
+      "default": 26
+    },
+    {
+      "key": "refractory",
+      "label": "Refractory",
+      "type": "u16",
+      "min": 50,
+      "max": 2000,
+      "step": 25,
+      "default": 600,
+      "unit": "ms"
+    },
+    {
+      "key": "tonal",
+      "label": "Tonal trigger",
+      "type": "bool",
+      "default": 0
+    }
+  ],
+  "presets": [
+    {
+      "name": "LATTICE",
+      "values": {
+        "layout": 0,
+        "line_width": 1245,
+        "modes": 3,
+        "rise": 668,
+        "fall": 401,
+        "morph": 63,
+        "morph_gain": 391,
+        "trigger": 26,
+        "refractory": 600,
+        "tonal": 0
+      }
+    },
+    {
+      "name": "SHIMMER",
+      "values": {
+        "layout": 1,
+        "line_width": 1475,
+        "modes": 4,
+        "rise": 1455,
+        "fall": 873,
+        "morph": 125,
+        "morph_gain": 782,
+        "trigger": 26,
+        "refractory": 350,
+        "tonal": 1
+      }
+    }
+  ],
+  "default_preset": 0
 }

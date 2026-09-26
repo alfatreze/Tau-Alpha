@@ -1,5 +1,7 @@
 /* Native harness for fw/chladni_core.h (sim/test_chladni_core.py). Not part of any firmware build.
  *   plane Rx Ry hw_q8 K m n w s ...        one tile of levels, one line per row
+ *   extreme layout eps topk up dn morph gain sens refr tonal   600 ticks of a synthetic loud/quiet track through detect, update, select and render
+ *                                          with this tunable set (the sanitised build in sim/test_chladni_params.py must not fault)
  *   run <preset 0|1> [seconds-per-line]    stdin: 16 band levels per meter tick; prints one line per figure update:
  *                                          tick trig K rects modes...   (rects = draw commands for the tile) */
 #define CHL_COUNT 1
@@ -63,6 +65,38 @@ int main(int argc, char **argv)
             chl_field_row(md, K, j, Ry, Rx, Rx, cxm, cxn, ring);
             for (uint32_t i = 0; i < Rx; i++) printf("%d%c", ring[i], i + 1 < Rx ? ' ' : '\n');
         }
+        return 0;
+    }
+    if (argc >= 12 && !strcmp(argv[1], "extreme")) {
+        const chl_preset_t *p = &chl_presets[atoi(argv[2]) % CHL_PRESET_N];
+        chl_cfg_t c = p->c;
+        c.eps0 = (uint16_t)atoi(argv[3]); c.topk = (uint8_t)atoi(argv[4]); c.up_q12_s = (uint16_t)atoi(argv[5]); c.dn_q12_s = (uint16_t)atoi(argv[6]);
+        c.morph_base = (uint16_t)atoi(argv[7]); c.morph_gain = (uint16_t)atoi(argv[8]); c.sens_q4 = (uint8_t)atoi(argv[9]);
+        c.refr_ms = (uint16_t)atoi(argv[10]); c.tonal = (uint8_t)atoi(argv[11]);
+        chl_state_t st; chl_init(&st, &c);
+        g_rx = p->Rx;
+        uint32_t seed = 12345u, ms = 0, sumK = 0, upd_ms = 0, minK = 99;
+        for (uint32_t tick = 0; tick < 600u; tick++) {
+            uint8_t l8[16];
+            const uint32_t phase = (tick / 40u) % 3u;                     /* loud / quiet / noisy sections, with hard edges */
+            for (int b = 0; b < 16; b++) {
+                seed = seed * 1664525u + 1013904223u;
+                uint32_t r = seed >> 24;
+                l8[b] = (uint8_t)(phase == 0u ? 255u : phase == 1u ? (r & 3u) : r);
+                if (((tick + (uint32_t)b) % 7u) == 0u) l8[b] = (uint8_t)(255u - l8[b]);
+            }
+            ms = tick * 26u + (tick / 3u);
+            chl_detect(&st, &c, l8, ms);
+            uint32_t dt = ms - upd_ms; upd_ms = ms;
+            chl_update(&st, &c, l8, dt ? dt : 1u);
+            chl_mode_t md[CHL_MAX_K]; uint32_t K = chl_select(&st, &c, md);
+            if (K < 1u || K > CHL_MAX_K) { printf("BAD K %u\n", K); return 1; }
+            if (K < minK) minK = K;
+            sumK += K;
+            g_rects = 0;
+            chl_render(md, K, p->Rx, p->Ry, chl_hw_q8(&st, &c, p->Rx), ring, c.fold ? half : 0, cxm, cxn, row, count_cb, 0);
+        }
+        printf("ok K %u min %u\n", sumK, minK);
         return 0;
     }
     if (argc >= 3 && !strcmp(argv[1], "run")) {

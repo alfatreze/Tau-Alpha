@@ -35,8 +35,7 @@ static int meter_afford(void);          /* defined later in this file */
 static chl_state_t         chl_st;
 static chl_cfg_t           chl_cfg;
 static const chl_preset_t *chl_pre;
-static uint8_t chl_pre_idx;
-static const char *const chl_pre_toast[CHL_PRESET_N] = { "PRESET: LATTICE", "PRESET: SHIMMER" };
+static uint8_t chl_layout_cur = 0xFFu;   /* the geometry preset in use (0 Lattice, 1 Shimmer), 0xFF = none yet */
 static int16_t chl_ring[3u * CHL_MAX_RX], chl_half[CHL_HALF_N], chl_cxm[CHL_MAX_K * CHL_MAX_RX], chl_cxn[CHL_MAX_K * CHL_MAX_RX];
 static uint8_t chl_lvl[CHL_MAX_RX];
 static uint8_t  chl_ok;                 /* 0 = not probed yet, 1 = ready, 2 = unavailable on this bitstream/hardware */
@@ -137,13 +136,31 @@ CHL_COLD static void chl_replicate(uint32_t x0, uint32_t y0, uint32_t tw, uint32
     }
 }
 
-CHL_COLD static void chladni_init(void)
+/* M5: the meter's parameters are a generated module (meters/chladni/meter.json -> fw/meters_gen.h), so the Configure page, Select+X presets and
+ * tau-assets.bin METR presets all drive it. The LAYOUT parameter picks the tile geometry (which also fixes mlim and fold: they follow from the
+ * geometry and are not tunable); the other parameters are the tunable half of chl_cfg_t and are copied in every tick, so an edit shows at once.
+ * A layout change re-initialises the state (a new tile size means a new plane). */
+CHL_COLD static void chl_sync(void)
 {
-    chl_pre = &chl_presets[chl_pre_idx];                       /* 0 Lattice (4 tiles across, calm), 1 Shimmer (8 across, follows melody) */
-    chl_cfg = chl_pre->c;
-    chl_init(&chl_st, &chl_cfg);
-    chl_last_draw = 0u;
-    chl_ms_base = cycles(); chl_ms_acc = 0u;
+    uint32_t lay = MV_CHLADNI(LAYOUT);
+    if (lay >= CHL_PRESET_N) lay = 0u;
+    if (lay != chl_layout_cur || !chl_pre) {
+        chl_pre = &chl_presets[lay];                               /* 0 Lattice (4 tiles across, calm), 1 Shimmer (8 across, follows melody) */
+        chl_layout_cur = (uint8_t)lay;
+        chl_cfg = chl_pre->c;                                      /* geometry-bound fields: mlim, fold */
+        chl_cfg.eps0 = MV_CHLADNI(LINE_WIDTH); chl_cfg.topk = (uint8_t)MV_CHLADNI(MODES);
+        chl_cfg.up_q12_s = MV_CHLADNI(RISE); chl_cfg.dn_q12_s = MV_CHLADNI(FALL);
+        chl_cfg.morph_base = MV_CHLADNI(MORPH); chl_cfg.morph_gain = MV_CHLADNI(MORPH_GAIN);
+        chl_cfg.sens_q4 = (uint8_t)MV_CHLADNI(TRIGGER); chl_cfg.refr_ms = MV_CHLADNI(REFRACTORY); chl_cfg.tonal = (uint8_t)MV_CHLADNI(TONAL);
+        chl_init(&chl_st, &chl_cfg);
+        chl_last_draw = 0u;
+        chl_ms_base = cycles(); chl_ms_acc = 0u;
+        return;
+    }
+    chl_cfg.eps0 = MV_CHLADNI(LINE_WIDTH); chl_cfg.topk = (uint8_t)MV_CHLADNI(MODES);
+    chl_cfg.up_q12_s = MV_CHLADNI(RISE); chl_cfg.dn_q12_s = MV_CHLADNI(FALL);
+    chl_cfg.morph_base = MV_CHLADNI(MORPH); chl_cfg.morph_gain = MV_CHLADNI(MORPH_GAIN);
+    chl_cfg.sens_q4 = (uint8_t)MV_CHLADNI(TRIGGER); chl_cfg.refr_ms = MV_CHLADNI(REFRACTORY); chl_cfg.tonal = (uint8_t)MV_CHLADNI(TONAL);
 }
 
 /* Draw one figure into the w x h box at (x0, y0). `ground` is the colour of the plate between the lines. Returns 1 if a figure
@@ -152,7 +169,7 @@ CHL_COLD static void chladni_init(void)
 CHL_COLD static int chladni_tick_box(uint32_t x0, uint32_t y0, uint32_t w, uint32_t h, uint16_t ground, uint32_t force)
 {
     if (chl_ok == 2u || UI_OVERLAY_UP) return 0;
-    if (!chl_pre) chladni_init();
+    chl_sync();
     const uint32_t now = chl_now_ms();
     if (!force && (uint32_t)(now - chl_last_draw) < CHL_PERIOD_MS) return 0;
     if (!meter_afford()) { chl_skipped_n++; return 0; }        /* the audio FIFO is low: no figure this time */
@@ -201,15 +218,4 @@ CHL_COLD static int chladni_tick_box(uint32_t x0, uint32_t y0, uint32_t w, uint3
 CHL_COLD static void chladni_tick(uint32_t x0, uint32_t y0, uint32_t ww, uint32_t force)
 {
     (void)chladni_tick_box(x0, y0, ww, UI_WAVE_H, ui_grad_at(UI_WAVE_Y + UI_WAVE_H / 2u), force);
-}
-
-/* Select+X: the next preset. Returns the toast text. */
-CHL_COLD static const char *chladni_next_preset(void)
-{
-    chl_pre_idx = (uint8_t)((chl_pre_idx + 1u) % CHL_PRESET_N);
-    chl_pre = &chl_presets[chl_pre_idx];
-    chl_cfg = chl_pre->c;
-    chl_init(&chl_st, &chl_cfg);
-    chl_last_draw = 0u;
-    return chl_pre_toast[chl_pre_idx];
 }
