@@ -122,6 +122,7 @@ wire [15:0] soc_fb_cmd_fg, soc_fb_cmd_bg;
 wire [6:0]  soc_fb_cmd_glyph;
 wire [1:0]  soc_fb_cmd_sx, soc_fb_cmd_sy;
 wire        soc_fb_cmd_full;
+wire        soc_text_light, fb_text_light;   // theme/gamma: text weight table select, clk_sys -> clk_sdram
 // Phase F B1 (section 9): sticky blit addressing state, mp3_soc -> mp3_fb.
 wire [24:0] soc_blt_src_base, soc_blt_dst_base;
 wire [9:0]  soc_blt_src_stride, soc_blt_dst_stride;
@@ -419,6 +420,7 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
     .vblank_rd     (soc_vblank_rd),
     .scan_rd       (soc_scan_rd),
 
+    .text_light     (soc_text_light),
     .blt_src_base   (soc_blt_src_base),
     .blt_src_stride (soc_blt_src_stride),
     .blt_dst_base   (soc_blt_dst_base),
@@ -776,6 +778,8 @@ wire sdram_probe_bar = vid_de_w && (sdram_probe_y < 9'd8) &&
     (sdram_probe_x < 9'd392);
 `endif
 
+tau_cdc_sync1 #(.STAGES(3)) u_text_light_sync (.clk_dst(clk_sdram), .d_src(soc_text_light), .q_dst(fb_text_light));
+
 mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN)) u_fb (
     .reset    (~pll_locked),
     .clk_sys  (clk_sys),
@@ -793,6 +797,7 @@ mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN)) u_fb (
     .cmd_sx    (soc_fb_cmd_sx),
     .cmd_sy    (soc_fb_cmd_sy),
     .cmd_full  (soc_fb_cmd_full),
+    .text_light(fb_text_light),
 
     .blt_src_base   (soc_blt_src_base),
     .blt_src_stride (soc_blt_src_stride),

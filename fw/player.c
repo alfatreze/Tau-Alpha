@@ -85,6 +85,7 @@
 #define R_WAVE_PK   0x800000F8u   /* read: {max |R| [31:16], max |L| [15:0]} since the last clear */
 #define R_WAVE_ST   0x800000FCu   /* read: bit 0 = the block is built in, bit 1 = a capture is running, bit 2 = trigger timed out */
 #define WAVE_HW_COLS 256u
+#define R_TEXT_MODE 0x80000114u   /* theme/gamma: write bit 0 = 1 selects the light-polarity text weight table; read bit 31 = the bitstream has it, bit 0 = current */
 #define R_POLY_CTL  0x80000100u   /* B-292 MP3 window unit: write: bit 0 clear history, bit 1 go (compute the pending slot) */
 #define R_POLY_PUSH 0x80000104u   /* write: one FDCT32 output word in push order, 64 per slot (channel 0's 32, then channel 1's) */
 #define R_POLY_IDX  0x80000108u   /* write: PCM word 0..31 to present at R_POLY_OUT */
@@ -2003,6 +2004,7 @@ _Static_assert(WVIZ_BANDS_MAX == SPEC_BANDS, "WVIZ_BANDS_MAX must track SPEC_BAN
 static unsigned char spec_lvl[SPEC_BANDS];    /* published, 0..255           */
 static uint8_t  wave_hw;                  /* B-283: the bitstream has the level/scope block (probed once at boot) */
 static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardware filter bank (probed once at boot) */
+static uint8_t  text_mode_hw;             /* theme/gamma: the bitstream has the second text weight table (probed once at boot) */
 static uint8_t  hw_poly;                  /* B-292: the bitstream has the MP3 window unit (probed once at boot) */
 static uint32_t spec_win_seen;            /* last hardware window counter consumed */
 
@@ -2273,6 +2275,7 @@ static void th_apply(void)
     for (uint32_t i = 0; i < TR_COUNT; i++)
         if (i != TR_BG_TOP && i != TR_ACCENT && i != TR_ACCENT2) th_role[i] = t->role[p][i];
     th_bg_luma = t->bg_luma[p];
+    if (text_mode_hw) REG(R_TEXT_MODE) = p;        /* dark text on a light ramp needs its own edge weights (tools/gen_text_gamma.py) */
     ui_accent = th_accent_of(ui_pal_idx);
     ui_grad_set(ui_accent);
     ui_accent_changed = 1u;
@@ -8850,6 +8853,7 @@ int main(void)
     helios_beam_ok = (uint8_t)((REG(R_SCAN) >> 9) & 1u);   /* B-267: beam position present on this bitstream? */
     wave_hw = (uint8_t)(REG(R_WAVE_ST) & 1u);      /* B-283: hardware level/scope block present? */
     spec_hw = (uint8_t)(REG(R_SPEC_ST) & 1u);      /* B-263: hardware spectrum bank present? (0 on any other bitstream) */
+    text_mode_hw = (uint8_t)((REG(R_TEXT_MODE) >> 31) & 1u);   /* theme/gamma: second text weight table present? (0 on an older bitstream) */
     hw_poly = (uint8_t)(REG(R_POLY_ST) & 1u);      /* B-292: hardware MP3 window unit present? (0 on any other bitstream) */
 #if TAU_POLY_FW
     tau_poly_hw_enable = hw_poly;

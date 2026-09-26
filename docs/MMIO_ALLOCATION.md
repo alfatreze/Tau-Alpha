@@ -53,7 +53,8 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x108 | POLY_IDX | W | PCM word 0..31 to present at `POLY_OUT`. |
 | 0x10C | POLY_OUT | R | `{R sample [31:16], L sample [15:0]}` of the last computed slot (Helix's interleave). 0 when off. |
 | 0x110 | POLY_ST | R | bit 0 = built in, bit 1 = busy, bits 31:16 = slots computed. 0 when off. |
-| 0x114-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x114 | TEXT_MODE | R/W | Theme/gamma: write bit 0 = 1 selects the light-polarity text weight table (`cov_weight_light`, dark text on a light ramp); read bit 31 = the bitstream has it (0 on older ones), bit 0 = current value. Synchronised into clk_sdram (`tau_cdc_sync1`). |
+| 0x118-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
