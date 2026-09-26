@@ -39,7 +39,7 @@ def main():
     ap.add_argument("--release-diagnostic", action="store_true",
                     help="the shipped Diagnostic Build (alfatreze.TAU_DIAGNOSTIC, used by make_release.py): "
                          "variant diagnostic, needs --rbf/--rbf-sha256, no --number/--semver")
-    ap.add_argument("--cover-slot", action="store_true", help="declare data slot 7 (Cover image): needed by firmware built with ART_TIMG=1")
+    ap.add_argument("--cover-slot", action="store_true", help="(kept for old command lines; data slot 7, the TIM1 cover image, is always declared now)")
     ap.add_argument("--note", help="replaces the default text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="pair the ROM with this raw Quartus RBF instead of dist/'s")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
@@ -107,7 +107,7 @@ def main():
     if not (rom.parent / "tau-cold.bin").exists(): sys.exit(f"{rom.parent}/tau-cold.bin missing")
     slots_lib.add_cold_slot(c)                          # data slot 6 = the cold image
     slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
-    if args.cover_slot: slots_lib.add_cover_slot(c)     # data slot 7 = the cover image (ART_TIMG firmware)
+    slots_lib.add_cover_slot(c)                         # data slot 7 = the cover image (TIM1 reader, on by default since B-325)
     a = out / "Assets" / platform
     (a / "common").mkdir(parents=True); (a / core_id).mkdir()
     shutil.copy2(rom, a / "common/tau.rom")

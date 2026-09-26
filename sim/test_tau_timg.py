@@ -48,10 +48,10 @@ with tempfile.TemporaryDirectory() as td:
                         "-o", str(exe), str(ROOT / "sim/timg_harness.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
 
-    def run(path, swap=0, mb=1):
+    def run(path, swap=0, mb=1, overlay=0, delay=0, retry=0, repeat=0, exe=exe):
         out = td / "out.bin"
         if out.exists(): out.unlink()
-        p = subprocess.run([str(exe), str(path), str(out), str(swap), str(mb)], capture_output=True, text=True)
+        p = subprocess.run([str(exe), str(path), str(out), str(swap), str(mb), str(overlay), str(delay), str(retry), str(repeat)], capture_output=True, text=True)
         return p.returncode, p.stdout, (np.fromfile(out, "<u2").reshape(ART_IMG, ART_IMG) if out.exists() else None)
 
     for (w, h) in [(128, 128), (85, 128), (128, 83), (91, 91), (40, 30), (1, 5)]:
@@ -81,6 +81,35 @@ with tempfile.TemporaryDirectory() as td:
     trunc = td / "trunc.timg"; trunc.write_bytes(good[:-100])
     rc, out, px = run(trunc); check("truncated file: read failure, nothing drawn", rc == 5 and px is None, out)
     rc, out, px = run(td / "missing.timg"); check("missing file: open failure, nothing drawn", rc == 4 and px is None, out)
-    rc, out, px = run(td / "c_85x128.timg", 0, 0); check("broken mailbox: reader unavailable, nothing drawn", rc == 6 and px is None, out)
+    rc, out, px = run(td / "c_85x128.timg", 0, 0); check("broken mailbox: probe refuses (code 8), nothing drawn", rc == 8 and px is None, out)
+    # B-325: the reader never loaded a cover on a Pocket. Two causes are reproduced here and must stay fixed.
+    ref = expected((td / "c_128x128.timg").read_bytes())
+    rc, out, px = run(td / "c_128x128.timg", 0, 1, overlay=1)
+    check("a menu is up (FB_HELD): the cover still loads, into the off-screen stash", rc == 0 and px is not None and np.array_equal(px, ref), out)
+    rc, out, px = run(td / "c_128x128.timg", 1, 1, overlay=1, delay=30)
+    check("the draw engine is behind a burst of drawing (copy lands after 30 reads) and a menu is up: still loads", rc == 0 and px is not None and np.array_equal(px, ref), out)
+    rc, out, px = run(td / "c_128x128.timg", 0, 1, delay=20000)
+    check("an engine that never delivers within the probe window is refused with code 8 (not remembered as a bad file)", rc == 8 and px is None and "miss=0" in out, out)
+    rc, out, px = run(td / "c_128x128.timg", 0, 0, retry=1)
+    check("a failed probe is not remembered: the next attempt loads", "retry shown=1" in out and "miss=0" in out.split("retry")[0] and px is not None and np.array_equal(px, ref), out)
+    rc, out, px = run(td / "c_128x128.timg", 0, 0, repeat=6)
+    check("repeated probe failures stop probing after 3 (six attempts: fail counter 7, probe failures capped at 3)", "repeat fails=7 probe_fails=3" in out, out)
+    rc, out, px = run(td / "missing.timg", 0, 1)
+    check("a missing FILE is remembered (miss=1) so the album's other tracks do not retry", "miss=1" in out, out)
+    # mutation checks: the tests above must FAIL against the old behaviour, or they prove nothing
+    src = (ROOT / "fw/timg.inc").read_text()
+    def mutant(name, fn, **kw):
+        m = fn(src)
+        assert m != src, name
+        (td / "timg_mut.inc").write_text(m)
+        h = (ROOT / "sim/timg_harness.c").read_text().replace('#include "../fw/timg.inc"', f'#include "{td}/timg_mut.inc"').replace('#include "../fw/timg_core.h"', f'#include "{ROOT}/fw/timg_core.h"')
+        (td / "hm.c").write_text(h)
+        r = subprocess.run(["cc", "-std=c11", "-O1", "-I", str(ROOT / "fw"), "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-o", str(td / "hm"), str(td / "hm.c")], capture_output=True, text=True)
+        if r.returncode: print(r.stderr); sys.exit(1)
+        return run(td / "c_128x128.timg", exe=td / "hm", **kw)
+    rc, out, px = mutant("no exemption", lambda t: t.replace("const uint8_t ov_saved = ov_draw; ov_draw = 1u;", "const uint8_t ov_saved = ov_draw;"), overlay=1)
+    check("mutant without the FB_HELD exemption is caught (cover not loaded while a menu is up)", not (rc == 0 and px is not None and np.array_equal(px, ref)), out)
+    rc, out, px = mutant("single read", lambda t: t.replace("} while ((uint32_t)(cycles() - t0) < CLK_HZ / 20u);", "} while (0);"), delay=30)
+    check("mutant that reads the probe once is caught (engine behind a burst)", not (rc == 0 and px is not None and np.array_equal(px, ref)), out)
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)

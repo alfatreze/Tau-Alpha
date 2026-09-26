@@ -17,7 +17,7 @@
 #define TIMG_PROBE_DX  496u
 #define TIMG_PROBE_DY  2u
 
-static uint8_t  timg_ok;             /* 0 not probed, 1 ready, 2 unavailable */
+static uint8_t  timg_ok;             /* 1 = the mailbox half order is known (the probe passed); anything else is probed again */
 static uint8_t  timg_swap;
 static uint8_t  timg_last_err;       /* TIMG_E_* of the last attempt, for the Info page */
 static uint32_t timg_miss_sig;       /* cover path known to be absent/bad: not retried for every track of an album */
@@ -44,21 +44,38 @@ static int timg_mb_read(uint32_t word_addr, uint32_t *out)
     return 0;
 }
 
-/* Known-answer probe (see chl_probe in fw/chladni.inc): proves the mailbox half order against the engine's own addressing. */
-COLD_FN3 static void timg_probe(void)
+/* Known-answer probe (see chl_probe in fw/chladni.inc): proves the mailbox half order against the engine's own addressing.
+ *
+ * B-325 (the reader had never loaded a cover on a Pocket: Info showed E6 on every run): the probe used to read the destination a fixed
+ * 512 cycles after queueing the copy. That is enough in steady state (Chladni's own probe runs with an empty command queue) but a track
+ * load has just queued a burst of chrome drawing ahead of the probe's copy, and fb_wait() only says the command was ACCEPTED. So the read
+ * came back before the copy landed, the probe failed, and the failure was remembered for the whole session. Now: the destination is
+ * pre-loaded with a sentinel, the read is polled until it changes (up to about 50 ms) and only then judged; a failure is no longer
+ * remembered (the next track probes again) and says why. Results: 0 ok, TIMG_E_ENGINE no blit engine, TIMG_E_MAILBOX the mailbox timed out,
+ * TIMG_E_PROBE the copy never landed or landed with an unexpected value (timg_probe_raw holds what was read). */
+static uint32_t timg_probe_raw;
+static uint8_t  timg_probe_fails;    /* consecutive probe failures: after 3 the reader stays off for the session, so a bitstream that cannot do it costs three probes, not one per track */
+
+COLD_FN3 static int timg_probe(void)
 {
     const uint32_t src = TIMG_PROBE_ROW * FB_STRIDE, dst = TIMG_PROBE_DY * FB_STRIDE + TIMG_PROBE_DX;
+    const uint32_t sentinel = 0xA5C33C5Au;
     uint32_t r = 0;
-    timg_ok = 2u;
-    if (!BLIT_READY()) return;
-    if (timg_mb_write(src, 0xF80007E0u)) return;
+    if (!BLIT_READY()) return TIMG_E_ENGINE;
+    if (timg_mb_write(src, 0xF80007E0u) || timg_mb_write(dst, sentinel)) return TIMG_E_MAILBOX;
     fb_blit(0u, TIMG_PROBE_ROW, TIMG_PROBE_DX, TIMG_PROBE_DY, 1u, 1u);
     fb_wait();
-    uint32_t t = cycles();
-    while ((uint32_t)(cycles() - t) < 512u) { }
-    if (timg_mb_read(dst, &r)) return;
-    if ((r & 0xFFFFu) == 0x07E0u)  { timg_swap = 0u; timg_ok = 1u; }
-    else if ((r >> 16) == 0xF800u) { timg_swap = 1u; timg_ok = 1u; }
+    const uint32_t t0 = cycles();
+    do {
+        uint32_t t = cycles();
+        while ((uint32_t)(cycles() - t) < 512u) { }
+        if (timg_mb_read(dst, &r)) return TIMG_E_MAILBOX;
+        if ((r & 0xFFFFu) != (sentinel & 0xFFFFu)) break;               /* the copy has landed (the low half changed) */
+    } while ((uint32_t)(cycles() - t0) < CLK_HZ / 20u);                  /* about 50 ms */
+    timg_probe_raw = r;
+    if ((r & 0xFFFFu) == 0x07E0u)  { timg_swap = 0u; timg_ok = 1u; return 0; }
+    if ((r >> 16) == 0xF800u)      { timg_swap = 1u; timg_ok = 1u; return 0; }
+    return TIMG_E_PROBE;
 }
 
 /* Load `path` (absolute, NUL-terminated) into the index plane and the CLUT. Returns TIMG_OK or a TIMG_E_* code; on any error
@@ -67,8 +84,12 @@ COLD_FN3 static int timg_load(const char *path)
 {
     const uint32_t t0 = cycles();
     blit_probe_ensure();
-    if (timg_ok == 0u) timg_probe();
-    if (timg_ok != 1u) return TIMG_E_ENGINE;
+    if (timg_ok != 1u) {
+        if (timg_probe_fails >= 3u) return TIMG_E_ENGINE;                 /* gave up for this session */
+        int pe = timg_probe();
+        if (pe) { timg_probe_fails++; return pe; }                       /* not remembered as a bad file: the next track probes again (up to 3 times) */
+        timg_probe_fails = 0u;
+    }
     if (!pl_open_into(TIMG_SLOT_ID, path)) return TIMG_E_OPEN;
 
     timg_hdr_t h;
@@ -139,11 +160,20 @@ COLD_FN3 static uint32_t timg_cover_path(char *out, uint32_t cap)
 COLD_FN3 static int timg_cover(uint32_t sig, const char *path)
 {
     if (sig == timg_miss_sig) return 0;
+    /* The cover is drawn into the OFF-SCREEN art stash, so it is safe while a menu or fullscreen is up; without this exemption every engine
+     * command below is dropped when FB_HELD() is true (B-325). */
+    const uint8_t ov_saved = ov_draw; ov_draw = 1u;
     ui_art_mount();
     int e = timg_load(path);
     timg_last_err = (uint8_t)e;
-    if (e) { timg_miss_sig = sig; timg_fail_n++; return 0; }
+    if (e) {
+        ov_draw = ov_saved;
+        if (e != TIMG_E_ENGINE && e != TIMG_E_MAILBOX && e != TIMG_E_PROBE) timg_miss_sig = sig;   /* only a bad or missing FILE is remembered */
+        timg_fail_n++;
+        return 0;
+    }
     timg_draw_art();
+    ov_draw = ov_saved;
     timg_loaded_n++;
     return 1;
 }

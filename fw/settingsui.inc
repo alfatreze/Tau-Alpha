@@ -638,6 +638,10 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = ui_dec(q, timg_ms); q = set_str(q, " MS E");
         q = ui_dec(q, timg_last_err);
         if (timg_last_err) { q = set_str(q, " ("); q = ui_dec(q, timg_fail_n); q = set_str(q, " FAILED)"); }
+        if (timg_last_err == TIMG_E_PROBE) {                    /* what the probe read back, so a mismatch can be diagnosed from a screenshot */
+            q = set_str(q, " "); q = ui_hex2(q, (uint8_t)(timg_probe_raw >> 24)); q = ui_hex2(q, (uint8_t)(timg_probe_raw >> 16));
+            q = ui_hex2(q, (uint8_t)(timg_probe_raw >> 8)); q = ui_hex2(q, (uint8_t)timg_probe_raw);
+        }
 #else
         q = set_str(q, "OFF");
 #endif
