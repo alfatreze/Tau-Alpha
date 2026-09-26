@@ -4240,7 +4240,7 @@ COLD_FN2 static void pl_ui_row_body(uint32_t i)
      * glitching; rows stop short of it when it is there. */
     uint32_t rw = PL_UI_W - 8u - (pl_count > PLIST_ROWS ? 12u : 0u);
     if (pos >= pl_count) {                       /* short list: clear the row */
-        fb_rect(PL_UI_X + 4u, y - 2u, rw, PLIST_ROW_H, UI_PANEL);
+        fb_rect(PL_UI_X + 4u, y - 2u, rw, PLIST_ROW_H, OV_BODY);
         return;
     }
 
@@ -4253,10 +4253,10 @@ COLD_FN2 static void pl_ui_row_body(uint32_t i)
      * fb_round_rect_on() exists for. Unselected rows stay square -- they are
      * the panel colour, so there is no shape to see either way, and drawing
      * the corner cuts on every row would be work for nothing. */
-    uint16_t bg = (pos == pl_ui_sel) ? ui_accent : UI_PANEL;
+    uint16_t bg = (pos == pl_ui_sel) ? ui_accent : OV_BODY;
     if (pos == pl_ui_sel)
         fb_round_rect_on(PL_UI_X + 4u, y - 2u, rw, PLIST_ROW_H,
-                         5u, bg, UI_PANEL);
+                         5u, bg, OV_BODY);
     else
         fb_rect(PL_UI_X + 4u, y - 2u, rw, PLIST_ROW_H, bg);
 
@@ -4308,7 +4308,7 @@ COLD_FN2 static void pl_ui_draw_body(void)
         uint32_t track_x = PL_UI_X + PL_UI_W - 11u;
         uint32_t track_y = PL_UI_LIST_Y - 2u;
         uint32_t track_h = PLIST_ROWS * PLIST_ROW_H;
-        fb_rect(track_x, track_y, 3u, track_h, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
+        fb_rect(track_x, track_y, 3u, track_h, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
 
         uint32_t span = pl_count - PLIST_ROWS;          /* max value of _top */
         uint32_t th   = track_h * PLIST_ROWS / pl_count;

@@ -496,11 +496,11 @@ COLD_TEXT static void chk_finish(void)
 COLD_TEXT static void chk_row(uint32_t i, uint32_t rh, const char *label, const char *val)
 {
     uint32_t y = PL_UI_LIST_Y + i * rh;
-    fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, rh, UI_PANEL);
-    fb_set_color(UI_DIM, UI_PANEL);
+    fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, rh, OV_BODY);
+    fb_set_color(UI_DIM, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, y, label, TS_1X, TS_1X, 170u);
     uint32_t w = fb_text_width(val, TS_1X);
-    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_set_color(UI_WHITE, OV_BODY);
     fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, y, val, TS_1X, TS_1X, w + 2u);
 }
 
@@ -578,7 +578,7 @@ COLD_TEXT static void chk_draw(void)
     ov_frame(chk_s(CS_TITLE), chk_state == CK_RUN ? chk_s(CS_RUNNING) : head,
              chk_s(chk_state == CK_IDLE ? CS_H_DEV : chk_state == CK_RUN ? CS_H_RUN : CS_H_DONE));
     if (chk_state == CK_IDLE) {
-        fb_set_color(UI_WHITE, UI_PANEL);
+        fb_set_color(UI_WHITE, OV_BODY);
         for (uint32_t i = 0; i < 9u; i++) fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + i * PL_UI_ROW_H, chk_s(CS_INTRO + i), TS_1X, TS_1X, PL_UI_W - 32u);
         for (uint32_t r = 0; r < 3u; r++) {                     /* Up/Down pick the row, Left/Right change it */
             char ln[48], *q = ln;
@@ -586,7 +586,7 @@ COLD_TEXT static void chk_draw(void)
             else if (r == 1u) { q = set_str(q, chk_s(CS_SOAKL)); q = set_str(q, set_soak_nm[chk_soak]); }
             else { q = set_str(q, chk_s(CS_LVLL)); q = ui_dec(q, chk_lvl); }
             *q = 0;
-            fb_set_color(r == chk_sel ? ui_accent : UI_DIM, UI_PANEL);
+            fb_set_color(r == chk_sel ? ui_accent : UI_DIM, OV_BODY);
             fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + (9u + r) * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
         }
         return;
@@ -597,7 +597,7 @@ COLD_TEXT static void chk_draw(void)
         if (f) { q = ui_dec(q, f); q = set_str(q, chk_s(f == 1u ? CS_ONEF : CS_MANYF)); }
         else q = set_str(q, chk_s(sk ? CS_OKP : CS_OKALL));
         *q = 0;
-        fb_set_color(f ? UI_WHITE : ui_accent, UI_PANEL);
+        fb_set_color(f ? UI_WHITE : ui_accent, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 8u * PL_UI_ROW_H, v, TS_1X, TS_1X, PL_UI_W - 32u);
         char sc[40];
         sp_short(chk_w, REG(R_VERSION), sc);
@@ -610,7 +610,7 @@ COLD_TEXT static void chk_draw(void)
             }
             *p = 0;
         }
-        fb_set_color(UI_DIM, UI_PANEL);
+        fb_set_color(UI_DIM, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 9u * PL_UI_ROW_H + 4u, cl[0], TS_1X, TS_1X, PL_UI_W - 32u);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 10u * PL_UI_ROW_H + 4u, cl[1], TS_1X, TS_1X, PL_UI_W - 32u);
     }
@@ -884,36 +884,36 @@ COLD_TEXT static void sw_draw(void)
              sw_state == SW_RUN ? "RUNNING" : sw_state == SW_REFUSED ? "REFUSED" : sw_state == SW_DONE ? "DONE" : "",
              sw_state == SW_IDLE ? "A START   B BACK" : "B BACK");
     if (sw_state == SW_IDLE) {
-        fb_set_color(UI_WHITE, UI_PANEL);
+        fb_set_color(UI_WHITE, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, "Runs decode-cost sampling over", TS_1X, TS_1X, PL_UI_W - 32u);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, "the currently open album or", TS_1X, TS_1X, PL_UI_W - 32u);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "playlist, up to 15s per track.", TS_1X, TS_1X, PL_UI_W - 32u);
         char ln[40], *q = ln;
         q = set_str(q, "Queue: "); q = ui_dec(q, lib_qn); q = set_str(q, " tracks"); *q = 0;
-        fb_set_color(lib_qn && lib_qn <= SW_MAX_TRACKS ? UI_DIM : UI_RED, UI_PANEL);
+        fb_set_color(lib_qn && lib_qn <= SW_MAX_TRACKS ? UI_DIM : UI_RED, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 4u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
-        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_set_color(UI_FAINT, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 5u * PL_UI_ROW_H, "A START   B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
         return;
     }
     if (sw_state == SW_REFUSED) {
-        fb_set_color(UI_RED, UI_PANEL);
+        fb_set_color(UI_RED, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, lib_qn ? "TOO MANY TRACKS (48 MAX)" : "NOTHING QUEUED", TS_1X, TS_1X, PL_UI_W - 32u);
-        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_set_color(UI_FAINT, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
         return;
     }
     char ln[40], *q = ln;
     q = set_str(q, "Track "); q = ui_dec(q, sw_idx + (sw_state == SW_DONE ? 0u : 1u)); q = set_str(q, " / "); q = ui_dec(q, sw_n); *q = 0;
-    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_set_color(UI_WHITE, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
     /* B-094: which album/queue is actually loaded, not just a bare count --
      * row 2, clear of RUN's row-1 status and DONE's row-3 action hint in
      * both states. sw_album is the same snapshot the QR page (B-095) uses. */
-    fb_set_color(UI_FAINT, UI_PANEL);
+    fb_set_color(UI_FAINT, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, sw_album, TS_1X, TS_1X, PL_UI_W - 32u);
     if (sw_state == SW_RUN) {
-        fb_set_color(UI_DIM, UI_PANEL);
+        fb_set_color(UI_DIM, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, sw_started ? "sampling..." : "waiting for playback...", TS_1X, TS_1X, PL_UI_W - 32u);
     }
     if (sw_state == SW_DONE) {
@@ -921,9 +921,9 @@ COLD_TEXT static void sw_draw(void)
         dq = set_str(dq, "sampled "); dq = ui_dec(dq, sw_done_n);
         if (sw_skip_n) { dq = set_str(dq, ", skipped "); dq = ui_dec(dq, sw_skip_n); }
         *dq = 0;
-        fb_set_color(sw_qr_len ? ui_accent : UI_RED, UI_PANEL);
+        fb_set_color(sw_qr_len ? ui_accent : UI_RED, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, dn, TS_1X, TS_1X, PL_UI_W - 32u);
-        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_set_color(UI_FAINT, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, sw_qr_len ? "A QR   B BACK" : "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
     }
 }
@@ -1142,9 +1142,9 @@ COLD_TEXT static void mw_draw(void)
              mw_state == MW_RUN ? "RUNNING" : mw_state == MW_REFUSED ? "REFUSED" : mw_state == MW_DONE ? "DONE" : "",
              mw_hint());
     if (mw_state == MW_IDLE) {
-        fb_set_color(UI_WHITE, UI_PANEL);
+        fb_set_color(UI_WHITE, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, "PRESS A TO START SWEEP", TS_1X, TS_1X, PL_UI_W - 32u);
-        fb_set_color(UI_DIM, UI_PANEL);
+        fb_set_color(UI_DIM, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "Cycles every meter 10s each", TS_1X, TS_1X, PL_UI_W - 32u);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, "while music keeps playing --", TS_1X, TS_1X, PL_UI_W - 32u);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 4u * PL_UI_ROW_H, "start a track first.", TS_1X, TS_1X, PL_UI_W - 32u);
@@ -1155,28 +1155,28 @@ COLD_TEXT static void mw_draw(void)
          * already uses, just one option instead of three. */
         char mn[40], *mq = mn;
         mq = set_str(mq, "MODE: "); mq = set_str(mq, mw_want_fullscreen ? "FULLSCREEN" : "NORMAL"); *mq = 0;
-        fb_set_color(ui_accent, UI_PANEL);
+        fb_set_color(ui_accent, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 6u * PL_UI_ROW_H, mn, TS_1X, TS_1X, PL_UI_W - 32u);
-        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_set_color(UI_FAINT, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 7u * PL_UI_ROW_H, "fullscreen: Chladni + Winamp only,", TS_1X, TS_1X, PL_UI_W - 32u);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 8u * PL_UI_ROW_H, "other meters stay normal.", TS_1X, TS_1X, PL_UI_W - 32u);
         return;
     }
     if (mw_state == MW_REFUSED) {
-        fb_set_color(UI_RED, UI_PANEL);
+        fb_set_color(UI_RED, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, "NOTHING PLAYING", TS_1X, TS_1X, PL_UI_W - 32u);
         return;
     }
     char ln[40], *q = ln;
     q = set_str(q, "Meter "); q = ui_dec(q, mw_idx + (mw_state == MW_DONE ? 0u : 1u)); q = set_str(q, " / "); q = ui_dec(q, VIZ_SEL_COUNT); *q = 0;
-    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_set_color(UI_WHITE, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
     if (mw_state == MW_RUN) {
-        fb_set_color(UI_DIM, UI_PANEL);
+        fb_set_color(UI_DIM, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, "sampling on the player screen...", TS_1X, TS_1X, PL_UI_W - 32u);
     }
     if (mw_state == MW_DONE) {
-        fb_set_color(mw_qr_len ? ui_accent : UI_RED, UI_PANEL);
+        fb_set_color(mw_qr_len ? ui_accent : UI_RED, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, "METER SWEEP FINISHED", TS_1X, TS_1X, PL_UI_W - 32u);
     }
 }
@@ -1296,17 +1296,17 @@ COLD_TEXT static void mt_draw(void)
     ov_frame("METER TRACE", mt_state == MT_REC ? "RECORDING" : mt_state == MT_REFUSED ? "REFUSED" : mt_state == MT_DONE ? "DONE" : "",
              mt_state == MT_DONE ? "B CLOSE   A QR CODE" : mt_state == MT_IDLE ? "A RECORD   B BACK" : "B BACK");
     if (mt_state == MT_IDLE) {
-        fb_set_color(UI_WHITE, UI_PANEL);
+        fb_set_color(UI_WHITE, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, "PRESS A TO RECORD", TS_1X, TS_1X, PL_UI_W - 32u);
-        fb_set_color(UI_DIM, UI_PANEL);
+        fb_set_color(UI_DIM, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "Records 20 meter frames of the", TS_1X, TS_1X, PL_UI_W - 32u);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, "playing track as a QR code.", TS_1X, TS_1X, PL_UI_W - 32u);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 4u * PL_UI_ROW_H, "Start a track first.", TS_1X, TS_1X, PL_UI_W - 32u);
     } else if (mt_state == MT_REFUSED) {
-        fb_set_color(UI_RED, UI_PANEL);
+        fb_set_color(UI_RED, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, !spec_hw ? "NO HARDWARE SPECTRUM" : "NOTHING PLAYING", TS_1X, TS_1X, PL_UI_W - 32u);
     } else if (mt_state == MT_DONE) {
-        fb_set_color(ui_accent, UI_PANEL);
+        fb_set_color(ui_accent, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, "TRACE RECORDED", TS_1X, TS_1X, PL_UI_W - 32u);
     }
 }
@@ -1389,7 +1389,7 @@ COLD_FN static void bt_hud(void)
     q = set_str(q, bt_op_name[bt_op]); q = set_str(q, " L"); q = ui_dec(q, bt_lvl + 1u);
     q = set_str(q, "  X"); q = ui_dec(q, bt_cx); q = set_str(q, " Y"); q = ui_dec(q, bt_cy);
     q = set_str(q, "  STALL"); q = ui_dec(q, bt_last_stall_pct); q = set_str(q, "%"); *q = 0;
-    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_set_color(UI_WHITE, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, FB_H - 18u, b, TS_1X, TS_1X, PL_UI_W - 32u);
 }
 
@@ -1403,8 +1403,8 @@ COLD_FN static void bt_hud(void)
  * the description text, row 4 the A/B hint (see bt_draw()'s BT_IDLE branch), row 5 is unused. */
 COLD_FN static void bt_checkpoint(const char *msg)
 {
-    fb_rect(PL_UI_TEXT_X, PL_UI_LIST_Y + 5u * PL_UI_ROW_H, PL_UI_W - 32u, FB_CELL(TS_1X), UI_PANEL);
-    fb_set_color(UI_DIM, UI_PANEL);
+    fb_rect(PL_UI_TEXT_X, PL_UI_LIST_Y + 5u * PL_UI_ROW_H, PL_UI_W - 32u, FB_CELL(TS_1X), OV_BODY);
+    fb_set_color(UI_DIM, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 5u * PL_UI_ROW_H, msg, TS_1X, TS_1X, PL_UI_W - 32u);
 }
 
@@ -1616,11 +1616,11 @@ COLD_TEXT static void bt_draw(void)
              bt_state == BT_REFUSED ? "REFUSED" : bt_state == BT_DONE ? "DONE" : "",
              bt_state == BT_IDLE ? "A START   B BACK" : "B BACK");
     if (bt_state == BT_IDLE) {
-        fb_set_color(UI_WHITE, UI_PANEL);
+        fb_set_color(UI_WHITE, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, "Runs every draw-engine opcode,", TS_1X, TS_1X, PL_UI_W - 32u);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, "full screen, at 3 concurrency", TS_1X, TS_1X, PL_UI_W - 32u);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "levels each -- no audio needed.", TS_1X, TS_1X, PL_UI_W - 32u);
-        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_set_color(UI_FAINT, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 4u * PL_UI_ROW_H, "A START   B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
         /* B-176: the last run's furthest crumb, read back from raw SDRAM (never the draw engine) --
          * so a hang that leaves NOTHING drawn (as the last run did) still leaves this line correct
@@ -1630,25 +1630,25 @@ COLD_TEXT static void bt_draw(void)
             uint32_t c = bt_crumb_read();
             char ln[32], *q = ln;
             q = set_str(q, "last run reached: "); q = ui_dec(q, c); *q = 0;
-            fb_set_color(UI_DIM, UI_PANEL);
+            fb_set_color(UI_DIM, OV_BODY);
             fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 5u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
         }
         return;
     }
     if (bt_state == BT_REFUSED) {
-        fb_set_color(UI_RED, UI_PANEL);
+        fb_set_color(UI_RED, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, "BLIT ENGINE NOT DETECTED", TS_1X, TS_1X, PL_UI_W - 32u);
-        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_set_color(UI_FAINT, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
         return;
     }
     char ln[40], *q = ln;
     q = set_str(q, "op "); q = ui_dec(q, (uint32_t)bt_op * BT_LEVELS + bt_lvl); q = set_str(q, " / "); q = ui_dec(q, BT_OPS * BT_LEVELS); *q = 0;
-    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_set_color(UI_WHITE, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
-    fb_set_color(bt_qr_len ? ui_accent : UI_RED, UI_PANEL);
+    fb_set_color(bt_qr_len ? ui_accent : UI_RED, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, bt_qr_len ? "done" : "record did not fit", TS_1X, TS_1X, PL_UI_W - 32u);
-    fb_set_color(UI_FAINT, UI_PANEL);
+    fb_set_color(UI_FAINT, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, bt_qr_len ? "A QR   B BACK" : "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
 }
 

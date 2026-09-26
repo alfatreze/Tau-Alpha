@@ -475,8 +475,8 @@ COLD_FN static void set_draw_menu(uint32_t p)
     for (uint32_t i = 0; i < set_menu_n[p]; i++) {
         uint32_t y = PL_UI_LIST_Y + i * SET_MENU_ROW_H;
         int sel = (i == set_sel[p]);
-        uint16_t bg = sel ? ui_accent : UI_PANEL;
-        if (sel) fb_round_rect_on(PL_UI_X + 4u, y, PL_UI_W - 8u, SET_MENU_ROW_H - 4u, 5u, bg, UI_PANEL);
+        uint16_t bg = sel ? ui_accent : OV_BODY;
+        if (sel) fb_round_rect_on(PL_UI_X + 4u, y, PL_UI_W - 8u, SET_MENU_ROW_H - 4u, 5u, bg, OV_BODY);
         uint32_t ty = y + 8u;
         fb_set_color(sel ? UI_PANEL : UI_WHITE, bg);
         fb_text_clipped(PL_UI_TEXT_X, ty, rows[i].label, TS_1X, TS_1X, 200u);
@@ -504,18 +504,18 @@ COLD_FN static void set_draw_choice(uint32_t c)
     ov_frame(set_ch_title[c], "", "A SELECT   B BACK");
     if (n > vis) {                               /* scroll track, as the playlist */
         uint32_t tx = PL_UI_X + PL_UI_W - 11u, th = SET_LIST_H * vis / n;
-        fb_rect(tx, PL_UI_LIST_Y - 2u, 3u, SET_LIST_H, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
+        fb_rect(tx, PL_UI_LIST_Y - 2u, 3u, SET_LIST_H, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
         fb_rect(tx, PL_UI_LIST_Y - 2u + (SET_LIST_H - th) * top / (n - vis), 3u, th, ui_accent);
     }
     for (uint32_t k = 0; k < vis && top + k < n; k++) {
         uint32_t i = top + k, y = PL_UI_LIST_Y + k * rowh, cy = y + (rowh - 2u) / 2u;
         int sel = (i == set_ch_cur[c]), on = (i == act);
-        uint16_t bg = sel ? ui_accent : UI_PANEL;
-        if (sel) fb_round_rect_on(PL_UI_X + 4u, y, PL_UI_W - 20u, rowh - 2u, 5u, bg, UI_PANEL);
+        uint16_t bg = sel ? ui_accent : OV_BODY;
+        if (sel) fb_round_rect_on(PL_UI_X + 4u, y, PL_UI_W - 20u, rowh - 2u, 5u, bg, OV_BODY);
         uint32_t mx = PL_UI_TEXT_X + 10u;         /* marker centre */
         if (c == CH_COLOUR) {                     /* swatch: theme colour, white ring if active */
-            set_disc(mx, cy, 20u, on ? UI_WHITE : (sel ? UI_PANEL : ui_mix(UI_PANEL, UI_DIM, 1u, 3u)), bg);
-            set_disc(mx, cy, 14u, ui_palette[i], on ? UI_WHITE : (sel ? UI_PANEL : ui_mix(UI_PANEL, UI_DIM, 1u, 3u)));
+            set_disc(mx, cy, 20u, on ? UI_WHITE : (sel ? UI_PANEL : ui_mix(OV_BODY, UI_DIM, 1u, 3u)), bg);
+            set_disc(mx, cy, 14u, ui_palette[i], on ? UI_WHITE : (sel ? UI_PANEL : ui_mix(OV_BODY, UI_DIM, 1u, 3u)));
         } else {                                  /* radio: ring, dot when active */
             uint16_t ring = sel ? UI_PANEL : UI_WHITE;
             set_disc(mx, cy, 18u, ring, bg);
@@ -685,22 +685,26 @@ COLD_FN static void set_draw_ro(int full, const char *title, const char *const *
     const uint32_t vis = (n < SET_RO_VIS) ? n : SET_RO_VIS;
     uint32_t top = set_ro_top;
     if (top + vis > n) top = n - vis;
-    const char *hint = (n > vis) ? "UP DOWN SCROLL   B BACK" : "B BACK";
+    /* Up/Down scrolling is self-evident. The Info page (diagnostic build) says what A does. */
+    const char *hint = "B BACK";
+#if TAU_DIAGNOSTIC
+    if (title[0] == 'I' && title[1] == 'N' && title[2] == 'F' && title[3] == 'O' && !title[4]) hint = "A QR CODE   B BACK";
+#endif
     if (full) ov_frame(title, "", hint);
     if (n > vis) {                               /* scroll track, as the lists */
         const uint32_t tx = PL_UI_X + PL_UI_W - 11u, lh = vis * PL_UI_ROW_H, th = lh * vis / n;
-        fb_rect(tx, PL_UI_LIST_Y - 2u, 3u, lh, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
+        fb_rect(tx, PL_UI_LIST_Y - 2u, 3u, lh, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
         fb_rect(tx, PL_UI_LIST_Y - 2u + (lh - th) * top / (n - vis), 3u, th, ui_accent);
     }
     for (uint32_t k = 0; k < vis; k++) {
         const uint32_t i = top + k, y = PL_UI_LIST_Y + k * PL_UI_ROW_H;
         char v[40];
         value(i, v);
-        fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 16u, PL_UI_ROW_H, UI_PANEL);
-        fb_set_color(UI_DIM, UI_PANEL);
+        fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 16u, PL_UI_ROW_H, OV_BODY);
+        fb_set_color(UI_DIM, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, y, labels[i], TS_1X, TS_1X, 170u);
         uint32_t w = fb_text_width(v, TS_1X);
-        fb_set_color(UI_WHITE, UI_PANEL);
+        fb_set_color(UI_WHITE, OV_BODY);
         fb_text_clipped(PL_UI_X + PL_UI_W - 20u - w, y, v, TS_1X, TS_1X, w + 2u);
     }
     /* Unconditional, not `if (full)`: set_info_tick()'s once-a-second partial refresh ("repaint the
@@ -780,12 +784,12 @@ COLD_FN static void set_draw_help(void)
     const char *p = lib_on ? set_help_lib : set_help_legacy;
     ov_frame("HOW IT WORKS", "", "B BACK");
     if (!cold_ready()) {                                   /* cold image not loaded: no text to show */
-        fb_set_color(UI_DIM, UI_PANEL);
+        fb_set_color(UI_DIM, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, "Help text is not loaded.", TS_1X, TS_1X, PL_UI_W - 32u);
         return;
     }
     for (uint32_t i = 0; i < SET_HELP_LINES && i < PL_UI_ROWS; i++) {
-        fb_set_color(i ? UI_WHITE : ui_accent, UI_PANEL);
+        fb_set_color(i ? UI_WHITE : ui_accent, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + i * PL_UI_ROW_H, p, TS_1X, TS_1X, PL_UI_W - 32u);
         while (*p) p++;
         p++;
@@ -800,18 +804,18 @@ COLD_FN static void set_draw_libcfg(void)
     static const char *const off_txt[] = { "Turning it on loads your library", "at start: browse and play from", "Select. Your history is kept." };
     ov_frame("LIBRARY", "", set_lib_confirm ? "A CONFIRM   B CANCEL" : "A CHANGE   B BACK");
     uint32_t y = PL_UI_LIST_Y;
-    fb_set_color(ui_accent, UI_PANEL);
+    fb_set_color(ui_accent, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, y, lib_disabled ? "Library is OFF" : "Library is ON", TS_1X, TS_1X, PL_UI_W - 32u);
     y += 2u * PL_UI_ROW_H;
     const char *const *t = lib_disabled ? off_txt : on_txt;
     uint32_t n = lib_disabled ? SET_COUNT(off_txt) : SET_COUNT(on_txt);
-    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_set_color(UI_WHITE, OV_BODY);
     for (uint32_t i = 0; i < n; i++, y += PL_UI_ROW_H) fb_text_clipped(PL_UI_TEXT_X, y, t[i], TS_1X, TS_1X, PL_UI_W - 32u);
     y += PL_UI_ROW_H;
-    fb_set_color(UI_DIM, UI_PANEL);
+    fb_set_color(UI_DIM, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, y, "Applies after a restart.", TS_1X, TS_1X, PL_UI_W - 32u);
     if (set_lib_confirm) {
-        fb_set_color(ui_accent, UI_PANEL);
+        fb_set_color(ui_accent, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, y + PL_UI_ROW_H + 8u, lib_disabled ? "Press A to turn it on." : "Press A to turn it off.", TS_1X, TS_1X, PL_UI_W - 32u);
     }
 }
@@ -945,22 +949,22 @@ COLD_FN static void wvcfg_draw(void)
      * (B-234: wviz_scope_tick()'s use_gradient=0 path fixes the previously-
      * garbled preview -- see that function's own comment). */
     uint32_t px = PL_UI_TEXT_X, pw = PL_UI_X + PL_UI_W - 8u - px, py = PL_UI_LIST_Y, ph = UI_WAVE_H;
-    fb_rect(px - 4u, py - 4u, pw + 8u, ph + 8u, UI_PANEL);
+    fb_rect(px - 4u, py - 4u, pw + 8u, ph + 8u, OV_BODY);
     wviz_force = 1u;                      /* the panel was just wiped: the meters' change caches must repaint everything */
     mtr_preview(viz_mode, px, py, pw, ph, UI_PANEL);
 
     uint32_t list_y = py + ph + 16u;
     if (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) {                      /* scroll track, as the other lists */
         const uint32_t n = wvcfg_vis_n, vis = WVCFG_ROWS_VISIBLE, tx = PL_UI_X + PL_UI_W - 11u, lh = vis * PL_UI_ROW_H, th = lh * vis / n;
-        fb_rect(tx, list_y - 2u, 3u, lh, ui_mix(UI_PANEL, UI_DIM, 1u, 3u));
+        fb_rect(tx, list_y - 2u, 3u, lh, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
         fb_rect(tx, list_y - 2u + (lh - th) * wvcfg_top / (n - vis), 3u, th, ui_accent);
     }
     for (uint32_t k = 0; k < WVCFG_ROWS_VISIBLE && wvcfg_top + k < wvcfg_vis_n; k++) {
         uint32_t vi = wvcfg_top + k, i = wvcfg_row(vi), y = list_y + k * PL_UI_ROW_H;
         int sel = (vi == wvcfg_sel);
-        uint16_t bg = sel ? ui_accent : UI_PANEL;
-        if (sel) fb_round_rect_on(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H, 5u, bg, UI_PANEL);
-        else     fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H, UI_PANEL);
+        uint16_t bg = sel ? ui_accent : OV_BODY;
+        if (sel) fb_round_rect_on(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H, 5u, bg, OV_BODY);
+        else     fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 8u, PL_UI_ROW_H, OV_BODY);
         char v[24];
         char nm[24];
         wvcfg_value_text(i, v);
