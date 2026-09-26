@@ -159,13 +159,31 @@ _Static_assert(VIZ_COUNT == 15 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_RETIRED_
                VIZ_WINAMP_BARS == 12 && VIZ_WINAMP_SCOPE == 13 && VIZ_CHLADNI == 14,
                "meter_thumbs.h is indexed by the VIZ_* enum order (tools/gen_meter_thumbs.py ORDER)");
 
+/* Theme step 0c: the previews are stored as neutral greys (plus an accent-blue placeholder in the newest three), so their palette is
+ * re-derived from the theme at draw time instead of drawn as stored. A grey entry becomes a mix from the plate colour (role base) at
+ * the darkest stored grey to the primary text colour at the lightest, by its luma; an entry with real chroma becomes the accent.
+ * Dark themes therefore look close to the stored greys and Light inverts to dark features on a light plate. Cheap: 8 mixes per draw. */
+COLD_FN static void set_thumb_pal(uint32_t viz, uint16_t *out)
+{
+    const uint16_t *src = meter_thumb_pal[viz];
+    for (uint32_t i = 0; i < 8u; i++) {
+        uint32_t c = src[i], r = ((c >> 11) & 0x1Fu) * 255u / 31u, g = ((c >> 5) & 0x3Fu) * 255u / 63u, b = (c & 0x1Fu) * 255u / 31u;
+        uint32_t hi = r > g ? (r > b ? r : b) : (g > b ? g : b), lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        if (hi - lo > 40u) { out[i] = ui_accent; continue; }
+        uint32_t l = (2126u * r + 7152u * g + 722u * b) / 10000u;
+        l = l <= 16u ? 0u : (l > 255u ? 239u : l - 16u);       /* stored greys run about 16..238; luma 255 would be the primary colour itself */
+        out[i] = ui_mix(th_role[TR_BASE], th_role[TR_TEXT_PRIMARY], l, 239u);
+    }
+}
+
 /* Draw preview `viz` at (x, y) by decoding the RLE in software: fill with the dominant colour,
  * then paint every other run as a one-row rectangle (runs may cross row ends). This is the
  * original path -- dozens of fb_rect draw-engine round-trips per thumbnail -- kept as the B8
  * fail-safe for a bitstream without the blit engine (BLIT_READY() == 0, B-126). */
 COLD_FN static void set_draw_thumb_soft(uint32_t x, uint32_t y, uint32_t viz)
 {
-    const uint16_t *pal = meter_thumb_pal[viz];
+    uint16_t pal[8];
+    set_thumb_pal(viz, pal);
     const uint8_t *p = &meter_thumb_rle[meter_thumb_off[viz]], *e = &meter_thumb_rle[meter_thumb_off[viz + 1u]];
     uint32_t pos = 0;
     fb_rect(x, y, METER_THUMB_W, METER_THUMB_H, pal[0]);
@@ -237,7 +255,9 @@ COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
     blit_probe_ensure();                                                                    /* B-162: first need, not at boot */
     if (!BLIT_READY()) { set_draw_thumb_soft(x, y, viz); return; }                          /* B8 fail-safe: old bitstream */
     if (!thumb_flat_ready) set_thumb_flat_build();
-    fb_clut_load(meter_thumb_pal[viz], 8u);
+    uint16_t pal[8];
+    set_thumb_pal(viz, pal);
+    fb_clut_load(pal, 8u);
     fb_cblit(0u, THUMB_STASH_Y + thumb_slot(viz) * METER_THUMB_H, x, y, METER_THUMB_W, METER_THUMB_H);
 }
 

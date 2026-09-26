@@ -82,6 +82,66 @@ def sheet(theme, pol, accent_idx):
     return f
 
 
+def thumbs():
+    """Meter preview data straight from fw/meter_thumbs.h: (palettes[15][8], offsets[16], rle bytes)."""
+    import re
+    t = (Path(__file__).resolve().parent.parent / "fw" / "meter_thumbs.h").read_text()
+    pal_blk = t[t.index("meter_thumb_pal[15][8]"):]
+    pal_blk = pal_blk[:pal_blk.index("};")]
+    pal = [[int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{4})u", row)] for row in pal_blk.splitlines() if "0x" in row]
+    off = [int(x) for x in re.findall(r"\d+", t[t.index("meter_thumb_off[16]"):].split("{", 1)[1].split("};")[0].split("*/")[-1])]
+    rle_blk = t[t.index("meter_thumb_rle["):]
+    rle = [int(x, 0) for x in re.findall(r"0x[0-9A-Fa-f]{2}|\b\d{1,3}\b", rle_blk.split("{", 1)[1].split("};")[0])]
+    return pal, off, rle
+
+
+def thumb_pal(row, base, prim, acc):
+    """Mirror of set_thumb_pal() in fw/settingsui.inc."""
+    out = []
+    for c in row:
+        r, g, b = gt.rgb8(c)
+        if max(r, g, b) - min(r, g, b) > 40:
+            out.append(acc)
+            continue
+        l = (2126 * r + 7152 * g + 722 * b) // 10000
+        l = 0 if l <= 16 else (239 if l > 255 else l - 16)
+        out.append(R_mix(base, prim, l, 239))
+    return out
+
+
+def R_mix(a, b, t, n):
+    r = (((a >> 11) & 31) * (n - t) + ((b >> 11) & 31) * t) // n
+    g = (((a >> 5) & 63) * (n - t) + ((b >> 5) & 63) * t) // n
+    bl = ((a & 31) * (n - t) + (b & 31) * t) // n
+    return r << 11 | g << 5 | bl
+
+
+def thumb_sheet(theme, pol, accent_idx):
+    d = theme[pol]
+    S = lambda k: gt.snap(d[k])
+    acc = gt.acc_eff(PAL[accent_idx], pol)
+    R.grad_at = ramp_fn(gt.grad_top(acc, d["bg_luma"]), S("bg_bottom"))
+    f = R.Frame()
+    f.rect(0, 0, R.FB_W, R.FB_H, S("surface"))
+    pal, off, rle = thumbs()
+    shown = [v for v in range(15) if off[v + 1] > off[v]]
+    for n, v in enumerate(shown):
+        x, y = 16 + (n % 5) * 76, 20 + (n // 5) * 60
+        p = thumb_pal(pal[v], S("base"), S("text_primary"), acc)
+        px, at = [p[0]] * (56 * 32), 0
+        for b in rle[off[v]:off[v + 1]]:
+            idx, run = b >> 5, (b & 31) + 1
+            for k in range(run):
+                if idx and at + k < 56 * 32:
+                    px[at + k] = p[idx]
+            at += run
+        for yy in range(32):
+            for xx in range(56):
+                f.pixels[(y + yy) * R.FB_W + x + xx] = px[yy * 56 + xx]
+    f.text(16, 8, f"{theme['name']} {pol.upper()} meter previews", "TS_1X", S("text_secondary"), S("surface"), 360)
+    return f
+
+
 def write_png(path, pixels, w, h):
     raw = b"".join(b"\x00" + b"".join(bytes(p) for p in pixels[y * w:(y + 1) * w]) for y in range(h))
     def chunk(t, data):
@@ -106,6 +166,12 @@ def main():
                 combo += fr.png_pixels()[y * W:(y + 1) * W]
         write_png(a.out / f"theme-{t['name'].lower()}.png", combo, W * 2, H)
         print("wrote", a.out / f"theme-{t['name'].lower()}.png", "(dark left, light right)")
+        tf = [thumb_sheet(t, p, a.accent_index) for p in gt.POLS]
+        combo = []
+        for y in range(H):
+            for fr in tf:
+                combo += fr.png_pixels()[y * W:(y + 1) * W]
+        write_png(a.out / f"thumbs-{t['name'].lower()}.png", combo, W * 2, H)
 
 
 if __name__ == "__main__":
