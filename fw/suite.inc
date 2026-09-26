@@ -1201,6 +1201,133 @@ COLD_TEXT static int mw_input(uint32_t edge)
     return 1;
 }
 
+/* ================================================================== METER TRACE (M3)
+ * Records what the meters saw on REAL audio -- spec_lvl[] (after the firmware ballistics) and wav_v[] for 20 consecutive displayed frames
+ * with their timing -- and shows it as a QR (SR_T_METERTRACE, fw/suite_core.h). tools/decode_tau_suite.py --trace turns a screenshot's QR
+ * into a trace file the preview lab, the golden-frame tests and the native harnesses all replay (docs/METER_MODULE_SPEC.md section 15).
+ * Like the meter sweep it closes the settings menu so the real player screen draws, and mt_take() (called from the meter dispatch at
+ * viz_done) captures inside that draw so the values are exactly what the meters used. Needs a playing track and the hardware spectrum
+ * bank (the software cascade no longer exists), and records with Winamp Bars selected (a meter that fetches the bank). */
+#define MT_FRAMES 20u
+enum { MT_IDLE = 0, MT_REC, MT_FIN, MT_DONE, MT_QR, MT_REFUSED };
+static uint8_t  mt_state, mt_qr_len, mt_qr_ver, mt_n, mt_saved_mode, mt_saved_layout;
+static uint32_t mt_last;
+static sr_t     mt_rec;
+
+COLD_TEXT static void mt_take(void)
+{
+    if (mt_state != MT_REC) return;
+    const uint32_t now = cycles();
+    uint32_t dt = mt_n ? (now - mt_last) / (CLK_HZ / 1000u) : 0u;
+    if (dt > 0xFFFFu) dt = 0xFFFFu;
+    mt_last = now;
+    uint8_t t[2 + 16 + 64];
+    t[0] = (uint8_t)dt; t[1] = (uint8_t)(dt >> 8);
+    for (uint32_t i = 0; i < 16u; i++) t[2u + i] = spec_lvl[i];
+    for (uint32_t i = 0; i < 64u; i++) t[18u + i] = (uint8_t)wav_v[i];
+    sr_tlv(&mt_rec, SR_T_METERTRACE, t, sizeof t);
+    if (++mt_n >= MT_FRAMES) mt_state = MT_FIN;          /* finished from the main loop, not from inside a draw */
+}
+
+COLD_TEXT static void mt_finish(void)
+{
+    viz_mode = mt_saved_mode; bars_layout = mt_saved_layout;
+    if (!ui_fullscreen) { ui_wave_clear(); if (art_ready && art_shown) ui_art_draw(); }
+    ui_wave_force = 1u; wviz_force = 1u;
+    uint32_t len = sr_finish(&mt_rec);
+    mt_qr_len = 0;
+    if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
+        uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
+        uint32_t ver = 0, mask = 0;
+        uint32_t sz = qr_encode((const uint8_t *)CHK_TXT, txtlen, 1u, CHK_QR_MAXV, 0, CHK_QR, &ver, &mask);
+        if (sz) { mt_qr_len = (uint8_t)sz; mt_qr_ver = (uint8_t)ver; }
+    }
+    mt_state = mt_qr_len ? MT_DONE : MT_IDLE;
+    set_open = 1u; set_page = SET_METERTRACE_PG; set_dirty = 1u;   /* the menu was closed on purpose so the meters draw: reopen on the result */
+}
+
+static void mt_tick(void) { if (mt_state == MT_FIN) mt_finish(); }
+
+COLD_TEXT static void mt_begin(void)
+{
+    if (!track_hz || paused || stopped || !spec_hw) { mt_state = MT_REFUSED; set_dirty = 1u; return; }
+    mt_saved_mode = (uint8_t)viz_mode; mt_saved_layout = bars_layout;
+    viz_mode = VIZ_WINAMP_BARS; bars_layout = 0u;
+    ui_wave_clear(); ui_wave_force = 1u; wviz_force = 1u;
+    sr_init(&mt_rec, CHK_REC, CHK_REC_CAP, 8u);
+    uint32_t fwv = ((uint32_t)(APP_VER[0] - '0') << 16) | ((uint32_t)(APP_VER[2] - '0') << 8) | (uint32_t)(APP_VER[4] - '0');
+    uint32_t build[4] = { fwv, REG(R_VERSION), 0u, 0u };
+    sr_vals(&mt_rec, SR_T_BUILD, 4, build, 4);
+    mt_n = 0u; mt_state = MT_REC;
+    set_close();
+    set_dirty = 1u;
+}
+
+static void mt_open(void) { if (mt_state != MT_REC && mt_state != MT_FIN) mt_state = MT_IDLE; }
+
+COLD_TEXT static void mt_draw_qr(void)
+{
+    const uint32_t sz = mt_qr_len;
+    uint32_t m = 354u / (sz + 8u);
+    if (m > 4u) m = 4u;
+    const uint32_t side = (sz + 8u) * m, x0 = (FB_W - side) / 2u;
+    fb_rect(0u, 0u, FB_W, FB_H, UI_BG);
+    fb_rect(x0, 0u, side, side, 0xFFFFu);
+    for (uint32_t y = 0; y < sz; y++) {
+        uint32_t x = 0;
+        while (x < sz) {
+            if (!qr_get(CHK_QR, sz, (int)x, (int)y)) { x++; continue; }
+            uint32_t e = x + 1u;
+            while (e < sz && qr_get(CHK_QR, sz, (int)e, (int)y)) e++;
+            fb_rect(x0 + (x + 4u) * m, (y + 4u) * m, (e - x) * m, m, 0x0000u);
+            x = e;
+        }
+    }
+    if (side + 44u > FB_H) return;
+    fb_set_color(ui_accent, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, side + 6u, "METER TRACE", TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_set_color(UI_FAINT, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, "MENU+START FOR A SCREENSHOT", TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
+COLD_TEXT static void mt_draw(void)
+{
+    if (mt_state == MT_QR && mt_qr_len) { mt_draw_qr(); return; }
+    ov_frame("METER TRACE", mt_state == MT_REC ? "RECORDING" : mt_state == MT_REFUSED ? "REFUSED" : mt_state == MT_DONE ? "DONE" : "",
+             mt_state == MT_DONE ? "B CLOSE   A QR CODE" : mt_state == MT_IDLE ? "A RECORD   B BACK" : "B BACK");
+    if (mt_state == MT_IDLE) {
+        fb_set_color(UI_WHITE, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, "PRESS A TO RECORD", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_set_color(UI_DIM, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "Records 20 meter frames of the", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, "playing track as a QR code.", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 4u * PL_UI_ROW_H, "Start a track first.", TS_1X, TS_1X, PL_UI_W - 32u);
+    } else if (mt_state == MT_REFUSED) {
+        fb_set_color(UI_RED, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, !spec_hw ? "NO HARDWARE SPECTRUM" : "NOTHING PLAYING", TS_1X, TS_1X, PL_UI_W - 32u);
+    } else if (mt_state == MT_DONE) {
+        fb_set_color(ui_accent, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, "TRACE RECORDED", TS_1X, TS_1X, PL_UI_W - 32u);
+    }
+}
+
+COLD_TEXT static int mt_input(uint32_t edge)
+{
+    if (edge & KEY_START) { if (mt_state != MT_REC && mt_state != MT_FIN) set_close(); return 1; }
+    if (mt_state == MT_IDLE) {
+        if (edge & KEY_A) mt_begin();
+        else if (edge & KEY_B) { set_page = CHK_PARENT; set_dirty = 1u; }
+    } else if (mt_state == MT_REFUSED) {
+        if (edge & (KEY_A | KEY_B | KEY_LEFT)) { mt_state = MT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
+    } else if (mt_state == MT_DONE) {
+        if ((edge & (KEY_A | KEY_RIGHT)) && mt_qr_len) { mt_state = MT_QR; set_dirty = 1u; }
+        else if (edge & (KEY_B | KEY_LEFT)) { mt_state = MT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
+    } else if (mt_state == MT_QR) {
+        if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { mt_state = MT_DONE; set_dirty = 1u; }
+    }
+    return 1;
+}
+
 /* ================================================================== BLIT TEST (B-166)
  * Exercises every draw-engine opcode individually, full-screen, at increasing concurrency,
  * without needing audio -- deliberately separate from Check (which assumes playback context) and

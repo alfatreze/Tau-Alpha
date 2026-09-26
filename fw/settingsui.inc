@@ -38,6 +38,7 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #define SET_BLITTEST_PG ((uint8_t)(SET_CHECK_PG + 1u))   /* Blit Test, B-166 (fw/suite.inc) */
 #endif
 #define SET_METERSWEEP_PG ((uint8_t)(SET_BLITTEST_PG + 1u))   /* Meter cost sweep, B-301 (fw/suite.inc) */
+#define SET_METERTRACE_PG ((uint8_t)(SET_METERSWEEP_PG + 1u)) /* Meter trace recorder, M3 (fw/suite.inc) */
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
 enum { TG_ART = 0, TG_SHUF, TG_RESUME, TG_SPEEDS };
@@ -80,6 +81,7 @@ static const set_row_t set_dgn_rows[] = {
 #endif
     { "BLIT TEST", RT_GROUP, SET_BLITTEST_PG },
     { "METER SWEEP", RT_GROUP, SET_METERSWEEP_PG },
+    { "METER TRACE", RT_GROUP, SET_METERTRACE_PG },
 #else
     { "INFO", RT_GROUP, SET_INFO_PG },          /* unreachable placeholder: the page exists only in the Diagnostic Build */
 #endif
@@ -1009,6 +1011,7 @@ COLD_FN static void set_draw(void)
 #endif
     else if (set_page == SET_BLITTEST_PG)    bt_draw();
     else if (set_page == SET_METERSWEEP_PG)  mw_draw();
+    else if (set_page == SET_METERTRACE_PG)  mt_draw();
 #endif
     else if (set_page == SET_INFO_PG) {
 #if TAU_DIAGNOSTIC
@@ -1062,6 +1065,7 @@ static int set_input(uint32_t edge, uint32_t keys)
 #endif
     if (set_page == SET_BLITTEST_PG) return bt_input(edge);
     if (set_page == SET_METERSWEEP_PG) return mw_input(edge);
+    if (set_page == SET_METERTRACE_PG) return mt_input(edge);
 #endif
     if (set_page == SET_WVIZCFG_PG) return wvcfg_input(edge);
     if (edge & KEY_START) { set_close(); return 1; }

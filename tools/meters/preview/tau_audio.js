@@ -22,7 +22,8 @@
   function sweep() {
     return (n) => { const spec = []; const c = (n * 0.15) % 16; for (let b = 0; b < 16; b++) spec.push(Math.round(255 * Math.exp(-Math.pow((b - c) / 1.5, 2)))); const wave = []; for (let i = 0; i < 64; i++) wave.push(Math.round(80 * Math.sin(i * (0.2 + c * 0.05)))); return { spec, wave, paused: false }; };
   }
-  function trace(tr) { return (n) => { const f = tr.frames[n % tr.frames.length]; return { spec: f.spec, wave: f.wave, paused: !!f.paused }; }; }
+  /* A hardware trace holds spec_lvl AFTER the firmware ballistics, so `post` tells the runner not to apply them again. */
+  function trace(tr) { return (n) => { const f = tr.frames[n % tr.frames.length]; return { spec: f.spec, wave: f.wave, paused: !!f.paused, post: true }; }; }
   const api = { demo, silence, sweep, trace, rng };
   if (typeof module !== 'undefined') module.exports = api; else root.TauAudio = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

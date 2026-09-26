@@ -80,7 +80,8 @@ int main(int argc, char **argv) {
 
 
 def main():
-    node = subprocess.run(["node", str(ROOT / "tools/meters/preview/golden.js")], capture_output=True, text=True, cwd=ROOT)
+    extra = ["--trace", sys.argv[sys.argv.index("--trace") + 1]] if "--trace" in sys.argv else []
+    node = subprocess.run(["node", str(ROOT / "tools/meters/preview/golden.js")] + extra, capture_output=True, text=True, cwd=ROOT)
     if node.returncode:
         print("golden.js failed:\n" + node.stderr); sys.exit(1)
     scen = json.loads(node.stdout)

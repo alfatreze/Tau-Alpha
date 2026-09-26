@@ -4343,6 +4343,9 @@ COLD_FN2 static void pl_ui_draw(void)
  * "cold calls hot" pattern G4 steps 1-3 and fw/cold.inc's own cold_calls_hot() already prove safe),
  * just relocated and renamed so the thin wrapper below can time it and apply the COLD_READY()
  * fail-safe. */
+#if TAU_DIAGNOSTIC
+static void mt_take(void);          /* fw/suite.inc: meter trace recorder (M3), called once per displayed meter frame */
+#endif
 COLD_FN3 static void ui_draw_dynamic_cold(void)
 {
     if (screen_blank) return;
@@ -4954,6 +4957,9 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
                 fb_rect(x, UI_WAVE_Y + UI_WAVE_H - pk, lit, 1, UI_WHITE);
         }
     viz_done: ;
+#if TAU_DIAGNOSTIC
+        mt_take();               /* M3 meter trace recorder: the values every meter just drew from (fw/suite.inc) */
+#endif
     }
 
     /* Sticky underrun latch (pcm_fifo.v) stays set until the next pcm_flush()
@@ -9985,6 +9991,7 @@ int main(void)
 #endif
         bt_tick();
         mw_tick();
+        mt_tick();
 #endif
 #if TAU_DIAGNOSTIC
         dg_soak_tick();

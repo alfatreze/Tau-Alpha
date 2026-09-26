@@ -16,7 +16,7 @@
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
        SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK, SR_T_WVIZCFG,
-       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG };
+       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE };
 /* SR_T_METERSWEEP (B-301, docs/METER_MODULE_SPEC.md section 15 "meter sweep as a standing
  * regression"): ONE entry per selectable meter (repeatable, same convention as SR_T_DECSWEEP),
  * appended in viz_order[] order while music keeps playing underneath -- the real point is that each
@@ -38,6 +38,9 @@ enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, S
  * the Configure page, for ANY meter that has parameters: meter_id(u8, the VIZ_* id), schema(u8, 1), preset_idx(u8, 0xFF = custom),
  * nparams(u8), then the values in manifest order, one byte per u8/bool/enum parameter and two (u16 LE) per u16 parameter. Widths and
  * names come from tools/meters_schema.json, so a new meter needs no decoder change. */
+/* SR_T_METERTRACE (M3, docs/METER_MODULE_SPEC.md section 15 "traces as test assets"): what the meters saw on real audio, for replay in the preview
+ * lab, the golden-frame tests and the native harnesses. Repeatable, one entry per DISPLAYED meter frame in order: dt_ms(u16 LE, since the previous
+ * captured frame, 0 for the first), spec_lvl[16] (u8, after the firmware ballistics), wav_v[64] (i8). 82 bytes each, 20 frames per record. */
 /* SR_T_WVIZCFG (B-218, superseded by SR_T_METERCFG; still decodable): a one-off export of the Winamp Bars/Scope config page's live wviz_cfg
  * (fw/settingsui.inc), NOT part of a Check run -- built and shown on demand from Settings >
  * Appearance > Meter > Configure > Export QR. 13 raw bytes, no sub-length prefix beyond the TLV's

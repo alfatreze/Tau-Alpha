@@ -155,6 +155,10 @@ def parse_record(rec: bytes) -> dict:
             else:
                 entry["raw_values"] = raw       # unknown meter or a registry that does not match: never guess
             out["entries"]["metercfg"] = entry
+        elif tag == 21 and n == 82:               # SR_T_METERTRACE (M3): repeatable, one displayed meter frame per entry
+            out["entries"].setdefault("metertrace", []).append({
+                "dt_ms": int.from_bytes(v[0:2], "little"), "spec": list(v[2:18]),
+                "wave": [b - 256 if b > 127 else b for b in v[18:82]]})
         elif tag == 17 and n == 13:               # SR_T_WVIZCFG (B-218): a one-off export of the Winamp
                                                     # Bars/Scope Configure page's live wviz_cfg, not part
                                                     # of a Check run -- see fw/suite_core.h's own comment
@@ -291,6 +295,7 @@ def main(argv=None) -> int:
     g.add_argument("--code")
     ap.add_argument("--ids", default="20,21,22,23", help="interact variable ids of the four words")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--trace", metavar="OUT.json", help="with --text/--qr: write the recorded meter trace (SR_T_METERTRACE) as the JSON the preview lab and golden tests replay")
     a = ap.parse_args(argv)
     try:
         if a.text or a.qr:
@@ -298,6 +303,12 @@ def main(argv=None) -> int:
             if txt == "-":
                 txt = sys.stdin.read()
             res = parse_record(from_text(txt))
+            if a.trace:
+                frames = res["entries"].get("metertrace")
+                if not frames:
+                    raise ValueError("the record has no meter trace (record one in Settings > Diagnostics > Meter Trace)")
+                json.dump({"source": "tau-hardware-trace", "frames": [dict(f, paused=False) for f in frames]}, open(a.trace, "w"))
+                print(f"wrote {a.trace}: {len(frames)} frames")
         elif a.code:
             w, rev = from_short(a.code)
             res = unpack_words(w) | {"bitstream": f"{rev:08X}"}
