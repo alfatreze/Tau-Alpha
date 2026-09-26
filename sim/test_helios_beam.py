@@ -12,6 +12,10 @@ static uint32_t fake_scan;
 #define R_SCAN   0x800000E8u
 #define R_VBLANK 0x800000D0u
 #define REG(a) (*(volatile uint32_t *)((a) == R_SCAN ? &fake_scan : &fake_scan))
+/* helios_fill_excl() (fw/helios_rect.h's caller) needs fb_rect declared/defined to compile and
+ * link here; this test never calls it (only helios_rows_safe), so a no-op stub is enough. */
+static void fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
+{ (void)x; (void)y; (void)w; (void)h; (void)color; }
 #include "%s"
 int main(void) {
     /* argv-free: emit the full truth table  beam_ok vc y0 y1 -> safe  for a grid of inputs */

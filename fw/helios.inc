@@ -26,6 +26,62 @@
 
 #define HELIOS_MAX_REGIONS 16u
 
+#include "helios_rect.h"
+
+/* ---- exclusion rects: let a fill skip a reserved area instead of drawing over it ------------------------------------
+ * Built for the fullscreen CPU% label (fw/fullscreen.inc): its corner glitched because the visualiser drew across it
+ * every frame and the label had to repaint on top, which is a beam race (the scanout can pass through that corner
+ * between the visualiser's draw and the label's repaint). A meter whose fill is plain fb_rect() calls can instead
+ * never touch the reserved area in the first place via helios_fill_excl() below -- geometry only, no MMIO; the actual
+ * rect-minus-rect maths is fw/helios_rect.h (host-tested, sim/test_helios_rect.py).
+ *
+ * Does NOT apply to a meter that fills by BLIT-replicating a computed tile (Chladni's fullscreen path, B-276): a hole
+ * there needs the tile-replication geometry itself adjusted, not a post-hoc split of the destination rect, since the
+ * source offsets would need to move too. That is separate, larger work; left alone here. */
+#define HELIOS_MAX_EXCL 2u
+static helios_rect_t helios_excl[HELIOS_MAX_EXCL];
+static uint8_t       helios_excl_n;
+
+/* Setup call, or any time the reserved area's geometry changes (e.g. the label's text width). id is 0..HELIOS_MAX_EXCL-1. */
+static void helios_exclude_set(uint8_t id, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    if (id >= HELIOS_MAX_EXCL) return;
+    helios_excl[id].x = x; helios_excl[id].y = y; helios_excl[id].w = w; helios_excl[id].h = h;
+    if (id >= helios_excl_n) helios_excl_n = (uint8_t)(id + 1u);
+}
+
+static void helios_exclude_clear(uint8_t id)
+{
+    if (id < HELIOS_MAX_EXCL) helios_excl[id].w = 0;   /* zero width/height never overlaps anything */
+}
+
+/* Drop-in replacement for fb_rect(x, y, w, h, color): splits the fill around every active exclusion rect instead of
+ * drawing over it. Sequential subtraction (each exclusion applied to every piece the previous one produced) -- fine
+ * for HELIOS_MAX_EXCL this small; each piece is a plain fb_rect() call, same cost model as the direct call it replaces. */
+static void helios_fill_excl(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
+{
+    helios_rect_t cur[8];
+    uint8_t n = 1;
+    cur[0].x = (int32_t)x; cur[0].y = (int32_t)y; cur[0].w = (int32_t)w; cur[0].h = (int32_t)h;
+
+    for (uint8_t e = 0; e < helios_excl_n; e++) {
+        if (helios_excl[e].w <= 0 || helios_excl[e].h <= 0) continue;
+        helios_rect_t next[8];
+        uint8_t nn = 0;
+        for (uint8_t i = 0; i < n; i++) {
+            helios_rect_t piece[4];
+            int pn = helios_rect_subtract(cur[i].x, cur[i].y, cur[i].w, cur[i].h,
+                                           helios_excl[e].x, helios_excl[e].y, helios_excl[e].w, helios_excl[e].h,
+                                           piece);
+            for (int p = 0; p < pn && nn < 8u; p++) next[nn++] = piece[p];
+        }
+        for (uint8_t i = 0; i < nn; i++) cur[i] = next[i];
+        n = nn;
+    }
+    for (uint8_t i = 0; i < n; i++)
+        fb_rect((uint32_t)cur[i].x, (uint32_t)cur[i].y, (uint32_t)cur[i].w, (uint32_t)cur[i].h, color);
+}
+
 /* ---- beam-aware drawing (B-267) ------------------------------------------------------------------------------------
  * The scanout reads each row from SDRAM ONE LINE BEFORE it is shown, and moves down one row every ~41.7 us. Drawing a
  * region while the beam is inside it shows half old, half new content for a frame: a tear. A region is safe to draw when

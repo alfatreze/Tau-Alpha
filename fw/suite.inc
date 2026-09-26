@@ -522,11 +522,15 @@ COLD_TEXT static void chk_draw_qr(void)
             x = e;
         }
     }
-    if (side + 44u > FB_H) return;                                  /* no room for the caption: the code fills the screen */
+    if (side + 58u > FB_H) return;                                  /* no room for the caption: the code fills the screen */
+    /* Title first (owner: every QR needs one so a bare screenshot is self-identifying) -- the
+     * profile name, same string already used on the Check page itself. */
+    fb_set_color(ui_accent, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, side + 6u, chk_s(CS_PROF + chk_prof), TS_1X, TS_1X, PL_UI_W - 32u);
     char t[40], *q = t;
     q = set_str(q, chk_s(CS_VER)); q = ui_dec(q, chk_qr_ver); q = set_str(q, chk_s(CS_RUNL)); q = ui_dec(q, chk_run); *q = 0;
     fb_set_color(UI_DIM, UI_BG);
-    fb_text_clipped(PL_UI_TEXT_X, side + 6u, t, TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_text_clipped(PL_UI_TEXT_X, side + 20u, t, TS_1X, TS_1X, PL_UI_W - 32u);
     fb_set_color(UI_FAINT, UI_BG);
     fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, chk_s(CS_SHOT), TS_1X, TS_1X, PL_UI_W - 32u);
 }
@@ -857,8 +861,10 @@ COLD_TEXT static void sw_draw_qr(void)
      * sw_finish() jump straight here), and it carries enough on its own face
      * that the screenshot alone is the record: what completed, the source,
      * how many tracks. */
+    /* Title first (owner: every QR needs one so a bare screenshot is self-identifying), the
+     * completion summary second -- same layout convention as bt_draw_qr()/wvcfg_draw_qr(). */
     char t[48], *q = t;
-    q = set_str(q, "TEST COMPLETE  "); q = ui_dec(q, sw_done_n); q = set_str(q, " TRACKS");
+    q = set_str(q, "DECODE SWEEP  "); q = ui_dec(q, sw_done_n); q = set_str(q, " TRACKS");
     if (sw_skip_n) { q = set_str(q, "  "); q = ui_dec(q, sw_skip_n); q = set_str(q, " SKIPPED"); }
     *q = 0;
     fb_set_color(ui_accent, UI_BG);
@@ -941,6 +947,259 @@ COLD_TEXT static int sw_input(uint32_t edge)
     return 1;
 }
 #endif
+
+/* ================================================================== METER COST SWEEP (B-301)
+ * docs/METER_MODULE_SPEC.md section 15: cycle every selectable meter (viz_order[], meter module M0)
+ * for MW_WIN_S seconds each while music keeps playing UNDERNEATH, and record a real hardware cost
+ * measurement per meter -- SDRAM busy %, draw-stall time, CPU load, late underruns, and growth in
+ * the worst-ever meter-yield streak. Built after B-298/B-299 found the wave-meter hardware path
+ * costing ~21x VIZ_BARS' baseline (768 vs ~36 draw commands/redraw) only by an owner listening to
+ * real audio jitter -- this is the standing regression that should have caught it first, per the
+ * spec's own "a release is blocked by a red line, not by opinion."
+ *
+ * UNLIKE Decode Sweep (sw_*, above): this can NOT gate its own advance on staying on its settings
+ * page (sw_tick()'s `else sw_state = SW_IDLE` on navigating away) -- the whole point is that each
+ * meter's REAL tick()/draw() keeps running on the actual player screen during its window, since
+ * that is what the cost numbers are measuring. So mw_begin() closes the settings menu immediately
+ * (the user watches the meters cycle on the real screen) and mw_tick() advances unconditionally
+ * every main-loop pass regardless of what page is open, same as stress_tick(). Re-opening this page
+ * mid-run shows live progress and allows an abort; it is not required to be open at all. */
+enum { MW_IDLE = 0, MW_RUN, MW_DONE, MW_QR, MW_REFUSED };
+#define MW_WIN_S 10u   /* docs/METER_MODULE_SPEC.md section 15's own stated window */
+static uint8_t  mw_state, mw_qr_len, mw_qr_ver, mw_audio_full;
+static uint16_t mw_idx;
+static uint32_t mw_win0, mw_at;
+static uint32_t mw_busy0, mw_stall0, mw_yield0;
+static uint16_t mw_under0;
+static uint8_t  mw_saved_mode, mw_saved_layout, mw_saved_fullscreen;
+static uint8_t  mw_want_fullscreen;   /* owner's idle-page toggle, X key: fullscreen where the meter supports it */
+static sr_t     mw_rec;
+
+/* Same full reset the normal Select+X meter-switch handler does (fw/player.c, the KEY_X block) --
+ * missing this was a real bug (owner-reported: occasional missing bars and leftover pixels from the
+ * previous meter during a sweep): ui_wave_clear() repaints the box background AND invalidates
+ * wave_drawn[]/wave_pk_drawn[]/spec_drawn[] (the per-band "last drawn value" skip-if-unchanged
+ * caches) in one call; without it, a band whose value happens not to change right after the switch
+ * stays skipped against a background that was never actually redrawn for the NEW meter. Also carries
+ * the fullscreen toggle: only Chladni/Winamp Bars/Winamp Scope support it (fs_capable()), so a meter
+ * that doesn't runs in its normal box regardless of the owner's request, same rule ui_fs_toggle()
+ * itself already enforces. */
+COLD_TEXT static void mw_window_reset(void)
+{
+    mw_win0 = cycles(); mw_at = mw_win0 + MW_WIN_S * CLK_HZ;
+    mw_busy0 = REG(R_SDR_BUSY); mw_stall0 = REG(R_FB_STALL);
+    mw_under0 = (uint16_t)pcm_under_n; mw_yield0 = meter_yield_worst;
+    mw_audio_full = 1u;
+    uint8_t want_fs = (uint8_t)(mw_want_fullscreen && fs_capable());
+    if (want_fs != ui_fullscreen) {
+        ui_fullscreen = want_fs;
+        pl_ui_restore = 1u;
+        fs_last_sec = 0xFFFFFFFFu; fs_last_state = 0xFFu;
+    }
+    if (!ui_fullscreen) {
+        ui_wave_clear();
+        if (art_ready && art_shown) ui_art_draw();
+    }
+    ui_wave_force = 1u;
+    wviz_force = 1u;
+}
+
+COLD_TEXT static void mw_sample(void)
+{
+    uint32_t busy1 = REG(R_SDR_BUSY), stall1 = REG(R_FB_STALL), yield1 = meter_yield_worst;
+    uint16_t under1 = (uint16_t)pcm_under_n;
+    uint32_t busy_d = busy1 - mw_busy0, stall_d = stall1 - mw_stall0;
+    /* Same technique as CT_BLT's own busy_permille (above): divide the window length down to clk_sdram
+     * cycles PRE-DIVIDED BY 1000 first, then a plain delta/total_k -- not delta*1000/total, which
+     * overflows differently at this scale and, worse, an earlier version of this exact line divided the
+     * WRONG way round (total_k came out 1000x too small), silently clamping almost every real meter to
+     * the 1000 ceiling -- confirmed on real hardware (B-303's first sweep: most meters read exactly
+     * 1000 permille regardless of their real cost). */
+    uint32_t total_k = MW_WIN_S * (SDR_CLK_HZ / 1000u);
+    uint32_t busy_permille = busy_d / total_k;
+    if (busy_permille > 1000u) busy_permille = 1000u;
+    uint32_t stall_ms = stall_d / (CLK_HZ / 1000u);
+    if (stall_ms > 0xFFFFu) stall_ms = 0xFFFFu;
+    uint32_t under_d = (uint32_t)(under1 - mw_under0);
+    if (under_d > 255u) under_d = 255u;
+    uint32_t yield_d = yield1 - mw_yield0;
+    if (yield_d > 255u) yield_d = 255u;
+    uint8_t t[9] = { (uint8_t)viz_order[mw_idx], (uint8_t)busy_permille, (uint8_t)(busy_permille >> 8),
+                     (uint8_t)stall_ms, (uint8_t)(stall_ms >> 8), (uint8_t)ui_cpu_pct(),
+                     (uint8_t)under_d, (uint8_t)yield_d, mw_audio_full };
+    sr_tlv(&mw_rec, SR_T_METERSWEEP, t, 9);
+}
+
+COLD_TEXT static void mw_restore_screen(void)
+{
+    viz_mode = mw_saved_mode; bars_layout = mw_saved_layout;
+    if (mw_saved_fullscreen != ui_fullscreen) {
+        ui_fullscreen = mw_saved_fullscreen;
+        pl_ui_restore = 1u;
+        fs_last_sec = 0xFFFFFFFFu; fs_last_state = 0xFFu;
+    }
+    if (!ui_fullscreen) { ui_wave_clear(); if (art_ready && art_shown) ui_art_draw(); }
+    ui_wave_force = 1u;
+    wviz_force = 1u;
+}
+
+COLD_TEXT static void mw_finish(void)
+{
+    mw_restore_screen();
+    uint32_t len = sr_finish(&mw_rec);
+    mw_qr_len = 0;
+    if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
+        uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
+        uint32_t ver = 0, mask = 0;
+        uint32_t sz = qr_encode((const uint8_t *)CHK_TXT, txtlen, 1u, CHK_QR_MAXV, 0, CHK_QR, &ver, &mask);
+        if (sz) { mw_qr_len = sz; mw_qr_ver = ver; }
+    }
+    /* Owner-reported: "goes to home" -- mw_begin() closed the settings menu (on purpose, so the real
+     * meters draw), but nothing ever reopened it, so a finished sweep was invisible until the user
+     * pressed Menu themselves and landed on Settings home, not the result. Reopen directly on the
+     * result page instead. */
+    set_open = 1u; set_page = SET_METERSWEEP_PG; set_dirty = 1u;
+}
+
+COLD_TEXT static void mw_advance(void)
+{
+    if (!COLD_READY()) { mw_state = MW_IDLE; set_dirty = 1u; return; }
+    if (!track_hz || paused || stopped) mw_audio_full = 0u;
+    if ((int32_t)(cycles() - mw_at) < 0) return;                 /* still running this meter's window */
+    mw_sample();
+    if (++mw_idx >= VIZ_SEL_COUNT) { mw_finish(); mw_state = mw_qr_len ? MW_QR : MW_DONE; set_dirty = 1u; return; }
+    viz_mode = viz_order[mw_idx]; bars_layout = 0u;
+    mw_window_reset();
+    set_dirty = 1u;
+}
+
+COLD_TEXT static void mw_begin(void)
+{
+    if (!track_hz || paused || stopped) { mw_state = MW_REFUSED; set_dirty = 1u; return; }
+    mw_saved_mode = (uint8_t)viz_mode; mw_saved_layout = bars_layout; mw_saved_fullscreen = ui_fullscreen;
+    mw_idx = 0u; viz_mode = viz_order[0]; bars_layout = 0u;
+    sr_init(&mw_rec, CHK_REC, CHK_REC_CAP, 7u);
+    uint32_t fwv = ((uint32_t)(APP_VER[0] - '0') << 16) | ((uint32_t)(APP_VER[2] - '0') << 8) | (uint32_t)(APP_VER[4] - '0');
+    uint32_t build[4] = { fwv, REG(R_VERSION), 0u, 0u };
+    sr_vals(&mw_rec, SR_T_BUILD, 4, build, 4);
+    mw_window_reset();
+    mw_state = MW_RUN;
+    set_close();     /* the real player screen must be visible: that is what each meter draws to */
+    set_dirty = 1u;
+}
+
+static void mw_open(void) { mw_state = MW_IDLE; }
+
+static void mw_tick(void)
+{
+    if (mw_state != MW_RUN) return;
+    mw_advance();
+}
+
+COLD_TEXT static void mw_draw_qr(void)
+{
+    const uint32_t sz = mw_qr_len;
+    uint32_t m = 354u / (sz + 8u);
+    if (m > 4u) m = 4u;
+    const uint32_t side = (sz + 8u) * m, x0 = (FB_W - side) / 2u;
+    fb_rect(0u, 0u, FB_W, FB_H, UI_BG);
+    fb_rect(x0, 0u, side, side, 0xFFFFu);
+    for (uint32_t y = 0; y < sz; y++) {
+        uint32_t x = 0;
+        while (x < sz) {
+            if (!qr_get(CHK_QR, sz, (int)x, (int)y)) { x++; continue; }
+            uint32_t e = x + 1u;
+            while (e < sz && qr_get(CHK_QR, sz, (int)e, (int)y)) e++;
+            fb_rect(x0 + (x + 4u) * m, (y + 4u) * m, (e - x) * m, m, 0x0000u);
+            x = e;
+        }
+    }
+    if (side + 44u > FB_H) return;
+    /* Title first (every QR needs one, owner's rule), same layout convention as bt_draw_qr()/
+     * sw_draw_qr()/wvcfg_draw_qr(). */
+    fb_set_color(ui_accent, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, side + 6u, "METER SWEEP", TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_set_color(UI_FAINT, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, "MENU+START FOR A SCREENSHOT", TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
+/* This state's ov_frame() hint: the DONE/QR bar bug (owner: "B BACK" showing instead of the real
+ * QR action) was a real regression -- a hardcoded "B BACK" was used for every non-IDLE state after
+ * the redundant in-panel hint text was removed, without carrying the DONE state's own dynamic
+ * "has a QR or not" logic into the one place that still draws a hint. */
+static const char *mw_hint(void)
+{
+    if (mw_state == MW_IDLE) return "UP DOWN SELECT   LEFT RIGHT CHANGE   A START   B BACK";
+    if (mw_state == MW_DONE) return mw_qr_len ? "B CLOSE   A QR CODE" : "B CLOSE";
+    if (mw_state == MW_RUN) return "B ABORT";
+    return "B BACK";
+}
+
+COLD_TEXT static void mw_draw(void)
+{
+    if (mw_state == MW_QR && mw_qr_len) { mw_draw_qr(); return; }
+    ov_frame("METER SWEEP",
+             mw_state == MW_RUN ? "RUNNING" : mw_state == MW_REFUSED ? "REFUSED" : mw_state == MW_DONE ? "DONE" : "",
+             mw_hint());
+    if (mw_state == MW_IDLE) {
+        fb_set_color(UI_WHITE, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, "PRESS A TO START SWEEP", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_set_color(UI_DIM, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "Cycles every meter 10s each", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, "while music keeps playing --", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 4u * PL_UI_ROW_H, "start a track first.", TS_1X, TS_1X, PL_UI_W - 32u);
+        /* Same row-select convention as Check's own IDLE page (chk_input()'s chk_sel/KEY_LEFT/
+         * KEY_RIGHT): the option row is always highlighted in accent (it is the only row today,
+         * so it is always "selected" -- Up/Down would pick among rows if a second one is added),
+         * Left/Right changes its value. Not an on-screen arrow glyph -- the same interaction Check
+         * already uses, just one option instead of three. */
+        char mn[40], *mq = mn;
+        mq = set_str(mq, "MODE: "); mq = set_str(mq, mw_want_fullscreen ? "FULLSCREEN" : "NORMAL"); *mq = 0;
+        fb_set_color(ui_accent, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 6u * PL_UI_ROW_H, mn, TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_set_color(UI_FAINT, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 7u * PL_UI_ROW_H, "fullscreen: Chladni + Winamp only,", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 8u * PL_UI_ROW_H, "other meters stay normal.", TS_1X, TS_1X, PL_UI_W - 32u);
+        return;
+    }
+    if (mw_state == MW_REFUSED) {
+        fb_set_color(UI_RED, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, "NOTHING PLAYING", TS_1X, TS_1X, PL_UI_W - 32u);
+        return;
+    }
+    char ln[40], *q = ln;
+    q = set_str(q, "Meter "); q = ui_dec(q, mw_idx + (mw_state == MW_DONE ? 0u : 1u)); q = set_str(q, " / "); q = ui_dec(q, VIZ_SEL_COUNT); *q = 0;
+    fb_set_color(UI_WHITE, UI_PANEL);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
+    if (mw_state == MW_RUN) {
+        fb_set_color(UI_DIM, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, "sampling on the player screen...", TS_1X, TS_1X, PL_UI_W - 32u);
+    }
+    if (mw_state == MW_DONE) {
+        fb_set_color(mw_qr_len ? ui_accent : UI_RED, UI_PANEL);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, "METER SWEEP FINISHED", TS_1X, TS_1X, PL_UI_W - 32u);
+    }
+}
+
+COLD_TEXT static int mw_input(uint32_t edge)
+{
+    if (edge & KEY_START) { if (mw_state != MW_RUN) set_close(); return 1; }
+    if (mw_state == MW_IDLE) {
+        if (edge & KEY_A) mw_begin();
+        else if (edge & (KEY_LEFT | KEY_RIGHT)) { mw_want_fullscreen = (uint8_t)!mw_want_fullscreen; set_dirty = 1u; }
+        else if (edge & KEY_B) { set_page = CHK_PARENT; set_dirty = 1u; }
+    } else if (mw_state == MW_REFUSED) {
+        if (edge & (KEY_B | KEY_LEFT | KEY_A)) { mw_state = MW_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
+    } else if (mw_state == MW_RUN) {
+        if (edge & KEY_B) { mw_restore_screen(); mw_state = MW_IDLE; set_dirty = 1u; }   /* abort */
+    } else if (mw_state == MW_DONE) {
+        if ((edge & (KEY_A | KEY_RIGHT)) && mw_qr_len) { mw_state = MW_QR; set_dirty = 1u; }
+        else if (edge & (KEY_B | KEY_LEFT)) { mw_state = MW_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
+    } else {   /* MW_QR */
+        if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { mw_state = MW_DONE; set_dirty = 1u; }
+    }
+    return 1;
+}
 
 /* ================================================================== BLIT TEST (B-166)
  * Exercises every draw-engine opcode individually, full-screen, at increasing concurrency,

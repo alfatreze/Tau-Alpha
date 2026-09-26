@@ -103,6 +103,24 @@ def parse_record(rec: bytes) -> dict:
             out["entries"].setdefault("blittest", []).append(
                 {"op": BLIT_OPS[op_id] if op_id < len(BLIT_OPS) else f"op{op_id}", "level": level,
                  "result": RESULTS.get(res, str(res)), "stall_pct": v[3], "ops_done": ops_done})
+        elif tag == 18 and n == 9:                # Meter cost sweep: one entry per meter, repeatable (B-301)
+            meter_id, busy, stall, cpu, under, yield_g, full = (
+                v[0], int.from_bytes(v[1:3], "little"), int.from_bytes(v[3:5], "little"),
+                v[5], v[6], v[7], v[8])
+            out["entries"].setdefault("metersweep", []).append({
+                "meter": VIZ_NAMES[meter_id] if meter_id < len(VIZ_NAMES) else f"viz{meter_id}",
+                "sdram_busy_permille": busy, "draw_stall_ms": stall, "cpu_pct": cpu,
+                "late_underruns": under, "yield_worst_growth_s": yield_g, "audio_full": bool(full)})
+        elif tag == 19 and n == 20:                # SR_T_INFOEXPORT (B-301): one-off export of the Info page
+            fpga_rev, window_read, free_ram, underruns, stall_ms, load_ms = (
+                int.from_bytes(v[3:7], "little"), int.from_bytes(v[7:9], "little"),
+                int.from_bytes(v[9:13], "little"), int.from_bytes(v[13:15], "little"),
+                int.from_bytes(v[15:17], "little"), int.from_bytes(v[17:19], "little"))
+            out["entries"]["infoexport"] = {
+                "firmware": f"{v[0]}.{v[1]}.{v[2]}", "fpga_rev": f"{fpga_rev:08X}", "window_read_cyc": window_read,
+                "free_ram": free_ram, "underruns": underruns, "draw_stall_ms": stall_ms, "load_ms": load_ms,
+                "cpu_pct": v[19],
+            }
         elif tag == 17 and n == 13:               # SR_T_WVIZCFG (B-218): a one-off export of the Winamp
                                                     # Bars/Scope Configure page's live wviz_cfg, not part
                                                     # of a Check run -- see fw/suite_core.h's own comment
