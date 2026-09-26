@@ -153,7 +153,7 @@ def main():
             f.write_bytes(data)
             return subprocess.run([str(mexe), str(f)], capture_output=True, text=True, check=True).stdout.splitlines()
         lines = run_m(mblob)
-        if lines[0] != "find 0" or not lines[1].startswith("metr 0 applied 2"):
+        if lines[0] != "find 0" or not lines[1].startswith("metr 0 applied 3"):
             print("valid METR refused:", lines[:2]); fails += 1
         else:
             for ln in lines[2:]:

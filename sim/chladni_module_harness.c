@@ -76,6 +76,11 @@ static uint16_t ui_mix(uint16_t a, uint16_t b, uint32_t t, uint32_t d) {      /*
     return (uint16_t)r;
 }
 
+/* the meter's parameters are a generated module since M5 (fw/meters_gen.h); chl_sync() reads them */
+#define VIZ_CHLADNI_STUB 1
+#include "../fw/meter_gen_enum.h"
+#include "../fw/meter_module.h"
+#include "../fw/meters_gen.h"
 #include "../fw/chladni.inc"
 
 struct exp_ctx { uint8_t lv[CHL_MAX_RY][CHL_MAX_RX]; };

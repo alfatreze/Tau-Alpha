@@ -3645,8 +3645,9 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
  * between a generated parameter module and its drawing function (a meter module's `tick`, docs/METER_MODULE_SPEC.md section 3). */
 COLD_FN3 static void mtr_preview(uint32_t viz, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
 {
-    if (viz == VIZ_WINAMP_SCOPE) wviz_scope_tick(x, y, w, h, 0, bg);
-    else                         wviz_bars_tick(x, y, w, h, bg);
+    if (viz == VIZ_WINAMP_SCOPE)     wviz_scope_tick(x, y, w, h, 0, bg);
+    else if (viz == VIZ_WINAMP_BARS) wviz_bars_tick(x, y, w, h, bg);
+    /* other meters (Chladni) have no live preview here: their drawing is refused while an overlay is up */
 }
 
 static void ui_draw_dynamic(void);

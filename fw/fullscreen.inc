@@ -161,9 +161,11 @@ COLD_FN3 static void ui_fs_toggle(void)
 COLD_FN3 static void meter_preset_next(void)
 {
     if (viz_mode == VIZ_CHLADNI) {
-        const char *t = chladni_next_preset();
+        const mtr_data_t *md = mtr_of(VIZ_CHLADNI);
+        const uint32_t p = (*md->pre_idx < md->npre) ? ((uint32_t)*md->pre_idx + 1u) % md->npre : 0u;   /* from CUSTOM: the first preset */
+        mtr_apply_preset(md, p);                                 /* chl_sync() picks the new layout and values up on the next figure */
         if (ui_fullscreen) pl_ui_restore = 1u; else { ui_wave_clear(); ui_wave_force = 1u; }
-        ui_toast_msg(t);
+        ui_toast_set("PRESET: ", 0xFFFFFFFFu, md->pre_names[p]);
     } else if (viz_mode == VIZ_BARS) {
         bars_layout = (uint8_t)!bars_layout;                     /* up <-> mirrored */
         ui_wave_clear(); ui_wave_force = 1u;
