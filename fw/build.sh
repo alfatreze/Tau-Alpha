@@ -31,6 +31,7 @@ fi
 GCC="${CC_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}gcc}"
 OBJCOPY="${OBJCOPY_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}objcopy}"
 SIZE="${SIZE_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}size}"
+NM="${NM_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}nm}"
 PYTHON="${PYTHON:-python3}"
 HELIX="$ROOT/third_party/libhelix-mp3"
 OUT="$ROOT/dist/Assets/tau/common"
@@ -155,8 +156,11 @@ if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw
 # 256 KB bitstream (see fw/link.ld's own comment on _ram_limit), so this is purely opt-in
 # testing, not a bitstream-mismatch hazard.
 if [[ "${RAM_192K:-0}" == "1" ]]; then
-    CFLAGS="$CFLAGS -Wl,--defsym=RAM_192K=1"
+    CFLAGS="$CFLAGS -Wl,--defsym=RAM_192K=1 -DTAU_RAM_192K_FW=1"   # -D: the boot interlock also accepts the 192 KB bitstream's CORE_VERSION (B-333)
 fi
+
+# B-333: a 192 KB (RAM_192K=1) build never writes over the shipped 256 KB release artefacts in dist/: it goes to work/ram192k/<target>/.
+if [[ "${RAM_192K:-0}" == "1" && "$OUT" == "$ROOT/dist/Assets/tau/common" ]]; then OUT="$ROOT/work/ram192k/$TARGET"; fi
 
 # A specialised target may redirect OUT away from the release Assets folder.
 # Create it after target selection so objcopy never fails on a missing staging
@@ -221,6 +225,20 @@ fi
 if ! "$GCC" $CFLAGS "${INC[@]}" -T "$FW/link.ld" -o "$FW/fw.elf" "${SRCS[@]}" -lm \
         > "$FW/build.log" 2>&1; then
     grep -v "LOAD segment with RWX" "$FW/build.log" >&2 || true
+    if [[ "${RAM_192K:-0}" == "1" ]] && grep -qE "collides with reserved DMA|no room left for even a token heap" "$FW/build.log"; then
+        # B-333: say by how much the 192 KB link misses, instead of just refusing. Relink for 256 KB (same flags otherwise) and compute
+        # the margin against the 192 KB layout: tag_start moves down 64 KB and the stack shrinks 8 KB.
+        if "$GCC" ${CFLAGS/-Wl,--defsym=RAM_192K=1/} "${INC[@]}" -T "$FW/link.ld" -o "$FW/fw_probe.elf" "${SRCS[@]}" -lm > /dev/null 2>&1; then
+            hs=$("$NM" "$FW/fw_probe.elf" 2>/dev/null | awk '$3=="_heap_start"{print "0x"$1}')
+            ts=$("$NM" "$FW/fw_probe.elf" 2>/dev/null | awk '$3=="_tag_start"{print "0x"$1}')
+            "$PYTHON" -c "
+hs, ts, hm = int('$hs',16), int('$ts',16), ${HEAP_MIN:-1024}
+ts192 = ts - 65536 + 8192
+print('*** 192 KB link: image ends at %d, DMA buffers start at %d, so the image is %+d B over; %d B short of the %d B heap floor ***' % (hs, ts192, hs - ts192, hs + hm - ts192, hm))
+" >&2
+        fi
+        rm -f "$FW/fw_probe.elf"
+    fi
     echo "*** COMPILE FAILED -- no .rom written ***" >&2
     exit 1
 fi

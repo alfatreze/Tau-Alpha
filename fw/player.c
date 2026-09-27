@@ -24,6 +24,29 @@
 // =============================================================================
 
 #include <stdint.h>
+/* B-333 (RAM shrink to 192 KB, docs/RAM_SHRINK_192K_PLAN.md): a 192 KB link compiles this file for SIZE (-Os, about 5.5 KB of hot code saved)
+ * and keeps the audio-critical functions at -O2 (HOT_O2). Every other build is unchanged and byte-identical. The decoders (Helix, flac.c)
+ * are separate translation units and stay -O2. */
+#if TAU_RAM_192K_FW
+#pragma GCC optimize ("Os")
+#define HOT_O2 __attribute__((optimize("O2")))
+#else
+#define HOT_O2
+#endif
+/* The shrink's other hot-RAM savings, all under the same switch so the normal 256 KB builds stay byte-identical until the 192 KB
+ * bitstream ships (a 192 KB firmware also runs on today's 256 KB bitstream, so it can be tested there first):
+ *   COLD_SR   a function moved to PSRAM (cold code); its hot callers are guarded with SR_READY() (the cold image is loaded).
+ *             "No cold image, nothing works" is the owner's decision (2026-09-25); these paths simply do nothing without it.
+ *   DIV64     64-bit division through udiv64() instead of libgcc's __udivdi3 (1,128 B). */
+#if TAU_RAM_192K_FW
+#define COLD_SR __attribute__((section(".cold_text"), noinline))
+#define SR_READY() (cold_code_ok != 0u)
+#define DIV64(n, d) udiv64((n), (d))
+#else
+#define COLD_SR
+#define SR_READY() 1u
+#define DIV64(n, d) ((n) / (d))
+#endif
 #include "mp3dec.h"
 #include "font_metrics.h"
 /* Up here, not down beside the FLAC glue where it used to sit. The diagnostic
@@ -188,6 +211,19 @@ extern unsigned int arena_limit(void);
 
 /* Free-running cycle counter. Up here because the UI uses it for its own
  * timing (marquee, paused-state throttle) well before the playback code does. */
+/* 64-bit unsigned division without libgcc's __udivdi3 (1,128 B of hot RAM, B-333). The dividends here are sample counts and bit counts
+ * (up to about 2^40), the divisors 32-bit; none of these run per audio frame, so a plain shift-subtract loop is fine. d must be non-zero
+ * (every call site already guards it, as the / operator would have trapped or returned garbage). */
+__attribute__((noinline, unused)) static uint64_t udiv64(uint64_t n, uint64_t d)
+{
+    uint64_t q = 0, r = 0;
+    for (int i = 63; i >= 0; i--) {
+        r = (r << 1) | ((n >> i) & 1u);
+        if (r >= d) { r -= d; q |= (uint64_t)1 << i; }
+    }
+    return q;
+}
+
 static inline uint32_t cycles(void) { return REG(R_CYCLES); }
 
 static inline uint32_t pcm_level(void)    { return PCM_LEVEL(REG(R_PCM_ST)); }
@@ -198,6 +234,15 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * and its symptoms (dead peripheral, silent audio, unresponsive buttons) look
  * exactly like logic bugs. Checking here turns that into an obvious signal. */
 #define EXPECT_VERSION 0x4D503317u   /* rev 23: target data-slot flush     */
+/* B-333: the 192 KB RAM-shrink bitstream (TAU_RAM_192K) reports rev 24. A firmware linked for 256 KB (every normal build) accepts only
+ * rev 23, so it is REFUSED on the 192 KB bitstream instead of silently running on 64 KB less RAM; a firmware linked for 192 KB
+ * (RAM_192K=1, -DTAU_RAM_192K_FW) accepts both (a 192 KB image also runs on the 256 KB bitstream). */
+#define EXPECT_VERSION_192K 0x4D503318u
+#if TAU_RAM_192K_FW
+#define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_192K)
+#else
+#define VERSION_OK(v) ((v) == EXPECT_VERSION)
+#endif
 
 /* Shown on the splash. This is the PRODUCT version, not the RTL/firmware
  * contract above -- they answer different questions and must not be conflated.
@@ -751,8 +796,8 @@ static uint8_t speed_idx = SPEED_1X;
 static void pcm_rate_apply(uint32_t hz)
 {
     if (!hz) return;
-    uint64_t inc = ((uint64_t)hz << 32) / CLK_HZ;
-    if (speed_idx != SPEED_1X) inc = inc * speed_num[speed_idx] / speed_den[speed_idx];
+    uint64_t inc = DIV64((uint64_t)hz << 32, CLK_HZ);
+    if (speed_idx != SPEED_1X) inc = DIV64(inc * speed_num[speed_idx], speed_den[speed_idx]);
     REG(R_PCM_RATE) = (uint32_t)inc;
 }
 static uint32_t track_bytes;      /* audio length the FILE declares (Xing/VBRI) */
@@ -1041,6 +1086,11 @@ static uint16_t pl_pos;                  /* index INTO pl_order                 
  * thousand lines earlier in the file. */
 static uint8_t  set_dirty;
 static int  set_input(uint32_t edge, uint32_t keys);
+#if TAU_RAM_192K_FW
+#define SET_INPUT(e, k) ((set_open || ((e) & KEY_START)) && cold_code_ok && set_input((e), (k)))   /* set_input is cold code: only when settings are open or Start went down */
+#else
+#define SET_INPUT(e, k) set_input((e), (k))
+#endif
 static void set_draw(void);
 static void set_close(void);
 static uint8_t  pl_ui_play_req;    /* main loop: start pl_ui_sel             */
@@ -2792,7 +2842,8 @@ static void ui_eq_pill(void)
 }
 
 static void ui_fs_frame(void);
-static void ui_draw_chrome(void)
+/* B-333: cold code (RAM shrink); every path to it goes through ui_chrome_paint(), which needs the cold image. */
+COLD_SR static void ui_draw_chrome(void)
 {
     /* Draw nothing at all while blanked -- a track change must not light the
      * screen back up. ui_blank_wake() calls this again on the way out, so the
@@ -3051,6 +3102,7 @@ static void ui_draw_chrome(void)
 static uint8_t ui_chrome_region = 0xFFu;
 static void ui_chrome_paint(void)
 {
+    if (!SR_READY()) return;          /* B-333: the chrome is cold code; no cold image, no player screen */
     if (ui_chrome_region == 0xFFu) ui_chrome_region = helios_region_register(ui_draw_chrome);
     helios_mark_dirty(ui_chrome_region);
     helios_flush();
@@ -3908,7 +3960,7 @@ static void ui_idle_library(void)
     ui_gs_line(286u, "explains playlists and updates.", UI_DIM, TS_1X);
 }
 
-static void ui_idle_screen(const char *reason)
+COLD_SR static void ui_idle_screen(const char *reason)     /* B-333: cold code */
 {
     /* The authored image is a loading state, not an empty/error screen.  Keep
      * the inherited getting-started layout readable when there is no media. */
@@ -5091,7 +5143,7 @@ ui_tail:
         if (track_secs && slot_size > fl_first_frame) {
             /* Best answer: the whole file over its whole duration. */
             uint64_t bits = (uint64_t)(slot_size - fl_first_frame) * 8u;
-            kb = (uint32_t)(bits / (uint64_t)track_secs / 1000u);
+            kb = (uint32_t)DIV64(DIV64(bits, (uint64_t)track_secs), 1000u);
         } else if (ui_sec >= 3u && file_pos > fl_first_frame) {
             /* Otherwise ask the DECODER, which has been counting all along:
              * bytes consumed over seconds played is the average bitrate of
@@ -5107,7 +5159,7 @@ ui_tail:
              * Survives a seek: both jump together, so the ratio still measures
              * from the start of the file. */
             uint64_t bits = (uint64_t)(file_pos - fl_first_frame) * 8u;
-            kb = (uint32_t)(bits / (uint64_t)ui_sec / 1000u);
+            kb = (uint32_t)DIV64(DIV64(bits, (uint64_t)ui_sec), 1000u);
         }
         if (kb) {
             track_kbps = kb;
@@ -5861,7 +5913,7 @@ static void vblank_sample(void)
  * rather than growing a second, subtly different implementation of them. Takes
  * the buffer explicitly: MP3 hands it Helix's output, FLAC hands it a window
  * captured in flac_emit. */
-static void meters_feed(const short *pcm, int n, int stereo)
+HOT_O2 static void meters_feed(const short *pcm, int n, int stereo)
 {
     /* Real amplitude, not a proxy: max |sample| over the frame just
      * decoded, so the meter reflects what is actually playing. */
@@ -6106,7 +6158,7 @@ static void poll_input(void)
      * hold timer reads `keys` directly. */
     /* Select is left in edge/fall: tapping it while Settings is up leaves Settings for the list (below),
      * the inverse of Start closing the list. */
-    if (set_input(edge, keys)) {
+    if (SET_INPUT(edge, keys)) {
         edge &= KEY_SELECT; fall &= KEY_SELECT;
         /* `keys` too: the Left/Right scrub below reads the held level with the timestamp of the last press it saw, so a
          * Left/Right pressed in a settings page (volume, the Check profile) counted as an old, long hold and sought the
@@ -6508,7 +6560,7 @@ static void target_read_start(uint32_t off, uint32_t dst_off, uint32_t len)
 /* Waits out an in-flight read WITHOUT committing it: callers that drain are
  * about to reset or move the ring anyway, and the bytes land above ring_fill
  * where nothing will read them. */
-static void refill_drain(void)
+HOT_O2 static void refill_drain(void)
 {
     while (rd_pending) if (target_read_poll()) rd_pending = 0;
 }
@@ -7207,7 +7259,7 @@ static uint64_t fl_sample_of(void)
  * broke the previous attempt. Here it is simply discarded, and because the
  * bracket only ever narrows, a rejected probe costs an iteration rather than
  * the answer. */
-static uint32_t flac_seek_locate(uint64_t want, uint64_t *landed)
+COLD_SR static uint32_t flac_seek_locate(uint64_t want, uint64_t *landed)     /* B-333: cold code (RAM shrink); a seek is a rare, SD-bound event */
 {
     *landed = 0;
     if (!fl_first_frame || !fl.rate || !fl.max_blocksize) return 0;
@@ -7258,8 +7310,8 @@ static uint32_t flac_seek_locate(uint64_t want, uint64_t *landed)
 
     for (uint32_t it = 0; it < 12u; it++) {
         if (hi_s <= lo_s || hi_b <= lo_b + 1u) break;
-        uint32_t at = lo_b + (uint32_t)(((uint64_t)(hi_b - lo_b) *
-                                         (want - lo_s)) / (hi_s - lo_s));
+        uint32_t at = lo_b + (uint32_t)DIV64((uint64_t)(hi_b - lo_b) *
+                                              (want - lo_s), hi_s - lo_s);
         if (at <= lo_b) at = lo_b + 1u;
         if (at >= hi_b) at = hi_b - 1u;
 
@@ -7363,7 +7415,7 @@ static uint32_t fl_meter_n;
 
 /* `src`, not `pcm`: the file-scope pcm[] is the meter capture buffer, and a
  * parameter of that name would shadow it. */
-static void flac_emit(void *ctx, const int16_t *src, uint32_t frames)
+HOT_O2 static void flac_emit(void *ctx, const int16_t *src, uint32_t frames)
 {
     (void)ctx;
     /* Safe here: ui_draw_dynamic() performs no I/O and cannot re-enter the
@@ -7505,7 +7557,7 @@ static int size_probe_pump(void)
 
     if (track_fmt == FMT_FLAC && track_secs && slot_size > fl_first_frame) {
         uint64_t bits = (uint64_t)(slot_size - fl_first_frame) * 8u;
-        track_kbps = (uint32_t)(bits / (uint64_t)track_secs / 1000u);
+        track_kbps = (uint32_t)DIV64(DIV64(bits, (uint64_t)track_secs), 1000u);
     }
     return 1;
 }
@@ -7530,7 +7582,7 @@ static void und_sample(void)
 }
 #endif
 
-static void refill_pump(void)
+HOT_O2 static void refill_pump(void)
 {
     if (rd_pending) {
         if (!target_read_poll()) return;
@@ -7999,7 +8051,8 @@ static uint32_t vbr_frame_count(void)
 
 /* Reads the head of the file and skips any ID3 tag, leaving the ring and
  * file_pos positioned at real audio. Returns 0 on I/O failure. */
-static int read_track_head(void)
+/* B-333: cold code (RAM shrink). Only load_track() calls it; both run once per track, in the silent gap. */
+COLD_SR static int read_track_head(void)
 {
     refill_drain();     /* settle anything in flight before touching the ring */
 
@@ -8280,7 +8333,7 @@ static int read_track_head(void)
 /* Everything needed to start a track from the beginning, shared by boot and by
  * a reload. ONE function deliberately -- two copies of this drift apart. */
 __attribute__((optimize("Os")))       /* runs between tracks (audio silent), dominated by SD reads: size matters more than speed here */
-static int load_track(void)
+COLD_SR static int load_track(void)
 {
     /* Release the FLAC buffer FIRST. This runs before the format is known --
      * detection needs the file's head, which read_track_head() has not fetched
@@ -8453,7 +8506,7 @@ static int load_track(void)
         bytes_per_sec  = ((uint32_t)fl.rate * (uint32_t)fl.channels
                           * (uint32_t)fl.bps / 8u) * 7u / 10u;
         samp_per_frame = fl.max_blocksize;
-        track_secs     = fl.rate ? (uint32_t)(fl.total_samples / fl.rate) : 0;
+        track_secs     = fl.rate ? (uint32_t)DIV64(fl.total_samples, fl.rate) : 0;
         rate_set       = 1;
         pcm_rate_apply(fl.rate);
         flac_stall     = 0;
@@ -8498,7 +8551,7 @@ static int load_track(void)
      * format branch above, which runs before the probe. */
     if (track_fmt == FMT_FLAC && track_secs && slot_size > fl_first_frame) {
         uint64_t bits = (uint64_t)(slot_size - fl_first_frame) * 8u;
-        track_kbps = (uint32_t)(bits / (uint64_t)track_secs / 1000u);
+        track_kbps = (uint32_t)DIV64(DIV64(bits, (uint64_t)track_secs), 1000u);
     }
     ld_size = LD_MS(cycles() - tphase); tphase = cycles();
 
@@ -8690,8 +8743,8 @@ static int load_track(void)
                         track_kbps = wfi.bitrate / 1000u;
                         if (track_frames && wfi.nChans) {
                             uint32_t spf = (uint32_t)wfi.outputSamps / (uint32_t)wfi.nChans;
-                            track_secs = (uint32_t)(((uint64_t)track_frames * spf)
-                                                    / wfi.samprate);
+                            track_secs = (uint32_t)DIV64((uint64_t)track_frames * spf,
+                                                              wfi.samprate);
                         }
                         rate_set = 1;
                     }
@@ -8746,7 +8799,7 @@ int main(void)
     /* Bitstream/firmware interlock. On mismatch paint an unmistakable pattern
      * and stop, rather than running on stale RTL and presenting it as a
      * mysterious hardware fault. */
-    if (REG(R_VERSION) != EXPECT_VERSION) {
+    if (!VERSION_OK(REG(R_VERSION))) {
         REG(R_STAT0) = 0xAAAAAAAAu; REG(R_STAT1) = 0x55555555u;
         REG(R_STAT2) = 0xAAAAAAAAu; REG(R_STAT3) = 0x55555555u;
         for (;;) { }
@@ -8901,7 +8954,7 @@ int main(void)
         lib_boot_ok = (uint8_t)from_lib;   /* B-080: shown on Info so a release-vs-diagnostic mismatch has evidence, not a guess */
     }
     if (lib_state != LIB_ST_OK)      /* a library is browsed from the Select button; no auto-start from the file slot */
-    if (!from_list) from_slot = load_track();
+    if (!from_list) from_slot = SR_READY() ? load_track() : 0;      /* B-333: load_track is cold code; no cold image, nothing plays */
     /* The splash is already up; leave it while the playlist track loads
      * rather than flashing instructions that are about to be replaced.
      *
@@ -8972,7 +9025,7 @@ int main(void)
          * screen is otherwise indistinguishable from the splash that was
          * already up -- which is exactly what "the core never leaves the
          * boot screen" was. */
-        ui_idle_screen(pl_count            ? "No playable tracks in playlist"
+        if (SR_READY()) ui_idle_screen(pl_count            ? "No playable tracks in playlist"
                      : pl_status == PL_ERR_EMPTY ? "Playlist has no tracks"
                      : (const char *)0);
         boot_idle_drawn:;
@@ -9117,7 +9170,7 @@ int main(void)
                 if (!was_idle)
                     ui_boot_note(resume_seek_req ? "RESUMING TRACK"
                                                  : "LOADING TRACK");
-                int opened   = load_track();
+                int opened   = SR_READY() ? load_track() : 0;
                 {   /* FNV over the filename APF reports for the slot. */
                     uint32_t h = 2166136261u;
                     for (uint32_t i = 0; i < sizeof(track_file)
@@ -9141,7 +9194,7 @@ int main(void)
                 if (!opened && was_idle) {
                     /* The splash went up to carry the indicator; put the
                      * instructions back rather than leaving a bare card. */
-                    ui_idle_screen((const char *)0);
+                    if (SR_READY()) ui_idle_screen((const char *)0);
                 }
 
                 if (opened) {
@@ -9762,7 +9815,7 @@ int main(void)
                     if (track_fmt == FMT_FLAC && track_secs &&
                         slot_size > fl_first_frame) {
                         uint64_t bits = (uint64_t)(slot_size - fl_first_frame) * 8u;
-                        track_kbps = (uint32_t)(bits / (uint64_t)track_secs / 1000u);
+                        track_kbps = (uint32_t)DIV64(DIV64(bits, (uint64_t)track_secs), 1000u);
 
                     }
                 }
@@ -9809,8 +9862,7 @@ int main(void)
                 fl_seek_intent = tgt;
 
                 uint64_t landed = 0;
-                uint32_t at = flac_seek_locate((uint64_t)tgt * (uint64_t)fl.rate,
-                                               &landed);
+                uint32_t at = SR_READY() ? flac_seek_locate((uint64_t)tgt * (uint64_t)fl.rate, &landed) : 0u;
                 seek_req = 0;
 #if UI_SHOW_SEEK_DIAG
                 /* A REFUSED seek leaves the rows stale and reads as "nothing
@@ -9824,7 +9876,7 @@ int main(void)
                     stopped  = 0;
                     /* The landing was MEASURED before the jump, not assumed,
                      * so the clock is simply set to it. */
-                    ui_sec      = (uint32_t)(landed / (uint64_t)fl.rate);
+                    ui_sec      = (uint32_t)DIV64(landed, (uint64_t)fl.rate);
                     ui_sec_acc  = 0;
                     ui_last_sec = 0xFFFFFFFFu;
                     ui_prog_sec = 0xFFFFFFFFu;
@@ -9852,7 +9904,7 @@ int main(void)
                      * until they were, and if a pathological file leaves them
                      * a frame apart the audio is what counts. */
                     if (fl.max_blocksize)
-                        frames = (uint32_t)(landed / (uint64_t)fl.max_blocksize);
+                        frames = (uint32_t)DIV64(landed, (uint64_t)fl.max_blocksize);
                     /* Must follow the rebase, and must equal it: the clock
                      * accumulator fires on `frames != ui_last_frames`, so a
                      * stale value here spends a phantom frame -- and the
@@ -9947,8 +9999,8 @@ int main(void)
                      * decoded frame snap the clock straight back to where the
                      * seek started. */
                     if (fl.max_blocksize)
-                        frames = (uint32_t)(((uint64_t)ui_sec * (uint64_t)fl.rate)
-                                            / (uint64_t)fl.max_blocksize);
+                        frames = (uint32_t)DIV64((uint64_t)ui_sec * (uint64_t)fl.rate,
+                                                  (uint64_t)fl.max_blocksize);
                 }
 
                 if (!prefill()) { st0 |= (1u << 4); REG(R_STAT0) = st0; }
@@ -10282,8 +10334,8 @@ int main(void)
                  * and this changes nothing. */
                 samp_per_frame = spf;
                 if (track_frames && fi.samprate)
-                    track_secs = (uint32_t)(((uint64_t)track_frames * spf)
-                                            / fi.samprate);
+                    track_secs = (uint32_t)DIV64((uint64_t)track_frames * spf,
+                                                      fi.samprate);
             }
             rate_set = 1;
             st0 |= (1u << 2); REG(R_STAT0) = st0;

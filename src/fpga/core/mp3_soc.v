@@ -785,7 +785,13 @@ module mp3_soc #(
     // stale RTL. That has already happened three times here, each time looking
     // like a logic bug (dead peripheral, no audio, unresponsive buttons) rather
     // than what it was. BUMP THIS whenever the MMIO map changes.
+`ifdef TAU_RAM_192K
+    // B-333: the 192 KB RAM-shrink bitstream is a different contract from the 256 KB one (64 KB less RAM). A firmware linked for 256 KB must
+    // refuse it at boot (the interlock in fw/player.c), because running on it would corrupt silently.
+    localparam [31:0] CORE_VERSION = 32'h4D503318;   // "MP3" + rev 24 (192 KB main RAM)
+`else
     localparam [31:0] CORE_VERSION = 32'h4D503317;   // "MP3" + rev 23 (target data-slot flush)
+`endif
 
     // MMIO is 128 word slots (512 bytes): bit 8 of the offset is new (B-287). Offsets 0x00-0xFF keep their meaning exactly, so nothing
     // that already exists changes; new blocks take 0x100 upward. Every `8'hXX` compare below zero-extends against this 9-bit
