@@ -193,6 +193,29 @@ def main():
     else:
         print("\n[3/7] media: skipped (no --carry-from)")
 
+    # 3a. Stale media check (B-332): --replace keeps the media, so a release install onto a card whose index no longer matches its files
+    # (moved or renamed folders) left the library showing every album twice and refusing to open tracks. Without --carry-from (which already
+    # rebuilds the index) verify the existing index against the files and rebuild it if anything is missing; warn about albums with no cover file.
+    common = card / "Assets" / new_plat / "common"
+    if not a.carry_from and common.is_dir():
+        tdb = common / "tau-library.tdb"
+        auds = [p for p in common.rglob("*") if p.suffix.lower() in (".mp3", ".flac") and not is_junk(p.name)]
+        if auds:
+            r = subprocess.run([sys.executable, "tools/tau_library.py", "verify", str(tdb), "--root", str(common)], capture_output=True, text=True, cwd=ROOT) if tdb.exists() else None
+            if r is None or r.returncode != 0 or (r.stdout.strip().splitlines() or [""])[-1] != "OK":
+                print(f"\n[3a] library index {'missing' if r is None else 'does not match the media'}: rebuilding for {new_id}")
+                run([sys.executable, "tools/tau_library.py", "build", "--core", new_id, "--card", card, "--playlists"], "library rebuild")
+                v = run([sys.executable, "tools/tau_library.py", "verify", tdb, "--root", common], "library verify").strip().splitlines()[-1]
+                if v != "OK": die(f"rebuilt library index is not valid: {v}")
+                print(f"   index rebuilt and verified: {v}")
+            else:
+                print("\n[3a] library index matches the media")
+            albums = sorted({p.parent for p in auds})
+            bare = [d.name for d in albums if not (d / "tau-art").is_dir()]
+            if bare:
+                print(f"   note: {len(bare)} album folder(s) have no tau-art cover file (slow embedded-JPEG covers): {', '.join(bare[:4])}"
+                      " -- sync_media.py --art-variants writes them")
+
     # 3b. tau-assets.bin (data slot 8: extra themes and meter presets). It is not media, so sync_media skips it, and the packager keeps its
     # sample next to the package instead of inside it -- alpha.35 was installed without it (B-329). Always place it when one is known.
     ab = a.assets

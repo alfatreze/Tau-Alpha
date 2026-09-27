@@ -118,3 +118,6 @@ the whole card or a wide `find` when a narrower check will do.
 5. Confirm `core.json`'s field limits are respected.
 6. **Back up + clear the five catalog caches.**
 7. Clean junk, verify, eject.
+
+## Stale media on --replace (B-332)
+`--replace` keeps the core's media, so an index that no longer matches its files (folders moved or renamed) used to survive an install: the library then showed albums twice and could not open tracks. `tools/install_dev_core.py` now verifies the existing `tau-library.tdb` against the files at step 3a (when `--carry-from` is not used, which rebuilds it anyway), rebuilds it if anything is missing, and notes album folders without a `tau-art` cover file (slow embedded-JPEG covers; `sync_media.py --art-variants` writes them). `tau-assets.bin` is placed at step 3b (`--assets`, else next to the package, else copied from the carried-from core).

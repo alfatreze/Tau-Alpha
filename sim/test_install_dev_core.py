@@ -53,6 +53,28 @@ with tempfile.TemporaryDirectory() as td:
     rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk3", "--replace", "--allow-release", "--assets", ta, "--no-eject", "--yes")
     check("--assets places tau-assets.bin in common/, verified", rc == 0 and (card / "Assets/tau/common/tau-assets.bin").read_bytes() == b"TAUA-test")
 
+    # B-332: --replace keeps the media; a stale index must be detected and rebuilt, a good one left alone.
+    gen = td / "flacs"; gen.mkdir()
+    subprocess.run([sys.executable, str(ROOT / "tools/flac_make_test.py"), str(gen)], capture_output=True, cwd=ROOT)
+    flacs = sorted(gen.glob("*.flac"))[:2]
+    common = card / "Assets/tau/common"
+    (common / "Album").mkdir(exist_ok=True)
+    for f in flacs: (common / "Album" / f.name).write_bytes(f.read_bytes())
+    stale = td / "stale.tdb"
+    subprocess.run([sys.executable, str(ROOT / "tools/tau_library.py"), "synth", "--tracks", "5", "--albums", "2", "--artists", "1", "--out", str(stale)],
+                   capture_output=True, cwd=ROOT)
+    if flacs and stale.exists():
+        (common / "tau-library.tdb").write_bytes(stale.read_bytes())
+        rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk4", "--replace", "--allow-release", "--no-eject", "--yes")
+        v = subprocess.run([sys.executable, str(ROOT / "tools/tau_library.py"), "verify", str(common / "tau-library.tdb"), "--root", str(common)],
+                           capture_output=True, text=True, cwd=ROOT)
+        check("a stale library index is detected and rebuilt on --replace", rc == 0 and "rebuilding" in out and v.returncode == 0)
+        check("albums without a tau-art folder are reported", "no tau-art cover file" in out)
+        rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk5", "--replace", "--allow-release", "--no-eject", "--yes")
+        check("a matching index is left alone", rc == 0 and "matches the media" in out)
+    else:
+        check("(media refresh test skipped: could not generate test files)", True)
+
     rc, out = run(pkg, "--card", card, "--replace", "--yes")
     check("release cores are protected without --allow-release", rc != 0 and "release core" in out)
 
