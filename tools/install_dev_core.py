@@ -36,6 +36,18 @@ def sha(p):
     return h.hexdigest()
 
 
+def rmtree_tolerant(path):
+    """shutil.rmtree that survives a file vanishing under it: macOS removes a ._ AppleDouble file together with its data file, so the
+    listing shutil took a moment earlier can name a file that is already gone (B-336: it aborted a real removal half way)."""
+    def onerr(func, p, exc):
+        if isinstance(exc[1], FileNotFoundError):
+            return
+        raise exc[1]
+    shutil.rmtree(path, onerror=onerr)
+    if Path(path).exists():                       # a second pass picks up anything the first one skipped
+        shutil.rmtree(path, onerror=onerr)
+
+
 def is_junk(name):
     return name.startswith("._") or name == ".DS_Store"
 
@@ -159,7 +171,7 @@ def main():
     # 2. copy + verify
     print("\n[2/7] copy and verify")
     if exists:                                   # replace the core files; the media in Assets/<platform>/common stays
-        shutil.rmtree(core_paths(card, new_id)[0])
+        rmtree_tolerant(core_paths(card, new_id)[0])
     copy_tree(pkg / "Cores" / new_id, card / "Cores" / new_id)
     copy_tree(pkg / "Assets" / new_plat, card / "Assets" / new_plat)
     (card / "Platforms/_images").mkdir(parents=True, exist_ok=True)
@@ -236,8 +248,8 @@ def main():
     print("\n[4/7] remove superseded cores")
     for c in a.remove:
         cdir, adir, pjson, pimg = core_paths(card, c)
-        shutil.rmtree(cdir)
-        if adir.is_dir(): shutil.rmtree(adir)
+        rmtree_tolerant(cdir)
+        if adir.is_dir(): rmtree_tolerant(adir)
         for f in (pjson, pimg):
             if f.exists(): f.unlink()
         print(f"   removed {c}")
