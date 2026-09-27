@@ -44,6 +44,7 @@
 
 #include "coder.h"
 #include "assembly.h"
+#include "mp3_profile.h"   /* B-345: local addition, see mp3_profile.h for why this file needs it too */
 
 /**************************************************************************************
  * Function:    AntiAlias
@@ -759,7 +760,9 @@ int IMDCT(MP3DecInfo *mp3DecInfo, int gr, int ch)
 		nBfly = 0;
 	}
  
+	{ MPROF_T0();
 	AntiAlias(hi->huffDecBuf[ch], nBfly);
+	MPROF_ADD(mp3_alias_cyc, mp3_alias_total_cyc); }
 	hi->nonZeroBound[ch] = MAX(hi->nonZeroBound[ch], (nBfly * 18) + 8);
 
 	ASSERT(hi->nonZeroBound[ch] <= MAX_NSAMP);
@@ -772,7 +775,9 @@ int IMDCT(MP3DecInfo *mp3DecInfo, int gr, int ch)
 	bc.currWinSwitch = (si->sis[gr][ch].mixedBlock ? blockCutoff : 0);	/* where WINDOW switches (not nec. transform) */
 	bc.gbIn = hi->gb[ch];
 
+	{ MPROF_T0();
 	mi->numPrevIMDCT[ch] = HybridTransform(hi->huffDecBuf[ch], mi->overBuf[ch], mi->outBuf[ch], &si->sis[gr][ch], &bc);
+	MPROF_ADD(mp3_xform_cyc, mp3_xform_total_cyc); }
 	mi->prevType[ch] = si->sis[gr][ch].blockType;
 	mi->prevWinSwitch[ch] = bc.currWinSwitch;		/* 0 means not a mixed block (either all short or all long) */
 	mi->gb[ch] = bc.gbOut;

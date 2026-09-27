@@ -57,19 +57,13 @@
 #ifndef MP3_PROFILE
 #define MP3_PROFILE 0     /* 1 to re-measure; must be 0 in a shipped build */
 #endif
+#include "mp3_profile.h"   /* B-345: MPROF_T0/MPROF_ADD now live there, shared with imdct.c; the macros themselves
+                                  * expand to no-ops when MP3_PROFILE is 0, exactly as this file's own copy used to. */
 #if MP3_PROFILE
-#include "mp3_profile.h"
 uint32_t (*mp3_tick)(void);
-uint32_t mp3_huff_cyc, mp3_imdct_cyc, mp3_sub_cyc;
+uint32_t mp3_huff_cyc, mp3_imdct_cyc, mp3_sub_cyc, mp3_dequant_cyc, mp3_alias_cyc, mp3_xform_cyc;
 uint32_t mp3_huff_total_cyc, mp3_imdct_total_cyc, mp3_sub_total_cyc;
-#define MPROF_T0()   uint32_t mprof_t0 = mp3_tick ? mp3_tick() : 0u
-/* Two targets, one tick() read: the per-second screen counter (A) and the
- * Check-record run total (AT) advance by the SAME delta, so a build with
- * both features on never has them drift apart from being sampled twice. */
-#define MPROF_ADD(A, AT) do { if (mp3_tick) { uint32_t _mprof_d = mp3_tick() - mprof_t0; (A) += _mprof_d; (AT) += _mprof_d; } } while (0)
-#else
-#define MPROF_T0()   do {} while (0)
-#define MPROF_ADD(A, AT) do {} while (0)
+uint32_t mp3_dequant_total_cyc, mp3_alias_total_cyc, mp3_xform_total_cyc;
 #endif
 
 /**************************************************************************************
@@ -471,7 +465,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			MP3ClearBadFrame(mp3DecInfo, outbuf);
 			return ERR_MP3_INVALID_DEQUANTIZE;
 		}
-		MPROF_ADD(mp3_imdct_cyc, mp3_imdct_total_cyc); }
+		MPROF_ADD(mp3_dequant_cyc, mp3_dequant_total_cyc); }   /* B-345: split out of mp3_imdct_cyc, was folded in */
 		#ifdef PROFILE
 			time = systime_get() - time;
 			printf("Dequantize: %i ms\n", time);
