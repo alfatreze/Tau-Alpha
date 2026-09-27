@@ -9017,3 +9017,5 @@ Owner run of alpha.34 (screenshots read from the card): Info `TIM1 COVER 0 LOADE
 - **Grey boxes:** since the B-306 overlay redesign the body is black (`TR_BG_BOTTOM`) but overlay text used `UI_PANEL` as its background colour. New `OV_BODY` role alias; text/row backgrounds in settingsui/library/suite/playlist overlays use it. Info hint now `A QR CODE   B BACK` (diagnostic build), no scroll hint.
 - **Not diagnosed:** waterfall/waveform visibility (peak comes from the hardware wave block since alpha.23; Winamp scope is on the 64-column software stopgap). Needs a decision on what to measure.
 - Packaged `alfatreze.TAU_0_5_0_A_35` (gamma bitstream, same as alpha.34), NOT installed. `make test-host` passes.
+
+- B-330 result (2026-09-27, owner-reported): flac-tests cover shown from the TIM1 file on alpha.35 (fast path). TIM1 is hardware-confirmed for MP3 and FLAC albums; `docs/COVER_TIMG_READER.md` status can move from "needs one more Pocket run" to confirmed.
