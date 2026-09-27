@@ -789,7 +789,7 @@ module mp3_soc #(
     // B-338: clk_sys 60 -> 66.667 MHz is also a different contract (every cycle-counted deadline in firmware runs 11.1% faster); a firmware
     // linked for 60 MHz (CLK_HZ=60000000) must be refused here for the same reason RAM_192K refuses a 256 KB firmware. Not yet combined with
     // TAU_RAM_192K (would need its own rev) -- deliberately mutually exclusive with it for now.
-    localparam [31:0] CORE_VERSION = 32'h4D503319u;   // "MP3" + rev 25 (clk_sys 66.667 MHz)
+    localparam [31:0] CORE_VERSION = 32'h4D503319;   // "MP3" + rev 25 (clk_sys 66.667 MHz)
 `elsif TAU_RAM_192K
     // B-333: the 192 KB RAM-shrink bitstream is a different contract from the 256 KB one (64 KB less RAM). A firmware linked for 256 KB must
     // refuse it at boot (the interlock in fw/player.c), because running on it would corrupt silently.
