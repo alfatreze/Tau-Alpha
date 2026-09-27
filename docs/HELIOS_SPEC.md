@@ -116,6 +116,36 @@ RTL: a buffer-select mux on both the CPU write-address path and the scanout pref
 synchronized so neither flips mid-frame — bounded, well-precedented work, not a research question. Held as
 Phase H2 (below) until H0/H1 are built and measured, per this project's own "cheapest lever first" discipline.
 
+**Status 2026-09-27 (B-340): built and simulation-verified; not yet fit or on hardware.** H0 and H1 are
+both hardware-confirmed (B-266/B-267), meeting this section's own precondition. Resolved one ambiguity the
+paragraph above left implicit: **the CPU write-side buffer select (`dbuf_cpu_buf`) is independent of the
+scanout display buffer (`dbuf_disp_buf`), not automatically its opposite.** They must be independent,
+because H1's own incremental beam-gated draws (the meter block) still target a SINGLE buffer directly —
+whichever one is currently displayed — and must keep doing so; only a genuine full-frame redraw (the
+chrome, a menu open) sets `dbuf_cpu_buf` to the *other* buffer for the duration of that redraw, then
+requests a flip. A second correctness point traced by hand rather than assumed: the offset that selects
+buffer 1 (`DBUF_BASE1`, 1,048,576 words / 2 MiB above buffer 0) applies **only to addresses below
+`DBUF_VISIBLE_WORDS`** (`V_ACT*STRIDE` = 184,320 words) — every off-screen stash region this project already
+has packed just above row 360 (the art panel, meter thumbnails, Chladni's plane, TIM1's index plane, every
+probe cell) is reached through the exact same plain `FB_BASE`-relative addressing as ordinary on-screen
+draws (`ui_art_mount()`'s `fb_rect(0, ART_STASH_Y, ...)` is the clearest example), so an *unconditional*
+buffer-1 offset would silently corrupt every one of them the moment `dbuf_cpu_buf` is set for a redraw.
+Blit-mode opcodes (BLIT/BAR/SBLIT/CBLIT/RRECT) are untouched by any of this — they already address through
+the fully firmware-programmable sticky `blt_*_base` fields, so a caller wanting one of them to target the
+back buffer sets `blt_dst_base` itself.
+
+Built: `mp3_fb.sv`'s `DBUF_ENABLE` parameter and `dbuf_addr()` function (applied at all four plain
+FB_BASE-relative sites: the CHAR/COPY write, the RECT write — which also covers BAR and RRECT, both of
+which reuse `rect_addr` — the non-blit COPY-source read, and the scanout prefetch read), the vblank-gated
+flip (`vblank_tgl` generated once per frame at `VS_ST` in `clk_vid`, synchronised into `clk_sdram` the same
+toggle-and-sample way `fill_req_tgl` already is, applied only on that detected edge and only if a flip was
+requested), and two new MMIO registers (0x118 `DBUF_CPU`, 0x11C `DBUF_DISP`, `docs/MMIO_ALLOCATION.md`)
+behind a new macro `TAU_DBUF`, independent of `TAU_BLIT`. `DBUF_ENABLE=0` (every bitstream before this one)
+is a proven byte-for-byte no-op, checked in simulation with the flip/cpu_buf ports actively driven, not just
+left untouched (`sim/tb_helios_dbuf.v`, `make test-rtl-helios-dbuf`, in `make test-rtl`). Not done: no
+Quartus fit, no firmware integration (a `DBUF_READY()`-style probe, and `ui_draw_chrome` actually using it,
+are the natural next steps once a fit proves the RTL), no hardware run.
+
 ## 6. Talos additions worth bundling alongside B11 (checked, not guessed)
 
 The owner asked whether any of the previously-proposed but unbuilt bar-family opcodes (`PHASE_F_SPEC.md`

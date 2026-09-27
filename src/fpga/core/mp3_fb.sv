@@ -107,7 +107,10 @@ module mp3_fb #(
     // mechanism is never actually exercised) -- proves the test catches a corner-cut table that
     // silently does nothing, not just that an RRECT with a real table still draws a fill. Never
     // set outside that test.
-    parameter BUG_IGNORE_RC_CUT = 0
+    parameter BUG_IGNORE_RC_CUT = 0,
+    // Helios H2 (docs/HELIOS_SPEC.md section 5, B-340): double buffering via base-pointer swap.
+    // Inert (dbuf_addr() is a no-op, byte-identical to today) when 0.
+    parameter DBUF_ENABLE = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -178,6 +181,27 @@ module mp3_fb #(
     input  wire [7:0]  clut_waddr,
     input  wire [15:0] clut_wdata,
 
+    // Helios H2 (B-340): double buffering. `dbuf_cpu_buf` is a plain port, but it is read on EVERY
+    // ordinary (non-blit) dispatch -- as frequent as `text_light` -- so, like `text_light`, it arrives
+    // here already synchronised into clk_sdram by the caller (`tau_cdc_sync1`, core_game.vh), never a
+    // raw clk_sys level. It selects which physical copy of the VISIBLE framebuffer (row < V_ACT, i.e.
+    // word address < DBUF_VISIBLE_WORDS) ordinary RECT/CHAR/COPY(non-blit) commands read and write;
+    // every blit-mode opcode (BLIT/BAR/SBLIT/CBLIT/RRECT) already has fully firmware-programmable
+    // addressing via the sticky blt_*_base fields and is untouched by this, and any address
+    // >= DBUF_VISIBLE_WORDS (the packed off-screen stash region: art/thumbnail/Chladni/TIM1/probe rows)
+    // is untouched regardless of dbuf_cpu_buf -- see the module-header note on why an unconditional
+    // offset would corrupt that region. `dbuf_flip_req_tgl` toggles once per requested flip (clk_sys);
+    // the flip itself is only ever applied during vertical blanking (clk_vid's own vs_pulse window),
+    // synchronised into clk_sdram the same toggle-and-sample way `fill_req_tgl` already is below --
+    // never a raw level crossing a clock domain. `dbuf_disp_buf`/`dbuf_flip_pending` are read back by
+    // mp3_soc for its status register; both are clk_sdram registers, informally sampled by clk_sys the
+    // same way blt_* fields are sampled the other direction (a status bit changing at most once every
+    // ~16.7 ms is not a hazard worth a formal synchroniser).
+    input  wire        dbuf_cpu_buf,
+    input  wire        dbuf_flip_req_tgl,
+    output wire        dbuf_disp_buf,
+    output wire        dbuf_flip_pending,
+
     // SDRAM master port (clk_sdram) -> wired to sdram_fb in core_game.vh ----
     input  wire        sdram_init_complete,
     output reg  [24:0] p0_addr,
@@ -216,7 +240,23 @@ module mp3_fb #(
     localparam [10:0] HS_ST = HOFF + H_ACT + 11'd12, HS_EN = HS_ST + 11'd40;
     localparam [10:0] VS_ST = VOFF + V_ACT + 11'd3,  VS_EN = VS_ST + 11'd4;
     localparam [9:0]  STRIDE = 10'd512;             // words/line, page-aligned
-    localparam [24:0] FB_BASE = 25'd0;
+    // Helios H2 (B-340): buffer 1 sits 2 MiB (1,048,576 words) above buffer 0 -- comfortably clear of
+    // every off-screen stash row packed just above V_ACT (the highest in use today, TIMG_PROBE_ROW=1023,
+    // is 1023*512=523,776 words, about half this margin), so the two visible-framebuffer copies and the
+    // untouched stash all coexist with room to spare (64 MiB SDRAM total). DBUF_VISIBLE_WORDS is exactly
+    // V_ACT*STRIDE -- the address boundary between "a genuine on-screen row" (gets the buffer swap) and
+    // "off-screen scratch" (never does, regardless of dbuf_cpu_buf/dbuf_disp_buf).
+    localparam [24:0] DBUF_BASE1        = 25'd1048576;
+    localparam [18:0] DBUF_VISIBLE_WORDS = 19'd184320;   // V_ACT (360) * STRIDE (512)
+
+    // Applies the buffer-1 offset to an ordinary (non-blit) FB_BASE-relative address, only when it is
+    // inside the visible framebuffer and only when DBUF_ENABLE is actually built -- both false by
+    // construction on every bitstream shipped before this, so this function is a byte-for-byte no-op
+    // (`dbuf_addr(a, sel) == {6'd0, a}` always) unless DBUF_ENABLE=1 AND sel=1 AND a is on-screen.
+    function [24:0] dbuf_addr(input [18:0] a, input sel);
+        dbuf_addr = (DBUF_ENABLE != 0 && sel && a < DBUF_VISIBLE_WORDS) ? ({6'd0, a} + DBUF_BASE1) : {6'd0, a};
+    endfunction
+
 
     localparam [3:0] OP_RUN = 4'd0, OP_RECT = 4'd1, OP_CHAR = 4'd2, OP_COPY = 4'd3,
                      OP_BLIT = 4'd4, OP_BAR = 4'd5, OP_SBLIT = 4'd6, OP_CBLIT = 4'd7,
@@ -587,10 +627,25 @@ module mp3_fb #(
 
     reg       fill_req_tgl = 0;
     reg [9:0] fill_line_req = 0;
+    reg       vblank_tgl = 0;   // H2 (B-340): clk_vid domain, toggles once per frame inside vblank
     reg [2:0] fill_req_s = 0;
     wire      fill_req_edge = (fill_req_s[2] ^ fill_req_s[1]);
     reg       fill_pending = 0;
     reg [9:0] fill_line = 0;
+
+    // Helios H2 (B-340): the flip request (clk_sys -> clk_sdram) and the "it's safe now" vblank pulse
+    // (clk_vid -> clk_sdram) each cross with the same toggle-and-sample technique fill_req_tgl/fill_req_s
+    // already use just above -- never a raw level. disp_buf only ever changes on a detected vblank edge
+    // AND a pending flip; with neither, or with DBUF_ENABLE=0 (flip_req_s tied off below), it stays 0
+    // forever, so disp_buf/dbuf_cpu_buf's dbuf_addr() calls above are the same no-op as always.
+    reg [2:0] flip_req_s  = 0;
+    wire      flip_req_edge = (flip_req_s[2] ^ flip_req_s[1]);
+    reg [2:0] vblank_s    = 0;
+    wire      vblank_edge = (vblank_s[2] ^ vblank_s[1]);
+    reg       flip_pending_r = 0;
+    reg       disp_buf_r     = 0;
+    assign    dbuf_disp_buf     = disp_buf_r;
+    assign    dbuf_flip_pending = flip_pending_r;
     reg       fill_lb = 0;
 
     // RECT/RUN state (a RUN is just a RECT of height 1 -- one code path)
@@ -914,6 +969,23 @@ module mp3_fb #(
             fill_lb      <= fill_line_req[0];
         end
 
+        // Helios H2 (B-340): latch a requested flip, apply it only on the next detected vblank edge --
+        // never mid-frame, and never more than once per vblank even if flip_req_edge and vblank_edge
+        // land in the same cycle by coincidence (the flip_pending_r check makes a spurious second
+        // flip_req_edge before the next vblank simply extend the wait, not double-apply).
+        flip_req_s <= {flip_req_s[1:0], dbuf_flip_req_tgl};
+        vblank_s   <= {vblank_s[1:0], vblank_tgl};
+        // DBUF_ENABLE gates this explicitly (not just trusting the caller to tie dbuf_flip_req_tgl to 0
+        // when unbuilt, the way core_game.vh does at the macro level) -- same defensive convention
+        // blend_active/pixel_keyed already apply to THEIR enable parameters at the point of use.
+        if (DBUF_ENABLE != 0) begin
+            if (flip_req_edge) flip_pending_r <= 1'b1;
+            if (vblank_edge && flip_pending_r) begin
+                disp_buf_r     <= ~disp_buf_r;
+                flip_pending_r <= 1'b0;
+            end
+        end
+
         if (reset) begin
             astate <= A_IDLE;
             fill_pending <= 1'b0;
@@ -947,7 +1019,7 @@ module mp3_fb #(
                 // ---------------------------------------------------- IDLE --
                 A_IDLE: begin
                     if (fill_pending && can_sdram) begin
-                        p0_addr   <= FB_BASE + {6'd0, fill_line, 9'd0};   // *512
+                        p0_addr   <= dbuf_addr({fill_line, 9'd0}, dbuf_disp_buf);   // *512; H2 (B-340): buffer-1 offset if that's what's displayed
                         p0_rd_req <= 1'b1;
                         fill_cnt  <= 0;
                         astate    <= A_FILL;
@@ -955,7 +1027,7 @@ module mp3_fb #(
                     // A composed glyph row is written with a STREAMING burst:
                     // each beat's data comes from glyphbuf via wsrc_q.
                     end else if (char_row_ready && can_sdram) begin
-                        p0_addr      <= blit_mode ? blit_dst_addr : (FB_BASE + {6'd0, char_addr});
+                        p0_addr      <= blit_mode ? blit_dst_addr : dbuf_addr(char_addr, dbuf_cpu_buf);   // H2 (B-340)
                         p0_byte_en   <= 2'b11;
                         p0_wr_len    <= {4'd0, char_w};
                         p0_wr_stream <= 1'b1;
@@ -965,7 +1037,7 @@ module mp3_fb #(
 
                     // One rect row = one constant-data burst.
                     end else if (rect_active && can_sdram) begin
-                        p0_addr      <= FB_BASE + {6'd0, rect_addr};
+                        p0_addr      <= dbuf_addr(rect_addr, dbuf_cpu_buf);   // H2 (B-340): also covers BAR/RRECT, which reuse rect_addr
                         p0_data      <= char_fg;   // shared fill-colour reg
                         p0_byte_en   <= 2'b11;
                         p0_wr_len    <= {2'b00, rect_w};
@@ -1020,7 +1092,7 @@ module mp3_fb #(
                         astate    <= A_KEYDST;
                     end else if (copy_mode && char_rows_left_nz
                                  && !char_row_ready && !bl_drain && can_sdram) begin
-                        p0_addr   <= blit_mode ? blit_src_addr : (FB_BASE + {6'd0, copy_src});
+                        p0_addr   <= blit_mode ? blit_src_addr : dbuf_addr(copy_src, dbuf_cpu_buf);   // H2 (B-340)
                         p0_rd_req <= 1'b1;
                         copy_cnt  <= 8'd0;
                         astate    <= A_COPYRD;
@@ -1557,6 +1629,10 @@ module mp3_fb #(
             fill_line_req <= pf_row;
             fill_req_tgl  <= ~fill_req_tgl;
         end
+        // H2 (B-340): one shot per frame, well inside vertical blanking and well before do_fill's own
+        // wrap-around prefetch of the new frame's row 0 (vc==V_TOT-1) -- see the comment on flip_req_s
+        // above for why applying the flip by then matters.
+        if (hc == 11'd0 && vc == VS_ST) vblank_tgl <= ~vblank_tgl;
     end
 
     reg [15:0] lb_q;

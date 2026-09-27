@@ -54,7 +54,9 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x10C | POLY_OUT | R | `{R sample [31:16], L sample [15:0]}` of the last computed slot (Helix's interleave). 0 when off. |
 | 0x110 | POLY_ST | R | bit 0 = built in, bit 1 = busy, bits 31:16 = slots computed. 0 when off. |
 | 0x114 | TEXT_MODE | R/W | Theme/gamma: write bit 0 = 1 selects the light-polarity text weight table (`cov_weight_light`, dark text on a light ramp); read bit 31 = the bitstream has it (0 on older ones), bit 0 = current value. Synchronised into clk_sdram (`tau_cdc_sync1`). |
-| 0x118-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x118 | DBUF_CPU | R/W | Helios H2 (B-340, `tau_fb.v`/mp3_soc.v `TAU_DBUF`): bit 0 = which physical copy of the VISIBLE framebuffer (row < 360, word address < 184,320) ordinary RECT/CHAR/COPY(non-blit) commands read and write; buffer 1 sits 1,048,576 words above buffer 0. Every blit-mode opcode (BLIT/BAR/SBLIT/CBLIT/RRECT) already addresses through the sticky `blt_*_base` fields and is unaffected; any address >= 184,320 (the off-screen stash region) is unaffected regardless of this bit. Read: bit 31 present (0 on a bitstream without it), bit 0 echo. |
+| 0x11C | DBUF_DISP | R/W | Write: bit 0 = 1 requests a flip, applied only at the next vertical blanking (never mid-frame). Read: bit 31 present, bit 1 = a requested flip is still pending, bit 0 = which buffer is currently displayed (what the scanout prefetch reads). |
+| 0x120-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
