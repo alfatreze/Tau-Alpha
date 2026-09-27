@@ -29,7 +29,11 @@ to third-party components.
 ## Components with separate terms
 
 - Helix MP3 decoder: RealNetworks Public Source License 1.0. Its notices and
-  license remain under `third_party/libhelix-mp3/`.
+  license remain under `third_party/libhelix-mp3/`. Tau has made small, macro-gated
+  modifications (decoder stage-cost profiling in `mp3dec.c` and `pub/mp3_profile.h`,
+  and the `TAU_POLY_FW` hook in `real/dct32.c`, `real/subband.c` and `real/coder.h`
+  that hands the synthesis-window stage to the FPGA unit); with those macros off
+  the code is the unmodified decoder. See `docs/ATTRIBUTIONS.md`.
 - Inter font and the generated font ROM derived from it: SIL Open Font License
   1.1, retained at `third_party/font/OFL.txt`.
 - Analogue Pocket Framework files: their embedded Analogue APF license notices
