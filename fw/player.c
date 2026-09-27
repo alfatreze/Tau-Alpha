@@ -5717,10 +5717,21 @@ ui_tail:
         uint32_t h_pct = track_fmt == FMT_MP3 ? mp3_huff_cyc  / (CLK_HZ / 100u) : 0u;
         uint32_t i_pct = track_fmt == FMT_MP3 ? mp3_imdct_cyc / (CLK_HZ / 100u) : 0u;
         uint32_t s_pct = track_fmt == FMT_MP3 ? mp3_sub_cyc   / (CLK_HZ / 100u) : 0u;
+        /* B-345: the finer split, same units (percent of realtime) as H/I/S. I is now IMDCT() alone
+         * (AntiAlias + HybridTransform); D/A/X below break that -- plus what used to be folded into
+         * it, Dequantize -- into its three real pieces, so which one actually dominates is visible
+         * instead of guessed. A + X should read close to I; D is the piece I's old meaning hid. */
+        uint32_t d_pct = track_fmt == FMT_MP3 ? mp3_dequant_cyc / (CLK_HZ / 100u) : 0u;
+        uint32_t a_pct = track_fmt == FMT_MP3 ? mp3_alias_cyc   / (CLK_HZ / 100u) : 0u;
+        uint32_t x_pct = track_fmt == FMT_MP3 ? mp3_xform_cyc   / (CLK_HZ / 100u) : 0u;
         mp3_huff_cyc = mp3_imdct_cyc = mp3_sub_cyc = 0u;
+        mp3_dequant_cyc = mp3_alias_cyc = mp3_xform_cyc = 0u;
         *q++ = 'H'; q = ui_dec(q, h_pct);
         *q++ = ' '; *q++ = 'I'; q = ui_dec(q, i_pct);
         *q++ = ' '; *q++ = 'S'; q = ui_dec(q, s_pct);
+        *q++ = ' '; *q++ = 'D'; q = ui_dec(q, d_pct);
+        *q++ = ' '; *q++ = 'A'; q = ui_dec(q, a_pct);
+        *q++ = ' '; *q++ = 'X'; q = ui_dec(q, x_pct);
 #endif
 #if FLAC_PROFILE
         uint32_t r_total = flac_res_cyc + flac_lpc_cyc;
