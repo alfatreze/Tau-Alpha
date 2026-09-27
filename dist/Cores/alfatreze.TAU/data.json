@@ -55,6 +55,24 @@
                 "deferload": true,
                 "parameters": "0x1",
                 "filename": "tau-cold.bin"
+            },
+            {
+                "name": "Assets",
+                "id": 8,
+                "required": false,
+                "deferload": true,
+                "parameters": "0x1",
+                "filename": "tau-assets.bin"
+            },
+            {
+                "name": "Cover image",
+                "id": 7,
+                "required": false,
+                "deferload": true,
+                "parameters": "0x1",
+                "extensions": [
+                    "timg"
+                ]
             }
         ]
     }
