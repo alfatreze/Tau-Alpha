@@ -45,7 +45,9 @@ ENTRY(_start)
  * exceed the product's 2.4 KB slack. PROVIDE never overrides a --defsym. */
 PROVIDE(_min_heap = 1024);
 
-_stack_size = 0x4000;    /* 16 KB */
+/* 16 KB; 8 KB on the 192 KB link (B-333): the worst measured stack peak is 1,672 B (B-230, heavy R3 stress with MP3+FLAC+covers), the Check's
+ * stack-peak reading keeps guarding it. */
+_stack_size = DEFINED(RAM_192K) ? 0x2000 : 0x4000;
 /* 24 KB, down from 32.
  *
  * The ring sits ABOVE the image, so shrinking it moves _tag_start up and
@@ -111,6 +113,8 @@ SECTIONS {
 	 * after the build, not by any error. `DEFINED()` in an ordinary symbol
 	 * assignment (here) is the standard, well-supported form instead.
 	 *
+	 * (B-333: the reverse direction is now enforced, not just avoided: the 192 KB bitstream reports a different CORE_VERSION, so a
+	 * 256 KB-linked image is refused at boot by the interlock in fw/player.c instead of running on 64 KB less RAM.)
 	 * A 192 KB-linked image is always safe to run on the OLD 256 KB
 	 * bitstream too (a smaller link fitting in less space than the physical
 	 * RAM provides is never a problem, just wastes the unused 64 KB) -- the

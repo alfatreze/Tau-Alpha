@@ -1054,7 +1054,7 @@ COLD_FN static void set_ch_follow(uint32_t c)
 }
 
 /* Returns 1 when the input was consumed. Start opens (tap) and closes. */
-static int set_input(uint32_t edge, uint32_t keys)
+COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold code in the 192 KB link; poll_input() only calls it when settings are open or Start went down */
 {
     if (!set_open) {
         if ((edge & KEY_START) && !(keys & KEY_SELECT)) {

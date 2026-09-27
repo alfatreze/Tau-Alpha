@@ -51,6 +51,7 @@ test-host:
 	$(PYTHON) sim/test_install_dev_core.py
 	$(PYTHON) sim/test_tau_image.py
 	$(PYTHON) sim/test_art_source.py
+	$(PYTHON) sim/test_ram192k.py
 	$(PYTHON) sim/test_helios_beam.py
 	$(PYTHON) sim/test_chladni_module.py
 	$(PYTHON) sim/test_tau_timg.py
@@ -371,3 +372,7 @@ visual-review:
 # QR encoder vs segno (needs work/venv-qr; about 3 min, so not part of test-host)
 test-qr:
 	work/venv-qr/bin/python sim/test_qr.py
+
+# B-333: the 192 KB firmware links (release + Diagnostic Build) and the normal release is unchanged. Slow (three firmware builds).
+test-ram192k:
+	$(PYTHON) sim/test_ram192k.py --build
