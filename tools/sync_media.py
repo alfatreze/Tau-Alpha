@@ -31,6 +31,12 @@ Rules:
     files, and every playlist line is rewritten to match. The player cannot open paths with accented characters
     (docs/issues/001; macOS also stores them in decomposed form, which makes them differ from the playlist).
     --keep-names turns this off. A collision after conversion stops the run.
+  * --art-variants [LIST] also writes pre-scaled cover files in the study formats of tools/tau_image.py (default
+    pal256 at 128 px on the long side, scaled proportionally, never cropped or padded; 'auto' picks per cover; see
+    docs/IMAGE_FORMATS.md) to <album>/tau-art/cover_<size>.<variant>.timg,
+    from the cover: --cover, else a named cover image in the folder (cover.jpg, folder.jpg, front.jpg, cover-*), else art embedded in the first track that has
+    any (MP3 APIC or FLAC PICTURE), else any image in the folder or one level below (a front/cover name first, then the largest). The firmware does not read them yet;
+    they are sidecars, copied unchanged on later --from-core clones. Needs Pillow and numpy.
   * Files that are not media are skipped (listed); ._* and .DS_Store are never copied.
 Exit status 1 if any verification fails or a requested core is not found.
 """
@@ -53,6 +59,7 @@ except Exception:            # the checker is an aid; the sync works without it
 
 AUDIO = {".mp3", ".flac"}
 LISTS = {".m3u", ".m3u8"}
+SIDECAR = {".timg"}          # art variants written by --art-variants; carried across unchanged
 IMAGES = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".heic", ".webp"}
 SKIP_NAMES = {".DS_Store", "Thumbs.db"}
 ART_MAX_BYTES = getattr(lib, "ART_MAX_BYTES", 2 * 1024 * 1024) if lib else 2 * 1024 * 1024
@@ -249,6 +256,77 @@ def find_cover(folder: Path):
     return g[0] if g else None
 
 
+PREFERRED_STEMS = ("front", "cover", "case front", "folder", "album", "booklet front")
+
+
+def find_any_image(folder: Path):
+    """Last-resort cover: an image in the folder or one level below (Artwork/, Scans/ ...). A name that says front/cover wins;
+    otherwise the largest file (a booklet page or scan is rarely bigger than the real cover art). None if there is no image."""
+    cands = [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in IMAGES and not is_junk(p)]
+    for sub in sorted(d for d in folder.iterdir() if d.is_dir() and not is_junk(d)):
+        cands += [p for p in sub.iterdir() if p.is_file() and p.suffix.lower() in IMAGES and not is_junk(p)]
+    if not cands:
+        return None
+    for stem in PREFERRED_STEMS:
+        hit = sorted((p for p in cands if stem in p.stem.lower()), key=lambda p: (p.parent != folder, -p.stat().st_size, p.name))
+        if hit:
+            return hit[0]
+    return sorted(cands, key=lambda p: (-p.stat().st_size, str(p)))[0]
+
+
+def art_variants(folders_parent, info, args, tmp, start):
+    """Encode the study formats for one album folder. -> list of plan entries (file, rel, note, converted)."""
+    try:
+        import tau_image as ti
+        from PIL import Image
+    except ImportError as e:
+        sys.exit(f"--art-variants needs Pillow and numpy ({e}); pip3 install pillow numpy")
+    import io
+    names = ti.DEFAULT_VARIANTS if args.art_variants == "default" else args.art_variants
+    variants = [v for v in names.split(",") if v]
+    for v in variants:
+        if v != "auto" and v not in ti.VARIANTS:
+            sys.exit(f"unknown art variant {v!r}; known: auto, {', '.join(ti.VARIANTS)}")
+    img, what = None, None
+    cover = Path(args.cover) if args.cover else find_cover(info["dir"])
+    try:
+        if cover and cover.is_file():
+            img, what = Image.open(cover), cover.name
+        else:
+            # 1. art embedded in a track (MP3 APIC or FLAC PICTURE): the first track that has one
+            for a in sorted(info["audio"], key=natural_key):
+                raw = ti.extract_embedded(info["dir"] / a)
+                if raw:
+                    img, what = Image.open(io.BytesIO(raw)), f"art embedded in {a}"
+                    break
+            # 2. any image in the folder or one level below
+            if img is None:
+                any_img = find_any_image(info["dir"])
+                if any_img:
+                    img, what = Image.open(any_img), f"{any_img.relative_to(info['dir'])} (no named cover, no embedded art)"
+    except Exception as e:
+        print(f"warning: art variants for {folders_parent}: cover unreadable ({e})", file=sys.stderr)
+        return []
+    if img is None:
+        print(f"note: no cover found for {folders_parent}; no art variants", file=sys.stderr)
+        return []
+    out = []
+    for size in args.art_size or [ti.DEFAULT_SIZE]:
+        rgb = ti.fit_long_side(img, size)
+        for v in variants:
+            data, used, ps = (ti.encode_auto(rgb) if v == "auto" else (None, v, None))
+            if data is None:
+                data = ti.encode(rgb, v)
+                ps = ti.score(rgb, data)
+            lo, hi = ti.estimate_ms(data)
+            f = tmp / f"art_{start + len(out)}.timg"
+            f.write_bytes(data)
+            leaf = f"cover_{size}.timg" if v == "auto" else f"cover_{size}.{v}.timg"
+            note = f"{what} -> {size}px {used}, {len(data):,} B, {ps:.1f} dB, load est {lo:.0f}-{hi:.0f} ms"
+            out.append((f, folders_parent / "tau-art" / leaf, note, True))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("sources", nargs="*", help="files or folders to copy")
@@ -268,6 +346,10 @@ def main():
     ap.add_argument("--cover-quality", type=int, help="re-encode embedded covers at this JPEG quality (e.g. 75); default: keep the original bytes")
     ap.add_argument("--cover-max", type=int, help="shrink embedded covers to at most this many pixels on the long side (the screen shows 92 px)")
     ap.add_argument("--dest-suffix", default="", help="append this text to every copied top-level folder name (keep two variants side by side)")
+    ap.add_argument("--art-variants", nargs="?", const="default", metavar="LIST",
+                    help="also write pre-scaled cover variants (comma list of pal256,pal64,pal16,bc1,jpg60,jpg75,jpg85,rgb565,auto; "
+                         "no value = pal256) into <album>/tau-art/")
+    ap.add_argument("--art-size", type=int, action="append", help="long-side size in px for --art-variants (repeatable, default 128; aspect ratio kept)")
     ap.add_argument("--manifest", help="write a JSON record of the run to this file")
     ap.add_argument("--library", action="store_true", help="after copying, build and verify tau-library.tdb in each destination (tools/tau_library.py)")
     args = ap.parse_args()
@@ -364,6 +446,8 @@ def main():
                 elif ext == ".flac" and use is src:
                     note = (note + "; " if note else "") + "art: not checked"
                 plan.append((use, rel, note, use is not src))
+            elif ext in SIDECAR:
+                plan.append((src, rel, "art variant, copied as is", False))
             elif ext in IMAGES:
                 if not args.copy_images:
                     img_skipped += 1
@@ -375,6 +459,11 @@ def main():
                     plan.append((f, r2, note, f != src))
             else:
                 skipped.append((src, "not a supported media type"))
+        if args.art_variants:
+            for rp, info in sorted(folders.items(), key=lambda kv: str(kv[0])):
+                if info["audio"]:
+                    have = {str(r) for _, r, _, _ in plan}          # a --from-core clone already carries its sidecars
+                    plan.extend(e for e in art_variants(rp, info, args, tmp, len(plan)) if str(e[1]) not in have)
         if not args.no_playlist:
             for rp, info in sorted(folders.items(), key=lambda kv: str(kv[0])):
                 if info["audio"] and not info["list"]:
