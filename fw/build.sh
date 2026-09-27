@@ -139,9 +139,9 @@ esac
 CFLAGS="$CFLAGS $STRESS_CFLAGS"
 # B-307: POLY_FW=1 redirects the MP3 stereo window to the hardware unit (needs a TAU_POLY bitstream; falls back to software per slot). Default 0 = byte-identical.
 # It must reach EVERY translation unit (third_party Helix reads it too), hence a global flag rather than a player.c #define.
-# Default 1 for the diagnostic builds (hardware-confirmed alpha.30: 404,712 slots, 0 BAD, 0 TMO, clean at 1.75x); release stays 0 until the
-# bitstream ships in release. On a bitstream without TAU_POLY the boot probe fails and every slot falls back to software.
+# Default 1 for the diagnostic builds (hardware-confirmed alpha.30: 404,712 slots, 0 BAD, 0 TMO, clean at 1.75x); the release target is 1 from v0.5.0 (the bitstream ships in release). On a bitstream without TAU_POLY the boot probe fails and every slot falls back to software.
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) POLY_FW="${POLY_FW:-1}" ;; esac
+[ "$TARGET" = "release" ] && POLY_FW="${POLY_FW:-1}"      # v0.5.0: the release ships the poly bitstream, so the release firmware uses the unit too
 CFLAGS="$CFLAGS -DTAU_POLY_FW=${POLY_FW:-0}"
 if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw/mp3_poly_hw.h (only then, so default builds see no new include path)
 
