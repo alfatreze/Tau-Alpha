@@ -82,6 +82,9 @@ static int32_t sbits(flac_t *f, uint32_t n)
 static uint32_t unary(flac_t *f)
 {
     uint32_t n = 0;
+#if FLAC_PROFILE
+    flac_unary_calls++; flac_unary_calls_total++;
+#endif
     for (;;) {
         if (!f->bitcnt && !need(f, 1)) return n;
 
@@ -516,6 +519,11 @@ uint32_t (*flac_tick)(void);
 uint32_t flac_res_cyc, flac_lpc_cyc;
 uint32_t flac_res_total_cyc, flac_lpc_total_cyc;
 uint8_t  flac_order, flac_type;
+/* B-342: unary()'s own call count, increment only. A tick() read around every call (thousands per
+ * frame) would both perturb the very timing being measured and swamp flac_res_cyc's own share of that
+ * cost with the profiling overhead itself -- the same reason mp3_profile.h samples at pass boundaries,
+ * not per-Huffman-symbol. */
+uint32_t flac_unary_calls, flac_unary_calls_total;
 #define PROF_T0()   uint32_t prof_t0 = flac_tick ? flac_tick() : 0u
 /* Two targets, one tick() read -- see mp3dec.c's MPROF_ADD, same reasoning. */
 #define PROF_ADD(A, AT) do { if (flac_tick) { uint32_t _prof_d = flac_tick() - prof_t0; (A) += _prof_d; (AT) += _prof_d; } } while (0)

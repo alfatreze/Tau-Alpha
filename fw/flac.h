@@ -120,6 +120,14 @@ extern uint32_t flac_res_cyc;    /* channel 0, Rice/bit-reader pass */
 extern uint32_t flac_lpc_cyc;    /* channel 0, reconstruction pass  */
 extern uint8_t  flac_order, flac_type;   /* type: 1 FIXED, 2 LPC    */
 
+/* B-342: `unary()`'s own call count (increment only, no tick() -- see flac.c's own comment on why a
+ * per-call timing hook is not used here). This is the finer split flac_res_cyc alone cannot give: how
+ * much of the Rice/bit-reader pass is unary() specifically, versus bits()/sbits(). Combine with a
+ * separately, cheaply measured per-call cost (see player.c's CLZ_CAL boot-time calibration) rather
+ * than timing unary() live. */
+extern uint32_t flac_unary_calls;
+extern uint32_t flac_unary_calls_total;
+
 /* B-088/B-089: a SECOND, independent pair for the Check/QR record -- same
  * call sites as the pair above, reset once when a Check audio window starts,
  * read once when it ends, so the screen row's per-second reset never touches
