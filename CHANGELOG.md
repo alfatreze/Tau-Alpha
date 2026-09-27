@@ -22,7 +22,8 @@ What changed in each release, newest first.
 - **Menus.** Full-screen menus with a persistent action bar; text on them now sits directly on the page instead of on grey
   boxes. Start closes any menu from any depth.
 - **Under the hood.** Hardware-assisted drawing (blit engine, rounded rectangles, palette blits), tear-free meter drawing
-  (waits for the display beam), 64 KB of on-chip memory freed for later use by moving code and data to PSRAM. New
+  (waits for the display beam), more free on-chip memory (49.7 KB free in the release build; the 64 KB RAM shrink is built
+  and fit-proven but not in this release, since the firmware does not fit it yet). New
   developer tooling is documented in the repository; the Diagnostic Build gained Meter Sweep, Info export by QR code and
   more Check tests.
 - **Known limits.** `Track changes` still fails in the Diagnostic Build's Check (a test issue, playback is unaffected). The
@@ -104,6 +105,8 @@ What changed in each release, newest first.
   address-line and CRC test, and playback under heavy memory load, all with zero failures.
 - New bitstream: SDRAM CPU window enabled (the SDRAM read-return bug is fixed) and no diagnostic
   overlay on screen.
+
+*Everything below this line is inherited upstream history from HarpMudd MP3 Player (v1.x). Tau's own numbering restarts at v0.2.0 above, so a lower Tau number is newer than a higher upstream number.*
 
 ## v1.4.0 — 21 August 2026
 

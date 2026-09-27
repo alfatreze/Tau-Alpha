@@ -1,6 +1,6 @@
 # Roadmap: the one ordered list of what is next
 
-**Status: DRAFT, 2026-09-26.** Proposed by Claude from the docs of every session; **the order is the owner's to set.** Items marked *(owner)* need a decision
+**Status: DRAFT, updated 2026-09-27 for the v0.5.0 release.** Proposed by Claude from the docs of every session; **the order is the owner's to set.** Items marked *(owner)* need a decision
 before work starts. This is the only document that says what comes next. Every other plan or spec is a design reference for one item here
 and must not carry its own "next" list (see section 6).
 
@@ -10,8 +10,8 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 
 | # | Item | Status | Gate / next action | Reference |
 |---|---|---|---|---|
-| **0** | **Theme system, all 4 steps: the 0.5 gate** (owner, 2026-09-26: finish it, do not ship 0.5 with it half done) | **0a to 0d built, host-verified (B-310..B-313), no Pocket run yet (alpha.32 is packaged with a sample themes file; alpha.31 was skipped). Omega's exporter is Omega's part and waits for a real file captured from a card** | 0a role table with today's look as the default theme, no visible change; 0b Dark/Light switch plus a second built-in theme, with the text gamma check (`tools/gen_text_gamma.py --check`); 0c VU ladder, meters and thumbnails onto roles and CLUT-from-roles; 0d theme file (`TTHM`, new data slot) loader plus Omega exporter. Theme index and polarity are **session-only** until persist is widened (owner decision, no RTL change). Each step ends with a host test and a card run | `THEME_SPEC`, `HELIOS_SPEC` 7.4 |
-| 1 | Close alpha.30 | Hardware-confirmed good (404,712 slots, 0 BAD, 1.75x clean) | Optional like-for-like unit-off run; find the speed where audio breaks; HarpMudd comparison later | B-308, B-309 |
+| **0** | **Theme system, all 4 steps** (shipped in v0.5.0) | **DONE, released 2026-09-27.** Remaining: session-only theme/polarity (item 8), Omega's exporter waits for a real `tau-assets.bin` captured from a card | 0a role table with today's look as the default theme, no visible change; 0b Dark/Light switch plus a second built-in theme, with the text gamma check (`tools/gen_text_gamma.py --check`); 0c VU ladder, meters and thumbnails onto roles and CLUT-from-roles; 0d theme file (`TTHM`, new data slot) loader plus Omega exporter. Theme index and polarity are **session-only** until persist is widened (owner decision, no RTL change). Each step ends with a host test and a card run | `THEME_SPEC`, `HELIOS_SPEC` 7.4 |
+| 1 | Close alpha.30 | Hardware-confirmed good and released in 0.5.0 (404,712 slots, 0 BAD, 1.75x clean) | Optional like-for-like unit-off run; find the speed where audio breaks; HarpMudd comparison later | B-308, B-309 |
 | 2 | Batched drawing for the hardware wave/scope path | Compiled out since B-302 (256 columns cost ~21x a normal meter) | Design batching (few `fb_rect`/`OP_BAR`-style commands per frame), re-enable, prove with Meter Sweep | B-298..B-302, `HARDWARE_METER_IDEAS` #6 |
 | 3 | Remove software paths made redundant by hardware | Spectrum cascade already removed | After 2: delete software level/scope in `meters_feed` and `wviz_scope_tick` | ALPHA22 handoff item 3 |
 | 4 | Meter modules: **M0 to M5 built and host-verified (B-294, B-317..B-323)**; M6 (wrapping the legacy meters) deliberately not done | Winamp pair, Chladni and every future meter with parameters run on generated modules, a generic Configure page, `SR_T_METERCFG`, the METR presets file, the meter trace recorder and a preview lab whose ports are proven command-for-command against the firmware. Open: hardware run of alpha builds carrying it; reorder/hide meters from a file; a JS twin for Chladni; Omega's METR writer | `docs/AUDIT_TRAIL.md` B-317..B-323, `METER_MODULE_SPEC` |
@@ -20,19 +20,19 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 
 | # | Item | Why it needs a decision | Reference |
 |---|---|---|---|
-| 5 | **Release the MP3 window unit** (make `POLY_FW=1` and the poly bitstream the release build, cut v0.5.0, **after item 0**) | The bitstream leaves only 4 free M10K blocks (304/308). Decide before spending more block RAM on anything. *(owner)* | `DECISIONS` (new), B-308/B-309 |
+| 5 | ~~Release the MP3 window unit~~ **DONE: v0.5.0, 2026-09-27** | Still true: the bitstream leaves only 4 free M10K blocks (304/308); decide before spending more block RAM on anything (see item 6) | `DECISIONS` (new), B-308/B-309 |
 | 6 | **192 KB RAM shrink** | Old premise "9 blocks free, so defer" is now 4 free. It frees 64 blocks but firmware is 8.5 KB short of linking. Re-decide: do it now, or keep deferring. *(owner)* | `RAM_SHRINK_192K_PLAN`, `PHASE_F_SPEC` section 4 |
 | 7 | Helios H1: convert regions to beam-gated drawing, then the now-playing redesign | H1 core is inert and needs a first real region; the now-playing redesign (Figma node 194:1630) was explicitly parked for its own session; do it after item 0 so it is written against roles, not fixed colours | `HELIOS_SPEC` section 9, ALPHA29 handoff part 2.9 |
-| 7b | **Light text weights in RTL**: built and simulated (B-316: `text_light` input, MMIO 0x114, table 0,1,1,2,3,3,4,5,6,7,8,9,10,12,13,16). **Fit done, both seeds close (B-316); packaged in alpha.33, waiting for a card run**; can share the fit with persist widening (item 8). *(owner: launch the fit)* | B-311, `tools/gen_themes.py` report |
+| 7b | **Light text weights in RTL**: built and simulated (B-316: `text_light` input, MMIO 0x114, table 0,1,1,2,3,3,4,5,6,7,8,9,10,12,13,16). **Fit done, both seeds close (B-316); shipped in v0.5.0**; can share the fit with persist widening (item 8). *(owner: launch the fit)* | B-311, `tools/gen_themes.py` report |
 | 8 | Persist widening in RTL (theme index and polarity, meter Configure settings) | Needs a fit; theme ships session-only until then | `THEME_SPEC` section 5, `METER_CONFIG_SPEC` |
-| 9 | Cover art: TIM1 firmware reader as the default (palette 256 at 128 px) | Offline tools done; reader exists behind `TAU_ART_TIMG`, off by default. Container is still unfrozen (D-I05). Decide when to freeze. *(owner)* | `IMAGE_FORMATS`, `DECISIONS` D-I01..D-I05, `COVER_TIMG_READER` |
+| 9 | Cover art: freeze the `TIM1` container | Reader is on by default and hardware-confirmed for MP3 and FLAC (B-329, B-330), shipped in v0.5.0; D-I05's precondition (a firmware reader exists) is met. Decide when to freeze. *(owner)* | `IMAGE_FORMATS`, `DECISIONS` D-I01..D-I05, `COVER_TIMG_READER` |
 | 10 | Audio kernels beyond the MP3 window: FLAC bit reader first | Was ordered after the blit engine and RAM shrink (owner, 2026-09-22); the first is done. Re-confirm the order. *(owner)* | `PHASE_F_SPEC` section 14 row 7, B-086..B-098 |
 
 ## 3. Later and parked
 
-- Meter modules M3 to M6 (trace recorder, `tau-assets.bin`, Chladni as first new module, legacy meters); public preset gallery (parked, D-M12).
+- Meter module M6 (wrapping the legacy meters; M0-M5 are built); public preset gallery (parked, D-M12).
 - Hardware meter helpers (beat detector, L/R correlation, Chladni field evaluator): saved ideas, none started (`HARDWARE_METER_IDEAS`).
-- Blit ideas held on purpose: B5 alpha blend (timing never closed, B-243), B13 gradient bar (cost bigger than scoped, B-241), B19 flip flags, B10 RLE blit, H2 double buffering.
+- Blit ideas held on purpose: B5 alpha blend (pipelined version closes timing, B-327; firmware use is a 0.6 item), B13 gradient bar (cost bigger than scoped, B-241), B19 flip flags, B10 RLE blit, H2 double buffering.
 - Library items waiting for RAM (`MEDIA_LIBRARY_0.4_SPEC` section 14) and the migration-across-versions question (section 15).
 - Firmware modularization (`FIRMWARE_MODULARIZATION_PLAN`, parked until key features land).
 - Winamp on-device Configure page: parked, may be replaced by Tau Omega authoring; do not extend.
@@ -66,4 +66,4 @@ create work there: TIM1 container freeze (item 9), meter presets and `tau-assets
 
 ## Proposed (other sessions add here)
 
-*(empty)*
+- **0.6 scope (owner, B-331):** persist widening so theme and meter settings are remembered, alpha blend in firmware (translucent panel/fade), the `Track changes` fix. (Claude, 2026-09-27)
