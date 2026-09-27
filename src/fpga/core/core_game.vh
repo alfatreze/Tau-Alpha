@@ -243,6 +243,14 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_BLIT_BLEND_EN 0
 `endif
+// Helios H2 (B-340): double buffering. Independent of TAU_BLIT (it touches the plain RECT/CHAR/COPY
+// dispatch path mp3_fb.sv has always had, not the blit-engine sticky fields).
+`ifdef TAU_DBUF
+`define TAU_DBUF_EN 1
+`else
+`define TAU_DBUF_EN 0
+`endif
+wire soc_dbuf_cpu_buf, fb_dbuf_cpu_buf, soc_dbuf_flip_req_tgl, soc_dbuf_disp_buf, soc_dbuf_flip_pending;   // Helios H2 (B-340)
 wire        soc_psram_req, soc_psram_we;
 wire [22:0] soc_psram_word;
 wire [31:0] soc_psram_wdata, soc_psram_rdata;
@@ -300,9 +308,9 @@ assign soc_vblank_rd = 17'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN)) u_soc (
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN)) u_soc (
 `else
-mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN)) u_soc (
+mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -421,6 +429,10 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
     .scan_rd       (soc_scan_rd),
 
     .text_light     (soc_text_light),
+    .dbuf_cpu_buf     (soc_dbuf_cpu_buf),
+    .dbuf_flip_req_tgl(soc_dbuf_flip_req_tgl),
+    .dbuf_disp_buf    (soc_dbuf_disp_buf),
+    .dbuf_flip_pending(soc_dbuf_flip_pending),
     .blt_src_base   (soc_blt_src_base),
     .blt_src_stride (soc_blt_src_stride),
     .blt_dst_base   (soc_blt_dst_base),
@@ -779,8 +791,9 @@ wire sdram_probe_bar = vid_de_w && (sdram_probe_y < 9'd8) &&
 `endif
 
 tau_cdc_sync1 #(.STAGES(3)) u_text_light_sync (.clk_dst(clk_sdram), .d_src(soc_text_light), .q_dst(fb_text_light));
+tau_cdc_sync1 #(.STAGES(3)) u_dbuf_cpu_buf_sync (.clk_dst(clk_sdram), .d_src(soc_dbuf_cpu_buf), .q_dst(fb_dbuf_cpu_buf));   // Helios H2 (B-340), same treatment as text_light
 
-mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN)) u_fb (
+mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN)) u_fb (
     .reset    (~pll_locked),
     .clk_sys  (clk_sys),
     .clk_sdram(clk_sdram),
@@ -814,6 +827,21 @@ mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN)) u_fb (
     .clut_waddr(soc_clut_waddr),
     .clut_wdata(soc_clut_wdata),
     .rc_cut_lut(soc_rc_cut_lut),
+
+    // Helios H2 (B-340): tied to constant 0 at this instantiation when TAU_DBUF is not defined --
+    // matching DBUF_ENABLE=0's own no-op, belt and suspenders (mp3_soc.v also only ever drives these
+    // from real logic under `ifdef TAU_DBUF`, see its own comment).
+`ifdef TAU_DBUF
+    .dbuf_cpu_buf     (fb_dbuf_cpu_buf),
+    .dbuf_flip_req_tgl(soc_dbuf_flip_req_tgl),
+    .dbuf_disp_buf    (soc_dbuf_disp_buf),
+    .dbuf_flip_pending(soc_dbuf_flip_pending),
+`else
+    .dbuf_cpu_buf     (1'b0),
+    .dbuf_flip_req_tgl(1'b0),
+    .dbuf_disp_buf    (),
+    .dbuf_flip_pending(),
+`endif
 
     .sdram_init_complete(sdram_init_complete),
     .p0_addr(fb_p0_addr), .p0_data(fb_p0_data), .p0_byte_en(fb_p0_byte_en),

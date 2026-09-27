@@ -78,7 +78,10 @@ module mp3_soc #(
     // min/max scope capture with its own zero-crossing trigger. Registers 0xEC-0xFC. Inert (reads 0) when 0.
     parameter WAVE_ENABLE = 0,
     // MP3 synthesis-window unit (B-292): tau_mp3_poly.sv, registers 0x100-0x110. Inert (reads 0) when 0.
-    parameter POLY_ENABLE = 0
+    parameter POLY_ENABLE = 0,
+    // Helios H2 (B-340): double buffering via base-pointer swap in mp3_fb.sv. Registers 0x118-0x11C.
+    // Inert (reads 0, writes ignored) when 0.
+    parameter DBUF_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -248,6 +251,14 @@ module mp3_soc #(
     // them, and that opcode does not exist unless TAU_BLIT is built there too.
     // Theme/gamma: text weight table select (MMIO 0x114 bit 0), clk_sys domain; synchronised into clk_sdram by the caller.
     output wire         text_light,
+    // Helios H2 (B-340): clk_sys-domain outputs to mp3_fb.sv (the caller synchronises dbuf_cpu_buf into
+    // clk_sdram exactly like text_light above; dbuf_flip_req_tgl is already a toggle, formally
+    // synchronised INSIDE mp3_fb.sv itself, same technique as fill_req_tgl). Inputs are mp3_fb's own
+    // clk_sdram-domain status, sampled here informally (a level changing at most once per vblank).
+    output wire         dbuf_cpu_buf,
+    output wire         dbuf_flip_req_tgl,
+    input  wire         dbuf_disp_buf,
+    input  wire         dbuf_flip_pending,
     output wire [24:0]  blt_src_base,
     output wire [9:0]   blt_src_stride,
     output wire [24:0]  blt_dst_base,
@@ -812,6 +823,10 @@ module mp3_soc #(
     reg  [2:0]  blt_idx = 3'd0;
     reg         text_light_r = 1'b0;
     assign text_light = text_light_r;
+    reg         dbuf_cpu_buf_r = 1'b0;
+    reg         dbuf_flip_req_tgl_r = 1'b0;
+    assign dbuf_cpu_buf      = dbuf_cpu_buf_r;
+    assign dbuf_flip_req_tgl = dbuf_flip_req_tgl_r;
     reg  [24:0] blt_src_base_r = 25'd0, blt_dst_base_r = 25'd0;
     reg  [9:0]  blt_src_stride_r = 10'd512, blt_dst_stride_r = 10'd512;
     reg         blt_key_en_r = 1'b0;
@@ -1061,6 +1076,8 @@ module mp3_soc #(
                 9'h104:     begin poly_push_d <= dDAT_MOSI; poly_push_we <= 1'b1; end
                 9'h108:     begin poly_idx_d <= dDAT_MOSI[4:0]; poly_idx_we <= 1'b1; end
                 9'h114:     text_light_r <= dDAT_MOSI[0];
+                9'h118:     dbuf_cpu_buf_r <= dDAT_MOSI[0];                             // Helios H2 (B-340): which buffer ordinary writes target
+                9'h11C:     if (dDAT_MOSI[0]) dbuf_flip_req_tgl_r <= ~dbuf_flip_req_tgl_r;   // request a flip at the next vblank (mp3_fb.sv applies it)
                 R_BLT_IDX:  blt_idx <= dDAT_MOSI[2:0];
                 R_BLT_DATA: begin
                     case (blt_idx)
@@ -1145,6 +1162,8 @@ module mp3_soc #(
             8'hE8:     mmio_rdata = {22'd0, scan_rd};                                  // Helios beam position: bit 9 present, bits 8:0 video line counter (B-267)
             9'h10C:    mmio_rdata = poly_rd;                                            // MP3 window unit: PCM word at POLY_IDX (B-292)
             9'h114:    mmio_rdata = {1'b1, 30'd0, text_light_r};                       // text weight table select: bit 31 present (0 on a bitstream without it), bit 0 light
+            9'h118:    mmio_rdata = (DBUF_ENABLE != 0) ? {1'b1, 30'd0, dbuf_cpu_buf_r} : 32'd0;                                    // bit 31 present, bit 0 echo
+            9'h11C:    mmio_rdata = (DBUF_ENABLE != 0) ? {1'b1, 29'd0, dbuf_flip_pending, dbuf_disp_buf} : 32'd0;                  // bit 31 present, bit 1 flip pending, bit 0 currently displayed
             9'h110:    mmio_rdata = (POLY_ENABLE != 0) ? {poly_slots, 14'd0, poly_busy, 1'b1} : 32'd0;   // bit 0 present, bit 1 busy, 31:16 slots computed
             8'hF4:     mmio_rdata = wave_rd;                                            // scope column {min, max} at WAVE_IDX (B-283)
             8'hF8:     mmio_rdata = {wave_pk_r, wave_pk_l};                             // level meters: max |R|, max |L| since cleared

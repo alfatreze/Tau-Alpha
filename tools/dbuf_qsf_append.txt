@@ -1,0 +1,3 @@
+# Helios H2 (B-340): double buffering via base-pointer swap. Combined with the current full G3+blit+poly
+# config for the real fit; independent of TAU_RAM_192K/TAU_CLK66 (neither touches this).
+set_global_assignment -name VERILOG_MACRO "TAU_DBUF=1"

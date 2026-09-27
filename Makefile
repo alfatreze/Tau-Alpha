@@ -64,7 +64,7 @@ test-host:
 	$(PYTHON) sim/test_theme.py
 	$(PYTHON) sim/test_tau_assets.py
 
-test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -77,6 +77,15 @@ $(RTL_BUILD_DIR)/tb_mp3_fb.vvp: sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga
 
 test-rtl-fb: $(RTL_BUILD_DIR)/tb_mp3_fb.vvp
 	$(VVP) $<
+
+# Helios H2 (B-340): the buffer-select mux and the vblank-gated flip, both with DBUF_ENABLE=1 (the real
+# behaviour) and =0 (must reproduce today's addressing exactly, no matter what the flip-request/cpu_buf
+# ports are driven with -- DBUF_ENABLE gates the RTL itself, not just what a well-behaved caller wires up).
+test-rtl-helios-dbuf: | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_helios_dbuf.vvp sim/tb_helios_dbuf.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v
+	$(VVP) $(RTL_BUILD_DIR)/tb_helios_dbuf.vvp | grep -q "^PASSED"
+	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_helios_dbuf.DBUF_ENABLE=0 -o $(RTL_BUILD_DIR)/tb_helios_dbuf0.vvp sim/tb_helios_dbuf.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v
+	$(VVP) $(RTL_BUILD_DIR)/tb_helios_dbuf0.vvp | grep -q "^PASSED"
 
 # Phase F B1/B2: each mutant MUST fail this bench.
 test-rtl-fb-mutation: | $(RTL_BUILD_DIR)
