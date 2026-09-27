@@ -207,7 +207,16 @@
 extern unsigned int arena_limit(void);
 #define ARENA_LIMIT (arena_limit())
 
+/* B-338: clk_sys 60 -> 66.667 MHz (TAU_CLK66_FW, docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md section 1). Every deadline in this file already goes
+ * through CLK_HZ (as `n * CLK_HZ` / `n / CLK_HZ`), so this one constant is the whole port -- except the wrap-period comments below, which
+ * are cosmetic (2^32/CLK_HZ: 71.6 s at 60 MHz, 64.4 s at 66.667 MHz) and are NOT all individually corrected; the wrap-safe
+ * `(int32_t)(cycles() - deadline) >= 0` idiom they document is itself frequency-independent. Mutually exclusive with TAU_RAM_192K_FW for now
+ * (the RTL is too, B-338), matching the boot interlock below. */
+#if TAU_CLK66_FW
+#define CLK_HZ      66666667u
+#else
 #define CLK_HZ      60000000u   /* clk_sys; UI timing needs it before playback does */
+#endif
 
 /* Free-running cycle counter. Up here because the UI uses it for its own
  * timing (marquee, paused-state throttle) well before the playback code does. */
@@ -238,8 +247,11 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * rev 23, so it is REFUSED on the 192 KB bitstream instead of silently running on 64 KB less RAM; a firmware linked for 192 KB
  * (RAM_192K=1, -DTAU_RAM_192K_FW) accepts both (a 192 KB image also runs on the 256 KB bitstream). */
 #define EXPECT_VERSION_192K 0x4D503318u
+#define EXPECT_VERSION_CLK66 0x4D503319u
 #if TAU_RAM_192K_FW
 #define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_192K)
+#elif TAU_CLK66_FW
+#define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_CLK66)
 #else
 #define VERSION_OK(v) ((v) == EXPECT_VERSION)
 #endif
