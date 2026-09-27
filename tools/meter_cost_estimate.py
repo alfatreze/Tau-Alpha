@@ -21,7 +21,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAYER = os.path.join(ROOT, "fw", "player.c")
 
-DRAW_CALLS = ("fb_rect(", "fb_bar(", "fb_blit(", "fb_sblit(", "fb_rrect(", "fb_cblit(", "ui_bg_restore(")
+DRAW_CALLS = ("fb_rect(", "fb_bar(", "fb_blit(", "fb_sblit(", "fb_rrect(", "fb_cblit(", "ui_bg_restore(", "ui_bg_blend(")
 
 # name -> (declared worst-case command budget, one-line description of the represented cost).
 # Budgets are set relative to this project's own documented baseline (VIZ_BARS, ~36-49 commands per

@@ -7,7 +7,7 @@
   "sel_index": 0,
   "caps": [],
   "cost_class": 2,
-  "considered": "hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used.",
+  "considered": "hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used. The trail (B-334) blends the background strip over the box with the pipelined hardware blend.",
   "params": [
     {
       "key": "scope_smooth",
@@ -28,7 +28,7 @@
       "step": 5,
       "default": 30,
       "unit": "%",
-      "note": "reserved: a real trail needs alpha blend (shelved); accepted, no visible effect"
+      "note": "percent of the old trace kept each frame (needs the alpha-blend bitstream; without it the trace is erased as before)"
     }
   ],
   "presets": [

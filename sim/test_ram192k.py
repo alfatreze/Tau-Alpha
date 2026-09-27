@@ -6,9 +6,9 @@ Fast (in make test-host):
   * the RTL interlock: the 192 KB bitstream reports CORE_VERSION rev 24, every other bitstream rev 23, and the firmware accepts rev 24
     only when linked for 192 KB (so a 256 KB image is refused on the 192 KB bitstream).
 Slow (`python3 sim/test_ram192k.py --build`, make test-ram192k): the 192 KB link of the release and the Diagnostic Build succeeds
-with their heap floors, and the normal 256 KB release ROM is still byte-identical to the committed dist/ one.
+with their heap floors, and the normal 256 KB release still builds. (Until B-334 the 256 KB ROM was byte-identical to v0.5.0; new features now change it.)
 """
-import hashlib, random, re, subprocess, sys, tempfile
+import re, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -61,9 +61,9 @@ if "--build" in sys.argv:
         g = re.search(r"heap gap: (\d+) B", out)
         check(f"192 KB link of {t} succeeds with its heap floor ({floor} B)", rc == 0 and g is not None and int(g.group(1)) >= floor)
     rc, out = build("release", False)
-    h = hashlib.sha256((ROOT / "dist/Assets/tau/common/tau.rom").read_bytes()).hexdigest()
-    ref = subprocess.run(["git", "show", "HEAD:dist/Assets/tau/common/tau.rom"], cwd=ROOT, capture_output=True).stdout
-    check("the normal 256 KB release ROM is byte-identical to the committed one", rc == 0 and h == hashlib.sha256(ref).hexdigest())
+    g = re.search(r"heap gap: (\d+) B", out)
+    check("the normal 256 KB release still builds with its heap floor", rc == 0 and g is not None and int(g.group(1)) >= 6144)
+    subprocess.run(["git", "checkout", "dist"], cwd=ROOT, capture_output=True)      # a default release build writes into dist/; put the tracked artefacts back
 
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
