@@ -1981,6 +1981,9 @@ static uint8_t  wave_hw;                  /* B-283: the bitstream has the level/
 static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardware filter bank (probed once at boot) */
 static uint8_t  text_mode_hw;             /* theme/gamma: the bitstream has the second text weight table (probed once at boot) */
 static uint8_t  hw_poly;                  /* B-292: the bitstream has the MP3 window unit (probed once at boot) */
+#if FLAC_PROFILE
+static uint32_t clz_cal_cyc;              /* B-342: measured cycles/call of __clzdi2, once at boot */
+#endif
 static uint32_t spec_win_seen;            /* last hardware window counter consumed */
 
 /* B-263: the hardware bank (src/fpga/core/tau_spec_bank.sv) runs the same cascade continuously, at zero CPU cost, and
@@ -5722,11 +5725,20 @@ ui_tail:
 #if FLAC_PROFILE
         uint32_t r_total = flac_res_cyc + flac_lpc_cyc;
         uint32_t r_pct = (track_fmt == FMT_FLAC && r_total) ? (flac_res_cyc * 100u) / r_total : 0u;
-        flac_res_cyc = flac_lpc_cyc = 0u;
+        /* B-342: the finer split. unary() (the Rice-code quotient scan) calls __clzdi2 -- a real libgcc
+         * subroutine on this rv32im target, confirmed by disassembly, not an inline instruction -- so
+         * its total cost is estimated as calls x a separately, cheaply measured per-call cost
+         * (clz_cal_cyc, a one-time boot calibration below), not timed live in this hot per-sample loop.
+         * u_pct is that ESTIMATE as a percent of the whole residual pass, so it is directly comparable
+         * to r_pct above, both shares of the same flac_res_cyc+flac_lpc_cyc denominator. */
+        uint32_t u_est = flac_unary_calls * clz_cal_cyc;
+        uint32_t u_pct = (track_fmt == FMT_FLAC && r_total) ? (u_est * 100u) / r_total : 0u;
+        flac_res_cyc = flac_lpc_cyc = 0u; flac_unary_calls = 0u;
 #if MP3_PROFILE
         *q++ = ' ';
 #endif
         *q++ = 'R'; q = ui_dec(q, r_pct);
+        *q++ = ' '; *q++ = 'U'; q = ui_dec(q, u_pct);
 #endif
         *q = 0;
         uint32_t py = 0u;   /* top edge -- above the card panel at y16 */
@@ -8853,6 +8865,28 @@ int main(void)
     hw_poly = (uint8_t)(REG(R_POLY_ST) & 1u);      /* B-292: hardware MP3 window unit present? (0 on any other bitstream) */
 #if TAU_POLY_FW
     tau_poly_hw_enable = hw_poly;
+#endif
+#if FLAC_PROFILE
+    /* B-342: one-time boot calibration of __clzdi2's real cost on THIS CPU, so flac.c's unary() call
+     * count can be turned into an estimated cycle share without ever timing unary() itself live (which
+     * would perturb the very decode being measured -- see flac.c's own comment on flac_unary_calls).
+     * The loop's own overhead (the branch, the XOR, the accumulate) is included in clz_cal_cyc along
+     * with the call/return -- an overestimate of __clzdi2 alone, but the same fixed per-iteration shape
+     * every time, so it cancels out when comparing calibration runs across builds. x is loop-carried
+     * (never a compile-time constant) and the result is folded into an accumulator the compiler cannot
+     * prove is unused, so neither the calls nor the loop can be optimised away. */
+    {
+        uint64_t x = 0x1u;
+        uint32_t acc = 0u;
+        const uint32_t reps = 4096u;
+        uint32_t t0 = cycles();
+        for (uint32_t i = 0; i < reps; i++) {
+            x = (x << 1) ^ (x >> 3) ^ (uint64_t)i ^ 1u;   /* never zero, never a repeating short cycle */
+            acc += (uint32_t)__builtin_clzll(x);
+        }
+        clz_cal_cyc = (cycles() - t0) / reps;
+        if (acc == 0xFFFFFFFFu) clz_cal_cyc++;   /* touch acc so it cannot be dead-code-eliminated */
+    }
 #endif
 
     /* Clear the screen FIRST. SDRAM powers up holding garbage and the scanout
