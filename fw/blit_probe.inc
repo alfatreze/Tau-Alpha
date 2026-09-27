@@ -151,6 +151,7 @@ static void blit_probe_ensure(void)
  * new opcode's own decode path instead of the old one. */
 static uint8_t rrect_ready;
 static uint8_t rrect_probed;
+static uint8_t rrect_probe_tries;    /* B-335: a failed probe is retried (up to 3 times) instead of latching 'not ready' for the session */
 #define RRECT_READY() (rrect_ready != 0u)
 
 static void rrect_probe(void)
@@ -173,21 +174,31 @@ static void rrect_probe(void)
     REG(R_FB_GO)    = FB_OP_RRECT;                          /* radius=0 -- no corner engine, plain h=2 fill */
     fb_wait();
 
-    t = cycles();
-    while ((uint32_t)(cycles() - t) < 512u) { }
+    /* B-335: poll instead of one fixed 512-cycle wait (the same false negative blit_probe() had, B-328): the probe first runs when the first
+     * selected row is drawn, right behind queued chrome drawing, so the fill can land after 512 cycles; the single read then saw the untouched
+     * sentinel, rrect_ready stayed 0 and (rrect_probed) it was never asked again, so the hardware rounded rectangles may never have been used
+     * on a Pocket. Wait up to ~50 ms for the word to change. */
+    const uint32_t t0 = cycles();
+    uint32_t rd = 0x0000DEADu;
+    do {
+        t = cycles();
+        while ((uint32_t)(cycles() - t) < 512u) { }
+        t = cycles();
+        REG(R_SDR_ADDR) = probe_row2; REG(R_SDR_CTRL) = 0x3Du;
+        while ((uint32_t)(cycles() - t) < 128u) { }
+        while (REG(R_SDR_STATUS) & 1u)
+            if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) { rrect_ready = 0u; return; }
+        rd = REG(R_SDR_RDATA);
+    } while (rd == 0x0000DEADu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
 
-    t = cycles();
-    REG(R_SDR_ADDR) = probe_row2; REG(R_SDR_CTRL) = 0x3Du;
-    while ((uint32_t)(cycles() - t) < 128u) { }
-    while (REG(R_SDR_STATUS) & 1u)
-        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) { rrect_ready = 0u; return; }
-
-    rrect_ready = (REG(R_SDR_RDATA) != 0x0000DEADu) ? 1u : 0u;
+    rrect_ready = (rd != 0x0000DEADu) ? 1u : 0u;
 }
-
 static void rrect_probe_ensure(void)
 {
-    if (!rrect_probed) { rrect_probe(); rrect_probed = 1u; }
+    if (!rrect_probed) {
+        rrect_probe();
+        if (rrect_ready || ++rrect_probe_tries >= 3u) rrect_probed = 1u;
+    }
 }
 
 /* ==== B-334: alpha blend from firmware (Talos B5, the pipelined version, B-327) ==========================================================
