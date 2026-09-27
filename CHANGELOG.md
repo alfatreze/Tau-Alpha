@@ -2,6 +2,33 @@
 
 What changed in each release, newest first.
 
+## v0.5.0 — 27 September 2026
+
+- **Themes.** Settings > Appearance has a THEME and a MODE row. Two built-in themes (TAU and OCEAN), each in Dark and Light,
+  and the accent colour palette now matches its reference colours (the old values were wrong in green and blue). Text stays
+  crisp in Light mode: the display hardware has a second text-weight table for it. Extra themes can be loaded from a
+  `tau-assets.bin` file beside the music (format: `docs/THEME_FILE_FORMAT.md`); Info shows THEME FILE and METER FILE. The
+  chosen theme and mode are not remembered across a restart yet.
+- **Faster covers.** A pre-scaled cover file (`tau-art/cover_128.pal256.timg`, written by `tools/sync_media.py --art-variants`)
+  shows an album's cover in about 90 ms instead of decoding the embedded JPEG (2.6 to 15.8 s). Albums without one still use
+  the embedded cover. The sync tool now finds covers in MP3 and FLAC tags and, failing that, any image in the album folder.
+- **MP3 decoding on hardware.** The synthesis-window stage of the MP3 decoder (the largest single cost) now runs in the
+  FPGA, bit-exact with the software version and falling back to it if the unit ever disagrees. Result: much more headroom;
+  playback stays clean at speeds that used to stutter, and the visualisers get more of the CPU.
+- **Meters.** Winamp Bars and Winamp Scope with a Configure page (Settings > Appearance > METER: CONFIGURE: presets, band
+  count, easing, peak caps), a Chladni-pattern meter (with a fullscreen view: Select+Y, presets on Select+X), hardware level
+  and spectrum measurement, and a waterfall and waveform that follow the theme. Bars resume after a menu closes (a stuck
+  yield could freeze them). Meter settings are not remembered across a restart yet.
+- **Menus.** Full-screen menus with a persistent action bar; text on them now sits directly on the page instead of on grey
+  boxes. Start closes any menu from any depth.
+- **Under the hood.** Hardware-assisted drawing (blit engine, rounded rectangles, palette blits), tear-free meter drawing
+  (waits for the display beam), 64 KB of on-chip memory freed for later use by moving code and data to PSRAM. New
+  developer tooling is documented in the repository; the Diagnostic Build gained Meter Sweep, Info export by QR code and
+  more Check tests.
+- **Known limits.** `Track changes` still fails in the Diagnostic Build's Check (a test issue, playback is unaffected). The
+  release and diagnostic builds may restore the last track differently after a restart. Speeds above 1.20x are Diagnostic
+  Build only for now.
+
 ## v0.4.0 — 22 September 2026
 
 - **Media library.** Point the sync tool at your music (`tools/sync_media.py --library`) and Select opens a

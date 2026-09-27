@@ -5,7 +5,7 @@ SD card, with album art, tags and meters.
 
 Decoding runs in software, on a RISC-V CPU built into the Pocket's FPGA.
 
-Current version **v0.4.0**.
+Current version **v0.5.0**.
 
 Tau is a derivative of
 **[HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player)**
