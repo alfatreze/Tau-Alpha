@@ -5,6 +5,10 @@ Fast (in make test-host):
   * udiv64() in fw/player.c equals native 64-bit division on random and edge inputs (it replaces libgcc's __udivdi3);
   * the RTL interlock: the 192 KB bitstream reports CORE_VERSION rev 24, every other bitstream rev 23, and the firmware accepts rev 24
     only when linked for 192 KB (so a 256 KB image is refused on the 192 KB bitstream).
+  * B-347: RAM_192K-alone (rev 24) is unaffected by the new combined-with-CLK66 rev 26 branch nested inside TAU_CLK66 -- the
+    plain `elsif TAU_RAM_192K` branch (rev 24) is still reached whenever TAU_CLK66 is undefined. The combined interlock matrix
+    itself (all four TAU_RAM_192K_FW/TAU_CLK66_FW combinations) is exercised in sim/test_clk66.py, which owns VERSION_OK's full truth
+    table so it isn't duplicated here.
 Slow (`python3 sim/test_ram192k.py --build`, make test-ram192k): the 192 KB link of the release and the Diagnostic Build succeeds
 with their heap floors, and the normal 256 KB release still builds. (Until B-334 the 256 KB ROM was byte-identical to v0.5.0; new features now change it.)
 """
@@ -42,13 +46,18 @@ int main(void) {
     check("udiv64 equals native 64-bit division (200k random + edge cases)", out == "0")
 
 rtl = (ROOT / "src/fpga/core/mp3_soc.v").read_text()
-check("RTL: the TAU_RAM_192K bitstream reports CORE_VERSION rev 24 (4D503318)",
+check("RTL: the TAU_RAM_192K-alone bitstream (TAU_CLK66 undefined) reports CORE_VERSION rev 24 (4D503318)",
       re.search(r"`elsif TAU_RAM_192K\b.*?localparam \[31:0\] CORE_VERSION = 32'h4D503318;", rtl, re.S) is not None)   # B-338 put TAU_CLK66 first in the chain
 check("RTL: every other bitstream keeps rev 23 (4D503317)", "CORE_VERSION = 32'h4D503317;" in rtl)
+check("RTL: the combined TAU_CLK66+TAU_RAM_192K branch (rev 26) does not shadow the RAM_192K-alone `elsif` (rev 24 unaffected)",
+      re.search(r"`ifdef TAU_CLK66\b.*?`endif\b\s*`elsif TAU_RAM_192K\b.*?4D503318", rtl, re.S) is not None)
 check("firmware: the interlock accepts rev 24 only in the 192 KB link",
       "#define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_192K)" in src
       and "#define VERSION_OK(v) ((v) == EXPECT_VERSION)" in src
-      and re.search(r"#if TAU_RAM_192K_FW\s*\n#define VERSION_OK", src) is not None)
+      # B-347: the plain RAM_192K-only branch moved from `#if` to `#elif` (the new combined
+      # TAU_RAM_192K_FW && TAU_CLK66_FW branch is checked first, `#if`), so it is still reached
+      # whenever RAM_192K_FW is set without CLK66_FW.
+      and re.search(r"#elif TAU_RAM_192K_FW\s*\n#define VERSION_OK", src) is not None)
 check("firmware: the boot interlock uses VERSION_OK", "if (!VERSION_OK(REG(R_VERSION)))" in src)
 
 if "--build" in sys.argv:

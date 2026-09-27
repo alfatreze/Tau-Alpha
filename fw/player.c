@@ -248,7 +248,16 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * (RAM_192K=1, -DTAU_RAM_192K_FW) accepts both (a 192 KB image also runs on the 256 KB bitstream). */
 #define EXPECT_VERSION_192K 0x4D503318u
 #define EXPECT_VERSION_CLK66 0x4D503319u
-#if TAU_RAM_192K_FW
+/* B-347: the combined bitstream (TAU_RAM_192K + TAU_CLK66) reports rev 26. A firmware built assuming BOTH contracts (RAM_192K_FW and
+ * CLK66_FW both set) must accept ONLY rev 26 -- deliberately stricter than the single-feature branches below, which each also accept
+ * the plain rev 23 baseline. Running combined-assumption firmware (192 KB link + 66.667 MHz cycle counting) on a single-feature or
+ * baseline bitstream must be refused, not silently tolerated, since either mismatch (wrong RAM size or wrong cycle rate) corrupts
+ * silently rather than crashing. This branch is checked first, before the single-feature `#elif`s, so it can never fall through to
+ * their more permissive checks. */
+#define EXPECT_VERSION_192K_CLK66 0x4D50331Au
+#if TAU_RAM_192K_FW && TAU_CLK66_FW
+#define VERSION_OK(v) ((v) == EXPECT_VERSION_192K_CLK66)
+#elif TAU_RAM_192K_FW
 #define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_192K)
 #elif TAU_CLK66_FW
 #define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_CLK66)
