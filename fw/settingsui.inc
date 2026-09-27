@@ -1010,7 +1010,65 @@ static int wvcfg_input(uint32_t edge)
     return 1;
 }
 
+/* ---- B-334: menu page fade-in with easing --------------------------------------------------------------------------------------------------------
+ * Opening Settings and moving between its pages fades the new page in from the page body colour over about 100 ms. There is no blend in
+ * this: the page is simply redrawn a few times with every role colour (and the accent) mixed toward the body colour by an eased factor, then
+ * once more at full strength. Text is drawn with a foreground and a background from the same roles, so its anti-aliasing stays consistent.
+ * The role table is faded in place for the duration of one draw and restored straight after, so nothing else ever sees a faded colour.
+ * Pages that draw live content, a QR code or thumbnails that are cached from the roles (the meter list) are not faded. */
+#ifndef TAU_MENU_FADE
+#define TAU_MENU_FADE 1
+#endif
+#define SET_FADE_STEPS 7u
+static const uint16_t set_fade_k[SET_FADE_STEPS] = { 0u, 108u, 180u, 224u, 246u, 255u, 256u };   /* ease-out cubic, 256*(1-(1-t)^3), t = 0..6/6 */
+static uint16_t set_fade_last = 0xFFFFu;         /* page drawn last; a different page starts a fade */
+static uint8_t  set_fade_step = SET_FADE_STEPS;  /* == SET_FADE_STEPS: not fading */
+static uint32_t set_fade_at;
+
+COLD_FN static int set_fade_page_ok(void)
+{
+    if (set_page < SET_MENUS || set_page == SET_HELP_PG || set_page == SET_LIBCFG_PG) return 1;
+    if (set_page == SET_INFO_PG)
+#if TAU_DIAGNOSTIC
+        return info_qr_up ? 0 : 1;
+#else
+        return 1;
+#endif
+    if (set_page >= SET_MENUS && set_page < SET_MENUS + CH_N) return (set_page - SET_MENUS) != CH_METER;   /* the meter list caches thumbnails from the roles */
+    return 0;
+}
+
+COLD_FN static void set_draw_now(void);
 COLD_FN static void set_draw(void)
+{
+#if TAU_MENU_FADE
+    const int fade_ok = set_fade_page_ok();
+    if (set_page != set_fade_last) {
+        set_fade_last = set_page;
+        set_fade_step = fade_ok ? 0u : SET_FADE_STEPS;
+        set_fade_at = cycles();
+    }
+    if (!fade_ok) set_fade_step = SET_FADE_STEPS;
+    if (set_fade_step < SET_FADE_STEPS) {
+        if ((int32_t)(cycles() - set_fade_at) < 0) { set_dirty = 1u; return; }      /* not yet time for the next step: stay dirty, try again */
+        const uint32_t k = set_fade_k[set_fade_step];
+        uint16_t save[TR_COUNT];
+        const uint16_t save_acc = ui_accent, body = OV_BODY;
+        for (uint32_t i = 0; i < TR_COUNT; i++) { save[i] = th_role[i]; th_role[i] = ui_mix(body, save[i], k, 256u); }
+        ui_accent = ui_mix(body, save_acc, k, 256u);
+        set_draw_now();
+        for (uint32_t i = 0; i < TR_COUNT; i++) th_role[i] = save[i];
+        ui_accent = save_acc;
+        set_fade_step++;
+        set_fade_at = cycles() + CLK_HZ / 60u;
+        if (set_fade_step < SET_FADE_STEPS) set_dirty = 1u;
+        return;
+    }
+#endif
+    set_draw_now();
+}
+
+COLD_FN static void set_draw_now(void)
 {
     uint8_t o = ov_draw; ov_draw = 1u;
     if (set_page < SET_MENUS)                set_draw_menu(set_page);
@@ -1044,6 +1102,7 @@ COLD_FN static void set_close(void)
 {
     set_open = 0u; set_page = SET_HOME; pl_ui_restore = 1u;
     set_lib_confirm = 0u;
+    set_fade_last = 0xFFFFu;                   /* B-334: the next open fades in again */
 }
 
 COLD_FN static void set_ch_follow(uint32_t c)

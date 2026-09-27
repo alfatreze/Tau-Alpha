@@ -189,3 +189,80 @@ static void rrect_probe_ensure(void)
 {
     if (!rrect_probed) { rrect_probe(); rrect_probed = 1u; }
 }
+
+/* ==== B-334: alpha blend from firmware (Talos B5, the pipelined version, B-327) ==========================================================
+ * A blended OP_BLIT computes dst = (src * a + dst * (256 - a)) >> 8 per colour channel for the whole rectangle, reading the destination
+ * from the framebuffer itself. It needs a bitstream built with TAU_BLIT_BLEND (BLEND_READY() finds out, once, with a known-answer blit)
+ * and it uses the STICKY blend field (R_BLT_IDX 5), so two rules apply:
+ *   1. the field is consulted when a command EXECUTES, not when it is queued, so it may only be switched off after every blend blit has
+ *      executed -- fb_fence() below waits for that;
+ *   2. only OP_BLIT is affected (never RECT/COPY/CHAR/CBLIT), so leaving it on briefly is harmless to everything else, but no OTHER
+ *      OP_BLIT (Chladni's replication, the probes) may run while it is on.
+ * All cold code: only the meters' trail uses it. Off-screen cells (columns 508.., rows 1019..1021) are the scratch pixels. */
+#define BLEND_CELL_X 508u
+#define BLEND_CELL_Y 1021u
+static uint8_t blend_state;                  /* 0 not probed yet, 1 ready, 2 not available on this bitstream */
+#define BLEND_READY() (blend_state == 1u)
+
+COLD_FN3 static int blend_mb_write(uint32_t a, uint32_t d)
+{
+    REG(R_SDR_ADDR) = a; REG(R_SDR_DATA) = d; REG(R_SDR_CTRL) = 0x3Fu;
+    const uint32_t t = cycles();
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u) if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return -1;
+    return 0;
+}
+COLD_FN3 static int blend_mb_read(uint32_t a, uint32_t *out)
+{
+    REG(R_SDR_ADDR) = a; REG(R_SDR_CTRL) = 0x3Du;
+    const uint32_t t = cycles();
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u) if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return -1;
+    *out = REG(R_SDR_RDATA);
+    return 0;
+}
+
+/* Returns once every command queued before it has executed (the engine runs its queue in order): a one-pixel rectangle is queued behind
+ * them and the mailbox polls that pixel for the change. Gives up after about 50 ms. Does nothing while an overlay holds the engine
+ * (its commands are dropped, so there is nothing to wait for). */
+COLD_FN3 static void fb_fence(void)
+{
+    if (FB_HELD()) return;
+    const uint32_t a = BLEND_CELL_Y * FB_STRIDE + BLEND_CELL_X;
+    uint32_t r = 0;
+    if (blend_mb_write(a, 0xDEADBEEFu)) return;
+    fb_rect(BLEND_CELL_X, BLEND_CELL_Y, 1u, 1u, 0x0001u);
+    const uint32_t t0 = cycles();
+    do {
+        uint32_t t = cycles();
+        while ((uint32_t)(cycles() - t) < 256u) { }
+        if (blend_mb_read(a, &r)) return;
+    } while (r == 0xDEADBEEFu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
+}
+
+/* Blend on with source weight `a` (0..255, mode 0 = the DSP alpha); off. */
+COLD_FN3 static void fb_blend_on(uint32_t a)  { fb_wait(); REG(R_BLT_IDX) = 5u; REG(R_BLT_DATA) = ((a & 0xFFu) << 8) | 1u; }
+COLD_FN3 static void fb_blend_off(void)       { REG(R_BLT_IDX) = 5u; REG(R_BLT_DATA) = 0u; }
+
+/* Known-answer probe: blend white over black at a = 128; a bitstream with the blend gives 0x7BEF, one without it copies 0xFFFF. Either
+ * half of the mailbox word may hold the pixel (the halves' order is not assumed). Not run while an overlay holds the engine. */
+COLD_FN3 static void blend_probe(void)
+{
+    if (FB_HELD()) return;
+    blend_state = 2u;
+    blit_probe_ensure();
+    if (!BLIT_READY()) return;
+    const uint32_t src = 1019u * FB_STRIDE + BLEND_CELL_X, dst = 1020u * FB_STRIDE + BLEND_CELL_X;
+    uint32_t r = 0;
+    if (blend_mb_write(src, 0xFFFFFFFFu) || blend_mb_write(dst, 0u)) return;
+    fb_blend_on(128u);
+    fb_blit(BLEND_CELL_X, 1019u, BLEND_CELL_X, 1020u, 1u, 1u);
+    fb_fence();
+    fb_blend_off();
+    if (blend_mb_read(dst, &r)) return;
+    if ((r & 0xFFFFu) == 0x7BEFu || (r >> 16) == 0x7BEFu) blend_state = 1u;
+}
+COLD_FN3 static void blend_ensure(void)
+{
+    if (!blend_state) blend_probe();
+}

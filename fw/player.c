@@ -2366,6 +2366,30 @@ static void ui_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
     }
 }
 
+/* B-334: fade what is in a rectangle of the player's meter area toward the background: the background strip is blended over it with weight
+ * `bg_alpha` (0..255 of the strip), so the old picture keeps (256 - bg_alpha)/256 of itself. Needs the blend bitstream (BLEND_READY());
+ * returns 0 without drawing anything when it is not there (or an overlay holds the engine), and the caller erases the old way. */
+COLD_FN3 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t bg_alpha)
+{
+    if (!w || !h || FB_HELD()) return 0;
+    blend_ensure();
+    if (!BLEND_READY()) return 0;
+    if (!ui_bg_ready) {                                     /* the same lazy strip build as ui_bg_restore() */
+        for (uint32_t yy = UI_WAVE_Y - UI_WAVE_TOP; yy < UI_WAVE_Y + UI_WAVE_H; yy++)
+            fb_rect(UI_BG_X, yy, UI_BG_W, 1, ui_grad_at(yy));
+        ui_bg_ready = 1;
+    }
+    fb_blend_on(bg_alpha > 255u ? 255u : bg_alpha);
+    while (w) {
+        uint32_t n = (w < UI_BG_W) ? w : UI_BG_W;
+        fb_blit(UI_BG_X, y, x, y, n, h);
+        x += n; w -= n;
+    }
+    fb_fence();
+    fb_blend_off();
+    return 1;
+}
+
 /* Repaint the strip the art travels through, so a slide leaves the background
  * behind it rather than a smear. Only the bands crossing the panel's rows. */
 static void ui_art_bg_range(uint32_t x, uint32_t w)
@@ -3653,8 +3677,14 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
      * either the old picture or the new one. The same pixel count; more, smaller commands. */
     const int percol = ui_fullscreen;
     if (!percol) {
-        if (use_gradient) ui_bg_restore(x0, y, w, h);
-        else              fb_rect(x0, y, w, h, bg);
+        /* B-334: a trail. With the blend bitstream the old trace is faded toward the background instead of erased: `trail` % of it survives
+         * each frame (the background strip is blended over the box with the remaining weight). 0, no blend bitstream, or the Configure preview
+         * (flat background) erases as before. */
+        const uint32_t trail = (uint32_t)MV_WINAMP_SCOPE(SCOPE_TRAIL);
+        if (!(use_gradient && trail && !paused && ui_bg_blend(x0, y, w, h, (100u - trail) * 256u / 100u))) {
+            if (use_gradient) ui_bg_restore(x0, y, w, h);
+            else              fb_rect(x0, y, w, h, bg);
+        }
         fb_rect(x0, cy, w, 1, UI_TRACK);
     }
 

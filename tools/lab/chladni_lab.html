@@ -1,0 +1,285 @@
+<title>Chladni Plate Lab</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#0e1011;--panel:#16191b;--line:#2a2f31;--ink:#dfe3df;--mute:#8d9793;--acc:#ece7cf;--sig:#f0a63a;--ok:#7fc79a;--bad:#e5786d;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 'IBM Plex Sans',system-ui,sans-serif;padding-inline:16px;padding-block:20px}
+.wrap{max-width:1180px;margin:0 auto;display:grid;gap:18px}
+h1{font-size:20px;font-weight:600;margin:0;letter-spacing:.01em}
+h2{font-size:12px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--mute);margin:0 0 10px}
+p.sub{margin:4px 0 0;color:var(--mute);max-width:70ch}
+.mono,td,th,output,select,button,input{font-family:'IBM Plex Mono',ui-monospace,monospace}
+.grid{display:grid;grid-template-columns:minmax(0,820px) minmax(260px,1fr);gap:18px;align-items:start}
+@media(max-width:980px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px}
+canvas{display:block;max-width:100%;image-rendering:pixelated;background:#000;border:1px solid var(--line)}
+.ctl{display:grid;grid-template-columns:110px 1fr 52px;gap:6px 10px;align-items:center;font-size:12px}
+.ctl label{color:var(--mute)}
+.ctl select,.ctl input[type=range]{width:100%;grid-column:2}
+.ctl output{text-align:right;color:var(--acc);font-size:12px}
+select,button{background:#1e2325;color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:5px 8px;font-size:12px}
+button{cursor:pointer}button:hover{border-color:var(--acc)}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--sig);outline-offset:1px}
+input[type=range]{accent-color:var(--acc)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}th{color:var(--mute);font-weight:500}
+.scroll{overflow-x:auto}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.sig{color:var(--sig)}
+.note{color:var(--mute);font-size:12px;max-width:80ch}
+.tabs{display:flex;gap:6px;margin-bottom:10px}.tabs button[aria-pressed=true]{border-color:var(--acc);color:var(--acc)}
+</style>
+<div class="wrap">
+<header><h1>Chladni Plate Lab</h1>
+<p class="sub">Preview of three Chladni-pattern meters for Tau Alpha, drawn at the real 400x110 meter box in RGB565. The default layout computes one tile and replicates it across the box with plain copies. Includes a blit-engine cost model, an audio headroom check and a benchmark on a fixed demo track. Nothing here is on hardware yet.</p></header>
+
+<div class="grid">
+ <section class="card">
+  <div class="tabs"><button id="tabM" aria-pressed="true">Meter</button><button id="tabG" aria-pressed="false">Gallery</button></div>
+  <div id="viewM"><canvas id="cv" width="400" height="110" style="width:100%;aspect-ratio:400/110"></canvas>
+   <canvas id="tl" width="400" height="60" style="width:100%;margin-top:8px;aspect-ratio:400/60"></canvas>
+   <p class="note" style="margin:8px 0 0">Lower strip: 16 band levels (bass left), then spectral rise over the last 6 s. Amber ticks are triggers.</p></div>
+  <div id="viewG" hidden><canvas id="gal" width="720" height="360" style="width:100%;aspect-ratio:2/1"></canvas>
+   <p class="note" style="margin:8px 0 0">Pure modes, cos(m&pi;x)cos(n&pi;y) &plusmn; cos(n&pi;x)cos(m&pi;y), computed with the same Q14 kernel the meter uses. Label is m,n and family sign.</p></div>
+ </section>
+ <section class="card"><h2>Controls</h2>
+  <div class="ctl" style="margin-bottom:12px"><label for="tpl">Template</label><select id="tpl"></select><span></span></div>
+  <p class="note" id="tplNote" style="margin:0 0 12px"></p>
+  <div class="ctl" id="ctl"></div>
+  <div class="row"><button id="bPlay">Play file</button><input type="file" id="file" accept="audio/*" style="max-width:190px;font-size:11px"><button id="bMic">Mic</button></div>
+  <p class="note" id="srcNote" style="margin:8px 0 0"></p>
+ </section>
+</div>
+
+<section class="card"><h2>Per-frame cost (30 fps, running average)</h2>
+ <div class="scroll"><table id="cost"></table></div>
+ <p class="note" style="margin-top:8px">Blit cycle figures are estimates from the engine's RTL structure, not measurements. The blit-storm Check (CT_BLT) is the gate that turns them into numbers. Constants: 100 MHz SDRAM, 60 MHz CPU, 6 cycles per multiply-add, 48 cycles per uncached window store, 24 SDRAM cycles per single-word engine transaction, 40 cycles per rect command.</p></section>
+
+<section class="card"><h2>Benchmark on the demo track</h2>
+ <div class="row" style="margin:0 0 10px"><button id="bBench">Run 40 s simulated, all engines</button><span class="note" id="benchSt"></span></div>
+ <div class="scroll"><table id="bench"></table></div>
+ <p class="note" style="margin-top:8px">Steady change: share of plate cells that toggle per frame away from onsets. Punch: the same, in the 6 frames after a trigger, divided by steady. A good meter has low steady change and punch well above 1.</p></section>
+</div>
+<script>
+'use strict';
+const W=400,H=110,P=108,FPS=30,WIN=1024/44100;
+const cfg={tiling:'shift',sym:'none',b19:0,paint:'lines',hlev:16,zoom:4,cell:3,frate:30,eta:.08,a0:.003,engine:'field',layout:'fill',res:54,src:'demo',trig:'flux',render:'scb',topk:3,sens:1.6,refr:600,eps:38,even:1,slew:6,pow:2,morph:40,agit:30,grains:700,gsize:0,color:'bone',freq:440};
+// ---------- RGB565 ----------
+const q5=v=>{v=Math.max(0,Math.min(255,v|0));const r=v>>3;return (r<<3)|(r>>2)};
+const q6=v=>{v=Math.max(0,Math.min(255,v|0));const r=v>>2;return (r<<2)|(r>>4)};
+const COLS={bone:[236,231,207],amber:[240,166,58],cyan:[110,220,230],lime:[170,225,90],white:[255,255,255]};
+const TILE=[16,18,17];
+function lerp(a,b,t){return [a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]}
+function clut(burst){const lc=lerp(COLS[cfg.color],[255,255,255],Math.min(.6,burst*.6));const t=[];for(let i=0;i<16;i++){const c=lerp(TILE,lc,Math.pow(i/15,.85));t.push([q5(c[0]),q6(c[1]),q5(c[2])])}return t.concat(HEAT)}
+// heat palette: violet -> blue -> cyan -> green -> yellow -> red, like a colour-mapped amplitude plot
+function hsv(h,sv,v){const c=v*sv,x=c*(1-Math.abs((h/60)%2-1)),m=v-c;let r,g,b;if(h<60)[r,g,b]=[c,x,0];else if(h<120)[r,g,b]=[x,c,0];else if(h<180)[r,g,b]=[0,c,x];else if(h<240)[r,g,b]=[0,x,c];else if(h<300)[r,g,b]=[x,0,c];else[r,g,b]=[c,0,x];return[(r+m)*255,(g+m)*255,(b+m)*255]}
+const HEAT=[];for(let i=0;i<16;i++){const c=hsv(285-285*i/15,.95,.92);HEAT.push([q5(c[0]),q6(c[1]),q5(c[2])])}
+// ---------- Q14 kernel ----------
+const cosT=new Int16Array(1024);for(let i=0;i<1024;i++)cosT[i]=Math.round(Math.cos(i*2*Math.PI/1024)*16384);
+const CTc={};function ct(R){if(CTc[R])return CTc[R];const t=[];for(let o=0;o<=12;o++){const a=new Int16Array(R);for(let i=0;i<R;i++)a[i]=cosT[Math.round(o*512*(i+.5)/R)&1023];t.push(a)}return CTc[R]=t}
+let macs=0;
+// modes: [{m,n,w (Q14, sum|w|<=16384), s (Q14 family blend, +-16384)}]
+function field(Rx,Ry,modes,F){const CX=ct(Rx),CY=ct(Ry),K=modes.length,a=new Int32Array(K),b=new Int32Array(K);
+ for(let j=0;j<Ry;j++){for(let k=0;k<K;k++){const M=modes[k];a[k]=(M.w*CY[M.n][j])>>14;b[k]=(((M.w*M.s)>>14)*CY[M.m][j])>>14}
+  for(let i=0;i<Rx;i++){let s=0;for(let k=0;k<K;k++){const M=modes[k];s+=a[k]*CX[M.m][i]+b[k]*CX[M.n][i]}F[j*Rx+i]=s>>14}}
+ macs+=Rx*Ry*K*2}
+function lineI(F,Rx,Ry,eps,even,out){const n=Rx*Ry;
+ if(!even){for(let i=0;i<n;i++){const a=Math.abs(F[i]);out[i]=a>=eps?0:1+(((eps-a)*14/eps)|0)}return}
+ const hw=Math.max(.15,eps/16384*Rx*.9);
+ for(let j=0;j<Ry;j++)for(let i=0;i<Rx;i++){const k=j*Rx+i,a=Math.abs(F[k]);
+  const xl=F[j*Rx+(i+Rx-1)%Rx],xr=F[j*Rx+(i+1)%Rx],yu=F[((j+Ry-1)%Ry)*Rx+i],yd=F[((j+1)%Ry)*Rx+i];
+  const g=Math.max(48,(Math.abs(xr-xl)+Math.abs(yd-yu))/2);const d=a/g;out[k]=d>=hw?0:1+(((hw-d)/hw*14)|0)}
+ macs+=n*3}
+// Symmetry-folded field: compute one quarter (D2) or one eighth (D4) and mirror the values.
+// Centre mirror needs one parity class (F(1-x,y) = (-1)^m F), diagonal needs every mode to share one family sign s = +-1.
+function fieldFold(Rx,Ry,modes,F,d4,sg){const CX=ct(Rx),CY=ct(Ry),K=modes.length,a=new Int32Array(K),b=new Int32Array(K),hx=(Rx+1)>>1,hy=(Ry+1)>>1;let cells=0;const sdg=Math.sign(modes[0].s)||1;
+ for(let j=0;j<hy;j++){for(let k=0;k<K;k++){const M=modes[k];a[k]=(M.w*CY[M.n][j])>>14;b[k]=(((M.w*M.s)>>14)*CY[M.m][j])>>14}
+  for(let i=0;i<hx;i++){if(d4&&i>j)continue;let s=0;for(let k=0;k<K;k++){const M=modes[k];s+=a[k]*CX[M.m][i]+b[k]*CX[M.n][i]}s>>=14;cells++;
+   const put=(x,y,v)=>{F[y*Rx+x]=v};const spread=(x,y,v)=>{put(x,y,v);put(Rx-1-x,y,sg*v);put(x,Ry-1-y,sg*v);put(Rx-1-x,Ry-1-y,v)};
+   spread(i,j,s);if(d4&&i!==j)spread(j,i,sdg*s)}}
+ macs+=cells*K*2+hy*K*2}
+function foldOK(p){return p.fill&&cfg.tiling==='shift'&&cfg.sym!=='none'&&cfg.engine==='field'&&(cfg.sym!=='d4'||p.Rx===p.Ry)}
+// ---------- modes ----------
+const POOL=[];for(let m=1;m<=9;m++)for(let n=0;n<m;n++)POOL.push({m,n,c:m*m+n*n});POOL.sort((a,b)=>a.c-b.c||a.m-b.m);
+const CLS=[[],[]];for(let m=2;m<=11;m++)for(let n=0;n<m;n++){if((m+n)&1)continue;CLS[m&1].push({m,n,c:m*m+n*n})}CLS.forEach(a=>a.sort((x,y)=>x.c-y.c||x.m-y.m));
+const OFFS=[[0,0,0,0],[1,-1,2,-2],[2,1,-1,3],[-1,2,3,1]];
+const LAY={fill:[{x:0,lo:0,hi:15,ps:0,pe:14}],solo:[{x:146,lo:0,hi:15,ps:0,pe:POOL.length-1}],tri:[{x:8,lo:0,hi:4,ps:0,pe:17},{x:146,lo:5,hi:10,ps:14,pe:31},{x:284,lo:11,hi:15,ps:28,pe:POOL.length-1}]};
+function modeFor(p,b,scene){if(p.fill&&cfg.tiling==='mirror'){const L=POOL.filter(x=>x.m<=p.mlim),sp=Math.max(1,p.hi-p.lo);let i=Math.round((b-p.lo)/sp*(L.length-1))+OFFS[(scene>>1)&3][b%4];i=Math.max(0,Math.min(L.length-1,i));return L[i]}if(p.fill){const L=CLS[scene&1].filter(x=>x.m<=p.mlim),sp=Math.max(1,p.hi-p.lo);let i=Math.round((b-p.lo)/sp*(L.length-1))+OFFS[(scene>>1)&3][b%4];i=Math.max(0,Math.min(L.length-1,i));return L[i]}const span=Math.max(1,p.hi-p.lo);let i=p.ps+Math.round((b-p.lo)/span*(p.pe-p.ps))+OFFS[scene][b%4];i=Math.max(p.ps,Math.min(p.pe,i));return POOL[i]}
+// ---------- PRNG / audio drive ----------
+function rng(seed){let a=seed>>>0;return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+let R0=rng(7);
+const bandOf=f=>Math.max(0,Math.min(15,Math.ceil(2*Math.log2(f/38.6))));
+function drive(t,out){out.fill(0);const add=(b,v)=>{if(b>=0&&b<16&&v>out[b])out[b]=v},sp=(f,v)=>{const b=bandOf(f);add(b,v);add(b-1,v*.35);add(b+1,v*.35)};
+ if(cfg.src==='sweep'){sp(32*Math.pow(6500/32,(t%24)/24),210);return}
+ if(cfg.src==='sine'){sp(cfg.freq,210);return}
+ const beat=t/(60/118),ph=beat%1,bar=Math.floor(beat/4),root=[55,55,73.4,82.4][bar%4];
+ const h=n=>{const x=Math.sin(n*127.1)*43758.5;return x-Math.floor(x)};
+ const ke=Math.exp(-ph*7);sp(52,235*ke);sp(85,150*ke);
+ const s8=Math.floor(beat*2);sp(root*(s8%4==3?2:1),170*(.6+.4*Math.exp(-((beat*2)%1)*3)));
+ const s16=Math.floor(beat*4),sc=[0,3,5,7,10,12,15,17],sq=[0,2,4,7,4,2,5,3];
+ if(bar%8>=2)sp(root*8*Math.pow(2,sc[sq[s16%8]]/12)*(bar%8>=4?1.5:1),190*Math.exp(-((beat*4)%1)*4));
+ if(Math.floor(beat)%2==1){const e=Math.exp(-ph*10);for(let b=8;b<=12;b++)add(b,200*e*(.6+.4*h(s16+b)))}
+ if(s8%2==1){const e=Math.exp(-((beat*2)%1)*18);for(let b=13;b<=15;b++)add(b,150*e)}
+ sp(root*4,90);sp(root*6,80)}
+// ---------- live audio ----------
+let AC=null,AN=null,fbuf=null,liveOn=false,audioEl=null;
+function liveTarget(out){if(!AN){out.fill(0);return}AN.getFloatFrequencyData(fbuf);const sr=AC.sampleRate,bin=sr/AN.fftSize;
+ for(let b=0;b<16;b++){const hiF=7000/Math.pow(2,(15-b)/2),loF=hiF/Math.SQRT2;let mx=-140;for(let k=Math.max(1,Math.floor(loF/bin));k<=Math.ceil(hiF/bin)&&k<fbuf.length;k++)if(fbuf[k]>mx)mx=fbuf[k];
+  out[b]=Math.max(0,Math.min(255,(mx+88)*255/58))}}
+// ---------- sim ----------
+const tgt=new Float32Array(16),lvl=new Float32Array(16);
+let T=0,tacc=0,plates=[],events=[],hist=[];
+const cost={cmds:0,macs:0,stores:0,sd:0,ram:0,cpu:0};
+function geom(){if(cfg.layout==='fill'){let tw=W/cfg.zoom,th=cfg.zoom>=5?55:110;const sd=cfg.engine==='sand';if(cfg.sym==='d4'&&cfg.tiling==='shift'&&!sd){tw=th=110}return{tw,th,Rx:sd?tw:Math.round(tw/cfg.cell),Ry:sd?th:Math.round(th/cfg.cell),fill:true,mlim:Math.max(4,Math.min(11,Math.floor(tw/(sd?9:3*cfg.cell))))}}const R=cfg.engine==='sand'?P:cfg.res;return{tw:P,th:P,Rx:R,Ry:R,fill:false}}
+function newPlate(d){const g=geom(),Rx=g.Rx,Ry=g.Ry,R=Rx*Ry;return Object.assign({},d,g,{w:new Float32Array(16),psi:0,scene:0,burst:0,
+ det:{ema:.02,prev:new Float32Array(16),last:-9,arg:-1,cand:-1,hold:0},cur:null,prev:null,alpha:1,curKey:'',
+ I:new Uint8Array(R),Iprev:new Uint8Array(R),F:new Int32Array(R),g:null,shown:new Uint8Array(g.tw*g.th),drawn:new Uint8Array(g.tw*g.th),cache:new Map(),energy:0})}
+function build(){plates=LAY[cfg.layout].map(newPlate);events=[];hist=[];fcount=0;dtAcc=0;lvl.fill(0);T=0;R0=rng(7);for(const p of plates){if(cfg.engine==='sand')initGrains(p)}}
+function initGrains(p){const n=cfg.grains,g={x:new Float32Array(n),y:new Float32Array(n)};for(let i=0;i<n;i++){g.x[i]=R0();g.y[i]=R0()}p.g=g;p.drawn.fill(0)}
+function windowTick(){const raw=new Float32Array(16);
+ if(cfg.src==='file'||cfg.src==='mic')liveTarget(raw);else drive(T,raw);
+ for(let b=0;b<16;b++){const v=raw[b];if(v>=lvl[b])lvl[b]=v;else lvl[b]-=(lvl[b]-v)/4+1;if(lvl[b]<0)lvl[b]=0}
+ for(const p of plates)detect(p)}
+function detect(p){const d=p.det;let fire=false,rise=0;
+ if(cfg.trig==='tonal'){let a=p.lo;for(let b=p.lo;b<=p.hi;b++)if(lvl[b]>lvl[a])a=b;
+  if(d.arg<0)d.arg=a;if(a!==d.arg&&lvl[a]>60){if(d.cand===a)d.hold++;else{d.cand=a;d.hold=1}if(d.hold>=4&&T-d.last>cfg.refr/1000){fire=true;d.arg=a;d.hold=0}}else d.hold=0;
+  p.energy=0;for(let b=p.lo;b<=p.hi;b++)p.energy+=lvl[b];p.energy/=255*(p.hi-p.lo+1);}
+ else{const hi=cfg.trig==='kick'?Math.min(p.hi,p.lo+3):p.hi;for(let b=p.lo;b<=hi;b++)rise+=Math.max(0,lvl[b]-d.prev[b]);
+  const thr=cfg.sens*d.ema+6;if(rise>thr&&T-d.last>cfg.refr/1000)fire=true;d.ema+=(rise-d.ema)/32;
+  p.energy=0;for(let b=p.lo;b<=p.hi;b++)p.energy+=lvl[b];p.energy/=255*(p.hi-p.lo+1);d.rise=rise}
+ for(let b=0;b<16;b++)d.prev[b]=lvl[b];
+ if(fire){d.last=T;fire_(p)}}
+function fire_(p){p.scene=(p.scene+1)&3;p.burst=1;p.psi+=Math.PI/2;events.push({t:T,x:p.x})}
+// per-plate model update
+function activeModes(p){const K=cfg.engine==='dict'?1:cfg.topk;const bs=[];for(let b=p.lo;b<=p.hi;b++)bs.push(b);bs.sort((a,b)=>p.w[b]-p.w[a]);
+ const sel=bs.slice(0,K).filter(b=>p.w[b]>.02),sum=sel.reduce((s,b)=>s+p.w[b],0)||1,out=[];
+ for(const b of sel){const M=modeFor(p,b,p.scene);const sgn=(p.fill&&cfg.sym==='d4'&&cfg.tiling==='shift')?(Math.cos(p.psi)<0?-1:1):cfg.engine==='dict'?(((p.fill?p.scene>>1:p.scene)&1)?-1:1):Math.cos(p.psi+b*.9);
+  out.push({m:M.m,n:M.n,w:Math.round(p.w[b]/sum*16384),s:Math.round(sgn*16384),b})}return out}
+function updatePlate(p,dt){
+ const up=.004+.4*Math.pow(cfg.slew/100,2),dn=.6*up;
+ for(let b=p.lo;b<=p.hi;b++){let t=Math.pow(lvl[b]/255,cfg.pow);const d=t-p.w[b];p.w[b]+=Math.max(-dn,Math.min(up,d))}
+ if(cfg.engine==='dict'){let a=p.lo;for(let b=p.lo;b<=p.hi;b++)if(p.w[b]>p.w[a])a=b;for(let b=p.lo;b<=p.hi;b++)if(b!==a&&p.w[b]>0)p.w[b]=Math.max(0,p.w[b]-.06)}
+ p.psi+=dt*(cfg.morph/100*2.4)*(.4+p.energy*2.5);p.burst=Math.max(0,p.burst-dt*4);
+ const modes=activeModes(p);p.modes=modes;const Rx=p.Rx,Ry=p.Ry;
+ if(cfg.engine==='sand'){stepSand(p,modes,dt);return}
+ let key=modes.map(x=>x.m+','+x.n+','+Math.sign(x.s)).join('|');
+ if(cfg.engine==='dict'){key=modes.length?modes[0].m+','+modes[0].n+','+modes[0].s:'';
+  if(!p.cache.has(key)){const F=new Int32Array(Rx*Ry),I=new Uint8Array(Rx*Ry);if(modes.length){field(Rx,Ry,modes.map(x=>({...x,w:16384})),F);lineI(F,Rx,Ry,Math.round(16384*cfg.eps/500),cfg.even,I)}p.cache.set(key,I);cost.planeGen=(cost.planeGen||0)+1}
+  if(key!==p.curKey){p.Iprev.set(p.I);p.alpha=0;p.curKey=key}
+  p.I.set(p.cache.get(key));p.alpha=Math.min(1,p.alpha+dt/.25);return}
+ if(!modes.length){p.I.fill(0);return}
+ if(foldOK(p))fieldFold(Rx,Ry,modes,p.F,cfg.sym==='d4',(modes[0].m&1)?-1:1);else field(Rx,Ry,modes,p.F);const eps=Math.round(16384*cfg.eps/500*(.55+p.energy*1.6+p.burst*.9));lineI(p.F,Rx,Ry,eps,cfg.even,p.I)}
+function stepSand(p,modes,dt){const g=p.g,n=g.x.length,K=modes.length;p.shown.fill(0);if(!K){plot(p);return}
+ const A=(cfg.agit/100)*(cfg.a0+.03*p.energy+.06*p.burst),eta=cfg.eta;
+ const mp=modes.map(o=>({m:o.m*Math.PI,n:o.n*Math.PI,w:o.w/16384,s:o.s/16384}));
+ for(let i=0;i<n;i++){const x=g.x[i],y=g.y[i];let Fv=0,Fx=0,Fy=0;
+  for(const o of mp){const cmx=Math.cos(o.m*x),smx=Math.sin(o.m*x),cnx=Math.cos(o.n*x),snx=Math.sin(o.n*x),cmy=Math.cos(o.m*y),smy=Math.sin(o.m*y),cny=Math.cos(o.n*y),sny=Math.sin(o.n*y);
+   Fv+=o.w*(cmx*cny+o.s*cnx*cmy);Fx+=o.w*(-o.m*smx*cny-o.s*o.n*snx*cmy);Fy+=o.w*(-o.n*cmx*sny-o.s*o.m*cnx*smy)}
+  const af=Math.abs(Fv);let nx=x-eta*Fv*Fx*(1+p.energy*2),ny=y-eta*Fv*Fy*(1+p.energy*2);
+  const k=A*Math.min(1.5,af*1.6);nx+=(R0()-.5)*2*k;ny+=(R0()-.5)*2*k;
+  if(p.fill){nx-=Math.floor(nx);ny-=Math.floor(ny)}else{if(nx<0)nx=-nx;if(nx>=1)nx=1.999-nx;if(ny<0)ny=-ny;if(ny>=1)ny=1.999-ny}g.x[i]=Math.min(.9999,nx);g.y[i]=Math.min(.9999,ny)}
+ macs+=n*K*14;plot(p)}
+function plot(p){const g=p.g,n=g.x.length;for(let i=0;i<n;i++){const px=(g.x[i]*p.tw)|0,py=(g.y[i]*p.th)|0;const k=py*p.tw+px;if(p.shown[k]<15)p.shown[k]+=cfg.gsize?5:8}
+ // delta vs drawn: count commands as horizontal runs of changed pixels
+ let cmds=0;for(let y=0;y<p.th;y++){let run=false;for(let x=0;x<p.tw;x++){const k=y*p.tw+x,c=(p.shown[k]>0)!==(p.drawn[k]>0);if(c&&!run){cmds++;run=true}else if(!c)run=false}}
+ cost.cmds+=cmds;cost.sd+=cmds*48;p.drawn.set(p.shown)}
+// ---------- cost ----------
+function repl(tw,th){let cmds=0,cyc=0,w=tw;while(w<W){const nw=Math.min(w,W-w);let rem=nw;while(rem>0){const c=Math.min(127,rem);cmds++;cyc+=th*(c*2+48);rem-=c}w+=nw}
+ let h=th;while(h<H){const nh=Math.min(h,H-h);let rem=W;while(rem>0){const c=Math.min(127,rem);cmds++;cyc+=nh*(c*2+48);rem-=c}h+=nh}return{cmds,cyc}}
+function q3(i){return i?Math.ceil(i/5):0}
+function cellIdx(p){const n=p.Rx*p.Ry,o=p._ci||(p._ci=new Uint8Array(n));
+ if(cfg.engine!=='field'||cfg.paint==='lines'){for(let k=0;k<n;k++)o[k]=p.I[k];return o}
+ const L=cfg.hlev;let mx=1024;for(let k=0;k<n;k++){const v=Math.abs(p.F[k]);if(v>mx)mx=v}for(let k=0;k<n;k++){let h=Math.floor((p.F[k]/mx*.5+.5)*15.999);h=h<0?0:h>15?15:h;h=Math.floor(h*L/16)*Math.round(15/(L-1||1));h=Math.min(15,h);o[k]=(cfg.paint==='both'&&p.I[k]>=6)?15:16+h}return o}
+function tileIdx(p){const{tw,th,Rx,Ry}=p,o=p._ti||(p._ti=new Uint8Array(tw*th));
+ if(cfg.engine==='sand'){for(let k=0;k<tw*th;k++){const v=p.shown[k];o[k]=v?Math.min(15,3+v):0}return o}
+ const CI=cellIdx(p);for(let y=0;y<th;y++){const sy=Math.min(Ry-1,(y*Ry/th)|0);for(let x=0;x<tw;x++){const sx=Math.min(Rx-1,(x*Rx/tw)|0),k=sy*Rx+sx;let i=CI[k];
+  if(cfg.engine==='dict'&&p.alpha<1)i=Math.max(Math.round(i*p.alpha),Math.round(p.Iprev[k]*(1-p.alpha)));o[y*tw+x]=i}}return o}
+function costFrame(p){const{tw,th,Rx,Ry}=p,ti=tileIdx(p);let chg=!p.lastTI;if(!chg)for(let k=0;k<ti.length;k++)if(ti[k]!==p.lastTI[k]){chg=true;break}
+ p.lastTI=ti.slice();if(!chg)return;let cmds=0,sd=0,st=0;
+ if(cfg.engine!=='sand'){const layers=(cfg.engine==='dict'&&p.alpha<1)?2:1;
+  if(cfg.render==='rect'){const CI=cellIdx(p);const heat=cfg.engine==='field'&&cfg.paint!=='lines';let runs=0;for(let j=0;j<Ry;j++){let prev=-1;for(let i=0;i<Rx;i++){const v=heat?CI[j*Rx+i]:q3(CI[j*Rx+i]);if(v&&v!==prev)runs++;prev=v}}cmds=1+runs*layers;sd=40*cmds+tw*th*.2+runs*(tw/Rx)*20}
+  else if(cfg.render==='sb'){cmds=layers;st=Rx*Ry/2*layers;sd=tw*th*24*layers}
+  else{cmds=layers;st=(cfg.engine==='dict'?0:Rx*Ry/2);sd=layers*(th*(tw+24)+Ry*(Rx+24))}}
+if(p.fill&&(tw<W||th<H)){const r=repl(tw,th);cmds+=r.cmds;sd+=r.cyc;
+  if(cfg.tiling==='mirror'&&!cfg.b19){const nh=Math.max(0,Math.ceil(W/tw)-1),nv=Math.max(0,Math.ceil(H/th)-1);const flips=nh*tw+nv*th;cmds+=flips;sd+=nh*tw*th*50+nv*th*(W*2+48)}}
+ cost.cmds+=cmds;cost.stores+=st;cost.sd+=sd}
+// ---------- render ----------
+const cv=document.getElementById('cv'),cx=cv.getContext('2d'),img=cx.createImageData(W,H);
+function paint(){const d=img.data;
+ if(cfg.layout==='fill'){const p=plates[0],tb=clut(p.burst),ti=tileIdx(p);for(let y=0;y<H;y++)for(let x=0;x<W;x++){const tx=x%p.tw,ty=y%p.th,mx=cfg.tiling==='mirror'&&(((x/p.tw)|0)&1)?p.tw-1-tx:tx,my=cfg.tiling==='mirror'&&(((y/p.th)|0)&1)?p.th-1-ty:ty;const c=tb[ti[my*p.tw+mx]],o=(y*W+x)*4;d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2];d[o+3]=255}cx.putImageData(img,0,0);return}
+ for(let y=0;y<H;y++){const t=(150+y)/360,c=[33*(1-t),36*(1-t),33*(1-t)];for(let x=0;x<W;x++){const k=(y*W+x)*4;d[k]=q5(c[0]);d[k+1]=q6(c[1]);d[k+2]=q5(c[2]);d[k+3]=255}}
+ for(const p of plates){const tb=clut(p.burst),ti=tileIdx(p);for(let y=0;y<p.th;y++)for(let x=0;x<p.tw;x++){const c=tb[ti[y*p.tw+x]],o=((y+1)*W+p.x+x)*4;d[o]=c[0];d[o+1]=c[1];d[o+2]=c[2]}}
+ cx.putImageData(img,0,0)}
+const tl=document.getElementById('tl'),tx=tl.getContext('2d');
+function paintTL(){tx.fillStyle='#0b0d0e';tx.fillRect(0,0,400,60);tx.fillStyle='#ece7cf';for(let b=0;b<16;b++){const h=lvl[b]/255*54;tx.fillRect(4+b*11,58-h,9,h)}
+ const x0=190;tx.strokeStyle='#2a2f31';tx.strokeRect(x0+.5,2.5,206,55);tx.strokeStyle='#8d9793';tx.beginPath();
+ hist.forEach((v,i)=>{const x=x0+i*(206/180),y=57-Math.min(52,v*.6);i?tx.lineTo(x,y):tx.moveTo(x,y)});tx.stroke();
+ tx.fillStyle='#f0a63a';for(const e of events){const a=(T-e.t);if(a<6)tx.fillRect(x0+206-a*(206/6)-1,3,2,54)}}
+// ---------- main loop ----------
+let last=performance.now(),acc=0,avg={};
+function frame(now){const dt=Math.min(.1,(now-last)/1000);last=now;acc+=dt;let n=0;
+ while(acc>=1/FPS&&n<3){acc-=1/FPS;n++;simStep(1/FPS)}
+ if(n){paint();paintTL();showCost()}requestAnimationFrame(frame)}
+let fcount=0,dtAcc=0;
+function simStep(dt){T+=dt;tacc+=dt;while(tacc>=WIN){tacc-=WIN;windowTick()}
+ cost.cmds=0;cost.macs=0;cost.stores=0;cost.sd=0;macs=0;dtAcc+=dt;fcount++;
+ if(fcount%Math.max(1,Math.round(30/cfg.frate))===0){for(const p of plates){updatePlate(p,dtAcc);costFrame(p)}dtAcc=0}
+ cost.macs=macs;let sumR=0;for(const p of plates)sumR+=(cfg.engine==='sand'?P*P:p.R*p.R*(cfg.engine==='dict'?0:1)*1);
+ cost.cpu=(cost.macs*6+cost.stores*48+cost.cmds*60)/60;cost.ram=ramBytes();
+ let rise=0;for(const p of plates)rise+=p.det.rise||0;hist.push(rise);if(hist.length>180)hist.shift();
+ for(const k of['cmds','macs','stores','sd','cpu','ram'])avg[k]=avg[k]===undefined?cost[k]:avg[k]+(cost[k]-avg[k])/20}
+function ramBytes(){let b=0;for(const p of plates){if(cfg.engine==='sand')b+=p.tw*p.th+cfg.grains*4;else b+=p.Rx*p.Ry*3}return b}
+function showCost(){const fr=1e8/FPS,bars=36;const rows=[['Draw commands',avg.cmds,'vs 36 for VIZ_BARS ('+(avg.cmds/bars).toFixed(1)+'x)'],['CPU multiply-adds',avg.macs,''],['Window stores (2 cells each)',avg.stores,''],['CPU time',avg.cpu,'us of 33333 per frame'],['SDRAM engine cycles',avg.sd,((avg.sd/fr)*100).toFixed(1)+'% of a 30 fps frame'],['CPU RAM held',avg.ram,'bytes']];
+ const cp=avg.cpu/33333*100,sp=avg.sd/fr*100;rows.push(['Audio headroom check',0,`CPU ${cp.toFixed(1)}% (limit 10) / SDRAM ${sp.toFixed(1)}% (limit 5, hardware-proven 15.8)`]);
+ document.getElementById('cost').innerHTML='<tr><th>Item</th><th>Per frame</th><th>Note</th></tr>'+rows.map(r=>`<tr><td>${r[0]}</td><td>${r[0].startsWith('Audio')?(cp<=10&&sp<=5?'<span class=ok>PASS</span>':'<span class=sig>OVER</span>'):Math.round(r[1]).toLocaleString()}</td><td>${r[2]}</td></tr>`).join('')}
+// ---------- gallery ----------
+function gallery(){const c=document.getElementById('gal'),g=c.getContext('2d');g.fillStyle='#0b0d0e';g.fillRect(0,0,720,360);const R=90,F=new Int32Array(R*R),I=new Uint8Array(R*R);
+ const sel=[[1,0,-1],[2,1,1],[2,0,-1],[3,1,-1],[3,2,1],[4,1,1],[4,3,-1],[5,2,1],[5,4,-1],[6,3,1],[7,2,-1],[8,5,1]];
+ sel.forEach((s,q)=>{const ox=(q%6)*120+15,oy=((q/6)|0)*180+20;field(R,R,[{m:s[0],n:s[1],w:16384,s:s[2]*16384}],F);lineI(F,R,R,Math.round(16384*.075),0,I);
+  const id=g.createImageData(R,R),tb=clut(0);for(let i=0;i<R*R;i++){const c2=tb[I[i]];id.data[i*4]=c2[0];id.data[i*4+1]=c2[1];id.data[i*4+2]=c2[2];id.data[i*4+3]=255}
+  g.putImageData(id,ox,oy);g.fillStyle='#8d9793';g.font='11px IBM Plex Mono,monospace';g.fillText(`${s[0]},${s[1]} ${s[2]>0?'+':'-'}`,ox,oy+104)})}
+// ---------- controls ----------
+const defs=[['Engine','engine',[['field','Live field'],['sand','Sand'],['dict','Dictionary']]],['Layout','layout',[['fill','Fill (tiled)'],['solo','One plate'],['tri','Three plates']]],['Tiling','tiling',[['shift','Translate (one parity class)'],['mirror','Mirror (any modes)']]],['Symmetry','sym',[['none','Full compute'],['d2','Quarter (D2)'],['d4','Eighth (D4, square tile)']]],['B19 flips','b19',[[0,'Not built'],[1,'Assume built']]],['Zoom','zoom',[[2,'2 tiles across'],[4,'4 tiles across'],[5,'5 tiles across'],[8,'8 tiles across']]],['Cell size','cell',[[2,'2 px'],[3,'3 px'],[4,'4 px']]],['Field rate','frate',[[30,'30 fps'],[15,'15 fps'],[10,'10 fps']]],['Source','src',[['demo','Demo track'],['sweep','Sine sweep'],['sine','Fixed tone'],['file','File'],['mic','Mic']]],['Trigger','trig',[['flux','Spectral rise'],['kick','Bass rise'],['tonal','Tone change']]],['Blit path','render',[['rect','Rects (today)'],['sb','Scaled blit (today)'],['scb','Row-burst scaled (B18)']]],['Cells (plate)','res',[[27,'27 (4x)'],[36,'36 (3x)'],[54,'54 (2x)'],[108,'108 (1x)']]],
+ ['Paint','paint',[['lines','Lines'],['heat','Heat fill'],['both','Heat + lines']]],['Heat colours','hlev',[[4,'4'],[8,'8'],[16,'16']]],['Colour','color',[['bone','Bone'],['amber','Amber'],['cyan','Cyan'],['lime','Lime'],['white','White']]],['Even width','even',[[0,'Off'],[1,'On']]],['Grain brightness','gsize',[[1,'Soft'],[0,'Strong']]]];
+const rng_=[['Top modes','topk',1,8,1],['Trigger gain','sens',.8,4,.1],['Refractory ms','refr',150,900,10],['Line width','eps',10,160,1],['Slew','slew',2,100,1],['Sharpen','pow',1,6,.5],['Morph rate','morph',0,100,1],['Agitation','agit',0,100,1],['Grains','grains',100,1500,50],['Tone Hz','freq',30,6500,10]];
+const ctl=document.getElementById('ctl');
+defs.forEach(([l,k,o])=>{const id='c_'+k;ctl.insertAdjacentHTML('beforeend',`<label for="${id}">${l}</label><select id="${id}">${o.map(x=>`<option value="${x[0]}">${x[1]}</option>`).join('')}</select><span></span>`);
+ const s=document.getElementById(id);s.value=cfg[k];s.onchange=()=>{cfg[k]=isNaN(+s.value)?s.value:+s.value;if(k==='src')srcChange();build()}});
+rng_.forEach(([l,k,a,b,st])=>{const id='c_'+k;ctl.insertAdjacentHTML('beforeend',`<label for="${id}">${l}</label><input type="range" id="${id}" min="${a}" max="${b}" step="${st}"><output id="o_${k}"></output>`);
+ const s=document.getElementById(id);s.value=cfg[k];const o=document.getElementById('o_'+k);o.textContent=cfg[k];s.oninput=()=>{cfg[k]=+s.value;o.textContent=s.value;if(k==='grains')build()}});
+function srcChange(){document.getElementById('srcNote').textContent={demo:'Deterministic synthetic band levels: kick, bass, arpeggio, snare, hats. No sound.',sweep:'A tone sliding 32 Hz to 6.5 kHz over 24 s. The classic Chladni demonstration: watch complexity rise with pitch.',sine:'One tone, set with Tone Hz.',file:'Choose an audio file, then Play file. Levels come from an FFT folded into 16 half-octave bands, then Tau ballistics.',mic:'Microphone is often blocked in sandboxed pages. Use a file if it fails.'}[cfg.src]}
+function ensureAC(){if(!AC){AC=new (window.AudioContext||window.webkitAudioContext)();AN=AC.createAnalyser();AN.fftSize=4096;AN.smoothingTimeConstant=0;fbuf=new Float32Array(AN.frequencyBinCount)}if(AC.state==='suspended')AC.resume()}
+document.getElementById('file').onchange=e=>{const f=e.target.files[0];if(!f)return;ensureAC();if(audioEl)audioEl.pause();audioEl=new Audio(URL.createObjectURL(f));audioEl.loop=true;const s=AC.createMediaElementSource(audioEl);s.connect(AN);AN.connect(AC.destination);cfg.src='file';document.getElementById('c_src').value='file';srcChange();audioEl.play().catch(()=>{});build()};
+document.getElementById('bPlay').onclick=()=>{if(audioEl){ensureAC();audioEl.paused?audioEl.play():audioEl.pause()}};
+document.getElementById('bMic').onclick=async()=>{try{ensureAC();const st=await navigator.mediaDevices.getUserMedia({audio:true});AC.createMediaStreamSource(st).connect(AN);cfg.src='mic';document.getElementById('c_src').value='mic';srcChange();build()}catch(e){document.getElementById('srcNote').textContent='Microphone refused. Use a file.'}};
+const tM=document.getElementById('tabM'),tG=document.getElementById('tabG');
+function tab(g){document.getElementById('viewM').hidden=g;document.getElementById('viewG').hidden=!g;tM.setAttribute('aria-pressed',!g);tG.setAttribute('aria-pressed',g);if(g)gallery()}
+tM.onclick=()=>tab(false);tG.onclick=()=>tab(true);
+// ---------- benchmark ----------
+function bench(engine,layout){const save={...cfg};cfg.engine=engine;cfg.layout=layout;cfg.src='demo';build();const N=FPS*40;let steady=0,ns=0,punch=0,np=0,trig=0,cmds=0,cpu=0,sd=0,prev=null,since=99;const evStart=[];
+ for(let f=0;f<N;f++){const e0=events.length;simStep(1/FPS);if(events.length>e0){since=0;trig+=events.length-e0}else since++;
+  let cur=[];for(const p of plates)cur.push(engine==='sand'?p.shown.slice():p.I.slice());
+  if(prev){let ch=0,tot=0;cur.forEach((a,q)=>{const b=prev[q];for(let i=0;i<a.length;i++){if((a[i]>0)!==(b[i]>0))ch++;}tot+=a.length});const v=ch/tot;if(f>60){if(since<6){punch+=v;np++}else if(since>10){steady+=v;ns++}}}
+  prev=cur;if(f>60){cmds+=cost.cmds;cpu+=cost.cpu;sd+=cost.sd}}
+ Object.assign(cfg,save);const n=N-60;steady/=Math.max(1,ns);punch/=Math.max(1,np);
+ return{engine,layout,trig:trig*60/40,cmds:cmds/n,cpu:cpu/n,sd:sd/n/(1e8/FPS)*100,steady:steady*100,punch:punch/Math.max(steady,1e-9)}}
+document.getElementById('bBench').onclick=()=>{const st=document.getElementById('benchSt');st.textContent='running...';setTimeout(()=>{const keep={...cfg};const rows=[];for(const l of['fill','solo','tri'])for(const e of['field','sand','dict'])rows.push(bench(e,l));Object.assign(cfg,keep);build();
+ window.__bench=rows;document.getElementById('bench').innerHTML='<tr><th>Engine</th><th>Layout</th><th>Triggers/min</th><th>Cmds</th><th>CPU us</th><th>SDRAM %</th><th>Steady change %</th><th>Punch x</th></tr>'+rows.map(r=>`<tr><td>${r.engine}</td><td>${r.layout}</td><td>${r.trig.toFixed(0)}</td><td>${r.cmds.toFixed(0)}</td><td>${r.cpu.toFixed(0)}</td><td>${r.sd.toFixed(1)}</td><td>${r.steady.toFixed(2)}</td><td>${r.steady<.05?'n/a':r.punch.toFixed(1)}</td></tr>`).join('');st.textContent='done (uses the current blit path and cell count)'},30)};
+
+// ---------- templates ----------
+const BASE={...cfg};delete BASE.src;delete BASE.freq;
+const PRESETS=[
+ {n:'Lattice',d:'Ornamental mesh over the whole box. Live field, even lines, slow and calm, 15 fps.',c:{engine:'field',layout:'fill',zoom:4,cell:3,color:'bone',even:1,eps:38,topk:3,slew:6,pow:2,morph:40,trig:'flux',refr:600,frate:15}},
+ {n:'Sand Table',d:'Grains settle onto the lines and scatter on each bass hit. Heaviest template.',c:{engine:'sand',layout:'fill',zoom:4,color:'amber',grains:500,agit:30,gsize:0,trig:'kick',refr:600,slew:6,pow:2,topk:3,frate:30}},
+ {n:'Gallery Plate',d:'Big, still figures that dissolve when the tune changes. Dictionary, two tiles across, almost no CPU.',c:{engine:'dict',layout:'fill',zoom:2,cell:3,color:'white',even:1,eps:30,trig:'tonal',refr:900,frate:15,slew:6,pow:2}},
+ {n:'Triptych',d:'Three square plates: bass, mid and treble, each with its own triggers, like the reference picture.',c:{engine:'field',layout:'tri',res:27,color:'cyan',even:1,eps:40,topk:2,slew:8,pow:2,morph:30,trig:'kick',refr:600,frate:15}},
+ {n:'Shimmer',d:'Fine, quick mesh that follows melody. Eight tiles across, faster slew, 30 fps.',c:{engine:'field',layout:'fill',zoom:8,cell:2,color:'lime',even:1,eps:45,topk:4,slew:14,pow:2,morph:80,trig:'tonal',refr:350,frate:30}}];
+const tpl=document.getElementById('tpl');
+tpl.innerHTML='<option value="custom">Custom</option>'+PRESETS.map((q,i)=>`<option value="${i}">${q.n}</option>`).join('');
+function syncCtl(){for(const k in cfg){const e=document.getElementById('c_'+k);if(e){e.value=cfg[k];const o=document.getElementById('o_'+k);if(o)o.textContent=cfg[k]}}}
+function applyPreset(i){Object.assign(cfg,BASE,PRESETS[i].c);syncCtl();document.getElementById('tplNote').textContent=PRESETS[i].d;build()}
+tpl.onchange=()=>{if(tpl.value==='custom'){document.getElementById('tplNote').textContent='';return}applyPreset(+tpl.value)};
+ctl.addEventListener('input',()=>{tpl.value='custom'});ctl.addEventListener('change',()=>{tpl.value='custom'});
+tpl.value='0';applyPreset(0);
+srcChange();build();requestAnimationFrame(frame);
+</script>

@@ -51,6 +51,7 @@ static void fb_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit,
 static void blit_probe_ensure(void) {}
 #define BLIT_READY() 1
 static void ui_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; }
+static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t a) { (void)x; (void)y; (void)w; (void)h; (void)a; return 0; }   /* no blend bitstream: the trail falls back to the plain erase the JS twin models */
 ''' + "@@BARS@@\n@@SCOPE@@\n" + r'''
 int main(int argc, char **argv) {
     FILE *f = fopen(argv[1], "r");
