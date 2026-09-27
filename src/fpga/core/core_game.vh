@@ -101,7 +101,7 @@ wire [7:0]  soc_con_char;
 
 wire        soc_tgt_go;
 wire [2:0]  soc_tgt_cmd_sel;
-wire [3:0]  soc_set_idx;
+wire [4:0]  soc_set_idx;   // B-346: widened 4 -> 5 bits (16 -> 32 persist words)
 wire        soc_set_wr;
 wire [31:0] soc_set_wdata;
 wire [31:0] soc_set_rdata;
@@ -905,16 +905,17 @@ sound_i2s #(.CHANNEL_WIDTH(16), .SIGNED_INPUT(1)) u_sound_i2s (
 // CPU reads are asynchronous and quasi-static -- these words change on a button
 // press, not continuously -- which is the same argument tgt_cmd.v makes for its
 // parameter registers.
-/* SIXTEEN words, was eight. The eighth was the last one free and a playlist
- * name needs three, so the index went from 3 bits to 4.
+/* THIRTY-TWO words, was sixteen (B-346: all 16 were in use -- theme index and polarity, and per-meter
+ * Configure settings, both session-only until this -- there was no free slot left). The sixteenth was
+ * the last one free and the library history needed three, so the index went 3 bits -> 4 then; this is
+ * the same operation again, 4 -> 5.
  *
- * Still ramstyle=logic: at 16x32 this is 512 flip-flops out of ~7000, and
- * block RAM is the binding resource on this device at 97%. Letting Quartus
- * infer an M10K here would spend one of the eight remaining blocks on
- * something that fits comfortably in fabric. */
-(* ramstyle = "logic" *) reg [31:0] set_reg [0:15];
+ * Still ramstyle=logic: at 32x32 this is 1024 flip-flops out of ~7000+, and block RAM is the binding
+ * resource on this device (up to 97% depending on config) -- letting Quartus infer an M10K here would
+ * spend a scarce block on something that fits comfortably in fabric. */
+(* ramstyle = "logic" *) reg [31:0] set_reg [0:31];
 
-reg  [3:0]  cpu_set_idx;
+reg  [4:0]  cpu_set_idx;
 reg  [31:0] cpu_set_dat;
 reg         cpu_set_tgl = 1'b0;
 
@@ -930,10 +931,10 @@ reg [2:0] cpu_set_sync = 3'b0;
 always @(posedge clk_74a) cpu_set_sync <= {cpu_set_sync[1:0], cpu_set_tgl};
 wire cpu_set_wr_74 = cpu_set_sync[2] ^ cpu_set_sync[1];
 
-/* One more address bit. With [4:2] the ninth variable at 0x20000020 wrapped
- * onto slot 0 and silently overwrote Volume -- no error, just a corrupted
- * setting, which is why this had to move in step with the depth above. */
-wire [3:0] set_widx = bridge_addr[5:2];
+/* One more address bit again (B-346), same lesson as last time: with [5:2] the 17th variable at
+ * 0x20000040 would wrap onto slot 0 and silently overwrite Volume -- no error, just a corrupted
+ * setting. [6:2] must move in lockstep with set_reg's own depth above, not be assumed. */
+wire [4:0] set_widx = bridge_addr[6:2];
 
 always @(posedge clk_74a) begin
     if (cpu_set_wr_74)

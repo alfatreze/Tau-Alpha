@@ -172,7 +172,7 @@ module mp3_soc #(
     input  wire [31:0]  dt_q,
 
     // Persistent settings words, published to / read from interact.json.
-    output reg  [3:0]   set_idx,
+    output reg  [4:0]   set_idx,   // B-346: widened 4 -> 5 bits (16 -> 32 persist words), see core_game.vh's set_reg
     output reg          set_wr,
     output reg  [31:0]  set_wdata,
     input  wire [31:0]  set_rdata,
@@ -1021,7 +1021,7 @@ module mp3_soc #(
             pcm_rate <= 32'd3435974;   // 48 kHz at clk_sys = 60 MHz
 `endif
             eq_preset <= 3'd0;         // FLAT: bypass until asked otherwise
-            set_idx <= 4'd0; set_wdata <= 32'd0;
+            set_idx <= 5'd0; set_wdata <= 32'd0;
             sdram_start <= 1'b0;
             sdram_write <= 1'b0;
             sdram_addr <= 25'd0;
@@ -1033,7 +1033,7 @@ module mp3_soc #(
                 R_AUDIO:   ;   /* handled by pcm_push -> pcm_fifo */
                 R_PCM_RATE: pcm_rate <= dDAT_MOSI;
                 R_EQ:       eq_preset <= dDAT_MOSI[2:0];
-                R_SET_IDX:  set_idx   <= dDAT_MOSI[3:0];
+                R_SET_IDX:  set_idx   <= dDAT_MOSI[4:0];   // B-346: was [3:0]
                 R_SET_DAT:  begin set_wdata <= dDAT_MOSI; set_wr <= 1'b1; end
                 R_SDR_ADDR: sdram_addr <= dDAT_MOSI[24:0];
                 R_SDR_DATA: sdram_wdata <= dDAT_MOSI;
