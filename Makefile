@@ -52,6 +52,7 @@ test-host:
 	$(PYTHON) sim/test_tau_image.py
 	$(PYTHON) sim/test_art_source.py
 	$(PYTHON) sim/test_ram192k.py
+	$(PYTHON) sim/test_clk66.py
 	$(PYTHON) sim/test_helios_beam.py
 	$(PYTHON) sim/test_chladni_module.py
 	$(PYTHON) sim/test_tau_timg.py
@@ -376,3 +377,7 @@ test-qr:
 # B-333: the 192 KB firmware links (release + Diagnostic Build) and the normal release is unchanged. Slow (three firmware builds).
 test-ram192k:
 	$(PYTHON) sim/test_ram192k.py --build
+
+# B-338: the CLK66=1 firmware link and the RAM_192K/CLK66 mutual-exclusion refusal. Slow (a firmware build).
+test-clk66:
+	$(PYTHON) sim/test_clk66.py --build

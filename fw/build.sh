@@ -159,6 +159,16 @@ if [[ "${RAM_192K:-0}" == "1" ]]; then
     CFLAGS="$CFLAGS -Wl,--defsym=RAM_192K=1 -DTAU_RAM_192K_FW=1"   # -D: the boot interlock also accepts the 192 KB bitstream's CORE_VERSION (B-333)
 fi
 
+# CLK66=1 (default 0, every target): clk_sys 60 -> 66.667 MHz (B-338, docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md section 1). Mutually exclusive
+# with RAM_192K for now (the RTL and the boot interlock both are). Every deadline already scales off CLK_HZ; this flag just changes it.
+if [[ "${CLK66:-0}" == "1" ]]; then
+    if [[ "${RAM_192K:-0}" == "1" ]]; then
+        echo "*** CLK66 and RAM_192K are not combined yet (each needs its own CORE_VERSION rev) ***" >&2
+        exit 1
+    fi
+    CFLAGS="$CFLAGS -DTAU_CLK66_FW=1"
+fi
+
 # B-333: a 192 KB (RAM_192K=1) build never writes over the shipped 256 KB release artefacts in dist/: it goes to work/ram192k/<target>/.
 if [[ "${RAM_192K:-0}" == "1" && "$OUT" == "$ROOT/dist/Assets/tau/common" ]]; then OUT="$ROOT/work/ram192k/$TARGET"; fi
 

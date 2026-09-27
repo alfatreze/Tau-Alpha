@@ -43,7 +43,7 @@ int main(void) {
 
 rtl = (ROOT / "src/fpga/core/mp3_soc.v").read_text()
 check("RTL: the TAU_RAM_192K bitstream reports CORE_VERSION rev 24 (4D503318)",
-      re.search(r"`ifdef TAU_RAM_192K\s*//.*?\n.*?\n?\s*localparam \[31:0\] CORE_VERSION = 32'h4D503318;", rtl, re.S) is not None)
+      re.search(r"`elsif TAU_RAM_192K\b.*?localparam \[31:0\] CORE_VERSION = 32'h4D503318;", rtl, re.S) is not None)   # B-338 put TAU_CLK66 first in the chain
 check("RTL: every other bitstream keeps rev 23 (4D503317)", "CORE_VERSION = 32'h4D503317;" in rtl)
 check("firmware: the interlock accepts rev 24 only in the 192 KB link",
       "#define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_192K)" in src

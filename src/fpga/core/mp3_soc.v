@@ -785,7 +785,12 @@ module mp3_soc #(
     // stale RTL. That has already happened three times here, each time looking
     // like a logic bug (dead peripheral, no audio, unresponsive buttons) rather
     // than what it was. BUMP THIS whenever the MMIO map changes.
-`ifdef TAU_RAM_192K
+`ifdef TAU_CLK66
+    // B-338: clk_sys 60 -> 66.667 MHz is also a different contract (every cycle-counted deadline in firmware runs 11.1% faster); a firmware
+    // linked for 60 MHz (CLK_HZ=60000000) must be refused here for the same reason RAM_192K refuses a 256 KB firmware. Not yet combined with
+    // TAU_RAM_192K (would need its own rev) -- deliberately mutually exclusive with it for now.
+    localparam [31:0] CORE_VERSION = 32'h4D503319u;   // "MP3" + rev 25 (clk_sys 66.667 MHz)
+`elsif TAU_RAM_192K
     // B-333: the 192 KB RAM-shrink bitstream is a different contract from the 256 KB one (64 KB less RAM). A firmware linked for 256 KB must
     // refuse it at boot (the interlock in fw/player.c), because running on it would corrupt silently.
     localparam [31:0] CORE_VERSION = 32'h4D503318;   // "MP3" + rev 24 (192 KB main RAM)
@@ -954,7 +959,14 @@ module mp3_soc #(
     // clk_74a through its own sync_fifo and this sits on the near side of that.
     // Preset 0 is a true bypass inside eq_biquad, so with the EQ off the audio
     // path is bit-identical to what it was before this existed.
+`ifdef TAU_CLK66
+    // B-338: eq_biquad's CLK_HZ paces every biquad update against the real system clock -- a stale value
+    // does not fail to build or run, it just mis-paces every EQ preset's corner (HarpMudd upstream's own
+    // estimate for this exact hardcode: about 11% high). Kept in step with mf_pllbase's own clk_sys macro.
+    eq_biquad #(.CLK_HZ(66_666_667), .RATE_HZ(48_000)) u_eq (
+`else
     eq_biquad #(.CLK_HZ(60_000_000), .RATE_HZ(48_000)) u_eq (
+`endif
         .clk    (clk),
         .rst    (rst),
         .in_l   (fifo_l),
@@ -988,7 +1000,11 @@ module mp3_soc #(
             fb_cmd_glyph <= 7'd0; fb_cmd_sx <= 2'd0; fb_cmd_sy <= 2'd0;
             // Default to 48 kHz at 50 MHz so a plain sample write still makes
             // sound before firmware programs the real rate.
+`ifdef TAU_CLK66
+            pcm_rate <= 32'd3092376;   // 48 kHz at clk_sys = 66.667 MHz -- reset default only; pcm_rate_apply() overwrites it before playback
+`else
             pcm_rate <= 32'd3435974;   // 48 kHz at clk_sys = 60 MHz
+`endif
             eq_preset <= 3'd0;         // FLAT: bypass until asked otherwise
             set_idx <= 4'd0; set_wdata <= 32'd0;
             sdram_start <= 1'b0;

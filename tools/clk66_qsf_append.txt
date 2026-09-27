@@ -1,0 +1,5 @@
+# B-338: clk_sys 60 -> 66.667 MHz (docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md section 1). Same fixed-VCO PLL constraint HarpMudd upstream's
+# release/1.5.1 measured on the shared-origin core; +11.1% CPU headroom if it closes. First check is synthesis-only, not a full fit
+# (the recommended next step in that doc): does it change anything about the four previously-marginal paths this project has already
+# fought for margin on (glyphbuf write network B-109/B-150, BAR/SBLIT/CHAR dispatch B-111/B-114, A_COMPOSE B-197)?
+set_global_assignment -name VERILOG_MACRO "TAU_CLK66=1"

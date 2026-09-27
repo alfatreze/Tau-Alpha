@@ -1,10 +1,11 @@
-// mf_pllbase_0002.v - altera_pll for Moon Patrol (Irem M52) Pocket core
-// Input 74.25 MHz:
-//   outclk_0: 30.000000 MHz (clk_sys -> target_top.clock_30, ROM loader, audio)
-//   outclk_1:  6.000000 MHz (clk_vid, pixel clock + target_top.clock_v)
-//   outclk_2:  6.000000 MHz 90 deg (clk_vid_90, for APF DDR video clock output)
-//   outclk_3:  3.582089 MHz (clk_snd -> target_top.clock_3p58; fractional VCO)
-// 90 deg at 6 MHz period (166666.67 ps) = 41667 ps phase shift.
+// mf_pllbase_0002.v - altera_pll for the Tau MP3 player core (comment inherited from the Moon Patrol
+// scaffold this started from; the parameters below are the real values, see mf_pllbase.v).
+//
+// clk_sys, clk_vid (12.000 MHz, exactly 60.000 Hz) and clk_sdram (100 MHz) share one VCO -- the same
+// constraint HarpMudd upstream's release/1.5.1 documented on the shared-origin core. The pixel and
+// SDRAM outputs pin the VCO at 600 MHz, so clk_sys = 600/N MHz: 60 (N=10, today) or 66.667 (N=9,
+// TAU_CLK66, docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md section 1). Only outclk_0's frequency and this
+// comment differ between the two; outclk_1-3 (pixel/SDRAM) are untouched by the macro.
 `timescale 1ns/10ps
 module mf_pllbase_0002 (
     input  wire refclk,
@@ -21,7 +22,11 @@ module mf_pllbase_0002 (
         .reference_clock_frequency("74.25 MHz"),
         .operation_mode("normal"),
         .number_of_clocks(4),
-        .output_clock_frequency0("60.000000 MHz"),
+        `ifdef TAU_CLK66
+        .output_clock_frequency0("66.666667 MHz"),   // clk_sys, N=9 of the same 600 MHz VCO
+`else
+        .output_clock_frequency0("60.000000 MHz"),    // clk_sys, N=10 of the same 600 MHz VCO
+`endif
         .phase_shift0("0 ps"),
         .duty_cycle0(50),
         .output_clock_frequency1("12.000000 MHz"),
