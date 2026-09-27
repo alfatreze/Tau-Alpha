@@ -50,6 +50,7 @@ test-host:
 	$(PYTHON) sim/test_suite.py
 	$(PYTHON) sim/test_install_dev_core.py
 	$(PYTHON) sim/test_tau_image.py
+	$(PYTHON) sim/test_art_source.py
 	$(PYTHON) sim/test_helios_beam.py
 	$(PYTHON) sim/test_chladni_module.py
 	$(PYTHON) sim/test_tau_timg.py
