@@ -72,6 +72,8 @@ Full controls, playlists, settings and known limits: [docs/guide/USER_GUIDE.md](
 | [Diagnostics](docs/guide/DIAGNOSTICS.md) | The Info page, the Diagnostic Build, Check profiles, Meter Sweep, QR reports, how to send results |
 | [Media and tools](docs/guide/MEDIA_AND_TOOLS.md) | Preparing media: `sync_media.py`, the library index, TIM1 covers, `tau-assets.bin`, the card installer, the Tau Omega companion app |
 | [Technical specification](docs/TECHNICAL_SPEC.md) | FPGA design, memory map, audio path, draw engine, firmware architecture, file formats, memory budgets, verification |
+| [Talos](docs/TALOS.md) | The 2D draw engine: opcodes, the MMIO register model, what's hardware-confirmed vs shelved, roadmap |
+| [Helios](docs/HELIOS.md) | The UI controller built on Talos: dirty-region tracking, beam-aware drawing, double buffering, roadmap |
 | [Performance](docs/PERFORMANCE.md) | Every measured number with its source, tradeoffs and honest limits, how we measure |
 | [For core developers](docs/DEVELOPERS.md) | Issues faced and fixes, useful techniques, building, testing, Quartus fits, repository map, contributing |
 | [Attributions and licences](docs/ATTRIBUTIONS.md) | Everything Tau builds on, what is MIT and what keeps its own licence |
