@@ -28,7 +28,7 @@ module tb_psram_fw;
     reg  [31:0] cont_key = 0;
 
     // ---- settings words (interact) echo memory ------------------------------
-    wire [3:0]  set_idx;
+    wire [4:0]  set_idx;
     wire        set_wr;
     wire [31:0] set_wdata;
     reg  [31:0] set_mem [0:15];

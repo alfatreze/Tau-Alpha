@@ -130,6 +130,15 @@ enum { SW_VOL = 0, SW_PAL, SW_REP, SW_SHUF, SW_RESUME, SW_VIZ, SW_EQ,
        SW_PLHASH,
        /* rev 22 library: what was playing, the index it refers to, the Shuffle All seed, and the on/off switch. */
        SW_LIBH, SW_LIBB, SW_LIBS, SW_LIBOFF,
+       /* B-346: the register file widened 16 -> 32 words (see core_game.vh's set_reg). These five are
+        * the first of the sixteen new slots -- theme index and polarity (session-only until now, per
+        * docs/THEME_SPEC.md section 5's own open item), and the current preset of each Configurable
+        * meter (docs/METER_CONFIG_SPEC.md's own "no persistence yet" gap). Not range-checked against
+        * PERSIST32_READY() here -- every read/write of these five goes through set_rd32()/set_wr32()
+        * below instead of the plain set_rd()/set_wr(), which do that gating once, not five times. A
+        * hand-tuned CUSTOM meter (every value, not just which preset) still has no persistence path;
+        * that stays the QR-export workaround B-216 already settled on. */
+       SW_THEME, SW_POL, SW_MPRE_BARS, SW_MPRE_SCOPE, SW_MPRE_CHLADNI,
        SW_N };
 
 /* What we last published. Initialised to a value APF can never write for
@@ -142,6 +151,7 @@ static uint32_t set_pub[SW_N] = { 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu,
                                   0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu,
                                   0xFFFFFFFFu
                                   , 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu
+                                  , 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu
                                   };
 
 static uint32_t set_rd(uint32_t w) { REG(R_SET_IDX) = w; return REG(R_SET_DAT); }
@@ -151,6 +161,38 @@ static void     set_wr(uint32_t w, uint32_t v)
     REG(R_SET_DAT) = v;
     set_pub[w] = v;
 }
+
+/* B-346: whether slots 16-31 are their own, independent words -- true on any bitstream carrying the
+ * 32-word register file, false on an older 16-word one, where writing index 16 aliases (via the old
+ * 4-bit set_idx truncating the top bit) onto slot 0 (Volume) and corrupts it. Cannot be answered by
+ * "write 16, read 16 back, check it matches": on the OLD hardware BOTH the write and the read alias
+ * onto the SAME slot 0, so that check would falsely pass. The real test: slot 0's value must survive a
+ * write to slot 16 untouched. Probed once, at boot, before settings_load() ever reads/writes the new
+ * slots -- never later, since nothing about this changes at runtime. */
+static uint8_t persist32_ok;
+static uint8_t persist32_probed;
+
+static void persist32_probe(void)
+{
+    uint32_t save0 = set_rd(0u);
+    uint32_t probe0 = save0 ^ 0x5A5A5A5Au;         /* a value slot 0 does not already hold */
+    REG(R_SET_IDX) = 0u; REG(R_SET_DAT) = probe0;  /* raw write: set_wr() would also update set_pub[0], not wanted for a probe */
+    REG(R_SET_IDX) = 16u; REG(R_SET_DAT) = ~probe0;
+    uint32_t back0 = set_rd(0u);
+    persist32_ok = (back0 == probe0) ? 1u : 0u;    /* unchanged by the slot-16 write == the two are independent */
+    REG(R_SET_IDX) = 0u; REG(R_SET_DAT) = save0;   /* restore -- this probe must leave no trace either way */
+}
+#define PERSIST32_READY() (persist32_ok != 0u)
+
+static void persist32_probe_ensure(void)
+{
+    if (!persist32_probed) { persist32_probe(); persist32_probed = 1u; }
+}
+
+/* Gated read/write for the five new slots: falls back to a fixed default (0, "theme 0 / Dark / no
+ * saved preset") on a bitstream that does not have them, instead of risking the slot-0 aliasing above. */
+static uint32_t set_rd32(uint32_t w) { persist32_probe_ensure(); return PERSIST32_READY() ? set_rd(w) : 0u; }
+static void     set_wr32(uint32_t w, uint32_t v) { persist32_probe_ensure(); if (PERSIST32_READY()) set_wr(w, v); }
 
 /* Publish every current value. Called at boot after adopting, and whenever a
  * setting changes. Two MMIO writes per word -- nothing to debounce. */
@@ -192,6 +234,11 @@ static int settings_store(void)
     set_wr(SW_LIBB, lib_hb & 0x7FFFFFFFu);
     set_wr(SW_LIBS, lib_hs & 0x7FFFFFFFu);
     set_wr(SW_LIBOFF, lib_disabled ? 1u : 0u);
+    set_wr32(SW_THEME, th_theme);
+    set_wr32(SW_POL,   th_pol ? 1u : 0u);
+    set_wr32(SW_MPRE_BARS,    mtr_pi_winamp_bars);
+    set_wr32(SW_MPRE_SCOPE,   mtr_pi_winamp_scope);
+    set_wr32(SW_MPRE_CHLADNI, mtr_pi_chladni);
     return 1;
 }
 
@@ -253,6 +300,15 @@ static int settings_load(void)
     lib_hb = set_rd(SW_LIBB) & 0x7FFFFFFFu;
     lib_hs = set_rd(SW_LIBS) & 0x7FFFFFFFu;
     lib_disabled = set_rd(SW_LIBOFF) ? 1u : 0u;
+    /* B-346: on a bitstream without the 32-word register file, set_rd32() returns 0 for all five --
+     * theme 0 (TAU), Dark, no saved preset for any of the three meters -- exactly today's defaults, so
+     * this degrades to "nothing persisted" rather than to a wrong or corrupted value. */
+    v = set_rd32(SW_THEME); if (v < TH_COUNT()) th_theme = (uint8_t)v;
+    th_pol = set_rd32(SW_POL) ? 1u : 0u;
+    v = set_rd32(SW_MPRE_BARS);    if (v < mtr_d_winamp_bars.npre)  mtr_apply_preset(&mtr_d_winamp_bars,  v);
+    v = set_rd32(SW_MPRE_SCOPE);   if (v < mtr_d_winamp_scope.npre) mtr_apply_preset(&mtr_d_winamp_scope, v);
+    v = set_rd32(SW_MPRE_CHLADNI); if (v < mtr_d_chladni.npre)      mtr_apply_preset(&mtr_d_chladni,      v);
+    th_apply();
     settings_adopted = 1u;
     return 1;
 }
@@ -263,8 +319,16 @@ static int settings_load(void)
 static int settings_poll_menu(void)
 {
     int changed = 0;
-    for (uint32_t w = 0; w < SW_N; w++)
+    /* B-346: SW_THEME.. (16+) are gated -- on a bitstream without the wide register file, set_rd(w)
+     * there aliases onto an early slot (e.g. Volume) and would never match set_pub[w]'s 0xFFFFFFFF
+     * sentinel, forcing a spurious reload/store EVERY poll. persist32_probe_ensure() is cheap (a boot-
+     * time probe, this call is just the flag check after the first). */
+    uint32_t lim = SW_LIBOFF + 1u;   /* the original 16; SW_THEME is the first of the new ones */
+    for (uint32_t w = 0; w < lim; w++)
         if (set_rd(w) != set_pub[w]) { changed = 1; break; }
+    if (!changed && PERSIST32_READY())
+        for (uint32_t w = lim; w < SW_N; w++)
+            if (set_rd(w) != set_pub[w]) { changed = 1; break; }
     if (!changed) return 0;
     settings_load();
     settings_store();          /* re-publish so pub[] tracks again */

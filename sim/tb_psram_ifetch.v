@@ -21,7 +21,7 @@ module tb_psram_ifetch;
     reg  [1023:0] romfile;
     reg  [31:0] cont_key = 0;
 
-    wire [3:0]  set_idx;  wire set_wr;  wire [31:0] set_wdata;
+    wire [4:0]  set_idx;  wire set_wr;  wire [31:0] set_wdata;
     reg  [31:0] set_mem [0:15];
     wire [31:0] set_rdata = set_mem[set_idx];
     always @(posedge clk) if (set_wr) set_mem[set_idx] <= set_wdata;
