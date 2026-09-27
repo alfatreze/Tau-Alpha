@@ -27,7 +27,7 @@ if m:
           int(m.group(1)) == want)
 
 check("RTL: eq_biquad gets 66_666_667 under TAU_CLK66", "eq_biquad #(.CLK_HZ(66_666_667)" in rtl)
-check("RTL: CORE_VERSION rev 25 (4D503319) under TAU_CLK66", "CORE_VERSION = 32'h4D503319u;" in rtl)
+check("RTL: CORE_VERSION rev 25 (4D503319) under TAU_CLK66", "CORE_VERSION = 32'h4D503319;" in rtl)
 check("RTL: TAU_CLK66 is checked before TAU_RAM_192K (mutually exclusive)",
       re.search(r"`ifdef TAU_CLK66\b.*?`elsif TAU_RAM_192K\b", rtl, re.S) is not None)
 
