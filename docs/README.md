@@ -11,6 +11,8 @@ The project README is [../README.md](../README.md).
 | [guide/DIAGNOSTICS.md](guide/DIAGNOSTICS.md) | Info page, Diagnostic Build, Check, Meter Sweep, QR reports, sending results |
 | [guide/MEDIA_AND_TOOLS.md](guide/MEDIA_AND_TOOLS.md) | Preparing media and using the host tools |
 | [TECHNICAL_SPEC.md](TECHNICAL_SPEC.md) | The systems inside the core, with a memory map and budgets |
+| [TALOS.md](TALOS.md) | Dedicated page on the 2D draw engine: opcodes, MMIO model, hardware status, roadmap |
+| [HELIOS.md](HELIOS.md) | Dedicated page on the UI controller over Talos: dirty regions, beam-aware drawing, double buffering, roadmap |
 | [PERFORMANCE.md](PERFORMANCE.md) | Measured performance, tradeoffs and how we measure |
 | [DEVELOPERS.md](DEVELOPERS.md) | For core developers: building, testing, fits, lessons, repository map |
 | [ATTRIBUTIONS.md](ATTRIBUTIONS.md) | Credits and licences |
