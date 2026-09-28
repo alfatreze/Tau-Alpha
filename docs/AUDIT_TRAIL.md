@@ -9734,3 +9734,45 @@ across all 8 real files on the test card, 0 mismatches at 45/48/64 bits** -- sup
 precision; max |sample| 2,750,763 of 16,777,216). Updated `docs/research/FLAC_LPC_KERNEL_DESIGN.md`
 section 4 with the full-run numbers. No code touched; this is evidence-strength only, doesn't change any
 conclusion already drawn from the capped run.
+
+## B-374 (2026-09-28): MASTER VU meter wiring fix -- dead code since commit 8d529d1
+
+Started on Helios review item 1 (finish the meter draw contract for the 4 meters with generated
+config: Winamp Bars/Scope, Chladni, VU Master). Before touching the contract, an audit of the 4
+target meters found `VIZ_VU_MASTER` was never actually reachable: `fw/vu_master.inc` (added whole in
+commit `8d529d1`, "MASTER VU meter...") was never `#include`d anywhere, and `vum_tick()` was never
+called from any dispatch chain -- confirmed by `git show 8d529d1 -- fw/player.c` returning empty
+(player.c was untouched by that commit). The meter's manifest marks it `selectable: true, sel_index:
+11`, so `viz_order[]` (generated) already lets the user cycle to it via Select+X or the Settings
+choice list -- selecting it would have shown a blank/frozen meter panel, not an error.
+
+Fixed: `#include "vu_master.inc"` added to `fw/player.c` (after `chladni.inc`, before
+`fullscreen.inc`, matching the point where its dependencies -- `theme.h`, `meter_core.h`'s
+`mtr_peak_t`, `peak_l`/`peak_r` -- are already in scope); a `viz_mode == VIZ_VU_MASTER` dispatch case
+added to `ui_draw_dynamic_cold()` right after Winamp Scope's, calling `vum_tick(UI_MARGIN,
+UI_WAVE_Y, ww, UI_WAVE_H, bed)` (no `ui_fullscreen` guard needed -- `fs_capable()` in
+`fullscreen.inc` doesn't list it, so fullscreen is always forced off before it can be selected);
+a toast string ("METER: MASTER VU") added to the existing ternary chain; `viz_mode == VIZ_VU_MASTER`
+added to `meter_preset_next()`'s Winamp-style preset-cycling branch in `fullscreen.inc` (VU Master
+has 3 presets -- THEME/STANDARD/CUSTOM EXAMPLE -- that Select+X previously couldn't reach, falling
+through to "NO PRESETS FOR THIS METER"). The Configure page (`fw/settingsui.inc`'s `wvcfg_*` code)
+needed no change -- it already walks `mtr_of(viz_mode)` generically across all 4 modules including
+`vu_master`, so parameter editing works as soon as the meter is selectable.
+
+Compiling surfaced a second, deeper bug in the same landing: `vum_draw_overlay()` referenced
+`fl_bps_mirror`, a global that was never declared anywhere -- the code had clearly been written
+against the existing `fl_rate_hz` mirror-variable pattern (`fw/player.c:1052`, "mirrors fl.rate,
+declared later" -- needed because `flac_t fl` itself isn't declared until line 6376, long after the
+cold meter code that wants its fields) but the matching `fl_bps_mirror` declaration and its
+assignment site were never added. Added both, following the exact same pattern and assignment point
+as `fl_rate_hz` (`fw/player.c`, FLAC metadata-parse path, right after `fl_rate_hz = fl.rate;`).
+
+Also found `sim/test_vu_master.py` (the golden-frame/table test the original commit message
+referenced) was never wired into `make test-host` -- added it, following the existing
+`test_chladni_core.py` pattern. All host tests pass (`make test-host`, full suite); `release`,
+`player-library-diagnostic` and `player-library-diagnostic-profile` all rebuild clean with real heap
+margin (56,320 / 49,648 / 47,328 B against 6,144 / 4,096 / 4,096 B floors). `dist/` ROM/cold-image
+changed as expected -- this is a real product fix, not diagnostic-only, since MASTER VU is a release
+meter. Not yet hardware-tested -- this is the first time MASTER VU will actually render on a device.
+Item 1's actual contract work (the `mtr_in_t`/`open`/`tick` shape, `docs/features/meters/
+METER_MODULE_SPEC.md` section 3) has not started yet.

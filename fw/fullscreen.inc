@@ -171,11 +171,11 @@ COLD_FN3 static void meter_preset_next(void)
         ui_wave_clear(); ui_wave_force = 1u;
         settings_mark_dirty();
         ui_toast_msg(bars_layout ? "PRESET: MIRRORED" : "PRESET: BARS");
-    } else if (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE) {
+    } else if (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE || viz_mode == VIZ_VU_MASTER) {
         const mtr_data_t *md = mtr_of(viz_mode);
         const uint32_t p = (*md->pre_idx < md->npre) ? ((uint32_t)*md->pre_idx + 1u) % md->npre : 0u;   /* from CUSTOM: the first preset */
         mtr_apply_preset(md, p);
-        wviz_force = 1u;
+        wviz_force = 1u;                       /* VU Master reads this too, same as Winamp Bars/Scope (fw/vu_master.inc's vum_tick()) */
         ui_toast_set("PRESET: ", 0xFFFFFFFFu, md->pre_names[p]);
     } else {
         ui_toast_msg("NO PRESETS FOR THIS METER");

@@ -1050,6 +1050,7 @@ static uint32_t clk_max;                 /* largest jump seen, any time */
  * same size, and comparing counts of them would prove nothing. */
 static uint32_t fl_idle_cyc, fl_io_cyc;    /* accumulating, this second     */
 static uint32_t fl_rate_hz;                /* mirrors fl.rate, declared later */
+static uint8_t  fl_bps_mirror;             /* mirrors fl.bps, declared later -- vu_master.inc's overlay needs it before fl exists */
 static uint8_t  fl_io_pct;
 static uint32_t ui_last_prof;              /* UI_SHOW_DECODE_PROFILE latch, Phase F step 1 */
 static int32_t  vol_gain = 256;          /* Q8: 256 == unity */
@@ -4012,6 +4013,7 @@ static void ov_frame(const char *title, const char *right, const char *hint)
 }
 
 #include "chladni.inc"
+#include "vu_master.inc"
 #include "fullscreen.inc"
 
 /* G4 step 4 (B-199..B-201): the real "meters go cold" conversion. Body unchanged from the original
@@ -4319,6 +4321,16 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * drawing/smoothing logic, shared with the Configure page. */
         if (viz_mode == VIZ_WINAMP_SCOPE) {
             wviz_scope_tick(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, 1, 0u);
+            goto viz_done;
+        }
+
+        /* ---- MASTER VU -----------------------------------------------------
+         * Mastering-style segmented dB peak ladder -- see vum_tick() (fw/vu_master.inc) for the
+         * ladder/peak-hold/overlay logic. Not fullscreen-capable (fs_capable() in fullscreen.inc
+         * doesn't list it), so no ui_fullscreen guard is needed here the way Winamp Bars/Scope have
+         * one above -- fullscreen is always forced off before this meter can be the active one. */
+        if (viz_mode == VIZ_VU_MASTER) {
+            vum_tick(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed);
             goto viz_done;
         }
 
@@ -5800,6 +5812,7 @@ static void poll_input(void)
                    : viz_mode == VIZ_WINAMP_BARS  ? "METER: WINAMP BARS"
                    : viz_mode == VIZ_WINAMP_SCOPE ? "METER: WINAMP SCOPE"
                    : viz_mode == VIZ_CHLADNI      ? "METER: CHLADNI"
+                   : viz_mode == VIZ_VU_MASTER    ? "METER: MASTER VU"
                                             : "METER");
         settings_mark_dirty();
     }
@@ -7979,6 +7992,7 @@ COLD_SR static int load_track(void)
         flac_stall     = 0;
         flac_scan_metadata();      /* seek table + where audio starts */
         fl_rate_hz     = fl.rate;
+        fl_bps_mirror  = fl.bps;
     }
 #if IO_BENCH
     /* Here specifically: the FIFO is flushed and the gap is already silent,
