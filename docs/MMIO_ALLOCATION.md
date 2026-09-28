@@ -56,7 +56,15 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x114 | TEXT_MODE | R/W | Theme/gamma: write bit 0 = 1 selects the light-polarity text weight table (`cov_weight_light`, dark text on a light ramp); read bit 31 = the bitstream has it (0 on older ones), bit 0 = current value. Synchronised into clk_sdram (`tau_cdc_sync1`). |
 | 0x118 | DBUF_CPU | R/W | Helios H2 (B-340, `tau_fb.v`/mp3_soc.v `TAU_DBUF`): bit 0 = which physical copy of the VISIBLE framebuffer (row < 360, word address < 184,320) ordinary RECT/CHAR/COPY(non-blit) commands read and write; buffer 1 sits 1,048,576 words above buffer 0. Every blit-mode opcode (BLIT/BAR/SBLIT/CBLIT/RRECT) already addresses through the sticky `blt_*_base` fields and is unaffected; any address >= 184,320 (the off-screen stash region) is unaffected regardless of this bit. Read: bit 31 present (0 on a bitstream without it), bit 0 echo. |
 | 0x11C | DBUF_DISP | R/W | Write: bit 0 = 1 requests a flip, applied only at the next vertical blanking (never mid-frame). Read: bit 31 present, bit 1 = a requested flip is still pending, bit 0 = which buffer is currently displayed (what the scanout prefetch reads). |
-| 0x120-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x120 | LPC_CFG | W | B-368 FLAC LPC unit (`tau_flac_lpc.sv`, `TAU_LPC`, `docs/research/FLAC_LPC_KERNEL_DESIGN.md` section 5): bits[5:0] = predictor order (1-32), bits[11:6] = right-shift amount (0-31). Written once per subframe; resets the coefficient/warm-up index pointers to 0. |
+| 0x124 | LPC_COEF_IDX | W | selects one of 32 coefficient slots (0 = the tap paired with the MOST RECENT sample, `fw/flac.c`'s own `coef[0]` convention). |
+| 0x128 | LPC_COEF_DATA | W | writes the signed 16-bit coefficient at `LPC_COEF_IDX`, then auto-increments the index -- a burst of `order` writes loads the whole coefficient set after one index write (same convention as `R_CLUT_IDX`/`DATA`, `R_RC_IDX`/`DATA`). |
+| 0x12C | LPC_WARM_IDX | W | selects one of 32 warm-up/history slots, same index convention as `LPC_COEF_IDX`. |
+| 0x130 | LPC_WARM_DATA | W | writes the signed 32-bit warm-up sample at `LPC_WARM_IDX`, then auto-increments the index. |
+| 0x134 | LPC_RESIDUAL | W | writes the next signed 32-bit residual and starts one reconstruction (MAC over `order` taps, one multiply-add per clock, then a registered shift and add -- never chained combinationally, this project's own timing rule). |
+| 0x138 | LPC_SAMPLE | R | the last reconstructed sample. **Reading this register is itself the acknowledgement** that lets the unit accept the next residual (wired straight to the bus's one-cycle read-request pulse, not a separate write-to-ack step) -- poll `LPC_STATUS` for done first. 0 when off. |
+| 0x13C | LPC_STATUS | R | bit 0 = built in, bit 1 = busy, bit 2 = done (the sample at `LPC_SAMPLE` is ready and unread). 0 when off. |
+| 0x140-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 

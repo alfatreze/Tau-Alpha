@@ -81,7 +81,10 @@ module mp3_soc #(
     parameter POLY_ENABLE = 0,
     // Helios H2 (B-340): double buffering via base-pointer swap in mp3_fb.sv. Registers 0x118-0x11C.
     // Inert (reads 0, writes ignored) when 0.
-    parameter DBUF_ENABLE = 0
+    parameter DBUF_ENABLE = 0,
+    // FLAC LPC/FIXED reconstruction unit (B-368, docs/research/FLAC_LPC_KERNEL_DESIGN.md): tau_flac_lpc.sv,
+    // registers 0x120-0x13C. Inert (reads 0, sample_rd tied off) when 0.
+    parameter LPC_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -787,6 +790,16 @@ module mp3_soc #(
     // write stores the 5-bit cut(dy) value there and auto-increments, same convention as
     // R_CLUT_IDX/R_CLUT_DATA. Inert (no logic reads it) unless TAU_BLIT is built.
     localparam [7:0] R_RC_IDX = 8'hD4, R_RC_DATA = 8'hD8;
+    // FLAC LPC unit (B-368, docs/research/FLAC_LPC_KERNEL_DESIGN.md section 5): R_LPC_CFG loads
+    // order/shift once per subframe; R_LPC_COEF_IDX/DATA and R_LPC_WARM_IDX/DATA load `order`
+    // coefficients and `order` warm-up samples via sticky auto-incrementing index+data pairs (same
+    // convention as R_CLUT_IDX/DATA, R_RC_IDX/DATA), index 0 = the tap paired with the MOST RECENT
+    // sample (fw/flac.c's own coef[0] convention). R_LPC_RESIDUAL starts one reconstruction; poll
+    // R_LPC_STATUS for done, then read R_LPC_SAMPLE (the read itself is the ack that lets the next
+    // residual be issued). Inert (reads 0, sample_rd tied off) unless LPC_ENABLE is built.
+    localparam [8:0] R_LPC_CFG      = 9'h120, R_LPC_COEF_IDX = 9'h124, R_LPC_COEF_DATA = 9'h128,
+                     R_LPC_WARM_IDX = 9'h12C, R_LPC_WARM_DATA = 9'h130, R_LPC_RESIDUAL  = 9'h134,
+                     R_LPC_SAMPLE   = 9'h138, R_LPC_STATUS    = 9'h13C;
 
     // Bitstream/firmware interlock. Firmware compares this against its own
     // expected value and refuses to run on a mismatch.
@@ -976,6 +989,37 @@ module mp3_soc #(
         end
     endgenerate
 
+    // ---- FLAC LPC reconstruction (B-368) -----------------------------------------------------------------------------------
+    // Register contract: see the R_LPC_* localparam block above and docs/research/FLAC_LPC_KERNEL_DESIGN.md section 5.
+    // sample_rd is wired straight to the bus's own one-cycle read-request pulse (d_req, defined below) rather than latched --
+    // firmware's read of R_LPC_SAMPLE IS the acknowledgement that lets tau_flac_lpc.sv clear `done` and accept the next
+    // residual, so no separate write-to-ack step is needed (unlike R_PCM_ST's write-to-flush convention, this is a read-to-ack).
+    reg         lpc_cfg_we = 1'b0, lpc_coef_idx_we = 1'b0, lpc_coef_data_we = 1'b0;
+    reg         lpc_warm_idx_we = 1'b0, lpc_warm_data_we = 1'b0, lpc_residual_we = 1'b0;
+    reg  [5:0]  lpc_cfg_order_d = 6'd0;
+    reg  [4:0]  lpc_cfg_shift_d = 5'd0;
+    reg  [4:0]  lpc_coef_idx_d = 5'd0, lpc_warm_idx_d = 5'd0;
+    reg  signed [15:0] lpc_coef_data_d = 16'sd0;
+    reg  signed [31:0] lpc_warm_data_d = 32'sd0, lpc_residual_d = 32'sd0;
+    wire        lpc_busy, lpc_done;
+    wire signed [31:0] lpc_sample;
+    wire        lpc_sample_rd = d_req & d_is_mmio & ~dWE & (mmio_reg == R_LPC_SAMPLE);
+    generate
+        if (LPC_ENABLE != 0) begin : g_lpc
+            tau_flac_lpc u_lpc (
+                .clk(clk), .rst(rst),
+                .cfg_we(lpc_cfg_we), .cfg_order(lpc_cfg_order_d), .cfg_shift(lpc_cfg_shift_d),
+                .coef_idx_we(lpc_coef_idx_we), .coef_idx_d(lpc_coef_idx_d),
+                .coef_data_we(lpc_coef_data_we), .coef_data_d(lpc_coef_data_d),
+                .warm_idx_we(lpc_warm_idx_we), .warm_idx_d(lpc_warm_idx_d),
+                .warm_data_we(lpc_warm_data_we), .warm_data_d(lpc_warm_data_d),
+                .residual_we(lpc_residual_we), .residual_d(lpc_residual_d),
+                .sample_rd(lpc_sample_rd), .sample(lpc_sample), .busy(lpc_busy), .done(lpc_done));
+        end else begin : g_nolpc
+            assign lpc_busy = 1'b0; assign lpc_done = 1'b0; assign lpc_sample = 32'sd0;
+        end
+    endgenerate
+
     // Preset EQ, spliced between the FIFO and this module's audio outputs.
     // Entirely inside clk_sys, so no new CDC -- sound_i2s already crosses into
     // clk_74a through its own sync_fifo and this sits on the near side of that.
@@ -1004,6 +1048,8 @@ module mp3_soc #(
         fb_cmd_push <= 1'b0;
         wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0;
         poly_clear <= 1'b0; poly_go <= 1'b0; poly_push_we <= 1'b0; poly_idx_we <= 1'b0;
+        lpc_cfg_we <= 1'b0; lpc_coef_idx_we <= 1'b0; lpc_coef_data_we <= 1'b0;
+        lpc_warm_idx_we <= 1'b0; lpc_warm_data_we <= 1'b0; lpc_residual_we <= 1'b0;
         dt_wren     <= 1'b0;
         set_wr      <= 1'b0;
         sdram_start <= 1'b0;
@@ -1121,6 +1167,16 @@ module mp3_soc #(
                     rc_cut_lut_r[rc_idx*5 +: 5] <= dDAT_MOSI[4:0];
                     rc_idx <= rc_idx + 4'd1;   // wraps 15->0 naturally (4-bit)
                 end
+                R_LPC_CFG: begin
+                    lpc_cfg_order_d <= dDAT_MOSI[5:0];
+                    lpc_cfg_shift_d <= dDAT_MOSI[11:6];
+                    lpc_cfg_we      <= 1'b1;
+                end
+                R_LPC_COEF_IDX:  lpc_coef_idx_d <= dDAT_MOSI[4:0];
+                R_LPC_COEF_DATA: begin lpc_coef_data_d <= dDAT_MOSI[15:0]; lpc_coef_data_we <= 1'b1; end
+                R_LPC_WARM_IDX:  lpc_warm_idx_d <= dDAT_MOSI[4:0];
+                R_LPC_WARM_DATA: begin lpc_warm_data_d <= dDAT_MOSI; lpc_warm_data_we <= 1'b1; end
+                R_LPC_RESIDUAL:  begin lpc_residual_d <= dDAT_MOSI; lpc_residual_we <= 1'b1; end
                 default: ;
             endcase
         end
@@ -1177,6 +1233,8 @@ module mp3_soc #(
             8'hFC:     mmio_rdata = wave_status;                                        // bit 0 present, bit 1 capturing, bit 2 trigger timeout, 15:8 capture number
             8'hE0:     mmio_rdata = {12'd0, spec_mean};                                // spectrum bank: mean of band SPEC_IDX (B-263)
             8'hE4:     mmio_rdata = (SPEC_ENABLE != 0) ? {spec_win, 15'd0, 1'b1} : 32'd0;  // spectrum bank: bit 0 present, bits 31:16 window counter
+            R_LPC_SAMPLE: mmio_rdata = lpc_sample;                                     // FLAC LPC unit: last reconstructed sample (B-368); this read is the ack
+            R_LPC_STATUS: mmio_rdata = {29'd0, lpc_done, lpc_busy, (LPC_ENABLE != 0)}; // bit 0 present, bit 1 busy, bit 2 done
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end
