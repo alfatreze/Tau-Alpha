@@ -963,6 +963,37 @@ static int wvcfg_input(uint32_t edge)
     return 1;
 }
 
+/* Helios review item 2 (docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md section 3.4/5): one
+ * function-pointer table replacing the three hand-maintained if/else-if chains (draw dispatch, input
+ * dispatch, open-on-select) that used to grow by one line each time a "rich" page (needing its own
+ * full draw pass and multi-key input, not expressible by the plain declarative set_menu_rows table)
+ * was added -- Check, Decode Sweep, Blit Test, Meter Sweep, Meter Trace and the Winamp Configurator.
+ * Adding one now means adding one row here, not touching set_draw_now()/set_input() at all. `.open` is
+ * NULL for the two pages (Meter Sweep, Meter Trace) that never had one -- they reset their own state
+ * from inside draw()/input() instead, unchanged from before this table existed. The `#if` guards below
+ * exactly mirror the ones on each page's own definition (SET_CHECK_PG etc., lines ~26-40) and on
+ * suite.inc's own #include (TAU_DIAGNOSTIC) -- a page that would not compile in this build simply has
+ * no row, same as the old chains simply had no branch for it. */
+typedef struct { uint8_t page; void (*draw)(void); int (*input)(uint32_t); void (*open)(void); } set_spg_t;
+static const set_spg_t set_spg[] = {
+    { SET_WVIZCFG_PG, wvcfg_draw, wvcfg_input, wvcfg_open },
+#if TAU_DIAGNOSTIC
+    { SET_CHECK_PG, chk_draw, chk_input, chk_open },
+#if MP3_PROFILE || FLAC_PROFILE
+    { SET_SWEEP_PG, sw_draw, sw_input, sw_open },
+#endif
+    { SET_BLITTEST_PG, bt_draw, bt_input, bt_open },
+    { SET_METERSWEEP_PG, mw_draw, mw_input, 0 },
+    { SET_METERTRACE_PG, mt_draw, mt_input, 0 },
+#endif
+};
+#define SET_SPG_N SET_COUNT(set_spg)
+static const set_spg_t *set_spg_find(uint8_t page)
+{
+    for (uint32_t i = 0; i < SET_SPG_N; i++) if (set_spg[i].page == page) return &set_spg[i];
+    return 0;
+}
+
 /* ---- B-334: menu page fade-in with easing --------------------------------------------------------------------------------------------------------
  * Opening Settings and moving between its pages fades the new page in from the page body colour over about 100 ms. There is no blend in
  * this: the page is simply redrawn a few times with every role colour (and the accent) mixed toward the body colour by an eased factor, then
@@ -1024,17 +1055,9 @@ COLD_FN static void set_draw(void)
 COLD_FN static void set_draw_now(void)
 {
     uint8_t o = ov_draw; ov_draw = 1u;
+    const set_spg_t *spg = set_spg_find(set_page);
     if (set_page < SET_MENUS)                set_draw_menu(set_page);
-    else if (set_page == SET_WVIZCFG_PG)     wvcfg_draw();
-#if TAU_DIAGNOSTIC
-    else if (set_page == SET_CHECK_PG)       chk_draw();
-#if MP3_PROFILE || FLAC_PROFILE
-    else if (set_page == SET_SWEEP_PG)       sw_draw();
-#endif
-    else if (set_page == SET_BLITTEST_PG)    bt_draw();
-    else if (set_page == SET_METERSWEEP_PG)  mw_draw();
-    else if (set_page == SET_METERTRACE_PG)  mt_draw();
-#endif
+    else if (spg)                            spg->draw();
     else if (set_page == SET_INFO_PG) {
 #if TAU_DIAGNOSTIC
         if (info_qr_up) { info_draw_qr(); ov_draw = o; return; }
@@ -1088,16 +1111,10 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
         }
         return 0;
     }
-#if TAU_DIAGNOSTIC
-    if (set_page == SET_CHECK_PG) return chk_input(edge);      /* first: Start is handled there (it must not close the result pages) */
-#if MP3_PROFILE || FLAC_PROFILE
-    if (set_page == SET_SWEEP_PG) return sw_input(edge);
-#endif
-    if (set_page == SET_BLITTEST_PG) return bt_input(edge);
-    if (set_page == SET_METERSWEEP_PG) return mw_input(edge);
-    if (set_page == SET_METERTRACE_PG) return mt_input(edge);
-#endif
-    if (set_page == SET_WVIZCFG_PG) return wvcfg_input(edge);
+    /* Checked before the generic Start-closes-the-menu handling below: every one of these pages owns
+     * its own Start key (Check's own result pages must not be closed by it, same reason the old chain
+     * ran this first) -- the table lookup preserves that by construction, still ahead of KEY_START. */
+    { const set_spg_t *spg = set_spg_find(set_page); if (spg) return spg->input(edge); }
     if (edge & KEY_START) { set_close(); return 1; }
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
 #if TAU_DIAGNOSTIC
@@ -1142,14 +1159,7 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
     if (edge & (KEY_A | KEY_RIGHT)) {
         if (r->type == RT_GROUP) {
             set_page = r->arg; set_dirty = 1u;
-            if (set_page == SET_WVIZCFG_PG) wvcfg_open();
-#if TAU_DIAGNOSTIC
-            if (set_page == SET_CHECK_PG) chk_open();
-#if MP3_PROFILE || FLAC_PROFILE
-            if (set_page == SET_SWEEP_PG) sw_open();
-#endif
-            if (set_page == SET_BLITTEST_PG) bt_open();
-#endif
+            { const set_spg_t *spg = set_spg_find(set_page); if (spg && spg->open) spg->open(); }
         }
         else if (r->type == RT_CHOICE) {
             set_page = SET_PAGE_CH(r->arg);

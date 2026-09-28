@@ -10055,3 +10055,38 @@ owner's real-time listening result (B-381: microstutter present on software, gon
 Not a fully controlled comparison (different tracks across runs, not literally the same content played on
 both cores in the same session) -- a genuinely matched same-track, same-session A/B would strengthen this
 further, not attempted this pass. `analogue-pocket-dev` skill KB-069 updated with this result.
+
+## B-387 (2026-09-29): Helios review item 2 -- Settings page-dispatch collapsed to one table
+
+Built the review's second recommended item (`docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md`
+section 3.4/5): the three hand-maintained if/else-if chains dispatching Settings' six "rich" pages (Check,
+Decode Sweep, Blit Test, Meter Sweep, Meter Trace, the Winamp Configurator -- each needing a full custom
+draw pass and multi-key input the plain declarative `set_menu_rows` table can't express) collapsed into
+one function-pointer table, `set_spg[]` (`fw/settingsui.inc`): `{page, draw, input, open}` rows, looked up
+once via `set_spg_find()` at each of the three sites that used to have their own growing chain (draw
+dispatch in `set_draw_now()`, input dispatch in `set_input()`, open-on-select inside the `RT_GROUP`
+branch). `.open` is `NULL` for Meter Sweep/Meter Trace (never had one before either -- they reset their
+own state from draw()/input()). Every `#if` guard (`TAU_DIAGNOSTIC`, `MP3_PROFILE || FLAC_PROFILE`)
+exactly mirrors each page's own existing definition, so a build missing a page simply has no row for it,
+same as the old chains simply had no branch. A real, load-bearing ordering constraint preserved by
+construction, not by care: Check's own input must run before the generic Start-closes-the-menu check (its
+own result pages must not be closed by Start) -- the single table lookup still sits ahead of that generic
+check, same position the old chain's first line held.
+
+The declarative `set_menu_rows`/`set_menu_n`/choice-list mechanism and the shared `set_draw_ro()`-based
+Info/Stat pages are UNCHANGED -- out of this item's scope, the review named the six rich pages
+specifically, not every dispatch path in the file. Adding a new rich page now means adding one row to
+`set_spg[]`, not touching `set_draw_now()`/`set_input()`/the `RT_GROUP` open-handler at all -- the exact
+cost this review flagged as growing with every page (section 3.2's "six ad hoc special-cased pages" audit).
+
+Verified: `make test-host` passes in full (including `check_ui_snapshot_renderer.py`'s 57 deterministic
+fixtures); `release` and both `player-library-diagnostic-profile` (`LPC_FW=0`/`1`) targets rebuild clean
+with real heap margin (in fact slightly MORE than before -- 8,000-8,976 B vs 8,640-9,616 B pre-refactor,
+the table lookup being smaller code than three separate chains). `release`'s ROM changed (a real product
+change, not diagnostic-only -- the Winamp Configurator ships in `release`). `tools/check_cold_calls.py`
+(informational, not part of `make test-host`) still runs clean; its call-graph listing is unaffected in
+practice since every table row still points at functions carrying their original `COLD_FN`/`COLD_TEXT`
+placement attributes, unchanged by this refactor -- only whether that ONE static-analysis tool's own
+text-pattern matching can see calls made through a function pointer is untested, a real but low-risk gap
+(the actual runtime cold-placement safety mechanism, `COLD_READY()`, is unaffected either way). Not yet
+hardware-tested. Not yet installed on the card.
