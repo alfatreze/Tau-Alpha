@@ -1,7 +1,23 @@
 # Current status (one page)
 
-Updated 2026-09-27. **What is true right now.** What to do next is in `docs/ROADMAP.md` (the only ordered list). Why things are the way
+Updated 2026-09-28. **What is true right now.** What to do next is in `docs/ROADMAP.md` (the only ordered list). Why things are the way
 they are is in `docs/AUDIT_TRAIL.md`. The old, long version of this file is `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
+Full detail on the 2026-09-27/28 night: `docs/handoffs/SESSION_HANDOFF_2026-09-28_0.6.0_COMBINED.md` (read it before trusting any
+claim about a combined six-feature hardware fit, an `alfatreze.TAU_0_6_0_A_11` install, or a seed-corruption story — none of those
+three are documented anywhere in this repo as of this update, see that doc's items 4/5/13).
+
+## 0.6.0 in progress (since v0.5.0)
+Five RTL features each individually fit-proven (blend, 192 KB RAM shrink, clk66, Helios H2 double buffering, persist widen 16->32).
+RAM shrink + clk66 combined into one CORE_VERSION rev 26 interlock (`2c09524`). A committed `all6-combined` qsf bundle exists
+(`tools/blit_g3_poly_blend_ram192_clk66_dbuf_qsf_append.txt`) but **its fit result is not recorded anywhere in this repo** — confirm
+on the VM before trusting it. Firmware landed on `main`: rounded-rect corner-cut LUT fix (`8d529d1`, hardware never loaded the
+table so `OP_RRECT` always drew square corners — not yet hardware-confirmed after the fix), MASTER VU meter (`8d529d1`, not yet
+hardware-run), Chladni EMBER/OCEAN presets (`8fb74f3`), legacy `.m3u` playlist removed entirely (library-only now, `45630c3`). A
+build-breaking regression (VIZ_VU_MASTER overflowing the hardware-blit thumbnail-stash budget, breaking every firmware target
+including plain `release`) was found and fixed (`a5fc0d1`) — caught only by a real rebuild, not `make test-host` alone.
+`docs/AUDIT_TRAIL.md`'s numbered series currently ends at B-346 (persist widening, packaged as `alfatreze.TAU_0_6_0_A_6`, not
+installed). An "audio-first track load" spec+tooling exists in a separate, unmerged worktree branch (`ae8c284`) — check whether it
+has landed before assuming either way.
 
 ## Released
 - **v0.5.0** (2026-09-27, tagged, GitHub release published with both zips): `TAU` and `TAU_DIAGNOSTIC`. Themes (TAU/OCEAN, Dark/Light), TIM1 fast covers, MP3
