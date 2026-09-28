@@ -9724,3 +9724,13 @@ S_IDLE`). Re-verified: `make rtl-lint` clean, `make test-rtl-flac-lpc`/`-mutatio
 harness) unaffected. Committed (`c563732`) and pushed. Relaunched as `lpc-b372` (both seeds confirmed
 running independently) with the identical `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt`
 bundle. Result pending.
+
+- 2026-09-28 (Claude): docs (B-373). A long-running background job started much earlier this session
+(`tools/flac_lpc_capture.py`, the full uncapped run B-366 itself said was "too slow" for the interactive
+300-frame-capped version it settled for) finished on its own: **109,085,568 real-LPC prediction steps
+across all 8 real files on the test card, 0 mismatches at 45/48/64 bits** -- superseding B-366's
+15,671,871-step capped figure with ~7x the coverage on the same files (order still only ever reached
+1-12, never near the legal max of 32; max |coef| 16383 of 16384, real encoders do use near-maximum
+precision; max |sample| 2,750,763 of 16,777,216). Updated `docs/research/FLAC_LPC_KERNEL_DESIGN.md`
+section 4 with the full-run numbers. No code touched; this is evidence-strength only, doesn't change any
+conclusion already drawn from the capped run.

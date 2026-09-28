@@ -88,12 +88,15 @@ required — a smaller, simpler unit than this document's own earlier framing as
 `(order, shift, coefficients, sample-window)` tuples from actual FLAC subframes — both channels, since
 `flac_verify.py`'s `subframe()` is called identically for each and channel 1's real-world math is the same
 as channel 0's, only `fw/flac.c`'s own buffer-sharing optimization differs (confirmed by inspection, not
-yet by decoding `subframe_stream()` specifically — see the remaining gap below). Run against all 7 real
-files used in this session's Check measurements (MacCunn, Clementi, Aphex Twin, Rite of Spring 48kHz and
-96kHz, Nausicaa Requiem 96kHz): **15,671,871 real-LPC prediction steps, 0 mismatches at 45, 48, or 64 bits.**
-Real-world parameter ranges, worth recording: order only ever reached 2-12 across all seven files (real
+yet by decoding `subframe_stream()` specifically — see the remaining gap below). Initially run capped at
+300 frames/file (a pure-Python full-file pass proved too slow to wait on interactively); a full, uncapped
+background run against all 8 real files on the test card (MacCunn 44k/48k, Clementi 44k/48k, Aphex Twin,
+Rite of Spring 48kHz and 96kHz, Nausicaa Requiem 96kHz) finished later the same session:
+**109,085,568 real-LPC prediction steps, 0 mismatches at 45, 48, or 64 bits** — the full-file result,
+superseding the earlier 300-frame-capped 15,671,871-step figure with ~7x the coverage on the same files.
+Real-world parameter ranges, worth recording: order only ever reached 1-12 across all eight files (real
 encoders never approached the legal maximum of 32 in practice), coefficients got close to the legal bound
-(max |coef| 16381 of 16384 — real encoders do use near-maximum precision), sample magnitudes stayed well
+(max |coef| 16383 of 16384 — real encoders do use near-maximum precision), sample magnitudes stayed well
 under the legal ceiling (max 2,750,763 of 16,777,216). This is a genuine, thorough confirmation on top of
 the already-exhaustive synthetic legal-range proof, not just a formality.
 
