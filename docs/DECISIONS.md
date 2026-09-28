@@ -44,3 +44,9 @@ repository (reviewed pull requests) rather than a service.
 | D-I04 | BC1 and pre-scaled JPEG kept as named variants, not defaults: on the owner's nine real covers palette beat BC1 on every one and pre-scaled JPEG is smudged at small sizes and 5x slower to show | Parked |
 | D-I05 | Container `TIM1` and the `tau-art/` sidecar path stay unfrozen until a firmware reader exists | Open |
 
+
+## Helios architecture review follow-ups (2026-09-28/29) -- `docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md`
+
+| # | Decision | Status |
+|---|---|---|
+| D-H01 | `helios_excl[]` stays a one-caller mechanism (fullscreen's CPU%/hint label) rather than gaining a synthetic second caller to "prove it generalizes." Checked for a natural second use case (VU Master's overlay -- sits in its own reserved space below the ladders, no overlap; the stress HUD row -- occupies documented "otherwise unused" screen space, no conflict; Chladni's corner -- the mechanism's own comment already rules this out, tile-replication needs the source offsets adjusted too, separate larger work) and found none currently broken in the shape the mechanism exists to fix (a fill redrawing across a persistent on-top label, a beam-race glitch). Revisit when a real second need appears -- e.g. a future meter redesign adding a persistent corner element to the normal (non-fullscreen) player screen. | Parked (owner) |
