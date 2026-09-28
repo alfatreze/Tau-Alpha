@@ -59,6 +59,23 @@ def main():
         if not args.rbf_sha256:
             sys.exit("--rbf also needs --rbf-sha256 (refusing an unaudited RBF)")
         rbf = args.rbf if args.rbf.is_absolute() else root / args.rbf
+        # 2026-09-28: --rbf bit-reverses whatever it's given (see bitrev() below), assuming a RAW
+        # Quartus .rbf. Pointing it at an already-reversed file (e.g. another installed core's own
+        # Cores/.../bitstream.rbf_r, copied off the card to reuse its bitstream) silently reverses it
+        # a SECOND time, producing a corrupted configuration file that looks like a normal file (right
+        # size, passes its own --rbf-sha256 check on the INPUT) but makes the FPGA fail to configure --
+        # on a real Pocket this showed as "Error in framework RS:Bridge not responding" (the fabric
+        # never comes up, so the bridge never answers), not a build-time or packaging-time error.
+        # Every raw Quartus RBF this project has ever produced is named "ap_core.rbf" or similar, never
+        # "*.rbf_r" -- that suffix is this project's own bitrev() output naming convention, so refusing
+        # it here catches the real mistake without needing a "type" flag. To reuse an already-reversed
+        # file (e.g. another core's exact bitstream), copy it directly over the packaged
+        # Cores/<id>/bitstream.rbf_r afterwards instead of routing it through --rbf.
+        if rbf.suffix == ".rbf_r" or rbf.name.endswith("_r"):
+            sys.exit(f"{rbf} looks already bit-reversed (name ends .rbf_r) -- --rbf wants the RAW "
+                      "Quartus .rbf and will reverse it again, corrupting it. Copy an already-reversed "
+                      "file directly over the packaged bitstream.rbf_r instead, or point --rbf at the "
+                      "raw .rbf this one was made from.")
         if digest(rbf) != args.rbf_sha256:
             sys.exit(f"RBF hash mismatch: expected {args.rbf_sha256}, got {digest(rbf)}")
         already_reversed = False

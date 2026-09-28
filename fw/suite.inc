@@ -69,6 +69,9 @@ static uint32_t chk_at, chk_u0, chk_s0, chk_under, chk_stall, chk_qr_len, chk_qr
  * accumulators (mp3_*_total_cyc / flac_*_total_cyc), so chk_finish() reads a
  * stable value instead of touching the profiling globals directly. */
 static uint16_t chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r;
+static uint16_t chk_dec_d, chk_dec_a, chk_dec_x, chk_dec_u;   /* 2026-09-28: the finer split, SR_T_DECPROF2 */
+static uint16_t chk_dec_t;   /* 2026-09-28, B-361: FLAC's TRUE total percent-of-realtime (ch0 + ch1) */
+static uint16_t chk_dec_c1;  /* 2026-09-28, B-361: channel 1's own percent-of-realtime (0 on mono) */
 
 /* All text of the page in one cold blob (NUL separated), fetched by index. */
 enum { CS_N0 = 0, CS_PASS = 7, CS_FAIL, CS_SKIP, CS_NA, CS_INTRO = 11, CS_RUNNING = 20, CS_H_IDLE, CS_H_RUN, CS_H_DONE, CS_TITLE,
@@ -217,9 +220,12 @@ COLD_TEXT static int chk_do(uint32_t id)
             chk_val[chk_step] = 0; chk_aud_full = 1u;
 #if MP3_PROFILE
             mp3_huff_total_cyc = mp3_imdct_total_cyc = mp3_sub_total_cyc = 0u;
+            mp3_dequant_total_cyc = mp3_alias_total_cyc = mp3_xform_total_cyc = 0u;
 #endif
 #if FLAC_PROFILE
             flac_res_total_cyc = flac_lpc_total_cyc = 0u;
+            flac_unary_calls_total = 0u;
+            flac_ch1_total_cyc = 0u;
 #endif
             return 0;
         }
@@ -243,13 +249,35 @@ COLD_TEXT static int chk_do(uint32_t id)
             chk_dec_h = (uint16_t)(mp3_huff_total_cyc  / (CHK_AUDIO_S * (CLK_HZ / 100u)));
             chk_dec_i = (uint16_t)(mp3_imdct_total_cyc / (CHK_AUDIO_S * (CLK_HZ / 100u)));
             chk_dec_s = (uint16_t)(mp3_sub_total_cyc   / (CHK_AUDIO_S * (CLK_HZ / 100u)));
-        } else { chk_dec_h = chk_dec_i = chk_dec_s = 0u; }
+            /* Same arithmetic as h/i/s, over the finer accumulators (B-345) -- window-total cycles as a
+             * percent of the window's real time, uncapped like the screen row's own D/A/X. */
+            chk_dec_d = (uint16_t)(mp3_dequant_total_cyc / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+            chk_dec_a = (uint16_t)(mp3_alias_total_cyc   / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+            chk_dec_x = (uint16_t)(mp3_xform_total_cyc   / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+        } else { chk_dec_h = chk_dec_i = chk_dec_s = 0u; chk_dec_d = chk_dec_a = chk_dec_x = 0u; }
 #endif
 #if FLAC_PROFILE
         if (track_fmt == FMT_FLAC) {
             uint32_t rt = flac_res_total_cyc + flac_lpc_total_cyc;
             chk_dec_r = (uint16_t)(rt ? (flac_res_total_cyc * 100u) / rt : 0u);
-        } else { chk_dec_r = 0u; }
+            /* Same estimate as the screen row's u_pct (B-342/343): calls x the boot-calibrated
+             * per-call cost of __clzdi2, as a percent of the same res+lpc denominator r_pct uses. */
+            uint32_t u_est = flac_unary_calls_total * clz_cal_cyc;
+            chk_dec_u = (uint16_t)(rt ? (u_est * 100u) / rt : 0u);
+            /* 2026-09-28, B-361: FLAC's own percent-of-realtime figures, same arithmetic as h/i/s/d/a/x
+             * above (window-total cycles over CHK_AUDIO_S seconds of wall clock) -- r_pct/u_pct are both
+             * ratios WITHIN channel 0's res+lpc pass and say nothing about how big that pass is against
+             * realtime, or about channel 1 (bit-read+reconstruction+decorrelation, fused, flac.c's own
+             * "the ratio carries" assumption -- c_pct below is the real check of that, not asserted).
+             * t_pct is the TRUE total: channel 0 (res+lpc) plus channel 1's own whole cost, the first
+             * real apples-to-apples figure against MP3's h+i+s+d+a+x sum. Uncapped, like every other
+             * _pct here: pegging past 100 is itself the interesting result (decode cannot keep up), not
+             * something to clamp away. On a mono file channel 1 never runs (flac.c's own subframe()
+             * single-channel path), so chk_dec_c1 reads 0 and chk_dec_t correctly equals the channel-0
+             * figure alone -- no special-casing needed, flac_ch1_total_cyc is just never incremented. */
+            chk_dec_c1 = (uint16_t)(flac_ch1_total_cyc / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+            chk_dec_t  = (uint16_t)((rt + flac_ch1_total_cyc) / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+        } else { chk_dec_r = 0u; chk_dec_u = 0u; chk_dec_t = 0u; chk_dec_c1 = 0u; }
 #endif
         chk_set((chk_under == 0u && chk_stall < 50u) ? SR_PASS : SR_FAIL, chk_under);
         break;
@@ -464,6 +492,8 @@ COLD_TEXT static void chk_finish(void)
 #if MP3_PROFILE || FLAC_PROFILE
     { uint32_t dp[4] = { chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r };
       sr_vals(&s, SR_T_DECPROF, 2, dp, 4); }
+    { uint32_t dp2[6] = { chk_dec_d, chk_dec_a, chk_dec_x, chk_dec_u, chk_dec_t, chk_dec_c1 };
+      sr_vals(&s, SR_T_DECPROF2, 2, dp2, 6); }
 #endif
     uint32_t lb[4] = { lib_state == LIB_ST_OK ? lib.n_tracks : 0u, lib_ms, (uint32_t)lib_err | ((uint32_t)lib_state << 8), 0u };
     sr_vals(&s, SR_T_LIB, 4, lb, 4);
@@ -1000,7 +1030,7 @@ COLD_TEXT static void mw_window_reset(void)
     uint8_t want_fs = (uint8_t)(mw_want_fullscreen && fs_capable());
     if (want_fs != ui_fullscreen) {
         ui_fullscreen = want_fs;
-        pl_ui_restore = 1u;
+        helios_view_changed();   /* B-350 */
         fs_last_sec = 0xFFFFFFFFu; fs_last_state = 0xFFu;
     }
     if (!ui_fullscreen) {
@@ -1042,7 +1072,7 @@ COLD_TEXT static void mw_restore_screen(void)
     viz_mode = mw_saved_mode; bars_layout = mw_saved_layout;
     if (mw_saved_fullscreen != ui_fullscreen) {
         ui_fullscreen = mw_saved_fullscreen;
-        pl_ui_restore = 1u;
+        helios_view_changed();   /* B-350 */
         fs_last_sec = 0xFFFFFFFFu; fs_last_state = 0xFFu;
     }
     if (!ui_fullscreen) { ui_wave_clear(); if (art_ready && art_shown) ui_art_draw(); }
