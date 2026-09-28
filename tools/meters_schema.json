@@ -621,6 +621,106 @@
    ],
    "default_preset": 0,
    "list_position": 2
+  },
+  {
+   "id": 15,
+   "schema": 1,
+   "key": "vu_master",
+   "name": "MASTER VU",
+   "enum": "VIZ_VU_MASTER",
+   "selectable": true,
+   "retired": false,
+   "cost_class": 0,
+   "caps": [],
+   "needs_hw_spec": false,
+   "params": [
+    {
+     "key": "info",
+     "label": "Tech info",
+     "type": "bool",
+     "default": 1
+    },
+    {
+     "key": "color_mode",
+     "label": "Segment colour",
+     "type": "enum",
+     "values": [
+      "THEME",
+      "CUSTOM"
+     ],
+     "default": 0
+    },
+    {
+     "key": "color_green",
+     "label": "Green",
+     "type": "u16",
+     "min": 0,
+     "max": 65535,
+     "step": 1,
+     "default": 0,
+     "when": {
+      "color_mode": 1
+     }
+    },
+    {
+     "key": "color_yellow",
+     "label": "Yellow",
+     "type": "u16",
+     "min": 0,
+     "max": 65535,
+     "step": 1,
+     "default": 0,
+     "when": {
+      "color_mode": 1
+     }
+    },
+    {
+     "key": "color_red",
+     "label": "Red",
+     "type": "u16",
+     "min": 0,
+     "max": 65535,
+     "step": 1,
+     "default": 0,
+     "when": {
+      "color_mode": 1
+     }
+    }
+   ],
+   "presets": [
+    {
+     "name": "THEME",
+     "values": {
+      "info": 1,
+      "color_mode": 0,
+      "color_green": 0,
+      "color_yellow": 0,
+      "color_red": 0
+     }
+    },
+    {
+     "name": "STANDARD",
+     "values": {
+      "info": 1,
+      "color_mode": 1,
+      "color_green": 2016,
+      "color_yellow": 64992,
+      "color_red": 63488
+     }
+    },
+    {
+     "name": "CUSTOM EXAMPLE",
+     "values": {
+      "info": 1,
+      "color_mode": 1,
+      "color_green": 1622,
+      "color_yellow": 43835,
+      "color_red": 61775
+     }
+    }
+   ],
+   "default_preset": 0,
+   "list_position": 11
   }
  ]
 }

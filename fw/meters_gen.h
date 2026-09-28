@@ -80,5 +80,27 @@ static uint8_t mtr_pi_chladni = 0;
 static mtr_data_t mtr_d_chladni = { VIZ_CHLADNI, "CHLADNI", MP_CHLADNI_N, mtr_p_chladni, 4, MTR_MAX_PRE, mtr_pn_chladni, mtr_pb_chladni, mtr_pre_chladni, mtr_v_chladni, &mtr_pi_chladni };
 #define MV_CHLADNI(name) (mtr_v_chladni[MP_CHLADNI_##name])
 
-#define MTR_MODULE_N 3u
-static mtr_data_t *const mtr_modules[MTR_MODULE_N] = { &mtr_d_winamp_bars, &mtr_d_winamp_scope, &mtr_d_chladni };
+/* MASTER VU (id 15) */
+enum { MP_VU_MASTER_INFO, MP_VU_MASTER_COLOR_MODE, MP_VU_MASTER_COLOR_GREEN, MP_VU_MASTER_COLOR_YELLOW, MP_VU_MASTER_COLOR_RED, MP_VU_MASTER_N };
+static const char *const mtr_en_vu_master_color_mode[] = { "THEME", "CUSTOM" };
+static const mtr_param_t mtr_p_vu_master[MP_VU_MASTER_N] = {
+    { "TECH INFO", MTR_BOOL, 0, 1, 1, 1, 255, 0, "", 0 },
+    { "SEGMENT COLOUR", MTR_ENUM, 0, 1, 1, 0, 255, 0, "", mtr_en_vu_master_color_mode },
+    { "GREEN", MTR_U16, 0, 65535, 1, 0, 1, 1, "", 0 },
+    { "YELLOW", MTR_U16, 0, 65535, 1, 0, 1, 1, "", 0 },
+    { "RED", MTR_U16, 0, 65535, 1, 0, 1, 1, "", 0 },
+};
+static const char *mtr_pn_vu_master[MTR_MAX_PRE] = { "THEME", "STANDARD", "CUSTOM EXAMPLE" };
+static char mtr_pb_vu_master[MTR_MAX_PRE][16];
+static uint16_t mtr_pre_vu_master[MTR_MAX_PRE * MP_VU_MASTER_N] = {
+    1, 0, 0, 0, 0,   /* THEME */
+    1, 1, 2016, 64992, 63488,   /* STANDARD */
+    1, 1, 1622, 43835, 61775,   /* CUSTOM EXAMPLE */
+};
+static uint16_t mtr_v_vu_master[MP_VU_MASTER_N] = { 1, 0, 0, 0, 0 };
+static uint8_t mtr_pi_vu_master = 0;
+static mtr_data_t mtr_d_vu_master = { VIZ_VU_MASTER, "MASTER VU", MP_VU_MASTER_N, mtr_p_vu_master, 3, MTR_MAX_PRE, mtr_pn_vu_master, mtr_pb_vu_master, mtr_pre_vu_master, mtr_v_vu_master, &mtr_pi_vu_master };
+#define MV_VU_MASTER(name) (mtr_v_vu_master[MP_VU_MASTER_##name])
+
+#define MTR_MODULE_N 4u
+static mtr_data_t *const mtr_modules[MTR_MODULE_N] = { &mtr_d_winamp_bars, &mtr_d_winamp_scope, &mtr_d_chladni, &mtr_d_vu_master };

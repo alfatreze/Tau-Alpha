@@ -55,5 +55,6 @@ only use `hardware-proven` ones. `cost_basis` says whether the cost is measured 
 | winamp_bars | 1 | bar | Solid per-band bars are exactly OP_BAR's shape; peak caps are one rect each. |
 | winamp_scope | 2 | none (base rect) | hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used. The trail (B-334) blends the background strip over the box with the pipelined hardware blend. |
 | chladni | 2 | sblit, sdram_plane, hw_spectrum, vsync_beam | Per-cell rect runs cost 360-640 commands; one scaled blit of a mailbox-written plane replaced them (B-276). B18-B20 would cut CPU further. |
+| vu_master | 0 | none (base rect) | Discrete segments with a gap need one background rect plus up to 3 coalesced zone rects per channel per frame (docs/METER_VU_MASTERING_SPEC.md section 4.2) -- cheaper than OP_BAR's own vertical bar meters, and OP_BAR's shape (vertical, one fg colour) does not fit a horizontal 3-colour ladder anyway (section 4.1). |
 
 Capabilities no meter uses: rect, cblit, rrect, hw_wave, stereo, alpha_blend, blit_flip, row_burst_sblit, index_plane_math, beat_detect.
