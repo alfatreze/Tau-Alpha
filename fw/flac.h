@@ -135,6 +135,11 @@ extern uint32_t flac_unary_calls_total;
 extern uint32_t flac_res_total_cyc;
 extern uint32_t flac_lpc_total_cyc;
 
+/* B-361: channel 1's whole cost (bit-read + reconstruction + decorrelation, fused, cannot be split the
+ * way channel 0's two passes can) as one window-total lump -- tests this file's own "channel 1 does the
+ * same work, so the ratio carries" assumption with a real number instead of leaving it asserted. */
+extern uint32_t flac_ch1_total_cyc;
+
 /* B-347: a THIRD, independent pair for the VU Master overlay's decoder-CPU% row (fw/vu_master.inc's
  * vum_draw_overlay()) -- reset once a second by that row's own code, not the screen row's reset and
  * not the Check window's. Same call sites, same meaning, no shared mutable state. */

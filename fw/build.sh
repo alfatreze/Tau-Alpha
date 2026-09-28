@@ -146,6 +146,18 @@ case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) POLY_FW="${POLY_FW:-1}" ;; esac
 CFLAGS="$CFLAGS -DTAU_POLY_FW=${POLY_FW:-0}"
 if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw/mp3_poly_hw.h (only then, so default builds see no new include path)
 
+# B-368/B-369/B-370: LPC_FW=1 redirects FLAC LPC reconstruction (fw/flac.c) to the hardware unit (needs
+# a TAU_LPC bitstream; permanently falls back to software for the rest of the session on any real
+# hardware anomaly, same per-unit-failure convention as POLY_FW). Default 0 EVERYWHERE -- unlike
+# POLY_FW, this has had NO Quartus fit and NO hardware test yet
+# (docs/research/FLAC_LPC_KERNEL_DESIGN.md section 7 item 5); it stays opt-in only until a real
+# hardware result exists, the same caution POLY_FW itself observed before B-309's alpha.30
+# confirmation. Must reach flac.c's own SEPARATE compile line too (FLAC_O_CFLAGS below), since flac.c
+# is compiled outside $CFLAGS/$SRCS -- flac.c and player.c both already find fw/flac_lpc_hw.h/.inc via
+# their own directory (both live in $FW), so no INC change is needed the way POLY_FW's subband.c one is.
+CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0}"
+FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0}"
+
 # RAM_192K=1 (default 0, every target): links against 192 KB instead of 256 KB (fw/link.ld's
 # _ram_limit) -- the RAM-shrink RTL's own real benefit, timing-closed B-235, not yet card-tested.
 # Applied here globally rather than per-target-case, so it always reaches the link step
