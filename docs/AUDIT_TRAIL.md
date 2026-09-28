@@ -10033,3 +10033,25 @@ start. Fixed to milliseconds (`lpc_max_ms`). Rebuilt and reinstalled both cores 
 untouched, same `lpc-b378-s1` bitstream both times, hash-verified unchanged): `alfatreze.TAU_0_6_0_A_16`
 (`LPC_FW=1`) and `alfatreze.TAU_DEV_52` (`LPC_FW=0`). Both backed up and verified. Owner re-running the
 same A/B Check comparison next.
+
+## B-386 (2026-09-29): first real worst-case-latency A/B result -- hardware roughly halves the spike
+
+Real numbers (owner Check runs, matched to core by persist-file mtime): `TAU_DEV_52` (software,
+`LPC_FW=0`) worst single real-LPC call **11 ms**; `TAU_0_6_0_A_16` (hardware, `LPC_FW=1`) worst calls
+**6 ms** and **5 ms** across two runs. Only one clean same-metric software reading exists (the second
+`TAU_DEV_52` Check window landed on an MP3 track, `lpc_max_ms=0` correctly reflects no FLAC playing then,
+not a measurement) but both hardware readings consistently landed below it.
+
+**Real, hardware-confirmed direction, smaller magnitude than the raw arithmetic alone would suggest**:
+roughly a 2x reduction in worst-case latency, not the ~10x the MAC-cost comparison (2 cycles/tap hardware
+vs an estimated 10-30 cycles/tap for software's 64-bit accumulate on RV32IM) would imply on its own. This
+makes sense once the measured quantity is understood correctly (B-384's own correction): the timed region
+covers per-sample firmware overhead around the arithmetic too -- MMIO writes to load the residual, polling
+`tau_lpc_hw_sample()`'s `done` bit, an MMIO read for the result -- which does not shrink just because the
+multiply-accumulate itself is offloaded to hardware. This is consistent with, and now quantifies, both the
+owner's real-time listening result (B-381: microstutter present on software, gone on hardware) and the
+0-timeout engagement already confirmed (B-380).
+
+Not a fully controlled comparison (different tracks across runs, not literally the same content played on
+both cores in the same session) -- a genuinely matched same-track, same-session A/B would strengthen this
+further, not attempted this pass. `analogue-pocket-dev` skill KB-069 updated with this result.
