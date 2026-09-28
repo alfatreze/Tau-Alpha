@@ -611,7 +611,7 @@ SAMPLE_VALUE = {"COLOUR": "AMBER", "THEME": "TAU", "MODE": "DARK", "METER": "OSC
                 "RESUME": "ON", "SPEED": "1.00X", "VOLUME": "65%",
                 "WINDOW TEST": "PASS 89", "READ CYCLES": "48/50/362", "WRITE CYCLES": "47/49/361",
                 "PLAYLIST CHECK": "PASS 13", "COLD CODE TEST": "PASS 31.6 C/W", "CLEAR COUNTERS": "DONE",
-                "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN", "ALL SPEEDS": "OFF"}
+                "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN", "ALL SPEEDS": "OFF", "ACCEPT ALL RATES": "OFF"}
 
 
 def settings_menu(page, selected):
@@ -645,7 +645,7 @@ def settings_menu(page, selected):
 
 
 INFO_SAMPLE = ("0.1.0", "4D503317", "OK", "52 CYC", "16112 B", "NO",
-               "MP3 320K 44.1K", "OK", "0", "0 MS", "12/8/41/118", "7180 TRK 1.2 S", "OK", "60/S", "HW W42", "OK 23% WAITED", "OK 214 DRAWN 3 SKIP", "23%", "4 LOADED 31 MS E0", "HW 5120 SLOTS 0 BAD 0 TMO", "NONE", "NONE")
+               "MP3 320K 44.1K", "OK", "0", "0 MS", "12/8/41/118", "7180 TRK 1.2 S", "OK", "60/S", "HW W42", "OK 23% WAITED", "OK 214 DRAWN 3 SKIP", "23%", "4 LOADED 31 MS E0", "HW 5120 SLOTS 0 BAD 0 TMO", "NONE", "NONE", "OFF")
 STAT_SAMPLE = ("R2", "RUNNING", "3", "786432", "0", "4", "0", "372 CYC", "0 MS", "13.4K OPS/S",
                "12:41 LEFT")
 

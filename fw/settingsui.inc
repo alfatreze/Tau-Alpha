@@ -40,7 +40,7 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #define SET_METERTRACE_PG ((uint8_t)(SET_METERSWEEP_PG + 1u)) /* Meter trace recorder, M3 (fw/suite.inc) */
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
-enum { TG_ART = 0, TG_SPEEDS };
+enum { TG_ART = 0, TG_SPEEDS, TG_RATES };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 #define SET_PAGE_CH(c) ((uint8_t)(SET_MENUS + (c)))
 
@@ -71,6 +71,7 @@ static const set_row_t set_dgn_rows[] = {
     { "TESTS", RT_GROUP, SET_TESTS },
     { "STRESS", RT_GROUP, SET_STRESS },
     { "ALL SPEEDS", RT_TOGGLE, TG_SPEEDS },
+    { "ACCEPT ALL RATES", RT_TOGGLE, TG_RATES },
     { "CHECK", RT_GROUP, SET_CHECK_PG },
 #if MP3_PROFILE || FLAC_PROFILE
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
@@ -407,6 +408,13 @@ COLD_FN static void set_toggle(uint32_t t)
             ui_mode_dirty = 1u;
         }
         return;                                  /* not persisted */
+    } else if (t == TG_RATES) {
+        /* 2026-09-28, B-356: lets a FLAC above FLAC_MAX_RATE (measured, not chosen -- see the comment on
+         * that constant) load and run for a real decode-stage Check reading, instead of being refused
+         * outright. Off at every start, never persisted, same convention as TG_SPEEDS: this is a test
+         * switch, not a listening preference. */
+        flac_accept_all_rates = (uint8_t)!flac_accept_all_rates;
+        return;                                  /* not persisted */
 #endif
     }
     settings_mark_dirty();
@@ -442,7 +450,10 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     else if (r->type == RT_CHOICE) s = set_ch_name(r->arg, set_ch_active(r->arg));
     else if (r->type == RT_VOL) { q = ui_dec(q, volume); s = "%"; }
     else if (r->arg == TG_ART)    s = art_pref ? "ON" : "OFF";
-    else                          s = set_speed_all ? "ON" : "OFF";
+#if TAU_DIAGNOSTIC
+    else if (r->arg == TG_RATES)  s = flac_accept_all_rates ? "ON" : "OFF";
+#endif
+    else                          s = set_speed_all ? "ON" : "OFF";   /* TG_SPEEDS, the only remaining toggle */
     while (*s) *q++ = *s++;
     *q = 0;
 }
@@ -523,7 +534,8 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 22u   /* B-073: +1 for COVER (art_bad_code, for the "no
+#define SET_INFO_ROWS 23u   /* B-370: +1 for FLAC LPC (last row).
+                              * B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
                                               * freeze, see its own comment in fw/player.c); B-238:
@@ -540,6 +552,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
     , "LIBRARY"
     , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER", "MP3 WINDOW", "THEME FILE", "METER FILE"
+    , "FLAC LPC"
     };
 static uint32_t set_info_at;
 
@@ -648,10 +661,20 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         else if (th_file_n) { q = ui_dec(q, th_file_n); q = set_str(q, " LOADED"); }
         else q = set_str(q, "NONE");
         break;
-    default:   /* METER FILE (M4): meters whose presets were replaced from tau-assets.bin METR, or the failure code */
+    case 21:   /* METER FILE (M4): meters whose presets were replaced from tau-assets.bin METR, or the failure code */
         if (mf_err) { q = set_str(q, "E"); q = ui_dec(q, mf_err); }
         else if (mf_n) { q = ui_dec(q, mf_n); q = set_str(q, " LOADED"); }
         else q = set_str(q, "NONE");
+        break;
+    default:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
+#if TAU_LPC_FW
+        if (!hw_lpc) { q = set_str(q, "NO UNIT"); break; }
+        q = set_str(q, tau_lpc_hw_enable ? "HW " : "SW ");
+        q = ui_dec(q, tau_lpc_stat_samples); q = set_str(q, " SAMPLES ");
+        q = ui_dec(q, tau_lpc_stat_timeout); q = set_str(q, " TMO");
+#else
+        q = set_str(q, "OFF");
+#endif
         break;
     }
     *q = 0;
@@ -1030,6 +1053,15 @@ COLD_FN static void set_close(void)
 {
     set_open = 0u; set_page = SET_HOME;
     set_fade_last = 0xFFFFu;                   /* B-334: the next open fades in again */
+    /* Missing since the legacy playlist overlay was removed (45630c3): that overlay's own close site
+     * was apparently the only one still setting the shared repaint flag (fw/player.c's own comment on
+     * pl_ui_restore claims settings does this too -- it never did after that removal, only
+     * lib_ui_close() did). Without it the main loop never calls ui_chrome_paint()/ui_art_draw(), never
+     * clears ui_bg_ready, and never forces the meter/wave caches stale on return from Settings --
+     * exactly the "closing the menu leaves visual leftovers" symptom (B-349). Now routed through the
+     * shared helios_view_changed() (B-350) rather than a bare flag write, so this can't be silently
+     * dropped again the way the bare write was. */
+    helios_view_changed();
 }
 
 COLD_FN static void set_ch_follow(uint32_t c)

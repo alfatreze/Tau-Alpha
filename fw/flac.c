@@ -519,6 +519,14 @@ uint32_t (*flac_tick)(void);
 uint32_t flac_res_cyc, flac_lpc_cyc;
 uint32_t flac_res_total_cyc, flac_lpc_total_cyc;
 uint32_t flac_res_vum_cyc, flac_lpc_vum_cyc;   /* B-347 */
+/* 2026-09-28, B-361: channel 1's WHOLE cost (bit-read + reconstruction + decorrelation, subframe_stream()
+ * below, fused and untimeable apart -- see this file's own comment above), timed as one lump rather than
+ * split. Exists to test this file's own inherited assumption ("channel 1 does the same work, so the ratio
+ * carries") with real numbers instead of leaving it asserted: every real-hardware reading so far measures
+ * CHANNEL 0 ONLY, so a stereo file's true total decode cost has never actually been checked against it.
+ * Window-total only (CT_AUD's own convention) -- no per-second bench row, no VU-meter accumulator set;
+ * narrower scope than the channel-0 triple, added only to answer the one open question above. */
+uint32_t flac_ch1_total_cyc;
 uint8_t  flac_order, flac_type;
 /* B-342: unary()'s own call count, increment only. A tick() read around every call (thousands per
  * frame) would both perturb the very timing being measured and swamp flac_res_cyc's own share of that
@@ -531,6 +539,18 @@ uint32_t flac_unary_calls, flac_unary_calls_total;
 #else
 #define PROF_T0()   do {} while (0)
 #define PROF_ADD(A, AT, AV) do {} while (0)
+#endif
+
+/* B-370: hardware LPC reconstruction redirect (docs/research/FLAC_LPC_KERNEL_DESIGN.md). Same
+ * separation as subband.c's own TAU_POLY_FW redirect -- this file stays a portable, host-testable
+ * translation unit with no MMIO register addresses in it; fw/flac_lpc_hw.h/.inc carry those. Off by
+ * default -- byte-identical to the unmodified decoder; no shipped build defines this yet
+ * (docs/research/FLAC_LPC_KERNEL_DESIGN.md section 7 item 5 is not hardware-tested). */
+#ifndef TAU_LPC_FW
+#define TAU_LPC_FW 0
+#endif
+#if TAU_LPC_FW
+#include "flac_lpc_hw.h"
 #endif
 
 static flac_err subframe(flac_t *f, int32_t *out, uint32_t bps)
@@ -582,7 +602,20 @@ static flac_err subframe(flac_t *f, int32_t *out, uint32_t bps)
         PROF_ADD(flac_res_cyc, flac_res_total_cyc, flac_res_vum_cyc);
         if (e) return e; }
         PROF_T0();
-        for (uint32_t i = order; i < n; i++) {
+        uint32_t i = order;
+#if TAU_LPC_FW
+        /* warm-up is out[0..order-1], already in the caller's own read order (out[0] oldest,
+         * out[order-1] most recent) -- exactly tau_lpc_hw_begin()'s own `warm` contract. */
+        if (tau_lpc_hw_begin(order, shift, coef, out)) {
+            for (; i < n; i++) {
+                int ok;
+                int32_t s = tau_lpc_hw_sample(out[i], &ok);   /* out[i] currently holds the residual, same value residual() just wrote */
+                if (!ok) break;                                /* hardware failed mid-subframe: finish the rest below, in software */
+                out[i] = s;
+            }
+        }
+#endif
+        for (; i < n; i++) {
             int64_t p = 0;
             for (uint32_t j = 0; j < order; j++)
                 p += (int64_t)coef[j] * out[i - 1u - j];
@@ -667,6 +700,33 @@ static flac_err subframe_stream(flac_t *f, uint32_t bps, uint32_t out_bps,
         rice_t r; flac_err e = rice_init(f, &r, order);
         if (e) return e;
         for (uint32_t j = 0; j < order; j++) EMIT(warm[j] << wasted);
+#if TAU_LPC_FW
+        /* warm[] is in the caller's own read order (warm[0] oldest, warm[order-1] most recent) --
+         * exactly tau_lpc_hw_begin()'s own `warm` contract, same as subframe()'s out[0..order-1]. */
+        if (tau_lpc_hw_begin(order, shift, coef, warm)) {
+            while (i < n) {
+                /* Read the residual FIRST and keep it: unlike subframe()'s batch residual() pass (which
+                 * decodes every residual before reconstruction starts, so a failed sample's residual is
+                 * still sitting in out[i] for the software fallback to reuse), subframe_stream() pulls
+                 * one residual at a time from the live bit reader. Passing rice_next(f,&r) straight as
+                 * tau_lpc_hw_sample()'s argument would consume it from the bitstream regardless of
+                 * whether the hardware call then succeeds -- so a mid-subframe failure would silently
+                 * drop that residual and desync every sample after it. Caught by
+                 * sim/test_flac_lpc_fw_redirect.py's fallback case, not assumed safe. */
+                int32_t res = rice_next(f, &r);
+                int ok;
+                int32_t s = tau_lpc_hw_sample(res, &ok);
+                if (!ok) {
+                    int64_t p = 0;   /* finish THIS sample in software with the residual already read */
+                    for (uint32_t j = 0; j < order; j++)
+                        p += (int64_t)coef[j] * (buf[i - 1u - j] >> wasted);
+                    EMIT((res + (int32_t)(p >> shift)) << wasted);   /* EMIT itself advances i -- a second i++ here silently skipped a sample, caught by this same test */
+                    break;           /* every sample after this one falls through to the loop below */
+                }
+                EMIT(s << wasted);
+            }
+        }
+#endif
         while (i < n) {
             int64_t p = 0;
             for (uint32_t j = 0; j < order; j++)
@@ -681,6 +741,18 @@ static flac_err subframe_stream(flac_t *f, uint32_t bps, uint32_t out_bps,
     if (k) sink(sctx, pcm, k);
     return f->eof ? FLAC_ERR_SHORT : FLAC_OK;
 }
+
+/* B-370 host test only: sim/flac_lpc_fw_harness.c drives these two static entrypoints directly with a
+ * hand-built subframe (no full FLAC file/frame needed) to prove the hardware-redirect glue above is
+ * wired correctly -- byte-for-byte identical output with TAU_LPC_FW 0 and 1, including the mid-
+ * subframe hardware-failure fallback path. Never defined by fw/build.sh; adds nothing to any shipped
+ * build. */
+#ifdef FLAC_TEST_EXPOSE
+flac_err flac_test_subframe(flac_t *f, int32_t *out, uint32_t bps) { return subframe(f, out, bps); }
+flac_err flac_test_subframe_stream(flac_t *f, uint32_t bps, uint32_t out_bps, uint8_t m,
+                                    flac_sink_fn sink, void *sctx)
+{ return subframe_stream(f, bps, out_bps, m, sink, sctx); }
+#endif
 
 /* ---------------------------------------------------------------- frame */
 
@@ -755,8 +827,12 @@ flac_err flac_decode_frame(flac_t *f, flac_sink_fn sink, void *sink_ctx)
 
     /* Channel 1 never gets a buffer of its own -- see subframe_stream(). */
     uint32_t bps1 = bps + ((m == 8u || m == 10u) ? 1u : 0u);
+    { PROF_T0();
     e = subframe_stream(f, bps1, bps, m, sink, sink_ctx);
-    if (e) return e;
+#if FLAC_PROFILE
+    if (flac_tick) flac_ch1_total_cyc += flac_tick() - prof_t0;
+#endif
+    if (e) return e; }
 
     align_byte(f);
     (void)bits(f, 16);                              /* frame CRC-16 */

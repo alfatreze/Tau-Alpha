@@ -127,6 +127,24 @@
 #if TAU_POLY_FW
 #include "mp3_poly_hw.inc"
 #endif
+#define R_LPC_CFG       0x80000120u   /* B-368/B-369/B-370: FLAC LPC unit -- write: [5:0] order (1-32), [11:6] shift (0-31), once per subframe */
+#define R_LPC_COEF_IDX  0x80000124u   /* write: [4:0] coefficient index 0-31 (0 = most-recent-paired tap) */
+#define R_LPC_COEF_DATA 0x80000128u   /* write: signed 16-bit coefficient at that index; index auto-increments */
+#define R_LPC_WARM_IDX  0x8000012Cu   /* write: [4:0] warm-up/history index 0-31, same convention as COEF_IDX */
+#define R_LPC_WARM_DATA 0x80000130u   /* write: signed 32-bit warm-up sample at that index; index auto-increments */
+#define R_LPC_RESIDUAL  0x80000134u   /* write: next residual, starts one reconstruction */
+#define R_LPC_SAMPLE    0x80000138u   /* read: the reconstructed sample -- this read is itself the ack that clears STATUS bit 2 */
+#define R_LPC_STATUS    0x8000013Cu   /* read: bit 0 = built in, bit 1 = busy, bit 2 = done */
+/* Redirect fw/flac.c's LPC reconstruction to the hardware unit (docs/research/FLAC_LPC_KERNEL_DESIGN.md).
+ * Off by default -- byte-identical to the unmodified decoder; no build target defines this yet (no
+ * Quartus fit or hardware test exists for TAU_LPC yet, section 7 item 5). fw/flac_lpc_hw.inc implements
+ * fw/flac_lpc_hw.h, which flac.c (a separate translation unit) declares extern. */
+#ifndef TAU_LPC_FW
+#define TAU_LPC_FW 0
+#endif
+#if TAU_LPC_FW
+#include "flac_lpc_hw.inc"
+#endif
 #define R_SPEC_ST   0x800000E4u   /* read: bit 0 = the bank is built into this bitstream, bits 31:16 = windows completed */
 #define R_SCAN      0x800000E8u   /* B-267 Helios beam position: bit 9 = present (TAU_BEAM bitstream), bits 8:0 = video line counter */
 #define R_VBLANK    0x800000D0u   /* Helios/Talos H0: bit 0 = vblank status, CDC'd from clk_vid; 0 when TAU_VBLANK is off */
@@ -1118,10 +1136,12 @@ static uint32_t stop_req;
 /* paused is a bitmask: 1 the user, 2 the OS menu. (A third bit, for a legacy
  * playlist switch in progress, was removed along with that mode.) */
 static uint8_t  menu_was;         /* the OS menu was open on the last poll      */
-/* Shared "an overlay just closed" repaint flag -- settings, the library browse overlay, and (when it
- * existed) the legacy playlist overlay all set this so the main loop repaints the player chrome once,
- * rather than each overlay-close site duplicating that work. Kept under its old name (pl_ui_restore)
- * to avoid a mechanical rename across every remaining caller. */
+/* Shared "the active top-level view just changed" repaint flag, so the main loop repaints the player
+ * chrome once rather than each transition site duplicating that work. B-350: every write to this flag
+ * now goes through helios_view_changed() (fw/helios.inc), not a bare assignment -- one of the six
+ * independent call sites that used to set it by hand (set_close()) simply omitted it (B-349), which is
+ * exactly the failure a single shared entry point is meant to make structurally harder to repeat. Kept
+ * under its old name (pl_ui_restore) to avoid a mechanical rename of the main loop's own read site. */
 static uint8_t  pl_ui_restore;
 /* The TRACK loads that follow a reload, three deep -- general reload diagnostics, not specific to
  * the (now removed) legacy playlist mode.
@@ -1716,6 +1736,7 @@ static uint8_t  wave_hw;                  /* B-283: the bitstream has the level/
 static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardware filter bank (probed once at boot) */
 static uint8_t  text_mode_hw;             /* theme/gamma: the bitstream has the second text weight table (probed once at boot) */
 static uint8_t  hw_poly;                  /* B-292: the bitstream has the MP3 window unit (probed once at boot) */
+static uint8_t  hw_lpc;                   /* B-369: the bitstream has the FLAC LPC unit (probed once at boot) */
 #if FLAC_PROFILE
 static uint32_t clz_cal_cyc;              /* B-342: measured cycles/call of __clzdi2, once at boot */
 #endif
@@ -2078,6 +2099,15 @@ static void fb_round_rect_on(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
 {
     rrect_probe_ensure();   /* B-162's own "lazy, on first actual need, never at boot" convention */
     if (RRECT_READY()) {
+        /* fb_wait() here, BEFORE the LUT is touched, not just inside fb_rrect() below: a prior
+         * OP_RRECT at a DIFFERENT radius may still be mid-draw (fb_rrect() fires-and-returns, it
+         * only waits for what came before IT), reading rc_cut_lut_r row by row as it goes. Two or
+         * three fb_round_rect_on() calls at different radii back to back (set_disc()'s radio-button
+         * ring/dot sequence, radii 9/6/4 or 10/7) were rewriting that shared LUT out from under the
+         * still-executing earlier command -- owner-reported "radio button rounded issue" after the
+         * B11 corner-cut fix, root-caused here, not a LUT-content bug (rc_lut_cut() itself matches
+         * the proven software formula exactly, sim/test_rc_lut.py already covers it). */
+        fb_wait();
         if (r) rc_lut_ensure(r);   /* fb_rrect()'s own comment: r=0 never arms rrect_pending, so the LUT is never read for it -- skip the load */
         fb_rrect(x, y, w, h, r, color, bg);
         return;
@@ -3801,6 +3831,17 @@ static void ui_load_failed(void)
  * lands near 87% for 24-bit, which fits; nothing above it does. */
 #define FLAC_MAX_RATE 48000u
 static uint8_t rate_unsupported;   /* set at load, consumed by the main loop */
+#if TAU_DIAGNOSTIC
+/* Settings > Diagnostics > ACCEPT ALL RATES (default OFF). Bypasses ONLY the measured-performance
+ * FLAC_MAX_RATE cutoff above -- deliberately not FLR_CHANS/FLR_DEPTH/FLR_BLOCK, which come from
+ * flac_open() itself refusing a shape its decoder does not support at all (2 channels max, specific bit
+ * depths), a hard capability boundary rather than a performance choice, and not safe to bypass the same
+ * way. Lets a file like a 96kHz FLAC load and run far enough to get a real SR_T_DECPROF/DECPROF2 reading
+ * (2026-09-28, B-353/B-356) -- it will very likely underrun above 48kHz per the measurement in the comment
+ * above; that is the expected, useful result of turning this on, not a bug. Diagnostic-build-only, and off
+ * by default even there, so it can never affect a normal listening session by accident. */
+static uint8_t flac_accept_all_rates;
+#endif
 
 /* Shown ON THE TRACK CARD rather than as a takeover screen. The card is
  * already where this player explains what is loaded, the filename still reads
@@ -3817,31 +3858,42 @@ static void ui_rate_unsupported(void)
     track_year[0] = 0;
     track_trk[0]  = 0;
 
+    /* "NO PLAY: ..." leads every reason -- the earlier wording ("HI-RES 96kHz -
+     * PLAYS 48kHz MAX") read as a capability statement ("it plays, capped at
+     * 48kHz") when it means the opposite: this file will not play at all, and
+     * the number after it is the core's ceiling, not what's about to happen.
+     * Owner-reported: a real 96kHz FLAC read as a "cryptic" refusal for exactly
+     * this reason. Kept short (shorter than the old wording in every case, not
+     * just clearer) since this row has no marquee/scroll of its own and a long
+     * line already clips against the art panel's column width -- a real,
+     * separate layout gap (fb_text_boxed() here vs the title/artist's own
+     * scrolling ui_mq_title/ui_mq_artist), not fixed by this wording change,
+     * flagged but out of scope for a one-line message edit. */
     {
         char *q = track_album;
         uint32_t v = fl_reject_val;
+        const char *p0 = "NO PLAY: ";
+        while (*p0) *q++ = *p0++;
 
         if (fl_reject_kind == FLR_RATE) {
-            const char *p1 = "HI-RES ";
-            while (*p1) *q++ = *p1++;
             q = ui_dec(q, v / 1000u);
             uint32_t frac = (v % 1000u) / 100u;
             if (frac) { *q++ = '.'; *q++ = (char)('0' + frac); }
-            const char *p2 = "kHz - PLAYS 48kHz MAX";
+            const char *p2 = "kHz (48kHz MAX)";
             while (*p2) *q++ = *p2++;
         } else if (fl_reject_kind == FLR_DEPTH) {
             q = ui_dec(q, v);
-            const char *p2 = "-BIT FLAC - PLAYS 24-BIT MAX";
+            const char *p2 = "-BIT (24-BIT MAX)";
             while (*p2) *q++ = *p2++;
         } else if (fl_reject_kind == FLR_CHANS) {
             q = ui_dec(q, v);
-            const char *p2 = " CHANNELS - PLAYS STEREO MAX";
+            const char *p2 = "-CH (STEREO MAX)";
             while (*p2) *q++ = *p2++;
         } else {
             const char *p1 = "BLOCK ";
             while (*p1) *q++ = *p1++;
             q = ui_dec(q, v);
-            const char *p2 = " - PLAYS 6144 MAX";
+            const char *p2 = " (6144 MAX)";
             while (*p2) *q++ = *p2++;
         }
         *q = 0;
@@ -7878,7 +7930,11 @@ COLD_SR static int load_track(void)
          * see ui_rate_unsupported(). Handing the arena back to Helix on the
          * way out matters: leaving the core with no decoder is what once made
          * a single bad file break every load after it. */
-        if (fl.rate > FLAC_MAX_RATE) {
+        if (fl.rate > FLAC_MAX_RATE
+#if TAU_DIAGNOSTIC
+            && !flac_accept_all_rates
+#endif
+        ) {
             REG(R_STAT2) = 0xC3000000u | fl.rate;
             fl_reject_kind = FLR_RATE;
             fl_reject_val  = fl.rate;
@@ -8222,6 +8278,10 @@ int main(void)
     hw_poly = (uint8_t)(REG(R_POLY_ST) & 1u);      /* B-292: hardware MP3 window unit present? (0 on any other bitstream) */
 #if TAU_POLY_FW
     tau_poly_hw_enable = hw_poly;
+#endif
+    hw_lpc = (uint8_t)(REG(R_LPC_STATUS) & 1u);    /* B-369: hardware FLAC LPC unit present? (0 on any other bitstream) */
+#if TAU_LPC_FW
+    tau_lpc_hw_enable = hw_lpc;
 #endif
 #if FLAC_PROFILE
     /* B-342: one-time boot calibration of __clzdi2's real cost on THIS CPU, so flac.c's unary() call
