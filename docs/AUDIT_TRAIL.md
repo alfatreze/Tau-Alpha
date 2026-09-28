@@ -9706,3 +9706,21 @@ Both seeds confirmed running independently (`quartus_sh processes now running on
 2)`). Result pending -- check with `python3 tools/vm_fit.py status lpc-b369`. If hold slack goes
 negative, the fix is the same proven retiming technique used every other time this project hit a
 near-zero-margin path (B-111/B-114/B-231). No card touched.
+
+- 2026-09-28 (Claude): VM/RTL (B-372). "check status of the fit" -- both `lpc-b369` seeds FAILED, fast
+(~3 minutes, Analysis & Synthesis only). Real RTL bug, not a timing/resource issue: `hist_mem` was
+written from TWO separate `always @(posedge clk)` blocks (the config block's `warm_data_we` load, and
+the state machine's `S_PUSH`) -- `Error (10028): Can't resolve multiple constant drivers for net
+"hist_mem[0][31]"`. Icarus tolerated this silently in `sim/tb_tau_flac_lpc.v` because the testbench
+never happens to assert `warm_data_we` in the same cycle the state machine is mid-`S_PUSH`, so both the
+20,000-vector run and all 5 mutation cases passed clean despite the bug -- a real gap between "passes in
+simulation" and "synthesizable," the same class of lesson this project has hit before with other units.
+Fixed: moved the `hist_mem[warm_idx_r] <= warm_data_d;` write out of the config block and into the
+state-machine block (the sole remaining owner) as a plain independent `if` ahead of the `case(state)` --
+legal within one block (in-block priority, not a synthesis error) even though a warm-up load and
+`S_PUSH` structurally never coincide in real firmware usage (warm loads only happen while `state ==
+S_IDLE`). Re-verified: `make rtl-lint` clean, `make test-rtl-flac-lpc`/`-mutation` still pass in full
+(20,000 vectors + the sequential push test, all 5 mutants caught), `make test-host` (incl. the redirect
+harness) unaffected. Committed (`c563732`) and pushed. Relaunched as `lpc-b372` (both seeds confirmed
+running independently) with the identical `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt`
+bundle. Result pending.
