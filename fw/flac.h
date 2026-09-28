@@ -140,6 +140,10 @@ extern uint32_t flac_lpc_total_cyc;
  * same work, so the ratio carries" assumption with a real number instead of leaving it asserted. */
 extern uint32_t flac_ch1_total_cyc;
 
+/* B-381: the single WORST real-LPC reconstruction call seen in the window (not summed) -- see flac.c's
+ * own comment. Reset alongside flac_lpc_total_cyc. */
+extern uint32_t flac_lpc_max_cyc;
+
 /* B-347: a THIRD, independent pair for the VU Master overlay's decoder-CPU% row (fw/vu_master.inc's
  * vum_draw_overlay()) -- reset once a second by that row's own code, not the screen row's reset and
  * not the Check window's. Same call sites, same meaning, no shared mutable state. */

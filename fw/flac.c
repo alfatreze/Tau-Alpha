@@ -527,6 +527,15 @@ uint32_t flac_res_vum_cyc, flac_lpc_vum_cyc;   /* B-347 */
  * Window-total only (CT_AUD's own convention) -- no per-second bench row, no VU-meter accumulator set;
  * narrower scope than the channel-0 triple, added only to answer the one open question above. */
 uint32_t flac_ch1_total_cyc;
+/* B-381: the single WORST (not summed) real-LPC reconstruction call seen in the current window --
+ * exists to test the microstuttering hypothesis directly (the owner heard it on the LPC_FW=0/software
+ * path, confirmed gone with the hardware unit engaged): t_pct/r_pct are AVERAGES over a whole Check
+ * window and could stay flat even if a rare, data-dependent high-order subframe spikes well past the
+ * real-time budget for just that one call -- exactly what an audible microstutter looks like and what
+ * no existing accumulator here could see. Window-total only (flac_ch1_total_cyc's own convention),
+ * reset alongside flac_lpc_total_cyc. Only the true-LPC call site (order 1-32, PROF_ADD_MAX below)
+ * feeds it -- FIXED-predictor subframes (order 0-4, a completely different, much cheaper case) don't. */
+uint32_t flac_lpc_max_cyc;
 uint8_t  flac_order, flac_type;
 /* B-342: unary()'s own call count, increment only. A tick() read around every call (thousands per
  * frame) would both perturb the very timing being measured and swamp flac_res_cyc's own share of that
@@ -536,9 +545,12 @@ uint32_t flac_unary_calls, flac_unary_calls_total;
 #define PROF_T0()   uint32_t prof_t0 = flac_tick ? flac_tick() : 0u
 /* Three targets, one tick() read -- see mp3dec.c's MPROF_ADD, same reasoning, extended per B-347. */
 #define PROF_ADD(A, AT, AV) do { if (flac_tick) { uint32_t _prof_d = flac_tick() - prof_t0; (A) += _prof_d; (AT) += _prof_d; (AV) += _prof_d; } } while (0)
+/* B-381: PROF_ADD plus a running max, used only at the true-LPC call site. */
+#define PROF_ADD_MAX(A, AT, AV, AMAX) do { if (flac_tick) { uint32_t _prof_d = flac_tick() - prof_t0; (A) += _prof_d; (AT) += _prof_d; (AV) += _prof_d; if (_prof_d > (AMAX)) (AMAX) = _prof_d; } } while (0)
 #else
 #define PROF_T0()   do {} while (0)
 #define PROF_ADD(A, AT, AV) do {} while (0)
+#define PROF_ADD_MAX(A, AT, AV, AMAX) do {} while (0)
 #endif
 
 /* B-370: hardware LPC reconstruction redirect (docs/research/FLAC_LPC_KERNEL_DESIGN.md). Same
@@ -621,7 +633,7 @@ static flac_err subframe(flac_t *f, int32_t *out, uint32_t bps)
                 p += (int64_t)coef[j] * out[i - 1u - j];
             out[i] += (int32_t)(p >> shift);
         }
-        PROF_ADD(flac_lpc_cyc, flac_lpc_total_cyc, flac_lpc_vum_cyc);
+        PROF_ADD_MAX(flac_lpc_cyc, flac_lpc_total_cyc, flac_lpc_vum_cyc, flac_lpc_max_cyc);
     } else {
         return FLAC_ERR_DATA;
     }

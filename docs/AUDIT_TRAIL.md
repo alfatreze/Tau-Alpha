@@ -9978,3 +9978,35 @@ LPC alone. Installed additively (media carried from `TAU_0_6_0_A_16`, nothing re
 be A/B compared directly. If the stutter returns on `TAU_DEV_52`, LPC is confirmed as the real cause and
 the worst-case-latency instrumentation becomes a justified next step; if `TAU_DEV_52` stays clean too, LPC
 isn't the cause and something else in the bundle (most likely clk66) is. Owner test pending.
+
+## B-382 (2026-09-28): worst-case per-subframe FLAC LPC latency, new instrumentation
+
+Owner confirmed the A/B result (B-381): the microstutter IS present on `TAU_DEV_52` (LPC_FW=0, software
+FLAC path) and confirmed absent on `TAU_0_6_0_A_16` (hardware LPC), with a real detail -- it comes in at
+a different point in different tracks, not a fixed offset. Before this, no instrumentation existed that
+could see WHY: `flac_lpc_total_cyc`/`t_pct`/`c1_pct` are all window-AVERAGES (B-380's own Check showed
+`t_pct=99%` barely different from the pre-hardware software baseline, B-363), which can stay flat even if
+a rare, data-dependent high-order subframe spikes well past real time for just that one call -- exactly
+the shape of an audible microstutter and invisible to any existing average.
+
+Built a new `flac_lpc_max_cyc` accumulator (`fw/flac.c`/`fw/flac.h`): the single WORST (not summed)
+real-LPC subframe call in the current window, via a new `PROF_ADD_MAX` macro sitting alongside the
+existing `PROF_ADD` (same tick()-delta read, plus a running max), applied only at the true-LPC call site
+(order 1-32; the FIXED-predictor call site, order 0-4, a much cheaper and different case, is untouched).
+Reset alongside `flac_lpc_total_cyc` at the CT_AUD window start. Surfaced as a 7th field on
+`SR_T_DECPROF2` (`fw/suite.inc`/`fw/suite_core.h`), widened from 6 to 7 u16 values, raw cycles not a
+percent (matching the existing `worst_access_cycles` convention SDRAM/PSRAM already use, not a new unit).
+Backward compatible: `tools/decode_tau_suite.py` decodes both the old 6-field shape (older firmware) and
+the new 7-field one explicitly, rather than assuming one width.
+
+This measures the SAME call site regardless of `LPC_FW`: on an `LPC_FW=0` build the call site is pure
+software (the `#if TAU_LPC_FW` block doesn't compile in), so `flac_lpc_max_cyc` reads the real software
+worst case directly; on `LPC_FW=1` it reads whatever mix of hardware-then-software-fallback completed
+that subframe (pure hardware unless a real timeout occurred mid-subframe). Directly comparable between
+the two already-installed A/B cores without needing a third variant.
+
+`sim/test_suite.py` and `tools/host/suite_harness.c` updated for the new field width (a real record built
+by the actual compiled firmware under rv32sim, not just a Python-side change) plus a dedicated test that
+the OLD 6-field shape still decodes correctly. `make test-host` passes in full. Both firmware variants
+(`LPC_FW=0`/`LPC_FW=1`, matching `TAU_DEV_52`/`TAU_0_6_0_A_16`) rebuilt clean with real heap margin.
+Not yet packaged or installed -- next step.

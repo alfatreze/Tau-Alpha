@@ -72,6 +72,10 @@ static uint16_t chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r;
 static uint16_t chk_dec_d, chk_dec_a, chk_dec_x, chk_dec_u;   /* 2026-09-28: the finer split, SR_T_DECPROF2 */
 static uint16_t chk_dec_t;   /* 2026-09-28, B-361: FLAC's TRUE total percent-of-realtime (ch0 + ch1) */
 static uint16_t chk_dec_c1;  /* 2026-09-28, B-361: channel 1's own percent-of-realtime (0 on mono) */
+static uint16_t chk_dec_max; /* 2026-09-28, B-381: worst single real-LPC subframe call, in cycles (not
+                               * a percent, same convention as the SDRAM/PSRAM worst_access_cycles fields) --
+                               * the microstuttering hypothesis test: an average (t_pct) can stay flat
+                               * while a rare, data-dependent high-order subframe spikes past real time. */
 
 /* All text of the page in one cold blob (NUL separated), fetched by index. */
 enum { CS_N0 = 0, CS_PASS = 7, CS_FAIL, CS_SKIP, CS_NA, CS_INTRO = 11, CS_RUNNING = 20, CS_H_IDLE, CS_H_RUN, CS_H_DONE, CS_TITLE,
@@ -226,6 +230,7 @@ COLD_TEXT static int chk_do(uint32_t id)
             flac_res_total_cyc = flac_lpc_total_cyc = 0u;
             flac_unary_calls_total = 0u;
             flac_ch1_total_cyc = 0u;
+            flac_lpc_max_cyc = 0u;
 #endif
             return 0;
         }
@@ -277,7 +282,11 @@ COLD_TEXT static int chk_do(uint32_t id)
              * figure alone -- no special-casing needed, flac_ch1_total_cyc is just never incremented. */
             chk_dec_c1 = (uint16_t)(flac_ch1_total_cyc / (CHK_AUDIO_S * (CLK_HZ / 100u)));
             chk_dec_t  = (uint16_t)((rt + flac_ch1_total_cyc) / (CHK_AUDIO_S * (CLK_HZ / 100u)));
-        } else { chk_dec_r = 0u; chk_dec_u = 0u; chk_dec_t = 0u; chk_dec_c1 = 0u; }
+            /* B-381: raw cycles, not a percent -- capped at 65535 (an actual real-LPC subframe call
+             * anywhere near that many cycles would already be an obvious, audible failure, not a
+             * measurement to lose precision over). */
+            chk_dec_max = (uint16_t)(flac_lpc_max_cyc > 65535u ? 65535u : flac_lpc_max_cyc);
+        } else { chk_dec_r = 0u; chk_dec_u = 0u; chk_dec_t = 0u; chk_dec_c1 = 0u; chk_dec_max = 0u; }
 #endif
         chk_set((chk_under == 0u && chk_stall < 50u) ? SR_PASS : SR_FAIL, chk_under);
         break;
@@ -492,8 +501,8 @@ COLD_TEXT static void chk_finish(void)
 #if MP3_PROFILE || FLAC_PROFILE
     { uint32_t dp[4] = { chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r };
       sr_vals(&s, SR_T_DECPROF, 2, dp, 4); }
-    { uint32_t dp2[6] = { chk_dec_d, chk_dec_a, chk_dec_x, chk_dec_u, chk_dec_t, chk_dec_c1 };
-      sr_vals(&s, SR_T_DECPROF2, 2, dp2, 6); }
+    { uint32_t dp2[7] = { chk_dec_d, chk_dec_a, chk_dec_x, chk_dec_u, chk_dec_t, chk_dec_c1, chk_dec_max };
+      sr_vals(&s, SR_T_DECPROF2, 2, dp2, 7); }
 #endif
     uint32_t lb[4] = { lib_state == LIB_ST_OK ? lib.n_tracks : 0u, lib_ms, (uint32_t)lib_err | ((uint32_t)lib_state << 8), 0u };
     sr_vals(&s, SR_T_LIB, 4, lb, 4);
