@@ -11,6 +11,16 @@
 3. **Codex** must run background checks against modified files to detect bugs, race conditions, or performance flaws.
 
 ## 2b. Session start (read before working)
+000000. **Newest (2026-09-28, late): `docs/handoffs/SESSION_HANDOFF_2026-09-28_FLAC_LPC_AND_CLEANUP.md`
+-- read it first** (FLAC LPC hardware kernel designed/built/verified/wired-in, RTL synthesis bug found
+and fixed, a Quartus fit in progress at handoff time -- check its status; the `all6-combined` fit result
+item 00000 below flags as unverified IS now resolved with real evidence, Successful/+5.695ns/+0.037ns,
+found directly in the VM's own log; repo cleanup -- `.gitignore` for `work/`/`.claude/`/etc.,
+`docs/DECISIONS.md` and a new Helios architecture review integrated from another local stream after
+review, `docs/vendor/` deliberately still excluded. **Next likely focus: reviewing pending Helios
+improvements** -- start from `docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md`.) Supersedes item
+00000 below for what it covers; that entry's `alfatreze.TAU_0_6_0_A_11` install/corruption-story flag is
+still unresolved, not addressed this pass. Then item 00000.
 00000. **Newest (2026-09-28): `docs/handoffs/SESSION_HANDOFF_2026-09-28_0.6.0_COMBINED.md` -- read it first**
 (five 0.6.0 RTL features individually fit-proven, RAM-shrink+clk66 combined into a rev-26 interlock;
 rounded-rect corner-cut LUT fix, MASTER VU meter, Chladni EMBER/OCEAN presets, legacy `.m3u` playlist
