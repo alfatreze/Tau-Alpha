@@ -64,6 +64,8 @@ uint32_t (*mp3_tick)(void);
 uint32_t mp3_huff_cyc, mp3_imdct_cyc, mp3_sub_cyc, mp3_dequant_cyc, mp3_alias_cyc, mp3_xform_cyc;
 uint32_t mp3_huff_total_cyc, mp3_imdct_total_cyc, mp3_sub_total_cyc;
 uint32_t mp3_dequant_total_cyc, mp3_alias_total_cyc, mp3_xform_total_cyc;
+uint32_t mp3_huff_vum_cyc, mp3_imdct_vum_cyc, mp3_sub_vum_cyc;   /* B-347 */
+uint32_t mp3_dequant_vum_cyc, mp3_alias_vum_cyc, mp3_xform_vum_cyc;
 #endif
 
 /**************************************************************************************
@@ -419,7 +421,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			/* unpack scale factors and compute size of scale factor block */
 			prevBitOffset = bitOffset;
 			offset = UnpackScaleFactors(mp3DecInfo, mainPtr, &bitOffset, mainBits, gr, ch);
-			MPROF_ADD(mp3_huff_cyc, mp3_huff_total_cyc); }
+			MPROF_ADD(mp3_huff_cyc, mp3_huff_total_cyc, mp3_huff_vum_cyc); }
 			#ifdef PROFILE
 				time = systime_get() - time;
 				printf("UnpackScaleFactors: %i ms\n", time);
@@ -442,7 +444,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			/* decode Huffman code words */
 			prevBitOffset = bitOffset;
 			offset = DecodeHuffman(mp3DecInfo, mainPtr, &bitOffset, huffBlockBits, gr, ch);
-			MPROF_ADD(mp3_huff_cyc, mp3_huff_total_cyc); }
+			MPROF_ADD(mp3_huff_cyc, mp3_huff_total_cyc, mp3_huff_vum_cyc); }
 			if (offset < 0) {
 				MP3ClearBadFrame(mp3DecInfo, outbuf);
 				return ERR_MP3_INVALID_HUFFCODES;
@@ -465,7 +467,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			MP3ClearBadFrame(mp3DecInfo, outbuf);
 			return ERR_MP3_INVALID_DEQUANTIZE;
 		}
-		MPROF_ADD(mp3_dequant_cyc, mp3_dequant_total_cyc); }   /* B-345: split out of mp3_imdct_cyc, was folded in */
+		MPROF_ADD(mp3_dequant_cyc, mp3_dequant_total_cyc, mp3_dequant_vum_cyc); }   /* B-345/B-347 */
 		#ifdef PROFILE
 			time = systime_get() - time;
 			printf("Dequantize: %i ms\n", time);
@@ -482,7 +484,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 				MP3ClearBadFrame(mp3DecInfo, outbuf);
 				return ERR_MP3_INVALID_IMDCT;
 			}
-			MPROF_ADD(mp3_imdct_cyc, mp3_imdct_total_cyc);
+			MPROF_ADD(mp3_imdct_cyc, mp3_imdct_total_cyc, mp3_imdct_vum_cyc);
 		#ifdef PROFILE
 			time = systime_get() - time;
 			printf("IMDCT: %i ms\n", time);
@@ -498,7 +500,7 @@ int MP3Decode(HMP3Decoder hMP3Decoder, unsigned char **inbuf, int *bytesLeft, sh
 			MP3ClearBadFrame(mp3DecInfo, outbuf);
 			return ERR_MP3_INVALID_SUBBAND;
 		}
-		MPROF_ADD(mp3_sub_cyc, mp3_sub_total_cyc); }
+		MPROF_ADD(mp3_sub_cyc, mp3_sub_total_cyc, mp3_sub_vum_cyc); }
 		#ifdef PROFILE
 			time = systime_get() - time;
 			printf("Subband: %i ms\n", time);
