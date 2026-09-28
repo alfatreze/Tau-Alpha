@@ -68,3 +68,4 @@ create work there: TIM1 container freeze (item 9), meter presets and `tau-assets
 ## Proposed (other sessions add here)
 
 - **0.6 scope (owner, B-331):** persist widening so theme and meter settings are remembered, alpha blend in firmware (translucent panel/fade), the `Track changes` fix. (Claude, 2026-09-27)
+- **Talos 2 reimplementation, after the FLAC LPC work (owner, 2026-09-28):** plan in `docs/features/TALOS2_REIMPLEMENTATION_PLAN.md` (phases P0-P4; P1 alone frees about 6,500 ALMs by putting the row buffer back in MLAB with blend on). Evidence: `docs/research/TALOS_REVIEW_2026-09-28.md`. (Claude, 2026-09-28)
