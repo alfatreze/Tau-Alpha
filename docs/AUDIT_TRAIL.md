@@ -9676,3 +9676,33 @@ own remaining piece), and any Quartus build/hardware test at all -- `hw_lpc` rea
 bitstream built so far, so `LPC_FW=1` today only exercises the pure-software fallback path (proven
 correct by this session's own test) even when the firmware itself is built with it on. No card/VM
 touched.
+
+- 2026-09-28 (Claude): VM (B-371). "check vm" -- found the VM idle (no Quartus processes running) and
+the `all6-combined-s1` stage from 2026-09-27 (previously flagged unresolved: B-348/B-350's own overnight
+handoff explicitly said "an `all6-combined` Quartus fit *result* -- only the qsf append file is
+committed, no fit.summary, RBF or AUDIT_TRAIL entry exists for it"). Read `~/tau-local/all6-combined-s1/
+quartus-fit.log` directly: **it genuinely completed -- "Quartus Prime Full Compilation was successful.
+0 errors, 333 warnings."** Real timing numbers, not previously recorded anywhere: worst-case setup slack
++5.695 ns, hold slack +0.037 ns -- both positive (timing closes), but the hold margin is razor-thin,
+worth flagging honestly rather than rounding up to "comfortably closed." Also found a real, previously
+unflagged regression in the same log: `Warning (10999): ... can't infer memory for variable 'glyphbuf'
+with attribute '"MLAB, no_rw_check"'` -- the B-100/B-102 MLAB migration (glyphbuf out of the M10K pool)
+is silently failing to infer on this combined build and falling back to M10K, unlike every earlier
+standalone blit-engine fit. Not chased further this pass (out of scope for tonight's task); worth its
+own investigation before this bundle is trusted as "the MLAB win is banked." Resource summary (RAM block
+count) was not present in this particular log format -- not chased, a secondary number next to the
+timing/MLAB findings above.
+
+Then launched the TAU_LPC fit itself (the standing "launch the Quartus fit for TAU_LPC" request from
+earlier this session, delayed by the intervening git/commit work): new `tools/
+blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt` (the confirmed-real all6-combined bundle above,
+verbatim, plus `TAU_LPC=1` -- `tau_flac_lpc.sv`, B-368/B-369, a small standalone time-multiplexed DSP MAC
+with no known write-port contention against the draw-engine's own repeatedly-marginal glyphbuf path, but
+explicitly flagged in the append file's own header that the base bundle's hold margin is already thin
+enough that this is a real experiment, not assumed safe). Launched via `tools/vm_fit.py launch lpc-b369
+--append tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt --seed 1 --seed 2`, staged from
+the current pushed `main` (commit `89f242e`, confirmed via the tool's own tar-from-git-ls-files staging).
+Both seeds confirmed running independently (`quartus_sh processes now running on the VM: 2 (expected
+2)`). Result pending -- check with `python3 tools/vm_fit.py status lpc-b369`. If hold slack goes
+negative, the fix is the same proven retiming technique used every other time this project hit a
+near-zero-margin path (B-111/B-114/B-231). No card touched.
