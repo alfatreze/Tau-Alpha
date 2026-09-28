@@ -68,7 +68,8 @@
             "morph_gain": 200,
             "trigger": 30,
             "refractory": 900,
-            "tonal": 0
+            "tonal": 0,
+            "paint": 0
           }
         },
         {
@@ -83,7 +84,8 @@
             "morph_gain": 1000,
             "trigger": 20,
             "refractory": 250,
-            "tonal": 1
+            "tonal": 1,
+            "paint": 0
           }
         }
       ]
