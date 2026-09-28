@@ -26,7 +26,8 @@ TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window te
          14: "Cold frame (30 s)"}   # B-199/B-200, CT_COLDFRAME: worst single-call cost of a synthetic cold probe
                                      # called once per ui_draw_dynamic() (~38 Hz); diagnostic-only, TAU_COLD_FRAME_PROBE builds
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
-        10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest", 16: "stack"}
+        10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest", 16: "stack",
+        22: "decprof2"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
 BLIT_OPS = ["RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT"]
 # meters/*/meter.json (meter module M0, tools/gen_meters.py) index order -- the VIZ_* enum.
 VIZ_NAMES = ["BARS", "WATERFALL", "-", "PHASE SCOPE", "OSCILLOSCOPE", "VU", "WAVEFORM", "-", "PEAK DOTS", "-",
@@ -174,7 +175,7 @@ def parse_record(rec: bytes) -> dict:
                 "scope_smooth": v[11], "scope_trail": v[12],
             }
         elif tag in TAGS:
-            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1, 16: 4}[tag]
+            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1, 16: 4, 22: 2}[tag]
             if tag == 1:
                 fw, rev, flags, gap = (struct.unpack("<I", v[k:k + 4])[0] for k in range(0, 16, 4))
                 out["entries"]["build"] = {"firmware": f"{fw >> 16 & 255}.{fw >> 8 & 255}.{fw & 255}", "bitstream": f"{rev:08X}",
@@ -187,6 +188,8 @@ def parse_record(rec: bytes) -> dict:
                     vals = dict(zip(("read_avg", "read_max", "write_avg", "write_max"), vals))
                 elif tag == 13 and len(vals) == 4:         # decoder stage cost, CT_AUD window (B-088/B-089)
                     vals = dict(zip(("h_pct", "i_pct", "s_pct", "r_pct"), vals))
+                elif tag == 22 and len(vals) == 6:         # SR_T_DECPROF2 (2026-09-28, widened B-361)
+                    vals = dict(zip(("d_pct", "a_pct", "x_pct", "u_pct", "t_pct", "c1_pct"), vals))
                 elif tag == 8 and len(vals) == 4:          # SR_T_AUDIO, CT_AUD (word[1] repurposed by B-139:
                                                             # 1 if playback ran the whole window, 0 if it never
                                                             # started or dropped out partway through)

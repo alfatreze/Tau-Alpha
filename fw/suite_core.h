@@ -16,7 +16,24 @@
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
        SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK, SR_T_WVIZCFG,
-       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE };
+       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE, SR_T_DECPROF2 };
+/* SR_T_DECPROF2 (2026-09-28, owner request after the alpha.12 packaging incident: get the finer
+ * decode-stage split into Check's QR directly, instead of needing a separate screenshot of the
+ * bench-only row; widened same day, B-361, before anything else depended on the original 4-field
+ * shape): u16 x 6 -- d_pct, a_pct, x_pct (MP3 Dequantize/AntiAlias/HybridTransform, same
+ * percent-of-CT_AUD-window-realtime units as SR_T_DECPROF's h/i/s; a_pct+x_pct should read close to
+ * SR_T_DECPROF's own i_pct, which is IMDCT() alone -- d_pct is the piece i_pct's old meaning hid,
+ * B-345), u_pct (FLAC unary()/__clzdi2 estimated share of the SAME res+lpc denominator SR_T_DECPROF's
+ * r_pct uses, B-342/B-343 -- directly comparable to r_pct, not a separate ratio), t_pct (FLAC's TRUE
+ * total percent-of-realtime: channel 0's res+lpc pass PLUS channel 1's own whole cost -- the first
+ * real apples-to-apples figure against MP3's h+i+s+d+a+x sum; r_pct/u_pct are only ratios within
+ * channel 0), c1_pct (channel 1's own percent-of-realtime alone -- bit-read + reconstruction +
+ * decorrelation fused, flac.c cannot time them apart; 0 on mono, where channel 1 never runs; this is
+ * the real check of flac.c's own inherited "channel 1 does the same work, so the ratio carries"
+ * assumption, B-361). A separate tag from SR_T_DECPROF (same size class, but a different, later-added
+ * shape) rather than widening THAT one, matching this project's own SR_T_DECSWEEP/SR_T_DECPROF
+ * precedent of not overloading an existing tag's meaning. Present only when MP3_PROFILE/FLAC_PROFILE
+ * are compiled in, same gate as SR_T_DECPROF; an old decoder skips it unrecognised. */
 /* SR_T_METERSWEEP (B-301, docs/METER_MODULE_SPEC.md section 15 "meter sweep as a standing
  * regression"): ONE entry per selectable meter (repeatable, same convention as SR_T_DECSWEEP),
  * appended in viz_order[] order while music keeps playing underneath -- the real point is that each

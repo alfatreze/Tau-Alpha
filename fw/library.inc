@@ -480,7 +480,7 @@ COLD_FN static void lib_meta_apply(void)
 }
 
 /* ---------------------------------------------------------------- input */
-COLD_FN static void lib_ui_close(void) { lib_ui_open = 0u; pl_ui_restore = 1u; }
+COLD_FN static void lib_ui_close(void) { lib_ui_open = 0u; helios_view_changed(); }   /* B-350 */
 
 COLD_FN static void lib_ui_enter(void)
 {

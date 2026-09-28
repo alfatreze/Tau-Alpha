@@ -122,7 +122,7 @@ static inline int fs_capable(void) { return viz_mode == VIZ_CHLADNI || viz_mode 
 COLD_FN3 static void ui_fs_dynamic(void)
 {
     if (UI_OVERLAY_UP) return;
-    if (!fs_capable()) { ui_fullscreen = 0u; pl_ui_restore = 1u; ui_wave_force = 1u; return; }
+    if (!fs_capable()) { ui_fullscreen = 0u; helios_view_changed(); ui_wave_force = 1u; return; }   /* B-350 */
     const uint8_t o = ov_draw; ov_draw = 1u;
     /* NO beam gate here (B-288). It used to require the whole 323-row figure to be clear of the beam, which is true only in vertical
      * blanking and while the beam is in the last 40 rows: about 19 percent of the time. ui_draw_dynamic() is called once per decoded frame
@@ -152,7 +152,7 @@ COLD_FN3 static void ui_fs_toggle(void)
     if (idle) return;
     if (!fs_capable()) { ui_toast_msg("FULLSCREEN: CHLADNI AND WINAMP ONLY"); return; }
     ui_fullscreen = (uint8_t)!ui_fullscreen;
-    pl_ui_restore = 1u;                     /* repaint: the fullscreen frame, or the normal screen again */
+    helios_view_changed();                  /* B-350: repaint -- the fullscreen frame, or the normal screen again */
     ui_wave_force = 1u;
     fs_last_sec = 0xFFFFFFFFu; fs_last_state = 0xFFu;
 }
@@ -164,7 +164,7 @@ COLD_FN3 static void meter_preset_next(void)
         const mtr_data_t *md = mtr_of(VIZ_CHLADNI);
         const uint32_t p = (*md->pre_idx < md->npre) ? ((uint32_t)*md->pre_idx + 1u) % md->npre : 0u;   /* from CUSTOM: the first preset */
         mtr_apply_preset(md, p);                                 /* chl_sync() picks the new layout and values up on the next figure */
-        if (ui_fullscreen) pl_ui_restore = 1u; else { ui_wave_clear(); ui_wave_force = 1u; }
+        if (ui_fullscreen) helios_view_changed(); else { ui_wave_clear(); ui_wave_force = 1u; }   /* B-350 */
         ui_toast_set("PRESET: ", 0xFFFFFFFFu, md->pre_names[p]);
     } else if (viz_mode == VIZ_BARS) {
         bars_layout = (uint8_t)!bars_layout;                     /* up <-> mirrored */

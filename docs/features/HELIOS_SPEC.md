@@ -359,6 +359,73 @@ never blocks the UI. Assessed and **declined as a concurrency project**:
 decode stalls (not general lag) is still observed — at which point the fix would be much narrower (an
 interrupt just for PCM refill, not general preemption) than what was proposed here.
 
+## 8.1. A generalized cooperative audio-priority gate (proposed, design only, 2026-09-28)
+
+**Origin:** owner asked (after the day's real MP3/FLAC hardware-decode measurements) whether offloading
+decode to hardware frees CPU for the UI, and separately whether audio and UI should be more deliberately
+separated so the UI always feels fluid. Both are real, and both point at the same gap rather than at
+concurrency (section 8 above already covers why real concurrency is declined).
+
+**The sharing is real, not theoretical, and cuts both ways — two pieces of hardware evidence:**
+
+- The MP3 hardware window unit measured `S` (Subband/filterbank) dropping from 55-59% to 22% of decode
+  time (`docs/AUDIT_TRAIL.md` B-087, B-309) — that reclaimed ~35% of a shared, single-core CPU budget
+  doesn't disappear, it becomes available to whatever else the same cooperative loop does next, UI included.
+- Going the other direction, B-296..B-299 is a real, hardware-confirmed case of the UI costing audio: a
+  scope meter drawing too many commands per frame measured `DRAW STALL` at 34,663 ms cumulative and
+  `CPU LOAD` pinned at 100%, and it caused actual audible jitter. The fix at the time was narrow (a
+  software fallback for that one meter, B-302) — the *general* problem it exposed was never addressed.
+
+**What already exists, narrowly scoped:** `meter_afford()` (`fw/player.c`) is a real, hardware-validated
+cooperative priority mechanism — it reads `pcm_level()` (the PCM FIFO fill, sampled at the trough of its
+fill/drain cycle) against a two-threshold hysteresis band (`METER_STOP`/`METER_GO`, B-260's tuned values)
+plus a hard `METER_YIELD_MAX_S` cap, and lets a caller skip optional work when audio is running low. Today
+it has exactly **two callers**, both gating only the spectrum octave-cascade cost inside `VIZ_LED` and
+`VIZ_WINAMP_BARS`. Nothing else in the firmware — the Library list's full redraw, the Configure page's live
+preview tick, a Settings page's fade-in repaint, Blit Test/Meter Sweep's diagnostic draws — checks audio
+headroom before spending CPU/draw time at all. This is a real, checkable gap (`grep meter_afford`), not a
+guess: it is exactly the class of cost B-296..B-299 showed can hurt audio, generalized.
+
+**Proposal: promote the mechanism, don't invent a new one.**
+
+1. Move the FIFO-headroom check out of `meter_afford()`'s meter-specific home into `fw/helios.inc` as a
+   plain shared gate, e.g. `helios_audio_ok(void)` — same `pcm_level()`/hysteresis/cap logic verbatim (it is
+   already hardware-tuned, B-260; this is a relocation, not a redesign), returning whether the caller may
+   spend *optional, deferrable* CPU on top of what it must do this pass. `meter_afford()` becomes a thin
+   wrapper calling it, so its two existing callers are unaffected.
+2. Give a Helios region a `degradable` bit alongside its existing `y0`/`y1` row extent
+   (`helios_region_register_rows`). `helios_flush()` already has the exact mechanism needed: a row-scoped
+   region that fails `helios_rows_safe_counted()` (the beam-safety check) stays dirty and is retried next
+   pass rather than drawn now. Gating a `degradable` region on `helios_audio_ok()` the same way — skip this
+   pass, try again next, never block — reuses that control flow directly instead of adding a second kind of
+   wait.
+3. **Scope this to continuously-repeating, cosmetically-driven work, not one-shot navigation the user is
+   actively waiting on.** A live meter's next redraw, the Configure page's live preview tick, or a marquee
+   scroll step are all fine to skip a pass — invisible or nearly so. Closing a menu the user just pressed B
+   on, or opening Settings, must still complete promptly; gating those on FIFO health would make input feel
+   unresponsive to save a UI cost that is not the actual expensive part of those transitions anyway (the
+   B-296..B-299 jitter bug was a *repeating per-frame* draw cost, not a one-shot transition). Candidate
+   degradable regions, once real Helios regions exist for them beyond today's one (the chrome): the Library
+   browser's marquee tick, the Winamp Configure page's live preview, and any future continuously-animating
+   view.
+4. **Never spins, never blocks — same discipline as beam-safety.** This is a skip-and-retry, not a wait.
+   The cooperative loop must never stall on this check; it degrades what gets drawn, not when the loop moves
+   on. This preserves exactly the property section 8 above protects (no new blocking/reentrancy surface)
+   while still making "audio wins" a system-wide rule instead of a two-meter special case.
+
+**Why this and not concurrency:** it is the same shape of fix as the already-adopted beam-safety design
+(section 9's H1) — a cooperative, skip-and-retry gate consulted by the existing single-threaded flush loop
+— extended to a second real constraint (FIFO headroom) instead of just the video beam. No new hardware, no
+new reentrancy surface, and it directly closes the gap the day's hardware-decode measurements and the
+B-296..B-299 bug both point at: freeing CPU on the decode side only helps the UI if something also stops
+the UI side from being able to spend that freed CPU back into audio's margin uncontrolled.
+
+**Not built.** This is a design proposal, sized to be a natural extension of `helios_view_changed()`
+(B-350/351, already shipped this session) and the beam-safety mechanism (already shipped, section 9) —
+not a new subsystem. First real build step, when taken: relocate `meter_afford()`'s logic into
+`helios_audio_ok()` with zero behavior change (verify byte-identical build), confirmed on hardware, before
+adding the `degradable` bit or a second caller.
+
 ## 9. Phased build plan
 
 **Status 2026-09-25 (B-267): beam-aware drawing built, waiting for its bitstream.** H0 is hardware-proven (the frame counter reads about 60/S, B-266). A vblank *pulse* alone cannot schedule drawing (it is 167 us wide and the blanking interval only 1.7 ms, against tens of ms for a full repaint), so H1 now uses the scanning beam's position instead ("racing the beam"): `tau_cdc_gray_bus.sv` carries the video line counter to the CPU (MMIO `R_SCAN`, macro `TAU_BEAM`), and `helios_rows_safe(y0, y1)` (fw/helios.inc) lets a draw through only when the beam is in blanking, has already passed the region (it shows next frame), or is safely ahead of it (draw runs about 8x faster than the beam). Regions register their row extent (`helios_region_register_rows`); the full-screen chrome stays immediate (a full repaint needs double buffering, H2). First adopter: the meter block in `ui_draw_dynamic_cold` (rows 126..259), which waits instead of drawing across the beam. Info > BEAM shows the share of updates that had to wait. Rule verified exhaustively on the host (`sim/test_helios_beam.py`, 837,600 cases). Without a `TAU_BEAM` bitstream everything is safe (old behaviour). Next adopters: progress/clock/transport rows, toasts.
@@ -396,7 +463,133 @@ proven-safe off-screen columns (400-511), and check whether the second row actua
 this session (`fw/player.c`) but the conversion of `fb_round_rect*` and the `RRECT_READY()` probe are not yet
 built — this is the concrete first task of Phase H1.
 
-## 11. Cross-references
+## 11. No View abstraction exists yet — every overlay hand-rolls its own invalidation (B-349 follow-up)
+
+**Origin:** owner reported (2026-09-28) the "closing the menu leaves visual leftovers" symptom (B-349)
+is also visible leaving the fullscreen visualiser, and asked whether this is a structural problem with
+Helios — menus/bars/lists should be reusable components so switching views is less bug-prone even if the
+firmware itself has to be more rigid.
+
+**Finding: yes, structural.** Helios today (`fw/helios.inc`) is not a view manager — it is a deferred-draw
+wrapper around exactly ONE region, the player chrome (`ui_chrome_paint()`). Every other screen (Settings,
+the library browser, the fullscreen visualiser, Blit Test, Meter Sweep, Meter Trace, the Winamp Configure
+page) is its own independent state machine with its own open/close flag (`set_open`, `lib_ui_open`,
+`ui_fullscreen`, …) and its own hand-written "what to invalidate on the way out" logic:
+
+- **`pl_ui_restore`**, the shared "an overlay just closed, repaint the player" flag, is set from **6
+  separate call sites** (`fw/settingsui.inc`, `fw/library.inc`, `fw/fullscreen.inc` x3, `fw/suite.inc` x2)
+  — each written at a different time by whoever built that feature. `set_close()` simply never got one
+  (B-349) because nothing enforces that every overlay-close path sets it; the fix was one more manual line,
+  not a structural guarantee.
+- **What the flag triggers is a fixed, hand-maintained checklist**, not a real invalidation query: `pl_ui_restore`'s handler
+  (`fw/player.c` ~9005) always calls `ui_chrome_paint()`/`ui_art_draw()`, always clears `ui_bg_ready`, always
+  forces `wave_drawn[]`/`spec_drawn[]` stale. Every new visual subsystem this project has added (the B-256
+  meter-background-strip rebuild, `ui_wave_force`, fullscreen's own `helios_excl[]` exclusion rects for its
+  corner label) had to be individually remembered and folded into that one list by hand. A leftover after
+  fullscreen despite it correctly setting `pl_ui_restore` on both transitions (`fw/fullscreen.inc:154-155`)
+  is exactly the failure mode this predicts: fullscreen owns pixels and a label-exclusion mechanism the
+  fixed checklist doesn't know about, so "restore" is only ever as complete as the last person who edited it
+  remembered to make it. Not independently confirmed against hardware this pass (no card mounted) — the
+  mechanism-level gap is real regardless of whether this specific instance is the same root cause.
+- **Helios's own region registry could carry this today and doesn't.** `helios_region_register()` already
+  supports per-region dirty tracking and beam-safe deferred redraw; nothing about it is chrome-specific.
+  Settings/library/fullscreen/Blit-Test/etc. never register as regions — they draw directly, gated on their
+  own boolean, invisible to Helios entirely.
+
+**Proposed fix (design only, not built): a real `View` layer on top of Helios's existing region primitive.**
+
+```
+typedef struct {
+    void (*enter)(void);     /* called once, becomes the active view                      */
+    void (*exit)(void);      /* called once, leaving — owns its OWN cleanup, nothing more  */
+    void (*draw)(void);      /* registered as a Helios region automatically on enter       */
+    void (*input)(uint32_t edge, uint32_t keys);
+    uint8_t invalidate_mask; /* which shared caches this view's pixels can touch: WAVE, SPEC, BG_STRIP, ART, CHROME, EXCL */
+} helios_view_t;
+```
+
+`helios_view_switch(to)` becomes the ONE place that closes the outgoing view (`exit()`), invalidates
+exactly the union of both views' `invalidate_mask` bits (not a fixed list — a real declared contract per
+view, checked once at registration time the way `_Static_assert` already checks `HELIOS_VACT`), and enters
+the new one. `set_close()`, `lib_ui_close()`, the fullscreen toggle and the diagnostic pages' own close
+paths all collapse into calls to this one function instead of each independently setting `pl_ui_restore`
+and hoping the fixed checklist happens to cover what they drew. A missing case becomes a registration-time
+gap (an obviously incomplete `invalidate_mask`) instead of a silent, hard-to-spot leftover-pixel bug three
+sessions later — the exact failure class both this entry and B-349 hit.
+
+**Scope, honestly:** this touches `fw/settingsui.inc`, `fw/library.inc`, `fw/fullscreen.inc`, `fw/suite.inc`
+(Blit Test/Meter Sweep/Meter Trace), `fw/player.c`'s main dispatch (`SET_INPUT`, `UI_OVERLAY_UP`, the
+`pl_ui_restore` block itself) and `fw/helios.inc`. It is a real multi-file refactor of working, shipped
+UI-dispatch code, not a bolt-on — and there is no card mounted this session to verify it against hardware
+before or after. Recorded here as the owner-requested structural answer; **not started**, pending a scope
+decision (full refactor now vs. continuing point fixes and taking this as a Phase H1.5 follow-up once H0/H1
+are hardware-confirmed, per section 9's existing phasing).
+
+## 12. No shared dialog/alert primitive exists — three independent mechanisms (proposed, design only, 2026-09-28)
+
+**Origin:** fixing the misleading "PLAYS 48kHz MAX" hi-res-FLAC refusal wording (`ui_rate_unsupported()`,
+owner-reported as "cryptic" after a real 96kHz FLAC test track) surfaced that this project has **three
+separate, independently-built "tell the user something went wrong" mechanisms**, confirmed by reading each
+one directly rather than assumed:
+
+1. **`ui_toast_msg()`/`ui_toast_set()`** (`fw/player.c`) — a transient, auto-dismissing banner, non-blocking,
+   drawn and cleared through the normal main-loop pass. The most-used of the three (~20 call sites).
+2. **`ui_rate_unsupported()`** — a persistent message written into the now-playing card's own
+   album/format row (`track_album`, reusing `fb_text_boxed()` with no marquee/scroll of its own, which is
+   exactly why the just-fixed wording clipped: a long string has nowhere to go on this row). It has no
+   explicit dismiss at all — it clears only as a side effect of the next track loading successfully.
+3. **`ui_failed_msg()`/`ui_load_failed()`** — a full-screen, **blocking** takeover: a literal `for (;;) {
+   poll_input(); ... }` spin loop that bypasses the main loop and Helios entirely. Worse than "no button
+   dismiss" — reading the code directly shows it has **no button dismiss path at all**: the only way out is
+   picking a different file from the Analogue Pocket's own Core menu (`slot_changed()`), which is external
+   to this firmware. This is the single most severe error state the core can reach, and it is also the
+   least dismissible one.
+
+**Proposal: one shared Helios primitive, message + dismiss action(s), usable from anywhere.**
+
+```
+typedef struct {
+    const char *title;    /* e.g. "LOAD FAILED", or NULL for a one-line dialog */
+    const char *message;  /* the actual text -- NOT hand-assembled into a fixed-size row buffer per
+                              caller the way track_album/ui_toast currently are; owns its own layout */
+    const char *dismiss_label;   /* e.g. "OK", "B TO CLOSE" -- shown on screen, not assumed by the caller */
+    void (*on_dismiss)(void);    /* optional; most callers need nothing beyond "close it" */
+} helios_dialog_t;
+
+static void helios_dialog_show(const helios_dialog_t *d);
+static void helios_dialog_dismiss(void);
+```
+
+Built as one more Helios view (section 11's `helios_view_t`, once that lands) rather than a bespoke draw
+routine: `enter()` marks it the active view and registers its own dismiss key handling through the normal
+input dispatch (B/Start, matching every other overlay's existing convention — B-145 already made this
+consistent for Settings/Library), `exit()` calls `on_dismiss` if given and hands control back to whatever
+view was active before. Text layout is centralized once (word-wrap or a real fixed-width box with
+overflow handling, not each caller building a string into a 64-byte row buffer by hand and hoping it fits
+the width available at that draw position — the exact bug class the FLAC wording fix just hit).
+
+**What this replaces, concretely:**
+
+- `ui_load_failed()` gains a real dismiss (B or Start), and stops being a blocking spin loop -- the dialog
+  view's `enter()` just marks itself active; the normal main loop keeps running underneath (reload watching
+  moves from ui_failed_msg's own private poll loop into ordinary input dispatch, the same place every other
+  view's B-press-to-close already lives).
+- `ui_rate_unsupported()`'s message moves out of the now-playing card's cramped album row into the same
+  shared dialog surface, with a real text box sized for it instead of `fb_text_boxed()` fighting for space
+  next to the art panel -- fixing the clipping this session's wording fix could not (see section 11's own
+  scope note on that gap).
+- `ui_toast_msg()` stays separate on purpose -- it is deliberately non-blocking and auto-dismissing, a
+  different shape of notification (a hint, not an error the user must acknowledge), and conflating the two
+  would make routine toasts feel like errors. The dialog primitive is for anything that needs a real
+  acknowledgement; toast stays as-is.
+
+**Not built.** Design only, sized as a natural sibling to section 11's `helios_view_t` (it IS one, once that
+exists) rather than a new subsystem — the two should land together or in either order, but a dialog view
+needs the view-switch machinery section 11 describes to have a real "hand control back to the previous
+view" step. First real build step, when taken: `ui_load_failed()` alone (highest-value target, currently
+has no button dismiss at all), verified it doesn't regress the reload-watching behavior it currently has.
+
+## 13. Cross-references
 
 - `docs/features/PHASE_F_SPEC.md` section 15 — the original tearing investigation this document supersedes with a
   complete proposal (kept in place as the historical record of B-232's investigation).

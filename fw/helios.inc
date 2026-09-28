@@ -28,6 +28,27 @@
 
 #include "helios_rect.h"
 
+/* ---- top-level view transitions (B-350) -----------------------------------------------------------
+ * The four mutually-exclusive top-level screens -- player, Settings, the library browser, the
+ * fullscreen visualiser -- used to each hand-write "closing/entering me changes what the chrome shows,
+ * so force a full repaint" as a bare `pl_ui_restore = 1u;` at their own transition site. Six independent
+ * writers accumulated that way over this project's history (fw/settingsui.inc, fw/library.inc,
+ * fw/fullscreen.inc x3, fw/suite.inc x2) and one of them (Settings' own set_close()) simply omitted it
+ * (B-349) -- nothing enforced that every transition site remembered to. helios_view_changed() is now
+ * that one shared primitive: every top-level view transition calls it instead of touching the flag
+ * directly, so a future overlay forgetting the line becomes a missing function call at its own
+ * transition site (visible in the diff, greppable) rather than a silent, hard-to-spot leftover-pixel
+ * bug found sessions later.
+ *
+ * This is deliberately NOT a partial/selective invalidation (a per-view "invalidate_mask" was scoped in
+ * docs/features/HELIOS_SPEC.md section 11 and set aside for this pass): every one of these four views
+ * is a full-screen affair today (Settings/Library/Fullscreen each fully repaint everything they draw,
+ * and returning to the player always needs ui_draw_chrome()'s full pass too), so the one thing every
+ * transition needs IS "force a full repaint on the next pass" -- pl_ui_restore's own existing behaviour,
+ * just reached through one name instead of six. A real partial-invalidate scheme is only worth building
+ * once a view exists that does NOT need a full repaint on every transition, which none currently does. */
+static void helios_view_changed(void) { pl_ui_restore = 1u; }
+
 /* ---- exclusion rects: let a fill skip a reserved area instead of drawing over it ------------------------------------
  * Built for the fullscreen CPU% label (fw/fullscreen.inc): its corner glitched because the visualiser drew across it
  * every frame and the label had to repaint on top, which is a beam race (the scanout can pass through that corner
