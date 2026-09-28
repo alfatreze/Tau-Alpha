@@ -195,10 +195,17 @@ CHL_COLD static int chladni_tick_box(uint32_t x0, uint32_t y0, uint32_t w, uint3
     const uint32_t rx = chl_pre->Rx, ry = chl_pre->Ry, cell = chl_pre->cell;
     struct chl_ctx ctx;
     ctx.rx = rx; ctx.ok = 1;
-    ctx.pal[0] = ground;
-    ctx.pal[1] = ui_mix(ground, ui_accent, 1u, 3u);
-    ctx.pal[2] = ui_mix(ground, ui_accent, 2u, 3u);
-    ctx.pal[3] = ui_accent;
+    const uint32_t paint = MV_CHLADNI(PAINT);
+    if (paint == 1u) {                                          /* EMBER: maroon -> burnt orange -> amber/gold -> pale yellow-white */
+        ctx.pal[0] = 0x3800u; ctx.pal[1] = 0xC2C1u; ctx.pal[2] = 0xFD42u; ctx.pal[3] = 0xFF55u;
+    } else if (paint == 2u) {                                   /* OCEAN: deep indigo -> mid blue -> cyan/teal -> pale cyan-white */
+        ctx.pal[0] = 0x0806u; ctx.pal[1] = 0x1237u; ctx.pal[2] = 0x25F7u; ctx.pal[3] = 0xBF7Eu;
+    } else {                                                    /* LINE (paint 0): unchanged ground->accent monochrome ramp */
+        ctx.pal[0] = ground;
+        ctx.pal[1] = ui_mix(ground, ui_accent, 1u, 3u);
+        ctx.pal[2] = ui_mix(ground, ui_accent, 2u, 3u);
+        ctx.pal[3] = ui_accent;
+    }
     chl_render(md, K, rx, ry, chl_hw_q8(&chl_st, &chl_cfg, rx), chl_ring, chl_cfg.fold ? chl_half : (int16_t *)0,
                chl_cxm, chl_cxn, chl_lvl, chl_row, &ctx);
     if (!ctx.ok) { chl_ok = 2u; ui_toast_msg("CHLADNI UNAVAILABLE"); return 0; }
