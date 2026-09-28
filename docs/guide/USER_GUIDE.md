@@ -5,7 +5,7 @@ Everything you need to install and use the Tau music player (v0.5.0). For the pr
 see [Media and tools](MEDIA_AND_TOOLS.md).
 
 Contents: [Installing](#installing) · [Playing](#playing) · [What it shows](#what-it-shows) ·
-[Media library](#media-library) · [Playlists](#playlists) · [Themes and colours](#themes-and-colours) ·
+[Media library](#media-library) · [Themes and colours](#themes-and-colours) ·
 [Meters](#meters) · [Equalizer](#equalizer) · [Playback speed](#playback-speed) · [Screen blanking](#screen-blanking) ·
 [FLAC](#flac) · [Known limitations](#known-limitations)
 
@@ -27,32 +27,29 @@ A second core, **TAU Diagnostic Build**, is released beside the normal one for t
 
 ## Playing
 
-At launch the core loads **`playlist.m3u`** (that name specifically, not any playlist it finds), or, if you have built a
-[media library](#media-library), the library reopens what you were last playing (loaded, not started). Choose a
-different playlist with **Load Playlist** and it becomes the one that loads from then on, so you only have to pick it once.
-
-With no `playlist.m3u`, no library and nothing remembered you get a getting-started screen; press **Analogue** and
-choose **Load MP3** or **Load Playlist**. The same menu switches either at any time, and whatever you pick starts playing.
+Tau needs a [media library](#media-library) -- it is the only way to browse and play your music. At launch, with a
+library built, it reopens what you were last playing (loaded, not started). With no library yet, you get a
+getting-started screen telling you to run the sync tool; a file picked from the Pocket's own **Load MP3** menu still
+plays once, but does not browse or queue anything.
 
 The controls (checked against the firmware input handling in `fw/player.c`):
 
 | Pocket | Action |
 |---|---|
 | **A** | *Tap*: play / pause |
-| **Start** | Open the settings menu (colour, theme, meter, equalizer, repeat, speed and more). In any menu, list or the library, Start closes it from any depth |
-| **Left** / **Right** | *Tap*: previous / next track |
+| **Start** | Open the settings menu (colour, theme, meter, equalizer, repeat, speed and more). In any menu or the library, Start closes it from any depth |
+| **Left** / **Right** | *Tap*: previous / next track (library queue) |
 | **Left** / **Right** | *Hold*: seek, faster the longer you hold (5 s, then 10 s, then 30 s per step) |
 | **Select** + **Left** / **Right** | Seek one second |
 | **Up** / **Down** | Volume, in 5% steps |
 | **B** | Restart the current track from the beginning |
 | **X** | Cycle the meter (eleven styles) |
 | **Y** | Cycle the EQ preset (eight) |
-| **Select** | *Tap*: the library if you have one, otherwise the playlist browser |
+| **Select** | *Tap*: open the library |
 | **Select** + **X** | Next preset of the current meter (Chladni presets; Bars switches between its normal and mirrored layout) |
 | **Select** + **Y** | Fullscreen meter (Chladni and the Winamp meters only) |
 | **L** / **R** | Cycle the accent colour (19 colours) |
 | **Select** + **L** | Repeat: off, all, one |
-| **Select** + **R** | Shuffle on / off |
 | **Select** + **Down** | Screen blank: off, 1, 5, 10, 30 min |
 
 Track changes and seeking work while paused or stopped. Changing track takes a moment: the file has to be opened, its
@@ -61,18 +58,16 @@ tag read and its artwork loaded; restarting the current one is instant.
 In every menu and list, **Right** goes forward (opens or selects, like **A**) and **Left** goes back (like **B**); on a
 switch or the volume, Left and Right change the value instead.
 
-Volume, accent colour, repeat, shuffle, the meter and the EQ preset carry over between sessions, in step with **Core
-Settings** in the Analogue menu. **Where you were in a playlist can be remembered too**: switch on **Resume playback**
-in Core Settings. It holds one place, for the last playlist you used, and **Load MP3** records no position at all, so for
-an audiobook use a playlist; a one-line `.m3u` is enough. The **theme and mode** (Dark / Light) and the **meter Configure
-settings** are *not* remembered yet: they return to their defaults each launch.
+Volume, accent colour, repeat, the meter and the EQ preset carry over between sessions, in step with **Core
+Settings** in the Analogue menu. The **theme and mode** (Dark / Light) and the **meter Configure settings** are *not*
+remembered yet: they return to their defaults each launch.
 
 The album art panel and screen-blank timeout reset each launch. Everything saved lives in `/Settings/alfatreze.TAU/`;
 delete that folder to reset. Nothing is written to your music folder.
 
 ## What it shows
 
-<img src="../screenshot.png" width="280" align="right" alt="Player screen: Feel Good Inc. by Gorillaz, track 6 of Demon Days 2005, encoded 128 kbps 44.1 kHz by LAME3.90, above a bar meter with the album cover at the right; below, a PLAYING label with repeat, shuffle and volume indicators and the EQ preset ROCK, track 5 of 14, 02:31 of 03:41, and a progress bar">
+<img src="../screenshot.png" width="280" align="right" alt="Player screen: Feel Good Inc. by Gorillaz, track 6 of Demon Days 2005, encoded 128 kbps 44.1 kHz by LAME3.90, above a bar meter with the album cover at the right; below, a PLAYING label with repeat and volume indicators and the EQ preset ROCK, track 5 of 14, 02:31 of 03:41, and a progress bar">
 
 - **Title and artist** from the file's tag. One with no readable tag shows its filename, which is usually the song name anyway.
 - **Album art** from the tag's embedded image (baseline JPEG), or from a pre-scaled cover file if you have made one
@@ -80,7 +75,7 @@ delete that folder to reset. Nothing is written to your music folder.
   decoded shows the panel with the reason in it.
 - **A meter**, cycled with **X** (see [Meters](#meters)).
 - **Elapsed and total time**, with a progress bar.
-- **Repeat and shuffle indicators**, dimmed rather than hidden when off, the **EQ preset name**, and the position in the playlist.
+- **A repeat indicator**, dimmed rather than hidden when off, the **EQ preset name**, and the position in the library queue.
 - **Bitrate and sample rate**, with the encoder that made the file where it says so, for example `128 kbps - 44.1 kHz - LAME3.100`.
 
 CBR and VBR **MPEG-1 and MPEG-2** Layer III at every standard bitrate and sample rate, mono or stereo, plus FLAC (see
@@ -99,7 +94,7 @@ writes ASCII-only names and playlists (some characters have no glyph on the Pock
 (`tau-library.tdb`) the player reads at startup. Re-run it any time your music changes; it only touches what's
 different. All options: [Media and tools](MEDIA_AND_TOOLS.md).
 
-With a library present, **Select** opens it instead of the plain playlist browser:
+With the library open:
 
 | Pocket | Action |
 |---|---|
@@ -111,88 +106,15 @@ With a library present, **Select** opens it instead of the plain playlist browse
 | **X** | Play everything under the cursor (an artist, an album, or a playlist) |
 
 **Artists**, **Albums**, **Tracks** (every track, A-Z) and **Shuffle All** are the four top-level views; playlists carried
-over from your own `.m3u` files sit alongside them. History is kept: after a restart the library reopens what you were last
-playing, loaded, not started, so nothing plays without you pressing anything.
+over from your own `.m3u` files sit alongside them as **Lists** -- a plain text file with one track per line, in the same
+folder as its tracks or naming a path under it; lines starting with `#` are ignored, so exported playlists work as-is. The
+sync tool picks these up automatically; a folder with no playlist of its own gets one generated for it. History is kept:
+after a restart the library reopens what you were last playing, loaded, not started, so nothing plays without you pressing
+anything.
 
-Turning the library off (Settings > Library) makes the player behave exactly as it did before one existed: the core menu's
-**Load MP3** / **Load Playlist** pick a file or list directly, and Select opens the plain playlist browser below. This is
-**Legacy Playlist Mode**; a small note explains it the first time you see it, and Settings > How it works has the fuller
-version. No library is ever required; everything below applies whether or not you build one.
-
-## Playlists
-
-A plain text file with one track per line, saved as `playlist.m3u` in `/Assets/tau/common/`:
-
-```text
-Feel Good Inc.mp3
-Rhinestone Eyes.mp3
-Demon Days/01 Intro.mp3
-```
-
-Names are relative to the folder the playlist is in, so a playlist can sit beside its tracks in an album folder or in
-`common/` naming tracks below it. Either works, so an `Artist/Album` library needs no rearranging. Lines starting with `#`
-are ignored, so exported playlists work as-is.
-
-Any other filename is picked with **Load Playlist**, and becomes the one that loads at launch from then on, provided its
-name is short enough to be remembered (see below).
-
-### The playlist browser
-
-<img src="../playlist_browser.png" width="280" align="right" alt="Playlist browser: a PLAYLIST 12 of 14 header above nine filename rows, with Gorillaz - Feel Good Inc. highlighted mid-list and marked by a cursor; the transport row, times and progress bar stay visible underneath">
-
-**Tap Select** (with no library) to browse the playlist on screen. It opens on the track that's playing, so you always
-start from where you are. The transport row, the times and the progress bar stay put underneath, so nothing about what's
-playing is hidden while you look.
-
-| Pocket | Action |
-|---|---|
-| **Up** / **Down** | Move the cursor; hold to run through a long list |
-| **L** / **R** (shoulder buttons) | Page up / down a screenful at a time |
-| **Y** | Jump back to the track that's playing |
-| **A** or **Right** | Play whatever's under the cursor |
-| **Select**, **B**, **Left** or **Start** | Close without changing anything |
-
-Rows show filenames rather than tags: a tag lives inside its file, so naming every row would mean opening all 256 of them.
-With shuffle on, the list is the play queue, so scrolling down shows what's actually coming rather than the file order.<br clear="right">
-
-### Limits
-
-| | Limit | What happens past it |
-| --- | --- | --- |
-| Tracks per playlist | 256 | Says how many were dropped |
-| `.m3u` file size | 12 KB | Same; about 48 characters per line at 256 tracks |
-| Remembered playlist name | any length, if listed in `playlists.m3u`; otherwise 12 characters | Falls back to `playlist.m3u` next launch |
-
-### Remembering which playlist you were using
-
-The core reopens the list you last used at the next launch. It has one settings word to remember it in, which holds twelve
-characters, so on its own `Shenanigans.m3u` comes back and `Goose - Shenanigans Nite Club.m3u` does not.
-
-**List a playlist in `playlists.m3u` and the limit goes away.** It's a plain list of the playlists on the card, and only the
-ones listed are remembered:
-
-```text
-Crash Test Dummies - God Shuffled His Feet.m3u
-Goose - Shenanigans Nite Club.m3u
-Live/Phish - Hampton 1997.m3u
-```
-
-Write it in any text editor and save it beside your playlists, in `/Assets/tau/common/`. The core searches it by name at
-boot, so a playlist can be called anything you like. Order doesn't matter and you can add or remove lines freely; entries
-are matched by name, not by position.
-
-Without the file nothing changes: names of twelve characters or fewer are still remembered on their own, so an existing card
-keeps working exactly as it did.
-
-Resume follows the same path. The core remembers the track and the second you stopped on, but it finds them through the
-playlist it reopens, so if the playlist can't be reopened, resume comes back at the start of `playlist.m3u` instead. Resume
-covers the whole playlist, all 256 tracks.
-
-Tracks advance automatically. **Repeat**: off stops at the end, *all* loops, *one* repeats the current track. **Shuffle**
-plays in a random order and never repeats a track until the rest have played; with **Repeat all**, each pass round the list
-is freshly shuffled.
-
-A misspelled or missing filename costs that one track: the core steps over it and says how many it skipped.
+Tracks advance automatically. **Repeat**: off stops at the end, *all* loops, *one* repeats the current track. **Shuffle
+All** plays in a random order and never repeats a track until the rest have played; with **Repeat all**, each pass round
+the list is freshly shuffled.
 
 ## Themes and colours
 
@@ -294,12 +216,6 @@ from a handheld it isn't a difference you're going to hear. (The hardware window
   missing. A progressive JPEG shows **PROG. JPEG** in the art panel; anything else that won't decode (a PNG cover, a damaged
   image) shows **COVER ERROR**. Re-saving the cover as a baseline JPEG fixes it. A track with no embedded cover at all shows no
   panel, which is different and intended. A pre-scaled `.timg` cover sidesteps this (see [Media and tools](MEDIA_AND_TOOLS.md)).
-- **Playlists are capped at 256 tracks**, or 12 KB of `.m3u` text, whichever comes first, which allows about 48 characters per
-  line. A playlist that runs past either says so instead of quietly playing fewer.
-- **A playlist with a name longer than 12 characters needs a `playlists.m3u` entry to be remembered.** Without one it plays
-  fine but won't be the list that loads next launch, and resume won't follow it. A `playlists.m3u` that exists but doesn't
-  list that playlist has the same effect as none at all. See
-  [Remembering which playlist you were using](#remembering-which-playlist-you-were-using).
 - **File and folder names must be plain ASCII.** A name with an accented letter or another non-ASCII character may fail to open
   and the track is skipped as unreadable. `tools/sync_media.py` copies a library to the card with the names converted (`ä`
   becomes `a`, characters with no plain equivalent are removed) and rewrites the playlists to match.

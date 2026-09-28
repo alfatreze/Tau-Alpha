@@ -13,8 +13,9 @@
  * Every change goes through the same variables and side effects as the direct shortcuts
  * (which stay); nothing new is persisted; Screen blank is not persisted (as Select+Down). */
 
-/* The home is titled MENU. SET_DIAG is the SETTINGS group (Info, How it works, and in the Diagnostic Build a
- * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). */
+/* The home is titled MENU. SET_DIAG is the SETTINGS group (Info, and in the Diagnostic Build a
+ * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). The Library on/off toggle and
+ * How it works page that used to live here were removed with legacy playlist mode. */
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
 enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_N };
 #if TAU_DIAGNOSTIC
@@ -27,10 +28,8 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #define SET_WVIZCFG_PG ((uint8_t)(SET_STAT_PG + 1u))   /* Meter > Configure, B-215/B-216 -- always
                                                          * available, not gated on TAU_LIBRARY/TAU_DIAGNOSTIC
                                                          * like the pages below. */
-#define SET_HELP_PG ((uint8_t)(SET_WVIZCFG_PG + 1u))   /* how files, playlists and the library are loaded */
-#define SET_LIBCFG_PG ((uint8_t)(SET_HELP_PG + 1u)) /* library on/off with a confirmation */
 #if TAU_DIAGNOSTIC
-#define SET_CHECK_PG ((uint8_t)(SET_LIBCFG_PG + 1u)) /* the user-facing diagnostics run (fw/suite.inc) */
+#define SET_CHECK_PG ((uint8_t)(SET_WVIZCFG_PG + 1u)) /* the user-facing diagnostics run (fw/suite.inc) */
 #if MP3_PROFILE || FLAC_PROFILE
 #define SET_SWEEP_PG ((uint8_t)(SET_CHECK_PG + 1u))   /* Decode Profile Sweep, B-090/B-091 (fw/suite.inc) */
 #define SET_BLITTEST_PG ((uint8_t)(SET_SWEEP_PG + 1u))   /* Blit Test, B-166 (fw/suite.inc) */
@@ -41,7 +40,7 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #define SET_METERTRACE_PG ((uint8_t)(SET_METERSWEEP_PG + 1u)) /* Meter trace recorder, M3 (fw/suite.inc) */
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
-enum { TG_ART = 0, TG_SHUF, TG_RESUME, TG_SPEEDS };
+enum { TG_ART = 0, TG_SPEEDS };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 #define SET_PAGE_CH(c) ((uint8_t)(SET_MENUS + (c)))
 
@@ -59,12 +58,9 @@ static const set_row_t set_appear_rows[] = {
 static const set_row_t set_audio_rows[] = {
     { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 } };
 static const set_row_t set_play_rows[] = {
-    { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SHUFFLE", RT_TOGGLE, TG_SHUF },
-    { "RESUME", RT_TOGGLE, TG_RESUME }, { "SPEED", RT_CHOICE, CH_SPEED } };
+    { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SPEED", RT_CHOICE, CH_SPEED } };
 static const set_row_t set_diag_rows[] = {
     { "INFO", RT_GROUP, SET_INFO_PG },
-    { "LIBRARY", RT_GROUP, SET_LIBCFG_PG },
-    { "HOW IT WORKS", RT_GROUP, SET_HELP_PG },
 #if TAU_DIAGNOSTIC
     { "DIAGNOSTICS", RT_GROUP, SET_DGN },
 #endif
@@ -86,11 +82,12 @@ static const set_row_t set_dgn_rows[] = {
     { "INFO", RT_GROUP, SET_INFO_PG },          /* unreachable placeholder: the page exists only in the Diagnostic Build */
 #endif
 };
-/* Diagnostic Build tests: A runs the highlighted one and its result replaces the value. */
-enum { DG_WIN = 0, DG_RD, DG_WR, DG_PLC, DG_COLD, DG_CLR, DG_N };
+/* Diagnostic Build tests: A runs the highlighted one and its result replaces the value.
+ * PLAYLIST CHECK (DG_PLC) was removed along with legacy playlist mode. */
+enum { DG_WIN = 0, DG_RD, DG_WR, DG_COLD, DG_CLR, DG_N };
 static const set_row_t set_tests_rows[] = {
     { "WINDOW TEST", RT_ACTION, DG_WIN }, { "READ CYCLES", RT_ACTION, DG_RD },
-    { "WRITE CYCLES", RT_ACTION, DG_WR }, { "PLAYLIST CHECK", RT_ACTION, DG_PLC },
+    { "WRITE CYCLES", RT_ACTION, DG_WR },
     { "COLD CODE TEST", RT_ACTION, DG_COLD },
     { "CLEAR COUNTERS", RT_ACTION, DG_CLR } };
 /* Stress (Diagnostic Build): the pump level and a timed soak, both choice lists, and a live status page. */
@@ -151,10 +148,8 @@ static const uint8_t     set_blank[5]    = { 0u, 1u, 5u, 10u, 30u };
 #define SET_TH_H       32u
 #define SET_LIST_H     (PL_UI_ROWS * PL_UI_ROW_H)     /* 264 px of list area */
 _Static_assert(LIB_ROW_H == SET_MENU_ROW_H, "the library rows must match the settings rows");
-_Static_assert(PLIST_ROW_H == SET_MENU_ROW_H && PLIST_ROWS == LIB_ROWS, "the playlist rows must match the settings/library rows (B-073)");
 
 static uint8_t set_page, set_sel[SET_MENUS], set_ch_cur[CH_N], set_ch_top[CH_N];
-static uint8_t set_lib_confirm;               /* the Library page is waiting for a second A */
 
 #include "meter_thumbs.h"
 _Static_assert(VIZ_COUNT == 15 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_RETIRED_TAPE == 11 &&
@@ -396,15 +391,6 @@ COLD_FN static void set_toggle(uint32_t t)
 {
     if (t == TG_ART) {
         art_toggle = 1u;                         /* the main loop applies it, as for the hold */
-    } else if (t == TG_SHUF) {
-        shuffle_on = (uint8_t)!shuffle_on;
-        if (shuffle_on) pl_rng = cycles() | 1u;
-        if (pl_count) {
-            uint16_t cur = pl_order[pl_pos];
-            pl_reorder();
-            pl_resync(cur);                      /* keep playing what is playing */
-        }
-        ui_mode_dirty = 1u;
 #if TAU_DIAGNOSTIC
     } else if (t == TG_SPEEDS) {
         set_speed_all = (uint8_t)!set_speed_all;
@@ -416,8 +402,6 @@ COLD_FN static void set_toggle(uint32_t t)
         }
         return;                                  /* not persisted */
 #endif
-    } else {
-        resume_on = (uint8_t)!resume_on;
     }
     settings_mark_dirty();
 }
@@ -452,9 +436,7 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     else if (r->type == RT_CHOICE) s = set_ch_name(r->arg, set_ch_active(r->arg));
     else if (r->type == RT_VOL) { q = ui_dec(q, volume); s = "%"; }
     else if (r->arg == TG_ART)    s = art_pref ? "ON" : "OFF";
-    else if (r->arg == TG_SHUF)   s = shuffle_on ? "ON" : "OFF";
-    else if (r->arg == TG_SPEEDS) s = set_speed_all ? "ON" : "OFF";
-    else                          s = resume_on ? "ON" : "OFF";
+    else                          s = set_speed_all ? "ON" : "OFF";
     while (*s) *q++ = *s++;
     *q = 0;
 }
@@ -535,7 +517,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 23u   /* B-073: +1 for COVER (art_bad_code, for the "no
+#define SET_INFO_ROWS 22u   /* B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
                                               * freeze, see its own comment in fw/player.c); B-238:
@@ -543,9 +525,11 @@ extern char _heap_start, _heap_end;
                                               * new Helios/Talos H0 MMIO end to end (edges/sec,
                                               * should read this core's real vertical rate once a
                                               * TAU_VBLANK bitstream is installed; 0 on any other
-                                              * bitstream, see vblank_sample()'s own comment). */
+                                              * bitstream, see vblank_sample()'s own comment).
+                                              * The legacy-playlist-only PLAYLIST row was removed
+                                              * with legacy playlist mode. */
 static const char *const set_info_label[SET_INFO_ROWS] = {
-    "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM", "PLAYLIST",
+    "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM",
     "COLD IMAGE",
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
     , "LIBRARY"
@@ -572,55 +556,51 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         break;
     case 4: q = ui_dec(q, (uint32_t)(&_heap_end - &_heap_start)); q = set_str(q, " B"); break;
     case 5:
-        if (pl_count) { q = ui_dec(q, pl_count); q = set_str(q, " TRACKS"); }
-        else q = set_str(q, "NONE");
-        break;
-    case 6:
         if (cold_state == 1u) { q = ui_dec(q, cold_bytes); q = set_str(q, " B "); q = ui_dec(q, cold_ms); q = set_str(q, " MS");
             if (COLD_READY()) q = set_str(q, " CODE");
             else if (cold_err) { q = set_str(q, " E"); q = ui_dec(q, cold_err); }   /* image loaded but cold code refused */
         }
         else { q = set_str(q, "OFF E"); q = ui_dec(q, cold_err); }
         break;
-    case 7:
+    case 6:
         if (!track_hz) { q = set_str(q, "NONE"); break; }
         q = set_str(q, track_fmt == FMT_FLAC ? "FLAC " : "MP3 ");
         if (track_kbps) { q = ui_dec(q, track_kbps); q = set_str(q, "K "); }
         q = ui_dec(q, track_hz / 1000u); *q++ = '.'; q = ui_dec(q, (track_hz % 1000u) / 100u);
         *q++ = 'K';
         break;
-    case 8:                                          /* B-073: art_bad_code, to tell "no picture in the tag" from "unreadable" */
+    case 7:                                          /* B-073: art_bad_code, to tell "no picture in the tag" from "unreadable" */
         if (!art_bad_code) q = set_str(q, art_have ? "OK" : "-");
         else { q = set_str(q, "E"); q = ui_hex2(q, art_bad_code); }
         break;
-    case 9: q = ui_dec(q, pcm_under_n - dg_base_under); break;
-    case 10: q = ui_dec(q, (REG(R_FB_STALL) - dg_base_stall) / (CLK_HZ / 1000u)); q = set_str(q, " MS"); break;
-    case 11:
+    case 8: q = ui_dec(q, pcm_under_n - dg_base_under); break;
+    case 9: q = ui_dec(q, (REG(R_FB_STALL) - dg_base_stall) / (CLK_HZ / 1000u)); q = set_str(q, " MS"); break;
+    case 10:
         q = ui_dec(q, ld_head); *q++ = '/'; q = ui_dec(q, ld_size); *q++ = '/';
         q = ui_dec(q, ld_art);  *q++ = '/'; q = ui_dec(q, ld_total);
         break;
-    case 12: q = lib_info_text(q); break;
-    case 13:
+    case 11: q = lib_info_text(q); break;
+    case 12:
         /* METER YIELD (B-234) -- see meter_afford()'s own comment */
         if (meter_yield) { q = set_str(q, "YIELD "); q = ui_dec(q, meter_yield_secs); q = set_str(q, "S"); }
         else q = set_str(q, "OK");
         if (meter_yield_worst) { q = set_str(q, " (WORST "); q = ui_dec(q, meter_yield_worst); q = set_str(q, "S)"); }
         break;
-    case 14:   /* VBLANK (B-238) -- see vblank_sample()'s own comment */
+    case 13:   /* VBLANK (B-238) -- see vblank_sample()'s own comment */
         q = ui_dec(q, vblank_rate); q = set_str(q, "/S");
         break;
-    case 15:   /* SPECTRUM (B-263): which analyser is running, and for the hardware one how many windows it has finished */
+    case 14:   /* SPECTRUM (B-263): which analyser is running, and for the hardware one how many windows it has finished */
         if (spec_hw) { q = set_str(q, "HW W"); q = ui_dec(q, (REG(R_SPEC_ST) >> 16) & 0xFFFFu); }
         else q = set_str(q, "NO HW BANK");
         break;
-    case 16:   /* BEAM (B-267): Helios beam-aware drawing -- share of meter updates that had to wait for the beam */
+    case 15:   /* BEAM (B-267): Helios beam-aware drawing -- share of meter updates that had to wait for the beam */
         if (!helios_beam_ok) q = set_str(q, "NONE");
         else {
             uint32_t tot = helios_drawn_n + helios_deferred_n;
             q = set_str(q, "OK "); q = ui_dec(q, tot ? (helios_deferred_n * 100u) / tot : 0u); q = set_str(q, "% WAITED");
         }
         break;
-    case 17:   /* CHLADNI (B-276): first-use probe result, mailbox half order, figures drawn and skipped */
+    case 16:   /* CHLADNI (B-276): first-use probe result, mailbox half order, figures drawn and skipped */
         if (chl_ok == 0u) q = set_str(q, "NOT USED");
         else if (chl_ok == 2u) q = set_str(q, "UNAVAILABLE");
         else {
@@ -629,10 +609,10 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
             q = ui_dec(q, chl_skipped_n); q = set_str(q, " SKIP");
         }
         break;
-    case 18:   /* CPU LOAD: share of the last second the decode loop was not waiting on the audio FIFO */
+    case 17:   /* CPU LOAD: share of the last second the decode loop was not waiting on the audio FIFO */
         q = ui_dec(q, ui_cpu_pct()); q = set_str(q, "%");
         break;
-    case 19:   /* TIM1 COVER (B-288): how covers were shown -- files loaded, the last load time, and the last failure code (0 = none) */
+    case 18:   /* TIM1 COVER (B-288): how covers were shown -- files loaded, the last load time, and the last failure code (0 = none) */
 #if TAU_ART_TIMG
         q = ui_dec(q, timg_loaded_n); q = set_str(q, " LOADED ");
         q = ui_dec(q, timg_ms); q = set_str(q, " MS E");
@@ -646,7 +626,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "OFF");
 #endif
         break;
-    case 20:   /* MP3 WINDOW (B-307): the hardware synthesis window -- slots it computed, self-check mismatches, timeouts */
+    case 19:   /* MP3 WINDOW (B-307): the hardware synthesis window -- slots it computed, self-check mismatches, timeouts */
 #if TAU_POLY_FW
         if (!hw_poly) { q = set_str(q, "NO UNIT"); break; }
         q = set_str(q, tau_poly_hw_enable ? "HW " : "SW ");
@@ -657,7 +637,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "OFF");
 #endif
         break;
-    case 21:   /* THEME FILE (step 0d): extra themes read from tau-assets.bin -- how many, or the failure code, or none */
+    case 20:   /* THEME FILE (step 0d): extra themes read from tau-assets.bin -- how many, or the failure code, or none */
         if (th_file_err) { q = set_str(q, "E"); q = ui_dec(q, th_file_err); }
         else if (th_file_n) { q = ui_dec(q, th_file_n); q = set_str(q, " LOADED"); }
         else q = set_str(q, "NONE");
@@ -762,62 +742,6 @@ COLD_FN static void set_info_tick(void)
     else if (set_page == SET_STAT_PG) set_draw_ro(0, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
 #endif
     ov_draw = o;
-}
-
-/* How music gets into the player. Two texts: with a library loaded, and without one (legacy playlist mode). */
-/* The text is one blob per mode, lines separated by NUL, so it can live in the cold image (PSRAM). */
-#define SET_HELP_LINES 12u
-static const char set_help_lib[] COLD_DATA =
-    "LIBRARY MODE\0" "Select opens your library.\0" "\0"
-    "Playlists are inside it: the\0" "sync tool imports your .m3u\0" "files. Core menu playlist picks\0"
-    "are ignored.\0" "\0" "A file picked in the core menu\0" "still plays once.\0" "\0"
-    "New music: run the sync tool.";
-static const char set_help_legacy[] COLD_DATA =
-    "LEGACY PLAYLIST MODE\0" "No library file was found.\0" "\0"
-    "Play one file:\0" "  Core menu > Load MP3\0" "Play a list:\0" "  Core menu > Load Playlist\0"
-    "  (Select opens the list)\0" "\0" "For a library, run the sync tool\0" "on your music: it writes\0"
-    "tau-library.tdb. Then restart.";
-
-COLD_FN static void set_draw_help(void)
-{
-    int lib_on = (lib_state == LIB_ST_OK);
-    const char *p = lib_on ? set_help_lib : set_help_legacy;
-    ov_frame("HOW IT WORKS", "", "B BACK");
-    if (!cold_ready()) {                                   /* cold image not loaded: no text to show */
-        fb_set_color(UI_DIM, OV_BODY);
-        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, "Help text is not loaded.", TS_1X, TS_1X, PL_UI_W - 32u);
-        return;
-    }
-    for (uint32_t i = 0; i < SET_HELP_LINES && i < PL_UI_ROWS; i++) {
-        fb_set_color(i ? UI_WHITE : ui_accent, OV_BODY);
-        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + i * PL_UI_ROW_H, p, TS_1X, TS_1X, PL_UI_W - 32u);
-        while (*p) p++;
-        p++;
-    }
-}
-
-/* Library on/off. Off = the player behaves as before the library existed (legacy playlist mode); the index stays on the card. */
-COLD_FN static void set_draw_libcfg(void)
-{
-    static const char *const on_txt[] = { "Turning it off makes the player", "work as a plain playlist player:", "Load MP3 / Load Playlist in the", "core menu, Select opens the list.",
-        "The index file stays on the card." };
-    static const char *const off_txt[] = { "Turning it on loads your library", "at start: browse and play from", "Select. Your history is kept." };
-    ov_frame("LIBRARY", "", set_lib_confirm ? "A CONFIRM   B CANCEL" : "A CHANGE   B BACK");
-    uint32_t y = PL_UI_LIST_Y;
-    fb_set_color(ui_accent, OV_BODY);
-    fb_text_clipped(PL_UI_TEXT_X, y, lib_disabled ? "Library is OFF" : "Library is ON", TS_1X, TS_1X, PL_UI_W - 32u);
-    y += 2u * PL_UI_ROW_H;
-    const char *const *t = lib_disabled ? off_txt : on_txt;
-    uint32_t n = lib_disabled ? SET_COUNT(off_txt) : SET_COUNT(on_txt);
-    fb_set_color(UI_WHITE, OV_BODY);
-    for (uint32_t i = 0; i < n; i++, y += PL_UI_ROW_H) fb_text_clipped(PL_UI_TEXT_X, y, t[i], TS_1X, TS_1X, PL_UI_W - 32u);
-    y += PL_UI_ROW_H;
-    fb_set_color(UI_DIM, OV_BODY);
-    fb_text_clipped(PL_UI_TEXT_X, y, "Applies after a restart.", TS_1X, TS_1X, PL_UI_W - 32u);
-    if (set_lib_confirm) {
-        fb_set_color(ui_accent, OV_BODY);
-        fb_text_clipped(PL_UI_TEXT_X, y + PL_UI_ROW_H + 8u, lib_disabled ? "Press A to turn it on." : "Press A to turn it off.", TS_1X, TS_1X, PL_UI_W - 32u);
-    }
 }
 
 #if TAU_DIAGNOSTIC
@@ -1027,7 +951,7 @@ static uint32_t set_fade_at;
 
 COLD_FN static int set_fade_page_ok(void)
 {
-    if (set_page < SET_MENUS || set_page == SET_HELP_PG || set_page == SET_LIBCFG_PG) return 1;
+    if (set_page < SET_MENUS) return 1;
     if (set_page == SET_INFO_PG)
 #if TAU_DIAGNOSTIC
         return info_qr_up ? 0 : 1;
@@ -1073,8 +997,6 @@ COLD_FN static void set_draw_now(void)
     uint8_t o = ov_draw; ov_draw = 1u;
     if (set_page < SET_MENUS)                set_draw_menu(set_page);
     else if (set_page == SET_WVIZCFG_PG)     wvcfg_draw();
-    else if (set_page == SET_LIBCFG_PG)      set_draw_libcfg();
-    else if (set_page == SET_HELP_PG)        set_draw_help();
 #if TAU_DIAGNOSTIC
     else if (set_page == SET_CHECK_PG)       chk_draw();
 #if MP3_PROFILE || FLAC_PROFILE
@@ -1100,8 +1022,7 @@ COLD_FN static void set_draw_now(void)
 
 COLD_FN static void set_close(void)
 {
-    set_open = 0u; set_page = SET_HOME; pl_ui_restore = 1u;
-    set_lib_confirm = 0u;
+    set_open = 0u; set_page = SET_HOME;
     set_fade_last = 0xFFFFu;                   /* B-334: the next open fades in again */
 }
 
@@ -1120,10 +1041,9 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
 #if TAU_G4
             if (!COLD_READY()) { ui_toast_msg("MENU OFF: NO COLD IMAGE"); return 0; }   /* the menus are cold code; say why nothing opened */
 #endif
-            /* One overlay at a time: an open playlist would keep repainting its marquee row
-             * over the settings (its rows draw through the ov_draw gate), so it is closed
-             * here. Closing settings returns to the player, not to the list. */
-            pl_ui_open = 0u;
+            /* One overlay at a time: an open library browser would keep repainting its
+             * marquee row over the settings (its rows draw through the ov_draw gate), so
+             * it is closed here. Closing settings returns to the player, not to the browser. */
             lib_ui_open = 0u;
             set_open = 1u; set_page = SET_HOME; set_dirty = 1u;
             return 1;
@@ -1141,18 +1061,6 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
 #endif
     if (set_page == SET_WVIZCFG_PG) return wvcfg_input(edge);
     if (edge & KEY_START) { set_close(); return 1; }
-    if (set_page == SET_LIBCFG_PG) {              /* library on/off: A asks, a second A confirms, B cancels or goes back */
-        if ((edge & KEY_A) || ((edge & KEY_RIGHT) && !set_lib_confirm)) {     /* Right may ask, only A confirms */
-            if (!set_lib_confirm) set_lib_confirm = 1u;
-            else { lib_disabled = (uint8_t)!lib_disabled; set_lib_confirm = 0u; settings_mark_dirty(); }
-            set_dirty = 1u;
-        }
-        if (edge & (KEY_B | KEY_LEFT)) {
-            if (set_lib_confirm) set_lib_confirm = 0u; else set_page = SET_DIAG;
-            set_dirty = 1u;
-        }
-        return 1;
-    }
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
 #if TAU_DIAGNOSTIC
         if (set_page == SET_INFO_PG && info_qr_up) {     /* QR screen: anything closes it */
@@ -1170,7 +1078,7 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
 #endif
         if ((edge & KEY_UP)   && set_ro_top > 0u)      { set_ro_top--; set_dirty = 1u; }
         if ((edge & KEY_DOWN) && set_ro_top < maxtop)  { set_ro_top++; set_dirty = 1u; }
-        if (edge & (KEY_B | KEY_LEFT)) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info, How it works -> SETTINGS */
+        if (edge & (KEY_B | KEY_LEFT)) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info -> SETTINGS */
         return 1;
     }
     /* B-073: Up/Down auto-repeat while held, the same shape as the playlist and library lists (a step on the edge, a

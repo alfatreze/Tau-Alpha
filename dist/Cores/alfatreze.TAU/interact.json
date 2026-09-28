@@ -51,16 +51,6 @@
                 }
             },
             {
-                "name": "Shuffle",
-                "id": 13,
-                "type": "check",
-                "enabled": true,
-                "persist": true,
-                "address": "0x2000000C",
-                "defaultval": 0,
-                "value": 1
-            },
-            {
                 "name": "Meter",
                 "id": 15,
                 "type": "slider_u32",
@@ -88,32 +78,6 @@
                     "signed": false,
                     "min": 0,
                     "max": 7,
-                    "adjust_small": 1,
-                    "adjust_large": 1
-                }
-            },
-            {
-                "name": "Resume playback",
-                "id": 19,
-                "type": "check",
-                "enabled": true,
-                "persist": true,
-                "address": "0x2000001C",
-                "defaultval": 0,
-                "value": 1
-            },
-            {
-                "name": "Saved position",
-                "id": 18,
-                "type": "slider_u32",
-                "enabled": true,
-                "persist": true,
-                "address": "0x20000010",
-                "defaultval": 0,
-                "graphical": {
-                    "signed": false,
-                    "min": 0,
-                    "max": 2147483647,
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
@@ -229,16 +193,6 @@
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
-            },
-            {
-                "name": "Library off (restart)",
-                "id": 27,
-                "type": "check",
-                "enabled": true,
-                "persist": true,
-                "address": "0x2000003C",
-                "defaultval": 0,
-                "value": 1
             }
         ],
         "messages": []

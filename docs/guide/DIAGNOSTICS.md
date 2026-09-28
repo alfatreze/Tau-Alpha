@@ -12,7 +12,7 @@ Item names below were checked against `fw/settingsui.inc` and `fw/suite.inc`. Sp
 
 ## The Info page (in every build)
 
-**Start** opens Settings; the last group (titled SETTINGS, next to Library and How it works) holds **Info**. It is read-only and
+**Start** opens Settings; the last group (titled SETTINGS) holds **Info**. It is read-only and
 updates once a second. Rows, in order:
 
 | Row | What it tells you |
@@ -21,7 +21,6 @@ updates once a second. Rows, in order:
 | **SDRAM WINDOW** | `OK` when the Pocket's SDRAM was found and passed its start-up check. |
 | **WINDOW READ** | Cycles for one read of that memory. Normal is well under 400. |
 | **FREE RAM** | Spare on-chip memory. |
-| **PLAYLIST** | Tracks loaded, and whether the list was cut at the limit. |
 | **COLD IMAGE** | State of the cold-code image loaded from PSRAM at boot (an `E` code if it could not run). |
 | **TRACK** | Format, bitrate and sample rate of what is playing. |
 | **COVER** | The last cover-decode reason code, if a cover could not be shown. |
@@ -51,7 +50,6 @@ and has its own settings; use TAU for everyday listening, because the stress tes
 |---|---|
 | **Tests > Window test** | Writes and reads back a pattern in the extra memory the player uses. Expect `PASS 89`. |
 | **Tests > Read / Write cycles** | Timing of that memory as `fastest/average/slowest` cycles. Expect about 48/57/335 read and 31/38/350 write. |
-| **Tests > Playlist check** | Confirms the playlist memory still reads back correctly. Expect `PASS 13`. |
 | **Tests > Cold code test** | Runs the code kept in PSRAM and checks it. |
 | **Tests > Clear counters** | Resets the underrun and draw-stall counters. |
 | **Stress > Level** | Adds memory traffic (R1 light, R2 and R3 heavy) while music plays, to look for glitches. |

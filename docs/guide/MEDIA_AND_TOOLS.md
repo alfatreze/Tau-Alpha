@@ -133,7 +133,6 @@ release cores are never touched without `--allow-release`. Procedure: [CARD_INST
 | Tool | Use |
 |---|---|
 | `tools/library_check.py` | What the core would do with a track's cover and tags |
-| `tools/make_album_playlists.py` | Generate `playlist.m3u` for album folders |
 | `tools/decode_tau_suite.py` | Decode Check / Info / Meter Sweep reports from a QR screenshot, the persist file or the short code |
 | `tools/tau_image.py` | The TIM1 encoder and decoder |
 | `tools/gen_themes.py`, `tools/tau_assets.py` | Themes and the `tau-assets.bin` container |

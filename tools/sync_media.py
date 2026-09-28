@@ -26,7 +26,7 @@ Rules:
     changed. The cover is first made player-safe (baseline JPEG, <= --max-image px, under the 2 MiB firmware cap).
     Loose image files are not copied unless --copy-images (the player would not use them).
   * A folder of tracks with no .m3u/.m3u8 gets a playlist.m3u generated in the destination (bare filenames, natural
-    track order, the convention of tools/make_album_playlists.py); --no-playlist turns that off.
+    track order) for the media library to import as a "list"; --no-playlist turns that off.
   * Names are made ASCII-only on the card (Nausicaä -> Nausicaa; characters with no plain equivalent are removed), for folders and
     files, and every playlist line is rewritten to match. The player cannot open paths with accented characters
     (docs/issues/001; macOS also stores them in decomposed form, which makes them differ from the playlist).

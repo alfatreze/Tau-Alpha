@@ -1,7 +1,7 @@
-        /* The playlist-switch fields are gone: that investigation shipped in
-         * v1.2.0 and the row's width is needed for the throughput and heap
-         * figures the FLAC decision turns on. pl_sw_* and tk_hist are still
-         * recorded, one flag away, if it ever reopens. */
+        /* The playlist-switch fields (pl_sw_*) are gone for good along with legacy playlist mode
+         * itself, not just the display row: that investigation shipped in v1.2.0, and the row's
+         * width was needed for the throughput and heap figures the FLAC decision turns on. tk_hist
+         * is still recorded (it covers ordinary track loads too, not only a playlist switch). */
 // =============================================================================
 // Stage 3 -- real MP3 playback.
 //
@@ -100,6 +100,8 @@
 #define R_CLUT_IDX  0x800000C8u   /* Phase F B8: sticky CLUT index (W), 0-255 */
 #define R_DBG_MARK  0x800000D0u   /* B-186: CPU-side checkpoint, read live by TAU_ISSP's DBGM probe -- see fw/suite.inc's bt_crumb(). Harmless write if TAU_ISSP isn't built. */
 #define R_CLUT_DATA 0x800000CCu   /* Phase F B8: CLUT entry at that index (W), RGB565; index auto-increments */
+#define R_RC_IDX    0x800000D4u   /* B11: corner-cut LUT entry select (W), 0-15 -- see fw/rc_lut.h */
+#define R_RC_DATA   0x800000D8u   /* B11: corner-cut LUT entry value (W), 0-31 (5 bits) at the index above */
 #define R_SPEC_IDX  0x800000DCu   /* B-263: spectrum bank -- write the band index 0..15 */
 #define R_SPEC_DATA 0x800000E0u   /* read: the window mean |band| of band SPEC_IDX (20 bits) */
 #define R_WAVE_CTL  0x800000ECu   /* B-283: level/scope block -- write: bit 0 clear peaks, bit 1 arm a scope capture, [11:8] = samples per column - 1 */
@@ -136,9 +138,10 @@
 #define TGT_GETFILE  2u   /* 0190 */
 #define TGT_WRITE    3u   /* 0184 */
 
-/* R_RELOAD bits -- see mp3_soc.v */
+/* R_RELOAD bits -- see mp3_soc.v. Bit 4 (the legacy PLAYLIST-slot-reloaded bit, RL_PL_RELOAD =
+ * 0x10) is no longer read by firmware: legacy playlist mode is gone, so nothing here ever
+ * acknowledges it, but the RTL bit itself is untouched (this is a firmware-only removal). */
 #define RL_PENDING   1u
-#define RL_PL_RELOAD 0x10u   /* the PLAYLIST slot was reloaded (bit 4) */
 #define RL_READY     2u   /* allcomplete rose since the reload notification   */
 #define RL_AC_NOW    4u   /* allcomplete level right now                      */
 #define RL_AC_FELL   8u   /* allcomplete fell since the reload notification   */
@@ -281,10 +284,6 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #ifndef TAU_SDRAM_BUSY
 #define TAU_SDRAM_BUSY 0
 #endif
-/* A-103: place the playlist buffers (pl_text, pl_off, pl_order: 13,312 B) in SDRAM
- * behind the uncached CPU window instead of BRAM. Needs an RBF built with
- * TAU_PHASE2_WINDOW; pl_load() proves the window first and turns the playlist
- * feature off (no BRAM fallback) if it does not answer. Off by default. */
 /* P5: place the album-art accumulator (art_acc, 11,040 B) in PSRAM behind the uncached CPU
  * window at 0xA4000000 instead of BRAM. Needs the P4 bitstream (PSRAM window); art_prove()
  * checks for it before the first store and turns cover art off (no BRAM fallback) if it is
@@ -391,18 +390,16 @@ static uint32_t fb_color_shadow = 0xFFFFFFFFu;
 
 static inline void fb_wait(void) { while (REG(R_FB_GO) & 1u) { } }
 
-/* A full-screen overlay (playlist, settings) owns every pixel. While one is up, every
+/* A full-screen overlay (library, settings) owns every pixel. While one is up, every
  * drawing primitive is a no-op unless the overlay itself is painting (ov_draw), so the
  * player -- meter, clock, progress bar, toasts, art -- cannot punch through it. The
- * repaint on close (pl_ui_restore) already redraws and invalidates all of it. */
-static uint8_t pl_ui_open;         /* playlist overlay is up */
+ * repaint on close already redraws and invalidates all of it. */
 static uint8_t lib_ui_open;          /* library browse overlay is up */
 static uint8_t lib_src;              /* the current track came from the library queue */
 static uint16_t lib_qn, lib_qpos;    /* the library queue: length and position */
 /* What the user was playing, kept across restarts (persist words, settings.inc): lib_h = kind | id << 3 | queue position << 14,
- * lib_hb = low 31 bits of the index build id it refers to, lib_hs = the Shuffle All seed. lib_disabled = the Settings switch. */
+ * lib_hb = low 31 bits of the index build id it refers to, lib_hs = the Shuffle All seed. */
 static uint32_t lib_h, lib_hb, lib_hs;
-static uint8_t  lib_disabled;
 enum { LIB_ST_NONE = 0, LIB_ST_OK, LIB_ST_OFF };
 static uint8_t lib_state;            /* LIB_ST_*: no index / loaded / switched off by an error */
 static uint8_t  lib_boot_ok;          /* B-080 evidence: did lib_boot_restore() open something at this boot */
@@ -413,7 +410,7 @@ static void lib_ui_enter(void);
 static void lib_ui_input(uint32_t *edge_p, uint32_t *fall_p, uint32_t *keys_p);
 #define LIB_OVL lib_ui_open
 static uint8_t set_open;           /* settings overlay is up */
-#define UI_OVERLAY_UP (pl_ui_open || set_open || LIB_OVL)
+#define UI_OVERLAY_UP (set_open || LIB_OVL)
 static uint8_t ov_draw;            /* the overlay itself is painting */
 /* Fullscreen visualiser (fw/fullscreen.inc, Select+Y): while it is up every ordinary draw call is held exactly as under an
  * overlay (the state machines keep running), and the fullscreen code draws with ov_draw set. */
@@ -1035,63 +1032,10 @@ static void vol_apply(void)
     vol_gain = (int32_t)(volume * 256u / 100u);
 }
 /* ------------------------------------------------------------- playlist ----
- * State only. The logic is in playlist.inc, which has to be included further
- * down (it needs the target-command helpers), but the UI drawn above that point
- * reads these -- so they are declared here where both can see them.
- *
- * pl_order[] is the PLAY order, pl_off[] the file order. Shuffle permutes
- * pl_order and leaves pl_off alone, so "track 4 of 12" always means the same
- * track whether shuffled or not, and turning shuffle off resumes the file
- * order without reloading anything. */
-#define PL_MAX       256u        /* tracks; the index costs 4 bytes each */
-/* The .m3u text. 8 KB made PL_MAX unreachable in practice and therefore a lie:
- * a real playlist here averages 110 bytes a line, so the buffer ran out at ~74
- * tracks while the documentation promised 128.
- *
- * RAISED TO 256 TRACKS / 20 KB for v1.3.0, keeping the two in step. 20 KB is
- * ~80 characters a line at 256 tracks -- short of the 128 the old comment
- * promised, and the honest number rather than an aspiration.
- *
- * It took three attempts to size this, because the space it grows into was
- * never free space:
- *
- *   1. Sized against the whole BSS-to-DMA gap. That gap is the HEAP. Left
- *      15680 bytes where newlib needed more, MP3InitDecoder() returned 0, and
- *      every track showed LOAD FAILED. The build passed.
- *   2. Sized against Helix's struct sum of 23816 plus a margin. Also failed,
- *      at 25232 -- newlib's own overhead was the missing term and it was
- *      never visible.
- *   3. Measured. A23824/26624 on hardware, once fw/alloc.c replaced newlib's
- *      allocator with a fixed arena. Helix's true cost is 23824, the arena is
- *      a fixed 26624, and what is left over is genuinely free.
- *
- * So: do not raise either of these against an address gap. Raise them against
- * the leftover the linker reports, and keep 1 KB for the token heap. And do
- * not raise one without the other -- that mismatch has already shipped once,
- * in the direction that made the documented cap a lie. */
-/* 12 KB, down from 16, to buy back heap.
- *
- * The 256-track cap still binds first for ordinary filenames -- at 44 bytes a
- * line, which is what a flat list measures, 12 KB holds 279 and the cap stops
- * it at 256. Only playlists whose entries carry a folder path lose anything,
- * and they go from about 180 tracks to about 135. The largest list ever on
- * this card was 240 tracks in 10.6 KB, which still fits.
- *
- * Spent on heap because there was 1600 bytes of it left against a 1024-byte
- * assert -- not enough to add anything at all, including a diagnostic. This is
- * the cheapest 4 KB available and the only one that costs no code risk: no
- * function moves, no static is exported, nothing is reordered. */
-#define PL_TEXT_MAX  12288u
-
-static char     pl_text[PL_TEXT_MAX] PL_SDRAM;
-/* Set when the .m3u did not fit -- either the text buffer filled or PL_MAX was
- * reached with lines still to read. Without this a clipped playlist is
- * indistinguishable from a short one: the screen just shows a smaller number. */
-static uint8_t  pl_truncated;
-static uint16_t pl_off[PL_MAX] PL_SDRAM;        /* byte offset of each name in pl_text */
-static uint16_t pl_order[PL_MAX] PL_SDRAM;        /* play order -> file index            */
-static uint16_t pl_count;                /* 0 = no playlist loaded              */
-static uint16_t pl_pos;                  /* index INTO pl_order                 */
+ * The legacy .m3u-playlist-file playback mode (state + logic in playlist.inc)
+ * has been removed: the media library (fw/library.inc) is now the only way to
+ * play more than one file. playlist.inc still holds the shared "open a named
+ * file into a slot" primitive the library itself uses. */
 
 /* Overlay state, declared HERE rather than with its drawing code:
  * ui_draw_chrome() repaints the overlay on top of itself and sits a
@@ -1105,18 +1049,9 @@ static int  set_input(uint32_t edge, uint32_t keys);
 #endif
 static void set_draw(void);
 static void set_close(void);
-static uint8_t  pl_ui_play_req;    /* main loop: start pl_ui_sel             */
-static uint8_t  pl_ui_dirty;       /* repaint wanted                         */
-static uint8_t  pl_ui_restore;     /* overlay closed: repaint the player      */
-static uint16_t pl_ui_drawn_pos = 0xFFFFu;  /* pl_pos as last drawn           */
-static uint16_t pl_ui_mq_off;      /* chars scrolled off the selected row     */
-static uint32_t pl_ui_mq_next;     /* when it steps again                     */
-static uint16_t pl_ui_mq_sel = 0xFFFFu;  /* row the scroll belongs to         */
 
 enum { REP_OFF = 0, REP_ALL, REP_ONE };
 static uint8_t  rep_mode;                /* cycles off -> all -> one -> off */
-static uint8_t  shuffle_on;
-static uint32_t pl_rng = 1u;             /* shuffle RNG, seeded from cycles() */
 
 /* Screen blanking. blank_min is minutes with no button press before the screen
  * goes black; 0 disables it. Playback is untouched -- only drawing stops.
@@ -1131,75 +1066,13 @@ static uint32_t pl_rng = 1u;             /* shuffle RNG, seeded from cycles() */
  * What it actually gives you is a dark screen in a dark room. That is a real
  * want, and it is the whole of the case for this feature.
  *
- * Set by Select+Down, not persisted -- it costs a settings slot that resume
- * needs more. */
-/* ---------------------------------------------------------------- RESUME
- * Where playback was when the core was last closed, in ONE 32-bit word,
- * because one settings slot is all there was to spare:
- *
- *   bits  0..6   track index, low 7 bits
- *   bits  7..23  seconds       0-131071, about 36 hours -- audiobook country
- *   bit  24      FROM PLAYLIST -- is the track index above meaningful at all
- *   bit  25      track index, high bit -- together 0-255, matching PL_MAX
- *   bits 26..30  reserved, always zero
- *   bit  31      ALWAYS ZERO
- *
- * Bit 31 is reserved unset, and the tag is seven bits rather than eight, for a
- * reason paid for on hardware: APF stores these values as SIGNED 32-bit. The
- * first attempt used all 32 bits and declared the slider max as 4294967295,
- * which APF read as -1 -- so the range became [0, -1], max below min, and
- * every value collapsed to -1. The persist file said `"val": -1` while every
- * other setting stored correctly. Keeping the word inside positive int32
- * territory means no value can ever be mistaken for negative.
- *
- * The tag is the guard. A saved index means nothing if the .m3u has been
- * edited since, so the byte is compared against the file that actually opens
- * and the position is discarded when it disagrees. Eight bits is a 1-in-256
- * chance of agreeing by accident, and the cost of that is resuming at the
- * wrong timestamp in a real track -- recoverable with B, and bounded because
- * the offset is range-checked against the file anyway.
- *
- * Seconds, not bytes: bytes would need 22 bits for a long file and leave no
- * room for the guard, and seconds survive a re-encode of the same track. */
-/* The track index is 8 bits, but NOT contiguous: the low 7 sit where they
- * always did and the 8th lives in bit 25, the first of the reserved run. It
- * was 7 bits under a comment claiming that matched PL_MAX, which is 256 -- so
- * RS_PACK's mask silently folded track 200 of a 240-entry playlist down to
- * track 72, and resume came back at the wrong song with no sign anything was
- * wrong. Splitting the field rather than moving it keeps every previously
- * saved word readable: those have bit 25 clear, which reads back as 0..127
- * exactly as before. Bit 31 stays unset -- see the note above about APF
- * storing these as signed. */
-#define RS_TRACK(w)   (((w) & 0x7Fu) | ((((w) >> 25) & 1u) << 7))
-#define RS_SECS(w)    (((w) >> 7) & 0x1FFFFu)
-#define RS_PL(w)      (((w) >> 24) & 1u)
-
-/* Set when the playlist started the playing track, cleared when the user
- * picked a file themselves. Without it resume_pump() stamped pl_pos onto every
- * save merely because a playlist EXISTED, so a standalone mp3 was stored as
- * "playlist track 5" and came back as Phish at 128 seconds. */
-#define RS_PACK(t, s, p) (((uint32_t)((t) & 0x7Fu)) \
-                        | ((uint32_t)((s) & 0x1FFFFu) << 7) \
-                        | ((uint32_t)((p) ? 1u : 0u) << 24))
-
-static uint8_t  track_from_pl;    /* playlist started this track, not the user */
-static uint32_t resume_word;      /* the packed point, as published to APF   */
-static uint8_t  resume_on;        /* Core Settings check; default OFF, opt in */
-static uint8_t  resume_armed;     /* a saved point is waiting to be applied  */
-static uint32_t resume_at;        /* seconds to seek to once the track opens */
-static uint8_t  resume_seek_req;  /* apply resume_at at the next safe point   */
-static uint32_t resume_deadline;  /* stop waiting for a rate/size after this   */
-
-/* Which branch the boot-time restore took. Latched, so the answer survives on
- * screen instead of having to be inferred from whether music started in the
- * right place:
- *   0 not reached      1 armed            2 position past a known duration
- *   3 disabled/nothing  4 nothing opened    6 repositioned
- *   7 idle at the seek  8 no byte rate      9 no file size
- *  10 target past the end of the file
- *  11 gave up waiting for a reload/stop to finish */
-static uint8_t  resume_dbg;
-static uint16_t resume_saves;     /* times resume_pump has published a point  */
+ * Set by Select+Down, not persisted. */
+/* The RESUME feature (a packed settings word remembering the playback
+ * position across boots) was removed along with legacy playlist mode: it only
+ * ever saved a position when a track was started BY THE LEGACY PLAYLIST
+ * (track_from_pl), never for a single picked file or a library track, so with
+ * the playlist gone it had no remaining path to ever fire. See settings.inc
+ * for the now-retired persist words SW_RETIRED_RESUME/SW_RETIRED_RESUMEON. */
 
 static uint32_t blank_min;            /* 0 = never; set by Select+Down        */
 static uint32_t blank_sec;            /* whole seconds since the last button   */
@@ -1233,155 +1106,21 @@ static uint32_t stop_req;
  * same threshold. */
 #define SPEED_HOLD_MS 1000u              /* A held this long = 1.2x toggle    */
 
-/* Defined in playlist.inc / settings.inc, called from the input handler that
- * sits above both includes. */
-static void pl_reorder(void);
-static void pl_resync(uint16_t file_idx);
-static uint16_t pl_live_count(void);
-static uint16_t pl_live_ordinal(uint16_t pos);
-/* The loaded playlist's own filename, last component, uppercased. Filled by
- * pl_name_read() in playlist.inc, which is included below -- declared here
- * because the splash summary above it draws the name. Empty when APF will not
- * say what is in the slot. */
-static char pl_name[24];
-static char pl_name_raw[24];      /* same, in the card's own spelling */
-/* The name in FULL, untruncated.
- *
- * pl_name_raw is 24 bytes because that is all the header line can show, and
- * for a long while that was all the core kept -- which is why only twelve
- * characters of a playlist's name could ever be remembered. The datatable
- * hands pl_name_read() the whole path in a 1024-byte buffer, so the
- * information was never missing, only thrown away. */
-#define PL_FULL_MAX 96u
-static char pl_name_full[PL_FULL_MAX + 1u];
-/* Fingerprint of the .m3u TEXT last parsed, so "did the slot actually switch"
- * can be answered from the bytes rather than from the name APF reports. Zero
- * when nothing has parsed. */
-static uint32_t pl_sig;
-/* The remembered list is reopened at BOOT only. pl_load() also runs whenever
- * the user picks a playlist, and restoring there would override the pick. */
-static uint8_t pl_restore_pending = 1u;
-
-/* Gate for a playlist-slot reload, mirroring the one the MP3 slot already has.
- * 008A means the user PICKED a file, not that the slot is readable yet. */
-/* Belt and braces for a notification that never arrives.
- *
- * The user reproduced a pick that produced NOTHING -- no LOADING message, no
- * load, however long they waited -- on a build where the transport row can no
- * longer paint over that message. So 008A for slot 3 had not reached firmware
- * at all, and nothing downstream of it can help: every retry, gate and cache
- * flush added so far is waiting on an event that is not coming.
- *
- * So stop depending on it being delivered. The pick can only happen in the
- * Analogue menu, and the core is told when that closes -- so ASK the slot what
- * it holds at exactly that moment. One 0190 per menu close, at a point where
- * playback is already interrupted, against a notification that is sometimes
- * simply absent. */
-/* paused is a bitmask: 1 the user, 2 the OS menu, 4 a playlist switch in
- * progress. The switch bit exists for two reasons, and the second is probably
- * the bigger one:
- *
- *   - it takes the core's 0180 refill traffic off the bus while APF is trying
- *     to reassign slot 3, which is the collision the user suspects is behind
- *     the occasional pick that does nothing;
- *   - the old track used to keep playing throughout the wait, which can run to
- *     five seconds. Music continuing while the screen says LOADING PLAYLIST
- *     reads as NOTHING HAPPENING, and that is what makes a user pick again.
- *     Silence reads as working.
- *
- * load_track() ends with paused = 0, so a successful switch clears it; the
- * completion branch clears it too, for the paths that never get that far. */
-#define PAUSE_LOAD 4u
+/* paused is a bitmask: 1 the user, 2 the OS menu. (A third bit, for a legacy
+ * playlist switch in progress, was removed along with that mode.) */
 static uint8_t  menu_was;         /* the OS menu was open on the last poll      */
-static uint32_t pl_poll_at;       /* next periodic slot-3 identity check         */
-static uint8_t  pl_check_req;     /* menu just closed: ask slot 3 what it holds */
-static uint8_t  pl_skip_gate;     /* 0190 already proved it changed             */
-static uint32_t pl_fb_at;         /* when the fallback last loaded              */
-static char     pl_cur_name[24];  /* the playlist that is actually loaded       */
-static uint16_t pl_notify_n;      /* playlist notifications seen from the RTL */
-static uint16_t pl_load_n;        /* times pl_load() actually ran             */
-static uint32_t pl_reload_seen;   /* OR of every R_RELOAD word observed       */
-/* Last playlist SWITCH, recorded so the failure can be read off the screen
- * instead of reasoned about. Two blind fixes have already been wrong about
- * this one; these five fields separate every remaining explanation.
- *   G  1 the gate saw the name change, 2 it gave up and fired on the cap
- *   R  0 no retry, 1 retried on an unchanged name, 2 on unchanged CONTENT
- *   P  1 pl_play_at(0) ran, 0 it was skipped
- *   F  reload_pending | reload_armed<<1 at the moment P was decided
- *   T  pl_count after the load
- * L not advancing with N means the gate never fired at all; L advancing with
- * P zero means the list loaded and playback simply was not taken, which no
- * amount of retrying the READ would ever fix. */
-static uint8_t  pl_sw_ge, pl_sw_rt, pl_sw_pp, pl_sw_fl;
-static uint16_t pl_sw_ct;
-/* ...and the last THREE of them, because a success overwrites the failure.
- * The first capture showed N8 L8 G1 R0 P1 F0 T9 -- a perfectly healthy
- * switch, which is exactly what the screen shows AFTER the attempt that
- * finally works. Keeping a history means one photograph taken after a triple
- * shows all three attempts, and whether the failures failed the same way.
- * Packed G,R,P,F as hex nibbles, oldest on the left. */
-static uint16_t pl_sw_hist[3];
-/* Times load_track() came back empty. The playlist path looks healthy, so
- * the next suspect is downstream: the list switches, track 1 is requested,
- * and the TRACK open is what does not land -- which would leave the old song
- * playing and read as "the playlist did not switch". */
-static uint16_t pl_sw_tk;
-/* The TRACK loads that follow a switch, three deep. The playlist side has now
- * read healthy three times running -- gate confirmed, no retry, playback
- * taken, right list -- so the failure is downstream of it, and X says
- * load_track() never came back empty. But opening SUCCESSFULLY is not the
- * same as opening the RIGHT file: a stale MP3 slot would reopen the previous
- * track, which sounds exactly like the playlist never switching.
+/* Shared "an overlay just closed" repaint flag -- settings, the library browse overlay, and (when it
+ * existed) the legacy playlist overlay all set this so the main loop repaints the player chrome once,
+ * rather than each overlay-close site duplicating that work. Kept under its old name (pl_ui_restore)
+ * to avoid a mechanical rename across every remaining caller. */
+static uint8_t  pl_ui_restore;
+/* The TRACK loads that follow a reload, three deep -- general reload diagnostics, not specific to
+ * the (now removed) legacy playlist mode.
  *   G  1 the gate confirmed a new file id, 2 it fired on the cap
  *   O  1 load_track() returned a track, 0 it did not
- *   C  1 the filename CHANGED, 0 the SAME file was reopened
- * C zero is the whole hypothesis. */
+ *   C  1 the filename CHANGED, 0 the SAME file was reopened */
 static uint16_t tk_hist[3];
 static uint32_t tk_prev_name;     /* FNV of track_file before the load */
-static uint8_t  pl_reload_armed;
-static uint32_t pl_reload_at;        /* hard deadline: act regardless */
-static uint32_t pl_probe_at;         /* next slot-changed check */
-static char     pl_leaving[24];      /* the name we are switching AWAY from */
-static uint8_t  pl_retry;            /* one re-arm if the switch did not take */
-
-/* The playlist to reopen at boot, packed four characters per settings word.
- *
- * Storing the NAME is unavoidable. APF cannot enumerate a directory, so 0192
- * can only open something we already hold, and the slot itself remembers
- * nothing: with a filename declared in data.json APF resets it to that file at
- * every core load, and without one the slot comes up empty and prompts. Both
- * were measured. There is no arrangement of data.json that remembers a pick.
- *
- * Twelve characters of STEM, with ".m3u" implied rather than stored -- that
- * covers "Shenanigans", "audiobook" and most real names for three words
- * instead of four. Truncation is possible and harmless: a name that does not
- * round-trip simply fails to reopen and the default loads. */
-#define PL_STEM_MAX 12u
-static char     pl_saved_stem[PL_STEM_MAX + 1u];
-
-/* ------------------------------------------------- remembering a long name
- *
- * Twelve characters is all a settings word can hold, and widening it cannot
- * fix this: eleven of sixteen slots are used, so spending every remaining one
- * reaches thirty-two characters, and "Crash Test Dummies - God Shuffled His
- * Feet.m3u" is forty-two. Even six-bit packing, which would cost the name its
- * case and so its ability to be reopened on anything but FAT, stops at forty.
- * The maximum-cost version of the obvious fix still fails on an ordinary
- * album name.
- *
- * So the name is not stored. A HASH of it is, and the name itself lives in a
- * plain list on the card -- playlists.m3u -- which the core reads at boot and
- * searches for a matching hash. Length stops mattering entirely.
- *
- * A hash rather than a line number: a line number is only correct until the
- * file is edited, and the failure mode of a stale one is loading the WRONG
- * album silently. A hash survives reordering, insertion and deletion, and it
- * is computable at the moment the user picks a list -- where reading a file
- * would mean clobbering the playlist that was just loaded into pl_text.
- *
- * The twelve-character stem is still stored and still works on its own, so a
- * card with no playlists.m3u behaves exactly as before. */
-static uint32_t pl_saved_hash;
 
 static void settings_mark_dirty(void);
 static uint8_t set_flush_now;
@@ -1558,10 +1297,11 @@ static uint32_t ui_toast_end;              /* x the last toast draw reached    *
  * Select and L held plus Start), and the hardware round trip was wasted. A
  * readout with no way to fail to summon it cannot repeat that.
  *
- * OFF now that resume works. The rows and the resume_dbg latching stay in the
- * source: flipping this to 1 brings back the speed row and the resume row,
- * which between them found four separate faults here, and the 1.2x seek defect
- * is still open. Cheaper to keep than to rewrite. */
+ * OFF by default: flipping this to 1 brings back the speed row, which found
+ * several faults here, and the 1.2x seek defect is still open. Cheaper to
+ * keep than to rewrite. (The resume-diagnostic row this comment used to
+ * mention alongside it was removed with the resume feature and legacy
+ * playlist mode.) */
 /* TEMPORARY, with IO_BENCH: shows the throughput figure. Back to 0 before
  * anything ships -- no diagnostic is ever shown to users. */
 /* 0 for any build a user sees -- the standing rule is that no diagnostic ever
@@ -1575,28 +1315,6 @@ static uint32_t ui_toast_end;              /* x the last toast draw reached    *
  * so a normal build (both 0) never carries it. */
 #ifndef UI_SHOW_DECODE_PROFILE
 #define UI_SHOW_DECODE_PROFILE 0
-#endif
-/* Resume instrumentation. EXTRA_CFLAGS="-DUI_SHOW_RESUME_DIAG=1 -Os"
- *
- * The -Os is not optional: the normal build has under 1 KB of heap left and
- * will not link with another diagnostic row in it.
- *
- *   Y  resume_dbg   1 armed         2 past the end of the track
- *                   3 not applicable, or the point is under 2 s
- *                   4 not from a playlist        6 REPOSITIONED
- *                   7 idle at deadline           8 no byte rate
- *                   9 no slot_size              10 other at deadline
- *                  11 reload or stop pending at deadline
- *   N  resume_saves points published this session. The saver holds off while
- *                  a resume is pending, so 0 early on is expected.
- *   A  resume_at   the second being aimed at   S ui_sec   T pl_pos
- *
- * This row corrected me twice in one session and both times I was about to fix
- * the wrong half: Y3 A1 was the restore correctly declining a 1 s point, and
- * two small saved values looked like a broken saver that was working fine. It
- * stays. */
-#ifndef UI_SHOW_RESUME_DIAG
-#define UI_SHOW_RESUME_DIAG 0
 #endif
 /* Seek instrumentation. Build with EXTRA_CFLAGS=-DUI_SHOW_SEEK_DIAG=1.
  *
@@ -2268,6 +1986,25 @@ static void th_apply(void)
  * one's own definition line, not assumed. */
 #include "blit_probe.inc"
 
+/* B11 corner-cut LUT (fw/rc_lut.h, host-tested in sim/test_rc_lut.py): mp3_soc.v's rc_cut_lut_r
+ * resets to all-zero and nothing wrote it before this, so every hardware OP_RRECT drew with cut=0
+ * at every row -- a plain square, sharp corners, no rounding at all (owner-reported: "weird bars
+ * around radio buttons" on the METER selection list, whose ring icons are fb_round_rect_on() calls
+ * with real radii 4/6/9 -- confirmed from a real Pocket screenshot, not guessed). Cached by radius
+ * so a page that only ever draws one radius (the common case: SET_MENU_ROW_H's selected-row highlight
+ * is always radius 5) pays the 16-entry MMIO load once, not per row. */
+#include "rc_lut.h"
+static uint8_t rc_lut_cache_radius = RC_LUT_RADIUS_NONE;
+static void rc_lut_ensure(uint32_t r)
+{
+    uint8_t out[RC_LUT_N];
+    if (!rc_lut_prepare(r, &rc_lut_cache_radius, out)) return;
+    for (uint32_t i = 0; i < RC_LUT_N; i++) {
+        REG(R_RC_IDX)  = i;
+        REG(R_RC_DATA) = out[i];
+    }
+}
+
 /* Helios's display-list core (docs/HELIOS_SPEC.md section 4/9) -- inert until a real region is
  * converted to it, see fw/helios.inc's own header. Only depends on REG()/R_VBLANK, both already in
  * scope well before this point. */
@@ -2323,7 +2060,11 @@ static void fb_round_rect_on(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                              uint32_t r, uint16_t color, uint16_t bg)
 {
     rrect_probe_ensure();   /* B-162's own "lazy, on first actual need, never at boot" convention */
-    if (RRECT_READY()) { fb_rrect(x, y, w, h, r, color, bg); return; }
+    if (RRECT_READY()) {
+        if (r) rc_lut_ensure(r);   /* fb_rrect()'s own comment: r=0 never arms rrect_pending, so the LUT is never read for it -- skip the load */
+        fb_rrect(x, y, w, h, r, color, bg);
+        return;
+    }
     fb_rect(x, y, w, h, color);
     for (uint32_t i = 0; i < r; i++) {
         uint32_t dy = r - i;
@@ -2734,21 +2475,7 @@ static void ui_icon_repeat(uint32_t x, uint32_t y, uint16_t c, int one)
     }
 }
 
-/* Shuffle: two crossing paths with arrowheads, the conventional form. */
-static void ui_icon_shuffle(uint32_t x, uint32_t y, uint16_t c)
-{
-    for (uint32_t i = 0; i < UI_MODE_H; i++) {
-        uint32_t t = (i * (UI_MODE_W - 3u)) / (UI_MODE_H - 1u);
-        fb_rect(x + t,                    y + i,               1u, 1u, c);
-        fb_rect(x + (UI_MODE_W - 3u) - t, y + i,               1u, 1u, c);
-    }
-    fb_rect(x + UI_MODE_W - 3u, y,               3u, 1u, c);
-    fb_rect(x + UI_MODE_W - 3u, y + UI_MODE_H-1, 3u, 1u, c);
-    fb_rect(x + UI_MODE_W - 1u, y,               1u, 3u, c);
-    fb_rect(x + UI_MODE_W - 1u, y + UI_MODE_H-3, 1u, 3u, c);
-}
-
-/* Speaker, with 0..3 waves. The volume is a MODE like repeat and shuffle --
+/* Speaker, with 0..3 waves. The volume is a MODE like repeat --
  * it persists, it changes what you hear, and until now the only sign of it was
  * a toast that had already gone by the time you wondered why the music was
  * quiet. Same 11x9 box and same 1 px construction as its neighbours.
@@ -2857,11 +2584,9 @@ static void ui_marq_step(ui_marquee_t *m, uint16_t fg)
                   m->scale, m->scale, ui_text_w, UI_CARD_TEXT_R);
 }
 
-/* The list this track came from has no more entries and repeat is off: playback should stop, not restart the last
- * track. Covers the library queue as well as the playlist. */
+/* The library queue this track came from has no more entries and repeat is off: playback should stop, not restart the
+ * last track. */
 static int list_ended(void);
-static void pl_ui_draw(void);   /* defined with the overlay, below */
-static void pl_ui_row(uint32_t i);
 
 __attribute__((optimize("Os")))       /* one-off frame paint at a track change */
 /* EQ pill: the currently applied EQ preset (FLAT, BASS, ...). Fixed width so
@@ -2911,9 +2636,11 @@ COLD_SR static void ui_draw_chrome(void)
     /* B-080: nothing loaded at all (a fresh boot with no history, or the library overlay closed without a pick) used
      * to fall through to the filename branch below, find no track_file either, and show "UNKNOWN TRACK" -- a
      * debugging label, not something a track-less screen should say. The chrome is drawn either way (closing the
-     * library always repaints it, see pl_ui_restore), so this is the one place that has to carry the message. */
-    else if (!track_title[0] && !track_file[0] && lib_state == LIB_ST_OK && !lib_disabled)
+     * library always repaints it), so this is the one place that has to carry the message. */
+    else if (!track_title[0] && !track_file[0] && lib_state == LIB_ST_OK)
         title = "Select a track from your library";
+    else if (!track_title[0] && !track_file[0] && lib_state != LIB_ST_OK)
+        title = "Sync your library to play music";
     else if (!track_title[0]) {
         /* Last path component, extension dropped: the slot holds a full path
          * ("/Assets/tau/common/Flodown.mp3"). */
@@ -3065,9 +2792,8 @@ COLD_SR static void ui_draw_chrome(void)
      * and it never comes back.
      *
      * Every toast set around a track change was being erased: the LOADING
-     * PLAYLIST and LOADING TRACK indicators, and pl_report()'s "N TRACKS"
-     * summary too -- which is why picking from the menu showed nothing at all
-     * while the same toasts work fine from a button press. */
+     * TRACK indicator -- which is why picking from the menu showed nothing at
+     * all while the same toasts work fine from a button press. */
     ui_toast_step = 0xFFFFFFFFu;
     ui_last_prog  = 0xFFFFFFFFu;
     /* The mode row -- repeat, shuffle, the EQ name, N-of-M. Missing from this
@@ -3116,8 +2842,7 @@ COLD_SR static void ui_draw_chrome(void)
      *
      * Putting it here rather than in the main loop means EVERY repaint route
      * is covered by construction, including ones added later. */
-    if (pl_ui_open) pl_ui_draw();
-    else if (lib_ui_open) lib_ui_draw();
+    if (lib_ui_open) lib_ui_draw();
     else if (set_open) set_draw();
 
 }
@@ -3908,57 +3633,7 @@ static void ui_boot_clear(void)
  * a note left armed would keep painting dots over the player forever. */
 static void ui_boot_cancel(void) { ui_boot_msg = 0; ui_loader_on = 0; }
 
-/* What the card turned out to hold, on the row the transport occupies during
- * playback. A labelled pair rather than a bare number: "10 TRACKS" alone in the
- * middle of a screen reads as a caption for nothing, where PLAYLIST on the left
- * and the count on the right reads like the spec row on a piece of gear -- and
- * matches how the transport row is laid out a moment later.
- *
- * Counts LIVE entries, matching the N-of-M shown during playback: a number here
- * that disagreed with the one a second later would undermine both. */
-static void ui_splash_summary(uint32_t n)
-{
-    char b[24];
-    uint32_t i = 0;
-    if (n >= 100u) b[i++] = (char)('0' + n / 100u % 10u);
-    if (n >= 10u)  b[i++] = (char)('0' + n / 10u  % 10u);
-    b[i++] = (char)('0' + n % 10u);
-    const char *tail = (n == 1u) ? " TRACK" : " TRACKS";
-    for (uint32_t k = 0; tail[k] && i < sizeof(b) - 1u; k++) b[i++] = tail[k];
-    b[i] = 0;
-
-    if (ui_splash_art_active) {
-        uint32_t w = fb_text_width(b, TS_1X);
-        uint32_t x = TAU_SPLASH_STATUS_X;
-        if (w < TAU_SPLASH_STATUS_W)
-            x += (TAU_SPLASH_STATUS_W - w) / 2u;
-        fb_rect(TAU_SPLASH_STATUS_X, TAU_SPLASH_STATUS_Y,
-                TAU_SPLASH_STATUS_W, TAU_SPLASH_STATUS_H, TAU_SPLASH_BG);
-        fb_set_color(UI_DIM, TAU_SPLASH_BG);
-        fb_text_clipped(x, TAU_SPLASH_STATUS_Y, b, TS_1X, TS_1X,
-                        TAU_SPLASH_STATUS_W);
-        return;
-    }
-
-    uint16_t bg = ui_grad_at(UI_SPL_INFO_Y);
-    uint32_t w  = fb_text_width(b, TS_1X);   /* hoisted: the label clips to it */
-    fb_set_color(UI_DIM, bg);
-    /* A clipped list has to say so here too. The count alone is the one thing
-     * that cannot reveal it -- a playlist cut to 128 looks exactly like a
-     * playlist of 128. */
-    /* Name the playlist rather than saying "PLAYLIST", so a user running more
-     * than one can see which is loaded. Falls back to the generic word when
-     * APF will not say. */
-    const char *lbl = pl_truncated ? "PLAYLIST CLIPPED"
-                    : pl_name[0]   ? pl_name
-                    :                "PLAYLIST";
-    fb_text_clipped(UI_MARGIN, UI_SPL_INFO_Y, lbl,
-                    TS_1X, TS_1X, UI_INNER_W - w - 12u);
-    fb_set_color(ui_accent, bg);
-    fb_text_clipped(FB_W - UI_MARGIN - w, UI_SPL_INFO_Y, b, TS_1X, TS_1X, w);
-}
-
-static inline uint32_t dt_read(uint32_t word);   /* defined with the playlist code */
+static inline uint32_t dt_read(uint32_t word);   /* defined with the file-open code, playlist.inc */
 
 /* APF's datatable exactly as it stood before this core touched it. 1 KB, taken
  * once at boot, because by the time anyone can press a button our own 0190 has
@@ -3990,19 +3665,20 @@ static void ui_gs_line(uint32_t y, const char *s, uint16_t fg, uint32_t ts)
     fb_text_clipped(UI_MARGIN, y, s, ts, ts, UI_INNER_W);
 }
 
-/* Shown when there is nothing to play: no playlist, an empty one, or one whose
- * every entry is missing. It is the first thing a new user sees, so it is a
- * getting-started card rather than a bare error -- the three steps are the
- * whole setup, in the order they have to happen. Widths were measured against
- * font_metrics.h; the widest line is 310 px of the 360 available. */
-/* Nothing playing but a library is loaded: point at it instead of the legacy getting-started steps. */
+/* Shown when there is nothing to play: no library index has ever been built, or building one
+ * failed. It is the first thing a new user sees, so it is a getting-started card rather than a
+ * bare error -- the steps are the whole setup, in the order they have to happen. Widths were
+ * measured against font_metrics.h; the widest line is 310 px of the 360 available.
+ *
+ * Rewritten when legacy playlist mode (copy files loose onto the card, list them in a
+ * playlist.m3u, Load MP3/Load Playlist from the core menu) was removed: the media library is now
+ * the only way to play more than one file, so these steps describe building and using it instead. */
+/* Nothing playing but a library is loaded: point at it instead of the no-library getting-started steps. */
 static void ui_idle_library(void)
 {
     ui_gs_line(170u, "Library ready", ui_accent, TS_15X);
     ui_gs_line(214u, "Press the Select button to", UI_WHITE, TS_1X);
     ui_gs_line(232u, "browse and play your music.", UI_WHITE, TS_1X);
-    ui_gs_line(268u, "Menu > Settings > How it works", UI_DIM, TS_1X);
-    ui_gs_line(286u, "explains playlists and updates.", UI_DIM, TS_1X);
 }
 
 COLD_SR static void ui_idle_screen(const char *reason)     /* B-333: cold code */
@@ -4013,7 +3689,6 @@ COLD_SR static void ui_idle_screen(const char *reason)     /* B-333: cold code *
     ui_gradient();
     ui_splash_card(1u, 1u);
     if (lib_state == LIB_ST_OK) { ui_idle_library(); return; }
-    if (!reason && lib_state == LIB_ST_NONE) reason = "LEGACY PLAYLIST MODE";   /* no library file: see Menu > Settings > How it works */
 
     /* Sits between the card (ends at 136) and the heading (170), 8 px clear of
      * each. At 148 it crowded the heading and read as part of it rather than
@@ -4023,26 +3698,17 @@ COLD_SR static void ui_idle_screen(const char *reason)     /* B-333: cold code *
     ui_gs_line(170u, "Getting started",                     ui_accent, TS_15X);
 
     /* 18 px within a step, 26 between them. An even pitch throughout made the
-     * three steps read as one eight-line block -- the grouping has to be
-     * visible or the numbers are doing all the work. */
+     * steps read as one block -- the grouping has to be visible or the
+     * numbers are doing all the work. */
     /* Colour carries meaning here, so it follows one rule: prose is white,
-     * literal values and menu names are grey. That is why step 2 stays white
-     * across both its lines -- they are one sentence, and changing colour
-     * halfway through it reads as a mistake -- while the path and the two
-     * menu entries are grey. */
-    ui_gs_line(206u, "1  Copy .mp3 files to your SD card:", UI_WHITE,  TS_1X);
-    ui_gs_line(224u, "   /Assets/tau/common/",              UI_DIM,    TS_1X);
+     * literal values and menu names are grey. */
+    ui_gs_line(206u, "1  Copy your music to your SD card:",  UI_WHITE,  TS_1X);
+    ui_gs_line(224u, "   /Assets/tau/common/",               UI_DIM,    TS_1X);
 
-    ui_gs_line(250u, "2  For the best experience, list them", UI_WHITE, TS_1X);
-    ui_gs_line(268u, "   in a playlist.m3u in that folder.",  UI_WHITE, TS_1X);
+    ui_gs_line(250u, "2  Run the sync tool (see the README)", UI_WHITE, TS_1X);
+    ui_gs_line(268u, "   to build tau-library.tdb.",          UI_WHITE, TS_1X);
 
-    /* The run of spaces is not eyeballed: the font is proportional, so the
-     * second column only lines up because the padding was computed from
-     * font_adv[] to put both at x = MARGIN + 134. Retyping either label
-     * without recomputing will break the alignment. */
-    ui_gs_line(294u, "3  Press the Analogue button:",       UI_WHITE,  TS_1X);
-    ui_gs_line(312u, "   Load MP3          one track",      UI_DIM,    TS_1X);
-    ui_gs_line(330u, "   Load Playlist   your whole .m3u",  UI_DIM,    TS_1X);
+    ui_gs_line(294u, "3  Press Select to browse and play.",  UI_WHITE,  TS_1X);
 }
 
 /* The failure screen, with the two explanatory lines supplied by the caller.
@@ -4088,7 +3754,7 @@ static void ui_failed_msg(const char *l1, const char *l2)
     tk_poll_at = cycles() + CLK_HZ;
     for (;;) {
         poll_input();
-        if (reload_pending || pl_check_req) return;     /* a file OR a playlist was picked: the main loop handles it */
+        if (reload_pending) return;     /* a file was picked: the main loop handles it */
         if ((int32_t)(cycles() - tk_poll_at) >= 0) {
             tk_poll_at = cycles() + CLK_HZ;
             if (slot_changed()) reload_pending = 1u;
@@ -4209,31 +3875,17 @@ static void ui_rate_unsupported(void)
  * The delta-guards below stay -- not for cost any more, but because redrawing
  * an unchanged value would make the meter and clock flicker as they are
  * rewritten mid-scanout (the framebuffer is single-buffered). */
-/* ---- playlist overlay -----------------------------------------------------
+/* ---- shared full-screen overlay chrome ------------------------------------
  *
- * Select TAPS open a scrollable list of the playlist; Select HELD keeps its old
- * job of toggling the art panel. D-pad moves the selection, A plays it.
- *
- * Rows are FILENAMES, not tags. pl_text holds the .m3u text and that is all the
- * core has: a tag lives inside its file, so titling 256 rows would mean 256
- * opens. The currently playing row is the one exception -- its tag is already
- * in track_title -- but showing it differently from its neighbours reads as a
- * bug, so it gets the same treatment and a marker instead.
- *
- * Order follows pl_order, so with shuffle on the list is the QUEUE: scrolling
- * down previews what is actually coming.
+ * (The legacy .m3u playlist overlay that used to live here -- a scrollable
+ * list of a playlist's filenames -- was removed along with legacy playlist
+ * mode. The library has its own equivalent browse overlay, fw/library.inc.)
  */
-/* Full-screen overlay geometry (playlist and settings share it). The panel is inset 8 px
- * from every edge over a UI_BG frame; the header sits at y 24, the list starts at y 52 and
- * the hint line lives in the bottom PL_UI_PAD_B. 12 rows of 22 px fit above it. The
- * snapshot fixtures and tools/overlay_preview.py read these names. */
+/* Full-screen overlay geometry (settings, library, Info/Check/Stress Status/Blit Test etc. all
+ * share it). The panel is inset 8 px from every edge over a UI_BG frame; the header sits at y 24,
+ * the list starts at y 52 and the hint line lives in the bottom PL_UI_PAD_B. 12 rows of 22 px fit
+ * above it. The snapshot fixtures and tools/overlay_preview.py read these names. */
 #define PL_UI_ROWS   12u
-/* B-073: the playlist overlay's OWN row geometry, distinct from PL_UI_ROW_H/PL_UI_ROWS above (which stay 22 px/12 rows
- * for the other pages sharing this frame: Info, Check, Stress Status, Help). Matches the settings menu and library
- * rows (SET_MENU_ROW_H/LIB_ROW_H, 36 px) so a plain playlist looks like everything else on the player, not like an
- * older, denser screen; filenames stay single-line text (a tag lives inside its file, not in the .m3u). */
-#define PLIST_ROW_H  36u
-#define PLIST_ROWS   7u
 #define PL_UI_X      8u
 #define PL_UI_W      (FB_W - 2u * PL_UI_X)
 #define PL_UI_Y      8u
@@ -4242,41 +3894,6 @@ static void ui_rate_unsupported(void)
 #define PL_UI_LIST_Y 52u
 #define PL_UI_TEXT_X (PL_UI_X + 16u)
 #define PL_UI_PAD_B  36u
-
-static uint16_t pl_ui_sel;         /* selection, an index into pl_order      */
-static uint16_t pl_ui_top;         /* first visible row                      */
-
-/* Last path component with the extension trimmed -- the same shape the title
- * row falls back to, so a file reads the same in both places. */
-COLD_FN2 static void pl_ui_label(uint16_t pos, char *out, uint32_t cap)
-{
-    out[0] = 0;
-    if (pos >= pl_count) return;
-    const char *nm = &pl_text[pl_off[pl_order[pos]]];
-
-    uint32_t start = 0;
-    for (uint32_t i = 0; nm[i]; i++)
-        if (nm[i] == '/' || nm[i] == 0x5Cu) start = i + 1u;
-
-    uint32_t n = 0, dot = 0;
-    for (uint32_t i = start; nm[i] && n < cap - 1u; i++) {
-        if (nm[i] == '.') dot = n;
-        out[n++] = nm[i];
-    }
-    if (dot && n - dot <= 5u) n = dot;      /* ".mp3"/".flac", not "Blur - 13" */
-    out[n] = 0;
-}
-
-/* Keeps the selection on screen after any move. */
-COLD_FN2 static void pl_ui_follow(void)
-{
-    if (pl_ui_sel < pl_ui_top) pl_ui_top = pl_ui_sel;
-    else if (pl_ui_sel >= pl_ui_top + PLIST_ROWS)
-        pl_ui_top = (uint16_t)(pl_ui_sel - PLIST_ROWS + 1u);
-    if (pl_count > PLIST_ROWS && pl_ui_top > pl_count - PLIST_ROWS)
-        pl_ui_top = (uint16_t)(pl_count - PLIST_ROWS);
-    if (pl_count <= PLIST_ROWS) pl_ui_top = 0;
-}
 
 /* Frame, header and hint of a full-screen overlay -- redesigned to the owner's Figma reference
  * ("Menu Layout", node 196:1840, read for real via get_design_context once Figma access was fixed):
@@ -4323,114 +3940,6 @@ static void ov_frame(const char *title, const char *right, const char *hint)
         fb_text_clipped(FB_W - 16u - w, 7u, right, TS_1X, TS_1X, w + 2u);
     }
     ov_hint_repaint(hint);
-}
-
-/* One row. Split out so the marquee can repaint just the selected line
- * without redrawing the whole list four times a second. */
-COLD_FN2 static void pl_ui_row_body(uint32_t i)
-{
-    uint32_t y   = PL_UI_LIST_Y + i * PLIST_ROW_H;
-    uint16_t pos = (uint16_t)(pl_ui_top + i);
-
-    /* The scroll bar sits at the right edge of the panel (drawn once per full redraw). A row repaint that
-     * spans the whole panel width wiped a gap in it every time the marquee stepped, which read as the bar
-     * glitching; rows stop short of it when it is there. */
-    uint32_t rw = PL_UI_W - 8u - (pl_count > PLIST_ROWS ? 12u : 0u);
-    if (pos >= pl_count) {                       /* short list: clear the row */
-        fb_rect(PL_UI_X + 4u, y - 2u, rw, PLIST_ROW_H, OV_BODY);
-        return;
-    }
-
-    /* Selected row is a filled bar, drawn first so the text paints onto it --
-     * the engine writes a glyph's background with every character.
-     *
-     * Rounded, because the panel it sits in is: a square highlight inside an
-     * 8 px rounded panel reads as a different piece of furniture. Corners cut
-     * to UI_PANEL rather than the screen gradient, which is what
-     * fb_round_rect_on() exists for. Unselected rows stay square -- they are
-     * the panel colour, so there is no shape to see either way, and drawing
-     * the corner cuts on every row would be work for nothing. */
-    uint16_t bg = (pos == pl_ui_sel) ? ui_accent : OV_BODY;
-    if (pos == pl_ui_sel)
-        fb_round_rect_on(PL_UI_X + 4u, y - 2u, rw, PLIST_ROW_H,
-                         5u, bg, OV_BODY);
-    else
-        fb_rect(PL_UI_X + 4u, y - 2u, rw, PLIST_ROW_H, bg);
-
-    char nm[64];
-    pl_ui_label(pos, nm, sizeof(nm));
-
-    /* The selected row scrolls when it does not fit. Steps by whole characters
-     * because the engine cannot clip a glyph partly off the left edge -- the
-     * same constraint the title marquee works under. */
-    const char *txt = nm;
-    if (pos == pl_ui_sel && pl_ui_mq_off) {
-        uint32_t len = 0;
-        while (nm[len]) len++;
-        txt = nm + (pl_ui_mq_off < len ? pl_ui_mq_off : 0u);
-    }
-
-    /* '>' rather than an arrow glyph: the font is ASCII 0x20..0x7E. */
-    uint32_t ty = y + (PLIST_ROW_H - 2u - 16u) / 2u;    /* vertically centred, as the settings and library rows are */
-    fb_set_color(pos == pl_ui_sel ? UI_PANEL
-               : pos == pl_pos    ? UI_WHITE : UI_DIM, bg);
-    if (pos == pl_pos)
-        fb_text_clipped(PL_UI_X + 8u, ty, ">", TS_1X, TS_1X, 12u);
-    fb_text_boxed(PL_UI_TEXT_X + 8u, ty, txt, TS_1X, TS_1X,
-                  PL_UI_W - 40u, PL_UI_X + PL_UI_W - 16u);
-}
-
-COLD_FN2 static void pl_ui_draw_body(void)
-{
-    /* The list can change under an open overlay -- a reload, or a pick the
-     * core noticed late. Clamp rather than trusting the stored indices. */
-    if (!pl_count) { pl_ui_open = 0u; pl_ui_restore = 1u; return; }
-    if (pl_ui_sel >= pl_count) pl_ui_sel = (uint16_t)(pl_count - 1u);
-    pl_ui_follow();
-    pl_ui_drawn_pos = pl_pos;
-
-    /* Header: what this is, and where you are in the list -- the thing a long list hides. */
-    char pos[24], *q = pos;
-    q = ui_dec(q, (uint32_t)pl_ui_sel + 1u);
-    *q++ = ' '; *q++ = '/'; *q++ = ' ';
-    q = ui_dec(q, pl_count);
-    *q = 0;
-    ov_frame("PLAYLIST", pos, "A PLAY   B BACK");
-
-    /* Scroll position, for lists too long to hold in your head. The header
-     * counter says WHERE you are; this says how far that is through the list,
-     * which at 240 entries is the question actually being asked. Two rects,
-     * drawn only when the list overflows the window. */
-    if (pl_count > PLIST_ROWS) {
-        uint32_t track_x = PL_UI_X + PL_UI_W - 11u;
-        uint32_t track_y = PL_UI_LIST_Y - 2u;
-        uint32_t track_h = PLIST_ROWS * PLIST_ROW_H;
-        fb_rect(track_x, track_y, 3u, track_h, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
-
-        uint32_t span = pl_count - PLIST_ROWS;          /* max value of _top */
-        uint32_t th   = track_h * PLIST_ROWS / pl_count;
-        if (th < 8u) th = 8u;                           /* stays grabbable   */
-        uint32_t ty   = track_y + (track_h - th) * pl_ui_top / span;
-        fb_rect(track_x, ty, 3u, th, ui_accent);
-    }
-
-    for (uint32_t i = 0; i < PLIST_ROWS; i++) pl_ui_row(i);
-}
-
-
-/* Entry points: the overlay paints through the ov_draw gate (see FB_HELD). */
-COLD_FN2 static void pl_ui_row(uint32_t i)
-{
-    uint8_t o = ov_draw; ov_draw = 1u;
-    pl_ui_row_body(i);
-    ov_draw = o;
-}
-
-COLD_FN2 static void pl_ui_draw(void)
-{
-    uint8_t o = ov_draw; ov_draw = 1u;
-    pl_ui_draw_body();
-    ov_draw = o;
 }
 
 #include "chladni.inc"
@@ -5472,28 +4981,25 @@ ui_tail:
             ui_icon_repeat(mx, my,
                            rep_mode == REP_OFF ? UI_FAINT : ui_accent,
                            rep_mode == REP_ONE);
-            ui_icon_shuffle(mx + UI_MODE_W + 10u, my,
-                            shuffle_on ? ui_accent : UI_FAINT);
 
             /* The preset NAME, not the word "EQ" -- it is the same amount of
              * screen and says which one is on rather than merely that the
              * feature exists. Persistent, so a user who walks away and comes
              * back can see the state without pressing anything. Dimmed on FLAT,
-             * the same "off but still visible" treatment the repeat and shuffle
-             * icons use. */
+             * the same "off but still visible" treatment the repeat icon uses. */
             /* Volume, as a level rather than a number. Faint at mute, the
-             * same "off but still visible" treatment repeat and shuffle use
-             * when they are off. */
+             * same "off but still visible" treatment repeat uses when it is
+             * off. */
             {
                 uint32_t vl = (volume == 0u)   ? 0u
                             : (volume <= 33u)  ? 1u
                             : (volume <= 66u)  ? 2u : 3u;
-                ui_icon_speaker(mx + (UI_MODE_W + 10u) * 2u, my, vl,
+                ui_icon_speaker(mx + (UI_MODE_W + 10u) * 1u, my, vl,
                                 vl ? ui_accent : UI_FAINT);
             }
 
             fb_set_color(eq_idx ? ui_accent : UI_FAINT, tbg);
-            fb_text_clipped(mx + (UI_MODE_W + 10u) * 3u, my - 2u,
+            fb_text_clipped(mx + (UI_MODE_W + 10u) * 2u, my - 2u,
                             eq_name[eq_idx], TS_1X, TS_1X, 110u);
 
             /* "4 / 12", right-aligned so the numbers do not shuffle sideways as
@@ -5504,8 +5010,6 @@ ui_tail:
              * the position could exceed the total. */
             uint32_t cnt_x = 0, cnt_y = 0;
             if (lib_src && lib_qn) { cnt_x = (uint32_t)lib_qpos + 1u; cnt_y = lib_qn; }      /* the library queue */
-            else
-            if (pl_count) { cnt_x = pl_live_ordinal(pl_pos); cnt_y = pl_live_count(); }
             if (cnt_x) {
                 char pos[16]; char *q = pos;
                 q = ui_dec(q, cnt_x);
@@ -5641,9 +5145,8 @@ ui_tail:
      * is why a toast only ever showed as a hint. Anything added here must stay
      * below y330.
      *
-     * Only the open question is carried: N is playlist notifications the RTL
-     * delivered, L is times pl_load() actually ran. The seek and resume
-     * investigations are closed, so their fields are gone. */
+     * The playlist-notification (N/L) and seek/resume fields are all gone: those
+     * investigations are closed, and legacy playlist mode itself is removed. */
     if (ui_sec != ui_last_spd) {
         ui_last_spd = ui_sec;
         /* Latch and reset the attribution for the second just finished. */
@@ -5757,23 +5260,6 @@ ui_tail:
         fb_rect(UI_MARGIN, py, UI_INNER_W, FB_CELL(TS_1X), pbg);
         fb_set_color(UI_RED, pbg);
         fb_text_clipped(UI_MARGIN, py, b, TS_1X, TS_1X, UI_INNER_W);
-    }
-#endif
-
-#if UI_SHOW_RESUME_DIAG
-    {
-        char b[40], *q = b;
-        *q++ = 'Y'; q = ui_dec(q, resume_dbg);
-        *q++ = ' '; *q++ = 'N'; q = ui_dec(q, resume_saves);
-        *q++ = ' '; *q++ = 'A'; q = ui_dec(q, resume_at);
-        *q++ = ' '; *q++ = 'S'; q = ui_dec(q, ui_sec);
-        *q++ = ' '; *q++ = 'T'; q = ui_dec(q, pl_pos);
-        *q = 0;
-        uint16_t g = ui_grad_at((FB_H - 24u));
-        fb_rect(UI_MARGIN, FB_H - 24u, UI_INNER_W, FB_CELL(TS_1X), g);
-        fb_set_color(UI_RED, g);
-        fb_text_clipped(UI_MARGIN, FB_H - 24u, b, TS_1X, TS_1X, UI_INNER_W);
-
     }
 #endif
 
@@ -6077,8 +5563,6 @@ HOT_O2 static void meters_feed(const short *pcm, int n, int stereo)
  * milliseconds, so deferring it that long is not perceptible.
  */
 static uint32_t skip_req;                /* +1 next, -1 previous (as unsigned) */
-static uint32_t pl_reload_pending;       /* user picked a different .m3u       */
-static uint32_t pl_dump_req;             /* Select+B: show the 0190 struct     */
 static uint32_t dt_dump_req;             /* Select+A: show the boot datatable  */
 static uint32_t ui_dump_mode;            /* dump screen is up; drawing paused  */
 
@@ -6114,56 +5598,8 @@ static void ui_blank_wake(void)
     /* ui_draw_chrome just painted the PLAYER. If the overlay was up when the
      * screen blanked it is still logically open and still eating the d-pad,
      * so without this the user would be left driving an invisible list. */
-    if (pl_ui_open) pl_ui_dirty = 1u;
     if (lib_ui_open) lib_ui_dirty = 1u;
     if (set_open) set_dirty = 1u;
-}
-
-/* One call per main-loop pass. Re-arms from NOW rather than advancing by a
- * fixed step, so a long stall (a track load) cannot leave a backlog of ticks to
- * catch up on. Drift does not matter for a screen blanker. */
-/* Record where we are, once a second. Two MMIO writes and no SD access, so the
- * cost is nothing -- the settings register file is read back by APF each frame
- * and APF does the storing, into its own file.
- *
- * Only while PLAYING. Saving while paused or idle would overwrite a good point
- * with 0:00 on the way out of a track, which is precisely the moment the value
- * matters. The FILE index is saved, not pl_pos: pl_pos indexes the play order,
- * which a reshuffle rewrites, and the same song would then come back as a
- * different entry. */
-static void resume_pump(void)
-{
-    static uint32_t last_sec = 0xFFFFFFFFu;
-    /* Nothing may mark the settings dirty until settings_load() has adopted
-     * APF's stored values. settings_store() publishes ALL eight words, so a
-     * dirty flag raised first would write firmware DEFAULTS over the user's
-     * saved volume, meter and the rest -- which is exactly what reset two of
-     * them on the last build. */
-    if (!settings_adopted) return;
-    /* A pending resume must not be overwritten by the position it is about to
-     * replace. Without this the seconds saved while waiting -- 0, 1, 2 -- land
-     * on top of the value the seek is holding, and the point destroys itself
-     * in the gap between arming and firing. (Y was observed incrementing on
-     * hardware, which is this saver doing exactly that.) */
-    if (resume_seek_req) return;
-    /* PLAYLIST PLAYBACK ONLY. A file picked with Load MP3 does not record a
-     * position, by decision: making resume work for arbitrary picked files
-     * needed a cross-boot file identity that does not exist here, and every
-     * attempt at one produced a different bug.
-     *
-     * It also buys something. A standalone track can no longer overwrite the
-     * saved point, so playing a song in the middle of an audiobook does not
-     * cost you your place in it. An audiobook that wants resume goes in a
-     * playlist -- a one-line .m3u is enough. */
-    if (!track_from_pl) return;
-    if (!resume_on || idle || (paused & 1u) || !track_file[0]) return;
-    if (ui_sec == last_sec) return;
-    last_sec = ui_sec;
-
-    uint16_t f = (track_from_pl && pl_count && pl_pos < pl_count)
-               ? pl_order[pl_pos] : 0u;
-    uint32_t w = RS_PACK(f, ui_sec, track_from_pl);
-    if (w != resume_word) { resume_word = w; resume_saves++; settings_mark_dirty(); }
 }
 
 static void ui_blank_pump(void)
@@ -6191,7 +5627,6 @@ static void poll_input(void)
     static uint8_t  sel_used;            /* Select was used as a modifier      */
     static uint32_t sel_t0;              /* when Select went down              */
     static uint8_t  sel_held;            /* the hold action already ran        */
-    static uint32_t pl_rep_at;           /* next overlay scroll repeat         */
 #if TAU_DIAGNOSTIC
     stress_tick();
 #endif
@@ -6231,68 +5666,6 @@ static void poll_input(void)
         keys &= KEY_SELECT;
     }
     if (lib_ui_open) lib_ui_input(&edge, &fall, &keys);
-    if (pl_ui_open && !pl_count) {      /* list emptied underneath it */
-        pl_ui_open = 0u; pl_ui_restore = 1u;
-    }
-    if (pl_ui_open) {
-        if (edge & KEY_UP) {
-            pl_ui_sel = pl_ui_sel ? (uint16_t)(pl_ui_sel - 1u)
-                                  : (uint16_t)(pl_count - 1u);
-            pl_ui_follow(); pl_ui_dirty = 1u;
-        }
-        if (edge & KEY_DOWN) {
-            pl_ui_sel = (uint16_t)((pl_ui_sel + 1u) % pl_count);
-            pl_ui_follow(); pl_ui_dirty = 1u;
-        }
-        /* Auto-repeat while held. A 256-entry list is unusable at one row per
-         * press, and the d-pad has no other job here. First step on the edge,
-         * then a hold delay, then steady -- the same shape as the seek. */
-        if (edge & (KEY_UP | KEY_DOWN))
-            pl_rep_at = cycles() + CLK_HZ / 1000u * PL_HOLD_MS;
-        if ((keys & (KEY_UP | KEY_DOWN)) &&
-            (int32_t)(cycles() - pl_rep_at) >= 0) {
-            pl_rep_at = cycles() + CLK_HZ / 16u;          /* ~16 rows a second */
-            if (keys & KEY_UP)
-                pl_ui_sel = pl_ui_sel ? (uint16_t)(pl_ui_sel - 1u)
-                                      : (uint16_t)(pl_count - 1u);
-            else
-                pl_ui_sel = (uint16_t)((pl_ui_sel + 1u) % pl_count);
-            pl_ui_follow(); pl_ui_dirty = 1u;
-        }
-
-        /* Left and Right on the D-PAD page by a screenful -- more intuitive
-         * than the shoulder buttons, and they have no other job while the
-         * overlay is up: everything except Select is masked off at the end of
-         * this block, so the seek scrub never sees them. 240 entries is 27
-         * pages against 240 steps.
-         *
-         * This is the second time it has been written. The first was undone by
-         * `git checkout 1c1d55a -- fw/player.c` while reverting an unrelated
-         * seek change, and went unnoticed because the changelog already
-         * described the intended behaviour rather than the shipped one. */
-        /* B-072: Left and Right are Back and Forward, like the menus (Left = B, Right = A). Paging moved to the shoulder buttons: L1
-         * a screenful up, R1 a screenful down. (Both d-pad keys used to page, and on a short list each jumped to an end.) */
-        if (edge & KEY_L1) {
-            pl_ui_sel = (pl_ui_sel > PLIST_ROWS) ? (uint16_t)(pl_ui_sel - PLIST_ROWS) : 0u;
-            pl_ui_follow(); pl_ui_dirty = 1u;
-        }
-        if (edge & KEY_R1) {
-            uint32_t n = (uint32_t)pl_ui_sel + PLIST_ROWS;
-            pl_ui_sel = (n >= pl_count) ? (uint16_t)(pl_count - 1u) : (uint16_t)n;
-            pl_ui_follow(); pl_ui_dirty = 1u;
-        }
-        if (edge & KEY_RIGHT) edge |= KEY_A;
-        if (edge & KEY_LEFT)  edge |= KEY_B;
-        /* Y snaps back to what is playing. Scrolling a long list loses the one
-         * row you can always name, and hunting for it defeats the point. */
-        if (edge & KEY_Y) { pl_ui_sel = pl_pos; pl_ui_follow(); pl_ui_dirty = 1u; }
-
-        if (edge & KEY_A) { pl_ui_play_req = 1u; pl_ui_open = 0u; pl_ui_restore = 1u; }
-        if (edge & (KEY_B | KEY_START)) { pl_ui_open = 0u; pl_ui_restore = 1u; }   /* B-145: Start closes too, matching Settings/Library */
-        edge &= KEY_SELECT;
-        fall &= KEY_SELECT;
-        keys &= KEY_SELECT;
-    }
 
     /* A plays and pauses. Start only ever STOPS -- pressing it again does
      * nothing, which is what separates it from pause: stop is a state you
@@ -6427,12 +5800,10 @@ static void poll_input(void)
 
             if (fall & kmask[i]) {
                 if (!lr_fired[i]) {               /* a tap: change track */
-                    /* B-073: with a library loaded, skip_req must fire off the library queue (lib_qn), not the legacy
-                     * playlist count -- pl_load() is never called in that mode, so pl_count stayed 0 forever and every
-                     * tap read as "no playlist" although a library track was playing. */
-                    uint32_t has = lib_src ? (lib_qn > 0u) : (pl_count > 0u);
-                    if (has) skip_req = i ? 1u : (uint32_t)-1;
-                    else     ui_toast_msg("NO PLAYLIST");
+                    /* skip_req fires off the library queue (lib_qn) -- the only queue there is
+                     * now that legacy playlist mode is gone. */
+                    if (lib_src && lib_qn) skip_req = i ? 1u : (uint32_t)-1;
+                    else     ui_toast_msg("NO LIBRARY QUEUE");
                 }
                 lr_fired[i] = 0;
             }
@@ -6484,19 +5855,6 @@ static void poll_input(void)
             ui_mode_dirty = 1u;
             settings_mark_dirty();
         }
-        if (edge & KEY_R1) {
-            sel_used   = 1;
-            shuffle_on = (uint8_t)!shuffle_on;
-            if (shuffle_on) pl_rng = cycles() | 1u;
-            if (pl_count) {
-                uint16_t cur = pl_order[pl_pos];
-                pl_reorder();
-                pl_resync(cur);          /* keep playing what is playing */
-            }
-            ui_toast_msg(shuffle_on ? "SHUFFLE ON" : "SHUFFLE OFF");
-            ui_mode_dirty = 1u;
-            settings_mark_dirty();
-        }
     } else {
         /* Apply the colour HERE, not in ui_draw_dynamic(). Deferring it meant a
          * track change could run load_track() -> ui_draw_chrome() first and
@@ -6518,22 +5876,14 @@ static void poll_input(void)
                              settings_mark_dirty(); }
     }
 
-    /* A Select that was neither a modifier nor a hold is a TAP: the playlist.
-     * Opening lands the cursor on what is playing, which is the row a user
-     * wants nine times in ten. */
+    /* A Select that was neither a modifier nor a hold is a TAP: the library.
+     * Opening lands wherever the browser was left (lib_ui_enter()'s own
+     * browse-position memory). */
     if ((fall & KEY_SELECT) && !sel_used && !sel_held) {
         if (set_open) set_close();
-        if (pl_ui_open) { pl_ui_open = 0u; pl_ui_restore = 1u; }
-        else if (lib_ui_open) lib_ui_close();
+        if (lib_ui_open) lib_ui_close();
         else if (lib_state == LIB_ST_OK) lib_ui_enter();
-        else if (pl_count) {
-            pl_ui_open = 1u;
-            pl_ui_sel  = pl_pos;
-            pl_ui_follow();
-            pl_ui_dirty = 1u;
-        } else {
-            ui_toast_msg("NO PLAYLIST LOADED");
-        }
+        else ui_toast_msg("NO LIBRARY LOADED");
     }
 
     /* Pause while the OS menu ("Load MP3" etc) is open, without clobbering the
@@ -6549,28 +5899,14 @@ static void poll_input(void)
         if (!menu_was) { set_flush_now = 1u; menu_was = 1u; }
         paused |= 2u;
     } else {
-        /* CLOSING edge: the moment a Load Playlist pick has just been made. */
-        if (menu_was) { pl_check_req = 1u; menu_was = 0u; }
+        menu_was = 0u;
         paused &= ~2u;
     }
 
     /* Only SET the flag here. This runs from inside the sample-push wait,
      * which is where the CPU spends most of its time when keeping up, so a
      * reload is noticed immediately instead of after the current frame. */
-    /* An MP3-slot notification also re-checks the PLAYLIST slot. The RTL
-     * decides which slot an 008A belongs to by comparing a slot id that
-     * crosses clock domains beside the toggle carrying the event, so a
-     * mis-attributed update would be delivered as the wrong slot's and lost. */
-    if (REG(R_RELOAD) & RL_PENDING) { reload_pending = 1u; pl_check_req = 1u; }
-    {
-        uint32_t rl = REG(R_RELOAD);
-        /* Count the EDGE. The bit is sticky until acked and poll_input runs
-         * every loop iteration, so counting the level would tick thousands of
-         * times per pick and say nothing. */
-        if ((rl & RL_PL_RELOAD) && !pl_reload_pending) pl_notify_n++;
-        if (rl & RL_PL_RELOAD) pl_reload_pending = 1u;
-        pl_reload_seen |= rl;              /* sticky: every bit ever observed */
-    }
+    if (REG(R_RELOAD) & RL_PENDING) reload_pending = 1u;
 }
 
 /* Drops every sample queued in the hardware FIFO. Required on any
@@ -6650,9 +5986,9 @@ static int target_read_slot(uint32_t slot, uint32_t off, uint32_t dst_off, uint3
 {
     target_read_start_slot(slot, off, dst_off, len);
     /* The boot indicator is animated from HERE -- this spin is where the time
-     * actually goes during a playlist read. ui_boot_tick() is a single compare
-     * and return unless a note is armed, which it only is around pl_load(), so
-     * every other caller of this function is unaffected. */
+     * actually goes during a slow read. ui_boot_tick() is a single compare
+     * and return unless a note is armed, so every other caller of this
+     * function is unaffected. */
     while (!target_read_poll()) { ui_boot_tick(); ui_wave_anim_tick(); }
     rd_pending = 0;
     return rd_ok;
@@ -7018,8 +6354,7 @@ static void ui_draw_dynamic(void)
 
 static int list_ended(void)
 {
-    if (lib_src) return rep_mode == REP_OFF && (uint32_t)lib_qpos + 1u >= lib_qn;
-    return pl_count && rep_mode == REP_OFF && pl_pos + 1u >= pl_count;
+    return lib_src && rep_mode == REP_OFF && (uint32_t)lib_qpos + 1u >= lib_qn;
 }
 
 /* Slide unconsumed bytes down and pull in ONE chunk. Compaction keeps Helix's
@@ -8448,12 +7783,6 @@ COLD_SR static int load_track(void)
      * per FLAC frame, 9.6 Hz, scrolling the bars at 4.8. */
     fl_ui_next = cycles();
     tk_poll_at = cycles() + CLK_HZ * 2u;
-    /* pl_poll_at had the same fault, and it matters more than the meters: it
-     * is only ever assigned INSIDE the `if` that tests it, so from boot it sat
-     * at 0 and the playlist identity poll -- the recovery for a pick the core
-     * misses -- was dead for up to 35.8 seconds. That is exactly the window in
-     * which someone is choosing playlists. */
-    pl_poll_at = cycles() + CLK_HZ * 3u;
     /* `stopped` is sticky and was cleared in exactly ONE place -- the A handler,
      * on un-pause. A new track starts PLAYING, so leaving it set meant the
      * first A press paused while the transport still read STOPPED, and it took
@@ -8927,7 +8256,7 @@ int main(void)
      * for both the 0184 corruption and the nonvolatile boot hang.
      *
      * So read it before anything of ours touches it. MUST run before
-     * settings_load() and pl_load(): the first 0190 overwrites words 0..63.
+     * settings_load(): the first 0190 overwrites words 0..63.
      *
      * SNAPSHOT here, VIEW later. Gating this on a held button did not work:
      * it runs microseconds after the CPU leaves reset, before the Pocket has
@@ -8948,18 +8277,11 @@ int main(void)
      * first boot would show a saved-colour UI on the untinted ramp. */
     ui_grad_set(ui_accent);
 
-    /* Something deliberate on screen BEFORE the slow work -- reading the
-     * playlist, opening a track, decoding cover art. Previously the first
+    /* Something deliberate on screen BEFORE the slow work -- loading the
+     * library, opening a track, decoding cover art. Previously the first
      * paint came after all of that. */
     ui_splash_anim();
 
-    /* Before the track, deliberately: reading the playlist slot makes APF drop
-     * its fragment cache for the MP3 slot, so doing it once here costs nothing
-     * while doing it mid-stream would make every refill re-walk the cluster
-     * chain. No playlist on the card simply leaves pl_count at 0. */
-    /* Armed only around this call, so the indicator means "reading the .m3u"
-     * and nothing else -- the track open and artwork decode that follow are a
-     * separate wait and deliberately do not claim this label. */
     cold_boot_load();                 /* first: the cold image holds data the menus need */
     /* B-162: blit_probe() is NOT called here at boot any more, for TAU_BLIT_PROBE or
      * TAU_METER_THUMBS -- it hung boot on real hardware (TAU_0_5_0_A_6, first time this function
@@ -8977,20 +8299,11 @@ int main(void)
 #else
     th_assets_load();
 #endif
-    (void)pl_sdram_ready();           /* library mode never reaches pl_load(), which used to be the only place the window was proven */
+    /* The SDRAM CPU window still needs proving at boot even though nothing here reads a
+     * playlist any more: fw/suite.inc's Check (CT_SDW/CT_SDC) and Blit Test's crumb trail both
+     * rely on this same proof having already run. */
+    (void)pl_sdram_ready();
     ui_boot_clear();
-    ui_boot_note("LOADING PLAYLIST");
-    if (lib_state != LIB_ST_OK)      /* with a library the core-menu playlist is not used (Menu > Settings > How it works) */
-#if TAU_G4 >= 2
-    if (COLD_READY()) pl_load();          /* cold code: without it no playlist (single files still play) */
-#else
-    pl_load();
-#endif
-    ui_boot_clear();
-    /* Only when there is something to report. A "0 TRACKS" line would be
-     * answered a moment later by the idle screen saying the same thing at
-     * length, and saying it twice in two places reads as a fault. */
-    if (pl_count) ui_splash_summary(pl_live_count());
     /* Land it HERE. Running on through load_track() was tried and looked wrong.
      * (Historical note, now-playing UI pass 1: this was originally because
      * ART_Y sat inside the meter band and the art panel painted over the bars
@@ -9000,105 +8313,27 @@ int main(void)
     ui_wave_anim_stop();
 
     /* Try whatever is already in the slot -- a file picked from the Pocket's
-     * browser, or one left there by a previous session. If that comes to
-     * nothing and a playlist exists, start it; the common case is then launch
-     * straight into music with no interaction at all. */
-    /* The same indicator the .m3u read gets, for the same reason. Opening a
-     * track blocks on the head read, the prefill and the artwork decode, and
-     * with nothing on this row the splash just sits there looking hung until
-     * the player appears -- which is precisely how it was reported.
+     * browser, or one left there by a previous session -- and separately
+     * restore the library's own last position. */
+    /* The same indicator a boot-time load always gets: opening a track blocks
+     * on the head read, the prefill and the artwork decode, and with nothing
+     * on this row the splash just sits there looking hung until the player
+     * appears -- which is precisely how it was reported.
      *
      * The dots cost nothing to animate: ui_boot_tick() is driven from inside
      * target_read_slot()'s spin, and it returns immediately unless a note is
-     * armed, so arming one here is the whole change. Cleared before anything
-     * else paints, since PLAYLIST / N TRACKS lands on this same row. */
-    /* Say which of the two is happening. A resume takes the same visible
-     * moment as an ordinary load, and "RESUMING" is the only clue the user
-     * gets that the position was remembered before the player appears. */
-    ui_boot_note((resume_on && resume_word && RS_SECS(resume_word) > 2u)
-                 ? "RESUMING TRACK" : "LOADING TRACK");
-    /* A saved playlist point goes STRAIGHT to the playlist, before the slot is
-     * consulted at all.
-     *
-     * The MP3 slot still holds whatever played last -- 0192 leaves it there --
-     * so trying the slot first meant from_slot almost always won and the
-     * playlist branch never ran. The seek then had to be applied to whatever
-     * the slot happened to contain, which is how a standalone mp3 ended up
-     * being repositioned to a playlist track's timestamp. Choosing the source
-     * first makes the position unambiguous: it belongs to the track this
-     * branch just started. */
-    int from_slot = 0, from_list = 0, from_lib = 0;
-    if (resume_on && resume_word && RS_PL(resume_word) && pl_count
-        && RS_SECS(resume_word) > 2u) {
-        uint16_t f = RS_TRACK(resume_word);
-        if (f < pl_count) {
-            pl_resync(f);
-            from_list = pl_play_at(pl_pos);
-        }
-    }
+     * armed, so arming one here is the whole change. */
+    ui_boot_note("LOADING TRACK");
+    int from_slot = 0, from_lib = 0;
     /* Library: open what the user was last playing (or the first track) but do not start it. */
     if (lib_state == LIB_ST_OK) { from_lib = lib_boot_restore();
         lib_boot_ok = (uint8_t)from_lib;   /* B-080: shown on Info so a release-vs-diagnostic mismatch has evidence, not a guess */
     }
     if (lib_state != LIB_ST_OK)      /* a library is browsed from the Select button; no auto-start from the file slot */
-    if (!from_list) from_slot = SR_READY() ? load_track() : 0;      /* B-333: load_track is cold code; no cold image, nothing plays */
-    /* The splash is already up; leave it while the playlist track loads
-     * rather than flashing instructions that are about to be replaced.
-     *
-     * Start at the SAVED track when there is one. pl_resync() finds the file
-     * index in whatever order this boot produced, so a resumed track is right
-     * even when shuffle has just reshuffled the list. */
-    /* Nothing in the slot and nothing resumed: start the playlist normally. */
-    if (!from_slot && !from_list && pl_count) from_list = pl_play_at(0);
+    from_slot = SR_READY() ? load_track() : 0;      /* B-333: load_track is cold code; no cold image, nothing plays */
     ui_boot_cancel();          /* not _clear: see the note on that function */
 
-    /* Arm the position seek only if the file that ACTUALLY opened is the one
-     * the point was saved against. A .m3u edited since would otherwise apply
-     * one track's timestamp to another. Under two seconds is not worth a
-     * reposition -- it is just the start of the track. */
-    /* NO LONGER GATED ON FILE IDENTITY.
-     *
-     * Two attempts at an identity that survives a power cycle both failed.
-     * cur_file_id hashes the 0190 response, which moves between boots.
-     * Hashing the filename should have been stable and was not either -- the
-     * name is recovered as the longest printable-ASCII run out of a shared
-     * datatable, so which run wins can differ depending on what else has been
-     * through that buffer. Every saved point was rejected, and the feature has
-     * never once worked because of a check meant to protect it.
-     *
-     * So ask a question that can actually be answered. Instead of "is this the
-     * same file", ask "is this position sensible for the file I have" -- which
-     * needs no identity, only the file itself:
-     *
-     *   - the target must land inside the file (checked at the seek)
-     *   - it must not be past a known duration (checked here)
-     *
-     * If a playlist has been edited underneath us the worst case is starting a
-     * track 56 seconds in, which B undoes. That is a far smaller cost than a
-     * guard that rejects everything, and unlike the guard it cannot fail
-     * silently -- a wrong resume is audible immediately. */
-    /* Only the track the resume branch itself started. from_slot means the
-     * slot's own file, which the point says nothing about. */
-    if (!resume_on || !resume_word || !RS_PL(resume_word)) resume_dbg = 3u;
-    else if (!from_list)                       resume_dbg = 4u;
-    else {
-        resume_at = RS_SECS(resume_word);
-        /* Past the end of a track whose length we know: not this file. */
-        if (track_secs && resume_at + 2u >= track_secs) {
-            resume_at = 0; resume_dbg = 2u;
-        } else if (resume_at > 2u) {
-            resume_seek_req = 1u; resume_dbg = 1u;
-            /* Longer than the reload gate's own hard cap of 5 s, or this
-             * expires while the load it is waiting for is still settling. */
-            resume_deadline = cycles() + CLK_HZ * 12u;
-        } else {
-            resume_dbg = 3u;
-        }
-    }
-
-    if (from_slot) {
-        pl_report();
-    } else if (!from_list && !from_lib) {
+    if (!from_slot && !from_lib) {
         idle = 1;
         ui_wave_anim_stop();
         /* B-080: a library with nothing to restore (a first boot, or an index with no playable history) used to show
@@ -9106,16 +8341,10 @@ int main(void)
          * was opened and closed -- two different screens for the same "nothing loaded" state. ui_draw_chrome() now
          * carries its own message for this case (above), so it is the one screen, consistent with every other way of
          * reaching it. */
-        if (lib_state == LIB_ST_OK && !lib_disabled) { ui_chrome_paint(); goto boot_idle_drawn; }
-        /* Say WHICH nothing this is. A playlist whose every entry is
-         * mistyped and no playlist at all both land here, and the idle
-         * screen is otherwise indistinguishable from the splash that was
-         * already up -- which is exactly what "the core never leaves the
-         * boot screen" was. */
-        if (SR_READY()) ui_idle_screen(pl_count            ? "No playable tracks in playlist"
-                     : pl_status == PL_ERR_EMPTY ? "Playlist has no tracks"
-                     : (const char *)0);
-        boot_idle_drawn:;
+        if (lib_state == LIB_ST_OK) ui_chrome_paint();
+        /* No library either: the idle screen (ui_draw_chrome()'s own "Sync your library" message,
+         * added when legacy playlist mode was removed) carries the instruction now. */
+        else if (SR_READY()) ui_idle_screen((const char *)0);
     }
 
     for (;;) {
@@ -9133,7 +8362,6 @@ int main(void)
          * missed. poll_input() resets the counter on a press just above, so the
          * ordering here is right. */
         ui_blank_pump();
-        resume_pump();
 
         /* Keeps the LOADING dots moving through the reload gate. ui_boot_tick()
          * is otherwise driven only from inside target_read_slot()'s spin, and
@@ -9144,7 +8372,7 @@ int main(void)
         ui_boot_tick();
 
         /* Helios's display-list flush (docs/HELIOS_SPEC.md section 4/9). Placed here, not at the
-         * loop's bottom, for the same reason as ui_blank_pump()/resume_pump()/ui_boot_tick() just
+         * loop's bottom, for the same reason as ui_blank_pump()/ui_boot_tick() just
          * above: paused/stopped/idle all `continue` before reaching the bottom, and a parked screen
          * still needs its dirty regions drawn. No region is registered yet (fw/helios.inc's own
          * header explains why), so this call costs one bounded loop over zero entries today. */
@@ -9172,17 +8400,7 @@ int main(void)
             refill_drain();
             ring_fill = 0; ring_rd = 0;
 
-            /* The user has chosen a file, so any resume still waiting to fire
-             * is void. It was armed at boot for the track that was in the slot
-             * THEN, and applying its position to something just picked would
-             * drop the new file in at an unrelated timestamp.
-             *
-             * Only a genuine 008A reaches here -- pl_arm_load() drives the
-             * gate by setting reload_armed directly and never sets
-             * reload_pending -- so resume's own playlist load cannot cancel
-             * itself here. */
-            resume_seek_req = 0;
-            track_from_pl  = 0u;            /* the user chose this one */
+            /* The user has chosen a file: whatever queue was playing is no longer authoritative. */
             lib_src = 0u;
 
             REG(R_RELOAD)  = 1;             /* ack */
@@ -9194,10 +8412,7 @@ int main(void)
             /* Same gap: this gate waits at least 1.5 s before the track even
              * opens. The splash carries LOADING TRACK from the idle screen,
              * but with the player up there was nothing at all. */
-            /* The boot path sets resume_seek_req before the main loop, so the
-             * gate load that follows is part of RESUMING -- saying LOADING
-             * here overwrote the splash's own message with a contradiction. */
-            ui_boot_note(resume_seek_req ? "RESUMING TRACK" : "LOADING TRACK");
+            ui_boot_note("LOADING TRACK");
 
             /* Say so NOW, not when the gate below finally opens. That wait is
              * at least 1.5 s and can reach 5 s, and with the screen unchanged
@@ -9255,8 +8470,7 @@ int main(void)
                  * was_idle only decides what to restore if the open fails. */
                 int was_idle = idle;
                 if (!was_idle)
-                    ui_boot_note(resume_seek_req ? "RESUMING TRACK"
-                                                 : "LOADING TRACK");
+                    ui_boot_note("LOADING TRACK");
                 int opened   = SR_READY() ? load_track() : 0;
                 {   /* FNV over the filename APF reports for the slot. */
                     uint32_t h = 2166136261u;
@@ -9312,67 +8526,16 @@ int main(void)
                     /* A file we CAN read and cannot play fast enough. Says so,
                      * rather than claiming the file could not be read. */
                     rate_unsupported = 0;
-                    pl_sw_tk++;
                     if (!idle) ui_rate_unsupported();
-                } else { pl_sw_tk++; if (!idle) ui_load_failed(); }
+                } else { if (!idle) ui_load_failed(); }
                 continue;
             }
         }
 
 
-        if (pl_dump_req) {
-            pl_dump_req = 0;
-            ui_dump_mode ^= 1u;
-            if (ui_dump_mode) pl_dump_struct();
-            else              ui_chrome_paint();
-            continue;
-        }
-
-        /* The user picked a different playlist. Re-reading slot 3 flushes the
-         * MP3 slot's fragment cache, so this pauses briefly rather than doing
-         * it underneath a running stream. */
-        /* ARM, do not act. 008A says the user picked a playlist, not that APF
-         * has switched the slot -- exactly the fault the MP3 slot needed a
-         * gate for, and it showed here as "sometimes you have to pick the new
-         * playlist twice": the first read still returned the OLD list, and the
-         * second attempt worked only because the slot had caught up by then.
-         *
-         * Record what we are leaving, then wait for 0190 to report something
-         * else. Positive confirmation, not a blind delay. */
-        /* Menu just closed. Ask slot 3 what it holds; if it is not what we
-         * loaded, the notification for it never arrived, so raise the same
-         * request it would have. Costs one 0190 at a moment when playback is
-         * already interrupted -- a metadata query, not a slot READ, so it does
-         * not drag the MP3 slot's fragment cache down with it the way a
-         * periodic poll of slot 3 would. */
-        /* PERIODIC identity check on slot 3, depending on NOTHING.
-         *
-         * The notification can be dropped and the menu-close edge can be
-         * missed. This asks, every few seconds, whether the slot still holds
-         * what we loaded -- so a pick lost anywhere upstream heals itself
-         * within one interval instead of waiting for the user to retry.
-         *
-         * A 0190 getfile, not a slot READ. That is what makes it affordable:
-         * the warning against polling slot 3 is about reads walking the
-         * cluster chain, and a metadata query does not. If it costs anything
-         * it will be audible as a tic every three seconds -- about as
-         * diagnosable as a symptom gets -- and one constant backs it out.
-         *
-         * Held off while anything is mid-flight so it cannot race a load. */
-        if (!idle && pl_count && !pl_check_req
-            && !pl_reload_pending && !pl_reload_armed
-            && !reload_pending    && !reload_armed
-            && !rd_pending
-            && (int32_t)(cycles() - pl_poll_at) >= 0) {
-            pl_poll_at   = cycles() + CLK_HZ * 3u;
-            pl_check_req = 1u;              /* same comparison path as below */
-        }
-
-        /* The same backstop for the TRACK slot. Staggered 2s against the
-         * playlist's 3s so the two queries rarely land together, and held off
-         * while anything is mid-flight so it cannot race a load. */
-        if (!idle && cur_file_id && !pl_check_req
-            && !pl_reload_pending && !pl_reload_armed
+        /* The same backstop for the TRACK slot: a periodic identity check depending on nothing, so a
+         * dropped 008A heals itself within one interval instead of waiting for the user to retry. */
+        if (!idle && cur_file_id
             && !reload_pending    && !reload_armed
             && !rd_pending
             && (int32_t)(cycles() - tk_poll_at) >= 0) {
@@ -9380,220 +8543,11 @@ int main(void)
             if (slot_changed()) reload_pending = 1u;
         }
 
-        if (lib_state == LIB_ST_OK && (pl_check_req || pl_reload_pending)) {
-            pl_check_req = 0;                       /* library mode: playlists live in the library */
-            if (pl_reload_pending) { pl_reload_pending = 0; REG(R_RELOAD) = RL_PL_RELOAD; }
-            continue;
-        }
-        if (pl_check_req) {
-            pl_check_req = 0;
-            pl_name_read();
-            int differs = 0;
-            for (uint32_t i = 0; i < sizeof(pl_cur_name); i++) {
-                if (pl_name_raw[i] != pl_cur_name[i]) { differs = 1; break; }
-                if (!pl_cur_name[i]) break;
-            }
-            /* Only when the slot names something. An empty answer means APF
-             * would not say, which is not evidence of a change. */
-            if (differs && pl_name_raw[0]) {
-                /* pl_fb_at is deliberately NOT set here. It opens a window in
-                 * which the notification handler discards arrivals as
-                 * duplicates -- and setting it alongside the request meant the
-                 * handler discarded THIS request, one iteration later, every
-                 * single time. The fallback has never completed a load. It is
-                 * set when the load finishes instead, which is the only point
-                 * a later 008A is genuinely a duplicate. */
-                pl_reload_pending = 1u;
-                /* 0190 has ALREADY proved the slot switched, so the gate has
-                 * nothing left to wait for -- without this it would sit out
-                 * its full five seconds and expire. */
-                pl_skip_gate = 1u;
-            }
-            continue;
-        }
-
-        if (pl_reload_pending) {
-            pl_reload_pending = 0;
-            REG(R_RELOAD) = RL_PL_RELOAD;            /* ack just this bit */
-            /* A notification that lands just AFTER the menu-close fallback
-             * already loaded this pick is the same event twice. Without this
-             * it re-arms, finds the name unchanged, sits out the full five
-             * seconds and then reloads the list it is already playing --
-             * turning a dropped 008A into a worse fault than the one being
-             * worked around. Three seconds only, so a deliberate re-pick of
-             * the same list still reloads it. */
-            if (pl_fb_at && (uint32_t)(cycles() - pl_fb_at) < CLK_HZ * 3u)
-                continue;
-            for (uint32_t i = 0; i < sizeof(pl_leaving); i++)
-                pl_leaving[i] = pl_name_raw[i];
-            pl_reload_armed = 1u;
-            pl_retry        = 1u;        /* one automatic second attempt */
-            pl_probe_at     = cycles();
-            pl_reload_at    = cycles() + CLK_HZ * 5u;
-            /* Cut the outgoing track NOW rather than at the moment the switch
-             * lands -- see PAUSE_LOAD. */
-            pcm_flush();
-            refill_drain();
-            ring_fill = 0; ring_rd = 0;
-            paused |= PAUSE_LOAD;
-            /* Say something immediately. The gate below waits for APF to
-             * switch the slot -- usually quick, five second cap -- and with
-             * the player still up and the old track still playing there is
-             * otherwise nothing to show the pick registered. The boot row
-             * cannot be used: UI_BOOT_Y is the live transport row. */
-            ui_boot_note("LOADING PLAYLIST");
-            continue;
-        }
-
-        if (pl_reload_armed) {
-            int expired = (int32_t)(cycles() - pl_reload_at) >= 0;
-            int due     = (int32_t)(cycles() - pl_probe_at)  >= 0;
-
-            if (due || expired) {
-                pl_probe_at = cycles() + CLK_HZ / 10u;
-                pl_name_read();
-                /* No toast: the boot row is already showing this. */
-
-                int changed = 0;
-                for (uint32_t i = 0; i < sizeof(pl_leaving); i++) {
-                    if (pl_name_raw[i] != pl_leaving[i]) { changed = 1; break; }
-                    if (!pl_leaving[i]) break;
-                }
-
-                if (changed || expired || pl_skip_gate) {
-                    /* The fallback set pl_leaving from a name 0190 had
-                     * ALREADY refreshed, so the "did it really change" retry
-                     * below would compare the new name against itself, call
-                     * it unchanged and load a second time. It has nothing to
-                     * check here -- 0190 is the evidence. */
-                    uint8_t from_fallback = pl_skip_gate;
-                    if (pl_skip_gate) { pl_skip_gate = 0; pl_retry = 0; }
-                    pl_reload_armed = 0;
-                    pl_load_n++;
-                    pl_sw_ge = changed ? 1u : 2u;
-                    pl_sw_rt = 0u;
-                    ui_boot_note("LOADING PLAYLIST");
-                    /* Same cut as a skip: pl_load() blocks on slot-3 reads for
-                     * longer than the FIFO holds, and picking a playlist means
-                     * leaving the current track anyway. */
-                    pcm_flush();
-                    refill_drain();
-                    ring_fill = 0; ring_rd = 0;
-                    uint32_t sig_was = pl_sig;
-#if TAU_G4 >= 2
-                    if (COLD_READY()) pl_load();
-#else
-                    pl_load();
-#endif
-
-                    /* Did the switch actually happen?
-                     *
-                     * If the slot still reports the name we were leaving, APF
-                     * had not swapped it when the gate fired -- the probe saw
-                     * a stale 0190, or the five second cap expired first --
-                     * and we have just reloaded the OLD list. That is the
-                     * intermittent "pick it twice" fault, and it is DETECTABLE
-                     * here even though the race causing it is not reliably
-                     * reproducible.
-                     *
-                     * So make the second attempt ourselves. Once only: picking
-                     * the SAME playlist again is a legitimate case where the
-                     * name does not change, and that must cost one wasted
-                     * retry rather than a loop. */
-                    if (pl_retry) {
-                        int same = 1;
-                        for (uint32_t i = 0; i < sizeof(pl_leaving); i++) {
-                            if (pl_name_raw[i] != pl_leaving[i]) { same = 0; break; }
-                            if (!pl_leaving[i]) break;
-                        }
-
-                        /* The name check alone was NOT enough, and the report
-                         * that it still happens is what shows why.
-                         *
-                         * There are two stale things here, not one. 0190 can
-                         * still name the old file -- that is `same`, and it is
-                         * caught. But 0190 can ALSO report the new name while
-                         * the reads keep coming out of APF's fragment cache,
-                         * so the bytes are the old list under the new name.
-                         * The name check passes, no retry fires, and the old
-                         * playlist plays: exactly the surviving symptom.
-                         *
-                         * The text answers it directly. Two different lists
-                         * hashing the same means they hold identical bytes, in
-                         * which case reloading costs one wasted attempt and
-                         * changes nothing the user hears. */
-                        int stale = (!same && pl_sig && pl_sig == sig_was);
-
-                        if (same || stale) {
-                            pl_sw_rt        = same ? 1u : 2u;
-                            pl_retry        = 0;
-                            /* 0190 already names the right file, so there is
-                             * nothing to reopen -- only APF's cached fragments
-                             * for slot 3, which still describe the old one.
-                             * Touching a different slot is the documented (and
-                             * here already proven) way to drop them. Waiting
-                             * would not: a cache has no timeout.
-                             *
-                             * Safe at this point specifically: the stream is
-                             * already flushed for the reload, so the re-walk
-                             * this costs lands in silence rather than starving
-                             * a running decode. */
-                            if (stale) target_flush_slot_cache();
-                            pl_reload_armed = 1u;
-                            /* A stale read has already changed name, so its
-                             * probe fires at once -- this delay IS the settle.
-                             * The `same` case is still waiting on the name, so
-                             * it keeps the fast poll. */
-                            pl_probe_at     = cycles() +
-                                              (stale ? CLK_HZ / 4u : CLK_HZ / 10u);
-                            pl_reload_at    = cycles() + CLK_HZ * 5u;
-                            continue;        /* indicator stays up across it */
-                        }
-                    }
-                    pl_retry = 0;
-
-                    /* Release the row WITHOUT wiping: it is the transport row
-                     * in the player, and ui_mode_dirty below repaints it. */
-                    ui_boot_cancel();
-                    ui_mode_dirty = 1;
-                    ui_last_pause = 0xFFFFFFFFu;
-                    /* Released here as well as by load_track(), for the paths
-                     * that never reach one -- an empty or unreadable list, or
-                     * a pick that lost the race to something else. */
-                    paused &= (uint32_t)~PAUSE_LOAD;
-                    pl_report();
-                    /* Only take playback if nothing else is claiming it. A
-                     * Load MP3 pick can bring a playlist notification with it,
-                     * and starting track 1 then discards the chosen file. */
-                    pl_sw_ct = pl_count;
-                    pl_sw_fl = (uint8_t)((reload_pending ? 1u : 0u)
-                                       | (reload_armed  ? 2u : 0u));
-                    pl_sw_pp = (pl_count && !reload_pending && !reload_armed)
-                             ? 1u : 0u;
-                    pl_sw_hist[0] = pl_sw_hist[1];
-                    pl_sw_hist[1] = pl_sw_hist[2];
-                    pl_sw_hist[2] = (uint16_t)(((uint32_t)pl_sw_ge << 12)
-                                             | ((uint32_t)pl_sw_rt << 8)
-                                             | ((uint32_t)pl_sw_pp << 4)
-                                             |  (uint32_t)pl_sw_fl);
-                    /* NOW the dedupe window opens: a notification arriving
-                     * after this really is the same pick reported late. */
-                    if (from_fallback) pl_fb_at = cycles();
-                    if (pl_sw_pp) pl_play_at(0);
-                    ui_mode_dirty = 1;
-                    continue;
-                }
-            }
-            /* Still waiting for APF to switch the slot. Nothing is playing
-             * while we do -- see PAUSE_LOAD. */
-        }
-
-        /* Track skip (Left/Right held). pl_play_at() issues 0192; APF then
-         * raises 008A and the ordinary reload path does the actual loading. */
+        /* Track skip (Left/Right held), library queue only now that legacy playlist mode is gone. */
         if (skip_req) {
             uint32_t d = skip_req; skip_req = 0;
             /* load_track() clears `paused`, so a track changed while paused or
-             * stopped would start playing on its own. Browsing a playlist
+             * stopped would start playing on its own. Browsing the queue
              * without committing to hearing it is the point of allowing this
              * while paused. */
             hold_paused = (paused & 1u) ? 1u : 0u;
@@ -9605,13 +8559,13 @@ int main(void)
              * with this track; end it cleanly at the button. */
             pcm_flush();
             refill_drain();
-            if (pl_skip(d == 1u ? 1 : -1)) {
+            if (lib_skip(d == 1u ? 1 : -1)) {
                 /* Slot now serves the NEW file: the ring's remaining bytes are
                  * the only old-track audio left, and refilling at the old
                  * offset would read the wrong file. Drop them; stay silent
                  * until the reload lands. */
                 ring_fill = 0; ring_rd = 0;
-                ui_toast_set("TRACK", lib_src ? (uint32_t)lib_qpos + 1u : (uint32_t)pl_live_ordinal(pl_pos), 0);
+                ui_toast_set("TRACK", (uint32_t)lib_qpos + 1u, 0);
                 ui_mode_dirty = 1;
             }
             continue;
@@ -9709,109 +8663,6 @@ int main(void)
          * restart now IS this body. The cold reload was a relic of the
          * stale-tag era; for the SAME file there is nothing to re-resolve.
          * Track CHANGES still load cold, as they must. */
-        /* Absolute reposition for a resumed track. Deliberately the same body
-         * as stop_req below, differing only in the target: that path is the
-         * one proven not to click, and every route into playback going through
-         * the same code is why track changes stopped clicking at all.
-         *
-         * Runs once, after the track is open and its rate is known. If the
-         * rate is not known yet or the target lands past the end of the file,
-         * the resume is simply dropped and the track plays from the start --
-         * a wrong seek is worse than none. */
-        if (resume_seek_req) {
-            /* Get the size the way it used to be got: BLOCKING, once.
-             *
-             * Stepping the incremental probe from here was tried and still
-             * came back Y9. Rather than keep guessing at why -- three attempts
-             * and three hardware trips -- this restores exactly what worked
-             * before the probe was moved out of load_track(), scoped to the
-             * one case that needs it. resume is opt-in, happens once per boot,
-             * and the ~480 ms lands while the track is already playing from
-             * the start, which is the thing being corrected anyway.
-             *
-             * seek_size_tried is shared with the seek backstop deliberately:
-             * both mean "the blocking probe has already been spent on this
-             * track", and neither wants it twice. */
-            if (!slot_size && !seek_size_tried) {
-                seek_size_tried = 1u;
-                slot_size = probe_file_size();
-            }
-
-            /* Kept as well: on a file where the blocking probe cannot answer,
-             * the incremental one still might.
-             *
-             * This is what Y9 was. The seek cannot run without slot_size, and
-             * since the probe moved out of load_track() it only steps from
-             * refill_pump()'s "ring at least half full" branch -- which on a
-             * dense FLAC comes round about once a second. Twenty steps then
-             * take twenty seconds, the resume gives up at twelve, and the
-             * track plays from the start with a perfectly good point saved.
-             *
-             * One step per pass of the main loop instead, and only while a
-             * resume is actually waiting: the whole search finishes in
-             * milliseconds. Each step is a single 512-byte read, the same one
-             * the idle path issues, so nothing new is being asked of the card
-             * -- only sooner. */
-            if (!slot_size && szp_phase && szp_phase < 4u) size_probe_step();
-
-            uint32_t rate = ui_byte_rate();
-            uint32_t want = audio_start + rate * resume_at;
-
-            /* RETRY, do not drop. slot_size is ZERO at the moment the track
-             * finishes opening -- APF has not reported a size yet, there may
-             * be no Xing header, and the probe has not run -- so a one-shot
-             * attempt always failed on D9 even though the size arrived a
-             * moment later. The readout proved it: D9 was latched at the seek
-             * while Z already read 3266 KB by the time the row drew.
-             *
-             * Falling THROUGH rather than continuing is the whole trick: the
-             * size and rate only become known BY decoding, so blocking the
-             * loop to wait for them would wait forever. Bounded at five
-             * seconds, after which the reason is recorded and the track just
-             * plays from the start. */
-            /* NOTHING may be reloading. pl_play_at() does not load the track
-             * itself -- pl_arm_load() sets slot_size = 0, force_size_probe and
-             * reload_armed, and the real load_track() runs later in the reload
-             * handler, which finishes with stop_req and a reposition to 0:00.
-             *
-             * That is what D6-but-no-resume was: the seek genuinely ran, and
-             * then the pending load wiped it. It also explains the earlier D9,
-             * since pl_arm_load() is what zeroed slot_size in the first place.
-             *
-             * stop_req is included for the same reason -- it is queued
-             * repositioning that would land after this one. */
-            if (!idle && rate && slot_size && want < slot_size
-                && !reload_pending && !reload_armed && !stop_req) {
-                pcm_flush();
-                refill_drain();
-                file_pos  = want;
-                ring_fill = 0; ring_rd = 0;
-                frames = 0; min_level = 0xFFFFFFFFu;
-                ui_sec = resume_at; ui_sec_acc = 0;
-                ui_last_sec = 0xFFFFFFFFu; ui_prog_sec = 0xFFFFFFFFu;
-                ui_last_pause = 0xFFFFFFFFu;
-                /* Restart the measurement window here, exactly as a manual
-                 * seek does -- carrying it across a reposition is what made
-                 * meas_rate self-referential once before. */
-                meas_pos0 = file_pos; meas_sec0 = ui_sec;
-                if (!prefill()) { st0 |= (1u << 4); REG(R_STAT0) = st0; }
-                ui_draw_dynamic();
-                resume_dbg = 6u;                 /* actually repositioned */
-                resume_seek_req = 0;
-                continue;
-            }
-            if ((int32_t)(cycles() - resume_deadline) >= 0) {
-                resume_seek_req = 0;             /* give up, and say why */
-                if      (reload_pending || reload_armed || stop_req)
-                                             resume_dbg = 11u;
-                else if (idle)               resume_dbg = 7u;
-                else if (!rate)              resume_dbg = 8u;
-                else if (!slot_size)         resume_dbg = 9u;
-                else                         resume_dbg = 10u;
-            }
-            /* still waiting -- fall through so decoding continues */
-        }
-
         if (stop_req) {
             stop_req = 0;
             if (idle) continue;             /* nothing loaded to reposition */
@@ -10096,19 +8947,6 @@ int main(void)
         seek_done: ;
         }
 
-        /* ---- playlist overlay ------------------------------------------
-         * Serviced here rather than in poll_input() because pl_play_at() lives
-         * in playlist.inc, which is included AFTER poll_input -- the same
-         * reason every other cross-file action in this loop is a request flag.
-         *
-         * Drawing is gated on pl_ui_dirty, so an open overlay costs nothing
-         * per frame; it repaints when the selection moves and not otherwise.
-         * That matters more than it looks: the decoder keeps running
-         * underneath, and FLAC has less headroom than MP3. */
-        /* load_track() paints the player card, so an auto-advance while the
-         * overlay is up draws straight through it -- and the '>' marker has
-         * moved anyway. Comparing against what was last drawn catches both,
-         * and any other route that changes the position. */
         /* B-234: the Meter > Configure page's live preview reads real playing
          * audio (spec_lvl[]/wav_v[]) every draw, same as the player screen's
          * own meter box -- but unlike every other Settings page, it needs to
@@ -10138,44 +8976,6 @@ int main(void)
 #endif
         if (lib_ui_open && lib_ui_dirty) { lib_ui_dirty = 0u; lib_ui_draw(); }
         if (lib_ui_open) lib_ui_marquee();
-        if (pl_ui_open && pl_ui_drawn_pos != pl_pos) pl_ui_dirty = 1u;
-        if (pl_ui_open && pl_ui_dirty) {
-            pl_ui_dirty = 0;
-            pl_ui_draw();
-        }
-
-        /* Scroll the selected row when its name does not fit. Only that row is
-         * repainted, so this costs one row of drawing a few times a second
-         * rather than the whole list -- the decoder is still running.
-         *
-         * Whole characters, like the title marquee: the engine will place a
-         * glyph at any x but cannot clip one partly off the left edge. */
-        if (pl_ui_open && pl_count) {
-            if (pl_ui_mq_sel != pl_ui_sel) {
-                pl_ui_mq_sel  = pl_ui_sel;
-                pl_ui_mq_off  = 0;
-                pl_ui_mq_next = cycles() + CLK_HZ;      /* hold at the start */
-            } else if ((int32_t)(cycles() - pl_ui_mq_next) >= 0) {
-                char nm[64];
-                pl_ui_label(pl_ui_sel, nm, sizeof(nm));
-                if (fb_text_width(nm, TS_1X) > PL_UI_W - 40u) {
-                    uint32_t len = 0;
-                    while (nm[len]) len++;
-                    pl_ui_mq_next = cycles() + CLK_HZ / 3u;
-                    if (++pl_ui_mq_off >= len) {
-                        pl_ui_mq_off  = 0;
-                        pl_ui_mq_next = cycles() + CLK_HZ;  /* pause, then again */
-                    }
-                    if (pl_ui_sel >= pl_ui_top &&
-                        pl_ui_sel <  pl_ui_top + PLIST_ROWS)
-                        pl_ui_row(pl_ui_sel - pl_ui_top);
-                } else {
-                    /* Fits: nothing to scroll, so back off rather than
-                     * re-measuring it every few milliseconds. */
-                    pl_ui_mq_next = cycles() + CLK_HZ;
-                }
-            }
-        }
         if (pl_ui_restore) {
             pl_ui_restore = 0;
             /* ui_draw_chrome() paints the gradient itself -- calling it here
@@ -10198,24 +8998,11 @@ int main(void)
             ui_last_sec   = 0xFFFFFFFFu;
             ui_prog_sec   = 0xFFFFFFFFu;
         }
-        {   /* one small alert per boot when there is no library and something is playing */
-            static uint8_t legacy_told;
-            if (!legacy_told && !idle && lib_state == LIB_ST_NONE) { legacy_told = 1u; ui_toast_msg("LEGACY PLAYLIST MODE"); }
-        }
         if (lib_play_req) {
             stop_req = 0;
             if (lib_play_start()) { ui_mode_dirty = 1u; continue; }
             ui_toast_msg("TRACK WOULD NOT OPEN");
         }
-        if (pl_ui_play_req) {
-            pl_ui_play_req = 0;
-            if (pl_count && pl_ui_sel < pl_count) {
-                stop_req = 0;
-                if (pl_play_at(pl_ui_sel)) { ui_mode_dirty = 1u; continue; }
-                ui_toast_msg("TRACK WOULD NOT OPEN");
-            }
-        }
-
         /* Nothing to decode. poll_input() and the reload handling above still
          * run, so Load MP3 / Load Playlist work from here. */
         if (idle) continue;
@@ -10267,14 +9054,14 @@ int main(void)
              * it advances instead, which is why it is a soft restart. */
             if (((slot_size && file_pos >= slot_size) || eof_hit) &&
                 !rd_pending && !reload_armed && !reload_pending) {
-                /* With a playlist this advances; pl_advance_auto() returns 0
+                /* With a library queue this advances; lib_advance_auto() returns 0
                  * when it deliberately did not (repeat-one, or the end of a
                  * non-repeating list), and the old replay-this-track behaviour
                  * is the fallback -- so a single file still loops as before. */
-                if (pl_advance_auto()) { ui_mode_dirty = 1; continue; }
+                if (lib_advance_auto()) { ui_mode_dirty = 1; continue; }
                 if (list_ended()) {
                     paused |= 1u;              /* end of the list: stop here */
-                    ui_toast_msg("END OF PLAYLIST");
+                    ui_toast_msg("END OF LIST");
                 }
                 soft_restart_req = 1;
                 continue;
@@ -10315,10 +9102,10 @@ int main(void)
             /* Meters are fed from flac_emit on a fixed 1152-pair interval,
              * not here: once per frame is 9.6 Hz and looks delayed. */
             if (fe == FLAC_END || fe == FLAC_ERR_SHORT) {
-                if (pl_advance_auto()) { ui_mode_dirty = 1; continue; }
+                if (lib_advance_auto()) { ui_mode_dirty = 1; continue; }
                 if (list_ended()) {
                     paused |= 1u;
-                    ui_toast_msg("END OF PLAYLIST");
+                    ui_toast_msg("END OF LIST");
                 }
                 /* NOT soft_restart_req: that re-creates the Helix decoder, which cannot be allocated while the
                  * FLAC buffers hold the arena, so a FLAC at the end of a list (or repeat-one, or a single file)

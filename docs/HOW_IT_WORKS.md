@@ -62,10 +62,10 @@ notes in [EQ_DESIGN.md](EQ_DESIGN.md).
 ## Settings that persist without the core writing anything
 
 The core never opens a file to save your settings. Instead it declares them in
-`interact.json` as persist variables — volume, accent, repeat, shuffle, the
-art panel, the meter, the EQ preset — and the Pocket owns the file that holds
-them, writing `/Settings/<core>/Interact/_core/interact_persist.json` on its
-own schedule. The core only reads and updates values through the framework.
+`interact.json` as persist variables — volume, accent, repeat, the art panel,
+the meter, the EQ preset — and the Pocket owns the file that holds them,
+writing `/Settings/<core>/Interact/_core/interact_persist.json` on its own
+schedule. The core only reads and updates values through the framework.
 
 Two things fall out of that. The core needs no write access to the card at all,
 so nothing it does can touch your music. And because the Analogue menu's **Core
@@ -77,8 +77,11 @@ frame, not one address per variable. Splitting them across separate addresses
 looks reasonable and produces a UI where every item blinks and refuses to
 change.
 
-## Playlists
+## Opening a track by name
 
-Switching tracks leans on the same file path: the core asks the framework to
-describe the file already in the slot, then hands that description back with one
-path component changed. Nothing about the layout is assumed.
+There is no framework command to list a folder, so the core cannot browse the
+card directly — it can only open a file it already knows the name of. Switching
+tracks leans on a workaround: it asks the framework to describe the file
+already open, then hands that description back with one path component
+changed. Nothing about the layout is assumed. The media library builds on this
+by knowing every track's path in advance, from an index built on a computer.

@@ -80,31 +80,6 @@ COLD_FN static void dg_latency(uint32_t id, int write)
     *q = 0;
 }
 
-/* pl_order is a permutation of 0..count-1, every pl_off points inside the parsed text at a
- * non-comment NUL-terminated name, and the parsed text still hashes to what it did at load. */
-COLD_FN static void dg_playlist_check(void)
-{
-    if (!pl_count) { dg_set(DG_PLC, "NO PLAYLIST", 0xFFFFFFFFu, ""); return; }
-    if (!dg_window_ok(DG_PLC)) return;
-    uint8_t seen[(PL_MAX + 7u) / 8u];
-    for (uint32_t i = 0; i < sizeof(seen); i++) seen[i] = 0;
-    uint32_t bad = 0;
-    for (uint32_t i = 0; i < pl_count; i++) {
-        uint32_t f = pl_order[i];
-        if (f >= pl_count || (seen[f >> 3] >> (f & 7u)) & 1u) { bad++; continue; }
-        seen[f >> 3] |= (uint8_t)(1u << (f & 7u));
-    }
-    for (uint32_t i = 0; i < pl_count; i++) {
-        uint32_t o = pl_off[i];
-        if (o >= pl_dg_len || pl_text[o] == '#' || pl_text[o] == 0 || (i && o <= pl_off[i - 1u])) bad++;
-    }
-    uint32_t h = 2166136261u;
-    for (uint32_t i = 0; i < pl_dg_len; i++) { h ^= (uint32_t)(uint8_t)pl_text[i]; h *= 16777619u; }
-    if (h != pl_dg_sig) bad++;
-    if (bad) dg_set(DG_PLC, "FAIL ", bad, "");
-    else     dg_set(DG_PLC, "PASS ", pl_count, "");
-}
-
 /* Cold code run from PSRAM: correctness of calls into and out of it, that a second call from the cache fetches nothing,
  * and the cost of executing 12 KB of code that cannot stay cached (cycles per instruction word, one decimal). */
 COLD_FN static void dg_cold_test(void)
@@ -137,7 +112,6 @@ COLD_FN static void dg_run(uint32_t id)
     if (id == DG_WIN)      dg_window_test();
     else if (id == DG_RD)  dg_latency(DG_RD, 0);
     else if (id == DG_WR)  dg_latency(DG_WR, 1);
-    else if (id == DG_PLC) dg_playlist_check();
     else if (id == DG_COLD) dg_cold_test();
     else {                                    /* CLEAR COUNTERS: Info shows counts since now */
         dg_base_under = pcm_under_n;

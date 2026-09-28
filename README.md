@@ -9,14 +9,14 @@ of MP3 decoding (the synthesis filterbank) runs in FPGA hardware instead, and th
 
 Current version **v0.5.0** (27 September 2026). See [CHANGELOG.md](CHANGELOG.md).
 
-<img src="docs/screenshot.png" width="280" align="right" alt="Player screen: Feel Good Inc. by Gorillaz, track 6 of Demon Days 2005, encoded 128 kbps 44.1 kHz by LAME3.90, above a bar meter with the album cover at the right; below, a PLAYING label with repeat, shuffle and volume indicators and the EQ preset ROCK, track 5 of 14, 02:31 of 03:41, and a progress bar">
+<img src="docs/screenshot.png" width="280" align="right" alt="Player screen: Feel Good Inc. by Gorillaz, track 6 of Demon Days 2005, encoded 128 kbps 44.1 kHz by LAME3.90, above a bar meter with the album cover at the right; below, a PLAYING label with repeat and volume indicators and the EQ preset ROCK, track 5 of 14, 02:31 of 03:41, and a progress bar">
 
 ## What Tau does
 
 - **MP3 and FLAC.** CBR and VBR MPEG-1 and MPEG-2 Layer III at every standard bitrate and sample rate, mono
   or stereo; FLAC up to 48 kHz, 8/16/20/24-bit. Tags and embedded album art are read from the files.
-- **Media library.** Artists, Albums, Tracks and Shuffle All, built on the card by a sync tool, plus playlists
-  from your own `.m3u` files and resume-after-restart. Entirely optional: plain playlists still work.
+- **Media library.** Artists, Albums, Tracks and Shuffle All, built on the card by a sync tool, plus your own
+  `.m3u` playlists imported as Lists. The library is required: it is the only way to play more than one file.
 - **Themes.** Two built-in themes (TAU and OCEAN), each in Dark and Light, a 19-colour accent palette, and
   optional extra themes from a `tau-assets.bin` file.
 - **Eleven meters.** Winamp Scope, Winamp Bars (with a Configure page: presets, band count, easing, peak
@@ -51,14 +51,12 @@ sources and the honest limits, is [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 | Battery life with the new visuals | Whether fancy meters drain faster | **TBD** | **TBD** |
 | Menu and library responsiveness | Snappiness after code moved to PSRAM | **TBD** | **TBD** |
 
-<img src="docs/playlist_browser.png" width="280" align="right" alt="Playlist browser: a PLAYLIST 12 of 14 header above nine filename rows, with Gorillaz - Feel Good Inc. highlighted mid-list and marked by a cursor; the transport row, times and progress bar stay visible underneath">
-
 ## Install
 
 1. Copy the `Cores`, `Platforms` and `Assets` folders onto the root of the Pocket's SD card, merging with what is there.
 2. Put your `.mp3` / `.flac` files in `/Assets/tau/common/` (subfolders such as `Artist/Album` are fine). `tau.rom` must stay there.
-3. Optional: build a library with `python3 tools/sync_media.py /path/to/music --all-tau --library`.
-4. Start the core from the Pocket menu. Press **Select** for the library or playlist, **Start** for Settings.
+3. Build a library: `python3 tools/sync_media.py /path/to/music --all-tau --library`. This is required -- there is no other way to browse or queue more than one file.
+4. Start the core from the Pocket menu. Press **Select** for the library, **Start** for Settings.
 
 Full controls, playlists, settings and known limits: [docs/guide/USER_GUIDE.md](docs/guide/USER_GUIDE.md).
 

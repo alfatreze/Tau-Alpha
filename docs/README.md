@@ -131,5 +131,5 @@ The full list is 001 to 021 in that folder.
 
 ## Images
 
-`screenshot.png`, `playlist_browser.png` (used by the README and the user guide), and preview renders: `font_preview.png`, `font_preview_body.png`, `gradient_preview.png`, `gradient_preview_4x.png`, `idle_preview.png`,
+`screenshot.png` (used by the README and the user guide), and preview renders: `font_preview.png`, `font_preview_body.png`, `gradient_preview.png`, `gradient_preview_4x.png`, `idle_preview.png`,
 `idle_preview_err.png`, `splash_preview.png`. `docs/vendor/` holds a vendor datasheet PDF used for the PSRAM timing contract.

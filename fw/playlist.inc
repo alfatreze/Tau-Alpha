@@ -1,15 +1,19 @@
-/* ================================================================== PLAYLIST
- * Reads an .m3u from its own data slot, then switches the MP3 slot between the
- * files it names using APF's 0192 "open file into data slot" command.
+/* ================================================================== FILE OPEN (was PLAYLIST)
+ * Opens a named file into an APF data slot using APF's 0192 "open file into data slot"
+ * command. This used to be the legacy .m3u-playlist-file loading path (reading a playlist
+ * off the card, parsing it, walking it) as well as the library's own file-open primitive;
+ * the legacy playlist-file mode itself has been removed (the media library is now the only
+ * way to play more than one file), but this file-open mechanism is still load-bearing: the
+ * media library (fw/library.inc) opens every track BY THIS SAME ROUTE, one absolute path at
+ * a time (pl_open_name() -> pl_open_into() -> pl_open_try()).
  *
- * The whole feature is FIRMWARE-ONLY. 0192 was already a valid selector in
- * tgt_cmd.v and the datatable already had a CPU write port -- both were built
- * for the reload work and left unused, so nothing in the RTL changes and the
- * bitstream is untouched.
+ * 0192 was already a valid selector in tgt_cmd.v and the datatable already had a CPU write
+ * port -- both were built for the reload work and left unused, so nothing in the RTL changes
+ * and the bitstream is untouched.
  *
- * There is no directory-listing command in APF. A core fundamentally cannot
- * enumerate a folder, which is why the track names have to come from a file the
- * user writes rather than from scanning the card.
+ * There is no directory-listing command in APF. A core fundamentally cannot enumerate a
+ * folder, which is why a track has to be named explicitly (by the library's own index, now)
+ * rather than found by scanning the card.
  */
 
 #define PL_SLOT_ID   3u
@@ -56,9 +60,7 @@ static inline void dt_write(uint32_t word, uint32_t val)
  * Both outcomes return 0, but they cost wildly different amounts of time and
  * mean different things. An answered command with a nonzero result is instant
  * and describes THIS file; a timeout burns the whole timeout and says the
- * command path itself is not responding, which the next file will not fix. The
- * skip loop in pl_play_dir() needs to tell them apart -- retrying 128 entries
- * that each take 3 s to not answer is six minutes of frozen core. */
+ * command path itself is not responding, which the next file will not fix. */
 static uint8_t pl_cmd_timedout;
 
 /* Run one target command and wait for the sequence counter to move. Same
@@ -105,10 +107,10 @@ static int pl_open_name(const char *name);   /* -> pl_open_into(MP3 slot) */
  *
  * Either slot will do. The MP3 slot is preferred because its path is the folder
  * the current track came from, but at launch it may hold nothing at all -- the
- * core no longer forces a file to be picked before it starts. The playlist slot
- * is filled at boot from playlist.m3u and sits in the same folder as the tracks
- * it names, so it is a perfectly good stand-in. */
-static uint32_t pl_template(uint32_t slot, uint8_t *buf, uint32_t *name_at)
+ * core no longer forces a file to be picked before it starts. The PL_SLOT_ID
+ * slot is filled by APF at boot (data.json still declares a default file for
+ * it) and sits in some folder on the card, so it is a perfectly good stand-in. */
+COLD_FN2 static uint32_t pl_template(uint32_t slot, uint8_t *buf, uint32_t *name_at)
 {
     if (!pl_cmd(TGT_GETFILE, slot, CLK_HZ)) return 0;
 
@@ -133,8 +135,8 @@ static uint32_t pl_template(uint32_t slot, uint8_t *buf, uint32_t *name_at)
 }
 
 /* Open `name` into ANY slot. The target used to be hardwired to the MP3 slot;
- * slot 3 needs it too now that the playlist slot no longer declares a default
- * filename and has to be filled by the core on a fresh card. */
+ * slot 3 needs it too now that the PL_SLOT_ID slot no longer declares a
+ * default filename and has to be filled by the core on a fresh card. */
 COLD_FN2 static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_slot)
 {
     pl_open_err = PLO_OK; pl_open_errcode = 0; pl_open_timeout = 0;
@@ -151,15 +153,17 @@ COLD_FN2 static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_s
      *    scan of the whole struct for "any word equal to the length" would
      *    eventually match something unrelated and corrupt it. */
     /* The slot's current entry is a full PATH ("/Assets/tau/common/x.mp3"
-     * -- the 0190 work saw exactly that), while a playlist line is normally a
-     * bare filename. Replacing the whole path with a bare name asks APF to open
-     * a file that does not exist at the root, which is what result code 4 was
+     * -- the 0190 work saw exactly that), while the name passed in here is
+     * either a bare filename or, from the library, an absolute path.
+     * Replacing the whole path with a bare name asks APF to open a file that
+     * does not exist at the root, which is what result code 4 was
      * reporting. So KEEP the directory the slot is already using and swap only
      * the last component. An entry that starts with '/' is taken as absolute
-     * and replaces the path outright.
+     * and replaces the path outright -- which is how the library, which
+     * always names an absolute path, uses this.
      *
      * The directory is read off the observed response rather than hardcoded --
-     * a playlist can live anywhere, and this way it follows the slot. */
+     * a track can live anywhere, and this way it follows the slot. */
     uint32_t dir_len = 0;
     if (name[0] != '/') {
         for (uint32_t k = 0; k < best_len; k++)
@@ -203,7 +207,7 @@ COLD_FN2 static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_s
 
     /* This switches the slot but raises NO 008A -- that notification is for a
      * file the USER picked from the menu, not one the core opened. The caller
-     * therefore has to drive the load itself; see pl_play_at(). */
+     * therefore has to drive the load itself; see pl_arm_load(). */
     if (!pl_cmd(TGT_OPENFILE, slot, CLK_HZ * 3u)) {
         pl_open_err     = PLO_OPEN;
         pl_open_timeout = pl_cmd_timedout;
@@ -213,25 +217,15 @@ COLD_FN2 static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_s
     return 1;
 }
 
-/* The PLAYLIST slot is the template of record, and the MP3 slot is the
- * fallback -- which is the reverse of how this started.
+/* The PL_SLOT_ID slot is the template of record, and the MP3 slot is the
+ * fallback.
  *
  * Only the directory of the template matters here: the last component is
- * replaced either way. The playlist is BY DEFINITION in the same folder as the
- * tracks it names, while the MP3 slot holds whatever played last and its 0190
- * response, after a core-initiated 0192, does not describe the subfolder the
- * track actually came from.
- *
- * That asymmetry is invisible in a flat library -- both slots name the same
- * folder -- and is exactly why this survived until someone put an album in a
- * subfolder. The signature was precise: track 1 played and track 2 failed with
- * 0192 err 3, because slot 2 starts EMPTY, so the first open fell through to
- * the playlist slot and got the right folder, and every open after it did not.
- *
- * Both orders are still tried. If the preferred template produces a path APF
- * will not open, the other is worth a go before giving up -- except on
- * PL_ERRCODE_NOFILE, which means the entry genuinely is not there and no
- * directory will change that. */
+ * replaced either way (or the whole path, for an absolute name such as the
+ * library always passes). Both orders are still tried. If the preferred
+ * template produces a path APF will not open, the other is worth a go before
+ * giving up -- except on PL_ERRCODE_NOFILE, which means the entry genuinely
+ * is not there and no directory will change that. */
 COLD_FN2 static int pl_open_into(uint32_t slot, const char *name)
 {
     if (pl_open_try(slot, name, PL_SLOT_ID)) return 1;
@@ -241,7 +235,7 @@ COLD_FN2 static int pl_open_into(uint32_t slot, const char *name)
 
 /* --------------------------------------------------------------- bad entries
  *
- * What a failed open means for the REST of the list. Getting this wrong in
+ * What a failed open means for the REST of a queue. Getting this wrong in
  * either direction loses music: treat a transient failure as permanent and a
  * track that would play is dropped for the session; treat a permanent one as
  * transient and every pass re-attempts a file that is not there.
@@ -257,7 +251,7 @@ COLD_FN2 static uint8_t pl_classify_failure(void)
     switch (pl_open_err) {
     /* No template from EITHER slot. That is the 0190 path failing, which has
      * nothing to do with which file was asked for -- the next entry produces
-     * exactly the same result, so walking the list is pure waste. */
+     * exactly the same result, so walking a queue is pure waste. */
     case PLO_GETFILE:
     case PLO_NONAME:
         return PLF_FATAL;
@@ -273,8 +267,8 @@ COLD_FN2 static uint8_t pl_classify_failure(void)
         if (!pl_open_timeout && pl_open_errcode == PL_ERRCODE_NOFILE)
             return PLF_DEAD;
         /* Never answered. Cheap to misjudge one way, ruinous the other: each
-         * timeout costs the full 3 s, so a list of 128 would freeze the core
-         * for six minutes before reaching the idle screen. Stop. */
+         * timeout costs the full 3 s, so a long queue would freeze the core
+         * for minutes before reaching the idle screen. Stop. */
         if (pl_open_timeout)
             return PLF_FATAL;
         /* Answered with something else -- busy, or a state we have not seen.
@@ -284,268 +278,7 @@ COLD_FN2 static uint8_t pl_classify_failure(void)
     return PLF_SKIP;
 }
 
-/* Entries known to be missing, indexed by FILE index rather than play position:
- * shuffle permutes the order, and knowledge of what is on the card must survive
- * that. Cleared by pl_load(), so fixing the card and re-picking the playlist
- * gives every entry another chance. 128 bits total. */
-static uint32_t pl_dead[(PL_MAX + 31u) / 32u];
-static uint16_t pl_dead_n;
-
-static int  pl_is_dead(uint16_t f) { return (pl_dead[f >> 5] >> (f & 31u)) & 1u; }
-static void pl_mark_dead(uint16_t f)
-{
-    if (pl_is_dead(f)) return;
-    pl_dead[f >> 5] |= 1u << (f & 31u);
-    pl_dead_n++;
-    /* The track count on screen is derived from this, so learning about an
-     * entry changes what is displayed -- and that display is drawn only when
-     * something is known to have changed. */
-    ui_mode_dirty = 1u;
-}
-
-/* How many tracks the user actually HAS, as opposed to how many lines are in
- * the file. An entry that cannot be opened is not a song, so it must not be
- * counted as one -- a 5-line list with one typo is a 4-track playlist.
- *
- * This can only ever be right about entries something has TRIED. Nothing in APF
- * answers "does this file exist"; the only test is 0192, which opens it, and
- * that costs a directory walk per entry and switches the MP3 slot as a side
- * effect. So the count is exact for everything the walk has reached and
- * optimistic beyond it, correcting itself as entries are visited. */
-COLD_FN2 static uint16_t pl_live_count(void)
-{
-    return (uint16_t)(pl_count - pl_dead_n);
-}
-
-/* Where `pos` sits among the LIVE entries, 1-based, so the position and the
- * total are counted the same way. Showing "4 / 4" while standing on the third
- * playable track would be worse than showing the raw numbers. */
-/* Which entry of the PLAYLIST is playing -- "4" in "4 / 12".
- *
- * `pos` indexes pl_order[], the play sequence, and it is the FILE index behind
- * it that the number names. Counting along the sequence instead would just
- * count 1, 2, 3... under shuffle and identify nothing; the two only agree
- * because pl_order[i] == i when shuffle is off, which is why walking the wrong
- * one looked correct.
- *
- * Dead entries -- ones that failed to open -- are skipped so the total from
- * pl_live_count() and this ordinal are counting the same set. */
-COLD_FN2 static uint16_t pl_live_ordinal(uint16_t pos)
-{
-    uint16_t f = (pos < pl_count) ? pl_order[pos] : 0u;
-    uint16_t n = 0;
-    for (uint16_t i = 0; i <= f && i < pl_count; i++)
-        if (!pl_is_dead(i)) n++;
-    return n ? n : 1u;
-}
-static void pl_dead_clear(void)
-{
-    for (uint32_t i = 0; i < sizeof(pl_dead) / sizeof(pl_dead[0]); i++) pl_dead[i] = 0;
-    pl_dead_n = 0;
-}
-
-/* ---------------------------------------------------------------- diagnostic
- * Put the raw 0190 response struct on screen, 16 bytes per row, hex on the left
- * and printable ASCII on the right.
- *
- * Everything about the 0192 parameter struct here is inferred from this
- * response -- its layout, where the name sits, whether a length field precedes
- * it. If an open still fails, that inference is what is wrong, and no amount of
- * reasoning from outside will settle it. One photograph of this screen shows
- * the real layout. Bound to Select+B; harmless to leave in.
- */
-COLD_FN2 static void pl_dump_struct(void)
-{
-    if (!pl_cmd(TGT_GETFILE, MP3_SLOT_ID, CLK_HZ)) { /* show what is there anyway */ }
-
-    fb_rect(0, 0, FB_W, FB_H, UI_BG);
-    fb_set_color(ui_accent, UI_BG);
-    fb_text_clipped(6, 4, "0190 RESPONSE STRUCT", TS_1X, TS_1X, FB_W);
-
-    for (uint32_t row = 0; row < 16u; row++) {
-        char line[64]; char *q = line;
-        uint8_t b[16];
-        for (uint32_t k = 0; k < 16u; k += 4u) {
-            uint32_t v = dt_read(DT_RESP_W + (row * 4u) + (k / 4u));
-            b[k+0] = (uint8_t)(v >> 24); b[k+1] = (uint8_t)(v >> 16);
-            b[k+2] = (uint8_t)(v >> 8);  b[k+3] = (uint8_t)v;
-        }
-        for (uint32_t k = 0; k < 16u; k++) {
-            q = ui_hex2(q, b[k]);
-            if ((k & 3u) == 3u) *q++ = ' ';
-        }
-        *q = 0;
-        fb_set_color(UI_DIM, UI_BG);
-        fb_text_clipped(6, 24u + row * 16u, line, TS_1X, TS_1X, FB_W - 90u);
-
-        q = line;
-        for (uint32_t k = 0; k < 16u; k++)
-            *q++ = (b[k] >= 0x20u && b[k] < 0x7Fu) ? (char)b[k] : '.';
-        *q = 0;
-        fb_set_color(UI_WHITE, UI_BG);
-        fb_text_clipped(FB_W - 86u, 24u + row * 16u, line, TS_1X, TS_1X, 84u);
-    }
-
-    fb_set_color(UI_FAINT, UI_BG);
-    fb_text_clipped(6, 24u + 16u * 16u + 4u, "SELECT+B AGAIN TO RESUME",
-                    TS_1X, TS_1X, FB_W);
-}
-
-/* ------------------------------------------------------------------ parsing */
-
-/* Why a playlist load produced nothing -- so "no playlist" can say WHICH kind
- * of nothing, instead of leaving the user to guess between an empty slot, an
- * unreadable file and a file with no track lines in it. */
-enum { PL_OK = 0, PL_ERR_NOFILE, PL_ERR_EMPTY, PL_ERR_SDRAM };
-static uint8_t pl_status;
-
-/* Read the playlist slot into pl_text. The landing zone is the ID3 probe
- * buffer -- 4 KB, already reserved as a DMA target and not in use during a
- * playlist load. The ring cannot be used: it holds audio being decoded.
- *
- * The read size STEPS DOWN on failure. This host fails a read that extends past
- * the end of the file rather than returning a short one -- probe_file_size()
- * depends on exactly that behaviour to binary-search a file's length. So asking
- * for a flat 4 KB, as this first did, fails outright on any playlist smaller
- * than 4 KB, which is essentially all of them: a 20-track .m3u is under 500
- * bytes. Halving down finds the largest read the tail will actually serve --
- * all the way to a single byte, because stopping at 4 left the last 1-3 bytes
- * of the file unread and silently truncated the final track's name. */
-COLD_FN2 static uint32_t pl_read_raw(void)
-{
-    uint32_t got = 0;
-    int any = 0;
-    pl_truncated = 0;
-
-    /* Carry the last size that worked into the next chunk instead of restarting
-     * the ladder at 4 KB every time. Restarting meant each successive chunk
-     * re-failed every larger size before getting to a workable one: 62 APF
-     * commands to read an 846-byte playlist, against 19 this way. Each command
-     * is a cluster-chain walk, which is why the load was visibly slow. */
-    uint32_t step = TAG_SIZE;
-
-    /* One byte past the end, to tell "the file is exactly this long" from "the
-     * file is longer and we stopped". Guessing from got == PL_TEXT_MAX would
-     * cry truncation on a playlist that happens to end on the boundary. */
-    while (got < PL_TEXT_MAX) {
-        uint32_t want = PL_TEXT_MAX - got;
-        if (want > step) want = step;
-
-        uint32_t n = 0;
-        while (want >= 1u) {
-            /* Zero the landing zone first, then measure what actually arrived:
-             * a read may also be CLAMPED rather than failed, and .m3u is text,
-             * so a NUL reliably marks where the data stopped either way. */
-            volatile uint8_t *z = (volatile uint8_t *)(uintptr_t)(UNCACHED + TAG_OFF);
-            for (uint32_t k = 0; k < want; k++) z[k] = 0u;
-
-            if (target_read_slot(PL_SLOT_ID, got, TAG_OFF, want)) {
-                while (n < want && tagbuf[n]) n++;
-                if (n) break;                  /* got real bytes at this size */
-            }
-            want >>= 1;                        /* too far past the end: shrink */
-        }
-        if (!n) break;
-
-        step = want;                       /* start the next chunk here */
-        any = 1;
-        for (uint32_t k = 0; k < n; k++) pl_text[got + k] = (char)tagbuf[k];
-        got += n;
-        if (n < want) break;                            /* short read = tail */
-    }
-
-    /* Filled the buffer exactly? Then the file may or may not continue. One
-     * byte past the end settles it, and only in that one case -- inferring it
-     * from got == PL_TEXT_MAX alone would cry truncation at a playlist that
-     * happens to end on the boundary. */
-    if (any && got == PL_TEXT_MAX) {
-        volatile uint8_t *z = (volatile uint8_t *)(uintptr_t)(UNCACHED + TAG_OFF);
-        z[0] = 0u;
-        if (target_read_slot(PL_SLOT_ID, got, TAG_OFF, 1u) && tagbuf[0])
-            pl_truncated = 1u;
-    }
-
-    if (!any) pl_status = PL_ERR_NOFILE;
-    return got;
-}
-
-/* Split the .m3u into names. Blank lines and #-comments are skipped, which
- * covers the extended format's #EXTM3U / #EXTINF lines, so both plain and
- * extended .m3u work with no separate parser. */
-COLD_FN2 static void pl_parse(uint32_t len)
-{
-    pl_count = 0;
-    uint32_t i = 0;
-    while (i < len && pl_count < PL_MAX) {
-        while (i < len && (pl_text[i] == '\n' || pl_text[i] == '\r')) i++;
-        if (i >= len) break;
-
-        uint32_t start = i;
-        while (i < len && pl_text[i] != '\n' && pl_text[i] != '\r') i++;
-        uint32_t end = i;
-
-        /* Step PAST the line terminator BEFORE writing the NUL over it.
-         *
-         * Terminating first destroyed the very byte the next iteration's skip
-         * loop looks for, so that loop stopped skipping and every following
-         * line began at the NUL rather than at its first real character. A line
-         * starting with NUL is not '#', so EVERY COMMENT LINE COUNTED AS A
-         * TRACK -- a 23-line comment header parsed as 23 tracks. */
-        if (i < len && pl_text[i] == '\r') i++;
-        if (i < len && pl_text[i] == '\n') i++;
-
-        /* Trailing whitespace, and the \r of a Windows line ending that a
-         * hand-edited file will almost always have. */
-        while (end > start && (pl_text[end-1] == ' ' || pl_text[end-1] == '\t'))
-            end--;
-        pl_text[end] = 0;
-
-        if (end > start && pl_text[start] != '#')
-            pl_off[pl_count++] = (uint16_t)start;
-    }
-
-    /* Ran out of index before running out of file. */
-    while (i < len && (pl_text[i] == '\n' || pl_text[i] == '\r')) i++;
-    if (i < len) pl_truncated = 1u;
-}
-
-/* ---------------------------------------------------------------- ordering */
-
-static uint32_t pl_rand(void)
-{
-    /* xorshift32. The seed comes from the cycle counter at the moment the user
-     * turned shuffle on, so the order differs between runs. */
-    pl_rng ^= pl_rng << 13; pl_rng ^= pl_rng >> 17; pl_rng ^= pl_rng << 5;
-    return pl_rng;
-}
-
-COLD_FN2 static void pl_reorder(void)
-{
-    for (uint16_t i = 0; i < pl_count; i++) pl_order[i] = i;
-    if (!shuffle_on || pl_count < 2u) return;
-
-    /* Fisher-Yates: every permutation equally likely, and no track repeats
-     * until the list is exhausted -- unlike picking at random each time, which
-     * can play the same track twice in a row. */
-    for (uint16_t i = (uint16_t)(pl_count - 1u); i > 0; i--) {
-        uint16_t j = (uint16_t)(pl_rand() % (uint32_t)(i + 1u));
-        uint16_t t = pl_order[i]; pl_order[i] = pl_order[j]; pl_order[j] = t;
-    }
-}
-
-/* Keep playing what is playing when the order changes: find the current track
- * in the new order rather than jumping to whatever landed at the same index. */
-COLD_FN2 static void pl_resync(uint16_t file_idx)
-{
-    for (uint16_t i = 0; i < pl_count; i++)
-        if (pl_order[i] == file_idx) { pl_pos = i; return; }
-    pl_pos = 0;
-}
-
-/* --------------------------------------------------------------- interface */
-
-
-/* Why the LAST attempt failed. Only reached when the walk below has given up
+/* Why the LAST attempt failed. Only reached when a caller has given up
  * on the whole request -- a single bad entry it steps over says nothing. */
 COLD_FN2 static void pl_toast_open_fail(void)
 {
@@ -559,7 +292,7 @@ COLD_FN2 static void pl_toast_open_fail(void)
 }
 
 /* Everything that has to follow a SUCCESSFUL open, and nothing that survives a
- * failed one -- which is what lets the walk below attempt an entry without
+ * failed one -- which is what lets a caller attempt an entry without
  * committing to it.
  *
  * A successful 0192 switches the slot but raises NO 008A -- that notification
@@ -593,353 +326,26 @@ COLD_FN2 static void pl_arm_load(uint32_t leaving_id)
     reload_at       = cycles() + CLK_HZ * 3u;
 }
 
-/* Play the first entry at or after `pos` that will actually open, walking in
- * `dir` (+1 forward, -1 back) past the ones that will not.
- *
- * One mistyped line in an .m3u used to cost the whole playlist: a single
- * attempt was made, and no caller retried, so the failure propagated all the
- * way out to the boot path and the core never reached the player. One bad line
- * should cost one track.
- *
- * `span` is how many positions the walk may visit, and it is what stops the
- * skipping from changing the MEANING of a caller's request. At most pl_count --
- * every position visited at most once -- and that bound is load-bearing rather
- * than defensive: pl_skip() and the end-of-track auto-advance both arrive here,
- * so an unbounded retry would turn a list of missing files from a one-track
- * hiccup into an infinite loop. Auto-advance with repeat OFF passes a shorter
- * span so that walking past a missing last entry ends the playlist instead of
- * wrapping round and restarting it. */
-COLD_FN2 static int pl_play_span(uint16_t pos, int dir, uint16_t span)
-{
-    if (!pl_count || !span) return 0;
-    if (span > pl_count) span = pl_count;
-    uint16_t prev_pos = pl_pos;
-
-    /* Captured BEFORE any open: after a successful one, 0190 answers with the
-     * new file. A FAILED open changes neither, so one capture serves the whole
-     * walk -- and hoisting the blocking read out of the loop means a run of bad
-     * entries does not pay for it once each. */
-    uint32_t leaving_id = cur_file_id;
-
-    /* Snapshot the head of the song we are LEAVING, so read_track_head can
-     * wait for the slot to return something else. Audio is already cut at this
-     * point, so a blocking 16-byte read costs nothing audible. */
-    sw_have_prev = 0;
-    if (target_read_slot(MP3_SLOT_ID, 0, TAG_OFF, 16u)) {
-        for (uint32_t i = 0; i < sizeof(sw_prev_head); i++)
-            sw_prev_head[i] = tagbuf[i];
-        sw_have_prev = 1;
-    }
-
-    uint16_t at = (uint16_t)(pos % pl_count);
-    uint16_t nmiss = 0, nfail = 0;
-
-    for (uint16_t n = 0; n < span; n++) {
-        uint16_t file_idx = pl_order[at];
-
-        /* Already known absent: skip without spending a command on it. Each
-         * 0192 makes APF re-walk the cluster chain, so re-asking about a file
-         * that was missing thirty seconds ago is the expensive way to get the
-         * same answer. */
-        if (pl_is_dead(file_idx)) {
-            nmiss++;
-        } else {
-            pl_pos = at;
-            track_from_pl = 1u;      /* the playlist started this track */
-            if (pl_open_name(&pl_text[pl_off[file_idx]])) {
-                lib_src = 0u;                /* the playlist owns playback again */
-                pl_arm_load(leaving_id);
-                /* ONE line about the whole walk, not one per bad entry: a list
-                 * half mistyped would otherwise queue toasts faster than they
-                 * can be read. (A "2 of 14" figure would need every entry
-                 * probed at load time, and probing costs a cluster walk each --
-                 * so this counts what this attempt actually walked past.) */
-                if (nmiss)      ui_toast_set("SKIPPED", nmiss, " MISSING");
-                else if (nfail) ui_toast_set("SKIPPED", nfail, " UNREADABLE");
-                return 1;
-            }
-
-            switch (pl_classify_failure()) {
-            case PLF_FATAL:
-                /* Not about this entry -- the command path itself is not
-                 * answering, and the next 127 entries would say so too. */
-                pl_pos = prev_pos;
-                pl_toast_open_fail();
-                return 0;
-            case PLF_DEAD:
-                pl_mark_dead(file_idx);
-                nmiss++;
-                break;
-            default:
-                nfail++;
-                break;
-            }
-        }
-
-        at = (uint16_t)((at + pl_count + (dir > 0 ? 1u : (uint16_t)(pl_count - 1u)))
-                        % pl_count);
-    }
-
-    /* Nothing in the list opened. Stay where we were and say so plainly --
-     * the caller (the boot path especially) has to be able to tell this from
-     * "no playlist at all". */
-    pl_pos = prev_pos;
-    if (nmiss) ui_toast_set("NO TRACKS:", nmiss, " MISSING");
-    else       pl_toast_open_fail();
-    return 0;
-}
-
-static int pl_play_dir(uint16_t pos, int dir) { return pl_play_span(pos, dir, pl_count); }
-static int pl_play_at(uint16_t pos)           { return pl_play_dir(pos, +1); }
-
-/* delta = +1 next, -1 previous. Wraps in both directions regardless of repeat
- * mode: a MANUAL skip past the end should go to track 1, not stop dead.
- * Repeat only governs what happens when a track ends on its own. */
-static int lib_skip(int delta);
-static int lib_advance_auto(void);
-COLD_FN2 static int pl_skip(int delta)
-{
-    if (lib_src) return lib_skip(delta);
-    if (pl_count < 1u) return 0;
-    uint16_t next = (uint16_t)((pl_pos + pl_count + (delta > 0 ? 1u : (uint16_t)(pl_count - 1u)))
-                               % pl_count);
-    /* Skip past bad entries in the DIRECTION THE USER PRESSED. Walking forward
-     * out of a back-press would hand them the track they were already on. */
-    return pl_play_dir(next, delta);
-}
-
-/* A track finished by itself. Returns 1 if a new track was started, 0 if the
- * caller should fall back to its own end-of-track handling. */
-COLD_FN2 static int pl_advance_auto(void)
-{
-    if (lib_src) return lib_advance_auto();
-    if (rep_mode == REP_ONE) return 0;          /* caller replays this track */
-    if (!pl_count) return 0;
-
-    if (pl_pos + 1u >= pl_count) {
-        if (rep_mode != REP_ALL) return 0;      /* end of list: let it stop */
-        /* A fresh shuffle each time round, otherwise "shuffle" plays the same
-         * random order forever and stops feeling random after one pass. */
-        if (shuffle_on) pl_reorder();
-        return pl_play_at(0);
-    }
-    /* Repeat ALL may skip past the end and come round; repeat OFF must NOT.
-     * Without the shorter span, a missing LAST entry would send the walk round
-     * to track 1 and silently restart a playlist the user had set to stop --
-     * skipping a bad file is allowed to cost a track, never to change the
-     * repeat mode's behaviour. */
-    if (rep_mode == REP_ALL) return pl_play_at((uint16_t)(pl_pos + 1u));
-    return pl_play_span((uint16_t)(pl_pos + 1u), +1,
-                        (uint16_t)(pl_count - (pl_pos + 1u)));
-}
-
-/* Load (or reload) the playlist slot. Safe to call when no playlist file is
- * present -- pl_count stays 0 and every playlist control becomes a no-op. */
-/* The playlist slot's own filename, last component only, uppercased for the
- * splash. Empty if APF has nothing there or will not answer.
- *
- * Doubles as the diagnostic for the multi-playlist defect: our code never
- * names a playlist, it just reads whatever is in slot 3, so if resume behaves
- * differently for audiobook.m3u than for playlist.m3u the difference has to be
- * in what APF put there. Showing the name settles that in one boot. */
-COLD_FN2 static void pl_name_read(void)
-{
-    pl_name[0] = 0; pl_name_raw[0] = 0;
-    uint8_t buf[DT_WORDS * 4u];
-    uint32_t at = 0, len = pl_template(PL_SLOT_ID, buf, &at);
-    if (!len) return;
-
-    /* Last path component only -- the slot holds a full path. */
-    uint32_t start = at;
-    for (uint32_t i = at; i < at + len; i++)
-        /* 0x5C is a backslash; writing it as a char literal here kept
-         * getting mangled by the tooling that generated this file. */
-        if (buf[i] == '/' || buf[i] == 0x5Cu) start = i + 1u;
-
-    /* The whole name, before the display copy truncates it. This is what the
-     * remembered hash is taken over, so a forty-character album name is as
-     * rememberable as a short one. */
-    {
-        uint32_t m = 0;
-        for (uint32_t i = start; i < at + len && m < PL_FULL_MAX; i++)
-            pl_name_full[m++] = (char)buf[i];
-        pl_name_full[m] = 0;
-    }
-
-    uint32_t n = 0;
-    for (uint32_t i = start; i < at + len && n < sizeof(pl_name) - 1u; i++) {
-        char c = (char)buf[i];
-        /* Raw case is kept as well as the uppercased display form. The stored
-         * stem is reopened BY NAME later, and uppercasing it would ask APF for
-         * SHENANIGANS.m3u when the card holds Shenanigans.m3u -- fine on FAT,
-         * not something to rely on. */
-        pl_name_raw[n] = c;
-        if (c >= 'a' && c <= 'z') c = (char)(c - 32);
-        pl_name[n++] = c;
-    }
-    pl_name[n] = 0;
-    pl_name_raw[n] = 0;
-}
-
-/* The name the core falls back to. Only used when APF has nothing in the
- * playlist slot -- once the user picks a list, that pick is what persists. */
-#define PL_DEFAULT_NAME "playlist.m3u"
-
 static int pl_open_name(const char *name)
 {
     return pl_open_into(MP3_SLOT_ID, name);
 }
 
-/* Reduce pl_name ("SHENANIGANS.M3U") to the stem we store ("SHENANIGANS").
- * Uppercase throughout: pl_name is already uppercased for the splash, and
- * comparing case-insensitively is what lets a stored stem match a slot whose
- * path APF reports in whatever case it likes. */
-static void pl_stem_of(const char *name, char *out)
-{
-    uint32_t n = 0;
-    for (uint32_t i = 0; name[i] && n < PL_STEM_MAX; i++) {
-        if (name[i] == '.') break;                 /* stop at the extension */
-        out[n++] = name[i];                        /* CASE PRESERVED */
-    }
-    /* Clear the REST, not just terminate. The caller's array is uninitialised
-     * stack and the whole of it is copied into pl_saved_stem and then written
-     * to the persist file on the card, so whatever was left in those bytes
-     * ends up in a file. Nothing reads past the terminator, so this never
-     * misbehaved -- but the persisted stem read back as "playlist\0t D", the
-     * tail being the remains of "Crash Test D" from a longer name stored
-     * earlier, which is stack residue in a user's settings and is misleading
-     * to anyone debugging from that file. */
-    while (n <= PL_STEM_MAX) out[n++] = 0;
-}
-
-static char pl_upper(char c) { return (c >= 'a' && c <= 'z') ? (char)(c - 32) : c; }
-
-/* Case-insensitive: the two sides come from different places and only the
- * card's own spelling is authoritative. */
-static int pl_stem_eq(const char *a, const char *b)
-{
-    for (uint32_t i = 0; i <= PL_STEM_MAX; i++) {
-        if (pl_upper(a[i]) != pl_upper(b[i])) return 0;
-        if (!a[i]) return 1;
-    }
-    return 1;
-}
-
-/* The list of playlists. Optional: without it everything below is skipped and
- * the twelve-character stem behaves exactly as it always has. */
-#define PL_INDEX_NAME "playlists.m3u"
-
-/* FNV-1a over the name, case-folded because the two sides come from different
- * places -- one from APF's datatable, one from a text file the user wrote --
- * and only the card's own spelling is authoritative.
+/* -------------------------------------------------------- SDRAM CPU window
+ * A general-purpose proven-safe scratch region for cold-code helpers, at
+ * 0xA0100000 (linker section .sdram). On a bitstream without the CPU window
+ * that alias decodes to MMIO, so no store may be issued until the window is
+ * proven: write a pattern through the Phase 1 mailbox (physical byte 1 MiB =
+ * mailbox word 0x80000) and read it back through the window (a read, harmless
+ * on a wrong bitstream), then exercise the first and last word of the region
+ * with two patterns. Runs once; the verdict is kept.
  *
- * Folded to 31 bits: APF stores settings words SIGNED, and a word that looks
- * negative is clamped to the range and comes back wrong. Zero is reserved for
- * "nothing remembered", so a hash that lands there is nudged. */
-COLD_FN2 static uint32_t pl_name_hash(const char *name)
-{
-    uint32_t h = 2166136261u;
-    for (uint32_t i = 0; name[i]; i++) {
-        h ^= (uint32_t)(uint8_t)pl_upper(name[i]);
-        h *= 16777619u;
-    }
-    h &= 0x7FFFFFFFu;
-    return h ? h : 1u;
-}
-
-/* Finds the remembered name in playlists.m3u and opens it.
- *
- * Reads the list into pl_text, which is safe HERE and nowhere else: this runs
- * during the boot restore, before the real playlist has been read into that
- * same buffer. Doing the lookup when the user PICKS a list would destroy the
- * list they just picked, which is the reason the remembered key is a hash --
- * a hash can be taken from the name alone, with no file access at all.
- *
- * Returns 1 if a matching entry was opened. */
-COLD_FN2 static int pl_open_by_hash(uint32_t want)
-{
-    if (!want) return 0;
-    if (!pl_open_into(PL_SLOT_ID, PL_INDEX_NAME)) return 0;
-
-    uint32_t len = pl_read_raw();
-    if (!len) return 0;
-
-    uint32_t i = 0;
-    while (i < len) {
-        while (i < len && (pl_text[i] == '\n' || pl_text[i] == '\r')) i++;
-        uint32_t a = i;
-        while (i < len && pl_text[i] != '\n' && pl_text[i] != '\r') i++;
-        uint32_t b = i;
-        while (b > a && pl_text[b - 1u] == ' ') b--;
-        if (b <= a || pl_text[a] == '#') continue;
-
-        /* Match on the last path component, so an entry may name a playlist
-         * inside its album folder and still be found. */
-        uint32_t base = a;
-        for (uint32_t k = a; k < b; k++)
-            if (pl_text[k] == '/' || pl_text[k] == 0x5Cu) base = k + 1u;
-
-        char nm[PL_FULL_MAX + 1u];
-        uint32_t n = 0;
-        for (uint32_t k = base; k < b && n < PL_FULL_MAX; k++) nm[n++] = pl_text[k];
-        nm[n] = 0;
-        if (pl_name_hash(nm) != want) continue;
-
-        /* Open the entry as WRITTEN, not the basename: the path is how a
-         * playlist in a subfolder is reached. */
-        char full[PL_FULL_MAX + 1u];
-        n = 0;
-        for (uint32_t k = a; k < b && n < PL_FULL_MAX; k++) full[n++] = pl_text[k];
-        full[n] = 0;
-        if (pl_open_into(PL_SLOT_ID, full)) return 1;
-        break;
-    }
-
-    /* No match, or the entry named a file that would not open. The slot is
-     * still holding playlists.m3u at this point, and pl_load() reads whatever
-     * the slot holds -- so leaving it there would parse the LIST OF PLAYLISTS
-     * as a list of tracks, and the user would be looking at a playlist whose
-     * every entry is an .m3u file. Put the default back and report failure;
-     * the caller still has the stem to try. */
-    pl_open_into(PL_SLOT_ID, PL_DEFAULT_NAME);
-    return 0;
-}
-
-/* Remember whichever list is loaded, so the next boot can reopen it. Called
- * once a playlist has actually parsed -- an unreadable file must not overwrite
- * a good remembered name. */
-COLD_FN2 static void pl_remember(void)
-{
-    /* The hash is taken over the FULL name and is what makes a long one
-     * rememberable; the stem still goes alongside it, because it is what
-     * works on a card with no playlists.m3u. Either may change without the
-     * other: a card can gain a list of playlists between sessions. */
-    uint32_t h = pl_name_full[0] ? pl_name_hash(pl_name_full) : 0u;
-
-    char stem[PL_STEM_MAX + 1u];
-    pl_stem_of(pl_name_raw, stem);
-
-    int stem_new = stem[0] && !pl_stem_eq(stem, pl_saved_stem);
-    int hash_new = h && h != pl_saved_hash;
-    if (!stem_new && !hash_new) return;
-
-    if (stem_new)
-        for (uint32_t i = 0; i <= PL_STEM_MAX; i++) pl_saved_stem[i] = stem[i];
-    if (hash_new) pl_saved_hash = h;
-    settings_mark_dirty();
-}
-
-#if TAU_DIAGNOSTIC
-static uint32_t pl_dg_len, pl_dg_sig;            /* parsed-text length and hash (Playlist check) */
-#endif
-/* The playlist buffers live at 0xA0100000..0xA01033FF (linker section .sdram). On a
- * bitstream without the CPU window that alias decodes to MMIO, so no store may be
- * issued until the window is proven: write a pattern through the Phase 1 mailbox
- * (physical byte 1 MiB = mailbox word 0x80000) and read it back through the window
- * (a read, harmless on a wrong bitstream), then exercise the first and last word of
- * the section with two patterns. Runs once; the verdict is kept. */
+ * This used to exist only for the (now removed) legacy .m3u text buffer; it
+ * is kept because it is now shared scratch: fw/suite.inc's Blit Test crumb
+ * trail (BT_CRUMB_BASE) and the general SDRAM-window Check tests (CT_SDW/
+ * CT_SDC) all use this same proven window. */
 #define PL_SDRAM_BASE   0xA0100000u
-#define PL_SDRAM_BYTES  (PL_TEXT_MAX + 2u * PL_MAX * 2u)
+#define PL_SDRAM_BYTES  0x3400u             /* the whole .sdram linker region */
 static uint8_t pl_sdram_state;                  /* 0 untested, 1 proven, 2 failed */
 static uint32_t pl_win_rd;                      /* cycles for one window read (Info page) */
 
@@ -970,141 +376,4 @@ COLD_FN2 static int pl_sdram_ready(void)
 {
     if (!pl_sdram_state) pl_sdram_state = pl_sdram_prove() ? 1u : 2u;
     return pl_sdram_state == 1u;
-}
-
-COLD_FN2 static void pl_load(void)
-{
-    lib_src = 0u;
-    pl_count = 0; pl_pos = 0; pl_status = PL_OK;
-    if (!pl_sdram_ready()) { pl_status = PL_ERR_SDRAM; return; }
-    /* A new list means new entries: nothing carries over. This is also the only
-     * way back for a user who fixed a filename on the card -- re-picking the
-     * playlist gives every entry another chance. */
-    pl_dead_clear();
-    pl_name_read();
-
-    /* Ask by READING, not by asking what is in the slot.
-     *
-     * The first version tested pl_name[0] for emptiness and skipped the
-     * fallback whenever it looked non-empty -- but pl_name comes from the 0190
-     * response struct, which holds RESIDUE from whatever getfile ran last. So
-     * it read as full when the slot was empty, the fallback never fired, and
-     * no playlist loaded at all. The only trustworthy test of "is there a
-     * playlist here" is trying to read one.
-     *
-     * STALE COMMENT CORRECTED: data.json DOES declare "playlist.m3u" for slot
-     * 3. Removing it was tried, on the theory that APF resetting the slot at
-     * every core load was throwing away the user's chosen list -- and it was
-     * reverted, because slot 3 does not retain the pick either way. So APF
-     * puts playlist.m3u in the slot at every launch and the remembered list
-     * is reopened by name below, which is what actually makes multi-playlist
-     * work. This open-by-name is the belt to that braces: it also covers a
-     * slot APF left empty. */
-    /* If a different list is remembered, reopen it BEFORE reading.
-     *
-     * The slot cannot remember anything itself -- with a filename declared in
-     * data.json APF resets it to that file every core load, and without one it
-     * comes up empty. Both measured. So the core reopens the remembered stem
-     * by name, which is the only mechanism the platform offers.
-     *
-     * Skipped when the slot already holds the right list, so the ordinary
-     * case costs nothing and picking a new list mid-session is untouched. */
-    /* ONLY on the first load of the session.
-     *
-     * pl_load() runs at boot AND every time the user picks a list, and the
-     * first version did not distinguish them -- so choosing Shenanigans.m3u
-     * made this see a name differing from the remembered one and helpfully
-     * "restore" the remembered one over the top. It fought the user's pick
-     * every single time, which is exactly how it was reported. */
-    if (pl_restore_pending && (pl_saved_stem[0] || pl_saved_hash)) {
-        char cur[PL_STEM_MAX + 1u];
-        pl_stem_of(pl_name_raw, cur);
-        uint32_t cur_h = pl_name_full[0] ? pl_name_hash(pl_name_full) : 0u;
-
-        /* Already the right list? Then leave it alone. The hash decides when
-         * there is one, because two albums by the same artist share their
-         * first twelve characters and the stem cannot tell them apart. */
-        int same = pl_saved_hash ? (cur_h == pl_saved_hash)
-                                 : pl_stem_eq(cur, pl_saved_stem);
-        if (!same) {
-            /* By hash through playlists.m3u first: that is the only route
-             * that can reopen a name longer than twelve characters. Falls
-             * through to the stem when there is no such file, or the name is
-             * not listed in it -- so a card that never had one is unaffected
-             * and a name short enough to store still works on its own. */
-            int opened = pl_open_by_hash(pl_saved_hash);
-
-            if (!opened && pl_saved_stem[0]) {
-                char want[PL_STEM_MAX + 5u];
-                uint32_t n = 0;
-                while (pl_saved_stem[n] && n < PL_STEM_MAX) { want[n] = pl_saved_stem[n]; n++; }
-                want[n++] = '.'; want[n++] = 'm'; want[n++] = '3'; want[n++] = 'u';
-                want[n] = 0;
-                opened = pl_open_into(PL_SLOT_ID, want);
-            }
-            if (opened) pl_name_read();
-        }
-    }
-
-    pl_restore_pending = 0;
-
-    uint32_t len = pl_read_raw();
-    if (!len && pl_open_into(PL_SLOT_ID, PL_DEFAULT_NAME)) {
-        pl_name_read();
-        len = pl_read_raw();
-    }
-    if (!len) { pl_status = PL_ERR_NOFILE; return; }
-
-    /* FNV-1a over the raw text, before parsing touches anything. */
-    {
-        uint32_t h = 2166136261u;
-        for (uint32_t i = 0; i < len; i++) {
-            h ^= (uint32_t)(uint8_t)pl_text[i];
-            h *= 16777619u;
-        }
-        pl_sig = h ? h : 1u;               /* 0 is reserved for "none" */
-    }
-
-    pl_parse(len);
-#if TAU_DIAGNOSTIC
-    /* Diagnostic Build: remember the parsed text's length and FNV so the Playlist check can
-     * detect a change in SDRAM later (pl_sig above is taken BEFORE parsing rewrites the text). */
-    pl_dg_len = len;
-    {
-        uint32_t h = 2166136261u;
-        for (uint32_t i = 0; i < len; i++) { h ^= (uint32_t)(uint8_t)pl_text[i]; h *= 16777619u; }
-        pl_dg_sig = h;
-    }
-#endif
-    if (!pl_count) { pl_status = PL_ERR_EMPTY; return; }
-
-    /* Seed HERE, not only when shuffle is switched on.
-     *
-     * pl_rng is a static 1 and the toggle handler was the only thing that ever
-     * seeded it from cycles(). Shuffle persists across sessions, so a user who
-     * leaves it on and never presses Select+R got pl_reorder() running on seed
-     * 1 at every boot -- a real Fisher-Yates shuffle producing the identical
-     * permutation forever.
-     *
-     * This point has genuine entropy: the playlist reads above walk the card's
-     * cluster chain, whose timing varies run to run, so the cycle counter here
-     * is not the fixed value it would be earlier in a deterministic boot. */
-    pl_remember();
-    for (uint32_t i = 0; i < sizeof(pl_cur_name); i++)
-        pl_cur_name[i] = pl_name_raw[i];
-    pl_rng = cycles() | 1u;
-    pl_reorder();
-}
-
-/* One line saying what happened, so a playlist that did not load says why
- * rather than just not working. */
-COLD_FN2 static void pl_report(void)
-{
-    if (pl_count && pl_truncated)         ui_toast_set("CLIPPED AT ", pl_live_count(),
-                                                       " TRACKS");
-    else if (pl_count)                    ui_toast_set("PLAYLIST", pl_live_count(),
-                                                       " TRACKS");
-    else if (pl_status == PL_ERR_SDRAM)   ui_toast_msg("NO SDRAM PLAYLIST");
-    else if (pl_status == PL_ERR_NOFILE)  ui_toast_msg("NO PLAYLIST FILE");
-    else                                  ui_toast_msg("PLAYLIST HAS NO TRACKS");
 }

@@ -18,25 +18,20 @@ def main():
         if any(pixel < 0 or pixel > 0xFFFF for pixel in frame.pixels):
             raise SystemExit(f"FAIL: {name} contains a non-RGB565 pixel")
         checksums[name] = sum(frame.pixels) & 0xFFFFFFFF
-    if checksums["empty-library"] == checksums["playlist-error"]:
-        raise SystemExit("FAIL: playlist error fixture did not draw its reason")
     settings = ("settings-home", "settings-appearance", "settings-audio", "settings-playback",
                 "settings-colour", "settings-meter", "settings-eq", "settings-repeat",
                 "settings-blank", "settings-diagnostics", "settings-info", "settings-tests", "settings-stress",
                 "settings-stress-level", "settings-soak", "settings-stress-status", "settings-speed")
-    if len({checksums[name] for name in settings + ("now-playing", "playlist-browser")}) != 19:
+    if len({checksums[name] for name in settings + ("now-playing",)}) != 18:
         raise SystemExit("FAIL: settings fixtures are not distinct")
     if len({checksums[n] for n in ("settings-check-idle", "settings-check-running", "settings-check-pass", "settings-check-fail")}) != 4:
         raise SystemExit("FAIL: Check page fixtures are not distinct")
-    if len({checksums[n] for n in ("settings-diagnostics", "settings-diagnostics-group", "settings-help-library",
-                                    "settings-help-legacy", "settings-home")}) != 5:
-        raise SystemExit("FAIL: menu/settings/help fixtures are not distinct")
+    if len({checksums[n] for n in ("settings-diagnostics", "settings-diagnostics-group", "settings-home")}) != 3:
+        raise SystemExit("FAIL: menu/settings fixtures are not distinct")
     library = ("library-home", "library-artists", "library-albums", "library-tracks", "library-tracks-scrolled",
                "library-lists", "library-list-tracks")
-    if len({checksums[name] for name in library + ("playlist-browser",)}) != 8:
+    if len({checksums[name] for name in library}) != 7:
         raise SystemExit("FAIL: library fixtures are not distinct")
-    if checksums["now-playing"] == checksums["playlist-browser"]:
-        raise SystemExit("FAIL: playlist browser fixture did not draw its overlay")
     if len({checksums[name] for name in ("now-playing", "paused", "stopped", "seeking")}) != 4:
         raise SystemExit("FAIL: transport fixtures are not distinct")
     if len({checksums[name] for name in ("now-playing", "metadata-long", "metadata-missing", "toast")}) != 4:
