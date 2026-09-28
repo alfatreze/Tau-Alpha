@@ -13,9 +13,13 @@ def save(p: Path, v: dict) -> None:
 
 def add_library_slot(core_dir: Path) -> None:
     """Data slot 5: the host-built index, read at boot (deferload, optional -- shipped cores never bundle the file
-    itself, since it is built from the user's own music by tools/sync_media.py). Persist words 24-27: what was
-    playing (kind/id/position), the index build it refers to, the Shuffle All seed, and the library on/off switch
-    (stored inverted: 0 = library on)."""
+    itself, since it is built from the user's own music by tools/sync_media.py). Persist words 24-26: what was
+    playing (kind/id/position), the index build it refers to, and the Shuffle All seed.
+
+    Id 27 ("Library off (restart)") is RETIRED: the library on/off switch was removed along with legacy
+    playlist mode (the library is now mandatory, since there is no fallback left to switch to). Per this
+    project's own persist-id convention (fw/settings.inc), id 27 is left dead -- never declared again here,
+    never reused for a new variable."""
     dj = json.loads((core_dir / "data.json").read_text())
     slots = dj["data"]["data_slots"]
     existing = next((x for x in slots if x["id"] == 5), None)
@@ -32,15 +36,13 @@ def add_library_slot(core_dir: Path) -> None:
 
     ij = json.loads((core_dir / "interact.json").read_text())
     vs = ij["interact"]["variables"]
-    if any(v["id"] in (24, 25, 26, 27) for v in vs):
+    if any(v["id"] in (24, 25, 26) for v in vs):
         return   # already declared (see above)
     gr = {"signed": False, "min": 0, "max": 2147483647, "adjust_small": 1, "adjust_large": 1}
     for i, nm in enumerate(("(internal) library 1", "(internal) library 2", "(internal) library 3")):
         vs.append({"name": nm, "id": 24 + i, "type": "slider_u32", "enabled": True, "persist": True,
                    "address": "0x%08X" % (0x20000030 + 4 * i),
                    "defaultval": 0, "graphical": gr})
-    vs.append({"name": "Library off (restart)", "id": 27, "type": "check", "enabled": True, "persist": True,
-               "address": "0x2000003C", "defaultval": 0, "value": 1})
     save(core_dir / "interact.json", ij)
 
 

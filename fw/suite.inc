@@ -198,7 +198,7 @@ COLD_TEXT static int chk_do(uint32_t id)
         chk_set((COLD_READY() && cold_probe(6u, 7u) == 43u) ? SR_PASS : SR_FAIL, cold_err);
         break;
     case CT_LIB:
-        if (lib_disabled || lib_state == LIB_ST_NONE) { chk_set(SR_NA, pl_count); break; }
+        if (lib_state == LIB_ST_NONE) { chk_set(SR_NA, 0u); break; }
         if (lib_state != LIB_ST_OK) { chk_set(SR_FAIL, lib_err); break; }
         {
             uint32_t bad = 0, n = lib.n_tracks, step = n > 128u ? n / 128u : 1u;
@@ -361,7 +361,7 @@ COLD_TEXT static int chk_do(uint32_t id)
     case CT_TRK:                                                /* CHK_TRK_N track changes, next and previous alternating, each waited out */
         if (!chk_at) {
             {
-                uint32_t nq = lib_src ? lib_qn : pl_count;        /* entries in the current queue or playlist */
+                uint32_t nq = lib_qn;        /* entries in the library queue -- the only queue there is now */
                 if (nq < 2u) { chk_set(SR_SKIP, nq); break; }     /* nothing to change to (value = entries) */
                 CKM->tnq = (uint16_t)nq; CKM->tsrc = lib_src;     /* B-165: for a FAIL's diagnostic value, below */
             }
@@ -465,7 +465,7 @@ COLD_TEXT static void chk_finish(void)
     { uint32_t dp[4] = { chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r };
       sr_vals(&s, SR_T_DECPROF, 2, dp, 4); }
 #endif
-    uint32_t lb[4] = { lib_state == LIB_ST_OK ? lib.n_tracks : 0u, lib_ms, (uint32_t)lib_err | ((uint32_t)lib_state << 8), lib_disabled };
+    uint32_t lb[4] = { lib_state == LIB_ST_OK ? lib.n_tracks : 0u, lib_ms, (uint32_t)lib_err | ((uint32_t)lib_state << 8), 0u };
     sr_vals(&s, SR_T_LIB, 4, lb, 4);
     uint8_t er[3] = { lib_err, cold_err, (uint8_t)pl_sdram_state };
     sr_tlv(&s, SR_T_ERR, er, 3);
@@ -488,7 +488,7 @@ COLD_TEXT static void chk_finish(void)
     p.load100 = ld_total / 100u; p.lib_err = lib_err; p.cold_err = cold_err; p.fw_minor = (uint32_t)(APP_VER[2] - '0');
     sp_pack(&p, chk_w);
     chk_rec_on = 1u;
-    for (uint32_t i = 0; i < 4u; i++) set_wr(SW_PLN0 + i, chk_w[i]);
+    for (uint32_t i = 0; i < 4u; i++) set_wr(SW_RETIRED_PLN0 + i, chk_w[i]);
     settings_mark_dirty();
 }
 
@@ -558,7 +558,14 @@ COLD_TEXT static void chk_line(uint32_t i)
             *q++ = '*';
     }
     *q = 0;
-    chk_row(i, chk_n > 12u ? 20u : PL_UI_ROW_H, chk_s(id < CHK_BASE ? id : CS_X0 + id - CHK_BASE), v);
+    /* Row height must shrink with chk_n so the last row never reaches the action bar (OV_HINT_Y) --
+     * the old hardcoded 20u was tuned when FULL topped out at 14 rows; CT_COLDFRAME (B-199) pushed
+     * FULL to 15 (CHK_MAX) and 15*20=300 overran the 280px list area by a full row, painting the
+     * last row's PASS text over the "B BACK" action bar (owner-reported, real hardware). Computed
+     * from the actual list geometry instead of a second magic number, so it stays correct if a
+     * future profile adds another row (up to CHK_MAX, the 15-bit pass/fail mask's own ceiling). */
+    uint32_t rh = chk_n > 12u ? (OV_HINT_Y - PL_UI_LIST_Y) / chk_n : PL_UI_ROW_H;
+    chk_row(i, rh, chk_s(id < CHK_BASE ? id : CS_X0 + id - CHK_BASE), v);
 }
 
 COLD_TEXT static void chk_draw(void)

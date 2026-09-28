@@ -99,7 +99,7 @@ def main():
         desc = desc[:60] + "..."
     m["description"] = desc
     save(c / "core.json", j)
-    slots_lib.add_library_slot(c)                       # data slot 5 + persist words 24-27
+    slots_lib.add_library_slot(c)                       # data slot 5 + persist words 24-26 (27 retired)
     if len(platform) > 15 or not re.fullmatch(r"[a-z0-9][a-z0-9_]*", platform):
         raise ValueError(f"invalid Analogue Pocket platform shortname: {platform!r}")
     if len(short) > 31: raise ValueError(f"core shortname exceeds Pocket limit: {short!r}")

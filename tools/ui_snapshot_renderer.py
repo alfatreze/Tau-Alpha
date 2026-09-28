@@ -427,7 +427,7 @@ def overlay_geometry():
     """PL_UI_* from fw/player.c (the expressions use FB_W/FB_H and earlier names)."""
     env = {"FB_W": FB_W, "FB_H": FB_H}
     for name in ("PL_UI_ROWS", "PL_UI_X", "PL_UI_W", "PL_UI_Y", "PL_UI_H", "PL_UI_ROW_H",
-                 "PL_UI_LIST_Y", "PL_UI_TEXT_X", "PL_UI_PAD_B", "PLIST_ROW_H", "PLIST_ROWS"):
+                 "PL_UI_LIST_Y", "PL_UI_TEXT_X", "PL_UI_PAD_B"):
         match = re.search(r"#define\s+" + name + r"\s+(.+)", PLAYER)
         if not match:
             raise RuntimeError(f"could not read {name} from fw/player.c")
@@ -489,34 +489,6 @@ def ov_frame(title, right="", hint=""):
     frame.text(g["PL_UI_TEXT_X"], g["PL_UI_Y"] + g["PL_UI_H"] - 26, hint, "TS_1X", UI_FAINT,
                UI_PANEL, g["PL_UI_W"] - 32)
     return frame, g
-
-
-def playlist_browser():
-    """pl_ui_draw() fixture: the full-screen playlist overlay (nothing of the player shows). B-073: rows match the
-    settings/library rows (PLIST_ROW_H/PLIST_ROWS), not the denser PL_UI_ROW_H/PL_UI_ROWS the other pages still use."""
-    entries = ("01 - Welcome Home", "02 - Night Drive", "03 - Sunset Sequence",
-               "04 - Ocean Between Us", "05 - Echoes", "06 - Golden Hour",
-               "07 - Low Battery")
-    count, selected, playing, top = 30, 3, 1, 0
-    frame, g = ov_frame("PLAYLIST", f"{selected + 1} / {count}", "A PLAY   B BACK")
-    x, width, list_y, row_h, rows = g["PL_UI_X"], g["PL_UI_W"], g["PL_UI_LIST_Y"], g["PLIST_ROW_H"], g["PLIST_ROWS"]
-    text_x = g["PL_UI_TEXT_X"]
-    track_x, track_y, track_h = x + width - 11, list_y - 2, rows * row_h
-    frame.rect(track_x, track_y, 3, track_h, ui_mix(UI_PANEL, UI_DIM, 1, 3))
-    thumb_h = max(8, track_h * rows // count)
-    frame.rect(track_x, track_y + (track_h - thumb_h) * top // (count - rows), 3, thumb_h, UI_ACCENT)
-    for i, label in enumerate(entries[:rows]):
-        row_y = list_y + i * row_h
-        text_y = row_y + (row_h - 2 - 16) // 2
-        selected_row = i == selected
-        background = UI_ACCENT if selected_row else UI_PANEL
-        if selected_row:
-            rounded_rect_on(frame, x + 4, row_y - 2, width - 8, row_h, 5, background, UI_PANEL)
-        foreground = UI_PANEL if selected_row else (UI_WHITE if i == playing else UI_DIM)
-        if i == playing:
-            frame.text(x + 8, text_y, ">", "TS_1X", foreground, background, 12)
-        frame.text(text_x + 8, text_y, label, "TS_1X", foreground, background, width - 40)
-    return frame
 
 
 LIBRARY_INC = (ROOT / "fw/library.inc").read_text(encoding="utf-8")
@@ -672,7 +644,7 @@ def settings_menu(page, selected):
     return frame
 
 
-INFO_SAMPLE = ("0.1.0", "4D503317", "OK", "52 CYC", "16112 B", "13 TRACKS", "NO",
+INFO_SAMPLE = ("0.1.0", "4D503317", "OK", "52 CYC", "16112 B", "NO",
                "MP3 320K 44.1K", "OK", "0", "0 MS", "12/8/41/118", "7180 TRK 1.2 S", "OK", "60/S", "HW W42", "OK 23% WAITED", "OK 214 DRAWN 3 SKIP", "23%", "4 LOADED 31 MS E0", "HW 5120 SLOTS 0 BAD 0 TMO", "NONE", "NONE")
 STAT_SAMPLE = ("R2", "RUNNING", "3", "786432", "0", "4", "0", "372 CYC", "0 MS", "13.4K OPS/S",
                "12:41 LEFT")
@@ -736,19 +708,6 @@ def check_page(state, results, running_step=None, countdown=0, code=("J60000 3Z0
         for k, line in enumerate(code):
             frame.text(g["PL_UI_TEXT_X"], g["PL_UI_LIST_Y"] + (9 + k) * g["PL_UI_ROW_H"] + 4, line, "TS_1X", UI_DIM,
                        UI_PANEL, g["PL_UI_W"] - 32)
-    return frame
-
-
-def settings_help(library):
-    """set_draw_help() fixture: the two 'how it works' texts, read from the firmware source."""
-    name = "set_help_lib" if library else "set_help_legacy"
-    body = re.search(rf"{name}\[\] COLD_DATA =(.*?);", SETTINGS_SRC, re.S).group(1)
-    frags = re.findall(r'"((?:[^"\\]|\\.)*)"', body)
-    lines = "".join(frags).split("\\0")
-    frame, g = ov_frame("HOW IT WORKS", "", "B BACK")
-    for i, line in enumerate(lines[:g["PL_UI_ROWS"]]):
-        frame.text(g["PL_UI_TEXT_X"], g["PL_UI_LIST_Y"] + i * g["PL_UI_ROW_H"], line, "TS_1X",
-                   UI_WHITE if i else UI_ACCENT, UI_PANEL, g["PL_UI_W"] - 32)
     return frame
 
 
@@ -908,9 +867,7 @@ def sdram_cpu_probe_bar():
 
 FIXTURES = {
     "empty-library": lambda: idle(),
-    "playlist-error": lambda: idle("No playable tracks in playlist"),
     "now-playing": now_playing_base,
-    "playlist-browser": playlist_browser,
     "library-home": library_home,
     "library-artists": library_artists,
     "library-albums": library_albums,
@@ -921,7 +878,7 @@ FIXTURES = {
     "settings-home": lambda: settings_menu(0, 1),
     "settings-appearance": lambda: settings_menu(1, 0),
     "settings-audio": lambda: settings_menu(2, 0),
-    "settings-playback": lambda: settings_menu(3, 3),
+    "settings-playback": lambda: settings_menu(3, 1),
     "settings-diagnostics": lambda: settings_menu(4, 0),
     "settings-info": settings_info,
     "settings-tests": lambda: settings_menu(5, 0),
@@ -932,8 +889,6 @@ FIXTURES = {
     "settings-check-pass": lambda: check_page("done", ["PASS"] * 7),
     "settings-check-fail": lambda: check_page(
         "done", ["PASS", "FAIL", "PASS", "PASS", "PASS", "SKIPPED", "PASS"], code=("J40020 3WG00G 000000", "09G000 0CBK6M 2D2GA0")),
-    "settings-help-library": lambda: settings_help(True),
-    "settings-help-legacy": lambda: settings_help(False),
     "settings-stress-level": lambda: settings_choice("stress", 2, 2),
     "settings-soak": lambda: settings_choice("soak", 2, 0),
     "settings-speed": lambda: settings_choice("speed", 4, 2),

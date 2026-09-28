@@ -76,7 +76,6 @@ COLD_FN static int lib_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)
 COLD_FN static void lib_boot_load(void)
 {
     lib_state = LIB_ST_NONE; lib_err = 0; lib_depth = 0;
-    if (lib_disabled) return;                    /* switched off in Menu > Settings > Library: legacy mode runs as if no index existed */
     /* No index file: not an error, and nothing else is touched. The host fails a read past the end, and a
      * present file always serves its first byte. */
     if (!target_read_slot(LIB_SLOT_ID, 0u, TAG_OFF, 1u)) return;
@@ -343,7 +342,6 @@ COLD_FN static int lib_play_span(uint32_t pos, int dir, uint32_t span)
         } else {
             lib_qpos = (uint16_t)at; lib_src = 1u;
             if (pl_open_name(path)) {
-                track_from_pl = 0u;                 /* the resume saver is for playlists */
                 if (lib_h) { lib_h = (lib_h & 0x3FFFu) | ((uint32_t)lib_qpos << 14); settings_mark_dirty(); }   /* remember the position */
                 pl_arm_load(leaving_id);
                 if (nmiss)      ui_toast_set("SKIPPED", nmiss, " MISSING");
@@ -580,9 +578,7 @@ COLD_FN static void lib_ui_input(uint32_t *edge_p, uint32_t *fall_p, uint32_t *k
 /* Value for the Info page's LIBRARY row. */
 COLD_FN static char *lib_info_text(char *q)
 {
-    if (lib_disabled) {
-        q = lib_cat(q, "OFF (SETTING)");
-    } else if (lib_state == LIB_ST_OK) {
+    if (lib_state == LIB_ST_OK) {
         q = ui_dec(q, lib.n_tracks); q = lib_cat(q, " TRK ");
         q = ui_dec(q, lib_ms / 1000u); *q++ = '.'; q = ui_dec(q, (lib_ms % 1000u) / 100u); q = lib_cat(q, " S ");
         q = lib_cat(q, lib_boot_ok ? "R1" : "R0");   /* B-080: did the boot restore something (R1) or not (R0) */

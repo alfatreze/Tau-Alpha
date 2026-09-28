@@ -116,20 +116,20 @@ static void settings_mark_dirty(void) { set_dirty_at = cycles() | 1u; }
  *
  * The ADDRESSES of the six survivors are unchanged, deliberately: renumbering
  * would have scrambled every already-saved setting on every card. */
-enum { SW_VOL = 0, SW_PAL, SW_REP, SW_SHUF, SW_RESUME, SW_VIZ, SW_EQ,
-       SW_RESUMEON,
-       /* rev 21 widened the index to 4 bits; these are the first slots that
-        * were never available before. Three words carry twelve characters of
-        * the playlist's stem. */
-       SW_PLN0, SW_PLN1, SW_PLN2,
-       /* A hash of the playlist's FULL name, resolved at boot against
-        * playlists.m3u. The three words above hold twelve characters, which
-        * is not enough for an ordinary album name and cannot be made enough:
-        * five free slots buy thirty-two characters and the name that prompted
-        * this is forty-two. See pl_saved_hash. */
-       SW_PLHASH,
-       /* rev 22 library: what was playing, the index it refers to, the Shuffle All seed, and the on/off switch. */
-       SW_LIBH, SW_LIBB, SW_LIBS, SW_LIBOFF,
+/* SW_RETIRED_*: legacy playlist mode (Shuffle, Resume, the remembered playlist name/hash) and the
+ * library on/off switch were all removed together (the library is now mandatory, so there is no
+ * fallback left to switch to). Per this file's own rule 2 above, a retired id is deleted and left
+ * DEAD, never renumbered and never reused for something else -- these placeholders keep every
+ * later id's numeric value exactly where it was, so nothing after them shifts. Nothing reads or
+ * writes these slots any more; an old persist file's values there are simply ignored. */
+enum { SW_VOL = 0, SW_PAL, SW_REP, SW_RETIRED_SHUF, SW_RETIRED_RESUME, SW_VIZ, SW_EQ,
+       SW_RETIRED_RESUMEON,
+       /* rev 21 widened the index to 4 bits; these three were the remembered playlist's name stem,
+        * and the one after them its full-name hash (playlists.m3u lookup). */
+       SW_RETIRED_PLN0, SW_RETIRED_PLN1, SW_RETIRED_PLN2,
+       SW_RETIRED_PLHASH,
+       /* rev 22 library: what was playing, the index it refers to, the Shuffle All seed, and (retired) the on/off switch. */
+       SW_LIBH, SW_LIBB, SW_LIBS, SW_RETIRED_LIBOFF,
        /* B-346: the register file widened 16 -> 32 words (see core_game.vh's set_reg). These five are
         * the first of the sixteen new slots -- theme index and polarity (session-only until now, per
         * docs/THEME_SPEC.md section 5's own open item), and the current preset of each Configurable
@@ -197,9 +197,11 @@ static void     set_wr32(uint32_t w, uint32_t v) { persist32_probe_ensure(); if 
 /* Publish every current value. Called at boot after adopting, and whenever a
  * setting changes. Two MMIO writes per word -- nothing to debounce. */
 #if TAU_DIAGNOSTIC
-/* fw/suite.inc keeps its four-word summary in the words the legacy playlist name/hash used (8-11), which library builds do not
- * use. While a summary is held it is what gets published; a stem or hash word is recognised by its first character being
- * printable, a summary by (word & 15) == 1 with that character below 0x20. */
+/* fw/suite.inc keeps its four-word summary in the words the (now-retired) legacy playlist
+ * name/hash used (SW_RETIRED_PLN0..SW_RETIRED_PLHASH). While a summary is held it is what gets
+ * published there instead; a summary is recognised by (word & 15) == 1 with that character below
+ * 0x20. Those four ids stay dedicated to this Diagnostic Build use, not reclaimed as ordinary
+ * settings, since a release build now never writes them at all. */
 static uint8_t  chk_rec_on;
 static uint32_t chk_w[4];
 #endif
@@ -208,32 +210,14 @@ static int settings_store(void)
     set_wr(SW_VOL,  volume);
     set_wr(SW_PAL,  ui_pal_idx);
     set_wr(SW_REP,  rep_mode);
-    set_wr(SW_SHUF, shuffle_on ? 1u : 0u);
-    set_wr(SW_RESUME, resume_word);
     set_wr(SW_VIZ,  (viz_mode == VIZ_BARS && bars_layout) ? VIZ_RETIRED_MIRROR : viz_mode);
     set_wr(SW_EQ,   eq_idx);
-    set_wr(SW_RESUMEON, resume_on ? 1u : 0u);
 #if TAU_DIAGNOSTIC
-    if (chk_rec_on) { for (uint32_t k = 0; k < 4u; k++) set_wr(SW_PLN0 + k, chk_w[k] & 0x7FFFFFFFu); } else {
-#endif
-    for (uint32_t k = 0; k < 3u; k++) {
-        uint32_t w = 0;
-        for (uint32_t j = 0; j < 4u; j++) {
-            uint32_t i = k * 4u + j;
-            /* Bit 31 must stay clear -- APF stores these SIGNED, and a word
-             * that looks negative is clamped. Four 7-bit chars fit exactly. */
-            w |= ((uint32_t)(pl_saved_stem[i] & 0x7Fu)) << (j * 7u);
-        }
-        set_wr(SW_PLN0 + k, w);
-    }
-    set_wr(SW_PLHASH, pl_saved_hash & 0x7FFFFFFFu);
-#if TAU_DIAGNOSTIC
-    }
+    if (chk_rec_on) { for (uint32_t k = 0; k < 4u; k++) set_wr(SW_RETIRED_PLN0 + k, chk_w[k] & 0x7FFFFFFFu); }
 #endif
     set_wr(SW_LIBH, lib_h & 0x7FFFFFFFu);
     set_wr(SW_LIBB, lib_hb & 0x7FFFFFFFu);
     set_wr(SW_LIBS, lib_hs & 0x7FFFFFFFu);
-    set_wr(SW_LIBOFF, lib_disabled ? 1u : 0u);
     set_wr32(SW_THEME, th_theme);
     set_wr32(SW_POL,   th_pol ? 1u : 0u);
     set_wr32(SW_MPRE_BARS,    mtr_pi_winamp_bars);
@@ -262,11 +246,6 @@ static int settings_load(void)
     v = set_rd(SW_PAL);   if (v < UI_PALETTE_N)  { ui_pal_idx = v;
                                                    ui_accent = th_accent_of(v); }
     v = set_rd(SW_REP);   if (v <= REP_ONE)        rep_mode = (uint8_t)v;
-    v = set_rd(SW_SHUF);  shuffle_on = v ? 1u : 0u;
-    /* Not range-checked as a whole -- it is three packed fields and each is
-     * validated where it is used, against the playlist length and the file
-     * actually open. A garbage word can only fail to resume. */
-    resume_word = set_rd(SW_RESUME);
     /* Only modes in viz_order[] are restored, not just a range check: a settings word saved with a RETIRED meter (cassette, magic eye,
      * L/R levels) must not select a mode that no longer has a drawing block (see viz_sel_to_mode(), fw/player.c). */
     v = set_rd(SW_VIZ);
@@ -274,32 +253,29 @@ static int settings_load(void)
     else if (v < VIZ_COUNT && viz_selectable(v))  viz_mode = (uint8_t)v;
     v = set_rd(SW_EQ);    if (v < EQ_COUNT)      { eq_idx = (uint8_t)v;
                                                    REG(R_EQ) = eq_idx; }
-    v = set_rd(SW_RESUMEON); resume_on = v ? 1u : 0u;
+    /* Retired ids (Shuffle, Resume, Resume point): nothing here reads them into any firmware
+     * variable any more, but set_pub[] must still be kept in sync with whatever APF/the persist
+     * file holds for them -- otherwise settings_poll_menu()'s comparison sees them permanently
+     * "changed" against the 0xFFFFFFFF init sentinel and re-triggers a reload/store every single
+     * poll, forever (the exact spurious-poll trap this file's own rev-21 comment warns about for
+     * a different case). This is the read-only echo that keeps them dead without that side effect. */
+    set_pub[SW_RETIRED_SHUF]     = set_rd(SW_RETIRED_SHUF);
+    set_pub[SW_RETIRED_RESUME]   = set_rd(SW_RETIRED_RESUME);
+    set_pub[SW_RETIRED_RESUMEON] = set_rd(SW_RETIRED_RESUMEON);
 #if TAU_DIAGNOSTIC
     chk_rec_on = 0u;
-    { uint32_t w0 = set_rd(SW_PLN0);
-      if ((w0 & 15u) == 1u && (w0 & 0x7Fu) < 0x20u) { chk_rec_on = 1u; for (uint32_t k = 0; k < 4u; k++) chk_w[k] = set_rd(SW_PLN0 + k); } }
+    { uint32_t w0 = set_rd(SW_RETIRED_PLN0);
+      if ((w0 & 15u) == 1u && (w0 & 0x7Fu) < 0x20u) { chk_rec_on = 1u; for (uint32_t k = 0; k < 4u; k++) chk_w[k] = set_rd(SW_RETIRED_PLN0 + k); } }
     if (!chk_rec_on) {
-#endif
-    for (uint32_t k = 0; k < 3u; k++) {
-        uint32_t w = set_rd(SW_PLN0 + k);
-        for (uint32_t j = 0; j < 4u; j++) {
-            char c = (char)((w >> (j * 7u)) & 0x7Fu);
-            /* Anything the font cannot show is not a filename we wrote. */
-            pl_saved_stem[k * 4u + j] = (c >= 0x20 && c < 0x7F) ? c : 0;
-        }
+        for (uint32_t k = 0; k < 4u; k++) set_pub[SW_RETIRED_PLN0 + k] = set_rd(SW_RETIRED_PLN0 + k);
     }
-    pl_saved_stem[PL_STEM_MAX] = 0;
-    /* No range to check: any value is a legal hash. A wrong one simply fails
-     * to match anything in playlists.m3u and the stem takes over. */
-    pl_saved_hash = set_rd(SW_PLHASH) & 0x7FFFFFFFu;
-#if TAU_DIAGNOSTIC
-    }
+#else
+    for (uint32_t k = 0; k < 4u; k++) set_pub[SW_RETIRED_PLN0 + k] = set_rd(SW_RETIRED_PLN0 + k);
 #endif
     lib_h = set_rd(SW_LIBH) & 0x7FFFFFFFu;      /* validated where used: against the index and its build id */
     lib_hb = set_rd(SW_LIBB) & 0x7FFFFFFFu;
     lib_hs = set_rd(SW_LIBS) & 0x7FFFFFFFu;
-    lib_disabled = set_rd(SW_LIBOFF) ? 1u : 0u;
+    set_pub[SW_RETIRED_LIBOFF] = set_rd(SW_RETIRED_LIBOFF);
     /* B-346: on a bitstream without the 32-word register file, set_rd32() returns 0 for all five --
      * theme 0 (TAU), Dark, no saved preset for any of the three meters -- exactly today's defaults, so
      * this degrades to "nothing persisted" rather than to a wrong or corrupted value. */
@@ -323,7 +299,7 @@ static int settings_poll_menu(void)
      * there aliases onto an early slot (e.g. Volume) and would never match set_pub[w]'s 0xFFFFFFFF
      * sentinel, forcing a spurious reload/store EVERY poll. persist32_probe_ensure() is cheap (a boot-
      * time probe, this call is just the flag check after the first). */
-    uint32_t lim = SW_LIBOFF + 1u;   /* the original 16; SW_THEME is the first of the new ones */
+    uint32_t lim = SW_RETIRED_LIBOFF + 1u;   /* the original 16; SW_THEME is the first of the new ones */
     for (uint32_t w = 0; w < lim; w++)
         if (set_rd(w) != set_pub[w]) { changed = 1; break; }
     if (!changed && PERSIST32_READY())
