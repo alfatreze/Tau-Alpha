@@ -1665,6 +1665,7 @@ static uint32_t peak_l, peak_r;          /* per-channel, for LEVELS */
  * WVIZ_BANDS_MIN/MAX bound the band count (= SPEC_BANDS, the octave cascade's real band count: more would mean interpolating fake data;
  * the manifest range and a _Static_assert below keep them equal). */
 #include "meter_module.h"
+#include "meter.h"          /* the draw contract, docs/features/meters/METER_MODULE_SPEC.md section 3 */
 #include "meters_gen.h"
 #define WVIZ_BANDS_MIN 4u
 #define WVIZ_BANDS_MAX 16u
@@ -3310,6 +3311,39 @@ static void ui_icon_dot(uint32_t x, uint32_t y, uint16_t c)
         fb_rect(x + inset[i], y + i, 7u - 2u * inset[i], 1u, c);
 }
 
+/* Builds the draw-contract input struct (fw/meter.h) for whichever meter is about to tick. Not yet a
+ * real fw/meter_host.inc (docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md section 5 item 4) --
+ * just the one place all 3 call sites (the player screen's own dispatch, fullscreen, the Configure
+ * page preview) build the struct the same way, so adding a field later means editing one function.
+ * `force` is passed in explicitly rather than read from a global here, because this codebase has TWO
+ * separate "context changed" flags with different consumers -- `wviz_force` (Winamp Bars/Scope, VU
+ * Master, their Configure-page preview) and `ui_wave_force`/`wf` (every meter drawn from
+ * ui_draw_dynamic_cold(), including Chladni) -- and picking the wrong one here would be a real bug,
+ * not a style choice. Whichever global is the right one for a given call site stays that call site's
+ * job to read; this function does NOT clear it either -- clearing stays each tick function's own job,
+ * unchanged. `frame` increments once per call, which is once per display tick from each of the call
+ * sites -- good enough for "a counter that goes up," nothing reads it yet. */
+#define MTR_DT_MS 26u   /* the fixed ~38 Hz UI cadence (FL_UI_PERIOD, defined later in this file)
+                          * this project has always assumed here, not a measured per-call delta --
+                          * nothing tracks a real one yet. Was wviz_bars_tick's own local `dec_ms`. */
+static uint32_t mtr_frame_ctr;
+static inline mtr_in_t mtr_build(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg, uint32_t force)
+{
+    mtr_in_t in;
+    in.spec   = spec_lvl;
+    in.wave   = wav_v;
+    in.peak   = peak_amp;
+    in.peak_l = peak_l;
+    in.peak_r = peak_r;
+    in.frame  = ++mtr_frame_ctr;
+    in.dt_ms  = MTR_DT_MS;
+    in.x = (uint16_t)x; in.y = (uint16_t)y; in.w = (uint16_t)w; in.h = (uint16_t)h;
+    in.bg   = bg;
+    in.role = th_role;
+    in.force = (uint8_t)force;
+    return in;
+}
+
 /* Winamp bars/scope drawing, factored out of ui_draw_dynamic_cold()'s own
  * VIZ_WINAMP_BARS/VIZ_WINAMP_SCOPE blocks (below) so the Settings > Meter >
  * Configure page (fw/settingsui.inc, B-215/B-216) can render the SAME live,
@@ -3317,35 +3351,34 @@ static void ui_icon_dot(uint32_t x, uint32_t y, uint16_t c)
  * logic -- one source of truth for both places. Explicit (x0, y, w, h)
  * rather than reading UI_MARGIN/UI_WAVE_Y/ww/UI_WAVE_H directly, precisely
  * so the Configure page can pin the preview wherever its own layout wants. */
-COLD_FN3 static void wviz_bars_tick(uint32_t x0, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
+COLD_FN3 static void wviz_bars_tick(const mtr_in_t *in)
 {
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const uint16_t bg = in->bg;
+    const uint32_t force = in->force;
     uint32_t bands = MV_WINAMP_BARS(BANDS);
     if (bands < WVIZ_BANDS_MIN) bands = WVIZ_BANDS_MIN;
     if (bands > WVIZ_BANDS_MAX) bands = WVIZ_BANDS_MAX;
     uint32_t gap  = 2u;
     uint32_t colw = (w > gap * (bands - 1u)) ? (w - gap * (bands - 1u)) / bands : 1u;
-    uint32_t dec_ms = 26u;   /* ~1 UI tick; FL_UI_PERIOD (CLK_HZ/38u) isn't declared until later
-                              * in this file, so this is written out rather than derived -- see
-                              * FL_UI_PERIOD's own comment for the ~38 Hz/~26.3 ms figure this
-                              * matches. */
 
     /* B-234: context just changed (preset applied, mode switched, page opened/
      * closed) -- wipe the whole preview rect once so no leftover pixels from a
      * DIFFERENT geometry or a different mode's draw survive, then force every
      * band to redraw below regardless of the change cache. */
-    if (wviz_force) fb_rect(x0, y, w, h, bg);
+    if (force) fb_rect(x0, y, w, h, bg);
 
     for (uint32_t b = 0; b < bands; b++) {
-        uint32_t target = mtr_band_target(spec_lvl, SPEC_BANDS, bands, b);
+        uint32_t target = mtr_band_target(in->spec, SPEC_BANDS, bands, b);
         if (paused) target = 0u;
 
         uint32_t rate = (target >= wviz_disp[b]) ? MV_WINAMP_BARS(ATTACK) : MV_WINAMP_BARS(RELEASE);
         wviz_disp[b] = mtr_ease(wviz_disp[b], (uint8_t)target, MV_WINAMP_BARS(EASE), rate, &wviz_vel[b]);
 
         const mtr_peak_cfg_t pcfg = { MV_WINAMP_BARS(PEAK_ON), MV_WINAMP_BARS(PEAK_GRAVITY), MV_WINAMP_BARS(PEAK_HOLD_MS), MV_WINAMP_BARS(PEAK_FALL) };
-        mtr_peak_step(&wviz_pk[b], wviz_disp[b], &pcfg, dec_ms);
+        mtr_peak_step(&wviz_pk[b], wviz_disp[b], &pcfg, in->dt_ms);
 
-        if (!mtr_delta(&wviz_drawn[b], &wviz_peak_drawn[b], wviz_disp[b], wviz_pk[b].peak, wviz_force)) continue;
+        if (!mtr_delta(&wviz_drawn[b], &wviz_peak_drawn[b], wviz_disp[b], wviz_pk[b].peak, force)) continue;
 
         uint32_t x = x0 + b * (colw + gap);
         uint32_t bh = (wviz_disp[b] * h) / 255u;
@@ -3382,16 +3415,17 @@ COLD_FN3 static void wviz_bars_tick(uint32_t x0, uint32_t y, uint32_t w, uint32_
  * y IS UI_WAVE_Y, so the cache is valid there); Configure passes 0 and a flat
  * panel colour, matching how wviz_bars_tick() already takes an explicit bg
  * for exactly this reason. */
-COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32_t h,
-                                      int use_gradient, uint16_t bg)
+COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
 {
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const uint16_t bg = in->bg;
     const int32_t  ey = (int32_t)(h / 2u) - 1;
     const uint32_t cy = y + h / 2u;
 
     /* B-234: context just changed -- re-seed the smoothing state cleanly
      * instead of lerping from a stale wviz_scope_y[] left over from a
      * different geometry or a different preset's smoothing amount. */
-    if (wviz_force) { wviz_scope_init = 0u; wviz_force = 0u; }
+    if (in->force) { wviz_scope_init = 0u; wviz_force = 0u; }
 
     /* B-298/B-300/B-301 STOPGAP: the hardware wave path below draws up to 256 columns x up to 3
      * fb_rect() calls each (measured DRAW STALL 34,663 ms cumulative, CPU LOAD 100%, real audible
@@ -3484,7 +3518,7 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
             uint32_t cxn = x0 + ((c + 1u) * w) / WAVE_COLS;
             uint32_t cw  = (cxn > cx) ? (cxn - cx) : 1u;
 
-            int32_t raw = (wav_v[c] * ey) / SCOPE_UNIT;
+            int32_t raw = (in->wave[c] * ey) / SCOPE_UNIT;
             if (raw >  ey) raw =  ey;
             if (raw < -ey) raw = -ey;
             if (!wviz_scope_init) wviz_scope_y[c] = (int16_t)raw;
@@ -3515,9 +3549,10 @@ COLD_FN3 static void wviz_scope_tick(uint32_t x0, uint32_t y, uint32_t w, uint32
  * between a generated parameter module and its drawing function (a meter module's `tick`, docs/METER_MODULE_SPEC.md section 3). */
 COLD_FN3 static void mtr_preview(uint32_t viz, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
 {
-    if (viz == VIZ_WINAMP_SCOPE)     wviz_scope_tick(x, y, w, h, 0, bg);
-    else if (viz == VIZ_WINAMP_BARS) wviz_bars_tick(x, y, w, h, bg);
-    /* other meters (Chladni) have no live preview here: their drawing is refused while an overlay is up */
+    const mtr_in_t in = mtr_build(x, y, w, h, bg, wviz_force);
+    if (viz == VIZ_WINAMP_SCOPE)     wviz_scope_tick(&in, 0);
+    else if (viz == VIZ_WINAMP_BARS) wviz_bars_tick(&in);
+    /* other meters (Chladni, VU Master) have no live preview here: their drawing is refused while an overlay is up */
 }
 
 static void ui_draw_dynamic(void);
@@ -4306,13 +4341,17 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * the Settings > Meter > Configure page (fw/settingsui.inc) so both
          * places animate from one source of truth. */
         if (viz_mode == VIZ_CHLADNI) {
-            if (!ui_fullscreen) chladni_tick(UI_MARGIN, UI_WAVE_Y, ww, wf);
+            if (!ui_fullscreen) {
+                const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, ui_grad_at(UI_WAVE_Y + UI_WAVE_H / 2u), wf);
+                (void)chladni_tick_box(&in);
+            }
             goto viz_done;
         }
 
         if (ui_fullscreen && (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE)) goto viz_done;   /* fullscreen.inc draws these */
         if (viz_mode == VIZ_WINAMP_BARS) {
-            wviz_bars_tick(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed);
+            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
+            wviz_bars_tick(&in);
             goto viz_done;
         }
 
@@ -4320,7 +4359,8 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * Classic Winamp oscilloscope -- see wviz_scope_tick() for the actual
          * drawing/smoothing logic, shared with the Configure page. */
         if (viz_mode == VIZ_WINAMP_SCOPE) {
-            wviz_scope_tick(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, 1, 0u);
+            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, 0u, wviz_force);
+            wviz_scope_tick(&in, 1);
             goto viz_done;
         }
 
@@ -4330,7 +4370,8 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
          * doesn't list it), so no ui_fullscreen guard is needed here the way Winamp Bars/Scope have
          * one above -- fullscreen is always forced off before this meter can be the active one. */
         if (viz_mode == VIZ_VU_MASTER) {
-            vum_tick(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed);
+            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
+            vum_tick(&in);
             goto viz_done;
         }
 

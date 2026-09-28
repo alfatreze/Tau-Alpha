@@ -136,11 +136,13 @@ COLD_FN3 static void ui_fs_dynamic(void)
          * could still touch the corner from inside wviz_bars_tick()/wviz_scope_tick()'s own fills,
          * which is a separate, deeper follow-up (docs/HELIOS_SPEC.md), not attempted here. */
         if (fs_force) { wviz_force = 1u; helios_fill_excl(0, 0, FS_W, FS_FIG_H, 0u); }
-        if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(0u, 0u, FS_W, FS_FIG_H, 0u);
-        else                             wviz_scope_tick(0u, 0u, FS_W, FS_FIG_H, 0, 0u);
+        const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, wviz_force);
+        if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(&in);
+        else                             wviz_scope_tick(&in, 0);
         fs_force = 0u; fs_draw_label();
     } else {
-        if (chladni_tick_box(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force)) { fs_force = 0u; fs_draw_label(); }
+        const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force);
+        if (chladni_tick_box(&in)) { fs_force = 0u; fs_draw_label(); }
     }
     if (ui_sec != fs_last_sec || (uint8_t)(paused ? 1u : stopped ? 2u : 0u) != fs_last_state) fs_draw_progress();
     ov_draw = o;
