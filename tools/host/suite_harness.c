@@ -19,7 +19,7 @@ int main(void)
     uint32_t decprof[4] = { 5, 13, 57, 68 };      /* h, i, s pct (MP3), r pct (FLAC) -- B-088/B-089 */
     sr_vals(&s, SR_T_DECPROF, 2, decprof, 4);
     uint32_t decprof2[7] = { 4, 3, 6, 71, 12, 9, 512 };   /* d,a,x,u pct (MP3/FLAC ch0), t pct (FLAC total), c1 pct (FLAC ch1),
-                                                             * lpc_max_cyc (worst real-LPC subframe, raw cycles) -- SR_T_DECPROF2, B-353/B-361/B-381 */
+                                                             * lpc_max_ms (worst real-LPC call, milliseconds) -- SR_T_DECPROF2, B-353/B-361/B-381/B-382 */
     sr_vals(&s, SR_T_DECPROF2, 2, decprof2, 7);
     /* Decode Profile Sweep: repeatable, one entry per track (B-090/B-091/B-092). */
     uint8_t sw0[10 + 5] = { 0, 100, 3, 0, 11, 0, 55, 0, 0, 0, 'T','r','k',' ','A' };   /* track 0, 1.00x: h3 i11 s55 r0, title "Trk A" */

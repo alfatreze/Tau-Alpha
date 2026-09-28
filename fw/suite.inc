@@ -72,10 +72,12 @@ static uint16_t chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r;
 static uint16_t chk_dec_d, chk_dec_a, chk_dec_x, chk_dec_u;   /* 2026-09-28: the finer split, SR_T_DECPROF2 */
 static uint16_t chk_dec_t;   /* 2026-09-28, B-361: FLAC's TRUE total percent-of-realtime (ch0 + ch1) */
 static uint16_t chk_dec_c1;  /* 2026-09-28, B-361: channel 1's own percent-of-realtime (0 on mono) */
-static uint16_t chk_dec_max; /* 2026-09-28, B-381: worst single real-LPC subframe call, in cycles (not
-                               * a percent, same convention as the SDRAM/PSRAM worst_access_cycles fields) --
-                               * the microstuttering hypothesis test: an average (t_pct) can stay flat
-                               * while a rare, data-dependent high-order subframe spikes past real time. */
+static uint16_t chk_dec_max; /* 2026-09-28, B-381/B-382: worst single real-LPC call in the window, in
+                               * MILLISECONDS (a whole block's worth of samples per call, not one tap --
+                               * the first cut used raw cycles capped at 65535 and pegged on every real
+                               * call regardless of hardware/software, a real bug, corrected). The
+                               * microstuttering hypothesis test: an average (t_pct) can stay flat while
+                               * a rare, data-dependent high-order subframe spikes past real time. */
 
 /* All text of the page in one cold blob (NUL separated), fetched by index. */
 enum { CS_N0 = 0, CS_PASS = 7, CS_FAIL, CS_SKIP, CS_NA, CS_INTRO = 11, CS_RUNNING = 20, CS_H_IDLE, CS_H_RUN, CS_H_DONE, CS_TITLE,
@@ -282,10 +284,15 @@ COLD_TEXT static int chk_do(uint32_t id)
              * figure alone -- no special-casing needed, flac_ch1_total_cyc is just never incremented. */
             chk_dec_c1 = (uint16_t)(flac_ch1_total_cyc / (CHK_AUDIO_S * (CLK_HZ / 100u)));
             chk_dec_t  = (uint16_t)((rt + flac_ch1_total_cyc) / (CHK_AUDIO_S * (CLK_HZ / 100u)));
-            /* B-381: raw cycles, not a percent -- capped at 65535 (an actual real-LPC subframe call
-             * anywhere near that many cycles would already be an obvious, audible failure, not a
-             * measurement to lose precision over). */
-            chk_dec_max = (uint16_t)(flac_lpc_max_cyc > 65535u ? 65535u : flac_lpc_max_cyc);
+            /* B-381/B-382 correction: PROF_ADD_MAX at this call site wraps the whole rest-of-block
+             * loop (n - order samples, each `order` taps), not one subframe's single worst tap as the
+             * first version of this comment assumed -- a normal call is already on the order of
+             * 100,000+ cycles (t_pct's own ~99% figure implies a typical block's reconstruction costs
+             * close to that block's whole ~100ms playback duration), so a raw-cycles-capped-at-65535
+             * u16 pegged on every real call regardless of hardware/software, telling us nothing.
+             * Milliseconds instead (CLK_HZ/1000u divisor, the project's own stall_ms/ld_* convention):
+             * 65535 ms of headroom is enormous against realistic block durations. */
+            chk_dec_max = (uint16_t)(flac_lpc_max_cyc / (CLK_HZ / 1000u));
         } else { chk_dec_r = 0u; chk_dec_u = 0u; chk_dec_t = 0u; chk_dec_c1 = 0u; chk_dec_max = 0u; }
 #endif
         chk_set((chk_under == 0u && chk_stall < 50u) ? SR_PASS : SR_FAIL, chk_under);
