@@ -11,7 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA = json.loads((ROOT / "tools" / "meters_schema.json").read_text())
 CH = next(m for m in SCHEMA["meters"] if m["key"] == "chladni")
-TUN = [p for p in CH["params"] if p["key"] != "layout"]        # order: line_width modes rise fall morph morph_gain trigger refractory tonal
+TUN = [p for p in CH["params"] if p["type"] != "enum"]         # order: line_width modes rise fall morph morph_gain trigger refractory tonal
+                                                                # (excludes "layout" and "paint": neither has min/max, and paint only
+                                                                # selects a render palette -- it never reaches the field maths this
+                                                                # harness sanitises)
 
 
 def build(d):

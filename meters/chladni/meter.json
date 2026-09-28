@@ -103,6 +103,17 @@
       "label": "Tonal trigger",
       "type": "bool",
       "default": 0
+    },
+    {
+      "key": "paint",
+      "label": "Paint",
+      "type": "enum",
+      "values": [
+        "LINE",
+        "EMBER",
+        "OCEAN"
+      ],
+      "default": 0
     }
   ],
   "presets": [
@@ -118,7 +129,8 @@
         "morph_gain": 391,
         "trigger": 26,
         "refractory": 600,
-        "tonal": 0
+        "tonal": 0,
+        "paint": 0
       }
     },
     {
@@ -133,7 +145,40 @@
         "morph_gain": 782,
         "trigger": 26,
         "refractory": 350,
-        "tonal": 1
+        "tonal": 1,
+        "paint": 0
+      }
+    },
+    {
+      "name": "EMBER",
+      "values": {
+        "layout": 0,
+        "line_width": 1245,
+        "modes": 3,
+        "rise": 668,
+        "fall": 401,
+        "morph": 63,
+        "morph_gain": 391,
+        "trigger": 26,
+        "refractory": 600,
+        "tonal": 0,
+        "paint": 1
+      }
+    },
+    {
+      "name": "OCEAN",
+      "values": {
+        "layout": 0,
+        "line_width": 1245,
+        "modes": 3,
+        "rise": 668,
+        "fall": 401,
+        "morph": 63,
+        "morph_gain": 391,
+        "trigger": 26,
+        "refractory": 600,
+        "tonal": 0,
+        "paint": 2
       }
     }
   ],
