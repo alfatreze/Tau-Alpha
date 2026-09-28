@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Host test for fw/helios.inc's beam-aware safety rule (helios_rows_safe): the real C, compiled on the host with a fake
-R_SCAN register, checked exhaustively against an independent statement of the rule (docs/HELIOS_SPEC.md, B-267)."""
+R_SCAN register, checked exhaustively against an independent statement of the rule (docs/features/HELIOS_SPEC.md, B-267)."""
 import itertools, subprocess, sys, tempfile
 from pathlib import Path
 
