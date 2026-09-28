@@ -189,8 +189,8 @@ def parse_record(rec: bytes) -> dict:
                 elif tag == 13 and len(vals) == 4:         # decoder stage cost, CT_AUD window (B-088/B-089)
                     vals = dict(zip(("h_pct", "i_pct", "s_pct", "r_pct"), vals))
                 elif tag == 22 and len(vals) == 7:         # SR_T_DECPROF2 (2026-09-28, widened B-381)
-                    vals = dict(zip(("d_pct", "a_pct", "x_pct", "u_pct", "t_pct", "c1_pct", "lpc_max_cyc"), vals))
-                elif tag == 22 and len(vals) == 6:         # SR_T_DECPROF2 (2026-09-28, widened B-361 -- older firmware, no lpc_max_cyc)
+                    vals = dict(zip(("d_pct", "a_pct", "x_pct", "u_pct", "t_pct", "c1_pct", "lpc_max_ms"), vals))
+                elif tag == 22 and len(vals) == 6:         # SR_T_DECPROF2 (2026-09-28, widened B-361 -- older firmware, no lpc_max_ms)
                     vals = dict(zip(("d_pct", "a_pct", "x_pct", "u_pct", "t_pct", "c1_pct"), vals))
                 elif tag == 8 and len(vals) == 4:          # SR_T_AUDIO, CT_AUD (word[1] repurposed by B-139:
                                                             # 1 if playback ran the whole window, 0 if it never
