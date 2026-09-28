@@ -9776,3 +9776,62 @@ changed as expected -- this is a real product fix, not diagnostic-only, since MA
 meter. Not yet hardware-tested -- this is the first time MASTER VU will actually render on a device.
 Item 1's actual contract work (the `mtr_in_t`/`open`/`tick` shape, `docs/features/meters/
 METER_MODULE_SPEC.md` section 3) has not started yet.
+
+## B-375 (2026-09-28): meter draw contract (Helios review item 1) -- mtr_in_t for the 4 live modules
+
+Built the actual draw contract item 1 asked for, now that B-374 made all 4 target meters (Winamp
+Bars, Winamp Scope, Chladni, VU Master) genuinely reachable. New `fw/meter.h`: `mtr_in_t`
+(`docs/features/meters/METER_MODULE_SPEC.md` section 3) -- spec/wave/peak/peak_l/peak_r/frame/dt_ms/
+x/y/w/h/bg/role/force, no dependency on `player.c` internals. Deliberately scoped narrow, matching
+the review's own "smallest possible step" framing for this item: no `mtr_desc_t`, no `mtr_bar`/
+`mtr_rect`/... primitive-counting wrappers, no open/close lifecycle, no `fw/meter_host.inc` -- those
+are separate, larger pieces of section 3's fuller contract (`mtr_desc_t` and the parameter/preset
+half already exist as `fw/meter_module.h`/`fw/meters_gen.h`, unrelated to this file).
+
+Converted all 4 tick entry points (`wviz_bars_tick`, `wviz_scope_tick`, `chladni_tick_box`,
+`vum_tick`) to take `const mtr_in_t *in` instead of a positional parameter list, at every call site
+(the player screen's own dispatch in `ui_draw_dynamic_cold()`, `fullscreen.inc`'s fullscreen path,
+`mtr_preview()` for the Configure page). Removed `chladni_tick()`, the thin 4-argument wrapper --
+with a uniform struct-based signature it added nothing `chladni_tick_box()` didn't already have, and
+every other meter's dispatch already builds its own input struct at the call site the same way.
+
+Found and got right a real correctness trap building the shared `mtr_build()` helper: this codebase
+has TWO separate "context changed" flags with different consumers -- `wviz_force` (Winamp Bars/
+Scope, VU Master, their Configure preview) and `ui_wave_force`/`wf` (every `ui_draw_dynamic_cold()`
+meter including Chladni) -- so `mtr_build()` takes `force` as an explicit parameter rather than
+reading a fixed global, and each call site passes the one that was actually feeding that meter
+before. Getting this wrong would have been a real, easy-to-miss regression (Chladni silently using
+the wrong flag, or vice versa) that compiles clean and only shows up as a subtle redraw-timing bug.
+
+Verification caught two real bugs, both in test harnesses, not the firmware:
+- `sim/test_meter_golden.py` (extracts the real `wviz_bars_tick`/`wviz_scope_tick` source and
+  recompiles it on the host against the JS preview twin) needed `#include "meter.h"` and its own
+  `mtr_in_t` construction -- the first attempt zero-initialized the struct and left `dt_ms` at 0,
+  which feeds `mtr_peak_step()`'s hold/decay timing and produced 4 real one-pixel/one-frame
+  mismatches against the JS reference (peak-mark row off by 1, one dropped bar). Fixed by setting
+  `dt_ms = 26u` explicitly, matching the real `mtr_build()`'s `MTR_DT_MS` -- confirmed the tick
+  functions' actual drawing logic is unchanged; the mismatch was purely a missing field in the test's
+  own harness construction, not a firmware defect. This is exactly the kind of caught-by-a-test
+  regression the golden-frame suite (M3, spec section 8 item 3) exists to catch, working as intended.
+- `sim/chladni_module_harness.c` (compiles the real `fw/chladni.inc` on the host) called the now-
+  removed `chladni_tick()` wrapper; added a small `harness_chladni_tick()` helper matching its old
+  fixed-geometry semantics exactly, calling `chladni_tick_box(&in)` directly.
+
+`make test-host` passes in full, including the golden-frame cross-check (10 scenarios, 35,562
+commands identical between firmware and JS) and the Chladni mailbox harness. `release`,
+`player-library-diagnostic` and `player-library-diagnostic-profile` all rebuild clean with real heap
+margin (57,072 / 50,400 / 48,064 B). `tools/meter_cost_estimate.py` and `tools/check_meter_deps.py`
+both still pass unaffected. Not yet hardware-tested -- this changes real draw-path code for all 4
+meters, verified by golden-frame equivalence and code inspection, not a Pocket run. VU Master has no
+golden-frame/JS-twin cross-check of its own yet (only `sim/test_vu_master.py`'s core-math tests) --
+a pre-existing gap (no browser preview was ever built for it), not something this pass introduced or
+closed; its conversion here is a value-preserving parameter substitution, verified by inspection
+(same globals, same read timing, no logic touched beyond the signature and preamble).
+
+Not done, deliberately out of scope for this item: `mtr_desc_t`/the descriptor table (would start
+collapsing the `if (viz_mode == VIZ_x)` dispatch chains -- that is item 4, `helios_view_t`, and
+retiring the legacy meters is item 5), `role[]` actually replacing the `UI_TRACK`/`ui_accent`-style
+macros inside the 4 functions (the macros already resolve to `th_role[]` today -- swapping them for
+`in->role[...]` would be a zero-behavior-change cosmetic diff, not attempted here to keep this pass's
+diff minimal), extending `mtr_preview()` to cover Chladni/VU Master (a real, separate functional gap,
+not part of "finish the input-struct shape").

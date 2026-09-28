@@ -281,12 +281,15 @@ COLD_FN3 static void vum_draw_overlay(uint32_t x0, uint32_t y0, uint32_t w, uint
 #endif
 }
 
-/* Entry point, matching the box-rect contract every fullscreen-ready meter uses (wviz_bars_tick()/
- * wviz_scope_tick()/chladni_tick_box()). force = wviz_force (B-234's shared "context just changed" flag,
- * documented as consumed by whichever tick runs next -- only one viz_mode is ever active per frame). */
-COLD_FN3 static void vum_tick(uint32_t x0, uint32_t y0, uint32_t w, uint32_t h, uint16_t bg)
+/* Entry point, matching the draw contract (fw/meter.h) every fullscreen-ready meter uses (wviz_bars_tick()/
+ * wviz_scope_tick()/chladni_tick_box()). in->force mirrors wviz_force (B-234's shared "context just changed"
+ * flag, documented as consumed by whichever tick runs next -- only one viz_mode is ever active per frame);
+ * clearing the real global stays this function's job, same as before. */
+COLD_FN3 static void vum_tick(const mtr_in_t *in)
 {
-    uint32_t force = wviz_force;
+    const uint32_t x0 = in->x, y0 = in->y, w = in->w, h = in->h;
+    const uint16_t bg = in->bg;
+    uint32_t force = in->force;
     if (force) {
         vum_lit_drawn[0] = vum_lit_drawn[1] = 0xFFu;
         vum_peak_drawn[0] = vum_peak_drawn[1] = 0xFFu;
@@ -296,8 +299,8 @@ COLD_FN3 static void vum_tick(uint32_t x0, uint32_t y0, uint32_t w, uint32_t h, 
     }
 
     uint32_t lx = x0 + VUM_LABEL_W, lw = (w > VUM_LABEL_W) ? w - VUM_LABEL_W : 1u;
-    vum_draw_ladder(0u, lx, y0, lw, bg, peak_l, force);
-    vum_draw_ladder(1u, lx, y0 + VUM_ROW2_Y, lw, bg, peak_r, force);
+    vum_draw_ladder(0u, lx, y0, lw, bg, in->peak_l, force);
+    vum_draw_ladder(1u, lx, y0 + VUM_ROW2_Y, lw, bg, in->peak_r, force);
 
     if (h > VUM_OVERLAY_Y)
         vum_draw_overlay(x0, y0 + VUM_OVERLAY_Y, w, h - VUM_OVERLAY_Y, bg, force);

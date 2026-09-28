@@ -80,8 +80,22 @@ static uint16_t ui_mix(uint16_t a, uint16_t b, uint32_t t, uint32_t d) {      /*
 #define VIZ_CHLADNI_STUB 1
 #include "../fw/meter_gen_enum.h"
 #include "../fw/meter_module.h"
+#include "../fw/meter.h"
 #include "../fw/meters_gen.h"
 #include "../fw/chladni.inc"
+
+/* chladni_tick_box() takes the draw-contract struct (fw/meter.h) directly since the removal of the
+ * chladni_tick() convenience wrapper it used to be reached through (Helios review item 1); this
+ * mirrors that wrapper's own fixed geometry exactly. */
+static int harness_chladni_tick(uint32_t x0, uint32_t y0, uint32_t ww, uint32_t force)
+{
+    mtr_in_t in = {0};
+    in.x = (uint16_t)x0; in.y = (uint16_t)y0; in.w = (uint16_t)ww; in.h = UI_WAVE_H;
+    in.bg = ui_grad_at(y0 + UI_WAVE_H / 2u);
+    in.spec = spec_lvl;
+    in.force = (uint8_t)force;
+    return chladni_tick_box(&in);
+}
 
 struct exp_ctx { uint8_t lv[CHL_MAX_RY][CHL_MAX_RX]; };
 static void exp_row(uint32_t j, const uint8_t *lvl, void *ud) { memcpy(((struct exp_ctx *)ud)->lv[j], lvl, chl_pre->Rx); }
@@ -92,7 +106,7 @@ int main(int argc, char **argv) {
     const uint32_t X0 = 20u, WW = 360u;
 
     cyc += 60000u * 1000u;                                   /* well past the rate limit */
-    chladni_tick(X0, UI_WAVE_Y, WW, 1u);
+    harness_chladni_tick(X0, UI_WAVE_Y, WW, 1u);
     if (!mailbox_ok) { printf("ok=%u toasts=%d drawn=%u\n", chl_ok, toasts, chl_drawn_n); return 0; }
     printf("ok=%u swap=%u drawn=%u sblit=%d blit=%d maxw=%d toasts=%d\n", chl_ok, chl_swap, chl_drawn_n, sblit_calls, blit_calls, max_blit_w, toasts);
     if (chl_ok != 1u || chl_swap != (uint8_t)hw_swap || chl_drawn_n != 1u) return 1;
@@ -116,11 +130,11 @@ int main(int argc, char **argv) {
     if (bad) return 1;
 
     /* rate limit: an immediate second call (no time passed) draws nothing; after the period it draws again */
-    unsigned d0 = chl_drawn_n; cyc += 100u; chladni_tick(X0, UI_WAVE_Y, WW, 0u);
+    unsigned d0 = chl_drawn_n; cyc += 100u; harness_chladni_tick(X0, UI_WAVE_Y, WW, 0u);
     printf("second call drew %u more (want 0)\n", chl_drawn_n - d0); if (chl_drawn_n != d0) return 1;
-    cyc += 60000u * 100u; afford = 0; chladni_tick(X0, UI_WAVE_Y, WW, 0u);
+    cyc += 60000u * 100u; afford = 0; harness_chladni_tick(X0, UI_WAVE_Y, WW, 0u);
     printf("with the audio FIFO low drew %u more (want 0), skipped=%u\n", chl_drawn_n - d0, chl_skipped_n); if (chl_drawn_n != d0 || !chl_skipped_n) return 1;
-    afford = 1; chladni_tick(X0, UI_WAVE_Y, WW, 0u);
+    afford = 1; harness_chladni_tick(X0, UI_WAVE_Y, WW, 0u);
     printf("after the period drew %u more (want 1)\n", chl_drawn_n - d0); if (chl_drawn_n != d0 + 1u) return 1;
     return 0;
 }
