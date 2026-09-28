@@ -93,3 +93,13 @@ fw/*.o
 /build/rtl/
 /.venv-cptr/
 /.cptr-data/
+
+# Local scratch/tooling that has never actually belonged in the repo -- these were simply never added
+# here before, so every session's `git status` has been showing them as untracked "changes" (work/ alone
+# is 15 GB / ~10,800 files at the time this was added). Purely additive: nothing here is deleted, git
+# just stops tracking it as unstaged.
+/work/
+/.claude/
+/UniClaudeProxy/
+/build/
+/release/
