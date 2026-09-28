@@ -1,0 +1,91 @@
+{
+  "key": "vu_master",
+  "enum": "VIZ_VU_MASTER",
+  "index": 15,
+  "name": "MASTER VU",
+  "selectable": true,
+  "sel_index": 11,
+  "cost_class": 0,
+  "considered": "Discrete segments with a gap need one background rect plus up to 3 coalesced zone rects per channel per frame (docs/METER_VU_MASTERING_SPEC.md section 4.2) -- cheaper than OP_BAR's own vertical bar meters, and OP_BAR's shape (vertical, one fg colour) does not fit a horizontal 3-colour ladder anyway (section 4.1).",
+  "params": [
+    {
+      "key": "info",
+      "label": "Tech info",
+      "type": "bool",
+      "default": 1
+    },
+    {
+      "key": "color_mode",
+      "label": "Segment colour",
+      "type": "enum",
+      "values": [
+        "THEME",
+        "CUSTOM"
+      ],
+      "default": 0
+    },
+    {
+      "key": "color_green",
+      "label": "Green",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 0,
+      "when": { "color_mode": 1 }
+    },
+    {
+      "key": "color_yellow",
+      "label": "Yellow",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 0,
+      "when": { "color_mode": 1 }
+    },
+    {
+      "key": "color_red",
+      "label": "Red",
+      "type": "u16",
+      "min": 0,
+      "max": 65535,
+      "step": 1,
+      "default": 0,
+      "when": { "color_mode": 1 }
+    }
+  ],
+  "presets": [
+    {
+      "name": "THEME",
+      "values": {
+        "info": 1,
+        "color_mode": 0,
+        "color_green": 0,
+        "color_yellow": 0,
+        "color_red": 0
+      }
+    },
+    {
+      "name": "STANDARD",
+      "values": {
+        "info": 1,
+        "color_mode": 1,
+        "color_green": 2016,
+        "color_yellow": 64992,
+        "color_red": 63488
+      }
+    },
+    {
+      "name": "CUSTOM EXAMPLE",
+      "values": {
+        "info": 1,
+        "color_mode": 1,
+        "color_green": 1622,
+        "color_yellow": 43835,
+        "color_red": 61775
+      }
+    }
+  ],
+  "default_preset": 0
+}

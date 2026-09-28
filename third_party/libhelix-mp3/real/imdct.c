@@ -762,7 +762,7 @@ int IMDCT(MP3DecInfo *mp3DecInfo, int gr, int ch)
  
 	{ MPROF_T0();
 	AntiAlias(hi->huffDecBuf[ch], nBfly);
-	MPROF_ADD(mp3_alias_cyc, mp3_alias_total_cyc); }
+	MPROF_ADD(mp3_alias_cyc, mp3_alias_total_cyc, mp3_alias_vum_cyc); }
 	hi->nonZeroBound[ch] = MAX(hi->nonZeroBound[ch], (nBfly * 18) + 8);
 
 	ASSERT(hi->nonZeroBound[ch] <= MAX_NSAMP);
@@ -777,7 +777,7 @@ int IMDCT(MP3DecInfo *mp3DecInfo, int gr, int ch)
 
 	{ MPROF_T0();
 	mi->numPrevIMDCT[ch] = HybridTransform(hi->huffDecBuf[ch], mi->overBuf[ch], mi->outBuf[ch], &si->sis[gr][ch], &bc);
-	MPROF_ADD(mp3_xform_cyc, mp3_xform_total_cyc); }
+	MPROF_ADD(mp3_xform_cyc, mp3_xform_total_cyc, mp3_xform_vum_cyc); }
 	mi->prevType[ch] = si->sis[gr][ch].blockType;
 	mi->prevWinSwitch[ch] = bc.currWinSwitch;		/* 0 means not a mixed block (either all short or all long) */
 	mi->gb[ch] = bc.gbOut;

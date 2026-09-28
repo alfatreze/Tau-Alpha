@@ -21,16 +21,18 @@
 
 #include <stdint.h>
 
-/* MPROF_T0()/MPROF_ADD(A, AT): shared by mp3dec.c and imdct.c (B-345) so both use one definition
- * instead of two copies drifting. Two targets, one tick() read: the per-second screen counter (A)
- * and the Check-record run total (AT) advance by the SAME delta, so a build with both features on
- * never has them drift apart from being sampled twice. */
+/* MPROF_T0()/MPROF_ADD(A, AT, AV): shared by mp3dec.c and imdct.c (B-345) so both use one definition
+ * instead of two copies drifting. Three targets, one tick() read: the per-second screen counter (A),
+ * the Check-record run total (AT) and the VU Master overlay's own accumulator (AV, B-347) all advance
+ * by the SAME delta, so a build with more than one of these features on never has them drift apart
+ * from being sampled twice -- same reasoning as the original two-target form, extended per B-089's own
+ * precedent that every independent consumer of this data needs its OWN accumulator, not a shared one. */
 #if MP3_PROFILE
 #define MPROF_T0()   uint32_t mprof_t0 = mp3_tick ? mp3_tick() : 0u
-#define MPROF_ADD(A, AT) do { if (mp3_tick) { uint32_t _mprof_d = mp3_tick() - mprof_t0; (A) += _mprof_d; (AT) += _mprof_d; } } while (0)
+#define MPROF_ADD(A, AT, AV) do { if (mp3_tick) { uint32_t _mprof_d = mp3_tick() - mprof_t0; (A) += _mprof_d; (AT) += _mprof_d; (AV) += _mprof_d; } } while (0)
 #else
 #define MPROF_T0()   do {} while (0)
-#define MPROF_ADD(A, AT) do {} while (0)
+#define MPROF_ADD(A, AT, AV) do {} while (0)
 #endif
 
 extern uint32_t (*mp3_tick)(void);
@@ -65,5 +67,18 @@ extern uint32_t mp3_sub_total_cyc;
 extern uint32_t mp3_dequant_total_cyc;
 extern uint32_t mp3_alias_total_cyc;
 extern uint32_t mp3_xform_total_cyc;
+
+/* B-347: a THIRD, independent accumulator set for the VU Master overlay's decoder-CPU% row
+ * (fw/vu_master.inc's vum_draw_overlay()) -- reset once a second by that row's own code, on its
+ * own cadence, distinct from both the screen row above (reset by player.c's UI_SHOW_DECODE_PROFILE
+ * block) and the Check-record run total (reset at a Check audio window's start/end). Same fields,
+ * same meaning, just not shared mutable state -- the exact B-089 precedent this header's own comment
+ * already names. */
+extern uint32_t mp3_huff_vum_cyc;
+extern uint32_t mp3_imdct_vum_cyc;
+extern uint32_t mp3_sub_vum_cyc;
+extern uint32_t mp3_dequant_vum_cyc;
+extern uint32_t mp3_alias_vum_cyc;
+extern uint32_t mp3_xform_vum_cyc;
 
 #endif
