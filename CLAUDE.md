@@ -22,6 +22,16 @@
 ## 3. Strict Project Rules
 - Never modify this repository's upstream tracking references.
 - Always append an execution log entry to this file after finishing a coding turn.
+- **Never run `git reset`/`git stash` against the shared working tree for a "clean baseline"
+  comparison (e.g. "stash my edits, measure something, pop the stash").** This repo has multiple
+  concurrent sessions/agents working in the same checkout at once; a reset or a colliding stash-pop
+  has already silently destroyed other sessions' uncommitted work more than once (2026-09-27/28 night
+  session, see AUDIT_TRAIL.md around that date -- real work was lost and had to be redone twice
+  before this rule was added). If a task needs a "before" comparison, build to a separate output
+  directory and diff the results, or do the work in an isolated git worktree (`Agent` tool's
+  `isolation: "worktree"`, or `git worktree add`) instead of touching the shared tree's index/stash.
+  Commit real, verified work promptly rather than leaving it sitting uncommitted for long stretches --
+  a stray reset elsewhere can't destroy a commit that already exists.
 
 ## Subagent delegation policy
 
