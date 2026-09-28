@@ -63,7 +63,7 @@ static uint16_t ui_accent;
 %s
 int main(int argc, char **argv) {
     th_role[0] = (uint16_t)strtoul(argv[1], 0, 0); th_role[1] = (uint16_t)strtoul(argv[2], 0, 0); ui_accent = (uint16_t)strtoul(argv[3], 0, 0);
-    for (uint32_t v = 0; v < 15; v++) { uint16_t o[8]; set_thumb_pal(v, o); for (int i = 0; i < 8; i++) printf("%%u %%d %%u\n", v, i, o[i]); }
+    for (uint32_t v = 0; v < 16; v++) { uint16_t o[8]; set_thumb_pal(v, o); for (int i = 0; i < 8; i++) printf("%%u %%d %%u\n", v, i, o[i]); }
     return 0;
 }
 '''
@@ -73,12 +73,12 @@ def check_thumbs():
     """Step 0c: set_thumb_pal() from the real source. Dark keeps the stored greys close; Light inverts; chroma entries become the accent."""
     settings = (ROOT / "fw" / "settingsui.inc").read_text()
     pal_src = (ROOT / "fw" / "meter_thumbs.h").read_text()
-    pal_txt = pal_src[pal_src.index("meter_thumb_pal[15][8]"):]
+    pal_txt = pal_src[pal_src.index("meter_thumb_pal[16][8]"):]
     pal_txt = pal_txt[:pal_txt.index("};") + 2]
     pal = [[int(x, 16) for x in row.split(",") if x.strip()] for row in
            [r.replace("u", "").replace("{", "").replace("}", "").strip() for r in pal_txt.splitlines() if r.strip().startswith("{")]]
-    assert len(pal) == 15 and all(len(r) == 8 for r in pal)
-    code = THUMB_HARNESS % ("static const uint16_t meter_thumb_pal[15][8] = { " + ",".join("{" + ",".join(map(str, r)) + "}" for r in pal) + " };",
+    assert len(pal) == 16 and all(len(r) == 8 for r in pal)
+    code = THUMB_HARNESS % ("static const uint16_t meter_thumb_pal[16][8] = { " + ",".join("{" + ",".join(map(str, r)) + "}" for r in pal) + " };",
                             cut("static uint16_t ui_mix", SRC) + "\n" + cut("COLD_FN static void set_thumb_pal", settings))
     fails = 0
     with tempfile.TemporaryDirectory() as d:
@@ -97,7 +97,7 @@ def check_thumbs():
                     if line:
                         v, i, c_ = (int(x) for x in line.split())
                         got[(v, i)] = c_
-                for v in range(15):
+                for v in range(16):
                     for i in range(8):
                         r8, g8, b8 = gt.rgb8(pal[v][i])
                         chroma = max(r8, g8, b8) - min(r8, g8, b8) > 40
@@ -113,7 +113,7 @@ def check_thumbs():
                         if pol == "dark" and t["name"] == "TAU" and abs(gt.lum(got[(v, i)]) - gt.lum(pal[v][i])) > 0.06:
                             fails += 1; print(f"TAU dark: entry {v}/{i} 0x{got[(v, i)]:04X} strays from stored 0x{pal[v][i]:04X}")
                 # ordering: a lighter stored grey never maps to a colour closer to the plate than a darker one
-                for v in range(15):
+                for v in range(16):
                     grey = [(gt.lum(pal[v][i]), gt.lum(got[(v, i)])) for i in range(8) if max(gt.rgb8(pal[v][i])) - min(gt.rgb8(pal[v][i])) <= 40]
                     grey.sort()
                     dist = [abs(g - gt.lum(base)) for _, g in grey]

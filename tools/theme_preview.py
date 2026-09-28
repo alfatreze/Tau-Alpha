@@ -82,13 +82,13 @@ def sheet(theme, pol, accent_idx):
 
 
 def thumbs():
-    """Meter preview data straight from fw/meter_thumbs.h: (palettes[15][8], offsets[16], rle bytes)."""
+    """Meter preview data straight from fw/meter_thumbs.h: (palettes[16][8], offsets[17], rle bytes)."""
     import re
     t = (Path(__file__).resolve().parent.parent / "fw" / "meter_thumbs.h").read_text()
-    pal_blk = t[t.index("meter_thumb_pal[15][8]"):]
+    pal_blk = t[t.index("meter_thumb_pal[16][8]"):]
     pal_blk = pal_blk[:pal_blk.index("};")]
     pal = [[int(x, 16) for x in re.findall(r"0x([0-9A-Fa-f]{4})u", row)] for row in pal_blk.splitlines() if "0x" in row]
-    off = [int(x) for x in re.findall(r"\d+", t[t.index("meter_thumb_off[16]"):].split("{", 1)[1].split("};")[0].split("*/")[-1])]
+    off = [int(x) for x in re.findall(r"\d+", t[t.index("meter_thumb_off[17]"):].split("{", 1)[1].split("};")[0].split("*/")[-1])]
     rle_blk = t[t.index("meter_thumb_rle["):]
     rle = [int(x, 0) for x in re.findall(r"0x[0-9A-Fa-f]{2}|\b\d{1,3}\b", rle_blk.split("{", 1)[1].split("};")[0])]
     return pal, off, rle
