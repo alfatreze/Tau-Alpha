@@ -59,6 +59,7 @@ test-host:
 	$(PYTHON) sim/test_mp3_poly_fw.py
 	$(PYTHON) sim/test_mp3_poly_subband.py
 	$(PYTHON) sim/test_chladni_core.py
+	$(PYTHON) sim/test_vu_master.py
 	$(PYTHON) sim/test_helios_rect.py
 	$(PYTHON) sim/test_theme.py
 	$(PYTHON) sim/test_tau_assets.py
