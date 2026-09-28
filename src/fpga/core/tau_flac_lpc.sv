@@ -74,6 +74,11 @@ module tau_flac_lpc #(
     reg  signed [15:0] coef_mem [0:MAX_ORDER-1];
     reg  signed [31:0] hist_mem [0:MAX_ORDER-1];   // hist_mem[0] = most recent sample, paired with coef_mem[0]
 
+    // hist_mem's actual array WRITE lives in the state-machine always block below (S_PUSH also writes
+    // it) -- Verilog forbids two separate always blocks driving the same reg, and while Icarus tolerated
+    // it in simulation (this testbench never happened to fire both in the same cycle), Quartus correctly
+    // refused it at synthesis ("Can't resolve multiple constant drivers for net hist_mem[0][31]",
+    // B-371's own fit log). warm_idx_r's own increment has no such conflict and stays here.
     always @(posedge clk) begin
         if (rst) begin
             order_r <= 6'd1; shift_r <= 5'd0; coef_idx_r <= 5'd0; warm_idx_r <= 5'd0;
@@ -82,7 +87,7 @@ module tau_flac_lpc #(
             if (coef_idx_we)  coef_idx_r <= coef_idx_d;
             if (warm_idx_we)  warm_idx_r <= warm_idx_d;
             if (coef_data_we) begin coef_mem[coef_idx_r] <= coef_data_d; coef_idx_r <= coef_idx_r + 5'd1; end
-            if (warm_data_we) begin hist_mem[warm_idx_r] <= warm_data_d; warm_idx_r <= warm_idx_r + 5'd1; end
+            if (warm_data_we) warm_idx_r <= warm_idx_r + 5'd1;
         end
     end
 
@@ -108,6 +113,12 @@ module tau_flac_lpc #(
         if (rst) begin
             state <= S_IDLE; tap <= 6'd0; acc <= {ACC_WIDTH{1'b0}}; done <= 1'b0; sample <= 32'sd0;
         end else begin
+            // hist_mem's sole write-owning block (see the register-load block above): a warm-up load and
+            // S_PUSH structurally never coincide (firmware only asserts warm_data_we while state==S_IDLE,
+            // well before any residual write can drive the state machine into S_PUSH), but both being
+            // plain statements in ONE always block is legal either way -- unlike two separate blocks,
+            // Quartus resolves same-block writes by ordinary in-block priority, no synthesis error.
+            if (warm_data_we) hist_mem[warm_idx_r] <= warm_data_d;
             case (state)
                 S_IDLE: begin
                     if (sample_rd) done <= 1'b0;
