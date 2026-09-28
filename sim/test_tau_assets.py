@@ -159,6 +159,8 @@ def main():
             for ln in lines[2:]:
                 head, presets = ln.split(" | ")
                 viz = int(head.split()[1])
+                if viz not in py:
+                    continue    # a meter compiled in after this fixture was last written; nothing to compare
                 want = py[viz]
                 import re                       # names may contain spaces, so match name:values pairs
                 got = [(m.group(1).strip(), [int(v) for v in m.group(2).strip(",").split(",")]) for m in re.finditer(r"([A-Z0-9 _-]+?):([0-9,]+)", presets)]
