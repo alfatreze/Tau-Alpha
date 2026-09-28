@@ -9935,3 +9935,21 @@ the unit, `HW <n> SAMPLES <n> TMO` if the hardware path is active and being used
 after a real timeout. The real verdict is the owner's next boot + FLAC playback + a look at that row (0
 timeouts after a track = clean); no automated hardware-vs-software Check comparison exists yet (design
 doc's own remaining item, not built this session).
+
+## B-380 (2026-09-28): first real hardware result for the FLAC LPC unit -- clean so far
+
+Owner report on `alfatreze.TAU_0_6_0_A_16` (B-379): 3 Check runs and an R3 stress pass on real hardware,
+FLAC LPC Info row read **0 TMO** throughout (the hardware unit stayed engaged the whole time, no fallback-
+to-software timeout ever fired), no discernible audio issues reported. This is the first FLAC LPC hardware
+evidence this project has -- everything before B-379 was simulation, synthesis and Fitter-stage only.
+**Not yet a sample-exact verification** (no hardware-vs-software Check comparison exists yet, the design
+doc's own remaining item) -- this confirms the unit engages and runs cleanly under real load, not that its
+output is bit-for-bit correct against software reconstruction; the golden-vector/mutation-hook testbench
+coverage (B-368) is what actually proves the arithmetic, this is the first confirmation the real silicon
+path matches that model under real timing. Separately, the owner also noted a 96 kHz FLAC track still
+doesn't play and the audio "certainly sounds better" -- the first is expected and unrelated to LPC (the
+FLAC_MAX_RATE performance cutoff, B-356/357, a deliberate refusal above the measured decode-cost limit,
+not a bug); the second is an informal listening impression, not something this session's changes would be
+expected to alter (LPC changes decode COST, not reconstruction VALUES -- same arithmetic, hardware or
+software), noted here rather than investigated further without more specific evidence of an actual
+difference. `analogue-pocket-dev` skill KB-069 updated with this first real hardware confirmation.
