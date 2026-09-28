@@ -62,9 +62,11 @@ test-host:
 	$(PYTHON) sim/test_helios_rect.py
 	$(PYTHON) sim/test_theme.py
 	$(PYTHON) sim/test_tau_assets.py
+	$(PYTHON) sim/test_flac_lpc_symmetry.py
+	$(PYTHON) sim/test_flac_lpc_fw_redirect.py
 	$(PYTHON) tools/check_art_load_order.py --check
 
-test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -174,6 +176,13 @@ MP3_POLY_SRC = sim/tb_tau_mp3_poly.v src/fpga/core/tau_mp3_poly.sv src/fpga/core
 $(RTL_BUILD_DIR)/mp3_poly_vectors.txt: sim/test_mp3_poly_model.py sim/mp3_poly_model.c sim/mp3_poly_map.c tools/gen_mp3_poly_rom.py | $(RTL_BUILD_DIR)
 	$(PYTHON) sim/test_mp3_poly_model.py
 
+# FLAC LPC reconstruction unit (docs/research/FLAC_LPC_KERNEL_DESIGN.md, B-364..B-366): unlike the MP3 window
+# unit, coefficients are per-frame/streamed, not a fixed ROM -- the model IS the reference (no real decoder
+# to link against), checked against an unbounded int64_t computation of fw/flac.c's own arithmetic.
+# No RTL testbench consumes these vectors yet (design doc build order item 3, not started).
+$(RTL_BUILD_DIR)/flac_lpc_vectors.txt: sim/test_flac_lpc_model.py sim/flac_lpc_model.c | $(RTL_BUILD_DIR)
+	$(PYTHON) sim/test_flac_lpc_model.py
+
 $(RTL_BUILD_DIR)/tb_mp3_poly.vvp: $(MP3_POLY_SRC) | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -I src/fpga/core -o $@ sim/tb_tau_mp3_poly.v src/fpga/core/tau_mp3_poly.sv
 
@@ -185,6 +194,18 @@ test-rtl-mp3-poly-mutation: $(RTL_BUILD_DIR)/mp3_poly_vectors.txt
 	@set -e; for b in 1 2 3 4; do \
 	  $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_mp3_poly.BUG=$$b -o $(RTL_BUILD_DIR)/mp3_poly_mut.vvp sim/tb_tau_mp3_poly.v src/fpga/core/tau_mp3_poly.sv; \
 	  if $(VVP) $(RTL_BUILD_DIR)/mp3_poly_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
+
+$(RTL_BUILD_DIR)/tb_flac_lpc.vvp: sim/tb_tau_flac_lpc.v src/fpga/core/tau_flac_lpc.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -I src/fpga/core -o $@ sim/tb_tau_flac_lpc.v src/fpga/core/tau_flac_lpc.sv
+
+test-rtl-flac-lpc: $(RTL_BUILD_DIR)/tb_flac_lpc.vvp $(RTL_BUILD_DIR)/flac_lpc_vectors.txt
+	$(VVP) $<
+
+# each mutant MUST fail the bench (history index reversed, no shift, sign-extension dropped, one tap short, no history push)
+test-rtl-flac-lpc-mutation: $(RTL_BUILD_DIR)/flac_lpc_vectors.txt
+	@set -e; for b in 1 2 3 4 5; do \
+	  $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_flac_lpc.BUG=$$b -o $(RTL_BUILD_DIR)/flac_lpc_mut.vvp sim/tb_tau_flac_lpc.v src/fpga/core/tau_flac_lpc.sv; \
+	  if $(VVP) $(RTL_BUILD_DIR)/flac_lpc_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
 
 test-rtl-wave-meter: $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp
 	$(VVP) $<
@@ -358,6 +379,7 @@ rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module eq_biquad -Isrc/fpga/core src/fpga/core/eq_biquad.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module pcm_fifo src/fpga/core/pcm_fifo.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_arbiter src/fpga/core/tau_sdram_arbiter.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_flac_lpc src/fpga/core/tau_flac_lpc.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_cpu_bridge src/fpga/core/tau_sdram_cpu_bridge.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_addr_decode src/fpga/core/tau_sdram_addr_decode.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_wb_adapter src/fpga/core/tau_sdram_wb_adapter.sv
