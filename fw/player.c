@@ -1474,12 +1474,20 @@ static ui_marquee_t ui_mq_title, ui_mq_artist;
 
 /* TAU_ART_TIMG (docs/COVER_TIMG_READER.md): the thumbnail stash is COMPACTED to the live meters so 128 rows are free for the cover reader's index
  * plane. The four retired enum slots have no thumbnail data, so they need no rows; every other meter's rows shift up. With the macro off the
- * mapping is the identity and nothing changes. */
+ * mapping is the identity and nothing changes.
+ *
+ * VIZ_VU_MASTER is ALSO excluded from the compacted stash (not just the four retired slots): the stash budget between
+ * ART_STASH_Y (360) and the Chladni plane (984, the hard end of the RTL's 19-bit/1024-row framebuffer address space --
+ * there is no more room to grow into) was already down to its last 16-row margin before this meter existed, and one more
+ * live METER_THUMB_H (32u) slot does not fit. set_draw_thumb() always uses the software RLE fallback (the same path an
+ * old bitstream without the blit engine uses, B8's fail-safe) for this one meter instead of building a hardware-blit-cached
+ * row for it, so it costs a few dozen extra fb_rect() calls on the rare occasions its Settings-list thumbnail is drawn,
+ * not a stash row it doesn't have room for. */
 #if TAU_ART_TIMG
-#define THUMB_LIVE_SLOTS (VIZ_COUNT - 4u)
+#define THUMB_LIVE_SLOTS (VIZ_COUNT - 5u)
 static inline uint32_t thumb_slot(uint32_t v)
 {
-    return v - (v > VIZ_RETIRED_LEVELS) - (v > VIZ_RETIRED_MIRROR) - (v > VIZ_RETIRED_EYE) - (v > VIZ_RETIRED_TAPE);
+    return v - (v > VIZ_RETIRED_LEVELS) - (v > VIZ_RETIRED_MIRROR) - (v > VIZ_RETIRED_EYE) - (v > VIZ_RETIRED_TAPE) - (v > VIZ_CHLADNI);
 }
 #else
 #define THUMB_LIVE_SLOTS VIZ_COUNT
