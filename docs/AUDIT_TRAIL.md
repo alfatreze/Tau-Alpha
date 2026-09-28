@@ -10010,3 +10010,15 @@ by the actual compiled firmware under rv32sim, not just a Python-side change) pl
 the OLD 6-field shape still decodes correctly. `make test-host` passes in full. Both firmware variants
 (`LPC_FW=0`/`LPC_FW=1`, matching `TAU_DEV_52`/`TAU_0_6_0_A_16`) rebuilt clean with real heap margin.
 Not yet packaged or installed -- next step.
+
+## B-383 (2026-09-29): B-382's worst-case latency instrumentation installed on both A/B cores
+
+Rebuilt and reinstalled both already-established A/B cores with B-382's `flac_lpc_max_cyc` tracking, same
+`lpc-b378-s1` bitstream both times (unchanged, hash-verified identical to the audited RBF), only the ROM/
+cold-image refreshed via `--replace` (media untouched): `alfatreze.TAU_0_6_0_A_16` (`LPC_FW=1`, heap gap
+8,640 B) and `alfatreze.TAU_DEV_52` (`LPC_FW=0`, heap gap 9,616 B). Both installs backed up and verified.
+
+Next: run a Check (or just play a track and read Info) on each and compare the new `lpc_max_cyc` field
+in the SR_T_DECPROF2 QR record -- the direct test of whether the hardware unit's bounded worst case
+(2 cycles/tap, max 64 cycles/subframe) is measurably smaller than software's data-dependent worst case,
+which the earlier averaged `t_pct` metric could not show either way.
