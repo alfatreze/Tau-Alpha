@@ -10022,3 +10022,14 @@ Next: run a Check (or just play a track and read Info) on each and compare the n
 in the SR_T_DECPROF2 QR record -- the direct test of whether the hardware unit's bounded worst case
 (2 cycles/tap, max 64 cycles/subframe) is measurably smaller than software's data-dependent worst case,
 which the earlier averaged `t_pct` metric could not show either way.
+
+## B-385 (2026-09-29): corrected lpc_max instrumentation installed on both A/B cores
+
+B-383's `lpc_max_cyc` install pegged at the 65535 raw-cycle cap on both `TAU_0_6_0_A_16` and `TAU_DEV_52`
+for every real FLAC block -- traced (B-384) to a real bug in the instrumentation, not a genuine equal
+worst-case result: one call covers a whole block's remaining samples, already on the order of 100,000+
+cycles for a perfectly normal block, so the u16-cycles-capped-at-65535 field was uninformative from the
+start. Fixed to milliseconds (`lpc_max_ms`). Rebuilt and reinstalled both cores (`--replace`, media
+untouched, same `lpc-b378-s1` bitstream both times, hash-verified unchanged): `alfatreze.TAU_0_6_0_A_16`
+(`LPC_FW=1`) and `alfatreze.TAU_DEV_52` (`LPC_FW=0`). Both backed up and verified. Owner re-running the
+same A/B Check comparison next.
