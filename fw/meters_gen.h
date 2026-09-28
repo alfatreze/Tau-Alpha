@@ -51,8 +51,9 @@ static mtr_data_t mtr_d_winamp_scope = { VIZ_WINAMP_SCOPE, "WINAMP SCOPE", MP_WI
 #define MV_WINAMP_SCOPE(name) (mtr_v_winamp_scope[MP_WINAMP_SCOPE_##name])
 
 /* CHLADNI (id 14) */
-enum { MP_CHLADNI_LAYOUT, MP_CHLADNI_LINE_WIDTH, MP_CHLADNI_MODES, MP_CHLADNI_RISE, MP_CHLADNI_FALL, MP_CHLADNI_MORPH, MP_CHLADNI_MORPH_GAIN, MP_CHLADNI_TRIGGER, MP_CHLADNI_REFRACTORY, MP_CHLADNI_TONAL, MP_CHLADNI_N };
+enum { MP_CHLADNI_LAYOUT, MP_CHLADNI_LINE_WIDTH, MP_CHLADNI_MODES, MP_CHLADNI_RISE, MP_CHLADNI_FALL, MP_CHLADNI_MORPH, MP_CHLADNI_MORPH_GAIN, MP_CHLADNI_TRIGGER, MP_CHLADNI_REFRACTORY, MP_CHLADNI_TONAL, MP_CHLADNI_PAINT, MP_CHLADNI_N };
 static const char *const mtr_en_chladni_layout[] = { "LATTICE", "SHIMMER" };
+static const char *const mtr_en_chladni_paint[] = { "LINE", "EMBER", "OCEAN" };
 static const mtr_param_t mtr_p_chladni[MP_CHLADNI_N] = {
     { "LAYOUT", MTR_ENUM, 0, 1, 1, 0, 255, 0, "", mtr_en_chladni_layout },
     { "LINE WIDTH", MTR_U16, 200, 6000, 25, 1245, 255, 0, "", 0 },
@@ -64,16 +65,19 @@ static const mtr_param_t mtr_p_chladni[MP_CHLADNI_N] = {
     { "TRIGGER GAIN", MTR_U8, 4, 100, 1, 26, 255, 0, "", 0 },
     { "REFRACTORY", MTR_U16, 50, 2000, 25, 600, 255, 0, " MS", 0 },
     { "TONAL TRIGGER", MTR_BOOL, 0, 1, 1, 0, 255, 0, "", 0 },
+    { "PAINT", MTR_ENUM, 0, 2, 1, 0, 255, 0, "", mtr_en_chladni_paint },
 };
-static const char *mtr_pn_chladni[MTR_MAX_PRE] = { "LATTICE", "SHIMMER" };
+static const char *mtr_pn_chladni[MTR_MAX_PRE] = { "LATTICE", "SHIMMER", "EMBER", "OCEAN" };
 static char mtr_pb_chladni[MTR_MAX_PRE][16];
 static uint16_t mtr_pre_chladni[MTR_MAX_PRE * MP_CHLADNI_N] = {
-    0, 1245, 3, 668, 401, 63, 391, 26, 600, 0,   /* LATTICE */
-    1, 1475, 4, 1455, 873, 125, 782, 26, 350, 1,   /* SHIMMER */
+    0, 1245, 3, 668, 401, 63, 391, 26, 600, 0, 0,   /* LATTICE */
+    1, 1475, 4, 1455, 873, 125, 782, 26, 350, 1, 0,   /* SHIMMER */
+    0, 1245, 3, 668, 401, 63, 391, 26, 600, 0, 1,   /* EMBER */
+    0, 1245, 3, 668, 401, 63, 391, 26, 600, 0, 2,   /* OCEAN */
 };
-static uint16_t mtr_v_chladni[MP_CHLADNI_N] = { 0, 1245, 3, 668, 401, 63, 391, 26, 600, 0 };
+static uint16_t mtr_v_chladni[MP_CHLADNI_N] = { 0, 1245, 3, 668, 401, 63, 391, 26, 600, 0, 0 };
 static uint8_t mtr_pi_chladni = 0;
-static mtr_data_t mtr_d_chladni = { VIZ_CHLADNI, "CHLADNI", MP_CHLADNI_N, mtr_p_chladni, 2, MTR_MAX_PRE, mtr_pn_chladni, mtr_pb_chladni, mtr_pre_chladni, mtr_v_chladni, &mtr_pi_chladni };
+static mtr_data_t mtr_d_chladni = { VIZ_CHLADNI, "CHLADNI", MP_CHLADNI_N, mtr_p_chladni, 4, MTR_MAX_PRE, mtr_pn_chladni, mtr_pb_chladni, mtr_pre_chladni, mtr_v_chladni, &mtr_pi_chladni };
 #define MV_CHLADNI(name) (mtr_v_chladni[MP_CHLADNI_##name])
 
 #define MTR_MODULE_N 3u
