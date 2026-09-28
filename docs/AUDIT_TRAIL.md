@@ -9835,3 +9835,18 @@ macros inside the 4 functions (the macros already resolve to `th_role[]` today -
 `in->role[...]` would be a zero-behavior-change cosmetic diff, not attempted here to keep this pass's
 diff minimal), extending `mtr_preview()` to cover Chladni/VU Master (a real, separate functional gap,
 not part of "finish the input-struct shape").
+
+## B-376 (2026-09-28): lpc-b372 seed 2 FAILED -- over LAB budget by 213 (2061 needed, 1848 available)
+
+Checked on the in-flight FLAC LPC fit (from the prior session's handoff) while working on Helios
+review item 1. Seed 2 failed at the Fitter stage, not synthesis: `Error (170012): Fitter requires
+2061 LABs to implement the design, but the device contains only 1848 LABs`. Read the real log
+(`~/tau-local/lpc-b372-s2/quartus-fit.log`) directly rather than guess. This is a genuine resource
+exhaustion, not a seed-dependent timing miss -- LAB count doesn't vary by seed placement, so seed 1
+(still in the Fitter as of this check) is very likely to fail identically once it reaches placement;
+not yet confirmed. `tau_flac_lpc.sv` combined with the full all6-combined bundle (RAM shrink + clk66
++ pipelined blend + H2 double buffering + MP3 hardware window + TAU_LPC) is 213 LABs (11.5%) over
+budget on this device (5CEBA4). Real, actionable finding: TAU_LPC cannot ship in the current
+all6-combined bundle as built; needs either a smaller LPC design, dropping something else from the
+bundle, or its own separate bitstream/release track. Not yet investigated which. No RTL/firmware
+change made from this entry -- pure fit-result reporting.
