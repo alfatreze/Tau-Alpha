@@ -9911,3 +9911,27 @@ updated with the corrected diagnosis and this confirmed result.
 with real if narrow margin (98% ALM, 2% free). `mp3_fb` (Talos) remains the single largest consumer by far
 (12,763 ALUTs, unexamined at the opcode level, see the earlier ALM-audit discussion) and stays the natural
 next candidate if more headroom is ever needed, but nothing is currently blocked on it.
+
+## B-379 (2026-09-28): B-378's FLAC LPC fit installed on the card as alfatreze.TAU_0_6_0_A_16
+
+Built `player-library-diagnostic-profile` with `RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1` (matching the
+all6-combined bitstream's macro set plus the new hardware LPC redirect; heap gap 8,704 B against the
+4,096 B floor). Packaged with `tools/package_dev_build.py --semver 0.6.0-alpha.16 --rbf
+work/diagnostics/lpc-b378/ap_core_s1.rbf --rbf-sha256 30164515a0...` (an audited hash, not the unverified
+default). One naming mistake caught and fixed before install: first packaged as `0.5.0-alpha.16` (wrong --
+post-0.5.0-release alphas are 0.6.0-alpha.N per this project's own numbering, matching the already-
+installed `TAU_0_6_0_A_15`), corrected to `0.6.0-alpha.16` before writing anything to the card.
+
+Installed via `tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_15 --remove
+alfatreze.TAU_0_6_0_A_15 --yes`: backup verified (old core + 5 catalog caches), RBF/ROM/cold-image copied
+and SHA-256-verified identical, media + library index carried and rebuilt for the new core's own path (55
+files, library verified OK), `tau-assets.bin` carried, old core removed, caches cleared, junk cleaned,
+ejected. Cores on the card: `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC`, `alfatreze.TAU_0_6_0_A_16`.
+
+**Not yet run** -- this is the first-ever hardware boot of the FLAC LPC unit; everything before this point
+was simulation, synthesis and Fitter-stage verification only. The Info page (Settings > Diagnostics >
+Info) has an existing FLAC LPC row (B-370, gated on `TAU_LPC_FW`): reads `NO UNIT` if the bitstream lacks
+the unit, `HW <n> SAMPLES <n> TMO` if the hardware path is active and being used, `SW ...` if it fell back
+after a real timeout. The real verdict is the owner's next boot + FLAC playback + a look at that row (0
+timeouts after a track = clean); no automated hardware-vs-software Check comparison exists yet (design
+doc's own remaining item, not built this session).
