@@ -9953,3 +9953,28 @@ not a bug); the second is an informal listening impression, not something this s
 expected to alter (LPC changes decode COST, not reconstruction VALUES -- same arithmetic, hardware or
 software), noted here rather than investigated further without more specific evidence of an actual
 difference. `analogue-pocket-dev` skill KB-069 updated with this first real hardware confirmation.
+
+## B-381 (2026-09-28): A/B core for the microstuttering claim -- alfatreze.TAU_DEV_52 (LPC_FW=0)
+
+Owner reported real, specific qualitative hardware evidence on `TAU_0_6_0_A_16`: low but clearly audible
+microstuttering heard on earlier builds is now entirely gone. Before attributing this to the FLAC LPC
+hardware unit specifically, noted a real confound this session's own log already shows: the installed
+bitstream bundles SIX RTL features (RAM shrink, clk66, pipelined blend, H2 double buffering, MP3 hardware
+window, FLAC LPC) -- the fix could plausibly be clk66's +11% CPU headroom or something else in the bundle,
+not LPC. Hypothesis for the mechanism if it IS LPC: the software fallback path (`fw/flac.c`) does a 64-bit
+accumulate on a 32-bit RV32IM core with no native 64-bit multiply (`int64_t p = 0; for(j) p +=
+(int64_t)coef[j]*out[...` -- GCC-emitted mul/mulh/carry-add sequence per tap, order-1..32), so its
+worst-case per-subframe cost scales with order and plausibly runs 5-15x the hardware unit's bounded 2-
+cycles/tap (max 64 cycles/subframe, deterministic) -- a real, data-dependent latency spike on
+occasional high-order subframes is a textbook microstutter shape, invisible to `decprof2`'s only existing
+metric (an AVERAGE over a 15s window, `t_pct`), which is why `t_pct=99%` on B-380's own Check barely
+moved even if this theory is right.
+
+Rather than build new per-subframe worst-case-latency instrumentation to test this theory blind, built the
+cheaper, more direct causal isolation test first: `alfatreze.TAU_DEV_52`, same `lpc-b378-s1` bitstream/RBF
+as `TAU_0_6_0_A_16` (hash-identical, confirmed), firmware built with `LPC_FW=0` instead of `1` (forces the
+software FLAC path, every other macro -- `RAM_192K=1 CLK66=1 SDRAM_BUSY=1` -- unchanged) so it isolates
+LPC alone. Installed additively (media carried from `TAU_0_6_0_A_16`, nothing removed) so both cores can
+be A/B compared directly. If the stutter returns on `TAU_DEV_52`, LPC is confirmed as the real cause and
+the worst-case-latency instrumentation becomes a justified next step; if `TAU_DEV_52` stays clean too, LPC
+isn't the cause and something else in the bundle (most likely clk66) is. Owner test pending.
