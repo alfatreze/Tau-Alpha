@@ -11,7 +11,16 @@
 3. **Codex** must run background checks against modified files to detect bugs, race conditions, or performance flaws.
 
 ## 2b. Session start (read before working)
-000000. **Newest (2026-09-28, late): `docs/handoffs/SESSION_HANDOFF_2026-09-28_FLAC_LPC_AND_CLEANUP.md`
+0000000. **Newest (2026-09-29): `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md` --
+read it first** (FLAC LPC hardware kernel: fixed a real ALM-budget-blocking memory-inference bug in two
+attempts -- the first a documented negative result -- fit with real margin (18,064/18,480 ALMs, 98%),
+installed, hardware-confirmed via a causal A/B test and quantified (11ms software vs 5-6ms hardware
+worst-case latency); Helios review items 1-2 done, item 3 parked (`D-H01`); **a concurrent session found
+the single largest ALM saving on the whole chip, not yet built** -- Talos's `glyphbuf` row buffer falls
+back to ~6,500 ALMs of registers instead of ~80 ALMs of MLAB when blend is on, fix already designed,
+`docs/research/TALOS_REVIEW_2026-09-28.md` section 1a. **This is the recommended next step.**) Supersedes
+`docs/handoffs/SESSION_HANDOFF_2026-09-28_FLAC_LPC_AND_CLEANUP.md` for what it covers. Then item 000000.
+000000. **(2026-09-28, late): `docs/handoffs/SESSION_HANDOFF_2026-09-28_FLAC_LPC_AND_CLEANUP.md`
 -- read it first** (FLAC LPC hardware kernel designed/built/verified/wired-in, RTL synthesis bug found
 and fixed, a Quartus fit in progress at handoff time -- check its status; the `all6-combined` fit result
 item 00000 below flags as unverified IS now resolved with real evidence, Successful/+5.695ns/+0.037ns,
@@ -561,3 +570,4 @@ When delegating, write the subagent prompt to minimize its cost and the tokens i
 - 2026-09-28 (Claude): docs only, VM read-only. Talos ALM question: read per-entity fit reports on the VM. With TAU_BLIT_BLEND on, mp3_fb is 7,800 ALMs (1,313 without); glyphbuf fell out of MLAB into ~3,084 registers because the B-327 blend pipeline adds a second read port and a second write site. Whole design 57% -> 92-94%; this is why lpc-b372 overflows (111%). Proposed fix (single write port + two MLAB copies, ~6,500 ALMs saved) added as step T2-00 in docs/research/TALOS_REVIEW_2026-09-28.md, which also corrects its own earlier wrong ALM figures. Nothing built.
 - 2026-09-28 (Claude): docs only. Owner: save a clearly specced Talos reimplementation plan to come after the LPC work. Wrote `docs/features/TALOS2_REIMPLEMENTATION_PLAN.md` (goals with acceptance tests, compatibility contract, front end lowering commands into row jobs, single-writer MLAB ping-pong back end, in-queue table/fence opcodes, controller refresh/DQM changes, verification incl. a map-report RAM-inference check, phases P0-P4, risks, 3 owner decisions); added under ROADMAP 'Proposed'; review doc section 7 and docs/TALOS.md point to it. Nothing built.
 - 2026-09-28 (Claude): RTL. B-377/B-378: fixed the ALM-budget blocker found while starting Helios item 1 (docs/AUDIT_TRAIL.md B-376). Two real attempts: B-377 (ring buffer for hist_mem's write) verified correct but measured essentially no resource savings -- the write side was never expensive, a real negative result recorded honestly. B-378 (the actual fix): both hist_mem/coef_mem forced to ramstyle="MLAB", MAC state split in two to absorb the registered read's 1-cycle latency. Re-verified against the full testbench both times (20,000 vectors + 5 mutations, unchanged). Real Fitter run: Successful, 18,064/18,480 ALMs (98%), all four corners closed clean. Not yet hardware-tested. analogue-pocket-dev skill KB-069 (local) records the corrected diagnosis. mp3_fb (Talos) flagged as the next ALM-budget candidate if more headroom is needed, not urgent now.
+- 2026-09-29 (Claude): docs only. Session wrap-up: wrote `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md` (full FLAC LPC hardware arc B-376..B-386, Helios items 1-3 status, cross-referenced the concurrent session's Talos review finding -- glyphbuf falls back to ~6,500 ALMs of registers with blend on, fix already designed, flagged as the recommended next step); rewrote `docs/CURRENT_STATUS.md` (was stale since before this session, still described MASTER VU as "not yet hardware-run" and the all6-combined fit as unconfirmed, both long resolved); updated `docs/ROADMAP.md` item 10 (FLAC LPC: in-progress -> done, hardware-confirmed) and the session-start pointer above. `analogue-pocket-dev` skill KB-069 (local) already carries the full technical lesson, promoted to hardware-validated. No code touched.
