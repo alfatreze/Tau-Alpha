@@ -9850,3 +9850,64 @@ budget on this device (5CEBA4). Real, actionable finding: TAU_LPC cannot ship in
 all6-combined bundle as built; needs either a smaller LPC design, dropping something else from the
 bundle, or its own separate bitstream/release track. Not yet investigated which. No RTL/firmware
 change made from this entry -- pure fit-result reporting.
+
+## B-377 (2026-09-28): tau_flac_lpc ring-buffer attempt -- real, correct, but did not help
+
+First fix attempt for B-376's finding: `hist_mem` (32-entry sample history) was physically shifted every
+sample (`S_PUSH`: `hist_mem[0] <= sample; for(k=1;k<32;k=k+1) hist_mem[k] <= hist_mem[k-1];`), which the
+diagnosis assumed was the expensive part. Converted to a ring buffer: new `head_r` register names the
+physical slot holding logical position 0; `S_PUSH` now writes one slot and decrements `head_r` (mod
+`order_r`) instead of the 31-way parallel shift; `hist_addr` computation became `(hist_pos + head_r) mod
+order_r` via a single compare-subtract. `head_r` moved entirely into the state-machine `always` block
+(same single-owner-per-reg rule as `hist_mem` itself, B-371) since both `cfg_we`'s reset and `S_PUSH`'s
+decrement needed to touch it. Both arrays given explicit `(* ramstyle = "logic" *)` to match every other
+kernel's own established convention (`tau_mp3_poly`, `tau_spec_bank`, `eq_biquad` all already had one;
+this pair never did). Re-verified against the full testbench (20,000 vectors, the sequential push test,
+all 5 mutation hooks) -- all pass, confirming the access-pattern change preserved exact behaviour.
+
+**Real, honest negative result**: a synthesis-only re-check (`lpc-b377-synth-s1`) measured `tau_flac_lpc`
+at 1,914 ALUTs / 1,720 registers / 0 memory bits -- statistically unchanged from B-376's 1,922/1,714
+baseline. The diagnosis was wrong about which side was expensive: the write-side shift turned out to be
+CHEAP (each slot's next value is one fixed, known source register, no selection logic needed); the real
+cost was always the READ side (`hist_mem[hist_addr]`/`coef_mem[coef_addr]` at a runtime-computed index --
+a 32-to-1 LUT mux), which the ring-buffer conversion left completely unchanged (it computed a different
+index, still runtime-computed). Recorded as `analogue-pocket-dev` skill KB-069 (local), corrected in place
+once B-378 gave the real answer rather than left standing as a wrong claim. Kept as a real commit (the
+ramstyle explicitness and the correctness are both genuine improvements) -- superseded by B-378's arrays,
+not reverted.
+
+## B-378 (2026-09-28): tau_flac_lpc real fix -- MLAB + pipelined MAC, fits with 416 ALMs to spare
+
+The actual fix: `coef_mem`/`hist_mem` changed to `(* ramstyle = "MLAB, no_rw_check" *)` (matching this
+project's own established idiom, `mp3_fb.sv`'s `glyphbuf`), routing the runtime-indexed read through the
+FPGA's dedicated memory address-decode hardware instead of a LUT mux tree. This requires a REGISTERED
+(1-cycle-latency) read, unlike the previous same-cycle combinational array read, so the single `S_MAC`
+state was split into two: `S_MAC` presents the address and lets the registered MLAB read land; `S_MAC2`
+accumulates once `coef_q`/`hist_q` are valid. New unconditional `always @(posedge clk) coef_q <=
+coef_mem[coef_addr[4:0]]; hist_q <= hist_mem[hist_addr[4:0]];` block (same idiom as `glyphbuf`'s own
+`glyph_q` latch). Cost: 2 cycles per tap instead of 1 (max 64 vs 32 per sample) -- confirmed in simulation
+(order-31 vector: 36 clocks before, 67 after), trivially inside the audio sample period even at 96kHz.
+Re-verified against the full testbench unchanged (20,000 vectors, sequential push test, all 5 mutation
+hooks including the history-side-only reversal) -- all pass, confirming the pipelining preserved exact
+functional behaviour. No firmware changes needed -- the external register protocol (`busy`/`done`/
+`sample`) is unchanged; only internal cycle timing, invisible to firmware, which only polls `done`.
+
+Synthesis-only re-check (`lpc-b378-synth-s1`) measured `tau_flac_lpc` at 1,745 ALUTs (-9% vs B-376
+baseline) / 1,262 registers (-27%); design-wide totals dropped 1,553 logic cells / 452 registers. **Real
+multi-hour Fitter run (`lpc-b378-s1`, single seed, 2h04m wall / 3h48m CPU -- unusually long even for this
+device, consistent with how tight the remaining margin is): Successful.** Fit summary: **18,064 / 18,480
+ALMs (98%)** -- 416 ALMs of margin, genuinely fits (the B-376 baseline needed the equivalent of >20,610
+ALMs, over capacity even alone). RAM 240/308 (78%), DSP 19/66 (29%), registers 16,407. Timing: **all four
+corners closed clean, zero negative slack anywhere** -- worst case Slow 1100mV 85C setup +0.116 ns, Slow
+1100mV 0C hold +0.231 ns (every corner's End Point TNS is 0.000). RBF collected and hash-verified:
+`30164515a0195333604d12b667e05dd731e9a71f62300834e7cc7eb303aa7869`
+(`work/diagnostics/lpc-b378/ap_core_s1.rbf`). Not yet installed on the card or hardware-tested -- this is
+a fit-stage result only; the project's own FLAC LPC hardware-vs-software Check comparison (design doc's
+own remaining item) still needs building before a real Pocket verdict. `analogue-pocket-dev` skill KB-069
+updated with the corrected diagnosis and this confirmed result.
+
+**This also answers the wider ALM-budget question from earlier in the session**: the combined bitstream
+(RAM shrink + clk66 + pipelined blend + H2 double buffering + MP3 hardware window + FLAC LPC) now fits,
+with real if narrow margin (98% ALM, 2% free). `mp3_fb` (Talos) remains the single largest consumer by far
+(12,763 ALUTs, unexamined at the opcode level, see the earlier ALM-audit discussion) and stays the natural
+next candidate if more headroom is ever needed, but nothing is currently blocked on it.
