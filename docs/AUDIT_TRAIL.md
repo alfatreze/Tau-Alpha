@@ -9097,3 +9097,582 @@ B-347's content had not yet been committed, so the two claims flagged below as u
 same all6-combined/A_11/seed-defect story B-347 now records with real evidence; both are resolved as of
 B-347 landing. Kept below verbatim as the honest record of what could and couldn't be verified at the time.
 Owner-relayed summary of the 0.6.0 night (RAM-shrink+clk66 combined interlock, rounded-rect LUT fix, MASTER VU meter, Chladni EMBER/OCEAN, legacy m3u removal, docs reorg) checked against real commit history and reflog instead of transcribed as given. Confirmed real, with commit hashes: rev-26 interlock (`2c09524`), the committed `all6-combined` qsf bundle (`da8fa0c`), rounded-rect corner-cut-LUT fix and MASTER VU meter (`8d529d1`), Chladni EMBER/OCEAN (`8fb74f3`), legacy m3u removal (`45630c3`), docs reorg (`23abfd4`), and the VIZ_VU_MASTER build-breaking regression fix (`a5fc0d1`). **Two relayed claims could not be substantiated anywhere in this repo and are explicitly NOT recorded as fact:** (1) a real Quartus fit *result* for the `all6-combined` bundle -- only the qsf append file is committed, no fit.summary, RBF or AUDIT_TRAIL entry exists for it; (2) an `alfatreze.TAU_0_6_0_A_11` package/install and a seed-placement-defect hardware-corruption story on `blend-pipe-b327` seed 1 -- this file's own 0.6.0-alpha numbering stops at A_6 (B-346, not installed), and no commit or doc anywhere mentions A_11 or a corruption/re-seed resolution. If either genuinely happened, it needs a real writeup with real evidence (fit output, screenshots, seed identity) before being relied on. Also found: the audio-first track-load spec (`docs/features/AUDIO_FIRST_TRACK_LOAD_SPEC.md`, `tools/check_art_load_order.py`) exists only on an unmerged worktree branch (`ae8c284`, based on the pre-0.6.0-night `e081929`), not on `main` -- check before assuming it landed either way; and the 2026-09-27 docs reorg left stale duplicate files directly under `docs/` (e.g. `docs/PHASE_F_SPEC.md`, `docs/HELIOS_SPEC.md`) alongside their real, cross-reference-fixed `docs/features/` copies -- never removed, not cleaned up in this pass. Added skill KB-067 to `analogue-pocket-dev` (docs-verified: a hardware feature can be fully RTL-gated correctly, probe and all, while firmware never loads its configuration data -- a config-load-path testing gap distinct from opcode/probe testing). Deliberately did NOT add a KB entry for the seed-placement-defect claim since it could not be verified against any artifact in this repo. Wrote `docs/handoffs/SESSION_HANDOFF_2026-09-28_0.6.0_COMBINED.md`, updated `docs/CURRENT_STATUS.md` and `CLAUDE.md` section 2b (new pointer `00000`). No firmware, RTL or card touched.
+
+### B-349 (2026-09-28) - alpha.11 first-impression bugs: two real firmware fixes, source review only, no hardware run yet
+Owner's first hardware pass on the installed 0.6.0 combined build (`alfatreze.TAU_0_6_0_A_11` per B-347)
+surfaced two real symptoms alongside the expected MASTER VU meter appearing after the spectrum (LED) in
+the meter cycle order, which matches `fw/meter_gen_order.h`'s `viz_order[]` as designed, not a bug: **(1)
+"closing the menu leaves visual leftovers"** and **(2) "the radio button rounded issue still present"**
+despite `8d529d1`'s rounded-rect corner-cut LUT fix. Root-caused both from source, no card mounted this
+pass to confirm on hardware -- flagged, not assumed fixed.
+
+(1) `fw/player.c`'s own comment on `pl_ui_restore` ("settings, the library browse overlay, and (when it
+existed) the legacy playlist overlay all set this") was already false before this fix: `grep` found only
+`lib_ui_close()` (`fw/library.inc:483`) ever set it; `set_close()` (`fw/settingsui.inc`, closing the
+Settings overlay) never did, in the committed history available to this session. Without it, the main
+loop's `pl_ui_restore` branch (`fw/player.c` ~9005: `ui_chrome_paint()`, `ui_art_draw()`, `ui_bg_ready=0`,
+`ui_wave_force=1u`, invalidating every `wave_drawn[]`/`spec_drawn[]` cache slot) never runs on a Settings
+close, so the chrome, art panel and meter background strip are never forced to repaint against the
+overlay's leftover pixels -- exactly "closing the menu leaves visual leftovers." Fixed: `set_close()` now
+also sets `pl_ui_restore = 1u`.
+
+(2) Traced to a genuine hardware race, not a LUT-content bug: `rc_lut_cut()` (`fw/rc_lut.h`) matches the
+proven software quarter-circle formula exactly and `sim/test_rc_lut.py` already covers it. The real fault
+is in `fb_round_rect_on()` (`fw/player.c`): `rc_lut_ensure(r)` overwrites the shared 16-entry
+`rc_cut_lut_r` MMIO register file immediately, with no wait for the PREVIOUS `OP_RRECT` command (issued at
+a possibly different radius) to finish draining -- `fb_rrect()` only calls `fb_wait()` for what came
+*before* it, then fires-and-returns without waiting for its own command to complete. `set_disc()`
+(`fw/settingsui.inc`, the radio-button ring+dot and colour-swatch ring+fill) issues 2-3 `fb_round_rect_on()`
+calls back to back at different radii (9/6/4 or 10/7) on every drawn row -- the textbook trigger. Fixed by
+moving `fb_wait()` to the top of `fb_round_rect_on()`'s hardware branch, before `rc_lut_ensure()` touches
+the LUT, so any still-executing prior command at the old radius fully drains first.
+
+Both are firmware-only (`fw/player.c`, `fw/settingsui.inc`), no RTL/MMIO change, no new macro. Verified:
+`make test-host` passes in full (0 real failures); `release` and `player-library-diagnostic-profile`
+rebuild clean with real heap margin (`release` 56,640 B free vs 6,144 B floor). **Not yet hardware-tested**
+-- the card was not mounted this pass; both fixes need a real Pocket run before being trusted. The
+owner's Check/Stress QR screenshots mentioned as "in card" were not read this pass either (no volume
+mounted) -- still pending. `alfatreze.TAU_0_6_0_A_11`'s own packaging/install (B-347) is unaffected;
+these are source fixes only, not yet packaged into a new build.
+
+### B-350 (2026-09-28) - Confirmed structural: no View abstraction, docs only, no code changed
+Owner reported the B-349 menu-close leftover is also visible leaving fullscreen, and asked whether this is
+structural in Helios -- menus/bars/lists should be reusable components for consistency even at the cost of
+more rigid firmware. Investigated `fw/helios.inc` directly: it is a deferred-draw wrapper around exactly
+ONE region (the player chrome) today, not a view manager. Confirmed 6 separate hand-written call sites set
+the shared `pl_ui_restore` "repaint the player" flag (`fw/settingsui.inc`, `fw/library.inc`,
+`fw/fullscreen.inc` x3, `fw/suite.inc` x2), one of which (`set_close()`) was simply missing until B-349's
+fix -- proving nothing enforces every overlay-close path sets it. What the flag triggers is a fixed,
+hand-maintained invalidation checklist (`fw/player.c` ~9005), not a real per-view contract; every new visual
+subsystem (B-256's meter-strip rebuild, fullscreen's own `helios_excl[]` exclusion rects) had to be
+individually folded into that one list by hand -- fullscreen showing leftovers despite correctly setting
+`pl_ui_restore` on both transitions is exactly the failure mode this predicts (not independently confirmed
+against hardware this pass, no card mounted). Wrote up a proposed `helios_view_t` layer (enter/exit/draw/
+input + a declared `invalidate_mask`, with one `helios_view_switch()` replacing all 6 manual call sites) in
+`docs/features/HELIOS_SPEC.md` section 11 (renumbered; Cross-references moved to section 12). Design only,
+not built -- real multi-file refactor of working UI dispatch code (`settingsui.inc`/`library.inc`/
+`fullscreen.inc`/`suite.inc`/`player.c`/`helios.inc`), no card to verify against either way. Owner scope
+decision pending: full refactor now vs. point-fixing and taking this as a later Phase H1.5 follow-up.
+
+### B-351 (2026-09-28) - Built the B-350 View-transition fix: helios_view_changed(), all 7 sites migrated
+Owner chose "build it now" on B-350's proposed structural fix, scoped down from the full `helios_view_t`
+enter/exit/invalidate_mask design (parked in `docs/features/HELIOS_SPEC.md` section 11 as a later step,
+since it would restate each view's own open-time setup and risk subtly changing working entry paths this
+session cannot verify on hardware) to the part that directly closes the demonstrated bug class: the six
+independent bare `pl_ui_restore = 1u;` writes (`fw/settingsui.inc`, `fw/library.inc`, `fw/fullscreen.inc`
+x3, `fw/suite.inc` x2) all now go through one new `helios_view_changed()` (`fw/helios.inc`) -- functionally
+identical (`pl_ui_restore = 1u;` is still the whole body), but now a real, greppable shared primitive every
+top-level view transition (player/Settings/library/fullscreen) calls, rather than a bare flag any call site
+can silently omit the way `set_close()` did (B-349). `sim/test_helios_beam.py` standalone-compiles
+`fw/helios.inc` in isolation and needed a `pl_ui_restore` stub added (matching its existing `fb_rect()` stub)
+to keep linking. `make test-host` passes in full (17/17); `release` (56,640 B heap gap), `player-library-
+diagnostic` (50,016 B) and `player-library-diagnostic-profile` (47,984 B) all rebuild clean with real
+margin. Deliberately did NOT touch the open-time setup at any of these 4 views (`set_open=1u`/`lib_ui_open=
+1u`/`ui_fullscreen` toggling itself) -- only the close/return-to-player side, which is where the actual
+demonstrated bug and risk live. Not committed, not packaged, not hardware-tested (no card mounted).
+
+### B-352 (2026-09-28) - alpha.12 installed: B-349/B-351 firmware fixes on the confirmed-real all6-combined bitstream
+Card mounted; owner said "roll it out." Confirmed `alfatreze.TAU_0_6_0_A_11` genuinely exists on the card
+(`Cores/alfatreze.TAU_0_6_0_A_11/bitstream.rbf_r`, SHA-256 `76ad2819...`, `info.txt` text matches B-347's
+"blend + MP3 hardware + H2 dbuf + clk66 + RAM shrink" claim exactly) -- this independently confirms the
+`all6-combined` fit result B-348 flagged as unwritten-down-anywhere: the RBF is real and installed, whatever
+the missing AUDIT_TRAIL entry for the fit itself. Built `player-library-diagnostic-profile` with
+`RAM_192K=1 CLK66=1 SDRAM_BUSY=1` (the exact flags alpha.11's own description implies, matching the qsf
+bundle's `TAU_RAM_192K`/`TAU_CLK66`/`TAU_SDRAM_BUSY` macros) carrying B-349's two fixes and B-351's
+`helios_view_changed()` consolidation: 9,600 B heap gap (alpha.11 was 9,616 B; the fixes cost 16 B) against
+a 4,096 B floor. Packaged as `alfatreze.TAU_0_6_0_A_12` (`tools/package_dev_build.py --semver 0.6.0-alpha.12
+--rbf .../alfatreze.TAU_0_6_0_A_11/bitstream.rbf_r --rbf-sha256 76ad2819...`, reusing alpha.11's exact RBF
+so only firmware changes between the two), `check_tau_package.py` PASS. Installed via
+`tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_11 --remove alfatreze.TAU_0_6_0_A_11 --yes`:
+backup verified, 3 core files SHA-256-identical after copy, 51 media files + library index carried and
+rebuilt for the new core's path, alpha.11 removed, 5 catalog caches cleared, junk removed, ejected. Cores on
+the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_0_6_0_A_10`, `TAU_0_6_0_A_3`, `TAU_0_6_0_A_7`, `TAU_0_6_0_A_8`,
+`TAU_0_6_0_A_9`, `TAU_0_6_0_A_1`, `TAU_0_6_0_A_12` (older 0.6.0-alpha test cores from other sessions/nights
+left untouched -- not this session's to clean up without checking who still needs them). Result pending:
+this is the first hardware run of both B-349 fixes and B-351's consolidation, together with the still-
+first-ever-tested all6-combined RTL bitstream.
+
+### B-353 (2026-09-28) - alpha.12 root-caused (my own packaging mistake, double bit-reversal) and fixed as alpha.13; SR_T_DECPROF2 built
+Owner: alpha.12 failed to load on the Pocket ("Error in framework RS:Bridge not responding" -- the FPGA
+fabric never came up, so the host-side bridge got no answer). Root cause confirmed, not guessed:
+`tools/package_dev_build.py --rbf` bit-reverses whatever file it's given, expecting a RAW Quartus `.rbf`;
+B-352's install had passed it `alfatreze.TAU_0_6_0_A_11/bitstream.rbf_r` -- an ALREADY bit-reversed file --
+so it was reversed a second time, producing a corrupted configuration file (SHA-256 `3d0303af...` instead
+of the correct `76ad2819...`, confirmed by direct comparison against the known-good file preserved in
+B-352's own verified card backup). A genuine RTL/timing issue was ruled out first (the all6-combined fit's
+own reported margins are real, and alpha.11 itself booted and ran a full Check/Stress session cleanly per
+the owner's earlier report) before concluding this was a tooling misuse, not a hardware defect.
+
+**Fix, in order:** (1) copied the verified-correct `bitstream.rbf_r` (hash `76ad2819...`, taken from
+B-352's own pre-removal backup of alpha.11) directly into a freshly repackaged `alfatreze.TAU_0_6_0_A_13`,
+bypassing `--rbf`'s bitrev step entirely; `check_tau_package.py` PASS. (2) Hardened
+`tools/package_dev_build.py` itself: `--rbf` now refuses any path whose name ends `.rbf_r`/`_r`, with an
+error explaining the double-reversal failure mode and the correct alternative (copy an already-reversed
+file directly over the packaged `bitstream.rbf_r` instead of routing it through `--rbf`) -- verified the
+guard actually fires. Alpha.12 removed from the card after a verified backup; alpha.13 installed via
+`tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_12 --remove alfatreze.TAU_0_6_0_A_12 --yes`,
+RBF copy-verified identical to the known-good hash during install, media (51 files) + library index carried
+and rebuilt, caches cleared, ejected.
+
+**Also this entry (owner: "add all the audio measurement features we need"):** built `SR_T_DECPROF2`
+(`fw/suite_core.h`, `fw/suite.inc`) -- the finer MP3 (`d_pct`/`a_pct`/`x_pct`: Dequantize/AntiAlias/
+HybridTransform, B-345's own accumulators, never before exported) and FLAC (`u_pct`: `unary()`/`__clzdi2`
+estimated share, B-342/343's own accumulators, same denominator as the existing `r_pct`) decode-stage
+breakdown, captured at the same `CT_AUD` window `SR_T_DECPROF`'s coarse `h_pct`/`i_pct`/`s_pct`/`r_pct`
+already uses, emitted as a second tag rather than widening the first (this project's own established
+precedent for a later-added, differently-shaped addition, `SR_T_DECSWEEP` vs `SR_T_DECPROF`). This means
+Check's QR now carries the COMPLETE decode-cost picture on its own -- no separate bench-row screenshot
+needed at all, which is what B-088/089's own design comment already said was the point of building this
+into Check in the first place. `tools/decode_tau_suite.py`, `tools/host/suite_harness.c` and
+`sim/test_suite.py` updated and passing (a genuine cross-check: the real firmware encoder's byte output vs
+an independent Python reference encoder, not just decoder unit tests). Deliberately did NOT also enable the
+separate bench-only `UI_SHOW_DECODE_PROFILE` screen row -- redundant now that Check captures everything,
+and it costs screen space/CPU for no remaining benefit. Rebuilt `player-library-diagnostic-profile` with
+`RAM_192K=1 CLK66=1 SDRAM_BUSY=1` (9,440 B heap gap vs alpha.13's pre-DECPROF2 9,440... -- wait, vs alpha.12's
+9,600 B; SR_T_DECPROF2 cost 160 B) against a 4,096 B floor; this is what's on `alfatreze.TAU_0_6_0_A_13`.
+`make test-host` passes in full. Not yet hardware-tested -- this is the first real boot attempt of any
+firmware carrying B-349/B-351's fixes, contingent on this packaging fix actually working.
+
+### B-354 (2026-09-28) - Docs: generalized cooperative audio-priority gate proposed for Helios, design only
+Owner asked whether hardware decode actually frees CPU for the UI, and separately whether audio/UI should
+be more deliberately separated for a fluid experience. Answered from real evidence already in this file
+rather than in the abstract: the MP3 window unit's measured S 55-59%->22% (B-087/B-309) proves freed decode
+CPU is real and shared: B-296..B-299's scope-meter jitter bug (DRAW STALL 34,663ms, CPU LOAD 100%, real
+audible jitter) proves the UI side spending that shared budget back can hurt audio just as concretely.
+True concurrency was already assessed and declined (section 8, no interrupt controller in this design,
+reentrancy risk across all firmware) -- the right fix is generalizing the cooperative priority mechanism
+that already exists and is hardware-validated, `meter_afford()` (fw/player.c), which today gates only two
+meters' spectrum-cascade cost via a `pcm_level()` hysteresis check, confirmed by grep to have zero other
+callers despite the exact B-296..B-299 failure mode being general. Wrote `docs/features/HELIOS_SPEC.md`
+section 8.1: relocate the FIFO-headroom check into a shared `helios_audio_ok()`, add a `degradable` bit to
+Helios regions reusing the EXACT skip-and-retry control flow `helios_flush()` already has for beam-safety
+(`helios_rows_safe_counted()`) rather than inventing a second wait mechanism, explicitly scoped to
+continuously-repeating cosmetic work (meter ticks, live previews, marquee) and explicitly NOT one-shot
+navigation transitions (opening/closing a menu) -- same "skip, never block" discipline the beam-safety gate
+already established. Design only, not built; first real step when taken is a zero-behavior-change relocation
+of meter_afford()'s existing logic, verified byte-identical, before adding the degradable bit. No code, RTL
+or card touched.
+
+### B-355 (2026-09-28) - 3 new Test Album tracks tagged and synced to alpha.13 (track 14 = 96kHz FLAC for the bit-reader follow-up)
+Owner added 3 tracks to the local "Test Album" source folder (`../test music/Test Album`, outside this repo):
+track 12 (Aphex Twin - Omgyjya-Switch7, already correctly tagged from its source album, left unchanged),
+and tracks 13/14 (a Rite of Spring excerpt at 48kHz and 96kHz respectively, exported from Adobe Audition
+with no ID3/Vorbis tags at all -- only a provenance XMP sidecar, no usable title/artist there). Tagged 13/14
+with mutagen following the Test Album's own existing convention exactly (read off tracks 01/04/06/11 first
+rather than guessed): `title = "<piece> - <format> <rate>"`, `artist = "Tau Test"`, `album = "Audio Test
+Suite"`, `tracknumber` matching. Synced to the card (`tools/sync_media.py ... --core alfatreze.TAU_0_6_0_A_13
+--library`): 3 new files copied, `playlist.m3u` regenerated (14 tracks), library index rebuilt and verified
+(44 tracks/4 albums/3 artists/2 playlists, `tau_library.py verify` OK). Motivation: track 14 is the 96kHz
+FLAC the owner wants a decode-stage Check reading from, as a follow-up to today's 3 real FLAC readings
+(R 6-11%, well under the original FLAC.md 64-76% claim) -- a higher-resolution file is a reasonable next
+data point before concluding anything further about the FLAC bit-reader kernel. Card ejected. Not yet run
+on hardware -- next step is playing track 14 and running USER CHECK, same procedure as today's other
+readings.
+
+### B-356 (2026-09-28) - Fixed the misleading hi-res-FLAC refusal wording; proposed a shared Helios dialog primitive
+Owner reported track 14 (96kHz FLAC) showed a "cryptic user error." Decoded the actual screen from the
+card's own screenshot: `ui_rate_unsupported()` (`fw/player.c`) correctly refuses the file (a real, deliberate
+design -- 96kHz FLAC decode measured at ~180% of realtime, section comment already documents this), but the
+message "HI-RES 96.0kHz - PLAYS 48kHz MAX" reads as a capability statement ("plays, capped at 48kHz") when
+it means the opposite: nothing plays, 48kHz is the core's ceiling. Fixed the wording for all four reject
+reasons (rate/depth/channels/block-size) to lead with "NO PLAY: ..." -- unambiguous, and shorter than the
+old wording in three of the four cases (the block-size case grew by 3 chars, judged acceptable given it is
+the rarest trigger). `make test-host` passes; `release` (56,704 B heap gap) and `player-library-diagnostic-
+profile` (9,472 B) both rebuild clean. Not yet installed/hardware-tested.
+
+Investigating the message surfaced a real structural finding: **three independent, hand-built "tell the
+user something" mechanisms exist** (`ui_toast_msg`/`ui_toast_set`, `ui_rate_unsupported`'s own row-buffer
+message, and `ui_failed_msg`/`ui_load_failed`), confirmed by reading each directly. The worst is
+`ui_load_failed()`: a literal blocking `for(;;) { poll_input(); ... }` spin loop bypassing the main loop and
+Helios entirely, with **no button dismiss at all** -- the only way out is picking a different file from the
+Pocket's own Core menu. Owner asked for a future-improvement writeup: a simple dialog (message + dismiss
+action) defined once by Helios for any caller to use. Written up in `docs/features/HELIOS_SPEC.md` section
+12 (`helios_dialog_t`/`helios_dialog_show()`/`helios_dialog_dismiss()`, built as one more `helios_view_t`
+per section 11 once that lands, replacing all three ad hoc mechanisms except `ui_toast_msg` which stays
+separate on purpose -- non-blocking hints are a genuinely different notification shape from an error the
+user must acknowledge). Design only, not built. Cross-references section renumbered 12->13.
+
+### B-357 (2026-09-28) - Settings > Diagnostics > ACCEPT ALL RATES: a runtime toggle instead of a build-time override
+Owner asked to temporarily raise the FLAC rate ceiling to test the 96kHz track, then redirected mid-build
+from a `-DFLAC_MAX_RATE` build-time override (reverted, never shipped) to a runtime Diagnostic-Build-only
+toggle -- better, since it means testing any future rate doesn't need its own throwaway build/package/
+install cycle. Added `TG_RATES` (`fw/settingsui.inc`, third `RT_TOGGLE`) and `flac_accept_all_rates`
+(`fw/player.c`, `#if TAU_DIAGNOSTIC`, default 0): Settings > Diagnostics > ACCEPT ALL RATES, same "off at
+every start, never persisted" convention as the existing ALL SPEEDS toggle. Scoped deliberately narrow --
+bypasses ONLY `FLAC_MAX_RATE` (the measured-performance cutoff, `fl.rate > FLAC_MAX_RATE` at the one real
+check site), never `FLR_CHANS`/`FLR_DEPTH`/`FLR_BLOCK`, which come from `flac_open()` refusing a shape its
+decoder cannot handle at all -- a hard capability boundary, not a performance choice, not safe to bypass the
+same way. Fixed a real latent bug in `set_menu_value()`'s toggle-display catch-all while adding the third
+toggle: it unconditionally assumed "not TG_ART means TG_SPEEDS," which would have silently mis-displayed
+TG_RATES' own ON/OFF state had it been left as the default branch -- now each toggle is checked explicitly.
+`tools/ui_snapshot_renderer.py`'s `SAMPLE_VALUE` needed the new row's fixture value (a real gap the test
+suite caught, not overlooked). `make test-host` passes; `release` (56,704 B heap gap, unchanged -- confirms
+the whole feature compiles out of the shipped build), `player-library-diagnostic-profile` (9,456 B) and
+`player-library-diagnostic` (50,048 B) all rebuild clean. Not yet packaged/installed -- the current card
+build (alpha.13) predates this toggle.
+
+Also (owner: "add track 15"): tagged `15. Nausicaa Requiem_01_FLAC_96khz.flac` (no tags at source, same gap
+as tracks 13/14) following the Test Album's own convention, and synced tracks 13/14/15 together to
+`alfatreze.TAU_0_6_0_A_13` (`tools/sync_media.py --library`): 45 tracks, library index rebuilt and verified.
+Card ejected. The three 96kHz-class tracks are now on the card; actually playing any of them past the
+refusal screen still needs alpha.13 replaced with a build carrying this session's ACCEPT ALL RATES toggle.
+
+### B-358 (2026-09-28) - alpha.14 installed: B-356 wording fix + B-357 ACCEPT ALL RATES toggle, RBF re-verified
+Packaged `alfatreze.TAU_0_6_0_A_14` on the same all6-combined bitstream as alpha.13 (RBF copied directly from
+the known-good local backup, bypassing `--rbf`'s bitrev step -- the exact B-353 mistake, now guarded against
+by that fix too, but a direct copy avoids the risk entirely). Installed via `tools/install_dev_core.py
+--carry-from alfatreze.TAU_0_6_0_A_13 --remove alfatreze.TAU_0_6_0_A_13 --yes`: RBF hash verified identical
+to `76ad2819...` during copy, 55 media files + library index carried and rebuilt for the new core's path,
+alpha.13 removed after a verified backup, 5 catalog caches cleared, ejected. First hardware test of the
+clearer refusal wording and the ACCEPT ALL RATES diagnostic toggle -- owner can now flip Settings >
+Diagnostics > ACCEPT ALL RATES ON and try tracks 13/14/15 (48/96/96 kHz FLAC) past the refusal screen for a
+real decode-stage Check reading, expected to underrun per the original measurement.
+
+### B-359 (2026-09-28) - Card cleanup: removed 6 superseded pre-A11 0.6.0-alpha test cores
+Owner asked to check the card for builds no longer needed. Read each remaining pre-alpha.11 core's own
+info.txt (not guessed): alfatreze.TAU_0_6_0_A_1/3/7/8/9/10 were all intermediate bisection/debugging steps
+from the overnight 0.6.0 session (seed swaps isolating the A2/A6 blend-pipe corruption, the RRECT LUT fix,
+the RAM-shrink retrim) leading up to alpha.11's all6-combined build -- every one of them strictly superseded
+by the now-confirmed-working alpha.14. Removed via `tools/install_dev_core.py work/diagnostics/
+tau-0_6_0_a_14/pocket --replace --remove ... --yes` (re-verifies the current install while removing the
+six named cores in one pass): all 7 touched cores backed up and verified first, alpha.14's own files
+re-confirmed identical, 6 removed, 5 catalog caches cleared, 18 junk files cleaned, ejected. Cores on the
+card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_0_6_0_A_14`. Noted in passing, not chased: the replace step reported no
+`tau-assets.bin` found for alpha.14 (theme/meter preset file) -- worth a follow-up check, not blocking.
+
+### B-360 (2026-09-28) - Correction: real hardware data shows FLAC LPC reconstruction dominates, not the bit-reader
+Owner asked for a full analysis across all this session's FLAC readings, whether the bit-reader is still the
+right hardware target, and whether any MP3 hardware piece (or "something in the DSPs") is relevant. Compiled
+all 6 independent FLAC Check readings taken this session (varied content: Hyperion, MacCunn/Clementi,
+Aphex Twin, Rite of Spring, Nausicaa Requiem) -- `r_pct` (bit-reader share of the res+lpc pass) is 4-11% on
+every single one, meaning LPC/FIXED reconstruction (`fw/flac.c`'s multiply-accumulate predictor loop) is
+89-96% of that pass on every real track tested. This is the **opposite** of `FLAC.md`'s original 64-76%
+bit-reader claim that motivated B-342's scoping in the first place -- the same class of correction B-087
+already made for MP3's "I bucket," now found on the FLAC side too. Traced the plausible mechanism to real
+code, not guessed: real-LPC accumulates in `int64_t` per tap per sample, and `rv32im` has no native 64-bit
+multiply, so each product needs several 32-bit instructions to synthesize in software -- a fixed, guaranteed
+per-sample cost, unlike Rice decoding's entropy-dependent cost. Corrected `docs/research/
+FLAC_BITREADER_KERNEL_SCOPING.md` with a new section 5: if a FLAC hardware kernel is built, it should target
+LPC reconstruction (a small fixed-point MAC/FIR unit, structurally suited to Cyclone V's hardened DSP
+blocks) rather than the bit-reader (a priority encoder, the wrong target given the real numbers). Confirmed
+this is NOT literally reusable from `tau_mp3_poly.sv` (FDCT32 polyphase synthesis is a fixed block
+matrix-multiply, LPC reconstruction is a variable-order sequential FIR predictor -- different math) but IS
+the same proven, de-risked architectural pattern (MMIO-staged DSP-block MAC unit, boot-probe fail-safe) this
+project already has one working, hardware-confirmed example of. Flagged one open precision question (15-bit
+coefficients x ~32-bit sample history vs Cyclone V's native 18x18/27x27 multipliers -- may need per-tap
+chaining, not assumed free) and one real measurement gap: FLAC has no percent-of-realtime figure at all
+today (unlike MP3's H/I/S/D/A/X) -- every reading so far is a ratio within one internal pass, not a share of
+wall-clock decode time, so FLAC decode's real total cost -- and therefore whether it is worth accelerating
+AT ALL -- is still genuinely unmeasured. Recommended building that measurement (mirroring MP3's own
+MPROF_T0/MPROF_ADD convention) before designing any FLAC RTL. Docs only, no code/RTL/card touched.
+
+### B-361 (2026-09-28) - Built FLAC's percent-of-realtime split (incl. channel 1, previously unmeasured); design analysis for a future LPC kernel
+Owner asked for the FLAC realtime-percentage split (following B-360's LPC-dominance finding), then, mid-build,
+asked whether Rice decoding, LPC reconstruction and stereo decorrelation had each been considered as separate
+hardware targets. Reading the real code to answer that surfaced a genuine gap in every FLAC measurement taken
+so far: `fw/flac.c`'s own comment states channel 1 (`subframe_stream()`) fuses bit-read + reconstruction +
+decorrelation and "cannot be split... channel 1 does the same work [as channel 0], so the ratio carries" --
+an inherited ASSUMPTION, never actually checked, and every `r_pct`/`u_pct` reading this session is channel 0
+only. Built the real check: `flac_ch1_total_cyc` (`fw/flac.c`/`flac.h`), a single window-total timing lump
+around the whole `subframe_stream()` call (cannot be split internally, but CAN be timed as one piece against
+channel 0's total). `SR_T_DECPROF2` widened from 4 to 6 u16 fields (safe same-day widen, nothing external
+depended on the 4-field shape yet) -- added `t_pct` (FLAC's TRUE total percent-of-realtime, channel 0 +
+channel 1 combined, the first real apples-to-apples figure against MP3's h+i+s+d+a+x) and `c1_pct` (channel
+1's own percent-of-realtime alone, 0 on mono where channel 1 never runs -- the actual test of the "ratio
+carries" assumption). `tools/decode_tau_suite.py`, `tools/host/suite_harness.c` and `sim/test_suite.py`
+updated; `make test-host` passes (real encoder-vs-reference cross-check, not just decoder unit tests);
+`release` (56,704 B, unaffected) and `player-library-diagnostic-profile` (9,360 B) rebuild clean. Not yet
+hardware-tested -- needs a new build/install.
+
+Also evaluated the owner's three follow-on design questions and two pasted external notes against this
+project's real code rather than accepted at face value (the notes' citations read as decorative, not real
+sourcing; their headline architectures -- FPGA-side SDRAM file-streaming DMA, and a shared IMDCT/channel-
+mixer both formats route through -- do not exist in this core, confirmed by reading `fw/player.c`'s own
+pipeline comment and `track_fmt`'s single-active-decoder design). What survived: variable-width bit-splitting
+is cheap/solved but targets the confirmed-minority bit-reader cost; the LPC recursion is genuinely sequential
+ACROSS samples (a real data dependency, `out[i]` needs `out[i-1..i-order]`'s final values) but the per-sample
+tap sum is not, and a single time-multiplexed DSP slice (given hundreds of fabric cycles available per audio
+sample) needs far fewer DSP blocks than a parallel array, revising this doc's own earlier framing toward a
+more resource-frugal shape, matching this project's standing minimal-DSP/M10K preference; coefficient/shift
+precision must be bit-exact and Cyclone V's native 18x18 DSP block does not cleanly fit a 15-bit coefficient
+x ~25-bit sample, an open sizing question, not assumed free. Corrected `docs/research/
+FLAC_BITREADER_KERNEL_SCOPING.md` section 6 with the full evaluation and a revised (still unbuilt) sketch.
+Docs + firmware only, no RTL, no card.
+
+### B-362 (2026-09-28) - alpha.15 installed: FLAC t_pct/c1_pct realtime split, RBF re-verified
+Packaged alfatreze.TAU_0_6_0_A_15 on the same all6-combined bitstream as alpha.14 (RBF copied directly from
+the known-good local backup, not via --rbf). Installed via tools/install_dev_core.py --carry-from
+alfatreze.TAU_0_6_0_A_14 --remove alfatreze.TAU_0_6_0_A_14 --yes: RBF hash verified identical to
+76ad2819..., 55 media files + library index carried and rebuilt, tau-assets.bin carried correctly this time
+(B-359's "none found" note was a --replace-mode-only quirk, resolved by using --carry-from), alpha.14
+removed after backup, ejected. First hardware test of the FLAC channel-1 timing (t_pct/c1_pct) -- next step
+is a USER CHECK run with a FLAC track playing.
+
+### B-363 (2026-09-28) - alpha.15 hardware readings: FLAC decode is at ~99% of realtime, channel 1 dominates; a lock-up bug and a confirmed-still-present clipping bug
+Owner reported two bugs and asked for analysis of 7 fresh Check screenshots (6 QR + 1 refusal screen).
+
+**Real finding, reverses B-360's "comfortably inside budget" read:** runs 1-6 (same track, repeated) are
+consistent -- `t_pct` (FLAC's new true percent-of-realtime, B-361) reads **~99%** every single time, with
+`c1_pct` (channel 1 alone) at 63-66% and channel 0 (res+lpc) at the remaining ~33-36%. Ordinary FLAC decode
+is running flush against the wall-clock deadline with essentially zero margin -- a strong, hardware-grounded
+explanation for the owner's separately-reported "constant low clicks" on FLAC that aren't present on MP3:
+decode this close to the edge every frame plausibly produces intermittent glitches without tripping Check's
+own coarser `late_underrun` (full FIFO-empty) threshold. This also means the earlier "no case for FLAC
+hardware yet" recommendation (B-360) was premature -- it was based on 0-underrun evidence alone, without the
+margin figure this session's own `t_pct` work (B-361) was built specifically to supply.
+
+**Also new and unexpected: channel 1 costs MORE than channel 0** (63-66% vs ~33-36%), contradicting
+`fw/flac.c`'s own inherited "channel 1 does the same work, so the ratio carries" comment -- confirms B-361's
+whole reason for building `c1_pct` in the first place. Any future hardware LPC/reconstruction unit needs to
+help BOTH channels' MAC loops (`subframe()` and `subframe_stream()`), not just channel 0's, to capture the
+real win -- channel 1 is the bigger piece, not a proportional echo of channel 0.
+
+**Run 7 is very likely the owner's own suspected synthetic tone**: `t_pct=c1_pct=79%` while every channel-0
+field (`h/i/s/r/u`) reads exactly 0 -- channel 0 registered essentially no cost, consistent with a
+degenerate/near-silent first channel. Flagged, excluded from the analysis above; does not undermine the
+other 6 consistent readings.
+
+**Lock-up bug (owner: opening track 14 "locked, couldn't navigate back - no actions"):** read the main
+super-loop (`fw/player.c` ~8404, `for(;;) { poll_input(); ... }`) and confirmed `poll_input()` runs once per
+pass with exactly one `flac_decode_frame()` call per pass (~9155) -- input polling is structurally built in,
+so a true infinite hang is less likely than it first sounds. Best-grounded hypothesis, not yet confirmed:
+given 48kHz FLAC alone measures ~99% of realtime, 96kHz is almost certainly running at several hundred
+percent, meaning individual frame decodes could take multiple seconds of wall-clock CPU time each, with
+input only checked BETWEEN those stretches -- would read as "locked" without being a true infinite loop.
+Not confirmed without live (JTAG) debugging; flagged for the owner's call on whether to pursue further.
+
+**Confirmed still-present, real, previously-flagged bug**: the refusal screenshot (`NO PLAY: 96kHz (48kHz`,
+cut off mid-word) shows B-356's wording fix landed correctly but the separate layout-clipping gap flagged
+(not fixed) in that same entry is real on hardware, not just a theoretical concern -- `fw/settingsui.inc`'s
+album-row `fb_text_boxed()` still has no marquee/scroll and nowhere to put the full message next to the art
+panel. Not fixed this pass (would need the same broader dialog work scoped in `docs/features/
+HELIOS_SPEC.md` section 12, or a narrower standalone fix). No code changed this entry -- analysis only.
+
+### B-364 (2026-09-28) - FLAC LPC reconstruction kernel: real design doc, gated on real evidence
+Owner: "keep going with the FLAC work" after B-363's real ~99%-of-realtime finding met the gate this
+session's own recommendation set (B-360's condensed summary: only scope RTL once FLAC decode is confirmed
+a real bottleneck, not before). Wrote `docs/research/FLAC_LPC_KERNEL_DESIGN.md`, mirroring the proven
+`docs/features/MP3_FILTERBANK_KERNEL_DESIGN.md` structure and verification discipline throughout rather
+than inventing a new process. Key design points: a single time-multiplexed DSP-slice MAC (section 6's own
+owner-validated correction from an earlier parallel-array framing), history+coefficients in one MLAB block
+(trivial fit, unlike the MP3 window unit's 4 M10K -- this unit's whole working set is under 200 bytes), an
+MMIO register layout at the next free block (0x120+, `docs/MMIO_ALLOCATION.md`) reusing the sticky-index-
+load convention already proven twice (`R_BLT_IDX`/`DATA`, `R_CLUT_IDX`/`DATA`) rather than a new interface
+shape, and -- the concrete point B-363's channel-1 finding demands -- ONE unit callable from both channel 0
+(`subframe()`) and channel 1 (`subframe_stream()`)'s reconstruction inner loops, since the math is identical
+even though the surrounding code differs and cannot be split. Build order follows this project's own
+standing discipline exactly (host symmetry check -> golden model -> RTL+mutation tests -> firmware probe/
+fallback -> synthesis-only check -> real fit -> hardware re-measurement), step 1 (host symmetry check)
+named as the concrete next step, not started. Superseded `docs/research/FLAC_BITREADER_KERNEL_SCOPING.md`
+in place (cross-referenced, kept for history, not deleted). Docs only, nothing built.
+
+### B-365 (2026-09-28) - FLAC LPC host symmetry check built and passing: 45-bit accumulator proven sufficient; MP3 follow-ups logged
+Owner: "start on the host symmetry check," then "log those [MP3 follow-ups] as a follow-up, stay focused on
+FLAC." Logged two MP3 items to `docs/ROADMAP.md` item 11 first (the CPU-LOAD-vs-H+I+S+D+A+X gap, likely UI
+cost per the `helios_audio_ok()` proposal not hidden decode cost; and `S`'s 22% never re-profiled into
+hardware-wait vs. residual-software since the window unit shipped) -- neither blocks anything, both are
+unverified assumptions the FLAC work's own discipline flagged as worth closing, not acted on further this
+session. Verified before asserting it (checked `mp3dec.c`'s real per-channel loop structure) that MP3 does
+NOT share FLAC's channel-1 blind spot -- its profiling hooks already sit at call sites that loop over both
+channels, unlike FLAC's `subframe_stream()` optimization.
+
+Built `sim/test_flac_lpc_symmetry.py` (wired into `make test-host`), mirroring `sim/mp3_poly_probe.c`'s own
+synthetic-random-plus-worst-case-corners method rather than depending on external music files, over FLAC's
+real legal parameter bounds derived from `fw/flac.c` itself (order 1-32, coefficient precision <=15-bit
+signed, sample magnitude <=25-bit signed including the side-channel's extra bit). **Result: a 45-bit signed
+accumulator is provably sufficient** (worst case order(32) x |coef|(2^14) x |sample|(2^24) = 2^43, needs 45
+signed bits) -- verified exact against `fw/flac.c`'s own `int64_t` arithmetic across 20,000 random legal-
+range cases, 27 explicit worst-case corners, and the FIXED-predictor shape separately, zero mismatches at
+45, 48 and 64 bits alike. This directly closes `docs/research/FLAC_LPC_KERNEL_DESIGN.md` section 2's open
+DSP-sizing question: 45 bits fits a single Cyclone V 27x27 DSP block's native accumulator, no chaining
+needed -- corrected the doc's own earlier 64-bit-by-default assumption. Updated design doc sections 2, 4
+and 7 with the real result. Remaining, cheap, non-blocking follow-up: re-run the same model against
+`subframe_stream()`'s fused channel-1 loop specifically and against real captured subframes (not just
+synthetic legal-range data), before trusting this for RTL. Docs + host test only, nothing built in RTL.
+
+### B-366 (2026-09-28) - Real-file confirmation of the FLAC LPC accumulator width: 15.7M real steps, 0 mismatches
+Follow-up to B-365's synthetic legal-range proof. Built `tools/flac_lpc_capture.py`, reusing
+`tools/flac_verify.py`'s own bit-exact parser (proven correct via whole-file MD5 checks) to capture real
+`(order, shift, coefficients, sample-window)` tuples from actual FLAC subframes -- both channels, since the
+reference parser's `subframe()` is called identically for each. Ran against all 7 real files used this
+session's Check measurements (MacCunn, Clementi, Aphex Twin, Rite of Spring 48kHz and 96kHz, Nausicaa
+Requiem 96kHz), 300 frames each after an initial full-file run proved too slow in pure Python (same
+tradeoff `flac_verify.py` itself documents against `flac_ref.py`). **Result: 15,671,871 real-LPC prediction
+steps, 0 mismatches at 45, 48 or 64-bit accumulators** -- confirms B-365's synthetic proof with genuine
+real-world data, not just exhaustive legal-range coverage. Real-world parameter ranges recorded: order only
+ever reached 2-12 across all seven files (never near the legal max of 32), coefficients got close to the
+legal bound (max |coef| 16381 of 16384), sample magnitudes stayed well under the legal ceiling (max
+2,750,763 of 16,777,216). Updated `docs/research/FLAC_LPC_KERNEL_DESIGN.md` sections 4 and 7 with the real
+result; flagged one remaining low-priority gap (direct capture from `subframe_stream()`'s own code path,
+not an equivalent one -- arithmetic already confirmed identical by inspection). Both the host-check step
+and its real-file confirmation are now closed; the golden model (a portable C sequential-MAC reference, for
+the RTL testbench) is the next concrete step, not started. Host tooling only, nothing built in RTL.
+
+### B-367 (2026-09-28) - FLAC LPC golden model built: independent C-language re-proof, RTL vectors written
+Owner: "yes" (continue to the golden model step, build order item 2). Built `sim/flac_lpc_model.c`,
+mirroring `sim/mp3_poly_model.c`'s convention but structurally different where the underlying problem
+differs: FLAC's coefficients are per-frame and streamed, not a fixed ROM, so there is no real decoder to
+diff against the way FDCT32/PolyphaseStereo were for MP3 -- this model IS the reference, checked against an
+unbounded `int64_t` computation of `fw/flac.c`'s own real-LPC arithmetic (proven wide enough by B-365's own
+result) across the identical 20,000 random legal-range trials and 27 explicit worst-case corners
+`sim/test_flac_lpc_symmetry.py` already used -- an independent, second-language re-proof of the same claim
+rather than a restatement of it, this project's own standing discipline before trusting RTL against a
+single check alone. Result: 0 mismatches, 0 overflows, matching the Python result exactly. Writes 20,000
+RTL testbench vectors to `build/rtl/flac_lpc_vectors.txt` (`sim/test_flac_lpc_model.py`, wired as a Makefile
+file-target dependency, `$(RTL_BUILD_DIR)/flac_lpc_vectors.txt`, mirroring `mp3_poly_vectors.txt`'s exact
+rule shape -- correctly inert until an actual RTL testbench depends on it, since none exists yet). Verified
+`make test-host` unaffected (this step is a file-target dependency, not a test-host gate, same split as the
+MP3 precedent). Updated `docs/research/FLAC_LPC_KERNEL_DESIGN.md` section 7. Host tooling only, nothing
+built in RTL. Next concrete step: `tau_flac_lpc.sv` + testbench replaying these vectors, mutation tests.
+
+- 2026-09-28 (Claude): RTL/sim (B-368). "Yes, go ahead and start on the RTL" -- built the FLAC LPC
+reconstruction unit in isolation, matching `tau_mp3_poly.sv`'s own precedent (RTL+testbench first, SoC
+wiring later). `src/fpga/core/tau_flac_lpc.sv`: 5-state sequenced machine (`S_IDLE->S_MAC->S_SHIFT->
+S_ADD->S_PUSH->S_DONE`), one multiply-add per clock into a 48-bit accumulator (B-365's proven-sufficient
+45 bits plus headroom), shift/add-residual/history-push each their own registered cycle, never chained
+combinationally -- this project's own repeatedly-learned timing rule (B-109/B-111/B-114/B-150/B-157/
+B-211). Register contract per `docs/research/FLAC_LPC_KERNEL_DESIGN.md` section 5: CFG (order/shift) once
+per subframe, then `order` coefficients and `order` warm-up samples via sticky auto-incrementing
+index+data pairs (same convention as `R_BLT_IDX/DATA`, `R_CLUT_IDX/DATA`), index 0 = most-recent-paired
+in both, matching `fw/flac.c`'s own convention. `sim/tb_tau_flac_lpc.v` replays all 20,000
+`build/rtl/flac_lpc_vectors.txt` golden-model vectors bit-exactly with a real non-zero varying residual
+per vector (zero would leave the adder untested), plus a dedicated hand-computed sequential test (order
+2, coef {3,-2}, warm {10,5}, two successive residuals) specifically added to prove the history push/shift
+works across successive predictions within one subframe -- the main vector loop reloads warm-up fresh
+every vector and structurally cannot exercise this.
+
+Real finding, not assumed: mutation testing (`BUG=1..5`, same discipline as `tau_mp3_poly.sv`) initially
+caught only 2 of 5 on first pass. Diagnosed and fixed each: BUG=1 (tap-order reversal) was originally
+symmetric -- reversing both coefficient and history indices together sums the identical set of
+(coef,hist) pairs, and addition is commutative, so it silently passed every vector; fixed by making it
+asymmetric (history side only), a real functional mismatch. BUG=3 (sign-extension-dropped) and BUG=4
+(order off-by-one) existed only as unused parameter branches, never actually wired into the arithmetic --
+implemented for real (BUG=3 zero-extends the coefficient; BUG=4 skips accumulating the last tap's
+product, chosen because it keeps identical loop bounds/indexing for any legal order 1-32, unlike an
+out-of-bounds read or an infinite loop). BUG=5 (no history push) needed the dedicated sequential test
+above, since the main loop's fresh-reload-per-vector pattern can never observe a missing push. After all
+five fixes: `make test-rtl-flac-lpc` PASSED (0 failures, 20,000 vectors + sequential push test);
+`make test-rtl-flac-lpc-mutation` correctly kills all 5 mutants. `make rtl-lint` clean (only harmless
+unused-bit warnings on `shifted[47:32]`/address MSBs). Wired into `Makefile`: `rtl-lint` entry, vvp build
+rule, both test targets, both added to the `test-rtl` aggregate. `make test-host` unaffected (this work
+touches only `test-rtl` and a file-target dependency already present from B-367).
+
+**Not yet done:** wiring into `mp3_soc.v` (new MMIO 0x120+ decode cases, per section 5), firmware
+`LPC_READY()` probe and the `subframe()`/`subframe_stream()` redirect, any Quartus build. Updated
+`docs/research/FLAC_LPC_KERNEL_DESIGN.md` section 7 (build-order items 1-3 now done). No card/VM touched.
+
+- 2026-09-28 (Claude): RTL (B-369). "Yes, go ahead and wire it into mp3_soc.v" -- wired `tau_flac_lpc.sv`
+(B-368) into the SoC, mirroring `tau_mp3_poly.sv`'s own generate-gated pattern exactly (`POLY_ENABLE` was
+the template read first). New `LPC_ENABLE` parameter (default 0, inert netlist -- `assign lpc_busy = 1'b0;
+assign lpc_done = 1'b0; assign lpc_sample = 32'sd0;` in the `g_nolpc` branch, same shape as `g_nopoly`);
+`TAU_LPC`->`TAU_LPC_EN` macro added to `core_game.vh` next to `TAU_POLY_EN` (independent -- different
+decoder, no RTL dependency between the two); both `mp3_soc` instantiations in `core_game.vh` (the
+`TAU_PHASE2_WINDOW` and plain-decode variants) updated with `.LPC_ENABLE(`TAU_LPC_EN`)`; `tau_flac_lpc.sv`
+registered in `ap_core.qsf` next to `tau_mp3_poly.sv`.
+
+Register map at 0x120-0x13C (`docs/MMIO_ALLOCATION.md` updated, 8 registers, next free block confirmed
+free per the doc's own 0x120-0x1FC note), reusing the sticky index+data auto-increment convention already
+proven on `R_CLUT_IDX/DATA` and `R_RC_IDX/DATA`: `LPC_CFG` (order+shift), `LPC_COEF_IDX/DATA`,
+`LPC_WARM_IDX/DATA`, `LPC_RESIDUAL` (write starts one reconstruction), `LPC_SAMPLE` (read the result),
+`LPC_STATUS` (present/busy/done). One real design decision made during wiring, not left to guesswork:
+`sample_rd` -- the module's own signal that clears `done` and lets the next residual be accepted -- is
+wired directly to the bus's one-cycle read-request pulse (`d_req & d_is_mmio & ~dWE & (mmio_reg ==
+R_LPC_SAMPLE)`, confirmed by reading `d_req`'s own definition, `dCYC & dSTB & ~dACK`, a genuine single-
+cycle pulse) rather than requiring a separate firmware ack write. Checked first whether any register in
+this SoC already used a read-triggered side effect (grepped for `d_is_mmio & ~dWE` patterns) and found
+none -- every existing DONE-latch register (`POLY_ST` included) is read-only with no side effect, so this
+is a new pattern for this codebase, justified by the module's own contract (`sim/tb_tau_flac_lpc.v`'s
+`sample_rd <= 1; @(posedge clk); sample_rd <= 0;` sequence) rather than copied blind.
+
+Verification: `make rtl-lint` clean (no new warnings beyond the module's own pre-existing harmless unused-
+bit ones); `make test-rtl` -- the FULL suite, not just the new LPC testbench -- passes with 0 failures,
+including the real-CPU PSRAM fw/ifetch boot simulations that exercise `mp3_soc_sim.v` regenerated via
+`sim/make_soc_sim.py` from the now-modified `mp3_soc.v`, confirming the wiring doesn't disturb anything
+else instantiated in the SoC; `make test-host` unaffected (45/48/64-bit symmetry checks and everything
+else still pass). Re-ran `make test-rtl-flac-lpc`/`-mutation` standalone too: 20,000 vectors + sequential
+push test PASSED, all 5 mutants still killed -- confirms the module itself is unchanged by this wiring
+step, only its instantiation context is new.
+
+**Not yet done:** any Quartus build (section 3's cost estimate is unverified against a real fit -- this
+adds one DSP-mapped 48-bit MAC plus two MLAB-sized memories, small per the design doc but genuinely
+unmeasured), and no firmware caller exists yet (`LPC_READY()` probe, the `subframe()`/`subframe_stream()`
+redirect, a Check test comparing hardware vs. software reconstruction -- section 7 item 4). On any
+bitstream that does NOT define `TAU_LPC` this is fully inert, identical netlist to before this entry. No
+card/VM touched. Updated `docs/research/FLAC_LPC_KERNEL_DESIGN.md` section 5 (AS BUILT register table,
+corrected: no separate `LPC_ID` register, index 0 = most-recent not oldest-first) and section 7 (item 3.5).
+
+- 2026-09-28 (Claude): firmware (B-370). "Continue into the firmware caller" -- built the firmware side
+of the FLAC LPC unit (B-368/B-369). `fw/flac_lpc_hw.h`/`fw/flac_lpc_hw.inc`: same separation
+`fw/mp3_poly_hw.h`/`.inc` uses for `subband.c`'s own hardware redirect (a thin, portable, host-testable
+API in the header; the MMIO-touching implementation textually included into `player.c`, since `fw/flac.c`
+is a genuinely separate compile unit, `-c -o flac.o flac.c`, confirmed by reading `fw/build.sh`'s own
+compile line). `tau_lpc_hw_begin(order, shift, coef, warm)` loads `R_LPC_CFG`+coefficients+warm-up once
+per subframe (reversing the warm-up array into the hardware's most-recent-first index convention --
+coefficients need no reversal, `fw/flac.c`'s own `coef[0]` already pairs with the most recent sample).
+`tau_lpc_hw_sample(residual, &ok)` writes `R_LPC_RESIDUAL`, polls `R_LPC_STATUS` bit 2 (bounded, ~2 orders
+of magnitude over the RTL's own ~36-cycle worst case per B-368's testbench), and on success returns the
+sample read from `R_LPC_SAMPLE` -- that read is itself the module's own ack (B-369's `sample_rd` wiring).
+A real hardware timeout permanently disables the unit for the session (`tau_lpc_hw_enable = 0`), same
+per-failure convention as `tau_poly_hw_enable`.
+
+Wired into `fw/flac.c`'s two LPC reconstruction sites: `subframe()`'s post-`residual()` loop (the
+warm-up is already sitting in `out[0..order-1]` in the caller's own read order, exactly
+`tau_lpc_hw_begin()`'s `warm` contract; a hardware sample failure leaves `out[i]` holding its
+already-decoded residual untouched, so the software fallback loop resumes correctly) and
+`subframe_stream()`'s fused loop (same warm-up contract via the local `warm[]` array). `player.c`: new
+`R_LPC_*` register defines (0x120-0x13C, matching B-369's MMIO map), a boot probe (`hw_lpc =
+REG(R_LPC_STATUS) & 1`), `tau_lpc_hw_enable = hw_lpc` under the new `TAU_LPC_FW` build macro. New "FLAC
+LPC" Info-page row (`fw/settingsui.inc`, `SET_INFO_ROWS` 22->23): samples reconstructed / timeouts, or
+"NO UNIT" on a bitstream without `TAU_LPC`, or "OFF" when the build itself doesn't define `TAU_LPC_FW`.
+`fw/build.sh`: `LPC_FW=1` env override (default 0 in EVERY target, unlike `POLY_FW` -- no Quartus fit or
+hardware result exists yet for `TAU_LPC`, so this stays fully opt-in, the same caution `POLY_FW` itself
+observed before B-309's hardware confirmation), reaching both `player.c` (`$CFLAGS`) and `flac.c`'s own
+separate compile line (`$FLAC_O_CFLAGS`).
+
+**Host verification, following this project's own "prove it before hardware" discipline exactly as the
+MP3 window unit's B-307/B-308 redirect was proven:** `sim/flac_lpc_fw_harness.c` +
+`sim/test_flac_lpc_fw_redirect.py` (wired into `make test-host`). Hand-builds ONE real, valid LPC
+subframe -- reusing `tools/flac_make_test.py`'s own proven `BitWriter` (subframe header, warm-up,
+precision/shift, coefficients, a real Rice-coded residual partition, all correctly bit-packed, not a
+stand-in) -- with coefficients deliberately chosen for a stable (<1) predictor gain after an unchecked
+first attempt (aggressive coefficients relative to the shift) made the Python-computed expectation
+overflow into arbitrary-precision territory within a handful of samples while the C side silently wrapped
+int32, a real methodology bug caught only by comparing the two rather than assumed benign. A
+`FLAC_TEST_EXPOSE`-gated pair of one-line wrappers in `flac.c` (never defined by `fw/build.sh`, zero
+production footprint) exposes the real, otherwise-`static` `subframe()`/`subframe_stream()` so the
+harness drives the actual decoder code, not a reimplementation. Six-way (soon eight-way) comparison:
+`{subframe, stream} x {TAU_LPC_FW=0, TAU_LPC_FW=1 clean, TAU_LPC_FW=1 with an induced hardware failure at
+sample 5 (mid-subframe) and at sample 0 (immediate)}`, plus a Python-computed ground truth for all eight
+to agree against. This is deliberately NOT re-proving the LPC arithmetic (B-365's symmetry check and
+B-368's RTL testbench already did that two independent ways) -- it proves the NEW firmware glue itself.
+
+**Two real bugs found by this test and fixed, not assumed correct on the first write:** (1)
+`subframe_stream()`'s hardware path originally called `tau_lpc_hw_sample(rice_next(f, &r), &ok)` with
+`rice_next()` evaluated as a bare argument -- it unconditionally consumes the residual from the live bit
+reader before `tau_lpc_hw_sample` ever gets a chance to report failure, so a hardware failure silently
+dropped that residual and desynced every sample decoded after it (first caught as a one-sample values
+mismatch cascading into garbage from the failure point onward). Fixed by reading the residual into a
+local variable first and reusing it directly in the software completion for that one sample, before
+falling through to the general per-sample software loop for the rest of the subframe. (2) The fallback
+code's own `EMIT(...)` call (the subframe_stream()-local macro) already advances `i` as its own last
+statement inside its `do {...} while(0)` body; an extra explicit `i++` written right after it silently
+skipped one sample index, leaving that history slot at its `calloc`-zeroed default and corrupting every
+prediction computed after it -- found by the SAME fallback test case (the values were now wrong in a
+different, smaller-magnitude way, tracked back to the skipped index by hand), fixed by removing the
+redundant increment. Neither bug touched `tau_flac_lpc.sv`, `fw/flac.c`'s own pre-existing code, or the
+underlying arithmetic -- both were purely in this turn's new glue.
+
+Every named `fw/build.sh` target rebuilds with `LPC_FW` unset (default 0): `release`'s
+`tau.rom`/`tau-cold.bin` are byte-identical/idempotent across a rebuild (checked by SHA-256, not
+assumed), confirming zero footprint on any shipped or previously-shipped build. `LPC_FW=1` also builds
+clean end to end (`player-library-diagnostic-profile` and `release`, the latter with a comfortable
+55,680 B heap gap against its 6,144 B floor). `make test-host` passes in full (the new redirect test plus
+everything else, including B-365's symmetry check, unaffected). Updated
+`docs/research/FLAC_LPC_KERNEL_DESIGN.md` section 7 (build-order item 4 now mostly done -- the real gap
+left is a Check test and, as always, actual hardware).
+
+**Not yet done:** a `Check` test comparing hardware vs. software reconstruction on a real track (item 4's
+own remaining piece), and any Quartus build/hardware test at all -- `hw_lpc` reads false on every
+bitstream built so far, so `LPC_FW=1` today only exercises the pure-software fallback path (proven
+correct by this session's own test) even when the firmware itself is built with it on. No card/VM
+touched.
