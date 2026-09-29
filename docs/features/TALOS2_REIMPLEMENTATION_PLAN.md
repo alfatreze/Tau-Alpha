@@ -1,8 +1,12 @@
 # Talos 2: reimplementation plan for the 2D draw engine
 
-**Status: planned, not started.** Sequencing: after the FLAC LPC work (ring buffer and its fit) lands,
-by owner decision on 2026-09-28. The order of work lives in `docs/ROADMAP.md`; this file is the design
-reference only.
+**Status (updated 2026-09-29, owner decision): P1 shipped as T2-00 (below); the rest (P2-P4, the actual
+"Talos 2" front-end/row-job rewrite) is DECLINED for now, revisit only when a genuinely new opcode is
+needed** -- the review this plan comes from already recommended this order (`TALOS_REVIEW_2026-09-28.md`
+section 7: "do not rewrite Talos now... rebuild the back end only when the next opcode is planned"); P1's
+own urgency (the ALM crisis blocking `lpc-b372` at 111%) was the only forcing function tying it to the
+rest of the plan, and it shipped independently. This file stays as the design reference for whenever P3
+is actually triggered, not as a scheduled project.
 
 Background and evidence: `docs/research/TALOS_REVIEW_2026-09-28.md` (the review this plan comes from).
 Current engine: `src/fpga/core/mp3_fb.sv`; reference page: `docs/TALOS.md`; register map:
@@ -12,14 +16,14 @@ Current engine: `src/fpga/core/mp3_fb.sv`; reference page: `docs/TALOS.md`; regi
 
 | Problem (measured or read from source) | Effect today |
 |---|---|
-| With `TAU_BLIT_BLEND`, the 128-word row buffer (`glyphbuf`) gets a second read and a second write site, so Quartus builds it from 3,084 registers instead of an MLAB | `mp3_fb` 7,800 ALMs vs 1,313 without blend; chip at 92-94%; `lpc-b372` did not fit (111%) |
-| Six writers with four address sources share the buffer's one write port | The same timing-bug shape has been fixed five times, one opcode at a time (B-111, B-114, B-157, B-231, B-327) |
+| ~~With `TAU_BLIT_BLEND`, the 128-word row buffer (`glyphbuf`) gets a second read and a second write site, so Quartus builds it from 3,084 registers instead of an MLAB~~ | **RESOLVED, T2-00, 2026-09-29**: single shared write port (`gb_we`/`gb_addr`/`gb_data`), fanned out to two MLAB copies. Fit-confirmed (all four corners positive, both seeds) and hardware-confirmed. Committed to `main`. |
+| ~~Six writers with four address sources share the buffer's one write port~~ | **RESOLVED, same T2-00 commit** -- there is now exactly one write site in the whole module, closing the class of bug fixed five times before it (B-111, B-114, B-157, B-231, B-327). |
 | `R_FB_GO` reads back "FIFO full" only; tables and sticky fields are read when a command executes | CLUT reload, corner-cut LUT reload (B-349's fix) and blend-on can change under commands still queued |
-| `OP_BAR` lit-row count is 7 bits | Fullscreen Winamp Bars (height 323) draw wrong heights above 127 rows (not yet seen on hardware) |
-| A burst crossing a 1,024-word SDRAM page hangs on read, wraps on write | Latent: every current caller uses stride 512 |
+| `OP_BAR` lit-row count is 7 bits | Fullscreen Winamp Bars (height 323) draw wrong heights above 127 rows -- **now seen on hardware** (B-406, 2026-09-29); firmware clamps to 127 as a stopgap (`fb_bar()`), the real fix (T2-0/P0: split into stacked bars) is still open |
+| A burst crossing a 1,024-word SDRAM page hangs on read, wraps on write | Latent: every current caller uses stride 512. **Note (2026-09-29):** the `test/720` branch's native mode uses stride 1024 (one SDRAM page per line) and works around this at the firmware level (two 400-word chunks per line) rather than waiting on a general fix here -- see `docs/features/VIDEO_720_PHASED_SPEC.md` R9. |
 | `OP_CBLIT`/`OP_SBLIT` do one full SDRAM transaction per pixel; every SDRAM read is preceded by an auto-refresh | About 20 cycles per pixel (estimate); also slows every CPU-window read |
 | One row buffer, serial read-then-write; 127-pixel width limit; firmware splits copies itself | Slower rows, firmware workarounds (`FB_COPY_MAX`) |
-| H2 double buffering offsets only non-blit opcodes | Blits would land in the front buffer unless firmware rewrites `DST_BASE` at every flip |
+| H2 double buffering offsets only non-blit opcodes | Blits would land in the front buffer unless firmware rewrites `DST_BASE` at every flip. **Being fixed independently (2026-09-29) by `test/720`'s `FB_DRAW_BASE`/`FB_DISP_BASE` (section 5.1 note below) -- do not build a second mechanism for this here.** |
 
 ## 2. Goals and non-goals
 
@@ -82,7 +86,15 @@ SCANOUT FILL (unchanged, highest priority) -----------------------^
 - **Clips** against a sticky clip rectangle (default: whole 512 x 1,024 surface, i.e. no clipping,
   so behaviour is unchanged until firmware sets it).
 - **Target surface**: one sticky offset added to every destination, including blit opcodes, so H2's
-  back buffer applies uniformly. Default 0.
+  back buffer applies uniformly. Default 0. **DEFER TO `test/720`'s design if P3 is ever built (decided
+  2026-09-29):** `docs/features/VIDEO_720_PHASED_SPEC.md` section 2.2 independently designed
+  `FB_DRAW_BASE`/`FB_DISP_BASE` for the exact same gap, scoped to ship on TODAY's architecture (no
+  rewrite needed), with `DBUF_*` kept as a compatibility view. If that lands first (the realistic
+  order, since P3 has no forcing function), P3's front end should adopt its register semantics as this
+  slice's own implementation rather than inventing a second, competing base-offset mechanism. Whoever
+  builds `FB_DRAW_BASE`/`FB_DISP_BASE` should add a mutation test proving it also covers the BLIT-class
+  sticky `DST_BASE` addressing path, not just the RECT-class `cmd_addr` path that already had H2
+  coverage via the old 1-bit `R_DBUF_CPU` selector -- that distinction is the actual gap, not a detail.
 - Handles the in-queue control opcodes (5.4) itself; they never reach the back end except the fence.
 
 ### 5.2 Row job (the only interface between the two halves)
@@ -192,13 +204,13 @@ Hardware (Pocket, Diagnostic Build, installed with `tools/install_dev_core.py`):
 Each phase ends with its own simulation pass and, where RTL changes, its own fit. No phase starts
 before the previous one is hardware-confirmed.
 
-| Phase | Content | Fit? | Can ship alone? |
-|---|---|---|---|
-| P0 | Firmware only: `fb_bar()` splits bars above 127 lit rows into stacked bars; width guards in `fb_cblit/fb_blit/fb_sblit`; the page rule written into `docs/TALOS.md` | No | Yes |
-| P1 | Interim fix inside today's `mp3_fb.sv`: single registered write port for `glyphbuf` and two MLAB read copies, so blend no longer costs ~6,500 ALMs. Keeps everything else. | Yes | Yes. Do this first if chip space is needed before the rewrite |
-| P2 | Idle bit, fence register, in-queue control opcodes (on today's engine). Firmware `fb_drain()` used by CLUT load, corner-cut load, blend | Yes | Yes |
-| P3 | Front end + row-job FIFO + back end replacing the engine body; controller changes (section 7) | Yes | Yes, after section 8 passes |
-| P4 | Firmware cleanup that the new engine allows: drop `FB_COPY_MAX` splitting, use the clip rectangle, H2 target surface, 9-bit bar lit count | No (probe-gated) | Yes |
+| Phase | Content | Fit? | Can ship alone? | Status |
+|---|---|---|---|---|
+| P0 | Firmware only: `fb_bar()` splits bars above 127 lit rows into stacked bars; width guards in `fb_cblit/fb_blit/fb_sblit`; the page rule written into `docs/TALOS.md` | No | Yes | **Open** -- only a stopgap clamp shipped so far (B-406), not the real split-into-bars fix |
+| P1 | Interim fix inside today's `mp3_fb.sv`: single registered write port for `glyphbuf` and two MLAB read copies, so blend no longer costs ~6,500 ALMs. Keeps everything else. | Yes | Yes. Do this first if chip space is needed before the rewrite | **DONE, shipped as T2-00, committed to `main` 2026-09-29** |
+| P2 | Idle bit, fence register, in-queue control opcodes (on today's engine). Firmware `fb_drain()` used by CLUT load, corner-cut load, blend | Yes | Yes | Open, no forcing function yet |
+| P3 | Front end + row-job FIFO + back end replacing the engine body; controller changes (section 7) | Yes | Yes, after section 8 passes | **Declined for now (2026-09-29)** -- revisit only when a new opcode is actually needed |
+| P4 | Firmware cleanup that the new engine allows: drop `FB_COPY_MAX` splitting, use the clip rectangle, H2 target surface, 9-bit bar lit count | No (probe-gated) | Yes | Moot until P3 |
 
 P1 and P2 are deliberately done on the current engine: they are small, independently testable and fix
 real problems even if P3 is postponed. P3 keeps P2's register interface.
@@ -216,7 +228,12 @@ real problems even if P3 is postponed. P3 keeps P2's register interface.
 
 ## 11. Open decisions (owner)
 
-1. Whether P1 goes in as soon as LPC is done (it frees about 6,500 ALMs), or waits for P3.
+1. ~~Whether P1 goes in as soon as LPC is done (it frees about 6,500 ALMs), or waits for P3.~~
+   **DECIDED, 2026-09-29: P1 shipped independently as T2-00; P3 is declined for now.**
 2. Where the 9-bit BAR lit count lives: a sticky field (no FIFO change) or the FIFO padding bits
-   (per-command, but only 4 spare bits today, so it would need the word widened).
+   (per-command, but only 4 spare bits today, so it would need the word widened). Moot unless P3
+   revives -- P0 (firmware-only stacked-bar split) is the real near-term fix.
 3. Clip rectangle default: whole surface (no behaviour change, recommended) or the visible 400 x 360.
+4. New (2026-09-29): if P3 ever revives, adopt `test/720`'s `FB_DRAW_BASE`/`FB_DISP_BASE` as this
+   slice's target-surface mechanism rather than the sketch in section 5.1 -- see that section's own
+   note and `docs/features/VIDEO_720_PHASED_SPEC.md`.
