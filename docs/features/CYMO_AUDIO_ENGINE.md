@@ -326,8 +326,10 @@ One RTL block after the EQ (or fused with it), replacing the software volume and
   touching samples.
 - **Separate ReplayGain register** applied ahead of the EQ, so a boost cannot push past full scale unnoticed.
 - **TPDF dither** with a small LFSR when reducing the internal 24-bit-capable path to 16 bits. About 30 ALMs **[EST]**.
-- **Soft limiter** in place of the EQ's hard clamp: a one-multiplier peak follower with fast attack and slow release. Gives
-  the loudness-matched presets safe headroom.
+- **Soft clipper** in place of the EQ's hard clamp (**decided by the owner, 2026-09-29; a look-ahead limiter was the alternative and is
+  not chosen**). A small lookup table in the output path that leaves everything below a knee (about 90% of full scale) untouched and
+  rounds the rest smoothly toward full scale. No state, no look-ahead delay, almost no logic. It gives the loudness-matched presets safe
+  headroom, and it must be verified to be exactly transparent below the knee (a bit-exact test on a ramp of sample values) and to be monotonic and never exceed full scale above it.
 - **24-bit input path.** Firmware pushes up to 24 bits (two writes or a second register). `flac.c`'s truncation goes away, and
   the EQ's 36-bit state finally receives the precision it was designed around.
 - **F2 decision** lives here: 16-bit versus 15-bit slot, behind a macro, decided by the hardware A/B.
@@ -362,6 +364,36 @@ Replace the preset ROM with a **gain-indexed coefficient ROM** for a 10-band gra
 - **A parallel FIR array for a linear-phase EQ.** A 512-tap FIR at 2 channels needs about 1,024 of the 1,250 clocks per sample
   from one MAC, which is nearly the whole budget for little audible gain on a handheld.
 - **44.1 kHz native I2S to the Pocket's DAC.** Not allowed: the Pocket documentation states the audio bus is signed 16-bit stereo at exactly 48 kHz and that sample-rate adjustment is not permitted (skill `hardware-video-audio-input.md`; agg23's Sound wiki agrees). The resampler is therefore *required* for 44.1 kHz material, not optional. A 44.1 kHz rate remains possible only on the cartridge sink, which is our own I2S.
+
+### 6.7 Analog loopback measurement (decided: part of the plan, owner will capture)
+
+Purpose: every quality claim in this document so far is a model or a code reading. This is the only way to show what the Pocket's real analog output does, and to prove
+each later phase helps. It is the first item of C0(f), before any Cymo RTL, so there is a baseline to compare against.
+
+**Setup (owner):** Pocket headphone jack to a computer's line-in or a USB audio interface with a 3.5 mm cable; record at 48 kHz, 24-bit if the interface allows, with the
+computer's input level set once and never changed between runs. The comparison that matters is *before versus after a change*, so the Pocket's own amplifier need not be perfect.
+Use the same volume setting, headphone load (or none) and EQ FLAT for every run, and record the build name with each capture.
+
+**Test material (to build, not yet built):** lossless FLAC files, so the decoder cannot be the variable:
+| File | Content | What it shows |
+|---|---|---|
+| tone 1 kHz, 5 kHz, 10 kHz at 44.1 kHz | pure sine, about -6 dBFS, 10 s each | image and alias tones from the nearest-neighbour resampler (F1) |
+| same three tones at 48 kHz | identical to above | control: the resampler should add nothing at 48 kHz |
+| tone at 22.05 kHz source | 1 kHz and 5 kHz, 22.05 kHz FLAC (or MP3) | the worst imaging case, speech-rate material |
+| swept sine 20 Hz to 20 kHz at 44.1 kHz | log sweep, 20 s | frequency response and where distortion appears |
+| full-scale ramp and -3 dBFS and 0 dBFS bursts | short, repeated | level accuracy (F2, one bit and 6 dB), clipping behaviour (soft clipper) |
+| silence | 10 s of zeros | noise floor and idle behaviour |
+
+**Analysis (to build, not yet built):** a small host script, working name `tools/lab/cymo_loopback.py`, that reads a recording and reports, per tone: level, the strongest
+non-harmonic component and its distance in dB from the tone (image level), THD+N, and for the sweep the frequency response; it prints one table per capture and a difference
+table between two captures (the baseline and a later build). It uses only the Python standard library and a WAV reader plus an FFT written for the purpose, or an installed
+numeric library if present; the choice is made when building it.
+
+**Acceptance thresholds** (proposed, to be fixed after the baseline is captured, because until then there is no number to compare with): after the resampler, image tones at 1, 5
+and 10 kHz are at least a stated number of dB lower than the baseline, and no worse at 48 kHz; the FLAT path level is unchanged unless the 15-bit slot A/B (F2) deliberately changes it;
+the soft clipper leaves a -6 dBFS tone identical and never exceeds full scale on the 0 dBFS burst.
+
+**Questions this needs answered before building the files:** whether the owner's computer has a line-in or a USB audio interface, and which capture program they prefer (Audacity is enough).
 
 ## 7. Speed and pitch: options and recommendation
 
@@ -487,7 +519,7 @@ then a hardware A/B with an evidence label. Nothing below has started.
 
 | Phase | Work | Type | Gate to leave the phase |
 |---|---|---|---|
-| **C0** measure | (a) fix or explain the CPU LOAD 100% reading and surface a real headroom row; (b) FLAC `t_pct` with hardware LPC, plus 88.2/96 kHz via ACCEPT ALL RATES; (c) record the MP3 D/A/X split; (d) F2 A/B behind a macro; (e) host model of the real resampler kernel and a WSOLA prototype on the Test Album | firmware and host only, no fit | Numbers in the audit trail; owner listening notes |
+| **C0** measure | (a) fix or explain the CPU LOAD 100% reading and surface a real headroom row; (b) FLAC `t_pct` with hardware LPC, plus 88.2/96 kHz via ACCEPT ALL RATES; (c) record the MP3 D/A/X split; (d) F2 A/B behind a macro; (e) host model of the real resampler kernel and a WSOLA prototype on the Test Album; **(f) analog loopback baseline (section 6.7)** | firmware and host only, no fit | Numbers in the audit trail; owner listening notes; a recorded loopback baseline of the current build |
 | **C1** firmware unification | one `cymo_push()` replacing both loops; dB-tapered volume with a software ramp | firmware only, byte-identical audio at unity | `make test-host` green; release ROM change reviewed |
 | **C2** `cymo_resamp` | section 6.1, EQ retimed onto its tick | RTL + fit | model equals RTL bit-exact; both seeds close; A/B on 44.1, 48, 22.05 kHz |
 | **C3** `cymo_out` | gain ramp, ReplayGain register, dither, limiter, 24-bit path | RTL + fit | bit-exact model; dither statistics test; 24-bit FLAC listening A/B |

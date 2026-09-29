@@ -231,6 +231,7 @@ The other findings are recorded here, not silently folded into the main document
    M4B/AAC, a speech EQ preset and **pause shortening** are all deferred to "much later". (Pause shortening was approved earlier; this decision supersedes it for now, its spec stays in the main document.)
 2. **The minimal path is therefore:** the real headroom metric (C0a), one shared `cymo_push()` (C1), then the firmware tempo stretch. Nothing in it needs a new bitstream.
 3. **Analog loopback measurement:** the owner will try; a how-to and test files are to be provided (not yet built).
-4. **Soft clipper vs limiter:** explained to the owner; it belongs to the later output stage, so no decision is needed for the minimal path.
+4. **Soft clipper chosen** (over a look-ahead limiter). It belongs to the later output stage; specified in the main document section 6.2.
+5. **Analog loopback measurement added to the plan** as C0(f), specified in the main document section 6.7; the owner will capture it. The test files and the analysis script are not built yet.
 
 Everything else in the Cymo plan (resampler, output stage, deeper buffer, EQ, gapless, Bluetooth) is unchanged but parked behind this minimal path, to be scheduled by the owner.
