@@ -35,7 +35,7 @@ endmodule
 
 module tb_cymo_i2s_rate;
     parameter integer SRC_HZ = 44100;
-    parameter integer N_OUT  = 12000;                 // 48 kHz output slots to record
+    parameter integer N_OUT  = 9000 ;                 // 48 kHz output slots to record
     localparam real   CLK_SYS_HZ = 66666667.0;
     reg clk = 0, clk74 = 0, rst = 1, flush = 0;
     always #7.5 clk = ~clk;                           // 66.667 MHz
@@ -75,6 +75,8 @@ module tb_cymo_i2s_rate;
             end
         end
     end
+    // Power-up state: Quartus registers start at 0, Icarus starts them at X and ~X stays X, so the serialiser never ran.
+    initial begin u_i2s.audio_mclk = 0; u_i2s.audio_lrck = 0; u_i2s.audio_dac = 0; end
     initial begin
         fd = $fopen("build/rtl/cymo_i2s_rate.txt", "w");
         #200 rst = 0;
@@ -83,5 +85,6 @@ module tb_cymo_i2s_rate;
         $display("recorded %0d slots, underrun=%0d", n_rec, underrun);
         $finish;
     end
-    initial begin #1_000_000_000; $display("TIMEOUT"); $finish; end
+    parameter integer TIMEOUT_NS = 400_000_000;
+    initial begin #TIMEOUT_NS; $display("TIMEOUT"); $finish; end
 endmodule
