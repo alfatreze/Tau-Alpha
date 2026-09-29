@@ -11202,3 +11202,40 @@ check clean. Same bitstream as A_19 through A_28 (`all6-combined` seed 2, RBF `7
 `alfatreze.TAU_0_6_0_A_29` and installed via `tools/install_dev_core.py` (media/library carried from A_26,
 A_26 removed after a verified backup). Not yet read on hardware -- next step is the owner reproducing the
 Scope accumulation and reading the STRIP row.
+
+## B-418: STRIP always reads OK (owner-confirmed) -- shadowed the sticky bases as the next cheap check
+
+Owner reproduced the accumulation and reported "Scope always reads ok" on B-417's STRIP row. This is
+decisive: the gradient strip's actual SDRAM content is provably correct every time, which rules out
+every remaining firmware-side-corruption theory. The two hypotheses B-417 was built to distinguish
+have now collapsed to one -- either the blend hardware's own datapath is wrong (needs JTAG, a new ISSP
+probe + VM Quartus fit), or the blit *targeting* it is silently wrong (a firmware bug, still checkable
+from the host).
+
+Before spending a JTAG session, checked the second possibility: `ui_bg_blend()`'s own trail blit (and
+its destination pre-read) never calls `fb_set_bases()` -- it always runs against whatever the sticky
+SRC_BASE(field 0)/DST_BASE(field 2) fields currently hold. Two other callers DO touch these fields --
+Chladni's H2 buffer tracking (`fw/chladni.inc`, B-414) and the Settings crossfade
+(`fw/settingsui.inc`, B-405/B-410) -- and both are documented to restore `(0,0)` before returning
+control. If either restore path is ever skipped (the exact bug class B-410's abandoned-crossfade fix
+and B-414's own H2 gap both turned out to be real instances of), the Scope's own blit would silently
+execute against the wrong SDRAM region: the trail blit's destination write lands somewhere other than
+the visible strip, and `ui_bg_blend()`'s destination pre-read reads garbage instead of the previous
+frame -- which would look exactly like "the trail never fades" while the source strip stays provably
+correct, matching B-417's result precisely.
+
+Both fields are write-only in hardware (docs/MMIO_ALLOCATION.md 0xC0/0xC4: "W") -- there's no MMIO read
+to check them directly. `fb_set_bases()` is their only writer, so a firmware shadow (`dbg_base_src`/
+`dbg_base_dst`, updated on every call, `fw/player.c`) mirrors the real sticky state without needing
+JTAG. `dbg_strip_check()` (called exactly when Scope's trail blend is attempted) snapshots this shadow
+into `dbg_strip_base_src`/`dst`, surfaced on a new "BASES" Info row (`fw/settingsui.inc`,
+`SET_INFO_ROWS` 25->26, case 24): `S <hex24> D <hex24>`. Nonzero either at the exact moment Scope
+blends is the smoking gun for a real, still-uncommitted firmware bug in this class; both reading zero
+rules this theory out too and leaves JTAG as the only remaining path.
+
+Also corrected `fb_set_bases()`'s own header comment, which was stale from before B-414/B-405 existed
+("no existing caller in this codebase has ever set either").
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with real margin. Same
+bitstream as A_19 through A_29 (`all6-combined` seed 2, RBF `76ad2819...`). Packaged as
+`alfatreze.TAU_0_6_0_A_30`; install pending -- the card was unmounted when the package was ready.
