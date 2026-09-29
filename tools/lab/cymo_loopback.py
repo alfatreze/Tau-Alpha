@@ -122,6 +122,9 @@ def gen(outdir, seconds=SECONDS_TONE):
         for freq, tag in ((1000, '1k'), (5000, '5k'), (10000, '10k')):
             plan.append(('tone_%s_%d.flac' % (tag, rate), rate, _tone(rate, freq, SECONDS_TONE, -6.0),
                          'sine %d Hz, -6 dBFS, %d s' % (freq, SECONDS_TONE)))
+    for rate in (24000, 32000):   # 2:1 and 3:2 into 48 kHz: fixed phase pattern, no slow beat (isolates the 44.1 kHz problem)
+        plan.append(('tone_1k_%d.flac' % rate, rate, _tone(rate, 1000, SECONDS_TONE, -6.0),
+                     'sine 1000 Hz, -6 dBFS at a %d Hz source rate' % rate))
     for freq, tag in ((1000, '1k'), (5000, '5k')):
         plan.append(('tone_%s_22050.flac' % tag, 22050, _tone(22050, freq, SECONDS_TONE, -6.0),
                      'sine %d Hz at a 22.05 kHz source rate' % freq))
