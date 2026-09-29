@@ -2,7 +2,10 @@
 """Compare the simulated pcm_fifo -> sound_i2s output (sim/tb_cymo_i2s_rate.v) with the ideal 44.1 kHz -> 48 kHz hold.
 
 Prints level / SINAD / spurs of the simulated stream next to the model's, plus how many output slots differ from the
-ideal hold. Not in `make test-host`: it needs iverilog and runs for minutes. Usage: python3 sim/test_cymo_i2s_rate.py
+ideal hold. Not in `make test-host`: it needs iverilog and runs for minutes. Usage: python3 sim/test_cymo_i2s_rate.py [--altera-mf /path/to/quartus/eda/sim_lib/altera_mf.v]
+
+With --altera-mf the behavioural dcfifo in the testbench is replaced by Intel's own simulation model (the file ships with
+Quartus; it is not redistributable, so it is never committed here).
 """
 import math, os, subprocess, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -10,6 +13,7 @@ sys.path.insert(0, os.path.join(ROOT, 'tools', 'lab'))
 import cymo_loopback as c
 
 def main():
+    mf = sys.argv[sys.argv.index('--altera-mf') + 1] if '--altera-mf' in sys.argv else None
     build = os.path.join(ROOT, 'build', 'rtl')
     os.makedirs(build, exist_ok=True)
     sim = os.path.join(build, 'sound_i2s_sim.v')
@@ -17,9 +21,9 @@ def main():
     fixed = src.replace("{(15 - CHANNEL_WIDTH){1'b0}}", "{((CHANNEL_WIDTH < 15) ? (15 - CHANNEL_WIDTH) : 1){1'b0}}")
     open(sim, 'w').write(fixed)          # Icarus rejects the unused negative-repeat branch; content is unchanged for 16-bit
     vvp = os.path.join(build, 'tb_cymo_i2s_rate.vvp')
-    subprocess.check_call(['iverilog', '-g2012', '-o', vvp, os.path.join(ROOT, 'sim/tb_cymo_i2s_rate.v'),
+    subprocess.check_call(['iverilog', '-g2012'] + (['-DUSE_ALTERA_MF', '-DALTERA_RESERVED_QIS'] if mf else []) + ['-o', vvp, os.path.join(ROOT, 'sim/tb_cymo_i2s_rate.v'),
                            os.path.join(ROOT, 'src/fpga/core/pcm_fifo.v'), sim,
-                           os.path.join(ROOT, 'src/fpga/core/sync_fifo.v')], cwd=ROOT)
+                           os.path.join(ROOT, 'src/fpga/core/sync_fifo.v')] + ([mf] if mf else []), cwd=ROOT)
     print(subprocess.check_output(['vvp', vvp], cwd=ROOT).decode().strip().splitlines()[-1])
     rows = [tuple(map(int, l.split())) for l in open(os.path.join(build, 'cymo_i2s_rate.txt'))]
     got = [l / 32768.0 for l, _ in rows][200:]          # skip priming/glide at the start
