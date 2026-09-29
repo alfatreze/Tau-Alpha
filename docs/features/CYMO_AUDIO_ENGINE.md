@@ -145,7 +145,7 @@ with a proper filter instead of aliasing.
 `core_game.vh:881` that is `{a15, a15, a14, ... a1}`, which is the input arithmetically shifted right by one. Effect: the least
 significant bit is discarded and the output is 6 dB quieter than a pass-through would be.
 
-This module is inherited from the Analogue example (`Copyright (c) 2022 Adam Gastineau`), and its header documents the 15-bit
+The Pocket documentation specifies 16 data bits per channel (plus 16 spacer bits) of signed audio, so passing all 16 is within the spec (skill `hardware-video-audio-input.md`). This module is inherited from the Analogue example (`Copyright (c) 2022 Adam Gastineau`), and its header documents the 15-bit
 magnitude slot, so it may be deliberate headroom for the Pocket's amplifier. I am **not** recommending an edit. I recommend a
 one-line A/B: pass the full 16 bits and compare level and headroom on hardware, keeping the change behind a macro like every
 other RTL experiment here. If the amplifier clips, the answer is to keep the shift and say so in the header.
@@ -357,9 +357,7 @@ Replace the preset ROM with a **gain-indexed coefficient ROM** for a 10-band gra
 - **A phase-vocoder (FFT) stretcher.** The project has decided against an FFT (`PHASE_F_SPEC.md`), and WSOLA needs none.
 - **A parallel FIR array for a linear-phase EQ.** A 512-tap FIR at 2 channels needs about 1,024 of the 1,250 clocks per sample
   from one MAC, which is nearly the whole budget for little audible gain on a handheld.
-- **44.1 kHz native I2S.** `sound_i2s` derives a fixed 12.288 MHz MCLK. A 44.1 kHz family clock is plausible in principle but
-  depends on the Pocket's audio path accepting it, which I could not verify **[OPEN]**. The resampler makes it unnecessary for
-  quality.
+- **44.1 kHz native I2S to the Pocket's DAC.** Not allowed: the Pocket documentation states the audio bus is signed 16-bit stereo at exactly 48 kHz and that sample-rate adjustment is not permitted (skill `hardware-video-audio-input.md`; agg23's Sound wiki agrees). The resampler is therefore *required* for 44.1 kHz material, not optional. A 44.1 kHz rate remains possible only on the cartridge sink, which is our own I2S.
 
 ## 7. Speed and pitch: options and recommendation
 
@@ -587,16 +585,22 @@ Design rules this adds to Cymo:
 
 ### 12.3 Pin plan under the per-bank direction constraint
 
-A workable split (assuming the 8-line banks are all-in or all-out) is to put every FPGA output in one bank and every FPGA input
-in another:
+Direction is documented as per group (skill: "directions per group"), so the split must respect it. The closest prior art is the Analogue
+devkit debug cart (a USB-UART cart at up to 2 Mbps), which uses **bank0 as outputs and bank3 plus pin31 as inputs** (KB-018, community-reported).
+That also matches today's tie-off (bank0 driven, banks 1-3 inputs), so it is the lowest-risk plan:
 
-| Bank | Direction | Signals |
+| Group | Direction | Signals |
 |---|---|---|
-| bank1 | output | I2S BCLK, LRCK, DATA (MCLK optional: an I2S slave normally does not need it), UART TX to the ESP, spare outputs |
-| bank2 | input | UART RX from the ESP, "ESP present / ready" line, spare status |
-| bank0, bank3, pin30/31 | unchanged, undriven | left as today |
+| bank0 [7:4] (4 lines) | output | I2S BCLK, LRCK, DATA and UART TX: exactly four lines, no MCLK (an I2S slave normally does not need it) |
+| bank3 (8 lines) | input | UART RX, "ESP present / ready", spare status |
+| bank1, bank2 | unchanged, inputs | not used |
+| pin30 | **do not use** | clamped low in 5 V mode until `cart_pin30_pwroff_reset` is asserted (skill), which the template ties to 0 |
+| pin31 | avoid | it is also the cartridge line-level audio input (`audio_adc`, framework 1.2), so a digital use would fight it |
 
-About seven lines are needed. **The default states matter for the custom PCB**: bank 0 is currently driven high by the template
+Speed: the closest measurement is on the link port, where signal integrity degraded above about 6 MHz (KB-013, community-reported). A 3.072 MHz
+bit clock is inside that with a factor of two, and a 2 Mbps UART well inside; verify on the actual cart PCB with a loopback pattern.
+
+**The default states matter for the custom PCB**: bank 0 is currently driven high by the template
 tie-off, so the cart must tolerate that or the tie-off must change.
 
 ### 12.4 Safety: do not drive pins into an unknown cartridge
@@ -611,7 +615,7 @@ and possible damage. Therefore:
 
 Also **[OPEN, safety-critical]**: the logic level on the cart pins (3.3 V or 5 V, given Game Boy carts are 5 V systems) and
 whether the translators can be set per bank. An ESP module is 3.3 V and not 5 V tolerant. **Do not connect one until the level
-is confirmed from Analogue's documentation or a measurement**, and use a level shifter regardless if there is any doubt. I could
+is confirmed (section 14 narrows this: the level follows a mechanical switch and Game Boy carts are 5 V) from Analogue's documentation or a measurement**, and use a level shifter regardless if there is any doubt. I could
 not confirm this from public sources this session (searches returned only general descriptions, and the Analogizer project's
 README defers to its wiki, `RndMnkIII/Analogizer`, which is prior art for driving the cart slot from a core and the natural
 place to read pinout and level details).
@@ -645,15 +649,16 @@ tap), and its own phases can run after C3:
 
 | Phase | Work | Type | Gate |
 |---|---|---|---|
-| X0 | Confirm the cart pin voltage, direction grouping and power from Analogue's docs; pick the ESP module | research and hardware | written pinout with levels; owner sign-off |
-| X1 | Expose the serial clock, route register, gated cart-pin drive, handshake, per-sink gain | RTL + fit | testbench compares cart I2S to the DAC I2S bit-for-bit, with a mutation test; two seeds close; pins stay Hi-Z without the handshake |
+| X0 | Confirm how a custom cart selects the 3.3 V/5 V level, what the strict adapter-ID check does and what ID a custom cart can present, the cart power budget; pick the ESP module (classic Bluetooth) | research and hardware | written pinout with levels; owner sign-off. Direction grouping and pin30/pin31 behaviour are already documented (section 14) |
+| X1 | Expose the serial clock, route register, gated cart-pin drive on bank0, handshake, per-sink gain, **and a separate Bluetooth core package with `cartridge_adapter: 0`** (the main Tau core keeps `-1`) | RTL + fit + packaging | testbench compares cart I2S to the DAC I2S bit-for-bit, with a mutation test; **three seeds** close; pins stay Hi-Z without the handshake; the main core's `core.json` is byte-unchanged |
 | X2 | UART, Bluetooth Settings page (Helios view), route setting, mute-DAC logic | firmware | `make test-host`; `CYMO_BT_READY()` false on an old bitstream leaves behaviour unchanged |
 | X3 | Reference firmware on the ESP and a bench test: I2S capture, then a real headset, long soak | hardware | zero underruns on the Pocket side; recorded drift behaviour on the ESP side |
 | X4 | Delayed analysis for meters, AVRCP buttons and metadata | firmware | listening and viewing pass |
 
 Owner decisions this adds: (a) is Bluetooth-only routing (mute the speaker) the wanted default when connected; (b) is 48 kHz
 output on both sinks acceptable for v1; (c) which ESP module and who owns the ESP-side firmware; (d) are the cartridge pins to be
-driven as fixed outputs on bank 1 as sketched, once the levels are confirmed.
+driven as outputs on bank0 and read on bank3 as in section 12.3, once the levels are confirmed; (e) is shipping Bluetooth as a
+separate core package, because it needs cart power, acceptable.
 
 ## 13. Collision register: Cymo against the planned work and current resources
 
@@ -697,6 +702,45 @@ the Talos 2 P3 decision (declined) removes the one large change that would have 
 
 At 66.667 MHz the EQ's `CLK_HZ / 48000` is 1388.89, not an integer, so its tick runs about 0.006% off 48 kHz. Harmless today, but it is
 one more free-running rate beating against the DAC. `cymo_resamp` owning the 48 kHz tick removes it.
+
+## 14. Review against the `analogue-pocket-dev` skill (B-422)
+
+The skill (`alfatreze/analogue-pocket-dev-skill`, read-only clone this session) holds Analogue's documented behaviour plus a graded knowledge
+base. Its Analogue doc snapshots and project-private entries are excluded from the public repo, so I used its reference files, the public KB and
+two agg23 wiki pages it cites. Verdicts below use the skill's own grading: **docs** (Analogue's documentation), **community** (community-reported), **local** (this project's own evidence).
+
+### Confirmed or upgraded
+
+| Claim in this plan | Skill says | Effect |
+|---|---|---|
+| The DAC path is fixed at 48 kHz (F1, section 6.1) | "I2S signed 16-bit stereo, exactly 48 kHz ... Sample-rate adjustment is not allowed" **[docs]** | The resampler is **mandatory** for 44.1/32/22.05 kHz material, not a nice-to-have. The earlier open question about native 44.1 kHz output is closed: not possible on the DAC. |
+| F2: 16 bits is legal | "16 data + 16 spacer bits per channel" **[docs]** | The 15-bit slot is not required by the spec, so the hardware A/B is worthwhile. Whether it is deliberate headroom is still open. |
+| Direction is per bank (section 12.1, was inferred) | "directions per group" **[docs]** | Upgraded from inference to documented. |
+| Do not drive outputs into a real cartridge (12.4) | "wrong translator setup with powered cart can corrupt cartridge data" **[docs]** | Sharper than I stated: the risk is to the cartridge's **save data**, and it applies whenever the cart is powered. |
+| `cart_pin30_pwroff_reset` purpose (was open) | pin30 is clamped low in 5 V mode until it is asserted **[docs]** | Resolved: avoid pin30 for signals. |
+| Voltage (was open) | "5 V/3.3 V by mechanical switch" **[docs]** | Partly resolved: the level follows a **mechanical switch**, and Game Boy carts are 5 V systems. Assume 5 V unless a custom cart can select 3.3 V; a 3.3 V-only ESP still needs a level shifter. How a custom cart selects the level is **[OPEN]**. |
+| A cart-based UART is known to work | devkit debug cart: 2 Mbps UART, bank0 out, bank3/pin31 in **[community]** (KB-018) | Direct precedent for the control channel and the pin plan (now used in 12.3). |
+| Timing spread by seed | fits vary about 1.2 ns by seed; use 3-4 seeds, not ten **[community]** (KB-011) | This project uses two. Given the thin hold margins seen (+0.010 to +0.037 ns), Cymo's `clk_sys` additions should use **three** seeds. |
+| Multi-bit crossings need Gray code or a FIFO | KB-009 **[community]** | Consistent with the project's existing `tau_cdc_gray_*` modules. Any new multi-bit Cymo status that crosses domains (for example the sink status) must use them. |
+
+### New constraints this review adds
+
+1. **The shipped core cannot power a cartridge.** `dist/Cores/alfatreze.TAU/core.json` declares `cartridge_adapter: -1` and `link_port: false`; the skill says `-1` maps to
+   `0x80000000`, "leave cart power off". A powered ESP cart needs `cartridge_adapter: 0` (power on, no checks), and that also powers **any** real Game Boy cartridge in
+   the slot. So the Bluetooth feature must **ship as a separate core package** (its own `core.json`), never as a setting in the main Tau core, whose default protects real
+   carts. This is a packaging decision the earlier section did not have. Amend section 12.7: X1 includes a second `core.json`.
+2. **Possible framework-level presence check.** The `cartridge_adapter` bitfield has a strict adapter-ID check (bit 17), a soft check (bit 16) and an adapter id in bits [7:0]
+   **[docs]**. That may let the framework itself refuse an unexpected cartridge, which would be a stronger protection than my UART handshake. What ID a custom cart can
+   present, and what exactly the check does, is **[OPEN]** and belongs in X0.
+3. **Cart audio is an input.** Pin31 is the cartridge line-level analog audio *input* (`audio_adc`), so it cannot carry our output. Digital I2S on bank0 remains the route.
+4. **The core has no SCLK pin to the system.** The Pocket re-creates SCLK, so the existing serializer's internal `audgen_sclk` is ours to expose on a cart pin; nothing to change on the DAC path.
+5. **M10K surprises.** KB-010 reports Quartus inferring wide synchronizer chains into block RAM (M10K), and KB-073 confirms MLAB is simple-dual-port only (32x20, no mixed width) **[docs]**. Add to the ledger check: after each Cymo fit, search the report for `ALTSHIFT_TAPS` on new synchronizers, and design any writable EQ coefficient RAM as simple dual-port. KB-052 (partial-select writes may lose byte enables) applies to a coefficient RAM written a byte at a time; write full words.
+6. **Toolchain claims.** The skill's rule is to distrust edition-gated advice. Cymo relies on none: no Rapid Recompile, no `DSP_BLOCK_BALANCING`, no Pro-only features.
+
+### What the skill does not cover (still open)
+
+Cart power budget and peak current for a radio; the exact cart-pin voltage rules for a custom cart; how the strict adapter-ID check works; any Pocket-specific
+guidance on audio latency or buffering (the agg23 Sound page has none); headphone versus speaker switching (handled by the system, not the core). These stay in X0.
 
 ## Appendix: the resampler model
 
