@@ -11165,3 +11165,40 @@ also fixed" rather than claimed as confirmed.
 
 Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with real margin (6,832 B
 minimum vs. 4,096 B floor). Same bitstream as A_19 through A_27. Packaged as `alfatreze.TAU_0_6_0_A_28`.
+
+## B-417: Option A of the B-413 investigation -- gradient-strip content readback, packaged as alpha.29
+
+B-413's diagnostic counters (`dbg_scope_blend_ok`/`dbg_scope_blend_fail`) already proved `ui_bg_blend()`
+completes and reports success every single time it is attempted in the reported scenario ("READY 140 OK 0
+FAIL") -- ruling out every firmware early-return theory this thread has tried (B-411's `FB_HELD()` race,
+B-412's sticky-field/fence audit). Two hypotheses remained: (a) the gradient strip's own SDRAM content is
+corrupted by some unidentified write path even though `ui_bg_ready` claims it's fine, or (b) the strip is
+genuinely correct and the blend hardware's own datapath computes wrong output despite the mailbox-visible
+handshake reporting success. Before reaching for JTAG (Option B, needs a new ISSP probe + VM Quartus fit),
+built the cheap firmware-only check that can settle which hypothesis to chase.
+
+New `dbg_strip_check()` (`fw/player.c`, right after `ui_bg_blend()`): reads back the strip's actual pixel
+content at 3 rows (top/middle/bottom of the scope box's gradient range) via `blend_mb_read()` -- the same
+SDRAM mailbox primitive `blend_probe()`/`fb_fence()` already use, same `row * FB_STRIDE + col` addressing --
+and compares each against `ui_grad_at()` computed fresh for that same row right now. Since `ui_bg_ready`'s
+lazy build paints one uniform colour per row via a single `fb_rect()` call, both mailbox halves of a given
+word should agree; a genuine mismatch against either half is real corruption, not a sampling artefact.
+Called once per genuinely-attempted blend (same `attempt` gate B-413's counters use), so it samples the
+exact same frame condition the accumulation is reported under.
+
+Surfaced on a new "STRIP" Info row (`fw/settingsui.inc`, `SET_INFO_ROWS` 24->25, case 23): `OK`/`BAD` then
+each row's actual/expected RGB565 pair in hex (`ui_hex2()` x2 per value, since only an 8-bit hex helper
+exists). If this reads OK while the trail still visibly doesn't fade, the strip is genuinely correct and
+the next real step is a live JTAG read of the blend pipeline's own internals (`bl_fg`/`bl_bg`/`bl_r`/
+`blt_blend_alpha`) -- not more firmware source-reading. If it reads BAD, the corruption is real and
+firmware-side, worth another source pass before touching hardware at all.
+
+Two host-test harness gaps fixed (same class as B-413's own fixture breaks): `sim/test_meter_golden.py`'s
+extracted-function harness needed a `dbg_strip_check()` stub alongside its existing `dbg_scope_blend_ok`/
+`_fail` stubs; `tools/ui_snapshot_renderer.py`'s `INFO_SAMPLE` tuple needed one more entry for the new row.
+
+Verified: `make test-host` clean (0 failures), heap-gap 7,008 B vs. 4,096 B floor (real margin), cold-call
+check clean. Same bitstream as A_19 through A_28 (`all6-combined` seed 2, RBF `76ad2819...`). Packaged as
+`alfatreze.TAU_0_6_0_A_29` and installed via `tools/install_dev_core.py` (media/library carried from A_26,
+A_26 removed after a verified backup). Not yet read on hardware -- next step is the owner reproducing the
+Scope accumulation and reading the STRIP row.
