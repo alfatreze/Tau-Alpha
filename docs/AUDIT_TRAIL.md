@@ -11237,3 +11237,15 @@ register to keep them unchanged; (K3) tempo mode must not scale the FIFO drain r
 merged before any shared fit (B-130) and Cymo should report presence through a caps register, not a `CORE_VERSION` bump. Also corrected my own earlier plan: WSOLA correlation buffers
 cannot live in the PSRAM window (about 32 cycles per read, roughly the whole 12 ms hop for the correlation loop); the small decimated windows must be on-chip. Ledger estimates: M10K
 about 270-275 of 308 with Cymo and 720 both; ALM headroom unverified because the post-T2-00 report is not in this worktree.
+
+## B-422: Cymo plan reviewed against the analogue-pocket-dev skill (docs only)
+
+Owner asked for the plan to be reviewed with the skill's knowledge. The skill lives in `alfatreze/analogue-pocket-dev-skill` (public; read-only clone this session; its Analogue doc snapshots and private KB entries
+are excluded from the public repo, so I used its reference files, the public KB, and the agg23 Sound and IO wiki pages it cites). New section 14 in `docs/features/CYMO_AUDIO_ENGINE.md`; sections 6.6, 12.3, 12.7 and F2 corrected.
+
+Confirmed: DAC path is exactly 48 kHz with sample-rate adjustment not allowed, so the resampler is mandatory (native 44.1 kHz to the DAC is impossible); 16 data bits per channel are legal, supporting the F2 A/B;
+cartridge directions are per group; pin30 is clamped low in 5 V mode until `cart_pin30_pwroff_reset` is asserted; cart level follows a mechanical switch; a powered wrong-translator setup can corrupt a real cartridge's data.
+New constraints: the shipped `core.json` declares `cartridge_adapter: -1` (cart power off), so a powered ESP cart needs `cartridge_adapter: 0`, which also powers any real cartridge, so Bluetooth must be a separate core
+package; the adapter-ID check bits may give a framework-level presence check (open); pin31 is a cart audio input, so I2S must be digital on bank0; pin plan changed to the devkit debug cart's precedent (bank0 out, bank3 in);
+use three seeds for `clk_sys` additions (KB-011); check reports for synchronizers inferred as block RAM (KB-010) and design any coefficient RAM as simple dual-port (KB-073). Still open: custom-cart voltage selection,
+adapter-ID semantics, cart power budget. No code touched.
