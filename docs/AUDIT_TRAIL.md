@@ -11226,3 +11226,14 @@ computes, threshold relative to a tracked noise floor with hysteresis, pauses ov
 at about 700 ms, cut taken from the middle with look-ahead so word onsets are never clipped, joined with the WSOLA overlap-add crossfade, four settings (Off, Gentle,
 Normal, Strong) in one persist word, audiobook tempo mode only. All thresholds are proposals to be set by listening; decode cost effect is an estimate. Evaluation plan:
 seconds saved per setting, zero clipped onsets, owner listening pass on the LibriVox clip. Nothing built.
+
+## B-421: Cymo collision check against the planned work and current resources (docs only)
+
+Owner asked whether current features, hardware or resource usage collide with the planned improvements. Checked `MMIO_ALLOCATION.md`, `tools/tau_data_slots.py`,
+`fw/settings.inc`, `tools/heap_gap_baseline.json`, the T2-00 status, `origin/test/720`'s `VIDEO_720_PHASED_SPEC.md` and the `mp3_soc.v` wiring. Added section 13 to
+`docs/features/CYMO_AUDIO_ENGINE.md`. No fatal collision. Four real ones: (K1) `test/720` claims 0x140-0x154 of the 48 free MMIO registers (0x140-0x1FC is the decode
+ceiling), so Cymo should take 0x180-0x1FC; (K2) `tau_spec_bank`/`tau_wave_meter` are clocked from the FIFO's source-rate strobe, so the resampler must sit after the FIFO output
+register to keep them unchanged; (K3) tempo mode must not scale the FIFO drain rate, which needs the single `cymo_push()` choke point first; (K4) two branches' macro bundles must be
+merged before any shared fit (B-130) and Cymo should report presence through a caps register, not a `CORE_VERSION` bump. Also corrected my own earlier plan: WSOLA correlation buffers
+cannot live in the PSRAM window (about 32 cycles per read, roughly the whole 12 ms hop for the correlation loop); the small decimated windows must be on-chip. Ledger estimates: M10K
+about 270-275 of 308 with Cymo and 720 both; ALM headroom unverified because the post-T2-00 report is not in this worktree.

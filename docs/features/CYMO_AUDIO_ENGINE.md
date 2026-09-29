@@ -432,10 +432,15 @@ Pause shortening (included):
 
 Where it runs, given the project's budget rules: the correlation search on a 5.5 kHz decimated signal is about 110 samples x 110
 lags, roughly 12,000 multiply-accumulates per 10-15 ms hop **[EST]**, which is on the order of 5-10 million cycles a second in
-firmware, or under about 15% of a 66 MHz CPU. That is small enough that the **first implementation can be firmware in cold code with its
-buffers in the PSRAM window**, not new RTL, provided the decoder headroom (the C0 metric) confirms it. A hardware correlator is then a
+firmware, or under about 15% of a 66 MHz CPU. That is small enough that the **first implementation can be firmware in cold code**, not new RTL, provided the decoder headroom (the C0 metric) confirms it. A hardware correlator is then a
 measured follow-up only if the firmware version costs too much, which keeps this inside D-C04 (probe-gated, old bitstream unchanged) and
 inside the 6.5-12 KB firmware heap limit (section 11). Both figures are estimates until measured.
+
+**Correction (B-421, found while checking collisions):** an earlier version of this section put the working buffers in the PSRAM window.
+That is wrong for the correlation loop. PSRAM CPU reads cost about 32 cycles each and up to about 380 in the worst case **[HW]** (B-022, B-054), so
+about 24,000 reads per hop would cost roughly 770,000 cycles, which is about the whole 12 ms hop at 66 MHz. The correlation working set (the
+decimated windows, about 1-2 KB) **must live in on-chip RAM**. Only the sequentially-accessed grain and overlap buffers can go to PSRAM, and
+those cost a few thousand cycles per hop because they are block copies. The heap limit in section 11 therefore has to absorb about 1-2 KB.
 
 Why WSOLA and not simpler or heavier: plain overlap-add (fixed grains) is the cheapest but flutters audibly, and a phase
 vocoder needs an FFT the project has deliberately excluded. WSOLA picks each grain's start by cross-correlating against the
@@ -649,6 +654,49 @@ tap), and its own phases can run after C3:
 Owner decisions this adds: (a) is Bluetooth-only routing (mute the speaker) the wanted default when connected; (b) is 48 kHz
 output on both sinks acceptable for v1; (c) which ESP module and who owns the ESP-side firmware; (d) are the cartridge pins to be
 driven as fixed outputs on bank 1 as sketched, once the levels are confirmed.
+
+## 13. Collision register: Cymo against the planned work and current resources
+
+Checked in B-421 against `MMIO_ALLOCATION.md`, `tools/tau_data_slots.py`, `fw/settings.inc`, `tools/heap_gap_baseline.json`, the T2-00 status, the
+parallel `test/720` spec (`origin/test/720`, `VIDEO_720_PHASED_SPEC.md`), and the RTL wiring in `mp3_soc.v`. **No collision is fatal. Four need a
+decision or a design change, and one was a mistake in my own plan (fixed above).**
+
+### Real collisions (need action)
+
+| # | Collision | Evidence | Resolution |
+|---|---|---|---|
+| K1 | **MMIO range.** `test/720` claims 0x140-0x154 (`SCAN_LAT`, `VID_MODE`, `VID_CAPS`, `FB_DRAW_BASE`, `FB_DISP_BASE`) out of the free 0x140-0x1FC. The decode ends at 0x1FC, so only **48 registers exist in total**, and widening it again is another decode change. | [READ] `MMIO_ALLOCATION.md`, spec lines 85-109 | Partition now: 720 keeps 0x140-0x17C, **Cymo takes 0x180-0x1FC (32 registers)**. Cymo's estimated need is 16-24 [EST]. Record it in `MMIO_ALLOCATION.md` before either branch builds. |
+| K2 | **Spectrum and level taps.** `tau_spec_bank` and `tau_wave_meter` are fed from `pcm_sample_tick` and the FIFO output at the *source* rate (`mp3_soc.v:917-964`). A resampler that replaces the FIFO drain would move them to a 48 kHz clock and shift every band frequency by 48/source rate. | [READ] | Place `cymo_resamp` **after** the FIFO's source-rate output register, consuming `out_l/out_r` with `sample_tick`. The taps stay untouched and the EQ input moves to the resampler output. |
+| K3 | **Speed handling in firmware.** `pcm_rate_apply()` scales `R_PCM_RATE` by the speed. In tempo mode the FIFO must drain at 1x and only the stretch consumes N x. | [READ] `player.c:867-873` | Tempo mode must not scale the drain rate. Needs C1's single `cymo_push()` choke point first, which is where the stretch also sits. C1 is therefore a hard prerequisite of C7. |
+| K4 | **Fit bundles and interlock.** Two branches each append their own macros (`TAU_*`) to separate qsf bundles; a fit that omits one silently builds the wrong bitstream (the B-130 failure). `CORE_VERSION` is at rev 26 and both branches could bump it. | [READ] B-130; 720 spec uses a caps register instead | One merged bundle before any shared fit. Do not bump `CORE_VERSION` for Cymo; report presence in a `CYMO_CAPS` register (as 720's `VID_CAPS` does) and gate firmware on it. |
+
+### Resource ledger (all Cymo and 720 figures are estimates until fitted)
+
+| Resource | Today | 720 plan | Cymo ask | Total | Verdict |
+|---|---|---|---|---|---|
+| M10K | 240 / 308 [HW] | +2-3 | +24 (buffer 8 -> 32 blocks), +1-2 resampler, +3 EQ ROM | about 270-275 | Fits with about 33-38 left. **The BT meter delay line (about 30) would consume most of it, which is why it is not proposed.** A PSRAM buffer avoids the 24 but is slower to build. |
+| DSP | 17-19 / 66 [HW] | 0 | +4-6 | about 25 | Comfortable. |
+| ALM | about 9,000 [EST, per the 720 spec; T2-00 report not in this worktree] of 18,480 | +600-1,000 | +1,500-2,000 | about 12,000 | Comfortable, **but read the real post-T2-00 number first**. Hold slack has been thin (+0.010 to +0.037 ns on some fits), so a large add near `clk_sys` needs two seeds. |
+| MMIO | 0x140-0x1FC free (48) | about 10-15 | 16-24 | see K1 | Partition needed. |
+| Persist words | 21 of 32 used, 11 free | none (mode never persisted) | 5-7 | 26-28 | Fits. Curves go in `tau-assets.bin`. |
+| Data slots | 5, 6, 7, 8 used | none | none | unchanged | No new slot (D-M01). |
+| Firmware heap | release 56,304 B on 256 KB builds; about 12 KB (release) and 6.5 KB (Diagnostic) on 192 KB builds [HW, B-333] | none | +1-2 KB (correlation windows) + stretch state | tight on 192 KB | Cold code; re-run `tools/check_heap_gap.py` per change. |
+| SDRAM bandwidth | 720 native raises scanout to about 35-45% busy [EST, 720 spec] | yes | none if the buffer is M10K | n/a | **Cymo avoids SDRAM entirely**, which keeps it clear of the 720 contention work. |
+| PSRAM bandwidth | shared by cold code, art and playlist | none | grain buffers only (block copies) | small | Fine, but never for random-access loops (see the correction in section 7). |
+| Clocks | `clk_sys` 66.667 MHz, `clk_vid` 37.5 MHz for 720 | separate domain | none new (Bluetooth uses the existing I2S clocks) | n/a | No conflict. |
+| CPU | FLAC about 99% of realtime in software; MP3 has headroom | none | speech WSOLA about 10-15% [EST] | fine for mono speech | The stereo hi-res FLAC + tempo combination is the one that will not fit; it is out of scope for audiobooks. |
+| Cart pins | banks 1-3 idle, bank 0 driven high | none | Bluetooth only | n/a | Independent of everything else; gated by the open voltage question. |
+
+### No collision found
+
+`clk_sys` timing rules already apply to Cymo; the EQ already follows `CLK_HZ`; DSP and ALM budgets are not the constraint; the 720
+mode is never persisted, so it does not compete for persist words; Helios views and the Bluetooth settings page are the same mechanism;
+the Talos 2 P3 decision (declined) removes the one large change that would have touched the same blit fit bundles.
+
+### One small existing inexactness the resampler removes
+
+At 66.667 MHz the EQ's `CLK_HZ / 48000` is 1388.89, not an integer, so its tick runs about 0.006% off 48 kHz. Harmless today, but it is
+one more free-running rate beating against the DAC. `cymo_resamp` owning the 48 kHz tick removes it.
 
 ## Appendix: the resampler model
 
