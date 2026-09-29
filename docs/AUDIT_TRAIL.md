@@ -11265,3 +11265,9 @@ speed not persisted, no chapters, M4B/AAC rated low priority, no speech preset);
 (soft clipper or lookahead), dither must sit at the true final word width; C6 graphic EQ needs a runtime preamp, a state-width re-sweep and band-interaction handling; C7 reorder so firmware tempo and pause shortening (no RTL) come
 before any new bitstream. Eight tightening items (SAD instead of correlation, degradation ladder, I-cache facts, up-conversion-only resampler v1, analog loopback baseline and acceptance thresholds, `cymo_core.h` module pattern,
 seek/pause/speed semantics, Bluetooth per-sink strobes). Two corrections applied to the main document. Nothing built.
+
+## B-425: Cymo scope reduced to pitch-preserving tempo; loopback and soft clipper questions (docs only)
+
+Owner: audiobook support should be minimal, just pitch correction; other features much later. Recorded in `docs/features/CYMO_AUDIO_ENGINE_REVIEW.md` section 9: the minimal path is C0a headroom metric, C1 shared `cymo_push()`, firmware pitch-preserving
+tempo; resume, chapters, M4B/AAC, speech EQ and pause shortening are deferred (pause shortening supersedes the earlier approval). Owner will try the analog loopback capture (how-to to be supplied). Soft clipper explained (a smooth
+saturation curve for the rare peaks that exceed full scale after an EQ boost; part of the later output stage). Nothing built.
