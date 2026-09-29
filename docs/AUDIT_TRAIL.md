@@ -11278,3 +11278,12 @@ Owner chose the soft clipper (over a look-ahead limiter) and approved adding the
 90% of full scale, smooth rounding above, no state or look-ahead, bit-exact transparency test below the knee, never exceeds full scale); new section 6.7 specifies the loopback (headphone jack to line-in or USB interface, fixed
 level and settings, lossless FLAC test tones at 44.1/48/22.05 kHz, a sweep, level and clipping bursts, silence; a host analysis script `tools/lab/cymo_loopback.py` reporting level, image tones, THD+N and response, plus a
 before/after difference table; acceptance thresholds to be fixed after the baseline); C0 gains item (f). Test files and script not built. Open: whether the owner has a line-in or USB interface.
+
+## B-427: Cymo analog loopback tooling built and self-tested (host only)
+
+Owner has a USB audio interface, so the loopback plan (`docs/features/CYMO_AUDIO_ENGINE.md` section 6.7) was built. `tools/lab/cymo_loopback.py`: `gen` writes lossless VERBATIM FLAC test files via the repo's own FLAC writer (1/5/10 kHz at 44.1 and
+48 kHz, 1/5 kHz at 22.05 kHz, a four-level 1 kHz file, a 20 s log sweep, silence; one decoded bit-exact by `tools/flac_verify.py`); `analyze` reads a WAV capture (PCM 8/16/24/32, float) and reports tone level, SINAD, THD, strongest non-harmonic
+spurs and floor, or a sweep response; `compare` diffs two saved results; `selftest` checks the analyser against known signals. Result of the self-test [MODEL, synthetic signals]: a clean 16-bit tone reads -6.02 dBFS and 86 dB SINAD; nearest-neighbour
+44.1 to 48 kHz reads 27.7 dB SINAD with images at 4,899.9 and 2,900.4 Hz (matches the earlier host model and the images predicted from the hold pattern); cubic interpolation reads 85.6 dB; a flat synthetic sweep reads flat. One real defect found and
+fixed while building: the level readout used the peak bin and lost up to about 0.4 dB to scalloping when the tone is not bin-centred (now measured from the whole lobe). Works with or without numpy. `sim/test_cymo_loopback.py` added to `make test-host`.
+Not done: the actual capture on the Pocket (owner), the 22.05 kHz and sweep files on the player, acceptance thresholds (to be set from the baseline).

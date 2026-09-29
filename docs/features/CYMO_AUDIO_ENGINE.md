@@ -374,7 +374,9 @@ each later phase helps. It is the first item of C0(f), before any Cymo RTL, so t
 computer's input level set once and never changed between runs. The comparison that matters is *before versus after a change*, so the Pocket's own amplifier need not be perfect.
 Use the same volume setting, headphone load (or none) and EQ FLAT for every run, and record the build name with each capture.
 
-**Test material (to build, not yet built):** lossless FLAC files, so the decoder cannot be the variable:
+**Status (B-427): built and self-tested.** The owner has a USB audio interface. `tools/lab/cymo_loopback.py` writes the test files (`gen`), analyses a recording (`analyze`, tone or sweep) and compares two runs (`compare`); `selftest` and `sim/test_cymo_loopback.py` (in `make test-host`) check it against known signals. The 22.05 kHz files and the sweep are untested on the player. Run order is in the script's header.
+
+**Test material (built):** lossless FLAC files, so the decoder cannot be the variable:
 | File | Content | What it shows |
 |---|---|---|
 | tone 1 kHz, 5 kHz, 10 kHz at 44.1 kHz | pure sine, about -6 dBFS, 10 s each | image and alias tones from the nearest-neighbour resampler (F1) |
@@ -384,7 +386,7 @@ Use the same volume setting, headphone load (or none) and EQ FLAT for every run,
 | full-scale ramp and -3 dBFS and 0 dBFS bursts | short, repeated | level accuracy (F2, one bit and 6 dB), clipping behaviour (soft clipper) |
 | silence | 10 s of zeros | noise floor and idle behaviour |
 
-**Analysis (to build, not yet built):** a small host script, working name `tools/lab/cymo_loopback.py`, that reads a recording and reports, per tone: level, the strongest
+**Analysis (built; the wording below is the original plan, the script's header is authoritative):** a small host script, working name `tools/lab/cymo_loopback.py`, that reads a recording and reports, per tone: level, the strongest
 non-harmonic component and its distance in dB from the tone (image level), THD+N, and for the sweep the frequency response; it prints one table per capture and a difference
 table between two captures (the baseline and a later build). It uses only the Python standard library and a WAV reader plus an FFT written for the purpose, or an installed
 numeric library if present; the choice is made when building it.
@@ -393,7 +395,7 @@ numeric library if present; the choice is made when building it.
 and 10 kHz are at least a stated number of dB lower than the baseline, and no worse at 48 kHz; the FLAT path level is unchanged unless the 15-bit slot A/B (F2) deliberately changes it;
 the soft clipper leaves a -6 dBFS tone identical and never exceeds full scale on the 0 dBFS burst.
 
-**Questions this needs answered before building the files:** whether the owner's computer has a line-in or a USB audio interface, and which capture program they prefer (Audacity is enough).
+**Validation of the analyser itself:** on synthetic signals it reproduces the plan's own prediction: nearest-neighbour 44.1 to 48 kHz reads 27.7 dB SINAD with images at 4,899.9 and 2,900.4 Hz, cubic interpolation reads 85.6 dB, and a clean 16-bit tone reads 86 dB, so a real capture is judged against known numbers.
 
 ## 7. Speed and pitch: options and recommendation
 
