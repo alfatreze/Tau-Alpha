@@ -1,6 +1,10 @@
 # 720 test plan (branch `test/720`)
 
 Status: **T1 built and simulation-verified, not fitted, not on hardware** (2026-09-29, B-374).
+
+> **Implement from `VIDEO_720_PHASED_SPEC.md`** (B-376): Phase 1 (cross-resolution build, 720 switch in
+> Diagnostics) and Phase 2 (native 720 test). This file stays the background analysis. Baseline for every build is
+> the 192 KB stack with all current hardware features; the 256 KB rows below are informational only.
 Scope of this branch: prove 800x720 output on the Pocket in small, reversible steps before any firmware or
 memory-map work. 720 stays **last** on the roadmap (`docs/ROADMAP.md`, `ARCHITECTURE_ROADMAP.md` Phase H);
 this branch only answers the questions that decide whether it is worth doing and what it will cost.
