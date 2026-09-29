@@ -8,6 +8,7 @@
 // LIMIT: the dcfifo model's flag latencies are my reading of the datasheet behaviour, not the silicon's. A clean result
 // here rules out the RTL logic around the FIFO, not a difference in the real megafunction's timing.
 `timescale 1ns/1ps
+`ifndef USE_ALTERA_MF   // define it (and add Quartus' eda/sim_lib/altera_mf.v to the build) to use Intel's own dcfifo model
 module dcfifo (
     input  wire [31:0] data, input wire rdclk, input wire rdreq, input wire wrclk, input wire wrreq,
     output reg  [31:0] q, output wire rdempty,
@@ -32,6 +33,7 @@ module dcfifo (
     always @(posedge rdclk) if (rdreq && !rdempty) begin q <= mem[rptr[1:0]]; rptr <= rptr + 1; end
     assign eccstatus = 0, rdfull = 0, rdusedw = 0, wrempty = 0, wrfull = 0, wrusedw = 0;
 endmodule
+`endif
 
 module tb_cymo_i2s_rate;
     parameter integer SRC_HZ = 44100;
