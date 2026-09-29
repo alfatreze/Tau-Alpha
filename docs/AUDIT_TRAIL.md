@@ -9735,7 +9735,400 @@ precision; max |sample| 2,750,763 of 16,777,216). Updated `docs/research/FLAC_LP
 section 4 with the full-run numbers. No code touched; this is evidence-strength only, doesn't change any
 conclusion already drawn from the capped run.
 
-- 2026-09-29 (Claude): RTL/sim/docs (B-374), branch `test/720` (from `main` `4fd4b8d`), no fit, no card.
+## B-374 (2026-09-28): MASTER VU meter wiring fix -- dead code since commit 8d529d1
+
+Started on Helios review item 1 (finish the meter draw contract for the 4 meters with generated
+config: Winamp Bars/Scope, Chladni, VU Master). Before touching the contract, an audit of the 4
+target meters found `VIZ_VU_MASTER` was never actually reachable: `fw/vu_master.inc` (added whole in
+commit `8d529d1`, "MASTER VU meter...") was never `#include`d anywhere, and `vum_tick()` was never
+called from any dispatch chain -- confirmed by `git show 8d529d1 -- fw/player.c` returning empty
+(player.c was untouched by that commit). The meter's manifest marks it `selectable: true, sel_index:
+11`, so `viz_order[]` (generated) already lets the user cycle to it via Select+X or the Settings
+choice list -- selecting it would have shown a blank/frozen meter panel, not an error.
+
+Fixed: `#include "vu_master.inc"` added to `fw/player.c` (after `chladni.inc`, before
+`fullscreen.inc`, matching the point where its dependencies -- `theme.h`, `meter_core.h`'s
+`mtr_peak_t`, `peak_l`/`peak_r` -- are already in scope); a `viz_mode == VIZ_VU_MASTER` dispatch case
+added to `ui_draw_dynamic_cold()` right after Winamp Scope's, calling `vum_tick(UI_MARGIN,
+UI_WAVE_Y, ww, UI_WAVE_H, bed)` (no `ui_fullscreen` guard needed -- `fs_capable()` in
+`fullscreen.inc` doesn't list it, so fullscreen is always forced off before it can be selected);
+a toast string ("METER: MASTER VU") added to the existing ternary chain; `viz_mode == VIZ_VU_MASTER`
+added to `meter_preset_next()`'s Winamp-style preset-cycling branch in `fullscreen.inc` (VU Master
+has 3 presets -- THEME/STANDARD/CUSTOM EXAMPLE -- that Select+X previously couldn't reach, falling
+through to "NO PRESETS FOR THIS METER"). The Configure page (`fw/settingsui.inc`'s `wvcfg_*` code)
+needed no change -- it already walks `mtr_of(viz_mode)` generically across all 4 modules including
+`vu_master`, so parameter editing works as soon as the meter is selectable.
+
+Compiling surfaced a second, deeper bug in the same landing: `vum_draw_overlay()` referenced
+`fl_bps_mirror`, a global that was never declared anywhere -- the code had clearly been written
+against the existing `fl_rate_hz` mirror-variable pattern (`fw/player.c:1052`, "mirrors fl.rate,
+declared later" -- needed because `flac_t fl` itself isn't declared until line 6376, long after the
+cold meter code that wants its fields) but the matching `fl_bps_mirror` declaration and its
+assignment site were never added. Added both, following the exact same pattern and assignment point
+as `fl_rate_hz` (`fw/player.c`, FLAC metadata-parse path, right after `fl_rate_hz = fl.rate;`).
+
+Also found `sim/test_vu_master.py` (the golden-frame/table test the original commit message
+referenced) was never wired into `make test-host` -- added it, following the existing
+`test_chladni_core.py` pattern. All host tests pass (`make test-host`, full suite); `release`,
+`player-library-diagnostic` and `player-library-diagnostic-profile` all rebuild clean with real heap
+margin (56,320 / 49,648 / 47,328 B against 6,144 / 4,096 / 4,096 B floors). `dist/` ROM/cold-image
+changed as expected -- this is a real product fix, not diagnostic-only, since MASTER VU is a release
+meter. Not yet hardware-tested -- this is the first time MASTER VU will actually render on a device.
+Item 1's actual contract work (the `mtr_in_t`/`open`/`tick` shape, `docs/features/meters/
+METER_MODULE_SPEC.md` section 3) has not started yet.
+
+## B-375 (2026-09-28): meter draw contract (Helios review item 1) -- mtr_in_t for the 4 live modules
+
+Built the actual draw contract item 1 asked for, now that B-374 made all 4 target meters (Winamp
+Bars, Winamp Scope, Chladni, VU Master) genuinely reachable. New `fw/meter.h`: `mtr_in_t`
+(`docs/features/meters/METER_MODULE_SPEC.md` section 3) -- spec/wave/peak/peak_l/peak_r/frame/dt_ms/
+x/y/w/h/bg/role/force, no dependency on `player.c` internals. Deliberately scoped narrow, matching
+the review's own "smallest possible step" framing for this item: no `mtr_desc_t`, no `mtr_bar`/
+`mtr_rect`/... primitive-counting wrappers, no open/close lifecycle, no `fw/meter_host.inc` -- those
+are separate, larger pieces of section 3's fuller contract (`mtr_desc_t` and the parameter/preset
+half already exist as `fw/meter_module.h`/`fw/meters_gen.h`, unrelated to this file).
+
+Converted all 4 tick entry points (`wviz_bars_tick`, `wviz_scope_tick`, `chladni_tick_box`,
+`vum_tick`) to take `const mtr_in_t *in` instead of a positional parameter list, at every call site
+(the player screen's own dispatch in `ui_draw_dynamic_cold()`, `fullscreen.inc`'s fullscreen path,
+`mtr_preview()` for the Configure page). Removed `chladni_tick()`, the thin 4-argument wrapper --
+with a uniform struct-based signature it added nothing `chladni_tick_box()` didn't already have, and
+every other meter's dispatch already builds its own input struct at the call site the same way.
+
+Found and got right a real correctness trap building the shared `mtr_build()` helper: this codebase
+has TWO separate "context changed" flags with different consumers -- `wviz_force` (Winamp Bars/
+Scope, VU Master, their Configure preview) and `ui_wave_force`/`wf` (every `ui_draw_dynamic_cold()`
+meter including Chladni) -- so `mtr_build()` takes `force` as an explicit parameter rather than
+reading a fixed global, and each call site passes the one that was actually feeding that meter
+before. Getting this wrong would have been a real, easy-to-miss regression (Chladni silently using
+the wrong flag, or vice versa) that compiles clean and only shows up as a subtle redraw-timing bug.
+
+Verification caught two real bugs, both in test harnesses, not the firmware:
+- `sim/test_meter_golden.py` (extracts the real `wviz_bars_tick`/`wviz_scope_tick` source and
+  recompiles it on the host against the JS preview twin) needed `#include "meter.h"` and its own
+  `mtr_in_t` construction -- the first attempt zero-initialized the struct and left `dt_ms` at 0,
+  which feeds `mtr_peak_step()`'s hold/decay timing and produced 4 real one-pixel/one-frame
+  mismatches against the JS reference (peak-mark row off by 1, one dropped bar). Fixed by setting
+  `dt_ms = 26u` explicitly, matching the real `mtr_build()`'s `MTR_DT_MS` -- confirmed the tick
+  functions' actual drawing logic is unchanged; the mismatch was purely a missing field in the test's
+  own harness construction, not a firmware defect. This is exactly the kind of caught-by-a-test
+  regression the golden-frame suite (M3, spec section 8 item 3) exists to catch, working as intended.
+- `sim/chladni_module_harness.c` (compiles the real `fw/chladni.inc` on the host) called the now-
+  removed `chladni_tick()` wrapper; added a small `harness_chladni_tick()` helper matching its old
+  fixed-geometry semantics exactly, calling `chladni_tick_box(&in)` directly.
+
+`make test-host` passes in full, including the golden-frame cross-check (10 scenarios, 35,562
+commands identical between firmware and JS) and the Chladni mailbox harness. `release`,
+`player-library-diagnostic` and `player-library-diagnostic-profile` all rebuild clean with real heap
+margin (57,072 / 50,400 / 48,064 B). `tools/meter_cost_estimate.py` and `tools/check_meter_deps.py`
+both still pass unaffected. Not yet hardware-tested -- this changes real draw-path code for all 4
+meters, verified by golden-frame equivalence and code inspection, not a Pocket run. VU Master has no
+golden-frame/JS-twin cross-check of its own yet (only `sim/test_vu_master.py`'s core-math tests) --
+a pre-existing gap (no browser preview was ever built for it), not something this pass introduced or
+closed; its conversion here is a value-preserving parameter substitution, verified by inspection
+(same globals, same read timing, no logic touched beyond the signature and preamble).
+
+Not done, deliberately out of scope for this item: `mtr_desc_t`/the descriptor table (would start
+collapsing the `if (viz_mode == VIZ_x)` dispatch chains -- that is item 4, `helios_view_t`, and
+retiring the legacy meters is item 5), `role[]` actually replacing the `UI_TRACK`/`ui_accent`-style
+macros inside the 4 functions (the macros already resolve to `th_role[]` today -- swapping them for
+`in->role[...]` would be a zero-behavior-change cosmetic diff, not attempted here to keep this pass's
+diff minimal), extending `mtr_preview()` to cover Chladni/VU Master (a real, separate functional gap,
+not part of "finish the input-struct shape").
+
+## B-376 (2026-09-28): lpc-b372 seed 2 FAILED -- over LAB budget by 213 (2061 needed, 1848 available)
+
+Checked on the in-flight FLAC LPC fit (from the prior session's handoff) while working on Helios
+review item 1. Seed 2 failed at the Fitter stage, not synthesis: `Error (170012): Fitter requires
+2061 LABs to implement the design, but the device contains only 1848 LABs`. Read the real log
+(`~/tau-local/lpc-b372-s2/quartus-fit.log`) directly rather than guess. This is a genuine resource
+exhaustion, not a seed-dependent timing miss -- LAB count doesn't vary by seed placement, so seed 1
+(still in the Fitter as of this check) is very likely to fail identically once it reaches placement;
+not yet confirmed. `tau_flac_lpc.sv` combined with the full all6-combined bundle (RAM shrink + clk66
++ pipelined blend + H2 double buffering + MP3 hardware window + TAU_LPC) is 213 LABs (11.5%) over
+budget on this device (5CEBA4). Real, actionable finding: TAU_LPC cannot ship in the current
+all6-combined bundle as built; needs either a smaller LPC design, dropping something else from the
+bundle, or its own separate bitstream/release track. Not yet investigated which. No RTL/firmware
+change made from this entry -- pure fit-result reporting.
+
+## B-377 (2026-09-28): tau_flac_lpc ring-buffer attempt -- real, correct, but did not help
+
+First fix attempt for B-376's finding: `hist_mem` (32-entry sample history) was physically shifted every
+sample (`S_PUSH`: `hist_mem[0] <= sample; for(k=1;k<32;k=k+1) hist_mem[k] <= hist_mem[k-1];`), which the
+diagnosis assumed was the expensive part. Converted to a ring buffer: new `head_r` register names the
+physical slot holding logical position 0; `S_PUSH` now writes one slot and decrements `head_r` (mod
+`order_r`) instead of the 31-way parallel shift; `hist_addr` computation became `(hist_pos + head_r) mod
+order_r` via a single compare-subtract. `head_r` moved entirely into the state-machine `always` block
+(same single-owner-per-reg rule as `hist_mem` itself, B-371) since both `cfg_we`'s reset and `S_PUSH`'s
+decrement needed to touch it. Both arrays given explicit `(* ramstyle = "logic" *)` to match every other
+kernel's own established convention (`tau_mp3_poly`, `tau_spec_bank`, `eq_biquad` all already had one;
+this pair never did). Re-verified against the full testbench (20,000 vectors, the sequential push test,
+all 5 mutation hooks) -- all pass, confirming the access-pattern change preserved exact behaviour.
+
+**Real, honest negative result**: a synthesis-only re-check (`lpc-b377-synth-s1`) measured `tau_flac_lpc`
+at 1,914 ALUTs / 1,720 registers / 0 memory bits -- statistically unchanged from B-376's 1,922/1,714
+baseline. The diagnosis was wrong about which side was expensive: the write-side shift turned out to be
+CHEAP (each slot's next value is one fixed, known source register, no selection logic needed); the real
+cost was always the READ side (`hist_mem[hist_addr]`/`coef_mem[coef_addr]` at a runtime-computed index --
+a 32-to-1 LUT mux), which the ring-buffer conversion left completely unchanged (it computed a different
+index, still runtime-computed). Recorded as `analogue-pocket-dev` skill KB-069 (local), corrected in place
+once B-378 gave the real answer rather than left standing as a wrong claim. Kept as a real commit (the
+ramstyle explicitness and the correctness are both genuine improvements) -- superseded by B-378's arrays,
+not reverted.
+
+## B-378 (2026-09-28): tau_flac_lpc real fix -- MLAB + pipelined MAC, fits with 416 ALMs to spare
+
+The actual fix: `coef_mem`/`hist_mem` changed to `(* ramstyle = "MLAB, no_rw_check" *)` (matching this
+project's own established idiom, `mp3_fb.sv`'s `glyphbuf`), routing the runtime-indexed read through the
+FPGA's dedicated memory address-decode hardware instead of a LUT mux tree. This requires a REGISTERED
+(1-cycle-latency) read, unlike the previous same-cycle combinational array read, so the single `S_MAC`
+state was split into two: `S_MAC` presents the address and lets the registered MLAB read land; `S_MAC2`
+accumulates once `coef_q`/`hist_q` are valid. New unconditional `always @(posedge clk) coef_q <=
+coef_mem[coef_addr[4:0]]; hist_q <= hist_mem[hist_addr[4:0]];` block (same idiom as `glyphbuf`'s own
+`glyph_q` latch). Cost: 2 cycles per tap instead of 1 (max 64 vs 32 per sample) -- confirmed in simulation
+(order-31 vector: 36 clocks before, 67 after), trivially inside the audio sample period even at 96kHz.
+Re-verified against the full testbench unchanged (20,000 vectors, sequential push test, all 5 mutation
+hooks including the history-side-only reversal) -- all pass, confirming the pipelining preserved exact
+functional behaviour. No firmware changes needed -- the external register protocol (`busy`/`done`/
+`sample`) is unchanged; only internal cycle timing, invisible to firmware, which only polls `done`.
+
+Synthesis-only re-check (`lpc-b378-synth-s1`) measured `tau_flac_lpc` at 1,745 ALUTs (-9% vs B-376
+baseline) / 1,262 registers (-27%); design-wide totals dropped 1,553 logic cells / 452 registers. **Real
+multi-hour Fitter run (`lpc-b378-s1`, single seed, 2h04m wall / 3h48m CPU -- unusually long even for this
+device, consistent with how tight the remaining margin is): Successful.** Fit summary: **18,064 / 18,480
+ALMs (98%)** -- 416 ALMs of margin, genuinely fits (the B-376 baseline needed the equivalent of >20,610
+ALMs, over capacity even alone). RAM 240/308 (78%), DSP 19/66 (29%), registers 16,407. Timing: **all four
+corners closed clean, zero negative slack anywhere** -- worst case Slow 1100mV 85C setup +0.116 ns, Slow
+1100mV 0C hold +0.231 ns (every corner's End Point TNS is 0.000). RBF collected and hash-verified:
+`30164515a0195333604d12b667e05dd731e9a71f62300834e7cc7eb303aa7869`
+(`work/diagnostics/lpc-b378/ap_core_s1.rbf`). Not yet installed on the card or hardware-tested -- this is
+a fit-stage result only; the project's own FLAC LPC hardware-vs-software Check comparison (design doc's
+own remaining item) still needs building before a real Pocket verdict. `analogue-pocket-dev` skill KB-069
+updated with the corrected diagnosis and this confirmed result.
+
+**This also answers the wider ALM-budget question from earlier in the session**: the combined bitstream
+(RAM shrink + clk66 + pipelined blend + H2 double buffering + MP3 hardware window + FLAC LPC) now fits,
+with real if narrow margin (98% ALM, 2% free). `mp3_fb` (Talos) remains the single largest consumer by far
+(12,763 ALUTs, unexamined at the opcode level, see the earlier ALM-audit discussion) and stays the natural
+next candidate if more headroom is ever needed, but nothing is currently blocked on it.
+
+## B-379 (2026-09-28): B-378's FLAC LPC fit installed on the card as alfatreze.TAU_0_6_0_A_16
+
+Built `player-library-diagnostic-profile` with `RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1` (matching the
+all6-combined bitstream's macro set plus the new hardware LPC redirect; heap gap 8,704 B against the
+4,096 B floor). Packaged with `tools/package_dev_build.py --semver 0.6.0-alpha.16 --rbf
+work/diagnostics/lpc-b378/ap_core_s1.rbf --rbf-sha256 30164515a0...` (an audited hash, not the unverified
+default). One naming mistake caught and fixed before install: first packaged as `0.5.0-alpha.16` (wrong --
+post-0.5.0-release alphas are 0.6.0-alpha.N per this project's own numbering, matching the already-
+installed `TAU_0_6_0_A_15`), corrected to `0.6.0-alpha.16` before writing anything to the card.
+
+Installed via `tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_15 --remove
+alfatreze.TAU_0_6_0_A_15 --yes`: backup verified (old core + 5 catalog caches), RBF/ROM/cold-image copied
+and SHA-256-verified identical, media + library index carried and rebuilt for the new core's own path (55
+files, library verified OK), `tau-assets.bin` carried, old core removed, caches cleared, junk cleaned,
+ejected. Cores on the card: `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC`, `alfatreze.TAU_0_6_0_A_16`.
+
+**Not yet run** -- this is the first-ever hardware boot of the FLAC LPC unit; everything before this point
+was simulation, synthesis and Fitter-stage verification only. The Info page (Settings > Diagnostics >
+Info) has an existing FLAC LPC row (B-370, gated on `TAU_LPC_FW`): reads `NO UNIT` if the bitstream lacks
+the unit, `HW <n> SAMPLES <n> TMO` if the hardware path is active and being used, `SW ...` if it fell back
+after a real timeout. The real verdict is the owner's next boot + FLAC playback + a look at that row (0
+timeouts after a track = clean); no automated hardware-vs-software Check comparison exists yet (design
+doc's own remaining item, not built this session).
+
+## B-380 (2026-09-28): first real hardware result for the FLAC LPC unit -- clean so far
+
+Owner report on `alfatreze.TAU_0_6_0_A_16` (B-379): 3 Check runs and an R3 stress pass on real hardware,
+FLAC LPC Info row read **0 TMO** throughout (the hardware unit stayed engaged the whole time, no fallback-
+to-software timeout ever fired), no discernible audio issues reported. This is the first FLAC LPC hardware
+evidence this project has -- everything before B-379 was simulation, synthesis and Fitter-stage only.
+**Not yet a sample-exact verification** (no hardware-vs-software Check comparison exists yet, the design
+doc's own remaining item) -- this confirms the unit engages and runs cleanly under real load, not that its
+output is bit-for-bit correct against software reconstruction; the golden-vector/mutation-hook testbench
+coverage (B-368) is what actually proves the arithmetic, this is the first confirmation the real silicon
+path matches that model under real timing. Separately, the owner also noted a 96 kHz FLAC track still
+doesn't play and the audio "certainly sounds better" -- the first is expected and unrelated to LPC (the
+FLAC_MAX_RATE performance cutoff, B-356/357, a deliberate refusal above the measured decode-cost limit,
+not a bug); the second is an informal listening impression, not something this session's changes would be
+expected to alter (LPC changes decode COST, not reconstruction VALUES -- same arithmetic, hardware or
+software), noted here rather than investigated further without more specific evidence of an actual
+difference. `analogue-pocket-dev` skill KB-069 updated with this first real hardware confirmation.
+
+## B-381 (2026-09-28): A/B core for the microstuttering claim -- alfatreze.TAU_DEV_52 (LPC_FW=0)
+
+Owner reported real, specific qualitative hardware evidence on `TAU_0_6_0_A_16`: low but clearly audible
+microstuttering heard on earlier builds is now entirely gone. Before attributing this to the FLAC LPC
+hardware unit specifically, noted a real confound this session's own log already shows: the installed
+bitstream bundles SIX RTL features (RAM shrink, clk66, pipelined blend, H2 double buffering, MP3 hardware
+window, FLAC LPC) -- the fix could plausibly be clk66's +11% CPU headroom or something else in the bundle,
+not LPC. Hypothesis for the mechanism if it IS LPC: the software fallback path (`fw/flac.c`) does a 64-bit
+accumulate on a 32-bit RV32IM core with no native 64-bit multiply (`int64_t p = 0; for(j) p +=
+(int64_t)coef[j]*out[...` -- GCC-emitted mul/mulh/carry-add sequence per tap, order-1..32), so its
+worst-case per-subframe cost scales with order and plausibly runs 5-15x the hardware unit's bounded 2-
+cycles/tap (max 64 cycles/subframe, deterministic) -- a real, data-dependent latency spike on
+occasional high-order subframes is a textbook microstutter shape, invisible to `decprof2`'s only existing
+metric (an AVERAGE over a 15s window, `t_pct`), which is why `t_pct=99%` on B-380's own Check barely
+moved even if this theory is right.
+
+Rather than build new per-subframe worst-case-latency instrumentation to test this theory blind, built the
+cheaper, more direct causal isolation test first: `alfatreze.TAU_DEV_52`, same `lpc-b378-s1` bitstream/RBF
+as `TAU_0_6_0_A_16` (hash-identical, confirmed), firmware built with `LPC_FW=0` instead of `1` (forces the
+software FLAC path, every other macro -- `RAM_192K=1 CLK66=1 SDRAM_BUSY=1` -- unchanged) so it isolates
+LPC alone. Installed additively (media carried from `TAU_0_6_0_A_16`, nothing removed) so both cores can
+be A/B compared directly. If the stutter returns on `TAU_DEV_52`, LPC is confirmed as the real cause and
+the worst-case-latency instrumentation becomes a justified next step; if `TAU_DEV_52` stays clean too, LPC
+isn't the cause and something else in the bundle (most likely clk66) is. Owner test pending.
+
+## B-382 (2026-09-28): worst-case per-subframe FLAC LPC latency, new instrumentation
+
+Owner confirmed the A/B result (B-381): the microstutter IS present on `TAU_DEV_52` (LPC_FW=0, software
+FLAC path) and confirmed absent on `TAU_0_6_0_A_16` (hardware LPC), with a real detail -- it comes in at
+a different point in different tracks, not a fixed offset. Before this, no instrumentation existed that
+could see WHY: `flac_lpc_total_cyc`/`t_pct`/`c1_pct` are all window-AVERAGES (B-380's own Check showed
+`t_pct=99%` barely different from the pre-hardware software baseline, B-363), which can stay flat even if
+a rare, data-dependent high-order subframe spikes well past real time for just that one call -- exactly
+the shape of an audible microstutter and invisible to any existing average.
+
+Built a new `flac_lpc_max_cyc` accumulator (`fw/flac.c`/`fw/flac.h`): the single WORST (not summed)
+real-LPC subframe call in the current window, via a new `PROF_ADD_MAX` macro sitting alongside the
+existing `PROF_ADD` (same tick()-delta read, plus a running max), applied only at the true-LPC call site
+(order 1-32; the FIXED-predictor call site, order 0-4, a much cheaper and different case, is untouched).
+Reset alongside `flac_lpc_total_cyc` at the CT_AUD window start. Surfaced as a 7th field on
+`SR_T_DECPROF2` (`fw/suite.inc`/`fw/suite_core.h`), widened from 6 to 7 u16 values, raw cycles not a
+percent (matching the existing `worst_access_cycles` convention SDRAM/PSRAM already use, not a new unit).
+Backward compatible: `tools/decode_tau_suite.py` decodes both the old 6-field shape (older firmware) and
+the new 7-field one explicitly, rather than assuming one width.
+
+This measures the SAME call site regardless of `LPC_FW`: on an `LPC_FW=0` build the call site is pure
+software (the `#if TAU_LPC_FW` block doesn't compile in), so `flac_lpc_max_cyc` reads the real software
+worst case directly; on `LPC_FW=1` it reads whatever mix of hardware-then-software-fallback completed
+that subframe (pure hardware unless a real timeout occurred mid-subframe). Directly comparable between
+the two already-installed A/B cores without needing a third variant.
+
+`sim/test_suite.py` and `tools/host/suite_harness.c` updated for the new field width (a real record built
+by the actual compiled firmware under rv32sim, not just a Python-side change) plus a dedicated test that
+the OLD 6-field shape still decodes correctly. `make test-host` passes in full. Both firmware variants
+(`LPC_FW=0`/`LPC_FW=1`, matching `TAU_DEV_52`/`TAU_0_6_0_A_16`) rebuilt clean with real heap margin.
+Not yet packaged or installed -- next step.
+
+## B-383 (2026-09-29): B-382's worst-case latency instrumentation installed on both A/B cores
+
+Rebuilt and reinstalled both already-established A/B cores with B-382's `flac_lpc_max_cyc` tracking, same
+`lpc-b378-s1` bitstream both times (unchanged, hash-verified identical to the audited RBF), only the ROM/
+cold-image refreshed via `--replace` (media untouched): `alfatreze.TAU_0_6_0_A_16` (`LPC_FW=1`, heap gap
+8,640 B) and `alfatreze.TAU_DEV_52` (`LPC_FW=0`, heap gap 9,616 B). Both installs backed up and verified.
+
+Next: run a Check (or just play a track and read Info) on each and compare the new `lpc_max_cyc` field
+in the SR_T_DECPROF2 QR record -- the direct test of whether the hardware unit's bounded worst case
+(2 cycles/tap, max 64 cycles/subframe) is measurably smaller than software's data-dependent worst case,
+which the earlier averaged `t_pct` metric could not show either way.
+
+## B-385 (2026-09-29): corrected lpc_max instrumentation installed on both A/B cores
+
+B-383's `lpc_max_cyc` install pegged at the 65535 raw-cycle cap on both `TAU_0_6_0_A_16` and `TAU_DEV_52`
+for every real FLAC block -- traced (B-384) to a real bug in the instrumentation, not a genuine equal
+worst-case result: one call covers a whole block's remaining samples, already on the order of 100,000+
+cycles for a perfectly normal block, so the u16-cycles-capped-at-65535 field was uninformative from the
+start. Fixed to milliseconds (`lpc_max_ms`). Rebuilt and reinstalled both cores (`--replace`, media
+untouched, same `lpc-b378-s1` bitstream both times, hash-verified unchanged): `alfatreze.TAU_0_6_0_A_16`
+(`LPC_FW=1`) and `alfatreze.TAU_DEV_52` (`LPC_FW=0`). Both backed up and verified. Owner re-running the
+same A/B Check comparison next.
+
+## B-386 (2026-09-29): first real worst-case-latency A/B result -- hardware roughly halves the spike
+
+Real numbers (owner Check runs, matched to core by persist-file mtime): `TAU_DEV_52` (software,
+`LPC_FW=0`) worst single real-LPC call **11 ms**; `TAU_0_6_0_A_16` (hardware, `LPC_FW=1`) worst calls
+**6 ms** and **5 ms** across two runs. Only one clean same-metric software reading exists (the second
+`TAU_DEV_52` Check window landed on an MP3 track, `lpc_max_ms=0` correctly reflects no FLAC playing then,
+not a measurement) but both hardware readings consistently landed below it.
+
+**Real, hardware-confirmed direction, smaller magnitude than the raw arithmetic alone would suggest**:
+roughly a 2x reduction in worst-case latency, not the ~10x the MAC-cost comparison (2 cycles/tap hardware
+vs an estimated 10-30 cycles/tap for software's 64-bit accumulate on RV32IM) would imply on its own. This
+makes sense once the measured quantity is understood correctly (B-384's own correction): the timed region
+covers per-sample firmware overhead around the arithmetic too -- MMIO writes to load the residual, polling
+`tau_lpc_hw_sample()`'s `done` bit, an MMIO read for the result -- which does not shrink just because the
+multiply-accumulate itself is offloaded to hardware. This is consistent with, and now quantifies, both the
+owner's real-time listening result (B-381: microstutter present on software, gone on hardware) and the
+0-timeout engagement already confirmed (B-380).
+
+Not a fully controlled comparison (different tracks across runs, not literally the same content played on
+both cores in the same session) -- a genuinely matched same-track, same-session A/B would strengthen this
+further, not attempted this pass. `analogue-pocket-dev` skill KB-069 updated with this result.
+
+## B-387 (2026-09-29): Helios review item 2 -- Settings page-dispatch collapsed to one table
+
+Built the review's second recommended item (`docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md`
+section 3.4/5): the three hand-maintained if/else-if chains dispatching Settings' six "rich" pages (Check,
+Decode Sweep, Blit Test, Meter Sweep, Meter Trace, the Winamp Configurator -- each needing a full custom
+draw pass and multi-key input the plain declarative `set_menu_rows` table can't express) collapsed into
+one function-pointer table, `set_spg[]` (`fw/settingsui.inc`): `{page, draw, input, open}` rows, looked up
+once via `set_spg_find()` at each of the three sites that used to have their own growing chain (draw
+dispatch in `set_draw_now()`, input dispatch in `set_input()`, open-on-select inside the `RT_GROUP`
+branch). `.open` is `NULL` for Meter Sweep/Meter Trace (never had one before either -- they reset their
+own state from draw()/input()). Every `#if` guard (`TAU_DIAGNOSTIC`, `MP3_PROFILE || FLAC_PROFILE`)
+exactly mirrors each page's own existing definition, so a build missing a page simply has no row for it,
+same as the old chains simply had no branch. A real, load-bearing ordering constraint preserved by
+construction, not by care: Check's own input must run before the generic Start-closes-the-menu check (its
+own result pages must not be closed by Start) -- the single table lookup still sits ahead of that generic
+check, same position the old chain's first line held.
+
+The declarative `set_menu_rows`/`set_menu_n`/choice-list mechanism and the shared `set_draw_ro()`-based
+Info/Stat pages are UNCHANGED -- out of this item's scope, the review named the six rich pages
+specifically, not every dispatch path in the file. Adding a new rich page now means adding one row to
+`set_spg[]`, not touching `set_draw_now()`/`set_input()`/the `RT_GROUP` open-handler at all -- the exact
+cost this review flagged as growing with every page (section 3.2's "six ad hoc special-cased pages" audit).
+
+Verified: `make test-host` passes in full (including `check_ui_snapshot_renderer.py`'s 57 deterministic
+fixtures); `release` and both `player-library-diagnostic-profile` (`LPC_FW=0`/`1`) targets rebuild clean
+with real heap margin (in fact slightly MORE than before -- 8,000-8,976 B vs 8,640-9,616 B pre-refactor,
+the table lookup being smaller code than three separate chains). `release`'s ROM changed (a real product
+change, not diagnostic-only -- the Winamp Configurator ships in `release`). `tools/check_cold_calls.py`
+(informational, not part of `make test-host`) still runs clean; its call-graph listing is unaffected in
+practice since every table row still points at functions carrying their original `COLD_FN`/`COLD_TEXT`
+placement attributes, unchanged by this refactor -- only whether that ONE static-analysis tool's own
+text-pattern matching can see calls made through a function pointer is untested, a real but low-risk gap
+(the actual runtime cold-placement safety mechanism, `COLD_READY()`, is unaffected either way). Not yet
+hardware-tested. Not yet installed on the card.
+
+## B-409: T2-00 committed; Talos 2's P3 declined; cross-branch synergy review with `test/720`
+
+Owner asked to check `test/720` (a cloud session's branch, pushed to `origin`, not merged) for synergies
+with the Talos-2-adjacent work this session did. Real findings: (1) T2-00's `mp3_fb.sv` fix had been sitting
+**uncommitted** on `main` since it was built earlier this session -- `test/720` forked before it existed and
+its own spec independently redescribed the exact same MLAB-fallback bug as still-open work (Group A3),
+about to duplicate a fix that already exists. (2) `test/720`'s `FB_DRAW_BASE`/`FB_DISP_BASE` (section 2.2 of
+its `VIDEO_720_PHASED_SPEC.md`) and `TALOS2_REIMPLEMENTATION_PLAN.md`'s own "target surface" sticky offset
+are independently-designed fixes for the identical bug (H2 double buffering offsets only non-blit opcodes,
+confirmed word-for-word in `docs/MMIO_ALLOCATION.md`'s `DBUF_CPU` row) -- neither branch knew about the
+other's design.
+
+Action taken (owner: "adopt immediately the low risk/high value features, update Talos plan, then update
+720's plan and misconceptions"):
+- **Committed T2-00** to `main` (`8e4a40c`) after re-verifying in isolation: `make rtl-lint` clean, full
+  `make test-rtl` PASSED (0 failures) including the real-CPU PSRAM ifetch sims. This was the only genuinely
+  "low risk, high value, ready now" item -- already fit-confirmed and hardware-confirmed, just uncommitted.
+  Everything else uncommitted this session (B-405 through B-408) stays uncommitted, per this project's own
+  verify-before-commit discipline -- none of it has a hardware retest back yet.
+- **Updated `docs/features/TALOS2_REIMPLEMENTATION_PLAN.md`** (`4bf65ed`): P1 marked done, P3 marked declined
+  (no forcing function left, per the review's own original recommendation), section 5.1's "target surface"
+  now explicitly defers to `test/720`'s design if P3 ever revives, with the requirement that whichever
+  implementation ships must be proven (via a mutation test) to cover the BLIT-class sticky `SRC_BASE`/
+  `DST_BASE` path, not just the RECT-class `cmd_addr` path that already had H2 coverage -- that distinction
+  is the actual bug, not a wording detail.
+- **Updated `docs/features/VIDEO_720_PHASED_SPEC.md` on a local worktree tracking `origin/test/720`**
+  (commit `304cb56` on branch `test/720`, **not pushed** -- pending owner approval): corrected the MLAB
+  misconception (flagging that `main` should be merged/rebased in before Group A3's own fit, so the buffer
+  widening it plans lands on `glyphbuf_a`/`glyphbuf_b`'s new shape, not a stale single-array assumption), and
+  flagged the same BLIT-coverage open question against `FB_DRAW_BASE`/`FB_DISP_BASE`'s own design, with a
+  recommended mutation test.
+
+Confirmed no MMIO collision: `test/720`'s claimed `0x140-0x1FC` range is genuinely free per
+`docs/MMIO_ALLOCATION.md`'s own table (`LPC_STATUS` ends at `0x13C`). Nothing else from this session's other
+uncommitted work (Helios items, B-405 crossfade, B-406/407/408 fixes) was touched. `test/720`'s commit is
+local-only pending a push decision.
+
+- 2026-09-29 (Claude): RTL/sim/docs (B-410), branch `test/720` (from `main` `4fd4b8d`), no fit, no card.
 Owner asked for a dedicated branch to test 720, with dependencies, risks and useful hardware features, using
 the `analogue-pocket-dev` skill. Skill facts used (docs-verified): Pocket video is 16x16..**800x720**, 47-~61 Hz,
 pixel clock 1-~50 MHz; the scaler slot can be switched at runtime with end-of-line bits; bus rules and the
@@ -9760,7 +10153,7 @@ depends on the RAM shrink), firmware scope, and a hardware-feature table (runtim
 fill, framebuffer origin register, fill-late counter, 8 bpp scanout CLUT, doubled base + hi-res overlay plane).
 Not done: Quartus fit (needs the VM), any hardware run.
 
-- 2026-09-29 (Claude): docs (B-375), branch `test/720`. Owner asked what base 720 plus every tagged
+- 2026-09-29 (Claude): docs (B-411), branch `test/720`. Owner asked what base 720 plus every tagged
 hardware feature costs in M10K, ALMs, DSP and other resources. Added `docs/features/VIDEO_720_TEST_PLAN.md`
 section 7. Baselines from recorded fits: 256 KB stack 304/308 M10K, DSP 17/66; 192 KB stack ~240/308,
 DSP 17 (+1 with TAU_LPC); ALMs last measured 7,725 (B-246), current stack not logged (estimated 8-9.5k of
@@ -9772,7 +10165,7 @@ synthesis-only quartus_map would measure them. Conclusion: capacity fits on the 
 stack is full if everything is added, so native 720 in practice needs the RAM shrink; timing (hold +0.037 ns
 on all6-combined, clk_sdram dispatch paths) and SDRAM bandwidth are the real limits. No code change.
 
-- 2026-09-29 (Claude): docs (B-376), branch `test/720`. Owner asked for a full review of the 720 plan, more
+- 2026-09-29 (Claude): docs (B-412), branch `test/720`. Owner asked for a full review of the 720 plan, more
 techniques, and a staggered spec: Phase 1 cross-resolution (both 400x360 and 800x720, including 720-enabling items
 with little effect alone and a 360/720 switch behind a Diagnostics flag), Phase 2 720-specific, so each is a separate
 test build. Owner also set the baseline: always the 192 KB stack with all current hardware features. Wrote

@@ -136,11 +136,13 @@ COLD_FN3 static void ui_fs_dynamic(void)
          * could still touch the corner from inside wviz_bars_tick()/wviz_scope_tick()'s own fills,
          * which is a separate, deeper follow-up (docs/HELIOS_SPEC.md), not attempted here. */
         if (fs_force) { wviz_force = 1u; helios_fill_excl(0, 0, FS_W, FS_FIG_H, 0u); }
-        if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(0u, 0u, FS_W, FS_FIG_H, 0u);
-        else                             wviz_scope_tick(0u, 0u, FS_W, FS_FIG_H, 0, 0u);
+        const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, wviz_force);
+        if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(&in);
+        else                             wviz_scope_tick(&in, 0);
         fs_force = 0u; fs_draw_label();
     } else {
-        if (chladni_tick_box(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force)) { fs_force = 0u; fs_draw_label(); }
+        const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force);
+        if (chladni_tick_box(&in)) { fs_force = 0u; fs_draw_label(); }
     }
     if (ui_sec != fs_last_sec || (uint8_t)(paused ? 1u : stopped ? 2u : 0u) != fs_last_state) fs_draw_progress();
     ov_draw = o;
@@ -171,11 +173,11 @@ COLD_FN3 static void meter_preset_next(void)
         ui_wave_clear(); ui_wave_force = 1u;
         settings_mark_dirty();
         ui_toast_msg(bars_layout ? "PRESET: MIRRORED" : "PRESET: BARS");
-    } else if (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE) {
+    } else if (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE || viz_mode == VIZ_VU_MASTER) {
         const mtr_data_t *md = mtr_of(viz_mode);
         const uint32_t p = (*md->pre_idx < md->npre) ? ((uint32_t)*md->pre_idx + 1u) % md->npre : 0u;   /* from CUSTOM: the first preset */
         mtr_apply_preset(md, p);
-        wviz_force = 1u;
+        wviz_force = 1u;                       /* VU Master reads this too, same as Winamp Bars/Scope (fw/vu_master.inc's vum_tick()) */
         ui_toast_set("PRESET: ", 0xFFFFFFFFu, md->pre_names[p]);
     } else {
         ui_toast_msg("NO PRESETS FOR THIS METER");

@@ -163,11 +163,13 @@ CHL_COLD static void chl_sync(void)
     chl_cfg.sens_q4 = (uint8_t)MV_CHLADNI(TRIGGER); chl_cfg.refr_ms = MV_CHLADNI(REFRACTORY); chl_cfg.tonal = (uint8_t)MV_CHLADNI(TONAL);
 }
 
-/* Draw one figure into the w x h box at (x0, y0). `ground` is the colour of the plate between the lines. Returns 1 if a figure
- * was drawn, 0 if it was skipped (rate limit, audio FIFO low) or the meter is unavailable. `force` redraws immediately. Callers
- * decide WHEN it is safe to draw (the beam check); this decides whether it is worth it. */
-CHL_COLD static int chladni_tick_box(uint32_t x0, uint32_t y0, uint32_t w, uint32_t h, uint16_t ground, uint32_t force)
+/* Draw one figure into the w x h box at (in->x, in->y). `in->bg` is the colour of the plate between the lines. Returns 1 if a
+ * figure was drawn, 0 if it was skipped (rate limit, audio FIFO low) or the meter is unavailable. `in->force` redraws
+ * immediately. Callers decide WHEN it is safe to draw (the beam check); this decides whether it is worth it. */
+CHL_COLD static int chladni_tick_box(const mtr_in_t *in)
 {
+    const uint32_t x0 = in->x, y0 = in->y, w = in->w, h = in->h, force = in->force;
+    const uint16_t ground = in->bg;
     if (chl_ok == 2u || UI_OVERLAY_UP) return 0;
     chl_sync();
     const uint32_t now = chl_now_ms();
@@ -180,8 +182,8 @@ CHL_COLD static int chladni_tick_box(uint32_t x0, uint32_t y0, uint32_t w, uint3
     const uint32_t dt = force ? CHL_PERIOD_MS : (uint32_t)(now - chl_last_draw);
     chl_last_draw = now;
 
-    chl_detect(&chl_st, &chl_cfg, spec_lvl, now);
-    chl_update(&chl_st, &chl_cfg, spec_lvl, dt);
+    chl_detect(&chl_st, &chl_cfg, in->spec, now);
+    chl_update(&chl_st, &chl_cfg, in->spec, dt);
     chl_mode_t md[CHL_MAX_K];
     /* Load shedding: the frame rate stays, the cost per figure drops. Every active mode costs one multiply-add per cell, so under
      * load fewer modes are blended (the figure gets a little plainer, not slower). 1 step above 90 percent CPU, 2 above 96, back
@@ -221,8 +223,3 @@ CHL_COLD static int chladni_tick_box(uint32_t x0, uint32_t y0, uint32_t w, uint3
     return 1;
 }
 
-/* The normal meter box; called from the meter block of ui_draw_dynamic_cold() (already beam-gated). */
-CHL_COLD static void chladni_tick(uint32_t x0, uint32_t y0, uint32_t ww, uint32_t force)
-{
-    (void)chladni_tick_box(x0, y0, ww, UI_WAVE_H, ui_grad_at(UI_WAVE_Y + UI_WAVE_H / 2u), force);
-}
