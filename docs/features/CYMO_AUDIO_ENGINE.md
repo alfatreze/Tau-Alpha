@@ -1,5 +1,7 @@
 # Cymo audio engine: audit, findings and proposal
 
+> An independent design review of this document is in [`CYMO_AUDIO_ENGINE_REVIEW.md`](CYMO_AUDIO_ENGINE_REVIEW.md) (B-424). It recommends changes to the clocking (LRCK-pulled resampler), the phase order (firmware tempo first), gapless, the limiter and the audiobook scope. Two corrections are already applied below; the rest await owner decisions.
+
 Status: **audit and design only, 2026-09-29.** Nothing was built, no RTL or firmware changed, no card, VM or fit touched.
 Branch `cymo`. Owner scope: MP3 and FLAC audio capability, MP3/FLAC synergies, playback efficiency, architecture
 improvements, new FPGA features, the equalizer (keep or replace), and speed-up distortion ("pitch only?").
@@ -281,7 +283,7 @@ copy), and the track/library layer above. They do **not** share the hardware ker
 | **One resampler** for both formats | MP3's 8-48 kHz and FLAC's 8-96 kHz onto the DAC's 48 kHz | Do it (F1). |
 | **One MAC datapath** for polyphase window + LPC + EQ | `tau_mp3_poly.sv`, `tau_flac_lpc.sv`, `eq_biquad.v` each own a multiplier | **Do not merge the RTL.** DSP blocks are not scarce (19 of 66, `CURRENT_STATUS.md`), only one decoder runs at a time but the EQ and spectrum run concurrently with it, and each unit is timing-proven and mutation-tested. Merging saves control ALMs at the price of re-proving three units. Unify the *register convention* (sticky index+data, read-to-ack) instead, which already matches. |
 | **Shared bit reader** | FLAC's Rice/unary reader and MP3's Huffman | Different shapes (`FLAC_BITREADER_KERNEL_SCOPING.md`, superseded by the LPC finding). Not now. |
-| **Shared gapless / track-boundary logic** | encoder delay/padding (MP3 LAME tag) and FLAC sample counts into one "trim" primitive | Needs the deeper buffer first (F5). Then it is small. |
+| **Shared gapless / track-boundary logic** | encoder delay/padding (MP3 LAME tag) and FLAC sample counts into one "trim" primitive | **Not small (corrected, B-424):** it needs a second audio data slot (audio comes from one slot today), a non-blocking track load, decoder handoff without a flush, and encoder-delay trimming. The deeper buffer helps but is not the gate. Treat as a separate large item; see `CYMO_AUDIO_ENGINE_REVIEW.md` C2. |
 | **Shared tag pipeline for ReplayGain** | ID3 `TXXX` and LAME replaygain field, FLAC `VORBIS_COMMENT` | Small firmware job, or precomputed by Tau Omega into the library index so the player reads one number per track. |
 
 A synergy worth stating separately: **the resampler is what makes hi-res FLAC honest.** Today the ceiling is `FLAC_MAX_RATE = 48000`
@@ -339,6 +341,8 @@ about 8 M10K blocks **[EST]**, so 8,192 would use about 32, comfortably inside t
 cost, and it competes with the alpha-blend and other pending consumers, so decide it against the block-RAM ledger.
 The alternative is an SDRAM- or PSRAM-backed PCM ring with a small DMA, which gives seconds of buffering at the price of a new
 bus master and SDRAM contention (the reason this project has spent so long on that arbiter). Recommendation: **M10K first**.
+
+**Coupling to fix first (review C4):** `pcm_fifo.v` sets `PRIME = DEPTH >> 1`, so `AW=13` would delay every track start by about 93 ms unless `PRIME` becomes its own parameter, and `player.c:5773-5774` hard-code the 2048-entry depth in `METER_STOP`/`METER_GO`. Make depth one shared constant, then change `AW`.
 
 Benefits: rides through SD refill latency and UI bursts, absorbs part of the load gap on track change, and is the enabling piece
 for gapless. It also keeps the existing priming and glide logic unchanged, which is a strong argument for the simple option.
