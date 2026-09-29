@@ -11218,3 +11218,11 @@ Owner: the pitch work is mainly to make audiobooks sound correct at other speeds
 file rate, 0.8x-3.0x in 0.05x steps, optional pause shortening). Semitone pitch shift dropped; varispeed kept as the fallback when the stretch path is
 absent. Estimates only: about 12,000 MACs per 10-15 ms hop, under about 15% of a 66 MHz CPU in firmware, so the first implementation is cold firmware with
 PSRAM-window buffers and a hardware correlator only if measured cost demands it. Nothing built. Updated `docs/features/CYMO_AUDIO_ENGINE.md` sections 6.4, 7, 9 (C7), 10.
+
+## B-420: Cymo pause shortening included for audiobooks (docs only)
+
+Owner approved the optional pause-shortening feature. Specified in `docs/features/CYMO_AUDIO_ENGINE.md` section 7: envelope from the same decimated mono signal WSOLA already
+computes, threshold relative to a tracked noise floor with hysteresis, pauses over about 250 ms shortened to a fraction never below about 120 ms, single cut capped
+at about 700 ms, cut taken from the middle with look-ahead so word onsets are never clipped, joined with the WSOLA overlap-add crossfade, four settings (Off, Gentle,
+Normal, Strong) in one persist word, audiobook tempo mode only. All thresholds are proposals to be set by listening; decode cost effect is an estimate. Evaluation plan:
+seconds saved per setting, zero clipped onsets, owner listening pass on the LibriVox clip. Nothing built.

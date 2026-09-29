@@ -402,8 +402,33 @@ Design choices specific to speech:
 | Search range | about +/-10 ms | covers the pitch periods above |
 | Correlation input | mono mix, decimated to about 5.5 kHz whatever the file rate | cost becomes independent of sample rate; a short full-rate refinement (a few samples either side) fixes the fine alignment |
 | Speed range and steps | 0.8x to 3.0x in 0.05x steps | listeners use fine steps on speech; above about 2.5x needs silence handling to stay intelligible |
-| Optional | shorten pauses (skip silence longer than a threshold, capped) | the biggest intelligibility win per second saved on audiobooks, and it falls out of the same framework |
+| Pause shortening | **Included (owner, 2026-09-29).** See the subsection below | the biggest time saved per listener on audiobooks, and it falls out of the same framework |
 | Position and bookmarks | unchanged | position is derived from file position, so resume points stay exact (`player.c:859-866`) |
+
+Pause shortening (included):
+
+- **What it does.** When the narration has a pause longer than a threshold, the stretch stage plays only part of it, so 1.5x on a
+  slow reader saves more than 1.5x. Speech itself is only stretched by the tempo setting, never cut.
+- **Detection.** A short-term energy envelope of the same decimated mono signal the WSOLA search already computes, so it costs almost
+  nothing extra. Threshold is relative to a tracked noise floor (a slowly-updated minimum of the envelope), not a fixed level, because
+  recordings differ in room noise and MP3 quantisation noise. Hysteresis stops it flickering on breaths and quiet consonants.
+- **Rules that protect the listening experience** (all tunable constants, defaults proposed, to be set by listening):
+  - a pause is only shortened if it lasts longer than about 250 ms;
+  - it is shortened to a fraction of its length, never below a floor of about 120 ms, so sentence and paragraph rhythm survives;
+  - a single cut is capped (about 700 ms removed), so a deliberate long silence such as a chapter gap is shortened, not erased;
+  - the removed span is taken from the **middle** of the pause, with a look-ahead so a word onset is never clipped;
+  - the join uses the same overlap-add crossfade as the WSOLA splice, so it is not audible as a click.
+- **Setting.** Off, Gentle, Normal, Strong (the four sets of thresholds above), stored as one small persist word alongside the tempo
+  setting. Active only in the audiobook tempo mode, never for music.
+- **Position and time.** Position is derived from file position, so the resume point stays exact. The remaining-time display will
+  drop faster than real time while pauses are being skipped, which is correct, and should be labelled or smoothed so it does not
+  look like a bug **[to decide with the UI]**.
+- **Decode cost.** The decoder must still decode the skipped audio (MP3 needs every frame for its overlap and bit reservoir), so this
+  raises the input consumption rate exactly as a faster tempo does. Silent frames are the cheapest frames to decode, so the extra load
+  falls where the decoder has the most spare time **[EST, to measure]**.
+- **How to judge it.** On the Test Album's LibriVox clip: seconds saved at each setting, count of clipped word onsets (must be zero,
+  checked by comparing the energy in the first 30 ms after each cut point against the same words played without shortening), and an
+  owner listening pass for naturalness.
 
 Where it runs, given the project's budget rules: the correlation search on a 5.5 kHz decimated signal is about 110 samples x 110
 lags, roughly 12,000 multiply-accumulates per 10-15 ms hop **[EST]**, which is on the order of 5-10 million cycles a second in
@@ -462,7 +487,7 @@ then a hardware A/B with an evidence label. Nothing below has started.
 | **C4** deep buffer | AW 13 (or PSRAM ring) | RTL + fit, block-RAM ledger | stall-injection test shows underruns absorbed; block budget signed off |
 | **C5** EQ | option B, then D | RTL + tool + Tau Omega format | bit-exact model per gain step; no click on slider moves |
 | **C6** gapless and ReplayGain tags | trim primitive, tag parsing or library-index field | firmware + tool | gapless test tracks sample-exact |
-| **C7** tempo (audiobooks) | speech-tuned WSOLA, firmware in cold code with PSRAM buffers first; a hardware correlator (`cymo_stretch`) only if C0 shows the CPU cost is too high | firmware first, RTL only if measured | scored on the Test Album's LibriVox clip with objective measures plus an owner listening pass; decode still keeps up at the top speed; resume position exact |
+| **C7** tempo and pause shortening (audiobooks) | speech-tuned WSOLA plus envelope-based pause shortening, firmware in cold code with PSRAM buffers first; a hardware correlator (`cymo_stretch`) only if C0 shows the CPU cost is too high | firmware first, RTL only if measured | scored on the Test Album's LibriVox clip with objective measures plus an owner listening pass; decode still keeps up at the top speed; resume position exact |
 | **C8** decode kernels | MP3 IMDCT (per C0(c)), FLAC bit reader only if C0(b) says the CPU is still the wall | RTL | only if C0 shows a real bottleneck |
 
 Suggested first slice if the goal is the biggest audible improvement for the least risk: **C0, then C1, then C2**.
@@ -474,7 +499,7 @@ Fits should be run against the *current* macro set, not a bare base (the lesson 
 ## 10. Decisions for the owner
 
 1. Is the scope above the right definition of Cymo, and is **C0 then C1 then C2** the right first slice?
-2. ~~**Pitch:** which mode~~ **Decided 2026-09-29: pitch-preserving tempo for audiobooks; semitone pitch shift dropped.** Remaining question: is the optional pause-shortening feature wanted?
+2. ~~**Pitch:** which mode~~ **Decided 2026-09-29: pitch-preserving tempo for audiobooks; semitone pitch shift dropped.** Pause shortening is also included (owner, 2026-09-29).
 3. **EQ:** option B (graphic, on-device sliders) with D (host-delivered curves) as the follow-up, or keep presets?
 4. **Buffer:** M10K first (simple, bounded) or go straight to a PSRAM ring (seconds of buffer, more risk)?
 5. **F2:** may I add a macro-guarded 16-bit I2S experiment for a hardware A/B?
