@@ -1,8 +1,8 @@
 # 720 test plan (branch `test/720`)
 
-Status: **T1 built and simulation-verified, not fitted, not on hardware** (2026-09-29, B-374).
+Status: **T1 built and simulation-verified, not fitted, not on hardware** (2026-09-29, B-410).
 
-> **Implement from `VIDEO_720_PHASED_SPEC.md`** (B-376): Phase 1 (cross-resolution build, 720 switch in
+> **Implement from `VIDEO_720_PHASED_SPEC.md`** (B-412): Phase 1 (cross-resolution build, 720 switch in
 > Diagnostics) and Phase 2 (native 720 test). This file stays the background analysis. Baseline for every build is
 > the 192 KB stack with all current hardware features; the 256 KB rows below are informational only.
 Scope of this branch: prove 800x720 output on the Pocket in small, reversible steps before any firmware or
@@ -83,7 +83,7 @@ Verified (`make test-rtl-fb-vid720`, `sim/tb_mp3_fb_vid720.v`, four frames each 
 | Checker mutant (expects undoubled columns) | -- | killed |
 
 RTL mutants run once by hand (not in the Makefile, they need a sed-edited copy): "fetch on every line" (fails the
-fill count) and "read without column doubling" (fails the pixel check) -- results in `docs/AUDIT_TRAIL.md` B-374.
+fill count) and "read without column doubling" (fails the pixel check) -- results in `docs/AUDIT_TRAIL.md` B-410.
 
 Not verified: Quartus fit/timing (clk_vid at 37.5 MHz is a new constraint for the video pipeline and the
 `clk_vid -> clk_sys` CDCs), and anything on the Pocket.
@@ -200,7 +200,7 @@ RAM shrink bitstream (240/308). **Native 720 depends on the RAM shrink shipping.
 | PLL reconfiguration for mode switching | -- | KB-015: unreliable | rejected |
 | Pixel clock 50 MHz | shorter porches not needed | on the ~50 MHz limit | rejected |
 
-## 7. Resource budget (estimates, B-375)
+## 7. Resource budget (estimates, B-411)
 
 Device 5CEBA4F23C8: **18,480 ALMs, 308 M10K, 66 DSP**, 4 PLL outputs in use. No pins, PLL outputs or clock
 networks are added by anything below: T1 only retunes outclk_1/2. M10K counts are arithmetic on Cyclone V

@@ -1,7 +1,6 @@
 // =============================================================================
-// tau_flac_lpc.sv -- FLAC LPC/FIXED reconstruction in hardware. B-364..B-368; design:
-// docs/research/FLAC_LPC_KERNEL_DESIGN.md. NOT YET WIRED INTO mp3_soc.v -- built and testbenched in
-// isolation first, matching tau_mp3_poly.sv's own build order (B-292 before its mp3_soc.v wiring).
+// tau_flac_lpc.sv -- FLAC LPC/FIXED reconstruction in hardware. B-364..B-369; design:
+// docs/research/FLAC_LPC_KERNEL_DESIGN.md. Wired into mp3_soc.v behind LPC_ENABLE (B-369).
 //
 // UNLIKE tau_mp3_poly.sv, this unit has no fixed coefficient ROM: FLAC's predictor order (1-32),
 // right-shift (0-31) and coefficients are per-subframe and streamed in by firmware before each
@@ -68,17 +67,39 @@ module tau_flac_lpc #(
 );
 
     // ---- per-subframe state: order, shift, coefficients, sliding history window --------------------
+    // B-377: hist_mem used to be a true 32-wide sliding window, PHYSICALLY shifted one slot every S_PUSH
+    // (31 parallel register-to-register copies). That write pattern turned out to be CHEAP (each slot's
+    // next value is a fixed, known source, no selection logic needed) and converting it to a ring buffer
+    // (one write per push instead of 31) measured essentially NO savings (1,922->1,914 ALUTs) -- a real,
+    // logged negative result (KB-069 in analogue-pocket-dev, corrected after this measurement). The
+    // actual cost was always the READ side: `hist_mem[hist_addr]`/`coef_mem[coef_addr]` with a
+    // RUNTIME-COMPUTED index is a 32-to-1 multiplexer over wide data, expensive in LUTs regardless of the
+    // write pattern, and unchanged by the ring-buffer conversion since hist_addr was already
+    // runtime-computed before it too. B-378: both arrays now `ramstyle="MLAB, no_rw_check"` (matching
+    // this project's own established idiom, e.g. mp3_fb.sv's glyphbuf) to route that read through the
+    // FPGA's dedicated memory address-decode hardware instead of a LUT mux tree -- but that means a
+    // REGISTERED (1-cycle-latency) read, same as glyphbuf's own `always @(posedge clk) glyph_q <=
+    // glyphbuf[...]` pattern, not the previous same-cycle combinational array read. The S_MAC state
+    // below is split into two (present address, then accumulate once the registered read lands) to keep
+    // this project's own timing rule -- one small operation per clock, never chained combinationally,
+    // B-109/111/114/150/157/211 -- rather than trying to hide the latency with an overlapped/prefetch
+    // scheme; the tap loop simply takes 2 cycles per tap instead of 1 (max 64 vs 32), which is still
+    // trivially inside the audio sample period even at 96kHz.
     reg  [5:0] order_r;
     reg  [4:0] shift_r;
     reg  [4:0] coef_idx_r, warm_idx_r;
-    reg  signed [15:0] coef_mem [0:MAX_ORDER-1];
-    reg  signed [31:0] hist_mem [0:MAX_ORDER-1];   // hist_mem[0] = most recent sample, paired with coef_mem[0]
+    reg  [5:0] head_r;                                   // physical slot of logical position 0 (most recent)
+    (* ramstyle = "MLAB, no_rw_check" *) reg  signed [15:0] coef_mem [0:MAX_ORDER-1];
+    (* ramstyle = "MLAB, no_rw_check" *) reg  signed [31:0] hist_mem [0:MAX_ORDER-1];   // ring buffer, addressed via head_r
 
     // hist_mem's actual array WRITE lives in the state-machine always block below (S_PUSH also writes
     // it) -- Verilog forbids two separate always blocks driving the same reg, and while Icarus tolerated
     // it in simulation (this testbench never happened to fire both in the same cycle), Quartus correctly
     // refused it at synthesis ("Can't resolve multiple constant drivers for net hist_mem[0][31]",
     // B-371's own fit log). warm_idx_r's own increment has no such conflict and stays here.
+    // head_r is NOT reset/written here even on cfg_we -- same single-owner rule as hist_mem above,
+    // it lives entirely in the state-machine always block below (its reset and its S_PUSH decrement
+    // in one place), since that block already owns hist_mem's writes it is naturally keyed with.
     always @(posedge clk) begin
         if (rst) begin
             order_r <= 6'd1; shift_r <= 5'd0; coef_idx_r <= 5'd0; warm_idx_r <= 5'd0;
@@ -92,7 +113,9 @@ module tau_flac_lpc #(
     end
 
     // ---- the sequenced MAC/shift/add/push state machine ---------------------------------------------
-    localparam S_IDLE = 3'd0, S_MAC = 3'd1, S_SHIFT = 3'd2, S_ADD = 3'd3, S_PUSH = 3'd4, S_DONE = 3'd5;
+    // B-378: S_MAC split into S_MAC (present the address, let the registered MLAB read land) and S_MAC2
+    // (the read is valid now -- accumulate). Two states/cycles per tap instead of one.
+    localparam S_IDLE = 3'd0, S_MAC = 3'd1, S_MAC2 = 3'd2, S_SHIFT = 3'd3, S_ADD = 3'd4, S_PUSH = 3'd5, S_DONE = 3'd6;
     reg [2:0] state;
     reg [5:0] tap;
     reg signed [ACC_WIDTH-1:0] acc;
@@ -106,19 +129,42 @@ module tau_flac_lpc #(
     // BOTH sides together would be undetectable: it still sums every (coef[k], hist[k]) pair exactly
     // once, and addition is commutative, so that "mutation" would silently pass every vector -- caught
     // by first trying exactly that and finding it didn't fail, not assumed safe.)
+    // hist_addr: `hist_pos` is the LOGICAL position (0 = most recent), unchanged from before. head_r
+    // names which PHYSICAL slot currently holds logical position 0, so the physical address is
+    // (hist_pos + head_r) mod order_r -- a single compare-subtract, not a real divider, since both
+    // operands are already < order_r (<=32) so their sum is < 2*order_r.
     wire [5:0] coef_addr = tap;
-    wire [5:0] hist_addr = (BUG == 1) ? (order_r - 6'd1 - tap) : tap;
+    wire [5:0] hist_pos  = (BUG == 1) ? (order_r - 6'd1 - tap) : tap;
+    wire [5:0] hist_sum  = hist_pos + head_r;
+    wire [5:0] hist_addr = (hist_sum >= order_r) ? (hist_sum - order_r) : hist_sum;
+    wire [5:0] new_head  = (head_r == 6'd0) ? (order_r - 6'd1) : (head_r - 6'd1);
+
+    // B-378: the MLAB-registered read. Unconditional every cycle (coef_addr/hist_addr are harmless to
+    // compute outside S_MAC too, same idiom as mp3_fb.sv's glyphbuf -- always @(posedge clk) glyph_q <=
+    // glyphbuf[...]). Captures tap's data on the S_MAC -> S_MAC2 edge, since tap (and therefore
+    // coef_addr/hist_addr) is stable for the whole S_MAC cycle before that edge.
+    reg signed [15:0] coef_q;
+    reg signed [31:0] hist_q;
+    always @(posedge clk) begin
+        coef_q <= coef_mem[coef_addr[4:0]];
+        hist_q <= hist_mem[hist_addr[4:0]];
+    end
 
     always @(posedge clk) begin
         if (rst) begin
-            state <= S_IDLE; tap <= 6'd0; acc <= {ACC_WIDTH{1'b0}}; done <= 1'b0; sample <= 32'sd0;
+            state <= S_IDLE; tap <= 6'd0; acc <= {ACC_WIDTH{1'b0}}; done <= 1'b0; sample <= 32'sd0; head_r <= 6'd0;
         end else begin
             // hist_mem's sole write-owning block (see the register-load block above): a warm-up load and
             // S_PUSH structurally never coincide (firmware only asserts warm_data_we while state==S_IDLE,
             // well before any residual write can drive the state machine into S_PUSH), but both being
             // plain statements in ONE always block is legal either way -- unlike two separate blocks,
             // Quartus resolves same-block writes by ordinary in-block priority, no synthesis error.
+            // head_r also lives here for the same single-owner reason (B-377): reset to 0 on a new
+            // subframe (cfg_we) so the warm-load's direct hist_mem[warm_idx_r] writes land at physical
+            // slot == logical position, matching head_r=0's identity mapping; S_PUSH below is its only
+            // other writer.
             if (warm_data_we) hist_mem[warm_idx_r] <= warm_data_d;
+            if (cfg_we) head_r <= 6'd0;
             case (state)
                 S_IDLE: begin
                     if (sample_rd) done <= 1'b0;
@@ -130,17 +176,25 @@ module tau_flac_lpc #(
                     end
                 end
                 S_MAC: begin
+                    // The address for `tap` is already presented (coef_addr/hist_addr, combinational
+                    // from tap) and was captured into coef_q/hist_q on THIS cycle's clock edge (the read
+                    // always block above runs every cycle) -- so nothing to do here but wait one cycle
+                    // for that registered MLAB read to land before S_MAC2 can use it.
+                    state <= S_MAC2;
+                end
+                S_MAC2: begin
                     // ONE multiply-add per cycle, registered -- never chained with the shift/add below.
+                    // coef_q/hist_q are valid NOW (registered from the previous, S_MAC, cycle).
                     // BUG=3: zero-extend the coefficient instead of sign-extending it (a negative
                     // coefficient becomes a large positive one). BUG=4: skip accumulating the LAST
                     // tap's product entirely -- same loop bound/indexing as the correct path (always
                     // terminates, never reads out of the array, for any legal order 1-32), just drops
                     // one real term from the sum, a genuine "one tap short" bug.
                     if (!(BUG == 4 && (tap + 6'd1 == order_r)))
-                        acc <= acc + ($signed({{(ACC_WIDTH-16){(BUG == 3) ? 1'b0 : coef_mem[coef_addr[4:0]][15]}}, coef_mem[coef_addr[4:0]]})
-                                      * $signed(hist_mem[hist_addr[4:0]]));
+                        acc <= acc + ($signed({{(ACC_WIDTH-16){(BUG == 3) ? 1'b0 : coef_q[15]}}, coef_q})
+                                      * $signed(hist_q));
                     if (tap + 6'd1 == order_r) state <= S_SHIFT;
-                    else tap <= tap + 6'd1;
+                    else begin tap <= tap + 6'd1; state <= S_MAC; end
                 end
                 S_SHIFT: begin
                     // Arithmetic right shift by a registered 5-bit amount -- a standard barrel-shift
@@ -153,12 +207,15 @@ module tau_flac_lpc #(
                     state <= (BUG == 5) ? S_DONE : S_PUSH;   // BUG=5: skip the history push entirely
                 end
                 S_PUSH: begin
-                    // Push the new sample in at position 0, dropping the oldest (position order_r-1).
-                    // A full parallel shift, one cycle -- cheap in an FPGA, and it means S_MAC never has
-                    // to reason about a moving base address the way a true ring buffer would.
-                    hist_mem[0] <= sample;
-                    for (integer k = 1; k < MAX_ORDER; k = k + 1)
-                        if (k < order_r) hist_mem[k] <= hist_mem[k-1];
+                    // Ring buffer (B-377): the new sample becomes the new logical position 0, which means
+                    // it overwrites whatever physical slot currently holds the OLDEST entry (logical
+                    // position order_r-1) -- exactly the slot one step "before" head_r in the ring, i.e.
+                    // physical (head_r - 1) mod order_r. Moving head_r there makes every other slot's
+                    // CONTENT untouched but its logical position shift by one automatically (S_MAC's own
+                    // hist_addr computation reads relative to head_r), replacing the old 31-way parallel
+                    // shift with one write and one register update.
+                    hist_mem[new_head[4:0]] <= sample;
+                    head_r <= new_head;
                     state <= S_DONE;
                 end
                 S_DONE: begin

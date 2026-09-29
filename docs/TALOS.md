@@ -177,6 +177,7 @@ through it; everything else in "firmware UI code" still calls `fb_*()` directly)
 
 ## See also
 
+- `docs/features/TALOS2_REIMPLEMENTATION_PLAN.md` — planned rewrite (not started), and `docs/research/TALOS_REVIEW_2026-09-28.md`, the review behind it (including why blend costs about 6,500 ALMs today).
 - `docs/PHASE_F_SPEC.md` section 5 — the full opcode-by-opcode build log this page summarises.
 - `docs/MMIO_ALLOCATION.md` — the authoritative register map.
 - `docs/ALPHA_BLEND_ANALYSIS.md` — the blend timing story in full.

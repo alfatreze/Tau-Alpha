@@ -1,7 +1,7 @@
 # 720: phased spec and implementation plan
 
-Status: **spec, nothing in it built yet** except T1 (the scanout doubler, B-374), which Phase 1 absorbs.
-Branch `test/720`. Written 2026-09-29 (B-376) after a full review of `VIDEO_720_TEST_PLAN.md`, which stays the
+Status: **spec, nothing in it built yet** except T1 (the scanout doubler, B-410), which Phase 1 absorbs.
+Branch `test/720`. Written 2026-09-29 (B-412) after a full review of `VIDEO_720_TEST_PLAN.md`, which stays the
 background document (platform limits, bandwidth and resource arithmetic). This file is the one to implement from.
 
 **Baseline for every build in this plan: the 192 KB stack with all current hardware features** -- the

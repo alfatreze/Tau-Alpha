@@ -46,7 +46,7 @@ def main():
                              (3, bytes([0, 0]) + le(4, 89)), (3, bytes([1, 0]) + le(4, 380)), (3, bytes([2, 0]) + le(4, 1049216)),
                              (3, bytes([3, 1]) + le(4, 12)), (3, bytes([4, 2]) + le(4, 0)),
                              (4, le(2, 48, 57, 31, 37)), (8, le(2, 2, 0, 3, 380)), (13, le(2, 5, 13, 57, 68)),
-                             (22, le(2, 4, 3, 6, 71, 12, 9)),
+                             (22, le(2, 4, 3, 6, 71, 12, 9, 512)),
                              (14, bytes([0, 100, 3, 0, 11, 0, 55, 0, 0, 0]) + b"Trk A"), (14, bytes([1, 125, 0, 0, 0, 0, 0, 0, 68, 0]) + b"Trk B")])
     check("record bytes", fw.get("REC") == ref.hex(), fw.get("REC"))
     check("qr text", fw.get("TXT") == D.to_text(ref), fw.get("TXT"))
@@ -73,7 +73,10 @@ def main():
     check("decode blit test", bt == [{"op": "BLIT", "level": 2, "result": "PASS", "stall_pct": 37, "ops_done": 812}], bt)
     check("decode audio", rec["entries"]["audio"] == {"late_underruns": 2, "audio_full": False, "stall_ms": 3, "window_s": 380}, rec["entries"].get("audio"))
     check("decode decprof", rec["entries"]["decprof"] == {"h_pct": 5, "i_pct": 13, "s_pct": 57, "r_pct": 68}, rec["entries"].get("decprof"))
-    check("decode decprof2", rec["entries"]["decprof2"] == {"d_pct": 4, "a_pct": 3, "x_pct": 6, "u_pct": 71, "t_pct": 12, "c1_pct": 9}, rec["entries"].get("decprof2"))
+    check("decode decprof2", rec["entries"]["decprof2"] == {"d_pct": 4, "a_pct": 3, "x_pct": 6, "u_pct": 71, "t_pct": 12, "c1_pct": 9, "lpc_max_ms": 512}, rec["entries"].get("decprof2"))
+    # SR_T_DECPROF2 pre-B-381 shape (6 fields, no lpc_max_ms) must still decode for older firmware records.
+    old_rec = D.parse_record(D.build_record(0, [(22, le(2, 4, 3, 6, 71, 12, 9))]))
+    check("decode decprof2 (pre-B-381, 6 fields)", old_rec["entries"]["decprof2"] == {"d_pct": 4, "a_pct": 3, "x_pct": 6, "u_pct": 71, "t_pct": 12, "c1_pct": 9}, old_rec["entries"].get("decprof2"))
     check("decode decsweep", rec["entries"]["decsweep"] == [
         {"track": 0, "title": "Trk A", "speed_pct": 100, "h_pct": 3, "i_pct": 11, "s_pct": 55, "r_pct": 0},
         {"track": 1, "title": "Trk B", "speed_pct": 125, "h_pct": 0, "i_pct": 0, "s_pct": 0, "r_pct": 68}], rec["entries"].get("decsweep"))
