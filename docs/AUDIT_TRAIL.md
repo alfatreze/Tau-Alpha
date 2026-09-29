@@ -11238,4 +11238,39 @@ Also corrected `fb_set_bases()`'s own header comment, which was stale from befor
 
 Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with real margin. Same
 bitstream as A_19 through A_29 (`all6-combined` seed 2, RBF `76ad2819...`). Packaged as
-`alfatreze.TAU_0_6_0_A_30`; install pending -- the card was unmounted when the package was ready.
+`alfatreze.TAU_0_6_0_A_30`; installed via `tools/install_dev_core.py` (one attempt failed safely at the
+backup step on a real card disconnect -- `Errno 6 Device not configured` -- nothing was written or
+removed; retried clean after remount, A_29 removed after a verified backup).
+
+Owner reproduced the accumulation and read BASES: **both zero**. This rules out the sticky-base theory
+too -- every firmware-side explanation this thread has tried is now exhausted (strip content correct,
+blend mechanism reports success every attempt, bases genuinely zero at the moment of each blend). The
+remaining explanation is the blend hardware's own datapath; Option B (a live JTAG read of the blend
+pipeline internals) is next, not more firmware source-reading or diagnostics.
+
+## B-419: Option B built -- a second ISSP instance (`BLND`) probing the B5 blend pipeline itself
+
+New `u_issp_blend` in `mp3_fb.sv` (`instance_id "BLND"`, `sld_instance_index(1)`, same `TAU_ISSP` macro
+and `clk_sdram` domain as the existing `BLIT` instance): 59 bits -- `bl_fg`/`bl_bg`/`bl_r` (the blend
+pipeline's own source/destination/result registers, B-327), `bl_i1` (which glyphbuf column), and
+`blend_active`/`key_dst_done`/`bl_v0`/`bl_v1` (the sticky enable and pipeline-stage valids). Unlike
+`BLIT`'s dispatch-state probe (useful for a genuine hang, a state that stops changing), these registers
+update every cycle mid-burst -- but since nothing resets them between commands and the Winamp Scope only
+attempts one blend per frame (tens of ms of idle between bursts, far longer than one JTAG poll), reading
+during that idle gap reliably shows the last pixel's blend inputs/output. Full bit layout and the
+hand-check procedure (compute `blend_px(bl_bg, bl_fg, mode, alpha)` against the read `bl_r`; check
+`bl_bg` looks like plausible on-screen content) in `docs/JTAG_DEBUG_ACCESS.md` section 6.2b.
+
+Verified: `make rtl-lint` clean (no new warnings beyond mp3_fb.sv's existing pre-`TAU_ISSP` ones), and a
+syntax-only `iverilog` elaboration with `TAU_ISSP` defined hits exactly the same "unknown module
+altsource_probe" error the existing `BLIT` instance already produces under Icarus (a Quartus
+megafunction, not available to any open-source simulator) -- confirms the new instantiation parses
+cleanly, the same limitation as the proven `BLIT` probe, not a new problem. No functional RTL changed
+(`TAU_ISSP` gates this entirely; every non-ISSP build, including everything already on the card, is
+byte-for-byte unaffected).
+
+Not yet done: a VM Quartus fit combining this with the current `all6-combined` + `TAU_LPC` bundle. That
+bundle's own worst-case hold margin is already razor-thin (+0.037 ns, B-371) -- ISSP has historically
+cost "nothing" on its own (B-172: same RAM, corners +1.99/+1.87 ns on an earlier, less-loaded bundle),
+but given how thin this specific bundle's margin already is, that needs a real fit to confirm, not an
+assumption. Awaiting a decision on spending the VM time before launching it.
