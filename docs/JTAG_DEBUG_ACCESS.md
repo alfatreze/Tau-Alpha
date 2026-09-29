@@ -252,6 +252,43 @@ only (owner instruction, 2026-09-24).
 A genuine hang almost always means `astate` stuck at a non-`A_IDLE` value while `fifo_fill` stops
 changing -- which state it's stuck at says which opcode's dispatch path is involved.
 
+### 6.2b Probe bit layout (`mp3_fb.sv`, instance `u_issp_blend`, `instance_id "BLND"`, B-419)
+
+Built after B-417/B-418 (firmware-only checks: the Winamp Scope trail's gradient-strip SDRAM content
+reads correct, and the sticky SRC_BASE/DST_BASE fields read zero at the exact moment of each attempted
+blend) both came back clean, ruling out everything reachable from the CPU side and leaving the B5
+alpha-blend datapath itself (`mp3_fb.sv`, B-327) as the one remaining place to look for the still-open
+"Scope trail never fades" report.
+
+Unlike `BLIT`'s dispatch-state probe (useful for a genuine hang -- a state that stops changing),
+`bl_fg`/`bl_bg`/`bl_r` update every clock mid-burst, too fast for a triggerless JTAG poll to catch
+mid-transaction. But they are plain registers that simply hold their last-written value once a burst
+ends (nothing resets them between commands) -- and the Winamp Scope only attempts one blend per frame,
+leaving tens of milliseconds of idle between bursts, far longer than one JTAG poll takes. Reading during
+that idle gap reliably shows the LAST pixel's blend inputs/output for the most recent completed row.
+
+59 bits, MSB to LSB:
+
+| Bits | Signal | Meaning |
+|---|---|---|
+| [58] | `bl_v1` | blend pipeline stage 2 valid (should read 0 between frames -- 1 would mean the read landed mid-burst) |
+| [57] | `bl_v0` | blend pipeline stage 1 valid (same caveat) |
+| [56] | `key_dst_done` | the destination pre-read for this row completed (B2/B5's shared mechanism) |
+| [55] | `blend_active` | the sticky BLEND field is on right now (`BLIT_BLEND_ENABLE` parameter && `blt_blend_en`) |
+| [54:48] | `bl_i1` | glyphbuf column this result writes to -- which pixel of the row these values belong to |
+| [47:32] | `bl_r` | the computed blend result (about to be written into glyphbuf) |
+| [31:16] | `bl_bg` | pre-read destination pixel (what was on screen before this blend, from `A_KEYDST`) |
+| [15:0] | `bl_fg` | source pixel just read (the gradient strip; should match B-417's own `ui_grad_at()` expectation for that row) |
+
+**What to check:** hand-compute `blend_px(bl_bg, bl_fg, blt_blend_mode, blt_blend_alpha)` (the same
+function `mp3_fb.sv` uses, mode 0 = DSP: `((bl_fg*alpha + bl_bg*(256-alpha)) >> 8)` per 5/6/5-bit
+channel) against the read `bl_r`. If they don't match, the blend arithmetic itself is wrong on real
+hardware despite B-327's own simulation proving it correct -- a genuine simulation/synthesis mismatch.
+If they DO match but `bl_bg` doesn't look like plausible on-screen content (e.g. reads a stale or
+garbage value, not something close to the last frame's actual trail colour at that pixel), the
+destination pre-read itself is the bug, not the blend math. If `bl_v0`/`bl_v1` read 1, the sample landed
+mid-burst by chance -- re-read.
+
 ### 6.3 Procedure
 
 **Before every read: confirm the ISSP bitstream is still the one actually running.** Loading a core

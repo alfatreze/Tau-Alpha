@@ -1743,6 +1743,40 @@ module mp3_fb #(
                         fifo_fill, astate}),
         .source      ()
     );
+
+    // B-419: a second instance for the B5 blend pipeline itself (bl_fg/bl_bg/bl_r, docs/AUDIT_TRAIL.md
+    // B-327), built after B-417/B-418's firmware-only diagnostics both came back clean (the gradient
+    // strip's SDRAM content is provably correct, and the sticky SRC_BASE/DST_BASE fields read zero at
+    // the exact moment of each attempted blend) -- ruling out every explanation reachable from the CPU
+    // side and leaving the blend datapath itself as the one thing left to look at. Unlike BLIT's own
+    // dispatch-state probe (useful for a genuine hang, a state that stops changing), the blend pipeline
+    // updates every cycle mid-burst -- but bl_fg/bl_bg/bl_r/bl_v0/bl_v1/bl_i1 are plain registers that
+    // simply hold their last-written value once a burst ends (nothing resets them between commands),
+    // so a read taken during the idle gap between two Winamp Scope frames (tens of ms, far longer than
+    // one JTAG poll) reliably shows the LAST pixel's blend inputs and output -- enough to hand-check
+    // bl_r against blend_px(bl_bg, bl_fg, mode, alpha) computed the same way the RTL does, and to see
+    // whether bl_bg (the pre-read destination pixel) looks like plausible on-screen content at all.
+    //
+    // Probe bits (59, LSB first): bl_fg[15:0] (source/strip pixel just read), bl_bg[15:0] (pre-read
+    // destination pixel from A_KEYDST, B2/B5's shared mechanism), bl_r[15:0] (the computed blend
+    // result, about to be written into glyphbuf), bl_i1[6:0] (the glyphbuf column this result writes
+    // to -- confirms which pixel of the row these values belong to), blend_active (whether the sticky
+    // BLEND field is actually on right now), key_dst_done, bl_v0, bl_v1 (pipeline stage valids -- both
+    // should read 0 between frames if reading during genuine idle, confirming this isn't a mid-burst
+    // tear of the snapshot).
+    altsource_probe #(
+        .sld_auto_instance_index("YES"),
+        .sld_instance_index(1),
+        .instance_id("BLND"),
+        .probe_width(59),
+        .source_width(1),
+        .source_initial_value("0"),
+        .enable_metastability("NO")
+    ) u_issp_blend (
+        .source_clk (clk_sdram),
+        .probe       ({bl_v1, bl_v0, key_dst_done, blend_active, bl_i1, bl_r, bl_bg, bl_fg}),
+        .source      ()
+    );
 `endif
 
 endmodule
