@@ -11287,3 +11287,16 @@ spurs and floor, or a sweep response; `compare` diffs two saved results; `selfte
 44.1 to 48 kHz reads 27.7 dB SINAD with images at 4,899.9 and 2,900.4 Hz (matches the earlier host model and the images predicted from the hold pattern); cubic interpolation reads 85.6 dB; a flat synthetic sweep reads flat. One real defect found and
 fixed while building: the level readout used the peak bin and lost up to about 0.4 dB to scalloping when the tone is not bin-centred (now measured from the whole lobe). Works with or without numpy. `sim/test_cymo_loopback.py` added to `make test-host`.
 Not done: the actual capture on the Pocket (owner), the 22.05 kHz and sweep files on the player, acceptance thresholds (to be set from the baseline).
+
+## B-430: 44.1 kHz path -- baseline recordings analysed, RTL hand-off simulated clean (host only)
+
+Owner's baseline recordings (Adobe Audition, 48 kHz capture, EQ FLAT, no gain change between takes) [HW, analyser output]: `tone_1k_48000` 1 kHz level -12.4 dBFS, SINAD 52.6 dB, THD -76.6 dB, no spur above -70 dBc (noise floor of the capture chain limits SINAD; peaks about -11 dBFS);
+`tone_1k_44100` level -16.1 dBFS, SINAD 10.8 dB, THD -50.2 dB, spurs at 1 kHz + n x 3.9 kHz (4.9, 8.8, 12.7, 16.6 kHz) at -22 to -26 dBc, nearly flat with frequency; `silence_44100` about -70 dBFS, DC offset only. `levels_44100`: loudest step (-0.1 dBFS) peaks at about -4.5 dBFS, no clipping.
+The 44.1 kHz recording is about 3.7 dB quieter than the 48 kHz one at unchanged settings.
+
+Host model of the hardware as read (44.1 kHz held into 48 kHz slots) [MODEL]: 27.7 dB SINAD, spurs -36 dBc at 4.9 kHz falling with frequency, level preserved. The recording is about 17 dB worse, spectrally flat (click-like) and 3.7 dB low, so the model does not explain it.
+
+New: `sim/tb_cymo_i2s_rate.v` + `sim/test_cymo_i2s_rate.py` (not in make test-host; needs iverilog, about 2 min). Real `pcm_fifo` (44.1 kHz drain) into real `sound_i2s`, with a behavioural `dcfifo` model (4 words, showahead off, sync delay 5, underflow ignored) [MODEL];
+captures each 32-bit word at the LRCK reload. Result [SIM]: 27.71 dB SINAD, spurs 4,898 Hz -35.8 dBc, 2,894 Hz -36.8 dBc, 8,801 Hz -41.8 dBc, identical to the ideal hold; level -12.05 dBFS against -6.03 dBFS input, i.e. exactly 6.02 dB lower, which is the known `{a15, a15..a1}` slot (F2 in `docs/features/CYMO_AUDIO_ENGINE.md`) and applies to both rates.
+Conclusion: the RTL logic around the FIFO and I2S serialiser does not produce the extra error. It is not a proof about the real Altera `dcfifo` (flag latencies are my model). Remaining candidates: real `dcfifo` timing at the sliding phase, firmware-side feeding (underruns/fade), or the file/path on the card. Two things found while building: Icarus needs the serialiser registers initialised (Quartus starts them at 0), and rejects the unused negative-repeat branch in `sound_i2s.v` (the test patches a copy, RTL untouched).
+Next: owner records `tone_1k_24000` (2:1) and `tone_1k_32000` (3:2) with the same gain, which have a fixed phase pattern; and notes the Info-page underrun counters while the 44.1 kHz tone plays.
