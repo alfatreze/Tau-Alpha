@@ -561,7 +561,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 24u   /* B-370: +1 for FLAC LPC.
+#define SET_INFO_ROWS 25u   /* B-370: +1 for FLAC LPC.
                               * B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
@@ -576,7 +576,13 @@ extern char _heap_start, _heap_end;
                                               * (last row) -- live blend attempt/fail counters and
                                               * ui_bg_ready, for the still-unexplained Winamp Scope
                                               * trail "accumulation" report; see fw/player.c's
-                                              * wviz_scope_tick() for what increments them. */
+                                              * wviz_scope_tick() for what increments them. B-417:
+                                              * +1 for STRIP -- Option A of the same investigation,
+                                              * reads back the gradient strip's actual SDRAM content
+                                              * against what ui_grad_at() expects right now, to tell
+                                              * a corrupted strip apart from a correct strip feeding a
+                                              * broken blend datapath; see dbg_strip_check() in
+                                              * fw/player.c. */
 static const char *const set_info_label[SET_INFO_ROWS] = {
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM",
     "COLD IMAGE",
@@ -584,6 +590,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "LIBRARY"
     , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER", "MP3 WINDOW", "THEME FILE", "METER FILE"
     , "SCOPE BG"
+    , "STRIP"
     , "FLAC LPC"
     };
 static uint32_t set_info_at;
@@ -703,6 +710,16 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, ui_bg_ready ? "READY " : "STALE ");
         q = ui_dec(q, dbg_scope_blend_ok); q = set_str(q, " OK ");
         q = ui_dec(q, dbg_scope_blend_fail); q = set_str(q, " FAIL");
+        break;
+    case 23:   /* STRIP (B-417): OK/BAD across the last 3-row sample, then actual vs expected RGB565 for
+                * each row (hex), so a mismatch is visible without needing a screenshot decode. */
+        q = set_str(q, dbg_strip_bad ? "BAD " : "OK ");
+        for (uint32_t k = 0; k < 3u; k++) {
+            q = ui_hex2(q, (uint8_t)(dbg_strip_actual[k] >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_actual[k]);
+            q = set_str(q, "/");
+            q = ui_hex2(q, (uint8_t)(dbg_strip_expect[k] >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_expect[k]);
+            q = set_str(q, " ");
+        }
         break;
     default:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
 #if TAU_LPC_FW
