@@ -73,6 +73,16 @@ Expected: `mp3_fb` back to about 1,400 ALMs with blend on, the design back to ab
 TAU_LPC build fitting. This is the single largest saving available on the chip and it needs no new
 feature work. Simulation must still pass the blend and mutation tests, and the reference-renderer diff.
 
+**Built and fit-confirmed, 2026-09-29 (`docs/AUDIT_TRAIL.md` B-388/B-398):** exactly this fix, built as
+designed (one merged `{gb_we, gb_addr, gb_data}` write port via blocking assignment, two MLAB copies
+`glyphbuf_a`/`glyphbuf_b`). Passed the blend and mutation tests and the reference-renderer diff
+unchanged. `glyphbuf-t200` (both seeds, the TAU_BLIT_BLEND+TAU_LPC bundle) both fit Successful, all four
+corners positive on both -- RAM 240/308 (78%), DSP 19/66 (29%), confirming both the ALM recovery and that
+the LPC kernel now fits alongside blend where it previously overflowed at 111% with no fit at all.
+**This resolves the ALM pressure that motivated `docs/features/TALOS2_REIMPLEMENTATION_PLAN.md`** --
+recommend re-evaluating that plan's own stated motivation against this result before starting it, rather
+than treating it as still-scheduled follow-on work.
+
 ## 2. How Talos works today (as built)
 
 - One command FIFO (256 x 88 bits, 3 M10K, Gray-coded CDC from clk_sys 60/66.7 MHz to clk_sdram 100 MHz).

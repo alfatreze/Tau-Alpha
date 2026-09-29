@@ -130,9 +130,13 @@ has packed just above row 360 (the art panel, meter thumbnails, Chladni's plane,
 probe cell) is reached through the exact same plain `FB_BASE`-relative addressing as ordinary on-screen
 draws (`ui_art_mount()`'s `fb_rect(0, ART_STASH_Y, ...)` is the clearest example), so an *unconditional*
 buffer-1 offset would silently corrupt every one of them the moment `dbuf_cpu_buf` is set for a redraw.
-Blit-mode opcodes (BLIT/BAR/SBLIT/CBLIT/RRECT) are untouched by any of this — they already address through
-the fully firmware-programmable sticky `blt_*_base` fields, so a caller wanting one of them to target the
-back buffer sets `blt_dst_base` itself.
+Independently-addressed blit opcodes (BLIT/SBLIT/CBLIT) are untouched by any of this — they already address
+through the fully firmware-programmable sticky `blt_*_base` fields, so a caller wanting one of them to
+target the back buffer sets `blt_dst_base` itself. **Corrected 2026-09-29 (B-414):** an earlier draft of
+this line grouped BAR and RRECT into that same "untouched" bucket — wrong, and inconsistent with this same
+section's own next paragraph (BAR and RRECT both reuse `rect_addr`, the plain `dbuf_addr()`-covered path,
+confirmed from `fb_bar()`/`fb_rrect()`'s own source). The real, hardware-confirmed instance of this gap is
+Chladni, which genuinely does use `fb_sblit()`/`fb_blit()` and never set `blt_dst_base` — see B-414.
 
 Built: `mp3_fb.sv`'s `DBUF_ENABLE` parameter and `dbuf_addr()` function (applied at all four plain
 FB_BASE-relative sites: the CHAR/COPY write, the RECT write — which also covers BAR and RRECT, both of
@@ -465,6 +469,20 @@ built — this is the concrete first task of Phase H1.
 
 ## 11. No View abstraction exists yet — every overlay hand-rolls its own invalidation (B-349 follow-up)
 
+**Status (2026-09-29, B-389): the invalidation seam described below is built** — `helios_view_t`
+(`enter`/`exit`/`invalidate_mask`), `helios_pending_mask` and the 6 named bits all exist in
+`fw/helios.inc`, wired at 6 real transition sites (fullscreen enter/exit x2, Meter Sweep's own two
+fullscreen-driving sites, Settings close, library close). **One deliberate deviation from the sketch
+below:** `helios_view_switch()` takes both `from` and `to` explicitly rather than inferring `from` from
+a tracked "current view" — every real call site already knows both ends, and requiring every future
+view's OPEN site to also call this just to keep a global tracker correct would recreate exactly the
+silent-omission risk (B-349) this mechanism exists to close. Every view today still uses
+`HELIOS_INV_ALL` and no view populates `enter`/`exit` (nothing needs asymmetric behaviour yet) — the
+partial-invalidation payoff (item 6) and any real `enter`/`exit` use are still future work. **NOT done:**
+the `draw`/`input` dispatch collapse this section's original sketch also included — each of the four
+top-level screens still has its own open flag and its own call site in `fw/player.c`'s main loop; that
+remains a separate, larger step. See `docs/AUDIT_TRAIL.md` B-389 for the full change.
+
 **Origin:** owner reported (2026-09-28) the "closing the menu leaves visual leftovers" symptom (B-349)
 is also visible leaving the fullscreen visualiser, and asked whether this is a structural problem with
 Helios — menus/bars/lists should be reusable components so switching views is less bug-prone even if the
@@ -524,6 +542,43 @@ UI-dispatch code, not a bolt-on — and there is no card mounted this session to
 before or after. Recorded here as the owner-requested structural answer; **not started**, pending a scope
 decision (full refactor now vs. continuing point fixes and taking this as a Phase H1.5 follow-up once H0/H1
 are hardware-confirmed, per section 9's existing phasing).
+
+## 11a. Checklist for anyone writing a new Helios view or overlay (added 2026-09-29, B-410)
+
+B-410 found two real, hardware-confirmed bugs in Settings' hardware crossfade (`fw/settingsui.inc`) and its
+own Diagnostics submenu — both are instances of failure classes this project has hit before, neither was
+caught by anything the code was checked against before shipping. This is the checklist that would have
+caught both; use it before adding a new rich Settings page, a new fullscreen mode, or anything else that
+renders into a Helios-managed region.
+
+1. **If your view temporarily redirects a sticky field for scratch rendering** (H2's `R_DBUF_CPU`, Talos's
+   `SRC_BASE`/`DST_BASE`, blend-on, a CLUT/corner-cut-LUT reload) — see `docs/TALOS.md`'s "Known limits and
+   lessons" entry on sticky-field execute-time semantics before writing the redirect-and-restore code.
+   `fb_wait()` is not enough; you need `fb_fence()`, and `ov_draw` must be set around it or the fence itself
+   silently no-ops. This exact mistake has now been made three times (B-349, and twice in B-405/B-410's own
+   crossfade) by three different pieces of code that each seemed self-contained at the time.
+2. **If your view renders a list whose length can grow** (not just today's choice lists, which already
+   scroll correctly via `set_ch_top[]`/`set_ch_follow()`) — bound it the same way, don't assume it fits.
+   `set_draw_menu()`'s plain menu-row list had no such bound for years, because no menu had grown past the
+   visible row count until the Diagnostics submenu did (B-410) — a list that fits today is not a guarantee
+   it fits after the next feature adds one more row to the same page. If you're adding a row to an existing
+   menu, check `set_menu_n[]`'s count against `SET_MENU_VIS` (or the equivalent for whatever list mechanism
+   you're extending) as part of that change, not as an afterthought once someone reports overflow.
+3. **If your view needs continuously-updating live content** (a running Check, an animating preview, a
+   sweep in progress) — confirm it is NOT eligible for the page-fade/crossfade mechanism (`set_fade_page_ok()`
+   in `fw/settingsui.inc` should return 0 for it), or that mechanism's fixed-length animation will render
+   your first frame once and hold it static for the fade's duration, since the fade path does not re-invoke
+   your draw function while it is stepping through its own frames. The six existing "rich" pages already get
+   this right (they fall outside `set_fade_page_ok()`'s ranges by construction); a new rich page needs to be
+   added the same way, not assumed safe by default.
+4. **If your view is a genuine transition endpoint** (opened/closed as a whole, not a sub-page within an
+   already-open menu), route it through `helios_view_switch()` (section 11) rather than a bare flag write —
+   the whole point of that mechanism is that a missing case becomes visible at registration time instead of
+   a silent leftover-pixel bug found three sessions later.
+
+None of this needs the full View-layer refactor section 11 describes to still not be built — it's a
+checklist for working correctly with what exists today, and stays relevant however that refactor eventually
+lands.
 
 ## 12. No shared dialog/alert primitive exists — three independent mechanisms (proposed, design only, 2026-09-28)
 

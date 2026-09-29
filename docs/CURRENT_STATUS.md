@@ -2,8 +2,8 @@
 
 Updated 2026-09-29. **What is true right now.** What to do next is in `docs/ROADMAP.md` (the only ordered list). Why things are the way
 they are is in `docs/AUDIT_TRAIL.md`. The old, long version of this file is `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
-Full detail on the 2026-09-29 session: `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md` — **read it first**, it
-supersedes everything below about FLAC LPC and Helios.
+Full detail on the 2026-09-29 session: `docs/handoffs/SESSION_HANDOFF_2026-09-29_T200_HELIOS_XFADE.md` — **read it first**, it
+supersedes `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md` and everything below about FLAC LPC/Helios/blend.
 
 ## Headline: FLAC LPC is done and hardware-confirmed; Talos's ALM waste is the clear next step
 
@@ -34,15 +34,28 @@ FLAC LPC (98% ALM, see above). Firmware landed on `main`: rounded-rect corner-cu
 - **v0.5.0** (2026-09-27, tagged, GitHub release published with both zips): `TAU` and `TAU_DIAGNOSTIC`. Themes (TAU/OCEAN, Dark/Light), TIM1 fast covers, MP3
   window unit in hardware (`POLY_FW=1` is the release default), Winamp/Chladni meters, full-screen menus with an action bar. Bitstream `gamma-b316` seed 1.
   Release heap gap 49,712 B. Changelog: `CHANGELOG.md`. Build/audit: B-331, B-332.
-- Deferred to **0.6** (owner, B-331): theme and meter settings saved across restarts (needs persist widening), alpha blend in firmware, the `Track changes` fix.
+- Deferred to **0.6** (owner, B-331): theme and meter settings saved across restarts (**persist widening built and present since B-346, save/load code re-confirmed by direct read 2026-09-29 — needs one hardware Quit/relaunch check to confirm, B-403/B-408; still not blocked on anything code-side**), alpha blend in firmware (**built and shipped — Winamp Scope trail via the real hardware blend opcode; Settings' crossfade (B-405) is now a SECOND, genuine hardware-blend user, upgrading the old software colour-interpolation fade B-404 described; B-406/B-407/B-408 fixed three real bugs found on first hardware test (H2 redraw-contract gap, a Library-open bypass, and the blend probe depending entirely on Scope having run first) — not yet re-tested on `alfatreze.TAU_0_6_0_A_21`**), the `Track changes` fix.
 - v0.4.0 (2026-09-22) is the previous release.
 
 ## On the Pocket card
-`alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (release, v0.5.0, unchanged), `alfatreze.TAU_0_6_0_A_16` (all6-combined + FLAC LPC
-hardware, `LPC_FW=1`, hardware-confirmed), `alfatreze.TAU_DEV_52` (same bitstream, `LPC_FW=0`, the A/B control used to prove
-LPC's effect — keep for now, or free the slot once the Talos fix needs a fresh install).
+`alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (release, v0.5.0, unchanged), `alfatreze.TAU_DEV_54`/
+`alfatreze.TAU_DEV_56` (earlier item-7 iterations on the OLD pre-T2-00 bitstream, free to remove),
+`alfatreze.TAU_0_6_0_A_21` — same `glyphbuf-t200` seed 2 bitstream as A_18/A_19/A_20 throughout
+(all6-combined + FLAC LPC + T2-00's `glyphbuf` ALM fix + persist widening + Helios items 4-7), firmware
+now carrying: B-405's real hardware alpha-blend crossfade for Settings, B-406's H2 redraw-contract fix
+(chrome/art invalidation processed before the same tick's other draws) + the Library-open bypass fix,
+B-407's wviz_force widening, and B-408's three fixes from the first real hardware test — the blend probe
+no longer depends on Scope having run first, `fb_bar()` clamps its lit-row count (fullscreen bar
+flicker), and the trail-reset gap on fullscreen transitions. **NOT yet re-tested on hardware** — owner
+deferred the retest. Watch for: whether Settings still shows any corruption once the crossfade engages
+from the very first open (no longer gated behind Scope); fullscreen bars capping cleanly instead of
+flickering; Scope trail surviving a fullscreen toggle; theme/meter-preset persistence across a real
+Quit+relaunch.
 
 ## Hardware-confirmed
+- T2-00 (`glyphbuf` ALM fix) + Helios items 4-7 together, on real silicon for the first time (`TAU_0_6_0_A_17`, B-401,
+  general pass only — superseded by `A_18` above, which has two additional fixes not yet re-tested):
+  a quick general pass, no regression reported. Not an exhaustive per-feature sweep yet.
 - FLAC LPC hardware kernel: 0 timeouts across multiple Checks + stress, microstutter A/B-confirmed fixed, worst-case latency
   11ms (software) vs 5-6ms (hardware). Not yet sample-exact verified against software (no hw-vs-sw Check comparison built).
 - MP3 window unit (alpha.30): 404,712 slots, 0 BAD, 1.75x plays cleanly (1.25x used to stutter); filterbank share of decode 22% at 1.0x (was 55-59%).
@@ -50,8 +63,11 @@ LPC's effect — keep for now, or free the slot once the Talos fix needs a fresh
 - Blit engine end to end, PSRAM cold code, library, SDRAM window, VBLANK about 60/S: unchanged and passing.
 
 ## Known open evidence and defects
-- **ALM budget is now the tight resource, not M10K**: 98% on the current bitstream, 416 ALMs (2%) free. The Talos `glyphbuf`
-  fix above would recover ~6,500 ALMs if built; until then, any new RTL feature is genuinely at risk of not fitting.
+- **ALM budget: RESOLVED (B-388/B-398, 2026-09-29).** The Talos `glyphbuf` fix is built and fit-confirmed
+  (both seeds, all four corners positive, RAM 240/308 = 78%, DSP 19/66 = 29% — real margin, not a bare
+  pass) and is now the bitstream `alfatreze.TAU_0_6_0_A_17` runs. The Talos 2 phased rewrite's own stated
+  motivation (`docs/features/TALOS2_REIMPLEMENTATION_PLAN.md`) is resolved by this single low-risk fix —
+  recommend re-evaluating whether that plan is still warranted before starting it.
 - **CPU LOAD reads 100%** in every state, so it cannot show headroom. Use the per-stage decode percentages and the speed at which audio breaks up.
 - **`Track changes` Check fails** (0 of 10 done): pre-existing, unexplained; 0.6.
 - **Hardware wave/scope path is compiled out** (`if (0 && wave_hw)`, B-302): drawing 256 columns cost about 21x a normal meter. The software scope runs instead.

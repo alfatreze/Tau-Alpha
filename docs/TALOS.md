@@ -127,6 +127,22 @@ the entry that found it:
 - **A `Track changes` Check failure is pre-existing and unrelated to Talos itself** — it has shown up in
   every Check run since the blit engine was integrated and remains unexplained (`docs/ROADMAP.md`, `docs/
   CURRENT_STATUS.md`).
+- **Sticky fields (`R_BLT_IDX`/`DATA`'s SRC_BASE/DST_BASE/BLEND/etc., and `R_DBUF_CPU`) are consulted when a
+  command EXECUTES, not when it is queued — and `fb_wait()` only checks "FIFO not full," never "has actually
+  executed."** This exact firmware-discipline mistake has caused THREE separate real bugs, each rediscovered
+  from scratch rather than checked against a written rule: B-349 (the corner-cut LUT reload racing a
+  still-queued `OP_RRECT` at a different radius — `fb_round_rect_on()` fixed by moving `fb_wait()` before
+  the LUT rewrite), and B-410 (`set_xfade_render()`, Settings' hardware crossfade, restored `R_DBUF_CPU` to
+  the displayed buffer immediately after `set_draw_now()` *returned* — which only means the commands were
+  *queued*, not executed — so any command still in flight drew into the live, currently-displayed buffer
+  instead of the intended scratch one, visible as real screen corruption on hardware). **The rule, stated
+  once so it stops being tribal knowledge:** anywhere a sticky field is changed temporarily (for scratch
+  rendering, a table reload, or any other "restore it afterward" pattern), call `fb_fence()` — not
+  `fb_wait()` — after the last queued command and before restoring the field, and make sure `ov_draw` is set
+  around that fence (it is itself gated by `FB_HELD()`, like every draw primitive, so it silently no-ops and
+  waits for nothing if called while an overlay merely *thinks* it holds the screen but hasn't set `ov_draw`).
+  `set_xfade_step_draw()` (the same file, a few lines away from B-410's bug) already gets this right — the
+  precedent existed right next to the bug, just not as a written rule anyone could check new code against.
 
 ## Roadmap / possible improvements
 
