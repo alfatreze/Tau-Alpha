@@ -11249,3 +11249,9 @@ New constraints: the shipped `core.json` declares `cartridge_adapter: -1` (cart 
 package; the adapter-ID check bits may give a framework-level presence check (open); pin31 is a cart audio input, so I2S must be digital on bank0; pin plan changed to the devkit debug cart's precedent (bank0 out, bank3 in);
 use three seeds for `clk_sys` additions (KB-011); check reports for synchronizers inferred as block RAM (KB-010) and design any coefficient RAM as simple dual-port (KB-073). Still open: custom-cart voltage selection,
 adapter-ID semantics, cart power budget. No code touched.
+
+## B-423: Decision -- Bluetooth output ships as a separate core package (docs only)
+
+Owner decided that the cartridge Bluetooth output is a separate core package. Recorded in `docs/features/CYMO_AUDIO_ENGINE.md` section 12.8: main cores keep `cartridge_adapter: -1` and
+must stay byte-identical; cart-pin drive is behind a macro the main bitstream does not set (a second bitstream to fit and maintain); working package id `alfatreze.TAU_BT` with `cartridge_adapter: 0`;
+`make_release.py`, `install_dev_core.py`, the package check and `CROSS_PROJECT_INTERFACE.md` (Tau Omega) need to learn about a third core; X1 gains the packaging work. Proposed register entry D-C06. Nothing built.

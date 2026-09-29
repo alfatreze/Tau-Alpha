@@ -657,8 +657,28 @@ tap), and its own phases can run after C3:
 
 Owner decisions this adds: (a) is Bluetooth-only routing (mute the speaker) the wanted default when connected; (b) is 48 kHz
 output on both sinks acceptable for v1; (c) which ESP module and who owns the ESP-side firmware; (d) are the cartridge pins to be
-driven as outputs on bank0 and read on bank3 as in section 12.3, once the levels are confirmed; (e) is shipping Bluetooth as a
-separate core package, because it needs cart power, acceptable.
+driven as outputs on bank0 and read on bank3 as in section 12.3, once the levels are confirmed; (e) ~~is shipping Bluetooth as a
+separate core package~~ **decided 2026-09-29: yes, separate package (12.8)**.
+
+### 12.8 Decision: Bluetooth ships as a separate core package (owner, 2026-09-29)
+
+Decided. The cartridge Bluetooth output is **its own core package**, not a setting of the main Tau core. Consequences, all following from section 14:
+
+- **Main core untouched.** `alfatreze.TAU` and `alfatreze.TAU_DIAGNOSTIC` keep `cartridge_adapter: -1` and `link_port: false`, so the cart stays unpowered and no
+  inserted Game Boy cartridge can be reached by the core. Their `core.json` files must stay byte-identical (a release check should assert it).
+- **The cart pins are driven only by the Bluetooth build.** Cart-pin drive is behind its own macro (working name `TAU_CYMO_BT`), which the main bitstream does not set,
+  so the main bitstream never drives a cart pin, with or without a handshake. The handshake and Hi-Z-by-default rules (12.4) still apply inside the Bluetooth build.
+- **New package**, working id `alfatreze.TAU_BT` (final name and platform art to decide), with `cartridge_adapter: 0`, the same Cymo firmware, and a bitstream built with
+  the merged macro bundle plus `TAU_CYMO_BT`. It is a **second bitstream to fit, seed-sweep and maintain**, which is the price of the safety boundary. The Cymo RTL that is
+  not cart-specific (resampler, output stage, buffer, EQ) stays in both bitstreams and is proven once.
+- **Tooling and release.** `tools/make_release.py` gains a third core; `tools/install_dev_core.py` must treat it as its own core and keep the release-core protection;
+  the package check asserts the two `cartridge_adapter` values. Log the new core in `docs/features/CROSS_PROJECT_INTERFACE.md`, because Tau Omega's package install, sync and
+  remove paths must know a third core exists.
+- **The player must handle absence cleanly.** On the main core the route setting and the Bluetooth page simply do not exist. On the Bluetooth core with no cart attached, the handshake
+  fails and the DAC stays the only output.
+- **Phase X1 gains** the packaging work above. X0 is unchanged and still blocks any powered test.
+
+Proposed decision-register entry (for `docs/DECISIONS.md` when the owner next edits it): **D-C06** Bluetooth output is a separate core package with cart power on; the main cores keep cart power off.
 
 ## 13. Collision register: Cymo against the planned work and current resources
 
