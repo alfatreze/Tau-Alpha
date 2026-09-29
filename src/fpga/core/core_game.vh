@@ -266,6 +266,14 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_VID720_EN 0
 `endif
+// 720 phased spec group A (docs/features/VIDEO_720_PHASED_SPEC.md section 2.1). Built so far: A3, the
+// 256-word row buffer (mp3_fb GB_WIDE), advertised as VID_CAPS bit 1. Firmware keeps FB_COPY_MAX 127
+// unless it reads that bit.
+`ifdef TAU_SCAN_A
+`define TAU_SCAN_A_EN 1
+`else
+`define TAU_SCAN_A_EN 0
+`endif
 wire soc_dbuf_cpu_buf, fb_dbuf_cpu_buf, soc_dbuf_flip_req_tgl, soc_dbuf_disp_buf, soc_dbuf_flip_pending;   // Helios H2 (B-340)
 wire        soc_psram_req, soc_psram_we;
 wire [22:0] soc_psram_word;
@@ -324,9 +332,9 @@ assign soc_vblank_rd = 17'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN)) u_soc (
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .VID_CAPS({30'd0, (`TAU_SCAN_A_EN != 0), 1'b0})) u_soc (
 `else
-mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN)) u_soc (
+mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .VID_CAPS({30'd0, (`TAU_SCAN_A_EN != 0), 1'b0})) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -809,7 +817,7 @@ wire sdram_probe_bar = vid_de_w && (sdram_probe_y < 9'd8) &&
 tau_cdc_sync1 #(.STAGES(3)) u_text_light_sync (.clk_dst(clk_sdram), .d_src(soc_text_light), .q_dst(fb_text_light));
 tau_cdc_sync1 #(.STAGES(3)) u_dbuf_cpu_buf_sync (.clk_dst(clk_sdram), .d_src(soc_dbuf_cpu_buf), .q_dst(fb_dbuf_cpu_buf));   // Helios H2 (B-340), same treatment as text_light
 
-mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .VID720(`TAU_VID720_EN)) u_fb (
+mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .VID720(`TAU_VID720_EN), .GB_WIDE(`TAU_SCAN_A_EN)) u_fb (
     .reset    (~pll_locked),
     .clk_sys  (clk_sys),
     .clk_sdram(clk_sdram),

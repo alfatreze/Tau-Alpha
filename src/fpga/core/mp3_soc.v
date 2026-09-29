@@ -84,7 +84,11 @@ module mp3_soc #(
     parameter DBUF_ENABLE = 0,
     // FLAC LPC/FIXED reconstruction unit (B-368, docs/research/FLAC_LPC_KERNEL_DESIGN.md): tau_flac_lpc.sv,
     // registers 0x120-0x13C. Inert (reads 0, sample_rd tied off) when 0.
-    parameter LPC_ENABLE = 0
+    parameter LPC_ENABLE = 0,
+    // 720 phased spec R8 (docs/features/VIDEO_720_PHASED_SPEC.md): read-only VID_CAPS word at 0x14C.
+    // bit 1 = 256-word row buffer (A3, mp3_fb GB_WIDE). Other bits are reserved for features not built
+    // yet and stay 0. Reads 0 on older bitstreams (unmapped MMIO reads 0), so firmware can gate on it.
+    parameter [31:0] VID_CAPS = 32'd0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -800,6 +804,7 @@ module mp3_soc #(
     localparam [8:0] R_LPC_CFG      = 9'h120, R_LPC_COEF_IDX = 9'h124, R_LPC_COEF_DATA = 9'h128,
                      R_LPC_WARM_IDX = 9'h12C, R_LPC_WARM_DATA = 9'h130, R_LPC_RESIDUAL  = 9'h134,
                      R_LPC_SAMPLE   = 9'h138, R_LPC_STATUS    = 9'h13C;
+    localparam [8:0] R_VID_CAPS     = 9'h14C;   // 720 phased spec: capability bits (read-only)
 
     // Bitstream/firmware interlock. Firmware compares this against its own
     // expected value and refuses to run on a mismatch.
@@ -1235,6 +1240,7 @@ module mp3_soc #(
             8'hE4:     mmio_rdata = (SPEC_ENABLE != 0) ? {spec_win, 15'd0, 1'b1} : 32'd0;  // spectrum bank: bit 0 present, bits 31:16 window counter
             R_LPC_SAMPLE: mmio_rdata = lpc_sample;                                     // FLAC LPC unit: last reconstructed sample (B-368); this read is the ack
             R_LPC_STATUS: mmio_rdata = {29'd0, lpc_done, lpc_busy, (LPC_ENABLE != 0)}; // bit 0 present, bit 1 busy, bit 2 done
+            R_VID_CAPS:   mmio_rdata = VID_CAPS;                                       // 720 phased spec R8: bit 1 wide row buffer (A3)
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end
