@@ -11274,3 +11274,39 @@ bundle's own worst-case hold margin is already razor-thin (+0.037 ns, B-371) -- 
 cost "nothing" on its own (B-172: same RAM, corners +1.99/+1.87 ns on an earlier, less-loaded bundle),
 but given how thin this specific bundle's margin already is, that needs a real fit to confirm, not an
 assumption. Awaiting a decision on spending the VM time before launching it.
+
+## B-420: a real packaging mistake found and corrected -- A_29/A_30 shipped the WRONG (pre-T2-00) bitstream
+
+Owner asked "can we remove something to make space" for B-419's new probe, worried about the razor-thin
++0.037 ns hold margin B-371's own comment describes. Checking which raw RBF that margin actually
+belongs to surfaced a real mistake made earlier this session: when packaging `alfatreze.TAU_0_6_0_A_29`
+(B-417), `--rbf work/diagnostics/all6-combined/ap_core_s2.rbf` was used -- a stale, PRE-T2-00 fit
+(raw sha256 `3d0303aff...`, reverses to `76ad2819...`) -- instead of `work/diagnostics/glyphbuf-t200/
+ap_core_s2.rbf` (raw `923d854b...`, reverses to `b089b82871d7f441e2d68665f18a9a130691598726cb9cd7a828fd1ee2195a7e`,
+confirmed by direct `shasum` comparison of both raw files' bit-reversal), the fit `alfatreze.TAU_0_6_0_A_17`
+through `A_28` actually shipped (B-400/B-401, hardware-confirmed) and the one B-388/B-398 built T2-00's
+glyphbuf single-write-port fix into. A_29 and A_30 (currently on the card, and what the owner's B-417/
+B-418 STRIP/BASES readings were taken against) have been running the WRONG, inferior, pre-T2-00
+bitstream since B-417 -- the one with the razor-thin +0.037 ns hold, not the T2-00-fixed one with real
+margin (+0.244 ns hold / +0.963 ns setup at the worst corner, B-398).
+
+**Why this doesn't invalidate B-417/B-418's findings:** both diagnostics are pure firmware logic
+(`dbg_strip_check()` reads real SDRAM content via the mailbox; `dbg_base_src`/`dst` mirror firmware's
+own MMIO writes) with no dependency on which of these two RTL fits is running, and T2-00 was
+specifically designed to be behaviour-identical to the pre-fix glyphbuf ("no FSM/timing/behavioural
+change intended anywhere," B-388) -- so STRIP=OK and BASES=0 stand as real results either way. This
+matters for margin planning, not correctness of what's already been found.
+
+**The actual answer to "can we remove something":** nothing needs to be removed. The razor-thin
++0.037 ns figure belongs to the stale all6-combined fit this session accidentally substituted in, not to
+the currently-intended bundle -- T2-00 (already unconditionally present in `mp3_fb.sv`, not a macro)
+freed ~6,500 ALMs of register fallback as a side effect of fixing the shared glyphbuf write network, and
+that congestion relief is exactly what also fixed the timing margin (B-398's own read of this). Staging
+the CURRENT tree (T2-00 + B-419's new `BLND` probe) with the SAME qsf bundle reproduces `glyphbuf-t200`,
+not `all6-combined` -- real margin to add the probe into, no feature needs dropping.
+
+New `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_issp_qsf_append.txt` (the same bundle plus
+`TAU_ISSP=1`, documenting this correction directly in its own header so the mistake can't quietly repeat).
+Launching the fit now. Once confirmed, its RBF also becomes the correct replacement for A_29/A_30's
+wrong bitstream (a non-ISSP variant of the same corrected fit should also be repackaged/installed
+afterward to fully fix the card, separate from the JTAG-only ISSP debug build).

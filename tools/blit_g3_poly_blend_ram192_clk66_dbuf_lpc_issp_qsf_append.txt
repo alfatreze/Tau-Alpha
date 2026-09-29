@@ -1,0 +1,61 @@
+# B-419: tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt verbatim, plus TAU_ISSP=1.
+#
+# IMPORTANT CORRECTION (found while preparing this file): the bundle's own header comment below
+# describes the ORIGINAL pre-T2-00 fit (`all6-combined`, worst-case hold +0.037 ns, razor-thin).
+# T2-00 (the glyphbuf single-write-port fix, docs/research/TALOS_REVIEW_2026-09-28.md section 1a)
+# is NOT a macro -- it is unconditionally how mp3_fb.sv's glyphbuf is now structured -- so staging
+# the CURRENT tree with this same qsf file reproduces `glyphbuf-t200` (B-388/B-398), not the old
+# `all6-combined` fit: real margin (worst corner Slow 0C hold +0.244 ns / setup +0.963 ns, Slow 85C
+# hold +0.304 ns / setup +1.294 ns), not the razor-thin +0.037 ns this file's own header describes.
+# A real, previously-uncaught mistake in THIS session used the wrong pre-T2-00 raw RBF
+# (`work/diagnostics/all6-combined/ap_core_s2.rbf`, reverses to `76ad2819...`) to package
+# alpha.29/alpha.30 instead of the correct `glyphbuf-t200` one (`923d854b...`, reverses to the
+# `b089b828...` that A_17 through A_28 actually shipped) -- this fit corrects that by construction,
+# since it stages the current tree (which already has T2-00) fresh, not a stale raw file.
+#
+# Diagnostic-only (TAU_ISSP), same convention as tools/blit_g3_issp_qsf_append.txt: never shipped,
+# never installed on the SD card as a real core, loaded via `quartus_pgm` over JTAG for a live debug
+# session only. Adds the B-419 second ISSP instance (`u_issp_blend`, "BLND") probing the B5 blend
+# pipeline (bl_fg/bl_bg/bl_r/bl_i1/blend_active/key_dst_done/bl_v0/bl_v1) alongside the existing
+# "BLIT" dispatch-state instance -- see docs/JTAG_DEBUG_ACCESS.md section 6.2b.
+set_global_assignment -name VERILOG_MACRO "TAU_PHASE2_WINDOW=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_PROBE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_WINDOW=1"
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_lb_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_lb_n
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_IFETCH=1"
+set_global_assignment -name VERILOG_MACRO "TAU_MLAB_MIGRATE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_FONT_REPACK=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_BUSY=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BLIT=1"
+set_global_assignment -name VERILOG_MACRO "TAU_VBLANK=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SPEC=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BEAM=1"
+set_global_assignment -name VERILOG_MACRO "TAU_WAVE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_POLY=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BLIT_BLEND=1"
+set_global_assignment -name VERILOG_MACRO "TAU_RAM_192K=1"
+set_global_assignment -name VERILOG_MACRO "TAU_CLK66=1"
+set_global_assignment -name VERILOG_MACRO "TAU_DBUF=1"
+set_global_assignment -name VERILOG_MACRO "TAU_LPC=1"
+set_global_assignment -name VERILOG_MACRO "TAU_ISSP=1"
