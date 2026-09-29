@@ -28,6 +28,7 @@ The project README is [../README.md](../README.md).
 | [CURRENT_STATUS.md](CURRENT_STATUS.md) | One-page state of the project |
 | [ROADMAP.md](ROADMAP.md) | The one ordered "what is next" list (draft) |
 | [ARCHITECTURE_ROADMAP.md](ARCHITECTURE_ROADMAP.md) | Long-range architecture phases (720 last) |
+| [features/VIDEO_720_TEST_PLAN.md](features/VIDEO_720_TEST_PLAN.md) | 720 test ladder (branch `test/720`), bandwidth/memory-map risks, hardware options |
 | [DECISIONS.md](DECISIONS.md) | Decisions register, including rejected options |
 | [PROJECT_REGISTER.md](PROJECT_REGISTER.md) | Decision, feature and issue register |
 | [AUDIT_TRAIL.md](AUDIT_TRAIL.md) | Every result with its evidence label (A-NNN and B-NNN series) |

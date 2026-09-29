@@ -258,6 +258,14 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_DBUF_EN 0
 `endif
+// 720 test step T1 (test/720 branch, docs/features/VIDEO_720_TEST_PLAN.md): 800x720 output timing,
+// 400x360 framebuffer doubled at scanout. Needs the matching PLL change (mf_pllbase_0002.v, same macro)
+// and a video.json declaring 800x720 (tools/vid720/video.json); firmware is unchanged.
+`ifdef TAU_VID720
+`define TAU_VID720_EN 1
+`else
+`define TAU_VID720_EN 0
+`endif
 wire soc_dbuf_cpu_buf, fb_dbuf_cpu_buf, soc_dbuf_flip_req_tgl, soc_dbuf_disp_buf, soc_dbuf_flip_pending;   // Helios H2 (B-340)
 wire        soc_psram_req, soc_psram_we;
 wire [22:0] soc_psram_word;
@@ -801,7 +809,7 @@ wire sdram_probe_bar = vid_de_w && (sdram_probe_y < 9'd8) &&
 tau_cdc_sync1 #(.STAGES(3)) u_text_light_sync (.clk_dst(clk_sdram), .d_src(soc_text_light), .q_dst(fb_text_light));
 tau_cdc_sync1 #(.STAGES(3)) u_dbuf_cpu_buf_sync (.clk_dst(clk_sdram), .d_src(soc_dbuf_cpu_buf), .q_dst(fb_dbuf_cpu_buf));   // Helios H2 (B-340), same treatment as text_light
 
-mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN)) u_fb (
+mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .VID720(`TAU_VID720_EN)) u_fb (
     .reset    (~pll_locked),
     .clk_sys  (clk_sys),
     .clk_sdram(clk_sdram),
