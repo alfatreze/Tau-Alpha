@@ -9771,3 +9771,19 @@ item. ALMs estimated only (~+350-650 native route, ~+650-1,200 overlay route, ~+
 synthesis-only quartus_map would measure them. Conclusion: capacity fits on the 192 KB stack; the 256 KB
 stack is full if everything is added, so native 720 in practice needs the RAM shrink; timing (hold +0.037 ns
 on all6-combined, clk_sdram dispatch paths) and SDRAM bandwidth are the real limits. No code change.
+
+- 2026-09-29 (Claude): docs (B-376), branch `test/720`. Owner asked for a full review of the 720 plan, more
+techniques, and a staggered spec: Phase 1 cross-resolution (both 400x360 and 800x720, including 720-enabling items
+with little effect alone and a 360/720 switch behind a Diagnostics flag), Phase 2 720-specific, so each is a separate
+test build. Owner also set the baseline: always the 192 KB stack with all current hardware features. Wrote
+`docs/features/VIDEO_720_PHASED_SPEC.md`. Review findings (skill + source): 360 timing reproducible at 37.5 MHz
+(1562x400, 41.65 us lines, same 40-line vblank), so one pixel clock serves both modes; scaler slot changes apply
+next frame and an all-zero end-of-line word may itself be a slot-0 request, so the target slot is sent on every line;
+our HS/VS are multi-cycle while the docs say one-cycle (kept, as a parameter); mode never persisted and a 10 s
+auto-revert guards against a blank screen; field widening (addr 20, w/h 10, stride 11) can be ABI-compatible in unused
+high bits, and a `VID_CAPS` register replaces interlocks; stride 1024 = one SDRAM page per line but bursts must stay
+<=512 words, so native fills are two 400-word chunks; optional triple line buffer for deadline margin. Phase 1 = groups
+A (visible-only fetch, fill-latency counters, 256-word copy buffer), C (widening, draw/display base registers,
+10-bit `scan_vc`), B (37.5 MHz, two geometries, frame-wrap switch, slot word), each under its own macro for fit
+bisection; ~0 M10K, ~450-800 ALMs [EST]. Phase 2 = native 800x720 mode, 2x1024 line buffer (+2 M10K, +3 with triple),
+framebuffer at 16 MiB, test-pattern page and a 720 STORM Check. MMIO 0x140-0x154 proposed. No code change.
