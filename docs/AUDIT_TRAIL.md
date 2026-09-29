@@ -10090,3 +10090,40 @@ placement attributes, unchanged by this refactor -- only whether that ONE static
 text-pattern matching can see calls made through a function pointer is untested, a real but low-risk gap
 (the actual runtime cold-placement safety mechanism, `COLD_READY()`, is unaffected either way). Not yet
 hardware-tested. Not yet installed on the card.
+
+## B-409: T2-00 committed; Talos 2's P3 declined; cross-branch synergy review with `test/720`
+
+Owner asked to check `test/720` (a cloud session's branch, pushed to `origin`, not merged) for synergies
+with the Talos-2-adjacent work this session did. Real findings: (1) T2-00's `mp3_fb.sv` fix had been sitting
+**uncommitted** on `main` since it was built earlier this session -- `test/720` forked before it existed and
+its own spec independently redescribed the exact same MLAB-fallback bug as still-open work (Group A3),
+about to duplicate a fix that already exists. (2) `test/720`'s `FB_DRAW_BASE`/`FB_DISP_BASE` (section 2.2 of
+its `VIDEO_720_PHASED_SPEC.md`) and `TALOS2_REIMPLEMENTATION_PLAN.md`'s own "target surface" sticky offset
+are independently-designed fixes for the identical bug (H2 double buffering offsets only non-blit opcodes,
+confirmed word-for-word in `docs/MMIO_ALLOCATION.md`'s `DBUF_CPU` row) -- neither branch knew about the
+other's design.
+
+Action taken (owner: "adopt immediately the low risk/high value features, update Talos plan, then update
+720's plan and misconceptions"):
+- **Committed T2-00** to `main` (`8e4a40c`) after re-verifying in isolation: `make rtl-lint` clean, full
+  `make test-rtl` PASSED (0 failures) including the real-CPU PSRAM ifetch sims. This was the only genuinely
+  "low risk, high value, ready now" item -- already fit-confirmed and hardware-confirmed, just uncommitted.
+  Everything else uncommitted this session (B-405 through B-408) stays uncommitted, per this project's own
+  verify-before-commit discipline -- none of it has a hardware retest back yet.
+- **Updated `docs/features/TALOS2_REIMPLEMENTATION_PLAN.md`** (`4bf65ed`): P1 marked done, P3 marked declined
+  (no forcing function left, per the review's own original recommendation), section 5.1's "target surface"
+  now explicitly defers to `test/720`'s design if P3 ever revives, with the requirement that whichever
+  implementation ships must be proven (via a mutation test) to cover the BLIT-class sticky `SRC_BASE`/
+  `DST_BASE` path, not just the RECT-class `cmd_addr` path that already had H2 coverage -- that distinction
+  is the actual bug, not a wording detail.
+- **Updated `docs/features/VIDEO_720_PHASED_SPEC.md` on a local worktree tracking `origin/test/720`**
+  (commit `304cb56` on branch `test/720`, **not pushed** -- pending owner approval): corrected the MLAB
+  misconception (flagging that `main` should be merged/rebased in before Group A3's own fit, so the buffer
+  widening it plans lands on `glyphbuf_a`/`glyphbuf_b`'s new shape, not a stale single-array assumption), and
+  flagged the same BLIT-coverage open question against `FB_DRAW_BASE`/`FB_DISP_BASE`'s own design, with a
+  recommended mutation test.
+
+Confirmed no MMIO collision: `test/720`'s claimed `0x140-0x1FC` range is genuinely free per
+`docs/MMIO_ALLOCATION.md`'s own table (`LPC_STATUS` ends at `0x13C`). Nothing else from this session's other
+uncommitted work (Helios items, B-405 crossfade, B-406/407/408 fixes) was touched. `test/720`'s commit is
+local-only pending a push decision.
