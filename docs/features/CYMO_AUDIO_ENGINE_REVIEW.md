@@ -224,3 +224,13 @@ position (`player.c:859-866`), which stays correct; the remaining-time display u
 2. Section 6.3: notes that `PRIME` and the firmware depth constants must be decoupled before the depth changes (C4).
 
 The other findings are recorded here, not silently folded into the main document, so the owner can accept or reject them first.
+
+## 9. Owner decisions on the review (2026-09-29, B-425)
+
+1. **Audiobook scope is minimal: pitch correction only.** That means pitch-preserving tempo change (the speed-up that keeps the narrator's voice natural). Resume, per-book speed, chapter marks,
+   M4B/AAC, a speech EQ preset and **pause shortening** are all deferred to "much later". (Pause shortening was approved earlier; this decision supersedes it for now, its spec stays in the main document.)
+2. **The minimal path is therefore:** the real headroom metric (C0a), one shared `cymo_push()` (C1), then the firmware tempo stretch. Nothing in it needs a new bitstream.
+3. **Analog loopback measurement:** the owner will try; a how-to and test files are to be provided (not yet built).
+4. **Soft clipper vs limiter:** explained to the owner; it belongs to the later output stage, so no decision is needed for the minimal path.
+
+Everything else in the Cymo plan (resampler, output stage, deeper buffer, EQ, gapless, Bluetooth) is unchanged but parked behind this minimal path, to be scheduled by the owner.
