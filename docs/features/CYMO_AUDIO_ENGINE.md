@@ -294,7 +294,7 @@ it correctly.
 
 Budget context **[HW]** (`CURRENT_STATUS.md`): the current bitstream, with the RAM shrink and the Talos `glyphbuf` fix, fit at
 M10K 240 of 308 (68 free), DSP 19 of 66, with the ALM crisis resolved. The earlier FLAC LPC fit was at 98% ALM (B-378), so
-**ALMs are the resource to watch**; DSP and, after the shrink, M10K have room.
+ALMs were then the resource to watch, but that figure predates the T2-00 fix (about 6,500 ALMs freed), so re-read it from the current fit report first (section 11); DSP and, after the shrink, M10K have room.
 
 ### 6.1 `cymo_resamp`: fractional polyphase resampler (replaces the zero-order hold)
 
@@ -447,6 +447,151 @@ Fits should be run against the *current* macro set, not a bare base (the lesson 
 4. **Buffer:** M10K first (simple, bounded) or go straight to a PSRAM ring (seconds of buffer, more risk)?
 5. **F2:** may I add a macro-guarded 16-bit I2S experiment for a hardware A/B?
 6. **Hi-res FLAC:** worth measuring 88.2/96 kHz with hardware LPC now, given it would then also need the resampler to play correctly?
+7. **Alignment and Bluetooth:** section 11 proposes decisions D-C01 to D-C05, and section 12.7 lists four Bluetooth-specific decisions.
+
+## 11. Alignment with the architecture rework already done
+
+Checked against the state of `main` as of 2026-09-29 (`CURRENT_STATUS.md`, `ROADMAP.md`, `DECISIONS.md`,
+`TALOS2_REIMPLEMENTATION_PLAN.md`, `HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md`, `HELIOS_SPEC.md`, AUDIT_TRAIL B-409 to B-416).
+Nothing on `main` has changed the audio path since the audit; what changed is the surrounding budget and rules.
+
+| Development | Effect on Cymo | Action |
+|---|---|---|
+| **T2-00 shipped, Talos 2 P3 declined** (B-388/B-398, B-409). `glyphbuf` is back in MLAB with blend on, freeing about 6,500 ALMs. | My section 6 said ALMs were the resource to watch, citing the 98% LPC fit (B-378). That figure **predates T2-00** and is stale. The latest fit report gives RAM 240/308 and DSP 19/66, but I found no post-T2-00 ALM percentage. | Read the ALM figure from the T2-00 fit report as part of C0 before sizing C2/C3. Cymo does **not** depend on Talos; no Talos work is implied. |
+| **Helios `helios_view_t` built** (item 4), and **HELIOS_SPEC 8.1 proposes `helios_audio_ok()`**, generalising `meter_afford()` into a shared audio-health gate (B-354). | This is Cymo's consumer. The gate needs a trustworthy audio-headroom signal, which is exactly C0(a) (the CPU LOAD 100% gap, also `ROADMAP` item 11). | **Merge the two.** Build the headroom metric once (FIFO minimum fill plus corrected idle share) as a Cymo export, and feed both the Info row and Helios's gate from it. Do not build two definitions of "audio is healthy". |
+| **192 KB RAM shrink** in the current bitstream. Firmware heap on 192 KB builds is about 12 KB (release) and 6.5 KB (Diagnostic) (B-333). | Any Cymo firmware that grows heap, especially a firmware WSOLA prototype or a next-track pre-read buffer, does not fit. | Strengthens the case for putting Cymo work in RTL and deleting per-sample software (C1 must be size-neutral). Any firmware Cymo code goes in cold code behind `COLD_READY()`, like the rest. |
+| **M10K ledger:** 240/308 with the shrink, 68 free. The parallel `test/720` branch (B-409) already plans a buffer widening (its Group A3) on the same pool. | Cymo's deeper buffer (about 24 more blocks), resampler and EQ ROM all draw on the same 68. | Keep **one block-RAM ledger** (`PHASE_F_SPEC` section 4 table) and add Cymo's asks to it, as estimates, before any fit. 720 is last by owner decision, so Cymo must stay resolution-agnostic, which it already is. Video at 720 raises SDRAM pressure, which is a further reason to prefer an on-chip buffer over an SDRAM ring. |
+| **Persist widened to 32 words**, 21 used (`SW_N`, `fw/settings.inc`), 11 free. | Cymo settings (speed mode, route, ReplayGain mode, 10 EQ gains) do not all fit as separate words. | Persist only small state (mode, route, EQ preset index, tempo/pitch mode, about 5 words). Store curves, EQ band sets and presets as a **`EQ` section of `tau-assets.bin`**, per decision **D-M01** (one container, not one slot per asset type), and log the new section in `CROSS_PROJECT_INTERFACE.md` when built. |
+| **`tau-assets.bin` and Tau Omega** (D-M03, D-M09). | Host-generated EQ curves and headphone corrections are the same authoring flow as theme and meter presets. | Omega owns generation, Tau-Alpha owns the format. No shared files. |
+| **Meter contract decisions** (D-M05, D-M07, D-M08). | A Bluetooth delay-compensation option (section 12) changes when meters draw. | Must be opt-in and must not alter legacy meters. |
+| **Standing rules**: two seeds per timing claim, `READY()` probe pattern for new bitstream features, hot-to-cold calls gated, fits use the current macro set (B-130), installs via `tools/install_dev_core.py`. | Apply directly. | Every RTL Cymo phase ships behind a `CYMO_READY()` probe and a macro, byte-identical firmware behaviour when absent, so an old bitstream keeps today's path (as `BLIT_READY()`, `RRECT_READY()` and `DBUF_READY()` do). |
+| **Roadmap items 10 and 11** (FLAC kernels, the CPU LOAD gap). | Item 11 is C0(a). Item 10 (FLAC LPC done) leaves the bit reader, which C0(b) will decide. | Fold C0 into item 11 and C8 into item 10 rather than adding parallel lines; the roadmap says only that file orders work. |
+
+Proposed decision-register entries, for the owner to accept or reject (all **Proposed**, none decided):
+
+- **D-C01** Cymo is the name of the audio output subsystem (resampler, output stage, buffer, EQ, stretch, sinks); new modules use `cymo_`.
+- **D-C02** Audio output ends in one canonical stream (48 kHz, stereo, 16-bit, strobe) that every sink consumes (section 12).
+- **D-C03** Cymo settings persist as small words, curves live in `tau-assets.bin` (per D-M01).
+- **D-C04** Every Cymo RTL feature is probe-gated and macro-gated so an old bitstream is byte-identical in behaviour.
+- **D-C05** Do not merge the polyphase, LPC and EQ multipliers.
+
+## 12. Future second output: a custom cartridge with an ESP-based Bluetooth transmitter
+
+Owner scenario: a custom cartridge carrying an ESP module that provides Bluetooth audio, alongside the Pocket's own DAC.
+This section records what the current design already supports, what it would need, and how Cymo should be shaped now so
+that adding it later is small. **Nothing here is built, and the electrical facts are mostly open.**
+
+### 12.1 What the design has today
+
+- **Pins [READ]** (`core_top.v:26-43, 124-138`). The core exposes 30 cartridge lines: `cart_tran_bank0[7:4]`, `bank1[7:0]`,
+  `bank2[7:0]`, `bank3[7:0]`, plus `cart_tran_pin30` and `cart_tran_pin31`, and the link port lines `port_tran_si/so/sck/sd`.
+  Today banks 1-3 are inputs (`dir = 0`, `Z`), bank 0 is **driven high** with `dir = 1`, pin 30 is driven low and pin 31 is an
+  input. The link port is all inputs.
+- **Direction control is per bank, not per pin [READ from the port list; the electrical meaning is inferred]**: there is one
+  `_dir` output for each 8-bit bank. If that is a level-translator direction pin, every line in a bank has the same
+  direction. That is a hard constraint on any custom cart pinout.
+- **The I2S source already exists [READ]**: `sound_i2s` generates MCLK (about 12.288 MHz), the internal serial clock and LRCK
+  and shifts the sample out. The serial clock (`audgen_sclk`) is internal today and would need to be brought out.
+- **Only one sink exists**: the DAC, at a fixed 48 kHz, in one clock domain.
+
+### 12.2 Architecture for a second sink
+
+```
+ cymo_resamp -> ReplayGain -> EQ -> limiter ----> canonical 48 kHz stereo 16-bit stream (+ strobe)
+                                                       |
+                       +-------------------------------+----------------------+
+                       v                                                      v
+              per-sink gain/ramp                                     per-sink gain/ramp
+                       |                                                      |
+                 sink_dac (existing sound_i2s)                    sink_cart (I2S out on cart pins)
+                                                                              |
+                                                                    ESP32: I2S slave RX -> A2DP source
+```
+
+Design rules this adds to Cymo:
+
+1. **Fan out after the EQ and limiter, before per-sink gain and dither.** That keeps one processing chain and lets the
+   speaker and the Bluetooth link have independent volume. The gain and dither blocks in `cymo_out` (6.2) therefore become
+   per-sink, which costs almost nothing.
+2. **A route register**: none, DAC, Bluetooth, or both. With Bluetooth-only, the DAC path must be **muted, not stopped**:
+   keep its clocks running to avoid pops and just feed it zero, otherwise the speaker and the headset play the same audio.
+3. **Same serializer, second pin set.** The simplest sink reuses the existing MCLK/LRCK/serial signals and the same sample word
+   on cart pins. It needs no second clock generator and no second CDC, and a testbench can compare the two outputs
+   bit-for-bit. A second, independent sink rate (44.1 kHz for Bluetooth) needs a second serializer and a second resampler
+   output; defer it. ESP32 A2DP's default is 44.1 kHz stereo 16-bit SBC PCM in the sources I found
+   ([ESP32-A2DP](https://github.com/pschatzmann/ESP32-A2DP)); whether it accepts 48 kHz cleanly is **[OPEN]** and only
+   matters if the ESP resamples badly.
+4. **Everything upstream stays sink-agnostic**, which is the same discipline as "resolution-agnostic" for 720.
+
+### 12.3 Pin plan under the per-bank direction constraint
+
+A workable split (assuming the 8-line banks are all-in or all-out) is to put every FPGA output in one bank and every FPGA input
+in another:
+
+| Bank | Direction | Signals |
+|---|---|---|
+| bank1 | output | I2S BCLK, LRCK, DATA (MCLK optional: an I2S slave normally does not need it), UART TX to the ESP, spare outputs |
+| bank2 | input | UART RX from the ESP, "ESP present / ready" line, spare status |
+| bank0, bank3, pin30/31 | unchanged, undriven | left as today |
+
+About seven lines are needed. **The default states matter for the custom PCB**: bank 0 is currently driven high by the template
+tie-off, so the cart must tolerate that or the tie-off must change.
+
+### 12.4 Safety: do not drive pins into an unknown cartridge
+
+A real Game Boy cartridge can be inserted in the same slot. If the core drove outputs into one, the result is bus contention
+and possible damage. Therefore:
+
+- Cart outputs stay high-impedance by default, exactly as banks 1-3 are today.
+- They are enabled only when **both** a macro/settings toggle is on **and** a handshake passes (the ESP asserts a "present" line
+  or answers a UART hello with a known ID and protocol version).
+- A missing or wrong reply returns everything to inputs. This is the same probe-then-use pattern as `BLIT_READY()`.
+
+Also **[OPEN, safety-critical]**: the logic level on the cart pins (3.3 V or 5 V, given Game Boy carts are 5 V systems) and
+whether the translators can be set per bank. An ESP module is 3.3 V and not 5 V tolerant. **Do not connect one until the level
+is confirmed from Analogue's documentation or a measurement**, and use a level shifter regardless if there is any doubt. I could
+not confirm this from public sources this session (searches returned only general descriptions, and the Analogizer project's
+README defers to its wiki, `RndMnkIII/Analogizer`, which is prior art for driving the cart slot from a core and the natural
+place to read pinout and level details).
+
+### 12.5 Control channel and firmware
+
+The audio stream is one-way, but pairing needs a control path. A two-wire UART (a tiny MMIO UART with a FIFO, on the order of
+tens of ALMs **[EST]**) is enough for: scan and list devices, pair/connect/forget, connection status and codec, and passthrough of
+headset buttons (play, pause, next, previous, volume) back into the player's input path. Optionally the firmware can send
+title and artist to the headset over AVRCP. Firmware needs a Bluetooth Settings page, which should be a Helios view (section 11)
+in cold code, and a `CYMO_BT_READY()` probe.
+
+### 12.6 What Bluetooth changes for the rest of the engine
+
+| Topic | Consequence | Response |
+|---|---|---|
+| **Codec ceiling** | ESP32's classic A2DP source supports **SBC only** ([source](https://github.com/pschatzmann/ESP32-A2DP)). SBC recompresses whatever we send. | Dither, high-quality resampling and 24-bit precision still help, but the audible ceiling on Bluetooth is SBC. Do not sell Bluetooth as a fidelity feature. |
+| **Latency** | A2DP adds a substantial delay (commonly on the order of a hundred milliseconds or more, **[EST, general knowledge, not verified here]**). | Volume, seek and pause feel late; meters run ahead of the sound. |
+| **Meters** | The spectrum and level analysis run on pre-FIFO audio. | Cheap fix: delay the *analysis output* (about 16 bands x 60 frames a second is a few hundred bytes for 0.3 s), not the audio. Scope and Chladni operate on raw samples and would need a large delay line (roughly 30 M10K blocks for 0.2 s **[EST]**), so leave them real-time and document it. Opt-in per D-M07. |
+| **Clocks** | The FPGA is the I2S master. The ESP's Bluetooth timing comes from its own crystal, so its receive buffer slowly fills or drains. | The ESP side must drop or repeat a sample occasionally (its firmware, not ours). Verify with a long soak. |
+| **Volume** | Two independent volumes (speaker and Bluetooth). | Per-sink gain (12.2 rule 1); firmware exposes one active control. |
+| **EQ** | One shared EQ for both sinks. | A per-sink EQ needs a second engine state set and about 116 more clocks per sample (there are 1,250), so it is affordable if headphone-specific curves are wanted later. |
+| **Power** | A Bluetooth radio can draw a meaningful current from the cartridge supply. The Pocket's FPGA power reading excludes cartridge power (`BATTERY_AND_POWER_PLAN.md`). | Add "cart peripheral attached" to the battery benchmark variable list. Whether the slot can supply a radio's peaks is **[OPEN]**. The purpose of `cart_pin30_pwroff_reset` is also **[OPEN]**. |
+| **ESP variant** | Bluetooth Classic A2DP needs an ESP32 with Classic Bluetooth; several newer variants are BLE-only **[EST, general knowledge, not verified here]**. | Choose the module for Classic Bluetooth. |
+| **Alternative for control only** | The link port (`port_tran_*`) could carry the UART, leaving all cart lines for I2S. | Not needed for a cart-only design; it does add a cable. |
+
+### 12.7 Effect on the phased plan
+
+The Bluetooth sink adds no work to C0 to C2. It is a **consumer of C3** (`cymo_out` needs per-sink gain and the canonical stream
+tap), and its own phases can run after C3:
+
+| Phase | Work | Type | Gate |
+|---|---|---|---|
+| X0 | Confirm the cart pin voltage, direction grouping and power from Analogue's docs; pick the ESP module | research and hardware | written pinout with levels; owner sign-off |
+| X1 | Expose the serial clock, route register, gated cart-pin drive, handshake, per-sink gain | RTL + fit | testbench compares cart I2S to the DAC I2S bit-for-bit, with a mutation test; two seeds close; pins stay Hi-Z without the handshake |
+| X2 | UART, Bluetooth Settings page (Helios view), route setting, mute-DAC logic | firmware | `make test-host`; `CYMO_BT_READY()` false on an old bitstream leaves behaviour unchanged |
+| X3 | Reference firmware on the ESP and a bench test: I2S capture, then a real headset, long soak | hardware | zero underruns on the Pocket side; recorded drift behaviour on the ESP side |
+| X4 | Delayed analysis for meters, AVRCP buttons and metadata | firmware | listening and viewing pass |
+
+Owner decisions this adds: (a) is Bluetooth-only routing (mute the speaker) the wanted default when connected; (b) is 48 kHz
+output on both sinks acceptable for v1; (c) which ESP module and who owns the ESP-side firmware; (d) are the cartridge pins to be
+driven as fixed outputs on bank 1 as sketched, once the levels are confirmed.
 
 ## Appendix: the resampler model
 

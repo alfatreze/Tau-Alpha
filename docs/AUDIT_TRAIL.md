@@ -11190,3 +11190,23 @@ loops, `pcm_rate_apply()`, `flac.c`'s bit-depth reduction, and the existing FLAC
 Recommendation: one hardware output stage (`cymo_resamp`, `cymo_out`, deeper buffer, programmable EQ, then optional `cymo_stretch`), built in the
 order C0 measure, C1 firmware unification, C2 resampler first. Pitch-preserving tempo needs N x decode like varispeed; pitch-only shifting needs
 1 x. Full plan, resource ledger (all estimates) and six owner decisions are in the document.
+
+## B-418: Cymo audit addendum -- alignment with the architecture rework, and a future cartridge Bluetooth output (docs only)
+
+Owner asked to (1) align the Cymo audit with the earlier architecture rework analyses and any developments since, and (2) consider the model
+supporting a second output through a custom cartridge with an ESP-provided Bluetooth transmitter. Added sections 11 and 12 to
+`docs/features/CYMO_AUDIO_ENGINE.md`. No RTL, firmware, card or VM touched.
+
+Alignment (all read from `main`, nothing on it changed the audio path since B-417): T2-00 shipped and Talos 2 P3 declined, so the ALM figure in B-417
+(98%, from the pre-T2-00 LPC fit) is stale and must be re-read from the current fit report; Helios's proposed `helios_audio_ok()` and ROADMAP item 11
+need the same headroom metric as Cymo's C0(a), so build it once; the 192 KB shrink leaves 6.5-12 KB of firmware heap, which favours RTL over firmware
+for every Cymo addition; the M10K pool (68 free) is shared with the `test/720` buffer widening, so one ledger is needed; persist has 11 free words of 32
+(`SW_N` = 21), so curves belong in a `tau-assets.bin` section per D-M01. Proposed decisions D-C01..D-C05 (none decided).
+
+Bluetooth: `core_top` exposes 30 cart lines plus 4 link-port lines with one direction signal per 8-bit bank (code-read; electrical meaning inferred), the
+I2S source already exists but its serial clock is internal, and bank 0 is currently driven high. Design: fan out one canonical 48 kHz stream after EQ and
+limiter to per-sink gain, reuse the existing serializer signals on cart pins, mute (do not stop) the DAC in Bluetooth-only mode, keep all cart outputs
+Hi-Z until a handshake passes (a real Game Boy cartridge may be inserted). Open and safety-critical: cart pin logic level (3.3 V vs 5 V), per-bank
+direction, cart power capability, meaning of `cart_pin30_pwroff_reset`; public web searches returned nothing usable on these (Analogizer's README defers to
+its wiki). ESP32 classic A2DP source is SBC-only per the ESP32-A2DP project, so Bluetooth is not a fidelity feature. Phases X0-X4 and four owner decisions
+are in the document.
