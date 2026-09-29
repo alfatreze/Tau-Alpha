@@ -186,21 +186,74 @@ touches), not by document section number. None of this is started beyond what B-
 
 **Mid-term (real structural work, needs a card and real verification time):**
 
-4. **The `helios_view_t` registry** scoped and parked in `docs/features/HELIOS_SPEC.md` section 11
-   (enter/exit/draw/input + a declared invalidation contract) — now that `helios_view_changed()` exists as
-   the seam to grow from, this becomes "replace one function's body with a real dispatch" rather than a
-   ground-up rewrite.
-5. **Retire the remaining 7 legacy meters' inline `if` blocks** into the same contract item 1 starts,
-   once it is proven on the 4 easy ones.
-6. **A real partial-invalidation vocabulary** — today's three separate "redraw everything" mechanisms
-   (section 3.1) collapsed into regions with honest row ranges, once there is more than one view/region
-   consumer to prove the design against.
+4. **DONE for the invalidation seam (B-389, 2026-09-29):** `helios_view_t` (`enter`/`exit`/
+   `invalidate_mask`) replaced `helios_view_changed()`'s single flag/fixed-checklist body at 6 real
+   transition sites; `draw`/`input` dispatch collapse (the other half of this item's original scope)
+   is NOT done — each screen still has its own open flag and main-loop call site. Not yet
+   hardware-tested. See `docs/features/HELIOS_SPEC.md` section 11 and `docs/AUDIT_TRAIL.md` B-389.
+5. **DONE (B-390, 2026-09-29):** all 8 remaining meters (Bars, Waterfall, Scroll, Dots, LED/Spectrum,
+   VU, Oscilloscope, Phase Scope) converted to `mtr_in_t`-taking functions. Verified as correct code
+   motion + zero new build warnings + `make test-host` unaffected. Hardware-confirmed (B-395,
+   `alfatreze.TAU_DEV_54`): the owner reports it "seems normal all around" -- general confirmation, not
+   an itemised per-meter comparison, stated at that scope on purpose. See `docs/AUDIT_TRAIL.md` B-390,
+   B-395.
+6. **Precondition proved (B-391, 2026-09-29), full unification still not attempted.** The stated
+   precondition — "more than one view/region consumer" — did not hold (item 4 added a second
+   invalidate-MASK consumer, a different mechanism, not a second REGION). Closed that gap: the meter
+   box (`ui_draw_dynamic_cold()`'s beam-safety-gated draw) is now `ui_chrome_region`'s sibling, a
+   real second row-ranged `helios_region_register_rows()` consumer, verified not to regress RAM
+   placement (a real `COLD_FN3`-loss regression was caught and fixed by the heap-gap numbers, not by
+   inspection — see B-391). Hardware-confirmed (B-395, `alfatreze.TAU_DEV_54`): the owner reports it
+   "seems normal all around," including the meter box's own beam-safety/tear behaviour now routed
+   through this mechanism instead of the old inline check. The three separate "redraw everything"
+   mechanisms section 3.1 lists are still three; collapsing them into one is now unblocked but not
+   done. See `docs/AUDIT_TRAIL.md` B-391, B-395.
+
+   **Deliberately held here, not attempted (2026-09-29), after the precondition above was met and three
+   follow-on tooling/safety gaps were closed (B-392) and hardware-confirmed (B-395):** re-examined
+   whether "collapse the three mechanisms into one" is actually still the right next step, and concluded
+   it is not, on its own merits, not for lack of a precondition this time. The three mechanisms are not
+   actually redundant — they sit at different granularities. The per-region `dirty` bit and item 4's
+   `invalidate_mask` are both region/view-level ("should this redraw run at all," "which shared caches
+   does a transition touch") and could plausibly merge. The per-meter skip-caches (`wave_drawn[]`,
+   `spec_drawn[]`, …) are a genuinely finer-grained concern — which individual bars/bands changed
+   *within* a redraw that is already running — and forcing them into the same vocabulary as the other
+   two would not remove a real bug, only relabel an intentional two-level design (region dispatch, then
+   per-element skip inside it) as a flaw it is not. The concrete harm section 3.1 actually pointed at —
+   an incomplete invalidation on a view transition, B-349's bug — is already closed by item 4's declared
+   `invalidate_mask` contract. And the review's own original gate for this item still is not met: "once
+   a view exists that does NOT need a full repaint on every transition" — every view today still
+   declares `HELIOS_INV_ALL`. Unifying the vocabulary now would be a large, invasive rewrite of every
+   meter's skip-cache logic in service of a benefit that is conceptual, not concrete — the opposite risk
+   profile from items 4/5/6's own actual work (B-389/390/391/392), which were each small, provable, and
+   closed a real gap. Recorded here so a future session does not re-litigate this: revisit item 6's full
+   scope only when either (a) a new view genuinely needs partial invalidation, or (b) a real bug
+   surfaces that the current split vocabulary is hiding — not simply because the precondition became
+   available.
 
 **Longer-term (depends on the above landing first):**
 
-7. **Wire up H2 double buffering** (section 3.5) once a real view/flush cycle exists to hook the flip into —
-   attempting this before item 4 would mean building the flip logic against the same six ad hoc transition
-   sites this review is trying to retire.
+7. **Firmware built (B-396, 2026-09-29), NOT hardware-tested.** The RTL (`TAU_DBUF`, B-340) was already
+   fit and sitting unused on the card ("nothing in `fw/` reads or writes its registers" — this section's
+   own original finding). `DBUF_READY()` (a real presence bit, not `BLIT_READY()`'s functional probe) +
+   `dbuf_redraw_begin()`/`dbuf_redraw_end()` bracket the `helios_pending_mask` dispatch block's own
+   chrome/art handling (item 4's seam, exactly as this item anticipated — built AFTER item 4, against
+   the one real transition point, not the six ad hoc sites this review already retired). Verified as a
+   correct build (clean compile, zero new warnings, `make test-host` unaffected) — explicitly NOT
+   verified as correct MMIO sequencing on real silicon; no real-CPU-in-the-loop simulation exists for
+   this register pair yet, unlike PSRAM/MP3-poly/FLAC-LPC's own precedent before their first hardware
+   run. See `docs/AUDIT_TRAIL.md` B-396 for the honest failure-mode note (a sequencing bug here would
+   show as a NEW visible tear, not silence).
+
+   **First hardware run found exactly that (B-399, 2026-09-29).** Real, owner-reported symptoms
+   (`alfatreze.TAU_DEV_55`): the menu heading and Settings' active row briefly tearing then
+   self-correcting during held-down navigation and rapid open/close. Root cause: `FB_HELD()`
+   (`fw/player.c:448`) is checked inside every individual draw primitive, not by this bracket —
+   while an overlay holds the screen, `ui_chrome_paint()` draws nothing at all, but
+   `dbuf_redraw_end()` still requested a flip regardless, displaying stale back-buffer content.
+   Fixed: `dbuf_redraw_begin()` now also checks `FB_HELD()` and no-ops when it is true, matching
+   `ui_draw_chrome()`'s own behaviour. Installed as `alfatreze.TAU_DEV_56`, not yet re-tested. See
+   `docs/AUDIT_TRAIL.md` B-399.
 8. **Revisit the 720p question** once partial invalidation (item 6) exists to measure against; not
    worth estimating cost for until then.
 

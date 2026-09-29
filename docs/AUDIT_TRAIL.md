@@ -10091,6 +10091,780 @@ text-pattern matching can see calls made through a function pointer is untested,
 (the actual runtime cold-placement safety mechanism, `COLD_READY()`, is unaffected either way). Not yet
 hardware-tested. Not yet installed on the card.
 
+## B-388 (2026-09-29): T2-00 -- Talos `glyphbuf` single-write-port fix (in progress, fit launched)
+
+Built the other session's own designed fix (`docs/research/TALOS_REVIEW_2026-09-28.md` section 1a/7,
+recommended as the highest-leverage next step in `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md`).
+Root cause, confirmed by reading `mp3_fb.sv`: `glyphbuf` had two read sites (`glyph_q`'s unconditional
+streaming read at `wsrc_addr`, and the B5 blend pipeline's `bl_bg` read at `copy_cnt` inside `A_COPYRD`)
+and, once B-327's blend pipeline landed, two structurally separate write sites -- five mutually-exclusive
+`case (astate)` arms (A_COPYRD/A_KEYDST/A_SBLIT/A_CBLIT_WAIT/A_COMPOSE_WR) writing through one path, plus
+the blend write-back (`if (bl_v1) glyphbuf[bl_i1] <= bl_r;`) sitting textually OUTSIDE that case, in the
+same clocked block. Two reads or two writes is a shape no MLAB/M10K primitive supports, so with
+`TAU_BLIT_BLEND` on Quartus fell back to a full register file (about 6,500 ALMs, confirmed in the fit
+reports the other session pulled: `mp3_fb` 7,800 ALMs with blend vs 1,313 without).
+
+Fix, matching the review's design exactly: `glyphbuf` split into two identical MLAB copies
+(`glyphbuf_a`/`glyphbuf_b`, same `ramstyle="MLAB, no_rw_check"` attribute as before), each with exactly
+ONE read port (`glyph_q <= glyphbuf_a[wsrc_addr]` unconditional as before; `bl_bg <= glyphbuf_b[copy_cnt]`
+inside A_COPYRD as before) and fed by exactly ONE shared write port. All six original write sites (the
+five case arms plus the blend write-back) now set three shared registers (`gb_we`/`gb_addr`/`gb_data`)
+via BLOCKING assignment instead of writing `glyphbuf` directly -- `gb_we` defaults to 0 once per cycle at
+the top of the clocked block, so at most one site can set it per cycle (they were already mutually
+exclusive functionally: one draw-engine command in flight at a time, and the blend write-back only fires
+while the case is idling/mid-scanline-fill, confirmed by tracing the astate sequence -- see the comment
+above `glyphbuf_a`'s declaration). Exactly one non-blocking write statement at the bottom of the block
+(`if (gb_we) begin glyphbuf_a[gb_addr] <= gb_data; glyphbuf_b[gb_addr] <= gb_data; end`) fans the single
+decision out to both copies. No FSM/timing/behavioural change intended anywhere -- every site's own
+address/data computation and every other register in it is untouched.
+
+Verified in simulation before touching the VM: `make rtl-lint` clean (only pre-existing width warnings
+and the expected `BLKSEQ` style warnings for the intentional blocking-assignment-in-sequential-block
+idiom, no errors); `make test-rtl-fb` (full `tb_mp3_fb.v` suite, including the BLEND DSP/PSX cases) and
+`make test-rtl-fb-mutation` (all 7 mutation hooks, including `BUG_BLEND_ALWAYS_SRC`) both pass with 0
+failures; `make test-rtl-blit-reference` (`tools/host/blit_reference.py` diff, including the blended
+scene command) passes exactly as before; full `make test-rtl` (every other module, PSRAM/MP3-poly/
+FLAC-LPC/etc., unaffected by this file) and `make test-host` both pass with 0 failures.
+
+Launched the real fit to confirm the ALM recovery: `python3 tools/vm_fit.py launch glyphbuf-t200 --append
+tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt --seed 1 --seed 2` -- the exact bundle that
+previously overflowed at 111% (`lpc-b372`, TAU_BLIT_BLEND+TAU_LPC together), deliberately chosen over the
+plain all6-combined bundle so this run answers both "does the ALM recovery happen" and "does the LPC
+kernel now fit" in one shot. Staged tree confirmed (via a direct SSH grep on the VM) to contain
+`glyphbuf_a`/`gb_we`, not the old single-array code. Both seeds confirmed running. Result pending -- not
+yet fit-confirmed, not committed, not installed. Once the fit lands: check ALM count against the ~1,400
+(no-blend-equivalent) prediction, then decide (per the handoff's own next step) whether the fuller Talos 2
+phased rewrite is still warranted given this fix may already resolve the ALM pressure it was scoped to
+solve.
+
+## B-389 (2026-09-29): Helios review item 4 -- `helios_view_t` registry (scoped to the invalidation seam)
+
+Built the mid-term item from `docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md` section 5 --
+`docs/features/HELIOS_SPEC.md` section 11's design, scoped down to what the review's own phrasing named
+as achievable now: "replace one function's body with a real dispatch," where that one function is
+`helios_view_changed()` (B-350), not the whole main-loop draw/input dispatch.
+
+`fw/helios.inc`: new `helios_view_t` (`{enter, exit, invalidate_mask}`, moved to occur after the
+exclusion-rects section so its EXCL bit can reference `helios_exclude_clear()` directly), 6 named
+invalidate bits (`HELIOS_INV_CHROME/ART/BG_STRIP/WAVE/SPEC/EXCL`, matching the design doc's own named
+list exactly) plus `HELIOS_INV_ALL`, a generic `helios_player_view` constant, and `helios_pending_mask`
+(a bitmask replacing the old bare `pl_ui_restore` bool). `helios_view_switch(from, to)` -- deliberately
+a two-argument form, not the design doc's single-argument sketch against an implied tracked "current
+view": every real transition site already knows both ends explicitly (fullscreen's toggle picks
+direction from `ui_fullscreen`'s just-set new value; every close path is always "this overlay -> the
+player"), and requiring every future view's OPEN site to also call this just to keep a global tracker
+correct would recreate the exact silent-omission risk (B-349) this mechanism exists to close. Documented
+as a deliberate deviation from the design doc, not an oversight. `helios_view_changed()` (unchanged
+name, unchanged meaning: "invalidate everything, no transition") stays for the two call sites that are
+not a view transition at all (`meter_preset_next()`'s Chladni-preset case, `fw/fullscreen.inc:176` --
+the current view's own content changed materially, no exit/enter needed).
+
+The actual invalidation ACTIONS (`ui_chrome_paint()`, `ui_art_draw()`, the wave/spec staleness arrays,
+`ui_bg_ready`, every `helios_excl[]` slot) stay in `fw/player.c`'s main loop, same reason B-350's flag
+was read there and not in `fw/helios.inc`: those functions aren't declared yet at `helios.inc`'s own
+`#include` point (confirmed by checking line numbers -- `ui_chrome_paint`/`ui_art_draw` are declared at
+lines 2225/2916, `#include "helios.inc"` is at line 2049). The old fixed 20-line block gated on one bool
+is now 6 independently-gated `if (hm & HELIOS_INV_*)` blocks reading one drained byte -- behaviourally
+identical today (every real view below sets `HELIOS_INV_ALL`) but a future view with a narrower mask
+(item 6) now has somewhere real to plug into instead of another line in a growing checklist. Un-nested a
+pre-existing oddity along the way (the old block's `spec_drawn[]` reset loop sat INSIDE the
+`wave_drawn[]`/`wave_pk_drawn[]` loop, running `SPEC_BANDS` resets `UI_WAVE_N` times over -- harmless
+since the resets are idempotent, but now two independent top-level loops since they're gated by two
+independent bits).
+
+Wired 6 real call sites: `fw/fullscreen.inc`'s auto-exit (`ui_fs_dynamic()`, meter became
+fullscreen-incapable) and `ui_fs_toggle()` (bidirectional, direction read off `ui_fullscreen`'s new
+value); `fw/suite.inc`'s Meter Sweep `mw_window_reset()`/`mw_restore_screen()` (found while auditing
+every `helios_view_changed()` call site for genuine transitions -- these two also toggle
+`ui_fullscreen` to drive the sweep through a specific meter, exactly the same shape as
+`ui_fs_toggle()`'s own case, previously calling the generic non-transition `helios_view_changed()` when
+they are in fact real transitions); `fw/settingsui.inc`'s `set_close()`; `fw/library.inc`'s
+`lib_ui_close()`. Each file declares its own `static const helios_view_t <name>_view = {0, 0,
+HELIOS_INV_ALL}` -- no view populates `enter`/`exit` yet (nothing today needs asymmetric behaviour
+beyond the shared mask), matching this project's own "prove the primitive first, cost nothing until a
+real caller needs it" precedent already used for `RRECT_READY()`/`BLIT_READY()` and the region registry
+itself.
+
+`sim/test_helios_beam.py`'s now-unnecessary `pl_ui_restore` stub removed (the file compiles
+`fw/helios.inc` standalone; nothing in it references that symbol under any name any more).
+
+Verified: `make test-host` passes in full, including `check_ui_snapshot_renderer.py` (57 deterministic
+fixtures, unaffected -- confirms the dispatch restructuring didn't change any pixel output) and
+`sim/test_helios_beam.py` (837,600 table entries, confirms the file still compiles standalone and the
+beam-safety logic is untouched). `release`, `player-library-diagnostic` and
+`player-library-diagnostic-profile` all rebuild clean (heap gaps essentially unchanged: this is a
+control-flow reshuffle, not new state). `tools/check_cold_calls.py` (informational) shows no new
+hot-calls-cold entries involving these functions. Not yet hardware-tested, not yet installed on the
+card -- draw()/input() dispatch collapse (the fuller structural rewrite section 11 also sketched, and
+items 5/6 in the review's own ordering) is explicitly NOT attempted this pass.
+
+## B-390 (2026-09-29): Helios review item 5 -- the remaining 8 legacy meters into the `mtr_in_t` contract
+
+Owner explicitly chose this over the lower-risk options after being told the real tradeoff: live,
+audio-reactive UI code with no existing pixel-level regression test (`check_ui_snapshot_renderer.py`'s
+57 fixtures cover menus/settings, not these draws) and no card mounted this session to verify against.
+
+Extracted all 8 remaining `if (viz_mode == VIZ_X) { ...; goto viz_done; }` blocks out of
+`ui_draw_dynamic_cold()`'s dispatch chain (`fw/player.c`) into 8 named functions taking `const
+mtr_in_t *in`, matching item 1's own contract exactly (`fw/meter.h`) rather than inventing a variant:
+`viz_scroll_tick` (Scrolling Waveform), `viz_led_tick` (Spectrum), `viz_dots_tick` (Peak Dots),
+`viz_water_tick` (Waterfall), `viz_vu_tick` (VU Meters), `viz_wave_tick` (Oscilloscope), `viz_phase_tick`
+(Stereo Phase Scope, named to avoid colliding with the existing Winamp `wviz_scope_tick`), `viz_bars_tick`
+(Classic Bars, the enum's default/fallthrough case). Geometry (`in->x/y/w/h`) and the three audio-input
+fields the struct already carries but these 8 were reading as bare globals (`peak_amp`/`peak_l`/
+`peak_r`/`spec_lvl[]`/`wav_v[]`) now come from `in->peak`/`in->peak_l`/`in->peak_r`/`in->spec`/`in->wave`
+-- a real, if small, decoupling improvement, not just a wrapper. Deliberately did NOT add new `mtr_in_t`
+fields for the shared envelope-history arrays (`wave[]`/`wave_pk[]`, the Bars/Dots column heights) or
+each meter's own accumulated physics state (the VU needle's `vu_l`/`vu_r`/`vu_sn[]`/`vu_cs[]`, the phase
+scope's `scope_x[]`/`scope_y[]`/`scope_head` trail) -- these stay direct file-scope-static reads inside
+the new functions, the same precedent `wviz_bars_tick`'s own per-band easing arrays (`wviz_disp[]` etc.)
+already set for "this is meter state, not meter input" before item 5 started. `fw/meter.h`'s own header
+comment explicitly scoped item 1 to "without also inventing... in the same pass"; item 5 (retiring the
+REST into the SAME contract) follows the same discipline rather than widening the struct's job.
+
+Real mistake caught before it landed: a first draft of `viz_wave_tick` reused the outer `w`/`h`
+(`in->w`/`in->h`) then re-declared inner per-column locals also named `w`/`h` (as the original inline
+code's own names did, safe there only because there was no OUTER `w`/`h` to shadow) -- caught by
+inspection before building, renamed to `cw`/`ch` for the inner column-width/line-height locals so
+nothing shadows the outer geometry.
+
+Verified: `bash fw/build.sh release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all
+rebuild clean; a one-off `EXTRA_CFLAGS="-Wall -Wextra -Wno-unused-parameter"` build (this project's
+normal firmware build carries no warning flags at all) shows zero new warnings anywhere in the 8 new
+functions -- every warning it surfaces is pre-existing, in `third_party/libhelix-mp3` or elsewhere in
+`fw/player.c` unrelated to this change. `make test-host` passes in full (0 failures), including
+`check_ui_snapshot_renderer.py`'s 57 fixtures (menus/settings only, as noted -- does not exercise these
+8 draws) and `sim/test_helios_beam.py`. `tools/check_cold_calls.py` and `tools/meter_cost_estimate.py`
+(the latter only ever covered `wviz_bars_tick`/`wviz_scope_tick` by name, unaffected) show no change.
+
+**Honest limit, stated plainly:** this is verified as *correct code motion* (the pre- and post-move
+logic diffed line by line, every geometry/audio-input substitution checked by hand, everything that
+still needed to be a global left as one) and as *not breaking the build or any existing host test* --
+it is NOT verified as *pixel-identical on real hardware*, because no test in this repository exercises
+these 8 draws' actual output and no card was mounted this session. The next real verification step, if
+wanted, is either a targeted host-side reference-render test per meter (the `sim/test_meter_module.py`/
+`sim/test_meter_core.py` pattern already used for Chladni/the shared meter core) or a hardware smoke
+test cycling through all 12 meters on a real Pocket. Not committed, not packaged, not installed.
+
+## B-391 (2026-09-29): Helios review item 6 -- meter box as Helios's second region (precondition proved, not the full unification)
+
+Item 6's own text (section 5) gates the fuller "real partial-invalidation vocabulary" work on "once
+there is more than one view/region consumer to prove the design against" -- section 11 had found only
+ONE (`ui_chrome_paint()` was Helios's sole `helios_region_register()` caller). Before attempting the
+full three-mechanisms-into-one unification section 3.1 describes, checked whether that precondition is
+actually met yet: it was not -- item 4 (B-389) added a second INVALIDATION-MASK consumer, not a second
+REGION consumer, a different mechanism in the same review. Scoped this session's work to closing that
+specific gap rather than attempting the larger unification on an unproven precondition.
+
+Converted the meter box's own beam-safety-gated draw (`fw/player.c`'s `ui_draw_dynamic_cold()`, the
+`if ((!paused || ...) && ... && helios_rows_safe_counted(...)) { ... }` block B-267 built) into a real,
+second, row-ranged Helios region. The ~150-line body (wave/peak bookkeeping, the 12-way `viz_mode`
+dispatch, `mt_take()`) moved verbatim into a new `ui_meter_redraw(void)`, registered once via
+`helios_region_register_rows(ui_meter_redraw, UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H - 1u)`.
+The call site keeps its EXACT original outer gate (including the direct `helios_rows_safe_counted()`
+check) unchanged, and only replaces "run the body inline" with `helios_mark_dirty(id);
+helios_flush();` -- deliberately NOT simplified to rely solely on `helios_flush()`'s own internal
+row-safety re-check, because that would move `ui_last_vu`'s reset from "only on an actual redraw" to
+"whenever we decided to try," changing the retry cadence while beam-blocked (every tick today vs. every
+other tick) -- a real, if small, behavioural difference not worth risking unverified.
+
+Real regression caught by the numbers, not by inspection: the first build after moving this code showed
+`tau.rom` grow from 118,060 B to 124,140 B and the heap gap drop by 6,080 B -- the moved body had lost
+`ui_draw_dynamic_cold()`'s own `COLD_FN3` placement (RAM-resident hot code instead of the cold image) by
+simply not carrying that attribute over to its new top-level function. Fixed by adding `COLD_FN3` to
+`ui_meter_redraw()`; rebuilt numbers matched the pre-move baseline exactly (118,060 B / 65.5%, heap gap
+56,864 B for `release`; 50,080/47,664 B for the two diagnostic targets, unchanged from B-390).
+
+Checked the resulting hot-calls-cold shape is actually safe, since `helios_flush()` (plain hot code in
+`fw/helios.inc`, unconditional) now calls a `COLD_FN3` function through a stored function pointer with
+no `COLD_READY()` check at that call site -- unlike every other hot-calls-cold entry point in this
+codebase, which gates itself explicitly. Traced why it is still safe: `ui_meter_region` can only ever be
+marked dirty from inside `ui_draw_dynamic_cold()` itself, which is only ever entered after its own
+wrapper's `if (!COLD_READY()) return;`; `cold_code_ok` (`fw/cold.inc`) is set once at boot and never
+cleared, so by the time any `helios_flush()` call (from either of its two call sites) processes that
+region, `COLD_READY()` is necessarily still true. Real, but not enforced by any check the way
+`RRECT_READY()`/`BLIT_READY()` guard their own boundary -- a design note, not a bug, and flagged here
+rather than left implicit.
+
+Real tool gap found while double-checking: `tools/check_cold_calls.py` -- the only tool that would have
+caught the missing `COLD_FN3` automatically -- does NOT list `ui_meter_redraw` at all in its
+hot-calls-cold report, confirming it cannot see calls made through a function pointer (the same
+"untested" limitation B-387 already flagged for the Settings dispatch table, now independently
+confirmed for this second case). The heap-gap/ROM-size regression is what actually caught the real
+mistake here, not that tool -- worth remembering next time a function moves out of a `COLD_FN`-attributed
+caller into its own top-level definition.
+
+Verified: `bash fw/build.sh release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all
+rebuild clean with heap gaps matching B-390's baseline exactly; a one-off `EXTRA_CFLAGS="-Wall -Wextra
+-Wno-unused-parameter"` build shows no new warnings (the one warning it does show, `vblank_active`
+unused, is pre-existing and unrelated). `make test-host` passes in full (0 failures).
+
+**Scope, stated plainly:** this proves the region/beam-safety mechanism generalises to a second,
+differently-shaped consumer -- it does NOT unify the three separate "invalidation" vocabularies section
+3.1 lists (Helios's per-region dirty bit, the view-switch invalidate_mask from item 4, and the
+per-meter redraw caches `wave_drawn[]`/`spec_drawn[]`/`ui_bg_ready`/`force`, still three). That fuller
+unification is now unblocked by precondition but not attempted this pass. Not hardware-tested (no card
+mounted), not committed, not installed.
+
+## B-392 (2026-09-29): three improvements from B-391's own post-mortem
+
+Owner asked for the recommendations from B-391's analysis to be built (all three low-risk, no card/VM
+needed).
+
+**1. `tools/check_cold_calls.py` now also lists Helios region redraw callbacks.** Its existing
+disassembly-based scan can only ever see DIRECT hot->cold calls (`jal`/`tail` with a static target);
+`helios_flush()` calls a region's `redraw()` through a stored function pointer, an indirect `jalr` with
+no static target for `objdump` to resolve at all -- not a fixable regex gap, a real limit of static
+disassembly. Added a second pass that scans `fw/*.inc`/`fw/player.c` (excluding `fw/helios.inc` itself,
+whose own definitions and internal delegation calls are not real registration sites) for
+`helios_region_register(_rows(_cold))(FUNC, ...)` call sites, then looks `FUNC` up in `nm`'s symbol
+table to report hot/cold placement directly, flagging the mismatch case that actually matters
+(registered without `_cold` but placed cold -- an unguarded hot-calls-cold path). Verified against the
+real binary: correctly reports `ui_draw_chrome` (registered plain, hot -- expected) and `ui_meter_redraw`
+(registered cold-aware, cold -- expected), no false flags.
+
+**2. `helios_region_register_rows_cold()` + a real gate in `helios_flush()`.** B-391's safety argument
+for calling a `COLD_FN3` redraw callback from unguarded hot code rested on an informal invariant (the
+region can only be marked dirty from a `COLD_READY()`-gated call site; `cold_code_ok` is monotonic) --
+true, but enforced nowhere, unlike `RRECT_READY()`/`BLIT_READY()`'s own explicit boundary checks. Added
+a `requires_cold` bit per region and a `_cold` registration variant that sets it; `helios_flush()` now
+leaves a `requires_cold` region dirty (never calls it, no crash, exactly the existing beam-unsafe retry
+path) until `cold_code_ok` is set. Uses the raw `cold_code_ok` variable, not the `COLD_READY()` macro --
+that macro is defined in `fw/cold.inc`, included well after `fw/helios.inc`, the same ordering
+constraint the codebase already documents elsewhere for a different symbol. Converted
+`ui_meter_redraw`'s own registration to the `_cold` variant. For this ONE call site the gate is
+currently redundant (it is only ever reached after `ui_draw_dynamic_cold()`'s own `COLD_READY()` check
+already passed), stated honestly rather than claimed as load-bearing here -- its value is for the NEXT
+region added from a less-guarded call site, where it would actually prevent a crash instead of just
+documenting safety. `sim/test_helios_beam.py`'s standalone harness needed a new `cold_code_ok` stub
+(same pattern the old, now-removed `pl_ui_restore` stub used) to keep compiling `fw/helios.inc` alone.
+
+**3. `tools/check_heap_gap.py` + `tools/heap_gap_baseline.json`.** Automates the exact comparison that
+caught B-391's real regression by accident (a human noticing two printed numbers). Builds each tracked
+firmware target, parses its own "heap gap: N B" line, and fails if the actual gap drops more than 512 B
+below a recorded baseline; free RAM increasing, or moving by less than the tolerance, is never a
+failure. `--update` rebuilds every target and rewrites the baseline. Verified BOTH directions for real:
+recreating B-391's exact mistake (temporarily removing `COLD_FN3` from `ui_meter_redraw`, real
+`sed`+rebuild, not a simulated number) correctly failed with the expected 6,080-6,096 B drop reported
+per target and exit code 1; reverting and rebuilding correctly passed clean. Deliberately NOT wired
+into `make test-host` -- like `check_cold_calls.py`, this is an informational tool run by hand, since
+it rebuilds firmware and overwrites `dist/Assets/tau/common/tau.rom` (the real shipped ROM), a side
+effect a plain host test should not have without the project deciding to accept it.
+
+Verified: `make test-host` passes in full after all three changes (0 failures); `release`/
+`player-library-diagnostic`/`player-library-diagnostic-profile` all rebuild clean, heap gaps
+essentially unchanged from B-391's own numbers (56,832/50,048/47,632 B, -32 B each from the new
+`requires_cold` field + registration function, matching the tiny size of that addition). Not
+hardware-tested (none of this touches drawing behaviour), not committed, not installed.
+
+## B-393 (2026-09-29): card install for the hardware meter smoke test (recommendation 4)
+
+Built and installed `alfatreze.TAU_DEV_53`: `player-library-diagnostic-profile` firmware carrying B-390
+(all 8 legacy meters through `mtr_in_t`), B-391 (meter box as Helios's second region), and B-392 (the
+`requires_cold` gate + its own registration), paired with the SAME already-hardware-confirmed
+all6-combined+LPC bitstream `alfatreze.TAU_0_6_0_A_16` runs (`tools/package_dev_build.py --rbf
+work/diagnostics/lpc-b378/ap_core_s1.rbf --rbf-sha256 30164515...aa7869` -- the raw RBF from B-378;
+its bit-reversed `.rbf_r` hash `c123eb1c...6238c` matches the card's own `TAU_0_6_0_A_16` copy exactly,
+confirmed by direct comparison before installing, not assumed). Firmware-only change, no new RTL macro
+needed, so pairing with an already-proven bitstream rather than spending a fresh VM fit was the right
+call here.
+
+Installed via `tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_16` (dry run first, then
+`--yes`): purely additive, nothing removed, 5 catalog caches backed up/verified/deleted, media + library
+index (55 files, 45 tracks per the carried index) correctly rebuilt for `alfatreze.TAU_DEV_53`'s own
+root, `tau-assets.bin` carried across too. Cores on the card now: `TAU`, `TAU_DIAGNOSTIC`,
+`TAU_0_6_0_A_16`, `TAU_DEV_52`, `TAU_DEV_53`. Backup: `work/card-backups/20260929-014818`.
+
+**Not done, and cannot be done from here:** the actual smoke test -- booting `TAU_DEV_53` and cycling
+through all 12 meters (Bars, Waterfall, Scroll, Dots, LED/Spectrum, VU, Oscilloscope, Phase Scope,
+Winamp Bars, Winamp Scope, Chladni, VU Master) to confirm none of them regressed, especially the meter
+box's own beam-safety/tear behaviour now that it is routed through Helios's region mechanism instead of
+the old inline check. This needs a human at the Pocket; nothing in this session can press its buttons.
+
+## B-394 (2026-09-29): TAU_DEV_53's black screen root-caused and fixed -- my own packaging mistake, not a Helios/meter bug
+
+Owner reported `TAU_DEV_53` "stays on a black screen, no visual feedback of any kind." Root cause found
+by reading `main()`'s own boot interlock (`fw/player.c`): `if (!VERSION_OK(REG(R_VERSION))) { ... for
+(;;) {} }` -- an infinite loop with ZERO framebuffer output on a version mismatch, by design ("paint an
+unmistakable pattern" refers to status registers for a debug probe, not anything visible on screen).
+This is exactly the reported symptom.
+
+B-393's own mistake: `player-library-diagnostic-profile` was built with plain `bash fw/build.sh` (no env
+vars), which links against `EXPECT_VERSION` (rev 23, the 256 KB/60 MHz baseline contract) -- but the
+paired bitstream (`lpc-b378`'s RBF, the same one `alfatreze.TAU_0_6_0_A_16` already runs) is the
+all6-combined build (`TAU_RAM_192K=1 TAU_CLK66=1` at the RTL level), which reports `CORE_VERSION` rev 26
+and REFUSES anything but firmware built with BOTH `RAM_192K_FW` and `CLK66_FW` set (`fw/player.c`'s own
+`VERSION_OK` macro, deliberately the strictest branch, checked first). The RBF pairing itself was
+correct (verified by direct hash comparison before installing, confirmed again here) -- the firmware
+side of the pairing was not. Found the correct combination from this project's own prior record (`docs/
+AUDIT_TRAIL.md`, the entry building a matching `TAU_0_6_0_A` core): `RAM_192K=1 CLK66=1 SDRAM_BUSY=1
+LPC_FW=1`.
+
+Rebuilt `player-library-diagnostic-profile` with exactly those four env vars (heap gap 7,600 B, above
+the 4,096 B floor for this target once linked for 192 KB instead of 256 -- a different, smaller RAM
+budget than the plain-build baseline `tools/heap_gap_baseline.json` tracks, not a regression against
+it, a different link target entirely). Packaged as `alfatreze.TAU_DEV_54` with the SAME verified RBF,
+installed via `tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_16 --remove
+alfatreze.TAU_DEV_53` (the broken core backed up and verified before removal, per the standing
+procedure). Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_0_6_0_A_16`, `TAU_DEV_52`,
+`TAU_DEV_54`.
+
+No code in `fw/helios.inc`/the meter changes was touched by this fix -- the black screen was never
+caused by B-390/391/392's own content, purely by this session's own packaging omission. The actual
+hardware smoke test (recommendation 4: cycle through all 12 meters) is still pending the owner's next
+boot, now on a build that should actually reach the splash screen.
+
+## B-395 (2026-09-29): recommendation 4 closed -- TAU_DEV_54 hardware-confirmed normal
+
+Owner booted `alfatreze.TAU_DEV_54` (the corrected build from B-394) and reported it "seems normal all
+around." First real hardware confirmation of B-390 (all 8 legacy meters through `mtr_in_t`) and B-391
+(the meter box as Helios's second row-ranged region, replacing the old inline
+`helios_rows_safe_counted()` check with `helios_mark_dirty()`+`helios_flush()`): no reported visual
+regression, tear, or crash across ordinary use. Not a per-meter itemised confirmation (the owner's own
+words were general, not "all 12 meters individually cycled and compared") -- recorded as the honest
+scope of what was actually verified, matching this thread's own standing discipline of not overclaiming
+verification depth. Closes recommendation 4 from the B-391 post-mortem; the review's own "Not yet
+hardware-tested" caveats on items 5 and 6 (`docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md`) are
+updated accordingly below.
+
+## B-396 (2026-09-29): Helios review item 7 -- H2 double buffering wired into firmware (built, not yet hardware-tested)
+
+Started item 7 (`docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md` section 5): the RTL
+(`TAU_DBUF`, B-340) is already fit, timing-closed, and sitting on the card in the all6-combined
+bitstream every current `alfatreze.TAU_0_6_0_A_16`/`TAU_DEV_54` install already runs -- "nothing in
+`fw/` reads or writes its registers" was the review's own finding. This entry closes that: no new VM
+fit needed, firmware-only work against already-proven RTL.
+
+Added `R_DBUF_CPU`(0x118)/`R_DBUF_DISP`(0x11C) register macros and a boot-time `dbuf_hw`/`DBUF_READY()`
+probe (`fw/player.c`) -- a plain status-bit read (bit 31 of `R_DBUF_DISP`), NOT the write-then-verify
+pattern `BLIT_READY()`/`RRECT_READY()` use, because those exist only for opcodes with no dedicated
+presence bit at all; H2's own registers were designed with one (`docs/MMIO_ALLOCATION.md`), matching
+`R_VBLANK`/`R_SPEC_ST`/`R_POLY_ST`/`R_LPC_STATUS`'s own simpler convention instead.
+
+Built `dbuf_redraw_begin()`/`dbuf_redraw_end(active)`: a bracket around a full-frame redraw, not a
+per-call-site change. `begin()` selects the buffer NOT currently displayed for the CPU write side (a
+no-op returning 0 on any bitstream without H2 -- old-bitstream safety rests on this one check alone,
+since the two registers simply do not exist there); `end()` waits for the queued draws to be accepted
+(`fb_wait()`), requests a flip, polls the RTL's own "flip still pending" bit for up to ~100 ms, and
+--critically, regardless of whether the flip actually landed in time-- resyncs `R_DBUF_CPU` to whatever
+IS now displayed, because HELIOS_SPEC.md section 5's own note is explicit that H1's incremental
+beam-gated draws (the meter box, `ui_meter_redraw()`) are OUTSIDE this bracket and must keep targeting
+the displayed buffer directly; leaving the CPU-side pointed at the back buffer past this function's
+return would silently misdirect every one of them.
+
+Wired the bracket around exactly ONE place: the `helios_pending_mask` dispatch block's own
+`HELIOS_INV_CHROME`/`HELIOS_INV_ART` handling (B-391/B-392's own seam) -- chrome and, when the same
+transition also invalidates it, album art together, which is precisely the "genuine full-frame redraw"
+the spec means. Chosen over touching each of the six former `pl_ui_restore` call sites individually
+(B-350's own point in building that seam in the first place): every current and future view transition
+that sets either bit gets double buffering automatically, with zero additional call sites to keep in
+sync. Confirmed the two draws (`ui_chrome_paint()`, `ui_art_draw()`) both land in the SAME back buffer
+before the single flip at the end, since both go through the identical plain `FB_BASE`-relative
+addressing `dbuf_addr()` applies uniformly -- read from `mp3_fb.sv`'s own RTL, not assumed.
+
+Verified: `release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all rebuild clean;
+a one-off `-Wall -Wextra` build shows zero new warnings; `make test-host` passes in full;
+`tools/check_cold_calls.py`'s region-callback report (B-392) shows no new entries (`dbuf_redraw_begin`/
+`_end` are plain hot functions called from already-hot code, no new cold boundary); heap-gap baseline
+updated (`tools/heap_gap_baseline.json` --update) to the small, expected -272/-256/-256 B change from
+the new register defs and two small functions.
+
+**Not done, stated plainly:** no hardware test at all. This is real, un-simulated MMIO
+read/write/poll logic against a register pair no firmware has ever touched before -- the RTL side has
+its own testbench (`sim/tb_helios_dbuf.v`) but nothing simulates this firmware sequence against it
+(unlike PSRAM/MP3-poly/FLAC-LPC's real-CPU-in-the-loop simulations before their own first hardware
+runs). The failure mode if the sequencing is subtly wrong is a real one worth naming honestly: chrome
+and the meter box could get out of sync (one drawn to the buffer being displayed, the other to the
+back buffer) and show a visibly torn or stale frame -- exactly the class of bug this feature exists to
+prevent, so getting it wrong would look like a regression, not silence. Not packaged, not installed,
+not committed. The natural next step, if the owner wants it, is a real-CPU-in-the-loop RTL simulation
+of this exact sequence against `mp3_fb.sv`'s `DBUF_ENABLE=1` path before spending a card write on it.
+
+## B-397 (2026-09-29): TAU_DEV_55 -- item 7 (H2 double buffering) installed for its first hardware test
+
+Rebuilt `player-library-diagnostic-profile` with `RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1` (the same
+combination B-394 root-caused and fixed) carrying B-396's `DBUF_READY()` probe and
+`dbuf_redraw_begin()`/`dbuf_redraw_end()` bracket. Packaged with the same verified RBF (`lpc-b378`,
+`bitstream.rbf_r` hash `c123eb1c...6238c`, matching the card's existing `TAU_0_6_0_A_16`/`TAU_DEV_54`
+exactly) as `alfatreze.TAU_DEV_55`. Installed via `tools/install_dev_core.py --carry-from
+alfatreze.TAU_DEV_54` -- purely additive, nothing removed, media/library carried and rebuilt for its
+own root, 5 catalog caches backed up/verified/deleted. Cores on the card: `TAU`, `TAU_DIAGNOSTIC`,
+`TAU_0_6_0_A_16`, `TAU_DEV_52`, `TAU_DEV_54`, `TAU_DEV_55`.
+
+This is item 7's first hardware run, on firmware never before tested against real MMIO timing (B-396's
+own honest caveat). Watch specifically for anything that would indicate the buffer-select/flip
+sequencing is wrong: a torn or half-drawn chrome/menu transition, the meter box drawing to the wrong
+buffer (would show as a frozen or duplicated-looking meter after a menu closes), or -- the fail-open
+case if `DBUF_READY()` itself is somehow wrong -- no change in behaviour at all from `TAU_DEV_54`.
+
+## B-398 (2026-09-29): T2-00 fit-confirmed -- glyphbuf single-write-port fix fully recovers the ALM budget
+
+`glyphbuf-t200` (both seeds, TAU_BLIT_BLEND+TAU_LPC bundle -- the exact combination `lpc-b372` previously
+overflowed at 111% with no fit at all) finished on the VM: **both Successful, all four corners positive
+on both.** Seed 1: Slow 0C Hold +0.199/Setup +0.692, Slow 85C Hold +0.314/Setup +0.755. Seed 2 (selected,
+better margin on every corner): Slow 0C Hold +0.244/Setup +0.963, Slow 85C Hold +0.304/Setup +1.294 (Fast
+corners +0.119/+5.837, +0.135/+5.610 -- real headroom, not a bare pass). RAM 240/308 (78%), DSP 19/66
+(29%) on both -- confirms the ALM recovery the other session's Talos review predicted (`mp3_fb` back to
+roughly its no-blend footprint) and, concretely, that the LPC kernel now fits alongside blend where it
+previously could not at all.
+
+RBF collected and hash-verified: `work/diagnostics/lpc-b378/../glyphbuf-t200/ap_core_s2.rbf`, sha256
+`923d854b20171ada039486fa280298357368d0f0794a27843c4cc3d9c772ed01`.
+
+This closes the immediate next step from `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md`
+section 5 item 1 (T2-00 fit-confirm) in full. Per that handoff's own item 2: with the ALM pressure that
+motivated `docs/features/TALOS2_REIMPLEMENTATION_PLAN.md` now resolved by this single low-risk fix
+(section 1a of the review, not the fuller P0-P4 rewrite), the fuller Talos 2 phased rewrite does not
+appear warranted on the evidence available -- recommend re-evaluating that plan's own stated motivation
+against this result before starting it, rather than treating it as still-scheduled work. Not yet
+packaged or installed -- awaiting the owner's decision on whether/how to test this on hardware.
+
+## B-399 (2026-09-29): item 7 tearing bug found on hardware, root-caused and fixed -- FB_HELD() not checked by the bracket
+
+Owner tested `alfatreze.TAU_DEV_55` and reported real symptoms: cycling a menu with held-down navigation
+eventually shows "very tiny glitching in the heading" that self-corrects; rapidly opening/closing
+Settings eventually shows the active menu item "tear a little" before returning to normal. (A third
+symptom, a persistent black-area glitch behind the "100%" label in fullscreen, was confirmed present on
+EVERY build including the pre-item-7 `TAU_DEV_54` -- pre-existing, matches the already-documented
+`fw/fullscreen.inc` `FS_LABEL_EXCL`/beam-race issue, unrelated to this work.)
+
+Root cause found by reading `FB_HELD()`'s actual definition (`fw/player.c:448`,
+`(UI_OVERLAY_UP || ui_fullscreen) && !ov_draw`): it is checked INSIDE every individual draw primitive
+(`fb_rect()`, `fb_bar()`, etc., each around line 465 onward), not by any caller -- while Settings or the
+library holds the screen, `ui_chrome_paint()`'s underlying `ui_draw_chrome()` silently draws NOTHING
+(every call inside it no-ops). `dbuf_redraw_begin()`/`dbuf_redraw_end()` (B-396) had no way to know
+this: they would still select the back buffer, "draw" nothing, and unconditionally request a flip --
+displaying whatever STALE content happened to be sitting in that back buffer from an earlier, unrelated
+redraw, visible as a brief tear that self-corrects once the next real redraw catches up. Both reported
+symptoms match exactly: opening/closing Settings and continuous menu navigation both set `UI_OVERLAY_UP`
+while the transition still sets the CHROME invalidate bit, hitting this path.
+
+Fix: `dbuf_redraw_begin()` now also checks `FB_HELD()` and returns 0 (no-op, matching
+`ui_draw_chrome()`'s own behaviour) whenever it is true, so the bracket never flips onto a buffer
+nothing was actually drawn into this pass. Rebuilt all three firmware targets clean, `make test-host`
+passes. Packaged with the SAME verified RBF as `alfatreze.TAU_DEV_54`/`_55` and installed as
+`alfatreze.TAU_DEV_56` (`alfatreze.TAU_DEV_55` backed up and removed as superseded). Cores on the card:
+`TAU`, `TAU_DIAGNOSTIC`, `TAU_0_6_0_A_16`, `TAU_DEV_52`, `TAU_DEV_54`, `TAU_DEV_56`.
+
+Not yet re-tested on hardware -- this is the second hardware iteration for item 7, first real bug found
+and fixed from a hardware report rather than by inspection, exactly the honest risk B-396 flagged
+("the failure mode... would look like a regression, not silence").
+
+## B-400 (2026-09-29): TAU_0_6_0_A_17 -- T2-00-fixed bitstream becomes the new reference candidate
+
+Owner asked to close the sequencing gap flagged when scoping 0.6.0's remaining work: everything installed
+so far this session (`TAU_0_6_0_A_16`, `TAU_DEV_52/54/55/56`) still ran the OLD `lpc-b378` RBF, the one
+with `glyphbuf` costing ~6,500 ALMs in registers -- T2-00's fix (B-388/B-398) was VM-fit-confirmed but had
+never actually been installed anywhere.
+
+Packaged `player-library-diagnostic-profile` (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`, carrying every
+firmware change this session -- Helios items 4-7 incl. the B-399 `FB_HELD()` fix) paired with the
+`glyphbuf-t200` seed 2 RBF (T2-00-fixed, all four corners positive, B-398) via `tools/package_dev_build.py
+--semver 0.6.0-alpha.17` (a real feature milestone, not a throwaway `TAU_DEV_NN` -- same content already
+progressively verified through `TAU_DEV_54/55/56`, now on the corrected bitstream). RBF `.rbf_r` hash
+`b089b82871d7f441...95a7e` -- confirmed DIFFERENT from the old `TAU_0_6_0_A_16` hash (`c123eb1c...6238c`),
+as expected since the RTL genuinely changed.
+
+Installed via `tools/install_dev_core.py --carry-from alfatreze.TAU_DEV_56 --remove alfatreze.TAU_0_6_0_A_16
+--remove alfatreze.TAU_DEV_52`: both backed up and verified before removal. `TAU_0_6_0_A_16` is superseded
+by definition (same features, T2-00-fixed bitstream); `TAU_DEV_52` (the software-LPC A/B control) was
+already flagged in `docs/CURRENT_STATUS.md` as free to remove "once the Talos fix needs a fresh install
+slot" -- that moment. `TAU_DEV_56` (item 7's `FB_HELD()` fix, old RBF, awaiting the owner's retest) is
+DELIBERATELY KEPT, not superseded by this entry -- it is the last known-good comparison point on the OLD
+bitstream until the owner confirms the fix on hardware.
+
+Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_54`, `TAU_DEV_56`, `TAU_0_6_0_A_17`. Not yet run --
+this is `alfatreze.TAU_0_6_0_A_17`'s first hardware boot, on RTL that has never been on a real Pocket
+before (T2-00 was VM-fit-confirmed only). Recommend the same test sweep as `TAU_DEV_56` (menu
+cycling, Settings open/close) plus a general sanity pass, since this combines a real RTL change with
+every firmware change verified so far.
+
+## B-401 (2026-09-29): TAU_0_6_0_A_17 hardware-confirmed on a quick test
+
+Owner: "seems good so far on a quick test." First real hardware confirmation of the T2-00 RTL fix
+(B-388/B-398, glyphbuf's ALM recovery) actually running on silicon -- it was VM-fit-confirmed only until
+now. Also the first general confirmation of Helios items 4-7 (B-389..B-397/B-399) together with real RTL
+timing rather than the previous bitstream. Recorded at the scope the owner actually gave it -- a quick
+general pass, not an exhaustive per-feature sweep -- matching this thread's own standing discipline of
+not overclaiming verification depth (same as B-395's "seems normal all around"). No specific regression
+reported. `docs/CURRENT_STATUS.md`'s card-state note updated accordingly.
+
+## B-402 (2026-09-29): item 7 closed -- second dbuf/screen_blank interaction found while scoping an unrelated feature, fixed
+
+While scoping a power-saving-mode request (owner asked to load the `analogue-pocket-dev` skill first;
+confirmed via the skill's own docs/knowledge-base that a core cannot reach the Pocket's LCD backlight at
+all -- matches this project's own prior conclusion, `fw/player.c:1086`'s SCREEN BLANK comment, and closes
+that scoping question with "the requested feature already ships, real power savings are a hard platform
+limit"), found a second instance of exactly B-399's bug shape: `ui_draw_chrome()` ALSO no-ops while
+`screen_blank` is set (a DIFFERENT condition from `FB_HELD()` -- `screen_blank` is not part of
+`UI_OVERLAY_UP`/`ui_fullscreen`), and `dbuf_redraw_begin()` had no check for it. A chrome invalidation
+firing while blanked (a track change during blank is the code's own documented, expected case) would
+still flip onto stale back-buffer content, breaking the "stays black while blanked" guarantee.
+
+Fixed: `dbuf_redraw_begin()` now also checks `screen_blank`, same one-line pattern as B-399. Rebuilt all
+three firmware targets clean, `make test-host` passes. Packaged with the SAME T2-00-fixed RBF
+(`glyphbuf-t200` seed 2) as `alfatreze.TAU_0_6_0_A_18` via `tools/package_dev_build.py --semver
+0.6.0-alpha.18`, installed via `tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_17 --remove
+alfatreze.TAU_0_6_0_A_17` (backed up and verified before removal). Cores on the card: `TAU`,
+`TAU_DIAGNOSTIC`, `TAU_DEV_54`, `TAU_DEV_56`, `alfatreze.TAU_0_6_0_A_18`.
+
+This closes Helios item 7 (H2 double buffering) for this pass: RTL fit-confirmed (B-396), one real
+hardware bug found and fixed (B-399), a second related bug found by code inspection and fixed before it
+was ever reported (this entry). Not yet re-tested on hardware.
+
+## B-403 (2026-09-29): item 8 (persist widening) found already built and present in the current RTL/firmware tree
+
+Checked before scoping any new work: `docs/ROADMAP.md`/`docs/CURRENT_STATUS.md` both still listed persist
+widening as "needs a fit"/"not installed" (stale, carried over from B-346's own entry, 2026-09-27, which
+packaged it standalone as `alfatreze.TAU_0_6_0_A_6` and never combined it with anything else). Reading the
+actual current tree: the RTL (`set_idx`/`set_reg[0:31]` widened 16->32 words, `src/fpga/core/mp3_soc.v`/
+`core_game.vh`) and firmware (`persist32_probe()`/`PERSIST32_READY()`/`set_rd32()`/`set_wr32()`,
+`fw/settings.inc`) are BOTH already committed and present, unconditionally (no macro, no `CORE_VERSION`
+bump needed -- B-346's own design was traced by hand to be backward-compatible). Confirmed it did NOT get
+lost or reverted anywhere between B-346 and now.
+
+Since it is unconditional RTL (not gated behind a `qsf_append` macro the way `TAU_BLIT_BLEND`/`TAU_LPC`/
+etc. are), it was ALREADY present in the `glyphbuf-t200` fit (built from the same `main` tree) and is
+therefore already running on `alfatreze.TAU_0_6_0_A_17`/`_18` -- it did not need a separate fit or a
+separate install to "close" this item; it needed the stale docs corrected and its own first real hardware
+exercise. Updated `docs/ROADMAP.md` item 8 and `docs/CURRENT_STATUS.md` accordingly.
+
+**Not yet verified on hardware**: does theme choice and each of the three configurable meters' preset
+choice actually survive a Quit + relaunch on `alfatreze.TAU_0_6_0_A_18`? This is the one concrete thing
+left to close this item for real -- change the theme and a meter preset, Quit the core (not just power
+off -- interact.json persistence writes on Quit), relaunch, and confirm both are remembered.
+
+## B-404 (2026-09-29): "alpha blend in firmware" was already built -- stale scoping corrected
+
+Owner pushed back on an earlier scoping claim ("alpha blend in firmware -- not started"), correctly
+recalling it was already used for menu transitions and the Winamp Scope. Checked the actual code:
+
+- Winamp Scope's trail effect (`wviz_scope_tick()` -> `ui_bg_blend()` -> `BLEND_READY()`/`fb_blend_on()`,
+  `fw/player.c`) uses the real hardware B5 blend opcode -- already built and shipped.
+- Settings' page transition fade (`set_fade_k[]`, `fw/settingsui.inc`) is a SEPARATE, software-only eased
+  colour fade (interpolates role colours before drawing), not the hardware blend opcode -- also already
+  built and shipped, just a different mechanism than the one asked about.
+
+Same stale-documentation class as B-403 (item 8): the "0.6 scope: alpha blend in firmware" line
+(`docs/CURRENT_STATUS.md`, from B-331) predates both of these landing and was never corrected afterward.
+
+Real new finding surfaced by checking this: `TAU_BLIT_BLEND` was previously shelved in this project's
+history (a standalone fit showed a real -2.972 ns timing failure, traced to the same congested
+`glyphbuf` write network T2-00 just fixed -- B-150/B-243 era, before this session). The `glyphbuf-t200`
+bundle T2-00 was fit-confirmed against INCLUDES `TAU_BLIT_BLEND=1` and closed all four corners clean on
+both seeds (B-398) -- meaning T2-00 likely resolved blend's old timing problem too, as a side effect of
+fixing the same root cause. Not specifically re-verified: the clean fit proves timing closure, not that
+the Scope trail visually renders correctly on THIS combined bitstream (`alfatreze.TAU_0_6_0_A_18`) --
+recommended as a quick visual check next time it's on hardware (Winamp Scope, trail setting up, confirm
+an actual fading trail rather than the plain-erase fallback `BLEND_READY()` would produce if false).
+
+Docs corrected: `docs/CURRENT_STATUS.md`'s "Deferred to 0.6" line.
+
+## B-405 (2026-09-29): Settings menu transitions upgraded to real hardware alpha blend crossfade
+
+Owner: "upgrade the menu transitions to actually use alpha blending" -- B-334's own comment on the
+existing fade ("there is no blend in this") was true when written (blend was shelved for a timing
+failure, H2 didn't exist), not true any more after T2-00 (B-388/398, closed blend's timing as a side
+effect of fixing `glyphbuf`) and H2 (B-396, gives a second, already-idle buffer to use as scratch).
+
+Built a genuine crossfade, not a nicer version of the colour-interpolation trick: render the NEW page
+ONCE, at full normal colours, into whichever buffer is NOT currently displayed (pure scratch use, no
+flip ever requested -- safe because Settings holds `FB_HELD()` the whole time it's open, and
+`dbuf_redraw_begin()` already refuses to engage H2's own front/back logic while that's true, B-402, so
+the "back" buffer is guaranteed idle); then blend-composite that rendered buffer onto the displayed one
+over the SAME `set_fade_k[]`/`SET_FADE_STEPS` eased curve/cadence the old fade already used, via the
+sticky `SRC_BASE`(field 0)/`DST_BASE`(field 2) fields (`docs/MMIO_ALLOCATION.md` 0xC0/0xC4) -- confirmed
+by reading the doc that NO existing caller in this codebase had ever set either field before; every
+`fb_blit()`/`fb_cblit()`/etc. call relies on the power-up default (both 0).
+
+Real bugs caught by tracing through carefully, before ever building, not discovered afterward:
+1. **`FB_HELD()` would have silently eaten every composite draw.** The new composite step runs OUTSIDE
+   `set_draw_now()`'s own `ov_draw=1` bracket, and `FB_HELD()` = `UI_OVERLAY_UP && !ov_draw` is true the
+   entire time Settings is open -- every `fb_blit()` call in the composite loop would have silently
+   no-op'd without `set_xfade_step_draw()` setting `ov_draw` itself.
+2. **`fb_blit()`'s 127-word-wide glyphbuf limit** means the full `FB_W`=400-column frame needs several
+   calls (chunked at 100 columns each), not one -- the same limit `fb_copy()` itself already splits
+   around, easy to miss for a first-time caller of `fb_blit()` at full framebuffer width.
+3. **The final step needed an exact copy, not a 255/256 blend** -- `fb_blend_on()` only takes an 8-bit
+   alpha (0-255), so the naive "just blend at k=256" would leave a `1/256` trace of the old buffer's
+   content in the final frame, imperceptible but not exact. `set_xfade_step_draw()` treats `k>=256` as
+   a plain (unblended) copy instead.
+4. **An abandoned mid-flight fade could leak the sticky bases.** If the page changes again (or Settings
+   closes) before the crossfade reaches its last step, the "reset to (0,0) on the last step" path never
+   runs -- fixed by resetting explicitly in both `set_draw()`'s own page-change branch and `set_close()`
+   whenever `set_xfade_active` was still true.
+
+Falls back to the EXISTING colour-interpolation fade unchanged whenever `SET_XFADE_READY()`
+(`BLEND_READY() && DBUF_READY()`) is false -- any bitstream without both `TAU_BLIT_BLEND` and `TAU_DBUF`.
+Deliberately kept the SAME page-eligibility gate (`set_fade_page_ok()`, excludes the meter list and a
+live QR) as the old mechanism for this pass, even though a true crossfade no longer needs those
+exclusions (it renders each page once, normally, instead of repeatedly recolouring it) -- widening
+eligibility is a natural, separate follow-up, not bundled in here.
+
+Verified: `release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all rebuild clean;
+a one-off `-Wall -Wextra` build shows no new warnings; `make test-host` passes in full;
+`tools/check_cold_calls.py` shows no new hot-calls-cold entries and no new Helios region callbacks
+(this feature isn't a region, it's inline in `set_draw()`'s own dispatch); `tools/check_heap_gap.py
+--update` recorded the small expected baseline change. Packaged with the T2-00-fixed RBF
+(`glyphbuf-t200` seed 2, same as `alfatreze.TAU_0_6_0_A_18`) as `alfatreze.TAU_0_6_0_A_19` via
+`tools/package_dev_build.py --semver 0.6.0-alpha.19`. **NOT YET INSTALLED** -- the SD card was not
+mounted when this was ready; the packaged build sits at `work/diagnostics/tau-0_6_0_a_19/pocket`,
+ready for `tools/install_dev_core.py work/diagnostics/tau-0_6_0_a_19/pocket --carry-from
+alfatreze.TAU_0_6_0_A_18 --remove alfatreze.TAU_0_6_0_A_18 --yes` once the card is available.
+
+**Not hardware-tested at all.** This is the least-precedented firmware this session has built --
+first-ever use of the sticky SRC_BASE/DST_BASE fields by any caller in this codebase, combined with H2
+buffer redirection and blend, all three together for the first time. Every individual piece (blend,
+H2/DBUF_CPU redirection, the sticky-field mechanism in general) is independently hardware-proven; this
+specific COMBINATION is not. Real, concrete risks worth watching for on first boot, in order of how bad
+they'd look: (a) a full-screen glitch/flash on ANY Settings page open, if the buffer redirection or
+restore has a subtle ordering bug; (b) the fade visibly NOT happening (falls silently back to a plain
+cut, e.g. if `SET_XFADE_READY()` is somehow false when it shouldn't be) -- benign, just not the upgrade;
+(c) a corrupted or offset composite (wrong columns/rows) if the 100-column chunking has an off-by-one.
+(a) is the one to watch closest, since it is the one that would indicate real corruption rather than a
+missing feature.
+
+## B-406: A_19 first hardware boot — owner's report, real bugs traced from source (no fix yet)
+
+Owner installed and ran `alfatreze.TAU_0_6_0_A_19` (B-405's crossfade). Six symptoms reported, all
+consistent with two real bugs traced from source (not yet fixed, not yet re-tested on hardware):
+
+**Bug 1 — H2's chrome/art redraw bracket is the only place that "knows" the displayed buffer just
+flipped; everything else (meter bars, Winamp Scope trail, Chladni, fullscreen visualisers) draws
+incrementally against "whatever R_DBUF_CPU currently is" with no signal that it changed.**
+`dbuf_redraw_begin()/dbuf_redraw_end()` (fw/player.c ~2972-3005) are called from exactly one site
+(line 9320), gated on `HELIOS_INV_CHROME|HELIOS_INV_ART` only. Every other drawer (bars' per-band
+skip-redraw cache, `ui_bg_blend()`'s trail fade, Chladni's own throttled redraw, fullscreen's partial
+updates) assumes the buffer it wrote to last frame is the SAME one now displayed — true between chrome
+redraws, false for exactly one frame right after any chrome/art invalidation flips the display to the
+other physical buffer, whose non-chrome regions still hold whatever THAT buffer had two redraws ago,
+not last frame's meter/Chladni/scope content. This explains:
+  - "winamp scope seems to additively accumulate pixels" / "small chladni... small accumulation" — the
+    trail/animation briefly reverts to an older, less-faded state on the OTHER physical buffer whenever
+    a chrome/art redraw fires concurrently, reads as sudden density/accumulation.
+  - "bars... particularly at fullscreen will have some bars that flicker" — a bar whose value didn't
+    change gets skipped from redraw at the exact moment the display buffer flipped, so the stale value
+    from the non-current buffer shows for one frame.
+  - "chladni doesn't show when loading the first time... inconsistently loads" — Chladni's own redraw
+    cadence vs. chrome-flip cadence race: whichever buffer becomes "front" may not have Chladni's latest
+    (or any) content drawn into it yet.
+
+**Bug 2 — Settings' own Start-from-Library shortcut bypasses the Helios view registry entirely.**
+`fw/settingsui.inc`'s `set_input()` does `lib_ui_open = 0u;` directly (not `lib_ui_close()`, which is
+`helios_view_switch(&library_view, &helios_player_view)`, fw/library.inc:487) before opening Settings.
+No invalidation fires, so nothing repaints the area Library was covering before Settings' own
+`set_xfade_render()` captures "whatever is currently displayed" as the crossfade's *source* frame. If
+Library (or the player screen under/behind it) left any live-updating content only partially covered,
+that content is exactly what the user reported seeing fade past during the transition ("elements of
+playing screen... could be ones that are moving or updating during the switch"). The reported
+persistence ("after doing this switch to test, seems to always happen now on settings") is NOT yet
+explained by this alone — plausible candidate not yet confirmed: `dbuf_redraw_end()`'s flip-poll gives
+up after `CLK_HZ/10` (~100 ms) and unconditionally resyncs `R_DBUF_CPU` to `R_DBUF_DISP`'s read value
+regardless of whether the flip actually completed; if a flip is ever still pending at that timeout, a
+later `set_xfade_render()` computing front/back from the same register could act on stale information.
+Not traced further this pass — needs either a live JTAG read of `R_DBUF_DISP`'s pending bit after the
+reported trigger, or a source read of the H2 flip RTL's behavior on a flip request arriving before the
+previous one's vblank landed.
+
+**The "brief flash on top" opening plain Settings** (not from the Library-jump path) is most likely
+`SET_XFADE_READY()` correctly engaging but the very first composite frame (k=0, `fb_blend_on(0)`)
+showing something momentarily before the eased ramp visibly starts — not yet distinguished from a real
+ordering bug; needs a slow-motion (single-step) repro to tell apart from the two bugs above.
+
+Not fixed. Recommendation given to the owner: this is an architecture-scope gap (H2's redraw contract
+doesn't cover the non-chrome incremental drawers), not a one-line bug — needs a decision on scope before
+building (force a full repaint of bars/Chladni/scope immediately after every chrome/art flip, vs. giving
+every incremental drawer its own per-buffer dirty tracking) before spending another hardware cycle on it.
+
+## B-407: B-406 fixed without needing JTAG — installed as alfatreze.TAU_0_6_0_A_20
+
+Both B-406 bugs turned out fixable from source alone; JTAG was only ever needed to confirm the
+*persistence* theory for bug 2, which the fix should make moot rather than something to chase for its
+own sake. Owner has the cable again in ~8-10h — parked as a follow-up, not blocking.
+
+**Fix 1 (the H2 redraw-contract gap):** `fw/player.c`'s main loop processed `helios_pending_mask`
+(chrome/art repaint + dbuf flip) AFTER that same tick's `set_draw()`/library draw calls — reordered so
+invalidation is drained and the flip lands FIRST, before anything else this tick treats "currently
+displayed" as trustworthy. Also widened the post-flip staleness reset: `ui_wave_force`/`wave_drawn[]`/
+`spec_drawn[]` now also reset whenever `dbuf_active` fired (not just on the `HELIOS_INV_WAVE`/`_SPEC`
+bits, which only cover full view transitions, not e.g. an art-only redraw mid-playback), and `wviz_force`
+(Winamp Bars/Scope/VU Master/Chladni's own shared force flag, previously never touched by this block at
+all) is now set on every `dbuf_active` flip too.
+
+**Fix 2 (the Library->Settings bypass):** `fw/settingsui.inc`'s `set_input()` replaced a bare
+`lib_ui_open = 0u;` with `if (lib_ui_open) lib_ui_close();`, routing through the same
+`helios_view_switch()` every other close path already uses — combined with Fix 1's reorder, the player
+screen underneath now actually repaints in the SAME tick, before Settings' own `set_xfade_render()`
+captures its "before" frame.
+
+Verified: `make test-host` clean (0 failures), `tools/check_heap_gap.py` and `tools/check_cold_calls.py`
+both pass, `release`/`player-library-diagnostic-profile` (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`)
+rebuild clean with real heap margin (7,328 B vs. 4,096 B floor). No RTL change — same `glyphbuf-t200`
+seed 2 bitstream as A_19/A_18 (SHA-256 `b089b828...`, copied directly, not through `--rbf`, matching the
+B-353 lesson `package_dev_build.py` now actively refuses to violate).
+
+Packaged `alfatreze.TAU_0_6_0_A_20`, installed via `tools/install_dev_core.py --carry-from
+alfatreze.TAU_0_6_0_A_19 --remove alfatreze.TAU_0_6_0_A_19` (backed up and verified first). Cores on the
+card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_54`, `TAU_DEV_56`, `alfatreze.TAU_0_6_0_A_20`. NOT YET
+HARDWARE-TESTED — first real check is re-running all six B-406 repro steps (Library->Settings jump
+repeated, Winamp Scope trail, Chladni normal+fullscreen, fullscreen bar animation) plus the original A_19
+checklist (theme/preset survives Quit, scope fade, brief-flash-on-plain-Settings-open).
+
+**Parked for later (JTAG needed, cable back in ~8-10h):** confirm/refute the flip-desync theory for why
+bug 2's symptom was reported as persisting after the first trigger — read `R_DBUF_DISP`'s pending bit
+(bit 1) and `R_DBUF_CPU`'s echo across a deliberately-provoked flip-timeout, or inspect the H2 flip RTL's
+behavior when a new flip request arrives before the previous one's vblank landed. Only worth doing if
+A_20's fix does NOT make the symptom go away on retest — if it does, the desync theory is moot and this
+can be dropped rather than chased for its own sake.
+
+## B-408: root cause of "Settings corruption only after Scope loads" found and fixed — packaged as alpha.21, install pending (card unmounted)
+
+Owner's controlled test (individually loading each meter after a cold boot, restarting between tries)
+pinned the trigger precisely to Winamp Scope. Traced it: `SET_XFADE_READY()` (`BLEND_READY() &&
+DBUF_READY()`) depends on `blend_state`, which is only ever set by the one-time `blend_probe()`
+(fw/blit_probe.inc). **Nothing in the whole firmware called `blend_ensure()` except `ui_bg_blend()`
+(Winamp Scope's own trail effect)** — so Settings' hardware crossfade was silently disabled (falling
+back to the old colour-interpolation fade) for the entire boot until the user happened to view the
+Scope trail once. This is not "Scope corrupts Settings" in the sense of a side effect — it is that the
+crossfade path (and whatever remaining bug lives in it) was NEVER ENGAGED before Scope ran, making
+Settings look fine purely because the new code was dormant, then suddenly active (and showing whatever
+it actually does, right or wrong) the moment the probe finally ran.
+
+First attempted fix (calling `blend_ensure()` from `SET_XFADE_READY()`'s own macro) was wrong and
+caught before packaging: `blend_probe()` refuses outright while `FB_HELD()`, and `SET_XFADE_READY()` is
+ONLY ever evaluated from inside `set_draw()`, which only runs while Settings' own overlay already holds
+`FB_HELD()` true — the probe would refuse every time from that call site, never actually succeeding.
+Fixed at the one point in Settings' own open path where `FB_HELD()` is still false: `set_input()`'s
+Start-opens-Settings handler, right after `lib_ui_close()` and right before `set_open` flips to 1.
+
+Also fixed the same pass, once the fullscreen retest surfaced them:
+- **Fullscreen bar flicker is a SEPARATE bug, not the H2 dbuf gap B-406/B-407 targeted.** `FB_HELD()`
+  includes `ui_fullscreen`, so `dbuf_redraw_begin()` never engages during fullscreen at all — the
+  buffer-flip theory doesn't apply there. Root cause: `fb_bar()`'s own `lit & 0x7Fu` masks (wraps
+  modulo 128, does not saturate) the lit-row count into OP_BAR's 7-bit RTL field; fullscreen bars are
+  up to `FS_FIG_H = 323` rows tall, so any bar crossing a multiple of 128 collapsed to a near-empty bar
+  for one frame — exactly the reported flicker. This is the ALREADY-KNOWN "OP_BAR 7-bit lit-row wrap"
+  item from the T2-00 handoff. Real fix needs an RTL field widen (its own RTL/sim/fit cycle); clamped
+  `lit` to 127 in firmware as an immediate, safe mitigation — very tall bars now visibly cap instead of
+  intermittently collapsing.
+- **Scope-trail-reappears-on-fullscreen-toggle was B-407's own fix being incomplete.** Gated
+  `wviz_force`'s post-flip reset purely on `dbuf_active`, which (per the point above) is ALWAYS 0 during
+  any fullscreen transition — so the trail's staleness reset never fired on that specific transition
+  even though it's a real view transition carrying `HELIOS_INV_ALL`. Now gated on `(hm &
+  HELIOS_INV_WAVE) || dbuf_active`, matching `ui_wave_force`'s own condition right above it. Corrected
+  the B-407 comment block in place rather than leaving it overclaiming a fix it didn't provide.
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass,
+`player-library-diagnostic-profile` (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`) rebuilds clean (7,312 B
+heap gap vs. 4,096 B floor). Same bitstream as A_19/A_20 (SHA-256 `b089b828...`, copied directly, not
+`--rbf`). Packaged as `alfatreze.TAU_0_6_0_A_21` -- **install attempted, card was not mounted; pending.**
+
+Still open, unaffected by any of this pass's fixes: the still-unexplained root cause behind why the
+crossfade misbehaves at all once actually engaged (this pass made it deterministic and diagnosable, not
+necessarily correct) -- next hardware test is the real answer. JTAG follow-up (B-407) stays parked,
+still not needed unless A_21's retest still shows corruption once the crossfade is consistently active
+from the first Settings open.
+
 ## B-409: T2-00 committed; Talos 2's P3 declined; cross-branch synergy review with `test/720`
 
 Owner asked to check `test/720` (a cloud session's branch, pushed to `origin`, not merged) for synergies
@@ -10127,3 +10901,267 @@ Confirmed no MMIO collision: `test/720`'s claimed `0x140-0x1FC` range is genuine
 `docs/MMIO_ALLOCATION.md`'s own table (`LPC_STATUS` ends at `0x13C`). Nothing else from this session's other
 uncommitted work (Helios items, B-405 crossfade, B-406/407/408 fixes) was touched. `test/720`'s commit is
 local-only pending a push decision.
+
+## B-410: real screen corruption on every "rich" diagnostic subpage, and a menu-overflow bug -- both found and fixed, packaged as alpha.22
+
+Owner's `A_21` retest: opening any of the six rich Settings pages (Check, Blit Test, Decode Sweep, Meter
+Sweep, Meter Trace) showed real corruption -- scattered noise, a frozen "meter area," and font/text
+fragments cycling in the top region -- while plain menu navigation was clean. The library/playlist overlay
+(a separate code path entirely) showed none of it.
+
+**Root cause: `set_xfade_render()` (Settings' B-405 hardware crossfade) restored `R_DBUF_CPU` to the
+displayed buffer immediately after `set_draw_now()` RETURNED -- but `set_draw_now()` only QUEUES its draw
+commands, it does not wait for the hardware to execute them.** `R_DBUF_CPU` is a sticky field, consulted at
+command EXECUTION time, same class as every other sticky field this codebase has hit this exact race with
+before (blend-on, the CLUT reload, B-349's corner-cut LUT race). Any command still queued when `R_DBUF_CPU`
+flipped back landed in the LIVE DISPLAYED buffer instead of the intended scratch one, corrupting the real
+screen with fragments of the new page while leaving the scratch buffer incomplete. Rich pages queue far more
+commands than a plain menu list (matching exactly why plain pages tested clean in the first pass but rich
+ones didn't). Fixed by adding `fb_fence()` between `set_draw_now()` and the `R_DBUF_CPU` restore, with
+`ov_draw` set around the whole span -- `fb_fence()` is itself gated by `FB_HELD()` like every draw primitive,
+so it would have silently no-op'd without that, matching `set_xfade_step_draw()`'s own already-correct
+pattern a few lines away in the same file.
+
+**Second, unrelated bug from the same screenshots: "when the menu is visible and overflows it will overlay
+the action bar."** `set_draw_menu()` drew every row in a page's row list unconditionally, with no bound
+against the visible list area -- unlike `set_draw_choice()`'s own proven `set_ch_top[]`/`set_ch_follow()`
+scrolling. Never hit before because no plain menu had grown past the visible row count (`SET_MENU_VIS =
+SET_LIST_H / SET_MENU_ROW_H`) until the Diagnostics submenu (9 rows with `MP3_PROFILE`/`FLAC_PROFILE` on)
+did. Fixed by mirroring the choice-list pattern exactly: new `set_top[SET_MENUS]` array, `set_menu_follow()`
+(identical logic to `set_ch_follow()`), a scroll track drawn when `n > SET_MENU_VIS`, and the UP/DOWN
+handlers call `set_menu_follow()` after moving `set_sel[]`.
+
+Verified: `make test-host` clean (0 failures), heap-gap and cold-call checks pass,
+`player-library-diagnostic-profile` (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`) rebuilds clean with real
+margin (7,312 B vs. 4,096 B floor). Same bitstream as A_19/A_20/A_21 (SHA-256 `b089b828...`, copied directly,
+not `--rbf`). Packaged as `alfatreze.TAU_0_6_0_A_22`, **install pending -- card not mounted.**
+
+**Documentation follow-up (owner asked whether Helios's own guidance needs strengthening):** both bugs are
+instances of failure classes this project has hit before, each time rediscovered from scratch rather than
+checked against a written rule. Added the sticky-field execute-time/`fb_fence()`-vs-`fb_wait()` lesson to
+`docs/TALOS.md`'s "Known limits and lessons" (citing B-349 and this entry as the three real occurrences), and
+a new section 11a to `docs/features/HELIOS_SPEC.md` -- a concrete checklist for anyone writing a new Helios
+view or overlay, covering the sticky-field discipline, the unbounded-list-must-scroll contract, confirming a
+live-updating page opts out of the crossfade's fixed-length animation, and routing real transitions through
+`helios_view_switch()`. Scoped to work with what exists today, not blocked on section 11's larger View-layer
+refactor.
+
+## B-411: Winamp Scope "accumulation" traced to a missing FB_HELD() guard in ui_bg_restore() -- packaged as alpha.23
+
+Owner's controlled test: opening the Configure page's own preview (use_gradient=0, same as fullscreen)
+ALSO triggers the same trail-stops-fading symptom on return to normal-mode scope -- and the trail % setting
+itself reads correctly (40%) even while broken, ruling out a config/preset corruption theory.
+
+**Root cause: `ui_bg_restore()` had no `FB_HELD()` guard of its own**, unlike every other draw primitive in
+this codebase (`fb_rect`/`fb_bar`/`fb_blit`, and its own sibling `ui_bg_blend()` a few lines below it).
+`ui_bg_restore()` is called as `ui_bg_blend()`'s fallback whenever the blend attempt itself fails --
+including specifically when `ui_bg_blend()`'s own `FB_HELD()` check trips, which is exactly the transient
+state right as an overlay (fullscreen or Settings/Configure) is closing. When that race hit,
+`ui_bg_restore()`'s `fb_rect()` calls (building the lazy gradient-strip cache) silently no-op'd -- each
+checks `FB_HELD()` internally -- leaving the off-screen strip's memory untouched, but `ui_bg_ready` still
+got marked `1` UNCONDITIONALLY. Every later blend then faded toward whatever stale/garbage content actually
+sat in that memory instead of the real gradient, reading as "accumulation," and stayed broken until the
+next transition reset the flag -- whereupon the same race could recur, matching "if I keep toggling this
+pattern always repeats" exactly.
+
+This is the third real instance this session of the general "assumed X was drawn but it silently wasn't"
+class of bug (alongside B-406's H2 redraw-contract gap and B-410's sticky-field race), but a DIFFERENT
+specific mechanism from either -- a missing `FB_HELD()` guard, not a missing `fb_fence()`.
+
+Fixed: `ui_bg_restore()` now checks `FB_HELD()` at its own top, matching the universal convention every
+other draw primitive in this codebase already follows. Behavior-preserving for every existing call site
+(all fire only during normal, unheld player-screen drawing) except for closing the exact race.
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass,
+`player-library-diagnostic-profile` rebuilds clean (7,264 B heap gap vs. 4,096 B floor). Same bitstream as
+A_19 through A_22 (SHA-256 `b089b828...`). Packaged as `alfatreze.TAU_0_6_0_A_23`, **install pending -- card
+not mounted.**
+
+## B-412: systematic audit for the same two bug classes -- four more real instances found and fixed
+
+Owner asked to check every similar function after B-410/B-411 found three real bugs in this general area.
+Searched for the two failure shapes directly rather than waiting for more individual reports: (1) a
+lazy-build cache that marks itself "ready" unconditionally after issuing draws that could have silently
+no-op'd under `FB_HELD()`, and (2) a sticky-field/buffer redirect restored without `fb_fence()` first.
+
+**Found and fixed:**
+- `fw/settingsui.inc`'s two "xfade abandoned mid-flight" resets (`set_draw()`'s own abandon path and
+  `set_close()`'s) called `fb_set_bases(0u, 0u)` with no fence -- a prior tick's still-queued
+  `set_xfade_step_draw()` composite could execute AFTER the reset and read (0,0) instead of the bases it
+  was actually issued under, same race class as B-410 but on the reset side rather than the restore side.
+  Fixed with the same `ov_draw=1` + `fb_fence()` pattern `set_xfade_step_draw()`'s own last-step reset
+  already used correctly.
+- `dbuf_redraw_end()` (`fw/player.c`, H2's chrome/art redraw bracket) called `fb_wait()`, not `fb_fence()`,
+  before requesting the buffer flip -- the exact gap the TALOS.md lesson just written (B-410) describes.
+  No `ov_draw` needed here unlike the other fixes: `dbuf_redraw_begin()`'s own precondition already
+  guarantees `FB_HELD()` is false for the whole bracket, so `fb_fence()` works as a straight substitution.
+- `ui_art_placeholder()`/`ui_art_reason()` (`fw/player.c`) marked `art_ready=1` unconditionally after
+  drawing, same shape as `ui_bg_restore()`'s bug -- lower-probability window (needs a track load to
+  coincide with an overlay transition, not every single one) and a safer failure mode if it fires (no
+  cover shown, the existing handled "no art" state, not a corrupted display) -- fixed anyway for
+  consistency. `set_thumb_flat_build()` (`fw/settingsui.inc`) had the identical shape but its only real
+  caller already runs with `ov_draw=1` set, making the race practically unreachable -- fixed anyway so it
+  can't become live if a future caller reaches it differently.
+
+**Deliberately NOT changed:** the third `art_ready=1` site (`fw/player.c`, the general end-of-track-art-load
+marker covering every decode path including the multi-second JPEG decoder itself). Different risk shape
+from the others -- it's not a simple lazy-cache pattern, `art_decode()` is a long-running CPU-bound
+operation with no interleaved input polling (so `FB_HELD()` is very unlikely to change mid-decode), and
+blindly gating it risks a worse regression (skipping a legitimate art load for a whole track) without
+understanding whether any retry mechanism exists. Recorded as reviewed, not silently skipped.
+
+Verified: `make test-host` clean (0 failures, including `check_art_load_order.py --check`'s own invariants),
+heap-gap/cold-call checks pass with real margin (6,944 B minimum across all three targets vs. 4,096 B floor).
+No RTL touched this pass. Rebuilt `player-library-diagnostic-profile` combining these fixes with B-411's,
+packaged as `alfatreze.TAU_0_6_0_A_24` (same bitstream, `b089b828...`) -- `A_23` (B-411 alone) was never
+installed, so it's superseded before ever reaching the card rather than needing its own separate write.
+**Install pending -- card not mounted.**
+
+## B-413: scope accumulation NOT fixed by B-411/B-412 -- added live diagnostics instead of a fourth guess
+
+Owner's retest on `A_24`: the Winamp Scope trail accumulation is still present, "exactly with the same
+triggers." Neither B-411's `ui_bg_restore()` FB_HELD() guard nor B-412's sticky-field audit fixed it --
+both were real bugs worth fixing, but neither was THE cause of this specific symptom. Rather than propose a
+fourth unverified theory, added live instrumentation so the next repro gives real evidence instead of
+another guess.
+
+New counters `dbg_scope_blend_ok`/`dbg_scope_blend_fail` (`fw/player.c`, near `ui_bg_ready`), incremented at
+`wviz_scope_tick()`'s own blend-decision point -- counted only when a blend was genuinely attempted
+(`use_gradient && trail && !paused` all true, matching `did_blend`'s own short-circuit exactly), so
+fullscreen/Configure's legitimate `use_gradient=0` skip is never counted as a failure, only a real
+attempted-and-failed blend is. Exposed as a new "SCOPE BG" row on the Diagnostic Info page (`SET_INFO_ROWS`
+23->24): shows `ui_bg_ready`'s current state plus the two cumulative counts.
+
+**What this will tell us on the next repro:** if `dbg_scope_blend_fail` climbs while the bug is visible,
+`ui_bg_blend()` itself is failing on every attempt (points at `FB_HELD()`/`BLEND_READY()` or similar
+firmware-level gating, an B-411-adjacent theory not yet fully ruled out) -- if `dbg_scope_blend_ok` climbs
+INSTEAD (blend reports success every time) while the trail still visibly doesn't fade, the bug is in the
+hardware blend path itself, not firmware logic, and likely needs a live register read (JTAG) rather than
+another firmware change to pin down.
+
+Also fixed two host-test breaks the new fixture caused (same B-234-era pitfall, now a second occurrence):
+`tools/ui_snapshot_renderer.py`'s `INFO_SAMPLE` tuple was one short after the new row (`IndexError`);
+`sim/test_meter_golden.py`'s C harness (which cuts `wviz_scope_tick()` out of `fw/player.c` and compiles it
+standalone with stubbed engine calls) didn't declare the two new globals, since they're referenced directly
+inside the function body being extracted.
+
+Verified: `make test-host` clean (0 failures, both fixture fixes confirmed), heap-gap/cold-call checks pass
+(6,896 B minimum vs. 4,096 B floor). Not yet built/packaged/installed -- pure diagnostic addition, no
+behavior change, holding for the owner's next test round rather than a separate card write for
+instrumentation alone.
+
+## B-413 addendum: scope accumulation confirmed to need a live hardware look -- held pending JTAG
+
+Owner clarified the SCOPE BG readings precisely: normal mode -> Info always reads READY regardless of
+whether accumulation is currently visible (matches the earlier `READY 140 OK 0 FAIL` capture, taken while
+the bug was visible); fullscreen -> exit -> Info (checked immediately) reads STALE, which is expected and
+benign -- exiting fullscreen correctly resets `ui_bg_ready` to 0, and it only flips back once the normal
+scope gets one tick to rebuild the strip; checking before that first tick just catches the expected
+transient, not a bug.
+
+**Conclusion: the real bug happens with `ui_bg_ready=READY` and `ui_bg_blend()` reporting 100% success
+(0 failures across 140 attempts).** This conclusively rules out every firmware early-return theory this
+thread has tried (B-411's `FB_HELD()` race, B-412's sticky-field audit) -- the blend mechanism runs to
+completion and reports success every time; the on-screen result is wrong regardless. Checked from source
+and ruled out: the trail value is a single shared array read identically everywhere (no config-desync
+possible), and no code path was found that alters the gradient strip's colour inputs (`ui_grad_top_c`,
+`th_role[TR_BG_BOTTOM]`) without restoring them before the strip could be rebuilt from stale state.
+
+**Held pending JTAG (owner: no cable access right now).** When available, the two useful reads are: (1) the
+actual pixel values sitting in the gradient strip's off-screen memory (columns 400-511, rows ~128-273,
+`UI_BG_X`/`UI_WAVE_Y-UI_WAVE_TOP`..`UI_WAVE_Y+UI_WAVE_H`) at the moment the trail is stuck, to check whether
+it holds a plausible gradient or garbage/duplicated trail content; or (2) the blend unit's live inputs/
+output for one operation. Not blocking anything else -- diagnostic instrumentation (`dbg_scope_blend_ok/
+fail`, the SCOPE BG Info row) stays in the tree on `alfatreze.TAU_0_6_0_A_25` for whenever that read
+happens.
+
+## B-414: Chladni's on/off visibility toggle traced to H2's own documented gap -- packaged as alpha.26
+
+Owner: Chladni cycles visible/invisible in a strict "on, on, off, off" pattern when toggling fullscreen or
+opening/closing menus repeatedly, with occasional brief partial-then-flicker frames. Same pattern for both
+triggers.
+
+**Root cause: Chladni draws entirely through true blit-mode opcodes (`fb_sblit()`/`fb_blit()`, addressed via
+the firmware-programmable sticky `SRC_BASE`/`DST_BASE` fields) and never set them** -- this is EXACTLY the
+gap `docs/features/HELIOS_SPEC.md` section 5 already documents: "Blit-mode opcodes... already address
+through the sticky `blt_*_base` fields and is unaffected [by H2's automatic per-buffer offsetting]... a
+caller wanting one of them to target the back buffer sets `blt_dst_base` itself" -- a real, hardware-observed
+instance of a previously-theoretical gap, not a new bug class. With `DST_BASE` always defaulting to 0,
+Chladni always drew into buffer 0's physical memory regardless of which buffer H2 was actually displaying.
+Visibility therefore depended purely on which buffer happened to be shown -- which only flips on EXIT-type
+transitions (`dbuf_redraw_begin()`'s own `FB_HELD()` precondition blocks a flip while entering an overlay or
+fullscreen, only while LEAVING one), giving exactly the "same state across an open/close pair, flips on the
+second transition" cadence the owner described, not simple alternation.
+
+Fixed in `fw/chladni.inc`: track the currently-displayed buffer (`DBUF_READY() && (REG(R_DBUF_DISP) & 1u)`)
+and set it explicitly before both draw stages. `fb_sblit()`'s source (the plane at `CHL_PLANE_Y`) is
+off-screen scratch, unaffected by buffer selection, so its own `SRC_BASE` stays 0; `chl_replicate()`'s
+`fb_blit()` calls copy WITHIN the visible area (the already-drawn tile to elsewhere in the same box), so
+both its source and destination use the display buffer. A `fb_fence()` between the two stages (and after the
+second) ensures each stage's commands have genuinely executed before the bases change again or reset to
+(0,0) -- this session's own repeated lesson (`docs/TALOS.md`), not assumed safe by inspection alone.
+
+Also fixed two host-test harness gaps the new code exposed (same class as B-413's fixture breaks):
+`sim/chladni_module_harness.c` had no H2/double-buffer concept at all -- added `fb_fence()`/`fb_set_bases()`
+stubs and a hardcoded `DBUF_READY() 0` (this harness's flat single-buffer `sdram[]` model has no buffer
+selection to simulate, so the new calls become harmless no-ops, matching its existing behaviour exactly).
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass; cold image grew by exactly
+200 B (the new code lands in Chladni's already-cold draw function, confirmed compiled in, not a stale
+check). Same bitstream as A_19 through A_25. Packaged as `alfatreze.TAU_0_6_0_A_26`.
+
+**Open question this doesn't resolve:** whether OTHER blit-mode-opcode users have the same latent gap.
+Checked `fb_bar()` (Winamp Bars) specifically -- it uses `R_FB_ADDR`/`cmd_addr` (the RECT-class path,
+confirmed correctly DBUF_CPU-aware per B-103/B-104's own design history), NOT independent blit addressing,
+despite `docs/MMIO_ALLOCATION.md`'s `DBUF_CPU` row listing "BAR" among the blit-mode opcodes unaffected by
+it -- that doc line appears stale/inaccurate and should be corrected in a follow-up pass, not guessed at
+here. `fb_cblit()` (meter thumbnails, CLUT-based) was NOT audited this pass and may have the identical gap
+if it's ever drawn during live double-buffered playback rather than only from within Settings' own
+(non-double-buffered) drawing context -- worth checking if a similar symptom is ever reported for it.
+
+## B-415: Chladni and VU Master wired into the Configure page's live preview -- packaged as alpha.27
+
+Owner: neither Chladni nor VU Master show up in the Meter > Configure preview. Traced to `mtr_preview()`'s
+own comment (`fw/player.c`): "other meters (Chladni, VU Master) have no live preview here: their drawing is
+refused while an overlay is up." That reasoning doesn't hold for this specific call site -- the ONLY caller,
+`wvcfg_preview_tick()` (`fw/settingsui.inc`), already sets `ov_draw=1` around its entire call to
+`mtr_preview()`, the exact mechanism that lets Winamp Bars/Scope draw correctly here despite Settings
+holding the overlay. Whatever originally motivated the exclusion was either never actually true for this
+call site or stopped being true once `wvcfg_preview_tick()` gained its own `ov_draw` handling -- either way,
+`chladni_tick_box()`/`vum_tick()` take the identical `mtr_in_t*` signature as the two meters that already
+work here.
+
+Fixed: added both as `mtr_preview()` branches, matching the existing pattern exactly. Both functions are
+defined later in the file (`chladni.inc`/`vu_master.inc` are `#include`d after `ov_frame()`), so added
+forward declarations at `mtr_preview()`'s own definition point -- same pattern this file already uses for
+`ui_draw_dynamic()`/`coldframe_tick()`/`coldframe_record()` for the identical textual-ordering reason.
+
+Verified: `make test-host` clean (0 failures, no fixture breaks this time), heap-gap/cold-call checks pass
+with real margin (6,896 B minimum vs. 4,096 B floor). Same bitstream as A_19 through A_26. Packaged as
+`alfatreze.TAU_0_6_0_A_27`.
+
+## B-416: theme/mode persistence traced to a missing save trigger -- packaged as alpha.28
+
+Owner's persistence test results: colour PASS, meter preset PASS, theme FAIL, mode FAIL.
+
+**Root cause: selecting a theme or mode in the choice list never triggered a save at all.** The handler
+(`fw/settingsui.inc`) carried a comment from before persist widening existed -- "session-only (step 0b):
+reapplies every colour, nothing persisted" -- and `return`ed immediately after applying the change, skipping
+the `settings_mark_dirty()` call every other choice (colour, meter, EQ, repeat) reaches by falling through
+to the bottom of the same handler. `SW_THEME`/`SW_POL` were genuinely wired into `settings_save()`/
+`settings_load()` since B-346/B-403 -- the save-trigger side was simply never updated when persist widening
+made theme/mode real, persistable settings. Fixed by moving the theme/mode branch into the same if/else-if
+chain as the other choices instead of being a separate early-return block, so it falls through identically.
+
+**Second, separate latent bug found while investigating, fixed defensively (not confirmed to be what the
+owner's test actually hit):** `settings_load()` runs deliberately first at boot (so the splash renders in
+the saved accent), before `th_assets_load()` has populated `th_file_n` -- so a saved theme index pointing
+at an EXTRA theme (from `tau-assets.bin`, not a built-in) would fail `settings_load()`'s own
+`v < TH_COUNT()` range check purely due to this ordering, staying at the built-in default even though it
+was correctly saved. Fixed by re-validating the saved index once `th_assets_load()` completes. B-416's real
+cause (the missing save trigger) fully explains the reported failure on its own regardless of which theme
+was chosen, so this second fix may not be what was actually observed -- recorded honestly as "also found,
+also fixed" rather than claimed as confirmed.
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with real margin (6,832 B
+minimum vs. 4,096 B floor). Same bitstream as A_19 through A_27. Packaged as `alfatreze.TAU_0_6_0_A_28`.
