@@ -11271,3 +11271,10 @@ seek/pause/speed semantics, Bluetooth per-sink strobes). Two corrections applied
 Owner: audiobook support should be minimal, just pitch correction; other features much later. Recorded in `docs/features/CYMO_AUDIO_ENGINE_REVIEW.md` section 9: the minimal path is C0a headroom metric, C1 shared `cymo_push()`, firmware pitch-preserving
 tempo; resume, chapters, M4B/AAC, speech EQ and pause shortening are deferred (pause shortening supersedes the earlier approval). Owner will try the analog loopback capture (how-to to be supplied). Soft clipper explained (a smooth
 saturation curve for the rare peaks that exceed full scale after an EQ boost; part of the later output stage). Nothing built.
+
+## B-426: Cymo plan -- soft clipper chosen, analog loopback measurement added (docs only)
+
+Owner chose the soft clipper (over a look-ahead limiter) and approved adding the analog loopback measurement to the plan. `docs/features/CYMO_AUDIO_ENGINE.md`: section 6.2 now specifies the soft clipper (untouched below a knee of about
+90% of full scale, smooth rounding above, no state or look-ahead, bit-exact transparency test below the knee, never exceeds full scale); new section 6.7 specifies the loopback (headphone jack to line-in or USB interface, fixed
+level and settings, lossless FLAC test tones at 44.1/48/22.05 kHz, a sweep, level and clipping bursts, silence; a host analysis script `tools/lab/cymo_loopback.py` reporting level, image tones, THD+N and response, plus a
+before/after difference table; acceptance thresholds to be fixed after the baseline); C0 gains item (f). Test files and script not built. Open: whether the owner has a line-in or USB interface.
