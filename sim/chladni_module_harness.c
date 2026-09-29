@@ -49,6 +49,15 @@ static uint32_t *reg_ptr(uint32_t a) {
 
 static int engine_calls, sblit_calls, blit_calls, max_blit_w;
 static void fb_wait(void) {}
+static void fb_fence(void) {}
+/* B-414: this harness has no H2/double-buffer concept -- fb_blit()/fb_sblit() below copy directly in
+ * one flat sdram[] array, so a base offset would just corrupt the simulation rather than model
+ * anything real. DBUF_READY() hardcoded to 0 makes fw/chladni.inc's own disp_base always compute to
+ * 0, so fb_set_bases() calls become harmless no-ops here, matching this harness's existing model. */
+#define DBUF_READY() 0
+#define R_DBUF_DISP 0u
+#define DBUF_BASE1_W 0u
+static void fb_set_bases(uint32_t src_base, uint32_t dst_base) { (void)src_base; (void)dst_base; }
 static void fb_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
     blit_calls++; if (w > max_blit_w) max_blit_w = (int)w;
     for (uint32_t y = 0; y < h; y++) for (uint32_t x = 0; x < w; x++)

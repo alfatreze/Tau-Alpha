@@ -16,10 +16,10 @@ static uint32_t fake_scan;
  * link here; this test never calls it (only helios_rows_safe), so a no-op stub is enough. */
 static void fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
 { (void)x; (void)y; (void)w; (void)h; (void)color; }
-/* helios_view_changed() (B-350) sets this; normally declared in fw/player.c, which always includes
- * fw/helios.inc into a context where it already exists. This test never checks it, only stubs it so
- * the file links standalone. */
-static uint8_t pl_ui_restore;
+/* helios_flush()'s cold-aware regions (B-391 follow-up) read this directly, not through the
+ * COLD_READY() macro (defined in fw/cold.inc, not included here) -- see fw/helios.inc's own comment.
+ * This test never marks a region dirty, so the value never matters, only that the symbol exists. */
+static uint8_t cold_code_ok;
 #include "%s"
 int main(void) {
     /* argv-free: emit the full truth table  beam_ok vc y0 y1 -> safe  for a grid of inputs */
