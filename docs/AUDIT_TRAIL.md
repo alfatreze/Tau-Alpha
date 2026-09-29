@@ -11210,3 +11210,11 @@ Hi-Z until a handshake passes (a real Game Boy cartridge may be inserted). Open 
 direction, cart power capability, meaning of `cart_pin30_pwroff_reset`; public web searches returned nothing usable on these (Analogizer's README defers to
 its wiki). ESP32 classic A2DP source is SBC-only per the ESP32-A2DP project, so Bluetooth is not a fidelity feature. Phases X0-X4 and four owner decisions
 are in the document.
+
+## B-419: Cymo pitch/speed method decided for audiobooks (docs only)
+
+Owner: the pitch work is mainly to make audiobooks sound correct at other speeds. Chosen: pitch-preserving tempo change by speech-tuned WSOLA
+(20-25 ms window, about +/-10 ms search covering 80-400 Hz pitch periods, correlation on a mono mix decimated to about 5.5 kHz so cost is independent of
+file rate, 0.8x-3.0x in 0.05x steps, optional pause shortening). Semitone pitch shift dropped; varispeed kept as the fallback when the stretch path is
+absent. Estimates only: about 12,000 MACs per 10-15 ms hop, under about 15% of a 66 MHz CPU in firmware, so the first implementation is cold firmware with
+PSRAM-window buffers and a hardware correlator only if measured cost demands it. Nothing built. Updated `docs/features/CYMO_AUDIO_ENGINE.md` sections 6.4, 7, 9 (C7), 10.

@@ -345,7 +345,7 @@ for gapless. It also keeps the existing priming and glide logic unchanged, which
 
 ### 6.4 `cymo_stretch`: pitch-preserving time stretch (section 7)
 
-A WSOLA-style unit: a small correlation engine and an overlap-add. Optional and last, because it depends on 6.1 and 6.3.
+Speech-tuned WSOLA for audiobook tempo (section 7). Firmware first; this hardware correlator is built only if the measured firmware cost is too high. It depends on 6.1 and, for headroom, 6.3.
 
 ### 6.5 Programmable EQ (section 8)
 
@@ -370,15 +370,47 @@ Definitions used here: **varispeed** = tempo and pitch both scale (today). **Tem
 |---|---|---|---|---|
 | Varispeed (today) | scale the read rate | N x for N > 1 | none (fix the resampler) | none, tape-like character |
 | Tempo (keep pitch) | time-stretch by N | **N x**, same as varispeed | `cymo_stretch` + `cymo_resamp` at ratio 1 | stretch artifacts, worst on dense polyphonic music, best on speech |
-| Pitch (semitones) | resample by ratio `p`, then stretch by `1/p` | **1x** | both | same artifacts, smaller for small shifts |
+| ~~Pitch (semitones)~~ | resample by ratio `p`, then stretch by `1/p` | **1x** | both | **Dropped for audiobooks (owner, 2026-09-29).** Kept here for the record only. |
 
-Recommendation and rationale:
+**Owner decision, 2026-09-29: the main use is audiobooks, so the target is speech that sounds correct at a different speed.**
+That settles the choice:
 
-1. **Fix the resampler first (6.1).** It improves every speed, including 1.0x, and needs no stretch algorithm. Ship this as
-   "Speed" staying varispeed.
-2. **Add Tempo as a second mode** for spoken word and podcasts. WSOLA works best there, and the Test Album already contains a
-   LibriVox speech clip to test against. It is the feature most listeners mean by "speed up without chipmunk voice".
-3. **Add Pitch last** and only if wanted: it is the same primitive pair with the ratio wired the other way, at no decode cost.
+- **Chosen: pitch-preserving tempo change (WSOLA, speech-tuned).** A narrator at 1.5x should still sound like the same voice.
+  Varispeed raises the pitch (the chipmunk effect), which is exactly what "sound correct" rules out.
+- **Dropped: the semitone Pitch mode.** Audiobooks have no use for it. It is removed from the plan (C7 becomes Tempo only), which
+  also removes a whole set of ratio and interaction cases to test.
+- **Kept only as a fallback: varispeed** (today's behaviour) for music and for builds where the stretch path is absent
+  (`CYMO_READY()` false), so an old bitstream or a failed probe keeps working.
+- Order of work: fix the resampler first (6.1) because it improves every speed, then add Tempo.
+
+Why WSOLA is the right method for this material, not just a default:
+
+- **Speech is close to periodic.** Voiced speech has a pitch period of roughly 2.5 to 12 ms (about 80 to 400 Hz). A WSOLA search of
+  about +/-10 ms therefore always spans at least one full period, which is what lets it splice grains without an audible seam.
+- **It is a time-domain method**, so it needs no FFT (the project has decided against one) and adds no phase-vocoder "phasiness",
+  which is the usual complaint on speech.
+- **Speech is the easy case.** The known weakness of WSOLA is dense polyphonic music, which this feature no longer has to serve well.
+- **The workload is light.** Audiobooks are usually mono or low-bitrate MPEG-2 (22.05 or 24 kHz) or 44.1 kHz mono. Mono halves the
+  stretch work, and low-bitrate mono is also the cheapest thing the decoder does, so the N x decode requirement is far easier to meet
+  than for a stereo music file **[EST, to be measured on the LibriVox clip]**.
+
+Design choices specific to speech:
+
+| Choice | Setting | Reason |
+|---|---|---|
+| Analysis window | 20-25 ms, 50% overlap | long enough for one to two pitch periods, short enough to follow phonemes |
+| Search range | about +/-10 ms | covers the pitch periods above |
+| Correlation input | mono mix, decimated to about 5.5 kHz whatever the file rate | cost becomes independent of sample rate; a short full-rate refinement (a few samples either side) fixes the fine alignment |
+| Speed range and steps | 0.8x to 3.0x in 0.05x steps | listeners use fine steps on speech; above about 2.5x needs silence handling to stay intelligible |
+| Optional | shorten pauses (skip silence longer than a threshold, capped) | the biggest intelligibility win per second saved on audiobooks, and it falls out of the same framework |
+| Position and bookmarks | unchanged | position is derived from file position, so resume points stay exact (`player.c:859-866`) |
+
+Where it runs, given the project's budget rules: the correlation search on a 5.5 kHz decimated signal is about 110 samples x 110
+lags, roughly 12,000 multiply-accumulates per 10-15 ms hop **[EST]**, which is on the order of 5-10 million cycles a second in
+firmware, or under about 15% of a 66 MHz CPU. That is small enough that the **first implementation can be firmware in cold code with its
+buffers in the PSRAM window**, not new RTL, provided the decoder headroom (the C0 metric) confirms it. A hardware correlator is then a
+measured follow-up only if the firmware version costs too much, which keeps this inside D-C04 (probe-gated, old bitstream unchanged) and
+inside the 6.5-12 KB firmware heap limit (section 11). Both figures are estimates until measured.
 
 Why WSOLA and not simpler or heavier: plain overlap-add (fixed grains) is the cheapest but flutters audibly, and a phase
 vocoder needs an FFT the project has deliberately excluded. WSOLA picks each grain's start by cross-correlating against the
@@ -430,7 +462,7 @@ then a hardware A/B with an evidence label. Nothing below has started.
 | **C4** deep buffer | AW 13 (or PSRAM ring) | RTL + fit, block-RAM ledger | stall-injection test shows underruns absorbed; block budget signed off |
 | **C5** EQ | option B, then D | RTL + tool + Tau Omega format | bit-exact model per gain step; no click on slider moves |
 | **C6** gapless and ReplayGain tags | trim primitive, tag parsing or library-index field | firmware + tool | gapless test tracks sample-exact |
-| **C7** `cymo_stretch` | tempo, then pitch | RTL + fit | prototype scored first; objective measures plus listening |
+| **C7** tempo (audiobooks) | speech-tuned WSOLA, firmware in cold code with PSRAM buffers first; a hardware correlator (`cymo_stretch`) only if C0 shows the CPU cost is too high | firmware first, RTL only if measured | scored on the Test Album's LibriVox clip with objective measures plus an owner listening pass; decode still keeps up at the top speed; resume position exact |
 | **C8** decode kernels | MP3 IMDCT (per C0(c)), FLAC bit reader only if C0(b) says the CPU is still the wall | RTL | only if C0 shows a real bottleneck |
 
 Suggested first slice if the goal is the biggest audible improvement for the least risk: **C0, then C1, then C2**.
@@ -442,7 +474,7 @@ Fits should be run against the *current* macro set, not a bare base (the lesson 
 ## 10. Decisions for the owner
 
 1. Is the scope above the right definition of Cymo, and is **C0 then C1 then C2** the right first slice?
-2. **Pitch:** is "Tempo (keep pitch)" the wanted mode, "Pitch shift", both, or is varispeed with a clean resampler enough?
+2. ~~**Pitch:** which mode~~ **Decided 2026-09-29: pitch-preserving tempo for audiobooks; semitone pitch shift dropped.** Remaining question: is the optional pause-shortening feature wanted?
 3. **EQ:** option B (graphic, on-device sliders) with D (host-delivered curves) as the follow-up, or keep presets?
 4. **Buffer:** M10K first (simple, bounded) or go straight to a PSRAM ring (seconds of buffer, more risk)?
 5. **F2:** may I add a macro-guarded 16-bit I2S experiment for a hardware A/B?
