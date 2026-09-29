@@ -17,6 +17,8 @@ MLAB). That is fixed on `main` (uncommitted there until this same pass, now comm
 (`gb_we`/`gb_addr`/`gb_data`) fanned out to two MLAB copies, fit-confirmed and hardware-confirmed. **Rebase or
 merge `main` into `test/720` before Group A3's own fit** -- the MLAB-inference work A3 describes below is already
 done upstream; redoing it here would be duplicate effort on the same bug, not a second fix.
+**Done 2026-09-29 (B-413):** `origin/main` `ce635b5` merged into `test/720` (merge `1062107`); T2-00's single write
+port and T1's `VID720` both survived the auto-merge of `mp3_fb.sv`, and every `mp3_fb` suite passes on the merged tree.
 
 Two test builds:
 - **Phase 1** -- changes that help 400x360 now and prepare 720, plus 720 output of the *existing* 400x360 picture
@@ -63,6 +65,15 @@ framebuffer. The user-visible default is unchanged.
   (T2-00's two MLAB copies behind one shared write port `gb_we`/`gb_addr`/`gb_data`) -- widen `gb_addr`
   and both arrays' declared size to 256, not a single renamed `glyphbuf` array. The one-write-port
   invariant T2-00 established must survive this widening unchanged (still exactly one `if (gb_we)` site).
+  **Full touch list (checked against the merged RTL, B-413):** the buffer is not the only 7-bit limit.
+  `FB_COPY_MAX 127` in `fw/player.c` exists because `char_w` (the row width every COPY/BLIT/CBLIT/SBLIT row
+  uses) is 7 bits. A3 widens, behind a depth parameter so the default build is unchanged:
+  `glyphbuf_a`/`glyphbuf_b` depth; `gb_addr`; the `glyph_q` read index (`wsrc_addr`); `bl_bg`'s read index and
+  the blend pipeline's `bl_i0`/`bl_i1`; `char_w` and its loads (`q_w`, `sblit_out_w`); the three
+  `copy_cnt == char_w - 1` end-of-row compares; `p0_wr_len`. CHAR stays <= 64 wide (its `ox` is zero-extended).
+  Firmware raises `FB_COPY_MAX` to 255 only when `VID_CAPS` bit 1 is set. Cost: each MLAB copy grows from 4 to
+  8 LABs (256 / 32-deep MLAB), +8 LABs total, and the read side gains one mux level over 8 MLABs.
+  Mutation: `BUG_GB_NARROW` (end-of-row compare on 7 bits) must fail a 200-word COPY/BLIT test.
 
 MMIO (from the free 0x140-0x1FC range):
 
@@ -90,7 +101,7 @@ group to drop first if a fit fails.
 | 0x150 | FB_DRAW_BASE | R/W | 25-bit word address added to FB-relative draw addresses (default 0) |
 | 0x154 | FB_DISP_BASE | R/W | 25-bit word address scanned out; applied at the next vblank (default 0) |
 
-**Open question, flagged 2026-09-29, resolve before implementing C2:** does `draw_base` cover the
+**Question (flagged 2026-09-29) -- resolved below (B-413).** does `draw_base` cover the
 BLIT-class opcodes' own sticky `SRC_BASE`/`DST_BASE` fields (`R_BLT_IDX` fields 0/2 -- used by
 BLIT/CBLIT/SBLIT and B-405's Settings crossfade), or only the RUN/RECT/BAR/RRECT/CHAR/COPY path through
 `cmd_addr`/`R_FB_ADDR`? This is not a wording nitpick -- it's the actual bug `TALOS2_REIMPLEMENTATION_PLAN.md`
@@ -106,6 +117,45 @@ a mutation case -- "a BLIT command ignores `draw_base`" -- that must be caught, 
 other Talos change in this codebase already uses. `TALOS2_REIMPLEMENTATION_PLAN.md` section 5.1 defers its
 own "target surface" design to whichever of these two implementations lands first; make sure this one
 actually earns that by covering blits.
+
+**C2 resolution (B-413, checked against the merged RTL -- this is the shared answer for Talos 2's target surface):**
+
+- **What H2 covers today, precisely.** `dbuf_addr()` is applied at the `p0_addr` issue points for fill, CHAR,
+  COPY (source and destination) and RECT; the RECT site also serves **BAR and RRECT** (they reuse `rect_addr`).
+  So `MMIO_ALLOCATION.md`'s `DBUF_CPU` row was wrong to list BAR/RRECT as unaffected (corrected there). The
+  real gap is exactly **BLIT, CBLIT and SBLIT**: the only paths addressed through `blt_*_base` + stride
+  (issue sites 1069 and 1128 for the destination; 1134, 1144 and 1153 for the source, as numbered in the merged
+  `mp3_fb.sv`). No firmware writes `DBUF_*` yet, so the compatibility view carries no live-firmware risk.
+- **Yes, `draw_base` covers blits: one relocation function at every issue site**, for every opcode, source and
+  destination, including the key/blend destination pre-read:
+  `fb_reloc(a) = (a < VIS_WORDS) ? a + draw_base : a` on the absolute 25-bit address (`blt_*_base` + offset for
+  blits, the FB-relative address for everything else).
+- **The window test is part of the contract, not a detail.** Only the logical visible framebuffer
+  (`VIS_WORDS` = V_ACT x STRIDE of the active layout: 184,320 at 360, 737,280 for Phase 2's native 720) moves.
+  Everything the firmware draws *from* -- art stash, thumbnail stash, TIMG plane, Chladni plane, probe cells,
+  all above row 360 -- stays shared between both buffers, which is how H2 already behaves and what every
+  current blit source relies on (`fb_blit`/`fb_cblit`/`fb_sblit` callers read stash rows and write on-screen).
+  Relocating everything instead would silently move the stashes with the back buffer.
+- **Decided per transaction, not once per command.** The row or segment start address is relocated when it is
+  issued, exactly like `dbuf_addr()` today; per-word offsets (`copy_cnt`, `sblit_ex`) are added after. A
+  segment that straddles the window edge (only possible with non-512 strides) is relocated as a whole by its
+  first word -- deterministic and tested.
+- **Display side.** `disp_base` replaces the fill's `dbuf_addr()`: fill address = `disp_base` + row x STRIDE.
+  clk_sys writes a holding register then toggles; clk_sdram samples the value on the synchronised toggle and
+  applies it at the next vblank edge (the existing flip mechanism, generalised).
+- **Draw side CDC.** `draw_base` is quasi-static like `blt_*_base`: firmware must `fb_wait()` before writing it
+  (enforced by the one firmware helper that writes it).
+- **DBUF compatibility.** Writing `DBUF_CPU` sets `draw_base` to 0 / `DBUF_BASE1`; a `DBUF_FLIP` request sets
+  the pending `disp_base` to the other buffer. Reads derive the old bit.
+- **Timing.** A 25-bit compare + add after the `blit_mode` mux at the issue sites is new depth on the most-retimed
+  paths. Compute the relocated row-start address one cycle ahead into a register (the B-111 pattern) wherever
+  the address is known a cycle early; the issue cycle then only selects registered values.
+- **Mutations that must be caught** (C2's testbench, in `make test-rtl-fb-mutation`):
+  `BUG_RELOC_NONBLIT_ONLY` (BLIT/CBLIT/SBLIT ignore `draw_base` -- the H2 gap itself),
+  `BUG_RELOC_NO_WINDOW` (stash reads/writes relocated), `BUG_RELOC_NO_KEYDST` (the key/blend destination
+  pre-read reads the front buffer while writing the back one), `BUG_DISP_IMMEDIATE` (`disp_base` applied
+  mid-frame instead of at vblank). Each blit opcode is exercised with `draw_base` != 0, source and destination,
+  on both sides of the window edge, and checked against `blit_reference.py` extended with the same rule.
 
 ### 2.3 Group B -- video mode switch (macro `TAU_VIDMODE`, replaces `TAU_VID720`)
 
