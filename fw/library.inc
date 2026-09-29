@@ -480,7 +480,11 @@ COLD_FN static void lib_meta_apply(void)
 }
 
 /* ---------------------------------------------------------------- input */
-COLD_FN static void lib_ui_close(void) { lib_ui_open = 0u; helios_view_changed(); }   /* B-350 */
+/* Helios view registry (item 4): no view-specific enter/exit of its own today -- HELIOS_INV_ALL
+ * already covers everything closing the library browser needs, same as before this existed. */
+static const helios_view_t library_view = { 0, 0, HELIOS_INV_ALL };
+
+COLD_FN static void lib_ui_close(void) { lib_ui_open = 0u; helios_view_switch(&library_view, &helios_player_view); }   /* B-350/item 4 */
 
 COLD_FN static void lib_ui_enter(void)
 {
