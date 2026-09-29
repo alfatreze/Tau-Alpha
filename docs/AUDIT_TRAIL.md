@@ -11165,3 +11165,28 @@ also fixed" rather than claimed as confirmed.
 
 Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with real margin (6,832 B
 minimum vs. 4,096 B floor). Same bitstream as A_19 through A_27. Packaged as `alfatreze.TAU_0_6_0_A_28`.
+
+## B-417: Cymo audio engine audit (docs only, branch `cymo`)
+
+Owner asked for a full investigation of MP3/FLAC audio capability, MP3-FLAC synergies, playback efficiency, architecture and new FPGA
+features, the equalizer, and speed-up distortion, all to be treated as one subsystem named Cymo. Result: `docs/features/CYMO_AUDIO_ENGINE.md`.
+Nothing built; no RTL, firmware, card or VM touched.
+
+Read: `pcm_fifo.v`, `eq_biquad.v`, `sound_i2s.v`, `sync_fifo.v`, the SoC audio wiring in `mp3_soc.v`/`core_game.vh`, the two firmware push
+loops, `pcm_rate_apply()`, `flac.c`'s bit-depth reduction, and the existing FLAC/MP3/EQ measurements. Findings by evidence class:
+
+- **Code-read:** the output is a nearest-neighbour resampler (FIFO hold, then the EQ tick, then I2S "newest sample"), with no interpolation or
+  anti-alias filter; `sound_i2s` passes `{sign, audio[15:1]}` (15 effective bits, audio shifted right by one) for the 16-bit signed instance;
+  volume/fade/24-to-16-bit reduction are per-sample software in two duplicated loops with no dither, an instant gain step and a linear taper;
+  speed is varispeed; the PCM FIFO is 2,048 samples (about 46 ms); no gapless, ReplayGain, crossfade or dither code exists.
+- **Host-modelled (not hardware):** for a 44.1 kHz source on the 48 kHz DAC, nearest-neighbour gives about 28 dB signal-to-error at 1 kHz and 8 dB
+  at 10 kHz against 89/24 dB for 4-point cubic; the crude 8-tap sinc row is limited by an un-normalised kernel and is only meaningful for ordering.
+  Folding thresholds at speed (1.75x: source content above 14.9 kHz). The model is a scratchpad script, not a repo tool. It does not say what is
+  audible; the owner has not reported this as a problem across many builds.
+- **Open:** the CPU LOAD 100% reading conflicts with the existing `fl_idle_pct` accounting and needs explaining; FLAC `t_pct` with hardware LPC and
+  88.2/96 kHz via ACCEPT ALL RATES were never measured; the MP3 D/A/X split has no recorded reading; whether the 15-bit slot is intentional
+  headroom; the Pocket's audio output-rate constraints (the `analogue-pocket-dev` skill checkout is not in this cloud worktree).
+
+Recommendation: one hardware output stage (`cymo_resamp`, `cymo_out`, deeper buffer, programmable EQ, then optional `cymo_stretch`), built in the
+order C0 measure, C1 firmware unification, C2 resampler first. Pitch-preserving tempo needs N x decode like varispeed; pitch-only shifting needs
+1 x. Full plan, resource ledger (all estimates) and six owner decisions are in the document.
