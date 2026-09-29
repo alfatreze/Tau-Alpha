@@ -64,7 +64,9 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x134 | LPC_RESIDUAL | W | writes the next signed 32-bit residual and starts one reconstruction (MAC over `order` taps, one multiply-add per clock, then a registered shift and add -- never chained combinationally, this project's own timing rule). |
 | 0x138 | LPC_SAMPLE | R | the last reconstructed sample. **Reading this register is itself the acknowledgement** that lets the unit accept the next residual (wired straight to the bus's one-cycle read-request pulse, not a separate write-to-ack step) -- poll `LPC_STATUS` for done first. 0 when off. |
 | 0x13C | LPC_STATUS | R | bit 0 = built in, bit 1 = busy, bit 2 = done (the sample at `LPC_SAMPLE` is ready and unread). 0 when off. |
-| 0x140-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x140-0x148 | free | | Proposed for the 720 phased spec (SCAN_LAT, VID_MODE); not built. |
+| 0x14C | VID_CAPS | R | 720 phased spec capability word (test/720, B-414). Bit 1 = 256-word row buffer (`TAU_SCAN_A`, mp3_fb `GB_WIDE`): COPY/BLIT/SBLIT/CBLIT rows up to 255 words. Other bits reserved, 0. 0 on older bitstreams. |
+| 0x150-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. 0x150/0x154 proposed for FB_DRAW_BASE/FB_DISP_BASE. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 

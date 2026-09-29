@@ -74,6 +74,13 @@ framebuffer. The user-visible default is unchanged.
   Firmware raises `FB_COPY_MAX` to 255 only when `VID_CAPS` bit 1 is set. Cost: each MLAB copy grows from 4 to
   8 LABs (256 / 32-deep MLAB), +8 LABs total, and the read side gains one mux level over 8 MLABs.
   Mutation: `BUG_GB_NARROW` (end-of-row compare on 7 bits) must fail a 200-word COPY/BLIT test.
+  **Built 2026-09-29 (B-414), simulation only, no fit:** `mp3_fb` parameter `GB_WIDE` (macro `TAU_SCAN_A`, wired in
+  `core_game.vh`) and `VID_CAPS` at 0x14C in `mp3_soc.v` (bit 1 only; bit 0 stays 0 until A1/A2 exist). Corrections
+  to the list above found while building: there are **four** end-of-row compares, not three (COPY/BLIT read, the
+  key/blend destination pre-read, SBLIT, CBLIT), and two more limits -- `sblit_ext`'s 127 clamp (now 127 or 255) and
+  CHAR's `ox` compare (kept on 7 bits). Still exactly one `if (gb_we)` site. `make test-rtl-fb-wide`: COPY, BLIT,
+  keyed BLIT, blended BLIT, SBLIT 2x and CBLIT at 127 words (`GB_WIDE=0`) and at 200 words plus a 255-word COPY
+  (`GB_WIDE=1`); `BUG_GB_NARROW` fails 9 of 9 checks. Firmware `FB_COPY_MAX` is not changed yet.
 
 MMIO (from the free 0x140-0x1FC range):
 

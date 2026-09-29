@@ -10180,3 +10180,30 @@ A (visible-only fetch, fill-latency counters, 256-word copy buffer), C (widening
 10-bit `scan_vc`), B (37.5 MHz, two geometries, frame-wrap switch, slot word), each under its own macro for fit
 bisection; ~0 M10K, ~450-800 ALMs [EST]. Phase 2 = native 800x720 mode, 2x1024 line buffer (+2 M10K, +3 with triple),
 framebuffer at 16 MiB, test-pattern page and a 720 STORM Check. MMIO 0x140-0x154 proposed. No code change.
+- 2026-09-29 (Claude): git/docs (B-413), branch `test/720`. Merged `origin/main` `ce635b5` into `test/720`
+(merge `1062107`); main had used B-374..B-409, so this branch's B-374/375/376 were renumbered B-410/411/412 in
+this file and `CLAUDE.md` (older pushed commit messages keep the old numbers; the mapping is in the merge commit).
+T2-00 (glyphbuf single write port, two MLAB copies) and T1 (`VID720`) both survived the auto-merge; `rtl-lint`,
+`test-rtl-fb`, `test-rtl-fb-mutation`, `test-rtl-helios-dbuf`, `test-rtl-blit-reference` and `test-rtl-fb-vid720`
+passed on the merged tree. Resolved the C2 question from the RTL itself (commit `dcc95ce`): today H2's
+`dbuf_addr()` covers fill, CHAR, COPY and RECT (incl. BAR/RRECT) but not BLIT/CBLIT/SBLIT, which address through
+the sticky `SRC_BASE`/`DST_BASE`. Decision, written as the shared answer with Talos 2 section 5.1: `FB_DRAW_BASE`
+relocates every SDRAM transaction of every opcode (source, destination, key/blend pre-read) whose address falls in
+the visible window (< 184,320 words), decided per row/segment, computed one cycle ahead; `FB_DISP_BASE` latched at
+vblank; DBUF becomes a view onto the two. Mutations named: `BUG_RELOC_NONBLIT_ONLY`, `BUG_RELOC_NO_WINDOW`,
+`BUG_RELOC_NO_KEYDST`, `BUG_DISP_IMMEDIATE`. Also corrected `MMIO_ALLOCATION.md`'s DBUF_CPU row (BAR/RRECT are
+offset). Docs only; no RTL in this step.
+- 2026-09-29 (Claude): RTL/sim (B-414), branch `test/720`. 720 phased spec A3 built: 256-word row buffer.
+`mp3_fb.sv` gains `GB_WIDE` (default 0) and a `BUG_GB_NARROW` mutation hook; `glyphbuf_a`/`glyphbuf_b`, `gb_addr`,
+the `glyph_q` read index, `bl_bg`/`bl_i0`/`bl_i1`, `char_w` and its five loads, `p0_wr_len`, the four end-of-row
+compares and `sblit_ext`'s clamp follow `GBAW` (7 or 8). Still exactly one `if (gb_we)` site (T2-00's invariant).
+With `GB_WIDE=0` every compare is the old 8-bit `char_w[6:0] - 1` (char_w==0 wrap included), so the default
+netlist is functionally unchanged. `core_game.vh`: `TAU_SCAN_A` -> `GB_WIDE`; `mp3_soc.v`: read-only `VID_CAPS` at
+0x14C, bit 1 = wide buffer (bit 0 left 0 until A1/A2 exist). New `sim/tb_mp3_fb_wide.v` / `make test-rtl-fb-wide`
+(in `test-rtl`): COPY, custom-stride BLIT, keyed BLIT, blended BLIT, SBLIT 2x and CBLIT at 127 words with
+`GB_WIDE=0` and 200 words (plus a 255-word COPY) with `GB_WIDE=1`, each word checked against its source/dest
+address; `BUG_GB_NARROW` fails 9/9. `test-rtl-fb`, `-fb-mutation`, `-helios-dbuf`, `-blit-reference`, `-fb-vid720`
+pass; Verilator warnings for `mp3_fb` are a subset of the pre-change set in both modes; the PSRAM real-CPU bench
+elaborates against the regenerated `mp3_soc_sim.v` (not run: no RISC-V toolchain here). Corrected the spec's touch
+list (four compares, not three; `sblit_ext` and CHAR's `ox` compare were missing). Not done: firmware
+`FB_COPY_MAX` 255 gated on `VID_CAPS` bit 1, any fit (+8 MLAB LABs expected).

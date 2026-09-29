@@ -117,7 +117,15 @@ module mp3_fb #(
     // framebuffer row is fetched once and shown on two output lines, each pixel twice. SDRAM scanout
     // load is unchanged (one 512-word fill per framebuffer row, now every other output line). 0 = the
     // shipped 400x360 timing, byte-for-byte unchanged.
-    parameter VID720 = 0
+    parameter VID720 = 0,
+    // 720 phased spec A3 (docs/features/VIDEO_720_PHASED_SPEC.md): 256-word row buffer
+    // (glyphbuf_a/_b, gb_addr, char_w) so COPY/BLIT/SBLIT/CBLIT rows up to 255 words go in one
+    // burst instead of the firmware splitting at 127. 0 = the 128-word buffer, byte-for-byte
+    // unchanged. The single-write-port invariant (one `if (gb_we)` site, T2-00) is kept.
+    parameter GB_WIDE = 0,
+    // Mutation hook (GB_WIDE=1 only): row end compared on 7 bits, as if the buffer were still
+    // 128 words -- a 200-word row must then FAIL the wide COPY/BLIT test.
+    parameter BUG_GB_NARROW = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -239,6 +247,11 @@ module mp3_fb #(
     // is vc - VOFF while VOFF <= vc < VOFF + V_ACT. Carried to the CPU by tau_cdc_gray_bus (it steps by +1 per line).
     output wire [8:0]  scan_vc
 );
+
+    // A3: row-buffer address width and depth (7/128 shipped, 8/256 with GB_WIDE).
+    localparam integer GBAW = (GB_WIDE != 0) ? 8 : 7;
+    localparam integer GBN  = 1 << GBAW;
+    localparam [10:0]  GB_MAXW = (GB_WIDE != 0) ? 11'd255 : 11'd127;   // widest row the buffer holds (127 or 255)
 
     // ---- Geometry ----------------------------------------------------------
     // H_ACT/V_ACT are the FRAMEBUFFER size (unchanged by VID720); O_* are the OUTPUT timing. With
@@ -392,7 +405,7 @@ module mp3_fb #(
                 2'd2: scaled = {2'd0, src} << 1;
                 default: scaled = {2'd0, src} * 11'd3;
             endcase
-            sblit_ext = (scaled > 11'd127) ? 9'd127 : scaled[8:0];
+            sblit_ext = (scaled > GB_MAXW) ? GB_MAXW[8:0] : scaled[8:0];
         end
     endfunction
 
@@ -583,17 +596,17 @@ module mp3_fb #(
     // usage despite the comment above hoping for it -- Quartus was not
     // inferring MLAB on its own, so this forces it explicitly. Simple-dual-
     // port (one write port, one read port), so it is MLAB-legal.
-    (* ramstyle = "MLAB, no_rw_check" *) reg [15:0] glyphbuf_a [0:127];
-    (* ramstyle = "MLAB, no_rw_check" *) reg [15:0] glyphbuf_b [0:127];
+    (* ramstyle = "MLAB, no_rw_check" *) reg [15:0] glyphbuf_a [0:GBN-1];
+    (* ramstyle = "MLAB, no_rw_check" *) reg [15:0] glyphbuf_b [0:GBN-1];
 `else
-    reg [15:0] glyphbuf_a [0:127];
-    reg [15:0] glyphbuf_b [0:127];
+    reg [15:0] glyphbuf_a [0:GBN-1];
+    reg [15:0] glyphbuf_b [0:GBN-1];
 `endif
     reg        gb_we;
-    reg [6:0]  gb_addr;
+    reg [GBAW-1:0] gb_addr;
     reg [15:0] gb_data;
     reg [15:0] glyph_q;
-    always @(posedge clk_sdram) glyph_q <= glyphbuf_a[wsrc_addr[6:0]];
+    always @(posedge clk_sdram) glyph_q <= glyphbuf_a[wsrc_addr[GBAW-1:0]];
     assign wsrc_q = glyph_q;
 
     // ---- Font ROM (generated; see tools/gen_font_rom.py) -------------------
@@ -692,7 +705,13 @@ module mp3_fb #(
     reg [1:0]  char_sx, char_sy;
     reg [8:0]  char_rows_left;
     reg        char_row_ready = 0;      // glyphbuf holds a row awaiting write
-    reg [6:0]  char_w;                  // 16 * (sx+1)
+    reg [GBAW-1:0] char_w;              // 16 * (sx+1); row width for COPY/BLIT/SBLIT/CBLIT
+    // A3: last-word index of a row buffer pass, on 8 bits (compared with copy_cnt). With GB_WIDE=0
+    // this is exactly the old `char_w[6:0] - 7'd1` evaluated at copy_cnt's 8 bits, char_w==0 wrap
+    // included. BUG_GB_NARROW truncates it to 7 bits (only observable with GB_WIDE=1).
+    wire [8:0]      char_w9     = {{(9-GBAW){1'b0}}, char_w};
+    wire [7:0]      char_w_m1   = char_w9[7:0] - 8'd1;
+    wire [7:0]      char_w_last = (BUG_GB_NARROW != 0) ? {1'b0, char_w_m1[6:0]} : char_w_m1;
     // Fractional scaling by Bresenham rather than integer replication: the
     // source position advances num/den per output pixel, so 2/3 gives 1.5x.
     // Integer-only scaling meant the smallest step above 16px was 32px --
@@ -813,7 +832,7 @@ module mp3_fb #(
     // bl_drain also blocks new dispatch meanwhile.
     reg        bl_v0 = 1'b0, bl_v1 = 1'b0, bl_drain = 1'b0;
     reg [15:0] bl_fg, bl_bg, bl_r;
-    reg [6:0]  bl_i0, bl_i1;
+    reg [GBAW-1:0] bl_i0, bl_i1;
 
     // B4 (OP_SBLIT) state. sblit_mode selects the conditional (Y-Bresenham-
     // gated) source row step in A_WRWAIT over BLIT's own unconditional one;
@@ -1068,7 +1087,7 @@ module mp3_fb #(
                     end else if (char_row_ready && can_sdram) begin
                         p0_addr      <= blit_mode ? blit_dst_addr : dbuf_addr(char_addr, dbuf_cpu_buf);   // H2 (B-340)
                         p0_byte_en   <= 2'b11;
-                        p0_wr_len    <= {4'd0, char_w};
+                        p0_wr_len    <= {2'b00, char_w9};
                         p0_wr_stream <= 1'b1;
                         p0_wr_req    <= 1'b1;
                         wr_is_char   <= 1'b1;
@@ -1182,7 +1201,7 @@ module mp3_fb #(
                                 char_den  <= nd_x[2:0];
                                 char_numy <= nd_y[5:3];
                                 char_deny <= nd_y[2:0];
-                                char_w            <= ext_x[6:0];
+                                char_w            <= ext_x[GBAW-1:0];
                                 char_rows_left    <= ext_y;
                                 char_rows_left_nz <= 1'b1;
                                 ey <= 4'd0; acc_y <= 3'd0;
@@ -1239,7 +1258,7 @@ module mp3_fb #(
                                 sblit_mode   <= 1'b0;
                                 cblit_mode   <= 1'b0;
                                 char_addr <= q_addr;
-                                char_w    <= q_w[6:0];
+                                char_w    <= q_w[GBAW-1:0];
                                 char_rows_left    <= q_h;
                                 char_rows_left_nz <= (q_h != 9'd0) && (q_w != 9'd0);
                             end
@@ -1259,7 +1278,7 @@ module mp3_fb #(
                                 cblit_mode   <= 1'b0;
                                 blit_dst_addr <= blt_dst_base + {6'd0, q_addr};
                                 blit_src_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
-                                char_w    <= q_w[6:0];
+                                char_w    <= q_w[GBAW-1:0];
                                 char_rows_left    <= q_h;
                                 char_rows_left_nz <= (q_h != 9'd0) && (q_w != 9'd0);
                             end
@@ -1311,7 +1330,7 @@ module mp3_fb #(
                                 char_den  <= nd_x[2:0];
                                 char_numy <= nd_y[5:3];
                                 char_deny <= nd_y[2:0];
-                                char_w            <= sblit_out_w[6:0];
+                                char_w            <= sblit_out_w[GBAW-1:0];
                                 char_rows_left    <= sblit_out_h;
                                 char_rows_left_nz <= (sblit_out_w != 9'd0) && (sblit_out_h != 9'd0);
                                 sblit_ex <= 9'd0; acc_x <= 3'd0; acc_y <= 3'd0;
@@ -1334,7 +1353,7 @@ module mp3_fb #(
                                 rrect_active  <= 1'b0;
                                 blit_dst_addr <= blt_dst_base + {6'd0, q_addr};
                                 blit_src_addr <= blt_src_base + {6'd0, {q_fg[2:0], q_bg}};
-                                char_w    <= q_w[6:0];
+                                char_w    <= q_w[GBAW-1:0];
                                 char_rows_left    <= q_h;
                                 char_rows_left_nz <= (q_h != 9'd0) && (q_w != 9'd0);
                                 copy_cnt  <= 8'd0;
@@ -1502,14 +1521,14 @@ module mp3_fb #(
                         if (!pixel_keyed) begin
                             if (key_dst_done && blend_active && !BUG_BLEND_ALWAYS_SRC) begin
                                 bl_fg <= p0_q;
-                                bl_bg <= glyphbuf_b[copy_cnt[6:0]];
-                                bl_i0 <= copy_cnt[6:0];
+                                bl_bg <= glyphbuf_b[copy_cnt[GBAW-1:0]];
+                                bl_i0 <= copy_cnt[GBAW-1:0];
                                 bl_v0 <= 1'b1;
                             end else begin
-                                gb_we = 1'b1; gb_addr = copy_cnt[6:0]; gb_data = p0_q;
+                                gb_we = 1'b1; gb_addr = copy_cnt[GBAW-1:0]; gb_data = p0_q;
                             end
                         end
-                        if (copy_cnt == char_w[6:0] - 7'd1) begin
+                        if (copy_cnt == char_w_last) begin
                             p0_end_burst_req <= 1'b1;
                             if (key_dst_done && blend_active && !BUG_BLEND_ALWAYS_SRC)
                                 bl_drain <= 1'b1;      // released once S1/S2 drain
@@ -1528,8 +1547,8 @@ module mp3_fb #(
                 // whether to overwrite it.
                 A_KEYDST: begin
                     if (p0_data_available) begin
-                        gb_we = 1'b1; gb_addr = copy_cnt[6:0]; gb_data = p0_q;
-                        if (copy_cnt == char_w[6:0] - 7'd1) begin
+                        gb_we = 1'b1; gb_addr = copy_cnt[GBAW-1:0]; gb_data = p0_q;
+                        if (copy_cnt == char_w_last) begin
                             p0_end_burst_req <= 1'b1;
                             key_dst_done     <= 1'b1;
                             astate <= A_IDLE;
@@ -1546,9 +1565,9 @@ module mp3_fb #(
                 // directly from here.
                 A_SBLIT: begin
                     if (p0_data_available) begin
-                        gb_we = 1'b1; gb_addr = copy_cnt[6:0]; gb_data = p0_q;
+                        gb_we = 1'b1; gb_addr = copy_cnt[GBAW-1:0]; gb_data = p0_q;
                         p0_end_burst_req <= 1'b1;
-                        if (copy_cnt == char_w[6:0] - 7'd1) begin
+                        if (copy_cnt == char_w_last) begin
                             char_row_ready <= 1'b1;
                         end else begin
                             copy_cnt <= copy_cnt + 8'd1;
@@ -1579,8 +1598,8 @@ module mp3_fb #(
                     end
                 end
                 A_CBLIT_WAIT: begin
-                    gb_we = 1'b1; gb_addr = copy_cnt[6:0]; gb_data = cblit_wval;
-                    if (copy_cnt == char_w[6:0] - 7'd1) begin
+                    gb_we = 1'b1; gb_addr = copy_cnt[GBAW-1:0]; gb_data = cblit_wval;
+                    if (copy_cnt == char_w_last) begin
                         char_row_ready <= 1'b1;
                     end else begin
                         copy_cnt <= copy_cnt + 8'd1;
@@ -1620,8 +1639,8 @@ module mp3_fb #(
                     astate     <= A_COMPOSE_WR;
                 end
                 A_COMPOSE_WR: begin
-                    gb_we = 1'b1; gb_addr = ox[5:0]; gb_data = px_color_r;
-                    if (ox == char_w - 7'd1) begin
+                    gb_we = 1'b1; gb_addr = {{(GBAW-6){1'b0}}, ox[5:0]}; gb_data = px_color_r;
+                    if (ox == char_w_m1[6:0]) begin
                         char_row_ready <= 1'b1;
                         astate <= A_IDLE;
                     end else begin

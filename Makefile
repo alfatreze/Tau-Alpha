@@ -1,4 +1,4 @@
-.PHONY: test-qr test-rtl-fb-vid720 test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-qr test-rtl-fb-vid720 test-rtl-fb-wide test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -67,7 +67,7 @@ test-host:
 	$(PYTHON) sim/test_flac_lpc_fw_redirect.py
 	$(PYTHON) tools/check_art_load_order.py --check
 
-test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-fb-vid720 test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-fb-vid720 test-rtl-fb-wide test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -104,6 +104,18 @@ test-rtl-helios-dbuf: | $(RTL_BUILD_DIR)
 	$(VVP) $(RTL_BUILD_DIR)/tb_helios_dbuf0.vvp | grep -q "^PASSED"
 
 # Phase F B1/B2: each mutant MUST fail this bench.
+# 720 phased spec A3 (test/720 branch, docs/features/VIDEO_720_PHASED_SPEC.md): the 256-word row buffer. COPY, BLIT,
+# keyed BLIT, blended BLIT, SBLIT 2x and CBLIT at 127 words with GB_WIDE=0 (regression) and 200/255 words with
+# GB_WIDE=1. The BUG_GB_NARROW mutant (row end compared on 7 bits) MUST fail.
+test-rtl-fb-wide: | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -Ptb_mp3_fb_wide.GB_WIDE=0 -o $(RTL_BUILD_DIR)/tb_fb_wide_0.vvp sim/tb_mp3_fb_wide.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v
+	$(VVP) -n $(RTL_BUILD_DIR)/tb_fb_wide_0.vvp | tee $(RTL_BUILD_DIR)/tb_fb_wide_0.log | grep -q "^PASSED"
+	$(IVERILOG) -g2012 -Ptb_mp3_fb_wide.GB_WIDE=1 -o $(RTL_BUILD_DIR)/tb_fb_wide_1.vvp sim/tb_mp3_fb_wide.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v
+	$(VVP) -n $(RTL_BUILD_DIR)/tb_fb_wide_1.vvp | tee $(RTL_BUILD_DIR)/tb_fb_wide_1.log | grep -q "^PASSED"
+	$(IVERILOG) -g2012 -Ptb_mp3_fb_wide.BUG_GB_NARROW=1 -o $(RTL_BUILD_DIR)/tb_fb_wide_mut.vvp sim/tb_mp3_fb_wide.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v
+	@if $(VVP) -n $(RTL_BUILD_DIR)/tb_fb_wide_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG_GB_NARROW"; \
+	  else echo "MUTANT SURVIVED: BUG_GB_NARROW"; exit 1; fi
+
 test-rtl-fb-mutation: | $(RTL_BUILD_DIR)
 	@set -e; \
 	run() { $(IVERILOG) -g2012 $$1 -o $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v; \
