@@ -551,17 +551,36 @@ module mp3_fb #(
     // ======================================================================
     // 128 entries: shared by CHAR (max 48 px wide) and COPY, whose width is the
     // album-art panel rather than a glyph.
+    // T2-00 (docs/research/TALOS_REVIEW_2026-09-28.md section 1a): the B-327 blend pipeline gave
+    // this buffer a SECOND read (bl_bg, in A_COPYRD) and a SECOND write site (the blend write-back
+    // below, textually outside the astate case) -- one write port + one read port is MLAB-legal,
+    // but two of either is a shape no memory primitive supports, so Quartus fell back to a full
+    // register file with mux'd read/write (about 6,500 ALMs instead of about 80 ALMs of MLAB: 7,800
+    // ALMs for this whole module with TAU_BLIT_BLEND on, measured, vs 1,313 without). Fix: exactly
+    // ONE registered write port (gb_we/gb_addr/gb_data below, computed once per cycle regardless of
+    // which site wants to write -- every site that used to write glyphbuf directly now sets these
+    // three via blocking assignment instead, so only one non-blocking write statement exists for the
+    // whole module), fanned out to TWO identical MLAB copies so each of the two readers gets its own
+    // read port. Functionally a no-op: the sites were always mutually exclusive already (one command
+    // in flight at a time; the blend write-back only fires while astate is idling or mid-scanline-
+    // fill, never while another site's case arm is also writing -- see the comment above bl_v1's
+    // declaration).
 `ifdef TAU_MLAB_MIGRATE
     // PHASE_F_SPEC.md section 2: every saved fit report shows zero MLAB
     // usage despite the comment above hoping for it -- Quartus was not
     // inferring MLAB on its own, so this forces it explicitly. Simple-dual-
     // port (one write port, one read port), so it is MLAB-legal.
-    (* ramstyle = "MLAB, no_rw_check" *) reg [15:0] glyphbuf [0:127];
+    (* ramstyle = "MLAB, no_rw_check" *) reg [15:0] glyphbuf_a [0:127];
+    (* ramstyle = "MLAB, no_rw_check" *) reg [15:0] glyphbuf_b [0:127];
 `else
-    reg [15:0] glyphbuf [0:127];
+    reg [15:0] glyphbuf_a [0:127];
+    reg [15:0] glyphbuf_b [0:127];
 `endif
+    reg        gb_we;
+    reg [6:0]  gb_addr;
+    reg [15:0] gb_data;
     reg [15:0] glyph_q;
-    always @(posedge clk_sdram) glyph_q <= glyphbuf[wsrc_addr[6:0]];
+    always @(posedge clk_sdram) glyph_q <= glyphbuf_a[wsrc_addr[6:0]];
     assign wsrc_q = glyph_q;
 
     // ---- Font ROM (generated; see tools/gen_font_rom.py) -------------------
@@ -1003,6 +1022,13 @@ module mp3_fb #(
             cblit_mode   <= 1'b0;
             rd_ptr <= 0; rd_ptr_g <= 0;
         end else begin
+            // T2-00: exactly one glyphbuf write port for the whole module (see the comment above
+            // glyphbuf_a/glyphbuf_b's declaration). Default "no write"; every site below that used
+            // to write glyphbuf directly sets these three via BLOCKING assignment instead (so the
+            // value is available this same delta, in program order, before the single non-blocking
+            // write at the bottom of this block schedules it) -- everything else about each site is
+            // unchanged.
+            gb_we = 1'b0;
             // B5 blend pipeline stages S1/S2 (S0 is in A_COPYRD below)
             bl_v0 <= 1'b0;
             bl_v1 <= bl_v0;
@@ -1010,7 +1036,7 @@ module mp3_fb #(
                 bl_r  <= blend_px(bl_bg, bl_fg, blt_blend_mode, blt_blend_alpha);
                 bl_i1 <= bl_i0;
             end
-            if (bl_v1) glyphbuf[bl_i1] <= bl_r;
+            if (bl_v1) begin gb_we = 1'b1; gb_addr = bl_i1; gb_data = bl_r; end
             if (bl_drain && !bl_v0 && !bl_v1) begin
                 bl_drain       <= 1'b0;
                 char_row_ready <= 1'b1;
@@ -1463,11 +1489,12 @@ module mp3_fb #(
                         if (!pixel_keyed) begin
                             if (key_dst_done && blend_active && !BUG_BLEND_ALWAYS_SRC) begin
                                 bl_fg <= p0_q;
-                                bl_bg <= glyphbuf[copy_cnt[6:0]];
+                                bl_bg <= glyphbuf_b[copy_cnt[6:0]];
                                 bl_i0 <= copy_cnt[6:0];
                                 bl_v0 <= 1'b1;
-                            end else
-                                glyphbuf[copy_cnt[6:0]] <= p0_q;
+                            end else begin
+                                gb_we = 1'b1; gb_addr = copy_cnt[6:0]; gb_data = p0_q;
+                            end
                         end
                         if (copy_cnt == char_w[6:0] - 7'd1) begin
                             p0_end_burst_req <= 1'b1;
@@ -1488,7 +1515,7 @@ module mp3_fb #(
                 // whether to overwrite it.
                 A_KEYDST: begin
                     if (p0_data_available) begin
-                        glyphbuf[copy_cnt[6:0]] <= p0_q;
+                        gb_we = 1'b1; gb_addr = copy_cnt[6:0]; gb_data = p0_q;
                         if (copy_cnt == char_w[6:0] - 7'd1) begin
                             p0_end_burst_req <= 1'b1;
                             key_dst_done     <= 1'b1;
@@ -1506,7 +1533,7 @@ module mp3_fb #(
                 // directly from here.
                 A_SBLIT: begin
                     if (p0_data_available) begin
-                        glyphbuf[copy_cnt[6:0]] <= p0_q;
+                        gb_we = 1'b1; gb_addr = copy_cnt[6:0]; gb_data = p0_q;
                         p0_end_burst_req <= 1'b1;
                         if (copy_cnt == char_w[6:0] - 7'd1) begin
                             char_row_ready <= 1'b1;
@@ -1539,7 +1566,7 @@ module mp3_fb #(
                     end
                 end
                 A_CBLIT_WAIT: begin
-                    glyphbuf[copy_cnt[6:0]] <= cblit_wval;
+                    gb_we = 1'b1; gb_addr = copy_cnt[6:0]; gb_data = cblit_wval;
                     if (copy_cnt == char_w[6:0] - 7'd1) begin
                         char_row_ready <= 1'b1;
                     end else begin
@@ -1580,7 +1607,7 @@ module mp3_fb #(
                     astate     <= A_COMPOSE_WR;
                 end
                 A_COMPOSE_WR: begin
-                    glyphbuf[ox[5:0]] <= px_color_r;
+                    gb_we = 1'b1; gb_addr = ox[5:0]; gb_data = px_color_r;
                     if (ox == char_w - 7'd1) begin
                         char_row_ready <= 1'b1;
                         astate <= A_IDLE;
@@ -1598,6 +1625,14 @@ module mp3_fb #(
 
                 default: astate <= A_IDLE;
             endcase
+
+            // T2-00: the single merged write, fanned out to both MLAB copies. gb_we/gb_addr/gb_data
+            // were set (at most once, via blocking assignment) by whichever site above wanted to
+            // write this cycle -- this is the only place either array is ever written.
+            if (gb_we) begin
+                glyphbuf_a[gb_addr] <= gb_data;
+                glyphbuf_b[gb_addr] <= gb_data;
+            end
         end
     end
 
