@@ -2244,6 +2244,39 @@ COLD_FN3 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, 
     return 1;
 }
 
+/* B-417: Option A of the B-413 investigation. dbg_scope_blend_ok/fail (wviz_scope_tick()) already
+ * proved the blend mechanism runs to completion and reports success every single time -- this reads
+ * back the gradient strip's ACTUAL SDRAM pixel content (via the same mailbox primitive blend_probe()
+ * uses) and compares it against what ui_grad_at() computes fresh for those same rows RIGHT NOW. Every
+ * word in a given row should hold the same colour twice (both mailbox halves), since ui_bg_ready's
+ * lazy build paints one uniform colour per row via a single fb_rect() call -- so a genuine mismatch
+ * here is real corruption, not a sampling artefact. Three rows sampled (top/middle/bottom of the
+ * strip's range) rather than one, since a corruption mechanism might only hit part of the strip.
+ * Result: if this reads BAD, the strip itself holds wrong data despite ui_bg_ready claiming otherwise
+ * (points back at a firmware-side write bug, worth another source pass); if it reads OK while the
+ * trail still visibly doesn't fade, the strip is genuinely correct and the bug is in the blend
+ * hardware's own datapath -- the next real step is a live JTAG read of the blend pipeline itself
+ * (bl_fg/bl_bg/bl_r/blt_blend_alpha), not more firmware source-reading. */
+static uint8_t  dbg_strip_bad;
+static uint16_t dbg_strip_actual[3], dbg_strip_expect[3];
+
+static void dbg_strip_check(void)
+{
+    const uint32_t rows[3] = { UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H / 2u, UI_WAVE_Y + UI_WAVE_H - 1u };
+    dbg_strip_bad = 0;
+    for (uint32_t k = 0; k < 3u; k++) {
+        uint32_t yy = rows[k];
+        uint16_t want = ui_grad_at(yy);
+        uint32_t addr = yy * FB_STRIDE + UI_BG_X;
+        uint32_t r = 0;
+        dbg_strip_expect[k] = want;
+        if (blend_mb_read(addr, &r)) { dbg_strip_bad = 1u; dbg_strip_actual[k] = 0xFFFFu; continue; }
+        uint16_t lo = (uint16_t)(r & 0xFFFFu), hi = (uint16_t)(r >> 16);
+        dbg_strip_actual[k] = (lo == want) ? lo : hi;    /* prefer whichever half matches, for display */
+        if (lo != want && hi != want) dbg_strip_bad = 1u;
+    }
+}
+
 /* Repaint the strip the art travels through, so a slide leaves the background
  * behind it rather than a smear. Only the bands crossing the panel's rows. */
 static void ui_art_bg_range(uint32_t x, uint32_t w)
@@ -4028,7 +4061,7 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
         const uint32_t trail = (uint32_t)MV_WINAMP_SCOPE(SCOPE_TRAIL);
         const int attempt = use_gradient && trail && !paused;
         const int did_blend = attempt && ui_bg_blend(x0, y, w, h, (100u - trail) * 256u / 100u);
-        if (attempt) { if (did_blend) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; }
+        if (attempt) { if (did_blend) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check(); }
         if (!did_blend) {
             if (use_gradient) ui_bg_restore(x0, y, w, h);
             else              fb_rect(x0, y, w, h, bg);
