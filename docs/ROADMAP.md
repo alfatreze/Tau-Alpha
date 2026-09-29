@@ -38,7 +38,7 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 - Firmware modularization (`FIRMWARE_MODULARIZATION_PLAN`, parked until key features land).
 - Winamp on-device Configure page: parked, may be replaced by Tau Omega authoring; do not extend.
 - Tracker/MOD support, CJK/UTF-8 fonts, Chladni presets beyond Lattice/Shimmer, per-channel waveform presets.
-- Resolution 720: **last** by owner decision, everything earlier must stay resolution-agnostic.
+- Resolution 720: **last** by owner decision, everything earlier must stay resolution-agnostic. Test branch `test/720` (B-374): T1 (800x720 output, 360 framebuffer doubled) built and simulated; plan, risks and hardware options in `features/VIDEO_720_TEST_PLAN.md`.
 - Defects: `Track changes` Check failure; boot-restore mismatch (`docs/issues/021`, waits for the UI redesign); heap-peak instrumentation for Check;
   BUG-001 accented names (`docs/issues/001`).
 

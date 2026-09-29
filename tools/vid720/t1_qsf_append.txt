@@ -1,0 +1,61 @@
+# 720 test step T1 (test/720 branch, docs/features/VIDEO_720_TEST_PLAN.md, B-374): 800x720 output timing at a
+# 37.5 MHz pixel clock, the 400x360 framebuffer doubled at scanout. Everything else is the all6-combined
+# bitstream (alpha.15 on the card), so the result pairs with alpha.15's ROM and cold image unchanged and
+# differs from it only in the video path. Package with tools/vid720/video.json (800x720) as video.json.
+#
+# Contents: tools/blit_g3_poly_blend_ram192_clk66_dbuf_qsf_append.txt verbatim, plus TAU_VID720=1.
+# B-347: the first-ever combination of ALL FIVE 0.6.0 hardware pieces in one bitstream, each
+# already proven individually: pipelined alpha blend (TAU_BLIT_BLEND, B-327, closed timing alone),
+# the MP3 hardware window unit (TAU_POLY, B-292/B-298, already standard in recent builds and
+# hardware-confirmed at alpha.30), Helios H2 double buffering (TAU_DBUF, B-340, closed alone),
+# clk_sys 66.667 MHz (TAU_CLK66, B-338/B-344, closed alone with real margin), and the 192 KB
+# RAM shrink (TAU_RAM_192K, B-223..B-235, closed alone and already combined with blend once in
+# blit_g3_poly_blend_ram192_qsf_append.txt -- TAU_BLIT_BLEND and TAU_RAM_192K together). What is
+# genuinely new here is TAU_CLK66 and TAU_DBUF joining that stack, and TAU_CLK66 + TAU_RAM_192K
+# appearing together for the first time on real hardware (B-347 gave that pairing its own
+# CORE_VERSION rev 26 / 0x4D50331A and a strict firmware interlock -- see mp3_soc.v and
+# fw/player.c's VERSION_OK). Do not be surprised if this does not close timing: five previously-
+# separate pieces stacked for the first time is a real, useful experiment, not an expected pass.
+#
+# Contents: tools/blit_g3_poly_blend_qsf_append.txt verbatim, plus TAU_RAM_192K=1, TAU_CLK66=1,
+# TAU_DBUF=1.
+set_global_assignment -name VERILOG_MACRO "TAU_PHASE2_WINDOW=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_PROBE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_WINDOW=1"
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_lb_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_lb_n
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_IFETCH=1"
+set_global_assignment -name VERILOG_MACRO "TAU_MLAB_MIGRATE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_FONT_REPACK=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_BUSY=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BLIT=1"
+set_global_assignment -name VERILOG_MACRO "TAU_VBLANK=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SPEC=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BEAM=1"
+set_global_assignment -name VERILOG_MACRO "TAU_WAVE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_POLY=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BLIT_BLEND=1"
+set_global_assignment -name VERILOG_MACRO "TAU_RAM_192K=1"
+set_global_assignment -name VERILOG_MACRO "TAU_CLK66=1"
+set_global_assignment -name VERILOG_MACRO "TAU_DBUF=1"
+set_global_assignment -name VERILOG_MACRO "TAU_VID720=1"

@@ -110,7 +110,14 @@ module mp3_fb #(
     parameter BUG_IGNORE_RC_CUT = 0,
     // Helios H2 (docs/HELIOS_SPEC.md section 5, B-340): double buffering via base-pointer swap.
     // Inert (dbuf_addr() is a no-op, byte-identical to today) when 0.
-    parameter DBUF_ENABLE = 0
+    parameter DBUF_ENABLE = 0,
+    // 720 test step T1 (test/720 branch, docs/features/VIDEO_720_TEST_PLAN.md): output 800x720 video
+    // timing at a 37.5 MHz clk_vid (the caller must also retune the PLL, TAU_VID720) while the
+    // framebuffer, stride, every draw opcode and the firmware stay exactly the 400x360 ones -- each
+    // framebuffer row is fetched once and shown on two output lines, each pixel twice. SDRAM scanout
+    // load is unchanged (one 512-word fill per framebuffer row, now every other output line). 0 = the
+    // shipped 400x360 timing, byte-for-byte unchanged.
+    parameter VID720 = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -234,11 +241,17 @@ module mp3_fb #(
 );
 
     // ---- Geometry ----------------------------------------------------------
+    // H_ACT/V_ACT are the FRAMEBUFFER size (unchanged by VID720); O_* are the OUTPUT timing. With
+    // VID720=0 the two are identical and every O_* value equals the old constant.
+    // VID720=1: 850 x 735 clocks at 37.5 MHz = 624,750 per frame = 60.02 Hz, inside the Pocket's
+    // 47-~61 Hz window with a pixel clock well under its ~50 MHz limit. O_VOFF is 2x the 360 VOFF so
+    // vc>>1 reproduces the 360-mode line numbering exactly (see scan_vc).
     localparam H_ACT = 11'd400, V_ACT = 11'd360;
-    localparam H_TOT = 11'd500, V_TOT = 11'd400;
-    localparam [10:0] HOFF = 11'd8,  VOFF = 11'd4;
-    localparam [10:0] HS_ST = HOFF + H_ACT + 11'd12, HS_EN = HS_ST + 11'd40;
-    localparam [10:0] VS_ST = VOFF + V_ACT + 11'd3,  VS_EN = VS_ST + 11'd4;
+    localparam [10:0] O_H_ACT = VID720 ? 11'd800 : H_ACT,  O_V_ACT = VID720 ? 11'd720 : V_ACT;
+    localparam [10:0] H_TOT   = VID720 ? 11'd850 : 11'd500, V_TOT  = VID720 ? 11'd735 : 11'd400;
+    localparam [10:0] HOFF    = VID720 ? 11'd16  : 11'd8,   VOFF   = VID720 ? 11'd8   : 11'd4;
+    localparam [10:0] HS_ST = HOFF + O_H_ACT + 11'd12, HS_EN = HS_ST + (VID720 ? 11'd20 : 11'd40);
+    localparam [10:0] VS_ST = VOFF + O_V_ACT + 11'd3,  VS_EN = VS_ST + 11'd4;
     localparam [9:0]  STRIDE = 10'd512;             // words/line, page-aligned
     // Helios H2 (B-340): buffer 1 sits 2 MiB (1,048,576 words) above buffer 0 -- comfortably clear of
     // every off-screen stash row packed just above V_ACT (the highest in use today, TIMG_PROBE_ROW=1023,
@@ -1605,7 +1618,9 @@ module mp3_fb #(
     // Video timing (clk_vid domain) -- same structure as pocket_vector_fb.sv.
     // ======================================================================
     reg [10:0] hc = 0, vc = 0;
-    assign scan_vc = vc[8:0];
+    // Helios beam position (fw/helios.inc assumes VOFF 4 / V_ACT 360): in VID720 mode vc>>1 gives the
+    // framebuffer-row numbering (active lines 8..727 -> 4..363) the firmware already expects.
+    assign scan_vc = VID720 ? vc[9:1] : vc[8:0];
     always @(posedge clk_vid) begin
         if (reset) begin hc <= 0; vc <= 0; end
         else if (hc == H_TOT - 1'b1) begin
@@ -1614,16 +1629,19 @@ module mp3_fb #(
         end else hc <= hc + 1'b1;
     end
 
-    wire active   = (hc >= HOFF) && (hc < HOFF + H_ACT) &&
-                    (vc >= VOFF) && (vc < VOFF + V_ACT);
+    wire active   = (hc >= HOFF) && (hc < HOFF + O_H_ACT) &&
+                    (vc >= VOFF) && (vc < VOFF + O_V_ACT);
     wire hs_pulse = (hc >= HS_ST) && (hc < HS_EN);
     wire vs_pulse = (vc >= VS_ST) && (vc < VS_EN);
 
     // Prefetch the row the NEXT scanline will display, so its burst-fill has
     // a full scanline period to complete before it's actually scanned out.
     wire [10:0] next_sl = (vc == V_TOT - 1'b1) ? 11'd0 : vc + 1'b1;
-    wire        do_fill = (next_sl >= VOFF) && (next_sl < VOFF + V_ACT);
-    wire [9:0]  pf_row  = next_sl[9:0] - VOFF[9:0];
+    wire [10:0] next_sub = next_sl - VOFF;
+    // VID720: a framebuffer row is fetched only before its FIRST output line (even next_sub); the
+    // second output line re-reads the same line-buffer half.
+    wire        do_fill = (next_sl >= VOFF) && (next_sl < VOFF + O_V_ACT) && (!VID720 || !next_sub[0]);
+    wire [9:0]  pf_row  = VID720 ? next_sub[10:1] : next_sub[9:0];
     always @(posedge clk_vid) begin
         if (hc == 11'd0 && do_fill) begin
             fill_line_req <= pf_row;
@@ -1657,7 +1675,10 @@ module mp3_fb #(
     always @(posedge clk_vid) painted_vid <= {painted_vid[1:0], painted_sys};
 
     always @(posedge clk_vid) begin
-        lb_q         <= linebuf[{vc[0], hcsub[8:0]}];   // vc-VOFF parity = vc[0] (VOFF even)
+        // Line-buffer half = parity of the framebuffer row: vc-VOFF parity = vc[0] (VOFF even), or in
+        // VID720 mode vc[1] (framebuffer row = (vc-VOFF)>>1, VOFF a multiple of 4); column hcsub>>1.
+        lb_q         <= VID720 ? linebuf[{vsub[1], hcsub[9:1]}]
+                               : linebuf[{vc[0], hcsub[8:0]}];
         active_p1    <= active;
         top_guard_p1 <= top_guard;
         hs_p1        <= hs_pulse;

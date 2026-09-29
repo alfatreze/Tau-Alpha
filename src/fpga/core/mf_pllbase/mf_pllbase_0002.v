@@ -29,11 +29,21 @@ module mf_pllbase_0002 (
 `endif
         .phase_shift0("0 ps"),
         .duty_cycle0(50),
+`ifdef TAU_VID720
+        // 720 test step T1 (test/720 branch): 37.5 MHz pixel clock, N=16 of the same 600 MHz VCO, so
+        // clk_sys and clk_sdram are untouched. 90 degrees at 37.5 MHz = 6667 ps.
+        .output_clock_frequency1("37.500000 MHz"),
+        .phase_shift1("0 ps"),
+        .duty_cycle1(50),
+        .output_clock_frequency2("37.500000 MHz"),
+        .phase_shift2("6667 ps"),
+`else
         .output_clock_frequency1("12.000000 MHz"),
         .phase_shift1("0 ps"),
         .duty_cycle1(50),
         .output_clock_frequency2("12.000000 MHz"),
         .phase_shift2("20833 ps"),
+`endif
         .duty_cycle2(50),
         .output_clock_frequency3("100.000000 MHz"),
         .phase_shift3("0 ps"),

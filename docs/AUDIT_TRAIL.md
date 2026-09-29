@@ -9734,3 +9734,28 @@ across all 8 real files on the test card, 0 mismatches at 45/48/64 bits** -- sup
 precision; max |sample| 2,750,763 of 16,777,216). Updated `docs/research/FLAC_LPC_KERNEL_DESIGN.md`
 section 4 with the full-run numbers. No code touched; this is evidence-strength only, doesn't change any
 conclusion already drawn from the capped run.
+
+- 2026-09-29 (Claude): RTL/sim/docs (B-374), branch `test/720` (from `main` `4fd4b8d`), no fit, no card.
+Owner asked for a dedicated branch to test 720, with dependencies, risks and useful hardware features, using
+the `analogue-pocket-dev` skill. Skill facts used (docs-verified): Pocket video is 16x16..**800x720**, 47-~61 Hz,
+pixel clock 1-~50 MHz; the scaler slot can be switched at runtime with end-of-line bits; bus rules and the
+scaler-wedge report (KB-014); PLL reconfiguration unreliable (KB-015). Found that 600 MHz / 16 = **37.5 MHz** is a
+clean divider of the existing shared VCO, so 850x735 @ 60.02 Hz needs no change to clk_sys/clk_sdram.
+Built **T1**: `mp3_fb.sv` parameter `VID720` (default 0, shipped timing unchanged) outputs 800x720 while the
+400x360 framebuffer is fetched once per row and shown on two lines, each pixel twice; `scan_vc = vc>>1` keeps
+the 360-mode numbering `fw/helios.inc` relies on; PLL outclk_1/2 37.5 MHz and `TAU_VID720` macro;
+`tools/vid720/video.json` (800x720) and `tools/vid720/t1_qsf_append.txt` (all6-combined + `TAU_VID720`, so the
+fit pairs with alpha.15's ROM unchanged). No firmware change, no new M10K. New `sim/tb_mp3_fb_vid720.v` /
+`make test-rtl-fb-vid720` (in `make test-rtl`): every output pixel checked against its framebuffer word,
+frame period, active lines/pixels, fills per frame, `scan_vc`, and the APF bus rules, for VID720=0 and 1:
+VID720=0 200,000 clocks/frame, 360 lines, 360 fills, scan_vc 4..399 -- PASS; VID720=1 624,750 clocks/frame,
+720 lines x 800, **360 fills** (SDRAM load unchanged), scan_vc 4..367 -- PASS. Mutants: checker
+BUG_NO_DOUBLE killed (1,150,560 pixel failures); RTL "fetch every line" killed only by the fill count (720/frame,
+pixels still correct -- the reason that check exists); RTL "no column doubling" killed (pixel failures).
+Wrote `docs/features/VIDEO_720_TEST_PLAN.md`: T1..T4 ladder, bandwidth table (native 720 ~35% of SDRAM cycles
+with active-only fill vs ~11-12% today **[EST]**), the memory-map collision (a 720-line framebuffer at stride
+1024 overlaps the CPU window at byte 1 MiB, every stash row and the column-400..511 probe cells), field widths
+(20-bit address, 10-bit w/h, 11-bit stride; `cmd_mem` stays 3 M10K; line buffer +2 M10K, so native 720
+depends on the RAM shrink), firmware scope, and a hardware-feature table (runtime scaler-slot switch, active-only
+fill, framebuffer origin register, fill-late counter, 8 bpp scanout CLUT, doubled base + hi-res overlay plane).
+Not done: Quartus fit (needs the VM), any hardware run.
