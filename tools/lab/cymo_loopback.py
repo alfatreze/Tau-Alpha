@@ -51,7 +51,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 
 # ----------------------------------------------------------------------------- test files
 
-SECONDS_TONE = 10
+SECONDS_TONE = 60
 LEVEL_STEPS = (-12.0, -6.0, -3.0, -0.1)      # dBFS, 3 s each, 1 kHz
 
 
@@ -114,7 +114,8 @@ def _sweep(rate, f0, f1, seconds, dbfs):
     return out
 
 
-def gen(outdir):
+def gen(outdir, seconds=SECONDS_TONE):
+    SECONDS_TONE = seconds
     os.makedirs(outdir, exist_ok=True)
     plan = []
     for rate in (44100, 48000):
@@ -131,7 +132,7 @@ def gen(outdir):
                  '1 kHz at %s dBFS, 3 s each' % ', '.join('%g' % d for d in LEVEL_STEPS)))
     plan.append(('sweep_44100.flac', 44100, _sweep(44100, 20.0, 20000.0, 20, -6.0),
                  'log sweep 20 Hz to 20 kHz, 20 s, -6 dBFS'))
-    plan.append(('silence_44100.flac', 44100, [(0, 0)] * (44100 * 10), '10 s of digital silence'))
+    plan.append(('silence_44100.flac', 44100, [(0, 0)] * (44100 * seconds), '%d s of digital silence' % seconds))
     print('%-22s %-7s %s' % ('file', 'size', 'content'))
     for name, rate, samples, what in plan:
         path = os.path.join(outdir, name)
@@ -458,6 +459,7 @@ def main():
     sub = ap.add_subparsers(dest='cmd', required=True)
     g = sub.add_parser('gen', help='write the lossless FLAC test files')
     g.add_argument('outdir')
+    g.add_argument('--seconds', type=int, default=SECONDS_TONE, help='length of each tone/silence file (default %(default)s)')
     a = sub.add_parser('analyze', help='analyse a recording')
     a.add_argument('wav')
     a.add_argument('--freq', type=float, help='expected tone frequency in Hz (default: strongest peak)')
@@ -472,7 +474,7 @@ def main():
     args = ap.parse_args()
 
     if args.cmd == 'gen':
-        gen(args.outdir)
+        gen(args.outdir, args.seconds)
     elif args.cmd == 'analyze':
         rate, x = read_wav(args.wav, args.channel)
         if args.sweep:
