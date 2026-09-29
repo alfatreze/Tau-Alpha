@@ -151,6 +151,13 @@ static const uint8_t     set_blank[5]    = { 0u, 1u, 5u, 10u, 30u };
 _Static_assert(LIB_ROW_H == SET_MENU_ROW_H, "the library rows must match the settings rows");
 
 static uint8_t set_page, set_sel[SET_MENUS], set_ch_cur[CH_N], set_ch_top[CH_N];
+/* B-410 (owner-reported: "when the menu is visible and overflows it will overlay the action bar"):
+ * set_draw_menu() drew every row in set_menu_rows[p] unconditionally, with no bound against the
+ * visible list area -- unlike set_draw_choice()'s own set_ch_top[]/set_ch_follow() scrolling, which
+ * this mirrors. Never hit before because no plain menu had grown past SET_MENU_VIS rows until the
+ * Diagnostics submenu (set_dgn_rows) did. */
+static uint8_t set_top[SET_MENUS];
+#define SET_MENU_VIS (SET_LIST_H / SET_MENU_ROW_H)
 
 #include "meter_thumbs.h"
 _Static_assert(VIZ_COUNT == 16 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_RETIRED_TAPE == 11 &&
@@ -224,8 +231,14 @@ _Static_assert(TIMG_PLANE_Y == THUMB_STASH_Y + THUMB_LIVE_SLOTS * METER_THUMB_H 
 #endif
 static uint8_t thumb_flat_ready;
 
+/* B-412 (audit after B-410/B-411): same lazy-cache-marked-ready-regardless-of-success pattern as
+ * ui_bg_restore()'s own bug, though its only real caller (set_draw_thumb(), reached from Settings'
+ * own choice-list draw or wvcfg_preview_tick(), both of which already set ov_draw=1 around their own
+ * call) means FB_HELD() should already be false whenever this genuinely runs -- fixed anyway so it
+ * can't become a real bug if a future caller reaches it from a context that doesn't. */
 COLD_FN static void set_thumb_flat_build(void)
 {
+    if (FB_HELD()) return;
     for (uint32_t viz = 0; viz < VIZ_COUNT; viz++) {
 #if TAU_ART_TIMG
         if (viz == VIZ_VU_MASTER) continue;    /* excluded from the compacted stash -- no row budget for it, see thumb_slot() */
@@ -361,12 +374,6 @@ COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
         ui_mode_dirty = 1u;
         return;                                  /* not persisted */
     }
-    if (c == CH_THEME || c == CH_MODE) {          /* session-only (step 0b): reapplies every colour, nothing persisted */
-        if (c == CH_THEME) th_theme = (uint8_t)i; else th_pol = (uint8_t)i;
-        th_apply();
-        ui_last_sec = 0xFFFFFFFFu;
-        return;
-    }
     if (c == CH_COLOUR) {
         ui_pal_idx = i;
         ui_accent = th_accent_of(i);
@@ -386,6 +393,19 @@ COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
     } else if (c == CH_REPEAT) {
         rep_mode = (uint8_t)i;
         ui_mode_dirty = 1u;
+    } else if (c == CH_THEME || c == CH_MODE) {
+        /* B-416 (owner-reported: theme and mode fail to persist across a restart, while colour and
+         * meter preset both pass): this comment used to say "session-only (step 0b): reapplies every
+         * colour, nothing persisted" and returned immediately -- true before persist widening (step
+         * 0d) existed, stale ever since. SW_THEME/SW_POL are genuinely saved/loaded via
+         * set_wr32()/set_rd32() in settings_save()/settings_load() (fw/settings.inc), but nothing
+         * ever triggered that save for THIS specific change: the old early `return` skipped the same
+         * settings_mark_dirty() call every other branch here reaches at the bottom. Fixed by moving
+         * this into the same if/else-if chain as CH_COLOUR/CH_METER/CH_EQ/CH_REPEAT instead of being
+         * a separate block with its own return, so it falls through the identical way they do. */
+        if (c == CH_THEME) th_theme = (uint8_t)i; else th_pol = (uint8_t)i;
+        th_apply();
+        ui_last_sec = 0xFFFFFFFFu;
     } else {
         blank_min = set_blank[i];
         ui_blank_touch();
@@ -467,12 +487,19 @@ COLD_FN static void set_disc(uint32_t cx, uint32_t cy, uint32_t d, uint16_t colo
 COLD_FN static void set_draw_menu(uint32_t p)
 {
     const set_row_t *rows = set_menu_rows[p];
+    uint32_t n = set_menu_n[p], top = set_top[p];
     ov_frame(set_menu_title[p], "",
              p == SET_HOME ? "A OPEN   B CLOSE"
              : p == SET_DIAG || p == SET_STRESS || p == SET_DGN ? "A OPEN   B BACK" : p == SET_TESTS ? "A RUN   B BACK"
              : "A CHANGE   B BACK");
-    for (uint32_t i = 0; i < set_menu_n[p]; i++) {
-        uint32_t y = PL_UI_LIST_Y + i * SET_MENU_ROW_H;
+    if (n > SET_MENU_VIS) {                      /* scroll track, as set_draw_choice()'s own */
+        uint32_t tx = PL_UI_X + PL_UI_W - 11u, th = SET_LIST_H * SET_MENU_VIS / n;
+        fb_rect(tx, PL_UI_LIST_Y - 2u, 3u, SET_LIST_H, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
+        fb_rect(tx, PL_UI_LIST_Y - 2u + (SET_LIST_H - th) * top / (n - SET_MENU_VIS), 3u, th, ui_accent);
+    }
+    for (uint32_t k = 0; k < SET_MENU_VIS && top + k < n; k++) {
+        uint32_t i = top + k;
+        uint32_t y = PL_UI_LIST_Y + k * SET_MENU_ROW_H;
         int sel = (i == set_sel[p]);
         uint16_t bg = sel ? ui_accent : OV_BODY;
         if (sel) fb_round_rect_on(PL_UI_X + 4u, y, PL_UI_W - 8u, SET_MENU_ROW_H - 4u, 5u, bg, OV_BODY);
@@ -534,24 +561,29 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 23u   /* B-370: +1 for FLAC LPC (last row).
+#define SET_INFO_ROWS 24u   /* B-370: +1 for FLAC LPC.
                               * B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
                                               * freeze, see its own comment in fw/player.c); B-238:
-                                              * +1 for VBLANK (last row either way) -- proves the
+                                              * +1 for VBLANK -- proves the
                                               * new Helios/Talos H0 MMIO end to end (edges/sec,
                                               * should read this core's real vertical rate once a
                                               * TAU_VBLANK bitstream is installed; 0 on any other
                                               * bitstream, see vblank_sample()'s own comment).
                                               * The legacy-playlist-only PLAYLIST row was removed
-                                              * with legacy playlist mode. */
+                                              * with legacy playlist mode. B-413: +1 for SCOPE BG
+                                              * (last row) -- live blend attempt/fail counters and
+                                              * ui_bg_ready, for the still-unexplained Winamp Scope
+                                              * trail "accumulation" report; see fw/player.c's
+                                              * wviz_scope_tick() for what increments them. */
 static const char *const set_info_label[SET_INFO_ROWS] = {
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM",
     "COLD IMAGE",
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
     , "LIBRARY"
     , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER", "MP3 WINDOW", "THEME FILE", "METER FILE"
+    , "SCOPE BG"
     , "FLAC LPC"
     };
 static uint32_t set_info_at;
@@ -665,6 +697,12 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         if (mf_err) { q = set_str(q, "E"); q = ui_dec(q, mf_err); }
         else if (mf_n) { q = ui_dec(q, mf_n); q = set_str(q, " LOADED"); }
         else q = set_str(q, "NONE");
+        break;
+    case 22:   /* SCOPE BG (B-413): ready=1/0 (the lazy gradient-strip cache flag), then attempted blends OK/failed
+                * (only counted when a blend was genuinely attempted -- use_gradient && trail && !paused all true) */
+        q = set_str(q, ui_bg_ready ? "READY " : "STALE ");
+        q = ui_dec(q, dbg_scope_blend_ok); q = set_str(q, " OK ");
+        q = ui_dec(q, dbg_scope_blend_fail); q = set_str(q, " FAIL");
         break;
     default:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
 #if TAU_LPC_FW
@@ -1009,6 +1047,93 @@ static uint16_t set_fade_last = 0xFFFFu;         /* page drawn last; a different
 static uint8_t  set_fade_step = SET_FADE_STEPS;  /* == SET_FADE_STEPS: not fading */
 static uint32_t set_fade_at;
 
+/* ---- real hardware crossfade, upgrading the colour-interpolation fade above where it can run -----
+ * B-334's own comment says "there is no blend in this" -- true then (TAU_BLIT_BLEND was shelved for
+ * a timing failure, and H2 double buffering didn't exist yet), not true now: T2-00 (B-388/398) closed
+ * blend's own old timing problem as a side effect of fixing glyphbuf, and H2 (B-396) gives a second,
+ * already-idle buffer (Settings holds FB_HELD(), so dbuf_redraw_begin() itself refuses it, B-402) to
+ * use as scratch render space. Render the NEW page ONCE, normally, into that buffer; then blend it
+ * onto the buffer actually being shown, at increasing alpha over the SAME eased curve/cadence
+ * set_fade_k[]/SET_FADE_STEPS already defined -- no recolouring, so unlike the fallback below this
+ * does not need set_fade_page_ok()'s exclusions (the meter list's cached thumbnails, a live QR) at
+ * all; kept scoped to the SAME eligible pages for this pass regardless, to change one thing at a
+ * time. Falls back to the colour-interpolation fade whenever SET_XFADE_READY() is false (any
+ * bitstream without both TAU_BLIT_BLEND and TAU_DBUF) -- old behaviour, unchanged.
+ *
+ * B-408: BLEND_READY() only reports the answer to the one-time blend_probe() (fw/blit_probe.inc);
+ * nothing ran that probe on its own, and the ONLY caller anywhere in this codebase used to be
+ * ui_bg_blend() (Winamp Scope's own trail effect) -- so this crossfade was silently DISABLED (plain
+ * colour fade) for the whole boot until the user happened to view the Scope trail at least once, an
+ * incidental, confusing trigger for a feature with no relation to Scope. Tried calling blend_ensure()
+ * from HERE first -- wrong: blend_probe() itself refuses while FB_HELD() (fw/blit_probe.inc), and
+ * SET_XFADE_READY() is only ever evaluated from inside set_draw(), which only runs while Settings'
+ * OWN overlay already holds FB_HELD() true -- the probe would refuse every single time from this
+ * call site. Fixed at the actual point FB_HELD() is still false: set_input()'s own Start-opens-
+ * Settings handler, right before `set_open` flips to 1 (see there). */
+#define SET_XFADE_READY() (BLEND_READY() && DBUF_READY())
+static uint8_t  set_xfade_active;
+static uint32_t set_xfade_src_base, set_xfade_dst_base;
+
+COLD_FN static void set_draw_now(void);
+
+/* Renders the new page into whichever buffer is NOT currently displayed, then restores R_DBUF_CPU to
+ * the displayed buffer immediately -- every OTHER draw call in this codebase assumes CPU writes land
+ * in the displayed buffer, so this window must be as short as this one render pass, nothing else.
+ *
+ * B-410 (owner-reported on hardware, real corruption on every "rich" diagnostic subpage -- Check,
+ * Blit Test, etc.): this used to restore R_DBUF_CPU to `front` IMMEDIATELY after set_draw_now()
+ * RETURNS, but set_draw_now() only QUEUES its draw commands -- it does not wait for the hardware to
+ * actually execute them. R_DBUF_CPU is a sticky field, consulted at command EXECUTION time (same
+ * class as every other sticky field this codebase has repeatedly hit this exact race with: blend-on,
+ * the CLUT reload, B-349's corner-cut LUT race). Any command still queued when R_DBUF_CPU flipped
+ * back landed in `front` -- the LIVE DISPLAYED buffer -- instead of `back`, corrupting the real
+ * screen with fragments of the new page while leaving `back` incomplete. Rich pages queue far more
+ * commands than a plain menu list, so the race window was wide enough to hit reliably there while
+ * staying invisible on the simpler pages this feature was first tested against. Fixed the same way
+ * set_xfade_step_draw() already handles its own fb_fence() call: ov_draw must be set here too, or
+ * fb_fence() (like every draw primitive) silently no-ops under FB_HELD() and waits for nothing. */
+COLD_FN static void set_xfade_render(void)
+{
+    const uint32_t front = REG(R_DBUF_DISP) & 1u;
+    const uint32_t back  = front ^ 1u;
+    set_xfade_dst_base = front ? DBUF_BASE1_W : 0u;
+    set_xfade_src_base = back  ? DBUF_BASE1_W : 0u;
+    const uint8_t o = ov_draw; ov_draw = 1u;
+    REG(R_DBUF_CPU) = back;
+    set_draw_now();
+    fb_fence();
+    REG(R_DBUF_CPU) = front;
+    ov_draw = o;
+    fb_set_bases(set_xfade_src_base, set_xfade_dst_base);
+}
+
+/* One animation step: composite the rendered page onto the displayed buffer at this step's alpha.
+ * fb_blit()'s underlying glyphbuf is 128 words wide (the same FB_COPY_MAX limit fb_copy() itself
+ * splits around), so the full FB_W=400 columns need several calls -- each still covers all FB_H=360
+ * rows in one command, only the column count is chunked. k==256 (the last step) is drawn as a plain
+ * copy, not a 255/256 blend, so the final frame is pixel-exact against what was actually rendered,
+ * not a near-miss with an imperceptible but real trace of the old buffer left in it; this is also
+ * the one point that restores the sticky bases to (0, 0) so no later, unrelated caller inherits
+ * them. ov_draw must be set for the SAME reason set_draw_now() itself sets it: FB_HELD() would
+ * otherwise silently no-op every fb_blit() call here, since Settings holds UI_OVERLAY_UP the entire
+ * time and this runs outside set_draw_now()'s own ov_draw bracket. */
+COLD_FN static void set_xfade_step_draw(uint32_t k)
+{
+    const uint8_t o = ov_draw; ov_draw = 1u;
+    const int last = (k >= 256u);
+    if (!last) fb_blend_on(k);
+    uint32_t x = 0u, w = FB_W;
+    while (w) {
+        uint32_t n = (w < 100u) ? w : 100u;
+        fb_blit(x, 0u, x, 0u, n, FB_H);
+        x += n; w -= n;
+    }
+    fb_fence();
+    if (!last) fb_blend_off();
+    else       fb_set_bases(0u, 0u);
+    ov_draw = o;
+}
+
 COLD_FN static int set_fade_page_ok(void)
 {
     if (set_page < SET_MENUS) return 1;
@@ -1022,15 +1147,47 @@ COLD_FN static int set_fade_page_ok(void)
     return 0;
 }
 
-COLD_FN static void set_draw_now(void);
 COLD_FN static void set_draw(void)
 {
 #if TAU_MENU_FADE
     const int fade_ok = set_fade_page_ok();
     if (set_page != set_fade_last) {
         set_fade_last = set_page;
+        /* An xfade abandoned mid-flight (a key pressed before the last step, changing page again)
+         * must not leave the sticky bases nonzero for whatever unrelated blit-mode caller runs
+         * next -- the normal "reset on the last step" path (set_xfade_step_draw()) never got there.
+         * B-412 (found auditing every sticky-field redirect after B-410/B-411): a PRIOR tick's
+         * set_xfade_step_draw() may have just queued its fb_blit() composite using the OLD non-zero
+         * bases -- resetting them here without fb_fence() first (and ov_draw, since this runs before
+         * set_draw_now()/set_xfade_render() ever set it, matching those functions' own precedent) risks
+         * that still-queued blit executing AFTER the reset and reading (0,0) instead of the bases it
+         * was actually issued under, same race class as B-410. */
+        if (set_xfade_active) {
+            const uint8_t o = ov_draw; ov_draw = 1u;
+            fb_fence();
+            fb_set_bases(0u, 0u);
+            ov_draw = o;
+        }
+        set_xfade_active = 0u;
+        if (fade_ok && SET_XFADE_READY()) {
+            set_xfade_render();
+            set_xfade_active = 1u;
+            set_fade_step = 0u;
+            set_fade_at = cycles();
+            set_dirty = 1u;
+            return;
+        }
         set_fade_step = fade_ok ? 0u : SET_FADE_STEPS;
         set_fade_at = cycles();
+    }
+    if (set_xfade_active) {
+        if ((int32_t)(cycles() - set_fade_at) < 0) { set_dirty = 1u; return; }
+        set_xfade_step_draw(set_fade_k[set_fade_step]);
+        set_fade_step++;
+        set_fade_at = cycles() + CLK_HZ / 60u;
+        if (set_fade_step < SET_FADE_STEPS) { set_dirty = 1u; return; }
+        set_xfade_active = 0u;
+        return;         /* the displayed buffer already shows the exact final frame -- nothing left to draw */
     }
     if (!fade_ok) set_fade_step = SET_FADE_STEPS;
     if (set_fade_step < SET_FADE_STEPS) {
@@ -1072,19 +1229,30 @@ COLD_FN static void set_draw_now(void)
     ov_draw = o;
 }
 
+/* Helios view registry (item 4): no view-specific enter/exit of its own today -- HELIOS_INV_ALL
+ * already covers everything closing Settings needs, same as before this existed. */
+static const helios_view_t settings_view = { 0, 0, HELIOS_INV_ALL };
+
 COLD_FN static void set_close(void)
 {
     set_open = 0u; set_page = SET_HOME;
     set_fade_last = 0xFFFFu;                   /* B-334: the next open fades in again */
+    if (set_xfade_active) {   /* B-405/B-412: same reasoning as set_draw()'s own abandon case -- fence before resetting bases */
+        const uint8_t o = ov_draw; ov_draw = 1u;
+        fb_fence();
+        fb_set_bases(0u, 0u);
+        ov_draw = o;
+        set_xfade_active = 0u;
+    }
     /* Missing since the legacy playlist overlay was removed (45630c3): that overlay's own close site
      * was apparently the only one still setting the shared repaint flag (fw/player.c's own comment on
      * pl_ui_restore claims settings does this too -- it never did after that removal, only
      * lib_ui_close() did). Without it the main loop never calls ui_chrome_paint()/ui_art_draw(), never
      * clears ui_bg_ready, and never forces the meter/wave caches stale on return from Settings --
      * exactly the "closing the menu leaves visual leftovers" symptom (B-349). Now routed through the
-     * shared helios_view_changed() (B-350) rather than a bare flag write, so this can't be silently
-     * dropped again the way the bare write was. */
-    helios_view_changed();
+     * shared helios_view_switch() (B-350/item 4) rather than a bare flag write, so this can't be
+     * silently dropped again the way the bare write was. */
+    helios_view_switch(&settings_view, &helios_player_view);
 }
 
 COLD_FN static void set_ch_follow(uint32_t c)
@@ -1092,6 +1260,14 @@ COLD_FN static void set_ch_follow(uint32_t c)
     uint32_t vis = set_ch_visible(c), cur = set_ch_cur[c];
     if (cur < set_ch_top[c]) set_ch_top[c] = (uint8_t)cur;
     else if (cur >= set_ch_top[c] + vis) set_ch_top[c] = (uint8_t)(cur - vis + 1u);
+}
+
+/* B-410: the plain-menu equivalent of set_ch_follow() above, same logic. */
+COLD_FN static void set_menu_follow(uint32_t p)
+{
+    uint32_t cur = set_sel[p];
+    if (cur < set_top[p]) set_top[p] = (uint8_t)cur;
+    else if (cur >= set_top[p] + SET_MENU_VIS) set_top[p] = (uint8_t)(cur - SET_MENU_VIS + 1u);
 }
 
 /* Returns 1 when the input was consumed. Start opens (tap) and closes. */
@@ -1104,8 +1280,25 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
 #endif
             /* One overlay at a time: an open library browser would keep repainting its
              * marquee row over the settings (its rows draw through the ov_draw gate), so
-             * it is closed here. Closing settings returns to the player, not to the browser. */
-            lib_ui_open = 0u;
+             * it is closed here. Closing settings returns to the player, not to the browser.
+             * B-406: this used to be a bare `lib_ui_open = 0u;`, bypassing lib_ui_close()'s own
+             * helios_view_switch() call entirely -- no invalidation was queued, so nothing repainted
+             * the player screen Library had been covering before Settings' own hardware crossfade
+             * (set_xfade_render()) captured "whatever is currently displayed" as its source frame.
+             * Combined with the helios_pending_mask reorder above this file's own #include point
+             * (fw/player.c, same B-406), the repaint now lands in the SAME tick, before set_draw()
+             * runs below. */
+            if (lib_ui_open) lib_ui_close();
+            /* B-408: run the one-time hardware-blend probe HERE, the last point before FB_HELD()
+             * becomes true (set_open below flips it) -- blend_probe() (fw/blit_probe.inc) refuses
+             * outright while FB_HELD(), so this is the ONLY place in Settings' own open path where it
+             * can ever succeed. Without this, SET_XFADE_READY() depends entirely on whether Winamp
+             * Scope's ui_bg_blend() happened to run first (the previously ONLY caller of
+             * blend_ensure() anywhere in this codebase) -- an incidental trigger with no relation to
+             * Settings, and the reason the crossfade (and whatever it does right or wrong) looked
+             * like it was "caused by" viewing Scope. A no-op once already probed (blend_ensure()'s
+             * own guard). */
+            blend_ensure();
             set_open = 1u; set_page = SET_HOME; set_dirty = 1u;
             return 1;
         }
@@ -1152,8 +1345,8 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
         return 1;
     }
     uint8_t *sel = &set_sel[set_page];
-    if (edge & KEY_UP)   { *sel = *sel ? (uint8_t)(*sel - 1u) : (uint8_t)(set_menu_n[set_page] - 1u); set_dirty = 1u; }
-    if (edge & KEY_DOWN) { *sel = (uint8_t)((*sel + 1u) % set_menu_n[set_page]); set_dirty = 1u; }
+    if (edge & KEY_UP)   { *sel = *sel ? (uint8_t)(*sel - 1u) : (uint8_t)(set_menu_n[set_page] - 1u); set_menu_follow(set_page); set_dirty = 1u; }
+    if (edge & KEY_DOWN) { *sel = (uint8_t)((*sel + 1u) % set_menu_n[set_page]); set_menu_follow(set_page); set_dirty = 1u; }
     if (rep) return 1;      /* a repeat only ever moves the cursor: A/B/Left/Right below react to a real press */
     const set_row_t *r = &set_menu_rows[set_page][*sel];
     if (edge & (KEY_A | KEY_RIGHT)) {

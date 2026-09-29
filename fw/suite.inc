@@ -1046,7 +1046,9 @@ COLD_TEXT static void mw_window_reset(void)
     uint8_t want_fs = (uint8_t)(mw_want_fullscreen && fs_capable());
     if (want_fs != ui_fullscreen) {
         ui_fullscreen = want_fs;
-        helios_view_changed();   /* B-350 */
+        /* B-350/item 4: a real view transition, same as ui_fs_toggle()'s own. */
+        if (want_fs) helios_view_switch(&helios_player_view, &fullscreen_view);
+        else         helios_view_switch(&fullscreen_view, &helios_player_view);
         fs_last_sec = 0xFFFFFFFFu; fs_last_state = 0xFFu;
     }
     if (!ui_fullscreen) {
@@ -1088,7 +1090,9 @@ COLD_TEXT static void mw_restore_screen(void)
     viz_mode = mw_saved_mode; bars_layout = mw_saved_layout;
     if (mw_saved_fullscreen != ui_fullscreen) {
         ui_fullscreen = mw_saved_fullscreen;
-        helios_view_changed();   /* B-350 */
+        /* B-350/item 4: a real view transition, same as ui_fs_toggle()'s own. */
+        if (ui_fullscreen) helios_view_switch(&helios_player_view, &fullscreen_view);
+        else               helios_view_switch(&fullscreen_view, &helios_player_view);
         fs_last_sec = 0xFFFFFFFFu; fs_last_state = 0xFFu;
     }
     if (!ui_fullscreen) { ui_wave_clear(); if (art_ready && art_shown) ui_art_draw(); }

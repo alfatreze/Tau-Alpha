@@ -217,8 +217,32 @@ CHL_COLD static int chladni_tick_box(const mtr_in_t *in)
      * ~16 rows of noise under the meter. */
     const uint32_t sw = (rx * cell > 127u) ? 127u / cell : rx, sh = (ry * cell > h) ? h / cell : ry;
     const uint32_t tw = sw * cell, th = sh * cell;
+    /* B-414 (owner-reported: Chladni's visibility flips on/off, exactly two toggles per state, on
+     * every fullscreen/menu cycle): fb_sblit()/fb_blit() are true blit-mode opcodes, addressed
+     * through the firmware-programmable sticky SRC_BASE/DST_BASE fields, NOT through H2's automatic
+     * per-buffer offsetting (docs/features/HELIOS_SPEC.md section 5: "Blit-mode opcodes... already
+     * address through the sticky blt_*_base fields and is unaffected [by DBUF_CPU]... a caller
+     * wanting one of them to target the back buffer sets blt_dst_base itself") -- this codebase's
+     * OWN documented contract, never actually followed here. Chladni always drew into whichever
+     * buffer DST_BASE defaulted to (0), regardless of which buffer H2 was actually displaying, so
+     * visibility depended purely on which buffer happened to be shown -- flipping only on exit-type
+     * transitions (fullscreen exit, menu close; entry never flips while FB_HELD() blocks it),
+     * exactly the observed "same state across an open/close pair, flips on the second transition"
+     * cadence. Fixed: track the CURRENTLY DISPLAYED buffer and set it explicitly. `fb_sblit()`'s
+     * SOURCE (the plane at CHL_PLANE_Y) is off-screen scratch, unaffected by buffer selection, so its
+     * own SRC_BASE stays 0; `chl_replicate()`'s fb_blit() calls copy WITHIN the visible area (the
+     * already-drawn tile to elsewhere in the same box), so both its source and destination must use
+     * the SAME buffer. A `fb_fence()` between the two stages ensures the sblit has genuinely executed
+     * before the bases change for replication, not merely been queued (this session's own repeated
+     * lesson, docs/TALOS.md). */
+    const uint32_t disp_base = (DBUF_READY() && (REG(R_DBUF_DISP) & 1u)) ? DBUF_BASE1_W : 0u;
+    fb_set_bases(0u, disp_base);
     fb_sblit(0u, CHL_PLANE_Y, x0, y0, sw, sh, cell == 3u ? 3u : cell == 2u ? 2u : 0u, cell == 3u ? 3u : cell == 2u ? 2u : 0u);
+    fb_fence();
+    fb_set_bases(disp_base, disp_base);
     chl_replicate(x0, y0, tw, th, w, h);
+    fb_fence();
+    fb_set_bases(0u, 0u);
     chl_drawn_n++;
     return 1;
 }

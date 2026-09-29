@@ -10,7 +10,7 @@
  * HOW IT COEXISTS WITH THE NORMAL UI: while ui_fullscreen is set FB_HELD() is true, exactly as for the settings and playlist
  * overlays, so every ordinary draw call (chrome, progress, clock, transport, toasts, the other meters) is a silent no-op while
  * their state machines keep running -- elapsed time, resume position and audio are untouched. This module draws with ov_draw
- * set, the same bypass the overlays use. Leaving fullscreen repaints the normal screen through pl_ui_restore.
+ * set, the same bypass the overlays use. Leaving fullscreen repaints the normal screen through helios_view_switch().
  *
  * All of this is COLD code. Hot entries: ui_draw_chrome() -> ui_fs_frame() only while ui_fullscreen is set (which only the cold-gated toggle can
  * do), ui_draw_dynamic() -> ui_fs_dynamic() after its COLD_READY() check, and poll_input() -> the two Select combos, gated on COLD_READY().
@@ -28,6 +28,10 @@
 
 static uint32_t fs_last_sec = 0xFFFFFFFFu;
 static uint8_t  fs_last_state = 0xFFu, fs_force;
+
+/* Helios view registry (item 4): no view-specific enter/exit of its own today -- HELIOS_INV_ALL
+ * already covers everything toggling fullscreen needs, same as before this existed. */
+static const helios_view_t fullscreen_view = { 0, 0, HELIOS_INV_ALL };
 
 static void fs_upper(char *d, const char *s, uint32_t n)
 {
@@ -122,7 +126,7 @@ static inline int fs_capable(void) { return viz_mode == VIZ_CHLADNI || viz_mode 
 COLD_FN3 static void ui_fs_dynamic(void)
 {
     if (UI_OVERLAY_UP) return;
-    if (!fs_capable()) { ui_fullscreen = 0u; helios_view_changed(); ui_wave_force = 1u; return; }   /* B-350 */
+    if (!fs_capable()) { ui_fullscreen = 0u; helios_view_switch(&fullscreen_view, &helios_player_view); ui_wave_force = 1u; return; }   /* B-350/item 4 */
     const uint8_t o = ov_draw; ov_draw = 1u;
     /* NO beam gate here (B-288). It used to require the whole 323-row figure to be clear of the beam, which is true only in vertical
      * blanking and while the beam is in the last 40 rows: about 19 percent of the time. ui_draw_dynamic() is called once per decoded frame
@@ -154,7 +158,10 @@ COLD_FN3 static void ui_fs_toggle(void)
     if (idle) return;
     if (!fs_capable()) { ui_toast_msg("FULLSCREEN: CHLADNI AND WINAMP ONLY"); return; }
     ui_fullscreen = (uint8_t)!ui_fullscreen;
-    helios_view_changed();                  /* B-350: repaint -- the fullscreen frame, or the normal screen again */
+    /* B-350/item 4: repaint -- the fullscreen frame, or the normal screen again. Direction is picked
+     * from the NEW value just set above, not tracked global state (see fw/helios.inc's own comment). */
+    if (ui_fullscreen) helios_view_switch(&helios_player_view, &fullscreen_view);
+    else               helios_view_switch(&fullscreen_view, &helios_player_view);
     ui_wave_force = 1u;
     fs_last_sec = 0xFFFFFFFFu; fs_last_state = 0xFFu;
 }

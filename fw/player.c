@@ -148,6 +148,8 @@
 #define R_SPEC_ST   0x800000E4u   /* read: bit 0 = the bank is built into this bitstream, bits 31:16 = windows completed */
 #define R_SCAN      0x800000E8u   /* B-267 Helios beam position: bit 9 = present (TAU_BEAM bitstream), bits 8:0 = video line counter */
 #define R_VBLANK    0x800000D0u   /* Helios/Talos H0: bit 0 = vblank status, CDC'd from clk_vid; 0 when TAU_VBLANK is off */
+#define R_DBUF_CPU  0x80000118u   /* Helios/Talos H2 (B-340): write bit 0 = which buffer plain RECT/CHAR/COPY commands target; read bit 31 = built in, bit 0 = echo */
+#define R_DBUF_DISP 0x8000011Cu   /* write bit 0 = 1 requests a flip (applied at the next vblank); read bit 31 = built in, bit 1 = flip still pending, bit 0 = buffer currently displayed */
 #define SDR_CLK_HZ  100000000u    /* clk_sdram, for R_SDR_BUSY deltas -- see docs/MMIO_ALLOCATION.md 0xBC */
 
 /* Target command selector, written to R_TGT_GO bits [1:0]. */
@@ -599,13 +601,46 @@ static void fb_blit(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
     REG(R_FB_GO)    = FB_OP_BLIT;
 }
 
+/* Helios H2's buffer 1, in the same word units fb_blit()'s own addressing uses -- matches
+ * mp3_fb.sv's DBUF_BASE1 localparam exactly (1,048,576 words = 2 MiB above buffer 0). Only real use
+ * so far: the Settings crossfade below, which uses buffer 1 purely as scratch render space (never
+ * flips display to it) -- safe because dbuf_redraw_begin() itself already refuses to engage while
+ * FB_HELD() (B-402), so H2's own front/back usage is guaranteed idle whenever Settings holds the
+ * screen. */
+#define DBUF_BASE1_W 1048576u
+
+/* Sticky SRC_BASE(field 0)/DST_BASE(field 2) (docs/MMIO_ALLOCATION.md 0xC0/0xC4) -- no existing
+ * caller in this codebase has ever set either; every current fb_blit()/fb_cblit()/fb_bar()/etc.
+ * relies on the power-up default (both 0). Sets both together since every real use wants a matched
+ * pair. Not fenced on entry (matching fb_blend_on()'s own precedent, B-334/B-396's own reasoning:
+ * this cooperative single-threaded design has no concurrent caller who could have commands still
+ * queued expecting the OLD sticky state at the moment this changes) -- the caller IS responsible for
+ * fb_fence()-ing before restoring back to (0,0), so no LATER unrelated caller ever inherits a
+ * nonzero base; see set_xfade_step_draw()'s own use for the concrete pattern. */
+static void fb_set_bases(uint32_t src_base, uint32_t dst_base)
+{
+    fb_wait();
+    REG(R_BLT_IDX) = 0u; REG(R_BLT_DATA) = src_base;
+    REG(R_BLT_IDX) = 2u; REG(R_BLT_DATA) = dst_base;
+}
+
 /* OP_BAR: (x, base_y) top-left, w wide, h rows total, `lit` of them lit (fg)
  * at the bottom, the rest unlit (bg) at the top -- mp3_fb.sv's own B6 field
- * convention (cmd_glyph reused as the lit-row count, clamped to h in RTL). */
+ * convention (cmd_glyph reused as the lit-row count, clamped to h in RTL).
+ *
+ * B-406: RTL's own clamp (pre_bar_lit vs. pre_bar_h, mp3_fb.sv) only ever sees the value AFTER it has
+ * already been truncated to 7 bits below -- `lit & 0x7Fu` WRAPS modulo 128, it does not saturate, so
+ * any caller passing lit >= 128 (a real case: fullscreen visualisers' bars are up to FS_FIG_H = 323
+ * rows tall) got a near-empty bar instead of a clamped-tall one every time the true value crossed a
+ * multiple of 128 -- the reported "some bars flicker, particularly at fullscreen." Widening the RTL
+ * field is the real fix (tracked as a known Talos correctness item) but needs its own RTL/sim/fit
+ * cycle; clamping here first is a safe, immediate mitigation: a bar this tall now visibly stops
+ * growing at 127 lit rows instead of intermittently collapsing to near-zero. */
 static void fb_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit,
                    uint16_t fg, uint16_t bg)
 {
     if (!w || !h || FB_HELD()) return;
+    if (lit > 127u) lit = 127u;
     fb_wait();
     REG(R_FB_ADDR) = y * FB_STRIDE + x;
     REG(R_FB_SIZE) = (h << 9) | w;
@@ -1137,13 +1172,11 @@ static uint32_t stop_req;
 /* paused is a bitmask: 1 the user, 2 the OS menu. (A third bit, for a legacy
  * playlist switch in progress, was removed along with that mode.) */
 static uint8_t  menu_was;         /* the OS menu was open on the last poll      */
-/* Shared "the active top-level view just changed" repaint flag, so the main loop repaints the player
- * chrome once rather than each transition site duplicating that work. B-350: every write to this flag
- * now goes through helios_view_changed() (fw/helios.inc), not a bare assignment -- one of the six
- * independent call sites that used to set it by hand (set_close()) simply omitted it (B-349), which is
- * exactly the failure a single shared entry point is meant to make structurally harder to repeat. Kept
- * under its old name (pl_ui_restore) to avoid a mechanical rename of the main loop's own read site. */
-static uint8_t  pl_ui_restore;
+/* helios_pending_mask (fw/helios.inc, item 4 of the Helios review) replaces the old bare
+ * "pl_ui_restore" repaint flag with a per-view declared bitmask -- see that file's own comment for
+ * the full history (B-349/B-350). The main loop drains it below, right before the flag it replaces
+ * used to be read, since ui_chrome_paint()/ui_art_draw() aren't declared yet at helios.inc's own
+ * #include point. */
 /* The TRACK loads that follow a reload, three deep -- general reload diagnostics, not specific to
  * the (now removed) legacy playlist mode.
  *   G  1 the gate confirmed a new file id, 2 it fired on the cap
@@ -1739,6 +1772,8 @@ static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardwa
 static uint8_t  text_mode_hw;             /* theme/gamma: the bitstream has the second text weight table (probed once at boot) */
 static uint8_t  hw_poly;                  /* B-292: the bitstream has the MP3 window unit (probed once at boot) */
 static uint8_t  hw_lpc;                   /* B-369: the bitstream has the FLAC LPC unit (probed once at boot) */
+static uint8_t  dbuf_hw;                  /* Helios/Talos H2 (B-340): the bitstream has double buffering (probed once at boot) */
+#define DBUF_READY() (dbuf_hw != 0u)
 #if FLAC_PROFILE
 static uint32_t clz_cal_cyc;              /* B-342: measured cycles/call of __clzdi2, once at boot */
 #endif
@@ -1909,6 +1944,9 @@ static uint16_t ui_grad_top_c = UI_GRAD_TOP;
 /* Set where ui_grad_set() can reach it; the stash itself is built further
  * down, once UI_WAVE_* are in scope. */
 static uint8_t ui_bg_ready;
+/* B-413: live counters for the still-unexplained Winamp Scope trail "accumulation" report -- see the
+ * comment at their increment site (wviz_scope_tick()) for what each one means. */
+static uint32_t dbg_scope_blend_ok, dbg_scope_blend_fail;
 
 static void ui_grad_set(uint16_t accent)
 {
@@ -2154,9 +2192,20 @@ static uint32_t ui_wave_w(void)
 #define UI_BG_X  FB_W                  /* first off-screen column */
 #define UI_BG_W  (FB_STRIDE - FB_W)    /* 112 px of invisible stride */
 
+/* B-411 (owner-reported: Winamp Scope's trail stops fading -- "accumulates" -- specifically after
+ * returning from a use_gradient=0 context, fullscreen or the Configure preview, and stays broken
+ * every time until the next such transition): unlike every other draw primitive in this codebase
+ * (fb_rect/fb_bar/fb_blit, and this function's own sibling ui_bg_blend() a few lines below), this had
+ * no FB_HELD() guard of its own. If it ran during the brief window right as an overlay was closing --
+ * exactly when this is called as ui_bg_blend()'s fallback after ui_bg_blend() itself failed because
+ * FB_HELD() was still transiently true -- its fb_rect() calls silently no-op'd (each checks FB_HELD()
+ * internally), leaving the off-screen gradient strip's memory untouched, but `ui_bg_ready` still got
+ * set to 1 unconditionally: every later blend then faded toward whatever stale/garbage content was
+ * actually sitting there instead of the real gradient, until the next transition reset the flag and
+ * the same race could recur. */
 static void ui_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
-    if (!w || !h) return;
+    if (!w || !h || FB_HELD()) return;
     if (!ui_bg_ready) {
         for (uint32_t yy = UI_WAVE_Y - UI_WAVE_TOP; yy < UI_WAVE_Y + UI_WAVE_H; yy++)
             fb_rect(UI_BG_X, yy, UI_BG_W, 1, ui_grad_at(yy));
@@ -2403,8 +2452,16 @@ static void ui_art_mount(void)
     fb_rect(0, ART_STASH_Y, ART_W, ART_H, UI_PANEL);
 }
 
+/* B-412 (audit after B-410/B-411): same pattern as ui_bg_restore()'s own bug -- fb_rect() already
+ * no-ops under FB_HELD(), but `art_ready` used to get marked regardless, so a track load that
+ * happened to coincide with an overlay closing could leave art_ready=1 over a placeholder that was
+ * never actually drawn. Lower-probability window than ui_bg_restore's (needs a track load and an
+ * overlay transition to coincide, not every single transition) and a safer failure mode (no cover
+ * shown, matching the existing "no art" state, not a corrupted one) -- fixed anyway for consistency
+ * with every other draw primitive's own guard. */
 static void ui_art_placeholder(void)
 {
+    if (FB_HELD()) return;
     /* Only the cover area -- the mount around it is already drawn. A slightly
      * darker fill than the plate so an artless track reads as an empty frame
      * rather than a solid grey slab. */
@@ -2424,6 +2481,7 @@ static void ui_art_placeholder(void)
  * a standing fact about the file, not an event. */
 static void ui_art_reason(int progressive)
 {
+    if (FB_HELD()) return;   /* B-412: same reasoning as ui_art_placeholder()'s own guard just above */
     /* A boolean, not the picojpeg status: this lives well above the point
      * where art.inc pulls picojpeg.h in, so the enum is not in scope here.
      * The caller does the comparison, where it is. */
@@ -2921,6 +2979,71 @@ static void ui_chrome_paint(void)
     helios_flush();
 }
 
+/* Helios H2 (docs/features/HELIOS_SPEC.md section 5, item 7 of the architecture review): double
+ * buffering for a genuine full-frame redraw (chrome, and whatever the same transition draws right
+ * alongside it, e.g. album art) -- bracket every plain FB_BASE-relative draw in the redraw with
+ * these two calls instead of touching R_DBUF_CPU/R_DBUF_DISP at each individual call site.
+ *
+ * dbuf_redraw_begin(): if this bitstream has H2 (DBUF_READY()), select the buffer NOT currently
+ * displayed for the CPU write-side (R_DBUF_CPU) and return 1; otherwise return 0 and touch nothing
+ * -- old-bitstream safety rests entirely on this one check, since R_DBUF_CPU/R_DBUF_DISP simply do
+ * not exist on any bitstream without TAU_DBUF (mp3_soc.v decodes those offsets to something else
+ * or nothing at all there). The return value is NOT optional: it must be passed to
+ * dbuf_redraw_end() unchanged, so the "end" half never touches the registers either when this
+ * bitstream lacks them.
+ *
+ * dbuf_redraw_end(active): a no-op if `active` is 0. Otherwise: fb_fence() (every draw issued
+ * between begin/end has now actually EXECUTED, not merely been accepted into the queue -- B-412,
+ * found auditing every sticky-field/buffer-redirect site after B-410/B-411 found the same
+ * fb_wait()-where-fb_fence()-was-needed gap twice elsewhere: this used to call fb_wait(), which
+ * only confirms the FIFO wasn't full at queue time, not that the hardware has drained it, so the
+ * flip below could in principle land at the next vblank before ui_chrome_paint()/ui_art_draw()'s
+ * own commands had finished. No ov_draw dance needed here unlike those other two fixes: fb_fence()
+ * is itself gated on FB_HELD(), but dbuf_redraw_begin()'s own precondition already guarantees
+ * FB_HELD() is false for this whole bracket -- neither overlay flag it checks changes while this
+ * runs), request the flip, then poll the RTL's own "flip still pending" bit for up to CLK_HZ/10
+ * (~100 ms) before giving up. Either way, resync
+ * R_DBUF_CPU to whatever IS now actually displayed: every ordinary INCREMENTAL draw after this
+ * point (concretely, the meter box, ui_meter_redraw()) must target the buffer currently on screen
+ * directly, per HELIOS_SPEC.md section 5's own note that H1's beam-gated draws are not part of
+ * this double-buffered bracket at all -- so leaving R_DBUF_CPU pointed at the back buffer past this
+ * function's return would silently misdirect every one of them, whether or not the flip we
+ * requested actually landed in time. */
+static uint8_t dbuf_redraw_begin(void)
+{
+    /* B-399 (owner-observed on real hardware, TAU_DEV_55): FB_HELD() is checked INSIDE every
+     * individual draw primitive (fb_rect()/fb_bar()/etc., all at line ~465 onward), not by this
+     * bracket's own caller -- while an overlay holds the screen, ui_chrome_paint()'s underlying
+     * ui_draw_chrome() silently draws NOTHING (every call inside it no-ops), but this function had
+     * no way to know that and dbuf_redraw_end() would request a flip anyway, onto a back buffer
+     * holding whatever stale content was left there from an earlier, unrelated redraw -- visible as
+     * a brief tear/glitch that self-corrects once the next real redraw catches up. Matches exactly
+     * what was reported: settings/library open-close and menu navigation (both of which set
+     * UI_OVERLAY_UP while the chrome bit is still set) tearing briefly then returning to normal. */
+    /* B-402: the exact same bug shape as B-399's FB_HELD() fix above, found while scoping an
+     * unrelated feature request -- ui_draw_chrome() ALSO no-ops while screen_blank is set (its own
+     * comment: "a track change must not light the screen back up", ui_blank_wake() re-triggers the
+     * real draw on the way out), a DIFFERENT condition from FB_HELD() (screen_blank is not part of
+     * UI_OVERLAY_UP/ui_fullscreen). Without this check, a chrome invalidation firing while blanked
+     * -- a track change during blank is the documented, expected case -- would still flip onto
+     * whatever stale content sits in the back buffer, briefly breaking the "stays black while
+     * blanked" guarantee. */
+    if (!DBUF_READY() || FB_HELD() || screen_blank) return 0u;
+    const uint32_t cur = REG(R_DBUF_DISP) & 1u;
+    REG(R_DBUF_CPU) = cur ^ 1u;
+    return 1u;
+}
+
+static void dbuf_redraw_end(uint8_t active)
+{
+    if (!active) return;
+    fb_fence();
+    REG(R_DBUF_DISP) = 1u;
+    const uint32_t t0 = cycles();
+    while ((REG(R_DBUF_DISP) & 2u) && (uint32_t)(cycles() - t0) < CLK_HZ / 10u) { }
+    REG(R_DBUF_CPU) = REG(R_DBUF_DISP) & 1u;
+}
+
 /* A load failure used to spin in `for(;;){}`, which is the worst possible
  * outcome: an I/O problem became a frozen screen with no information, and the
  * user could not even pick another file. Say what happened, keep the status
@@ -3344,6 +3467,399 @@ static inline mtr_in_t mtr_build(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
     return in;
 }
 
+/* Helios review item 5 (docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md section 5): the 8
+ * legacy meters below, extracted from ui_draw_dynamic_cold()'s own inline `if (viz_mode == VIZ_X)`
+ * chain into the same mtr_in_t contract item 1 proved on Winamp Bars/Scope, Chladni and VU Master --
+ * geometry (x/y/w/h/bg) and the audio-input fields the struct already carries (spec/wave/peak/peak_l/
+ * peak_r) come from `in`, exactly like those four; a meter's OWN accumulated state that is not really
+ * an "input" (wave[]/wave_pk[]'s shared envelope history, the phase scope's trail buffer, the VU
+ * needle's physics) stays a file-scope static read directly, same precedent wviz_bars_tick's own
+ * per-band easing arrays already set. No new mtr_in_t fields added -- meter.h's own header comment
+ * says as much ("without also inventing... in the same pass"), and every one of these 8 already had a
+ * working direct-global-read version, so there is nothing here that NEEDS a new field to express.
+ *
+ * Not hardware-tested this pass (no card mounted) -- pure code motion, verified by diffing against the
+ * pre-move logic line by line and by `make test-host`/every firmware build target still linking; see
+ * docs/AUDIT_TRAIL.md B-390 for the full account of what was and was not possible to verify this way. */
+
+/* Scrolling waveform: the waterfall's COPY-scroll, but the new column is drawn MIRRORED about a
+ * centre line instead of colour-coded from the bottom -- a DAW-style envelope building up left to
+ * right. ~5 commands a frame, because COPY moves the whole strip for the price of one. */
+static void viz_scroll_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const uint32_t cy = y + h / 2u;
+    const uint32_t half = h / 2u - 1u;
+    if (paused) return;
+    fb_copy(x0 + 1u, y, x0, y, w - 1u, h);
+
+    uint32_t a = (in->peak * half) / 32768u;
+    if (a > half) a = half;
+
+    uint32_t cx = x0 + w - 1u;
+    ui_bg_restore(cx, y, 1, h);     /* clear column */
+    if (a) fb_rect(cx, cy - a, 1, a * 2u + 1u,
+                   ui_mix(UI_TRACK, ui_accent, a, half));
+    else   fb_rect(cx, cy, 1, 1, UI_TRACK);         /* silence line */
+}
+
+/* Spectrum: eight columns of real frequency content from the octave cascade (in->spec, SPEC_BANDS
+ * entries). Bass on the left, treble on the right, each moving on its own. */
+static void viz_led_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    if (paused)
+        for (uint32_t b = 0; b < SPEC_BANDS; b++) spec_lvl[b] = 0;
+
+    /* The gaps between blocks show background, and the background is a per-row ramp -- a flat fill
+     * is the mistake the magic eye made. Only on a repaint: the gaps never move. */
+    int repaint = (spec_drawn[0] == 0xFFu);
+    if (repaint) ui_bg_restore(x0, y, w, h);
+
+    uint32_t colw  = w / SPEC_BANDS;
+    uint32_t bw    = (colw > SPEC_GAPX) ? colw - SPEC_GAPX : 1u;
+    uint32_t pitch = LED_BLKH + LED_GAPV;
+
+    for (uint32_t b = 0; b < SPEC_BANDS; b++) {
+        uint32_t lit  = ((uint32_t)in->spec[b] * LED_ROWS) / 256u;
+        uint32_t prev = spec_drawn[b];
+
+        /* Nothing crossed a row boundary: draw nothing at all. In ordinary music most bands are in
+         * this state on most updates, which is the whole saving. */
+        if (!repaint && lit == prev) continue;
+
+        uint32_t lo = repaint ? 0u : (lit < prev ? lit : prev);
+        uint32_t hi = repaint ? LED_ROWS : (lit > prev ? lit : prev);
+        spec_drawn[b] = (unsigned char)lit;
+
+        uint32_t bx = x0 + b * colw;
+        for (uint32_t r = lo; r < hi; r++) {
+            uint32_t by = y + h - (r + 1u) * pitch;
+            uint16_t c;
+            if (r < lit) {
+                uint32_t half = LED_ROWS / 2u;
+                c = (r < half)
+                  ? ui_mix(LED_LO, LED_MIDC, r, half)
+                  : ui_mix(LED_MIDC, LED_HI, r - half,
+                           LED_ROWS - half);
+            } else {
+                c = UI_TRACK;
+            }
+            fb_rect(bx, by, bw, LED_BLKH, c);
+        }
+    }
+}
+
+/* Peak dots: only the peak-hold markers, no bars -- a row of floating dots tracing the loudness
+ * contour. ~2 commands a column and the sparsest mode here. wave_pk[]/wave_pk_drawn[] are the shared
+ * envelope-peak history every column-based meter reads, computed once per tick before this dispatch
+ * (not part of mtr_in_t -- see this section's own header comment). */
+static void viz_dots_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    for (uint32_t i = 0; i < UI_WAVE_N; i++) {
+        uint32_t x   = x0 + (i * w) / UI_WAVE_N;
+        uint32_t xn  = x0 + ((i + 1u) * w) / UI_WAVE_N;
+        uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
+        uint32_t pk  = wave_pk[i];
+        if (pk < 2u) pk = 2u;
+
+        /* Same treatment as the mirrored bars: skip an unmoved column, and restore around the dot
+         * rather than through it. */
+        if (pk == wave_pk_drawn[i]) continue;
+        wave_pk_drawn[i] = (unsigned char)pk;
+
+        uint16_t c   = ui_mix(UI_TRACK, ui_accent, i + 1u, UI_WAVE_N);
+        uint32_t top = y + h - pk;   /* first dot row */
+        uint32_t end = y + h;        /* one past box  */
+        if (top > y)
+            ui_bg_restore(x, y, lit, top - y);
+        if (top + 2u < end)
+            ui_bg_restore(x, top + 2u, lit, end - (top + 2u));
+        fb_rect(x, top, lit, 2u, c);
+    }
+}
+
+/* Waterfall: scroll the whole strip one pixel left with a single COPY, then draw only the new
+ * right-hand column. That is ~4 commands a frame against the bars' ~72, because COPY moves a block
+ * for the price of one command -- the same primitive the album-art slide uses. Colour encodes
+ * loudness, so the strip becomes a picture of the track's dynamics rather than an instantaneous
+ * reading. */
+static void viz_water_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    if (paused) return;
+    fb_copy(x0 + 1u, y, x0, y, w - 1u, h);
+
+    uint32_t a = (in->peak * h) / 32768u;
+    if (a > h) a = h;
+
+    /* Column drawn as three bands -- quiet bed, body, hot tip -- so loud passages read as brighter
+     * AND taller. */
+    uint32_t cx = x0 + w - 1u;
+    ui_bg_restore(cx, y, 1, h - a);
+    if (a) {
+        uint16_t c = ui_mix(UI_TRACK, ui_accent, a, h);
+        fb_rect(cx, y + h - a, 1, a, c);
+        fb_rect(cx, y + h - a, 1, 1, UI_WHITE);
+    }
+}
+
+/* VU meters: two analogue movements side by side. Geometry comes from `in` every pass rather than
+ * being assumed: hiding the album art widens the box from ~246 to ~360, and a fixed layout would leave
+ * the pair huddled at the left -- the same trap the waterfall fell into. */
+static void viz_vu_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const uint32_t wf = in->force;
+    /* The face -- arc, ticks, labels -- never changes, so it is drawn ONCE and left alone. Clearing
+     * the whole box and repainting everything each pass is what made the L and R labels flicker: they
+     * were being erased and redrawn while the panel was being scanned out. Only the needle is erased
+     * and redrawn now. Width changes with the art panel, and the face geometry is derived from it, so
+     * a cached face drawn at another width is stale even if nothing erased it. */
+    if (wf || w != vu_face_w) vu_face = 0;
+
+    /* Per ROW. Same fault the magic eye exposed: the box was filled with a flat colour, the gradient
+     * sampled once at its top row, which is a flat slab on a ramp that falls to 62% of that value by
+     * the bottom. The needles leave most of the box empty, so it shows. */
+    if (!vu_face)
+        for (uint32_t yy = y; yy < y + h; yy++)
+            fb_rect(x0, yy, w, 1, ui_grad_at(yy));
+
+    for (int ch = 0; ch < 2; ch++) {
+        uint32_t half = w / 2u;
+        uint32_t ox   = x0 + (uint32_t)ch * half;
+        uint32_t pivx = ox + half / 2u;
+        uint32_t pivy = y + h - 4u;
+        uint32_t len  = h - 18u;
+        /* Needle stops short of the ticks, so erasing it can never rub them out and they never need
+         * repainting. */
+        uint32_t nlen = len - 6u;
+
+        uint32_t pkc = ch ? in->peak_r : in->peak_l;
+        uint32_t tgt = (pkc * 255u) / 32768u;
+        if (tgt > 255u) tgt = 255u;
+        uint32_t *v = ch ? &vu_r : &vu_l;
+        if (paused) tgt = 0;
+        if (tgt > *v) { *v += VU_ATT; if (*v > tgt) *v = tgt; }
+        else          { *v = (*v > VU_DEC) ? (*v - VU_DEC) : 0u;
+                        if (*v < tgt) *v = tgt; }
+
+        if (!vu_face) {
+            for (uint32_t t = 0; t <= 80u; t++) {
+                uint32_t q = (t * 16u) / 80u, f = (t * 16u) % 80u;
+                uint32_t q1 = (q < 16u) ? q + 1u : 16u;
+                int32_t sn = vu_sn[q] + (int32_t)((vu_sn[q1] - vu_sn[q]) * (int32_t)f) / 80;
+                int32_t cs = vu_cs[q] + (int32_t)((vu_cs[q1] - vu_cs[q]) * (int32_t)f) / 80;
+                int32_t ar = (int32_t)len + 4;
+                int32_t ax = (int32_t)pivx + (ar * sn) / 4096;
+                int32_t ay = (int32_t)pivy - (ar * cs) / 4096;
+                if (ay < (int32_t)y) continue;
+                if (ax < (int32_t)ox || ax + 1 >= (int32_t)(ox + half)) continue;
+                /* Everything on the face is a TONE OF THE ACCENT. Fixed grey and red meant changing
+                 * colour only moved the needle and the labels, and the meter looked unchanged. The
+                 * peak zone is the accent at full strength against a dimmed scale, so it still reads
+                 * as "the loud end" in any palette. */
+                fb_rect((uint32_t)ax, (uint32_t)ay, 2, 2,
+                        (t >= 60u) ? ui_accent
+                                   : ui_mix(ui_grad_at((uint32_t)ay),
+                                            ui_accent, 2u, 5u));
+            }
+            for (uint32_t t = 0; t <= 4u; t++) {
+                uint32_t i = t * 4u;
+                for (uint32_t d = 0; d < 4u; d++) {
+                    int32_t ar = (int32_t)len - 1 - (int32_t)d;
+                    int32_t ax = (int32_t)pivx + (ar * vu_sn[i]) / 4096;
+                    int32_t ay = (int32_t)pivy - (ar * vu_cs[i]) / 4096;
+                    if (ay < (int32_t)y) continue;
+                    fb_rect((uint32_t)ax, (uint32_t)ay, 1, 1,
+                            (t >= 3u) ? ui_accent
+                                      : ui_mix(ui_grad_at((uint32_t)ay),
+                                               ui_accent, 3u, 5u));
+                }
+            }
+            fb_set_color(ui_accent, ui_grad_at(y + 2u));
+            fb_text_clipped(ox + 6u, y + 2u, ch ? "R" : "L",
+                            TS_1X, TS_1X, 16u);
+        }
+
+        uint8_t shown = ch ? vu_shown_r : vu_shown_l;
+        uint8_t now   = (uint8_t)*v;
+        if (vu_face && now == shown) continue;   /* nothing moved */
+
+        /* Erase the old needle, then draw the new one. Two passes over the same geometry costs less
+         * than repainting the face. The erase is skipped on the first draw after the face is laid
+         * down, when there is no old needle to remove. */
+        for (int pass = vu_face ? 0 : 1; pass < 2; pass++) {
+            int32_t  sn, cs;
+            vu_angle(pass ? now : shown, &sn, &cs);
+            /* One colour throughout its travel. Flashing at the top drew the eye to the loudest
+             * moments, which is the opposite of what a meter is for -- the scale already marks the
+             * peak zone. The erase pass repaints the needle's own footprint in the BACKGROUND colour,
+             * so with a ramp behind it that colour has to be sampled per segment -- a flat fill would
+             * leave a lighter trail down the lower half of the sweep, exactly where the needle spends
+             * most of its time. */
+            for (uint32_t k = 2; k <= VU_STEPS; k++) {
+                int32_t rr = ((int32_t)nlen * (int32_t)k) / (int32_t)VU_STEPS;
+                int32_t nx = (int32_t)pivx + (rr * sn) / 4096;
+                int32_t ny = (int32_t)pivy - (rr * cs) / 4096;
+                if (nx < (int32_t)ox || nx >= (int32_t)(ox + half)) continue;
+                if (ny < (int32_t)y) continue;
+                uint32_t th = (k > VU_STEPS - 6u) ? 1u : 2u;
+                fb_rect((uint32_t)nx, (uint32_t)ny, th, th,
+                        pass ? ui_accent
+                             : ui_grad_at((uint32_t)ny));
+            }
+        }
+        fb_rect(pivx - 2u, pivy - 2u, 5, 5, ui_accent);
+        for (uint32_t r = 0; r < 3u; r++)
+            fb_rect(pivx - 1u, pivy - 1u + r, 3, 1,
+                    ui_grad_at(pivy - 1u + r));
+
+        if (ch) vu_shown_r = now; else vu_shown_l = now;
+    }
+    vu_face = 1;
+    vu_face_w = (uint16_t)w;
+}
+
+/* Oscilloscope: one clear, then one vertical rect per column: ~65 commands, fewer than the bars. */
+static void viz_wave_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const int32_t ey = (int32_t)(h / 2u) - 1;
+    const uint32_t cy = y + h / 2u;
+
+    ui_bg_restore(x0, y, w, h);
+    fb_rect(x0, cy, w, 1, UI_TRACK);      /* zero line */
+
+    if (paused) return;
+    int32_t prev_y = 0;
+    for (uint32_t c = 0; c < WAVE_COLS; c++) {
+        uint32_t x  = x0 + (c * w) / WAVE_COLS;
+        uint32_t xn = x0 + ((c + 1u) * w) / WAVE_COLS;
+        uint32_t cw = (xn > x) ? (xn - x) : 1u;
+
+        int32_t v = (in->wave[c] * ey) / SCOPE_UNIT;
+        if (v >  ey) v =  ey;
+        if (v < -ey) v = -ey;
+
+        /* Span from the previous sample to this one, so the trace is continuous rather than a row of
+         * disconnected marks -- and stays thin, because consecutive samples in a short window are
+         * close together. */
+        int32_t a = (c == 0) ? v : prev_y;
+        int32_t lo = (a < v) ? a : v;
+        int32_t hi = (a < v) ? v : a;
+        prev_y = v;
+
+        uint32_t top = (uint32_t)((int32_t)cy - hi);
+        uint32_t ch = (uint32_t)(hi - lo) + 2u;   /* min 2 px line */
+        if (top + ch > y + h) ch = y + h - top;
+        uint16_t col = ui_mix(UI_TRACK, ui_accent, c + 1u, WAVE_COLS);
+        fb_rect(x, top, cw, ch, col);
+    }
+}
+
+/* Stereo phase scope: one rect to clear, then one per point: ~65 commands, fewer than the bars. The
+ * whole trace is redrawn each pass rather than erased point by point, which would double the count
+ * for no gain. scope_x[]/scope_y[]/scope_head are the trail's own accumulated history, not part of
+ * mtr_in_t -- same precedent as the phase scope's own kind, wviz_scope_tick's smoothing state. */
+static void viz_phase_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const uint32_t r  = h / 2u;          /* usable radius */
+    const uint32_t cx = x0 + w / 2u;
+    const uint32_t cy = y + r;
+
+    ui_bg_restore(x0, y, w, h);
+
+    /* Centre cross: without it a quiet passage is an empty box, and there is no way to tell "silent"
+     * from "not working". */
+    fb_rect(cx, y, 1, h, UI_TRACK);
+    fb_rect(x0, cy, w, 1, UI_TRACK);
+
+    if (paused) return;
+    const int32_t ex = (int32_t)(w / 2u) - 2;   /* horizontal reach */
+    const int32_t ey = (int32_t)r - 2;           /* vertical reach   */
+    /* Oldest first, so the newest trace lands on top of the fading ones rather than under them. */
+    for (uint32_t age = SCOPE_HIST; age-- > 0; ) {
+        uint32_t f = (scope_head + SCOPE_HIST - age) % SCOPE_HIST;
+        const signed char *sx = scope_x[f], *sy = scope_y[f];
+        /* Blended from the background, so it has to be the background near where the trace actually
+         * sits -- the dots cluster around the centre line. Per-dot would cost a call for each of
+         * 48 x 4. */
+        uint16_t c  = ui_mix(ui_grad_at(cy), ui_accent,
+                             SCOPE_HIST - age, SCOPE_HIST);
+        uint32_t sz = age ? 1u : 2u;     /* newest trace is fatter */
+        for (uint32_t k = 0; k < SCOPE_N; k++) {
+            int32_t px = (int32_t)cx + (sx[k] * ex) / SCOPE_UNIT;
+            int32_t py = (int32_t)cy - (sy[k] * ey) / SCOPE_UNIT;
+            if (px < (int32_t)x0 ||
+                px + (int32_t)sz > (int32_t)(x0 + w)) continue;
+            if (py < (int32_t)y ||
+                py + (int32_t)sz > (int32_t)(y + h)) continue;
+            fb_rect((uint32_t)px, (uint32_t)py, sz, sz, c);
+
+            /* Newest trace only: drop a point midway to the next sample so the figure closes into a
+             * curve instead of a dotted outline. Only the top layer gets this -- doing it on every
+             * frame of history would triple the command count for detail that is fading out anyway. */
+            if (!age && k + 1u < SCOPE_N) {
+                int32_t qx = (int32_t)cx + (((sx[k] + sx[k+1]) / 2) * ex) / SCOPE_UNIT;
+                int32_t qy = (int32_t)cy - (((sy[k] + sy[k+1]) / 2) * ey) / SCOPE_UNIT;
+                if (qx >= (int32_t)x0 &&
+                    qx + 1 < (int32_t)(x0 + w) &&
+                    qy >= (int32_t)y &&
+                    qy + 1 < (int32_t)(y + h))
+                    fb_rect((uint32_t)qx, (uint32_t)qy, 1, 1, c);
+            }
+        }
+    }
+}
+
+/* Classic bars: the default meter. Loop invariants computed once per frame instead of once per
+ * changed column: the engine probe, the lit colour and the mirrored geometry. The plain-rectangle
+ * fallback for a bitstream without the blit engine is gone: every bitstream that can run the cold code
+ * has it (OP_BAR since B-104, in every build since alpha.1). wave[]/wave_pk[]/wave_drawn[]/
+ * wave_pk_drawn[] are the shared envelope history every column-based meter reads (not part of
+ * mtr_in_t, see this section's own header comment). */
+static void viz_bars_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
+    const uint16_t bg = in->bg;
+    blit_probe_ensure();
+    const uint16_t lit_c = paused ? ui_mix(UI_TRACK, ui_accent, 1u, 3u) : ui_accent;
+    const uint32_t hh = h / 2u, cy = y + hh;
+    for (uint32_t i = 0; i < UI_WAVE_N; i++) {
+        /* Bar edges come from scaling the index across the full width, so the row always reaches its
+         * right edge. */
+        const uint32_t x   = x0 + (i * w) / UI_WAVE_N;
+        const uint32_t xn  = x0 + ((i + 1u) * w) / UI_WAVE_N;
+        const uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
+        uint32_t bh = wave[i];
+        if (bars_layout) { bh = (bh * (hh - 1u)) / h; if (bh < 1u) bh = 1u; }   /* mirrored: each half is half the box */
+        else if (bh < 2u) bh = 2u;                 /* always show a floor */
+        /* Most bars land on the height already drawn there: skip them (one compare instead of a draw
+         * command). */
+        uint32_t pk = bars_layout ? bh : wave_pk[i];
+        if (pk < bh) pk = bh;
+        if (bh == wave_drawn[i] && pk == wave_pk_drawn[i]) continue;
+        wave_drawn[i]    = (unsigned char)bh;
+        wave_pk_drawn[i] = (unsigned char)pk;
+        const uint16_t c = ui_mix(UI_TRACK, lit_c, i + 1u, UI_WAVE_N);       /* newest bars brightest */
+        if (bars_layout) {
+            /* MIRRORED: two OP_BAR per changed column. The upper half is an ordinary bar (lit rows at
+             * its bottom, the centre line); the lower half is the same bar inverted -- OP_BAR always
+             * lights the bottom of its span, so swap the colours and light the EMPTY part (top h rows
+             * the bar colour, the rest the bed). The bed is the dim track colour. */
+            fb_bar(x, y, lit, hh, bh, c, UI_TRACK);
+            fb_bar(x, cy, lit, hh, hh - bh, UI_TRACK, c);
+            continue;
+        }
+        fb_bar(x, y, lit, h, bh, c, bg);
+        if (pk > bh + 1u)                       /* 1 px peak-hold marker */
+            fb_rect(x, y + h - pk, lit, 1, UI_WHITE);
+    }
+}
+
 /* Winamp bars/scope drawing, factored out of ui_draw_dynamic_cold()'s own
  * VIZ_WINAMP_BARS/VIZ_WINAMP_SCOPE blocks (below) so the Settings > Meter >
  * Configure page (fw/settingsui.inc, B-215/B-216) can render the SAME live,
@@ -3501,9 +4017,19 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
     if (!percol) {
         /* B-334: a trail. With the blend bitstream the old trace is faded toward the background instead of erased: `trail` % of it survives
          * each frame (the background strip is blended over the box with the remaining weight). 0, no blend bitstream, or the Configure preview
-         * (flat background) erases as before. */
+         * (flat background) erases as before.
+         * B-413: neither the ui_bg_ready race (B-411) nor the sticky-base fence audit (B-412) fixed the
+         * owner's reported "accumulates after a fullscreen/Configure visit" -- rather than guess a third
+         * time, capture WHICH branch actually ran, live, so the next repro tells us directly instead of
+         * needing another theory. Counted only when a blend was genuinely attempted (use_gradient && trail
+         * && !paused all true), matching did_blend's own short-circuit exactly -- fullscreen/Configure's own
+         * legitimate use_gradient=0 skip is not counted as a "failure" here, only a real attempted-and-failed
+         * blend is. */
         const uint32_t trail = (uint32_t)MV_WINAMP_SCOPE(SCOPE_TRAIL);
-        if (!(use_gradient && trail && !paused && ui_bg_blend(x0, y, w, h, (100u - trail) * 256u / 100u))) {
+        const int attempt = use_gradient && trail && !paused;
+        const int did_blend = attempt && ui_bg_blend(x0, y, w, h, (100u - trail) * 256u / 100u);
+        if (attempt) { if (did_blend) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; }
+        if (!did_blend) {
             if (use_gradient) ui_bg_restore(x0, y, w, h);
             else              fb_rect(x0, y, w, h, bg);
         }
@@ -3545,14 +4071,29 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
     }
 }
 
+/* Forward declarations: chladni.inc/vu_master.inc are #included later in this file (after ov_frame()),
+ * but B-415 needs to call both from here. */
+static int  chladni_tick_box(const mtr_in_t *in);
+static void vum_tick(const mtr_in_t *in);
+
 /* Draws the meter `viz` into an arbitrary rect against a flat background: the Configure page's live preview. The one hand-written binding
  * between a generated parameter module and its drawing function (a meter module's `tick`, docs/METER_MODULE_SPEC.md section 3). */
+/* B-415 (owner-reported: Chladni and VU Master "don't show up in the preset configure screen"):
+ * the comment this replaces claimed their drawing is refused while an overlay is up -- true of a
+ * plain fb_rect()/fb_bar() call with no ov_draw of its own, but wrong for THIS call site: the only
+ * caller, wvcfg_preview_tick() (fw/settingsui.inc), already sets ov_draw=1 around its whole call to
+ * mtr_preview(), the exact same way it does for Winamp Bars/Scope just above, which DO draw
+ * correctly here. Whatever originally motivated excluding these two was either never actually true
+ * for this call site or stopped being true once wvcfg_preview_tick() gained its own ov_draw handling
+ * -- either way, chladni_tick_box()/vum_tick() take the identical mtr_in_t* signature as the two
+ * meters that already work here, so wiring them in is the same pattern, not new plumbing. */
 COLD_FN3 static void mtr_preview(uint32_t viz, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
 {
     const mtr_in_t in = mtr_build(x, y, w, h, bg, wviz_force);
-    if (viz == VIZ_WINAMP_SCOPE)     wviz_scope_tick(&in, 0);
-    else if (viz == VIZ_WINAMP_BARS) wviz_bars_tick(&in);
-    /* other meters (Chladni, VU Master) have no live preview here: their drawing is refused while an overlay is up */
+    if (viz == VIZ_WINAMP_SCOPE)      wviz_scope_tick(&in, 0);
+    else if (viz == VIZ_WINAMP_BARS)  wviz_bars_tick(&in);
+    else if (viz == VIZ_CHLADNI)      (void)chladni_tick_box(&in);
+    else if (viz == VIZ_VU_MASTER)    vum_tick(&in);
 }
 
 static void ui_draw_dynamic(void);
@@ -4059,6 +4600,189 @@ static void ov_frame(const char *title, const char *right, const char *hint)
 #if TAU_DIAGNOSTIC
 static void mt_take(void);          /* fw/suite.inc: meter trace recorder (M3), called once per displayed meter frame */
 #endif
+
+/* Helios review item 6 (docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md section 5): the meter
+ * box as Helios's SECOND row-ranged region consumer (`ui_chrome_paint()` was the only one -- section
+ * 11's own finding). ui_meter_redraw() (defined right below, called from ui_draw_dynamic_cold()'s own
+ * beam-safety-gated `if` further down this file) is verbatim what used to live directly inside that
+ * `if`; only its LOCATION moved
+ * (into its own function, called through helios_mark_dirty()+helios_flush() instead of running
+ * inline) -- nothing about wf/ww/bed or any of the dispatch logic changed. Registering this as a real
+ * region (instead of just calling helios_rows_safe_counted() by hand, as this call site always has)
+ * proves the region/beam-safety abstraction generalises beyond chrome's own full-screen, no-row-range
+ * case, which is exactly what item 6's own text names as the precondition for a fuller
+ * partial-invalidation vocabulary -- this does NOT attempt that fuller unification (the three separate
+ * "invalidation" mechanisms section 3.1 lists are still three), it only proves the region half of it
+ * now has two real, differently-shaped consumers to design the rest against. */
+static uint8_t ui_meter_region = 0xFFu;
+
+/* COLD_FN3, matching ui_draw_dynamic_cold() (this body used to live directly inside it): without it,
+ * this ~150-line function would compile as ordinary hot code instead of landing in the cold image,
+ * costing real RAM budget for no reason -- caught by the heap-gap number moving after the first build
+ * of this change (50,784 B here vs the pre-move 56,864 B), not by inspection. */
+COLD_FN3 static void ui_meter_redraw(void)
+{
+    uint32_t wf = ui_wave_force; ui_wave_force = 0;
+    /* The accumulated maximum, not the instantaneous value: this tick
+     * covers two display frames and both should count. */
+    uint32_t src = wave_pend ? wave_pend : peak_amp;
+    wave_pend = 0;
+    uint32_t amp = (src * UI_WAVE_H) / 32768u;
+    if (amp > UI_WAVE_H) amp = UI_WAVE_H;
+    /* Frozen while paused: the forced pass exists only to recolour. */
+    if (!paused) {
+        for (uint32_t i = 0; i < UI_WAVE_N - 1u; i++) {
+            wave[i]    = wave[i + 1];
+            wave_pk[i] = wave_pk[i + 1];
+        }
+        wave[UI_WAVE_N - 1u]    = (unsigned char)amp;
+        wave_pk[UI_WAVE_N - 1u] = (unsigned char)amp;
+
+    }
+    (void)wf;
+    /* Peaks sink slowly back toward the bar, so the marker trails the
+     * loudest recent moment instead of sitting at the ceiling. */
+    for (uint32_t i = 0; i < UI_WAVE_N; i++)
+        if (wave_pk[i] > wave[i]) wave_pk[i]--;
+
+    uint32_t ww  = ui_wave_w();
+    uint16_t bed = ui_grad_at(UI_WAVE_Y);
+
+    /* ---- WATERFALL ----------------------------------------------------
+     * Scroll the whole strip one pixel left with a single COPY, then draw
+     * only the new right-hand column. That is ~4 commands a frame against
+     * the bars' ~72, because COPY moves a block for the price of one
+     * command -- the same primitive the album-art slide uses.
+     *
+     * Colour encodes loudness, so the strip becomes a picture of the
+     * track's dynamics rather than an instantaneous reading. */
+    /* ---- SCROLLING WAVEFORM -------------------------------------------
+     * The waterfall's COPY-scroll, but the new column is drawn MIRRORED
+     * about a centre line instead of colour-coded from the bottom -- a
+     * DAW-style envelope building up left to right. ~5 commands a frame,
+     * because COPY moves the whole strip for the price of one. */
+    if (viz_mode == VIZ_SCROLL) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_scroll_tick(&in);
+        goto viz_done;
+    }
+
+    /* ---- MIRRORED BARS ------------------------------------------------
+     * The same wave[] history the bars use, grown up AND down from a
+     * centre line. Same cost as the bars; different shape entirely. */
+    /* ---- SPECTRUM ------------------------------------------------
+     *
+     * Eight columns of real frequency content from the octave cascade --
+     * see SPEC_BANDS. Bass on the left, treble on the right, each moving
+     * on its own.
+     *
+     * This replaced a two-channel level ladder. Six blocks drawn from one
+     * number will always rise and fall together however they are styled;
+     * "make them move independently" is not a tuning request, it needs
+     * frequency data, and the cascade is what provides it. */
+    if (viz_mode == VIZ_LED) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_led_tick(&in);
+        goto viz_done;
+    }
+
+    /* ---- WINAMP BARS -----------------------------------------------
+     * Classic Winamp bars, drawn at the normal meter box's own position
+     * -- see wviz_bars_tick() (defined earlier in this file, alongside
+     * wviz_ease_step()) for the actual drawing/easing logic, shared with
+     * the Settings > Meter > Configure page (fw/settingsui.inc) so both
+     * places animate from one source of truth. */
+    if (viz_mode == VIZ_CHLADNI) {
+        if (!ui_fullscreen) {
+            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, ui_grad_at(UI_WAVE_Y + UI_WAVE_H / 2u), wf);
+            (void)chladni_tick_box(&in);
+        }
+        goto viz_done;
+    }
+
+    if (ui_fullscreen && (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE)) goto viz_done;   /* fullscreen.inc draws these */
+    if (viz_mode == VIZ_WINAMP_BARS) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
+        wviz_bars_tick(&in);
+        goto viz_done;
+    }
+
+    /* ---- WINAMP SCOPE ------------------------------------------------
+     * Classic Winamp oscilloscope -- see wviz_scope_tick() for the actual
+     * drawing/smoothing logic, shared with the Configure page. */
+    if (viz_mode == VIZ_WINAMP_SCOPE) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, 0u, wviz_force);
+        wviz_scope_tick(&in, 1);
+        goto viz_done;
+    }
+
+    /* ---- MASTER VU -----------------------------------------------------
+     * Mastering-style segmented dB peak ladder -- see vum_tick() (fw/vu_master.inc) for the
+     * ladder/peak-hold/overlay logic. Not fullscreen-capable (fs_capable() in fullscreen.inc
+     * doesn't list it), so no ui_fullscreen guard is needed here the way Winamp Bars/Scope have
+     * one above -- fullscreen is always forced off before this meter can be the active one. */
+    if (viz_mode == VIZ_VU_MASTER) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
+        vum_tick(&in);
+        goto viz_done;
+    }
+
+    /* ---- PEAK DOTS ----------------------------------------------------
+     * Only the peak-hold markers, no bars: a row of floating dots tracing
+     * the loudness contour. ~2 commands a column and the sparsest mode
+     * here. */
+    if (viz_mode == VIZ_DOTS) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_dots_tick(&in);
+        goto viz_done;
+    }
+
+    if (viz_mode == VIZ_WATER) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_water_tick(&in);
+        goto viz_done;
+    }
+
+    /* ---- VU METERS ----------------------------------------------------
+     * Two analogue movements side by side. Geometry is derived from
+     * ui_wave_w() every pass rather than assumed: hiding the album art
+     * widens the box from ~246 to ~360, and a fixed layout would leave the
+     * pair huddled at the left -- the same trap the waterfall fell into. */
+    if (viz_mode == VIZ_VU) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_vu_tick(&in);
+        goto viz_done;
+    }
+
+    /* ---- OSCILLOSCOPE -------------------------------------------------
+     * One clear, then one vertical rect per column: ~65 commands, fewer
+     * than the bars. */
+    if (viz_mode == VIZ_WAVE) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_wave_tick(&in);
+        goto viz_done;
+    }
+    /* ---- STEREO PHASE SCOPE -------------------------------------------
+     * One rect to clear, then one per point: ~65 commands, fewer than the
+     * bars. The whole trace is redrawn each pass rather than erased point
+     * by point, which would double the count for no gain. */
+    if (viz_mode == VIZ_SCOPE) {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_phase_tick(&in);
+        goto viz_done;
+    }
+
+    /* Classic bars: the default meter. */
+    {
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
+        viz_bars_tick(&in);
+    }
+viz_done: ;
+#if TAU_DIAGNOSTIC
+    mt_take();               /* M3 meter trace recorder: the values every meter just drew from (fw/suite.inc) */
+#endif
+}
+
 COLD_FN3 static void ui_draw_dynamic_cold(void)
 {
     if (screen_blank) return;
@@ -4216,479 +4940,18 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
     if ((!paused || ui_wave_force || vu_settling) && ++ui_last_vu >= 2u
         && helios_rows_safe_counted(UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H - 1u)) {
         ui_last_vu = 0;
-
-        uint32_t wf = ui_wave_force; ui_wave_force = 0;
-        /* The accumulated maximum, not the instantaneous value: this tick
-         * covers two display frames and both should count. */
-        uint32_t src = wave_pend ? wave_pend : peak_amp;
-        wave_pend = 0;
-        uint32_t amp = (src * UI_WAVE_H) / 32768u;
-        if (amp > UI_WAVE_H) amp = UI_WAVE_H;
-        /* Frozen while paused: the forced pass exists only to recolour. */
-        if (!paused) {
-            for (uint32_t i = 0; i < UI_WAVE_N - 1u; i++) {
-                wave[i]    = wave[i + 1];
-                wave_pk[i] = wave_pk[i + 1];
-            }
-            wave[UI_WAVE_N - 1u]    = (unsigned char)amp;
-            wave_pk[UI_WAVE_N - 1u] = (unsigned char)amp;
-
-        }
-        (void)wf;
-        /* Peaks sink slowly back toward the bar, so the marker trails the
-         * loudest recent moment instead of sitting at the ceiling. */
-        for (uint32_t i = 0; i < UI_WAVE_N; i++)
-            if (wave_pk[i] > wave[i]) wave_pk[i]--;
-
-        uint32_t ww  = ui_wave_w();
-        uint16_t bed = ui_grad_at(UI_WAVE_Y);
-
-        /* ---- WATERFALL ----------------------------------------------------
-         * Scroll the whole strip one pixel left with a single COPY, then draw
-         * only the new right-hand column. That is ~4 commands a frame against
-         * the bars' ~72, because COPY moves a block for the price of one
-         * command -- the same primitive the album-art slide uses.
-         *
-         * Colour encodes loudness, so the strip becomes a picture of the
-         * track's dynamics rather than an instantaneous reading. */
-        /* ---- SCROLLING WAVEFORM -------------------------------------------
-         * The waterfall's COPY-scroll, but the new column is drawn MIRRORED
-         * about a centre line instead of colour-coded from the bottom -- a
-         * DAW-style envelope building up left to right. ~5 commands a frame,
-         * because COPY moves the whole strip for the price of one. */
-        if (viz_mode == VIZ_SCROLL) {
-            const uint32_t x0 = UI_MARGIN, w = ww;
-            const uint32_t cy = UI_WAVE_Y + UI_WAVE_H / 2u;
-            const uint32_t half = UI_WAVE_H / 2u - 1u;
-            if (!paused) {
-                fb_copy(x0 + 1u, UI_WAVE_Y, x0, UI_WAVE_Y, w - 1u, UI_WAVE_H);
-
-                uint32_t a = (peak_amp * half) / 32768u;
-                if (a > half) a = half;
-
-                uint32_t cx = x0 + w - 1u;
-                ui_bg_restore(cx, UI_WAVE_Y, 1, UI_WAVE_H);     /* clear column */
-                if (a) fb_rect(cx, cy - a, 1, a * 2u + 1u,
-                               ui_mix(UI_TRACK, ui_accent, a, half));
-                else   fb_rect(cx, cy, 1, 1, UI_TRACK);         /* silence line */
-            }
-            goto viz_done;
-        }
-
-        /* ---- MIRRORED BARS ------------------------------------------------
-         * The same wave[] history the bars use, grown up AND down from a
-         * centre line. Same cost as the bars; different shape entirely. */
-        /* ---- SPECTRUM ------------------------------------------------
-         *
-         * Eight columns of real frequency content from the octave cascade --
-         * see SPEC_BANDS. Bass on the left, treble on the right, each moving
-         * on its own.
-         *
-         * This replaced a two-channel level ladder. Six blocks drawn from one
-         * number will always rise and fall together however they are styled;
-         * "make them move independently" is not a tuning request, it needs
-         * frequency data, and the cascade is what provides it. */
-        if (viz_mode == VIZ_LED) {
-            if (paused)
-                for (uint32_t b = 0; b < SPEC_BANDS; b++) spec_lvl[b] = 0;
-
-            /* The gaps between blocks show background, and the background is
-             * a per-row ramp -- a flat fill is the mistake the magic eye made.
-             * Only on a repaint: the gaps never move. */
-            int repaint = (spec_drawn[0] == 0xFFu);
-            if (repaint) ui_bg_restore(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H);
-
-            uint32_t colw  = ww / SPEC_BANDS;
-            uint32_t bw    = (colw > SPEC_GAPX) ? colw - SPEC_GAPX : 1u;
-            uint32_t pitch = LED_BLKH + LED_GAPV;
-
-            for (uint32_t b = 0; b < SPEC_BANDS; b++) {
-                uint32_t lit  = ((uint32_t)spec_lvl[b] * LED_ROWS) / 256u;
-                uint32_t prev = spec_drawn[b];
-
-                /* Nothing crossed a row boundary: draw nothing at all. In
-                 * ordinary music most bands are in this state on most
-                 * updates, which is the whole saving. */
-                if (!repaint && lit == prev) continue;
-
-                uint32_t lo = repaint ? 0u : (lit < prev ? lit : prev);
-                uint32_t hi = repaint ? LED_ROWS : (lit > prev ? lit : prev);
-                spec_drawn[b] = (unsigned char)lit;
-
-                uint32_t x0 = UI_MARGIN + b * colw;
-                for (uint32_t r = lo; r < hi; r++) {
-                    uint32_t y = UI_WAVE_Y + UI_WAVE_H - (r + 1u) * pitch;
-                    uint16_t c;
-                    if (r < lit) {
-                        uint32_t half = LED_ROWS / 2u;
-                        c = (r < half)
-                          ? ui_mix(LED_LO, LED_MIDC, r, half)
-                          : ui_mix(LED_MIDC, LED_HI, r - half,
-                                   LED_ROWS - half);
-                    } else {
-                        c = UI_TRACK;
-                    }
-                    fb_rect(x0, y, bw, LED_BLKH, c);
-                }
-            }
-            goto viz_done;
-        }
-
-        /* ---- WINAMP BARS -----------------------------------------------
-         * Classic Winamp bars, drawn at the normal meter box's own position
-         * -- see wviz_bars_tick() (defined earlier in this file, alongside
-         * wviz_ease_step()) for the actual drawing/easing logic, shared with
-         * the Settings > Meter > Configure page (fw/settingsui.inc) so both
-         * places animate from one source of truth. */
-        if (viz_mode == VIZ_CHLADNI) {
-            if (!ui_fullscreen) {
-                const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, ui_grad_at(UI_WAVE_Y + UI_WAVE_H / 2u), wf);
-                (void)chladni_tick_box(&in);
-            }
-            goto viz_done;
-        }
-
-        if (ui_fullscreen && (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE)) goto viz_done;   /* fullscreen.inc draws these */
-        if (viz_mode == VIZ_WINAMP_BARS) {
-            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
-            wviz_bars_tick(&in);
-            goto viz_done;
-        }
-
-        /* ---- WINAMP SCOPE ------------------------------------------------
-         * Classic Winamp oscilloscope -- see wviz_scope_tick() for the actual
-         * drawing/smoothing logic, shared with the Configure page. */
-        if (viz_mode == VIZ_WINAMP_SCOPE) {
-            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, 0u, wviz_force);
-            wviz_scope_tick(&in, 1);
-            goto viz_done;
-        }
-
-        /* ---- MASTER VU -----------------------------------------------------
-         * Mastering-style segmented dB peak ladder -- see vum_tick() (fw/vu_master.inc) for the
-         * ladder/peak-hold/overlay logic. Not fullscreen-capable (fs_capable() in fullscreen.inc
-         * doesn't list it), so no ui_fullscreen guard is needed here the way Winamp Bars/Scope have
-         * one above -- fullscreen is always forced off before this meter can be the active one. */
-        if (viz_mode == VIZ_VU_MASTER) {
-            const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
-            vum_tick(&in);
-            goto viz_done;
-        }
-
-        /* ---- PEAK DOTS ----------------------------------------------------
-         * Only the peak-hold markers, no bars: a row of floating dots tracing
-         * the loudness contour. ~2 commands a column and the sparsest mode
-         * here. */
-        if (viz_mode == VIZ_DOTS) {
-            for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-                uint32_t x   = UI_MARGIN + (i * ww) / UI_WAVE_N;
-                uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
-                uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
-                uint32_t pk  = wave_pk[i];
-                if (pk < 2u) pk = 2u;
-
-                /* Same treatment as the mirrored bars: skip an unmoved column,
-                 * and restore around the dot rather than through it. */
-                if (pk == wave_pk_drawn[i]) continue;
-                wave_pk_drawn[i] = (unsigned char)pk;
-
-                uint16_t c   = ui_mix(UI_TRACK, ui_accent, i + 1u, UI_WAVE_N);
-                uint32_t top = UI_WAVE_Y + UI_WAVE_H - pk;   /* first dot row */
-                uint32_t end = UI_WAVE_Y + UI_WAVE_H;        /* one past box  */
-                if (top > UI_WAVE_Y)
-                    ui_bg_restore(x, UI_WAVE_Y, lit, top - UI_WAVE_Y);
-                if (top + 2u < end)
-                    ui_bg_restore(x, top + 2u, lit, end - (top + 2u));
-                fb_rect(x, top, lit, 2u, c);
-            }
-            goto viz_done;
-        }
-
-        if (viz_mode == VIZ_WATER) {
-            const uint32_t x0 = UI_MARGIN, w = ww;
-            if (!paused) {
-                fb_copy(x0 + 1u, UI_WAVE_Y, x0, UI_WAVE_Y, w - 1u, UI_WAVE_H);
-
-                uint32_t a = (peak_amp * UI_WAVE_H) / 32768u;
-                if (a > UI_WAVE_H) a = UI_WAVE_H;
-
-                /* Column drawn as three bands -- quiet bed, body, hot tip --
-                 * so loud passages read as brighter AND taller. */
-                uint32_t cx = x0 + w - 1u;
-                ui_bg_restore(cx, UI_WAVE_Y, 1, UI_WAVE_H - a);
-                if (a) {
-                    uint16_t c = ui_mix(UI_TRACK, ui_accent, a, UI_WAVE_H);
-                    fb_rect(cx, UI_WAVE_Y + UI_WAVE_H - a, 1, a, c);
-                    fb_rect(cx, UI_WAVE_Y + UI_WAVE_H - a, 1, 1, UI_WHITE);
-                }
-            }
-            goto viz_done;
-        }
-
-        /* ---- VU METERS ----------------------------------------------------
-         * Two analogue movements side by side. Geometry is derived from
-         * ui_wave_w() every pass rather than assumed: hiding the album art
-         * widens the box from ~246 to ~360, and a fixed layout would leave the
-         * pair huddled at the left -- the same trap the waterfall fell into. */
-        if (viz_mode == VIZ_VU) {
-            /* The face -- arc, ticks, labels -- never changes, so it is drawn
-             * ONCE and left alone. Clearing the whole box and repainting
-             * everything each pass is what made the L and R labels flicker:
-             * they were being erased and redrawn while the panel was being
-             * scanned out. Only the needle is erased and redrawn now. */
-            /* Width changes with the art panel, and the face geometry is
-             * derived from it, so a cached face drawn at another width is
-             * stale even if nothing erased it. */
-            if (wf || ww != vu_face_w) vu_face = 0;
-
-            /* Per ROW. Same fault the magic eye exposed: the box was filled
-             * with `bed`, the gradient sampled once at its top row, which is a
-             * flat slab on a ramp that falls to 62% of that value by the
-             * bottom. The needles leave most of the box empty, so it shows. */
-            if (!vu_face)
-                for (uint32_t yy = UI_WAVE_Y; yy < UI_WAVE_Y + UI_WAVE_H; yy++)
-                    fb_rect(UI_MARGIN, yy, ww, 1, ui_grad_at(yy));
-
-            for (int ch = 0; ch < 2; ch++) {
-                uint32_t half = ww / 2u;
-                uint32_t ox   = UI_MARGIN + (uint32_t)ch * half;
-                uint32_t pivx = ox + half / 2u;
-                uint32_t pivy = UI_WAVE_Y + UI_WAVE_H - 4u;
-                uint32_t len  = UI_WAVE_H - 18u;
-                /* Needle stops short of the ticks, so erasing it can never rub
-                 * them out and they never need repainting. */
-                uint32_t nlen = len - 6u;
-
-                uint32_t pkc = ch ? peak_r : peak_l;
-                uint32_t tgt = (pkc * 255u) / 32768u;
-                if (tgt > 255u) tgt = 255u;
-                uint32_t *v = ch ? &vu_r : &vu_l;
-                if (paused) tgt = 0;
-                if (tgt > *v) { *v += VU_ATT; if (*v > tgt) *v = tgt; }
-                else          { *v = (*v > VU_DEC) ? (*v - VU_DEC) : 0u;
-                                if (*v < tgt) *v = tgt; }
-
-                if (!vu_face) {
-                    for (uint32_t t = 0; t <= 80u; t++) {
-                        uint32_t q = (t * 16u) / 80u, f = (t * 16u) % 80u;
-                        uint32_t q1 = (q < 16u) ? q + 1u : 16u;
-                        int32_t sn = vu_sn[q] + (int32_t)((vu_sn[q1] - vu_sn[q]) * (int32_t)f) / 80;
-                        int32_t cs = vu_cs[q] + (int32_t)((vu_cs[q1] - vu_cs[q]) * (int32_t)f) / 80;
-                        int32_t ar = (int32_t)len + 4;
-                        int32_t ax = (int32_t)pivx + (ar * sn) / 4096;
-                        int32_t ay = (int32_t)pivy - (ar * cs) / 4096;
-                        if (ay < (int32_t)UI_WAVE_Y) continue;
-                        if (ax < (int32_t)ox || ax + 1 >= (int32_t)(ox + half)) continue;
-                        /* Everything on the face is a TONE OF THE ACCENT.
-                         * Fixed grey and red meant changing colour only moved
-                         * the needle and the labels, and the meter looked
-                         * unchanged. The peak zone is the accent at full
-                         * strength against a dimmed scale, so it still reads as
-                         * "the loud end" in any palette. */
-                        fb_rect((uint32_t)ax, (uint32_t)ay, 2, 2,
-                                (t >= 60u) ? ui_accent
-                                           : ui_mix(ui_grad_at((uint32_t)ay),
-                                                    ui_accent, 2u, 5u));
-                    }
-                    for (uint32_t t = 0; t <= 4u; t++) {
-                        uint32_t i = t * 4u;
-                        for (uint32_t d = 0; d < 4u; d++) {
-                            int32_t ar = (int32_t)len - 1 - (int32_t)d;
-                            int32_t ax = (int32_t)pivx + (ar * vu_sn[i]) / 4096;
-                            int32_t ay = (int32_t)pivy - (ar * vu_cs[i]) / 4096;
-                            if (ay < (int32_t)UI_WAVE_Y) continue;
-                            fb_rect((uint32_t)ax, (uint32_t)ay, 1, 1,
-                                    (t >= 3u) ? ui_accent
-                                              : ui_mix(ui_grad_at((uint32_t)ay),
-                                                       ui_accent, 3u, 5u));
-                        }
-                    }
-                    fb_set_color(ui_accent, ui_grad_at(UI_WAVE_Y + 2u));
-                    fb_text_clipped(ox + 6u, UI_WAVE_Y + 2u, ch ? "R" : "L",
-                                    TS_1X, TS_1X, 16u);
-                }
-
-                uint8_t shown = ch ? vu_shown_r : vu_shown_l;
-                uint8_t now   = (uint8_t)*v;
-                if (vu_face && now == shown) continue;   /* nothing moved */
-
-                /* Erase the old needle, then draw the new one. Two passes over
-                 * the same geometry costs less than repainting the face. The
-                 * erase is skipped on the first draw after the face is laid
-                 * down, when there is no old needle to remove. */
-                for (int pass = vu_face ? 0 : 1; pass < 2; pass++) {
-                    int32_t  sn, cs;
-                    vu_angle(pass ? now : shown, &sn, &cs);
-                    /* One colour throughout its travel. Flashing at the top drew the eye
-                     * to the loudest moments, which is the opposite of what a
-                     * meter is for -- the scale already marks the peak zone. */
-                    /* The erase pass repaints the needle's own footprint in
-                     * the BACKGROUND colour, so with a ramp behind it that
-                     * colour has to be sampled per segment -- a flat `bed`
-                     * would leave a lighter trail down the lower half of the
-                     * sweep, exactly where the needle spends most of its
-                     * time. */
-                    for (uint32_t k = 2; k <= VU_STEPS; k++) {
-                        int32_t rr = ((int32_t)nlen * (int32_t)k) / (int32_t)VU_STEPS;
-                        int32_t nx = (int32_t)pivx + (rr * sn) / 4096;
-                        int32_t ny = (int32_t)pivy - (rr * cs) / 4096;
-                        if (nx < (int32_t)ox || nx >= (int32_t)(ox + half)) continue;
-                        if (ny < (int32_t)UI_WAVE_Y) continue;
-                        uint32_t th = (k > VU_STEPS - 6u) ? 1u : 2u;
-                        fb_rect((uint32_t)nx, (uint32_t)ny, th, th,
-                                pass ? ui_accent
-                                     : ui_grad_at((uint32_t)ny));
-                    }
-                }
-                fb_rect(pivx - 2u, pivy - 2u, 5, 5, ui_accent);
-                for (uint32_t r = 0; r < 3u; r++)
-                    fb_rect(pivx - 1u, pivy - 1u + r, 3, 1,
-                            ui_grad_at(pivy - 1u + r));
-
-                if (ch) vu_shown_r = now; else vu_shown_l = now;
-            }
-            vu_face = 1;
-            vu_face_w = (uint16_t)ww;
-            goto viz_done;
-        }
-
-        /* ---- OSCILLOSCOPE -------------------------------------------------
-         * One clear, then one vertical rect per column: ~65 commands, fewer
-         * than the bars. */
-        if (viz_mode == VIZ_WAVE) {
-            const int32_t ey = (int32_t)(UI_WAVE_H / 2u) - 1;
-            const uint32_t cy = UI_WAVE_Y + UI_WAVE_H / 2u;
-
-            ui_bg_restore(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H);
-            fb_rect(UI_MARGIN, cy, ww, 1, UI_TRACK);      /* zero line */
-
-            if (!paused) {
-                int32_t prev_y = 0;
-                for (uint32_t c = 0; c < WAVE_COLS; c++) {
-                    uint32_t x  = UI_MARGIN + (c * ww) / WAVE_COLS;
-                    uint32_t xn = UI_MARGIN + ((c + 1u) * ww) / WAVE_COLS;
-                    uint32_t w  = (xn > x) ? (xn - x) : 1u;
-
-                    int32_t v = (wav_v[c] * ey) / SCOPE_UNIT;
-                    if (v >  ey) v =  ey;
-                    if (v < -ey) v = -ey;
-
-                    /* Span from the previous sample to this one, so the trace
-                     * is continuous rather than a row of disconnected marks --
-                     * and stays thin, because consecutive samples in a short
-                     * window are close together. */
-                    int32_t a = (c == 0) ? v : prev_y;
-                    int32_t lo = (a < v) ? a : v;
-                    int32_t hi = (a < v) ? v : a;
-                    prev_y = v;
-
-                    uint32_t top = (uint32_t)((int32_t)cy - hi);
-                    uint32_t h   = (uint32_t)(hi - lo) + 2u;   /* min 2 px line */
-                    if (top + h > UI_WAVE_Y + UI_WAVE_H) h = UI_WAVE_Y + UI_WAVE_H - top;
-                    uint16_t col = ui_mix(UI_TRACK, ui_accent, c + 1u, WAVE_COLS);
-                    fb_rect(x, top, w, h, col);
-                }
-            }
-            goto viz_done;
-        }
-
-        /* ---- STEREO PHASE SCOPE -------------------------------------------
-         * One rect to clear, then one per point: ~65 commands, fewer than the
-         * bars. The whole trace is redrawn each pass rather than erased point
-         * by point, which would double the count for no gain. */
-        if (viz_mode == VIZ_SCOPE) {
-            const uint32_t r  = UI_WAVE_H / 2u;          /* usable radius */
-            const uint32_t cx = UI_MARGIN + ww / 2u;
-            const uint32_t cy = UI_WAVE_Y + r;
-
-            ui_bg_restore(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H);
-
-            /* Centre cross: without it a quiet passage is an empty box, and
-             * there is no way to tell "silent" from "not working". */
-            fb_rect(cx, UI_WAVE_Y, 1, UI_WAVE_H, UI_TRACK);
-            fb_rect(UI_MARGIN, cy, ww, 1, UI_TRACK);
-
-            if (!paused) {
-                const int32_t ex = (int32_t)(ww / 2u) - 2;   /* horizontal reach */
-                const int32_t ey = (int32_t)r - 2;           /* vertical reach   */
-                /* Oldest first, so the newest trace lands on top of the
-                 * fading ones rather than under them. */
-                for (uint32_t age = SCOPE_HIST; age-- > 0; ) {
-                    uint32_t f = (scope_head + SCOPE_HIST - age) % SCOPE_HIST;
-                    const signed char *sx = scope_x[f], *sy = scope_y[f];
-                    /* Blended from the background, so it has to be the
-                     * background near where the trace actually sits -- the
-                     * dots cluster around the centre line. Per-dot would cost
-                     * a call for each of 48 x 4. */
-                    uint16_t c  = ui_mix(ui_grad_at(cy), ui_accent,
-                                         SCOPE_HIST - age, SCOPE_HIST);
-                    uint32_t sz = age ? 1u : 2u;     /* newest trace is fatter */
-                    for (uint32_t k = 0; k < SCOPE_N; k++) {
-                        int32_t px = (int32_t)cx + (sx[k] * ex) / SCOPE_UNIT;
-                        int32_t py = (int32_t)cy - (sy[k] * ey) / SCOPE_UNIT;
-                        if (px < (int32_t)UI_MARGIN ||
-                            px + (int32_t)sz > (int32_t)(UI_MARGIN + ww)) continue;
-                        if (py < (int32_t)UI_WAVE_Y ||
-                            py + (int32_t)sz > (int32_t)(UI_WAVE_Y + UI_WAVE_H)) continue;
-                        fb_rect((uint32_t)px, (uint32_t)py, sz, sz, c);
-
-                        /* Newest trace only: drop a point midway to the next
-                         * sample so the figure closes into a curve instead of
-                         * a dotted outline. Only the top layer gets this --
-                         * doing it on every frame of history would triple the
-                         * command count for detail that is fading out anyway. */
-                        if (!age && k + 1u < SCOPE_N) {
-                            int32_t qx = (int32_t)cx + (((sx[k] + sx[k+1]) / 2) * ex) / SCOPE_UNIT;
-                            int32_t qy = (int32_t)cy - (((sy[k] + sy[k+1]) / 2) * ey) / SCOPE_UNIT;
-                            if (qx >= (int32_t)UI_MARGIN &&
-                                qx + 1 < (int32_t)(UI_MARGIN + ww) &&
-                                qy >= (int32_t)UI_WAVE_Y &&
-                                qy + 1 < (int32_t)(UI_WAVE_Y + UI_WAVE_H))
-                                fb_rect((uint32_t)qx, (uint32_t)qy, 1, 1, c);
-                        }
-                    }
-                }
-            }
-            goto viz_done;
-        }
-
-        /* Loop invariants, computed once per frame instead of once per changed column: the engine probe, the lit colour
-         * and the mirrored geometry. The plain-rectangle fallback for a bitstream without the blit engine is gone: every
-         * bitstream that can run the cold code has it (OP_BAR since B-104, in every build since alpha.1). */
-        blit_probe_ensure();
-        const uint16_t lit_c = paused ? ui_mix(UI_TRACK, ui_accent, 1u, 3u) : ui_accent;
-        const uint32_t hh = UI_WAVE_H / 2u, cy = UI_WAVE_Y + hh;
-        for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-            /* Bar edges come from scaling the index across the full width, so the row always reaches its right edge. */
-            const uint32_t x   = UI_MARGIN + (i * ww) / UI_WAVE_N;
-            const uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
-            const uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
-            uint32_t h = wave[i];
-            if (bars_layout) { h = (h * (hh - 1u)) / UI_WAVE_H; if (h < 1u) h = 1u; }   /* mirrored: each half is half the box */
-            else if (h < 2u) h = 2u;                 /* always show a floor */
-            /* Most bars land on the height already drawn there: skip them (one compare instead of a draw command). */
-            uint32_t pk = bars_layout ? h : wave_pk[i];
-            if (pk < h) pk = h;
-            if (h == wave_drawn[i] && pk == wave_pk_drawn[i]) continue;
-            wave_drawn[i]    = (unsigned char)h;
-            wave_pk_drawn[i] = (unsigned char)pk;
-            const uint16_t c = ui_mix(UI_TRACK, lit_c, i + 1u, UI_WAVE_N);       /* newest bars brightest */
-            if (bars_layout) {
-                /* MIRRORED: two OP_BAR per changed column. The upper half is an ordinary bar (lit rows at its bottom, the centre
-                 * line); the lower half is the same bar inverted -- OP_BAR always lights the bottom of its span, so swap the
-                 * colours and light the EMPTY part (top h rows the bar colour, the rest the bed). The bed is the dim track colour. */
-                fb_bar(x, UI_WAVE_Y, lit, hh, h, c, UI_TRACK);
-                fb_bar(x, cy, lit, hh, hh - h, UI_TRACK, c);
-                continue;
-            }
-            fb_bar(x, UI_WAVE_Y, lit, UI_WAVE_H, h, c, bed);
-            if (pk > h + 1u)                       /* 1 px peak-hold marker */
-                fb_rect(x, UI_WAVE_Y + UI_WAVE_H - pk, lit, 1, UI_WHITE);
-        }
-    viz_done: ;
-#if TAU_DIAGNOSTIC
-        mt_take();               /* M3 meter trace recorder: the values every meter just drew from (fw/suite.inc) */
-#endif
+        if (ui_meter_region == 0xFFu)
+            ui_meter_region = helios_region_register_rows_cold(ui_meter_redraw, UI_WAVE_Y - UI_WAVE_TOP,
+                                                                UI_WAVE_Y + UI_WAVE_H - 1u);
+        helios_mark_dirty(ui_meter_region);
+        /* Safety was already confirmed just above; helios_flush()'s own re-check of the same row
+         * range passes trivially (the beam has not moved in the few cycles since), so this draws NOW
+         * -- the exact cadence/timing this call site always had, not deferred to a later pass. Kept
+         * as an explicit gate rather than relying only on helios_flush()'s internal check, so
+         * ui_last_vu's reset-only-on-an-actual-redraw semantics (the comment above) are unchanged:
+         * that is what makes it retry every tick while genuinely beam-blocked rather than every
+         * other tick. */
+        helios_flush();
     }
 
     /* Sticky underrun latch (pcm_fifo.v) stays set until the next pcm_flush()
@@ -8327,6 +8590,9 @@ int main(void)
         for (;;) { }
     }
     helios_beam_ok = (uint8_t)((REG(R_SCAN) >> 9) & 1u);   /* B-267: beam position present on this bitstream? */
+    dbuf_hw = (uint8_t)((REG(R_DBUF_DISP) >> 31) & 1u);    /* Helios/Talos H2: double buffering present? -- a real dedicated
+                                                             * presence bit (unlike BLIT_READY()/RRECT_READY()'s functional
+                                                             * probe, needed only because THOSE opcodes have no such bit) */
     wave_hw = (uint8_t)(REG(R_WAVE_ST) & 1u);      /* B-283: hardware level/scope block present? */
     spec_hw = (uint8_t)(REG(R_SPEC_ST) & 1u);      /* B-263: hardware spectrum bank present? (0 on any other bitstream) */
     text_mode_hw = (uint8_t)((REG(R_TEXT_MODE) >> 31) & 1u);   /* theme/gamma: second text weight table present? (0 on an older bitstream) */
@@ -8431,6 +8697,18 @@ int main(void)
 #else
     th_assets_load();
 #endif
+    /* B-416 follow-up: settings_load() (well above, deliberately first for the splash accent)
+     * validated the saved theme index against TH_COUNT() before th_assets_load() had a chance to
+     * populate th_file_n -- a saved index pointing at an EXTRA theme (from tau-assets.bin) would be
+     * wrongly rejected every boot, staying stuck at the built-in default, purely because of this
+     * ordering, not because it was never saved. Re-validate now that TH_COUNT() is accurate. Not
+     * confirmed to be what the owner's "theme: fail" report actually hit (their choice may simply
+     * have been a built-in theme, fully explained by B-416's real cause: the save trigger itself was
+     * missing) -- fixed anyway since it's a real, separate latent bug either way. */
+    {
+        uint32_t v = set_rd32(SW_THEME);
+        if (v < TH_COUNT() && v != th_theme) { th_theme = (uint8_t)v; th_apply(); }
+    }
     /* The SDRAM CPU window still needs proving at boot even though nothing here reads a
      * playlist any more: fw/suite.inc's Check (CT_SDW/CT_SDC) and Blit Test's crumb trail both
      * rely on this same proof having already run. */
@@ -9079,6 +9357,70 @@ int main(void)
         seek_done: ;
         }
 
+        /* B-406: moved AHEAD of the "B-234" block below (was after it, together with the rest of
+         * this tick's other draws). A view transition queued THIS tick (e.g. opening Settings) must
+         * have its chrome/art repaint actually landed in the framebuffer BEFORE anything else this
+         * same tick reads "whatever is currently displayed" as a known-good snapshot -- concretely,
+         * Settings' own hardware crossfade (fw/settingsui.inc's set_xfade_render()) does exactly
+         * that the very first time set_draw() runs below. Before this reorder, a same-tick
+         * open-Settings-from-Library transition captured Library's still-undrawn-over leftovers as
+         * the crossfade's "before" frame -- B-406's reported "shows some elements of the playing
+         * screen" during that specific transition. Nothing between the old and new position depended
+         * on the old order: vblank_sample()/set_info_tick()/the diagnostic ticks/the library redraw
+         * are all independent of whether chrome/art was just repainted. */
+        if (helios_pending_mask) {
+            uint8_t hm = helios_pending_mask;
+            helios_pending_mask = 0;
+            /* Helios H2: this is exactly the "genuine full-frame redraw" HELIOS_SPEC.md section 5
+             * means -- chrome and (the same transition's) album art together, the one place every
+             * view-transition's full repaint already funnels through (B-389/B-391). Bracketing HERE,
+             * once, covers every current and future transition automatically instead of touching
+             * each of the six call sites that used to set the old pl_ui_restore flag by hand. */
+            const uint8_t dbuf_active = (hm & (HELIOS_INV_CHROME | HELIOS_INV_ART)) ? dbuf_redraw_begin() : 0u;
+            if (hm & HELIOS_INV_CHROME) {
+                /* ui_draw_chrome() paints the gradient itself -- calling it here
+                   too would push ~360 rects twice for one repaint. */
+                ui_chrome_paint();
+                ui_mode_dirty = 1u;
+                ui_last_info  = 0xFFFFFFFFu;
+                ui_last_sec   = 0xFFFFFFFFu;
+                ui_prog_sec   = 0xFFFFFFFFu;
+            }
+            if ((hm & HELIOS_INV_ART) && art_ready && art_shown) ui_art_draw();
+            dbuf_redraw_end(dbuf_active);
+            /* The meters' background strip lives in the invisible columns 400..511 of the meter rows, and the Check's
+             * blit storm and the Blit Test write into those same columns. Rebuild it on every return to the player
+             * screen, or the next erase copies the test's leftovers back as three 112 px tiles (B-256). */
+            if (hm & HELIOS_INV_BG_STRIP) ui_bg_ready = 0;
+            /* The meters cache what they last drew; the overlay painted over
+             * all of it, so every column has to be considered stale.
+             * B-406: also force this whenever `dbuf_active` fired even WITHOUT the HELIOS_INV_WAVE
+             * bit (e.g. an art-only invalidation) -- H2's redraw bracket physically flips the
+             * displayed buffer, and every non-chrome incremental drawer (Winamp Bars/Scope, VU
+             * Master, Chladni, all reached through wviz_force/mtr_build()) was never told that
+             * happened; its per-band/trail caches were built assuming the buffer they drew into
+             * last frame is still the one now shown, which H2 makes false for one frame right after
+             * any flip.
+             * CORRECTED same session: gating wviz_force on `dbuf_active` ALONE (as first written)
+             * missed the fullscreen visualiser case entirely -- FB_HELD() is true throughout
+             * fullscreen (fw/player.c's own FB_HELD() macro includes ui_fullscreen), so
+             * dbuf_redraw_begin() always refuses and `dbuf_active` is 0 for every fullscreen
+             * enter/exit transition, even though those ARE real view transitions carrying
+             * HELIOS_INV_ALL (so `hm & HELIOS_INV_WAVE` IS set). Matches the reported "scope
+             * accumulation... comes back when going fullscreen then normal" exactly: the stale-trail
+             * reset never fired on that specific transition. Now gated the same way as ui_wave_force
+             * just above, on EITHER signal. (Fullscreen's own bar flicker turned out to be a separate,
+             * unrelated bug -- OP_BAR's 7-bit lit-row field wrapping above 127, fixed at fb_bar()'s
+             * own definition -- not this gap; corrected here so this comment doesn't keep overclaiming
+             * a fix it didn't provide.) */
+            if ((hm & HELIOS_INV_WAVE) || dbuf_active) {
+                ui_wave_force = 1u;
+                for (uint32_t i = 0; i < UI_WAVE_N; i++) { wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu; }
+            }
+            if ((hm & HELIOS_INV_SPEC) || dbuf_active) { for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu; }
+            if ((hm & HELIOS_INV_WAVE) || dbuf_active) wviz_force = 1u;
+            if (hm & HELIOS_INV_EXCL) { for (uint8_t i = 0; i < HELIOS_MAX_EXCL; i++) helios_exclude_clear(i); }
+        }
         /* B-234: the Meter > Configure page's live preview reads real playing
          * audio (spec_lvl[]/wav_v[]) every draw, same as the player screen's
          * own meter box -- but unlike every other Settings page, it needs to
@@ -9108,28 +9450,6 @@ int main(void)
 #endif
         if (lib_ui_open && lib_ui_dirty) { lib_ui_dirty = 0u; lib_ui_draw(); }
         if (lib_ui_open) lib_ui_marquee();
-        if (pl_ui_restore) {
-            pl_ui_restore = 0;
-            /* ui_draw_chrome() paints the gradient itself -- calling it here
-               too would push ~360 rects twice for one repaint. */
-            ui_chrome_paint();
-            if (art_ready && art_shown) ui_art_draw();
-            /* The meters' background strip lives in the invisible columns 400..511 of the meter rows, and the Check's
-             * blit storm and the Blit Test write into those same columns. Rebuild it on every return to the player
-             * screen, or the next erase copies the test's leftovers back as three 112 px tiles (B-256). */
-            ui_bg_ready = 0;
-            /* The meters cache what they last drew; the overlay painted over
-             * all of it, so every column has to be considered stale. */
-            ui_wave_force = 1u;
-            for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-                wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu;
-            for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu;
-            }
-            ui_mode_dirty = 1u;
-            ui_last_info  = 0xFFFFFFFFu;
-            ui_last_sec   = 0xFFFFFFFFu;
-            ui_prog_sec   = 0xFFFFFFFFu;
-        }
         if (lib_play_req) {
             stop_req = 0;
             if (lib_play_start()) { ui_mode_dirty = 1u; continue; }
