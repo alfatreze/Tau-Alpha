@@ -609,19 +609,30 @@ static void fb_blit(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
  * screen. */
 #define DBUF_BASE1_W 1048576u
 
-/* Sticky SRC_BASE(field 0)/DST_BASE(field 2) (docs/MMIO_ALLOCATION.md 0xC0/0xC4) -- no existing
- * caller in this codebase has ever set either; every current fb_blit()/fb_cblit()/fb_bar()/etc.
- * relies on the power-up default (both 0). Sets both together since every real use wants a matched
- * pair. Not fenced on entry (matching fb_blend_on()'s own precedent, B-334/B-396's own reasoning:
- * this cooperative single-threaded design has no concurrent caller who could have commands still
- * queued expecting the OLD sticky state at the moment this changes) -- the caller IS responsible for
- * fb_fence()-ing before restoring back to (0,0), so no LATER unrelated caller ever inherits a
- * nonzero base; see set_xfade_step_draw()'s own use for the concrete pattern. */
+/* Sticky SRC_BASE(field 0)/DST_BASE(field 2) (docs/MMIO_ALLOCATION.md 0xC0/0xC4). Callers today:
+ * Chladni's H2 buffer tracking (fw/chladni.inc, B-414) and the Settings crossfade (fw/settingsui.inc,
+ * B-405/B-410); everything else (fb_blit()/fb_cblit()/fb_bar()/etc., including ui_bg_blend()'s own
+ * trail blit) relies on whatever these two last left behind, since both fields are WRITE-ONLY in
+ * hardware (docs/MMIO_ALLOCATION.md 0xC0/0xC4: "W") -- there is no MMIO read to check the sticky state
+ * directly, only this shadow. Sets both together since every real use wants a matched pair. Not
+ * fenced on entry (matching fb_blend_on()'s own precedent, B-334/B-396's own reasoning: this
+ * cooperative single-threaded design has no concurrent caller who could have commands still queued
+ * expecting the OLD sticky state at the moment this changes) -- the caller IS responsible for
+ * fb_fence()-ing before restoring back to (0,0), so no LATER unrelated caller ever inherits a nonzero
+ * base; see set_xfade_step_draw()'s own use for the concrete pattern.
+ * B-418: dbg_base_src/dst mirror the last values WRITTEN here (the only writer), so a caller that
+ * forgets to restore (0,0) before returning -- the exact bug class B-410/B-414 both found real
+ * instances of -- is visible without JTAG: if these read nonzero right when wviz_scope_tick() issues
+ * its trail blit, that blit (and ui_bg_blend()'s own destination pre-read) executes against the wrong
+ * SDRAM region, which reads exactly like "the trail never fades" even though the strip itself (B-417)
+ * is provably correct. */
+static uint32_t dbg_base_src, dbg_base_dst;
 static void fb_set_bases(uint32_t src_base, uint32_t dst_base)
 {
     fb_wait();
     REG(R_BLT_IDX) = 0u; REG(R_BLT_DATA) = src_base;
     REG(R_BLT_IDX) = 2u; REG(R_BLT_DATA) = dst_base;
+    dbg_base_src = src_base; dbg_base_dst = dst_base;
 }
 
 /* OP_BAR: (x, base_y) top-left, w wide, h rows total, `lit` of them lit (fg)
@@ -2256,14 +2267,22 @@ COLD_FN3 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, 
  * (points back at a firmware-side write bug, worth another source pass); if it reads OK while the
  * trail still visibly doesn't fade, the strip is genuinely correct and the bug is in the blend
  * hardware's own datapath -- the next real step is a live JTAG read of the blend pipeline itself
- * (bl_fg/bl_bg/bl_r/blt_blend_alpha), not more firmware source-reading. */
+ * (bl_fg/bl_bg/bl_r/blt_blend_alpha), not more firmware source-reading.
+ * B-418: owner confirmed STRIP always reads OK. Before going to JTAG, also snapshot dbg_base_src/dst
+ * (fb_set_bases()'s own shadow of the sticky SRC_BASE/DST_BASE fields, which are write-only in
+ * hardware and can't otherwise be read back) right here -- if either is nonzero at the exact moment
+ * this blend fires, the trail blit and ui_bg_blend()'s destination pre-read are silently targeting the
+ * wrong SDRAM region (a real firmware bug, the same class B-410/B-414 both found), which would read
+ * exactly like "the trail never fades" while the strip itself stays provably correct. */
 static uint8_t  dbg_strip_bad;
 static uint16_t dbg_strip_actual[3], dbg_strip_expect[3];
+static uint32_t dbg_strip_base_src, dbg_strip_base_dst;
 
 static void dbg_strip_check(void)
 {
     const uint32_t rows[3] = { UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H / 2u, UI_WAVE_Y + UI_WAVE_H - 1u };
     dbg_strip_bad = 0;
+    dbg_strip_base_src = dbg_base_src; dbg_strip_base_dst = dbg_base_dst;
     for (uint32_t k = 0; k < 3u; k++) {
         uint32_t yy = rows[k];
         uint16_t want = ui_grad_at(yy);

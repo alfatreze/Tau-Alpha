@@ -561,7 +561,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 25u   /* B-370: +1 for FLAC LPC.
+#define SET_INFO_ROWS 26u   /* B-370: +1 for FLAC LPC.
                               * B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
@@ -582,7 +582,11 @@ extern char _heap_start, _heap_end;
                                               * against what ui_grad_at() expects right now, to tell
                                               * a corrupted strip apart from a correct strip feeding a
                                               * broken blend datapath; see dbg_strip_check() in
-                                              * fw/player.c. */
+                                              * fw/player.c. B-418: +1 for BASES -- owner confirmed
+                                              * STRIP always reads OK, so before JTAG this shows the
+                                              * sticky SRC_BASE/DST_BASE fields' shadow (write-only in
+                                              * hardware) at the moment of the last Scope trail blend;
+                                              * see fb_set_bases()'s own comment in fw/player.c. */
 static const char *const set_info_label[SET_INFO_ROWS] = {
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM",
     "COLD IMAGE",
@@ -591,6 +595,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "METER YIELD", "VBLANK", "SPECTRUM", "BEAM", "CHLADNI", "CPU LOAD", "TIM1 COVER", "MP3 WINDOW", "THEME FILE", "METER FILE"
     , "SCOPE BG"
     , "STRIP"
+    , "BASES"
     , "FLAC LPC"
     };
 static uint32_t set_info_at;
@@ -720,6 +725,15 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
             q = ui_hex2(q, (uint8_t)(dbg_strip_expect[k] >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_expect[k]);
             q = set_str(q, " ");
         }
+        break;
+    case 24:   /* BASES (B-418): dbg_strip_base_src/dst, the sticky SRC_BASE/DST_BASE fields' last-known
+                * value at the moment the last Scope trail blend fired (write-only in hardware, this is
+                * the only way to see them). Nonzero here would mean that blend and ui_bg_blend()'s own
+                * destination pre-read targeted the wrong SDRAM region -- worth chasing before JTAG. */
+        q = set_str(q, "S "); q = ui_hex2(q, (uint8_t)(dbg_strip_base_src >> 16));
+        q = ui_hex2(q, (uint8_t)(dbg_strip_base_src >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_base_src);
+        q = set_str(q, " D "); q = ui_hex2(q, (uint8_t)(dbg_strip_base_dst >> 16));
+        q = ui_hex2(q, (uint8_t)(dbg_strip_base_dst >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_base_dst);
         break;
     default:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
 #if TAU_LPC_FW
