@@ -8,7 +8,15 @@ background document (platform limits, bandwidth and resource arithmetic). This f
 `all6-combined` bundle (poly + wave + spectrum + beam + pipelined blend + 192 KB RAM + clk66 + H2), plus `TAU_LPC`
 once `lpc-b372` closes. The 256 KB stack is not a target (owner decision, 2026-09-29).
 Baseline resources: ~240/308 M10K, 17-18/66 DSP, ALMs not logged (~9k [EST] of 18,480). Timing is the tight part:
-`all6-combined` closes hold by **+0.037 ns** (B-371), and its `glyphbuf` MLAB inference already falls back to M10K.
+`all6-combined` closes hold by **+0.037 ns** (B-371).
+
+**Correction (2026-09-29, `main`): `glyphbuf`'s MLAB fallback is already fixed (T2-00), just not on this branch
+yet.** This branch forked from `main` before T2-00 landed, so the paragraph above and Group A3 below were written
+against a `glyphbuf` that still falls back to M10K under `TAU_BLIT_BLEND` (~6,500 ALMs of registers instead of an
+MLAB). That is fixed on `main` (uncommitted there until this same pass, now committed): one shared write port
+(`gb_we`/`gb_addr`/`gb_data`) fanned out to two MLAB copies, fit-confirmed and hardware-confirmed. **Rebase or
+merge `main` into `test/720` before Group A3's own fit** -- the MLAB-inference work A3 describes below is already
+done upstream; redoing it here would be duplicate effort on the same bug, not a second fix.
 
 Two test builds:
 - **Phase 1** -- changes that help 400x360 now and prepare 720, plus 720 output of the *existing* 400x360 picture
@@ -48,8 +56,13 @@ framebuffer. The user-visible default is unchanged.
   720-doubled = 4,400 cycles; values from the line periods minus a margin). Both cross to clk_sys through the
   existing Gray-code CDCs (`tau_cdc_gray_ctr`, `tau_cdc_gray_bus`).
 - **A3 Wider copy buffer.** `glyphbuf` 128 -> 256 words (`copy_cnt`/`wsrc_addr` index widths follow). On
-  `all6-combined` it is already one M10K, and 256x16 still fits one block, so +0 M10K. Also worth one attempt at the
-  MLAB inference regression (B-371) while this buffer is being touched.
+  `all6-combined` it is already one M10K, and 256x16 still fits one block, so +0 M10K.
+  **Corrected (2026-09-29): the "also worth one attempt at the MLAB inference regression" line above is
+  now moot -- that's T2-00 (see the correction at the top of this file), already fixed on `main`, not
+  something to redo here.** What A3 actually needs post-merge: `glyphbuf` is now `glyphbuf_a`/`glyphbuf_b`
+  (T2-00's two MLAB copies behind one shared write port `gb_we`/`gb_addr`/`gb_data`) -- widen `gb_addr`
+  and both arrays' declared size to 256, not a single renamed `glyphbuf` array. The one-write-port
+  invariant T2-00 established must survive this widening unchanged (still exactly one `if (gb_we)` site).
 
 MMIO (from the free 0x140-0x1FC range):
 
@@ -76,6 +89,23 @@ group to drop first if a fit fails.
 |---|---|---|---|
 | 0x150 | FB_DRAW_BASE | R/W | 25-bit word address added to FB-relative draw addresses (default 0) |
 | 0x154 | FB_DISP_BASE | R/W | 25-bit word address scanned out; applied at the next vblank (default 0) |
+
+**Open question, flagged 2026-09-29, resolve before implementing C2:** does `draw_base` cover the
+BLIT-class opcodes' own sticky `SRC_BASE`/`DST_BASE` fields (`R_BLT_IDX` fields 0/2 -- used by
+BLIT/CBLIT/SBLIT and B-405's Settings crossfade), or only the RUN/RECT/BAR/RRECT/CHAR/COPY path through
+`cmd_addr`/`R_FB_ADDR`? This is not a wording nitpick -- it's the actual bug `TALOS2_REIMPLEMENTATION_PLAN.md`
+flags ("H2 double buffering offsets only non-blit opcodes"), confirmed word-for-word in `docs/MMIO_ALLOCATION.md`'s
+own `DBUF_CPU` row on `main`: "Every blit-mode opcode (BLIT/BAR/SBLIT/CBLIT/RRECT) already addresses through
+the sticky `blt_*_base` fields and is unaffected [by this bit]." The RECT-class path already gets H2 coverage
+today via the old 1-bit `R_DBUF_CPU` selector; C2 as written generalizes that (useful for Phase 2's own
+relocatable native framebuffer either way), but if it does NOT also reach the blit sticky bases, it does
+not close the flagged gap, it only replaces one working mechanism with a more general one. **Recommend:**
+`draw_base` folds into the blit sticky-base computation too (so `fb_blit()`/`fb_cblit()`/`fb_sblit()`'s own
+`SRC_BASE`/`DST_BASE` end up relative to `draw_base`, same as everything else), and C2's own testbench adds
+a mutation case -- "a BLIT command ignores `draw_base`" -- that must be caught, the same discipline every
+other Talos change in this codebase already uses. `TALOS2_REIMPLEMENTATION_PLAN.md` section 5.1 defers its
+own "target surface" design to whichever of these two implementations lands first; make sure this one
+actually earns that by covering blits.
 
 ### 2.3 Group B -- video mode switch (macro `TAU_VIDMODE`, replaces `TAU_VID720`)
 
