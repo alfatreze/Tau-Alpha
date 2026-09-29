@@ -9759,3 +9759,15 @@ with active-only fill vs ~11-12% today **[EST]**), the memory-map collision (a 7
 depends on the RAM shrink), firmware scope, and a hardware-feature table (runtime scaler-slot switch, active-only
 fill, framebuffer origin register, fill-late counter, 8 bpp scanout CLUT, doubled base + hi-res overlay plane).
 Not done: Quartus fit (needs the VM), any hardware run.
+
+- 2026-09-29 (Claude): docs (B-375), branch `test/720`. Owner asked what base 720 plus every tagged
+hardware feature costs in M10K, ALMs, DSP and other resources. Added `docs/features/VIDEO_720_TEST_PLAN.md`
+section 7. Baselines from recorded fits: 256 KB stack 304/308 M10K, DSP 17/66; 192 KB stack ~240/308,
+DSP 17 (+1 with TAU_LPC); ALMs last measured 7,725 (B-246), current stack not logged (estimated 8-9.5k of
+18,480). M10K from native shapes (firm): T1/T2/active fill/origin/fill-late/H2/atlas 0; native 16 bpp line
+buffer +2; 8 bpp scanout CLUT +1 (line buffer stays 2); 2 bpp overlay line buffer +1 (corrected from +2 in
+section 6); `cmd_mem` widening 0 (91 bits still 3 blocks); on-chip 2x font ~40-60 (rejected). DSP 0 for every
+item. ALMs estimated only (~+350-650 native route, ~+650-1,200 overlay route, ~+1,100-2,100 everything); a
+synthesis-only quartus_map would measure them. Conclusion: capacity fits on the 192 KB stack; the 256 KB
+stack is full if everything is added, so native 720 in practice needs the RAM shrink; timing (hold +0.037 ns
+on all6-combined, clk_sdram dispatch paths) and SDRAM bandwidth are the real limits. No code change.

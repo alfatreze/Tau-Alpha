@@ -190,8 +190,57 @@ RAM shrink bitstream (240/308). **Native 720 depends on the RAM shrink shipping.
 | **Framebuffer origin register** | moves the framebuffer out of the CPU window/stash collision; also generalises H2 | one sticky 25-bit field + adders | required for T3 |
 | **Fill-late / deadline-miss counter** | measures the real fill-deadline margin instead of estimating it | a counter + MMIO word | add with T3 |
 | **8 bpp indexed framebuffer + scanout CLUT** | halves 720 scanout and draw traffic; theme roles already define a palette | 1 M10K CLUT copy in clk_vid, palette-aware drawing, loses free RGB565 gradients | option T4 |
-| **Two-plane scanout: doubled 400x360 base + 800x720 2-bit text/overlay plane** | most of the visible 720 gain (sharp text, icons) at ~+4% bandwidth, UI geometry unchanged | second line buffer (+2 M10K), compositor, new drawing target | strongest long-term candidate, after T3 |
+| **Two-plane scanout: doubled 400x360 base + 800x720 2-bit text/overlay plane** | most of the visible 720 gain (sharp text, icons) at ~+4% bandwidth, UI geometry unchanged | overlay line buffer (+1 M10K, section 7), compositor, new drawing target | strongest long-term candidate, after T3 |
 | **Hi-res font/icon atlas in SDRAM/PSRAM** | crisp text at 720 without on-chip font growth | offline tooling (exists for thumbnails) + blit path | with T3 or the overlay plane |
 | Larger `glyphbuf` (256) | 2x-wide COPY/BLIT rows for 720 panels | MLAB | with T3 |
 | PLL reconfiguration for mode switching | -- | KB-015: unreliable | rejected |
 | Pixel clock 50 MHz | shorter porches not needed | on the ~50 MHz limit | rejected |
+
+## 7. Resource budget (estimates, B-375)
+
+Device 5CEBA4F23C8: **18,480 ALMs, 308 M10K, 66 DSP**, 4 PLL outputs in use. No pins, PLL outputs or clock
+networks are added by anything below: T1 only retunes outclk_1/2. M10K counts are arithmetic on Cyclone V
+native shapes (10 Kbit: 256x40, 1Kx10, 2Kx5 ...) and are firm; **ALM figures are [EST]** from the size of the
+logic, not synthesized. A synthesis-only `quartus_map` (~5 min on the VM) would turn them into real numbers.
+
+Baselines (last measured fits):
+
+| Configuration | M10K | DSP | ALMs |
+|---|---|---|---|
+| 256 KB main RAM stack (gamma/blend-pipe: poly + wave + spec + beam + blend) | 304/308 | 17/66 | last measured 7,725 (B-246, before poly/wave/spec/blend) -> ~8-9k [EST] |
+| 192 KB stack (`all6-combined` = above + RAM shrink + clk66 + H2), alpha.15 | ~240/308 (B-337 fit of the same RAM/blend set) | 17/66 (+1 with `TAU_LPC`) | ~8.5-9.5k [EST], not in the log |
+
+Per feature:
+
+| Feature | M10K | ALMs [EST] | DSP | Other |
+|---|---|---|---|---|
+| T1 scanout doubler (built) | 0 | ~30-60 | 0 | clk_vid 12 -> 37.5 MHz, 26.7 ns period, easy |
+| T2 runtime 360/720 switch | 0 | ~80-150 | 0 | 1 MMIO slot; end-of-line scaler-slot word |
+| Fill only active words | 0 | ~5 | 0 | -22% scanout traffic |
+| Native 720 16 bpp framebuffer (T3): line buffer 2 x 1024 x 16 | **+2** (2 -> 4, 2Kx5 shape) | -- | 0 | -- |
+| T3 field widening (addr 19->20, w/h 9->10, stride 10->11, `scan_vc` 10 bits) | 0 (`cmd_mem` 88->91 bits stays 3 blocks) | ~150-300 | 0 | all in the clk_sdram dispatch paths that needed retiming 5 times |
+| Framebuffer origin register (25-bit, added to fill/draw/`dbuf_addr`) | 0 | ~40-80 | 0 | 1 MMIO slot |
+| Fill-late counter (+ Gray CDC to clk_sys) | 0 | ~40-60 | 0 | 1 MMIO slot |
+| `glyphbuf` 128 -> 256 | 0 (already falls back to 1 M10K on `all6-combined`, B-371; 256x16 still fits one) | ~0 (or 8 MLAB LABs if MLAB inference is fixed) | 0 | -- |
+| H2 double buffering at 720 | 0 | ~10 | 0 | 2 x 1.41 MiB SDRAM |
+| 8 bpp framebuffer + scanout CLUT (T4) | **+1** (CLUT copy read in clk_vid; line buffer stays at 2 because 800 px = 400 words) | ~50-100 scanout, ~300-800 palette-aware drawing | 0 | loses per-pixel AA/blend colours |
+| Two-plane overlay (800x720 2 bpp over doubled base) | **+1** (2 x 800 x 2 bits = 3,200 bits) | ~150-300 fill/compositor + ~300-600 for a 2 bpp draw opcode | 0 | 2-3 MMIO slots, +~4% SDRAM |
+| Hi-res font/icon atlas in SDRAM/PSRAM | 0 | ~0 (draws with existing CBLIT coverage ramp or blend) | 0 | SDRAM space, offline tooling |
+| (rejected) 2x-resolution font ROM on-chip | ~40-60 | -- | 0 | would take most of the free M10K |
+
+Totals (two alternative routes, plus everything):
+
+| Route | M10K | ALMs [EST] | DSP |
+|---|---|---|---|
+| A: 720 output + overlay plane (T1, T2, active fill, fill-late, overlay, atlas) | +1 | +~650-1,200 | 0 |
+| B: native 720 16 bpp (T1-T3, origin, fill-late, glyphbuf, H2, atlas) | +2 | +~350-650 | 0 |
+| Everything (A + B + T4) | +4 | +~1,100-2,100 | 0 |
+
+Against the budgets:
+- **192 KB stack:** 240 -> 241-244 of 308 M10K, ~50% -> ~55-60% ALMs, DSP unchanged. Fits with room.
+- **256 KB stack:** 304 -> 305-308. Route A fits (305), route B leaves 2 free (306), everything is exactly full (308)
+  -- no margin for the fitter. **Native 720 in practice needs the 192 KB RAM shrink.**
+- **DSP is not a constraint** for any 720 item (nothing multiplies per pixel; strides stay powers of two).
+- **Capacity is not the real limit.** The limits are timing and bandwidth: `all6-combined` closes hold by
+  +0.037 ns, the clk_sdram dispatch paths are where T3's widening lands, `glyphbuf`'s MLAB inference already
+  regressed on that build, and native 720 takes ~35% of SDRAM cycles (section 5.1).
