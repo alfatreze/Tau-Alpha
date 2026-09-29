@@ -11255,3 +11255,13 @@ adapter-ID semantics, cart power budget. No code touched.
 Owner decided that the cartridge Bluetooth output is a separate core package. Recorded in `docs/features/CYMO_AUDIO_ENGINE.md` section 12.8: main cores keep `cartridge_adapter: -1` and
 must stay byte-identical; cart-pin drive is behind a macro the main bitstream does not set (a second bitstream to fit and maintain); working package id `alfatreze.TAU_BT` with `cartridge_adapter: 0`;
 `make_release.py`, `install_dev_core.py`, the package check and `CROSS_PROJECT_INTERFACE.md` (Tau Omega) need to learn about a third core; X1 gains the packaging work. Proposed register entry D-C06. Nothing built.
+
+## B-424: Independent design review of the Cymo plan (docs only)
+
+Owner asked for a thorough review as a firmware architect and embedded audio specialist. Wrote `docs/features/CYMO_AUDIO_ENGINE_REVIEW.md`, re-checking claims against source. Seven changes recommended:
+C1 the resampler's 48 kHz tick should be pulled by the DAC's LRCK strobe (single-bit crossing from clk_74a) instead of free-running in clk_sys, which also removes `rate_inc`/`CLK_HZ` from the audio path; C2 gapless is a large
+separate item (one audio data slot `MP3_SLOT_ID 2`, blocking `load_track()`, LAME delay trimming), my earlier "small after the buffer" was wrong; C3 audiobook needs are missing (RESUME was removed and its persist words retired,
+speed not persisted, no chapters, M4B/AAC rated low priority, no speech preset); C4 the deeper buffer is coupled to `PRIME = DEPTH>>1` and the hard-coded 2048 in `METER_STOP/GO`; C5 a zero-lookahead limiter cannot limit transients
+(soft clipper or lookahead), dither must sit at the true final word width; C6 graphic EQ needs a runtime preamp, a state-width re-sweep and band-interaction handling; C7 reorder so firmware tempo and pause shortening (no RTL) come
+before any new bitstream. Eight tightening items (SAD instead of correlation, degradation ladder, I-cache facts, up-conversion-only resampler v1, analog loopback baseline and acceptance thresholds, `cymo_core.h` module pattern,
+seek/pause/speed semantics, Bluetooth per-sink strobes). Two corrections applied to the main document. Nothing built.
