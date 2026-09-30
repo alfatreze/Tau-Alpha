@@ -97,7 +97,7 @@ It is a separate project and repository, built as the product version of `tools/
 ## Provenance
 
 Tau is a derivative of **[HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player)** v1.4.0 by
-HarpMudd. The project intentionally retains the complete upstream Git history, copyright notice, and inherited
+HarpMudd. As of last count 60% had already been re-written, with quite a bit still to re-work. The project intentionally retains the complete upstream Git history, copyright notice, and inherited
 release history in [CHANGELOG.md](CHANGELOG.md). Tau's new identity, packaging, artwork pipeline, technical
 plans, and subsequent changes are maintained by alfatreze. See [NOTICE.md](NOTICE.md) for provenance and
 third-party licensing boundaries, [docs/ATTRIBUTIONS.md](docs/ATTRIBUTIONS.md) for the full credits, and
