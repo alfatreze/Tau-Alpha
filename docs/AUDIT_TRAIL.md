@@ -12165,3 +12165,8 @@ stay under the cap) have no persistence path right now, same as before this fix 
 the owner ever wants Configure-page presets to survive a restart, not yet prioritised since it has never
 been reported as broken. Worth adding a cheap guard to `tools/check_tau_package.py` (interact.json entry
 count <= 16) so this exact mistake can't silently recur -- not built this pass.
+
+## B-456 addendum: hardware-confirmed fixed
+
+Owner confirmed on real hardware: theme and mode now show in Core Settings and survive a Quit+relaunch;
+the unwanted "Load Audio File"/"Load Playlist" reload actions are gone. Investigation closed.
