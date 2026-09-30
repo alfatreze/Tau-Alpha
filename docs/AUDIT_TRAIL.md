@@ -11977,3 +11977,84 @@ Verified: `make test-host` passes in full; `tools/check_heap_gap.py` and `tools/
 both clean; `release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all rebuild
 successfully. No RTL change, no new Quartus fit -- same `glyphbuf-t200` bitstream as every alpha since
 `A_17`.
+
+## B-453: Chladni still didn't render in the Configure preview after B-452 -- a second, separate gate
+
+Owner retested `alfatreze.TAU_0_6_0_A_40`: Bars/Scope/VU Master now animate correctly in the Configure
+preview (B-452 fixed), but Chladni still doesn't render at all there.
+
+**Root cause:** `chladni_tick_box()` (`fw/chladni.inc`) has its own hard-coded `if (chl_ok == 2u ||
+UI_OVERLAY_UP) return 0;` -- a raw `UI_OVERLAY_UP` check, stricter than every other meter's own draw
+primitives, and unlike them it never deferred to the caller's `ov_draw` override. Every other draw call
+in this codebase checks `FB_HELD()` (`(UI_OVERLAY_UP || ui_fullscreen) && !ov_draw`), which is exactly
+what lets `wvcfg_preview_tick()`'s `ov_draw=1` bracket (B-415's own mechanism, already working for
+Bars/Scope/VU Master) through. Chladni's function-level guard bypassed that mechanism entirely and
+bailed out unconditionally whenever Settings was open -- which is always true while browsing Configure.
+The function's own header comment ("Callers decide WHEN it is safe to draw... this decides whether it is
+worth it") already states the intended contract; this one line never implemented it. Fixed by replacing
+the raw `UI_OVERLAY_UP` test with `FB_HELD()`.
+
+Also fixed a real host-test gap the change surfaced: `sim/chladni_module_harness.c` (Chladni's own
+standalone host build, compiled outside `player.c`) had no `FB_HELD()` definition, only `UI_OVERLAY_UP`
+-- `make test-host` failed with an undeclared-function error until a matching `#define FB_HELD() 0` stub
+was added next to the existing `UI_OVERLAY_UP` one.
+
+Verified: `make test-host` passes in full; `tools/check_heap_gap.py` reports the exact same baseline as
+before (no cold-code regression this time -- a one-line macro swap inside an already-`CHL_COLD` function
+costs nothing); `tools/check_cold_calls.py` clean; `release`/`player-library-diagnostic`/
+`player-library-diagnostic-profile` all rebuild clean. No RTL change, no new Quartus fit -- same
+`glyphbuf-t200` bitstream. Not yet packaged/installed.
+
+## B-454: OP_BAR's real fix -- the 7-bit lit-row field widened to 9 bits in RTL, fit launched
+
+Owner asked to move on with the real RTL fix for the fullscreen Winamp Bars clamp (B-406's mitigation
+only caps growth at 127 lit rows; the field is physically 7 bits wide on the chip, so a firmware-only
+fix could never let bars grow past that -- `FS_FIG_H=323` genuinely needs it).
+
+**Design:** rather than widening `cmd_glyph` itself (CHAR needs exactly 7 bits for ASCII, OP_RRECT's
+radius needs at most 4 -- both untouched), added a NEW, separate 2-bit field `cmd_glyph_hi`, used only
+by OP_BAR, giving a 9-bit lit-row count (max 511, comfortably above 323). Found genuinely free capacity
+at both ends of the pipe rather than assuming a wider bus was needed: the 88-bit command FIFO word
+(`cmd_mem`, `mp3_fb.sv`) had 4 spare padding bits left over from B11's own `cmd_op` widen -- `cmd_glyph_hi`
+claims 2 of them, CW stays 88, every OTHER field's bit position is completely unchanged (confirmed by
+recomputing the full 88-bit layout by hand before touching anything). At the CPU-MMIO boundary
+(`R_FB_GO`, `mp3_soc.v`), bits 15-16 of the 32-bit write word were genuinely unused (glyph/sx/sy already
+occupy bits 3-13, RRECT's op-extension bit sits at 14) -- `fb_cmd_glyph_hi <= dDAT_MOSI[16:15]`.
+
+**RTL changes:** `mp3_fb.sv` (new `cmd_glyph_hi` port, FIFO packing, `pre_bar_lit_raw` now concatenates
+it with the original 7-bit `cmd_glyph` slice -- CHAR's `pre_glyph`/RRECT's `pre_rrect_r` untouched, still
+read the same 7-bit slice alone), `mp3_soc.v` (new `fb_cmd_glyph_hi` output port + R_FB_GO write logic),
+`core_game.vh` (new wire, both instantiation sites wired). New mutation hook `BUG_IGNORE_BAR_HI` (forces
+the high bits to 0, degenerating to the old 7-bit-only behaviour) following every prior mutation-test
+precedent in this file.
+
+**Firmware (`fw/player.c`/`fw/blit_probe.inc`):** `bar_hi_ready`/`BAR_WIDE_READY()` forward-declared
+directly above `fb_bar()`'s own definition (which sits ~1,460 lines before `blit_probe.inc`'s
+`#include`, unlike every other probe's caller) so `fb_bar()` can probe on first actual need, matching
+`fb_round_rect_on()`'s established "lazy, on first actual need, never at boot" convention (B-162) --
+`bar_hi_probe()` (`fw/blit_probe.inc`) is a genuinely NEW hardware self-test, not the RTL-dispatch
+question `BLIT_READY()`/`RRECT_READY()` answer: OP_BAR has existed unconditionally since B-104, so what
+varies here is only whether the two extra bits are wired through at all. Draws a real 2-row bar with
+`lit=128` (the smallest value needing bit 7) and reads back row 1's actual colour, not just "did
+anything write here" -- an old bitstream reads `lit=0` (bg, both rows unlit), a new one clamps 128 down
+to h=2 (fg, both rows lit) -- an unambiguous, direct test. `fb_bar()` now only probes when `lit > 127u`
+(no cost on the common case); old/unproven hardware keeps the exact 127-row clamp it always had, a safe
+degradation, never a regression.
+
+**Verified:** `sim/tb_mp3_fb.v` gained a dedicated `push_bar()` task (a new task rather than widening the
+shared `push()` -- every existing BAR test, lit<=127, stays byte-for-byte unchanged) and a real test case
+(h=250, lit=200 -- both values impossible to express in the old 7-bit field, so a reverted/mutated fix
+fails cleanly, not silently). `sim/tb_blit_scene.v`/`sim/tb_helios_dbuf.v` wired the new port (tied 0,
+unused by either scene). `make rtl-lint` clean, `make test-rtl-fb` passes (all new BAR-wide checks
+green), `make test-rtl-fb-mutation` kills all 6 mutants including the new one, full `make test-rtl`
+passes (0 failures, confirms `mp3_soc_sim.v`'s auto-regeneration and the real-CPU PSRAM sims are
+unaffected), `make test-host` passes. `tools/check_heap_gap.py --update`: the ~800-816 B drop across all
+three targets is real and expected (genuinely new hot code -- `fb_bar()`/the probe are intentionally hot,
+matching `blit_probe()`/`rrect_probe()`'s own precedent, not a cold-code regression), all comfortably
+above their floors; baseline updated. `tools/check_cold_calls.py` clean.
+
+Launched the real fit: `python3 tools/vm_fit.py launch bar-hi-b454 --append
+tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt --seed 1 --seed 2` -- the exact
+`glyphbuf-t200` bundle every current alpha ships, re-fit with this RTL on top. Staged tree confirmed via
+direct SSH grep (`cmd_glyph_hi` present in all three touched files on the VM). Both seeds confirmed
+running. Result pending. Not committed, not installed.
