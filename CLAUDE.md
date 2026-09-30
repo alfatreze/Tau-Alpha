@@ -11,14 +11,29 @@
 3. **Codex** must run background checks against modified files to detect bugs, race conditions, or performance flaws.
 
 ## 2b. Session start (read before working)
-00000000. **Newest (2026-09-29): `docs/handoffs/SESSION_HANDOFF_2026-09-29_T200_HELIOS_XFADE.md` --
-read it first** (Talos `glyphbuf` ALM fix (T2-00) fit-confirmed all four corners positive AND
+000000000. **Newest (2026-09-30): `docs/handoffs/SESSION_HANDOFF_2026-09-30_SCOPE_BLEND_AND_CYMO.md` --
+read it first** (two open investigations, both with real progress and a concrete next step: the Winamp
+Scope trail "accumulation" bug -- every register-level check reads correct across six diagnostic builds,
+JTAG polling has reached a genuine proven dead end (KB-078), a firmware-only PIXHIST decay logger is
+built and relocated twice but not yet read during a confirmed-active repro at its current location; and
+the Cymo 44.1 kHz audio investigation -- the real Altera `dcfifo` simulation clears the RTL/FIFO
+hand-off entirely, next is the serializer or the analog capture path, neither examined yet. Also: **a
+real, previously-undiscovered build-clobber bug** shipped a broken alpha (`A_36`, total black-screen
+boot, zero diagnostic signal) because `tools/check_heap_gap.py`'s own unflagged rebuild silently
+overwrote a manually-flagged firmware build at the same output path -- fixed at the tool level
+(`tools/package_dev_build.py --build-flags`, use it for every future alpha with `RAM_192K`/`CLK66`/
+`SDRAM_BUSY`/`LPC_FW`); `analogue-pocket-dev` skill KB-077 records the general lesson. Currently
+installed and confirmed booting: `alfatreze.TAU_0_6_0_A_38`.) Supersedes
+`docs/handoffs/SESSION_HANDOFF_2026-09-29_T200_HELIOS_XFADE.md` for what it covers (that one's own
+content is all still correct, just superseded as the entry point). Then item 00000000.
+00000000. **(2026-09-29): `docs/handoffs/SESSION_HANDOFF_2026-09-29_T200_HELIOS_XFADE.md`**
+(Talos `glyphbuf` ALM fix (T2-00) fit-confirmed all four corners positive AND
 hardware-confirmed, resolving the ALM pressure the Talos 2 rewrite plan was scoped against; Helios items
 4-8 built, two real hardware bugs found and fixed (`FB_HELD()`, `screen_blank` both breaking the H2
 double-buffer bracket), item 8 (persist widening) turned out to already be shipped and just
 undocumented; a genuine hardware alpha-blend crossfade built for Settings menu transitions (first-ever
-use of the sticky SRC_BASE/DST_BASE fields) -- **packaged as `alfatreze.TAU_0_6_0_A_19` but NOT YET
-INSTALLED, card was unmounted; install it first, then hardware-test, before anything else**). Supersedes
+use of the sticky SRC_BASE/DST_BASE fields) -- **installed as `alfatreze.TAU_0_6_0_A_19` and, per the
+2026-09-30 handoff above, hardware-tested through a long fix cycle (B-405 through B-449)**). Supersedes
 `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md` for what it covers. Then item 0000000.
 0000000. **(2026-09-29, earlier): `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md`**
 (FLAC LPC hardware kernel: fixed a real ALM-budget-blocking memory-inference bug in two

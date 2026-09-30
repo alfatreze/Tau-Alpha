@@ -1,85 +1,75 @@
 # Current status (one page)
 
-Updated 2026-09-29. **What is true right now.** What to do next is in `docs/ROADMAP.md` (the only ordered list). Why things are the way
+Updated 2026-09-30. **What is true right now.** What to do next is in `docs/ROADMAP.md` (the only ordered list). Why things are the way
 they are is in `docs/AUDIT_TRAIL.md`. The old, long version of this file is `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
-Full detail on the 2026-09-29 session: `docs/handoffs/SESSION_HANDOFF_2026-09-29_T200_HELIOS_XFADE.md` — **read it first**, it
-supersedes `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md` and everything below about FLAC LPC/Helios/blend.
+Full detail on the 2026-09-30 session: `docs/handoffs/SESSION_HANDOFF_2026-09-30_SCOPE_BLEND_AND_CYMO.md` — **read it first.**
 
-## Headline: FLAC LPC is done and hardware-confirmed; Talos's ALM waste is the clear next step
+## Headline: two open investigations, one real build-tooling bug found and fixed
 
-The FLAC LPC hardware kernel is built, fixed (a real memory-inference bug, two attempts — the first a documented negative
-result — before the real fix), fit with real margin (18,064/18,480 ALMs, 98%), installed, and hardware-confirmed via a causal
-A/B test: a reported microstutter was present with the unit disabled and gone with it enabled, then quantified (worst-case
-latency 11ms software vs 5-6ms hardware). Full story and evidence: the 2026-09-29 handoff, `docs/AUDIT_TRAIL.md` B-376..B-386,
-`analogue-pocket-dev` skill KB-069 (local, hardware-validated).
+**Winamp Scope "trail accumulation" bug: still open.** Every architectural/register-level check
+(strip content, sticky bases, H2 buffer selection, firmware AND hardware alpha value) reads correct
+across six diagnostic builds (`A_29` through `A_38`). Live JTAG polling has reached a genuine, proven
+dead end for this question (a real arithmetic property makes low-contrast pixel pairs
+blend-indistinguishable for any alpha, and real decay converges too fast for opportunistic polling to
+catch — `analogue-pocket-dev` skill KB-078). Built a firmware-only frame-by-frame decay logger
+(PIXHIST, on the Info page) instead; it has been relocated twice chasing where the accumulated mass
+actually sits on screen and has not yet been read during a confirmed-active repro at its current
+location. **Next step and full context:** the 2026-09-30 handoff, section 1.
 
-**A concurrent session found the single largest ALM saving available on the whole chip, not yet built**: with
-`TAU_BLIT_BLEND` on (present in the current bitstream, not yet used by any firmware), Talos's `glyphbuf` row buffer gets a
-second read and write site the RTL never intended, so Quartus builds it from ~6,500 ALMs of registers instead of ~80 ALMs of
-MLAB. Fix is already designed, low-risk, no new feature work: `docs/research/TALOS_REVIEW_2026-09-28.md` section 1a /
-`docs/features/TALOS2_REIMPLEMENTATION_PLAN.md` (explicitly sequenced to start after the FLAC LPC work, which just landed).
-**This is the recommended next step.**
+**Cymo 44.1 kHz audio investigation: RTL cleared, real hardware evidence needed next.** The decisive
+simulation (real Altera `dcfifo` model, not the behavioural stand-in) reproduces the ideal-hold
+prediction almost exactly — this rules out the RTL/FIFO hand-off as the cause of the real hardware
+recordings' ~17 dB worse SINAD. Next: the serializer (`sound_i2s.v`) or the recording/analog capture
+path itself, neither examined yet. Full context: the 2026-09-30 handoff, section 2.
+
+**A real, previously-undiscovered build-clobber bug shipped a broken alpha (`A_36`), found and fixed.**
+`tools/check_heap_gap.py` rebuilding a flagged target with no flags of its own, landing at the same
+output path as the real build, silently swapped in the wrong firmware variant — same reported sizes,
+genuinely different bytes, a total black-screen boot with zero diagnostic signal. Fixed at the tool
+level: `tools/package_dev_build.py --build-flags` now builds the firmware itself as the literal last
+step before packaging. **Use it for every future alpha build with `RAM_192K`/`CLK66`/`SDRAM_BUSY`/
+`LPC_FW`** — see the 2026-09-30 handoff, section 3, for the exact command.
 
 ## 0.6.0 in progress (since v0.5.0)
-FLAC LPC hardware kernel: done (above). Helios review items 1-2 done (meter draw contract for the 4 live meters, incl. fixing
-MASTER VU dead code since `8d529d1`; Settings' 3 dispatch chains collapsed to one function-pointer table), item 3 parked
-(`D-H01`, no natural second `helios_excl[]` caller found). Five other RTL features each individually fit-proven earlier
-(blend, 192 KB RAM shrink, clk66, Helios H2 double buffering, persist widen 16->32), combined into the `all6-combined`
-bitstream, **fit confirmed successful** (setup +5.695ns/hold +0.037ns, resolved 2026-09-28) and now further combined with
-FLAC LPC (98% ALM, see above). Firmware landed on `main`: rounded-rect corner-cut LUT fix (`8d529d1`), MASTER VU meter
-(now actually wired and hardware-confirmed), Chladni EMBER/OCEAN presets, legacy `.m3u` playlist removed entirely.
-`docs/AUDIT_TRAIL.md`'s numbered series currently ends at B-387.
+FLAC LPC hardware kernel: done, hardware-confirmed. T2-00 (`glyphbuf` single-write-port ALM fix): done,
+fit-confirmed with real margin, hardware-confirmed — this is the `glyphbuf-t200` bitstream every current
+alpha build uses. Helios items 1-2, 4, 5, 7 done. Settings hardware alpha-blend crossfade, Chladni H2
+buffer tracking, theme/mode persistence: built and hardware-confirmed working (session of 2026-09-29,
+`docs/AUDIT_TRAIL.md` B-405 through B-416). `cymo` branch (audio-engine research/tooling) merged into
+`main` 2026-09-30. `docs/AUDIT_TRAIL.md`'s B-series currently ends at B-449.
 
 ## Released
 - **v0.5.0** (2026-09-27, tagged, GitHub release published with both zips): `TAU` and `TAU_DIAGNOSTIC`. Themes (TAU/OCEAN, Dark/Light), TIM1 fast covers, MP3
-  window unit in hardware (`POLY_FW=1` is the release default), Winamp/Chladni meters, full-screen menus with an action bar. Bitstream `gamma-b316` seed 1.
-  Release heap gap 49,712 B. Changelog: `CHANGELOG.md`. Build/audit: B-331, B-332.
-- Deferred to **0.6** (owner, B-331): theme and meter settings saved across restarts (**persist widening built and present since B-346, save/load code re-confirmed by direct read 2026-09-29 — needs one hardware Quit/relaunch check to confirm, B-403/B-408; still not blocked on anything code-side**), alpha blend in firmware (**built and shipped — Winamp Scope trail via the real hardware blend opcode; Settings' crossfade (B-405) is now a SECOND, genuine hardware-blend user, upgrading the old software colour-interpolation fade B-404 described; B-406/B-407/B-408 fixed three real bugs found on first hardware test (H2 redraw-contract gap, a Library-open bypass, and the blend probe depending entirely on Scope having run first) — not yet re-tested on `alfatreze.TAU_0_6_0_A_21`**), the `Track changes` fix.
+  window unit in hardware (`POLY_FW=1` is the release default), Winamp/Chladni meters, full-screen menus with an action bar. Release heap gap 49,712 B.
+  Changelog: `CHANGELOG.md`. Build/audit: B-331, B-332.
 - v0.4.0 (2026-09-22) is the previous release.
 
 ## On the Pocket card
 `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (release, v0.5.0, unchanged), `alfatreze.TAU_DEV_54`/
-`alfatreze.TAU_DEV_56` (earlier item-7 iterations on the OLD pre-T2-00 bitstream, free to remove),
-`alfatreze.TAU_0_6_0_A_21` — same `glyphbuf-t200` seed 2 bitstream as A_18/A_19/A_20 throughout
-(all6-combined + FLAC LPC + T2-00's `glyphbuf` ALM fix + persist widening + Helios items 4-7), firmware
-now carrying: B-405's real hardware alpha-blend crossfade for Settings, B-406's H2 redraw-contract fix
-(chrome/art invalidation processed before the same tick's other draws) + the Library-open bypass fix,
-B-407's wviz_force widening, and B-408's three fixes from the first real hardware test — the blend probe
-no longer depends on Scope having run first, `fb_bar()` clamps its lit-row count (fullscreen bar
-flicker), and the trail-reset gap on fullscreen transitions. **NOT yet re-tested on hardware** — owner
-deferred the retest. Watch for: whether Settings still shows any corruption once the crossfade engages
-from the very first open (no longer gated behind Scope); fullscreen bars capping cleanly instead of
-flickering; Scope trail surviving a fullscreen toggle; theme/meter-preset persistence across a real
-Quit+relaunch.
+`alfatreze.TAU_DEV_56` (earlier item-7 iterations on the old pre-T2-00 bitstream, free to remove),
+`alfatreze.TAU_0_6_0_A_38` — `glyphbuf-t200` bitstream (RBF `b089b82871d7f441e2d68665f18a9a130691598726cb9cd7a828fd1ee2195a7e`),
+carrying every Scope-blend diagnostic built this session (STRIP/BASES/DBUF/ALPHA/PIXHIST Info rows) plus
+the B-445 crash fix and B-446 auto-repeat fix. **Confirmed booting correctly on real hardware.**
 
 ## Hardware-confirmed
-- T2-00 (`glyphbuf` ALM fix) + Helios items 4-7 together, on real silicon for the first time (`TAU_0_6_0_A_17`, B-401,
-  general pass only — superseded by `A_18` above, which has two additional fixes not yet re-tested):
-  a quick general pass, no regression reported. Not an exhaustive per-feature sweep yet.
-- FLAC LPC hardware kernel: 0 timeouts across multiple Checks + stress, microstutter A/B-confirmed fixed, worst-case latency
-  11ms (software) vs 5-6ms (hardware). Not yet sample-exact verified against software (no hw-vs-sw Check comparison built).
-- MP3 window unit (alpha.30): 404,712 slots, 0 BAD, 1.75x plays cleanly (1.25x used to stutter); filterbank share of decode 22% at 1.0x (was 55-59%).
-- TIM1 covers load in about 90 ms on MP3 and FLAC albums. E4 means an album has no `tau-art` file and falls back to the JPEG.
-- Blit engine end to end, PSRAM cold code, library, SDRAM window, VBLANK about 60/S: unchanged and passing.
+- T2-00 (`glyphbuf` ALM fix), the full `all6-combined` + FLAC LPC bundle, Settings crossfade, Chladni H2
+  tracking, theme/mode persistence: all confirmed on real silicon.
+- FLAC LPC hardware kernel: 0 timeouts across multiple Checks + stress, microstutter A/B-confirmed fixed.
+- MP3 window unit: 404,712 slots, 0 BAD; filterbank share of decode 22% at 1.0x (was 55-59%).
+- Cymo: real Altera `dcfifo` simulation matches the ideal-hold prediction (27.71 dB SINAD) exactly.
+- TIM1 covers load in about 90 ms on MP3 and FLAC albums.
 
 ## Known open evidence and defects
-- **ALM budget: RESOLVED (B-388/B-398, 2026-09-29).** The Talos `glyphbuf` fix is built and fit-confirmed
-  (both seeds, all four corners positive, RAM 240/308 = 78%, DSP 19/66 = 29% — real margin, not a bare
-  pass) and is now the bitstream `alfatreze.TAU_0_6_0_A_17` runs. The Talos 2 phased rewrite's own stated
-  motivation (`docs/features/TALOS2_REIMPLEMENTATION_PLAN.md`) is resolved by this single low-risk fix —
-  recommend re-evaluating whether that plan is still warranted before starting it.
-- **CPU LOAD reads 100%** in every state, so it cannot show headroom. Use the per-stage decode percentages and the speed at which audio breaks up.
-- **`Track changes` Check fails** (0 of 10 done): pre-existing, unexplained; 0.6.
+- **Winamp Scope trail accumulation**: open, see headline above and the 2026-09-30 handoff.
+- **Cymo 44.1 kHz SINAD**: open, RTL cleared, serializer/analog-path not yet examined.
+- **CPU LOAD reads 100%** in every state, so it cannot show headroom. Use the per-stage decode percentages instead.
+- **`Track changes` Check fails** (0 of 10 done): pre-existing, unexplained.
 - **Hardware wave/scope path is compiled out** (`if (0 && wave_hw)`, B-302): drawing 256 columns cost about 21x a normal meter. The software scope runs instead.
-- **Two live Talos correctness bugs, not yet fixed** (found in the concurrent-session review): `OP_BAR`'s 7-bit lit-row count wraps above 127 rows
-  (not yet seen on hardware, nothing currently draws that tall); `fb_wait()` used as "engine finished" at 3 call sites when it only means "FIFO not full" (real races).
 - Boot-restore mismatch between release and diagnostic builds (`docs/issues/021`), re-parked until the UI redesign.
-- Settings page-dispatch collapse (B-387) not yet hardware-tested or installed.
 
 ## Uncommitted or not mine
 `docs/vendor/` (confidential vendor datasheet, deliberately left out of every commit, by design). Check `git status` before assuming anything
-else is stale — this project has multiple concurrent sessions; the Talos review docs above were one such concurrent landing, now merged into
-this status.
+else is stale — this project has multiple concurrent sessions.
 
 ## Sibling project
 Tau Omega (`../Tau Omega/`, MIT OR Apache-2.0, Rust + Tauri) manages the card: sync, packages, diagnostics decode, screenshots. It keeps its own order in
@@ -89,8 +79,9 @@ its `docs/STATUS_HANDOFF.md`. The shared surface is `docs/CROSS_PROJECT_INTERFAC
 | Need | File |
 |---|---|
 | Ordered plan | `docs/ROADMAP.md` |
-| Latest handoff (sessions, traps, tools) | `docs/handoffs/SESSION_HANDOFF_2026-09-29_LPC_HW_AND_HELIOS.md` |
+| Latest handoff (sessions, traps, tools) | `docs/handoffs/SESSION_HANDOFF_2026-09-30_SCOPE_BLEND_AND_CYMO.md` |
 | Decisions | `docs/DECISIONS.md` |
-| Design references | `PHASE_F_SPEC`, `HELIOS_SPEC`, `HELIOS_ARCHITECTURE_REVIEW_2026-09-28`, `TALOS_REVIEW_2026-09-28`, `TALOS2_REIMPLEMENTATION_PLAN`, `METER_MODULE_SPEC`, `THEME_SPEC`, `MEDIA_LIBRARY_0.4_SPEC`, `PHASE_G_SPEC`, `TEST_SUITE_SPEC`, `MMIO_ALLOCATION`, `IMAGE_FORMATS`, `FLAC_LPC_KERNEL_DESIGN` |
+| Design references | `PHASE_F_SPEC`, `HELIOS_SPEC`, `HELIOS_ARCHITECTURE_REVIEW_2026-09-28`, `TALOS_REVIEW_2026-09-28`, `TALOS2_REIMPLEMENTATION_PLAN`, `METER_MODULE_SPEC`, `THEME_SPEC`, `MEDIA_LIBRARY_0.4_SPEC`, `PHASE_G_SPEC`, `TEST_SUITE_SPEC`, `MMIO_ALLOCATION`, `IMAGE_FORMATS`, `FLAC_LPC_KERNEL_DESIGN`, `CYMO_AUDIO_ENGINE`, `CYMO_AUDIO_ENGINE_REVIEW` |
 | Card install | `docs/CARD_INSTALL_PROCEDURE.md`, `tools/install_dev_core.py` |
-| Skill knowledge | `analogue-pocket-dev` skill, KB-069 (local): the runtime-indexed-read memory-inference lesson |
+| Packaging with a specific firmware-flag combo | `tools/package_dev_build.py --build-flags` (B-448 — always use this, not a manual pre-build, for `RAM_192K`/`CLK66`/`SDRAM_BUSY`/`LPC_FW`) |
+| Skill knowledge | `analogue-pocket-dev` skill, KB-069 (local, memory-inference), KB-077 (local, build-clobber), KB-078 (local, JTAG polling limits) |
