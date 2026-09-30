@@ -15,7 +15,7 @@
                 "id": 2,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "extensions": [
                     "mp3",
                     "flac"
@@ -26,7 +26,7 @@
                 "id": 3,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "filename": "playlist.m3u",
                 "extensions": [
                     "m3u"
@@ -37,7 +37,7 @@
                 "id": 4,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "filename": "tau-loading.bin"
             },
             {
@@ -45,7 +45,7 @@
                 "id": 5,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "filename": "tau-library.tdb"
             },
             {
@@ -53,7 +53,7 @@
                 "id": 6,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "filename": "tau-cold.bin"
             },
             {
@@ -61,7 +61,7 @@
                 "id": 8,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "filename": "tau-assets.bin"
             },
             {
@@ -69,7 +69,7 @@
                 "id": 7,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x1",
+                "parameters": "0x0",
                 "extensions": [
                     "timg"
                 ]

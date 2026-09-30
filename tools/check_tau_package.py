@@ -49,6 +49,18 @@ def main():
         DIST / "Platforms/_images/mp3player.bin",
     ]
     assert not any(path.exists() for path in old_paths)
+
+    # B-456: the Pocket hard-caps interact.json at 16 shown UI entries -- anything past that is
+    # silently dropped from BOTH the Core Settings UI and persistence (APF's read-modify-write cycle
+    # operates on the same declared list). This is exactly how theme/mode persistence silently broke
+    # once: 5 new entries pushed a fine 12-entry file to 17, one over, with no error anywhere.
+    interact = read_json(CORE_DIR / "interact.json")["interact"]["variables"]
+    assert len(interact) <= 16, (
+        f"interact.json has {len(interact)} variables, over the Pocket's hard 16-entry cap "
+        "(docs/AUDIT_TRAIL.md B-456) -- entries past 16 are silently dropped from both the UI and "
+        "persistence, not rejected with an error"
+    )
+
     print("PASS: TAU package identity and side-by-side paths are consistent")
 
 
