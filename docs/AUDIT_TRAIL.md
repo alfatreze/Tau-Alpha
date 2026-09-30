@@ -12434,3 +12434,15 @@ still a hardware A/B recording -- the digital-domain FIFO hand-off was already p
 low-jitter PLL output instead of a phase-accumulator, but whether that measurably narrows the ~17 dB
 SINAD gap from the original 44.1 kHz investigation is still unverified on real silicon. Awaiting an owner
 decision on packaging/installing for that test.
+
+## B-466: mclk-pll2-b462 installed as TAU_DEV_57 for the hardware A/B
+
+**Card.** Owner: yes, package and install. Packaged `alfatreze.TAU_DEV_57` (`--build-flags
+"RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1"` matching every other 0.6.0-line dev build this session,
+`--rbf` the collected `mclk-pll2-b462` seed 1, hash `86d7f905...528d2ff`; heap gap 6,688 B, unchanged from
+`bar-hi-b454`'s own build since the only RTL difference is the PLL). Installed via
+`tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_44 --remove alfatreze.TAU_0_6_0_A_44`
+(media/library carried, `tau-assets.bin` carried, backup verified, caches cleared, ejected). Cores on the
+card: `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (both v0.6.0), `alfatreze.TAU_DEV_57` (the MCLK PLL fix,
+targeting v0.7.0 per B-462's tag). Not yet run -- the real hardware A/B recording against the previous
+44.1 kHz baseline is the owner's next test.
