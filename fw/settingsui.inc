@@ -1061,6 +1061,14 @@ COLD_FN static void wvcfg_preview_tick(void)
 #if TAU_DIAGNOSTIC
     if (wvcfg_qr_up) return;
 #endif
+    /* B-452: meters_publish() (fw/player.c) is normally only reached from ui_draw_dynamic_cold() while
+     * !UI_OVERLAY_UP -- correct for the ordinary player screen, but Settings being open here is itself
+     * a UI_OVERLAY_UP case, so without this call peak_l/peak_r/spec_lvl[] (everything but Winamp
+     * Scope's own self-contained R_WAVE_CTL capture) were frozen at whatever they held the moment
+     * Settings opened, reading as "only Scope actually plays" in the preview. meters_feed() (the decode
+     * path) keeps accumulating peak_acc* regardless of any overlay -- this is only the missing PUBLISH
+     * step, deliberately bypassing the overlay gate for exactly the meter being previewed. */
+    meters_publish();
     const uint8_t o = ov_draw; ov_draw = 1u;
     const uint32_t px = PL_UI_TEXT_X, pw = PL_UI_X + PL_UI_W - 8u - px, py = PL_UI_LIST_Y, ph = UI_WAVE_H;
     mtr_preview(viz_mode, px, py, pw, ph, UI_PANEL);

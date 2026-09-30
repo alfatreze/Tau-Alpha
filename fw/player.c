@@ -1954,7 +1954,41 @@ static uint16_t ui_grad_top_c = UI_GRAD_TOP;
  * the card -- this should say "tinted", not "coloured". */
 /* Set where ui_grad_set() can reach it; the stash itself is built further
  * down, once UI_WAVE_* are in scope. */
+/* B-450: root cause of the Winamp Scope trail "accumulation" bug, found by reading mp3_fb.sv directly
+ * after PIXHIST (B-449) showed a stuck, non-decaying pixel with real contrast against the expected
+ * background -- decisive evidence the blend's DESTINATION write was landing somewhere never displayed,
+ * not that the blend arithmetic itself was wrong (already proven correct by the boot self-test and the
+ * live JTAG ALPHA reads, B-440/B-441/B-444). mp3_fb.sv's own module-header comment (line ~184-193,
+ * unchanged, not a bug in the RTL) documents the real contract: H2's automatic per-buffer offsetting
+ * (`dbuf_addr()`, keyed on `dbuf_cpu_buf`) applies ONLY to ordinary RECT/CHAR/COPY dispatch; every
+ * true BLIT-mode opcode (BLIT/BAR/SBLIT/CBLIT/RRECT) is addressed purely through the firmware-set
+ * sticky SRC_BASE/DST_BASE fields and is untouched by `dbuf_cpu_buf` -- "a caller wanting one of them
+ * to target the back buffer sets blt_dst_base itself" (docs/features/HELIOS_SPEC.md section 5). This
+ * is the EXACT bug class B-414 already found and fixed once for Chladni (fw/chladni.inc): a BLIT-mode
+ * caller that never calls fb_set_bases() always lands on buffer 0, regardless of which buffer
+ * `dbuf_redraw_begin()`/`dbuf_redraw_end()` (B-397) has since made the real CPU target via R_DBUF_CPU
+ * -- exactly what happens on every Settings/fullscreen/Configure open-close, the owner's own reported
+ * trigger. `wviz_scope_tick()`'s trail fade (`ui_bg_blend()` below) uses `fb_blit()`, a true BLIT-mode
+ * opcode, and never called `fb_set_bases()` at all: it always faded buffer 0 while the RECT-class
+ * trace bars (`fb_bar()`, automatically `dbuf_cpu_buf`-aware) correctly followed R_DBUF_CPU onto
+ * whichever buffer was actually displayed -- new segments keep landing on the real screen, the fade
+ * keeps updating a buffer nothing shows, exactly "accumulates instead of fading," and every earlier
+ * per-register check (STRIP/BASES/ALPHA/DBUF, B-433/434/439/440) reads correct in isolation because
+ * none of them asks whether a BLIT-mode write's TARGET buffer matches the DISPLAYED one.
+ *
+ * One further wrinkle this fix has to account for: `ui_bg_ready`'s lazy-built gradient strip (columns
+ * UI_BG_X..UI_BG_X+UI_BG_W, rows well inside V_ACT=360) is itself built via `fb_rect()` -- RECT-class,
+ * so it is ALREADY `dbuf_cpu_buf`-aware in hardware and, because its rows sit below DBUF_VISIBLE_WORDS,
+ * genuinely gets a SEPARATE physical copy per H2 buffer (unlike Chladni's own CHL_PLANE_Y scratch,
+ * which the module header confirms lives above V_ACT and is deliberately buffer-independent -- not
+ * the same situation, do not assume both stash regions behave alike). A strip built once for buffer 0
+ * is therefore just plain STALE/uninitialised content when later read back from buffer 1's copy -- a
+ * one-shot `ui_bg_ready` flag with no buffer memory cannot express "stale because the ACTIVE buffer
+ * changed," only "stale because the gradient changed" (`ui_grad_set()`). `ui_bg_buf` below fixes that:
+ * whichever buffer the strip was last built for, invalidated (forcing a fresh `fb_rect()` build into
+ * whichever buffer is now current) the moment `R_DBUF_CPU` disagrees with it. */
 static uint8_t ui_bg_ready;
+static uint8_t ui_bg_buf;      /* which H2 buffer (0/1) ui_bg_ready's strip actually reflects */
 /* B-413: live counters for the still-unexplained Winamp Scope trail "accumulation" report -- see the
  * comment at their increment site (wviz_scope_tick()) for what each one means. */
 static uint32_t dbg_scope_blend_ok, dbg_scope_blend_fail;
@@ -2214,16 +2248,29 @@ static uint32_t ui_wave_w(void)
  * set to 1 unconditionally: every later blend then faded toward whatever stale/garbage content was
  * actually sitting there instead of the real gradient, until the next transition reset the flag and
  * the same race could recur. */
+/* B-450: which H2 buffer (0/1) R_DBUF_CPU currently targets, 0 on any bitstream without H2 -- the
+ * SAME test `dbuf_addr()` performs in hardware for every RECT-class opcode, so both the strip build
+ * below (fb_rect, already dbuf_cpu_buf-aware in RTL) and this function's callers agree on which
+ * buffer is "current" without a second source of truth. */
+static uint32_t ui_bg_cur_buf(void)
+{
+    return (DBUF_READY() && (REG(R_DBUF_CPU) & 1u)) ? 1u : 0u;
+}
+
 static void ui_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
     if (!w || !h || FB_HELD()) return;
-    if (!ui_bg_ready) {
+    const uint32_t buf = ui_bg_cur_buf();
+    if (!ui_bg_ready || ui_bg_buf != buf) {   /* B-450: also rebuild if the ACTIVE H2 buffer changed */
         for (uint32_t yy = UI_WAVE_Y - UI_WAVE_TOP; yy < UI_WAVE_Y + UI_WAVE_H; yy++)
             fb_rect(UI_BG_X, yy, UI_BG_W, 1, ui_grad_at(yy));
         ui_bg_ready = 1;
+        ui_bg_buf = (uint8_t)buf;
     }
     /* Source and destination share rows, so the ramp lines up by
-     * construction and the copy is purely horizontal. */
+     * construction and the copy is purely horizontal. fb_copy() is OP_COPY -- RECT-adjacent, already
+     * dbuf_cpu_buf-aware in hardware (mp3_fb.sv p0_addr dispatch), so unlike fb_blit() below it needs
+     * no explicit sticky-base handling here at all. */
     while (w) {
         uint32_t n = (w < UI_BG_W) ? w : UI_BG_W;
         fb_copy(UI_BG_X, y, x, y, n, h);
@@ -2239,11 +2286,26 @@ COLD_FN3 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, 
     if (!w || !h || FB_HELD()) return 0;
     blend_ensure();
     if (!BLEND_READY()) return 0;
-    if (!ui_bg_ready) {                                     /* the same lazy strip build as ui_bg_restore() */
+    const uint32_t buf = ui_bg_cur_buf();
+    if (!ui_bg_ready || ui_bg_buf != buf) {                  /* the same lazy strip build as ui_bg_restore() */
         for (uint32_t yy = UI_WAVE_Y - UI_WAVE_TOP; yy < UI_WAVE_Y + UI_WAVE_H; yy++)
             fb_rect(UI_BG_X, yy, UI_BG_W, 1, ui_grad_at(yy));
         ui_bg_ready = 1;
+        ui_bg_buf = (uint8_t)buf;
     }
+    /* B-450: fb_blit() is a true BLIT-mode opcode (mp3_fb.sv: BLIT/BAR/SBLIT/CBLIT/RRECT), addressed
+     * ONLY through the firmware-programmable sticky SRC_BASE/DST_BASE fields -- it does NOT follow
+     * R_DBUF_CPU automatically the way fb_rect()/fb_copy() do. Without this, the fade always targeted
+     * buffer 0 regardless of which buffer was actually the CPU's current target (and displayed), while
+     * the RECT-class trace bars correctly followed it -- new content landing on screen, the fade
+     * updating a buffer nothing shows. Same bug class, same fix pattern as Chladni's own H2 tracking
+     * (fw/chladni.inc, B-414): point both SRC_BASE and DST_BASE at the buffer this call already
+     * determined the strip lives in (source = the strip's own per-buffer copy, destination = the
+     * visible meter area, both the SAME currently-active buffer), then restore to (0,0) once the
+     * blit has genuinely executed (fb_fence(), not merely queued -- B-412's own lesson) so no later,
+     * unrelated BLIT-mode caller silently inherits a nonzero base. */
+    const uint32_t base = buf ? DBUF_BASE1_W : 0u;
+    fb_set_bases(base, base);
     fb_blend_on(bg_alpha > 255u ? 255u : bg_alpha);
     while (w) {
         uint32_t n = (w < UI_BG_W) ? w : UI_BG_W;
@@ -2252,6 +2314,7 @@ COLD_FN3 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, 
     }
     fb_fence();
     fb_blend_off();
+    fb_set_bases(0u, 0u);
     return 1;
 }
 
@@ -2331,7 +2394,11 @@ static uint16_t dbg_pixhist_want;   /* what ui_grad_at() currently expects for t
 
 static void dbg_pixel_log(uint32_t x, uint32_t y)
 {
-    uint32_t addr = y * FB_STRIDE + x, r = 0xFFFFFFFFu;
+    /* B-450: this exact non-decaying PIXHIST reading was the decisive evidence that the fade's write
+     * was landing on the wrong H2 buffer -- keep reading whichever buffer is now the real CPU target
+     * (ui_bg_cur_buf()), so a future read after this fix stays meaningful instead of silently going
+     * back to reading a buffer nothing displays. */
+    uint32_t addr = ui_bg_cur_buf() * DBUF_BASE1_W + y * FB_STRIDE + x, r = 0xFFFFFFFFu;
     blend_mb_read(addr, &r);   /* leaves r as the sentinel on failure -- visible as FFFF/FFFF, not a silent gap */
     dbg_pixhist_want = ui_grad_at(y);
     dbg_pixhist[dbg_pixhist_pos] = r;
@@ -2346,10 +2413,15 @@ static void dbg_strip_check(void)
     dbg_dbuf_cpu = (uint8_t)(REG(R_DBUF_CPU) & 1u);
     dbg_dbuf_disp = (uint8_t)(REG(R_DBUF_DISP) & 1u);
     dbg_strip_alpha = dbg_blend_alpha;
+    /* B-450: the strip now legitimately has a separate physical copy per H2 buffer (ui_bg_buf); read
+     * back whichever one ui_bg_blend()/ui_bg_restore() actually built most recently, or this check
+     * would report a false BAD/mismatch (reading buffer 0's now-stale copy) the instant the active
+     * buffer is 1, even though the fix above is working correctly. */
+    const uint32_t strip_base = ui_bg_buf ? DBUF_BASE1_W : 0u;
     for (uint32_t k = 0; k < 3u; k++) {
         uint32_t yy = rows[k];
         uint16_t want = ui_grad_at(yy);
-        uint32_t addr = yy * FB_STRIDE + UI_BG_X;
+        uint32_t addr = strip_base + yy * FB_STRIDE + UI_BG_X;
         uint32_t r = 0;
         dbg_strip_expect[k] = want;
         if (blend_mb_read(addr, &r)) { dbg_strip_bad = 1u; dbg_strip_actual[k] = 0xFFFFu; continue; }
@@ -4906,26 +4978,21 @@ viz_done: ;
 #endif
 }
 
-COLD_FN3 static void ui_draw_dynamic_cold(void)
+/* B-452 (owner-reported: in the Configure page's Meter preview, only Winamp Scope actually plays --
+ * Bars/Chladni/VU Master preview a static, non-animating snapshot): this whole block used to live
+ * inline inside `ui_draw_dynamic_cold()`, reached only when `!UI_OVERLAY_UP` -- correct for the
+ * ordinary player screen (an overlay covers the meter box, so there is nothing to publish for), but the
+ * SAME gate also silently starves `wvcfg_preview_tick()`'s live preview, since Settings being open is
+ * itself a `UI_OVERLAY_UP` case. Winamp Scope's own tick function manages its `R_WAVE_CTL` capture
+ * directly inside itself (see wviz_scope_tick()), so it never depended on this publish step and kept
+ * working through the overlay regardless -- which is exactly why it was the one meter that "still
+ * played" while the preview browsed. `meters_feed()` (called from the decode path, unconditional)
+ * still accumulates `peak_acc*` regardless of any overlay; only the once-per-display-frame PUBLISH
+ * into `peak_l`/`peak_r`/`spec_lvl[]` was gated. Extracted verbatim (no logic changed) so
+ * `wvcfg_preview_tick()` can call it too, bypassing the overlay gate on purpose for exactly the
+ * meter currently being previewed. */
+COLD_FN3 static void meters_publish(void)
 {
-    if (screen_blank) return;
-    /* The overlay covers the meters, the card and the transport row. Letting
-     * the player keep drawing underneath would punch holes straight through
-     * it, once per frame. */
-    /* Jump the UPPER screen, not the whole function.
-     *
-     * The overlay panel is y 18..284; the clock (288) and the progress bar
-     * (334) sit BELOW it and stay visible. Returning early here froze both,
-     * and worse: the elapsed-time accumulator lives further down this
-     * function, so time itself stopped advancing while the list was open and
-     * the clock came back stale.
-     *
-     * A goto over the drawing rather than a wrapped block -- the skipped
-     * region is several hundred lines and every declaration in it is scoped
-     * inside the sections being skipped. `viz_done` already sets the
-     * precedent. */
-    if (UI_OVERLAY_UP) goto ui_tail;
-
     /* Publish the peaks once per display frame, so every meter below reads a
      * value covering exactly the audio since the last frame. Nothing new means
      * hold the last -- correct during FLAC's channel-0 window, where there
@@ -5012,6 +5079,29 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
         }
         if (peak_amp > wave_pend) wave_pend = peak_amp;
     }
+}
+
+COLD_FN3 static void ui_draw_dynamic_cold(void)
+{
+    if (screen_blank) return;
+    /* The overlay covers the meters, the card and the transport row. Letting
+     * the player keep drawing underneath would punch holes straight through
+     * it, once per frame. */
+    /* Jump the UPPER screen, not the whole function.
+     *
+     * The overlay panel is y 18..284; the clock (288) and the progress bar
+     * (334) sit BELOW it and stay visible. Returning early here froze both,
+     * and worse: the elapsed-time accumulator lives further down this
+     * function, so time itself stopped advancing while the list was open and
+     * the clock came back stale.
+     *
+     * A goto over the drawing rather than a wrapped block -- the skipped
+     * region is several hundred lines and every declaration in it is scoped
+     * inside the sections being skipped. `viz_done` already sets the
+     * precedent. */
+    if (UI_OVERLAY_UP) goto ui_tail;
+
+    meters_publish();
     /* Shift a new sample in and repaint the band. Every bar moves each update,
      * so there is nothing to gain from change-detection here -- instead it is
      * throttled, and each bar is two rects (lit + unlit), which the engine
