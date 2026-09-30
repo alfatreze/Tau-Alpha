@@ -11307,3 +11307,7 @@ Owner recorded `tone_1k_24000` and `tone_1k_32000` at the same gain (no underrun
 Images: 24 kHz -> 23,001.7 Hz at -6.5 dBc (model -27.8 dBc); 32 kHz -> 17,001 Hz at -8.9 dBc and 15,000.7 Hz at -10.2 dBc (model -31.9 dBc). SINAD 3.35 / 3.13 dB against about 23 / 25 dB modelled. So images are about 21 dB stronger than a plain hold predicts at both integer-ratio rates, where the phase pattern is fixed.
 Conclusions: (1) the "sliding phase at the FIFO-to-I2S hand-off" hypothesis of B-430 is not supported, since the fixed-phase 2:1 case is as bad; (2) the error appears whenever the drain rate differs from 48 kHz; (3) no underruns, so firmware feeding is unlikely; (4) `sim/tb_cymo_i2s_rate.v` reproduces the ideal hold exactly, so what differs on hardware is outside the modelled logic (the real Altera `dcfifo` timing, or something after the serialiser).
 Next: run the same testbench with the real `dcfifo` simulation model from the Quartus install (`altera_mf.v`) instead of my behavioural one; only if that stays clean look past the serialiser.
+
+## B-432: branch handoff; simulation can use the real dcfifo model
+
+`sim/test_cymo_i2s_rate.py --altera-mf <altera_mf.v>` swaps Intel's own `dcfifo` simulation model in for the behavioural one (the file ships with Quartus and is never committed). Not yet run: this cloud session cannot reach the Quartus VM. Handoff written: `docs/handoffs/SESSION_HANDOFF_2026-09-29_CYMO_AUDIO.md`. Branch `cymo` changes only docs, `tools/lab` and `sim/`; a trial merge against `origin/main` had no conflicts.
