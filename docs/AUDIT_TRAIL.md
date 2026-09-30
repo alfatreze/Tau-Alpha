@@ -12515,3 +12515,35 @@ on the VCO-sharing question B-460/B-463 already resolved independently.
 
 Launched the real fit (`i2sdiag-b467`, the proven `bar-hi-b454`/`mclk-pll2-b462` bundle plus
 `TAU_I2S_DIAG=1`, both seeds). Result pending.
+
+## B-469: i2sdiag-b467 closed clean; installed as TAU_DEV_58 for the real-silicon CDC read
+
+**Quartus, Pocket.** Both seeds finished Successful, all four corners positive; RAM 240/308 (78%),
+DSP 19/66 (29%) on both, matching every other bitstream in this family (the diagnostic costs no
+M10K/DSP as expected). Worst-case margin per seed:
+
+| | Fast 0C Hold | Fast 0C Setup | Fast 85C Hold | Fast 85C Setup | Slow 0C Hold | Slow 0C Setup | Slow 85C Hold | Slow 85C Setup |
+|---|---|---|---|---|---|---|---|---|
+| seed 1 | **+0.025** | +5.897 | +0.097 | +5.677 | +0.319 | +1.107 | +0.333 | +1.019 |
+| seed 2 (selected) | **+0.121** | +5.888 | +0.143 | +5.674 | +0.296 | +1.498 | +0.303 | +1.588 |
+
+Seed 1's Fast 0C hold margin (+0.025 ns) is genuinely razor-thin -- flagged honestly, not glossed
+over, though it is still positive and this exact corner/type combination has closed with similarly
+thin margins before on unrelated bitstreams in this family without a hardware failure (e.g. B-437's
+own +0.037 ns). Seed 2 wins clearly on the single worst-case cell (+0.121 ns vs +0.025 ns) and was
+selected; collected and hash-verified (`f3255c0b7fedc616204e89b68af6e32d2df104600804c325eeea6acf5069ceea`).
+
+Packaged as `alfatreze.TAU_DEV_58` (`--build-flags "RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1"`,
+matching every other 0.6.0-line dev build; heap gap 6,656 B). Installed via
+`tools/install_dev_core.py --carry-from alfatreze.TAU_DEV_57 --remove alfatreze.TAU_DEV_57`: backup
+verified, all three files hash-matched post-copy, media/library (69 files) and `tau-assets.bin`
+carried from the superseded MCLK-PLL-only build, catalog caches cleared, card ejected. Cores on the
+card: `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (v0.6.0), `alfatreze.TAU_DEV_58` (MCLK PLL fix +
+I2S CDC jitter diagnostic together).
+
+**Not yet run:** the actual point of this build -- reading the new "I2S JITTER" Info row (Settings >
+Diagnostics > Info) during real 44.1 kHz playback is the first real-silicon evidence of whether
+`sound_i2s.v`'s clk_audio->clk_mclk CDC behaves as cleanly as the two simulations (B-430/B-442)
+predicted. Expected clean result: min/max within 1-2 cycles of `CLK_HZ/44100` (~1,512-1,513 cycles
+at 66.667 MHz); real outliers would be the first direct hardware evidence pointing at the CDC rather
+than ruling it out.
