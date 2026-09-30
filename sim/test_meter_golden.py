@@ -55,6 +55,7 @@ static void ui_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (voi
 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t a) { (void)x; (void)y; (void)w; (void)h; (void)a; return 0; }   /* no blend bitstream: the trail falls back to the plain erase the JS twin models */
 static uint32_t dbg_scope_blend_ok, dbg_scope_blend_fail;   /* B-413: cut into wviz_scope_tick(), stubbed here same as the other globals it touches */
 static void dbg_strip_check(void) {}   /* B-433: same reasoning -- real body reads SDRAM via the mailbox, irrelevant to this host trace comparison */
+static void dbg_pixel_log(uint32_t x, uint32_t y) { (void)x; (void)y; }   /* B-444: same reasoning */
 ''' + "@@BARS@@\n@@SCOPE@@\n" + r'''
 int main(int argc, char **argv) {
     FILE *f = fopen(argv[1], "r");
