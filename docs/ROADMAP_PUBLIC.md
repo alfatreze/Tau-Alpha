@@ -44,11 +44,14 @@ speeds above 1.20x are Diagnostic Build only.
 - **Cover format freeze:** the `TIM1` container becomes the default once the owner freezes it ([IMAGE_FORMATS.md](IMAGE_FORMATS.md)).
 - **Meter modules:** meters described by one manifest each, presets from `tau-assets.bin`, a preview lab; the runtime is built and host-verified, waiting for more hardware runs ([METER_MODULE_SPEC.md](METER_MODULE_SPEC.md)).
 - **Library extras** that need free RAM first (see [MEDIA_LIBRARY_0.4_SPEC.md](MEDIA_LIBRARY_0.4_SPEC.md) sections 14-15).
-- **Cymo, targeting v0.7.0**: a real-hardware 44.1 kHz audio quality issue traced to jitter in the I2S master
-  clock generator. Tagged `v0.7.0-dev.1` as a checkpoint (not buildable yet). The fix (replacing a
-  phase-accumulator with a PLL output) hit a real frequency-planning conflict on its first fit attempt --
-   12.288 MHz cannot share the existing shared PLL's VCO with the core's other clocks, so it needs its own
-  PLL instance; not yet built.
+- **Cymo, targeting v0.7.0**: a real-hardware 44.1 kHz audio quality issue, still unexplained. Tagged
+  `v0.7.0-dev.1` as a checkpoint (not buildable yet). The leading hypothesis -- jitter in the I2S master
+  clock generator -- was built into a real fix (a dedicated PLL, its own instance since 12.288 MHz cannot
+  share the main PLL's VCO with the core's other clocks) and tested directly against the original
+  hardware baseline: SINAD and every image/spur level match the old generator to within measurement
+  noise, so MCLK jitter is ruled out. The PLL is kept anyway (it fixed a separate, real 3.7 dB level
+  anomaly at 44.1 kHz), but the actual audio quality issue's cause is still open; the remaining untested
+  candidate is the real Altera `dcfifo` timing under actual silicon, or something past the serializer.
 - **Companion app:** [Tau Omega](../../Tau%20Omega/) keeps its own roadmap.
 
 ## Parked on purpose
