@@ -844,6 +844,48 @@ replace it with real Quartus IP) -- it does list MCLK as its own named output al
 with the conclusion B-460/B-463 reached independently (12.288 MHz cannot share a VCO with a 12 MHz/100 MHz pixel/SDRAM
 pair), but it contains no real PLL configuration to compare against.
 
+Their own published resource report (v0.3.2 release notes) is for the **whole core** (hardware IMDCT, polyphase MP3
+synthesis filterbank, decoder ROMs, OSD, resampler, everything): **9,793 ALMs (53%), 79 M10K blocks (26%), 22 DSP
+blocks (33%), 1 PLL** on the same Cyclone V 5CEBA4 this project targets. That fits comfortably alongside everything
+else on the device, which says the resampler itself -- almost certainly a small fraction of that total -- is cheap;
+the IMDCT and filterbank are the resource-hungry pieces, not a 16-tap FIR.
+
+### Would this be worth building for Tau, straight as-is?
+
+Not as a literal port -- the architecture (exact-ratio polyphase FIR, phase-bank LUT, one time-multiplexed DSP MAC) is
+right and cheap enough to afford, but two things would need to change:
+
+1. **It only solves one ratio.** Their design is hard-wired for 160:147; Tau also has to serve 24/32/22.05 kHz
+   (MPEG-2 half-rates, spoken-word rips), currently all served by the same hold. A port fixes only the single most
+   common case unless generalised or deployed incrementally (44.1:48 first, others still falling back to the hold --
+   the same probe-gated pattern already used for `POLY_FW`/`LPC_FW`).
+2. **`pcm_fifo.v` already has half the machinery.** Its `rate_inc` fractional accumulator is structurally the same
+   idea as their phase accumulator -- it currently uses the fraction to decide *when* to hold the same sample rather
+   than *how much* to interpolate between two. Evolving that existing accumulator into a polyphase MAC fits this
+   project's architecture better than adding their separate ring-buffer-plus-FSM module.
+
+**Tap-count and window choice, modelled before any RTL** (`tools/lab/cymo_resamp_model.py`, built for this decision;
+16-bit quantised coefficients, the same width `resampler.sv`'s own `coef_data` is, so this predicts what real hardware
+would achieve, not an idealised float resampler):
+
+| Window | 8 taps | 16 taps | 24 taps | 32 taps | 48 taps |
+|---|---|---|---|---|---|
+| Rectangular | 22-43 dB | 31-48 dB | 30-40 dB | 29-49 dB | (not worth it at this window) |
+| Hamming | 15-76 dB | 39-73 dB | 53-66 dB | 57-71 dB | 62-72 dB |
+| Blackman | 11-86 dB | 25-87 dB | 47-87 dB | 77-86 dB | **80-84 dB** |
+| Kaiser (beta=8.6) | 11-89 dB | 25-89 dB | 47-87 dB | **83-86 dB** | 84-85 dB |
+
+Each cell is the SINAD range across 1/5/10/15/18 kHz test tones (`sweep` subcommand); the low end of each range is
+always the 18 kHz case, the hardest for a fixed-length lowpass. Compare against the current hold's **measured 10.8 dB**
+at 1 kHz (B-430/B-467) and the Appendix's idealised-float **27.7 dB** prediction for the same case -- every windowed
+option here, even at 8 taps, already exceeds both by a wide margin, and **32 taps with a Blackman or Kaiser window
+gives a consistent 77-86 dB across the whole audible band** for only 8 M10K blocks and 1 DSP (`resources`
+subcommand; the project's shipped bitstream has 68 M10K blocks free, B-458). This is the recommended starting point
+if C0(e)/C1 (section 9) goes ahead -- comfortably better than pocket-mp3's own unweighted 16-tap design, at a resource
+cost this project can clearly afford, and cheap in CPU-cycle terms too: at clk_sys ~66.7 MHz and 48 kHz output there
+are ~1,389 cycles available per output sample, of which a 32-tap MAC (1 cycle/tap, matching `resampler.sv`'s own
+discipline) uses only 32 -- cycle budget was never the constraint, M10K for the coefficient ROM is.
+
 ## Appendix: the resampler model
 
 The model behind the tables in section 3 is small enough to reproduce: for each output frame `k` it computes the source
