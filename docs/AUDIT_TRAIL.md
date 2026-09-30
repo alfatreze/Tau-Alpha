@@ -12170,3 +12170,52 @@ count <= 16) so this exact mistake can't silently recur -- not built this pass.
 
 Owner confirmed on real hardware: theme and mode now show in Core Settings and survive a Quit+relaunch;
 the unwanted "Load Audio File"/"Load Playlist" reload actions are gone. Investigation closed.
+
+## B-457: Cymo 44.1 kHz -- real MCLK jitter source found and fixed in RTL, fit queued
+
+Owner: "start on next cymo task." Per the 2026-09-30 handoff's own decision tree (FIFO hand-off twice
+proven clean, B-430/B-442), read `sound_i2s.v`'s serializer -- the one remaining un-examined RTL piece.
+The shift-register/LRCK/bit-timing logic itself is structurally correct (standard MSB-first I2S). But
+the MCLK GENERATOR is a phase accumulator (`audgen_accum`) dividing `clk_74a` (74.25 MHz) toward
+~12.288 MHz -- `CYCLE_48KHZ/742500 = 245760/742500`, which reduces (GCD 60) to `4096/12375`; `12375 =
+3^2*5^3*11` has no factor of 2, so the ratio is fundamentally non-integer. This is a real, physically
+measurable jitter source: the accumulator's overflow doesn't land on a fixed clk_74a cycle count, so
+every MCLK edge -- and, since SCLK/LRCK/the serializer were all derived by edge-detecting THAT jittery
+toggle -- every downstream DAC bit-clock edge inherits it. **Critically, this is invisible to RTL
+simulation**, which checks logical sample VALUES, not real inter-edge timing variance -- exactly why the
+decisive digital-domain SINAD test (B-442) matched the ideal-hold prediction almost exactly while real
+hardware measured ~17 dB worse. Confirmed with the owner as the lead worth pursuing before spending a
+Quartus fit on it.
+
+**Fix:** added a 5th output (`outclk_4`, 12.288 MHz) to the existing shared PLL (`mf_pllbase_0002.v`,
+the same instance already producing clk_sys/clk_vid/clk_sdram from this exact 74.25 MHz reference) --
+`fractional_vco_multiplier("true")` is already relied on for outclk_1/2's clean 12.000 MHz, using
+noise-shaped sigma-delta fractional-N synthesis, the purpose-built low-in-band-jitter mechanism this
+class of problem calls for, not a naive accumulator. No new PLL resource -- outputs 4-17 were unused
+placeholders. Wired through `mf_pllbase.v` and `core_game.vh` (new `clk_audio_mclk` wire).
+
+Rewrote `sound_i2s.v`: `audio_mclk` is now `assign audio_mclk = clk_mclk;` -- nothing left to
+synthesise. The entire serializer (SCLK divide-by-4, the shift register, LRCK) now runs synchronously
+inside this ONE clean clock domain instead of `clk_74a`-domain edge-detection of the old jittery toggle
+-- `sclk_div == 2'd3` is the exact clk_mclk cycle where SCLK's own bit (`sclk_div[1]`) is about to fall
+3->0, the identical instant the old `prev_audgen_sclk && ~audgen_sclk` edge-detect fired, just derived
+directly from a real clock instead of chasing another signal's transitions. `sync_fifo`'s read clock
+moved from `clk_74a` to `clk_mclk` accordingly.
+
+**Verified:** `sim/tb_cymo_i2s_rate.v` updated (new `clk_mclk` testbench clock at ideal 12.288 MHz --
+simulation has no vendor PLL model, so this checks logical correctness only, not the real achieved
+frequency/jitter, which needs the actual Quartus fit report) --
+`python3 sim/test_cymo_i2s_rate.py` reproduces the EXACT same result as before the rewrite (SINAD 27.71
+dB, identical spurs) -- confirms the rewrite is functionally equivalent at the digital-value level, zero
+regression, exactly the expected outcome since jitter effects can't show up in a value-level sim either
+way. `make rtl-lint` and `make test-host` both clean. No other testbench references the changed internal
+signal names (`prev_audgen_sclk`/`audgen_sclk` are gone, replaced by `sclk_div`) or `core_game.vh`
+directly.
+
+**Not yet done:** the real Quartus fit -- `bar-hi-b454` (B-454, the Winamp Bars RTL widen) is still
+running on the VM; this project's own discipline never launches two fits at once. Queued for launch the
+moment that frees up. Once fit: check the ACHIEVED outclk_4 frequency/error in the Quartus report (not
+assumed from the "12.288000 MHz" parameter string), and this being a fractional-N sigma-delta PLL still
+needs a real hardware A/B recording against the current phase-accumulator design to confirm the jitter
+reduction actually closes (or narrows) the ~17 dB SINAD gap -- a plausible, well-reasoned lead, not yet
+a proven fix. Not committed.
