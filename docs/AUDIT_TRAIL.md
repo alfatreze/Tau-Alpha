@@ -12219,3 +12219,41 @@ assumed from the "12.288000 MHz" parameter string), and this being a fractional-
 needs a real hardware A/B recording against the current phase-accumulator design to confirm the jitter
 reduction actually closes (or narrows) the ~17 dB SINAD gap -- a plausible, well-reasoned lead, not yet
 a proven fix. Not committed.
+
+## B-458: bar-hi-b454 closed clean; alfatreze.TAU_0_6_0_A_44 installed; mclk-b457 launched
+
+**Quartus, Pocket, code-review.** B-454's OP_BAR 9-bit lit-row widen (all6-combined + the wide field,
+no new macro since `cmd_glyph_hi` is unconditionally wired) finished on both seeds: seed 1 all four
+corners positive (Slow 0C Setup +1.127 ns, Slow 85C Setup +1.163 ns, worst hold +0.129 ns), seed 2 also
+all positive but with tighter Slow 0C Setup (+0.627 ns) -- seed 1 selected on every corner. RAM 240/308,
+DSP 19/66 on both, matching the pre-widen `all6-combined` footprint (the widen cost ALMs/registers only,
+confirming B-454's build-time size check). Collected and hash-verified
+(`4b82d9481e71cb085ba87b800c53615538082b3bce5ff818615414abefec4bda`).
+
+Built `player-library-diagnostic-profile` with `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1` via
+`package_dev_build.py --build-flags` (closing the B-448 build-clobber risk) and packaged as
+`alfatreze.TAU_0_6_0_A_44` (heap gap 6,688 B against the 4,096 B floor). Installed via
+`tools/install_dev_core.py --carry-from alfatreze.TAU_0_6_0_A_43 --remove alfatreze.TAU_0_6_0_A_43`:
+backup verified, both bitstream/ROM/cold-image hashes matched post-copy, media + library index (69
+files) carried and rebuilt, `tau-assets.bin` carried, 5 catalog caches cleared, card ejected clean.
+Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `alfatreze.TAU_0_6_0_A_44`.
+
+**Not yet done:** hardware confirmation that fullscreen Winamp Bars now grow past the old 127-row clamp
+(B-406's mitigation is still in place in firmware and harmless either way, but the point of B-454 is to
+prove the hardware field is no longer the limiter) -- needs the owner's next boot.
+
+Confirmed no Quartus process was running on the VM before launching the next fit (never two at once).
+Launched `mclk-b457` (Cymo I2S MCLK phase-accumulator -> PLL fractional-N replacement, B-457): same
+`all6-combined` macro bundle (`tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt`), both
+seeds, confirmed running (2 `quartus_sh --flow compile` processes). Result pending. Once it lands: check
+the achieved `outclk_4` frequency/error in the Quartus report (not the parameter string) before trusting
+the jitter fix, and it still needs a real hardware A/B recording against the current phase-accumulator
+design -- a well-reasoned lead, not yet a proven fix.
+
+## B-459: OP_BAR 9-bit widen hardware-confirmed (fullscreen Winamp Bars past 127 rows)
+
+**Pocket.** Owner confirmed `alfatreze.TAU_0_6_0_A_44` (B-458's build) on real hardware: fullscreen
+Winamp Bars now render past the old 127-row clamp. B-454's RTL fix (`cmd_glyph_hi`, OP_BAR's lit-row
+field widened 7->9 bits) is hardware-confirmed. B-406's firmware-side 127-row mitigation is now
+redundant but left in place (harmless -- `fb_bar()` sends the full 9-bit value unconditionally since the
+B-454 addendum removed the runtime probe). No further action needed on this item.

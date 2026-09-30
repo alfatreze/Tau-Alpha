@@ -54,7 +54,7 @@ roughly **8x faster** than the beam scans, will finish before the beam catches u
 |---|---|---|
 | **H0** | CDC the vblank/frame-position signal into `clk_sys`, expose as MMIO. Started as a single vblank bit (0xD0), then a free-running frame counter (`tau_vs_counter.sv`, B-260) once polling a 167 us pulse proved unworkable. | **Hardware-confirmed.** The frame counter reads about 60/S on real hardware (B-266, alpha.16). |
 | **H1** | The beam-position mechanism above (`tau_cdc_gray_bus.sv`, `R_SCAN`, `helios_rows_safe()`), plus the display-list core itself (`fw/helios.inc`: region registration, `helios_mark_dirty()`, `helios_flush()`). First adopter: the meter block in `ui_draw_dynamic_cold` (rows 126-259), which waits instead of drawing across the beam. | **Hardware-confirmed for the meter block.** Info > BEAM reads `OK 30% WAITED` on alpha.34 (`docs/ROADMAP.md`, `docs/AUDIT_TRAIL.md` B-267). |
-| **H2** | True double buffering: two SDRAM framebuffer regions, the CPU always writes to whichever one scanout is *not* currently reading, and a vblank-gated register flip swaps which region scanout reads next frame — a pointer swap, not a pixel copy (the Amiga finding, `HELIOS_SPEC.md` section 5). | **Built and simulation-verified 2026-09-27 (B-340); not yet fit or on hardware.** H0/H1 being hardware-confirmed meets this phase's own stated precondition ("once H0/H1 are built and measured"). |
+| **H2** | True double buffering: two SDRAM framebuffer regions, the CPU always writes to whichever one scanout is *not* currently reading, and a vblank-gated register flip swaps which region scanout reads next frame — a pointer swap, not a pixel copy (the Amiga finding, `HELIOS_SPEC.md` section 5). | **Shipped in v0.6.0-alpha.1 (`TAU_DBUF`), hardware-confirmed.** Built and simulation-verified 2026-09-27 (B-340), then fit and installed for its first hardware test (B-396/B-397); two real bugs found and fixed on hardware (`FB_HELD()`, B-399; `screen_blank`, B-402) both breaking the redraw bracket the same way. Drives the Settings/fullscreen/Configure redraw path today. |
 
 ### What H2 actually adds, precisely (B-340)
 
@@ -80,16 +80,17 @@ ambiguity in the original design sketch:
   with the flip/select ports actively driven, not just left untouched (`sim/tb_helios_dbuf.v`,
   `make test-rtl-helios-dbuf`).
 
-## What's NOT yet converted, and why that matters
+## What's converted, and what's still immediate
 
-**The full-screen chrome redraw (`ui_draw_chrome`) is still registered immediate — `y1=0xFFFF`, no beam
-gating (`docs/ROADMAP.md` item 7).** This is exactly why H2 exists: a full repaint is too big to fit inside
-the beam's safe windows the way a small meter update can, so gating it row-by-row the way the meter block is
-gated would just make it stutter instead of tear. It needs the other buffer to draw into while the current
-one is still being shown, i.e. real double buffering, not finer-grained row gating. Converting
-`ui_draw_chrome` to use the back buffer, and building the `DBUF_READY()`-style capability probe that would
-let it do so safely on older bitstreams, are the concrete next steps once H2 has a Quartus fit
-(`docs/HELIOS_SPEC.md` section 5's own "not done" list).
+**The full-screen chrome redraw (`ui_draw_chrome`) is registered immediate — `y1=0xFFFF`, no beam gating —
+but now brackets its full-frame invalidations with H2's `dbuf_redraw_begin()`/`dbuf_redraw_end()`.** This is
+exactly why H2 exists: a full repaint is too big to fit inside the beam's safe windows the way a small
+meter update can, so it needs the other buffer to draw into while the current one is still being shown,
+i.e. real double buffering, not finer-grained row gating. `DBUF_READY()` (matching `BLIT_READY()`/
+`RRECT_READY()`'s precedent, `fw/player.c`) is built and hardware-confirmed; `helios_flush()`'s chrome/art
+invalidations go through the back buffer via this bracket on any bitstream that has H2, and fail safe (draw
+straight to the displayed buffer, same as before H2) on any that doesn't (`docs/HELIOS_SPEC.md` section
+5's own "not done" list is now closed).
 
 `fb_round_rect_on()` (used for nearly every panel and selected list row in the UI) was converted to Talos's
 `OP_RRECT` behind an `RRECT_READY()` probe as part of H1 (`docs/HELIOS_SPEC.md` sections 2 and 10) — this is
@@ -124,7 +125,7 @@ change its core mechanism — none of this is built:
 
 | Item | Status | Concrete next step |
 |---|---|---|
-| **H2 firmware integration** | RTL built and sim-verified (B-340); no Quartus fit, no firmware, no hardware yet | A `DBUF_READY()`-style probe (matching `BLIT_READY()`/`RRECT_READY()`'s precedent) and `ui_draw_chrome` actually using the back buffer are the named next steps (`docs/HELIOS_SPEC.md` section 5). |
+| **H2 firmware integration** | Shipped in v0.6.0-alpha.1, hardware-confirmed (B-396/B-397/B-399/B-402) | `DBUF_READY()` is built and `ui_draw_chrome`'s full-frame invalidations use the back buffer via `dbuf_redraw_begin()`/`dbuf_redraw_end()`. |
 | **More regions converted to beam-gated drawing** | Only the meter block is converted | `docs/ROADMAP.md` item 7 names progress/clock/transport rows and toasts as the next adopters (`docs/HELIOS_SPEC.md` section 9). |
 | **Now-playing screen redesign** | Explicitly parked for its own session | Recommended to happen *after* the theme-role work so it is written against roles, not fixed colours (`docs/ROADMAP.md` item 7). |
 | **Loadable fonts / icons / Figma theme export** | Design-only (sections 7.1-7.4) | Each needs its own format + verification pass; recorded as worth doing once Helios's own font format ships at least one real font (`docs/HELIOS_SPEC.md` section 7.3). |

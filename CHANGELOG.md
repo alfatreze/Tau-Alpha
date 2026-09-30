@@ -2,6 +2,29 @@
 
 What changed in each release, newest first.
 
+## v0.6.0-alpha.1 — 30 September 2026
+
+- **FLAC decoding on hardware.** Like MP3's synthesis filterbank in v0.5.0, FLAC's LPC/FIXED sample
+  reconstruction (the largest single share of FLAC decode cost) now runs in the FPGA, bit-exact with the
+  software version and falling back to it if the unit ever disagrees.
+- **More on-chip memory and a faster clock.** The CPU's on-chip RAM was reorganised (freeing 64 KB) and the
+  system clock raised from 60 to 66.667 MHz -- both built and closed together on real hardware with real
+  timing margin, and firmware now fits the smaller RAM comfortably (15.8 KB of free heap to spare).
+- **Settings persist properly.** Theme and Dark/Light mode are now remembered across a restart (previously
+  reset every time); two leftover "Load Audio File" / "Load Playlist" actions from the old playlist mode
+  are gone from Core Settings.
+- **Meter fixes.** Fullscreen Winamp Bars no longer clip at 127 rows -- the hardware field behind them was
+  widened. Winamp Scope's fade trail no longer accumulates into a solid smear on repeated use. The
+  Chladni-pattern meter no longer goes blank after leaving Settings, fullscreen or the Configure page. All
+  four live-preview meters (Bars, Scope, Chladni, VU Master) now animate correctly on the Configure page
+  instead of freezing. The MASTER VU meter, listed since v0.5.0 but never actually wired in, now works.
+- **Smoother menu transitions.** Settings menu changes now cross-fade using the display hardware's own
+  alpha blend instead of a software colour trick.
+- **Known limits.** `Track changes` still fails in the Diagnostic Build's Check (a test issue, playback is
+  unaffected; carried over from v0.5.0). Meter preset choices (not theme/mode) still reset on restart --
+  there is persistence storage to spare, but the display file's own hard 16-entry cap left them out of
+  this round. Speeds above 1.20x remain Diagnostic Build only.
+
 ## v0.5.0 — 27 September 2026
 
 - **Themes.** Settings > Appearance has a THEME and a MODE row. Two built-in themes (TAU and OCEAN), each in Dark and Light,

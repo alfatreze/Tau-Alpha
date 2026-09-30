@@ -18,7 +18,7 @@ equalizer, meters' measurement blocks and the screen drawing engine built as har
 through the Analogue framework (APF) bridge.
 
 ```text
- SD card --APF bridge--> [ main RAM ring 24 KB ]--> VexRiscv CPU (RV32IM, 60 MHz) --+--> Helix MP3 / FLAC decode
+ SD card --APF bridge--> [ main RAM ring 24 KB ]--> VexRiscv CPU (RV32IM, 66.667 MHz) --+--> Helix MP3 / FLAC decode
                                                       |   |   |                      |
                               MMIO 0x8000_0000 -------+   |   +-- PSRAM window       +--> PCM FIFO --> EQ (5 biquads/ch) --> I2S --> Pocket audio
                                                           |       (cold code+data,   |
@@ -31,7 +31,7 @@ Sources: [HOW_IT_WORKS.md](HOW_IT_WORKS.md), `src/fpga/core/mp3_soc.v`, `src/fpg
 
 | Component | What it is | Source |
 |---|---|---|
-| CPU | VexRiscv (SpinalHDL 1.9.4 generated `VexRiscv_Full.v`), RV32IM, no FPU, 60 MHz; measured about 1.65 cycles per instruction | `src/fpga/rtl/VexRiscv_Full.v`, [HOW_IT_WORKS.md](HOW_IT_WORKS.md) |
+| CPU | VexRiscv (SpinalHDL 1.9.4 generated `VexRiscv_Full.v`), RV32IM, no FPU, 66.667 MHz (raised from 60 MHz in v0.6.0, `TAU_CLK66`); measured about 1.65 cycles per instruction | `src/fpga/rtl/VexRiscv_Full.v`, [HOW_IT_WORKS.md](HOW_IT_WORKS.md) |
 | Audio decode | Helix MP3 (integer), FLAC decoder in `fw/flac.c` | `third_party/libhelix-mp3/`, [FLAC.md](FLAC.md) |
 | Cover decode | picojpeg (baseline JPEG), or the `TIM1` palette reader | `third_party/picojpeg/`, [COVER_TIMG_READER.md](COVER_TIMG_READER.md) |
 | Screen | 400 x 360 RGB565 framebuffer in SDRAM, drawn by the Talos 2D engine | `src/fpga/core/mp3_fb.sv` |
@@ -48,7 +48,7 @@ The PLL (`src/fpga/core/mf_pllbase/mf_pllbase_0002.v`) produces four outputs; th
 
 | Clock | Frequency | Used for |
 |---|---|---|
-| `clk_sys` | 60 MHz | CPU, MMIO, PCM FIFO, EQ, hardware meter blocks |
+| `clk_sys` | 66.667 MHz (raised from 60 MHz in v0.6.0, `TAU_CLK66`) | CPU, MMIO, PCM FIFO, EQ, hardware meter blocks |
 | `clk_sdram` | 100 MHz | SDRAM controller, arbiter, draw engine (Talos) |
 | video clock | 12 MHz | Pixel clock: 500 x 400 total for exactly 60.000 Hz (`mp3_fb.sv`) |
 | video clock (shifted) | 12 MHz, 20,833 ps phase | Video clock for the panel interface |
@@ -57,8 +57,9 @@ The PLL (`src/fpga/core/mf_pllbase/mf_pllbase_0002.v`) produces four outputs; th
 Crossings between domains use small, separately tested blocks: `tau_cdc_sync1.sv` (single-bit synchroniser), `tau_cdc_gray_ctr.sv`
 (a free-running counter, Gray-coded), `tau_cdc_gray_bus.sv` (a multi-bit value, Gray-coded, used for the beam position) and
 `tau_vs_counter.sv` (level plus a free-running frame counter in `clk_sys`, because the vsync pulse is about 167 us wide and cannot
-be polled). Sources: the files named, [MMIO_ALLOCATION.md](MMIO_ALLOCATION.md). Note: a 60 to 66.667 MHz `clk_sys` bump was evaluated and deliberately not adopted
-([HARPMUDD_UPSTREAM_1.5_REVIEW.md](HARPMUDD_UPSTREAM_1.5_REVIEW.md), [OPENFPGAOS_REVIEW.md](OPENFPGAOS_REVIEW.md)).
+be polled). Sources: the files named, [MMIO_ALLOCATION.md](MMIO_ALLOCATION.md). Note: the 60 to 66.667 MHz `clk_sys` bump, first evaluated via
+[HARPMUDD_UPSTREAM_1.5_REVIEW.md](HARPMUDD_UPSTREAM_1.5_REVIEW.md) and [OPENFPGAOS_REVIEW.md](OPENFPGAOS_REVIEW.md), is adopted and shipped in v0.6.0-alpha.1
+(`TAU_CLK66`).
 
 ### 2.2 Memory map
 
@@ -66,7 +67,7 @@ CPU addresses, from `fw/link.ld` and [MMIO_ALLOCATION.md](MMIO_ALLOCATION.md):
 
 | Range | What | Notes |
 |---|---|---|
-| `0x0000_0000` (256 KB) | Main RAM (on-chip BRAM), cached | Firmware image, heap, MP3 ring, stack. An opt-in 192 KB build exists (`TAU_RAM_192K`, section 6) |
+| `0x0000_0000` (192 KB) | Main RAM (on-chip BRAM), cached | Firmware image, heap, MP3 ring, stack. Shrunk from 256 KB in v0.6.0-alpha.1 (`TAU_RAM_192K`, section 6) |
 | `0x8000_0000` page | MMIO registers | Table below; the decoder now spans `0x000..0x1FC` |
 | `0xC000_0000` | Uncached alias of main RAM | Reached through pointers, not in the link map |
 | `0xA010_0000` .. `0xA3FF_FFFF` | SDRAM window (uncached) | Playlist buffers (13,312 B) sit at the start in SDRAM-playlist builds; the framebuffer and the draw engine's grid own the low SDRAM |
@@ -175,8 +176,10 @@ software drawing, so an older bitstream still runs. Sources: `mp3_fb.sv` (opcode
 
 **Alpha blend status.** `TAU_BLIT_BLEND` (alpha or shift-add blend modes in `OP_BLIT`) failed timing for a long time (worst setup -2.5 to -2.9 ns, one
 path family through the glyph buffer and an unregistered DSP). It was rebuilt as a three-stage pipeline (capture, blend, write) in B-327; the fit
-`blend-pipe-b327` **closed timing on 2026-09-27** (seed 1 all corners positive, setup min +0.755 ns; RAM 304/308; DSP 17/66). It is **not in any shipped
-bitstream** and the firmware does not use it yet ([ALPHA_BLEND_ANALYSIS.md](ALPHA_BLEND_ANALYSIS.md), AUDIT_TRAIL B-326, B-327).
+`blend-pipe-b327` closed timing on 2026-09-27 (seed 1 all corners positive, setup min +0.755 ns; RAM 304/308; DSP 17/66), and the later T2-00
+`glyphbuf` fix (B-398) closed it again as part of the combined v0.6.0-alpha.1 bitstream. **It ships in v0.6.0-alpha.1 and the firmware uses it**: the
+Winamp Scope trail fade (`ui_bg_blend()`/`BLEND_READY()`) and the Settings menu cross-fade transition both drive it on real hardware
+([ALPHA_BLEND_ANALYSIS.md](ALPHA_BLEND_ANALYSIS.md), AUDIT_TRAIL B-326, B-327, B-398, B-404, B-405).
 
 **Rounded rectangles** (`OP_RRECT`, B11) had a timing violation that was fixed in B-231 by retiming, and is part of the current bitstream; the firmware
 uses it for selected rows behind a probe.
@@ -186,7 +189,8 @@ uses it for selected rows behind a probe.
 
 **Helios** ([HELIOS_SPEC.md](HELIOS_SPEC.md)) is the UI layer over Talos: regions with dirty flags, a flush point in the main loop, and beam-aware drawing
 (`helios_rows_safe()` lets a draw through only when the beam is in blanking, has passed the region, or is safely ahead of it). The rule was verified
-exhaustively on the host (837,600 cases). The meter block is the first adopter, so meter drawing no longer tears; full double buffering (H2) is designed, not built.
+exhaustively on the host (837,600 cases). The meter block is the first adopter, so meter drawing no longer tears; full double buffering (H2, `TAU_DBUF`)
+ships in v0.6.0-alpha.1 and is hardware-confirmed, driving the Settings/fullscreen/Configure redraw path.
 
 ## 4. Firmware architecture
 
@@ -227,8 +231,11 @@ enforces a draw-command budget per meter in `make test-host`. The Configure page
 ### 4.5 Settings and persistence
 
 The core never opens a file to save settings. It declares them in `interact.json` as persist variables and the Pocket writes
-`interact_persist.json`. The persist index register is 4 bits wide (16 words), and every word is used, so **theme, mode and meter Configure values are
-session-only**; widening it needs a hardware change ([ROADMAP.md](ROADMAP.md) item 8, [METER_CONFIG_SPEC.md](METER_CONFIG_SPEC.md)). Also see
+`interact_persist.json`. The hardware persist register file was widened to 32 words in v0.6.0 (from 16), but Analogue's own
+`interact.json` UI has a separate, hard 16-entry cap of its own — past that, entries are silently dropped from both display
+and persistence. **Theme and mode now persist across a restart** (declared within the cap); **meter Configure preset values
+stay session-only** — their `interact.json` entries were dropped to stay under the 16-entry cap and have no persistence path
+yet (AUDIT_TRAIL B-455/B-456, [ROADMAP.md](ROADMAP.md) item 8, [METER_CONFIG_SPEC.md](METER_CONFIG_SPEC.md)). Also see
 [SETTINGS_ARCHITECTURE.md](SETTINGS_ARCHITECTURE.md).
 
 ## 5. Storage formats
@@ -249,12 +256,12 @@ and mask and by decoding the rendered image.
 
 | Resource | Figure | Source |
 |---|---|---|
-| Main RAM | 256 KB physical; image, heap, 24 KB MP3 ring, 4 KB tag buffer and a 16 KB stack (8 KB on the 192 KB link) | `fw/link.ld` |
-| Release heap gap | 49,712 B in v0.5.0 (30,528 B before code moved to PSRAM; a 61,808 B peak in B-214) | AUDIT_TRAIL B-214, B-331 |
+| Main RAM | 192 KB physical (shrunk from 256 KB in v0.6.0-alpha.1, `TAU_RAM_192K`); image, heap, 24 KB MP3 ring, 4 KB tag buffer and an 8 KB stack | `fw/link.ld` |
+| Release heap gap | 15,808 B in v0.6.0-alpha.1 (192 KB layout); was 49,712 B in v0.5.0 on the 256 KB layout (30,528 B before code moved to PSRAM; a 61,808 B peak in B-214) | AUDIT_TRAIL B-214, B-331, B-333/B-458 |
 | Minimum heap gap enforced by the build | 4,096 B floor (diagnostic), 6,144 B floor (release-style) | `fw/build.sh`, [RAM_SHRINK_192K_PLAN.md](RAM_SHRINK_192K_PLAN.md) |
 | Worst measured stack peak | 1,672 B of 16,384 B | AUDIT_TRAIL B-230 |
-| M10K blocks | 304 of 308 in the current bitstream (MP3 window unit, hardware wave and spectrum blocks, blit engine) | AUDIT_TRAIL B-316, [ROADMAP.md](ROADMAP.md) |
-| DSP blocks | 14 of 66 (17 with alpha blend) | AUDIT_TRAIL B-316, B-327 |
+| M10K blocks | 240 of 308 in the shipped v0.6.0-alpha.1 bitstream (down from 304/308 in v0.5.0, mainly the `glyphbuf` single-write-port fix, T2-00) | AUDIT_TRAIL B-316, B-398, B-458, [ROADMAP.md](ROADMAP.md) |
+| DSP blocks | 19 of 66 in the shipped v0.6.0-alpha.1 bitstream (MP3 window unit, FLAC LPC unit, alpha blend) | AUDIT_TRAIL B-458 |
 | SDRAM framebuffer | 512 x 360 x 2 B, about 360 KB of the 32 MB part | `mp3_fb.sv` |
 | PSRAM | 32 MiB window; art accumulator, cold code and data, library index | `fw/link.ld` |
 

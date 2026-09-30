@@ -15,7 +15,8 @@ Contents: [In plain terms](#in-plain-terms) · [The numbers](#the-numbers) · [A
 | MP3 decoding cost of the filterbank | How much of decoding time is spent in the stage that moved into hardware | 22% of decode at 1.0x, was 55-59% (B-087, B-309) | **about 2.5x smaller share** |
 | Speed headroom | How fast MP3 playback can run before audio breaks up | Clean at 1.75x (1.25x used to stutter, owner-reported, B-309); clean through 2.0x in owner tests of the Diagnostic Build (B-328) | **much more headroom** |
 | Album cover appearance | Time from loading a track to seeing its cover | About 90 ms from a pre-scaled `.timg` file, vs 2.6-15.8 s decoding the embedded JPEG (CHANGELOG v0.5.0; hardware-confirmed for MP3 and FLAC albums, B-330) | **roughly 30x to 175x faster** |
-| Room left for new features | Free heap on the chip's own memory in the release build | 49,712 bytes in v0.5.0; 30,528 before code moved to PSRAM (peak 61,808 in B-214, before newer features) | **about 1.6x more than before cold code** |
+| Room left for new features | Free heap on the chip's own memory in the release build | 15,808 bytes in v0.6.0-alpha.1 (192 KB RAM layout, adopted this release); was 49,712 bytes in v0.5.0 on the older 256 KB layout | **smaller heap margin, in exchange for 64 KB of on-chip block RAM freed on the chip itself for hardware features** |
+| FLAC decoding cost | How much a real-hardware worst-case LPC reconstruction call costs | Software 11 ms; hardware unit 5-6 ms (B-386) | **roughly half the worst-case spike** |
 | Drawing the classic bar meter | Drawing steps the chip does per frame | 36, was 72 (B-198) | **50% less work every frame** |
 | Music stability under the heaviest load | Whether audio ever stutters with the busiest visuals and stress traffic running | 0 late underruns in every run so far, including a 30 s blit storm plus audio (B-146) and ENDURANCE runs (B-213) | **no glitches found** |
 | Cost of running cold code from PSRAM | Extra time for code kept off-chip | Worst case about 28,800 cycles per meter draw call, about 1.7% of one audio frame (B-202, B-213) | **a small, deliberate trade for the memory gained** |
@@ -39,7 +40,9 @@ on-chip RAM into PSRAM; v0.5.0 added the hardware MP3 window unit and the fast c
 | MP3 window unit self-check | n/a | `HW 404712 SLOTS 0 BAD 0 TMO`; later `909864 SLOTS 0 BAD 0 TMO` | B-309, B-328 |
 | Speed with clean playback | 1.20x (1.25x micro-stuttered) | 1.75x (owner-reported); 2.0x clean in later owner tests | B-135, B-309, B-328 |
 | Cover appearance | 2.6 s (small cover), 5.3 s (455 px), 15.8 s (1400 px) via JPEG | about 90 ms via `.timg` | A-120, B-027, CHANGELOG v0.5.0 |
-| Free RAM (heap gap), release build | 30,528 B (82.6% used) | 61,808 B (65.3% used) at B-214; **49,712 B in v0.5.0** after Winamp, Chladni, themes and the MP3 window firmware were added | B-199..B-203, B-213/B-214, B-331 |
+| Free RAM (heap gap), release build | 30,528 B (82.6% used) | 61,808 B (65.3% used) at B-214; 49,712 B in v0.5.0 after Winamp, Chladni, themes and the MP3 window firmware were added; **15,808 B in v0.6.0-alpha.1** on the adopted 192 KB RAM layout | B-199..B-203, B-213/B-214, B-331, B-333/B-458 |
+| FLAC LPC reconstruction, worst-case call | 11 ms (software) | 5-6 ms (hardware unit) | B-386 |
+| On-chip block RAM (M10K) used, shipped bitstream | 304 of 308 (98.7%) in v0.5.0 | 240 of 308 (78%) after the RAM shrink + `glyphbuf` single-write-port fix | B-316, B-398/B-437 |
 | Free RAM after the media library shipped (v0.4.0) | on-chip only | menus, library, settings code in PSRAM, "roughly quadruples the player's free memory" | CHANGELOG v0.4.0 |
 | Sustained blit load during real playback | not measurable (no counter existed) | 15.8% of SDRAM cycles busy, 0 late underruns over a 30 s blit storm plus audio | B-146 |
 | Cost of running the meter draw path from PSRAM | n/a | 27,308-28,847 CPU cycles worst case per call (about 1.7% of the 26.3 ms audio-frame budget) | B-202, B-213 |
@@ -60,14 +63,14 @@ screenshots and are not a fault. The Info page's **METER YIELD** row shows how l
 Not everything paid off, and not everything is finished; recorded here instead of left implicit.
 
 - **A font-ROM repack, expected to free block RAM, measured a net +0 blocks.** Synthesis-stage reports cannot see physical packing; only a real Fitter run could, and it showed no improvement:
-  a negative result kept on record (B-101, B-102). The block RAM budget is tight: the current bitstream uses **304 of 308 M10K blocks** (B-316).
+  a negative result kept on record (B-101, B-102). The `glyphbuf` single-write-port fix (T2-00, B-398) is what actually recovered block RAM, not the font repack.
 - **Hardware rounded rectangles (`OP_RRECT`) had a timing failure, now fixed.** A -2.37 ns setup violation in the corner sequencer (B-211) was retimed away (B-231), and the combined fit closed on both seeds (B-235).
-- **Alpha blending is built and now closes timing, but is not shipped.** The single-cycle version never closed (worst setup about -2.5 to -2.9 ns); the three-stage pipelined version closed on 2026-09-27
-  (setup min +0.755 ns on seed 1, RAM 304/308, DSP 17/66; B-326, B-327). It is in no shipped bitstream and no firmware uses it yet; it is planned for 0.6.
-- **The on-chip RAM shrink (256 to 192 KB) is fit-proven but not adopted.** The RTL closed timing and frees 64 blocks (B-235), but the firmware does not link at 192 KB yet
-  ([RAM_SHRINK_192K_PLAN.md](RAM_SHRINK_192K_PLAN.md)); release free RAM has also fallen from 61,808 B to 49,712 B as features were added.
-- **The Winamp meters' Configure settings and the theme and mode are session-only.** The obvious channel (the settings-persist register) is a hardwired 4-bit index already fully used; adding one needs a
-  hardware change, not a firmware one. The Diagnostic Build can export a Configure setup as a QR code as a stopgap.
+- **Alpha blending is built, closes timing, and ships in v0.6.0-alpha.1.** The single-cycle version never closed (worst setup about -2.5 to -2.9 ns); the three-stage pipelined version closed on 2026-09-27
+  (setup min +0.755 ns on seed 1; B-326, B-327) and is now in the shipped bitstream, used for the Settings menu cross-fade (B-405).
+- **The on-chip RAM shrink (256 to 192 KB) is adopted in v0.6.0-alpha.1.** The RTL closed timing and frees 64 blocks (B-235); the firmware now links at 192 KB with 15,808 B of free heap
+  ([RAM_SHRINK_192K_PLAN.md](RAM_SHRINK_192K_PLAN.md)) -- smaller than v0.5.0's 49,712 B (256 KB layout), by design, in exchange for the freed on-chip block RAM.
+- **Theme and Dark/Light mode now persist across a restart; the Winamp meters' Configure settings still do not.** `interact.json` (the file APF uses to persist settings) has a hard 16-entry display
+  cap (B-456); theme and mode fit inside it, the three meter-preset indices were dropped to stay under it. The Diagnostic Build can export a Configure setup as a QR code as a stopgap.
 - **The hardware scope path is compiled out.** Drawing a 256-column scope cost about 21x a normal meter and caused audio jitter, so the software scope runs (B-302); batched drawing is on the roadmap.
 - **`CPU LOAD` on the Info page reads 100% in every state** and cannot show headroom. Use the per-stage decode percentages and the speed at which audio breaks up.
 - **No unit-off baseline for the MP3 window unit on the same bitstream, and no HarpMudd comparison yet**; the 22% versus 55-59% comparison is across builds (B-309).

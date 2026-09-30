@@ -148,13 +148,16 @@ if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw
 
 # B-368/B-369/B-370: LPC_FW=1 redirects FLAC LPC reconstruction (fw/flac.c) to the hardware unit (needs
 # a TAU_LPC bitstream; permanently falls back to software for the rest of the session on any real
-# hardware anomaly, same per-unit-failure convention as POLY_FW). Default 0 EVERYWHERE -- unlike
-# POLY_FW, this has had NO Quartus fit and NO hardware test yet
-# (docs/research/FLAC_LPC_KERNEL_DESIGN.md section 7 item 5); it stays opt-in only until a real
-# hardware result exists, the same caution POLY_FW itself observed before B-309's alpha.30
-# confirmation. Must reach flac.c's own SEPARATE compile line too (FLAC_O_CFLAGS below), since flac.c
-# is compiled outside $CFLAGS/$SRCS -- flac.c and player.c both already find fw/flac_lpc_hw.h/.inc via
-# their own directory (both live in $FW), so no INC change is needed the way POLY_FW's subband.c one is.
+# hardware anomaly, same per-unit-failure convention as POLY_FW). B-386: hardware-confirmed on real
+# tracks (worst-case call 11ms software vs 5-6ms hardware, no correctness failures across B-355/B-360/
+# B-363's repeated real-hardware runs) -- default 1 for the diagnostic builds and for the release
+# target from v0.6.0-alpha.1 (the bitstream ships TAU_LPC), same POLY_FW precedent from v0.5.0/B-309.
+# On a bitstream without TAU_LPC the boot probe fails and every call falls back to software. Must reach
+# flac.c's own SEPARATE compile line too (FLAC_O_CFLAGS below), since flac.c is compiled outside
+# $CFLAGS/$SRCS -- flac.c and player.c both already find fw/flac_lpc_hw.h/.inc via their own directory
+# (both live in $FW), so no INC change is needed the way POLY_FW's subband.c one is.
+case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) LPC_FW="${LPC_FW:-1}" ;; esac
+[ "$TARGET" = "release" ] && LPC_FW="${LPC_FW:-1}"
 CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0}"
 FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0}"
 

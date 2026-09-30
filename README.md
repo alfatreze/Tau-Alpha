@@ -4,10 +4,11 @@ A music player for the Analogue Pocket. It plays MP3 and FLAC straight off the S
 library, album art, tags, themes, an equalizer and a set of live meters.
 
 Decoding runs in software on a RISC-V CPU built into the Pocket's FPGA. Since v0.5.0 the largest single cost
-of MP3 decoding (the synthesis filterbank) runs in FPGA hardware instead, and the screen is drawn by a small
-2D drawing engine ("Talos") rather than pixel by pixel from the CPU.
+of MP3 decoding (the synthesis filterbank) runs in FPGA hardware instead, and since v0.6.0 the same is true
+for FLAC's LPC/FIXED reconstruction; the screen is drawn by a small 2D drawing engine ("Talos") rather than
+pixel by pixel from the CPU.
 
-Current version **v0.5.0** (27 September 2026). See [CHANGELOG.md](CHANGELOG.md).
+Current version **v0.6.0** (30 September 2026), published as pre-release **0.6.0-alpha.1**. See [CHANGELOG.md](CHANGELOG.md).
 
 <img src="docs/screenshot.png" width="280" align="right" alt="Player screen: Feel Good Inc. by Gorillaz, track 6 of Demon Days 2005, encoded 128 kbps 44.1 kHz by LAME3.90, above a bar meter with the album cover at the right; below, a PLAYING label with repeat and volume indicators and the EQ preset ROCK, track 5 of 14, 02:31 of 03:41, and a progress bar">
 
@@ -18,14 +19,16 @@ Current version **v0.5.0** (27 September 2026). See [CHANGELOG.md](CHANGELOG.md)
 - **Media library.** Artists, Albums, Tracks and Shuffle All, built on the card by a sync tool, plus your own
   `.m3u` playlists imported as Lists. The library is required: it is the only way to play more than one file.
 - **Themes.** Two built-in themes (TAU and OCEAN), each in Dark and Light, a 19-colour accent palette, and
-  optional extra themes from a `tau-assets.bin` file.
+  optional extra themes from a `tau-assets.bin` file. Theme and Dark/Light mode are remembered across a
+  restart.
 - **Eleven meters.** Winamp Scope, Winamp Bars (with a Configure page: presets, band count, easing, peak
   caps), a Chladni-pattern meter (with a fullscreen view), Bars, Waterfall, Phase Scope, Oscilloscope, VU,
   Waveform, Peak Dots and a 16-band Spectrum. Level and spectrum measurement run in hardware.
 - **Fast covers.** A pre-scaled cover file shows an album's art in about 90 ms instead of decoding the
   embedded JPEG (2.6 to 15.8 s).
-- **Hardware MP3 window unit.** Bit-exact with the software decoder, with automatic fallback to it. More CPU
-  headroom, so playback stays clean at speeds that used to stutter.
+- **Hardware decode assist.** MP3's synthesis filterbank and FLAC's LPC/FIXED reconstruction both run in the
+  FPGA, bit-exact with the software decoder and with automatic fallback to it. More CPU headroom, so
+  playback stays clean at speeds that used to stutter.
 - **Equalizer.** Eight loudness-matched presets, built as hardware (five biquads per channel).
 - **Playback speed** 0.85x to 1.20x in the normal build (more in the Diagnostic Build), for spoken word.
 - **Diagnostics.** An Info page in every build, and a separate Diagnostic Build with one-button Check

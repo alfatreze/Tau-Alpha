@@ -8,8 +8,8 @@
             "shortname": "TAU",
             "description": "TAU Music Player",
             "author": "alfatreze",
-            "version": "0.5.0",
-            "date_release": "2026-09-27"
+            "version": "0.6.0",
+            "date_release": "2026-09-30"
         },
         "framework": {
             "target_product": "Analogue Pocket",

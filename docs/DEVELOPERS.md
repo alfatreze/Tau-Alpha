@@ -108,7 +108,7 @@ See [CARD_INSTALL_PROCEDURE.md](CARD_INSTALL_PROCEDURE.md) and [guide/MEDIA_AND_
   DSP-block placement congestion, confirmed by re-running `report_timing` against the original failing build and finding no trace of the suspected logic.) **Lesson: verify a fix's mechanism, not just its result.**
 - **Update: the rounded rectangle and the alpha blend are now both closed.** The hardware rounded rectangle (`OP_RRECT`) had a -2.366 ns violation in a corner-sequencer chain; the same retiming fixed it (B-231) and the
   combined fit with the RAM shrink closed on both seeds (B-235). The alpha blend then failed again when re-enabled, until its read-modify-write was rebuilt as a three-stage pipeline (capture, blend, write);
-  **that pipelined blend closes timing (fit `blend-pipe-b327`, 2026-09-27, setup min +0.755 ns on seed 1, RAM 304/308, DSP 17/66; B-326, B-327)**. It is not in a shipped bitstream and the firmware does not use it yet.
+  **that pipelined blend closes timing (fit `blend-pipe-b327`, 2026-09-27, setup min +0.755 ns on seed 1; B-326, B-327) and ships in v0.6.0-alpha.1**, driving the Settings menu cross-fade (B-405).
   So the earlier "shelved because it cannot close" was true for the single-cycle version only.
 - **The Fitter's own effort setting can silently cap how hard it tries.** `FITTER_EFFORT` at `AUTO FIT` (this project's current setting in `ap_core.qsf`) stops optimizing once it estimates "good enough" and skips optimizations that affect
   timing, to save compile time. Worth checking before assuming a design is at its real timing limit.
