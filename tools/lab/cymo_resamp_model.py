@@ -181,6 +181,48 @@ def sinad_db(out_samples, freq):
     return 10 * math.log10(tone_p / noise_p)
 
 
+def catmull_rom(p0, p1, p2, p3, mu):
+    a0 = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3
+    a1 = p0 - 2.5 * p1 + 2.0 * p2 - 0.5 * p3
+    a2 = -0.5 * p0 + 0.5 * p2
+    a3 = p1
+    return ((a0 * mu + a1) * mu + a2) * mu + a3
+
+
+def resample_tone_algebraic(freq, seconds, method, frac_bits=16):
+    """No-LUT interpolation: 'linear' (2-point) or 'cubic' (4-point Catmull-Rom). No coefficient
+    ROM at all -- the phase FRACTION itself (quantised to frac_bits, matching a real multiplier's
+    fractional input width) is the only per-sample "coefficient", computed directly from the same
+    P/Q exact-ratio accumulator the FIR path uses. Resource cost: a handful of multiplies, zero
+    M10K."""
+    n_in = int(FS_IN * seconds)
+    tone = [math.sin(2 * math.pi * freq * i / FS_IN) for i in range(n_in + 4)]
+    frac_scale = 1 << frac_bits
+    out = []
+    phase = 0
+    in_pos = 0
+    while in_pos < n_in:
+        mu = round((phase / P) * frac_scale) / frac_scale
+        if method == "linear":
+            s0 = tone[in_pos] if 0 <= in_pos < len(tone) else 0.0
+            s1 = tone[in_pos + 1] if 0 <= in_pos + 1 < len(tone) else 0.0
+            val = s0 * (1.0 - mu) + s1 * mu
+        elif method == "cubic":
+            p0 = tone[in_pos - 1] if 0 <= in_pos - 1 < len(tone) else 0.0
+            p1 = tone[in_pos] if 0 <= in_pos < len(tone) else 0.0
+            p2 = tone[in_pos + 1] if 0 <= in_pos + 1 < len(tone) else 0.0
+            p3 = tone[in_pos + 2] if 0 <= in_pos + 2 < len(tone) else 0.0
+            val = catmull_rom(p0, p1, p2, p3, mu)
+        else:
+            raise ValueError("method must be 'linear' or 'cubic'")
+        out.append(val)
+        phase += Q
+        if phase >= P:
+            phase -= P
+            in_pos += 1
+    return out
+
+
 def m10k_estimate(taps_per_bank):
     bits = P * taps_per_bank * COEF_BITS
     return bits, math.ceil(bits / M10K_BITS)
@@ -218,6 +260,20 @@ def cmd_detail(a):
     print("1 time-multiplexed DSP multiplier (one MAC per clock, %d cycles/output sample)" % a.taps)
 
 
+def cmd_algebraic(a):
+    freqs = [1000, 5000, 10000, 15000, 18000]
+    print("No-LUT algebraic interpolation, 44.1kHz -> 48kHz, %d-bit fractional phase" % a.frac_bits)
+    print("(zero coefficient ROM -- the phase fraction from the same P/Q accumulator IS the coefficient)\n")
+    header = "method | " + " | ".join("%6d Hz" % f for f in freqs) + " | multiplies/sample | M10K blocks"
+    print(header)
+    for method, mults in (("linear", 1), ("cubic", 4)):
+        row = []
+        for f in freqs:
+            out = resample_tone_algebraic(f, a.seconds, method, a.frac_bits)
+            row.append(sinad_db(out, f))
+        print("%-6s | " % method + " | ".join("%9.1f" % v for v in row) + " | %18d | %11d" % (mults, 0))
+
+
 def cmd_resources(a):
     taps_list = [int(t) for t in a.taps.split(",")]
     print("taps | coefficient bits | M10K blocks | DSP | cycles/output sample (MAC @ 1/clk)")
@@ -246,6 +302,11 @@ def main():
     d.add_argument("--freq", type=float, default=5000)
     d.add_argument("--seconds", type=float, default=0.4)
     d.set_defaults(fn=cmd_detail)
+
+    g = sub.add_parser("algebraic", help="no-LUT linear/cubic interpolation SINAD (zero M10K)")
+    g.add_argument("--frac-bits", type=int, default=16, dest="frac_bits")
+    g.add_argument("--seconds", type=float, default=0.4)
+    g.set_defaults(fn=cmd_algebraic)
 
     r = sub.add_parser("resources", help="M10K/DSP/cycle cost per tap count, no simulation")
     r.add_argument("--taps", default="8,16,24,32,48,64")
