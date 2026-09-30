@@ -11767,3 +11767,77 @@ an extreme one), while deliberately avoiding `cy` itself (drawn unconditionally 
 frame regardless of blend state, which would show a constant colour and prove nothing about decay).
 Verified: `make test-host` clean, heap-gap/cold-call checks pass, real firmware build
 (`player-library-diagnostic-profile`, 6,768 B heap gap vs. 4,096 B floor) confirmed clean.
+
+## B-448: a real, previously-undiscovered build-clobber bug -- alpha.36 shipped an unflagged ROM, fixed
+
+Owner installed `alfatreze.TAU_0_6_0_A_36` and hit an immediate, total black screen on boot -- no menu,
+no splash, nothing -- while the base `TAU` core booted fine, isolating it to this specific core's own
+files rather than card-wide corruption from the two mid-write disconnects earlier in this session
+(traced separately to a loose microSD-in-adapter seat, not a real filesystem issue). A `--replace`
+re-copy verified the 3 core files (RBF/ROM/cold-image) were already byte-identical to what was
+packaged -- ruling out a bad write -- and the only source diff since the last known-good alpha (A_35)
+was B-447's tiny, functionally-inert-at-boot pixel-coordinate change. Every angle looked clean.
+
+**Root cause, found by testing determinism directly:** a `rm -f fw/*.o fw/fw.elf && RAM_192K=1 CLK66=1
+SDRAM_BUSY=1 LPC_FW=1 bash fw/build.sh player-library-diagnostic-profile` from a clean state produced a
+tau.rom with a COMPLETELY DIFFERENT SHA-256 than the one already packaged -- 70,298 of 110,072 bytes
+differed, despite identical reported text/data/bss sizes and cold-image layout id. Repeating the clean
+build twice more gave the same hash both times (a genuinely deterministic, correct build), proving the
+originally-packaged ROM was the anomaly, not normal non-determinism.
+
+Traced to the actual mechanism: `tools/check_heap_gap.py` rebuilds every tracked target via a bare
+`subprocess.run(["bash", "fw/build.sh", target], ...)` with **no env flags of its own** -- entirely
+correct for its own stated purpose (checking the plain/default variant's heap gap). But
+`player-library-diagnostic-profile`'s own output path (`work/diagnostics/library-diagnostic-profile/
+tau.rom`) is NOT redirected by `RAM_192K`/etc the way `release`'s `dist/...` path is (`fw/build.sh`'s own
+redirect condition only fires for the release target's default output dir) -- so a manually-flagged
+build and check_heap_gap.py's unflagged rebuild of the exact same nominal target land at the IDENTICAL
+file path. Running any check script (as this project's own established verify-then-package workflow
+always does) between "build the real, flagged firmware" and "package it" silently swaps in the wrong
+variant, with no error anywhere, same reported sizes, genuinely different bytes -- the wrong firmware
+paired with a bitstream built for `TAU_RAM_192K`/`TAU_CLK66`/`TAU_SDRAM_BUSY`/`TAU_LPC` gives exactly a
+B-130-class "nothing loads, immediate black" with zero diagnostic signal, since nothing ever gets far
+enough to report anything.
+
+**Fixed at the tool level, not just as a workflow rule.** Added `--build-flags` to
+`tools/package_dev_build.py`: when given (comma-separated `KEY=VAL`, e.g.
+`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`), it runs `fw/build.sh player-<variant>` itself, in-process,
+as the literal last step immediately before reading and packaging the resulting ROM -- eliminating the
+whole "hope nothing else ran a build in between" risk by construction, since nothing can run between the
+build and the packaging that reads its own output. Omitting the flag preserves the previous behaviour
+(reuse whatever is already at that path), so `make_release.py`'s own `--release-diagnostic` call (which
+never uses these flags) is unaffected.
+
+Rebuilt clean (`player-library-diagnostic-profile`, `a61f6d0f...`) and re-verified it's genuinely
+different from the bad `ecdb0abd...` ROM already shipped as A_36. Packaged the fix as
+`alfatreze.TAU_0_6_0_A_37` with the corrected ROM; **owner confirmed it boots fine.** `make test-host`,
+heap-gap/cold-call checks all pass; `release`'s own ROM independently re-verified unaffected (matches
+the already-committed hash, confirming `TAU`'s correct boot was never in question).
+
+## B-449: PIXHIST relocated again -- a real screenshot showed the mass sits in the box's upper region
+
+Owner confirmed the B-448 boot fix and, using the new `--build-flags` mechanism for the first time, ran
+PIXHIST for real during an owner-verified active repro (menu open/close to trigger the accumulation,
+then Info opened while it was visibly accumulating). Read `0861/0861` x3 against an expected `W1082` --
+still only a 1-LSB-per-channel difference, the same inconclusive case B-444's own arithmetic proof
+already covers, even from B-447's supposedly-more-active tracked location (`cy-4`, centre column).
+
+**A real screenshot of the Scope itself (not the Info page) resolved the ambiguity.** The accumulated
+mass is concentrated in the box's UPPER region -- solidly filled across nearly the full width there --
+not evenly distributed and not concentrated near the centreline the way B-447 assumed. The centre
+column at `cy-4` most likely hit a real, ordinary local amplitude dip for that one specific column
+(a real audio waveform's envelope is not uniform across columns), not a diagnostic bug -- B-444's own
+"1-LSB pairs are blend-indistinguishable" proof remains the correct explanation for why that particular
+read told us nothing, just for the wrong reason (wrong column/row, not "already converged").
+
+Moved the tracked pixel to `(x0 + w/2, y + 8)` -- near the box's own top edge, in the region the
+screenshot shows solidly filled regardless of which column is sampled, deliberately still avoiding `y`
+itself (the code's own outer strip-cache boundary row family) for the same reason `cy` was avoided
+before. Also used this fix to give `--build-flags` its first real exercise, confirming it works as
+designed: while `tau.rom` came out byte-identical to the prior B-447/B-448 build (expected -- correctly
+explained by `wviz_scope_tick()` living entirely in cold code, since it's `COLD_FN3` -- code review, not
+a build bug, the same class of false alarm this whole investigation has had to rule out more than once),
+`tau-cold.bin`'s hash genuinely differs and the packaged copy matches it exactly. Rebuilt `release` too
+(also genuinely different cold-image hash, since the normal player screen uses the same code path with
+`use_gradient=1`) and re-verified with `make test-host`/heap-gap/cold-call checks, all clean. Packaged as
+`alfatreze.TAU_0_6_0_A_38`.
