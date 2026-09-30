@@ -2321,7 +2321,10 @@ static uint32_t dbg_strip_alpha;
  * every read (address parity never changes) -- storing the raw word and showing both halves lets the
  * real decaying half be told apart from its neighbour's unrelated content by eye by seeing which one is
  * actually trending, without needing to guess up front. */
-#define DBG_PIXHIST_N 4u
+#define DBG_PIXHIST_N 3u   /* B-445: 4 overflowed set_draw_ro()'s fixed char v[40] row buffer (10 chars/entry
+                            * + "Wxxxx" = 45 bytes into 40, a real stack overflow -- crashed hardware the
+                            * instant the row scrolled into view). 3 entries + the suffix fits with margin,
+                            * matching STRIP's own 3-item convention. */
 static uint32_t dbg_pixhist[DBG_PIXHIST_N];
 static uint8_t  dbg_pixhist_pos;
 static uint16_t dbg_pixhist_want;   /* what ui_grad_at() currently expects for that row, for comparison */
