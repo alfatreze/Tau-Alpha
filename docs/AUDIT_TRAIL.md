@@ -11461,3 +11461,29 @@ Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass (s
 within tolerance, no baseline update needed this time). Rebuilt `player-library-diagnostic-profile`
 (6,800 B heap gap vs. 4,096 B floor). Same bitstream as A_31/A_32 (`glyphbuf-t200`, RBF `b089b828...`).
 Not yet packaged/installed.
+
+## B-441: ALPHA confirmed exactly correct at three trail settings, in both states -- narrows to hardware
+
+Owner's controlled test on `alfatreze.TAU_0_6_0_A_33`: ALPHA reads **153 at trail=40% (default),
+243 at trail=5%, 51 at trail=80%** -- exact matches for `(100 - trail) * 256 / 100` at all three
+settings (95*256/100=243.2->243; 20*256/100=51.2->51; 60*256/100=153.6->153), and **identical whether
+the Scope is currently displaying normally or actively accumulating**. This conclusively proves
+firmware computes and writes the correct alpha value to `R_BLT_DATA` every single frame, regardless of
+which broken/working state the trail is in -- ruling out firmware's own alpha computation as the cause
+entirely. Combined with B-440's own finding (severity doesn't scale with the configured trail % at
+all), the picture is now: firmware sends a different, correct value each time, but the visible result
+is the same regardless of what was sent -- meaning the value that reaches hardware and the value
+`blend_ch()` actually computes with are not the same thing. This narrows the remaining explanation to
+one specific place: the sticky field's own hardware storage for `blt_blend_alpha` isn't correctly
+latching what gets written to it.
+
+**Extended the `BLND` JTAG probe (B-435/B-439) to test this directly.** `blt_blend_alpha[7:0]` and
+`blt_blend_mode[2:0]` -- `mp3_fb.sv`'s own module INPUT ports, exactly what `blend_px()` is actually
+called with -- added to the probe (`probe_width` 59->70). Comparing this probe's `blt_blend_alpha`
+against firmware's own shadow (`dbg_strip_alpha`, B-440) for the same moment is now a direct
+firmware-vs-hardware comparison of the same value: if they disagree, the sticky field's own hardware
+latch is the confirmed root cause. Verified: `make rtl-lint` clean (no new warnings), `iverilog`
+elaboration with `TAU_ISSP` hits the same pre-existing "unknown module altsource_probe" limitation
+every prior ISSP instance already has under Icarus (not a new problem), full `make test-rtl` unaffected
+(the change is additive-only inside an `ifdef TAU_ISSP` block; no functional RTL changed for any
+non-ISSP build, including everything already on the card). Launching the VM fit next.
