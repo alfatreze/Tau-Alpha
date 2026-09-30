@@ -561,7 +561,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 28u   /* B-370: +1 for FLAC LPC.
+#define SET_INFO_ROWS 29u   /* B-370: +1 for FLAC LPC.
                               * B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
@@ -595,7 +595,12 @@ extern char _heap_start, _heap_end;
                                               * B-440: +1 for ALPHA -- trail 5% and 80% look identical
                                               * on hardware, so this shows fb_blend_on()'s own shadow of
                                               * the last alpha value actually written (write-only in
-                                              * hardware); see fw/blit_probe.inc. */
+                                              * hardware); see fw/blit_probe.inc. B-444: +1 for PIXHIST
+                                              * -- JTAG polling proved it can't catch a real decay curve
+                                              * (a genuinely fading pixel converges too fast for any
+                                              * opportunistic poll), so this instead logs one fixed
+                                              * on-screen pixel's actual content across the last 4
+                                              * blend attempts; see dbg_pixel_log() in fw/player.c. */
 static const char *const set_info_label[SET_INFO_ROWS] = {
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM",
     "COLD IMAGE",
@@ -607,6 +612,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "BASES"
     , "DBUF"
     , "ALPHA"
+    , "PIXHIST"
     , "FLAC LPC"
     };
 static uint32_t set_info_at;
@@ -762,6 +768,23 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
                 * it reads 0 or something unexpected, the bug is firmware's own computation, not the
                 * blend datapath. */
         q = set_str(q, "A "); q = ui_dec(q, dbg_strip_alpha);
+        break;
+    case 27:   /* PIXHIST (B-444): the last 4 raw mailbox reads (both 16-bit halves each -- (x,y) stays
+                * fixed so whichever half is this pixel's own stays the SAME half every read, telling it
+                * apart from its neighbour's unrelated content by which one actually trends) of one fixed
+                * on-screen pixel (the Scope box's own top-left corner), oldest first, then W=the row's
+                * current expected background. JTAG polling proved unable to catch a real decay curve (a
+                * genuinely fading pixel converges within ~4-5 frames, far faster than any opportunistic
+                * poll) -- this instead shows the actual frame-by-frame sequence: one half trending down
+                * toward W each entry means the blend IS decaying correctly; staying near a stuck bright
+                * value means it genuinely isn't. See dbg_pixel_log() in fw/player.c. */
+        for (uint32_t k = 0; k < DBG_PIXHIST_N; k++) {
+            uint32_t idx = (dbg_pixhist_pos + k) % DBG_PIXHIST_N;   /* oldest first */
+            uint32_t v = dbg_pixhist[idx];
+            q = ui_hex2(q, (uint8_t)(v >> 8)); q = ui_hex2(q, (uint8_t)v); q = set_str(q, "/");
+            q = ui_hex2(q, (uint8_t)(v >> 24)); q = ui_hex2(q, (uint8_t)(v >> 16)); q = set_str(q, " ");
+        }
+        q = set_str(q, "W"); q = ui_hex2(q, (uint8_t)(dbg_pixhist_want >> 8)); q = ui_hex2(q, (uint8_t)dbg_pixhist_want);
         break;
     default:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
 #if TAU_LPC_FW

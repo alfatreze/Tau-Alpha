@@ -2300,6 +2300,41 @@ static uint8_t dbg_dbuf_cpu, dbg_dbuf_disp;
  * in firmware's own alpha computation/write, not the blend datapath at all. */
 static uint32_t dbg_strip_alpha;
 
+/* B-444: JTAG polling (B-443) proved a genuine methodology dead end -- every ALPHA/register-level check
+ * (execution success, strip content, bases, buffer selection, and now the alpha register itself) reads
+ * correct, yet the visual symptom persists. Worked out why opportunistic sampling can never resolve
+ * this further: `blend_ch()`'s 8-bit-truncated `>>8` approximation means a source/destination pair
+ * differing by exactly 1 LSB in a channel can NEVER show any blend effect for ANY alpha 0-255 (the
+ * arithmetic proves it: with f=b+1, dsp=b*256+alpha, which never reaches (b+1)*256 for alpha<256) --
+ * and a genuinely fading pixel converges to within 1 LSB of the background in about 4-5 frames at
+ * alpha=153 (40% trail). JTAG polling is far slower than that, so every live sample was always going
+ * to land on an already-converged, blend-indistinguishable pixel regardless of whether the hardware is
+ * healthy. This logs the ACTUAL framebuffer content of one fixed on-screen pixel (the scope box's own
+ * top-left corner, `in->x`/`in->y` -- touched by every erase/blend call, only occasionally by the
+ * trace's own accent bars when amplitude reaches that high) across consecutive `wviz_scope_tick()`
+ * calls into a small ring buffer, entirely through the existing `blend_mb_read()` mailbox (no JTAG, no
+ * new RTL) -- a real frame-by-frame decay trace instead of a single, badly-timed snapshot.
+ * `dbg_strip_check()`'s own "whichever half matches" trick only works for a known-constant value (the
+ * static gradient strip) -- it breaks down here, since a genuinely decaying value spends most of its
+ * life NOT matching either "the old bright colour" or "the current background" exactly. (x, y) stays
+ * fixed across every logged call, so whichever mailbox half is this pixel's own stays the SAME half on
+ * every read (address parity never changes) -- storing the raw word and showing both halves lets the
+ * real decaying half be told apart from its neighbour's unrelated content by eye by seeing which one is
+ * actually trending, without needing to guess up front. */
+#define DBG_PIXHIST_N 4u
+static uint32_t dbg_pixhist[DBG_PIXHIST_N];
+static uint8_t  dbg_pixhist_pos;
+static uint16_t dbg_pixhist_want;   /* what ui_grad_at() currently expects for that row, for comparison */
+
+static void dbg_pixel_log(uint32_t x, uint32_t y)
+{
+    uint32_t addr = y * FB_STRIDE + x, r = 0xFFFFFFFFu;
+    blend_mb_read(addr, &r);   /* leaves r as the sentinel on failure -- visible as FFFF/FFFF, not a silent gap */
+    dbg_pixhist_want = ui_grad_at(y);
+    dbg_pixhist[dbg_pixhist_pos] = r;
+    dbg_pixhist_pos = (uint8_t)((dbg_pixhist_pos + 1u) % DBG_PIXHIST_N);
+}
+
 static void dbg_strip_check(void)
 {
     const uint32_t rows[3] = { UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H / 2u, UI_WAVE_Y + UI_WAVE_H - 1u };
@@ -4105,7 +4140,7 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
         const uint32_t trail = (uint32_t)MV_WINAMP_SCOPE(SCOPE_TRAIL);
         const int attempt = use_gradient && trail && !paused;
         const int did_blend = attempt && ui_bg_blend(x0, y, w, h, (100u - trail) * 256u / 100u);
-        if (attempt) { if (did_blend) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check(); }
+        if (attempt) { if (did_blend) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check(); dbg_pixel_log(x0, y); }
         if (!did_blend) {
             if (use_gradient) ui_bg_restore(x0, y, w, h);
             else              fb_rect(x0, y, w, h, bg);
