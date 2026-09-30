@@ -120,15 +120,18 @@ These are signal-to-error ratios for a full-band tone (higher is better; 16-bit 
   music.
 - Spoken-word MPEG-2 rips (22.05 or 24 kHz, in the Test Album's LibriVox clip class) are the worst case: a ratio of about 2,
   so every sample is held twice and the images land inside the audible band.
-- **Real hardware measures worse than this model predicts, and the gap is still unexplained (B-430/B-431/B-467).** At 1 kHz
-  the model says nearest-neighbour should give 27.7 dB SINAD; two independent hardware recordings (the original
+- **Real hardware measures worse than this model predicts, and the gap is still unexplained (B-430/B-431/B-467/B-470).** At
+  1 kHz the model says nearest-neighbour should give 27.7 dB SINAD; two independent hardware recordings (the original
   phase-accumulator MCLK, and B-457/B-463's replacement dedicated-PLL MCLK) both measured **10.8 dB** -- a ~17 dB gap the MCLK
   fix (real, timing-closed, but a null result for this specific problem, B-467) has now ruled out as the cause. The 24/32 kHz
   integer-ratio cases are worse again: modelled ~23-26 dB, measured ~3.1-3.35 dB. Two RTL-level simulations of the
   `pcm_fifo`->`sound_i2s` clock-domain crossing (behavioural and Intel's own real `dcfifo` model, B-430/B-442) both reproduced
-  the *model's* prediction exactly, not the worse hardware number -- so whatever is adding the extra ~17 dB either lives in
-  real silicon timing the simulation models don't capture, or past the serializer/DAC entirely. See section 15 below for a
-  hardware-proven alternative architecture.
+  the *model's* prediction exactly, not the worse hardware number -- and a real-silicon diagnostic (B-470, no JTAG needed)
+  then measured the CDC's own update interval directly: min values matched the theoretical `CLK_HZ/rate` almost exactly at
+  both 44.1 kHz and 48 kHz, ruling the CDC out too. **Both leading hypotheses (MCLK jitter, the CDC) are now closed by direct
+  hardware measurement. The remaining candidate is past the serializer/DAC entirely**, outside this core's RTL. See section 15
+  below for a hardware-proven alternative architecture, and its own sub-section on whether this is even worth pursuing
+  further without a real listening test.
 
 Speed makes it worse in a second way. Playing at N x raises every source frequency by N, and with no anti-alias filter anything
 that ends up above 24 kHz folds back down **[MODEL]**:
