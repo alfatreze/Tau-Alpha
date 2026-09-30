@@ -11748,3 +11748,22 @@ and menu-list branches just below (a repeat tick should only ever move the curso
 real button press). No other page's behaviour changes -- the reordering is purely earlier computation of
 the same values every other branch already consumed. Verified: `make test-host` clean, heap-gap/cold-call
 checks pass, real firmware build confirmed clean.
+
+## B-447: PIXHIST's tracked pixel moved -- the box's own top-left corner was rarely visited by the trace
+
+Owner confirmed the B-445 crash fix (no crash reproducing PIXHIST this time) and read it in real use:
+`10C2/10C2` all 3 entries, unchanged, against an expected background of `18E3` -- but `0x10C2` and
+`0x18E3` differ by exactly 1 LSB per channel (R 2/3, G 6/7, B 2/3), the SAME blend-indistinguishable
+case B-444's own arithmetic proof already covers. Not a decisive read either way -- just another
+already-converged sample, this time from a genuinely different cause: the tracked pixel (the box's own
+top-left corner, `in->x`/`in->y`) is only ever painted brightly when the waveform amplitude happens to
+reach the very top of the box, which is rare -- most of the time nothing but the gradient itself (or its
+own already-decayed neighbours) sits there, an "already faded" false negative for this diagnostic's
+whole purpose, independent of B-444's polling-speed argument.
+
+Moved the tracked pixel to `(x0 + w/2, cy - 4)` -- the middle column, a few rows above the box's
+vertical centre -- a spot real trace excursions reach far more often (a plausible amplitude swing, not
+an extreme one), while deliberately avoiding `cy` itself (drawn unconditionally with `UI_TRACK` every
+frame regardless of blend state, which would show a constant colour and prove nothing about decay).
+Verified: `make test-host` clean, heap-gap/cold-call checks pass, real firmware build
+(`player-library-diagnostic-profile`, 6,768 B heap gap vs. 4,096 B floor) confirmed clean.
