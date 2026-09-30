@@ -120,6 +120,15 @@ These are signal-to-error ratios for a full-band tone (higher is better; 16-bit 
   music.
 - Spoken-word MPEG-2 rips (22.05 or 24 kHz, in the Test Album's LibriVox clip class) are the worst case: a ratio of about 2,
   so every sample is held twice and the images land inside the audible band.
+- **Real hardware measures worse than this model predicts, and the gap is still unexplained (B-430/B-431/B-467).** At 1 kHz
+  the model says nearest-neighbour should give 27.7 dB SINAD; two independent hardware recordings (the original
+  phase-accumulator MCLK, and B-457/B-463's replacement dedicated-PLL MCLK) both measured **10.8 dB** -- a ~17 dB gap the MCLK
+  fix (real, timing-closed, but a null result for this specific problem, B-467) has now ruled out as the cause. The 24/32 kHz
+  integer-ratio cases are worse again: modelled ~23-26 dB, measured ~3.1-3.35 dB. Two RTL-level simulations of the
+  `pcm_fifo`->`sound_i2s` clock-domain crossing (behavioural and Intel's own real `dcfifo` model, B-430/B-442) both reproduced
+  the *model's* prediction exactly, not the worse hardware number -- so whatever is adding the extra ~17 dB either lives in
+  real silicon timing the simulation models don't capture, or past the serializer/DAC entirely. See section 15 below for a
+  hardware-proven alternative architecture.
 
 Speed makes it worse in a second way. Playing at N x raises every source frequency by N, and with no anti-alias filter anything
 that ends up above 24 kHz folds back down **[MODEL]**:
@@ -799,6 +808,41 @@ two agg23 wiki pages it cites. Verdicts below use the skill's own grading: **doc
 
 Cart power budget and peak current for a radio; the exact cart-pin voltage rules for a custom cart; how the strict adapter-ID check works; any Pocket-specific
 guidance on audio latency or buffering (the agg23 Sound page has none); headphone versus speaker switching (handled by the system, not the core). These stay in X0.
+
+## 15. Prior art: a real, hardware-proven resampler (neoge/pocket-mp3)
+
+While investigating the unexplained real-hardware degradation (F1, above), a search for other Analogue Pocket MP3 cores
+turned up [neoge/pocket-mp3](https://github.com/neoge/pocket-mp3) -- a pure-HDL MP3 decoder for the same platform (no soft
+CPU at all; the decode, resampling and I2S output are all hand-written SystemVerilog), tagged v0.3.2 and described as
+"tested on hardware." Two things in it are directly relevant to Cymo's own open problem.
+
+**A real polyphase FIR resampler, not a hold.** `src/fpga/resampler.sv` converts 44.1 kHz to 48 kHz using the *exact*
+rational ratio 160:147 (44,100 x 160 = 48,000 x 147 = 7,056,000 -- no approximation in the ratio itself, unlike a
+fixed-point accumulator that only approximates it). It keeps 160 phase banks of a 16-tap FIR (`TAPS` is a parameter),
+picks one bank per output sample from a phase accumulator that advances by 147 mod 160, and runs a small FSM
+(`S_IDLE -> S_SHIFT -> S_DECIDE -> S_TAP -> S_EMIT`) that does one MAC per clock against a per-channel ring buffer of
+recent input samples -- explicitly pipelined ("history operand and DSP product are registered before the accumulate --
+mux + multiply + 32-bit add miss 133 MHz chained"), the same retiming discipline this project's own timing lessons
+(B-111/B-114/B-150/B-231) independently arrived at. A bypass path (`enable == 0`) passes 48 kHz sources straight through.
+The coefficient-generation tool this design's own header references (`tools/gen_resamp_lut.py`) is not present in the
+cloned tree -- only the ROM interface (`coef_addr`/`coef_data`, a synchronous ROM indexed by `bank * TAPS + tap`) is,
+so the actual coefficients were not inspected.
+
+**A structural difference worth noting: their design separates rate conversion from clock-domain crossing; Tau's does
+not.** Their `audio_fifo.sv` is a 512-deep, Gray-coded, backpressured (`almost_full`) async FIFO that moves an
+*already-48-kHz* stream from the producer's clock into the 12.288 MHz MCLK domain -- by the time anything reaches this
+FIFO, the resampler upstream has already made every sample a real 48 kHz sample. Tau's `pcm_fifo.v`, by contrast, does
+the rate-mismatch "hold" *at the same point* it also serves as the clock-domain-crossing buffer for the DAC path
+(`sound_i2s.v`'s own 4-deep `sync_fifo`/`dcfifo`) -- one piece of logic is doing two structurally different jobs. This
+is not proof that entanglement is *the* cause of F1's unexplained hardware gap, but it is a real, hardware-proven
+counter-example that avoids the question entirely by construction, and a concrete reference architecture if Cymo ever
+builds a real resampler (C0(e)/C1 in section 9): do the rate conversion once, upstream, at the producer's own clock,
+and let the CDC layer stay a plain rate-matched buffer.
+
+Their PLL wrapper (`src/fpga/pll.sv`) is a simulation-only placeholder (`assign outclk_mclk = refclk;` with a comment to
+replace it with real Quartus IP) -- it does list MCLK as its own named output alongside SDRAM and pixel clocks, consistent
+with the conclusion B-460/B-463 reached independently (12.288 MHz cannot share a VCO with a 12 MHz/100 MHz pixel/SDRAM
+pair), but it contains no real PLL configuration to compare against.
 
 ## Appendix: the resampler model
 

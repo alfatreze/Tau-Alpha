@@ -64,7 +64,11 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x134 | LPC_RESIDUAL | W | writes the next signed 32-bit residual and starts one reconstruction (MAC over `order` taps, one multiply-add per clock, then a registered shift and add -- never chained combinationally, this project's own timing rule). |
 | 0x138 | LPC_SAMPLE | R | the last reconstructed sample. **Reading this register is itself the acknowledgement** that lets the unit accept the next residual (wired straight to the bus's one-cycle read-request pulse, not a separate write-to-ack step) -- poll `LPC_STATUS` for done first. 0 when off. |
 | 0x13C | LPC_STATUS | R | bit 0 = built in, bit 1 = busy, bit 2 = done (the sample at `LPC_SAMPLE` is ready and unread). 0 when off. |
-| 0x140-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x140 | I2S_DIAG_MINMAX | R | B-467 (Cymo 44.1 kHz investigation): bits[15:0] = min interval ever (clk_sys cycles, saturates at 0xFFFF), bits[31:16] = max interval ever (saturates), between successive real changes of the I2S DAC-domain sample word, measured after crossing `sound_i2s.v`'s clk_audio->clk_mclk CDC and back into `clk` via `tau_cdc_sync1`. Free-running since reset, never cleared. 0 when `I2S_DIAG_ENABLE` is 0. |
+| 0x144 | I2S_DIAG_CNT | R | count of update events since reset. 0 when off. |
+| 0x148 | I2S_DIAG_SUM | R | sum of all measured intervals since reset (for an average via delta / delta-count). 0 when off. |
+| 0x14C | I2S_DIAG_ST | R | bit 0 = built in (`I2S_DIAG_ENABLE`). |
+| 0x150-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 

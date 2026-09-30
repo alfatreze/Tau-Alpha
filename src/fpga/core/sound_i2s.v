@@ -47,7 +47,23 @@ module sound_i2s #(
 
     output wire audio_mclk,
     output reg  audio_lrck,
-    output reg  audio_dac
+    output reg  audio_dac,
+
+    // B-457/B-460/B-467 (Cymo 44.1 kHz investigation): the MCLK jitter fix measured identical
+    // SINAD/image levels to the old phase-accumulator on real hardware, ruling MCLK jitter out. The one
+    // remaining unverified layer is this module's own clk_audio->clk_mclk crossing (sync_fifo/dcfifo
+    // below) -- already simulated clean twice (B-430 behavioural, B-442 real Altera dcfifo model) but
+    // never watched on real silicon. `diag_toggle` flips, in the clk_mclk domain, every time the
+    // DAC-domain sample word (audgen_sampdata_s) actually changes -- i.e. every real "zero-order hold"
+    // update. A single bit, not a multi-bit counter: cross-domain interval measurement (min/max/sum) is
+    // done entirely in the CONSUMER's clock domain after synchronising this one bit with tau_cdc_sync1
+    // (the standard, safe technique for a single-bit level -- see that module's own header), never here.
+    // Caveat: detects "the held value changed", not literally every FIFO read -- an update whose new
+    // sample exactly equals the previous one (rare for a live tone, common only during digital silence)
+    // is invisible to it, an accepted approximation for this purpose. Toggles even when TAU_I2S_DIAG is
+    // not compiled in (a single flip-flop, free) so the consumer's own enable gate is the only thing that
+    // decides whether it means anything.
+    output reg diag_toggle
 );
 
   // MCLK is the PLL clock itself now -- nothing left to synthesise here.
@@ -148,6 +164,12 @@ module sound_i2s #(
         audgen_sampshift <= {audgen_sampshift[30:0], 1'b0};
       end
     end
+  end
+
+  reg [31:0] prev_sampdata_s = 0;
+  always @(posedge clk_mclk) begin
+    prev_sampdata_s <= audgen_sampdata_s;
+    if (audgen_sampdata_s != prev_sampdata_s) diag_toggle <= ~diag_toggle;
   end
 
 endmodule

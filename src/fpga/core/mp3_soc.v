@@ -63,6 +63,9 @@ module mp3_soc #(
     // outside this module, in clk_sdram, and is CDC'd in by the caller (tau_cdc_gray_ctr) -- this
     // just gates whether 0xBC exposes it or reads zero. Inert (identical netlist) when 0.
     parameter SDRAM_BUSY_ENABLE = 0,
+    // B-467 (Cymo 44.1 kHz investigation): gates whether 0x140-0x14C expose sound_i2s.v's own
+    // clk_audio->clk_mclk CDC jitter diagnostic, or read zero. Inert (identical netlist) when 0.
+    parameter I2S_DIAG_ENABLE = 0,
     // Phase F B1 (PHASE_F_SPEC.md section 5): the sticky blit-state registers always exist (a few
     // flops, harmless either way) but blt_src_base/stride and blt_dst_base/stride are only wired
     // out to mp3_fb when this is set -- inert (identical netlist) when 0.
@@ -244,6 +247,12 @@ module mp3_soc #(
     // by the caller). Unread when SDRAM_BUSY_ENABLE is 0, so legacy builds and testbenches that
     // do not wire this port are unaffected -- same convention as xm_rdata above.
     input  wire [31:0]  sdram_busy_rd,
+
+    // B-467 (Cymo 44.1 kHz investigation): sound_i2s.v's own clk_mclk-domain toggle, flipping on every
+    // real DAC-domain sample-hold update. Synchronised into `clk` with tau_cdc_sync1 below and turned
+    // into a jitter measurement using this module's own free-running cycle_ctr -- no separate counter
+    // module needed. Unread when I2S_DIAG_ENABLE is 0.
+    input  wire         i2s_diag_toggle,
 
     // Helios/Talos H0: already-CDC'd vblank level (clk_sys domain, sourced from clk_vid by the
     // caller). Unread when VBLANK_ENABLE is 0, same convention as sdram_busy_rd above.
@@ -647,6 +656,46 @@ module mp3_soc #(
     reg [31:0] cycle_ctr;
     always @(posedge clk) cycle_ctr <= rst ? 32'd0 : cycle_ctr + 32'd1;
 
+    // ----------------------------------------------------- I2S CDC jitter ---
+    // B-467 (Cymo 44.1 kHz investigation, I2S_DIAG_ENABLE): a single bit crossing clk_mclk -> clk is
+    // safe with a plain synchroniser (tau_cdc_sync1 -- see its own header for why this differs from a
+    // multi-bit counter's Gray-code requirement); everything downstream of that -- edge detect, interval
+    // measurement, min/max/sum -- runs entirely in THIS domain against the free-running cycle_ctr above,
+    // so there is no further CDC risk anywhere in this diagnostic.
+    wire i2s_diag_toggle_s;
+    tau_cdc_sync1 #(.STAGES(3)) u_i2s_diag_sync (
+        .clk_dst(clk), .d_src(i2s_diag_toggle), .q_dst(i2s_diag_toggle_s)
+    );
+    reg        i2s_diag_prev;
+    reg        i2s_diag_first;
+    reg [31:0] i2s_diag_last_cyc;
+    reg [15:0] i2s_diag_min, i2s_diag_max;
+    reg [31:0] i2s_diag_cnt_r, i2s_diag_sum_r;
+    wire [31:0] i2s_diag_interval_w = cycle_ctr - i2s_diag_last_cyc;
+    wire [15:0] i2s_diag_interval   = (i2s_diag_interval_w > 32'hFFFF) ? 16'hFFFF : i2s_diag_interval_w[15:0];
+    always @(posedge clk) begin
+        if (rst) begin
+            i2s_diag_prev     <= 1'b0;
+            i2s_diag_first    <= 1'b1;
+            i2s_diag_min      <= 16'hFFFF;
+            i2s_diag_max      <= 16'h0000;
+            i2s_diag_cnt_r    <= 32'd0;
+            i2s_diag_sum_r    <= 32'd0;
+        end else begin
+            i2s_diag_prev <= i2s_diag_toggle_s;
+            if (i2s_diag_toggle_s != i2s_diag_prev) begin
+                if (!i2s_diag_first) begin
+                    i2s_diag_cnt_r <= i2s_diag_cnt_r + 1'b1;
+                    i2s_diag_sum_r <= i2s_diag_sum_r + i2s_diag_interval;
+                    if (i2s_diag_interval < i2s_diag_min) i2s_diag_min <= i2s_diag_interval;
+                    if (i2s_diag_interval > i2s_diag_max) i2s_diag_max <= i2s_diag_interval;
+                end
+                i2s_diag_first    <= 1'b0;
+                i2s_diag_last_cyc <= cycle_ctr;
+            end
+        end
+    end
+
     // -------------------------------------------------------------- input ---
     // Two-stage resync from clk_74a. No bit-coherency requirement: these are
     // human button presses, so a one-cycle skew between bits is meaningless.
@@ -801,6 +850,11 @@ module mp3_soc #(
     localparam [8:0] R_LPC_CFG      = 9'h120, R_LPC_COEF_IDX = 9'h124, R_LPC_COEF_DATA = 9'h128,
                      R_LPC_WARM_IDX = 9'h12C, R_LPC_WARM_DATA = 9'h130, R_LPC_RESIDUAL  = 9'h134,
                      R_LPC_SAMPLE   = 9'h138, R_LPC_STATUS    = 9'h13C;
+    // B-467 (Cymo 44.1 kHz investigation): I2S clk_audio->clk_mclk CDC jitter diagnostic. Free-running,
+    // never cleared (same convention as R_SDR_BUSY/R_CYCLES) -- firmware samples via delta or reads the
+    // worst-ever min/max directly. Reads 0/present-bit-0 unless I2S_DIAG_ENABLE is built.
+    localparam [8:0] R_I2S_DIAG_MINMAX = 9'h140, R_I2S_DIAG_CNT = 9'h144,
+                     R_I2S_DIAG_SUM    = 9'h148, R_I2S_DIAG_ST  = 9'h14C;
 
     // Bitstream/firmware interlock. Firmware compares this against its own
     // expected value and refuses to run on a mismatch.
@@ -1237,6 +1291,10 @@ module mp3_soc #(
             8'hE4:     mmio_rdata = (SPEC_ENABLE != 0) ? {spec_win, 15'd0, 1'b1} : 32'd0;  // spectrum bank: bit 0 present, bits 31:16 window counter
             R_LPC_SAMPLE: mmio_rdata = lpc_sample;                                     // FLAC LPC unit: last reconstructed sample (B-368); this read is the ack
             R_LPC_STATUS: mmio_rdata = {29'd0, lpc_done, lpc_busy, (LPC_ENABLE != 0)}; // bit 0 present, bit 1 busy, bit 2 done
+            R_I2S_DIAG_MINMAX: mmio_rdata = (I2S_DIAG_ENABLE != 0) ? {i2s_diag_max, i2s_diag_min} : 32'd0;
+            R_I2S_DIAG_CNT:    mmio_rdata = (I2S_DIAG_ENABLE != 0) ? i2s_diag_cnt_r : 32'd0;
+            R_I2S_DIAG_SUM:    mmio_rdata = (I2S_DIAG_ENABLE != 0) ? i2s_diag_sum_r : 32'd0;
+            R_I2S_DIAG_ST:     mmio_rdata = {31'd0, (I2S_DIAG_ENABLE != 0)};
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end
