@@ -11342,3 +11342,23 @@ many legitimate same-ID "addendum"/"relaunch"/"(final)" follow-up headings this 
 convention (e.g. `B-200 addendum 5`) as false collisions -- only a genuinely different, non-continuation
 heading reusing an ID now fails the check. `make test-host` passes; the check now reports 563 unique
 IDs (up from 381, since it was previously blind to most of the file) with 0 duplicates.
+
+## B-438: card fixed -- `alfatreze.TAU_0_6_0_A_31` replaces A_29/A_30's mistaken bitstream
+
+Rebuilt `player-library-diagnostic-profile` from the current tree (identical output to what A_30
+carried -- same ROM size, same 6,880 B heap gap -- confirming the firmware side of A_29/A_30 was never
+wrong, only the RTL pairing). Packaged as `alfatreze.TAU_0_6_0_A_31` with `--rbf work/diagnostics/
+glyphbuf-t200/ap_core_s2.rbf --rbf-sha256 923d854b...` -- the already-fit, already-verified T2-00 bundle,
+no new VM fit needed since this exact bitstream was already built and hash-confirmed (B-398). Packaged
+RBF hash `b089b82871d7f441e2d68665f18a9a130691598726cb9cd7a828fd1ee2195a7e` confirmed to match A_17
+through A_28's own installed hash. `check_tau_package.py` PASS.
+
+Installed via `tools/install_dev_core.py` (backup verified, all three core files verified identical by
+hash after copy, media + `cymo_loopback` test album carried from A_30 and the library index rebuilt --
+69 files, up from A_30's 67, reflecting the album synced onto A_30 first -- A_30 removed after backup,
+catalog caches cleared, ejected). Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_54`, `TAU_DEV_56`,
+`TAU_0_6_0_A_31`. The card now correctly carries the T2-00-fixed, real-margin bitstream plus B-433/B-434's
+STRIP/BASES diagnostics -- both still available for any future retest, unaffected by which RTL fit runs
+underneath them (they were already proven true on the wrong fit, so no re-test of the conclusions
+themselves is owed; this only corrects which bitstream is actually installed for any *future* diagnostic
+work, including B-435's JTAG probe -- a separate, never-installed, JTAG-only `.sof`).
