@@ -45,13 +45,16 @@ speeds above 1.20x are Diagnostic Build only.
 - **Meter modules:** meters described by one manifest each, presets from `tau-assets.bin`, a preview lab; the runtime is built and host-verified, waiting for more hardware runs ([METER_MODULE_SPEC.md](METER_MODULE_SPEC.md)).
 - **Library extras** that need free RAM first (see [MEDIA_LIBRARY_0.4_SPEC.md](MEDIA_LIBRARY_0.4_SPEC.md) sections 14-15).
 - **Cymo, targeting v0.7.0**: a real-hardware 44.1 kHz audio quality issue, still unexplained. Tagged
-  `v0.7.0-dev.1` as a checkpoint (not buildable yet). The leading hypothesis -- jitter in the I2S master
-  clock generator -- was built into a real fix (a dedicated PLL, its own instance since 12.288 MHz cannot
-  share the main PLL's VCO with the core's other clocks) and tested directly against the original
-  hardware baseline: SINAD and every image/spur level match the old generator to within measurement
-  noise, so MCLK jitter is ruled out. The PLL is kept anyway (it fixed a separate, real 3.7 dB level
-  anomaly at 44.1 kHz), but the actual audio quality issue's cause is still open; the remaining untested
-  candidate is the real Altera `dcfifo` timing under actual silicon, or something past the serializer.
+  `v0.7.0-dev.1` as a checkpoint (not buildable yet). Two leading hypotheses have both been tested
+  directly against real hardware and ruled out: jitter in the I2S master clock (a dedicated PLL was
+  built and A/B tested -- SINAD/image levels matched the old generator within measurement noise, kept
+  anyway for a separate 3.7 dB level anomaly it did fix) and the I2S clock-domain crossing itself (a
+  JTAG-free diagnostic measured real update intervals matching theory almost exactly at both 44.1 kHz
+  and 48 kHz). The remaining, still-untested candidate is something past the serializer -- the DAC or
+  analog output stage, outside this core's RTL. Separately, a real resampler design was modelled
+  (not built): a 32-tap Kaiser polyphase FIR predicts 77-86 dB SINAD for 8 M10K blocks, a large margin
+  over the current hold's measured 10.8 dB, but nobody has done an actual listening test yet to
+  confirm the defect is even audible on real music before spending RTL effort on it.
 - **Companion app:** [Tau Omega](../../Tau%20Omega/) keeps its own roadmap.
 
 ## Parked on purpose

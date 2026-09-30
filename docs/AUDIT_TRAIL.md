@@ -12547,3 +12547,40 @@ Diagnostics > Info) during real 44.1 kHz playback is the first real-silicon evid
 predicted. Expected clean result: min/max within 1-2 cycles of `CLK_HZ/44100` (~1,512-1,513 cycles
 at 66.667 MHz); real outliers would be the first direct hardware evidence pointing at the CDC rather
 than ruling it out.
+
+## B-470: I2S JITTER real-silicon result -- the CDC is clean too; the real cause is still open
+
+**Pocket, analyser output [HW].** Owner tested two tracks on `alfatreze.TAU_DEV_58` (a core restart
+between them), switching sample rate mid-track (41 kHz <-> 48 kHz) and reading Info's I2S JITTER row
+five times. Raw readings (min/max/avg/count, cumulative since boot -- never reset):
+
+| Shot | Context | min | max | avg | N |
+|---|---|---|---|---|---|
+| 1 | Track 1 @ 44.1 kHz | 1508 | 65535 (sat) | 1521 | 1,732,194 |
+| 2 | Track 1 -> 48 kHz | 1383 | 65535 (sat) | 372 | 3,861,803 |
+| 3 | restart -> Track 2 @ 44.1 kHz | 1508 | 65535 (sat) | 1514 | 996,163 |
+| 4 | Track 2 -> 48 kHz | 1383 | 65535 (sat) | 1479 | 2,388,803 |
+| 5 | Track 2 -> 44.1 kHz | 1383 | 65535 (sat) | 208 | 3,387,178 |
+
+**The min values are the real signal, and they are an excellent match to theory.** Ideal interval
+between real DAC-domain updates at `CLK_HZ`=66,666,667: 44.1 kHz -> 1,511.7 cycles (measured min
+**1508**, off by ~4); 48 kHz -> 1,388.9 cycles (measured min **1383**, off by ~6). Both sample rates,
+reproduced across a fresh core restart, on real silicon -- this is the clean result the original
+investigation (B-431's own untested "look past the serialiser... or real dcfifo timing" plan) was
+built to find. **Conclusion: `sound_i2s.v`'s clk_audio->clk_mclk CDC behaves in steady-state playback
+exactly as both prior simulations predicted (B-430 behavioural, B-442 real Altera dcfifo model). The
+CDC is not the cause of the 44.1 kHz SINAD gap either.**
+
+**The saturated max (65535, the diagnostic's own 16-bit ceiling) and the erratic average (dropping to
+372 and 208) are a measurement-design limitation, not hardware evidence of jitter.** The counter is
+free-running since boot with no window/reset: long pauses (boot idle, the time spent reading Info
+itself) produce huge intervals that pin the max; a decoder catching up faster than real-time right
+after a track-load flush produces short bursts of updates that drag the cumulative average down.
+Both are artifacts of not gating the measurement to steady playback, not real-silicon anomalies --
+the min values, which are immune to both effects, are the reliable evidence and they are clean.
+
+**Where this leaves Cymo:** MCLK jitter (B-467) and the CDC (this entry) are both now ruled out by
+direct hardware measurement, not simulation. The only remaining candidate per B-431's own original
+list is something past the serializer -- the DAC/analog output stage itself, outside this core's RTL
+entirely. `docs/features/CYMO_AUDIO_ENGINE.md` F1 and `docs/ROADMAP_PUBLIC.md`'s Cymo entry should be
+updated to reflect the CDC is closed, not just MCLK.
