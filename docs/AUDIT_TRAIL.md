@@ -11841,3 +11841,139 @@ a build bug, the same class of false alarm this whole investigation has had to r
 (also genuinely different cold-image hash, since the normal player screen uses the same code path with
 `use_gradient=1`) and re-verified with `make test-host`/heap-gap/cold-call checks, all clean. Packaged as
 `alfatreze.TAU_0_6_0_A_38`.
+
+## B-450: Winamp Scope trail bug -- real root cause found and fixed (H2 double-buffer addressing gap)
+
+Picked up the handoff's own prescribed next step: reproduced the accumulation (menu open/close while
+Winamp Scope active) and read PIXHIST on real hardware. Result: 3 entries `10A2/10A2` x3 against expected
+background `W18C3` -- identical across all 3 logged frames, never trending toward `W`, and a real
+multi-LSB-per-channel gap (RGB565: `10A2`≈R2 G2 B18 vs `18C3`≈R3 G6 B3), well past the 1-LSB
+blend-indistinguishable case B-444 already ruled out. Exactly the "stuck bright, non-decaying" signature
+the handoff named as the first decisive evidence of a real bug (not another JTAG-polling dead end,
+KB-078).
+
+**Root cause, found by reading `src/fpga/core/mp3_fb.sv` directly, not by more register probing.** The
+module's own header comment (line ~184-193, unchanged -- this is documented, intentional RTL behaviour,
+not a bug in the hardware) states the real H2 contract: `dbuf_addr()`'s automatic per-buffer offsetting
+(keyed on `dbuf_cpu_buf`) applies ONLY to ordinary RECT/CHAR/COPY dispatch. Every true BLIT-mode opcode
+(BLIT/BAR/SBLIT/CBLIT/RRECT) is addressed purely through the firmware-programmable sticky
+SRC_BASE/DST_BASE fields and is completely untouched by `dbuf_cpu_buf` -- confirmed at the RTL level:
+`blit_dst_addr <= blt_dst_base + q_addr` (mp3_fb.sv line ~1247), no `dbuf_addr()` call anywhere in that
+path. `wviz_scope_tick()`'s trail fade (`ui_bg_blend()`, `fw/player.c`) uses `fb_blit()` -- a true
+BLIT-mode opcode -- and never called `fb_set_bases()` at all, so it always faded buffer 0 regardless of
+which buffer `dbuf_redraw_begin()`/`dbuf_redraw_end()` (B-397) had since made the real CPU target via
+`R_DBUF_CPU` -- exactly what happens on every Settings/fullscreen/Configure open-close, the owner's own
+reported trigger. Meanwhile the RECT-class trace bars (`fb_bar()`) automatically followed `R_DBUF_CPU`
+onto whichever buffer was actually displayed. New segments kept landing on the real screen; the fade kept
+updating a buffer nothing shows. This is the EXACT bug class already found and fixed once before for
+Chladni (`fw/chladni.inc`, B-414) -- a second, independent instance of the same documented BLIT-vs-RECT
+addressing split biting a different caller. It also fully explains why every earlier per-register check
+(STRIP/BASES/ALPHA/DBUF, B-433/434/439/440) read "correct" in isolation: none of them asked whether a
+BLIT-mode write's TARGET buffer matched the DISPLAYED one, only whether each register held the value
+firmware intended.
+
+**One further wrinkle the fix had to account for:** `ui_bg_ready`'s lazy-built gradient strip (the
+off-screen columns `UI_BG_X..UI_BG_X+UI_BG_W`, rows well inside `V_ACT`=360) is built via `fb_rect()` --
+RECT-class, so it IS already `dbuf_cpu_buf`-aware in hardware, and because its rows sit below
+`DBUF_VISIBLE_WORDS` it genuinely gets a SEPARATE physical copy per H2 buffer (unlike Chladni's own
+`CHL_PLANE_Y` scratch, which sits above `V_ACT` and is deliberately buffer-independent -- confirmed these
+are NOT the same situation, not assumed). A strip built once for buffer 0 is therefore genuinely stale
+content when later read from buffer 1's copy; a one-shot `ui_bg_ready` flag can't express "stale because
+the active buffer changed," only "stale because the gradient changed."
+
+**Fix (`fw/player.c`):** new `ui_bg_cur_buf()` helper (mirrors the exact `dbuf_addr()` test in hardware);
+new `ui_bg_buf` tracking which buffer the strip currently reflects, forcing a rebuild via the existing
+lazy-build path whenever the active buffer changes (no RTL touched -- the RECT-class strip build was
+always dbuf-aware, it just needed telling when to redo itself); `ui_bg_blend()` now calls
+`fb_set_bases(base, base)` before its `fb_blit()` calls (matching both source -- the strip's own
+per-buffer copy -- and destination -- the visible meter area -- to the SAME currently-active buffer),
+restoring to `(0, 0)` after `fb_fence()` per the established Chladni/Settings-crossfade precedent (never
+leave a nonzero sticky base for an unrelated later caller to inherit). Also made the two diagnostics this
+investigation built buffer-aware so they stay meaningful instead of silently reading buffer 0 forever:
+`dbg_strip_check()` (STRIP) and `dbg_pixel_log()` (PIXHIST) now read whichever buffer is actually active.
+`ui_bg_restore()` (the non-blend fallback, `fb_copy()`/OP_COPY) needed no sticky-base change -- OP_COPY is
+already RECT-adjacent and dbuf-aware in hardware -- only the same per-buffer strip-rebuild trigger.
+
+**Verified:** `make test-host` passes in full (no regressions); `tools/check_heap_gap.py` and
+`tools/check_cold_calls.py` both clean; `release`/`player-library-diagnostic`/
+`player-library-diagnostic-profile` all rebuild successfully (dist's `tau.rom`/`tau-cold.bin` genuinely
+changed, expected -- `ui_bg_blend()` is `COLD_FN3`, exercised by the real player screen). No RTL change,
+no new Quartus fit needed -- same `glyphbuf-t200` bitstream as every alpha since `A_17`. Packaged with
+`tools/package_dev_build.py --build-flags "RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1"` (B-448's tool,
+closing the build-clobber risk by construction) as `alfatreze.TAU_0_6_0_A_39`; printed RBF hash confirmed
+`b089b82871d7f441e2d68665f18a9a130691598726cb9cd7a828fd1ee2195a7e` before install. Installed via
+`tools/install_dev_core.py` (dry run first, then `--yes`): backed up and removed `A_38`, carried media +
+rebuilt the library index, cleared catalog caches, ejected. **NOT yet confirmed on real hardware** -- the
+owner's next repro attempt (menu open/close with Scope active) is the actual test of whether the trail
+now fades correctly; if it does, re-read PIXHIST once more to confirm it now trends toward `W` instead of
+staying stuck, closing this investigation with positive evidence rather than just the absence of the old
+symptom.
+
+## B-450 addendum: hardware-confirmed fixed
+
+Owner reproduced the exact original trigger (Settings/fullscreen/Configure open-close with Winamp Scope
+active) on `alfatreze.TAU_0_6_0_A_39` and confirmed the trail now fades normally -- no more accumulation.
+Closes the investigation opened in the 2026-09-29 session (B-410 onward) and carried through the
+2026-09-30 handoff: the H2 double-buffer BLIT-addressing gap in `ui_bg_blend()` was the real and only
+cause. Every earlier diagnostic built along the way (STRIP/BASES/DBUF/ALPHA/PIXHIST) stays in the
+firmware, now buffer-aware, for any future H2-addressing investigation.
+
+## B-451: docs correction -- the 192 KB RAM shrink is DONE, not pending (ROADMAP item 6 was stale)
+
+Owner asked what's actually missing for 0.6.0; my first answer repeated ROADMAP.md item 6's own text
+("firmware is 8.5 KB short of linking") without re-checking it, and the owner correctly pushed back
+("havent we been building on it?"). Re-verified directly rather than trusting the doc: `glyphbuf-t200`
+(the bitstream every `0.6.0-alpha.N` card build has used since `A_17`, including today's `A_38`/`A_39`,
+both hardware-confirmed) already has `TAU_RAM_192K=1` in its macro bundle
+(`tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt`) and `CORE_VERSION` rev 26 refuses to
+boot firmware not built for it -- the RAM shrink has been the ACTIVE, hardware-running configuration all
+session, not a pending decision. Rebuilt all three firmware targets with
+`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1` to check the real current margin (not the 2026-09-25/B-236
+number the roadmap still quoted): `release` 14,864 B heap gap (floor 6,144), `player-library-diagnostic`
+9,008 B (floor 4,096), `player-library-diagnostic-profile` 6,704 B (floor 4,096) -- all comfortable, none
+of today's outputs written to `dist/` (checked via `git status`, no unintended tracked-file changes).
+The 8.5 KB shortfall was real when written (B-236, 2026-09-25) but stale by the time B-244's cold-code
+moves (and everything since) landed; nobody updated ROADMAP.md item 6 afterward. Corrected it to DONE.
+Lesson for next time: a roadmap "needs an owner decision" line is a claim about code state, not just
+process, and needs the same re-verification as any other stale-doc risk this project already tracks
+(the all6-combined fit result, the seed-placement story, etc. -- KB-077's own class of lesson).
+
+## B-452: Configure page meter preview -- only Winamp Scope actually played, others frozen static
+
+Owner ran the H2 closure test list (previous entry's own checklist): 12 of 13 passed clean, only #9
+(Configure page: cycle METER through all four modules) failed -- "chladni doesn't render at all, bars is
+there but static, does not play, master vu static as well. Only scope is fully functioning." Owner
+confirmed, unprompted, that this is scoped exactly to the Configure page preview -- the same meters are
+fine everywhere else (the normal player screen, fullscreen), ruling out a broader regression before one
+was even guessed at.
+
+**Root cause, found from source (no card access needed for this half):** `ui_draw_dynamic_cold()`
+(`fw/player.c`) gates its whole body behind `if (UI_OVERLAY_UP) goto ui_tail;` -- correct for the
+ordinary player screen, since an overlay covers the meter box there and there's nothing to publish for.
+But the SAME gate covered the once-per-display-frame PUBLISH step (`peak_l`/`peak_r`/`spec_lvl[]`,
+fed from `meters_feed()`'s always-on accumulation) -- and Settings being open for the Configure page's
+own live preview (`wvcfg_preview_tick()`) is itself a `UI_OVERLAY_UP` case. So every meter reading
+`in->peak_l`/`peak_r`/`spec[]` (Bars, Chladni, VU Master) froze at whatever value it held the instant
+Settings opened, never getting fresh data while the page stayed open -- reading as "static, doesn't
+play." Winamp Scope was the one exception because `wviz_scope_tick()` manages its own `R_WAVE_CTL`
+arm/capture directly inside itself, entirely independent of this publish step -- exactly why it kept
+working through the same overlay that starved the other three. This is the real, previously-missed data
+gap that B-415 (which only fixed the DRAWING gate, `ov_draw=1` around `mtr_preview()`) didn't cover.
+
+**Fix (`fw/player.c` + `fw/settingsui.inc`):** extracted the publish block (`if (peak_acc_any) { ... }`,
+peak scaling + `spec_hw_fetch()` + band scaling into `spec_lvl[]`) verbatim into its own
+`COLD_FN3 static void meters_publish(void)`, called from its original site in
+`ui_draw_dynamic_cold()` (unchanged behaviour there, still gated by `UI_OVERLAY_UP`) AND from
+`wvcfg_preview_tick()` (deliberately bypassing the gate, since that's exactly the case this fix targets).
+First build attempt dropped `tools/check_heap_gap.py`'s baseline by ~816-832 B across all three targets
+-- caught by the tool, not inspection, per B-391's own precedent: the extracted function had no
+`COLD_FN3` of its own, so it silently compiled as ordinary hot code instead of landing back in the cold
+image the way it did as part of `ui_draw_dynamic_cold()`'s body. Adding `COLD_FN3` (matching the
+function it was extracted from, and its two call sites -- `ui_draw_dynamic_cold()` is already
+`COLD_FN3`, `wvcfg_preview_tick()` is already `COLD_FN`) restored heap gap to exactly the prior
+baseline on all three targets.
+
+Verified: `make test-host` passes in full; `tools/check_heap_gap.py` and `tools/check_cold_calls.py`
+both clean; `release`/`player-library-diagnostic`/`player-library-diagnostic-profile` all rebuild
+successfully. No RTL change, no new Quartus fit -- same `glyphbuf-t200` bitstream as every alpha since
+`A_17`.

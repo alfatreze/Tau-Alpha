@@ -2,19 +2,31 @@
 
 Updated 2026-09-30. **What is true right now.** What to do next is in `docs/ROADMAP.md` (the only ordered list). Why things are the way
 they are is in `docs/AUDIT_TRAIL.md`. The old, long version of this file is `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
-Full detail on the 2026-09-30 session: `docs/handoffs/SESSION_HANDOFF_2026-09-30_SCOPE_BLEND_AND_CYMO.md` — **read it first.**
+Full detail on the 2026-09-30 session: `docs/handoffs/SESSION_HANDOFF_2026-09-30_SCOPE_BLEND_AND_CYMO.md` (sections 1-3 still
+correct background/history; its own "next step" for the Scope bug is superseded by B-450 below — read this page first).
 
-## Headline: two open investigations, one real build-tooling bug found and fixed
+## Headline: Scope trail bug fixed (B-450), Configure-page meter preview fixed (B-452), one open investigation
 
-**Winamp Scope "trail accumulation" bug: still open.** Every architectural/register-level check
-(strip content, sticky bases, H2 buffer selection, firmware AND hardware alpha value) reads correct
-across six diagnostic builds (`A_29` through `A_38`). Live JTAG polling has reached a genuine, proven
-dead end for this question (a real arithmetic property makes low-contrast pixel pairs
-blend-indistinguishable for any alpha, and real decay converges too fast for opportunistic polling to
-catch — `analogue-pocket-dev` skill KB-078). Built a firmware-only frame-by-frame decay logger
-(PIXHIST, on the Info page) instead; it has been relocated twice chasing where the accumulated mass
-actually sits on screen and has not yet been read during a confirmed-active repro at its current
-location. **Next step and full context:** the 2026-09-30 handoff, section 1.
+**Configure page meter preview: Bars/Chladni/VU Master were frozen static, only Scope played — found and
+fixed.** The once-per-frame publish step feeding `peak_l`/`peak_r`/`spec_lvl[]` was gated behind
+`UI_OVERLAY_UP`, which is true the whole time the Configure page (itself inside Settings) is open —
+Scope was immune since it captures its own wave data independently. Extracted the publish step into
+`meters_publish()` and call it from the preview tick too. Hardware-confirmed pending (installed as
+`alfatreze.TAU_0_6_0_A_40`, not yet retested). Full detail: `docs/AUDIT_TRAIL.md` B-452.
+
+**Winamp Scope "trail accumulation" bug: real root cause found and fixed, hardware confirmation pending.**
+PIXHIST (read per the handoff's own next step) showed a stuck, non-decaying pixel with real contrast
+against the expected background — the first decisive evidence, not another JTAG dead end
+(`analogue-pocket-dev` skill KB-078). Root cause, found by reading `src/fpga/core/mp3_fb.sv` directly:
+H2's automatic per-buffer addressing (`dbuf_addr()`) covers only RECT/CHAR/COPY dispatch — every true
+BLIT-mode opcode (what the trail fade uses) is addressed purely through firmware-set sticky bases and
+ignores which buffer is actually displayed, a documented RTL contract, not an RTL bug. The fade never
+called `fb_set_bases()`, so it always updated buffer 0 while the trace bars correctly followed the real
+displayed buffer — the exact bug class already found and fixed once for Chladni (B-414), a second
+independent instance. Fixed in `fw/player.c` (`ui_bg_blend()`/`ui_bg_restore()`/the STRIP and PIXHIST
+diagnostics), no RTL change, no new Quartus fit. Packaged and installed as `alfatreze.TAU_0_6_0_A_39`.
+**Hardware-confirmed fixed** — the owner reproduced the original trigger and the trail now fades
+normally. Investigation closed. Full detail: `docs/AUDIT_TRAIL.md` B-450.
 
 **Cymo 44.1 kHz audio investigation: RTL cleared, real hardware evidence needed next.** The decisive
 simulation (real Altera `dcfifo` model, not the behavioural stand-in) reproduces the ideal-hold
@@ -36,7 +48,7 @@ fit-confirmed with real margin, hardware-confirmed — this is the `glyphbuf-t20
 alpha build uses. Helios items 1-2, 4, 5, 7 done. Settings hardware alpha-blend crossfade, Chladni H2
 buffer tracking, theme/mode persistence: built and hardware-confirmed working (session of 2026-09-29,
 `docs/AUDIT_TRAIL.md` B-405 through B-416). `cymo` branch (audio-engine research/tooling) merged into
-`main` 2026-09-30. `docs/AUDIT_TRAIL.md`'s B-series currently ends at B-449.
+`main` 2026-09-30. `docs/AUDIT_TRAIL.md`'s B-series currently ends at B-452.
 
 ## Released
 - **v0.5.0** (2026-09-27, tagged, GitHub release published with both zips): `TAU` and `TAU_DIAGNOSTIC`. Themes (TAU/OCEAN, Dark/Light), TIM1 fast covers, MP3
@@ -47,9 +59,11 @@ buffer tracking, theme/mode persistence: built and hardware-confirmed working (s
 ## On the Pocket card
 `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (release, v0.5.0, unchanged), `alfatreze.TAU_DEV_54`/
 `alfatreze.TAU_DEV_56` (earlier item-7 iterations on the old pre-T2-00 bitstream, free to remove),
-`alfatreze.TAU_0_6_0_A_38` — `glyphbuf-t200` bitstream (RBF `b089b82871d7f441e2d68665f18a9a130691598726cb9cd7a828fd1ee2195a7e`),
-carrying every Scope-blend diagnostic built this session (STRIP/BASES/DBUF/ALPHA/PIXHIST Info rows) plus
-the B-445 crash fix and B-446 auto-repeat fix. **Confirmed booting correctly on real hardware.**
+`alfatreze.TAU_0_6_0_A_40` — `glyphbuf-t200` bitstream (RBF `b089b82871d7f441e2d68665f18a9a130691598726cb9cd7a828fd1ee2195a7e`),
+the B-452 Configure-page meter-preview fix on top of the B-450 Scope H2-buffer-tracking fix and every
+earlier Scope-blend diagnostic (STRIP/BASES/DBUF/ALPHA/PIXHIST Info rows), the B-445 crash fix and B-446
+auto-repeat fix. Installed and verified by SHA-256. Scope fix **hardware-confirmed** (B-450); the B-452
+Configure-preview fix is not yet retested on hardware.
 
 ## Hardware-confirmed
 - T2-00 (`glyphbuf` ALM fix), the full `all6-combined` + FLAC LPC bundle, Settings crossfade, Chladni H2
