@@ -11709,3 +11709,42 @@ own existing stub. Verified: `make test-host` clean (0 failures), heap-gap/cold-
 real margin, and this time the REAL firmware build (`player-library-diagnostic-profile`, 6,768 B heap
 gap vs. 4,096 B floor) also confirmed clean -- catching the comment bug is exactly why that extra check
 matters. Same bitstream as A_31-A_33 (`glyphbuf-t200`, RBF `b089b828...`).
+
+## B-445: real hardware crash -- PIXHIST overflowed the fixed row-value buffer, fixed
+
+Owner installed and hit a real crash: scrolling the Info list to bring PIXHIST into view crashed the
+core immediately, reproducibly (twice, and again after a reboot); the screen showed a corrupted mix of
+the splash/loader and player-screen elements, consistent with the CPU resetting mid-render rather than
+a hang. Root cause: `set_draw_ro()` (`fw/settingsui.inc`) writes each row's value string into a fixed
+`char v[40]` stack buffer with **no bounds check** -- PIXHIST's B-444 design (4 ring-buffer entries x
+10 chars each, plus a 5-char `W` suffix) writes 45 bytes into that 40-byte buffer, a genuine stack
+buffer overflow, on real silicon, the instant that row was rendered. Every other row in this table
+happens to stay under the limit (STRIP, the previous longest, is 33 chars); nothing in the codebase
+checks this at build time.
+
+Fixed by reducing `DBG_PIXHIST_N` from 4 to 3 (`fw/player.c`), matching STRIP's own 3-item convention --
+3 entries + the suffix is 35 chars, comfortably under 40. The `case 27` display loop already used
+`DBG_PIXHIST_N` for its bound, so no further change was needed there beyond a stale comment fix.
+Corrected the `ui_snapshot_renderer.py` fixture to 3 entries. Verified: `make test-host` clean,
+heap-gap/cold-call checks pass, and the real `player-library-diagnostic-profile` firmware build (the
+exact check B-444 added specifically because `make test-host` alone had missed a comment-syntax bug)
+confirmed clean this time too. Same bitstream as A_31-A_34 (`glyphbuf-t200`, RBF `b089b828...`).
+
+The owner also separately reported the crash's after-effects (opening the menu afterward showed a
+frozen/partially-composited screen) -- expected residual corruption from the crash itself, not a new
+bug; resolves with a clean boot on the corrected firmware, not chased further.
+
+## B-446: Info/Stress-Status page Up/Down never got the B-073 auto-repeat treatment -- fixed
+
+Owner asked for continuous scrolling while holding Up/Down on the Info page (currently one row per
+tap). Root cause: `set_input()`'s read-only-page branch (`set_page >= SET_INFO_PG`) handles its own
+Up/Down and `return`s immediately, structurally BEFORE the auto-repeat computation (`set_rep_at`/`rep`,
+B-073) that every other list in this file already benefits from -- this page was simply never wired
+into that mechanism when it was built. Fixed by moving the auto-repeat block earlier, ahead of the
+read-only-page branch, so its `edge`-augmenting effect (folding a synthetic Up/Down edge into `edge`
+once the hold timer elapses) applies there too; added `!rep` guards to the QR-open (`KEY_A`) and
+back (`KEY_B`/`KEY_LEFT`) checks in that same branch, matching the existing convention in the choice-list
+and menu-list branches just below (a repeat tick should only ever move the cursor, never double as a
+real button press). No other page's behaviour changes -- the reordering is purely earlier computation of
+the same values every other branch already consumed. Verified: `make test-host` clean, heap-gap/cold-call
+checks pass, real firmware build confirmed clean.
