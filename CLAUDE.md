@@ -11,21 +11,34 @@
 3. **Codex** must run background checks against modified files to detect bugs, race conditions, or performance flaws.
 
 ## 2b. Session start (read before working)
-000000000. **Newest (2026-09-30): `docs/handoffs/SESSION_HANDOFF_2026-09-30_SCOPE_BLEND_AND_CYMO.md` --
-read it first** (two open investigations, both with real progress and a concrete next step: the Winamp
-Scope trail "accumulation" bug -- every register-level check reads correct across six diagnostic builds,
-JTAG polling has reached a genuine proven dead end (KB-078), a firmware-only PIXHIST decay logger is
-built and relocated twice but not yet read during a confirmed-active repro at its current location; and
-the Cymo 44.1 kHz audio investigation -- the real Altera `dcfifo` simulation clears the RTL/FIFO
-hand-off entirely, next is the serializer or the analog capture path, neither examined yet. Also: **a
-real, previously-undiscovered build-clobber bug** shipped a broken alpha (`A_36`, total black-screen
-boot, zero diagnostic signal) because `tools/check_heap_gap.py`'s own unflagged rebuild silently
-overwrote a manually-flagged firmware build at the same output path -- fixed at the tool level
-(`tools/package_dev_build.py --build-flags`, use it for every future alpha with `RAM_192K`/`CLK66`/
-`SDRAM_BUSY`/`LPC_FW`); `analogue-pocket-dev` skill KB-077 records the general lesson. Currently
-installed and confirmed booting: `alfatreze.TAU_0_6_0_A_38`.) Supersedes
-`docs/handoffs/SESSION_HANDOFF_2026-09-29_T200_HELIOS_XFADE.md` for what it covers (that one's own
-content is all still correct, just superseded as the entry point). Then item 00000000.
+0000000000. **Newest (2026-09-30, later session):
+`docs/handoffs/SESSION_HANDOFF_2026-09-30_METER_PREVIEW_PERSIST_AND_MCLK.md` -- read it first.**
+Three real, independently-caused bugs found and fixed, all hardware-confirmed: the Configure page's
+meter preview (Bars/Scope/Chladni/VU Master all froze except Scope -- two separate gate bugs,
+`meters_publish()`/B-452 and Chladni's own `FB_HELD()` swap/B-453); theme/mode/settings persistence
+(NOT a firmware bug -- `interact.json`'s own hard 16-entry UI cap, Analogue's documented limit, silently
+drops both display AND persistence for anything past it, B-455/B-456; also cleaned up 7 `data.json`
+slots wrongly flagged "User-reloadable," cluttering Core Settings, B-456). Two new skill entries:
+`analogue-pocket-dev` KB-079 (the 16-entry cap) and KB-080 (the reload-bit clutter). Then: a real RTL
+fix for the Winamp Bars fullscreen 127-row clamp (`OP_BAR`'s lit-row field widened 7->9 bits, B-454,
+no hardware probe -- owner's explicit alpha-stage call) and a real, well-reasoned MCLK-jitter fix for
+the Cymo 44.1 kHz investigation (the audio master clock was a phase-accumulator with a non-integer
+ratio -- real jitter invisible to RTL sim -- replaced with a proper PLL fractional-N output, B-457) --
+**both fully built and simulation-verified, BOTH STILL AWAITING THEIR QUARTUS FIT** (`bar-hi-b454` was
+running on the VM at end of session; `mclk-b457` is queued behind it, never launch two fits at once).
+Card currently has `alfatreze.TAU_0_6_0_A_43` (B-456's fix only, hardware-confirmed) -- no alpha
+carrying B-454 or B-457 has been packaged yet. Supersedes
+`docs/handoffs/SESSION_HANDOFF_2026-09-30_SCOPE_BLEND_AND_CYMO.md` for everything it covers (that
+session's own Scope-trail fix, B-450, is done and hardware-confirmed). Then item 000000000.
+000000000. **(2026-09-30, earlier): `docs/handoffs/SESSION_HANDOFF_2026-09-30_SCOPE_BLEND_AND_CYMO.md`**
+(the Winamp Scope trail "accumulation" bug, root-caused and fixed -- H2's automatic per-buffer
+addressing covers only RECT/CHAR/COPY, not BLIT-mode opcodes, the same bug class as Chladni's own
+B-414 fix; hardware-confirmed. Also: **a real, previously-undiscovered build-clobber bug** shipped a
+broken alpha (`A_36`) because `tools/check_heap_gap.py`'s own unflagged rebuild silently overwrote a
+manually-flagged firmware build at the same output path -- fixed at the tool level
+(`tools/package_dev_build.py --build-flags`); `analogue-pocket-dev` skill KB-077 records the general
+lesson.) Supersedes `docs/handoffs/SESSION_HANDOFF_2026-09-29_T200_HELIOS_XFADE.md` for what it covers
+(that one's own content is all still correct, just superseded as the entry point). Then item 00000000.
 00000000. **(2026-09-29): `docs/handoffs/SESSION_HANDOFF_2026-09-29_T200_HELIOS_XFADE.md`**
 (Talos `glyphbuf` ALM fix (T2-00) fit-confirmed all four corners positive AND
 hardware-confirmed, resolving the ALM pressure the Talos 2 rewrite plan was scoped against; Helios items
@@ -636,3 +649,4 @@ When delegating, write the subagent prompt to minimize its cost and the tokens i
 - 2026-09-30 (Claude): firmware (B-454 addendum). Owner: little backward-compat concern at the current alpha stage, worry about it on betas/release. Removed the OP_BAR wide-field hardware probe entirely (bar_hi_probe()/BAR_WIDE_READY(), fw/blit_probe.inc) -- fb_bar() now sends the full 9-bit lit value unconditionally, clamped only to the field's own 511 ceiling. RTL unaffected (cmd_glyph_hi is unconditionally wired either way), so the already-launched bar-hi-b454 fit stays valid. Recovered ~600B heap gap across all targets. make test-host/heap-gap(--update)/cold-calls all clean, all firmware targets rebuild. Full detail: docs/AUDIT_TRAIL.md B-454 addendum.
 - 2026-09-30 (Claude): hardware-confirmed (B-453 addendum). Owner confirmed Chladni now renders correctly in the Configure preview -- all four meters (Bars/Scope/Chladni/VU Master) animate correctly there. Investigation closed.
 - 2026-09-30 (Claude): hardware-confirmed (B-456 addendum). Owner confirmed theme/mode now show in Core Settings and persist across a Quit+relaunch; the unwanted reload actions are gone. Investigation closed.
+- 2026-09-30 (Claude): session wrap-up, docs only. Wrote `docs/handoffs/SESSION_HANDOFF_2026-09-30_METER_PREVIEW_PERSIST_AND_MCLK.md` (supersedes the earlier SCOPE_BLEND_AND_CYMO handoff), rewrote `docs/CURRENT_STATUS.md`, updated this file's session-start pointer. Added two new `analogue-pocket-dev` skill entries: KB-079 (interact.json's hard 16-entry UI cap -- Analogue's own documented limit, silently drops both display and persistence past it, hardware-validated from B-455/B-456) and KB-080 (data.json's User-reloadable bit clutters Core Settings if left at a copy-pasted default across every slot, hardware-validated from B-456). No code touched. `bar-hi-b454` (OP_BAR RTL widen) still running on the VM at end of session; `mclk-b457` (Cymo MCLK PLL fix) queued behind it.
