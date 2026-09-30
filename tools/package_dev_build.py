@@ -9,7 +9,7 @@ needs both). Name the core with --semver (a feature milestone) or --number (a th
   python3 tools/package_dev_build.py --number 52 --variant diagnostic
   python3 tools/package_dev_build.py --release-diagnostic --rbf R --rbf-sha256 H   # what make_release.py runs
 """
-import argparse, hashlib, json, re, shutil, sys
+import argparse, hashlib, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -43,6 +43,23 @@ def main():
     ap.add_argument("--note", help="replaces the default text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="pair the ROM with this raw Quartus RBF instead of dist/'s")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
+    ap.add_argument("--build-flags",
+                    help="B-448: build fw/build.sh's player-<variant> target ourselves, right here, right "
+                         "before packaging, with these env flags (comma-separated KEY=VAL, e.g. "
+                         "'RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1') -- closes a real gap where a "
+                         "manually-run flagged build and a LATER unflagged rebuild of the exact same "
+                         "target (e.g. tools/check_heap_gap.py, which rebuilds every tracked target with "
+                         "no flags of its own) land at the identical work/diagnostics/<romdir>/tau.rom "
+                         "path, so running any check script between 'build the real firmware' and "
+                         "'package it' can silently swap in the wrong variant -- same reported sizes, "
+                         "genuinely different bytes, no error anywhere. A_36 shipped exactly that: an "
+                         "unflagged ROM paired with a bitstream built for TAU_RAM_192K/TAU_CLK66/"
+                         "TAU_SDRAM_BUSY/TAU_LPC, which just showed as an immediate black screen on real "
+                         "hardware with no diagnostic signal at all. Passing this makes the build the "
+                         "literal last step before the packaging that follows it, in the same process, "
+                         "so nothing else can run in between. Omit it to keep using whatever is already "
+                         "sitting at that path (the previous behaviour, still fine for make_release.py's "
+                         "own --release-diagnostic, which never uses these flags).")
     args = ap.parse_args()
     if args.release_diagnostic:
         if args.number is not None or args.semver or not args.rbf:
@@ -53,6 +70,20 @@ def main():
 
     romdir, kind, default_note = VARIANTS[args.variant]
     rom = root / "work/diagnostics" / romdir / "tau.rom"
+    if args.build_flags is not None:
+        env = dict(os.environ)
+        for kv in args.build_flags.split(","):
+            kv = kv.strip()
+            if not kv:
+                continue
+            if "=" not in kv:
+                sys.exit(f"--build-flags: '{kv}' is not KEY=VAL")
+            k, v = kv.split("=", 1)
+            env[k.strip()] = v.strip()
+        print(f"building player-{romdir} ({args.build_flags}) ...", file=sys.stderr)
+        r = subprocess.run(["bash", "fw/build.sh", f"player-{romdir}"], cwd=root, env=env)
+        if r.returncode != 0:
+            sys.exit(f"build failed (player-{romdir}, {args.build_flags})")
     if not rom.exists():
         sys.exit(f"{rom} missing -- build it first (bash fw/build.sh player-{romdir})")
     if args.rbf:
