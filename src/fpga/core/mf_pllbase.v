@@ -11,13 +11,14 @@
 module mf_pllbase (
     input  wire  refclk,
     input  wire  rst,
-    output wire  outclk_0,  // 60 MHz  - CPU / system clock (clk_sys)
+    output wire  outclk_0,  // 60/66.667 MHz - CPU / system clock (clk_sys)
     output wire  outclk_1,  // 12 MHz  - pixel clock (clk_vid)
     output wire  outclk_2,  // 12 MHz 90 deg - APF DDR pixel clock
     output wire  outclk_3,  // 100 MHz - SDRAM framebuffer controller
-    output wire  outclk_4,  // 12.288 MHz - I2S audio MCLK (B-457)
     output wire  locked
 );
+// B-457/B-460/B-462: the I2S audio MCLK (12.288 MHz) does not share this PLL's VCO any more -- it has
+// its own dedicated PLL, mf_pllbase_mclk.v, instantiated directly in core_game.vh.
 
 mf_pllbase_0002 mf_pllbase_inst (
     .refclk   (refclk),
@@ -26,7 +27,6 @@ mf_pllbase_0002 mf_pllbase_inst (
     .outclk_1 (outclk_1),
     .outclk_2 (outclk_2),
     .outclk_3 (outclk_3),
-    .outclk_4 (outclk_4),
     .locked   (locked)
 );
 

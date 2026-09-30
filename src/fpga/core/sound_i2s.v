@@ -9,8 +9,9 @@
 //   - SIGNED_INPUT:  0 for unsigned positive-only audio (silence at 0),
 //                   1 for signed two's-complement audio (silence at 0).
 //   - clk_audio is the game core clock domain (clk_sys)
-//   - clk_mclk is a PLL-synthesised 12.288 MHz (mf_pllbase outclk_4) driving
-//     the serializer and the MCLK output pin directly.
+//   - clk_mclk is a PLL-synthesised 12.288 MHz (mf_pllbase_mclk, its own dedicated PLL -- B-460/B-462:
+//     it cannot share the main mf_pllbase's VCO with clk_vid/clk_sdram) driving the serializer and the
+//     MCLK output pin directly.
 //
 // B-457 (Cymo 44.1 kHz investigation): this used to synthesise ~12.288 MHz
 // itself, from clk_74a, via a phase accumulator (DDA) -- `audgen_accum`

@@ -1,28 +1,28 @@
-// mf_pllbase_0002.v - altera_pll for the Tau MP3 player core (comment inherited from the Moon Patrol
-// scaffold this started from; the parameters below are the real values, see mf_pllbase.v).
+// mf_pllbase_mclk.v - dedicated PLL for the I2S audio MCLK (B-457/B-460/B-462, Cymo 44.1 kHz
+// investigation).
 //
-// clk_sys, clk_vid (12.000 MHz, exactly 60.000 Hz) and clk_sdram (100 MHz) share one VCO -- the same
-// constraint HarpMudd upstream's release/1.5.1 documented on the shared-origin core. The pixel and
-// SDRAM outputs pin the VCO at 600 MHz, so clk_sys = 600/N MHz: 60 (N=10, today) or 66.667 (N=9,
-// TAU_CLK66, docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md section 1). Only outclk_0's frequency and this
-// comment differ between the two; outclk_1-3 (pixel/SDRAM) are untouched by the macro.
+// The MCLK generator used to be a phase accumulator (DDA) inside sound_i2s.v, dividing clk_74a
+// (74.25 MHz) toward ~12.288 MHz with a ratio (4096/12375) that does not reduce to a power of two -- a
+// real, hardware-only source of jitter on every downstream SCLK/LRCK/DAC bit-clock edge, invisible to
+// RTL simulation.
 //
-// B-457/B-460/B-462 (Cymo 44.1 kHz investigation): a 5th output at 12.288 MHz (the I2S MCLK) was tried
-// here and FAILED to synthesize -- Quartus rejected it as an illegal PLL output frequency. Root cause,
-// not a formatting issue: 12.000 MHz, 100.000 MHz and 12.288 MHz have no common VCO with legal integer
-// output counters below 38.4 GHz (LCM of the three in Hz), and a Cyclone V fPLL's VCO tops out around
-// 1.6 GHz. There is no way to add 12.288 MHz to THIS shared PLL at any clk_sys frequency -- clk_sys was
-// never the limiting constraint, the 12 MHz video clock and the 100 MHz SDRAM clock are. The MCLK now
-// has its own dedicated PLL instead (`mf_pllbase_mclk.v`), reference clk_74a, same fractional-N
-// synthesis technique, no shared-VCO conflict.
+// The first fix attempt added 12.288 MHz as a 5th output on the SHARED PLL that also produces clk_sys,
+// clk_vid and clk_sdram (mf_pllbase_0002.v) -- Quartus rejected it as an illegal output frequency. Root
+// cause: 12.000 MHz (clk_vid), 100.000 MHz (clk_sdram) and 12.288 MHz have no common VCO with legal
+// integer output counters below 38.4 GHz (their LCM in Hz), far past a Cyclone V fPLL's real VCO range.
+// clk_sys was never the limiting constraint -- the video and SDRAM clocks are, and neither is
+// adjustable (12 MHz is fixed by the panel's exact 500x400 = 60.000 Hz timing; 100 MHz is the SDRAM
+// controller's own requirement).
+//
+// Fix: a second, dedicated altera_pll instance, same fractional-N (noise-shaped sigma-delta) synthesis
+// technique already relied on for the shared PLL's 12.000 MHz outputs, but with its own VCO -- no
+// shared-frequency conflict, because it produces nothing else. Verify the actual achieved frequency and
+// jitter against 12.288000 MHz in the real Quartus fit report, not assumed from this parameter string.
 `timescale 1ns/10ps
-module mf_pllbase_0002 (
+module mf_pllbase_mclk (
     input  wire refclk,
     input  wire rst,
-    output wire outclk_0,
-    output wire outclk_1,
-    output wire outclk_2,
-    output wire outclk_3,
+    output wire outclk_0,  // 12.288 MHz - I2S audio MCLK
     output wire locked
 );
 
@@ -30,21 +30,17 @@ module mf_pllbase_0002 (
         .fractional_vco_multiplier("true"),
         .reference_clock_frequency("74.25 MHz"),
         .operation_mode("normal"),
-        .number_of_clocks(4),
-        `ifdef TAU_CLK66
-        .output_clock_frequency0("66.666667 MHz"),   // clk_sys, N=9 of the same 600 MHz VCO
-`else
-        .output_clock_frequency0("60.000000 MHz"),    // clk_sys, N=10 of the same 600 MHz VCO
-`endif
+        .number_of_clocks(1),
+        .output_clock_frequency0("12.288000 MHz"),
         .phase_shift0("0 ps"),
         .duty_cycle0(50),
-        .output_clock_frequency1("12.000000 MHz"),
+        .output_clock_frequency1("0 MHz"),
         .phase_shift1("0 ps"),
         .duty_cycle1(50),
-        .output_clock_frequency2("12.000000 MHz"),
-        .phase_shift2("20833 ps"),
+        .output_clock_frequency2("0 MHz"),
+        .phase_shift2("0 ps"),
         .duty_cycle2(50),
-        .output_clock_frequency3("100.000000 MHz"),
+        .output_clock_frequency3("0 MHz"),
         .phase_shift3("0 ps"),
         .duty_cycle3(50),
         .output_clock_frequency4("0 MHz"),
@@ -93,7 +89,7 @@ module mf_pllbase_0002 (
         .pll_subtype("General")
     ) altera_pll_i (
         .rst      (rst),
-        .outclk   ({outclk_3, outclk_2, outclk_1, outclk_0}),
+        .outclk   (outclk_0),
         .locked   (locked),
         .fboutclk (),
         .fbclk    (1'b0),
