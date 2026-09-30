@@ -193,6 +193,86 @@
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
+            },
+            {
+                "name": "(internal) theme",
+                "id": 27,
+                "type": "slider_u32",
+                "enabled": true,
+                "persist": true,
+                "address": "0x20000040",
+                "defaultval": 0,
+                "graphical": {
+                    "signed": false,
+                    "min": 0,
+                    "max": 31,
+                    "adjust_small": 1,
+                    "adjust_large": 1
+                }
+            },
+            {
+                "name": "(internal) theme mode",
+                "id": 28,
+                "type": "slider_u32",
+                "enabled": true,
+                "persist": true,
+                "address": "0x20000044",
+                "defaultval": 0,
+                "graphical": {
+                    "signed": false,
+                    "min": 0,
+                    "max": 1,
+                    "adjust_small": 1,
+                    "adjust_large": 1
+                }
+            },
+            {
+                "name": "(internal) meter preset bars",
+                "id": 29,
+                "type": "slider_u32",
+                "enabled": true,
+                "persist": true,
+                "address": "0x20000048",
+                "defaultval": 0,
+                "graphical": {
+                    "signed": false,
+                    "min": 0,
+                    "max": 15,
+                    "adjust_small": 1,
+                    "adjust_large": 1
+                }
+            },
+            {
+                "name": "(internal) meter preset scope",
+                "id": 30,
+                "type": "slider_u32",
+                "enabled": true,
+                "persist": true,
+                "address": "0x2000004C",
+                "defaultval": 0,
+                "graphical": {
+                    "signed": false,
+                    "min": 0,
+                    "max": 15,
+                    "adjust_small": 1,
+                    "adjust_large": 1
+                }
+            },
+            {
+                "name": "(internal) meter preset chladni",
+                "id": 31,
+                "type": "slider_u32",
+                "enabled": true,
+                "persist": true,
+                "address": "0x20000050",
+                "defaultval": 0,
+                "graphical": {
+                    "signed": false,
+                    "min": 0,
+                    "max": 15,
+                    "adjust_small": 1,
+                    "adjust_large": 1
+                }
             }
         ],
         "messages": []
