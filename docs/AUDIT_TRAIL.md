@@ -11421,3 +11421,43 @@ this genuinely new small diagnostic (all three tracked targets down ~560-576 B, 
 cold-call check clean. Rebuilt `player-library-diagnostic-profile` (6,816 B heap gap vs. 4,096 B floor).
 Same bitstream as A_31 (`glyphbuf-t200`, RBF `b089b828...`). Not yet packaged/installed -- next step is
 getting this onto the card and reading DBUF during a live repro.
+
+## B-440: DBUF reads clean too -- alpha stuck regardless of trail % is the new lead
+
+Owner's retest on `alfatreze.TAU_0_6_0_A_32`: `DBUF CPU 1 DISP 1 OK` -- both buffers agree, ruling out
+the H2 addressing-mismatch theory as well. Every architectural check this investigation has built now
+reports clean (blend execution succeeds, strip content correct, sticky bases zero, buffer selection
+matches) while the visual symptom persists exactly as before.
+
+**New, more targeted test, at the owner's own initiative:** with Scope Trail set to 0% (never attempts
+a blend at all -- always takes the plain RECT/COPY-based `ui_bg_restore()` fallback, no `fb_blit()`
+involved whatsoever), the accumulation **does not happen**. This is the single most decisive result of
+the whole investigation: it proves the bug genuinely is somewhere in the blend path, not a red herring.
+But then: **trail=5% and trail=80% look identical** -- the severity of the accumulation does not scale
+with the configured fade amount at all. A proportional-but-wrong alpha computation would show SOME
+visible difference between "barely retains anything" (5%) and "retains most of it" (80%); getting the
+IDENTICAL symptom at both extremes is what you'd see if the alpha value written to hardware never
+actually varies with the configured trail, e.g. is stuck near 0 (100% destination kept, 0% source
+applied) regardless of what firmware requests. In hindsight, this is also fully consistent with B-439's
+own JTAG reads (`bl_r == bl_bg` in every live sample) -- dismissed at the time as an inconclusive
+1-LSB-contrast rounding artifact (which it genuinely could still have been, in isolation), but now a
+second, independent line of evidence points at the same place. Owner also noted the accumulated state
+sometimes (not reliably) self-corrects after leaving it running a while -- consistent with some
+unrelated, intermittent event (e.g. `meter_afford()`'s CPU-load gating) occasionally forcing the
+`ui_bg_restore()` fallback path instead of the stuck blend, not a fixed timer.
+
+The alpha field (`R_BLT_IDX=5`/`R_BLT_DATA` bits[15:8]) is write-only in hardware, same as SRC_BASE/
+DST_BASE (docs/MMIO_ALLOCATION.md 0xC0/0xC4: "W") -- no MMIO read exists to check it directly. Added
+`dbg_blend_alpha` (`fw/blit_probe.inc`'s `fb_blend_on()`, same shadow technique as B-434's
+`dbg_base_src`/`dst`), snapshotted into `dbg_strip_alpha` at the same `dbg_strip_check()` call site as
+every other diagnostic this investigation already reads, surfaced on a new "ALPHA" Info row
+(`fw/settingsui.inc`, `SET_INFO_ROWS` 27->28, case 26): `A <0-255>`. If this reads a value matching
+`(100 - trail) * 256 / 100` for whatever trail % is configured, firmware's write is correct and the bug
+is hardware not applying it (would need the `BLND` JTAG probe extended to capture `blt_blend_alpha`
+itself, a real RTL/VM-fit cycle); if it reads 0 or otherwise doesn't track the configured trail, the bug
+is in firmware's own alpha computation or write, not the blend datapath -- much cheaper to fix.
+
+Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass (small expected drop,
+within tolerance, no baseline update needed this time). Rebuilt `player-library-diagnostic-profile`
+(6,800 B heap gap vs. 4,096 B floor). Same bitstream as A_31/A_32 (`glyphbuf-t200`, RBF `b089b828...`).
+Not yet packaged/installed.
