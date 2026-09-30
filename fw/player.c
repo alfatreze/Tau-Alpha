@@ -4144,13 +4144,14 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
         const int attempt = use_gradient && trail && !paused;
         const int did_blend = attempt && ui_bg_blend(x0, y, w, h, (100u - trail) * 256u / 100u);
         if (attempt) { if (did_blend) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check();
-                       dbg_pixel_log(x0 + w / 2u, cy - 4u); }   /* B-447: moved off the box's own top-left
-                       corner (rarely visited by the trace -- every real sample there converged, an
-                       "already faded" false negative for this diagnostic's purpose) to a few rows above
-                       the box's vertical centre, at the middle column -- a spot real trace excursions
-                       reach far more often, without landing on `cy` itself (drawn unconditionally with
-                       UI_TRACK every frame regardless of blend, which would show a constant colour, not
-                       a decay). */
+                       dbg_pixel_log(x0 + w / 2u, y + 8u); }   /* B-449: B-447's (cy-4, centre column) spot
+                       STILL read a dark, gradient-consistent value even during an owner-confirmed active
+                       repro -- a real screenshot of the accumulation showed the actual bright mass sits
+                       in the box's UPPER region (solid across nearly the full width there), not near the
+                       centreline; the centre column at cy-4 most likely just hit a real local amplitude
+                       dip for that one column, not a diagnostic bug. Moved to (x0+w/2, y+8) -- near the
+                       box's own TOP edge, in the region the screenshot shows solidly filled regardless
+                       of which column is sampled. */
         if (!did_blend) {
             if (use_gradient) ui_bg_restore(x0, y, w, h);
             else              fb_rect(x0, y, w, h, bg);
