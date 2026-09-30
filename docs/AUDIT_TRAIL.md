@@ -12402,3 +12402,35 @@ Cores on the card now: `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (both v0.6.0)
 (latest dev, hardware-confirmed OP_BAR widen) -- exactly the release + dev pair requested, everything
 superseded removed. Not yet run -- first boot of the refreshed release/diagnostic cores is the owner's
 next test.
+
+## B-465: mclk-pll2-b462 closed clean on both seeds (real Quartus evidence, not yet hardware-tested)
+
+**Quartus.** `mclk-pll2-b462` finished on both seeds after a longer-than-usual run (~2h11m/2h15m total
+wall time, past the project's typical 50min-1h45m window but not stuck -- the log showed it progressing
+normally through final timing analysis at every check along the way). Both **Successful, ALL POSITIVE**
+on all four corners:
+
+| | Fast 0C Hold | Fast 0C Setup | Fast 85C Hold | Fast 85C Setup | Slow 0C Hold | Slow 0C Setup | Slow 85C Hold | Slow 85C Setup |
+|---|---|---|---|---|---|---|---|---|
+| seed 1 | +0.118 | +6.009 | +0.133 | +5.813 | +0.285 | +1.049 | +0.299 | +1.304 |
+| seed 2 | +0.104 | +5.901 | +0.133 | +5.678 | +0.306 | +1.345 | +0.314 | +1.577 |
+
+RAM 240/308 (78%), DSP 19/66 (29%) on both -- unchanged from `bar-hi-b454`'s footprint, confirming the
+second PLL costs no M10K/DSP (PLLs are a separate hardware resource). **Seed 1 selected**: its single
+worst value across all eight cells (+0.118 ns, Fast 0C hold) beats seed 2's (+0.104 ns) -- seed 2 has
+better setup margins on the Slow corners but a slightly worse absolute floor. Collected and hash-verified
+(`86d7f905ae23000c7da22e826c6cc1e27b528071512380f15c31ddc2b528d2ff`).
+
+**MCLK frequency check** (the thing the task specifically asked to verify from the real report, not the
+parameter string): the new PLL's output-counter constraint in the fit log divides the VCO by 49
+(`-divide_by 49`), giving a derived clock period of 81.359 ns = **12.2912 MHz** against the 12.288000 MHz
+target -- about 0.02% error, consistent with a legitimate fractional-N synthesis (not the kind of gross
+mismatch an "illegal frequency" failure would have produced). This confirms the RTL synthesizes to
+approximately the right frequency; it does not by itself confirm the jitter improvement.
+
+**Not done, per the task's own instruction:** no packaging, no install, no card write. The real test is
+still a hardware A/B recording -- the digital-domain FIFO hand-off was already proven clean twice
+(B-430/B-442), so this fit closing timing means the MCLK generator itself is now a real, synthesizable,
+low-jitter PLL output instead of a phase-accumulator, but whether that measurably narrows the ~17 dB
+SINAD gap from the original 44.1 kHz investigation is still unverified on real silicon. Awaiting an owner
+decision on packaging/installing for that test.
