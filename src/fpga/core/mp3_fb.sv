@@ -1757,24 +1757,36 @@ module mp3_fb #(
     // bl_r against blend_px(bl_bg, bl_fg, mode, alpha) computed the same way the RTL does, and to see
     // whether bl_bg (the pre-read destination pixel) looks like plausible on-screen content at all.
     //
-    // Probe bits (59, LSB first): bl_fg[15:0] (source/strip pixel just read), bl_bg[15:0] (pre-read
+    // Probe bits (70, LSB first): bl_fg[15:0] (source/strip pixel just read), bl_bg[15:0] (pre-read
     // destination pixel from A_KEYDST, B2/B5's shared mechanism), bl_r[15:0] (the computed blend
     // result, about to be written into glyphbuf), bl_i1[6:0] (the glyphbuf column this result writes
     // to -- confirms which pixel of the row these values belong to), blend_active (whether the sticky
     // BLEND field is actually on right now), key_dst_done, bl_v0, bl_v1 (pipeline stage valids -- both
     // should read 0 between frames if reading during genuine idle, confirming this isn't a mid-burst
     // tear of the snapshot).
+    //
+    // B-440 (widened): + blt_blend_alpha[7:0], blt_blend_mode[2:0] -- the two module INPUT ports
+    // blend_px() itself is actually called with. Built after firmware's own shadow (dbg_blend_alpha,
+    // fw/blit_probe.inc) proved correct: the owner read exact matches for (100-trail)*256/100 at three
+    // different trail settings (153/243/51 for 40/5/80%), live, in both the normal and the actively-
+    // accumulating state -- meaning firmware writes the right alpha to R_BLT_DATA every single frame,
+    // yet the trail still never visibly fades regardless of which alpha was requested. The remaining
+    // explanation this rules everything else out in favour of: the sticky field's OWN hardware storage
+    // (whatever register `blt_blend_alpha` actually is, upstream of this module in mp3_soc.v) isn't
+    // correctly latching what gets written to it, so `blend_px()` computes correctly from an alpha that
+    // was never what firmware intended in the first place. Comparing THIS probe's `blt_blend_alpha`
+    // against what firmware's own shadow reports for the same moment is the direct test.
     altsource_probe #(
         .sld_auto_instance_index("YES"),
         .sld_instance_index(1),
         .instance_id("BLND"),
-        .probe_width(59),
+        .probe_width(70),
         .source_width(1),
         .source_initial_value("0"),
         .enable_metastability("NO")
     ) u_issp_blend (
         .source_clk (clk_sdram),
-        .probe       ({bl_v1, bl_v0, key_dst_done, blend_active, bl_i1, bl_r, bl_bg, bl_fg}),
+        .probe       ({blt_blend_mode, blt_blend_alpha, bl_v1, bl_v0, key_dst_done, blend_active, bl_i1, bl_r, bl_bg, bl_fg}),
         .source      ()
     );
 `endif
