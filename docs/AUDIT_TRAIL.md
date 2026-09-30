@@ -11166,6 +11166,152 @@ also fixed" rather than claimed as confirmed.
 Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with real margin (6,832 B
 minimum vs. 4,096 B floor). Same bitstream as A_19 through A_27. Packaged as `alfatreze.TAU_0_6_0_A_28`.
 
+## B-417: Cymo audio engine audit (docs only, branch `cymo`)
+
+Owner asked for a full investigation of MP3/FLAC audio capability, MP3-FLAC synergies, playback efficiency, architecture and new FPGA
+features, the equalizer, and speed-up distortion, all to be treated as one subsystem named Cymo. Result: `docs/features/CYMO_AUDIO_ENGINE.md`.
+Nothing built; no RTL, firmware, card or VM touched.
+
+Read: `pcm_fifo.v`, `eq_biquad.v`, `sound_i2s.v`, `sync_fifo.v`, the SoC audio wiring in `mp3_soc.v`/`core_game.vh`, the two firmware push
+loops, `pcm_rate_apply()`, `flac.c`'s bit-depth reduction, and the existing FLAC/MP3/EQ measurements. Findings by evidence class:
+
+- **Code-read:** the output is a nearest-neighbour resampler (FIFO hold, then the EQ tick, then I2S "newest sample"), with no interpolation or
+  anti-alias filter; `sound_i2s` passes `{sign, audio[15:1]}` (15 effective bits, audio shifted right by one) for the 16-bit signed instance;
+  volume/fade/24-to-16-bit reduction are per-sample software in two duplicated loops with no dither, an instant gain step and a linear taper;
+  speed is varispeed; the PCM FIFO is 2,048 samples (about 46 ms); no gapless, ReplayGain, crossfade or dither code exists.
+- **Host-modelled (not hardware):** for a 44.1 kHz source on the 48 kHz DAC, nearest-neighbour gives about 28 dB signal-to-error at 1 kHz and 8 dB
+  at 10 kHz against 89/24 dB for 4-point cubic; the crude 8-tap sinc row is limited by an un-normalised kernel and is only meaningful for ordering.
+  Folding thresholds at speed (1.75x: source content above 14.9 kHz). The model is a scratchpad script, not a repo tool. It does not say what is
+  audible; the owner has not reported this as a problem across many builds.
+- **Open:** the CPU LOAD 100% reading conflicts with the existing `fl_idle_pct` accounting and needs explaining; FLAC `t_pct` with hardware LPC and
+  88.2/96 kHz via ACCEPT ALL RATES were never measured; the MP3 D/A/X split has no recorded reading; whether the 15-bit slot is intentional
+  headroom; the Pocket's audio output-rate constraints (the `analogue-pocket-dev` skill checkout is not in this cloud worktree).
+
+Recommendation: one hardware output stage (`cymo_resamp`, `cymo_out`, deeper buffer, programmable EQ, then optional `cymo_stretch`), built in the
+order C0 measure, C1 firmware unification, C2 resampler first. Pitch-preserving tempo needs N x decode like varispeed; pitch-only shifting needs
+1 x. Full plan, resource ledger (all estimates) and six owner decisions are in the document.
+
+## B-418: Cymo audit addendum -- alignment with the architecture rework, and a future cartridge Bluetooth output (docs only)
+
+Owner asked to (1) align the Cymo audit with the earlier architecture rework analyses and any developments since, and (2) consider the model
+supporting a second output through a custom cartridge with an ESP-provided Bluetooth transmitter. Added sections 11 and 12 to
+`docs/features/CYMO_AUDIO_ENGINE.md`. No RTL, firmware, card or VM touched.
+
+Alignment (all read from `main`, nothing on it changed the audio path since B-417): T2-00 shipped and Talos 2 P3 declined, so the ALM figure in B-417
+(98%, from the pre-T2-00 LPC fit) is stale and must be re-read from the current fit report; Helios's proposed `helios_audio_ok()` and ROADMAP item 11
+need the same headroom metric as Cymo's C0(a), so build it once; the 192 KB shrink leaves 6.5-12 KB of firmware heap, which favours RTL over firmware
+for every Cymo addition; the M10K pool (68 free) is shared with the `test/720` buffer widening, so one ledger is needed; persist has 11 free words of 32
+(`SW_N` = 21), so curves belong in a `tau-assets.bin` section per D-M01. Proposed decisions D-C01..D-C05 (none decided).
+
+Bluetooth: `core_top` exposes 30 cart lines plus 4 link-port lines with one direction signal per 8-bit bank (code-read; electrical meaning inferred), the
+I2S source already exists but its serial clock is internal, and bank 0 is currently driven high. Design: fan out one canonical 48 kHz stream after EQ and
+limiter to per-sink gain, reuse the existing serializer signals on cart pins, mute (do not stop) the DAC in Bluetooth-only mode, keep all cart outputs
+Hi-Z until a handshake passes (a real Game Boy cartridge may be inserted). Open and safety-critical: cart pin logic level (3.3 V vs 5 V), per-bank
+direction, cart power capability, meaning of `cart_pin30_pwroff_reset`; public web searches returned nothing usable on these (Analogizer's README defers to
+its wiki). ESP32 classic A2DP source is SBC-only per the ESP32-A2DP project, so Bluetooth is not a fidelity feature. Phases X0-X4 and four owner decisions
+are in the document.
+
+## B-419: Cymo pitch/speed method decided for audiobooks (docs only)
+
+Owner: the pitch work is mainly to make audiobooks sound correct at other speeds. Chosen: pitch-preserving tempo change by speech-tuned WSOLA
+(20-25 ms window, about +/-10 ms search covering 80-400 Hz pitch periods, correlation on a mono mix decimated to about 5.5 kHz so cost is independent of
+file rate, 0.8x-3.0x in 0.05x steps, optional pause shortening). Semitone pitch shift dropped; varispeed kept as the fallback when the stretch path is
+absent. Estimates only: about 12,000 MACs per 10-15 ms hop, under about 15% of a 66 MHz CPU in firmware, so the first implementation is cold firmware with
+PSRAM-window buffers and a hardware correlator only if measured cost demands it. Nothing built. Updated `docs/features/CYMO_AUDIO_ENGINE.md` sections 6.4, 7, 9 (C7), 10.
+
+## B-420: Cymo pause shortening included for audiobooks (docs only)
+
+Owner approved the optional pause-shortening feature. Specified in `docs/features/CYMO_AUDIO_ENGINE.md` section 7: envelope from the same decimated mono signal WSOLA already
+computes, threshold relative to a tracked noise floor with hysteresis, pauses over about 250 ms shortened to a fraction never below about 120 ms, single cut capped
+at about 700 ms, cut taken from the middle with look-ahead so word onsets are never clipped, joined with the WSOLA overlap-add crossfade, four settings (Off, Gentle,
+Normal, Strong) in one persist word, audiobook tempo mode only. All thresholds are proposals to be set by listening; decode cost effect is an estimate. Evaluation plan:
+seconds saved per setting, zero clipped onsets, owner listening pass on the LibriVox clip. Nothing built.
+
+## B-421: Cymo collision check against the planned work and current resources (docs only)
+
+Owner asked whether current features, hardware or resource usage collide with the planned improvements. Checked `MMIO_ALLOCATION.md`, `tools/tau_data_slots.py`,
+`fw/settings.inc`, `tools/heap_gap_baseline.json`, the T2-00 status, `origin/test/720`'s `VIDEO_720_PHASED_SPEC.md` and the `mp3_soc.v` wiring. Added section 13 to
+`docs/features/CYMO_AUDIO_ENGINE.md`. No fatal collision. Four real ones: (K1) `test/720` claims 0x140-0x154 of the 48 free MMIO registers (0x140-0x1FC is the decode
+ceiling), so Cymo should take 0x180-0x1FC; (K2) `tau_spec_bank`/`tau_wave_meter` are clocked from the FIFO's source-rate strobe, so the resampler must sit after the FIFO output
+register to keep them unchanged; (K3) tempo mode must not scale the FIFO drain rate, which needs the single `cymo_push()` choke point first; (K4) two branches' macro bundles must be
+merged before any shared fit (B-130) and Cymo should report presence through a caps register, not a `CORE_VERSION` bump. Also corrected my own earlier plan: WSOLA correlation buffers
+cannot live in the PSRAM window (about 32 cycles per read, roughly the whole 12 ms hop for the correlation loop); the small decimated windows must be on-chip. Ledger estimates: M10K
+about 270-275 of 308 with Cymo and 720 both; ALM headroom unverified because the post-T2-00 report is not in this worktree.
+
+## B-422: Cymo plan reviewed against the analogue-pocket-dev skill (docs only)
+
+Owner asked for the plan to be reviewed with the skill's knowledge. The skill lives in `alfatreze/analogue-pocket-dev-skill` (public; read-only clone this session; its Analogue doc snapshots and private KB entries
+are excluded from the public repo, so I used its reference files, the public KB, and the agg23 Sound and IO wiki pages it cites). New section 14 in `docs/features/CYMO_AUDIO_ENGINE.md`; sections 6.6, 12.3, 12.7 and F2 corrected.
+
+Confirmed: DAC path is exactly 48 kHz with sample-rate adjustment not allowed, so the resampler is mandatory (native 44.1 kHz to the DAC is impossible); 16 data bits per channel are legal, supporting the F2 A/B;
+cartridge directions are per group; pin30 is clamped low in 5 V mode until `cart_pin30_pwroff_reset` is asserted; cart level follows a mechanical switch; a powered wrong-translator setup can corrupt a real cartridge's data.
+New constraints: the shipped `core.json` declares `cartridge_adapter: -1` (cart power off), so a powered ESP cart needs `cartridge_adapter: 0`, which also powers any real cartridge, so Bluetooth must be a separate core
+package; the adapter-ID check bits may give a framework-level presence check (open); pin31 is a cart audio input, so I2S must be digital on bank0; pin plan changed to the devkit debug cart's precedent (bank0 out, bank3 in);
+use three seeds for `clk_sys` additions (KB-011); check reports for synchronizers inferred as block RAM (KB-010) and design any coefficient RAM as simple dual-port (KB-073). Still open: custom-cart voltage selection,
+adapter-ID semantics, cart power budget. No code touched.
+
+## B-423: Decision -- Bluetooth output ships as a separate core package (docs only)
+
+Owner decided that the cartridge Bluetooth output is a separate core package. Recorded in `docs/features/CYMO_AUDIO_ENGINE.md` section 12.8: main cores keep `cartridge_adapter: -1` and
+must stay byte-identical; cart-pin drive is behind a macro the main bitstream does not set (a second bitstream to fit and maintain); working package id `alfatreze.TAU_BT` with `cartridge_adapter: 0`;
+`make_release.py`, `install_dev_core.py`, the package check and `CROSS_PROJECT_INTERFACE.md` (Tau Omega) need to learn about a third core; X1 gains the packaging work. Proposed register entry D-C06. Nothing built.
+
+## B-424: Independent design review of the Cymo plan (docs only)
+
+Owner asked for a thorough review as a firmware architect and embedded audio specialist. Wrote `docs/features/CYMO_AUDIO_ENGINE_REVIEW.md`, re-checking claims against source. Seven changes recommended:
+C1 the resampler's 48 kHz tick should be pulled by the DAC's LRCK strobe (single-bit crossing from clk_74a) instead of free-running in clk_sys, which also removes `rate_inc`/`CLK_HZ` from the audio path; C2 gapless is a large
+separate item (one audio data slot `MP3_SLOT_ID 2`, blocking `load_track()`, LAME delay trimming), my earlier "small after the buffer" was wrong; C3 audiobook needs are missing (RESUME was removed and its persist words retired,
+speed not persisted, no chapters, M4B/AAC rated low priority, no speech preset); C4 the deeper buffer is coupled to `PRIME = DEPTH>>1` and the hard-coded 2048 in `METER_STOP/GO`; C5 a zero-lookahead limiter cannot limit transients
+(soft clipper or lookahead), dither must sit at the true final word width; C6 graphic EQ needs a runtime preamp, a state-width re-sweep and band-interaction handling; C7 reorder so firmware tempo and pause shortening (no RTL) come
+before any new bitstream. Eight tightening items (SAD instead of correlation, degradation ladder, I-cache facts, up-conversion-only resampler v1, analog loopback baseline and acceptance thresholds, `cymo_core.h` module pattern,
+seek/pause/speed semantics, Bluetooth per-sink strobes). Two corrections applied to the main document. Nothing built.
+
+## B-425: Cymo scope reduced to pitch-preserving tempo; loopback and soft clipper questions (docs only)
+
+Owner: audiobook support should be minimal, just pitch correction; other features much later. Recorded in `docs/features/CYMO_AUDIO_ENGINE_REVIEW.md` section 9: the minimal path is C0a headroom metric, C1 shared `cymo_push()`, firmware pitch-preserving
+tempo; resume, chapters, M4B/AAC, speech EQ and pause shortening are deferred (pause shortening supersedes the earlier approval). Owner will try the analog loopback capture (how-to to be supplied). Soft clipper explained (a smooth
+saturation curve for the rare peaks that exceed full scale after an EQ boost; part of the later output stage). Nothing built.
+
+## B-426: Cymo plan -- soft clipper chosen, analog loopback measurement added (docs only)
+
+Owner chose the soft clipper (over a look-ahead limiter) and approved adding the analog loopback measurement to the plan. `docs/features/CYMO_AUDIO_ENGINE.md`: section 6.2 now specifies the soft clipper (untouched below a knee of about
+90% of full scale, smooth rounding above, no state or look-ahead, bit-exact transparency test below the knee, never exceeds full scale); new section 6.7 specifies the loopback (headphone jack to line-in or USB interface, fixed
+level and settings, lossless FLAC test tones at 44.1/48/22.05 kHz, a sweep, level and clipping bursts, silence; a host analysis script `tools/lab/cymo_loopback.py` reporting level, image tones, THD+N and response, plus a
+before/after difference table; acceptance thresholds to be fixed after the baseline); C0 gains item (f). Test files and script not built. Open: whether the owner has a line-in or USB interface.
+
+## B-427: Cymo analog loopback tooling built and self-tested (host only)
+
+Owner has a USB audio interface, so the loopback plan (`docs/features/CYMO_AUDIO_ENGINE.md` section 6.7) was built. `tools/lab/cymo_loopback.py`: `gen` writes lossless VERBATIM FLAC test files via the repo's own FLAC writer (1/5/10 kHz at 44.1 and
+48 kHz, 1/5 kHz at 22.05 kHz, a four-level 1 kHz file, a 20 s log sweep, silence; one decoded bit-exact by `tools/flac_verify.py`); `analyze` reads a WAV capture (PCM 8/16/24/32, float) and reports tone level, SINAD, THD, strongest non-harmonic
+spurs and floor, or a sweep response; `compare` diffs two saved results; `selftest` checks the analyser against known signals. Result of the self-test [MODEL, synthetic signals]: a clean 16-bit tone reads -6.02 dBFS and 86 dB SINAD; nearest-neighbour
+44.1 to 48 kHz reads 27.7 dB SINAD with images at 4,899.9 and 2,900.4 Hz (matches the earlier host model and the images predicted from the hold pattern); cubic interpolation reads 85.6 dB; a flat synthetic sweep reads flat. One real defect found and
+fixed while building: the level readout used the peak bin and lost up to about 0.4 dB to scalloping when the tone is not bin-centred (now measured from the whole lobe). Works with or without numpy. `sim/test_cymo_loopback.py` added to `make test-host`.
+Not done: the actual capture on the Pocket (owner), the 22.05 kHz and sweep files on the player, acceptance thresholds (to be set from the baseline).
+
+## B-430: 44.1 kHz path -- baseline recordings analysed, RTL hand-off simulated clean (host only)
+
+Owner's baseline recordings (Adobe Audition, 48 kHz capture, EQ FLAT, no gain change between takes) [HW, analyser output]: `tone_1k_48000` 1 kHz level -12.4 dBFS, SINAD 52.6 dB, THD -76.6 dB, no spur above -70 dBc (noise floor of the capture chain limits SINAD; peaks about -11 dBFS);
+`tone_1k_44100` level -16.1 dBFS, SINAD 10.8 dB, THD -50.2 dB, spurs at 1 kHz + n x 3.9 kHz (4.9, 8.8, 12.7, 16.6 kHz) at -22 to -26 dBc, nearly flat with frequency; `silence_44100` about -70 dBFS, DC offset only. `levels_44100`: loudest step (-0.1 dBFS) peaks at about -4.5 dBFS, no clipping.
+The 44.1 kHz recording is about 3.7 dB quieter than the 48 kHz one at unchanged settings.
+
+Host model of the hardware as read (44.1 kHz held into 48 kHz slots) [MODEL]: 27.7 dB SINAD, spurs -36 dBc at 4.9 kHz falling with frequency, level preserved. The recording is about 17 dB worse, spectrally flat (click-like) and 3.7 dB low, so the model does not explain it.
+
+New: `sim/tb_cymo_i2s_rate.v` + `sim/test_cymo_i2s_rate.py` (not in make test-host; needs iverilog, about 2 min). Real `pcm_fifo` (44.1 kHz drain) into real `sound_i2s`, with a behavioural `dcfifo` model (4 words, showahead off, sync delay 5, underflow ignored) [MODEL];
+captures each 32-bit word at the LRCK reload. Result [SIM]: 27.71 dB SINAD, spurs 4,898 Hz -35.8 dBc, 2,894 Hz -36.8 dBc, 8,801 Hz -41.8 dBc, identical to the ideal hold; level -12.05 dBFS against -6.03 dBFS input, i.e. exactly 6.02 dB lower, which is the known `{a15, a15..a1}` slot (F2 in `docs/features/CYMO_AUDIO_ENGINE.md`) and applies to both rates.
+Conclusion: the RTL logic around the FIFO and I2S serialiser does not produce the extra error. It is not a proof about the real Altera `dcfifo` (flag latencies are my model). Remaining candidates: real `dcfifo` timing at the sliding phase, firmware-side feeding (underruns/fade), or the file/path on the card. Two things found while building: Icarus needs the serialiser registers initialised (Quartus starts them at 0), and rejects the unused negative-repeat branch in `sound_i2s.v` (the test patches a copy, RTL untouched).
+Next: owner records `tone_1k_24000` (2:1) and `tone_1k_32000` (3:2) with the same gain, which have a fixed phase pattern; and notes the Info-page underrun counters while the 44.1 kHz tone plays.
+
+## B-431: 24 kHz and 32 kHz recordings -- the 44.1 kHz error is not a sliding-phase effect
+
+Owner recorded `tone_1k_24000` and `tone_1k_32000` at the same gain (no underruns reported on the Info page) [HW, analyser output]. Both read tone level -12.4 dBFS (same as the 48 kHz baseline, so the 3.7 dB loss seen at 44.1 kHz is not present at 24 or 32 kHz) and frequency 999.76 Hz (rate correct).
+Images: 24 kHz -> 23,001.7 Hz at -6.5 dBc (model -27.8 dBc); 32 kHz -> 17,001 Hz at -8.9 dBc and 15,000.7 Hz at -10.2 dBc (model -31.9 dBc). SINAD 3.35 / 3.13 dB against about 23 / 25 dB modelled. So images are about 21 dB stronger than a plain hold predicts at both integer-ratio rates, where the phase pattern is fixed.
+Conclusions: (1) the "sliding phase at the FIFO-to-I2S hand-off" hypothesis of B-430 is not supported, since the fixed-phase 2:1 case is as bad; (2) the error appears whenever the drain rate differs from 48 kHz; (3) no underruns, so firmware feeding is unlikely; (4) `sim/tb_cymo_i2s_rate.v` reproduces the ideal hold exactly, so what differs on hardware is outside the modelled logic (the real Altera `dcfifo` timing, or something after the serialiser).
+Next: run the same testbench with the real `dcfifo` simulation model from the Quartus install (`altera_mf.v`) instead of my behavioural one; only if that stays clean look past the serialiser.
+
+## B-432: branch handoff; simulation can use the real dcfifo model
+
+`sim/test_cymo_i2s_rate.py --altera-mf <altera_mf.v>` swaps Intel's own `dcfifo` simulation model in for the behavioural one (the file ships with Quartus and is never committed). Not yet run: this cloud session cannot reach the Quartus VM. Handoff written: `docs/handoffs/SESSION_HANDOFF_2026-09-29_CYMO_AUDIO.md`. Branch `cymo` changes only docs, `tools/lab` and `sim/`; a trial merge against `origin/main` had no conflicts.
+
 ## B-433: Option A of the B-413 investigation -- gradient-strip content readback, packaged as alpha.29
 
 B-413's diagnostic counters (`dbg_scope_blend_ok`/`dbg_scope_blend_fail`) already proved `ui_bg_blend()`
