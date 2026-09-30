@@ -561,7 +561,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 27u   /* B-370: +1 for FLAC LPC.
+#define SET_INFO_ROWS 28u   /* B-370: +1 for FLAC LPC.
                               * B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
@@ -591,7 +591,11 @@ extern char _heap_start, _heap_end;
                                               * repro, so this checks the last remaining addressing gap:
                                               * whether R_DBUF_CPU (what RECT-class draws follow) and
                                               * R_DBUF_DISP (what's actually shown) agree at the moment
-                                              * of the blend; see dbg_strip_check() in fw/player.c. */
+                                              * of the blend; see dbg_strip_check() in fw/player.c.
+                                              * B-440: +1 for ALPHA -- trail 5% and 80% look identical
+                                              * on hardware, so this shows fb_blend_on()'s own shadow of
+                                              * the last alpha value actually written (write-only in
+                                              * hardware); see fw/blit_probe.inc. */
 static const char *const set_info_label[SET_INFO_ROWS] = {
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM",
     "COLD IMAGE",
@@ -602,6 +606,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "STRIP"
     , "BASES"
     , "DBUF"
+    , "ALPHA"
     , "FLAC LPC"
     };
 static uint32_t set_info_at;
@@ -749,6 +754,14 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "CPU "); q = ui_dec(q, dbg_dbuf_cpu);
         q = set_str(q, " DISP "); q = ui_dec(q, dbg_dbuf_disp);
         q = set_str(q, dbg_dbuf_cpu != dbg_dbuf_disp ? " MISMATCH" : " OK");
+        break;
+    case 26:   /* ALPHA (B-440): dbg_strip_alpha, the last value actually WRITTEN to the sticky BLEND
+                * field's alpha bits (write-only in hardware, fb_blend_on()'s own shadow). Owner reports
+                * trail 5% and 80% look identical -- if this reads a plausible nonzero value matching
+                * the configured trail, firmware's write is correct and hardware isn't applying it; if
+                * it reads 0 or something unexpected, the bug is firmware's own computation, not the
+                * blend datapath. */
+        q = set_str(q, "A "); q = ui_dec(q, dbg_strip_alpha);
         break;
     default:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
 #if TAU_LPC_FW

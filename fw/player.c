@@ -2291,6 +2291,14 @@ static uint32_t dbg_strip_base_src, dbg_strip_base_dst;
  * effect: exactly "new draws pile up, nothing ever visibly erases." Both registers are ordinary
  * readable MMIO (unlike the write-only sticky blit fields), so this needs no JTAG. */
 static uint8_t dbg_dbuf_cpu, dbg_dbuf_disp;
+/* B-440: dbg_blend_alpha (fw/blit_probe.inc) is fb_blend_on()'s own shadow of the last alpha value
+ * WRITTEN to the sticky BLEND field -- snapshotted here so it reads alongside everything else this
+ * investigation already checks. If this shows a plausible value derived from the configured trail %
+ * (matching `(100 - trail) * 256 / 100` from wviz_scope_tick()'s own call) while the trail still
+ * visibly never fades, firmware's write is correct and the bug is in hardware actually applying it;
+ * if it reads something else (stuck at 0, or not matching what the trail setting implies), the bug is
+ * in firmware's own alpha computation/write, not the blend datapath at all. */
+static uint32_t dbg_strip_alpha;
 
 static void dbg_strip_check(void)
 {
@@ -2299,6 +2307,7 @@ static void dbg_strip_check(void)
     dbg_strip_base_src = dbg_base_src; dbg_strip_base_dst = dbg_base_dst;
     dbg_dbuf_cpu = (uint8_t)(REG(R_DBUF_CPU) & 1u);
     dbg_dbuf_disp = (uint8_t)(REG(R_DBUF_DISP) & 1u);
+    dbg_strip_alpha = dbg_blend_alpha;
     for (uint32_t k = 0; k < 3u; k++) {
         uint32_t yy = rows[k];
         uint16_t want = ui_grad_at(yy);
