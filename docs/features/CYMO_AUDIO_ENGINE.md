@@ -886,6 +886,23 @@ cost this project can clearly afford, and cheap in CPU-cycle terms too: at clk_s
 are ~1,389 cycles available per output sample, of which a 32-tap MAC (1 cycle/tap, matching `resampler.sv`'s own
 discipline) uses only 32 -- cycle budget was never the constraint, M10K for the coefficient ROM is.
 
+**A cheap, coefficient-ROM-free alternative was checked and rejected.** Linear and cubic (Catmull-Rom) interpolation
+need no LUT at all -- the phase fraction from the same P/Q accumulator computed above IS the only per-sample
+coefficient, at the cost of a handful of multiplies and zero M10K blocks. Modelled the same way (`cymo_resamp_model.py
+algebraic`): cubic reaches an excellent 89.3 dB at 1 kHz (better than the 32-tap FIR), but **collapses to 7.6 dB at
+18 kHz -- worse than the current hold's own measured 10.8 dB baseline**. This is expected once stated plainly:
+polynomial interpolation has no explicit anti-aliasing filter, so it degrades sharply as frequency approaches the
+source Nyquist (22.05 kHz) -- exactly the range (cymbals, hi-hats, sibilance, bright synths) where a resampling
+defect would be most audible in the first place. The LUT-based polyphase FIR earns its 8 M10K blocks precisely where
+a free option cannot help.
+
+**Nobody has actually listened yet -- the SINAD numbers alone cannot answer whether this is audible.** F1's own note
+above ("the owner has listened to the current output for many builds without reporting this as the problem")
+deserves more weight than another table. `tools/lab/cymo_ab_listen.py` renders real music (not synthetic tones) --
+decoded with `tools/flac_ref.py`'s own bit-exact FLAC decoder -- through all three candidate output paths (hold,
+32-tap Kaiser FIR, cubic) as plain WAV files, so an actual listening comparison on real material is the next step
+before deciding whether C0(e)/C1 is worth building at all.
+
 ## Appendix: the resampler model
 
 The model behind the tables in section 3 is small enough to reproduce: for each output frame `k` it computes the source
