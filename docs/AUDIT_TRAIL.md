@@ -12257,3 +12257,70 @@ Winamp Bars now render past the old 127-row clamp. B-454's RTL fix (`cmd_glyph_h
 field widened 7->9 bits) is hardware-confirmed. B-406's firmware-side 127-row mitigation is now
 redundant but left in place (harmless -- `fb_bar()` sends the full 9-bit value unconditionally since the
 B-454 addendum removed the runtime probe). No further action needed on this item.
+
+## B-460: mclk-b457 fit FAILED -- illegal PLL output frequency, not a timing violation
+
+**Quartus.** Both seeds of `mclk-b457` (B-457's I2S MCLK PLL fix) FAILED, not a timing miss: `Error: PLL
+Output Counter parameter 'output_clock_frequency' is set to an illegal value of '12.288 MHz' on node
+...altera_pll_i|general[4].gpll~PLL_OUTPUT_COUNTER`. This is a hard Fitter error during PLL analysis --
+never reached place-and-route -- so it needs an RTL/parameter fix, not a re-fit or a bisect.
+
+Confirmed this is unrelated to `bar-hi-b454`'s success: the macro bundle is identical
+(`tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt`, diffed byte-for-byte against what
+`bar-hi-b454` used). The real difference is the RTL tree each was staged from -- `bar-hi-b454` was
+launched (in an earlier session) from a tree that predates B-457's commit (`c99c86c`), so it never
+carried the new PLL output. `mclk-b457` is the first fit to actually exercise B-457's `outclk_4`
+addition, and it doesn't synthesize as specified: `mf_pllbase_0002.v`'s new
+`.output_clock_frequency4("12.288000 MHz")` on output counter index 4 of the existing 600 MHz-class VCO
+(shared with `clk_sys`=66.666667 MHz on index 0, `clk_sdram`=100.000000 MHz on index 3) is rejected as
+illegal -- most likely because 12.288 MHz isn't achievable from this VCO/counter combination the way it's
+currently specified (needs investigation: duty cycle/phase-shift fields, or a different counter index, or
+the VCO frequency itself needs to change to admit both the existing outputs and this new one).
+
+**Not attempted:** no RTL fix was made. Per the task's own instruction this turn, reporting only --
+the owner decides whether to fix `mf_pllbase_0002.v`'s PLL parameterization before relaunching, and this
+stays independent of `bar-hi-b454`/v0.6.0-alpha.1's release, which does not carry B-457's RTL change at
+all (confirmed via the qsf/git-log timeline above) and is unaffected by this failure.
+
+## B-461: v0.6.0-alpha.1 released
+
+**Pocket, Quartus, code-review.** Cut the public release: `dist/` firmware rebuilt with
+`RAM_192K=1 CLK66=1 SDRAM_BUSY=1` (matching `bar-hi-b454`'s shipped bitstream) via
+`tools/make_release.py --rbf work/diagnostics/bar-hi-b454/ap_core_s1.rbf --rbf-sha256
+4b82d94...ec4bda --test`; `make test-host` passed in full, `check_tau_package` passed both cores.
+`APP_VER`/`core.json` bumped to `0.6.0` (date_release 2026-09-30); README's checked version line kept
+plain semver (`v0.6.0`) since `fw/build.sh`'s version-consistency regex only matches digits/dots -- the
+alpha designation lives in prose next to it and in the git tag/GitHub release name instead. `LPC_FW`
+flipped to default-1 for the diagnostic builds and for `release` (mirroring `POLY_FW`'s v0.5.0/B-309
+precedent, now that B-386 gives it a real hardware-confirmed result) -- this changed `fw/build.sh` itself,
+required rebaselining `tools/heap_gap_baseline.json` (the ~1,000 B drop per target is real new hot code,
+not a regression, same convention as every other probe/redirect addition this project has made).
+
+Found and fixed a real build-breaking bug while verifying: README's "Current version **v0.6.0-alpha.1**"
+broke `fw/build.sh`'s own version-consistency check (`grep -o 'Current version \*\*v[0-9.]*\*\*'` cannot
+match a hyphenated pre-release suffix), which silently failed every `player-library-diagnostic` build
+with no printed error (the script's own `set -e` exits before its error-message echo runs in this
+particular failure path) -- caught by `tools/check_heap_gap.py` reporting `failed` with no detail, traced
+with `bash -x`. Fixed by keeping README's checked line pure semver.
+
+Fixed six stale documentation claims discovered while auditing what changed since v0.5.0 (the user asked
+"what needs to change on GitHub for all the features"): the RAM shrink and clk66 bump were described as
+"fit-proven but not adopted" in `docs/TECHNICAL_SPEC.md`/`docs/PERFORMANCE.md` (now: adopted, real
+numbers); the alpha blend was described as "shelved"/"not shipped"/"no firmware use yet" in
+`docs/TALOS.md`/`docs/TECHNICAL_SPEC.md`/`docs/DEVELOPERS.md` (now: shipped, drives the Settings
+cross-fade); M10K usage was still quoted as 304/308 in the same docs (now: 240/308, with 304/308 kept
+only as the explicit "before" figure); `docs/guide/USER_GUIDE.md` still said theme/mode are "not
+remembered across a restart yet" (now: fixed per B-455/B-456, only meter Configure presets remain
+session-only); `docs/ROADMAP_PUBLIC.md`'s "Next: the 0.6 items" table listed three items now done and one
+(FLAC bit-reader acceleration) that was never actually built the way it named it (the real FLAC kernel
+targets LPC reconstruction, not the bit reader, per B-360's redirect) -- rewritten with a `v0.6.0-alpha.1`
+released section and a real "Next" table (just `Track changes` and meter-preset persistence remain).
+Marked `v0.3.0` and `v0.5.0`'s GitHub releases as pre-release and retitled `(alpha)` per the owner's
+explicit choice, tags and assets unchanged.
+
+Tagged `v0.6.0-alpha.1`, pushed `main` and the tag, and published the GitHub pre-release with both zips
+and `SHA256SUMS.txt`: https://github.com/alfatreze/Tau-Alpha/releases/tag/v0.6.0-alpha.1 . **Not done:**
+`docs/screenshot.png` in the README predates the B-247 now-playing redesign (top-left art panel, taller
+full-width meter, EQ-preset pill) and no longer matches the shipped UI -- flagged to the owner rather than
+replaced with a fabricated image; a real Pocket screenshot is needed. `mclk-b457` (B-460, above) is
+independent and does not block this release.
