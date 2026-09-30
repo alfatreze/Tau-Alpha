@@ -251,8 +251,19 @@ COLD_FN3 static void fb_fence(void)
     } while (r == 0xDEADBEEFu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
 }
 
+/* B-440: owner reports trail=0 fixes the Scope accumulation completely, but trail=5% and trail=80%
+ * look identical -- severity isn't scaling with the configured fade amount at all, which is what you'd
+ * see if the alpha value never actually reaches the blend hardware correctly (stuck near 0 regardless
+ * of what's requested) rather than a proportional/rounding issue. R_BLT_IDX/R_BLT_DATA (bits[15:8] =
+ * alpha) are write-only in hardware (docs/MMIO_ALLOCATION.md 0xC0/0xC4: "W"), same as SRC_BASE/
+ * DST_BASE -- shadow the last value WRITTEN here, same technique as fb_set_bases()'s dbg_base_src/dst,
+ * so a mismatch between what firmware intended and what the mailbox-confirmed blend actually reflects
+ * (B-439's JTAG reads, in hindsight, were consistent with alpha stuck at 0 the whole time -- dismissed
+ * then as an inconclusive 1-LSB-contrast rounding artifact, worth re-checking now this points here) is
+ * visible without another RTL/JTAG cycle. */
+static uint32_t dbg_blend_alpha;
 /* Blend on with source weight `a` (0..255, mode 0 = the DSP alpha); off. */
-COLD_FN3 static void fb_blend_on(uint32_t a)  { fb_wait(); REG(R_BLT_IDX) = 5u; REG(R_BLT_DATA) = ((a & 0xFFu) << 8) | 1u; }
+COLD_FN3 static void fb_blend_on(uint32_t a)  { fb_wait(); REG(R_BLT_IDX) = 5u; REG(R_BLT_DATA) = ((a & 0xFFu) << 8) | 1u; dbg_blend_alpha = a & 0xFFu; }
 COLD_FN3 static void fb_blend_off(void)       { REG(R_BLT_IDX) = 5u; REG(R_BLT_DATA) = 0u; }
 
 /* Known-answer probe: blend white over black at a = 128; a bitstream with the blend gives 0x7BEF, one without it copies 0xFFFF. Either
