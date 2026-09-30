@@ -1744,8 +1744,8 @@ module mp3_fb #(
         .source      ()
     );
 
-    // B-419: a second instance for the B5 blend pipeline itself (bl_fg/bl_bg/bl_r, docs/AUDIT_TRAIL.md
-    // B-327), built after B-417/B-418's firmware-only diagnostics both came back clean (the gradient
+    // B-435: a second instance for the B5 blend pipeline itself (bl_fg/bl_bg/bl_r, docs/AUDIT_TRAIL.md
+    // B-327), built after B-433/B-434's firmware-only diagnostics both came back clean (the gradient
     // strip's SDRAM content is provably correct, and the sticky SRC_BASE/DST_BASE fields read zero at
     // the exact moment of each attempted blend) -- ruling out every explanation reachable from the CPU
     // side and leaving the blend datapath itself as the one thing left to look at. Unlike BLIT's own

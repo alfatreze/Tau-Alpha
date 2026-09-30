@@ -620,11 +620,11 @@ static void fb_blit(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
  * expecting the OLD sticky state at the moment this changes) -- the caller IS responsible for
  * fb_fence()-ing before restoring back to (0,0), so no LATER unrelated caller ever inherits a nonzero
  * base; see set_xfade_step_draw()'s own use for the concrete pattern.
- * B-418: dbg_base_src/dst mirror the last values WRITTEN here (the only writer), so a caller that
+ * B-434: dbg_base_src/dst mirror the last values WRITTEN here (the only writer), so a caller that
  * forgets to restore (0,0) before returning -- the exact bug class B-410/B-414 both found real
  * instances of -- is visible without JTAG: if these read nonzero right when wviz_scope_tick() issues
  * its trail blit, that blit (and ui_bg_blend()'s own destination pre-read) executes against the wrong
- * SDRAM region, which reads exactly like "the trail never fades" even though the strip itself (B-417)
+ * SDRAM region, which reads exactly like "the trail never fades" even though the strip itself (B-433)
  * is provably correct. */
 static uint32_t dbg_base_src, dbg_base_dst;
 static void fb_set_bases(uint32_t src_base, uint32_t dst_base)
@@ -2255,7 +2255,7 @@ COLD_FN3 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, 
     return 1;
 }
 
-/* B-417: Option A of the B-413 investigation. dbg_scope_blend_ok/fail (wviz_scope_tick()) already
+/* B-433: Option A of the B-413 investigation. dbg_scope_blend_ok/fail (wviz_scope_tick()) already
  * proved the blend mechanism runs to completion and reports success every single time -- this reads
  * back the gradient strip's ACTUAL SDRAM pixel content (via the same mailbox primitive blend_probe()
  * uses) and compares it against what ui_grad_at() computes fresh for those same rows RIGHT NOW. Every
@@ -2268,7 +2268,7 @@ COLD_FN3 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, 
  * trail still visibly doesn't fade, the strip is genuinely correct and the bug is in the blend
  * hardware's own datapath -- the next real step is a live JTAG read of the blend pipeline itself
  * (bl_fg/bl_bg/bl_r/blt_blend_alpha), not more firmware source-reading.
- * B-418: owner confirmed STRIP always reads OK. Before going to JTAG, also snapshot dbg_base_src/dst
+ * B-434: owner confirmed STRIP always reads OK. Before going to JTAG, also snapshot dbg_base_src/dst
  * (fb_set_bases()'s own shadow of the sticky SRC_BASE/DST_BASE fields, which are write-only in
  * hardware and can't otherwise be read back) right here -- if either is nonzero at the exact moment
  * this blend fires, the trail blit and ui_bg_blend()'s destination pre-read are silently targeting the
