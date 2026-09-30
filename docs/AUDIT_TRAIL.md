@@ -12382,3 +12382,23 @@ genuinely available on this device for the core (the earlier B-462 open question
 synthesize cleanly. The RST-port-unconnected warnings are pre-existing and identical on both PLL
 instances (dynamic PLL reset was never used by this design). Launched the real two-seed fit
 (`mclk-pll2-b462`, same macro bundle). Result pending.
+
+## B-464: card refreshed to v0.6.0-alpha.1 (release + Diagnostic Build); superseded dev cores removed
+
+**Card.** Owner: update all releases on the card to the latest release and dev, remove unneeded cores.
+Found two stale test cores from an earlier session's work (`alfatreze.TAU_DEV_54`/`56`, dated 2026-09-29,
+description text confirms their content -- Helios items 5/6/7, B-390..B-399 -- is already superseded by
+what shipped in the current `all6-combined` bitstream and v0.6.0-alpha.1). Card also still had
+`alfatreze.TAU`/`alfatreze.TAU_DIAGNOSTIC` on **v0.5.0** (the release built and published earlier this
+session was never installed).
+
+Installed via `tools/install_dev_core.py --replace --allow-release`: `dist/` (v0.6.0 release core,
+hashes verified against the published zips) with `--remove alfatreze.TAU_DEV_54 --remove
+alfatreze.TAU_DEV_56`; then `work/diagnostics/library-diagnostic/pocket` (v0.6.0 Diagnostic Build) with
+`--carry-from alfatreze.TAU_0_6_0_A_44` (media/library carried across, `tau-assets.bin` restored from
+A_44's copy). Both backed up and verified before touching anything, catalog caches cleared, card ejected.
+
+Cores on the card now: `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (both v0.6.0), `alfatreze.TAU_0_6_0_A_44`
+(latest dev, hardware-confirmed OP_BAR widen) -- exactly the release + dev pair requested, everything
+superseded removed. Not yet run -- first boot of the refreshed release/diagnostic cores is the owner's
+next test.
