@@ -12058,3 +12058,22 @@ tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt --seed 1 --seed 2`
 `glyphbuf-t200` bundle every current alpha ships, re-fit with this RTL on top. Staged tree confirmed via
 direct SSH grep (`cmd_glyph_hi` present in all three touched files on the VM). Both seeds confirmed
 running. Result pending. Not committed, not installed.
+
+## B-454 addendum: dropped the wide-field hardware probe, owner's call for alpha stage
+
+Owner: little concern about backward compatibility at the current alpha stage -- worry about it on
+betas or after full release. Removed `bar_hi_probe()`/`bar_hi_probe_ensure()`/`BAR_WIDE_READY()`
+entirely (`fw/blit_probe.inc`); `fb_bar()` now sends the full 9-bit `lit` value unconditionally
+(clamped only to the field's own 511 ceiling). RTL is unaffected -- `cmd_glyph_hi` is unconditionally
+wired in `mp3_fb.sv`/`mp3_soc.v` either way, so the already-launched `bar-hi-b454` fit stays valid; this
+only simplifies the firmware side. Recovered about 600 B of heap gap across all three targets (probe
+code was genuinely extra hot code, not a mistake this time -- removing it is a real, intentional
+saving). `make test-host` passes, `tools/check_heap_gap.py --update` (new baseline: release 55,536 B,
+diagnostic 48,896 B, profile 46,480 B), `tools/check_cold_calls.py` clean, all three real firmware
+targets rebuild clean.
+
+## B-453 addendum: hardware-confirmed fixed
+
+Owner confirmed on real hardware: Chladni now renders correctly in the Configure page preview,
+completing the set -- Bars/Scope/Chladni/VU Master all animate correctly there now (B-452 + B-453
+together). Investigation closed.
