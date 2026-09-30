@@ -12480,3 +12480,38 @@ that no RTL-level investigation would ever catch. `docs/features/CYMO_AUDIO_ENGI
 correcting to reflect this negative result rather than the "well-reasoned lead" framing they currently
 carry. `alfatreze.TAU_DEV_57` stays on the card as the PLL fix is still worth keeping (real jitter
 improvement, fixes the level anomaly), just not as the SINAD/image fix it was built to be.
+
+## B-468: I2S CDC jitter diagnostic built (JTAG-free) and research writeup (neoge/pocket-mp3)
+
+**RTL/sim/docs, no hardware yet.** With B-467's step-1 firmware check already clean (no divergence from
+the modelled zero-order hold, exact 64-bit rate math), the last untested candidate per B-431's own plan is
+`sound_i2s.v`'s clk_audio->clk_mclk CDC on real silicon (already simulated clean twice). Instead of a live
+JTAG session, built a firmware-readable diagnostic reusing this project's own established pattern
+(RTL counter -> MMIO -> Info/Check row, same as R_SDR_BUSY/R_VBLANK): a single-bit toggle in `sound_i2s.v`
+flips on every real DAC-domain sample-hold update, synchronised into `clk_sys` with the existing
+`tau_cdc_sync1` module (a single bit needs no Gray-code CDC), then min/max/count/sum interval measurement
+against `mp3_soc.v`'s own free-running `cycle_ctr` -- entirely single-clock-domain after the sync point, no
+further CDC risk. New MMIO 0x140-0x14C (`I2S_DIAG_ENABLE` parameter, inert when 0), a new "I2S JITTER" Info
+row (min/max/avg since reset). A perfectly clean digital hold at 44.1 kHz should read min/max within 1-2
+cycles of `CLK_HZ/44100`; real outliers would be the first direct real-silicon evidence of a CDC problem.
+
+Found and fixed a real Makefile gap: `PSRAM_FW_SRC`/`PSRAM_IFETCH_SRC` were missing `tau_cdc_sync1.sv` now
+that `mp3_soc.v` instantiates it unconditionally, breaking `test-rtl-psram-fw`/`test-rtl-psram-ifetch`
+(`Unknown module type: tau_cdc_sync1`). `make rtl-lint`, `make test-rtl` and `make test-host` all pass;
+heap gap and cold-call checks pass. **Caught and reverted a real slip before committing:** running the
+check tools rebuilt `release` and silently overwrote `dist/`'s already-published v0.6.0-alpha.1 ROM/cold
+image with new bytes -- reverted those two files before commit so the already-tagged release stays exactly
+what was published.
+
+**Research, separate from the RTL work:** owner pointed at
+[neoge/pocket-mp3](https://github.com/neoge/pocket-mp3), a pure-HDL Analogue Pocket MP3 core (no soft
+CPU), hardware-tested (v0.3.2). Documented in `docs/features/CYMO_AUDIO_ENGINE.md` section 15: a real
+160:147 polyphase FIR resampler (exact rational ratio, 16-tap, pipelined, proven on the same platform) --
+a concrete reference if Cymo ever builds a real interpolator instead of the current zero-order hold; and a
+structural observation that their design separates rate conversion (upstream, at the producer's clock)
+from clock-domain crossing (a plain rate-matched Gray-coded FIFO downstream), where Tau's `pcm_fifo.v`
+conflates both in one piece of logic. Their PLL file is a simulation placeholder only, no new information
+on the VCO-sharing question B-460/B-463 already resolved independently.
+
+Launched the real fit (`i2sdiag-b467`, the proven `bar-hi-b454`/`mclk-pll2-b462` bundle plus
+`TAU_I2S_DIAG=1`, both seeds). Result pending.
