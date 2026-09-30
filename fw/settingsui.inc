@@ -576,13 +576,13 @@ extern char _heap_start, _heap_end;
                                               * (last row) -- live blend attempt/fail counters and
                                               * ui_bg_ready, for the still-unexplained Winamp Scope
                                               * trail "accumulation" report; see fw/player.c's
-                                              * wviz_scope_tick() for what increments them. B-417:
+                                              * wviz_scope_tick() for what increments them. B-433:
                                               * +1 for STRIP -- Option A of the same investigation,
                                               * reads back the gradient strip's actual SDRAM content
                                               * against what ui_grad_at() expects right now, to tell
                                               * a corrupted strip apart from a correct strip feeding a
                                               * broken blend datapath; see dbg_strip_check() in
-                                              * fw/player.c. B-418: +1 for BASES -- owner confirmed
+                                              * fw/player.c. B-434: +1 for BASES -- owner confirmed
                                               * STRIP always reads OK, so before JTAG this shows the
                                               * sticky SRC_BASE/DST_BASE fields' shadow (write-only in
                                               * hardware) at the moment of the last Scope trail blend;
@@ -716,7 +716,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = ui_dec(q, dbg_scope_blend_ok); q = set_str(q, " OK ");
         q = ui_dec(q, dbg_scope_blend_fail); q = set_str(q, " FAIL");
         break;
-    case 23:   /* STRIP (B-417): OK/BAD across the last 3-row sample, then actual vs expected RGB565 for
+    case 23:   /* STRIP (B-433): OK/BAD across the last 3-row sample, then actual vs expected RGB565 for
                 * each row (hex), so a mismatch is visible without needing a screenshot decode. */
         q = set_str(q, dbg_strip_bad ? "BAD " : "OK ");
         for (uint32_t k = 0; k < 3u; k++) {
@@ -726,7 +726,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
             q = set_str(q, " ");
         }
         break;
-    case 24:   /* BASES (B-418): dbg_strip_base_src/dst, the sticky SRC_BASE/DST_BASE fields' last-known
+    case 24:   /* BASES (B-434): dbg_strip_base_src/dst, the sticky SRC_BASE/DST_BASE fields' last-known
                 * value at the moment the last Scope trail blend fired (write-only in hardware, this is
                 * the only way to see them). Nonzero here would mean that blend and ui_bg_blend()'s own
                 * destination pre-read targeted the wrong SDRAM region -- worth chasing before JTAG. */

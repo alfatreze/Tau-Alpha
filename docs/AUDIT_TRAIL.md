@@ -11166,7 +11166,7 @@ also fixed" rather than claimed as confirmed.
 Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with real margin (6,832 B
 minimum vs. 4,096 B floor). Same bitstream as A_19 through A_27. Packaged as `alfatreze.TAU_0_6_0_A_28`.
 
-## B-417: Option A of the B-413 investigation -- gradient-strip content readback, packaged as alpha.29
+## B-433: Option A of the B-413 investigation -- gradient-strip content readback, packaged as alpha.29
 
 B-413's diagnostic counters (`dbg_scope_blend_ok`/`dbg_scope_blend_fail`) already proved `ui_bg_blend()`
 completes and reports success every single time it is attempted in the reported scenario ("READY 140 OK 0
@@ -11203,11 +11203,11 @@ check clean. Same bitstream as A_19 through A_28 (`all6-combined` seed 2, RBF `7
 A_26 removed after a verified backup). Not yet read on hardware -- next step is the owner reproducing the
 Scope accumulation and reading the STRIP row.
 
-## B-418: STRIP always reads OK (owner-confirmed) -- shadowed the sticky bases as the next cheap check
+## B-434: STRIP always reads OK (owner-confirmed) -- shadowed the sticky bases as the next cheap check
 
-Owner reproduced the accumulation and reported "Scope always reads ok" on B-417's STRIP row. This is
+Owner reproduced the accumulation and reported "Scope always reads ok" on B-433's STRIP row. This is
 decisive: the gradient strip's actual SDRAM content is provably correct every time, which rules out
-every remaining firmware-side-corruption theory. The two hypotheses B-417 was built to distinguish
+every remaining firmware-side-corruption theory. The two hypotheses B-433 was built to distinguish
 have now collapsed to one -- either the blend hardware's own datapath is wrong (needs JTAG, a new ISSP
 probe + VM Quartus fit), or the blit *targeting* it is silently wrong (a firmware bug, still checkable
 from the host).
@@ -11222,7 +11222,7 @@ and B-414's own H2 gap both turned out to be real instances of), the Scope's own
 execute against the wrong SDRAM region: the trail blit's destination write lands somewhere other than
 the visible strip, and `ui_bg_blend()`'s destination pre-read reads garbage instead of the previous
 frame -- which would look exactly like "the trail never fades" while the source strip stays provably
-correct, matching B-417's result precisely.
+correct, matching B-433's result precisely.
 
 Both fields are write-only in hardware (docs/MMIO_ALLOCATION.md 0xC0/0xC4: "W") -- there's no MMIO read
 to check them directly. `fb_set_bases()` is their only writer, so a firmware shadow (`dbg_base_src`/
@@ -11248,7 +11248,7 @@ blend mechanism reports success every attempt, bases genuinely zero at the momen
 remaining explanation is the blend hardware's own datapath; Option B (a live JTAG read of the blend
 pipeline internals) is next, not more firmware source-reading or diagnostics.
 
-## B-419: Option B built -- a second ISSP instance (`BLND`) probing the B5 blend pipeline itself
+## B-435: Option B built -- a second ISSP instance (`BLND`) probing the B5 blend pipeline itself
 
 New `u_issp_blend` in `mp3_fb.sv` (`instance_id "BLND"`, `sld_instance_index(1)`, same `TAU_ISSP` macro
 and `clk_sdram` domain as the existing `BLIT` instance): 59 bits -- `bl_fg`/`bl_bg`/`bl_r` (the blend
@@ -11275,22 +11275,22 @@ cost "nothing" on its own (B-172: same RAM, corners +1.99/+1.87 ns on an earlier
 but given how thin this specific bundle's margin already is, that needs a real fit to confirm, not an
 assumption. Awaiting a decision on spending the VM time before launching it.
 
-## B-420: a real packaging mistake found and corrected -- A_29/A_30 shipped the WRONG (pre-T2-00) bitstream
+## B-436: a real packaging mistake found and corrected -- A_29/A_30 shipped the WRONG (pre-T2-00) bitstream
 
-Owner asked "can we remove something to make space" for B-419's new probe, worried about the razor-thin
+Owner asked "can we remove something to make space" for B-435's new probe, worried about the razor-thin
 +0.037 ns hold margin B-371's own comment describes. Checking which raw RBF that margin actually
 belongs to surfaced a real mistake made earlier this session: when packaging `alfatreze.TAU_0_6_0_A_29`
-(B-417), `--rbf work/diagnostics/all6-combined/ap_core_s2.rbf` was used -- a stale, PRE-T2-00 fit
+(B-433), `--rbf work/diagnostics/all6-combined/ap_core_s2.rbf` was used -- a stale, PRE-T2-00 fit
 (raw sha256 `3d0303aff...`, reverses to `76ad2819...`) -- instead of `work/diagnostics/glyphbuf-t200/
 ap_core_s2.rbf` (raw `923d854b...`, reverses to `b089b82871d7f441e2d68665f18a9a130691598726cb9cd7a828fd1ee2195a7e`,
 confirmed by direct `shasum` comparison of both raw files' bit-reversal), the fit `alfatreze.TAU_0_6_0_A_17`
 through `A_28` actually shipped (B-400/B-401, hardware-confirmed) and the one B-388/B-398 built T2-00's
-glyphbuf single-write-port fix into. A_29 and A_30 (currently on the card, and what the owner's B-417/
-B-418 STRIP/BASES readings were taken against) have been running the WRONG, inferior, pre-T2-00
-bitstream since B-417 -- the one with the razor-thin +0.037 ns hold, not the T2-00-fixed one with real
+glyphbuf single-write-port fix into. A_29 and A_30 (currently on the card, and what the owner's B-433/
+B-434 STRIP/BASES readings were taken against) have been running the WRONG, inferior, pre-T2-00
+bitstream since B-433 -- the one with the razor-thin +0.037 ns hold, not the T2-00-fixed one with real
 margin (+0.244 ns hold / +0.963 ns setup at the worst corner, B-398).
 
-**Why this doesn't invalidate B-417/B-418's findings:** both diagnostics are pure firmware logic
+**Why this doesn't invalidate B-433/B-434's findings:** both diagnostics are pure firmware logic
 (`dbg_strip_check()` reads real SDRAM content via the mailbox; `dbg_base_src`/`dst` mirror firmware's
 own MMIO writes) with no dependency on which of these two RTL fits is running, and T2-00 was
 specifically designed to be behaviour-identical to the pre-fix glyphbuf ("no FSM/timing/behavioural
@@ -11302,7 +11302,7 @@ matters for margin planning, not correctness of what's already been found.
 the currently-intended bundle -- T2-00 (already unconditionally present in `mp3_fb.sv`, not a macro)
 freed ~6,500 ALMs of register fallback as a side effect of fixing the shared glyphbuf write network, and
 that congestion relief is exactly what also fixed the timing margin (B-398's own read of this). Staging
-the CURRENT tree (T2-00 + B-419's new `BLND` probe) with the SAME qsf bundle reproduces `glyphbuf-t200`,
+the CURRENT tree (T2-00 + B-435's new `BLND` probe) with the SAME qsf bundle reproduces `glyphbuf-t200`,
 not `all6-combined` -- real margin to add the probe into, no feature needs dropping.
 
 New `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_issp_qsf_append.txt` (the same bundle plus
@@ -11310,3 +11310,35 @@ New `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_issp_qsf_append.txt` (the sa
 Launching the fit now. Once confirmed, its RBF also becomes the correct replacement for A_29/A_30's
 wrong bitstream (a non-ISSP variant of the same corrected fit should also be repackaged/installed
 afterward to fully fix the card, separate from the JTAG-only ISSP debug build).
+
+## B-437: `blend-issp-b419` fit closes with real margin -- .sof ready for a live JTAG session
+
+Single-seed fit (seed 2) finished Successful, all four corners positive, real margin (not a bare pass):
+Slow 0C hold +0.310 ns / setup +1.528 ns, Slow 85C hold +0.320 ns / setup +1.442 ns, Fast 0C hold
++0.093 ns / setup +6.045 ns, Fast 85C hold +0.137 ns / setup +5.733 ns. RAM 240/308 (78%), DSP 19/66
+(29%) -- matches `glyphbuf-t200`'s own footprint exactly, confirming B-436's diagnosis: this genuinely
+is the healthy-margin fit, not the stale razor-thin one. RBF collected and hash-verified locally
+(`work/diagnostics/blend-issp-b419/ap_core_s2.rbf`, sha256 `e80d281af8cecba8d99fe03fd395ffa9874268ad483a53e937ba0b1268a86426`).
+The matching `.sof` for a live JTAG session sits on the VM at
+`~/tau-local/blend-issp-b419-s2/src/fpga/output_files/ap_core.sof` (2.45 MB, built 2026-09-30 01:05
+WEST) -- load it per `docs/JTAG_DEBUG_ACCESS.md` section 2's proven `quartus_pgm -m jtag` procedure,
+never the SD card (this bitstream is debug-only, never installed as a real core).
+
+Found and fixed a real audit-trail bug while writing this up: the merge that landed the `cymo` branch's
+own work (commit `1bfc2f9`) silently introduced FOUR duplicate audit IDs -- `cymo`'s own B-417 through
+B-420 entries (Cymo audio engine audit, pitch/speed method, pause shortening, and B-436's own subject:
+a completely unrelated "packaging mistake" entry) collided byte-for-byte with this thread's B-417
+(Option A/STRIP), B-418 (BASES), B-419 (the BLND probe) and B-420 (this fit's own predecessor, the
+packaging-mistake writeup) -- four different topics per number, four different sessions' work stamped
+with the same ID. `tools/check_audit_trail.py` never caught it: its regex only matched the file's older
+`### X-NNN —` heading style, never the `## X-NNN:` style every entry since roughly the B-300s actually
+uses, so it was silently checking zero of the colliding headings. Renumbered this thread's four entries
+to B-433 through B-436 (the `cymo` branch's numbers were left alone, since nothing outside
+`AUDIT_TRAIL.md` itself references them, while this thread's B-417/418/419/420 were referenced by name
+in six other tracked files, now all updated to match: `fw/player.c`, `fw/settingsui.inc`,
+`sim/test_meter_golden.py`, `src/fpga/core/mp3_fb.sv`, `docs/JTAG_DEBUG_ACCESS.md`, and the new qsf
+append file). Fixed the checker itself to match both heading styles, and to correctly NOT flag the
+many legitimate same-ID "addendum"/"relaunch"/"(final)" follow-up headings this file already uses by
+convention (e.g. `B-200 addendum 5`) as false collisions -- only a genuinely different, non-continuation
+heading reusing an ID now fails the check. `make test-host` passes; the check now reports 563 unique
+IDs (up from 381, since it was previously blind to most of the file) with 0 duplicates.

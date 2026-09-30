@@ -1,4 +1,4 @@
-# B-419: tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt verbatim, plus TAU_ISSP=1.
+# B-435: tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt verbatim, plus TAU_ISSP=1.
 #
 # IMPORTANT CORRECTION (found while preparing this file): the bundle's own header comment below
 # describes the ORIGINAL pre-T2-00 fit (`all6-combined`, worst-case hold +0.037 ns, razor-thin).
@@ -15,7 +15,7 @@
 #
 # Diagnostic-only (TAU_ISSP), same convention as tools/blit_g3_issp_qsf_append.txt: never shipped,
 # never installed on the SD card as a real core, loaded via `quartus_pgm` over JTAG for a live debug
-# session only. Adds the B-419 second ISSP instance (`u_issp_blend`, "BLND") probing the B5 blend
+# session only. Adds the B-435 second ISSP instance (`u_issp_blend`, "BLND") probing the B5 blend
 # pipeline (bl_fg/bl_bg/bl_r/bl_i1/blend_active/key_dst_done/bl_v0/bl_v1) alongside the existing
 # "BLIT" dispatch-state instance -- see docs/JTAG_DEBUG_ACCESS.md section 6.2b.
 set_global_assignment -name VERILOG_MACRO "TAU_PHASE2_WINDOW=1"
