@@ -769,15 +769,18 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
                 * blend datapath. */
         q = set_str(q, "A "); q = ui_dec(q, dbg_strip_alpha);
         break;
-    case 27:   /* PIXHIST (B-444): the last 4 raw mailbox reads (both 16-bit halves each -- (x,y) stays
-                * fixed so whichever half is this pixel's own stays the SAME half every read, telling it
-                * apart from its neighbour's unrelated content by which one actually trends) of one fixed
-                * on-screen pixel (the Scope box's own top-left corner), oldest first, then W=the row's
-                * current expected background. JTAG polling proved unable to catch a real decay curve (a
-                * genuinely fading pixel converges within ~4-5 frames, far faster than any opportunistic
-                * poll) -- this instead shows the actual frame-by-frame sequence: one half trending down
-                * toward W each entry means the blend IS decaying correctly; staying near a stuck bright
-                * value means it genuinely isn't. See dbg_pixel_log() in fw/player.c. */
+    case 27:   /* PIXHIST (B-444/B-445): the last 3 raw mailbox reads (both 16-bit halves each -- (x,y)
+                * stays fixed so whichever half is this pixel's own stays the SAME half every read,
+                * telling it apart from its neighbour's unrelated content by which one actually trends)
+                * of one fixed on-screen pixel (the Scope box's own top-left corner), oldest first, then
+                * W=the row's current expected background. JTAG polling proved unable to catch a real
+                * decay curve (a genuinely fading pixel converges within ~4-5 frames, far faster than any
+                * opportunistic poll) -- this instead shows the actual frame-by-frame sequence: one half
+                * trending down toward W each entry means the blend IS decaying correctly; staying near a
+                * stuck bright value means it genuinely isn't. 3 entries, not 4 -- B-445: 4 overflowed
+                * set_draw_ro()'s fixed char v[40] row buffer and crashed hardware on real Pocket
+                * silicon the instant this row scrolled into view; always check the byte count against
+                * that buffer before adding to any row here. See dbg_pixel_log() in fw/player.c. */
         for (uint32_t k = 0; k < DBG_PIXHIST_N; k++) {
             uint32_t idx = (dbg_pixhist_pos + k) % DBG_PIXHIST_N;   /* oldest first */
             uint32_t v = dbg_pixhist[idx];
@@ -1391,6 +1394,17 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
      * ran this first) -- the table lookup preserves that by construction, still ahead of KEY_START. */
     { const set_spg_t *spg = set_spg_find(set_page); if (spg) return spg->input(edge); }
     if (edge & KEY_START) { set_close(); return 1; }
+    /* B-073/B-446: Up/Down auto-repeat while held, the same shape as the playlist and library lists (a
+     * step on the edge, a hold delay, then steady) -- a menu used to need one tap per row, which read as
+     * inconsistent next to the lists. Computed here, before EVERY page's own Up/Down handling (including
+     * the read-only Info/Stress-Status scroll below, which used to `return` before this ever ran --
+     * owner-reported: "let me know if you want continuous scroll while holding" -- so it never got the
+     * repeat treatment B-073 gave every other list). */
+    static uint32_t set_rep_at;
+    if (edge & (KEY_UP | KEY_DOWN)) set_rep_at = cycles() + CLK_HZ / 1000u * PL_HOLD_MS;
+    uint32_t rep = (keys & (KEY_UP | KEY_DOWN)) && (int32_t)(cycles() - set_rep_at) >= 0;
+    if (rep) { set_rep_at = cycles() + CLK_HZ / 16u; edge |= keys & (KEY_UP | KEY_DOWN); }
+
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
 #if TAU_DIAGNOSTIC
         if (set_page == SET_INFO_PG && info_qr_up) {     /* QR screen: anything closes it */
@@ -1404,19 +1418,13 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
 #endif
         const uint32_t maxtop = (n > SET_RO_VIS) ? n - SET_RO_VIS : 0u;
 #if TAU_DIAGNOSTIC
-        if (set_page == SET_INFO_PG && (edge & KEY_A)) { info_build_qr(); info_qr_up = 1u; set_dirty = 1u; return 1; }
+        if (set_page == SET_INFO_PG && (edge & KEY_A) && !rep) { info_build_qr(); info_qr_up = 1u; set_dirty = 1u; return 1; }
 #endif
         if ((edge & KEY_UP)   && set_ro_top > 0u)      { set_ro_top--; set_dirty = 1u; }
         if ((edge & KEY_DOWN) && set_ro_top < maxtop)  { set_ro_top++; set_dirty = 1u; }
-        if (edge & (KEY_B | KEY_LEFT)) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info -> SETTINGS */
+        if ((edge & (KEY_B | KEY_LEFT)) && !rep) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info -> SETTINGS */
         return 1;
     }
-    /* B-073: Up/Down auto-repeat while held, the same shape as the playlist and library lists (a step on the edge, a
-     * hold delay, then steady) -- a menu used to need one tap per row, which read as inconsistent next to the lists. */
-    static uint32_t set_rep_at;
-    if (edge & (KEY_UP | KEY_DOWN)) set_rep_at = cycles() + CLK_HZ / 1000u * PL_HOLD_MS;
-    uint32_t rep = (keys & (KEY_UP | KEY_DOWN)) && (int32_t)(cycles() - set_rep_at) >= 0;
-    if (rep) { set_rep_at = cycles() + CLK_HZ / 16u; edge |= keys & (KEY_UP | KEY_DOWN); }
 
     if (set_page >= SET_MENUS) {                  /* a choice list */
         uint32_t c = set_page - SET_MENUS, n = set_ch_count(c);
