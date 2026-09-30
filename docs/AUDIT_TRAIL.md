@@ -12324,3 +12324,31 @@ and `SHA256SUMS.txt`: https://github.com/alfatreze/Tau-Alpha/releases/tag/v0.6.0
 full-width meter, EQ-preset pill) and no longer matches the shipped UI -- flagged to the owner rather than
 replaced with a fabricated image; a real Pocket screenshot is needed. `mclk-b457` (B-460, above) is
 independent and does not block this release.
+
+## B-462: Cymo tagged v0.7.0-dev.1; B-460's PLL failure root-caused to a frequency-planning conflict
+
+**Tagging.** Owner: tag all the Cymo audio work as the next milestone (0.7). Created and pushed annotated
+tag `v0.7.0-dev.1` at current `main` HEAD (the merged `cymo` branch research/tooling, B-417 through B-436,
+plus the MCLK PLL RTL from B-457/B-460) -- a checkpoint marker, not a buildable release (no GitHub release
+published against it, no zips). `docs/ROADMAP_PUBLIC.md` updated to name v0.7.0 as Cymo's target.
+
+**RTL review of B-460's failure.** Read `src/fpga/core/mf_pllbase/mf_pllbase_0002.v` directly rather than
+guess from the error text. All 5 outputs of this `altera_pll` instance share one VCO: the existing 4
+(clk_sys 66.667/60 MHz via `TAU_CLK66`, clk_vid 12.000 MHz x2, clk_sdram 100.000 MHz) all integer-divide
+from a 600 MHz VCO (C=9, 50, 50, 6). B-457's new 5th output, 12.288 MHz for the I2S MCLK, does **not**:
+600/12.288 = 48.828125, not an integer. Solved for the smallest VCO frequency that integer-divides into
+*all five* targets simultaneously: 38,400 MHz -- physically impossible for a Cyclone V fPLL (VCO range is
+roughly 600 MHz-1600 MHz). **There is no VCO frequency that produces both 12.288 MHz and the core's other
+four clocks from one shared PLL with legal integer counters.** This is a hard frequency-planning conflict,
+not a parameter-formatting or timing-margin issue, and Quartus's "illegal value" error is correct, not a
+bug to work around.
+
+**Consequence: B-457's own stated design goal ("keeps this addition free of any new PLL resource") is not
+achievable.** The fix is a second, dedicated `altera_pll` instance taking `clk_74a` (74.25 MHz) as its
+reference and producing only the 12.288 MHz MCLK, independent of the shared VCO -- the same
+fractional-N/sigma-delta synthesis technique B-457 already used, just in its own PLL rather than a shared
+one. Only one `altera_pll` instance exists anywhere in the core's RTL today (`mf_pllbase_0002.v`); whether
+a second PLL resource is actually available on this device/pin-lock region for the core (vs. already
+claimed by the APF framework top-level) is unverified and the next thing to check, cheaply, via a
+synthesis-only `quartus_map` run before spending a real fit. Not yet built -- reported per the task's own
+instruction, awaiting a decision on whether to proceed.
