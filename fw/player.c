@@ -135,6 +135,10 @@
 #define R_LPC_RESIDUAL  0x80000134u   /* write: next residual, starts one reconstruction */
 #define R_LPC_SAMPLE    0x80000138u   /* read: the reconstructed sample -- this read is itself the ack that clears STATUS bit 2 */
 #define R_LPC_STATUS    0x8000013Cu   /* read: bit 0 = built in, bit 1 = busy, bit 2 = done */
+#define R_I2S_DIAG_MINMAX 0x80000140u /* B-467: [15:0] min / [31:16] max interval ever (clk_sys cycles) between real I2S DAC-domain sample updates, free-running since reset */
+#define R_I2S_DIAG_CNT    0x80000144u /* count of update events since reset */
+#define R_I2S_DIAG_SUM    0x80000148u /* sum of measured intervals since reset (average via delta / delta-count) */
+#define R_I2S_DIAG_ST     0x8000014Cu /* bit 0 = built in (I2S_DIAG_ENABLE) */
 /* Redirect fw/flac.c's LPC reconstruction to the hardware unit (docs/research/FLAC_LPC_KERNEL_DESIGN.md).
  * Off by default -- byte-identical to the unmodified decoder; no build target defines this yet (no
  * Quartus fit or hardware test exists for TAU_LPC yet, section 7 item 5). fw/flac_lpc_hw.inc implements

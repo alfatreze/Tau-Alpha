@@ -221,6 +221,14 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `define TAU_SDR_BUSY_EN 0
 `endif
 
+// B-467 (Cymo 44.1 kHz investigation): the I2S clk_audio->clk_mclk CDC jitter probe (sound_i2s.v).
+// Independent of every other macro here -- it only observes sound_i2s's own datapath.
+`ifdef TAU_I2S_DIAG
+`define TAU_I2S_DIAG_EN 1
+`else
+`define TAU_I2S_DIAG_EN 0
+`endif
+
 `ifdef TAU_SPEC
 `define TAU_SPEC_EN 1
 `else
@@ -297,6 +305,11 @@ wire [31:0] soc_xm_rdata;
 // it. Counts in clk_sdram, a domain the MMIO decoder never sees directly, so it crosses via
 // tau_cdc_gray_ctr (Gray-coded, matching mp3_fb.sv's own FIFO-pointer CDC) into clk_sys.
 wire [31:0] soc_sdram_busy_rd;
+// B-467 (Cymo 44.1 kHz investigation): sound_i2s.v's own clk_mclk-domain toggle, declared here per
+// this file's own convention of declaring soc_* wires before their mp3_soc use (sound_i2s itself is
+// instantiated later, in section 7). Synchronised into clk_sys and turned into a jitter measurement
+// entirely inside mp3_soc.v -- a single bit needs no CDC handling here.
+wire soc_i2s_diag_toggle;
 `ifdef TAU_SDRAM_BUSY
 tau_cdc_gray_ctr #(.WIDTH(32)) u_sdram_busy_ctr (
     .clk_src(clk_sdram), .rst_src(~pll_locked), .inc(~arb_p0_available),
@@ -335,9 +348,9 @@ assign soc_vblank_rd = 17'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN)) u_soc (
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN)) u_soc (
 `else
-mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN)) u_soc (
+mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -453,6 +466,7 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
     .psram_guard (soc_psram_guard),
 
     .sdram_busy_rd (soc_sdram_busy_rd),
+    .i2s_diag_toggle (soc_i2s_diag_toggle),
     .vblank_rd     (soc_vblank_rd),
     .scan_rd       (soc_scan_rd),
 
@@ -902,7 +916,8 @@ assign video_hs           = vid_hs_w;
 sound_i2s #(.CHANNEL_WIDTH(16), .SIGNED_INPUT(1)) u_sound_i2s (
     .clk_mclk (clk_audio_mclk), .clk_audio (clk_sys),
     .audio_l (soc_audio_l), .audio_r (soc_audio_r),
-    .audio_mclk (audio_mclk), .audio_dac (audio_dac), .audio_lrck (audio_lrck)
+    .audio_mclk (audio_mclk), .audio_dac (audio_dac), .audio_lrck (audio_lrck),
+    .diag_toggle (soc_i2s_diag_toggle)
 );
 
 // -- 8. Persistent settings, via interact.json -----------------------------------

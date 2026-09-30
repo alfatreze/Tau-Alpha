@@ -561,7 +561,16 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 29u   /* B-370: +1 for FLAC LPC.
+#define SET_INFO_ROWS 30u   /* B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+                              * update interval (clk_sys cycles) since reset, measured via a single-bit
+                              * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
+                              * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
+                              * after the MCLK PLL fix (B-457/B-460/B-463) measured no SINAD improvement on
+                              * real hardware (B-467): this checks whether the CDC itself, the one remaining
+                              * unverified layer, behaves as cleanly on real silicon as it does in
+                              * simulation (ideal: min/max within 1-2 cycles of CLK_HZ/44100). 0 on any
+                              * bitstream without TAU_I2S_DIAG. See sound_i2s.v/mp3_soc.v.
+                              * B-370: +1 for FLAC LPC.
                               * B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
@@ -614,6 +623,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "ALPHA"
     , "PIXHIST"
     , "FLAC LPC"
+    , "I2S JITTER"
     };
 static uint32_t set_info_at;
 
@@ -789,7 +799,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         }
         q = set_str(q, "W"); q = ui_hex2(q, (uint8_t)(dbg_pixhist_want >> 8)); q = ui_hex2(q, (uint8_t)dbg_pixhist_want);
         break;
-    default:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
+    case 28:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
 #if TAU_LPC_FW
         if (!hw_lpc) { q = set_str(q, "NO UNIT"); break; }
         q = set_str(q, tau_lpc_hw_enable ? "HW " : "SW ");
@@ -799,6 +809,16 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "OFF");
 #endif
         break;
+    default: {   /* I2S JITTER (B-467): min/max/avg interval, in clk_sys cycles, between real I2S DAC-domain
+                  * sample updates since reset -- see this row's own SET_INFO_ROWS comment above. */
+        if (!(REG(R_I2S_DIAG_ST) & 1u)) { q = set_str(q, "NO UNIT"); break; }
+        uint32_t mm = REG(R_I2S_DIAG_MINMAX), cnt = REG(R_I2S_DIAG_CNT), sum = REG(R_I2S_DIAG_SUM);
+        q = ui_dec(q, mm & 0xFFFFu); q = set_str(q, "/");
+        q = ui_dec(q, mm >> 16); q = set_str(q, " AVG ");
+        q = ui_dec(q, cnt ? sum / cnt : 0u); q = set_str(q, " N");
+        q = ui_dec(q, cnt);
+        break;
+    }
     }
     *q = 0;
 }

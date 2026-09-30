@@ -342,7 +342,7 @@ test-rtl-psram-probe: $(RTL_BUILD_DIR)/tb_tau_psram_probe.vvp
 	$(IVERILOG) -g2012 -Ptb_tau_psram_probe.WD=8 -o $(RTL_BUILD_DIR)/tb_tau_psram_probe_wd8.vvp sim/tb_tau_psram_probe.v src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
 	$(VVP) $(RTL_BUILD_DIR)/tb_tau_psram_probe_wd8.vvp | tail -3 | tee $(RTL_BUILD_DIR)/psram_probe_wd8.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_probe_wd8.log
 
-PSRAM_FW_SRC = sim/tb_psram_fw.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
+PSRAM_FW_SRC = sim/tb_psram_fw.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
 
 $(RTL_BUILD_DIR)/mp3_soc_sim.v: src/fpga/core/mp3_soc.v sim/make_soc_sim.py | $(RTL_BUILD_DIR)
 	$(PYTHON) sim/make_soc_sim.py $< $@
@@ -361,7 +361,7 @@ test-rtl-psram-fw: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 
 # Phase G2: real CPU executing code from PSRAM through the instruction alias, sharing the controller with the data window.
 # Also builds without the feature (the firmware must then report NOFEATURE, proving the netlist is inert).
-PSRAM_IFETCH_SRC = sim/tb_psram_ifetch.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
+PSRAM_IFETCH_SRC = sim/tb_psram_ifetch.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
 test-rtl-psram-ifetch: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_ifetch/main.c -o $(RTL_BUILD_DIR)/fw_ifetch.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_ifetch.elf $(RTL_BUILD_DIR)/fw_ifetch.bin
