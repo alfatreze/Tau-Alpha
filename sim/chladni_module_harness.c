@@ -13,6 +13,7 @@
 #define UI_WAVE_Y 150u
 #define UI_WAVE_H 110u
 #define UI_OVERLAY_UP 0
+#define FB_HELD() 0   /* B-453: chladni_tick_box() now calls FB_HELD() instead of raw UI_OVERLAY_UP */
 #define R_SDR_ADDR   0x80000074u
 #define R_SDR_DATA   0x80000078u
 #define R_SDR_CTRL   0x8000007Cu

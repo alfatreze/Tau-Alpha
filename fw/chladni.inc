@@ -170,7 +170,15 @@ CHL_COLD static int chladni_tick_box(const mtr_in_t *in)
 {
     const uint32_t x0 = in->x, y0 = in->y, w = in->w, h = in->h, force = in->force;
     const uint16_t ground = in->bg;
-    if (chl_ok == 2u || UI_OVERLAY_UP) return 0;
+    /* B-453 (owner-reported: after B-452's meters_publish() fix, Bars/Scope/VU Master animate correctly
+     * in the Configure preview, but Chladni STILL doesn't render at all): this raw `UI_OVERLAY_UP` check
+     * is stricter than every other draw primitive's `FB_HELD()` and, unlike them, never defers to the
+     * caller's `ov_draw` signal -- so `wvcfg_preview_tick()`'s own `ov_draw=1` bracket (the exact
+     * mechanism B-415 already relies on to let Bars/Scope/VU Master draw here) never reaches this check
+     * at all. The comment two lines above this function ("Callers decide WHEN it is safe to draw...")
+     * already states the intended contract; this line just never implemented it. `FB_HELD()` is the
+     * established macro for exactly this test (`(UI_OVERLAY_UP || ui_fullscreen) && !ov_draw`). */
+    if (chl_ok == 2u || FB_HELD()) return 0;
     chl_sync();
     const uint32_t now = chl_now_ms();
     if (!force && (uint32_t)(now - chl_last_draw) < CHL_PERIOD_MS) return 0;
