@@ -121,6 +121,7 @@ wire [8:0]  soc_fb_cmd_w, soc_fb_cmd_h;
 wire [15:0] soc_fb_cmd_fg, soc_fb_cmd_bg;
 wire [6:0]  soc_fb_cmd_glyph;
 wire [1:0]  soc_fb_cmd_sx, soc_fb_cmd_sy;
+wire [1:0]  soc_fb_cmd_glyph_hi;   // B12 (B-454): BAR's lit-row count, high 2 bits
 wire        soc_fb_cmd_full;
 wire        soc_text_light, fb_text_light;   // theme/gamma: text weight table select, clk_sys -> clk_sdram
 // Phase F B1 (section 9): sticky blit addressing state, mp3_soc -> mp3_fb.
@@ -379,6 +380,7 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
     .fb_cmd_glyph (soc_fb_cmd_glyph),
     .fb_cmd_sx    (soc_fb_cmd_sx),
     .fb_cmd_sy    (soc_fb_cmd_sy),
+    .fb_cmd_glyph_hi (soc_fb_cmd_glyph_hi),
     .fb_cmd_full  (soc_fb_cmd_full),
 
     .dt_addr  (soc_dt_addr),
@@ -817,6 +819,7 @@ mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN)) u_f
     .cmd_glyph (soc_fb_cmd_glyph),
     .cmd_sx    (soc_fb_cmd_sx),
     .cmd_sy    (soc_fb_cmd_sy),
+    .cmd_glyph_hi (soc_fb_cmd_glyph_hi),
     .cmd_full  (soc_fb_cmd_full),
     .text_light(fb_text_light),
 

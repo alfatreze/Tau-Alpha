@@ -161,6 +161,7 @@ module mp3_soc #(
     output reg  [6:0]   fb_cmd_glyph,
     output reg  [1:0]   fb_cmd_sx,
     output reg  [1:0]   fb_cmd_sy,
+    output reg  [1:0]   fb_cmd_glyph_hi,   // B12 (B-454): BAR lit-count high bits, R_FB_GO bits 16:15
     input  wire         fb_cmd_full,
 
     // core_bridge_cmd's datatable: a dual-port BRAM whose OTHER port APF can
@@ -1065,7 +1066,7 @@ module mp3_soc #(
             fb_cmd_op <= 3'd0; fb_cmd_addr <= 19'd0;
             fb_cmd_w  <= 9'd0; fb_cmd_h    <= 9'd0;
             fb_cmd_fg <= 16'd0; fb_cmd_bg  <= 16'd0;
-            fb_cmd_glyph <= 7'd0; fb_cmd_sx <= 2'd0; fb_cmd_sy <= 2'd0;
+            fb_cmd_glyph <= 7'd0; fb_cmd_sx <= 2'd0; fb_cmd_sy <= 2'd0; fb_cmd_glyph_hi <= 2'd0;
             // Default to 48 kHz at 50 MHz so a plain sample write still makes
             // sound before firmware programs the real rate.
 `ifdef TAU_CLK66
@@ -1121,6 +1122,7 @@ module mp3_soc #(
                                  fb_cmd_glyph <= dDAT_MOSI[9:3];
                                  fb_cmd_sx    <= dDAT_MOSI[11:10];
                                  fb_cmd_sy    <= dDAT_MOSI[13:12];
+                                 fb_cmd_glyph_hi <= dDAT_MOSI[16:15];   // B12 (B-454): BAR lit-count high bits; bits 15:16 were free
                                  fb_cmd_push  <= 1'b1; end
                 R_SPEC_IDX: spec_idx <= dDAT_MOSI[3:0];
                 R_WAVE_CTL: begin wave_ctl_d <= dDAT_MOSI[11:0]; wave_ctl_we <= 1'b1; end

@@ -643,20 +643,41 @@ static void fb_set_bases(uint32_t src_base, uint32_t dst_base)
  * already been truncated to 7 bits below -- `lit & 0x7Fu` WRAPS modulo 128, it does not saturate, so
  * any caller passing lit >= 128 (a real case: fullscreen visualisers' bars are up to FS_FIG_H = 323
  * rows tall) got a near-empty bar instead of a clamped-tall one every time the true value crossed a
- * multiple of 128 -- the reported "some bars flicker, particularly at fullscreen." Widening the RTL
- * field is the real fix (tracked as a known Talos correctness item) but needs its own RTL/sim/fit
- * cycle; clamping here first is a safe, immediate mitigation: a bar this tall now visibly stops
- * growing at 127 lit rows instead of intermittently collapsing to near-zero. */
+ * multiple of 128 -- the reported "some bars flicker, particularly at fullscreen." Firmware clamped to
+ * 127 as an immediate mitigation at the time (a bar this tall visibly stopped growing there instead of
+ * intermittently collapsing), but that still left tall bars capped short of their real height.
+ *
+ * B12 (B-454): the real fix -- the field itself widened 7->9 bits in RTL (cmd_glyph_hi, a NEW field
+ * claiming 2 previously-unused FIFO padding bits and 2 previously-unused R_FB_GO bits, src/fpga/core/
+ * mp3_fb.sv/mp3_soc.v), enough for FS_FIG_H=323. `bar_hi_ready`/`BAR_WIDE_READY()`/
+ * `bar_hi_probe_ensure()` are declared HERE, forward of their real definitions in fw/blit_probe.inc
+ * (#included far later in this file), so fb_bar() -- itself defined long before that #include -- can
+ * still probe on first actual need, matching fb_round_rect_on()'s own "lazy, on first actual need,
+ * never at boot" convention (B-162) for the identical reason: no in-band way to tell an old bitstream
+ * (cmd_glyph_hi's port simply does not exist there) from a new one except by drawing something and
+ * reading it back. Old/unproven hardware keeps the exact 127-row clamp it always had -- a graceful,
+ * safe degradation, never a regression. */
+static uint8_t bar_hi_ready;
+static void bar_hi_probe_ensure(void);
+#define BAR_WIDE_READY() (bar_hi_ready != 0u)
+
 static void fb_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit,
                    uint16_t fg, uint16_t bg)
 {
     if (!w || !h || FB_HELD()) return;
-    if (lit > 127u) lit = 127u;
+    if (lit > 127u) {
+        bar_hi_probe_ensure();
+        if (!BAR_WIDE_READY()) lit = 127u;        /* old/unproven hardware: the original safe clamp */
+        else if (lit > 511u) lit = 511u;          /* the widened field's own ceiling */
+    }
     fb_wait();
     REG(R_FB_ADDR) = y * FB_STRIDE + x;
     REG(R_FB_SIZE) = (h << 9) | w;
     fb_set_color(fg, bg);
-    REG(R_FB_GO)   = FB_OP_BAR | ((lit & 0x7Fu) << 3);
+    /* B12 (B-454): high 2 bits into cmd_glyph_hi (R_FB_GO bits 16:15), low 7 into cmd_glyph as always
+     * -- on old hardware bits 16:15 simply have nowhere to land (harmless), which is exactly why the
+     * clamp above never lets `lit` exceed 127 unless BAR_WIDE_READY() already proved they do. */
+    REG(R_FB_GO)   = FB_OP_BAR | ((lit & 0x7Fu) << 3) | (((lit >> 7) & 0x3u) << 15);
 }
 
 /* OP_RRECT (B11, Helios/Talos H1): (x, y) top-left, w x h the full rect,

@@ -108,6 +108,12 @@ module mp3_fb #(
     // silently does nothing, not just that an RRECT with a real table still draws a fill. Never
     // set outside that test.
     parameter BUG_IGNORE_RC_CUT = 0,
+    // Mutation-test hook only (-PBUG_IGNORE_BAR_HI=1, make test-rtl-fb-mutation): 1 forces
+    // pre_bar_lit_raw's high 2 bits (cmd_glyph_hi) to always read 0, degenerating BAR's lit-row
+    // count back to its old 7-bit-only behaviour -- proves the test actually exercises a lit count
+    // above 127, not just that BAR with a small lit count still draws correctly. Never set outside
+    // that test.
+    parameter BUG_IGNORE_BAR_HI = 0,
     // Helios H2 (docs/HELIOS_SPEC.md section 5, B-340): double buffering via base-pointer swap.
     // Inert (dbuf_addr() is a no-op, byte-identical to today) when 0.
     parameter DBUF_ENABLE = 0
@@ -125,9 +131,19 @@ module mp3_fb #(
     input  wire [8:0]  cmd_h,       // RECT: height (rows)
     input  wire [15:0] cmd_fg,      // RGB565 fill / glyph foreground
     input  wire [15:0] cmd_bg,      // RGB565 glyph background
-    input  wire [6:0]  cmd_glyph,   // CHAR: ASCII code
+    input  wire [6:0]  cmd_glyph,   // CHAR: ASCII code; BAR: lit-row count, LOW 7 bits (see cmd_glyph_hi)
     input  wire [1:0]  cmd_sx,      // CHAR: h scale 0=1x 1=1.5x 2=2x 3=3x
     input  wire [1:0]  cmd_sy,      // CHAR: v scale, same encoding
+    // B12 (docs/AUDIT_TRAIL.md B-454): BAR's lit-row count widened 7->9 bits (max 127 -> 511), enough
+    // for the tallest fullscreen bar (FS_FIG_H=323). A NEW, separate field rather than widening
+    // cmd_glyph itself -- CHAR (ASCII, 7 bits is exactly right) and OP_RRECT (radius, clamped to 15)
+    // both keep reading cmd_glyph's original 7-bit [14:8] slice completely unchanged; only BAR's own
+    // lit-count math additionally consults this. Claims 2 of the FIFO word's 4 remaining padding bits
+    // (CW stays 88) and 2 of R_FB_GO's genuinely-unused bits (15:16) at the mp3_soc.v boundary -- see
+    // that file's own comment. On any bitstream without this port at all (old RTL), the write simply
+    // has nowhere to land; BAR_WIDE_READY() (fw/blit_probe.inc) is the runtime test that tells firmware
+    // which behaviour it is actually talking to, so old and new bitstreams both behave safely.
+    input  wire [1:0]  cmd_glyph_hi,
     output wire        cmd_full,
     // Theme step 0b/gamma (docs/THEME_SPEC.md, tools/gen_text_gamma.py): 0 = the text weight table
     // fitted for light text on a dark ramp (cov_weight), 1 = the table fitted for dark text on a
@@ -446,9 +462,12 @@ module mp3_fb #(
             // B11: cmd_op widened 3->4 bits, taking one of the FIFO word's own 5 padding bits
             // (now 4) -- every other field shifts down by exactly 1 bit, purely mechanical, no
             // width changes to any of them.
+            // B12 (B-454): cmd_glyph_hi (2 bits) claims 2 of those 4 remaining padding bits (now 2)
+            // -- every field before it (op/addr/fg/bg/w/h/glyph/sx/sy) keeps its EXACT existing bit
+            // position; only the tail padding shrinks 4->2 to make room.
             cmd_mem[wr_ptr[FAW-1:0]] <= {cmd_op, cmd_addr, cmd_fg, cmd_bg,
                                          cmd_w, cmd_h, cmd_glyph,
-                                         cmd_sx, cmd_sy, 4'd0};
+                                         cmd_sx, cmd_sy, cmd_glyph_hi, 2'd0};
             wr_ptr   <= wr_ptr + 1'b1;
             wr_ptr_g <= b2g(wr_ptr + 1'b1);
         end
@@ -484,7 +503,10 @@ module mp3_fb #(
     // compare/subtract chain. Same function of the same source data, so BAR
     // command behaviour is bit-for-bit unchanged -- only the pipeline stage
     // the arithmetic sits in moved.
-    wire [8:0] pre_bar_lit_raw = {2'd0, cmd_mem_rd[14:8]};   // cmd_glyph field
+    // B12 (B-454): the 2 new high bits (cmd_glyph_hi, packed at cmd_mem_rd[3:2]) concatenated with
+    // cmd_glyph's original 7 low bits ([14:8]) -- BAR-only; CHAR's pre_glyph and RRECT's pre_rrect_r
+    // below still read [14:8] alone, unaffected, since 7 bits is exactly right for both of them.
+    wire [8:0] pre_bar_lit_raw = {BUG_IGNORE_BAR_HI ? 2'd0 : cmd_mem_rd[3:2], cmd_mem_rd[14:8]};   // cmd_glyph_hi : cmd_glyph
     wire [8:0] pre_bar_h       = cmd_mem_rd[23:15];          // cmd_h field
     wire [8:0] pre_bar_lit     = (pre_bar_lit_raw > pre_bar_h) ? pre_bar_h : pre_bar_lit_raw;
     reg  [8:0] q_bar_lit, q_bar_unlit;

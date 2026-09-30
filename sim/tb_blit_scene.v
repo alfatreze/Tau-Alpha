@@ -54,6 +54,7 @@ module tb_blit_scene;
     reg  [15:0] cmd_fg = 16'h0000, cmd_bg = 16'h0000;
     reg  [6:0]  cmd_glyph = 0;
     reg  [1:0]  cmd_sx = 0, cmd_sy = 0;
+    reg  [1:0]  cmd_glyph_hi = 0;   // B12 (B-454): BAR lit-count high bits, left 0 (this scene's BAR command fits in 7 bits)
     wire        cmd_full;
 
     reg  [24:0] blt_src_base = 25'd0, blt_dst_base = 25'd0;
@@ -89,7 +90,7 @@ module tb_blit_scene;
         .reset(reset), .clk_sys(clk_sys), .clk_sdram(clk_sdram), .clk_vid(clk_vid),
         .cmd_push(cmd_push), .cmd_op(cmd_op), .cmd_addr(cmd_addr),
         .cmd_w(cmd_w), .cmd_h(cmd_h), .cmd_fg(cmd_fg), .cmd_bg(cmd_bg),
-        .cmd_glyph(cmd_glyph), .cmd_sx(cmd_sx), .cmd_sy(cmd_sy), .cmd_full(cmd_full),
+        .cmd_glyph(cmd_glyph), .cmd_sx(cmd_sx), .cmd_sy(cmd_sy), .cmd_glyph_hi(cmd_glyph_hi), .cmd_full(cmd_full),
         .blt_src_base(blt_src_base), .blt_src_stride(blt_src_stride),
         .blt_dst_base(blt_dst_base), .blt_dst_stride(blt_dst_stride),
         .blt_key_en(blt_key_en), .blt_key(blt_key),
