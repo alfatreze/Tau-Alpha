@@ -11665,3 +11665,47 @@ all four corners positive, real margin: Slow 0C hold +0.310 ns / setup +1.640 ns
 live JTAG session: comparing the probed `blt_blend_alpha` against firmware's own shadow
 (`dbg_strip_alpha`, B-440) for the same moment is the direct test of whether the sticky field's hardware
 storage is the root cause of the Scope-trail bug.
+
+## B-444: live JTAG read of `blt_blend_alpha` matches firmware exactly -- and a real methodology dead end found
+
+Loaded the extended `blend-issp-b441` `.sof` via JTAG, owner reproduced the accumulation with trail at
+its **default (40%)**. `BLND` reads **ALPHA=153, MODE=0** on every live sample -- an exact match for
+firmware's own value at 40% trail (B-441), confirmed by the owner's own trail setting this time rather
+than assumed. **This rules out the sticky-field hardware-latch theory too**: the register genuinely
+holds what firmware wrote. Every architectural/register check this investigation has built (B-433
+through B-444) now reads correct: blend execution succeeds, strip content correct, bases zero, buffer
+selection matches, and now the alpha register itself matches firmware's shadow exactly.
+
+**Worked out why JTAG polling can never resolve this further.** Every live `fg`/`bg` pair caught across
+this whole investigation differs by at most ~1-2 LSB per channel. Checked the arithmetic directly:
+`blend_ch()`'s `>>8` approximation of `/255` means a source/destination pair differing by exactly 1 LSB
+in a channel can **never** show any blend effect for **any** alpha 0-255 (with `f=b+1`,
+`dsp=f*alpha+b*(256-alpha)=b*256+alpha`, which never reaches `(b+1)*256` for `alpha<256` -- a genuine,
+documented property of this hardware's approximation, not a bug). Separately, a genuinely fading pixel
+at alpha=153 converges to within 1 LSB of its background in about 4-5 frames by hand calculation.
+Opportunistic JTAG polling is far slower and completely unsynchronized to frame boundaries, so **every
+live sample was always going to land on an already-converged, blend-indistinguishable pixel regardless
+of whether the hardware is healthy or broken** -- this diagnostic technique has reached a real, provable
+dead end for this specific question, not just bad luck.
+
+**Built the decisive follow-up instead: a firmware-only frame-by-frame decay log, no JTAG needed.** New
+`dbg_pixel_log()` (`fw/player.c`) reads back one FIXED on-screen pixel (the Scope box's own top-left
+corner) via the existing `blend_mb_read()` mailbox once per genuinely-attempted blend, into a 4-entry
+ring buffer (`dbg_pixhist[]`, both 16-bit mailbox halves stored raw since `dbg_strip_check()`'s own
+"whichever half matches" heuristic only works for a known-constant value, not a changing one -- (x,y)
+stays fixed so whichever half is this pixel's own real content stays the SAME half every read, visible
+by which one actually trends). Surfaced on a new "PIXHIST" Info row (`fw/settingsui.inc`,
+`SET_INFO_ROWS` 28->29, case 27): the last 4 raw reads (both halves each) plus the row's current
+expected background, oldest first. This gives an actual frame-by-frame decay trace instead of a single
+badly-timed snapshot -- a half trending down toward the background value each entry proves the blend
+genuinely decays; staying near a stuck bright value proves it genuinely doesn't.
+
+Found and fixed a real self-inflicted bug while building this: a second comment edit appended text
+after the first comment block's own closing `*/`, leaving five lines of stray prose outside any comment
+-- caught immediately by the real firmware build (not `make test-host`, which only exercises the
+host-side harness), fixed by merging into one continuous comment. A second host-harness stub
+(`dbg_pixel_log()` in `sim/test_meter_golden.py`) was also needed, same class as `dbg_strip_check()`'s
+own existing stub. Verified: `make test-host` clean (0 failures), heap-gap/cold-call checks pass with
+real margin, and this time the REAL firmware build (`player-library-diagnostic-profile`, 6,768 B heap
+gap vs. 4,096 B floor) also confirmed clean -- catching the comment bug is exactly why that extra check
+matters. Same bitstream as A_31-A_33 (`glyphbuf-t200`, RBF `b089b828...`).
