@@ -27,11 +27,11 @@ def add_library_slot(core_dir: Path) -> None:
         # Idempotent: the source this was copied from (e.g. dist/, once the release itself carries the library)
         # may already declare it identically -- only a genuinely different slot 5 is a real conflict.
         expect = {"name": "Media library index", "id": 5, "required": False, "deferload": True,
-                  "parameters": "0x1", "filename": "tau-library.tdb"}
+                  "parameters": "0x0", "filename": "tau-library.tdb"}
         assert existing == expect, f"data slot 5 already declared, and differently: {existing}"
     else:
         slots.append({"name": "Media library index", "id": 5, "required": False, "deferload": True,
-                      "parameters": "0x1", "filename": "tau-library.tdb"})
+                      "parameters": "0x0", "filename": "tau-library.tdb"})
         save(core_dir / "data.json", dj)
 
     ij = json.loads((core_dir / "interact.json").read_text())
@@ -54,11 +54,11 @@ def add_cold_slot(core_dir: Path) -> None:
     existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 6), None)
     if existing is not None:
         expect = {"name": "Cold image", "id": 6, "required": False, "deferload": True,
-                  "parameters": "0x1", "filename": "tau-cold.bin"}
+                  "parameters": "0x0", "filename": "tau-cold.bin"}
         assert existing == expect, f"data slot 6 already declared, and differently: {existing}"
         return
     dj["data"]["data_slots"].append({"name": "Cold image", "id": 6, "required": False, "deferload": True,
-                                      "parameters": "0x1", "filename": "tau-cold.bin"})
+                                      "parameters": "0x0", "filename": "tau-cold.bin"})
     save(core_dir / "data.json", dj)
 
 
@@ -67,7 +67,7 @@ def add_cover_slot(core_dir: Path) -> None:
     (the same 0192 mechanism as the playlist slot); no filename, so nothing is loaded at boot. Only cores built with the
     ART_TIMG firmware need it."""
     dj = json.loads((core_dir / "data.json").read_text())
-    expect = {"name": "Cover image", "id": 7, "required": False, "deferload": True, "parameters": "0x1", "extensions": ["timg"]}
+    expect = {"name": "Cover image", "id": 7, "required": False, "deferload": True, "parameters": "0x0", "extensions": ["timg"]}
     existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 7), None)
     if existing is not None:
         assert existing == expect, f"data slot 7 already declared, and differently: {existing}"
@@ -82,7 +82,7 @@ def add_assets_slot(core_dir: Path) -> None:
     themes today; meter config and icons later). Never shipped with the core: written by tools/tau_assets.py or Tau Omega. A missing
     file is not an error, exactly like the library index."""
     dj = json.loads((core_dir / "data.json").read_text())
-    expect = {"name": "Assets", "id": 8, "required": False, "deferload": True, "parameters": "0x1", "filename": "tau-assets.bin"}
+    expect = {"name": "Assets", "id": 8, "required": False, "deferload": True, "parameters": "0x0", "filename": "tau-assets.bin"}
     existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 8), None)
     if existing is not None:
         assert existing == expect, f"data slot 8 already declared, and differently: {existing}"
