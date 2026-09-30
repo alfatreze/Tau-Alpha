@@ -12446,3 +12446,37 @@ decision on packaging/installing for that test.
 card: `alfatreze.TAU`, `alfatreze.TAU_DIAGNOSTIC` (both v0.6.0), `alfatreze.TAU_DEV_57` (the MCLK PLL fix,
 targeting v0.7.0 per B-462's tag). Not yet run -- the real hardware A/B recording against the previous
 44.1 kHz baseline is the owner's next test.
+
+## B-467: hardware A/B result -- MCLK jitter was NOT the cause of the 44.1 kHz degradation
+
+**Pocket, analyser output [HW].** Owner recorded `tone_1k_44100`/`tone_1k_48000`/`tone_1k_24000`/
+`tone_1k_32000` on `alfatreze.TAU_DEV_57` (dedicated-PLL MCLK), same setup as the B-430/B-431 baseline
+(headphone jack -> 3.5mm -> USB interface line-in, EQ FLAT, unchanged gain/volume). Analysed with
+`tools/lab/cymo_loopback.py analyze`:
+
+| | 44.1 kHz SINAD | 44.1 kHz level | 48 kHz SINAD | 24 kHz SINAD (image) | 32 kHz SINAD (images) |
+|---|---|---|---|---|---|
+| Old (phase-accumulator, B-430/B-431) | 10.8 dB | -16.1 dBFS | 52.6 dB | 3.35 dB (23,001.7 Hz -6.5 dBc) | 3.13 dB (17,001 Hz -8.9 dBc, 15,000.7 Hz -10.2 dBc) |
+| New (dedicated PLL) | 10.82 dB | -12.41 dBFS | 55.60 dB | 3.33 dB (23,001.7 Hz -6.49 dBc) | 3.14 dB (17,001.0 Hz -8.91 dBc, 15,000.7 Hz -10.20 dBc) |
+
+**Conclusion, stated plainly: the MCLK generator was not the cause.** SINAD and every spur/image
+frequency and level match the old phase-accumulator baseline to within measurement noise (0.02-0.3 dB, and
+identical spur frequencies to the tenth of a Hz) -- the B-457/B-460/B-463 PLL replacement is a real,
+clean, timing-closed improvement in clock generation, but it does not touch whatever is actually causing
+the ~17-21 dB-worse-than-modeled degradation this investigation has been chasing since B-430. This rules
+out the leading hypothesis this whole PLL thread was built on.
+
+**One real, separate thing it did fix:** the old 44.1 kHz recording was unexplainedly 3.7 dB quieter than
+every other rate (-16.1 dBFS vs -12.4 dBFS elsewhere, flagged but not explained in B-430). That anomaly is
+gone -- 44.1 kHz now reads -12.41 dBFS, in line with 48/24/32 kHz. Worth keeping the PLL for this alone,
+but it is a level anomaly, not the SINAD/image problem, and was never the thing being chased.
+
+**Where this leaves Cymo:** with MCLK jitter now ruled out by direct hardware A/B (not simulation), the
+real cause is still open. Per B-431's own untested next step, the only remaining unexamined layer is the
+real Altera `dcfifo` timing under actual silicon (vs. the behavioural/real-dcfifo-model simulations
+already run twice and found clean, B-430/B-442) -- or something downstream of the serializer/DAC entirely
+that no RTL-level investigation would ever catch. `docs/features/CYMO_AUDIO_ENGINE_REVIEW.md`,
+`docs/handoffs/SESSION_HANDOFF_2026-09-29_CYMO_AUDIO.md` and `docs/ROADMAP_PUBLIC.md`'s Cymo entry need
+correcting to reflect this negative result rather than the "well-reasoned lead" framing they currently
+carry. `alfatreze.TAU_DEV_57` stays on the card as the PLL fix is still worth keeping (real jitter
+improvement, fixes the level anomaly), just not as the SINAD/image fix it was built to be.
