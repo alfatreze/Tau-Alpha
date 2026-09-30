@@ -12117,3 +12117,51 @@ firmware/RTL change, no rebuild needed; the already-built `player-library-diagno
 reused as-is via `tools/package_dev_build.py --build-flags` (which still rebuilds it fresh from the
 current tree, confirming no drift). Packaged as `alfatreze.TAU_0_6_0_A_42`, RBF hash confirmed. **Install
 pending -- card not mounted.**
+
+## B-456: interact.json's real hard cap is 16 entries -- B-455's fix pushed it to 17
+
+Owner retested `A_42`: still not saving, and Core Settings shows Volume/Color/Repeat/Meter but no
+Theme/Mode at all -- not even visible, not just unsaved. Also flagged "Load Audio File"/"Load Playlist"
+as unwanted leftovers from the removed legacy playlist flow.
+
+**Root cause of the interact.json symptom:** the `analogue-pocket-dev` skill's own docs snapshot states
+it plainly -- "Up to 16 UI entries from interact.json can be shown." B-455 took the file from 12 entries
+to 17 (5 new: theme, mode, 3 meter presets), one over the hard ceiling -- entries past the cap are
+silently dropped from the UI (and, since APF's read-modify-write persistence cycle operates on exactly
+the same declared list, from persistence too). Fixed by keeping only theme (id 27) and mode (id 28) --
+the two the owner actually reported broken -- and dropping the three meter-preset declarations (never
+reported broken, not yet confirmed as an issue) until there's real headroom or a reason to prioritise
+them. 12 + 2 = 14, comfortably under 16.
+
+**Second, separate, real bug found from the owner's own observation:** ALL SEVEN of `data.json`'s
+non-firmware data slots (Audio file, Playlist, Tau loading artwork, Media library index, Cold image,
+Assets, Cover image) had `"parameters": "0x1"` -- bit 0, "User-reloadable," which makes APF show a
+"Reload X" action for that slot in Core Settings. Only Audio file/Playlist make any conceptual sense as
+user-reloadable, and even those are superseded by direct-load/the library per the owner's own reasoning;
+Tau loading artwork/Media library index/Cold image/Assets/Cover image should never have been
+user-reloadable at all -- these are firmware-managed internals, not user-facing assets, and exposing
+them as manual "reload" actions was very likely an unedited copy-paste default nobody revisited. Also
+relevant to the FIRST bug: the same skill doc names a SEPARATE limit -- "if more than 4 reloadable data
+slots are also present, additional entries will be dropped to maintain a maximum of 20 combined
+interact+data menu entries" -- and this core had SEVEN, three past that threshold, adding further
+pressure on top of interact.json's own independent 16-cap. Fixed by clearing bit 0 (`"parameters":
+"0x0"`) on all seven. `tools/tau_data_slots.py`'s four slot-declaration functions (library/cold/
+cover/assets) hard-coded `"0x1"` in their own `expect`/creation dicts -- updated all four to `"0x0"` to
+match, since that file is the shared source of truth `package.py`/`package_dev_build.py` both use (a
+mismatch would have made the very next dev-build package fail its own consistency assertion, which is
+exactly what happened on the first packaging attempt this pass -- caught immediately, not shipped).
+
+Verified: both files re-checked as valid JSON; `python3 tools/package_dev_build.py` succeeds cleanly
+(the assertion failure from the first attempt, before `tau_data_slots.py` was updated, is gone);
+packaged interact.json confirmed at exactly 14 entries, packaged data.json confirmed all seven slots at
+`0x0`. No firmware/RTL change -- pure declaration-file fix, same ROM as `A_42`. Packaged as
+`alfatreze.TAU_0_6_0_A_43`, RBF hash confirmed, installed via `tools/install_dev_core.py` (media/library
+carried from `A_42`, hashes verified, `A_42` removed after backup). **Owner's next retest is the real
+answer** -- theme/mode should now both show in Core Settings AND survive a Quit+relaunch, and the two
+unwanted reload actions should be gone.
+
+Not done, deliberately deferred: the three meter-preset persist entries (dropped from interact.json to
+stay under the cap) have no persistence path right now, same as before this fix -- a real, known gap if
+the owner ever wants Configure-page presets to survive a restart, not yet prioritised since it has never
+been reported as broken. Worth adding a cheap guard to `tools/check_tau_package.py` (interact.json entry
+count <= 16) so this exact mistake can't silently recur -- not built this pass.
