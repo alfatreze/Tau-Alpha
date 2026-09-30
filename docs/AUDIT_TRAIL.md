@@ -12077,3 +12077,43 @@ targets rebuild clean.
 Owner confirmed on real hardware: Chladni now renders correctly in the Configure page preview,
 completing the set -- Bars/Scope/Chladni/VU Master all animate correctly there now (B-452 + B-453
 together). Investigation closed.
+
+## B-455: theme/mode/meter-preset persistence -- real root cause found, not firmware
+
+Owner tested theme/mode persistence twice more, both times still failing after B-416's fix (which
+remains correctly intact in the current tree -- confirmed by re-reading `fw/settingsui.inc`'s
+`CH_THEME`/`CH_MODE` handler line by line: `th_theme`/`th_pol` update, `th_apply()` runs, falls through
+to `settings_mark_dirty()` exactly as B-416 fixed it). Traced the whole chain instead of assuming the
+firmware fix regressed: `settings_mark_dirty()` -> `settings_pump()` -> `settings_store()` ->
+`set_wr32(SW_THEME, ...)`/`set_wr32(SW_POL, ...)` -> raw MMIO register writes (`R_SET_IDX`/`R_SET_DAT`)
+-- every step confirmed correct and firing. The hardware persist register file is confirmed unconditionally
+32 words wide in the current RTL (`set_idx` is 5 bits everywhere, no macro gate -- B-346's widening was
+never gated), so `PERSIST32_READY()`'s probe should read true on every current bitstream.
+
+**The actual gap: `dist/Cores/alfatreze.TAU/interact.json` -- the file that tells APF which bridge
+addresses to persist to `interact_persist.json` on Quit -- was never updated when B-346 added the five
+new persist words.** Decoded it directly: 12 declared `"variables"`, the last at `0x20000038` (word 14,
+`SW_LIBS`). Words 15-20 (`SW_RETIRED_LIBOFF` through `SW_MPRE_CHLADNI` -- `SW_THEME`=16=`0x20000040`,
+`SW_POL`=17=`0x20000044`, `SW_MPRE_BARS`/`SCOPE`/`CHLADNI`=18/19/20=`0x20000048`/`0x2000004C`/
+`0x20000050`) have NO declared variable at all. Firmware writes them into the hardware register file
+correctly every time (confirmed by code review, not assumed) -- but APF has no declared variable for
+those addresses, so it never captures them into the persisted file on Quit, regardless of what firmware
+writes. This exactly explains "theme FAIL, mode FAIL" while colour/repeat/meter-mode-selection (all
+declared, ids 10/12/15) correctly persist -- and, not yet reported by the owner but almost certainly
+broken by the identical gap, the three meter-preset slots (`SW_MPRE_BARS`/`SCOPE`/`CHLADNI`) too.
+
+This file (`dist/Cores/alfatreze.TAU/interact.json`) is git-tracked and hand-maintained, last touched at
+commit `45630c3` ("remove legacy .m3u playlist fallback") -- well before B-346 (persist widening) ever
+landed. `tools/package_dev_build.py` copies this exact file verbatim into every dev-build package
+(`shutil.copytree(src/"Cores/alfatreze.TAU", ...)`), and `tools/make_release.py` calls
+`package_dev_build.py --release-diagnostic` internally for the Diagnostic Build -- so this one file is
+the single source for both.
+
+**Fix:** added the five missing `"variables"` entries (ids 27-31, following the `"(internal) ..."`
+naming convention the post-widening `list`/`library` entries already established, since these are
+adjusted from the core's own on-screen menu, not APF's outer Settings UI), at their correct bridge
+addresses (`0x20000040`/`44`/`48`/`4C`/`50`), `"persist": true`. Pure declaration-file fix -- no
+firmware/RTL change, no rebuild needed; the already-built `player-library-diagnostic-profile` ROM is
+reused as-is via `tools/package_dev_build.py --build-flags` (which still rebuilds it fresh from the
+current tree, confirming no drift). Packaged as `alfatreze.TAU_0_6_0_A_42`, RBF hash confirmed. **Install
+pending -- card not mounted.**
