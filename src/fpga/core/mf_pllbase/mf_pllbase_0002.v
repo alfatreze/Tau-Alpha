@@ -7,17 +7,14 @@
 // TAU_CLK66, docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md section 1). Only outclk_0's frequency and this
 // comment differ between the two; outclk_1-3 (pixel/SDRAM) are untouched by the macro.
 //
-// outclk_4 = 12.288 MHz, the I2S audio MCLK (B-457, Cymo investigation). Previously synthesised in
-// sound_i2s.v itself via a phase-accumulator (DDA) dividing clk_74a directly -- a real, hardware-only
-// source of clock jitter on every bit-clock edge downstream (SCLK/LRCK derive from it), invisible to
-// RTL simulation (which checks logical values, not real inter-edge timing) and never examined before
-// this investigation. altera_pll's own fractional-N synthesis (`fractional_vco_multiplier("true")`,
-// already relied on for outclk_1/2's 12.000 MHz) uses noise-shaped sigma-delta modulation instead of a
-// naive accumulator -- the same class of mechanism, but purpose-built for low in-band jitter, pushing
-// quantization noise to frequencies the audio path doesn't reproduce. Sharing this VCO (rather than a
-// second PLL) keeps this addition free of any new PLL resource; verify the actual achieved frequency
-// and jitter against 12.288000 MHz in the real Quartus fit report, not assumed from this parameter
-// string alone.
+// B-457/B-460/B-462 (Cymo 44.1 kHz investigation): a 5th output at 12.288 MHz (the I2S MCLK) was tried
+// here and FAILED to synthesize -- Quartus rejected it as an illegal PLL output frequency. Root cause,
+// not a formatting issue: 12.000 MHz, 100.000 MHz and 12.288 MHz have no common VCO with legal integer
+// output counters below 38.4 GHz (LCM of the three in Hz), and a Cyclone V fPLL's VCO tops out around
+// 1.6 GHz. There is no way to add 12.288 MHz to THIS shared PLL at any clk_sys frequency -- clk_sys was
+// never the limiting constraint, the 12 MHz video clock and the 100 MHz SDRAM clock are. The MCLK now
+// has its own dedicated PLL instead (`mf_pllbase_mclk.v`), reference clk_74a, same fractional-N
+// synthesis technique, no shared-VCO conflict.
 `timescale 1ns/10ps
 module mf_pllbase_0002 (
     input  wire refclk,
@@ -26,7 +23,6 @@ module mf_pllbase_0002 (
     output wire outclk_1,
     output wire outclk_2,
     output wire outclk_3,
-    output wire outclk_4,
     output wire locked
 );
 
@@ -34,7 +30,7 @@ module mf_pllbase_0002 (
         .fractional_vco_multiplier("true"),
         .reference_clock_frequency("74.25 MHz"),
         .operation_mode("normal"),
-        .number_of_clocks(5),
+        .number_of_clocks(4),
         `ifdef TAU_CLK66
         .output_clock_frequency0("66.666667 MHz"),   // clk_sys, N=9 of the same 600 MHz VCO
 `else
@@ -51,7 +47,7 @@ module mf_pllbase_0002 (
         .output_clock_frequency3("100.000000 MHz"),
         .phase_shift3("0 ps"),
         .duty_cycle3(50),
-        .output_clock_frequency4("12.288000 MHz"),   // B-457: I2S audio MCLK, PLL-synthesised instead of a DDA
+        .output_clock_frequency4("0 MHz"),
         .phase_shift4("0 ps"),
         .duty_cycle4(50),
         .output_clock_frequency5("0 MHz"),
@@ -97,7 +93,7 @@ module mf_pllbase_0002 (
         .pll_subtype("General")
     ) altera_pll_i (
         .rst      (rst),
-        .outclk   ({outclk_4, outclk_3, outclk_2, outclk_1, outclk_0}),
+        .outclk   ({outclk_3, outclk_2, outclk_1, outclk_0}),
         .locked   (locked),
         .fboutclk (),
         .fbclk    (1'b0),

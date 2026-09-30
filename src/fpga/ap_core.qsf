@@ -746,6 +746,7 @@ set_global_assignment -name VERILOG_FILE core/sync_fifo.v
 set_global_assignment -name SDC_FILE core/core_constraints.sdc
 set_global_assignment -name QIP_FILE core/mf_pllbase.qip
 set_global_assignment -name SIP_FILE core/mf_pllbase.sip
+set_global_assignment -name VERILOG_FILE core/mf_pllbase_mclk.v
 # -- MP3 player SoC -----------------------------------------------------------
 # Not an arcade port: no MiSTer RTL, no game ROM. VexRiscv soft CPU + BRAM +
 # peripherals, running C firmware that is loaded from SD like a ROM.

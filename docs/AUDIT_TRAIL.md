@@ -12352,3 +12352,33 @@ a second PLL resource is actually available on this device/pin-lock region for t
 claimed by the APF framework top-level) is unverified and the next thing to check, cheaply, via a
 synthesis-only `quartus_map` run before spending a real fit. Not yet built -- reported per the task's own
 instruction, awaiting a decision on whether to proceed.
+
+## B-463: second-PLL fix built; owner asked if the CPU clock could help instead (checked: no)
+
+Owner asked whether picking a different `clk_sys` frequency (anywhere 60-66.667 MHz) could make 12.288 MHz
+fit the shared PLL. Checked the math before answering: the LCM of just clk_vid (12.000 MHz), clk_sdram
+(100.000 MHz) and 12.288 MHz alone is already 38.4 GHz -- `clk_sys` never enters that calculation, so no
+`clk_sys` value changes the answer. clk_vid is fixed by the panel's exact 500x400=60.000 Hz timing and
+clk_sdram by the controller's own requirement; neither is adjustable. Confirms the second-PLL fix (below)
+is the only real option.
+
+**Fix built:** `mf_pllbase_0002.v` reverted to its original 4 outputs (removed the illegal 5th); new
+`src/fpga/core/mf_pllbase_mclk.v`, a second, independent `altera_pll` instance (own VCO, same
+fractional-N/sigma-delta technique) taking `clk_74a` directly and producing only 12.288 MHz; wired into
+`core_game.vh` as `mp2`, its `locked` ANDed into the existing `pll_locked` so system reset waits for both
+PLLs. Registered in `ap_core.qsf`. Also fixed a real, previously-unnoticed dangling reference in
+`core_constraints.sdc`: the old `-group { ic|mclk_r }` clock-group entry named a register
+(`sound_i2s.v`'s old phase-accumulator) that B-457 had already deleted -- replaced with the new PLL's
+actual output-counter node, and the missing `general[4]` clock-group entry B-457 never added is now
+correctly a `general[0]` entry on the new PLL instead. `make rtl-lint` and `make test-rtl` both pass clean
+(altera_pll is an opaque megafunction to Icarus/Verilator either way, so this is confirming nothing else
+broke, not simulating the PLL itself).
+
+**Verified before spending a real fit:** staged the tree (`git stash create` after `git add`-ing the new
+untracked file, since `git archive` only captures cached/committed content) and ran a synthesis-only
+`quartus_map` on the VM with the full `all6-combined` macro bundle: **"Quartus Prime Analysis & Synthesis
+was successful. 0 errors, 318 warnings", "Implemented 5 PLLs"** -- confirms a second PLL resource is
+genuinely available on this device for the core (the earlier B-462 open question) and both PLL instances
+synthesize cleanly. The RST-port-unconnected warnings are pre-existing and identical on both PLL
+instances (dynamic PLL reset was never used by this design). Launched the real two-seed fit
+(`mclk-pll2-b462`, same macro bundle). Result pending.

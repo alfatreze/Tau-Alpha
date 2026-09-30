@@ -30,16 +30,19 @@
 //            No phase shift needed -- confirmed against HarpMudd.starwars'
 //            proven SDRAM PLL: the DAC-side DDR forwarding happens inside the
 //            controller itself, not via a separately-phased clock input.
-// outclk_4 = 12.288 MHz I2S audio MCLK (B-457, Cymo investigation). Replaces a
-//            phase-accumulator that used to synthesise this inside sound_i2s.v
-//            from clk_74a directly -- a real, hardware-only jitter source on
-//            every downstream SCLK/LRCK edge, invisible to RTL simulation.
-//            altera_pll's own fractional-N (noise-shaped) synthesis instead.
+// I2S audio MCLK = 12.288 MHz (B-457/B-460/B-462, Cymo investigation). Used to be a phase-accumulator
+//            inside sound_i2s.v dividing clk_74a directly -- a real, hardware-only jitter source on
+//            every downstream SCLK/LRCK edge, invisible to RTL simulation. A first attempt added it as
+//            a 5th output on the shared PLL below (mp1) and failed to synthesize: 12.288 MHz has no
+//            common VCO with the 12 MHz video clock and 100 MHz SDRAM clock at any legal Cyclone V fPLL
+//            frequency (LCM 38.4 GHz -- see mf_pllbase_mclk.v). It has its own dedicated PLL instead.
 wire clk_sys;
 wire clk_vid;
 wire clk_vid_90;
 wire clk_sdram;
 wire clk_audio_mclk;
+wire pll_locked_main;
+wire pll_locked_mclk;
 wire pll_locked;
 wire pll_locked_s;
 
@@ -50,9 +53,17 @@ mf_pllbase mp1 (
     .outclk_1 (clk_vid),
     .outclk_2 (clk_vid_90),
     .outclk_3 (clk_sdram),
-    .outclk_4 (clk_audio_mclk),
-    .locked   (pll_locked)
+    .locked   (pll_locked_main)
 );
+
+mf_pllbase_mclk mp2 (
+    .refclk   (clk_74a),
+    .rst      (1'b0),
+    .outclk_0 (clk_audio_mclk),
+    .locked   (pll_locked_mclk)
+);
+
+assign pll_locked = pll_locked_main & pll_locked_mclk;
 
 synch_3 s_pll (pll_locked, pll_locked_s, clk_74a);
 
