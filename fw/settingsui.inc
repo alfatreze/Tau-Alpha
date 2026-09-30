@@ -561,7 +561,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 26u   /* B-370: +1 for FLAC LPC.
+#define SET_INFO_ROWS 27u   /* B-370: +1 for FLAC LPC.
                               * B-073: +1 for COVER (art_bad_code, for the "no
                                               * picture found" report); B-234: +1 for METER YIELD
                                               * (a cheap diagnostic for the suspected meter_afford()
@@ -586,7 +586,12 @@ extern char _heap_start, _heap_end;
                                               * STRIP always reads OK, so before JTAG this shows the
                                               * sticky SRC_BASE/DST_BASE fields' shadow (write-only in
                                               * hardware) at the moment of the last Scope trail blend;
-                                              * see fb_set_bases()'s own comment in fw/player.c. */
+                                              * see fb_set_bases()'s own comment in fw/player.c. B-439:
+                                              * +1 for DBUF -- STRIP/BASES both read clean during a live
+                                              * repro, so this checks the last remaining addressing gap:
+                                              * whether R_DBUF_CPU (what RECT-class draws follow) and
+                                              * R_DBUF_DISP (what's actually shown) agree at the moment
+                                              * of the blend; see dbg_strip_check() in fw/player.c. */
 static const char *const set_info_label[SET_INFO_ROWS] = {
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM",
     "COLD IMAGE",
@@ -596,6 +601,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "SCOPE BG"
     , "STRIP"
     , "BASES"
+    , "DBUF"
     , "FLAC LPC"
     };
 static uint32_t set_info_at;
@@ -734,6 +740,15 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = ui_hex2(q, (uint8_t)(dbg_strip_base_src >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_base_src);
         q = set_str(q, " D "); q = ui_hex2(q, (uint8_t)(dbg_strip_base_dst >> 16));
         q = ui_hex2(q, (uint8_t)(dbg_strip_base_dst >> 8)); q = ui_hex2(q, (uint8_t)dbg_strip_base_dst);
+        break;
+    case 25:   /* DBUF (B-439): R_DBUF_CPU/R_DBUF_DISP's own buffer-select bits at the moment of the last
+                * Scope trail blend. RECT-class draws (the trace bars, the strip build) auto-follow
+                * R_DBUF_CPU; the blend's own fb_blit() does not -- if CPU != DISP here, the blend is
+                * silently updating a buffer nothing is looking at while the trace keeps drawing on the
+                * one that IS displayed, which is exactly "new draws pile up, nothing ever fades." */
+        q = set_str(q, "CPU "); q = ui_dec(q, dbg_dbuf_cpu);
+        q = set_str(q, " DISP "); q = ui_dec(q, dbg_dbuf_disp);
+        q = set_str(q, dbg_dbuf_cpu != dbg_dbuf_disp ? " MISMATCH" : " OK");
         break;
     default:   /* FLAC LPC (B-370): the hardware LPC reconstruction unit -- samples reconstructed, timeouts */
 #if TAU_LPC_FW

@@ -2277,12 +2277,28 @@ COLD_FN3 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, 
 static uint8_t  dbg_strip_bad;
 static uint16_t dbg_strip_actual[3], dbg_strip_expect[3];
 static uint32_t dbg_strip_base_src, dbg_strip_base_dst;
+/* B-439: STRIP/BASES both check out fine even while the owner reproduces the accumulation live (Info
+ * screenshot: SCOPE BG READY 173 OK 0 FAIL, STRIP OK, BASES both 0) -- every theory reachable from
+ * ui_bg_blend()'s own inputs is now exhausted. Reconsidering from the H2/Helios addressing split
+ * (docs/MMIO_ALLOCATION.md's DBUF_CPU row, corrected this session): RECT-class opcodes (fb_rect/
+ * fb_bar/fb_copy -- what builds the strip AND draws the trace bars) automatically follow R_DBUF_CPU's
+ * current buffer selection; true BLIT-class opcodes (fb_blit -- what ui_bg_blend() actually uses to
+ * paint the fade) do NOT, and rely entirely on the sticky SRC_BASE/DST_BASE fields already confirmed
+ * zero. If R_DBUF_CPU (the buffer new CPU draws target) and R_DBUF_DISP (the buffer actually shown)
+ * ever disagree at the moment this blend fires, the trace bars (RECT-class) keep landing on the
+ * correct, currently-displayed buffer -- explaining why new segments keep appearing -- while the
+ * blend (BLIT-class, base 0 always) keeps updating the OTHER, undisplayed buffer, having zero visible
+ * effect: exactly "new draws pile up, nothing ever visibly erases." Both registers are ordinary
+ * readable MMIO (unlike the write-only sticky blit fields), so this needs no JTAG. */
+static uint8_t dbg_dbuf_cpu, dbg_dbuf_disp;
 
 static void dbg_strip_check(void)
 {
     const uint32_t rows[3] = { UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H / 2u, UI_WAVE_Y + UI_WAVE_H - 1u };
     dbg_strip_bad = 0;
     dbg_strip_base_src = dbg_base_src; dbg_strip_base_dst = dbg_base_dst;
+    dbg_dbuf_cpu = (uint8_t)(REG(R_DBUF_CPU) & 1u);
+    dbg_dbuf_disp = (uint8_t)(REG(R_DBUF_DISP) & 1u);
     for (uint32_t k = 0; k < 3u; k++) {
         uint32_t yy = rows[k];
         uint16_t want = ui_grad_at(yy);
