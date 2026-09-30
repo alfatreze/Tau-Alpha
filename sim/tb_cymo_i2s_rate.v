@@ -39,9 +39,9 @@ module tb_cymo_i2s_rate;
     parameter integer SRC_HZ = 44100;
     parameter integer N_OUT  = 9000 ;                 // 48 kHz output slots to record
     localparam real   CLK_SYS_HZ = 66666667.0;
-    reg clk = 0, clk74 = 0, rst = 1, flush = 0;
+    reg clk = 0, clk_mclk = 0, rst = 1, flush = 0;
     always #7.5 clk = ~clk;                           // 66.667 MHz
-    always #6.734 clk74 = ~clk74;                     // 74.25 MHz
+    always #40.690 clk_mclk = ~clk_mclk;               // 12.288 MHz (B-457: PLL-synthesised, ideal in sim)
 
     // ---- source: 1 kHz, -6 dBFS, SRC_HZ, pushed in bursts like the firmware --------------------------------------
     integer n_src = 0;
@@ -64,13 +64,16 @@ module tb_cymo_i2s_rate;
         .sample_tick(sample_tick));
 
     wire mclk, lrck, dac;
-    sound_i2s #(.CHANNEL_WIDTH(16), .SIGNED_INPUT(1)) u_i2s (.clk_74a(clk74), .clk_audio(clk),
+    sound_i2s #(.CHANNEL_WIDTH(16), .SIGNED_INPUT(1)) u_i2s (.clk_mclk(clk_mclk), .clk_audio(clk),
         .audio_l(out_l), .audio_r(out_r), .audio_mclk(mclk), .audio_lrck(lrck), .audio_dac(dac));
 
-    // word about to be serialised: captured at the same edge the serialiser reloads
+    // word about to be serialised: captured at the same edge the serialiser reloads. B-457: the
+    // serializer now runs entirely inside clk_mclk, gated on sclk_div==3 (the cycle right before
+    // SCLK's own bit falls 3->0 -- the same instant the old prev_audgen_sclk/audgen_sclk edge-detect
+    // fired), not a separate clk74-domain edge-detect of a jittery accumulator toggle.
     integer fd, n_rec = 0;
-    always @(posedge clk74) begin
-        if (u_i2s.prev_audgen_sclk && ~u_i2s.audgen_sclk && u_i2s.audio_lrck_cnt == 31 && ~u_i2s.audio_lrck) begin
+    always @(posedge clk_mclk) begin
+        if (u_i2s.sclk_div == 2'd3 && u_i2s.audio_lrck_cnt == 31 && ~u_i2s.audio_lrck) begin
             if (n_rec < N_OUT) begin
                 $fdisplay(fd, "%0d %0d", $signed(u_i2s.audgen_sampdata_s[15:0]), $signed(u_i2s.audgen_sampdata_s[31:16]));
                 n_rec <= n_rec + 1;
@@ -78,7 +81,8 @@ module tb_cymo_i2s_rate;
         end
     end
     // Power-up state: Quartus registers start at 0, Icarus starts them at X and ~X stays X, so the serialiser never ran.
-    initial begin u_i2s.audio_mclk = 0; u_i2s.audio_lrck = 0; u_i2s.audio_dac = 0; end
+    // audio_mclk is now a continuous assign (= clk_mclk directly, B-457), not a register -- nothing to force there.
+    initial begin u_i2s.audio_lrck = 0; u_i2s.audio_dac = 0; end
     initial begin
         fd = $fopen("build/rtl/cymo_i2s_rate.txt", "w");
         #200 rst = 0;

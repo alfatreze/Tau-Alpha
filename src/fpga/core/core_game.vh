@@ -30,10 +30,16 @@
 //            No phase shift needed -- confirmed against HarpMudd.starwars'
 //            proven SDRAM PLL: the DAC-side DDR forwarding happens inside the
 //            controller itself, not via a separately-phased clock input.
+// outclk_4 = 12.288 MHz I2S audio MCLK (B-457, Cymo investigation). Replaces a
+//            phase-accumulator that used to synthesise this inside sound_i2s.v
+//            from clk_74a directly -- a real, hardware-only jitter source on
+//            every downstream SCLK/LRCK edge, invisible to RTL simulation.
+//            altera_pll's own fractional-N (noise-shaped) synthesis instead.
 wire clk_sys;
 wire clk_vid;
 wire clk_vid_90;
 wire clk_sdram;
+wire clk_audio_mclk;
 wire pll_locked;
 wire pll_locked_s;
 
@@ -44,6 +50,7 @@ mf_pllbase mp1 (
     .outclk_1 (clk_vid),
     .outclk_2 (clk_vid_90),
     .outclk_3 (clk_sdram),
+    .outclk_4 (clk_audio_mclk),
     .locked   (pll_locked)
 );
 
@@ -882,7 +889,7 @@ assign video_hs           = vid_hs_w;
 // no box-filter decimation is needed here (unlike an arcade core sampling a
 // continuously-running sound chip). SIGNED_INPUT(1) -- PCM is two's complement.
 sound_i2s #(.CHANNEL_WIDTH(16), .SIGNED_INPUT(1)) u_sound_i2s (
-    .clk_74a (clk_74a), .clk_audio (clk_sys),
+    .clk_mclk (clk_audio_mclk), .clk_audio (clk_sys),
     .audio_l (soc_audio_l), .audio_r (soc_audio_r),
     .audio_mclk (audio_mclk), .audio_dac (audio_dac), .audio_lrck (audio_lrck)
 );
