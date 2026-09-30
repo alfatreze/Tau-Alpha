@@ -44,7 +44,11 @@ speeds above 1.20x are Diagnostic Build only.
 - **Cover format freeze:** the `TIM1` container becomes the default once the owner freezes it ([IMAGE_FORMATS.md](IMAGE_FORMATS.md)).
 - **Meter modules:** meters described by one manifest each, presets from `tau-assets.bin`, a preview lab; the runtime is built and host-verified, waiting for more hardware runs ([METER_MODULE_SPEC.md](METER_MODULE_SPEC.md)).
 - **Library extras** that need free RAM first (see [MEDIA_LIBRARY_0.4_SPEC.md](MEDIA_LIBRARY_0.4_SPEC.md) sections 14-15).
-- **A well-reasoned, not-yet-hardware-confirmed fix for a real-hardware 44.1 kHz audio quality issue** (Cymo): the I2S master clock generator is being replaced with a proper PLL output; a Quartus fit is in progress.
+- **Cymo, targeting v0.7.0**: a real-hardware 44.1 kHz audio quality issue traced to jitter in the I2S master
+  clock generator. Tagged `v0.7.0-dev.1` as a checkpoint (not buildable yet). The fix (replacing a
+  phase-accumulator with a PLL output) hit a real frequency-planning conflict on its first fit attempt --
+   12.288 MHz cannot share the existing shared PLL's VCO with the core's other clocks, so it needs its own
+  PLL instance; not yet built.
 - **Companion app:** [Tau Omega](../../Tau%20Omega/) keeps its own roadmap.
 
 ## Parked on purpose
