@@ -1,6 +1,6 @@
 # Tau user guide
 
-Everything you need to install and use the Tau music player (v0.5.0). For the project overview see the
+Everything you need to install and use the Tau music player (v0.6.0-alpha.1). For the project overview see the
 [README](../../README.md); for problems and test results see [Diagnostics](DIAGNOSTICS.md); for preparing your music
 see [Media and tools](MEDIA_AND_TOOLS.md).
 
@@ -128,7 +128,7 @@ the list is freshly shuffled.
   WHITE (the default), GLOW, seven TRANS_ shades (CLEAR, SMOKE, RED, ORANGE, GREEN, BLUE, PURPLE) and eight CLASSIC_ shades
   (YELLOW, ORANGE, RED, PINK, BLUE, GREEN, INDIGO, SILVER), plus ALUMINUM. The names follow the Pocket's own colour editions.
 
-The chosen theme and mode are **not remembered across a restart yet**; the accent colour is.
+The chosen theme, mode and accent colour are all remembered across a restart.
 
 ## Meters
 
@@ -222,8 +222,8 @@ from a handheld it isn't a difference you're going to hear. (The hardware window
 - **Big embedded covers are slow to appear** when there is no pre-scaled cover file. Decoding takes about as long as the picture
   file is heavy: a 455 px cover of 255 KB took about 5 s, a 1.5 MB cover about 16 s. Make the `.timg` cover (about 90 ms), or
   re-save covers at around 100 KB. The same cover is not decoded again for the rest of the album.
-- **Settings not yet remembered across a restart:** theme, mode and the meter Configure settings (the persistence channel is a
-  fixed-size register that is already full; widening it needs a hardware change).
+- **Meter Configure settings are not yet remembered across a restart.** Theme, mode and the accent colour now are;
+  the meter presets were left out of `interact.json`'s persisted list to stay under its 16-entry display cap.
 - **Speeds above 1.20x are Diagnostic Build only** for now. The old note that 1.2x could distort in dense passages dates from
   before the hardware MP3 window unit; it is expected to be much better now but has not been re-measured as a release claim.
 - **`Track changes` in the Diagnostic Build's Check** still fails; playback itself is unaffected. The release and diagnostic builds

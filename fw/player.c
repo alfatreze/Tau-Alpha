@@ -291,7 +291,7 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 /* Shown on the splash. This is the PRODUCT version, not the RTL/firmware
  * contract above -- they answer different questions and must not be conflated.
  * Keep it in step with the status line in README.md; nothing enforces that. */
-#define APP_VER "0.5.0"
+#define APP_VER "0.6.0"
 
 /* The Diagnostic Build switch. One macro for everything that must not be in the shipped release: the
  * Check and its QR report (fw/suite.inc), the Tests and Stress pages, the SDRAM stress pump, soak and

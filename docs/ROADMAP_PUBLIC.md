@@ -4,6 +4,22 @@ A short, public version of where Tau is and where it is going. The ordered inter
 the one-page state of things is [CURRENT_STATUS.md](CURRENT_STATUS.md), and the evidence behind every claim is [AUDIT_TRAIL.md](AUDIT_TRAIL.md). Nothing below is a promise or a date;
 "planned" means agreed as a direction, not scheduled.
 
+## Released: v0.6.0-alpha.1 (30 September 2026)
+
+- FLAC's LPC/FIXED reconstruction now runs in hardware, alongside v0.5.0's MP3 synthesis-window unit.
+- On-chip RAM reorganised and shrunk (256 to 192 KB, freeing 64 blocks) and the system clock raised to
+  66.667 MHz, both fit and shipped together.
+- Theme and Dark/Light mode are remembered across a restart (the accent colour already was).
+- The alpha blend closes timing and ships, used for a hardware cross-fade on Settings menu transitions.
+- Several meter bugs fixed: fullscreen Winamp Bars no longer clip at 127 rows, Winamp Scope's fade trail no
+  longer accumulates, the Chladni meter no longer goes blank after leaving Settings/fullscreen/Configure, and
+  all four live-preview meters animate correctly on the Configure page. MASTER VU (listed but dead since
+  v0.5.0) now works.
+
+Full list: [CHANGELOG.md](../CHANGELOG.md). Known limits: `Track changes` still fails in the Diagnostic
+Build's Check (playback unaffected); meter Configure settings are still session-only (theme/mode are not);
+speeds above 1.20x are Diagnostic Build only.
+
 ## Released: v0.5.0 (27 September 2026)
 
 - Themes (TAU and OCEAN, Dark and Light, a corrected 19-colour accent palette, optional `tau-assets.bin` themes).
@@ -13,26 +29,22 @@ the one-page state of things is [CURRENT_STATUS.md](CURRENT_STATUS.md), and the 
 - Hardware-assisted drawing (blit engine, rounded rectangles, palette blits) and 64 KB of on-chip memory freed for later use by moving code and data to PSRAM.
 - Diagnostic Build additions: Meter Sweep, Info export by QR code, more Check tests.
 
-Full list: [CHANGELOG.md](../CHANGELOG.md). Known limits: `Track changes` fails in the Diagnostic Build's Check (playback unaffected); the release and diagnostic builds may restore the last track differently after
-a restart; speeds above 1.20x are Diagnostic Build only.
-
-## Next: the 0.6 items (decided by the project owner on 2026-09-27)
+## Next
 
 | Item | What it means | State |
 |---|---|---|
-| **Remember theme, mode and meter settings across a restart** | Widen the hardware settings-persist channel (a hardware change and a fit), then save the Configure values | Designed; needs a bitstream fit ([THEME_SPEC.md](THEME_SPEC.md), [METER_CONFIG_SPEC.md](METER_CONFIG_SPEC.md)) |
-| **Use the alpha blend in the interface** | Translucent panels and fades using the pipelined blend, which closed timing on 2026-09-27 | Hardware built and fit-proven; not in a shipped bitstream; no firmware use yet ([ALPHA_BLEND_ANALYSIS.md](ALPHA_BLEND_ANALYSIS.md)) |
 | **Fix the `Track changes` Check** | Find out why the Diagnostic Build's track-change test fails while real track changes work | Open, unexplained |
-| **RAM shrink (256 to 192 KB)** | Free 64 on-chip memory blocks | Hardware fit-proven; the firmware still needs trimming to link ([RAM_SHRINK_192K_PLAN.md](RAM_SHRINK_192K_PLAN.md)) |
+| **Remember meter Configure settings across a restart** | `interact.json`'s 16-entry display cap left no room this round; needs either freeing an existing entry or a different storage path | Open |
 
 ## Also planned or being considered
 
 - **Batched drawing for the hardware scope path**, then removing the software paths it makes redundant (the 256-column scope drew about 21x a normal meter, so it is compiled out today).
-- **Now-playing screen redesign** on the new theme roles and beam-aware drawing layer (Helios); full double buffering is designed but not built ([HELIOS_SPEC.md](HELIOS_SPEC.md)).
-- **More hardware for audio:** FLAC bit-reader acceleration is the next candidate after the MP3 window unit; not started.
+- **Now-playing screen redesign** on the new theme roles and beam-aware drawing layer (Helios); full double buffering shipped in v0.6.0-alpha.1, the wider redesign is designed but not built ([HELIOS_SPEC.md](HELIOS_SPEC.md)).
+- **More hardware for audio:** an MP3 IMDCT kernel is the next candidate after the FLAC LPC unit; not started.
 - **Cover format freeze:** the `TIM1` container becomes the default once the owner freezes it ([IMAGE_FORMATS.md](IMAGE_FORMATS.md)).
 - **Meter modules:** meters described by one manifest each, presets from `tau-assets.bin`, a preview lab; the runtime is built and host-verified, waiting for more hardware runs ([METER_MODULE_SPEC.md](METER_MODULE_SPEC.md)).
 - **Library extras** that need free RAM first (see [MEDIA_LIBRARY_0.4_SPEC.md](MEDIA_LIBRARY_0.4_SPEC.md) sections 14-15).
+- **A well-reasoned, not-yet-hardware-confirmed fix for a real-hardware 44.1 kHz audio quality issue** (Cymo): the I2S master clock generator is being replaced with a proper PLL output; a Quartus fit is in progress.
 - **Companion app:** [Tau Omega](../../Tau%20Omega/) keeps its own roadmap.
 
 ## Parked on purpose
