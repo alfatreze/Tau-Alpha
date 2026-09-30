@@ -11633,3 +11633,35 @@ elaboration with `TAU_ISSP` hits the same pre-existing "unknown module altsource
 every prior ISSP instance already has under Icarus (not a new problem), full `make test-rtl` unaffected
 (the change is additive-only inside an `ifdef TAU_ISSP` block; no functional RTL changed for any
 non-ISSP build, including everything already on the card). Launching the VM fit next.
+
+## B-442: Cymo 44.1 kHz investigation -- real Altera `dcfifo` model reproduces the ideal hold exactly, RTL cleared
+
+Ran the decisive simulation from the Cymo handoff's own STEP 3: `sim/test_cymo_i2s_rate.py --altera-mf
+<quartus>/eda/sim_lib/altera_mf.v`, swapping Intel's real `dcfifo` simulation model in for the
+behavioural one B-430 used. iverilog was not installed on the VM (owner installed it,
+`sudo apt-get install -y iverilog`, 11.0 stable). The real model is far heavier per-event than the
+behavioural stand-in -- about 56 minutes of wall time for 0.4 s of simulated audio (66.67 MHz clk_sys,
+~26.7M cycles), against B-430's "about 2 min" estimate for the behavioural one -- but completed clean,
+not stuck (99.9% CPU throughout).
+
+**Result: level -12.05 dBFS, SINAD 27.71 dB, spurs at 4,898/2,894/8,801/6,797 Hz (-35.8/-36.8/-41.8/-42.3
+dBc), 0 underruns across 9,000 slots -- matching the ideal-hold prediction (27.71 dB) essentially
+exactly**, the same result B-430's behavioural model already gave. This conclusively rules out the real
+Altera `dcfifo`'s own timing as the cause of the ~17 dB-worse real hardware recordings (10.8 dB SINAD,
+flat click-like spurs at -22 to -26 dBc, 3.7 dB low level) -- B-431's own "the fixed-phase 2:1/3:2 cases
+are as bad as the sliding-phase 44.1 kHz case" finding already argued against the FIFO hand-off being
+involved, and this closes the loop with the actual vendor model, not just the RTL logic. Per the
+handoff's own decision tree: next step is looking after the serialiser, or at the recording/analog
+path itself -- not the RTL. `altera_mf.v` was not copied into the repo or committed (licensed vendor
+file, per the handoff's own constraint). Nothing built, no RTL/firmware/card touched.
+
+## B-443: `blend-issp-b441` fit closes -- extended BLND probe ready for the next JTAG session
+
+Fit (seed 2, `blt_blend_alpha`/`blt_blend_mode` added to the `BLND` probe, B-441) finished Successful,
+all four corners positive, real margin: Slow 0C hold +0.310 ns / setup +1.640 ns, Slow 85C hold
++0.321 ns / setup +1.745 ns, Fast 0C hold +0.120 ns / setup +5.920 ns, Fast 85C hold +0.137 ns / setup
++5.702 ns. RAM 240/308 (78%), DSP 19/66 (29%) -- matches `glyphbuf-t200`'s own footprint, as expected
+(no functional change outside the `ifdef TAU_ISSP` block). RBF and `.sof` ready on the VM for the next
+live JTAG session: comparing the probed `blt_blend_alpha` against firmware's own shadow
+(`dbg_strip_alpha`, B-440) for the same moment is the direct test of whether the sticky field's hardware
+storage is the root cause of the Scope-trail bug.
