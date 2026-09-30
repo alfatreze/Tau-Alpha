@@ -201,6 +201,73 @@ static void rrect_probe_ensure(void)
     }
 }
 
+/* B12 (B-454): same technique as rrect_probe() above, but for OP_BAR's lit-row count widened from 7
+ * to 9 bits (cmd_glyph_hi, R_FB_GO bits 16:15) -- a DIFFERENT question from BLIT_READY()/RRECT_READY(),
+ * both of which ask whether an OPCODE dispatches at all. OP_BAR itself has existed unconditionally
+ * since B-104 on every bitstream this project has ever shipped; what varies here is only whether the
+ * two EXTRA bits are actually threaded through mp3_soc.v into mp3_fb.sv's cmd_glyph_hi input, or
+ * silently have nowhere to land (an old bitstream's fb_cmd_glyph_hi port simply does not exist).
+ * lit=128 is the smallest value that needs bit 7 (the field's old 7-bit truncation, `lit & 0x7Fu`,
+ * reads exactly 0 for it) -- draws a real, unambiguous 2-row bar (h=2) with a lit count that clamps to
+ * h=2 (both rows lit, fg colour) ONLY if the wide field is honoured; an old/unaware bitstream sees
+ * lit=0 (both rows unlit, bg colour) instead. Reading back row 1's actual colour (not just "did
+ * something write here", rrect_probe's own weaker test -- BAR always writes both rows regardless,
+ * unlike RRECT's opcode-dispatch question) tells the two cases apart directly.
+ *
+ * `bar_hi_ready`/`BAR_WIDE_READY()` are declared in fw/player.c itself, well before this file's own
+ * #include point -- fb_bar() (the actual caller) is defined long before that #include, and needs both
+ * to compile at all; see the comment right above fb_bar()'s own definition for why. */
+static uint8_t bar_hi_probed;
+static uint8_t bar_hi_probe_tries;
+
+static void bar_hi_probe(void)
+{
+    const uint32_t probe_addr = 480u;
+    const uint32_t probe_row2 = probe_addr + FB_STRIDE;
+    const uint32_t fg = 0xF800u, bg = 0x0000u;   /* red vs black -- unambiguous, and neither is the DEAD sentinel */
+    uint32_t t;
+
+    t = cycles();
+    REG(R_SDR_ADDR) = probe_row2; REG(R_SDR_DATA) = 0x0000DEADu;
+    REG(R_SDR_CTRL) = 0x3Fu;
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u)
+        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) { bar_hi_ready = 0u; return; }
+
+    fb_wait();
+    REG(R_FB_ADDR)  = probe_addr;
+    REG(R_FB_SIZE)  = (2u << 9) | 1u;                              /* h=2, w=1 */
+    REG(R_FB_COLOR) = fg | (bg << 16);
+    /* lit=128 (0x80): low 7 bits (bits 3-9) = 0, high 2 bits (bits 15-16) = 1. An old/unaware
+     * bitstream reads only the low bits -- lit=0, both rows unlit (bg). A bitstream honouring
+     * cmd_glyph_hi sees the full 9-bit value, clamps 128 down to h=2, and both rows are lit (fg). */
+    REG(R_FB_GO)    = FB_OP_BAR | 0x8000u;
+    fb_wait();
+
+    /* Same bounded poll as rrect_probe() (B-335): the probe may land behind queued chrome drawing. */
+    const uint32_t t0 = cycles();
+    uint32_t rd = 0x0000DEADu;
+    do {
+        t = cycles();
+        while ((uint32_t)(cycles() - t) < 512u) { }
+        t = cycles();
+        REG(R_SDR_ADDR) = probe_row2; REG(R_SDR_CTRL) = 0x3Du;
+        while ((uint32_t)(cycles() - t) < 128u) { }
+        while (REG(R_SDR_STATUS) & 1u)
+            if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) { bar_hi_ready = 0u; return; }
+        rd = REG(R_SDR_RDATA);
+    } while (rd == 0x0000DEADu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
+
+    bar_hi_ready = ((rd & 0xFFFFu) == fg) ? 1u : 0u;
+}
+static void bar_hi_probe_ensure(void)
+{
+    if (!bar_hi_probed) {
+        bar_hi_probe();
+        if (bar_hi_ready || ++bar_hi_probe_tries >= 3u) bar_hi_probed = 1u;
+    }
+}
+
 /* ==== B-334: alpha blend from firmware (Talos B5, the pipelined version, B-327) ==========================================================
  * A blended OP_BLIT computes dst = (src * a + dst * (256 - a)) >> 8 per colour channel for the whole rectangle, reading the destination
  * from the framebuffer itself. It needs a bitstream built with TAU_BLIT_BLEND (BLEND_READY() finds out, once, with a known-answer blit)
