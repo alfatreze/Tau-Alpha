@@ -11362,3 +11362,62 @@ STRIP/BASES diagnostics -- both still available for any future retest, unaffecte
 underneath them (they were already proven true on the wrong fit, so no re-test of the conclusions
 themselves is owed; this only corrects which bitstream is actually installed for any *future* diagnostic
 work, including B-435's JTAG probe -- a separate, never-installed, JTAG-only `.sof`).
+
+## B-439: live JTAG session run -- blend datapath looks correct on real hardware; DBUF addressing check built as the next step
+
+Ran the actual JTAG session with the `BLND` probe (B-435/B-437). Real setup friction along the way, all
+resolved: the VM's `jtagd` held a stale USB handle after a passthrough drop/reconnect cycle (`jtagconfig -n`
+reported "No JTAG hardware available" even with the USB-Blaster visibly connected in UTM) -- killing and
+letting `jtagd` restart fixed it, a new lesson worth keeping (not yet written to the skill). `get_service_paths
+issp` returned FIVE instances on this bitstream (`IFPS`/`BLND`/`DBGM`/`PCAD`/`BLIT` -- four are leftover debug
+probes from earlier investigation stages, still present since `TAU_ISSP` was never split per-investigation);
+`issp_get_instance_info` correctly disambiguated `BLND` by name.
+
+**First read looked like a smoking gun and was wrong -- corrected in-session, not after the fact.** A live
+sample (`blend_active=1`) showed `bl_r == bl_bg` exactly, for every possible alpha 0-255 by direct calculation
+-- looked like the blend was unconditionally discarding the source. Turned out to be a real property of
+`blend_ch`'s own `>>8` rounding (already documented in the RTL's own comment, B-327: "at alpha=255 the
+destination still contributes 1/256"): the captured `fg`/`bg` pair differed by exactly 1 LSB per channel
+(adjacent gradient rows, or a destination that had already converged near the source after several correctly-
+fading frames), and at that contrast level EVERY alpha in 0-255 rounds to the identical result -- a case where
+"looks broken" and "just decayed to convergence" are indistinguishable from one sample. Widened the capture:
+6,000 total probe reads (~186 live samples) across an actively-reproduced accumulation, computing the true
+per-channel max difference (not the naive packed-RGB565 subtraction the first widened attempt used, which
+falsely inflated small per-channel diffs into large numbers via bit-position weighting) -- **every single live
+sample topped out at a 1-LSB per-channel difference**, never once catching a high-contrast destination (e.g.
+a stale bright trace-line pixel against the dark gradient). Combined with `blend_probe()`'s own boot-time
+known-answer self-test (white over black at alpha=128, expects exactly `0x7BEF`) having to have already passed
+for `ui_bg_blend()` to run at all (confirmed true, since B-413's counters show successful attempts) -- a
+genuinely high-contrast case that already works -- the live evidence leans toward the blend arithmetic itself
+being correct in hardware, not broken.
+
+**Re-examined the actual reported symptom with fresh eyes instead of more probe reads.** The owner sent two
+screenshots: a working Scope showing a faint fading trail behind the current trace (correct), and the broken
+state showing every recent trace position at FULL, undimmed brightness stacked into a solid white mass --
+not "fades too slowly," but "nothing ever visibly erases, new segments just pile onto old ones." A live Info
+screenshot taken DURING the reproduced bug showed **SCOPE BG READY 173 OK 0 FAIL, STRIP OK (all three rows
+match), BASES both 0** -- every existing diagnostic reports clean even while the bug is actively visible on
+screen. Since the trace segments themselves (drawn via plain `fb_rect()`) clearly keep appearing correctly
+while nothing ever gets erased, and the blend/erase commands report successful execution against provably
+correct source data, the remaining candidate is that the *commands are landing in the wrong place*, not that
+they're failing or reading wrong inputs.
+
+**New hypothesis, built as a firmware-only check (no JTAG needed):** `docs/MMIO_ALLOCATION.md`'s own `DBUF_CPU`
+row (corrected earlier this session) says RECT-class opcodes (`fb_rect`/`fb_bar`/`fb_copy` -- what builds the
+gradient strip AND draws the trace bars) automatically follow `R_DBUF_CPU`'s current H2 buffer selection, while
+true BLIT-class opcodes (`fb_blit` -- what `ui_bg_blend()` actually uses to paint the fade) do not, relying
+entirely on the sticky `SRC_BASE`/`DST_BASE` fields already confirmed zero (B-434). If `R_DBUF_CPU` (what new
+CPU draws target) and `R_DBUF_DISP` (what's actually shown) ever disagree at the moment the blend fires, the
+trace bars keep landing correctly on the displayed buffer (explaining why new segments always appear) while
+the blend keeps updating the OTHER, undisplayed buffer -- zero visible effect, exactly "new draws pile up,
+nothing ever fades." This is the same bug *class* already found once for Chladni (B-414: "blit-mode opcodes
+don't automatically follow H2's displayed buffer"), never checked for the Scope's own trail path.
+
+Both `R_DBUF_CPU`/`R_DBUF_DISP` are ordinary readable MMIO registers (unlike the write-only sticky blit
+fields) -- no JTAG needed. Added `dbg_dbuf_cpu`/`dbg_dbuf_disp` (`fw/player.c`'s `dbg_strip_check()`, same call
+site as B-433/B-434's snapshots) and a new "DBUF" Info row (`fw/settingsui.inc`, `SET_INFO_ROWS` 26->27, case
+25): `CPU <0|1> DISP <0|1> OK`/`MISMATCH`. Verified: `make test-host` clean; heap-gap baseline updated for
+this genuinely new small diagnostic (all three tracked targets down ~560-576 B, `--update` recorded it);
+cold-call check clean. Rebuilt `player-library-diagnostic-profile` (6,816 B heap gap vs. 4,096 B floor).
+Same bitstream as A_31 (`glyphbuf-t200`, RBF `b089b828...`). Not yet packaged/installed -- next step is
+getting this onto the card and reading DBUF during a live repro.
