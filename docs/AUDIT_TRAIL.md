@@ -12886,7 +12886,11 @@ copy. No file crossed into the sibling repo.
 Artifact link (this session's earlier watch on it had died) so the owner has a live browser copy to
 keep iterating on without a local server. No change to the file's content.
 
-## B-478: Cymo resampler -- live audio-path wiring fit CLOSED CLEAN, both seeds
+## B-480: Cymo resampler -- live audio-path wiring fit CLOSED CLEAN, both seeds
+
+(Renumbered from an originally-assigned B-478, which collided with another concurrent session's own
+B-478/B-479 entries below -- same class of collision B-437 already fixed the checker for; picked B-480
+as the next free id rather than touch their entries.)
 
 `cymo-b476` fit (B-477) finished: **both seeds Successful, every corner positive on both**, resources
 unchanged from the standalone-module fit (RAM 256/308, DSP 20/66 -- confirms the live-audio wiring
@@ -12903,3 +12907,24 @@ This is now a real, fit-proven bitstream containing the FULL live audio path -- 
 the card, no firmware caller exists yet (`cymo_live_en` can only be set via a raw MMIO write, not a
 Diagnostics menu toggle). Next steps, in order: `CYMO_RESAMP_READY()` firmware probe, a Diagnostics-
 build-only runtime toggle to set `cymo_live_en`, package + install, hardware test, hardware A/B.
+
+## B-479: Audio metering research document, co-located with the meter docs
+
+Owner asked for the previous turn's audio-measurement analysis (what each meter measures, the hardware
+vs software map) saved as a research document, placed with the meter documentation since it's
+transversal across every meter rather than specific to one.
+
+**Added `docs/features/meters/AUDIO_METERING_RESEARCH.md`.** Re-verified against the current tree rather
+than reusing the earlier chat analysis unchecked: `fw/player.c`'s `peak_acc`/`vu_l`/`vu_r`/`spec_lvl[]`/
+`MTR_HEADROOM_NUM`/`DEN` lines and the `R_SPEC_*`/`R_WAVE_*` MMIO defines (`0xDC`-`0xFC`) all still match.
+Content: three underlying measurements (sample peak, 16-band spectrum, raw waveform) behind the eleven
+meters' different drawings; the VU/Master-VU peak-vs-RMS naming note; a gap list (RMS, stereo
+correlation, clip counter, crest factor, spectral centroid, a shared onset signal, true/inter-sample
+peak) ranked by how directly each extends `mtr_in_t`; a hardware/software map noting `tau_spec_bank.sv`
+and `tau_wave_meter.sv` already prove the exact accumulate-in-hardware/publish-per-frame shape RMS and
+correlation would need; and a non-binding priority read. Cross-referenced from, and cross-references,
+`docs/features/meters/HARDWARE_METER_IDEAS.md` (added a pointer there rather than duplicating its rows
+2/3, which this document supersedes with the fuller picture) and `docs/features/meters/
+METER_MODULE_SPEC.md` section 3 (`mtr_in_t` is where any of this would actually land).
+
+Analysis only — no firmware, RTL, MMIO, card or VM change.
