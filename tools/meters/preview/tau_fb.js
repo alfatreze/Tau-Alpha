@@ -4,11 +4,12 @@
   const to565 = (r, g, b) => (((r * 31 + 127) / 255 | 0) << 11) | (((g * 63 + 127) / 255 | 0) << 5) | ((b * 31 + 127) / 255 | 0);
   const from565 = (c) => [((c >> 11) * 255 / 31) | 0, (((c >> 5) & 63) * 255 / 63) | 0, ((c & 31) * 255 / 31) | 0];
   class Fb {
-    constructor(w, h, log) { this.w = w; this.h = h; this.px = new Uint16Array(w * h); this.cmds = 0; this.log = log ? [] : null; this.barReady = true; }
+    constructor(w, h, log) { this.w = w; this.h = h; this.px = new Uint16Array(w * h); this.cmds = 0; this.pix = 0; this.log = log ? [] : null; this.barReady = true; }
     _rec(op, a) { this.cmds++; if (this.log) this.log.push(op + ' ' + a.join(' ')); }
     rect(x, y, w, h, c) {
       this._rec('rect', [x, y, w, h, c]);
       const x0 = Math.max(0, x), x1 = Math.min(this.w, x + w), y0 = Math.max(0, y), y1 = Math.min(this.h, y + h);
+      this.pix += Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
       for (let yy = y0; yy < y1; yy++) this.px.fill(c, yy * this.w + x0, yy * this.w + x1);
     }
     /* fb_bar: a column of height h with `lit` rows lit at the bottom. With OP_BAR (BLIT_READY) it is ONE command; without, the
@@ -26,7 +27,7 @@
     /* fb_blit-style copy inside the framebuffer: ONE command, rows of at most 127 pixels (Talos row buffer). Rows are read before they are written. */
     copy(sx, sy, dx, dy, w, h) {
       this._rec('copy', [sx, sy, dx, dy, w, h]);
-      const rows = [];
+      this.pix += 2 * w * h; const rows = [];
       for (let yy = 0; yy < h; yy++) rows.push(this.px.slice((sy + yy) * this.w + sx, (sy + yy) * this.w + sx + w));
       for (let yy = 0; yy < h; yy++) this.px.set(rows[yy], (dy + yy) * this.w + dx);
     }

@@ -13237,3 +13237,7 @@ Branch `meter-layered-wave`. New meter after the owner's reference image: nested
 - Tooling: `meters/planned/` (schema + docs only, never the firmware generator, so ROM/RAM cannot grow); `Fb.copy()`; lab gains fullscreen figure, live file/mic source, split map. Found and fixed a TDZ bug in the lab page (`live` used before its declaration) with a DOM-stub run, because the browser pane was hidden and throttled timers.
 - Verified: `node tools/meters/preview/test.js` (21 new+old checks), `gen_meters.py --check`, `check_meter_deps.py`, `build.py --check`, golden-frame and trace tests unchanged. Float prototype; fixed-point port + golden frames still owed. Nothing on a Pocket.
 - Note: another session had uncommitted `fw/` and `dist/` changes in the shared tree; left alone, not committed here.
+
+## B-494 addendum: Spectrum (non-scrolling) view, (i) help, repeat, CPU estimate
+
+Branch `meter-layered-wave`, worktree `tau-alpha-meter-layered-wave`. `view` parameter (HISTORY scrolls; SPECTRUM = frequency on x, no scrolling) -- 13 parameters, one over the firmware's 12 (flagged in manifest and spec); preset RIBBON replaced by TIDE. Every parameter has `help`/`value_help` in the manifest, shown behind an (i) button in the lab and carried to Omega via the schema. Lab: Repeat checkbox for the audio file, CPU estimate range (model, unmeasured: 60-400 cycles/command, 30-80/evaluation, 38 Hz, 66.7 MHz) and engine pixels/frame. Found by DOM-stub run: help buttons were appended before their input; fixed. node tests, gen_meters, golden frames pass.

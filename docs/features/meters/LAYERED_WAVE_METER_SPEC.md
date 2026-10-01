@@ -13,7 +13,7 @@ the tail). Fullscreen capable, theme-role coloured, cheap enough to sit inside t
 |---|---|---|
 | Registry manifest | `meters/planned/layered_wave/meter.json` | `planned: true`, never selectable, **not** fed to the firmware generator, so it cannot grow ROM or RAM. Reaches `tools/meters_schema.json` (what Omega reads) and the docs. Id 16 reserved. |
 | Preview module | `tools/meters/preview/meters/layered_wave.js` | Same `{state, tick(ctx)}` contract as `winamp_bars.js`; draws only through `ctx.fb.rect/copy`, so command counts are exact. Float prototype; the firmware port is fixed point and gets golden frames (M3) before it is selectable. |
-| Lab | `python3 tools/meters/preview/build.py --out work/meters/meter_lab.html` | One self-contained file (Omega vendors it). Pick **LAYERED WAVE**. New in the shared lab: fullscreen figure (400x323) switch, live audio file / microphone source, a split map under the canvas. |
+| Lab | `python3 tools/meters/preview/build.py --out work/meters/meter_lab.html` | One self-contained file (Omega vendors it). Pick **LAYERED WAVE**. New in the shared lab: fullscreen figure (400x323) switch, live audio file (with a Repeat checkbox) / microphone source, a CPU estimate, a split map under the canvas. |
 | Capability | `blit_shift` in `tools/meter_capabilities.json` | **design-only**: a scroll by engine copy (below). Hardware-proven caps: `rect`, `hw_spectrum`, `hw_wave`, `vsync_beam`. |
 | Tests | `node tools/meters/preview/test.js` | Per preset: deterministic, inside the box, within cost class; nested layers never cross; groups tile the 16 bands. |
 
@@ -54,10 +54,13 @@ The lab's split map shows the 16 live bands coloured by layer, with the Hz range
 Per-layer motion: attack is 4x faster than release; `response` sets release 40-600 ms; the DYNAMICS split staggers
 the time constants 1.6x per layer.
 
-## 4. Parameters (12, the generic Configure page and QR limit)
+## 4. Parameters (13: one over the firmware page limit of 12)
+
+`view` was added after the first cut (scrolling vs fixed). Before promotion out of `meters/planned/` either `MTR_MAX_PARAMS` is raised or a parameter is merged away (candidates: fold `outer` into `nest`, or drop `speed` into a preset-only constant). Every parameter carries `help` (and enums `value_help`) in the manifest: the lab shows them behind an (i) button, and Omega receives them through the schema.
 
 | Key | Type / range | Default | Meaning |
 |---|---|---|---|
+| **view** | enum HISTORY, SPECTRUM | HISTORY | **HISTORY** scrolls (x = time, newest left). **SPECTRUM** does not scroll: x = frequency (bass left), layers differ by response time and height, both ends pointed. Split, Outer, Layer mode, Speed and Resolution are ignored in SPECTRUM. Cost: layers x 16 (BLOCKS) or up to layers x 400 (SMOOTH), about 195 commands for TIDE |
 | layers | u8 1..6 | 3 | number of layers |
 | split | enum OCTAVES, BASS_FINE, ENERGY, DYNAMICS | OCTAVES | section 3 |
 | outer | enum BASS, TREBLE | BASS | which end is outermost |
@@ -79,7 +82,7 @@ yet), stereo skew, measure choice.
 
 AURORA (the reference: 3 nested layers, danger to accent), SUNSET (5 layers, bass-fine), DEEP OCEAN (4 overlapped
 layers, energy split, treble outer), HALO (broadband echoes, long taper), NEON (6 layers, 400 columns, no taper),
-PULSE (single chunky layer), RIBBON (two overlapped bass-fine layers), SILK (smooth full redraw, the cost showcase).
+PULSE (single chunky layer), TIDE (SPECTRUM view, no scrolling, 4 layers), SILK (smooth full redraw, the cost showcase).
 
 ## 5. Drawing and cost (Talos / Helios)
 
@@ -108,6 +111,11 @@ affordable. SCROLL bakes colour and taper in (clipped, not scaled); a blend-fade
   rate, so band edges scale with 44.1 vs 48 kHz (about 8%, ignored). Planned: scroll speed follows Cymo tempo;
   the soft-clipper's overs counter drives a clip flash.
 - **Theme**: roles only; Light polarity inherited from `th_role[]`; text gamma not involved.
+
+**CPU estimate (lab, model).** The cost panel also prints a CPU range: command issue 60-400 cycles each, column/band
+evaluation 30-80 cycles, 38 Hz, 66.7 MHz, so a few tenths of a percent up to about 1-2% for the presets. It is a bracket
+from assumptions, **unmeasured**; the real figure comes from the meter sweep Check (`CPU LOAD`, `DRAW STALL`) once a firmware
+module exists. It also shows engine pixels written per frame (SDRAM bandwidth pressure, not CPU).
 
 ## 6. Omega
 

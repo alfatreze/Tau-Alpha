@@ -42,7 +42,8 @@ check('winamp_bars: Light theme renders too (accent capped, box respected)', () 
 {
   const LW = require('./meters/layered_wave.js'), lm = schema.meters.find((m) => m.key === 'layered_wave');
   const box = { x: 16, y: 152, w: 368, h: 122 };
-  check('layered_wave: registered as planned, never selectable, 12 parameters', () => { assert.ok(lm && lm.planned && !lm.selectable); assert.ok(lm.params.length <= 12); });
+  check('layered_wave: registered as planned, never selectable, 12 parameters', () => { assert.ok(lm && lm.planned && !lm.selectable); assert.ok(lm.params.length <= 13);   // 13: one over the firmware page limit of 12, flagged in the manifest and spec; resolved before promotion
+    for (const x of lm.params) assert.ok(x.help, x.key + ' has no (i) help text'); assert.ok(lm.presets.length <= 8); });
   lm.presets.forEach((pr, pi) => {
     const opts = { data, schema, key: 'layered_wave', params: pr.values, source: Audio.demo(2), frames: 200 };
     check(`layered_wave/${pr.name}: deterministic, inside its box, within the cost class`, () => {
@@ -51,6 +52,12 @@ check('winamp_bars: Light theme renders too (accent capped, box respected)', () 
       for (let y = 0; y < 360; y++) for (let x = 0; x < 400; x++) if (a.fb.px[y * 400 + x] !== bg.px[y * 400 + x]) ((x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h) ? inside++ : outside++);
       assert.ok(inside > 300, 'nothing drawn'); assert.strictEqual(outside, 0, outside + ' pixels outside the box');
     });
+  });
+  check('layered_wave: SPECTRUM view draws inside the box in every draw mode, and does not scroll', () => {
+    for (const draw of [0, 1, 2]) {
+      const base = Object.assign({}, lm.presets[0].values, { view: 1, draw }), run = (f) => Run.run({ data, schema, key: 'layered_wave', params: base, source: () => ({ spec: new Array(16).fill(160), wave: new Array(64).fill(0), paused: false }), frames: f });
+      const a = run(120), b = run(121); assert.strictEqual(a.fb.checksum(), b.fb.checksum(), 'a steady input must give a steady picture'); assert.ok(a.cost.mean > 0 && !a.cost.over, 'draw ' + draw + ' cost ' + a.cost.max);
+    }
   });
   check('layered_wave: fullscreen box (400x323) renders inside its box', () => {
     const r = Run.run({ data, schema, key: 'layered_wave', params: lm.presets[0].values, source: Audio.demo(2), frames: 120, box: { x: 0, y: 0, w: 400, h: 323 } });

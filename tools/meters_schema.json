@@ -741,13 +741,29 @@
    "needs_hw_spec": true,
    "params": [
     {
+     "key": "view",
+     "label": "View",
+     "type": "enum",
+     "values": [
+      "HISTORY",
+      "SPECTRUM"
+     ],
+     "default": 0,
+     "help": "Scrolling or fixed picture.",
+     "value_help": [
+      "HISTORY: the wave scrolls away from a pointed head; the horizontal axis is time (newest on the left).",
+      "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. Layers then differ by response time (outer slow, inner fast); Layer split, Outer layer, Layer mode, Scroll speed and Resolution are ignored."
+     ]
+    },
+    {
      "key": "layers",
      "label": "Layers",
      "type": "u8",
      "min": 1,
      "max": 6,
      "step": 1,
-     "default": 3
+     "default": 3,
+     "help": "How many nested waves are drawn, from 1 to 6. More layers cost one drawing command per layer per column run."
     },
     {
      "key": "split",
@@ -759,7 +775,14 @@
       "ENERGY",
       "DYNAMICS"
      ],
-     "default": 0
+     "default": 0,
+     "help": "What each layer listens to.",
+     "value_help": [
+      "OCTAVES: equal groups of the 16 spectrum bands.",
+      "BASS_FINE: bass gets the finest layers, treble one wide layer.",
+      "ENERGY: boundaries adapt so every layer carries about the same energy, whatever the track.",
+      "DYNAMICS: no frequency split; every layer follows the overall peak with its own time constant (the echo look)."
+     ]
     },
     {
      "key": "outer",
@@ -769,7 +792,8 @@
       "BASS",
       "TREBLE"
      ],
-     "default": 0
+     "default": 0,
+     "help": "Which end of the spectrum is the big outer wave: BASS or TREBLE."
     },
     {
      "key": "nest",
@@ -779,7 +803,8 @@
       "NESTED",
       "OVERLAP"
      ],
-     "default": 0
+     "default": 0,
+     "help": "NESTED: each layer also hears everything inside it, so inner waves can never poke out of outer ones. OVERLAP: each layer hears only its own frequencies and layers may cross."
     },
     {
      "key": "draw",
@@ -790,7 +815,13 @@
       "SMOOTH",
       "SCROLL"
      ],
-     "default": 2
+     "default": 2,
+     "help": "How the picture is built each frame. This decides smoothness and cost.",
+     "value_help": [
+      "BLOCKS: flat chunky columns, redrawn only when a new column arrives. About 60 commands per frame.",
+      "SMOOTH: a curved outline evaluated at every pixel with sub-column motion; the best look and the most commands (about 225 and up).",
+      "SCROLL: shifts the existing picture with a hardware copy and draws only the new columns; about 45 commands at any resolution. The tail taper is clipped instead of scaled. Needs a capability not yet proven on hardware. In SPECTRUM view it behaves like SMOOTH."
+     ]
     },
     {
      "key": "res",
@@ -800,7 +831,11 @@
      "max": 400,
      "step": 8,
      "default": 200,
-     "unit": "cols"
+     "unit": "cols",
+     "help": "Resolution: how many columns span the width, up to 400 (one per pixel). Free in SCROLL; costs more commands in BLOCKS and SMOOTH. HISTORY view only.",
+     "when": {
+      "view": 0
+     }
     },
     {
      "key": "speed",
@@ -810,7 +845,11 @@
      "max": 240,
      "step": 10,
      "default": 100,
-     "unit": "px/s"
+     "unit": "px/s",
+     "help": "How fast the wave scrolls, in pixels per second. HISTORY view only.",
+     "when": {
+      "view": 0
+     }
     },
     {
      "key": "response",
@@ -819,7 +858,8 @@
      "min": 1,
      "max": 100,
      "step": 5,
-     "default": 45
+     "default": 45,
+     "help": "How quickly layers follow the music. Low = slow, lingering; high = snappy. Attack is always about 4 times faster than release."
     },
     {
      "key": "taper",
@@ -829,7 +869,8 @@
      "max": 100,
      "step": 5,
      "default": 70,
-     "unit": "%"
+     "unit": "%",
+     "help": "Roll-off toward the tail: the wave narrows, fades into the background, and ends in three dots. 0 = full height to the edge. In SPECTRUM view both ends are pointed."
     },
     {
      "key": "color_outer",
@@ -849,7 +890,8 @@
       "BASE",
       "BG"
      ],
-     "default": 5
+     "default": 5,
+     "help": "Theme role for the outermost layer. Colours are roles, not RGB, so they follow the theme, your accent and Dark/Light."
     },
     {
      "key": "color_inner",
@@ -869,7 +911,8 @@
       "BASE",
       "BG"
      ],
-     "default": 0
+     "default": 0,
+     "help": "Theme role for the innermost layer; layers in between blend from outer to inner."
     },
     {
      "key": "color_bg",
@@ -889,7 +932,8 @@
       "BASE",
       "BG"
      ],
-     "default": 10
+     "default": 10,
+     "help": "Theme role for the solid background of the meter box (one fill command)."
     }
    ],
    "presets": [
@@ -907,7 +951,8 @@
       "taper": 70,
       "color_outer": 5,
       "color_inner": 0,
-      "color_bg": 10
+      "color_bg": 10,
+      "view": 0
      }
     },
     {
@@ -924,7 +969,8 @@
       "taper": 55,
       "color_outer": 5,
       "color_inner": 4,
-      "color_bg": 11
+      "color_bg": 11,
+      "view": 0
      }
     },
     {
@@ -941,7 +987,8 @@
       "taper": 40,
       "color_outer": 6,
       "color_inner": 3,
-      "color_bg": 9
+      "color_bg": 9,
+      "view": 0
      }
     },
     {
@@ -958,7 +1005,8 @@
       "taper": 85,
       "color_outer": 2,
       "color_inner": 1,
-      "color_bg": 10
+      "color_bg": 10,
+      "view": 0
      }
     },
     {
@@ -975,7 +1023,8 @@
       "taper": 0,
       "color_outer": 7,
       "color_inner": 0,
-      "color_bg": 11
+      "color_bg": 11,
+      "view": 0
      }
     },
     {
@@ -992,24 +1041,26 @@
       "taper": 60,
       "color_outer": 0,
       "color_inner": 0,
-      "color_bg": 10
+      "color_bg": 10,
+      "view": 0
      }
     },
     {
-     "name": "RIBBON",
+     "name": "TIDE",
      "values": {
-      "layers": 2,
-      "split": 1,
+      "layers": 4,
+      "split": 0,
       "outer": 0,
-      "nest": 1,
-      "draw": 0,
-      "res": 100,
-      "speed": 70,
-      "response": 35,
-      "taper": 90,
-      "color_outer": 3,
-      "color_inner": 6,
-      "color_bg": 9
+      "nest": 0,
+      "draw": 1,
+      "res": 200,
+      "speed": 100,
+      "response": 40,
+      "taper": 60,
+      "color_outer": 0,
+      "color_inner": 1,
+      "color_bg": 9,
+      "view": 1
      }
     },
     {
@@ -1026,7 +1077,8 @@
       "taper": 70,
       "color_outer": 5,
       "color_inner": 0,
-      "color_bg": 10
+      "color_bg": 10,
+      "view": 0
      }
     }
    ],

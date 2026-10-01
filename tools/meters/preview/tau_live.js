@@ -8,9 +8,9 @@
     let ac = null, an = null, node = null, el = null, kind = null, freq = null, time = null;
     const ensure = () => { if (ac) return; ac = new (root.AudioContext || root.webkitAudioContext)(); an = ac.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = 0; freq = new Float32Array(an.frequencyBinCount); time = new Float32Array(an.fftSize); };
     const drop = () => { try { if (node) node.disconnect(); } catch (e) {} if (el) { el.pause(); el.src = ''; el = null; } try { an.disconnect(); } catch (e) {} node = null; kind = null; };
-    async function useFile(file) {
+    async function useFile(file, loop) {
       ensure(); drop(); await ac.resume();
-      el = new Audio(); el.src = URL.createObjectURL(file); el.loop = true; el.crossOrigin = 'anonymous';
+      el = new Audio(); el.src = URL.createObjectURL(file); el.loop = loop !== false; el.crossOrigin = 'anonymous';
       node = ac.createMediaElementSource(el); node.connect(an); an.connect(ac.destination); kind = 'file'; await el.play();
     }
     async function useMic() {
@@ -34,7 +34,8 @@
       for (let i = 0; i < 64; i++) { let v = 0; for (let j = 0; j < step; j++) { const x = time[Math.floor(i * step + j)]; if (Math.abs(x) > Math.abs(v)) v = x; } wave[i] = Math.max(-100, Math.min(100, Math.round(v * 110))); }
       return { spec, wave, paused: false };
     }
-    return { useFile, useMic, frame, kind: () => kind };
+    const setLoop = (v) => { if (el) { el.loop = !!v; if (v && el.ended) el.play(); } };
+    return { setLoop, useFile, useMic, frame, kind: () => kind };
   }
   const api = { create };
   if (typeof module !== 'undefined') module.exports = api; else root.TauLive = api;
