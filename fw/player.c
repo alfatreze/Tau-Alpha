@@ -139,6 +139,10 @@
 #define R_I2S_DIAG_CNT    0x80000144u /* count of update events since reset */
 #define R_I2S_DIAG_SUM    0x80000148u /* sum of measured intervals since reset (average via delta / delta-count) */
 #define R_I2S_DIAG_ST     0x8000014Cu /* bit 0 = built in (I2S_DIAG_ENABLE) */
+#define R_CYMO_CTRL   0x80000150u /* B-471/B-476: write: bit0 clear (pulse), bit1 start (pulse, test-only), bit2 LIVE_ENABLE (STICKY -- hands the real audio path to the resampler) */
+#define R_CYMO_PUSH   0x80000154u /* write: {push_r[31:16],push_l[15:0]} + one push_we pulse (self-test only, the live audio path never uses this) */
+#define R_CYMO_OUT    0x80000158u /* read: {out_r[31:16],out_l[15:0]} -- this read is itself the ack that clears STATUS bit 2 (self-test only) */
+#define R_CYMO_STATUS 0x8000015Cu /* read: bit0 built in, bit1 busy, bit2 done, bit3 pop_req, bit4 live_en */
 /* Redirect fw/flac.c's LPC reconstruction to the hardware unit (docs/research/FLAC_LPC_KERNEL_DESIGN.md).
  * Off by default -- byte-identical to the unmodified decoder; no build target defines this yet (no
  * Quartus fit or hardware test exists for TAU_LPC yet, section 7 item 5). fw/flac_lpc_hw.inc implements
@@ -1794,6 +1798,11 @@ static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardwa
 static uint8_t  text_mode_hw;             /* theme/gamma: the bitstream has the second text weight table (probed once at boot) */
 static uint8_t  hw_poly;                  /* B-292: the bitstream has the MP3 window unit (probed once at boot) */
 static uint8_t  hw_lpc;                   /* B-369: the bitstream has the FLAC LPC unit (probed once at boot) */
+static uint8_t  hw_cymo;                  /* B-471/B-476: the bitstream has the Cymo resampler (probed once at boot) */
+#define CYMO_RESAMP_READY() (hw_cymo != 0u)   /* a plain status-bit read: unlike BLIT_READY()/RRECT_READY(), this address
+                                                * range is cleanly unmapped on every older bitstream (docs/MMIO_ALLOCATION.md:
+                                                * "0x150-0x1FC free" before this unit existed), so there is no truncation/
+                                                * aliasing risk a behavioural probe would need to rule out. */
 static uint8_t  dbuf_hw;                  /* Helios/Talos H2 (B-340): the bitstream has double buffering (probed once at boot) */
 #define DBUF_READY() (dbuf_hw != 0u)
 #if FLAC_PROFILE
@@ -4624,6 +4633,16 @@ static uint8_t rate_unsupported;   /* set at load, consumed by the main loop */
  * above; that is the expected, useful result of turning this on, not a bug. Diagnostic-build-only, and off
  * by default even there, so it can never affect a normal listening session by accident. */
 static uint8_t flac_accept_all_rates;
+
+/* Settings > Diagnostics > CYMO RESAMPLER (default OFF). First-ever hardware test of the real 44.1:48
+ * polyphase FIR resampler (B-471..B-478) -- hands the live audio path (EQ input) from pcm_fifo's own
+ * zero-order hold to the resampler's output via mp3_soc.v's R_CYMO_CTRL bit 2 (sticky LIVE_ENABLE).
+ * Diagnostic-build-only, off at every boot, never persisted -- same convention as TG_RATES/TG_SPEEDS:
+ * this is a test switch for the owner's own hardware A/B, not a listening preference, until it has been
+ * proven on real silicon. No-op if CYMO_RESAMP_READY() is false (the write lands on an unmapped
+ * register on any bitstream without the unit, same inert-when-absent convention as every other probe
+ * here). */
+static uint8_t cymo_live_toggle;
 #endif
 
 /* Shown ON THE TRACK CARD rather than as a takeover screen. The card is
@@ -8828,6 +8847,7 @@ int main(void)
 #if TAU_LPC_FW
     tau_lpc_hw_enable = hw_lpc;
 #endif
+    hw_cymo = (uint8_t)(REG(R_CYMO_STATUS) & 1u);  /* B-471/B-476: hardware Cymo resampler present? (0 on any other bitstream) */
 #if FLAC_PROFILE
     /* B-342: one-time boot calibration of __clzdi2's real cost on THIS CPU, so flac.c's unary() call
      * count can be turned into an estimated cycle share without ever timing unary() itself live (which

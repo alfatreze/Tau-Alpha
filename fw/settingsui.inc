@@ -40,7 +40,7 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #define SET_METERTRACE_PG ((uint8_t)(SET_METERSWEEP_PG + 1u)) /* Meter trace recorder, M3 (fw/suite.inc) */
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
-enum { TG_ART = 0, TG_SPEEDS, TG_RATES };
+enum { TG_ART = 0, TG_SPEEDS, TG_RATES, TG_CYMO };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 #define SET_PAGE_CH(c) ((uint8_t)(SET_MENUS + (c)))
 
@@ -72,6 +72,7 @@ static const set_row_t set_dgn_rows[] = {
     { "STRESS", RT_GROUP, SET_STRESS },
     { "ALL SPEEDS", RT_TOGGLE, TG_SPEEDS },
     { "ACCEPT ALL RATES", RT_TOGGLE, TG_RATES },
+    { "CYMO RESAMPLER", RT_TOGGLE, TG_CYMO },
     { "CHECK", RT_GROUP, SET_CHECK_PG },
 #if MP3_PROFILE || FLAC_PROFILE
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
@@ -435,6 +436,16 @@ COLD_FN static void set_toggle(uint32_t t)
          * switch, not a listening preference. */
         flac_accept_all_rates = (uint8_t)!flac_accept_all_rates;
         return;                                  /* not persisted */
+    } else if (t == TG_CYMO) {
+        /* B-471..B-478: first-ever hardware test of the Cymo resampler's live audio path. No-op if the
+         * bitstream doesn't have it (the write lands on an unmapped register, same convention as every
+         * other inert-when-absent register here). Off at every start, never persisted -- a test switch,
+         * not a listening preference, same convention as TG_RATES/TG_SPEEDS. */
+        if (CYMO_RESAMP_READY()) {
+            cymo_live_toggle = (uint8_t)!cymo_live_toggle;
+            REG(R_CYMO_CTRL) = cymo_live_toggle ? 4u : 0u;   /* bit 2 = LIVE_ENABLE, sticky */
+        }
+        return;                                  /* not persisted */
 #endif
     }
     settings_mark_dirty();
@@ -472,6 +483,7 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     else if (r->arg == TG_ART)    s = art_pref ? "ON" : "OFF";
 #if TAU_DIAGNOSTIC
     else if (r->arg == TG_RATES)  s = flac_accept_all_rates ? "ON" : "OFF";
+    else if (r->arg == TG_CYMO)   s = cymo_live_toggle ? "ON" : "OFF";
 #endif
     else                          s = set_speed_all ? "ON" : "OFF";   /* TG_SPEEDS, the only remaining toggle */
     while (*s) *q++ = *s++;
@@ -1448,23 +1460,26 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
 #if TAU_DIAGNOSTIC
         if (set_page == SET_INFO_PG && (edge & KEY_A) && !rep) { info_build_qr(); info_qr_up = 1u; set_dirty = 1u; return 1; }
 #endif
-        if ((edge & KEY_UP)   && set_ro_top > 0u)      { set_ro_top--; set_dirty = 1u; }
-        if ((edge & KEY_DOWN) && set_ro_top < maxtop)  { set_ro_top++; set_dirty = 1u; }
+        /* Wraps like every other list here (helios_wrap_index(), fw/helios.inc): past the last visible
+         * window, Down jumps back to the top; Up from the top jumps to the last window. `maxtop + 1` is
+         * the count of valid `set_ro_top` positions (0..maxtop inclusive). */
+        if (edge & KEY_UP)   { set_ro_top = helios_wrap_index(set_ro_top, maxtop + 1u, 1); set_dirty = 1u; }
+        if (edge & KEY_DOWN) { set_ro_top = helios_wrap_index(set_ro_top, maxtop + 1u, 0); set_dirty = 1u; }
         if ((edge & (KEY_B | KEY_LEFT)) && !rep) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info -> SETTINGS */
         return 1;
     }
 
     if (set_page >= SET_MENUS) {                  /* a choice list */
         uint32_t c = set_page - SET_MENUS, n = set_ch_count(c);
-        if (edge & KEY_UP)   { set_ch_cur[c] = (uint8_t)(set_ch_cur[c] ? set_ch_cur[c] - 1u : n - 1u); set_ch_follow(c); set_dirty = 1u; }
-        if (edge & KEY_DOWN) { set_ch_cur[c] = (uint8_t)((set_ch_cur[c] + 1u) % n); set_ch_follow(c); set_dirty = 1u; }
+        if (edge & KEY_UP)   { set_ch_cur[c] = (uint8_t)helios_wrap_index(set_ch_cur[c], n, 1); set_ch_follow(c); set_dirty = 1u; }
+        if (edge & KEY_DOWN) { set_ch_cur[c] = (uint8_t)helios_wrap_index(set_ch_cur[c], n, 0); set_ch_follow(c); set_dirty = 1u; }
         if ((edge & (KEY_A | KEY_RIGHT)) && !rep) { set_ch_apply(c, set_ch_cur[c]); set_dirty = 1u; }     /* Right = forward = select */
         if ((edge & (KEY_B | KEY_LEFT)) && !rep)  { set_page = set_ch_parent[c]; set_dirty = 1u; }         /* Left = back */
         return 1;
     }
     uint8_t *sel = &set_sel[set_page];
-    if (edge & KEY_UP)   { *sel = *sel ? (uint8_t)(*sel - 1u) : (uint8_t)(set_menu_n[set_page] - 1u); set_menu_follow(set_page); set_dirty = 1u; }
-    if (edge & KEY_DOWN) { *sel = (uint8_t)((*sel + 1u) % set_menu_n[set_page]); set_menu_follow(set_page); set_dirty = 1u; }
+    if (edge & KEY_UP)   { *sel = (uint8_t)helios_wrap_index(*sel, set_menu_n[set_page], 1); set_menu_follow(set_page); set_dirty = 1u; }
+    if (edge & KEY_DOWN) { *sel = (uint8_t)helios_wrap_index(*sel, set_menu_n[set_page], 0); set_menu_follow(set_page); set_dirty = 1u; }
     if (rep) return 1;      /* a repeat only ever moves the cursor: A/B/Left/Right below react to a real press */
     const set_row_t *r = &set_menu_rows[set_page][*sel];
     if (edge & (KEY_A | KEY_RIGHT)) {

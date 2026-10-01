@@ -82,6 +82,19 @@ static void helios_fill_excl(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uin
         fb_rect((uint32_t)cur[i].x, (uint32_t)cur[i].y, (uint32_t)cur[i].w, (uint32_t)cur[i].h, color);
 }
 
+/* ---- Wraparound list navigation ---------------------------------------------------------------------------------
+ * One step of a 0-based index over `count` positions, wrapping at both ends: UP from position 0 lands on the LAST
+ * position, DOWN from the last position lands back on 0. `fw/settingsui.inc`'s own choice lists and plain menu
+ * rows (`set_ch_cur[]`, `set_sel[]`) already each hand-wrote this exact pair of expressions independently; this is
+ * that one idea named once so a third caller (or a fourth) never needs to re-derive it. Works unchanged for a
+ * SCROLL OFFSET too (not just a single selected row) -- pass `maxtop + 1` as `count` and the read-only Info/Stress-
+ * Status pages wrap at the last visible window exactly the same way a selection wraps at the last row. */
+static uint32_t helios_wrap_index(uint32_t idx, uint32_t count, int up)
+{
+    if (count == 0u) return 0u;
+    return up ? (idx ? idx - 1u : count - 1u) : (idx + 1u) % count;
+}
+
 /* ---- View registry (item 4, docs/features/HELIOS_ARCHITECTURE_REVIEW_2026-09-28.md section 5;
  * design in docs/features/HELIOS_SPEC.md section 11) ----------------------------------------------
  * B-350's helios_view_changed() unified six independent "repaint everything" call sites (formerly a
