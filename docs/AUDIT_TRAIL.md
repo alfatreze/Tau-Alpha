@@ -12971,3 +12971,25 @@ as asked would have created a true duplicate. What's real and worth recording: t
 this history (`fc8dfc5`, `82ce226`) each under-describe one entry their own diff actually contains,
 purely a commit-message/diff mismatch from two sessions sharing one working tree's `git add`, not data
 loss. No further action needed on the content itself.
+
+## B-482: Cymo resampler -- TAU_DEV_59 installed on the card (first hardware test pending)
+
+Packaged `alfatreze.TAU_DEV_59`: B-480's fit-proven live-audio-path bitstream
+(`work/diagnostics/cymo-b476/ap_core_s1.rbf`, hash-verified) + firmware built fresh right before
+packaging via `tools/package_dev_build.py --build-flags "RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1"`
+(matching the shipped macro set exactly, per the B-448 lesson -- the build is the literal last step
+before packaging, nothing can run in between and silently swap the ROM). This firmware is the first to
+carry B-481's `CYMO_RESAMP_READY()` probe and the Diagnostics > "CYMO RESAMPLER" toggle. Heap gap 6,592
+B against the 4,096 B floor -- tight but clean. `check_tau_package.py` PASS.
+
+Installed via `tools/install_dev_core.py` (dry run first, then `--yes`): backed up and verified
+`alfatreze.TAU_DEV_58` (the superseded I2S-jitter diagnostic) + the 5 catalog caches, copied and SHA-256-
+verified all 3 new core files, carried media from `TAU_DEV_58` and rebuilt the library index rooted at
+`/Assets/tau_dev_59/common/` (`tau_library.py verify`/`report` both clean), carried `tau-assets.bin`,
+removed `TAU_DEV_58` after the verified install, cleared caches, cleaned 17 junk files, ejected. Cores
+on the card now: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_59`.
+
+**Not yet run.** First hardware test is: boot, confirm Info shows the resampler present (a new Info row
+would need adding for this -- not done yet, so for now `CYMO_RESAMP_READY()`'s result is only visible
+indirectly, via whether the Diagnostics > CYMO RESAMPLER toggle has any effect when turned on), then
+turn the toggle on and listen for the actual hardware A/B this whole arc has been building toward.
