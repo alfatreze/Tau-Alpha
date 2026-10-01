@@ -11,8 +11,29 @@
 3. **Codex** must run background checks against modified files to detect bugs, race conditions, or performance flaws.
 
 ## 2b. Session start (read before working)
-0000000000. **Newest (2026-09-30, later session):
-`docs/handoffs/SESSION_HANDOFF_2026-09-30_METER_PREVIEW_PERSIST_AND_MCLK.md` -- read it first.**
+00000000000. **Newest (2026-10-01):
+`docs/handoffs/SESSION_HANDOFF_2026-10-01_CYMO_RESAMPLER.md` -- read it first.**
+Built the Cymo 44.1->48 kHz polyphase FIR resampler end to end (host model -> golden model -> RTL/sim/
+mutation -> synthesis check -> real two-seed fit -> live-audio-path wiring -> firmware probe/toggle ->
+card install -> real hardware listening tests). Two genuine hardware bugs found by the owner's own
+listening, both root-caused and fixed: a borrowed, imprecise tick divider causing an audible "vibrato"
+(B-484, fixed and hardware-confirmed -- owner reported lower noise floor and bigger soundstage after
+the fix), and a missing reset-on-enable causing a different pitch on every toggle (B-488, fixed and
+re-fit, **hardware re-test not yet done as of this entry**). Two new `analogue-pocket-dev` skill
+entries: KB-083 (borrowed imprecise tick -> resampler beat-frequency bug) and KB-084 (toggled stateful
+units need a reset on every enable transition). Separately: a global Helios utility
+(`helios_wrap_index()`) fixing the Info/Stress-Status pages' clamped scroll and deduplicating two
+existing copies of the same wraparound logic. New standing project rule (section 3): always state an
+estimated duration and local finish clock time when launching a Quartus fit. Card: `alfatreze.TAU_DEV_59`
+carries `cymo-b488` seed 1 (the toggle-reset fix) -- **not yet confirmed working on hardware.** Also
+resolved this session before Cymo started: the OP_BAR widen is hardware-confirmed (B-459), and the
+MCLK-jitter and I2S-CDC hypotheses for the original Cymo SINAD investigation were BOTH tested on
+hardware and ruled out (B-467, B-470) -- which is what motivated building the real resampler. Supersedes
+`docs/handoffs/SESSION_HANDOFF_2026-09-30_METER_PREVIEW_PERSIST_AND_MCLK.md` for everything it covers
+(that session's own content -- meter preview, persistence, OP_BAR -- is all still correct and hardware-
+confirmed). Then item 0000000000.
+0000000000. **(2026-09-30, later session):
+`docs/handoffs/SESSION_HANDOFF_2026-09-30_METER_PREVIEW_PERSIST_AND_MCLK.md`.**
 Three real, independently-caused bugs found and fixed, all hardware-confirmed: the Configure page's
 meter preview (Bars/Scope/Chladni/VU Master all froze except Scope -- two separate gate bugs,
 `meters_publish()`/B-452 and Chladni's own `FB_HELD()` swap/B-453); theme/mode/settings persistence
