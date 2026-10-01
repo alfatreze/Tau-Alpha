@@ -29,17 +29,20 @@ import flac_ref  # noqa: E402
 from cymo_resamp_model import P, Q, FS_IN, FS_OUT, build_banks, catmull_rom  # noqa: E402
 
 
-def decode_pcm(path, max_seconds=None):
+def decode_pcm(path, max_seconds=None, skip_seconds=0.0):
     """Full PCM decode using flac_ref.py's own proven bit-exact primitives (Bits/open_stream/
     frame_header/subframe) -- the same functions its own MD5 self-check verifies, just collecting
-    samples into lists instead of an MD5 digest."""
+    samples into lists instead of an MD5 digest. skip_seconds decodes and discards a leading
+    portion (e.g. a quiet intro) before collecting -- classical/orchestral pieces often build
+    slowly, so the first few seconds may not be the most revealing test material."""
     data = open(path, "rb").read()
     b = flac_ref.Bits(data)
     si = flac_ref.open_stream(b)
     cap = si["maxb"]
     ch0, ch1 = [0] * cap, [0] * cap
     l_out, r_out = [], []
-    max_samples = int(max_seconds * si["rate"]) if max_seconds else None
+    skip_samples = int(skip_seconds * si["rate"])
+    max_samples = int(max_seconds * si["rate"]) + skip_samples if max_seconds else None
     while True:
         if max_samples is not None and len(l_out) >= max_samples:
             break
@@ -71,7 +74,7 @@ def decode_pcm(path, max_seconds=None):
             b.align(); b.bits(16)
         except (EOFError, ValueError):
             break
-    return si["rate"], si["bps"], l_out, r_out
+    return si["rate"], si["bps"], l_out[skip_samples:], r_out[skip_samples:]
 
 
 def hold_resample(ch, n_out):
@@ -138,11 +141,12 @@ def main():
     ap.add_argument("flac", help="source FLAC file (44.1 kHz)")
     ap.add_argument("outdir", help="directory for the rendered WAV files")
     ap.add_argument("--seconds", type=float, default=20.0, help="how much of the track to render")
+    ap.add_argument("--skip-seconds", type=float, default=0.0, dest="skip_seconds", help="skip a leading portion first")
     ap.add_argument("--taps", type=int, default=32)
     ap.add_argument("--window", default="kaiser")
     a = ap.parse_args()
 
-    rate, bps, l16, r16 = decode_pcm(a.flac, max_seconds=a.seconds)
+    rate, bps, l16, r16 = decode_pcm(a.flac, max_seconds=a.seconds, skip_seconds=a.skip_seconds)
     if rate != FS_IN:
         sys.exit("this tool models the %d -> %d Hz path; source is %d Hz" % (FS_IN, FS_OUT, rate))
     print("decoded %d samples (%.1fs) at %d Hz, %d-bit" % (len(l16), len(l16) / rate, rate, bps))
