@@ -12847,3 +12847,13 @@ setup) and not on any new per-clock-cycle critical path (the EQ only samples its
 every ~1,389 cycles, at its own 48 kHz tick), so a clean re-fit is expected but not assumed -- a fresh
 two-seed fit against this exact tree is the next step, same discipline as every other change in this
 project regardless of how low-risk it looks on paper.
+
+## B-477: Cymo resampler -- fresh two-seed fit launched for the live audio-path wiring
+
+Owner: "does the fifo need a fit?" -- yes, confirmed and explained why (B-476's own note: the already-
+collected `cymo-b472` RBF predates the live-audio wiring entirely). Confirmed no Quartus process running
+before launch; launched `tools/vm_fit.py launch cymo-b476 --append
+tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt --seed 1 --seed 2` (same macro bundle
+as B-472/B-473, no new macro needed since the live-audio wiring is unconditionally inside the same
+`CYMO_RESAMP_ENABLE` generate block). Both seeds confirmed running independently (`readlink
+/proc/<pid>/cwd`: `cymo-b476-s1/src/fpga`, `cymo-b476-s2/src/fpga`), no collision. Result pending.
