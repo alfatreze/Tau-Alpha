@@ -49,7 +49,15 @@ module eq_biquad #(
     input  wire        [2:0]  preset,        // 0 = FLAT = true bypass
 
     output reg  signed [15:0] out_l,
-    output reg  signed [15:0] out_r
+    output reg  signed [15:0] out_r,
+    output wire               tick_out       // B-471: this module's own internal fixed-RATE_HZ tick,
+                                              // exposed purely so the Cymo resampler's `start` can share
+                                              // the EXACT same tick instance (not a second, independently-
+                                              // instantiated copy that could drift out of phase) -- see
+                                              // mp3_soc.v's own comment at the resampler instantiation.
+                                              // Read-only mirror of the existing internal `tick` wire below;
+                                              // adds no logic and changes nothing about this module's own
+                                              // bit-exact-tested arithmetic.
 );
 
     localparam integer NBAND = 5;
@@ -81,6 +89,7 @@ module eq_biquad #(
     // -------------------------------------------------------- sample tick ---
     reg [11:0] divctr;
     wire       tick = (divctr == DIV[11:0] - 12'd1);
+    assign     tick_out = tick;
 
     always @(posedge clk) begin
         if (rst)      divctr <= 12'd0;
