@@ -1,6 +1,8 @@
 # Hardware helpers for meters: ideas saved for later review (2026-09-26)
 
 Status: **IDEAS, none started** except the two already built (B-263 spectrum bank, B-283 level/scope block, which is prepared but not fitted).
+See `docs/features/meters/AUDIO_METERING_RESEARCH.md` (2026-10-01) for the full transversal picture — what every
+meter currently measures, the naming/gap analysis behind rows 2 and 3 below, and a priority read across all of it.
 Rule of thumb from the project's history: small streaming blocks fed from the PCM sample strobe (one comparison per clock, no long chains,
 registers or a single M10K) close timing easily; anything with a wide multiply pipeline needs the retiming discipline of B-111/B-114/B-231.
 
