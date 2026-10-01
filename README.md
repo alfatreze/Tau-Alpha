@@ -1,3 +1,4 @@
+
 # TAUᵅ — Analogue Pocket Music Player
 
 A music player for the Analogue Pocket. It plays MP3 and FLAC straight off the SD card, with a browsable
@@ -10,7 +11,8 @@ pixel by pixel from the CPU.
 
 Current version **v0.6.0** (30 September 2026), published as pre-release **0.6.0-alpha.1**. See [CHANGELOG.md](CHANGELOG.md).
 
-<img src="docs/screenshot.png" width="280" align="right" alt="Player screen: Feel Good Inc. by Gorillaz, track 6 of Demon Days 2005, encoded 128 kbps 44.1 kHz by LAME3.90, above a bar meter with the album cover at the right; below, a PLAYING label with repeat and volume indicators and the EQ preset ROCK, track 5 of 14, 02:31 of 03:41, and a progress bar">
+<img width="400" height="360" alt="20260930_235633" src="https://github.com/user-attachments/assets/103e9513-db6b-42d2-8834-debe4b39251d" />
+<img width="400" height="360" alt="20260930_235713" src="https://github.com/user-attachments/assets/1194cfac-1036-40ce-a656-de22e0866354" />
 
 ## What Tau does
 
@@ -35,6 +37,8 @@ Current version **v0.6.0** (30 September 2026), published as pre-release **0.6.0
   profiles, a Meter Sweep and QR-code reports that can be decoded from a screenshot.
 
 <br clear="right">
+<img width="400" height="360" alt="20260930_235724" src="https://github.com/user-attachments/assets/1be1db5c-2ad3-4db2-b370-ca151b2401ef" />
+<img width="400" height="360" alt="20260930_235740" src="https://github.com/user-attachments/assets/21790d13-cb8c-418c-bbd8-40cc0bf34c23" />
 
 ## Performance at a glance
 
@@ -53,6 +57,7 @@ sources and the honest limits, is [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 | New Winamp meters vs the classic bars | Draw cost, measured | Estimated 16-32 commands/frame; **measured (Meter Sweep): TBD** | **TBD** |
 | Battery life with the new visuals | Whether fancy meters drain faster | **TBD** | **TBD** |
 | Menu and library responsiveness | Snappiness after code moved to PSRAM | **TBD** | **TBD** |
+
 
 ## Install
 
@@ -92,7 +97,7 @@ It is a separate project and repository, built as the product version of `tools/
 ## Provenance
 
 Tau is a derivative of **[HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player)** v1.4.0 by
-HarpMudd. The project intentionally retains the complete upstream Git history, copyright notice, and inherited
+HarpMudd. As of last count 60% had already been re-written, with quite a bit still to re-work. The project intentionally retains the complete upstream Git history, copyright notice, and inherited
 release history in [CHANGELOG.md](CHANGELOG.md). Tau's new identity, packaging, artwork pipeline, technical
 plans, and subsequent changes are maintained by alfatreze. See [NOTICE.md](NOTICE.md) for provenance and
 third-party licensing boundaries, [docs/ATTRIBUTIONS.md](docs/ATTRIBUTIONS.md) for the full credits, and
