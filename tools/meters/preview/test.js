@@ -37,5 +37,38 @@ for (const key of ['winamp_bars', 'winamp_scope']) {
   });
 }
 check('winamp_bars: Light theme renders too (accent capped, box respected)', () => { const r = Run.run({ data, schema, key: 'winamp_bars', source: Audio.demo(1), frames: 30, light: true }); assert.ok(r.theme.accent !== undefined && r.cost.max > 0); });
+
+/* layered_wave (planned meter: registry entry in meters/planned, module + lab only, no firmware yet) */
+{
+  const LW = require('./meters/layered_wave.js'), lm = schema.meters.find((m) => m.key === 'layered_wave');
+  const box = { x: 16, y: 152, w: 368, h: 122 };
+  check('layered_wave: registered as planned, never selectable, 12 parameters', () => { assert.ok(lm && lm.planned && !lm.selectable); assert.ok(lm.params.length <= 12); });
+  lm.presets.forEach((pr, pi) => {
+    const opts = { data, schema, key: 'layered_wave', params: pr.values, source: Audio.demo(2), frames: 200 };
+    check(`layered_wave/${pr.name}: deterministic, inside its box, within the cost class`, () => {
+      const a = Run.run(opts), b = Run.run(opts); assert.strictEqual(a.fb.checksum(), b.fb.checksum()); assert.ok(!a.cost.over, `worst ${a.cost.max} > ${a.cost.budget}`);
+      const bg = Run.run(Object.assign({}, opts, { frames: 0 })).fb; let inside = 0, outside = 0;
+      for (let y = 0; y < 360; y++) for (let x = 0; x < 400; x++) if (a.fb.px[y * 400 + x] !== bg.px[y * 400 + x]) ((x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h) ? inside++ : outside++);
+      assert.ok(inside > 300, 'nothing drawn'); assert.strictEqual(outside, 0, outside + ' pixels outside the box');
+    });
+  });
+  check('layered_wave: fullscreen box (400x323) renders inside its box', () => {
+    const r = Run.run({ data, schema, key: 'layered_wave', params: lm.presets[0].values, source: Audio.demo(2), frames: 120, box: { x: 0, y: 0, w: 400, h: 323 } });
+    assert.ok(r.cost.mean > 0);
+    for (let y = 323; y < 360; y++) for (let x = 0; x < 400; x++) assert.strictEqual(r.fb.px[y * 400 + x], Run.run({ data, schema, key: 'layered_wave', params: lm.presets[0].values, source: Audio.demo(2), frames: 0, box: { x: 0, y: 0, w: 400, h: 323 } }).fb.px[y * 400 + x]);
+  });
+  check('layered_wave: nested layers never cross, for every split and both orders; groups tile the 16 bands', () => {
+    const rng = Audio.rng(7);
+    for (const split of [0, 1, 2]) for (const outer of [0, 1]) for (let n = 1; n <= 6; n++) {
+      const p = { layers: n, split, outer, nest: 0 }, st = { e: new Array(16).fill(0.1), eTick: 0, ebounds: null };
+      for (let t = 0; t < 40; t++) {
+        const spec = Array.from({ length: 16 }, () => Math.round(rng() * 255)), tg = LW.targets(p, spec, [], st);
+        for (let k = 1; k < n; k++) assert.ok(tg[k] <= tg[k - 1] + 1e-9, `split ${split} outer ${outer} n ${n}: layer ${k} above layer ${k - 1}`);
+      }
+      const b = LW.boundsFor(split, n, st); assert.strictEqual(b[0], 0); assert.strictEqual(b[n], 16); for (let i = 1; i <= n; i++) assert.ok(b[i] > b[i - 1]);
+    }
+  });
+}
+
 console.log(fails ? fails + ' FAILURES' : 'preview stack OK');
 process.exit(fails ? 1 : 0);

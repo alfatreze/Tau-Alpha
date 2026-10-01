@@ -13227,3 +13227,13 @@ Verified: `make test-host` passes; `tools/check_heap_gap.py` and `tools/check_co
 `player-library-diagnostic` and `player-library-diagnostic-profile` all rebuild clean. This ships in the
 real release (not diagnostic-only), same as the Select+X/Y chords -- `dist/`'s ROM/cold-image updated
 accordingly (+180 B ROM, +224 B cold image). Not yet hardware-tested.
+
+## B-494: Layered Wave meter -- Omega-first lab module, planned registry entry, spec (no firmware)
+
+Branch `meter-layered-wave`. New meter after the owner's reference image: nested mirrored envelope layers, solid background, scrolling history, pointed head and tail dots. Built as a module of the existing preview stack (`tools/meters/preview/meters/layered_wave.js`) so Omega gets it from the lab html and `tools/meters_schema.json`; **no firmware**. Spec: `docs/features/meters/LAYERED_WAVE_METER_SPEC.md`.
+
+- Inputs are hardware only (spectrum bank bands, wave-block peak). Four splits (OCTAVES, BASS_FINE, ENERGY, DYNAMICS), outer BASS/TREBLE, NESTED/OVERLAP, 12 parameters (the generic-page limit), colours as theme roles, 8 presets, resolution slider to 400 columns (one per pixel).
+- Cost (model, demo source): SCROLL 41-51 commands/frame at any resolution, BLOCKS 57-70, SMOOTH 225 (SILK). SCROLL needs a new capability, `blit_shift` (overlapping engine copy), registered **design-only**; it needs a simulation case and a hardware check before the meter can be selectable.
+- Tooling: `meters/planned/` (schema + docs only, never the firmware generator, so ROM/RAM cannot grow); `Fb.copy()`; lab gains fullscreen figure, live file/mic source, split map. Found and fixed a TDZ bug in the lab page (`live` used before its declaration) with a DOM-stub run, because the browser pane was hidden and throttled timers.
+- Verified: `node tools/meters/preview/test.js` (21 new+old checks), `gen_meters.py --check`, `check_meter_deps.py`, `build.py --check`, golden-frame and trace tests unchanged. Float prototype; fixed-point port + golden frames still owed. Nothing on a Pocket.
+- Note: another session had uncommitted `fw/` and `dist/` changes in the shared tree; left alone, not committed here.
