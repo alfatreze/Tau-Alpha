@@ -12993,3 +12993,15 @@ on the card now: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_59`.
 would need adding for this -- not done yet, so for now `CYMO_RESAMP_READY()`'s result is only visible
 indirectly, via whether the Diagnostics > CYMO RESAMPLER toggle has any effect when turned on), then
 turn the toggle on and listen for the actual hardware A/B this whole arc has been building toward.
+
+## B-483: TAU_DEV_59 refreshed with the Info > CYMO RESAMP row
+
+Added a real gap fix found right after B-482's install: no on-device way to confirm
+`CYMO_RESAMP_READY()` found the hardware before relying on the Diagnostics toggle. Added an Info page
+row ("CYMO RESAMP": NO UNIT / READY or LIVE / IDLE or BUSY / pop_req, read from `R_CYMO_STATUS`), same
+pattern as FLAC LPC/MP3 WINDOW/I2S JITTER. `make test-host` passes (fixed `tools/
+ui_snapshot_renderer.py`'s `INFO_SAMPLE` tuple gap). Rebuilt and repackaged `alfatreze.TAU_DEV_59` on
+the SAME fit-proven RBF (no new fit needed, firmware-only change) and refreshed it on the card via
+`tools/install_dev_core.py --replace` (hashes verified, media untouched). Ready for the owner's first
+hardware test: boot, check Info > CYMO RESAMP reads READY (not NO UNIT), then try the Diagnostics >
+CYMO RESAMPLER toggle.
