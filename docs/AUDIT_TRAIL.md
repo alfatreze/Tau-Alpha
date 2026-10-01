@@ -12736,3 +12736,36 @@ established razor-thin hold margin (+0.037 ns on the pre-LPC `all6-combined` fit
 own LPC addition and every fit since without going negative), watch specifically for hold slack on
 whichever corner is worst -- if it goes negative, the fix is the same proven retiming technique used
 every other time this project hit this (B-111/B-114/B-150/B-157/B-211/B-231).
+
+## B-474: Cymo resampler -- MacCunn/Clementi listening result (hold clearly worst; FIR32 vs cubic imperceptible on this track)
+
+Owner listened to all three MacCunn A/B/C renders (hold/FIR32/cubic, section 15's `cymo_ab_listen.py`,
+on Mac speakers + cheap earbuds). **Hold was easily the worst of the three** -- consistent with every
+other line of evidence so far (the measured 10.8 dB SINAD baseline, the model's 27.7 dB idealised
+prediction, the general shape of every table in this document). Between FIR32 and cubic, the owner
+found it "really really hard to tell" apart; on this specific track a marginal, barely-describable
+preference leaned toward cubic ("imperceptibly more depth or volume"), the opposite of what the SINAD
+tables would predict (cubic's own 7.6 dB collapse at 18 kHz is the documented reason it was rejected as
+a candidate, section 15).
+
+**Honest read, not spun either way:** this is a real null result for the FIR32-vs-cubic question
+specifically, not a contradiction of the engineering case for FIR32. Two likely reasons a track-specific
+cubic weakness wouldn't surface here: (1) MacCunn (orchestral/choral, Hyperion recording) has little
+extreme high-treble energy near the 22.05 kHz source Nyquist -- cymbals, hi-hats, sibilance, bright
+synths are exactly the content the model's own 18 kHz test tone was chosen to stress, and this track
+may simply not exercise that range hard; (2) cheap earbuds and a laptop's own speakers have limited
+high-frequency extension and resolution to begin with, which would mask a defect that is there but
+small in absolute terms. Also consistent with F1's own long-standing note that the owner never flagged
+the CURRENT hold as a problem across many builds either -- these differences are evidently hard to pick
+out casually even when a 10-20 dB SINAD gap is real and measured, which argues these results should be
+read as "hold is clearly worse, FIR32-vs-cubic needs harder test material to resolve by ear" rather than
+"cubic is secretly fine."
+
+**Does not change the plan.** The engineering case for FIR32 over cubic was never resting on this
+listening test alone -- it rests on the measured SINAD tables (cubic's 18 kHz collapse is a real,
+quantified defect, not a hunch) and on FIR32 being the architecture this project has already built,
+sim-verified, synthesis-checked (B-472) and put into a real Quartus fit (B-473, result pending). The
+owner's own earlier decision to proceed with building FIR32 stands; this entry records the listening
+evidence honestly rather than silently filing it under "confirmed audible win," which it is not, on
+this specific track. If a clearer audible comparison is ever wanted, a track with real extended treble
+content (cymbals, sibilant vocals, bright synths) would be a harder test than this one.

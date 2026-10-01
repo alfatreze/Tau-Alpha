@@ -936,6 +936,17 @@ firmware probe (`CYMO_RESAMP_READY()`, same pattern as `BLIT_READY()`/`POLY_FW`/
 44.1 kHz (the other two gate ratios, 48 and 22.05 kHz, fall back to the existing hold until a later increment --
 section 9's "start with one ratio" scope).**
 
+**2026-10-01 update: the MacCunn/Clementi listening result came back.** Owner listened to all three (hold/FIR32/
+cubic) on Mac speakers + cheap earbuds: **hold was easily the worst of the three**, consistent with every measured
+number in this document. Between FIR32 and cubic, "really really hard to tell" apart -- a marginal, barely-
+describable preference leaned toward cubic on this one track, the opposite of what the SINAD tables predict. Full
+honest writeup in `docs/AUDIT_TRAIL.md` B-474: most likely explanation is this specific recording (orchestral/choral)
+has little extreme-treble content near the 18-22 kHz range where cubic's own documented weakness (7.6 dB SINAD, vs
+FIR32's 83-86 dB) actually shows up, compounded by limited-bandwidth playback equipment -- not evidence that cubic
+is secretly fine. **Does not change the plan**: the case for FIR32 was always the measured SINAD tables plus the
+hardware-proven architecture, not this listening test alone. A real two-seed Quartus fit (`cymo-b472`, B-473) is
+in progress; result pending.
+
 ## Appendix: the resampler model
 
 The model behind the tables in section 3 is small enough to reproduce: for each output frame `k` it computes the source
