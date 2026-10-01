@@ -13047,3 +13047,14 @@ test-host` green. No firmware changed -- this is purely an RTL fix to the live-a
 re-test that would actually confirm this fixes the reported artifact -- the numerical case is strong
 (the beat-frequency math matches the reported symptom closely) but, per this project's own discipline,
 remains a hypothesis until re-tested on real silicon.
+
+## B-485: Cymo resampler -- two-seed fit launched for the tick fix
+
+Launched `tools/vm_fit.py launch cymo-b484 --append
+tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt --seed 1 --seed 2` (same proven
+macro bundle). A first `pgrep` showed what looked like a real B-102-style process collision -- THREE
+`quartus_sh` PIDs, two in the same `cymo-b484-s2` directory -- investigated immediately rather than
+trusted; a follow-up `ps -o pid,ppid,etime` showed only two processes actually alive (the third had
+already exited, a transient child process `pgrep` caught mid-fork during `quartus_sh`'s own startup,
+not a real double-launch). Re-confirmed clean: exactly 2 processes, correct directories
+(`cymo-b484-s1`/`cymo-b484-s2`), both ~25s in. Result pending.
