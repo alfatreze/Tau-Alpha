@@ -840,7 +840,13 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         uint32_t st = REG(R_CYMO_STATUS);
         q = set_str(q, (st & 0x10u) ? "LIVE " : "READY ");
         q = set_str(q, (st & 0x2u) ? "BUSY " : "IDLE ");
-        q = set_str(q, (st & 0x8u) ? "POP" : "-");
+        q = set_str(q, (st & 0x8u) ? "POP " : "- ");
+        /* B-492: stale-consume counter -- how many times the resampler reused the last pushed sample
+         * instead of a fresh one since the toggle was last switched on. Should read 0 or stay very low
+         * if push/pop_req are genuinely rate-matched; a counter that climbs steadily during playback is
+         * direct evidence of the push/consume cadence drifting apart. */
+        q = set_str(q, "STALE ");
+        q = ui_dec(q, REG(R_CYMO_DIAG) & 0xFFFFu);
 #else
         q = set_str(q, "OFF");
 #endif
