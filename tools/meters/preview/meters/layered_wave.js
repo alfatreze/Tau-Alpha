@@ -81,6 +81,7 @@
   }
   /* Which layer (0 = outermost) each of the 16 bands feeds first, for the lab's split map. */
   function bandOwner(p, st) {
+    if (p.view === 1) return Array.from({ length: p.layers }, (_, k) => ({ layer: k, spectrum: true }));
     const n = p.layers, b = p.split === SPLIT.DYNAMICS ? [0, NB] : boundsFor(p.split, n, st || {}), own = new Array(NB).fill(0);
     if (p.split === SPLIT.DYNAMICS) return own;
     for (let g = 0; g < n; g++) for (let k = b[g]; k < b[g + 1]; k++) own[k] = p.outer === 0 ? g : n - 1 - g;
@@ -116,18 +117,21 @@
     const p = ctx.p, n = p.layers;
     st.key = key; st.init = true; st.s = new Array(n).fill(0); st.prev = new Array(n).fill(0); st.acc = 0; st.phase = 0;
     st.hist = Array.from({ length: n }, () => new Float32Array(p.res + 4));
-    st.e = new Array(NB).fill(0); st.eTick = 0; st.ebounds = null; st.dirty = true; st.ticks = 0;
+    st.band = Array.from({ length: n }, () => new Array(NB).fill(0)); st.e = new Array(NB).fill(0); st.eTick = 0; st.ebounds = null; st.dirty = true; st.ticks = 0;
   }
 
   function tick(ctx) {
     const p = ctx.p, st = ctx.st, fb = ctx.fb, W = ctx.w, H = ctx.h, X = ctx.x, Y = ctx.y, dt = ctx.dt || 26, n = p.layers;
-    const key = [p.layers, p.res, p.draw, p.split, p.outer, p.nest, p.color_outer, p.color_inner, p.color_bg, p.taper, W, H, X, Y, ctx.theme.accent, ctx.theme.name, ctx.theme.light].join(',');
+    const key = [p.view, p.layers, p.res, p.draw, p.split, p.outer, p.nest, p.color_outer, p.color_inner, p.color_bg, p.taper, W, H, X, Y, ctx.theme.accent, ctx.theme.name, ctx.theme.light].join(',');
+    st.work = 0;                                      // column/band evaluations this tick (lab CPU estimate)
     if (!st.init || st.key !== key || ctx.force) {
       reinit(st, ctx, key);
       fb.rect(X, Y, W, H, colours(ctx).bgc);          // the solid background: ONE command (the host's gradient never shows inside the box)
     }
     if (ctx.paused) return;                           // the firmware skips drawing while paused: the picture holds
     const cy = Y + (H >> 1), Hh = (H >> 1) - 1;
+
+    if (p.view === 1) return spectrum(ctx, st, dt, cy, Hh);
 
     // 1) measure -> per-layer targets -> ballistics (outer layers linger, inner ones follow)
     const tg = targets(p, ctx.spec, ctx.wave, st);
@@ -153,11 +157,36 @@
     redraw(ctx, st, cl, cy, Hh, cwF);
   }
 
+  /* SPECTRUM view (no scrolling): x is frequency (bass left), the 16 band levels are the outline, every layer is the same outline with its own
+     response time (outer slow, inner fast) and height. Redrawn every frame: BLOCKS = 16 flat columns per layer, otherwise (SMOOTH, SCROLL) a
+     Catmull-Rom curve through the bands at every pixel, equal neighbours merged. */
+  function spectrum(ctx, st, dt, cy, Hh) {
+    const p = ctx.p, fb = ctx.fb, W = ctx.w, X = ctx.x, n = p.layers, cl = colours(ctx), tauR = 700 / (1 + p.response / 6), tauA = tauR / 4;
+    fb.rect(X, ctx.y, W, ctx.h, cl.bgc);
+    const edge = (a) => p.taper === 0 ? 1 : Math.pow(Math.max(0, Math.sin(Math.PI * clamp(a, 0, 1))), 0.6 * p.taper / 100);
+    for (let k = 0; k < n; k++) {
+      const m = n > 1 ? Math.pow(1.6, (n - 1) / 2 - k) : 1, sc = n === 1 ? 1 : 1 - SPREAD_DYN * k / (n - 1), b = st.band[k];
+      for (let i = 0; i < NB; i++) { const v = ctx.spec[i] / 255, tau = (v > b[i] ? tauA : tauR) * m; b[i] += (v - b[i]) * (1 - Math.exp(-dt / tau)); }
+      let run = null;
+      const flush = () => { if (run) { fb.rect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.base[k]); run = null; } };
+      st.work += p.draw === DRAW.BLOCKS ? NB : W;
+      for (let x = 0; x < W; x++) {
+        const a = (x + 0.5) / W, t = a * NB - 0.5;
+        const amp = (p.draw === DRAW.BLOCKS ? b[Math.min(NB - 1, Math.floor(a * NB))] : cr(b, Math.max(t, 0.0001))) * sc;
+        const h = halfPx(amp, edge(a), Hh);
+        if (run && run.h === h) { run.x1 = x + 1; continue; }
+        flush(); if (h > 0) run = { x0: x, x1: x + 1, h };
+      }
+      flush();
+    }
+  }
+
   /* BLOCKS / SMOOTH: clear the box and draw every layer, outermost first, merging neighbouring columns that share height and colour. */
   function redraw(ctx, st, cl, cy, Hh, cwF) {
     const p = ctx.p, fb = ctx.fb, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH;
     fb.rect(X, ctx.y, W, ctx.h, cl.bgc);
     for (let k = 0; k < n; k++) {
+      st.work += smooth ? W : p.res;
       let run = null;
       const flush = () => { if (run) { fb.rect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.tbl[k][run.q]); run = null; } };
       for (let x = 0; x < W; x++) {
@@ -186,7 +215,7 @@
     const shift = Math.min(W, pushes * cw);
     for (let sx = W - shift; sx > 0; sx -= 127) { const w = Math.min(127, sx); fb.copy(X + sx - w, Y, X + sx - w + shift, Y, w, H); }
     fb.rect(X, Y, shift, H, cl.bgc);
-    const cols = Math.ceil(shift / cw);
+    const cols = Math.ceil(shift / cw); st.work += cols * n + 40;
     for (let j = cols - 1; j >= 0; j--) {             // oldest new column first; each blends the previous state into the current one
       const f = (cols - j) / cols;
       for (let k = 0; k < n; k++) {
@@ -213,7 +242,8 @@
   /* Lab helpers: what each layer listens to (Hz from the half-octave bank, band 0 = bass), and the layer colours for the split map. */
   const EDGES = Array.from({ length: NB + 1 }, (_, k) => 93.75 * Math.pow(2, k / 2));
   function describe(p, st) {
-    const n = p.layers; if (p.split === SPLIT.DYNAMICS) return Array.from({ length: n }, (_, k) => ({ layer: k, dynamics: true }));
+    const n = p.layers; if (p.view === 1) return Array.from({ length: n }, (_, k) => ({ layer: k, spectrum: true }));
+    if (p.split === SPLIT.DYNAMICS) return Array.from({ length: n }, (_, k) => ({ layer: k, dynamics: true }));
     const b = boundsFor(p.split, n, st || {});
     return Array.from({ length: n }, (_, k) => {
       const own = p.outer === 0 ? k : n - 1 - k;
