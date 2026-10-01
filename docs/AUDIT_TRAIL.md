@@ -13136,3 +13136,11 @@ Seed 2: Fast 0C hold +0.086/setup +5.642, Fast 85C hold +0.126/setup +5.314, Slo
 costs nothing measurable). RBF collected and hash-verified:
 `work/diagnostics/cymo-b488/ap_core_s1.rbf`, `sha256
 341d89268c6277dd4bb8957ad1b606986b43de155e3bdebe0aa02cd0f1813009`.
+
+## B-491: TAU_DEV_59 refreshed with the toggle-reset fix -- ready for the real re-test
+
+Packaged and installed B-490's fit-proven toggle-reset bitstream (`cymo-b488` seed 1) onto
+`alfatreze.TAU_DEV_59` via `tools/install_dev_core.py --replace` (bitstream/ROM/cold-image hashes
+verified, media untouched, caches cleared, ejected). Real test of B-488's diagnosis: does toggling the
+CYMO RESAMPLER on now give the SAME pitch every time on a steady test tone, instead of a different one
+each time? And separately: is the "tiny constant noise" during ordinary playback still present?
