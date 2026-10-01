@@ -99,9 +99,36 @@
   }
   const halfPx = (amp, w, Hh) => { let h = Math.round(amp * w * Hh); if (h < 1 && w > 0.25) h = 1; return h; };   // a thin centre line stays in silence
 
+  /* Accent gradations: outer and inner end colours derived from the (theme-capped) accent. Hue shifts go through HSL on 8-bit channels; the
+     firmware does the same once when the meter opens (cold code), never per frame. */
+  const rgb8 = (c) => { const x = ch(c); return [Math.round(x[0] * 255 / 31), Math.round(x[1] * 255 / 63), Math.round(x[2] * 255 / 31)]; };
+  const pack = (r, g, b) => (Math.round(clamp(r, 0, 255) * 31 / 255) << 11) | (Math.round(clamp(g, 0, 255) * 63 / 255) << 5) | Math.round(clamp(b, 0, 255) * 31 / 255);
+  function shiftHue(c, deg) {
+    const [r, g, b] = rgb8(c).map((v) => v / 255), mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    if (d < 1e-6) return c;                              // greys have no hue: a hue shift is a no-op (a white accent stays white)
+    const sat = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    let h = mx === r ? ((g - b) / d + (g < b ? 6 : 0)) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h = ((h * 60 + deg) % 360 + 360) % 360 / 360;
+    const q = l < 0.5 ? l * (1 + sat) : l + sat - l * sat, p = 2 * l - q;
+    const f = (t) => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+    return pack(f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255);
+  }
+  function ends(ctx) {                                   // [outer, inner, background] RGB565 for the chosen colour source
+    const p = ctx.p, th = ctx.theme;
+    if (p.color_mode === 2) return [p.custom_outer & 0xFFFF, p.custom_inner & 0xFFFF, p.custom_bg & 0xFFFF];
+    if (p.color_mode === 1) return [roleColor(th, p.color_outer), roleColor(th, p.color_inner), roleColor(th, p.color_bg)];
+    const a = th.accent, bg = mix(th.role.base, a, 36);   // ACCENT: a dark (or, in Light, pale) tint of the accent behind the layers
+    const white = 0xFFFF, black = 0;
+    switch (p.grad) {
+      case 1: return [mix(a, black, 150), a, bg];                           // SHADES
+      case 2: return [shiftHue(a, -30), shiftHue(a, 30), bg];               // ANALOGOUS
+      case 3: return [a, shiftHue(a, 180), bg];                             // COMPLEMENT
+      default: return [a, mix(a, white, 180), bg];                          // TINTS
+    }
+  }
   function colours(ctx) {
-    const p = ctx.p, n = p.layers, th = ctx.theme;
-    const co = roleColor(th, p.color_outer), ci = roleColor(th, p.color_inner), bgc = roleColor(th, p.color_bg);
+    const p = ctx.p, n = p.layers;
+    const [co, ci, bgc] = ends(ctx);
     const base = [], tbl = [];
     for (let k = 0; k < n; k++) {
       base.push(n === 1 ? co : mix(co, ci, Math.round(k * 256 / (n - 1))));
@@ -122,7 +149,7 @@
 
   function tick(ctx) {
     const p = ctx.p, st = ctx.st, fb = ctx.fb, W = ctx.w, H = ctx.h, X = ctx.x, Y = ctx.y, dt = ctx.dt || 26, n = p.layers;
-    const key = [p.view, p.layers, p.res, p.draw, p.split, p.outer, p.nest, p.color_outer, p.color_inner, p.color_bg, p.taper, W, H, X, Y, ctx.theme.accent, ctx.theme.name, ctx.theme.light].join(',');
+    const key = [p.view, p.layers, p.res, p.draw, p.split, p.outer, p.nest, p.color_mode, p.grad, p.color_outer, p.color_inner, p.color_bg, p.custom_outer, p.custom_inner, p.custom_bg, p.taper, W, H, X, Y, ctx.theme.accent, ctx.theme.name, ctx.theme.light].join(',');
     st.work = 0;                                      // column/band evaluations this tick (lab CPU estimate)
     if (!st.init || st.key !== key || ctx.force) {
       reinit(st, ctx, key);
@@ -252,6 +279,6 @@
     });
   }
   function layerColours(theme, p) { return colours({ p, theme }).base; }
-  const api = { describe, layerColours, EDGES, key: 'layered_wave', state, tick, targets, bandOwner, boundsFor, SPLIT, DRAW, ROLES, _win: win };
+  const api = { ends, describe, layerColours, EDGES, key: 'layered_wave', state, tick, targets, bandOwner, boundsFor, SPLIT, DRAW, ROLES, _win: win };
   if (typeof module !== 'undefined') module.exports = api; else (root.TauMeters = root.TauMeters || {}).layered_wave = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
