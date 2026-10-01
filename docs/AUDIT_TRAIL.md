@@ -13124,3 +13124,15 @@ Launched `cymo-b488` (same proven macro bundle), both seeds confirmed running in
 (`cymo-b488-s1`/`cymo-b488-s2`, no collision). Launched 18:55 local; this bundle has consistently landed
 at 1h40-1h45m elapsed in every prior run (B-473/B-477/B-480/B-486 all finished in that window) --
 **estimated completion ~20:35-20:40 local.**
+
+## B-490: Cymo resampler -- toggle-reset fit CLOSED CLEAN, both seeds (finished slightly ahead of estimate)
+
+`cymo-b488` finished 20:29-20:31, slightly ahead of the 20:35-20:40 estimate given at launch (B-489).
+**Both seeds Successful, every corner positive on both.** Seed 1: Fast 0C hold +0.127/setup +5.097,
+Fast 85C hold +0.140/setup +4.763, Slow 0C hold +0.316/setup +1.066, Slow 85C hold +0.324/setup +1.150.
+Seed 2: Fast 0C hold +0.086/setup +5.642, Fast 85C hold +0.126/setup +5.314, Slow 0C hold +0.255/setup
++1.047, Slow 85C hold +0.267/setup +1.213. **Seed 1 selected** -- better overall worst-case slack
+(+0.127 vs seed 2's +0.086). Resources unchanged (RAM 256/308, DSP 20/66 -- a one-cycle edge detector
+costs nothing measurable). RBF collected and hash-verified:
+`work/diagnostics/cymo-b488/ap_core_s1.rbf`, `sha256
+341d89268c6277dd4bb8957ad1b606986b43de155e3bdebe0aa02cd0f1813009`.
