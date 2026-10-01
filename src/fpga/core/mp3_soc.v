@@ -1144,10 +1144,22 @@ module mp3_soc #(
     wire        cymo_auto_start = cymo_live_en & cymo_tick;
     wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out_l : fifo_l;
     wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out_r : fifo_r;
+    // B-488 (hardware-confirmed): a 0->1 transition of cymo_live_en is also a clear. Without this, re-engaging LIVE
+    // resumes against whatever 32-tap history was last left in the unit -- stale audio from a different point in the
+    // (possibly different) track, or boot-time zeros -- producing a genuinely different, unpredictable settling
+    // transient every single time the toggle is switched on. The owner heard exactly this: a steady 1kHz test tone
+    // reported a DIFFERENT pitch on each separate toggle-on, with OFF always constant -- consistent with a transient
+    // being mistaken for steady pitch on a brief listen, not an actual ratio error (a fixed-rational resampler's
+    // long-term output frequency cannot depend on its starting phase by construction). cymo_tick/cymo_tick_acc are
+    // deliberately NOT reset here -- that free-running reference tick should stay pristine and continuous, the one
+    // thing that must NOT vary from toggle to toggle.
+    reg cymo_live_en_d = 1'b0;
+    always @(posedge clk) cymo_live_en_d <= rst ? 1'b0 : cymo_live_en;
+    wire cymo_live_rise = cymo_live_en & ~cymo_live_en_d;
     generate
         if (CYMO_RESAMP_ENABLE != 0) begin : g_cymo
             tau_cymo_resamp u_cymo (
-                .clk(clk), .rst(rst), .clear(cymo_clear | pcm_flush),
+                .clk(clk), .rst(rst), .clear(cymo_clear | pcm_flush | cymo_live_rise),
                 .push_we(cymo_push_we | cymo_auto_we),
                 .push_l(cymo_auto_we ? fifo_l : cymo_push_l_d),
                 .push_r(cymo_auto_we ? fifo_r : cymo_push_r_d),
