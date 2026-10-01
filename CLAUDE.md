@@ -97,6 +97,13 @@ reorg left stale duplicate copies of several files directly under `docs/` alongs
   `isolation: "worktree"`, or `git worktree add`) instead of touching the shared tree's index/stash.
   Commit real, verified work promptly rather than leaving it sitting uncommitted for long stretches --
   a stray reset elsewhere can't destroy a commit that already exists.
+- **Whenever a Quartus fit is launched (`tools/vm_fit.py launch`), state an estimated duration and an
+  estimated LOCAL finish clock time in the same message that reports the launch** -- not just "typical
+  50 min-1h45m" as an abstract range, but "expect it done around HH:MM" computed from the actual launch
+  time. Re-state this estimate (or correct it) whenever asked to check status. Base the estimate on this
+  exact macro bundle's own prior fits where known (most of this project's recent history is the same
+  `blit_g3_poly_blend_ram192_clk66_dbuf_lpc*` family, which has consistently landed near the top of the
+  range, ~1h40-1h45m), falling back to the general range for an unfamiliar bundle.
 
 ## Subagent delegation policy
 
