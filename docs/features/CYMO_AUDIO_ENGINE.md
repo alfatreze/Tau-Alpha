@@ -906,6 +906,26 @@ decoded with `tools/flac_ref.py`'s own bit-exact FLAC decoder -- through all thr
 32-tap Kaiser FIR, cubic) as plain WAV files, so an actual listening comparison on real material is the next step
 before deciding whether C0(e)/C1 is worth building at all.
 
+**2026-10-01 update: owner confirmed an audible difference on the Aphex Twin A/B (section 15's own listening test),
+flagged as poor test material (glitchy electronic, not representative), and asked for a cleaner A/B on the Test
+Album's MacCunn/Clementi tracks (classical, see docs/handoffs and the `#6c24` state note for the exact decision)
+before committing to a build -- that second render was in progress at session start and is not yet confirmed. Owner
+separately approved starting the RTL build in parallel with that render (the SINAD modelling and the architecture
+review above were judged sufficient justification on their own): `tau_cymo_resamp.sv` (160-bank, 32-tap, 44100:48000-
+only polyphase FIR, Q1.15 coefficients from `tools/gen_cymo_resamp_rom.py`'s own Kaiser-windowed ROM generator) is
+now built, sim-verified bit-exact against its own golden model (`sim/cymo_resamp_model.c`, independently cross-checked
+in Python by `sim/test_cymo_resamp_model.py` -- this project's own "prove it twice" discipline) on 4,354 output
+samples, and all 5 mutation hooks are confirmed caught (`make test-rtl-cymo-resamp`/`test-rtl-cymo-resamp-mutation`).
+This closes C2's "model equals RTL bit-exact" gate. NOT yet done, in order: a Quartus fit (both seeds), wiring into
+`pcm_fifo.v`/`mp3_soc.v` (replacing the hold at the point K2 above specifies -- after the FIFO's own source-rate
+output register, consuming `out_l`/`out_r` via `sample_tick`, EQ moved downstream of the resampler), firmware probe
+(`CYMO_RESAMP_READY()`, same pattern as `BLIT_READY()`/`POLY_FW`/`LPC_FW`), and the hardware A/B at 44.1 kHz (the
+other two gate ratios, 48 and 22.05 kHz, fall back to the existing hold until a later increment -- section 9's "start
+with one ratio" scope). See `src/fpga/core/tau_cymo_resamp.sv`'s own header for the full design rationale, including
+a real protocol bug the testbench caught and fixed during development: the first draft had the hardware consume a
+caller-pushed input sample during the SAME `start` call that raised the `pop_req` asking for it, before the caller
+could possibly have supplied it -- the actual shift is now deferred to the start of the NEXT `start` call.**
+
 ## Appendix: the resampler model
 
 The model behind the tables in section 3 is small enough to reproduce: for each output frame `k` it computes the source

@@ -1,4 +1,4 @@
-.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -68,7 +68,7 @@ test-host:
 	$(PYTHON) sim/test_flac_lpc_fw_redirect.py
 	$(PYTHON) tools/check_art_load_order.py --check
 
-test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -209,6 +209,26 @@ test-rtl-flac-lpc-mutation: $(RTL_BUILD_DIR)/flac_lpc_vectors.txt
 	@set -e; for b in 1 2 3 4 5; do \
 	  $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_flac_lpc.BUG=$$b -o $(RTL_BUILD_DIR)/flac_lpc_mut.vvp sim/tb_tau_flac_lpc.v src/fpga/core/tau_flac_lpc.sv; \
 	  if $(VVP) $(RTL_BUILD_DIR)/flac_lpc_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
+
+# Cymo polyphase FIR resampler, 44100:48000 only (docs/features/CYMO_AUDIO_ENGINE.md section 15, B-467+):
+# a new design, not a port -- sim/cymo_resamp_model.c IS the reference, independently cross-checked in
+# Python by sim/test_cymo_resamp_model.py (this project's own "prove it twice, differently" discipline).
+# Standalone unit, NOT yet wired into pcm_fifo.v/mp3_soc.v.
+CYMO_RESAMP_SRC = sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_resamp_rom.svh
+$(RTL_BUILD_DIR)/cymo_resamp_vectors.txt: sim/test_cymo_resamp_model.py sim/cymo_resamp_model.c tools/gen_cymo_resamp_rom.py | $(RTL_BUILD_DIR)
+	$(PYTHON) sim/test_cymo_resamp_model.py
+
+$(RTL_BUILD_DIR)/tb_cymo_resamp.vvp: $(CYMO_RESAMP_SRC) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -I src/fpga/core -o $@ sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv
+
+test-rtl-cymo-resamp: $(RTL_BUILD_DIR)/tb_cymo_resamp.vvp $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt
+	$(VVP) $<
+
+# each mutant MUST fail the bench (tap/history index reversed, no shift, sign-extension dropped, wrong phase step, pop_req never asserted)
+test-rtl-cymo-resamp-mutation: $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt
+	@set -e; for b in 1 2 3 4 5; do \
+	  $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_cymo_resamp.BUG=$$b -o $(RTL_BUILD_DIR)/cymo_resamp_mut.vvp sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv; \
+	  if $(VVP) $(RTL_BUILD_DIR)/cymo_resamp_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
 
 test-rtl-wave-meter: $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp
 	$(VVP) $<
@@ -383,6 +403,7 @@ rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module pcm_fifo src/fpga/core/pcm_fifo.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_arbiter src/fpga/core/tau_sdram_arbiter.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_flac_lpc src/fpga/core/tau_flac_lpc.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cymo_resamp -Isrc/fpga/core src/fpga/core/tau_cymo_resamp.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_cpu_bridge src/fpga/core/tau_sdram_cpu_bridge.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_addr_decode src/fpga/core/tau_sdram_addr_decode.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_wb_adapter src/fpga/core/tau_sdram_wb_adapter.sv
