@@ -13117,3 +13117,10 @@ changes (which already trigger `pcm_flush`'s own clear), or it may be a separate
 architecture's own inherent push/pop timing jitter between pcm_fifo's and the resampler's two independent
 accumulators is a candidate, not yet investigated). Flagged honestly rather than assumed resolved; the
 owner's next listen (after this fix is fit and installed) is needed before drawing a conclusion either way.
+
+## B-489: Cymo resampler -- fit launched for the toggle-reset fix
+
+Launched `cymo-b488` (same proven macro bundle), both seeds confirmed running independently
+(`cymo-b488-s1`/`cymo-b488-s2`, no collision). Launched 18:55 local; this bundle has consistently landed
+at 1h40-1h45m elapsed in every prior run (B-473/B-477/B-480/B-486 all finished in that window) --
+**estimated completion ~20:35-20:40 local.**
