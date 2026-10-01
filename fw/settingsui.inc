@@ -573,7 +573,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 30u   /* B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS 31u   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -636,6 +636,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "PIXHIST"
     , "FLAC LPC"
     , "I2S JITTER"
+    , "CYMO RESAMP"
     };
 static uint32_t set_info_at;
 
@@ -821,7 +822,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "OFF");
 #endif
         break;
-    default: {   /* I2S JITTER (B-467): min/max/avg interval, in clk_sys cycles, between real I2S DAC-domain
+    case 29: {   /* I2S JITTER (B-467): min/max/avg interval, in clk_sys cycles, between real I2S DAC-domain
                   * sample updates since reset -- see this row's own SET_INFO_ROWS comment above. */
         if (!(REG(R_I2S_DIAG_ST) & 1u)) { q = set_str(q, "NO UNIT"); break; }
         uint32_t mm = REG(R_I2S_DIAG_MINMAX), cnt = REG(R_I2S_DIAG_CNT), sum = REG(R_I2S_DIAG_SUM);
@@ -829,6 +830,20 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = ui_dec(q, mm >> 16); q = set_str(q, " AVG ");
         q = ui_dec(q, cnt ? sum / cnt : 0u); q = set_str(q, " N");
         q = ui_dec(q, cnt);
+        break;
+    }
+    default: {   /* CYMO RESAMP (B-481): whether the probe found the unit, and -- once the Diagnostics >
+                  * CYMO RESAMPLER toggle is on -- its live status (busy/done/pop_req), so the owner can
+                  * confirm the probe passed before relying on the toggle having any real effect. */
+#if TAU_DIAGNOSTIC
+        if (!CYMO_RESAMP_READY()) { q = set_str(q, "NO UNIT"); break; }
+        uint32_t st = REG(R_CYMO_STATUS);
+        q = set_str(q, (st & 0x10u) ? "LIVE " : "READY ");
+        q = set_str(q, (st & 0x2u) ? "BUSY " : "IDLE ");
+        q = set_str(q, (st & 0x8u) ? "POP" : "-");
+#else
+        q = set_str(q, "OFF");
+#endif
         break;
     }
     }
