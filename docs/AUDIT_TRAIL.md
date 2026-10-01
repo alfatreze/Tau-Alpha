@@ -12723,3 +12723,16 @@ Not yet done: a real two-seed `quartus_fit` (resource/timing closure is a fitter
 synthesis-only check cannot answer, same limitation B-100's own font-repack finding already
 established for a different module), the `pcm_fifo.v` integration, a firmware probe, card install, and
 the hardware A/B. Committed (`875a231`, `e6bdcb7`).
+
+## B-473: Cymo resampler -- real two-seed Quartus fit launched
+
+Owner: "launch fit." Confirmed working tree clean (git status, only the other session's untracked
+`docs/vendor/`) and no Quartus process running on the VM before launch. Launched via
+`tools/vm_fit.py launch cymo-b472 --append tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt
+--seed 1 --seed 2` (same exact macro bundle B-472's clean synthesis-only check used). Both seeds
+confirmed running independently (`readlink /proc/<pid>/cwd`: `cymo-b472-s1/src/fpga`,
+`cymo-b472-s2/src/fpga`), no collision. Result pending, typical 50 min-1h45m. Given this bundle's own
+established razor-thin hold margin (+0.037 ns on the pre-LPC `all6-combined` fit, widened by B-369's
+own LPC addition and every fit since without going negative), watch specifically for hold slack on
+whichever corner is worst -- if it goes negative, the fix is the same proven retiming technique used
+every other time this project hit this (B-111/B-114/B-150/B-157/B-211/B-231).
