@@ -12928,3 +12928,46 @@ correlation would need; and a non-binding priority read. Cross-referenced from, 
 METER_MODULE_SPEC.md` section 3 (`mtr_in_t` is where any of this would actually land).
 
 Analysis only — no firmware, RTL, MMIO, card or VM change.
+
+## B-481: Cymo resampler firmware probe + Diagnostics toggle; global wraparound list navigation
+
+Continued the Cymo arc (B-471..B-480) with the firmware side: `CYMO_RESAMP_READY()` (a plain
+`REG(R_CYMO_STATUS) & 1u` read at boot) and a Settings > Diagnostics > "CYMO RESAMPLER" toggle setting
+the sticky `R_CYMO_CTRL` bit 2 (`LIVE_ENABLE`) for the owner's own hardware A/B -- off at every boot,
+never persisted, same convention as ACCEPT ALL RATES/ALL SPEEDS. No-op if the bitstream lacks the unit.
+
+Mid-turn, owner asked separately: fix the Diagnostics page so scrolling past the last line wraps to the
+first (and vice versa), **as a global Helios method, not a one-off here.** Read the actual navigation
+code first rather than assuming where the gap was: `fw/settingsui.inc`'s plain-menu and choice-list
+Up/Down handlers ALREADY wrap (`set_ch_cur[c] = ... ? ... - 1u : n - 1u` / `(x + 1u) % n`, independently
+hand-written twice); only the read-only Info/Stress-Status scroll (`set_ro_top`) clamps instead of
+wrapping. Added `helios_wrap_index(idx, count, up)` to `fw/helios.inc` -- one shared primitive for a
+single wraparound step, and applied it to all three sites: the two that already wrapped (now sharing
+one definition instead of two independent copies, closing the actual duplication the "global method"
+ask was really about) and the one that clamped (the requested fix). The scroll-offset case reuses the
+identical primitive by passing `maxtop + 1` as `count` (the number of valid `set_ro_top` positions) --
+no special-casing needed for "index" vs "scroll window," same formula either way.
+
+Verified: `player-library-diagnostic-profile`/`player-library-diagnostic`/`release` all rebuild clean
+(release ROM confirmed byte-identical rebuild, reverted before committing per the B-448 lesson); `make
+test-host` passes (fixed a real gap it caught: `tools/ui_snapshot_renderer.py`'s `SAMPLE_VALUE` dict
+needed a "CYMO RESAMPLER" entry for the new menu row, same `KeyError` class every new diagnostics toggle
+has hit here before). Not yet hardware-tested -- no card install this pass.
+
+(Also: renumbered B-480, originally assigned B-478, after discovering mid-turn that another concurrent
+session had already used both B-478 and B-479 for unrelated Chladni/metering work -- same collision
+class B-437 already fixed the checker for. Picked the next free id rather than touch their entries.)
+
+**Correction to the note above, checked against `git show` rather than assumed:** the owner flagged
+commit `fc8dfc5` ("docs: log B-478, live audio-path fit closed clean, seed 1 selected") as mislabeled,
+with the real fit content never written. Checked `git show fc8dfc5 -- docs/AUDIT_TRAIL.md` directly: the
+content WAS written in that commit -- `git add` on a shared file mid-concurrent-edit captured BOTH the
+other session's then-uncommitted Chladni "B-478" entry AND this session's Cymo "B-478" entry in the same
+`git add`/`git commit`, so the commit's diff contains two new sections, not the one its message names.
+The renumbering to B-480 (this file, same timestamp) then itself got swept into the OTHER session's next
+commit (`82ce226`) the identical way, for the identical reason. Net result, verified present in the
+file right now: the real fit content IS at B-480 above, correctly numbered, nothing lost -- re-adding it
+as asked would have created a true duplicate. What's real and worth recording: two commit messages in
+this history (`fc8dfc5`, `82ce226`) each under-describe one entry their own diff actually contains,
+purely a commit-message/diff mismatch from two sessions sharing one working tree's `git add`, not data
+loss. No further action needed on the content itself.
