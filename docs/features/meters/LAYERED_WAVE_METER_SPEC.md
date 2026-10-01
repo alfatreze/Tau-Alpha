@@ -54,9 +54,9 @@ The lab's split map shows the 16 live bands coloured by layer, with the Hz range
 Per-layer motion: attack is 4x faster than release; `response` sets release 40-600 ms; the DYNAMICS split staggers
 the time constants 1.6x per layer.
 
-## 4. Parameters (13: one over the firmware page limit of 12)
+## 4. Parameters (18: far over the firmware page limit of 12)
 
-`view` was added after the first cut (scrolling vs fixed). Before promotion out of `meters/planned/` either `MTR_MAX_PARAMS` is raised or a parameter is merged away (candidates: fold `outer` into `nest`, or drop `speed` into a preset-only constant). Every parameter carries `help` (and enums `value_help`) in the manifest: the lab shows them behind an (i) button, and Omega receives them through the schema.
+`view` (scrolling vs fixed) and the colour source (`color_mode`, `grad`, three `custom_*`) were added after the first cut; the colour block alone is 8 parameters, most hidden by `when` at any time. Before promotion out of `meters/planned/` either `MTR_MAX_PARAMS` is raised or a parameter is merged away (candidates: fold `outer` into `nest`, or drop `speed` into a preset-only constant). Every parameter carries `help` (and enums `value_help`) in the manifest: the lab shows them behind an (i) button, and Omega receives them through the schema.
 
 | Key | Type / range | Default | Meaning |
 |---|---|---|---|
@@ -70,9 +70,12 @@ the time constants 1.6x per layer.
 | speed | u8 20..240 px/s | 100 | scroll speed |
 | response | u8 1..100 | 45 | how quickly layers follow |
 | taper | u8 0..100 % | 70 | roll-off toward the tail, pointed head, tail dots; 0 = flat |
-| color_outer, color_inner, color_bg | enum of 12 **theme roles** (ACCENT, TEXT, TEXT2, OK, WARN, DANGER, PILL, ERROR, SURFACE, TRACK, BASE, BG) | DANGER, ACCENT, BASE | layer k is a ramp outer to inner; the tail fades toward the background |
+| **color_mode** | enum ACCENT, THEME, CUSTOM | THEME | where colours come from |
+| grad | enum TINTS, SHADES, ANALOGOUS, COMPLEMENT (ACCENT only) | TINTS | outer to inner steps from the accent: lighten toward white / darken the outer layers / hue +-30 degrees / opposite hue. Background = a tint of the accent over the theme base. Greys (a white accent) have no hue, so the hue options then stay grey |
+| color_outer, color_inner, color_bg | enum of 12 **theme roles** (ACCENT, TEXT, TEXT2, OK, WARN, DANGER, PILL, ERROR, SURFACE, TRACK, BASE, BG), THEME only | DANGER, ACCENT, BASE | layer k is a ramp outer to inner; the tail fades toward the background |
+| custom_outer, custom_inner, custom_bg | u16 RGB565 (`kind: rgb565`), CUSTOM only | pink, violet, deep purple | your own colours; the lab has a colour picker and a hex field, converted to the Pocket's 16-bit format (the field shows the quantised result) |
 
-Colours are roles, never RGB (METER_MODULE_SPEC section 18): a shared preset recolours with the theme, the
+THEME and ACCENT sources are portable; CUSTOM is the one deliberate exception to "roles, never RGB" (METER_MODULE_SPEC section 18, same precedent as `vu_master`'s custom colours): a shared preset with CUSTOM colours looks the same on every theme. Otherwise colours are roles: a shared preset recolours with the theme, the
 user's accent and Dark/Light for free. The background is a solid role colour filled in **one** command.
 Colour is quantised into 8 age bands along the width so neighbouring columns merge into runs (fewer commands).
 Not exposed yet (limit of 12): per-layer colours, tail hue shift to an accent-2 role (`TR_ACCENT2` has no theme value

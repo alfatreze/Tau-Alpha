@@ -873,6 +873,45 @@
      "help": "Roll-off toward the tail: the wave narrows, fades into the background, and ends in three dots. 0 = full height to the edge. In SPECTRUM view both ends are pointed."
     },
     {
+     "key": "color_mode",
+     "label": "Colour source",
+     "type": "enum",
+     "values": [
+      "ACCENT",
+      "THEME",
+      "CUSTOM"
+     ],
+     "default": 1,
+     "help": "Where the layer colours come from.",
+     "value_help": [
+      "ACCENT: derived from your accent colour, with the gradation chosen below. Follows the accent, theme and Dark/Light.",
+      "THEME: pick theme colours (roles) for outer layer, inner layer and background. Follows the theme and Dark/Light.",
+      "CUSTOM: your own colours, entered as hex in Omega or the lab (colour picker) and stored in the Pocket's 16-bit format."
+     ]
+    },
+    {
+     "key": "grad",
+     "label": "Accent gradation",
+     "type": "enum",
+     "values": [
+      "TINTS",
+      "SHADES",
+      "ANALOGOUS",
+      "COMPLEMENT"
+     ],
+     "default": 0,
+     "when": {
+      "color_mode": 0
+     },
+     "help": "How the layers step away from the accent, outer to inner (ACCENT source only). The background is a dark tint of the accent.",
+     "value_help": [
+      "TINTS: outer = accent, inner layers lighten toward white.",
+      "SHADES: inner = accent, outer layers darken.",
+      "ANALOGOUS: neighbouring hues, 30 degrees either side of the accent (pink to violet from a pink accent).",
+      "COMPLEMENT: outer = accent, inner = the opposite hue."
+     ]
+    },
+    {
      "key": "color_outer",
      "label": "Outer colour",
      "type": "enum",
@@ -891,7 +930,10 @@
       "BG"
      ],
      "default": 5,
-     "help": "Theme role for the outermost layer. Colours are roles, not RGB, so they follow the theme, your accent and Dark/Light."
+     "help": "Theme role for the outermost layer. Colours are roles, not RGB, so they follow the theme, your accent and Dark/Light.",
+     "when": {
+      "color_mode": 1
+     }
     },
     {
      "key": "color_inner",
@@ -912,7 +954,10 @@
       "BG"
      ],
      "default": 0,
-     "help": "Theme role for the innermost layer; layers in between blend from outer to inner."
+     "help": "Theme role for the innermost layer; layers in between blend from outer to inner.",
+     "when": {
+      "color_mode": 1
+     }
     },
     {
      "key": "color_bg",
@@ -933,7 +978,52 @@
       "BG"
      ],
      "default": 10,
-     "help": "Theme role for the solid background of the meter box (one fill command)."
+     "help": "Theme role for the solid background of the meter box (one fill command).",
+     "when": {
+      "color_mode": 1
+     }
+    },
+    {
+     "key": "custom_outer",
+     "label": "Custom outer",
+     "type": "u16",
+     "min": 0,
+     "max": 65535,
+     "step": 1,
+     "default": 57905,
+     "kind": "rgb565",
+     "when": {
+      "color_mode": 2
+     },
+     "help": "RGB565 colour for the outer layer (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result)."
+    },
+    {
+     "key": "custom_inner",
+     "label": "Custom inner",
+     "type": "u16",
+     "min": 0,
+     "max": 65535,
+     "step": 1,
+     "default": 41662,
+     "kind": "rgb565",
+     "when": {
+      "color_mode": 2
+     },
+     "help": "RGB565 colour for the inner layer (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result)."
+    },
+    {
+     "key": "custom_bg",
+     "label": "Custom background",
+     "type": "u16",
+     "min": 0,
+     "max": 65535,
+     "step": 1,
+     "default": 6277,
+     "kind": "rgb565",
+     "when": {
+      "color_mode": 2
+     },
+     "help": "RGB565 colour for the background box (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result)."
     }
    ],
    "presets": [
@@ -952,7 +1042,12 @@
       "color_outer": 5,
       "color_inner": 0,
       "color_bg": 10,
-      "view": 0
+      "view": 0,
+      "color_mode": 1,
+      "grad": 0,
+      "custom_outer": 57905,
+      "custom_inner": 41662,
+      "custom_bg": 6277
      }
     },
     {
@@ -970,7 +1065,12 @@
       "color_outer": 5,
       "color_inner": 4,
       "color_bg": 11,
-      "view": 0
+      "view": 0,
+      "color_mode": 1,
+      "grad": 0,
+      "custom_outer": 57905,
+      "custom_inner": 41662,
+      "custom_bg": 6277
      }
     },
     {
@@ -988,7 +1088,12 @@
       "color_outer": 6,
       "color_inner": 3,
       "color_bg": 9,
-      "view": 0
+      "view": 0,
+      "color_mode": 0,
+      "grad": 2,
+      "custom_outer": 57905,
+      "custom_inner": 41662,
+      "custom_bg": 6277
      }
     },
     {
@@ -1006,7 +1111,12 @@
       "color_outer": 2,
       "color_inner": 1,
       "color_bg": 10,
-      "view": 0
+      "view": 0,
+      "color_mode": 0,
+      "grad": 0,
+      "custom_outer": 57905,
+      "custom_inner": 41662,
+      "custom_bg": 6277
      }
     },
     {
@@ -1024,7 +1134,12 @@
       "color_outer": 7,
       "color_inner": 0,
       "color_bg": 11,
-      "view": 0
+      "view": 0,
+      "color_mode": 0,
+      "grad": 3,
+      "custom_outer": 57905,
+      "custom_inner": 41662,
+      "custom_bg": 6277
      }
     },
     {
@@ -1042,7 +1157,12 @@
       "color_outer": 0,
       "color_inner": 0,
       "color_bg": 10,
-      "view": 0
+      "view": 0,
+      "color_mode": 2,
+      "grad": 0,
+      "custom_outer": 63981,
+      "custom_inner": 65067,
+      "custom_bg": 4228
      }
     },
     {
@@ -1060,7 +1180,12 @@
       "color_outer": 0,
       "color_inner": 1,
       "color_bg": 9,
-      "view": 1
+      "view": 1,
+      "color_mode": 1,
+      "grad": 0,
+      "custom_outer": 57905,
+      "custom_inner": 41662,
+      "custom_bg": 6277
      }
     },
     {
@@ -1078,7 +1203,12 @@
       "color_outer": 5,
       "color_inner": 0,
       "color_bg": 10,
-      "view": 0
+      "view": 0,
+      "color_mode": 1,
+      "grad": 0,
+      "custom_outer": 57905,
+      "custom_inner": 41662,
+      "custom_bg": 6277
      }
     }
    ],

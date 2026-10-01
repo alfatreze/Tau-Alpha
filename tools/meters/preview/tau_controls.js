@@ -19,6 +19,16 @@
       let inp;
       if (x.type === 'enum') { inp = document.createElement('select'); x.values.forEach((v, i) => { const o = document.createElement('option'); o.value = i; o.textContent = v; inp.appendChild(o); }); }
       else if (x.type === 'bool') { inp = document.createElement('input'); inp.type = 'checkbox'; }
+      else if (x.kind === 'rgb565') {                 // colour picker + hex field; the stored value is the Pocket's RGB565
+        inp = document.createElement('span'); inp.className = 'rgb';
+        const pick = document.createElement('input'); pick.type = 'color'; const hex = document.createElement('input'); hex.type = 'text'; hex.size = 7; hex.setAttribute('aria-label', x.label + ' hex');
+        const to565 = (r, g, b) => (Math.trunc((r * 31 + 127) / 255) << 11) | (Math.trunc((g * 63 + 127) / 255) << 5) | Math.trunc((b * 31 + 127) / 255);
+        const toHex = (c) => '#' + [(c >> 11) * 255 / 31, ((c >> 5) & 63) * 255 / 63, (c & 31) * 255 / 31].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+        const set = (h) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(h).trim()); if (!m) return false; const v = parseInt(m[1], 16); cur[x.key] = to565(v >> 16, (v >> 8) & 255, v & 255); show(); fire(); return true; };
+        const show = () => { const h = toHex(cur[x.key]); pick.value = h; hex.value = h; out.textContent = '0x' + cur[x.key].toString(16).toUpperCase().padStart(4, '0'); };
+        pick.oninput = () => set(pick.value); hex.onchange = () => { if (!set(hex.value)) show(); };
+        inp.appendChild(pick); inp.appendChild(hex); inp.sync = show; inp.rgb = true;
+      }
       else { inp = document.createElement('input'); inp.type = 'range'; inp.min = x.min; inp.max = x.max; inp.step = x.step; }
       const out = document.createElement('span'); out.className = 'val'; let extra = [];
       if (x.help) {                                   // (i): click or Enter toggles an explanation; enum choices get their own line
@@ -29,10 +39,10 @@
         b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); hp.hidden = !hp.hidden; b.setAttribute('aria-expanded', String(!hp.hidden)); if (!hp.hidden) draw(); };
         extra = [b, hp]; helps[x.key] = [hp, draw];
       }
-      inp.oninput = inp.onchange = () => { cur[x.key] = x.type === 'bool' ? (inp.checked ? 1 : 0) : Number(inp.value); out.textContent = x.type === 'enum' ? x.values[cur[x.key]] : cur[x.key] + (x.unit || ''); fire(); };
+      if (!inp.rgb) inp.oninput = inp.onchange = () => { cur[x.key] = x.type === 'bool' ? (inp.checked ? 1 : 0) : Number(inp.value); out.textContent = x.type === 'enum' ? x.values[cur[x.key]] : cur[x.key] + (x.unit || ''); fire(); };
       inputs[x.key] = [inp, out, x]; row.appendChild(inp); row.appendChild(out); extra.forEach((e) => row.appendChild(e)); host.appendChild(row);
     }
-    function sync() { for (const [k, [inp, out, x]] of Object.entries(inputs)) { if (x.type === 'bool') inp.checked = !!cur[k]; else inp.value = cur[k]; out.textContent = x.type === 'enum' ? x.values[cur[k]] : cur[k] + (x.unit || ''); } }
+    function sync() { for (const [k, [inp, out, x]] of Object.entries(inputs)) { if (inp.rgb) { inp.sync(); continue; } if (x.type === 'bool') inp.checked = !!cur[k]; else inp.value = cur[k]; out.textContent = x.type === 'enum' ? x.values[cur[k]] : cur[k] + (x.unit || ''); } }
     sync(); fire();
   }
   root.TauControls = { build };

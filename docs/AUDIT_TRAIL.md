@@ -13241,3 +13241,7 @@ Branch `meter-layered-wave`. New meter after the owner's reference image: nested
 ## B-494 addendum: Spectrum (non-scrolling) view, (i) help, repeat, CPU estimate
 
 Branch `meter-layered-wave`, worktree `tau-alpha-meter-layered-wave`. `view` parameter (HISTORY scrolls; SPECTRUM = frequency on x, no scrolling) -- 13 parameters, one over the firmware's 12 (flagged in manifest and spec); preset RIBBON replaced by TIDE. Every parameter has `help`/`value_help` in the manifest, shown behind an (i) button in the lab and carried to Omega via the schema. Lab: Repeat checkbox for the audio file, CPU estimate range (model, unmeasured: 60-400 cycles/command, 30-80/evaluation, 38 Hz, 66.7 MHz) and engine pixels/frame. Found by DOM-stub run: help buttons were appended before their input; fixed. node tests, gen_meters, golden frames pass.
+
+## B-494 addendum 2: colour source (Accent / Theme / Custom)
+
+`color_mode` ACCENT (four gradations from the theme-capped accent: tints, shades, analogous +-30 degrees, complement; background a tint of the accent), THEME (the existing role pickers), CUSTOM (three RGB565 u16 parameters; the lab shows a colour picker and hex field and converts to the Pocket format). Manifest now has 18 parameters (firmware page limit 12: flagged, to be resolved before promotion). Presets HALO/DEEP OCEAN/NEON use ACCENT, PULSE uses CUSTOM. Test: four gradations render distinctly, custom values stored exactly. A `hex` implicit-global slip in the new control was caught on review and fixed. Lab-only; no firmware.
