@@ -1104,20 +1104,44 @@ module mp3_soc #(
     // wave-meter taps already are -- NOT by firmware polling: `push` rides pcm_fifo's own existing `pcm_sample_tick`/
     // `fifo_l`/`fifo_r` (K2, docs/features/CYMO_AUDIO_ENGINE.md section 14: "place cymo_resamp after the FIFO's own
     // source-rate output register" -- pcm_fifo.v itself is UNTOUCHED, this unit is simply a second, parallel consumer of
-    // signals the spectrum/wave-meter taps already read), and `start` rides `eq_tick` -- the EQ's OWN internal 48 kHz
-    // tick (eq_biquad.v's new `tick_out`, B-476), reused rather than a second, independently-instantiated copy that could
-    // drift out of phase with it. The OR'd MMIO-driven `cymo_push_we`/`cymo_start` pulses stay available below for
-    // firmware-driven self-test regardless of `cymo_live_en`'s value -- the two paths coexist, never conflict (a
-    // combinational mux at the instantiation's own port connections, no shared register).
+    // signals the spectrum/wave-meter taps already read). The OR'd MMIO-driven `cymo_push_we`/`cymo_start` pulses stay
+    // available below for firmware-driven self-test regardless of `cymo_live_en`'s value -- the two paths coexist, never
+    // conflict (a combinational mux at the instantiation's own port connections, no shared register).
+    //
+    // `start` TICK (B-484, hardware-confirmed bug fix): the first attempt reused `eq_biquad.v`'s OWN internal 48 kHz
+    // tick, reasoning "reuse what's there instead of a second copy that could drift out of phase with it" -- WRONG.
+    // `eq_biquad`'s divider (`DIV = CLK_HZ/RATE_HZ`, plain integer division) was never built to be ACCURATE: for an IIR
+    // filter's own coefficients, a few hundred ppm of tick-rate error changes nothing audible. For a sample-rate
+    // converter whose entire correctness depends on knowing its own output period precisely, it is NOT harmless: under
+    // TAU_CLK66, `66,666,667 / 48,000` truncates to 1388 (not 1388.89), so the EQ's real tick is 48,030.74 Hz, not
+    // 48,000 -- through this unit's fixed 147:160 ratio that implies an effective 44,128 Hz input-consumption rate,
+    // while `pcm_fifo` supplies real samples at a correctly-calibrated 44,100.00 Hz (the same `pcm_rate` reset-default
+    // constants below). The ~28 Hz mismatch meant the resampler ran ahead of its own input supply and re-shifted a
+    // stale sample roughly every 35 ms -- a real, audible, hardware-confirmed periodic artifact (reported as an
+    // audible "vibrato" on every 44.1 kHz track tested). Fixed with a DEDICATED fractional accumulator for this unit's
+    // own `start` tick, the exact same technique `pcm_fifo.v` already uses correctly, at the exact same `rate_inc`
+    // constants `pcm_rate`'s own reset default already carries (independently re-derived and confirmed: 3092376 at
+    // 66,666,667 Hz gives 47,999.993 Hz, -0.14 ppm; 3435974 at 60,000,000 Hz gives 48,000.002 Hz, +0.05 ppm -- both
+    // far below any audible threshold).
+`ifdef TAU_CLK66
+    localparam [31:0] CYMO_TICK_RATE_INC = 32'd3092376;   // 48 kHz at clk_sys = 66.667 MHz
+`else
+    localparam [31:0] CYMO_TICK_RATE_INC = 32'd3435974;   // 48 kHz at clk_sys = 60 MHz
+`endif
+    reg  [31:0] cymo_tick_acc = 32'd0;
+    reg         cymo_tick = 1'b0;
+    always @(posedge clk) begin
+        if (rst) begin cymo_tick_acc <= 32'd0; cymo_tick <= 1'b0; end
+        else     {cymo_tick, cymo_tick_acc} <= {1'b0, cymo_tick_acc} + {1'b0, CYMO_TICK_RATE_INC};
+    end
     reg         cymo_clear = 1'b0, cymo_start = 1'b0, cymo_push_we = 1'b0;
     reg         cymo_live_en = 1'b0;
     reg  signed [15:0] cymo_push_l_d = 16'sd0, cymo_push_r_d = 16'sd0;
     wire        cymo_busy, cymo_done, cymo_pop_req;
     wire signed [15:0] cymo_out_l, cymo_out_r;
     wire        cymo_out_rd = d_req & d_is_mmio & ~dWE & (mmio_reg == R_CYMO_OUT);
-    wire        eq_tick;                                           // from u_eq's tick_out, connected below
     wire        cymo_auto_we    = cymo_live_en & pcm_sample_tick;
-    wire        cymo_auto_start = cymo_live_en & eq_tick;
+    wire        cymo_auto_start = cymo_live_en & cymo_tick;
     wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out_l : fifo_l;
     wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out_r : fifo_r;
     generate
@@ -1155,8 +1179,7 @@ module mp3_soc #(
         .in_r   (eq_in_r),
         .preset (eq_preset),
         .out_l  (audio_l),
-        .out_r  (audio_r),
-        .tick_out (eq_tick)
+        .out_r  (audio_r)
     );
 
     always @(posedge clk) begin
