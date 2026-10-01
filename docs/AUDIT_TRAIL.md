@@ -13144,3 +13144,62 @@ Packaged and installed B-490's fit-proven toggle-reset bitstream (`cymo-b488` se
 verified, media untouched, caches cleared, ejected). Real test of B-488's diagnosis: does toggling the
 CYMO RESAMPLER on now give the SAME pitch every time on a steady test tone, instead of a different one
 each time? And separately: is the "tiny constant noise" during ordinary playback still present?
+
+## B-492: Cymo resampler -- real root cause found (B-488's fix never touched it): auto-push had no pop_req flow control
+
+Owner re-tested B-488's toggle-reset fix on `alfatreze.TAU_DEV_59` from a cold boot (confirmed, re-checked
+twice): **both symptoms unchanged** -- per-toggle pitch variance and the "tiny constant noise" during
+ordinary playback. At most a placebo-level difference, not a real one.
+
+Read the live-path wiring in `mp3_soc.v` rather than guess a third time. Found the actual gap: the
+module's own header documents the contract as "caller must push exactly once per asserted `pop_req`,
+before the next `start`" -- but `cymo_auto_we = cymo_live_en & pcm_sample_tick` pushed on **every**
+`pcm_fifo` output tick unconditionally, never checking `pop_req` at all. `pcm_sample_tick` (rate-matched
+to the track's real sample rate via `pcm_fifo`'s own `rate_inc`) and `cymo_tick` (B-484's dedicated,
+independent 48kHz-side accumulator) are two free-running ticks with no phase relationship to each other.
+B-488's fix only resets the resampler's OWN internal phase/history on a `cymo_live_en` rising edge -- it
+never touched `pcm_fifo`'s own push-tick accumulator, which keeps running continuously regardless of the
+toggle. So the relative phase between "a sample becomes available" and "the resampler wants one" was
+whatever it happened to be at the arbitrary instant of the toggle, different every time by construction --
+exactly matching the reported symptom surviving B-488 untouched. The same ungated push is also a
+plausible source of the separately-reported constant low-level noise: with no flow control, `held_l`/
+`held_r` could be overwritten more than once between two actual consumes if the two ticks' instantaneous
+phase ever put two pushes before one consume, silently dropping real input samples.
+
+**Fix**: gated the auto-push on `cymo_pop_req` (a LEVEL, stays high until actually consumed):
+`cymo_auto_we = cymo_live_en & cymo_pop_req & pcm_sample_tick`. This enforces the real contract -- a push
+can only land while the module is actually asking for one, so the first `pcm_sample_tick` after a
+`pop_req` closes the loop deterministically regardless of toggle timing, and "two pushes before one
+consume" becomes structurally impossible (push requires `pop_req=1`; a second consume cannot happen
+without the module re-entering a state where `pop_req` is reasserted first).
+
+**New diagnostic** (`R_CYMO_DIAG`, MMIO 0x160, `docs/MMIO_ALLOCATION.md`): a saturating 16-bit counter of
+consumes (`pop_req` falling edge) that happened with **no** fresh push since the previous one -- the one
+residual failure mode the gating above cannot structurally rule out (occurs only if `cymo_tick`'s own
+implied 44.1kHz-equivalent consumption rate runs measurably faster than `pcm_fifo`'s real `rate_inc` for
+the track -- a genuine, if small, mismatch between two independently-configured fractional dividers).
+Reset on every `cymo_live_en` rising edge. Surfaced on the CYMO RESAMP Info row (`fw/settingsui.inc`) as
+`STALE <n>`. Gives direct, immediate evidence instead of relying on audio-by-ear a third time: if this
+stays at/near 0 during a listening session where the artifacts are still heard, the two remaining
+suspects (the `pcm_rate` vs `CYMO_TICK_RATE_INC` calibration itself, or something else entirely) need a
+fresh look; if it climbs, that number itself quantifies how bad the drift is.
+
+Verified: `make rtl-lint` clean (pre-existing unrelated warning only); `make test-rtl-cymo-resamp` still
+0 failures/4354 outputs (module-level tests unaffected, this is a SoC-wiring-only change); full
+`make test-rtl` (including the real-CPU PSRAM fw/ifetch sims that regenerate `mp3_soc_sim.v`) re-run after
+fixing a real Icarus-only declare-after-use ordering issue the first pass caught (the same class of
+gotcha B-103 already found once in this exact file -- `cymo_live_rise` referenced before its own textual
+declaration; Quartus tolerates it, Icarus does not); `make test-host` passes; `player-library-diagnostic-
+profile` (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`) rebuilds clean. Not yet fit, not yet installed --
+this is a more structural change than B-484/B-488 (gates the actual data-flow contract, not just a reset
+edge), so going straight to another blind guess-and-fit without first confirming the test suite is clean
+would repeat the same mistake twice in one session.
+
+## B-493: Cymo resampler -- fit launched for the pop_req-gating fix
+
+Launched `cymo-b492` (same proven macro bundle, `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt`
+-- the already-shipped bundle this exact family has fit against every time since B-473), both seeds
+confirmed running independently (`cymo-b492-s1`/`cymo-b492-s2`, `vm_fit.py` reports "2 (expected 2)" --
+no collision). Launched 22:12 WEST; this bundle has consistently landed at 1h40-1h45m elapsed in every
+prior run (B-473/B-477/B-480/B-486/B-490 all finished in that window) -- **estimated completion
+~23:52-23:57 WEST.**

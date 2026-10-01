@@ -871,7 +871,7 @@ module mp3_soc #(
     // ITSELF acks `done` (same read-is-ack convention as R_LPC_SAMPLE above -- see tau_cymo_resamp.sv's own
     // out_rd comment for why a bare one-cycle pulse would be unsafe for a firmware polling loop). Inert
     // (reads 0, out_rd tied off, EQ unaffected) unless CYMO_RESAMP_ENABLE is built.
-    localparam [8:0] R_CYMO_CTRL = 9'h150, R_CYMO_PUSH = 9'h154, R_CYMO_OUT = 9'h158, R_CYMO_STATUS = 9'h15C;
+    localparam [8:0] R_CYMO_CTRL = 9'h150, R_CYMO_PUSH = 9'h154, R_CYMO_OUT = 9'h158, R_CYMO_STATUS = 9'h15C, R_CYMO_DIAG = 9'h160;
 
     // Bitstream/firmware interlock. Firmware compares this against its own
     // expected value and refuses to run on a mismatch.
@@ -1140,7 +1140,25 @@ module mp3_soc #(
     wire        cymo_busy, cymo_done, cymo_pop_req;
     wire signed [15:0] cymo_out_l, cymo_out_r;
     wire        cymo_out_rd = d_req & d_is_mmio & ~dWE & (mmio_reg == R_CYMO_OUT);
-    wire        cymo_auto_we    = cymo_live_en & pcm_sample_tick;
+    // B-492 (replaces the never-actually-gated auto-push): the module's OWN header documents the
+    // contract as "caller must push exactly once per asserted pop_req, before the next start" -- but the
+    // live path here pushed on EVERY pcm_sample_tick unconditionally, regardless of pop_req, ever since
+    // B-476. pcm_sample_tick (pcm_fifo's own output tick, rate-matched to the TRACK's real sample rate)
+    // and cymo_tick (this unit's own independent, fixed 48kHz-side tick) are two free-running
+    // accumulators with no phase relationship to each other -- toggling cymo_live_en only resets the
+    // RESAMPLER's own internal phase/history (B-488), never pcm_fifo's push-tick accumulator, which keeps
+    // running continuously regardless. So the relative phase between "a sample becomes available" and
+    // "the resampler wants one" was whatever it happened to be at the arbitrary instant of the toggle --
+    // different every time, explaining the owner's reported per-toggle pitch variance even after B-488's
+    // fix (which could not have touched this, since it only resets the module's OWN state). It also means
+    // held_l/held_r could be silently overwritten before ever being consumed (lost samples) if the two
+    // ticks' instantaneous phase happened to put two pushes between one pair of consumes -- a plausible
+    // source of the separately-reported low-level constant noise. Gating push on `cymo_pop_req` (a LEVEL,
+    // stays high until actually consumed) enforces the real contract: a push can only land while the
+    // module is actually asking for one, so the first `pcm_sample_tick` after a pop_req closes the loop
+    // deterministically regardless of toggle timing, and no push can happen between two consumes (so
+    // "two pushes before one consume" becomes structurally impossible).
+    wire        cymo_auto_we    = cymo_live_en & cymo_pop_req & pcm_sample_tick;
     wire        cymo_auto_start = cymo_live_en & cymo_tick;
     wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out_l : fifo_l;
     wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out_r : fifo_r;
@@ -1153,9 +1171,34 @@ module mp3_soc #(
     // long-term output frequency cannot depend on its starting phase by construction). cymo_tick/cymo_tick_acc are
     // deliberately NOT reset here -- that free-running reference tick should stay pristine and continuous, the one
     // thing that must NOT vary from toggle to toggle.
+    // CORRECTION (B-492): resetting the resampler's OWN phase/history here does NOT also resynchronize it to
+    // pcm_fifo's free-running push-tick accumulator, which was the actual, un-fixed cause of the owner's reported
+    // per-toggle pitch variance surviving this very fix on hardware re-test -- see cymo_auto_we's own comment above.
     reg cymo_live_en_d = 1'b0;
     always @(posedge clk) cymo_live_en_d <= rst ? 1'b0 : cymo_live_en;
     wire cymo_live_rise = cymo_live_en & ~cymo_live_en_d;
+    // B-492 diagnostic: did a consume (pop_req falling edge) ever happen WITHOUT a fresh push since the
+    // last one? With cymo_auto_we's new gating above this can only occur if cymo_tick's own implied
+    // consumption rate runs measurably faster than pcm_fifo's real rate_inc for the track (a genuine, if
+    // small, clock-domain mismatch between two independently-configured fractional dividers) -- exactly
+    // the kind of low-level artifact source flagged as unconfirmed in the prior handoff. Saturating, not
+    // wrapping, so a long play session still gives a readable number.
+    reg         cymo_pop_req_d = 1'b0;
+    always @(posedge clk) cymo_pop_req_d <= rst ? 1'b0 : cymo_pop_req;
+    wire        cymo_consume_ev = cymo_pop_req_d & ~cymo_pop_req;   // falling edge = S_SHIFTHIST executed
+    reg         cymo_fresh = 1'b0;
+    reg  [15:0] cymo_stale_cnt = 16'd0;
+    always @(posedge clk) begin
+        if (rst || cymo_live_rise) begin
+            cymo_fresh <= 1'b0; cymo_stale_cnt <= 16'd0;
+        end else begin
+            if (cymo_auto_we) cymo_fresh <= 1'b1;
+            if (cymo_consume_ev) begin
+                cymo_fresh <= 1'b0;
+                if (!cymo_fresh && cymo_stale_cnt != 16'hFFFF) cymo_stale_cnt <= cymo_stale_cnt + 16'd1;
+            end
+        end
+    end
     generate
         if (CYMO_RESAMP_ENABLE != 0) begin : g_cymo
             tau_cymo_resamp u_cymo (
@@ -1406,6 +1449,7 @@ module mp3_soc #(
             R_I2S_DIAG_ST:     mmio_rdata = {31'd0, (I2S_DIAG_ENABLE != 0)};
             R_CYMO_OUT:    mmio_rdata = {cymo_out_r, cymo_out_l};                                      // this read is the ack (clears done)
             R_CYMO_STATUS: mmio_rdata = {27'd0, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en
+            R_CYMO_DIAG:   mmio_rdata = {16'd0, cymo_stale_cnt}; // B-492: count of consumes with no fresh push since the last one (saturating)
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end

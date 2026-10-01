@@ -68,7 +68,12 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x144 | I2S_DIAG_CNT | R | count of update events since reset. 0 when off. |
 | 0x148 | I2S_DIAG_SUM | R | sum of all measured intervals since reset (for an average via delta / delta-count). 0 when off. |
 | 0x14C | I2S_DIAG_ST | R | bit 0 = built in (`I2S_DIAG_ENABLE`). |
-| 0x150-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x150 | CYMO_CTRL | W | B-471/B-476 Cymo 44.1->48kHz resampler (`tau_cymo_resamp.sv`, `TAU_CYMO_RESAMP`, `docs/features/CYMO_AUDIO_ENGINE.md` section 15): bit 0 = clear (pulse, test-only -- the live path's own clear comes from a `cymo_live_en` rising edge, not this bit), bit 1 = start (pulse, test-only), bit 2 = LIVE_ENABLE (STICKY -- hands the real EQ-input audio path to the resampler's output in place of `pcm_fifo`'s zero-order hold). |
+| 0x154 | CYMO_PUSH | W | writes `{push_r[31:16],push_l[15:0]}` and pulses `push_we` (self-test only; the live path pushes automatically from hardware). |
+| 0x158 | CYMO_OUT | R | `{out_r[31:16],out_l[15:0]}` -- this read is itself the ack that clears `CYMO_STATUS` bit 2 (self-test only). |
+| 0x15C | CYMO_STATUS | R | bit 0 = built in, bit 1 = busy, bit 2 = done, bit 3 = pop_req, bit 4 = live_en. 0 when off. |
+| 0x160 | CYMO_DIAG | R | B-492: bits[15:0] = saturating count of consumes (an internal `pop_req` falling edge) that happened with no fresh auto-push since the previous one -- direct evidence of `pcm_fifo`'s own push-rate tick and Cymo's independent 48kHz-side tick drifting out of step. Should stay at or near 0 if the two are genuinely rate-matched; reset on every `cymo_live_en` rising edge (fresh window per toggle-on session). |
+| 0x164-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 

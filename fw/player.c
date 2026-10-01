@@ -143,6 +143,7 @@
 #define R_CYMO_PUSH   0x80000154u /* write: {push_r[31:16],push_l[15:0]} + one push_we pulse (self-test only, the live audio path never uses this) */
 #define R_CYMO_OUT    0x80000158u /* read: {out_r[31:16],out_l[15:0]} -- this read is itself the ack that clears STATUS bit 2 (self-test only) */
 #define R_CYMO_STATUS 0x8000015Cu /* read: bit0 built in, bit1 busy, bit2 done, bit3 pop_req, bit4 live_en */
+#define R_CYMO_DIAG   0x80000160u /* read: [15:0] saturating count of consumes with no fresh push since the last one (B-492) */
 /* Redirect fw/flac.c's LPC reconstruction to the hardware unit (docs/research/FLAC_LPC_KERNEL_DESIGN.md).
  * Off by default -- byte-identical to the unmodified decoder; no build target defines this yet (no
  * Quartus fit or hardware test exists for TAU_LPC yet, section 7 item 5). fw/flac_lpc_hw.inc implements
