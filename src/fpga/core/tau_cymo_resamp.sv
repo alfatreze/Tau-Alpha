@@ -63,9 +63,15 @@ module tau_cymo_resamp #(
     input  wire signed [15:0] push_r,
 
     input  wire        start,              // request the next output sample; ignored while busy
+    input  wire        out_rd,             // read-acknowledges `done` (same read-is-ack convention as
+                                            // tau_flac_lpc.sv's own sample_rd) -- without this, a firmware
+                                            // polling loop running vastly slower than clk_sys could poll
+                                            // right past a one-cycle pulse and never see it at all
     output wire        busy,
-    output reg         done,               // one-cycle pulse: out_l/out_r valid
-    output reg         pop_req,            // one-cycle pulse alongside done: caller must push before the next start
+    output reg         done,               // HELD (not a pulse) from the end of computation until out_rd
+    output wire        pop_req,            // LEVEL, not a pulse: mirrors `pending_pop` directly, so a
+                                            // polling read can never land in a race window and miss it
+                                            // (the same reasoning that makes `done` a held flag, not a pulse)
     output reg  signed [15:0] out_l,
     output reg  signed [15:0] out_r
 );
@@ -107,6 +113,7 @@ module tau_cymo_resamp #(
     reg pending_pop;
 
     assign busy = (st != S_IDLE) && (st != S_DONE);
+    assign pop_req = pending_pop;
 
     // Coefficient ROM address for the current tap. BUG=1 reverses which HISTORY sample pairs with tap --
     // reversing the coefficient side too would be undetectable (every (coef,hist) pair still appears
@@ -131,12 +138,13 @@ module tau_cymo_resamp #(
     // synthesis even when Icarus tolerates it).
     always @(posedge clk) begin
         if (rst) begin
-            st <= S_IDLE; phase <= 9'd0; done <= 1'b0; pop_req <= 1'b0; out_l <= 16'sd0; out_r <= 16'sd0;
+            st <= S_IDLE; phase <= 9'd0; done <= 1'b0; out_l <= 16'sd0; out_r <= 16'sd0;
             ch <= 1'b0; tap <= 6'd0; clr_i <= 6'd0; pending_pop <= 1'b0;
         end else begin
             if (clear && st == S_IDLE) begin
-                phase <= 9'd0; clr_i <= 6'd0; st <= S_CLR; pending_pop <= 1'b0;
+                phase <= 9'd0; clr_i <= 6'd0; st <= S_CLR; pending_pop <= 1'b0; done <= 1'b0;
             end
+            if (out_rd) done <= 1'b0;    // read-is-ack, same convention as tau_flac_lpc.sv's sample_rd
             case (st)
                 S_CLR: begin
                     hist0[clr_i[4:0]] <= 16'sd0;
@@ -145,7 +153,6 @@ module tau_cymo_resamp #(
                     else clr_i <= clr_i + 6'd1;
                 end
                 S_IDLE: begin
-                    done <= 1'b0; pop_req <= 1'b0;
                     if (start) st <= pending_pop ? S_SHIFTHIST : S_MAC_ENTRY;
                 end
                 S_SHIFTHIST: begin
@@ -216,10 +223,8 @@ module tau_cymo_resamp #(
                     if ({1'b0, phase} + {1'b0, (BUG == 4 ? P[8:0] : Q_STEP[8:0])} >= {1'b0, P[8:0]}) begin
                         phase <= phase + (BUG == 4 ? P[8:0] : Q_STEP[8:0]) - P[8:0];
                         pending_pop <= 1'b1;
-                        pop_req <= 1'b1;
                     end else begin
                         phase <= phase + (BUG == 4 ? P[8:0] : Q_STEP[8:0]);
-                        pop_req <= 1'b0;
                     end
                     st <= S_DONE;
                 end

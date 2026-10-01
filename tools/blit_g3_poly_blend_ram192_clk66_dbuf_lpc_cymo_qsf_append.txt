@@ -1,0 +1,58 @@
+# B-471: the shipped all6+poly+blend+ram192+clk66+dbuf+lpc bundle (blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt,
+# verbatim) plus TAU_CYMO_RESAMP=1 -- the new standalone Cymo resampler unit (tau_cymo_resamp.sv), wired into
+# mp3_soc.v behind its own macro, no RTL dependency on any of the other macros here. Synthesis-only check first
+# (quartus_map, not a full fit): confirms it elaborates cleanly against the real macro set it will eventually ship
+# alongside (the B-130 lesson -- fit against the CURRENT macro bundle, never a bare base) before spending a real fit.
+
+# B-369/B-371: the all6-combined bundle (blit_g3_poly_blend_ram192_clk66_dbuf_qsf_append.txt,
+# confirmed on the VM 2026-09-27 as a real Successful fit -- worst-case setup slack +5.695 ns,
+# hold +0.037 ns, both positive but hold margin is razor-thin) plus TAU_LPC=1, the new FLAC LPC
+# reconstruction unit (tau_flac_lpc.sv, B-368/B-369). tau_flac_lpc.sv is a small, standalone,
+# time-multiplexed DSP-slice MAC with no shared write-port contention with the existing draw-engine
+# glyphbuf path that has repeatedly been this project's actual timing bottleneck (B-109/B-150/B-157) --
+# but the base bundle's hold margin is already thin enough that ANY addition is worth checking for
+# real, not assumed safe. Do not be surprised if hold slack goes negative; if it does, the fix is the
+# same proven retiming technique used every other time this project hit this (B-111/B-114/B-231).
+#
+# Contents: tools/blit_g3_poly_blend_ram192_clk66_dbuf_qsf_append.txt verbatim, plus TAU_LPC=1.
+set_global_assignment -name VERILOG_MACRO "TAU_PHASE2_WINDOW=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_PROBE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_WINDOW=1"
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram0_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram0_lb_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_INPUT_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to cram1_dq[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_a[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_adv_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce0_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ce1_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_oe_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_we_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_ub_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to cram1_lb_n
+set_global_assignment -name VERILOG_MACRO "TAU_PSRAM_IFETCH=1"
+set_global_assignment -name VERILOG_MACRO "TAU_MLAB_MIGRATE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_FONT_REPACK=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SDRAM_BUSY=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BLIT=1"
+set_global_assignment -name VERILOG_MACRO "TAU_VBLANK=1"
+set_global_assignment -name VERILOG_MACRO "TAU_SPEC=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BEAM=1"
+set_global_assignment -name VERILOG_MACRO "TAU_WAVE=1"
+set_global_assignment -name VERILOG_MACRO "TAU_POLY=1"
+set_global_assignment -name VERILOG_MACRO "TAU_BLIT_BLEND=1"
+set_global_assignment -name VERILOG_MACRO "TAU_RAM_192K=1"
+set_global_assignment -name VERILOG_MACRO "TAU_CLK66=1"
+set_global_assignment -name VERILOG_MACRO "TAU_DBUF=1"
+set_global_assignment -name VERILOG_MACRO "TAU_LPC=1"
+set_global_assignment -name VERILOG_MACRO "TAU_CYMO_RESAMP=1"
