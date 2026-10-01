@@ -882,8 +882,10 @@ Each cell is the SINAD range across 1/5/10/15/18 kHz test tones (`sweep` subcomm
 always the 18 kHz case, the hardest for a fixed-length lowpass. Compare against the current hold's **measured 10.8 dB**
 at 1 kHz (B-430/B-467) and the Appendix's idealised-float **27.7 dB** prediction for the same case -- every windowed
 option here, even at 8 taps, already exceeds both by a wide margin, and **32 taps with a Blackman or Kaiser window
-gives a consistent 77-86 dB across the whole audible band** for only 8 M10K blocks and 1 DSP (`resources`
-subcommand; the project's shipped bitstream has 68 M10K blocks free, B-458). This is the recommended starting point
+gives a consistent 77-86 dB across the whole audible band** for only 1 DSP (`resources` subcommand's own capacity
+estimate said 8 M10K blocks; the real fitted cost, confirmed 2026-10-01, B-475, is 16 -- the fitter did not pack the
+coefficient ROM at the capacity-calculation's assumed density, still comfortably affordable against the 68 free
+after the shrink). This is the recommended starting point
 if C0(e)/C1 (section 9) goes ahead -- comfortably better than pocket-mp3's own unweighted 16-tap design, at a resource
 cost this project can clearly afford, and cheap in CPU-cycle terms too: at clk_sys ~66.7 MHz and 48 kHz output there
 are ~1,389 cycles available per output sample, of which a 32-tap MAC (1 cycle/tap, matching `resampler.sv`'s own
@@ -896,8 +898,8 @@ algebraic`): cubic reaches an excellent 89.3 dB at 1 kHz (better than the 32-tap
 18 kHz -- worse than the current hold's own measured 10.8 dB baseline**. This is expected once stated plainly:
 polynomial interpolation has no explicit anti-aliasing filter, so it degrades sharply as frequency approaches the
 source Nyquist (22.05 kHz) -- exactly the range (cymbals, hi-hats, sibilance, bright synths) where a resampling
-defect would be most audible in the first place. The LUT-based polyphase FIR earns its 8 M10K blocks precisely where
-a free option cannot help.
+defect would be most audible in the first place. The LUT-based polyphase FIR earns its M10K cost (16 blocks fitted,
+B-475) precisely where a free option cannot help.
 
 **Nobody has actually listened yet -- the SINAD numbers alone cannot answer whether this is audible.** F1's own note
 above ("the owner has listened to the current output for many builds without reporting this as the problem")
@@ -944,8 +946,17 @@ honest writeup in `docs/AUDIT_TRAIL.md` B-474: most likely explanation is this s
 has little extreme-treble content near the 18-22 kHz range where cubic's own documented weakness (7.6 dB SINAD, vs
 FIR32's 83-86 dB) actually shows up, compounded by limited-bandwidth playback equipment -- not evidence that cubic
 is secretly fine. **Does not change the plan**: the case for FIR32 was always the measured SINAD tables plus the
-hardware-proven architecture, not this listening test alone. A real two-seed Quartus fit (`cymo-b472`, B-473) is
-in progress; result pending.
+hardware-proven architecture, not this listening test alone.
+
+**2026-10-01 update (B-475): the real two-seed fit CLOSED CLEAN.** Both seeds Successful, every corner positive
+slack on both (seed 1: Fast 0C hold +0.104/setup +5.943, Slow 85C hold +0.370/setup +1.188; seed 2 slightly tighter
+on every corner). Seed 1 selected, RBF collected and hash-verified
+(`work/diagnostics/cymo-b472/ap_core_s1.rbf`). DSP 20/66 confirmed at the fitter stage (matches B-472's synthesis
+prediction exactly); RAM 256/308, a real +16 M10K cost -- double the design's own capacity-calculation estimate of
+8 blocks (corrected above), still comfortably inside budget. **This fully closes C2's "model equals RTL bit-exact;
+both seeds close" gate for the 44.1 kHz ratio** (48 and 22.05 kHz remain out of scope for this increment, section
+9). Next, in order: the `pcm_fifo.v` integration (section 14/K2), a firmware probe, a card install, and the
+hardware A/B.
 
 ## Appendix: the resampler model
 

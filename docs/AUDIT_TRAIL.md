@@ -12769,3 +12769,34 @@ owner's own earlier decision to proceed with building FIR32 stands; this entry r
 evidence honestly rather than silently filing it under "confirmed audible win," which it is not, on
 this specific track. If a clearer audible comparison is ever wanted, a track with real extended treble
 content (cymbals, sibilant vocals, bright synths) would be a harder test than this one.
+
+## B-475: Cymo resampler -- real two-seed fit CLOSED CLEAN, both seeds, all corners positive
+
+`cymo-b472` fit (B-473) finished: **both seeds Successful, 0 timing failures, every corner positive
+slack on both.** Seed 1: Fast 0C hold +0.104/setup +5.943, Fast 85C hold +0.138/setup +5.742, Slow 0C
+hold +0.350/setup +1.169, Slow 85C hold +0.370/setup +1.188. Seed 2: Fast 0C hold +0.073/setup +5.766,
+Fast 85C hold +0.105/setup +5.528, Slow 0C hold +0.286/setup +0.828, Slow 85C hold +0.307/setup +1.006.
+**Seed 1 selected** -- better margin than seed 2 on every single corner, both setup and hold, not a
+mixed result. RBF collected and hash-verified: `work/diagnostics/cymo-b472/ap_core_s1.rbf`,
+`sha256 02bc920a10cb2e7782b049748bb0cee96e3c6f8e2facbf8276451c8fe5ea4fa6`.
+
+Resources: DSP 20/66 (30%) on both -- exactly matches B-472's synthesis-only prediction (+1 over this
+bundle's established 19 DSP baseline), confirmed at the fitter stage, not just synthesis. **RAM 256/308
+(83%) on both -- a real correction to record: this is +16 M10K blocks over the pre-resampler baseline
+(240/308), DOUBLE the design doc's own "8 M10K blocks" estimate** (section 15's resources table, derived
+from `5120 entries x 16 bits / 10,240 bits per M10K = 8 blocks` as a pure capacity calculation). The
+fitter evidently did not pack the coefficient ROM at maximum density -- plausibly the 13-bit address
+(5,120 entries needs 13 address bits, not a power-of-two-friendly 12) or the specific `(* ramstyle =
+"M10K" *)` + `initial`-block-load idiom costing more per-block efficiency than a theoretical bit-packing
+calculation assumes. Not chased further: 52 M10K blocks remain free (256/308), comfortably inside
+budget either way, and this is a real but non-blocking finding, not a defect -- recorded here rather
+than quietly left as a wrong number in the design doc.
+
+This is the headline result C2's own gate (section 9: "model equals RTL bit-exact; both seeds close")
+was built to produce, and it is now fully met for the 44.1 kHz ratio: sim-verified bit-exact (B-471),
+synthesis-only clean (B-472), and now a real two-seed fit closing with genuine margin on every corner
+(this entry) -- the first of the three sub-gates ("A/B on 44.1, 48, 22.05 kHz") still open, since 48 and
+22.05 kHz are explicitly out of scope for this first increment (section 9's "start with one ratio"
+decision). Next steps, in order: the `pcm_fifo.v` integration (section 14/K2 already specifies where),
+a firmware probe, a card install, and the hardware A/B that the still-pending MacCunn/Clementi listening
+nuance (B-474) makes more important than ever to get right, not less.
