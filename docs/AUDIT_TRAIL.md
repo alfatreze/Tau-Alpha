@@ -13058,3 +13058,18 @@ trusted; a follow-up `ps -o pid,ppid,etime` showed only two processes actually a
 already exited, a transient child process `pgrep` caught mid-fork during `quartus_sh`'s own startup,
 not a real double-launch). Re-confirmed clean: exactly 2 processes, correct directories
 (`cymo-b484-s1`/`cymo-b484-s2`), both ~25s in. Result pending.
+
+## B-486: Cymo resampler -- tick-fix fit CLOSED CLEAN, both seeds (finished on schedule)
+
+`cymo-b484` finished right on the estimated window (16:25-16:26, within the 16:25-16:35 local estimate
+given at launch, B-485): **both seeds Successful, every corner positive on both.** Seed 1: Fast 0C hold
++0.099/setup +5.690, Fast 85C hold +0.129/setup +5.458, Slow 0C hold +0.262/setup +1.194, Slow 85C hold
++0.273/setup +1.299. Seed 2: Fast 0C hold +0.125/setup +5.858, Fast 85C hold +0.140/setup +5.624, Slow
+0C hold +0.276/setup +1.302, Slow 85C hold +0.294/setup +1.495. **Seed 2 selected -- a clean sweep,
+better on every single corner.** Resources unchanged (RAM 256/308, DSP 20/66 -- the tick fix replaced
+one divider with another of comparable size, no surprise). RBF collected and hash-verified:
+`work/diagnostics/cymo-b484/ap_core_s2.rbf`, `sha256
+21315d9f9d6a3a0465ccbe9b74c2570294be174f13fbbd374a35d7b74e9caaa8`.
+
+This is the bitstream that will actually test whether B-484's diagnosis was right. Next: package +
+install, then the hardware re-test.
