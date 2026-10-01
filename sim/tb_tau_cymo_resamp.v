@@ -16,13 +16,14 @@ module tb_tau_cymo_resamp;
     reg push_we = 0;
     reg signed [15:0] push_l = 0, push_r = 0;
     reg start = 0;
+    reg out_rd = 0;
     wire busy, done, pop_req;
     wire signed [15:0] out_l, out_r;
 
     tau_cymo_resamp #(.BUG(BUG)) dut (
         .clk(clk), .rst(rst), .clear(clear),
         .push_we(push_we), .push_l(push_l), .push_r(push_r),
-        .start(start), .busy(busy), .done(done), .pop_req(pop_req),
+        .start(start), .out_rd(out_rd), .busy(busy), .done(done), .pop_req(pop_req),
         .out_l(out_l), .out_r(out_r)
     );
 
@@ -79,8 +80,12 @@ module tb_tau_cymo_resamp;
                     fails = fails + 1;
                     if (fails < 8) $display("FAIL output %0d: pop_req got %0d want %0d", k, pop_req, exp_pop);
                 end
+                // read-is-ack (same convention as tau_flac_lpc.sv's sample_rd): without this, `done`
+                // stays held forever and the NEXT iteration's `while(!done...)` would exit immediately
+                // on a stale flag instead of waiting for the real next computation.
+                out_rd <= 1; @(posedge clk); out_rd <= 0;
             end
-            @(posedge clk);   // let done/pop_req settle one more cycle before acting on them
+            @(posedge clk);   // let pop_req settle one more cycle before acting on it
 
             if (exp_pop) begin
                 push_l <= vin[2*consumed][15:0];
