@@ -916,15 +916,25 @@ only polyphase FIR, Q1.15 coefficients from `tools/gen_cymo_resamp_rom.py`'s own
 now built, sim-verified bit-exact against its own golden model (`sim/cymo_resamp_model.c`, independently cross-checked
 in Python by `sim/test_cymo_resamp_model.py` -- this project's own "prove it twice" discipline) on 4,354 output
 samples, and all 5 mutation hooks are confirmed caught (`make test-rtl-cymo-resamp`/`test-rtl-cymo-resamp-mutation`).
-This closes C2's "model equals RTL bit-exact" gate. NOT yet done, in order: a Quartus fit (both seeds), wiring into
-`pcm_fifo.v`/`mp3_soc.v` (replacing the hold at the point K2 above specifies -- after the FIFO's own source-rate
-output register, consuming `out_l`/`out_r` via `sample_tick`, EQ moved downstream of the resampler), firmware probe
-(`CYMO_RESAMP_READY()`, same pattern as `BLIT_READY()`/`POLY_FW`/`LPC_FW`), and the hardware A/B at 44.1 kHz (the
-other two gate ratios, 48 and 22.05 kHz, fall back to the existing hold until a later increment -- section 9's "start
-with one ratio" scope). See `src/fpga/core/tau_cymo_resamp.sv`'s own header for the full design rationale, including
-a real protocol bug the testbench caught and fixed during development: the first draft had the hardware consume a
-caller-pushed input sample during the SAME `start` call that raised the `pop_req` asking for it, before the caller
-could possibly have supplied it -- the actual shift is now deferred to the start of the NEXT `start` call.**
+This closes C2's "model equals RTL bit-exact" gate. See `src/fpga/core/tau_cymo_resamp.sv`'s own header for the full
+design rationale, including a real protocol bug the testbench caught and fixed during development: the first draft
+had the hardware consume a caller-pushed input sample during the SAME `start` call that raised the `pop_req` asking
+for it, before the caller could possibly have supplied it -- the actual shift is now deferred to the start of the
+NEXT `start` call.
+
+**2026-10-01 update (B-472): wired into `mp3_soc.v`, synthesis-only check clean.** Before wiring, found and fixed a
+real firmware-interface defect `done`/`pop_req` being one-cycle register pulses would have caused a real polling
+loop to miss entirely -- both now behave like `tau_flac_lpc.sv`'s own held/read-ack `done` and a continuous-level
+`pop_req`. Wired into `mp3_soc.v` behind `CYMO_RESAMP_ENABLE`/`TAU_CYMO_RESAMP`, registers 0x150-0x15C
+(`docs/MMIO_ALLOCATION.md`). A `quartus_map` synthesis-only check against the exact shipped macro bundle (plus the
+new macro) came back successful: 0 errors, 328 warnings, 20 DSP elements -- exactly +1 over that bundle's
+established 19 DSP baseline, matching the "one time-multiplexed MAC" design precisely. NOT yet done, in order: a
+real two-seed Quartus fit (resource/timing closure is a fitter question a synthesis-only check cannot answer),
+wiring into `pcm_fifo.v` itself (replacing the hold at the point K2 above specifies -- after the FIFO's own
+source-rate output register, consuming `out_l`/`out_r` via `sample_tick`, EQ moved downstream of the resampler),
+firmware probe (`CYMO_RESAMP_READY()`, same pattern as `BLIT_READY()`/`POLY_FW`/`LPC_FW`), and the hardware A/B at
+44.1 kHz (the other two gate ratios, 48 and 22.05 kHz, fall back to the existing hold until a later increment --
+section 9's "start with one ratio" scope).**
 
 ## Appendix: the resampler model
 

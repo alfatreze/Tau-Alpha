@@ -12672,3 +12672,54 @@ synthesis-only Quartus check, a real two-seed fit, the `pcm_fifo.v` integration,
 exit code 0, 0 failures and 0 surviving mutants anywhere in the output** -- confirms adding this module
 disturbed nothing else in the shared build (`mp3_soc_sim.v` regeneration, the PSRAM/blit/SDRAM
 testbenches, etc). Committed.
+
+## B-472: Cymo resampler -- firmware-safe interface fix, wired into mp3_soc.v, synthesis-only check clean
+
+Owner: "start synthesis." Before wiring real MMIO registers around B-471's module, re-examined its
+`done`/`pop_req` ports and found a real interface defect that pure simulation (clocked testbench
+reads every cycle) could never surface: both were one-cycle REGISTER PULSES, and a real firmware
+polling loop runs vastly slower per iteration than `clk_sys` -- it could poll right past a one-cycle
+pulse and never observe it at all. Fixed to match `tau_flac_lpc.sv`'s own proven convention: `done` is
+now HELD from the end of computation until an explicit `out_rd` read-ack (same read-is-ack idiom as
+`R_LPC_SAMPLE`); `pop_req` is now a continuous level (`= pending_pop` directly, a `wire` not a `reg`)
+rather than a pulse tied to one state. Re-verified: `make test-rtl-cymo-resamp`/`-mutation` both still
+pass bit-exact, all 5 mutants still caught, after rewriting `sim/tb_tau_cymo_resamp.v` to drive the new
+`out_rd` ack (and documenting why it's needed in both the module header and the testbench).
+
+Wired into `mp3_soc.v` behind a new `CYMO_RESAMP_ENABLE` parameter / `TAU_CYMO_RESAMP` macro
+(`core_game.vh`), registers 0x150-0x15C (`R_CYMO_CTRL` W: bit0 clear pulse, bit1 start pulse;
+`R_CYMO_PUSH` W: `{push_r,push_l}` + push_we pulse; `R_CYMO_OUT` R: `{out_r,out_l}`, this read is the
+ack; `R_CYMO_STATUS` R: bit0 present, 1 busy, 2 done, 3 pop_req), same self-clearing-write-strobe and
+read-is-ack conventions as every other unit in this file. Registered in `ap_core.qsf`. Standalone --
+no firmware caller wired yet; `pcm_fifo.v` itself untouched.
+
+Full `make test-rtl` and `make test-host` both green after wiring (0 failures, 0 surviving mutants
+anywhere). Caught and reverted a real B-448-class near-miss: a plain `bash fw/build.sh release`
+sanity check (confirming firmware still builds with the new unused macro present) rebuilt
+`dist/Assets/tau/common/{tau.rom,tau-cold.bin}` with DEFAULT flags, differing from the actual shipped
+bitstream's flagged build (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`) -- `git checkout --` reverted
+both before committing, so the published release ROM was never actually disturbed, but this is exactly
+the silent-clobber failure mode `--build-flags` (B-448) exists to prevent for a real packaging run; a
+bare sanity-check build doesn't go through that tool and needed the same care by hand.
+
+**Synthesis-only check** (`quartus_map`, not a full fit -- confirms clean elaboration before spending a
+real fit, per the project's own discipline): staged via `git stash create` (`71df32d`, working tree
+untouched, confirmed by grepping the staged copy for `out_rd`/`CYMO_RESAMP_ENABLE` before upload) into
+`~/tau-local/cymo-synthcheck-20261001`, appended `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt`
+(the exact shipped `all6+poly+blend+ram192+clk66+dbuf+lpc` bundle, verbatim, plus `TAU_CYMO_RESAMP=1`
+-- fit against the CURRENT macro set the module will eventually ship alongside, never a bare base, the
+B-130 lesson). Confirmed no other Quartus process running before launch; `quartus_map` confirmed as
+the only active process after. **Result: Analysis & Synthesis successful, 0 errors, 328 warnings, ~12.5
+minutes.** 20 DSP elements implemented -- exactly +1 over this exact macro bundle's established 19 DSP
+baseline (B-454/B-458/B-461 fits all show 19/66), matching the design's own "one time-multiplexed MAC"
+estimate precisely. One cosmetic oddity noted, not chased: `Warning (10335): Unrecognized synthesis
+attribute "even"` points at `tau_cymo_resamp.sv:138`, a plain `//` comment line containing the word
+"even" with no `(* ... *)` attribute syntax anywhere near it (confirmed by grep) -- almost certainly a
+Quartus line-attribution quirk around the preceding `` `include ``'d ROM file's own `(* ramstyle =
+"M10K" *)` attribute (which parses fine, same idiom as `tau_flac_lpc.sv`'s own `ramstyle`), not a real
+defect; harmless either way since synthesis completed with 0 errors.
+
+Not yet done: a real two-seed `quartus_fit` (resource/timing closure is a fitter-stage question this
+synthesis-only check cannot answer, same limitation B-100's own font-repack finding already
+established for a different module), the `pcm_fifo.v` integration, a firmware probe, card install, and
+the hardware A/B. Committed (`875a231`, `e6bdcb7`).
