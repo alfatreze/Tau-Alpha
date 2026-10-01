@@ -1139,6 +1139,7 @@ static int  set_input(uint32_t edge, uint32_t keys);
 #endif
 static void set_draw(void);
 static void set_close(void);
+static void set_open_wvizcfg_direct(void);   /* Start+X chord in poll_input(), defined in settingsui.inc */
 
 enum { REP_OFF = 0, REP_ALL, REP_ONE };
 static uint8_t  rep_mode;                /* cycles off -> all -> one -> off */
@@ -6280,6 +6281,18 @@ static void poll_input(void)
         edge = 0; fall = 0; keys = 0;
     }
 
+    /* Start+X: jump straight to Meter > Configure, skipping Home -> Appearance -> Meter navigation.
+     * Checked BEFORE SET_INPUT below, which otherwise treats any bare Start edge (settings closed) as
+     * "open at SET_HOME" and would consume it first. Two-sided check -- either button's edge can land
+     * first as long as the other is already held by the time it does -- because Start, unlike Select,
+     * has a strong action of its own on a bare press, so a one-sided "Start held, X edges" convention
+     * (the way Select+X/Y work) cannot be used: SET_INPUT would already have opened Settings before X
+     * is ever pressed. */
+    if (!set_open && !lib_ui_open && cold_code_ok &&
+        (((edge & KEY_START) && (keys & KEY_X)) || ((edge & KEY_X) && (keys & KEY_START)))) {
+        set_open_wvizcfg_direct();          /* cold code (fw/settingsui.inc) -- not visible this early in the file */
+        edge &= ~(uint32_t)(KEY_START | KEY_X);
+    }
     /* ---- the overlay owns most of the pad while it is up -------------------
      * Handled BEFORE every normal binding, then the consumed bits are cleared
      * so nothing downstream also acts on them. Select is deliberately left in

@@ -994,6 +994,19 @@ static void wvcfg_open(void)
     wviz_force = 1u;   /* B-234: entering at a different rect than the player screen's own */
 }
 
+/* Start+X shortcut (fw/player.c): jump straight to Meter > Configure from the player screen, skipping
+ * the Home -> Appearance -> Meter navigation chain. Mirrors set_input()'s own Start-opens-at-SET_HOME
+ * path (closing any open library browser first, running the one-time hardware-blend probe before
+ * FB_HELD() becomes true) but lands directly on the Configure page and calls its own open() the same way
+ * normal RT_GROUP menu navigation does, instead of SET_HOME. */
+COLD_FN static void set_open_wvizcfg_direct(void)
+{
+    if (lib_ui_open) lib_ui_close();
+    blend_ensure();
+    set_open = 1u; set_page = SET_WVIZCFG_PG; set_dirty = 1u;
+    wvcfg_open();
+}
+
 COLD_FN static void wvcfg_follow(void)
 {
     if (wvcfg_sel < wvcfg_top) wvcfg_top = wvcfg_sel;
