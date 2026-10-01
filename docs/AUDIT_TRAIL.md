@@ -13203,3 +13203,27 @@ confirmed running independently (`cymo-b492-s1`/`cymo-b492-s2`, `vm_fit.py` repo
 no collision). Launched 22:12 WEST; this bundle has consistently landed at 1h40-1h45m elapsed in every
 prior run (B-473/B-477/B-480/B-486/B-490 all finished in that window) -- **estimated completion
 ~23:52-23:57 WEST.**
+
+## B-495: Start+X chord -- jump straight to Meter > Configure
+
+Owner request, built while waiting on `cymo-b492`'s fit. New `set_open_wvizcfg_direct()`
+(`fw/settingsui.inc`) mirrors `set_input()`'s own Start-opens-at-SET_HOME path (closing any open library
+browser, running the one-time hardware-blend probe before `FB_HELD()` becomes true) but lands directly on
+`SET_WVIZCFG_PG` and calls its own `open()` the same way normal `RT_GROUP` menu navigation does, instead
+of `SET_HOME`. Checked in `fw/player.c`'s `poll_input()` BEFORE `SET_INPUT()`, which otherwise treats any
+bare Start edge (settings closed) as "open at Home" and would consume it first -- a one-sided "Start
+held, X edges" convention (the way the existing Select+X/Y chords work) could not be used here, since
+Start has a strong action of its own on a bare press, so a two-sided check is used instead (either
+button's edge can land first, as long as the other is already held by the time it does). Gated on
+`!lib_ui_open` -- unlike plain Start, which closes an open library browser and proceeds, this chord would
+otherwise steal `KEY_X`'s own meaning there (the library browser already binds X to a favourites toggle
+on several view kinds, `fw/library.inc`), so the chord simply does not fire while browsing; also gated on
+`cold_code_ok`, matching the existing Select+X/Y precedent. A forward declaration
+(`static void set_open_wvizcfg_direct(void);`, next to `set_close`'s own) was needed in `fw/player.c`
+since `poll_input()` is defined before `settingsui.inc` is included.
+
+Verified: `make test-host` passes; `tools/check_heap_gap.py` and `tools/check_cold_calls.py` both pass
+(`set_open_wvizcfg_direct` correctly recognised as cold code entered from `poll_input`); `release`,
+`player-library-diagnostic` and `player-library-diagnostic-profile` all rebuild clean. This ships in the
+real release (not diagnostic-only), same as the Select+X/Y chords -- `dist/`'s ROM/cold-image updated
+accordingly (+180 B ROM, +224 B cold image). Not yet hardware-tested.
