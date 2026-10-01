@@ -12584,3 +12584,91 @@ direct hardware measurement, not simulation. The only remaining candidate per B-
 list is something past the serializer -- the DAC/analog output stage itself, outside this core's RTL
 entirely. `docs/features/CYMO_AUDIO_ENGINE.md` F1 and `docs/ROADMAP_PUBLIC.md`'s Cymo entry should be
 updated to reflect the CDC is closed, not just MCLK.
+
+## B-471: Cymo resampler RTL built and sim-verified bit-exact (44.1:48 only, not yet fitted)
+
+Owner approved starting the real 32-tap Kaiser polyphase FIR resampler RTL in parallel with a second
+listening A/B (MacCunn/Clementi, classical material, cleaner than the Aphex Twin test that first
+confirmed an audible difference -- that render was still in progress at session start and remains
+unconfirmed; see `docs/features/CYMO_AUDIO_ENGINE.md` section 15's own update for the full owner
+decision). Built in order, following this project's own host-model -> golden-model -> RTL+sim+mutation
+discipline:
+
+1. **`tools/gen_cymo_resamp_rom.py`**: generates the 160-bank x 32-tap coefficient ROM (Kaiser beta=8.6,
+   each bank independently normalised to unity DC gain), reusing `tools/lab/cymo_resamp_model.py`'s own
+   prototype-filter design directly (imported, not re-derived) so the RTL ROM and the lab tool's own
+   SINAD predictions come from the identical filter. Quantizes to a clean power-of-two Q1.15 scale
+   (32768) rather than the lab tool's own 32767 (a deliberate, documented difference -- see the
+   generator's own header -- that makes the hardware's output stage a single arithmetic right-shift
+   with no remainder handling; the SINAD difference is below one LSB of a 16-bit coefficient).
+   Generates `src/fpga/core/tau_cymo_resamp_rom.svh` (a flat `(* ramstyle = "M10K" *)` memory array with
+   an `initial` load, not a case-statement function like `tau_mp3_poly_rom.svh` -- at 5,120 entries a
+   case function is needlessly slow to compile/simulate) and `sim/cymo_resamp_rom.h` for the golden model.
+2. **`sim/cymo_resamp_model.c`**: the golden model. This is a NEW design (unlike the MP3 window unit,
+   there is no existing reference decoder to diff against), so this model IS the reference: the exact
+   fixed-point sequence the RTL implements (one bank lookup, a 32-tap MAC into a 40-bit accumulator,
+   arithmetic right-shift by 15, 16-bit clip), run over a pseudo-random 4,000-sample stereo input stream
+   and the real phase accumulator (advance by Q=147, wrap at P=160, consume one input sample pair on
+   wrap -- the same ordering as `tools/lab/cymo_resamp_model.py`'s own `resample_tone()`). Cross-checks
+   against an unbounded `int64_t` accumulate to confirm ACC_WIDTH=40 never actually binds (0 overflows
+   over 4,354 outputs; worst-case product ~2^30 x 32 taps ~2^35, comfortably inside 2^39). Writes RTL
+   testbench vectors (`build/rtl/cymo_resamp_vectors.txt`: NIN, NOUT, then NIN*2 input words, then
+   NOUT*3 output+pop-flag words).
+3. **`sim/test_cymo_resamp_model.py`**: this project's own "prove it twice, differently" discipline
+   (B-365/B-366/B-367's precedent) -- an INDEPENDENT Python re-implementation of the exact same
+   fixed-point algorithm, over the SAME ROM and the SAME input stream (same LCG, bit-for-bit), cross-
+   checked against the C model's own output. Found and fixed one real bug in the Python side during
+   development: generating all of `in_l` then all of `in_r` consumes the shared LCG stream in a
+   different order than the C model's interleaved `in_l[i]; in_r[i];` calls, silently diverging the
+   "random" input itself (not the arithmetic) -- fixed by interleaving the same way. Matches bit-exact
+   on all 4,354 outputs once fixed.
+4. **`src/fpga/core/tau_cymo_resamp.sv`**: the RTL module. One shared time-multiplexed MAC (channel 0
+   then channel 1, matching `tau_mp3_poly.sv`'s own discipline, not two parallel multipliers -- caught
+   by Verilator flagging the first draft's `push_we` as unused, which led to finding the parallel-MAC
+   draft also didn't match the design doc's own "1 DSP" resource estimate). Per-channel 32-deep
+   newest-first history shift register (not a ring with a moving head like `tau_flac_lpc.sv`'s own
+   B-377/B-378 optimisation -- a push here happens at most once per phase wrap, ~44.1 kHz, not once per
+   reconstructed sample, so the extra register-to-register copies cost nothing that matters at this
+   rate). Registered M10K-styled ROM/history reads (S_MAC/S_MAC2 split, same shape as
+   `tau_flac_lpc.sv`'s own B-378 split), one small operation per clock throughout (this project's own
+   timing rule, B-109/B-111/B-114/B-150/B-157/B-211/B-369).
+
+   **A real protocol bug found by the testbench, not by inspection:** the first draft had the hardware
+   shift a caller-pushed input sample into history DURING THE SAME `start` call that determined a phase
+   wrap and raised `pop_req` asking the caller to supply one -- at that point the caller has not even
+   seen `pop_req` yet, so the shift would consume whatever was pushed for some earlier, unrelated wrap
+   (or X at power-up). The testbench caught this immediately as values shifted by exactly one output
+   index with the WRONG data. Fixed by deferring the actual history shift to a new `S_SHIFTHIST` state
+   entered at the START of the NEXT `start` call (gated by a `pending_pop` register set at the end of
+   the previous call) -- giving the caller the entire `done`..next-`start` window to actually push,
+   instead of needing to have already pushed before the module even asked.
+
+   A second real bug, this time in the testbench: `while (busy) @(posedge clk);` polled immediately
+   after pulsing `clear`, but a `busy` read in the SAME active region as the posedge that triggers the
+   DUT's own S_IDLE->S_CLR transition can observe the PRE-transition value of `st` (a classic Verilog
+   NBA-ordering race, not a DUT bug) -- the poll loop exited one edge too early, before `clear` had
+   actually run, leaving history as X. Fixed with a fixed, generous wait (40 cycles, S_CLR itself takes
+   exactly 32) rather than a busy-poll immediately after a state-changing pulse.
+
+5. **`sim/tb_tau_cymo_resamp.v`**: replays the full golden-model vector sequence through the real
+   `push`/`start`/`pop_req` handshake (not just the MAC math in isolation) -- **PASSED, 0 failures,
+   4,354 outputs, 4,000 inputs consumed, bit-exact against the golden model.** Five mutation hooks
+   (tap/history index reversed, no final shift, coefficient sign-extension dropped, wrong phase step
+   `P` instead of `Q`, `pop_req` never asserted so history silently stops advancing) -- **all 5
+   confirmed caught** (`make test-rtl-cymo-resamp-mutation`). Wired into the Makefile
+   (`test-rtl-cymo-resamp`, `test-rtl-cymo-resamp-mutation`, both added to the `test-rtl` aggregate and
+   `rtl-lint`). `make test-host`/`make rtl-lint` confirmed unaffected elsewhere.
+
+**Scope: 44.1 kHz input only** (`Q_STEP=147` is a module parameter, not configurable at runtime) --
+section 9's own "start with one ratio, others keep falling back to the hold" decision. Standalone and
+NOT YET WIRED into `pcm_fifo.v`/`mp3_soc.v`: no Quartus fit, no firmware probe, no card install, no
+hardware A/B. Section 14 (K2) already specifies where it plugs in -- after the FIFO's own source-rate
+output register, consuming `out_l`/`out_r` via `sample_tick`, with the EQ moved downstream of the
+resampler and the spectrum/wave-meter taps staying at the FIFO's source rate. Next steps, in order: a
+synthesis-only Quartus check, a real two-seed fit, the `pcm_fifo.v` integration, a firmware probe
+(`CYMO_RESAMP_READY()`, same pattern as `BLIT_READY()`/`POLY_FW`/`LPC_FW`), and the hardware A/B.
+
+**Full `make test-rtl` (the entire RTL regression suite, not just this module) run after the above,
+exit code 0, 0 failures and 0 surviving mutants anywhere in the output** -- confirms adding this module
+disturbed nothing else in the shared build (`mp3_soc_sim.v` regeneration, the PSRAM/blit/SDRAM
+testbenches, etc). Committed.
