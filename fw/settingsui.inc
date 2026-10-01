@@ -161,8 +161,8 @@ static uint8_t set_top[SET_MENUS];
 #define SET_MENU_VIS (SET_LIST_H / SET_MENU_ROW_H)
 
 #include "meter_thumbs.h"
-_Static_assert(VIZ_COUNT == 16 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_RETIRED_TAPE == 11 &&
-               VIZ_WINAMP_BARS == 12 && VIZ_WINAMP_SCOPE == 13 && VIZ_CHLADNI == 14 && VIZ_VU_MASTER == 15,
+_Static_assert(VIZ_COUNT == 17 && VIZ_BARS == 0 && VIZ_LED == 10 && VIZ_RETIRED_TAPE == 11 &&
+               VIZ_WINAMP_BARS == 12 && VIZ_WINAMP_SCOPE == 13 && VIZ_CHLADNI == 14 && VIZ_VU_MASTER == 15 && VIZ_LAYERED_WAVE == 16,
                "meter_thumbs.h is indexed by the VIZ_* enum order (tools/gen_meter_thumbs.py ORDER)");
 
 /* Theme step 0c: the previews are stored as neutral greys (plus an accent-blue placeholder in the newest three), so their palette is
@@ -242,7 +242,7 @@ COLD_FN static void set_thumb_flat_build(void)
     if (FB_HELD()) return;
     for (uint32_t viz = 0; viz < VIZ_COUNT; viz++) {
 #if TAU_ART_TIMG
-        if (viz == VIZ_VU_MASTER) continue;    /* excluded from the compacted stash -- no row budget for it, see thumb_slot() */
+        if (viz == VIZ_VU_MASTER || viz == VIZ_LAYERED_WAVE) continue;    /* excluded from the compacted stash -- no row budget for it, see thumb_slot() */
 #endif
         const uint8_t *p = &meter_thumb_rle[meter_thumb_off[viz]], *e = &meter_thumb_rle[meter_thumb_off[viz + 1u]];
         uint32_t pos = 0;
@@ -268,7 +268,7 @@ COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
 {
     if (!cold_ready()) { fb_rect(x, y, METER_THUMB_W, METER_THUMB_H, UI_TRACK); return; }   /* cold image not loaded: a plain box */
 #if TAU_ART_TIMG
-    if (viz == VIZ_VU_MASTER) { set_draw_thumb_soft(x, y, viz); return; }                  /* excluded from the compacted stash, see thumb_slot() */
+    if (viz == VIZ_VU_MASTER || viz == VIZ_LAYERED_WAVE) { set_draw_thumb_soft(x, y, viz); return; }                  /* excluded from the compacted stash, see thumb_slot() */
 #endif
     blit_probe_ensure();                                                                    /* B-162: first need, not at boot */
     if (!BLIT_READY()) { set_draw_thumb_soft(x, y, viz); return; }                          /* B8 fail-safe: old bitstream */
@@ -966,7 +966,7 @@ COLD_FN static void set_info_tick(void)
 #define WVR_P0     2u              /* parameter i is row WVR_P0 + i */
 #define WVR_EXPORT 250u
 #define WVCFG_ROWS_VISIBLE 8u
-#define WVCFG_MAX_ROWS 16u
+#define WVCFG_MAX_ROWS 24u
 static uint8_t wvcfg_sel, wvcfg_top;
 static uint8_t wvcfg_vis[WVCFG_MAX_ROWS], wvcfg_vis_n;
 static const mtr_data_t *wvcfg_md;

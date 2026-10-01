@@ -151,8 +151,8 @@ def render_modules(meters):
         k, K = m["key"], cid(m["key"])
         ps = m["params"]
         idx = {x["key"]: i for i, x in enumerate(ps)}
-        if len(ps) > 12:
-            raise SystemExit(f"{m['_path']}: at most 12 parameters (MTR_MAX_PARAMS)")
+        if len(ps) > 18:
+            raise SystemExit(f"{m['_path']}: at most 18 parameters (MTR_MAX_PARAMS)")
         if len(m["presets"]) > 8:
             raise SystemExit(f"{m['_path']}: at most 8 presets (MTR_MAX_PRE)")
         o.append("/* %s (id %d) */" % (m["name"], m["index"]))

@@ -728,15 +728,13 @@
    "key": "layered_wave",
    "name": "LAYERED WAVE",
    "enum": "VIZ_LAYERED_WAVE",
-   "selectable": false,
+   "selectable": true,
    "retired": false,
    "cost_class": 2,
    "caps": [
     "rect",
     "hw_spectrum",
-    "hw_wave",
-    "vsync_beam",
-    "blit_shift"
+    "hw_wave"
    ],
    "needs_hw_spec": true,
    "params": [
@@ -812,15 +810,13 @@
      "type": "enum",
      "values": [
       "BLOCKS",
-      "SMOOTH",
-      "SCROLL"
+      "SMOOTH"
      ],
-     "default": 2,
-     "help": "How the picture is built each frame. This decides smoothness and cost.",
+     "default": 1,
+     "help": "How the picture is built each frame.",
      "value_help": [
-      "BLOCKS: flat chunky columns, redrawn only when a new column arrives. About 60 commands per frame.",
-      "SMOOTH: a curved outline evaluated at every pixel with sub-column motion; the best look and the most commands (about 225 and up).",
-      "SCROLL: shifts the existing picture with a hardware copy and draws only the new columns; about 45 commands at any resolution. The tail taper is clipped instead of scaled. Needs a capability not yet proven on hardware. In SPECTRUM view it behaves like SMOOTH."
+      "BLOCKS: flat chunky columns, redrawn only when a new column arrives.",
+      "SMOOTH: a curved outline evaluated across the width with sub-column motion; the best look. Both modes self-scale: if a frame needs more than about 300 drawing commands the meter widens its drawing cells (coarser, never slower)."
      ]
     },
     {
@@ -832,7 +828,7 @@
      "step": 8,
      "default": 200,
      "unit": "cols",
-     "help": "Resolution: how many columns span the width, up to 400 (one per pixel). Free in SCROLL; costs more commands in BLOCKS and SMOOTH. HISTORY view only.",
+     "help": "Resolution: how many columns span the width, up to 400 (one per pixel). The meter widens its drawing cells automatically if that would need too many commands. HISTORY view only.",
      "when": {
       "view": 0
      }
@@ -1034,7 +1030,7 @@
       "split": 0,
       "outer": 0,
       "nest": 0,
-      "draw": 2,
+      "draw": 1,
       "res": 200,
       "speed": 100,
       "response": 45,
@@ -1057,7 +1053,7 @@
       "split": 1,
       "outer": 0,
       "nest": 0,
-      "draw": 2,
+      "draw": 1,
       "res": 160,
       "speed": 130,
       "response": 50,
@@ -1080,7 +1076,7 @@
       "split": 2,
       "outer": 1,
       "nest": 1,
-      "draw": 2,
+      "draw": 1,
       "res": 120,
       "speed": 80,
       "response": 40,
@@ -1103,7 +1099,7 @@
       "split": 3,
       "outer": 0,
       "nest": 0,
-      "draw": 2,
+      "draw": 1,
       "res": 240,
       "speed": 90,
       "response": 30,
@@ -1126,7 +1122,7 @@
       "split": 0,
       "outer": 0,
       "nest": 0,
-      "draw": 2,
+      "draw": 1,
       "res": 400,
       "speed": 240,
       "response": 80,
@@ -1213,7 +1209,7 @@
     }
    ],
    "default_preset": 0,
-   "planned": true
+   "list_position": 12
   }
  ]
 }

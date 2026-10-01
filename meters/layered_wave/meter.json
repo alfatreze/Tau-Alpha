@@ -3,17 +3,15 @@
   "enum": "VIZ_LAYERED_WAVE",
   "index": 16,
   "name": "LAYERED WAVE",
-  "selectable": false,
+  "selectable": true,
   "needs_hw_spec": true,
   "caps": [
     "rect",
     "hw_spectrum",
-    "hw_wave",
-    "vsync_beam",
-    "blit_shift"
+    "hw_wave"
   ],
   "cost_class": 2,
-  "considered": "Nested mirrored envelope layers need one rect per layer per column, so a smooth full redraw (SMOOTH) costs up to layers x 400 commands (about 225 for the SILK preset after merging equal neighbours, more with more layers or livelier input); SCROLL shifts the picture with engine copies and draws only new columns (about a tenth). SPECTRUM view (no scrolling) redraws layers x 16 columns (BLOCKS) or layers x 400 (SMOOTH). 18 parameters (colour source, gradation and three custom RGB565 colours were added): far over the firmware's 12-parameter page limit, to be resolved before promotion (spec section 4). Parked until the Omega-first lab is signed off (docs/features/meters/LAYERED_WAVE_METER_SPEC.md).",
+  "considered": "Nested mirrored envelope layers need one rect per layer per column run, so cost scales with layers x width. The meter keeps itself near 300 commands per frame with a self-scaling cell width (graceful degradation, never audio jitter); equal neighbouring cells merge into one run. SPECTRUM view (no scrolling) redraws the same way. A scroll-by-copy mode (blit_shift: shift the picture with one engine copy, draw only new columns, about 45 commands) was prototyped in the lab (commit 419fea5) and parked until the overlapping copy is simulated and measured. 18 parameters, hence MTR_MAX_PARAMS raised from 12 to 18. docs/features/meters/LAYERED_WAVE_METER_SPEC.md.",
   "params": [
     {
       "key": "view",
@@ -87,15 +85,13 @@
       "type": "enum",
       "values": [
         "BLOCKS",
-        "SMOOTH",
-        "SCROLL"
+        "SMOOTH"
       ],
-      "default": 2,
-      "help": "How the picture is built each frame. This decides smoothness and cost.",
+      "default": 1,
+      "help": "How the picture is built each frame.",
       "value_help": [
-        "BLOCKS: flat chunky columns, redrawn only when a new column arrives. About 60 commands per frame.",
-        "SMOOTH: a curved outline evaluated at every pixel with sub-column motion; the best look and the most commands (about 225 and up).",
-        "SCROLL: shifts the existing picture with a hardware copy and draws only the new columns; about 45 commands at any resolution. The tail taper is clipped instead of scaled. Needs a capability not yet proven on hardware. In SPECTRUM view it behaves like SMOOTH."
+        "BLOCKS: flat chunky columns, redrawn only when a new column arrives.",
+        "SMOOTH: a curved outline evaluated across the width with sub-column motion; the best look. Both modes self-scale: if a frame needs more than about 300 drawing commands the meter widens its drawing cells (coarser, never slower)."
       ]
     },
     {
@@ -107,7 +103,7 @@
       "step": 8,
       "default": 200,
       "unit": "cols",
-      "help": "Resolution: how many columns span the width, up to 400 (one per pixel). Free in SCROLL; costs more commands in BLOCKS and SMOOTH. HISTORY view only.",
+      "help": "Resolution: how many columns span the width, up to 400 (one per pixel). The meter widens its drawing cells automatically if that would need too many commands. HISTORY view only.",
       "when": {
         "view": 0
       }
@@ -309,7 +305,7 @@
         "split": 0,
         "outer": 0,
         "nest": 0,
-        "draw": 2,
+        "draw": 1,
         "res": 200,
         "speed": 100,
         "response": 45,
@@ -332,7 +328,7 @@
         "split": 1,
         "outer": 0,
         "nest": 0,
-        "draw": 2,
+        "draw": 1,
         "res": 160,
         "speed": 130,
         "response": 50,
@@ -355,7 +351,7 @@
         "split": 2,
         "outer": 1,
         "nest": 1,
-        "draw": 2,
+        "draw": 1,
         "res": 120,
         "speed": 80,
         "response": 40,
@@ -378,7 +374,7 @@
         "split": 3,
         "outer": 0,
         "nest": 0,
-        "draw": 2,
+        "draw": 1,
         "res": 240,
         "speed": 90,
         "response": 30,
@@ -401,7 +397,7 @@
         "split": 0,
         "outer": 0,
         "nest": 0,
-        "draw": 2,
+        "draw": 1,
         "res": 400,
         "speed": 240,
         "response": 80,
@@ -487,5 +483,6 @@
       }
     }
   ],
-  "default_preset": 0
+  "default_preset": 0,
+  "sel_index": 12
 }
