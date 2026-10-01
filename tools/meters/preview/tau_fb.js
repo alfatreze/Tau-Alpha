@@ -23,6 +23,13 @@
         this.rect(x, y + h - lit, w, lit, litC); if (h > lit) this.rect(x, y, w, h - lit, unlitC);
       }
     }
+    /* fb_blit-style copy inside the framebuffer: ONE command, rows of at most 127 pixels (Talos row buffer). Rows are read before they are written. */
+    copy(sx, sy, dx, dy, w, h) {
+      this._rec('copy', [sx, sy, dx, dy, w, h]);
+      const rows = [];
+      for (let yy = 0; yy < h; yy++) rows.push(this.px.slice((sy + yy) * this.w + sx, (sy + yy) * this.w + sx + w));
+      for (let yy = 0; yy < h; yy++) this.px.set(rows[yy], (dy + yy) * this.w + dx);
+    }
     _fill(x, y, w, h, c) {
       const x0 = Math.max(0, x), x1 = Math.min(this.w, x + w), y0 = Math.max(0, y), y1 = Math.min(this.h, y + h);
       for (let yy = y0; yy < y1; yy++) this.px.fill(c, yy * this.w + x0, yy * this.w + x1);

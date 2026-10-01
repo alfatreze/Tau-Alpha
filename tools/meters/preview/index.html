@@ -14,13 +14,15 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-wi
 </style></head><body>
 <h1>Tau meter lab <span class="val" id="tag"></span></h1>
 <div class="wrap">
- <div><canvas id="cv" width="400" height="360"></canvas><div class="cost" id="cost"></div></div>
+ <div><canvas id="cv" width="400" height="360"></canvas><div class="cost" id="cost"></div><div id="splitwrap" hidden><canvas id="map" width="400" height="56" style="margin-top:10px;width:800px;max-width:100%"></canvas><div class="cost" id="splitnote"></div></div></div>
  <div class="panel">
   <label>Meter <select id="meter"></select></label>
   <label>Theme <select id="theme"></select></label>
   <label>Mode <select id="mode"><option value="0">Dark</option><option value="1">Light</option></select></label>
   <label>Accent <select id="accent"></select></label>
-  <label>Source <select id="src"><option value="demo">Demo (deterministic)</option><option value="sweep">Sweep</option><option value="silence">Silence</option><option value="trace">Recorded trace (load file)</option></select></label>
+  <label>Source <select id="src"><option value="demo">Demo (deterministic)</option><option value="sweep">Sweep</option><option value="silence">Silence</option><option value="trace">Recorded trace (load file)</option><option value="file">Audio file (live)</option><option value="mic">Microphone (live)</option></select></label>
+  <label>Audio file <input type="file" id="audiofile" accept="audio/*"></label>
+  <label>Fullscreen figure (400×323) <input type="checkbox" id="fullfig"></label>
   <label>Trace file <input type="file" id="tracefile" accept=".json"></label>
   <label>Bars use OP_BAR <input type="checkbox" id="barready" checked></label>
   <div id="controls"></div>
@@ -42,18 +44,28 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-wi
  function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);TauControls.build($('controls'),m,p=>{params=p;st=null;});}
  ['meter'].forEach(i=>$(i).onchange=rebuild);rebuild();
  ['theme','mode','accent','src','barready'].forEach(i=>$(i).onchange=()=>{st=null;});
- const sources={demo:TauAudio.demo(1),sweep:TauAudio.sweep(),silence:TauAudio.silence(),trace:TauAudio.silence()};
+ const live=TauLive.create();
+ const sources={demo:TauAudio.demo(1),sweep:TauAudio.sweep(),silence:TauAudio.silence(),trace:TauAudio.silence(),file:live.frame,mic:live.frame};
+ $('audiofile').onchange=e=>{const f=e.target.files[0];if(f)live.useFile(f).then(()=>{$('src').value='file';}).catch(err=>alert('Audio file: '+err.message));};
+ $('src').addEventListener('change',()=>{if($('src').value==='mic')live.useMic().catch(err=>{alert('Microphone: '+err.message);$('src').value='demo';});});
+ $('fullfig').onchange=()=>{st=null;};
  $('tracefile').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{sources.trace=TauAudio.trace(JSON.parse(t));$('src').value='trace';st=null;});};
  let fb=null,lvl=TauBallistics.newSpec(),theme=null,mod=null,box={x:16,y:152,w:368,h:122},costs=[];
- function setup(){const m=S.meters.find(x=>x.key===key);mod=TauMeters[key];theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
+ function setup(){const m=S.meters.find(x=>x.key===key);mod=TauMeters[key];box=$('fullfig').checked?{x:0,y:0,w:400,h:323}:{x:16,y:152,w:368,h:122};theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
   fb=new TauFb.Fb(400,360);fb.barReady=$('barready').checked;for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));st=mod.state();lvl=TauBallistics.newSpec();costs=[];frame=0;
   ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);}
  function step(){if(!st)setup();const src=sources[$('src').value](frame);TauBallistics.specStep(lvl,src.spec);const bg=theme.gradAt(box.y+(box.h>>1));const c0=fb.cmds;
   mod.tick({fb,x:box.x,y:box.y,w:box.w,h:box.h,bg,theme,spec:lvl,wave:src.wave,paused:src.paused,p:params,st,force:frame===0});
   costs.push(fb.cmds-c0);if(costs.length>120)costs.shift();frame++;
   ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);
+  splitMap();
   const m=S.meters.find(x=>x.key===key),c=TauCost.summarize(costs,m.cost_class);
   $('cost').innerHTML='commands/frame: mean '+c.mean+', worst '+c.max+' (class '+m.cost_class+' budget '+c.budget+') · '+c.vsBars+'× VIZ_BARS · <span class="'+(c.over?'over':'')+'">'+(c.over?'OVER BUDGET':'within budget')+'</span> · '+c.basis;}
+ function splitMap(){const w=$('splitwrap');if(!mod||!mod.describe){w.hidden=true;return;}w.hidden=false;
+  const c=$('map').getContext('2d'),d=mod.describe(params,st),own=mod.bandOwner(params,st),col=mod.layerColours(theme,params).map(v=>{const[r,g,b]=TauFb.from565(v);return 'rgb('+r+','+g+','+b+')'});
+  c.clearRect(0,0,400,56);for(let k=0;k<16;k++){const v=lvl[k]/255,h=Math.round(v*46);c.fillStyle=col[own[k]]||'#888';c.fillRect(k*25+2,48-h,21,h);c.fillStyle='rgba(128,128,128,.5)';c.fillRect(k*25+2,48,21,1);}
+  c.fillStyle='#888';c.font='8px sans-serif';[0,4,8,12,15].forEach(k=>c.fillText(Math.round(mod.EDGES[k])+'',k*25+2,55));
+  $('splitnote').textContent='bands = hardware spectrum bank, bass left, coloured by the layer each feeds first · '+d.map(x=>x.dynamics?('layer '+(x.layer+1)+': broadband peak, own time constant'):('layer '+(x.layer+1)+': '+x.hzLo+'–'+x.hzHi+' Hz')).join(' · ');}
  setInterval(step,26);
 })();
 </script></body></html>

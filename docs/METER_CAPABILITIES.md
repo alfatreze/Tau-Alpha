@@ -6,21 +6,22 @@ only use `hardware-proven` ones. `cost_basis` says whether the cost is measured 
 
 | Capability | Status | Provider | Probe | Cost | Basis | Fallback | Used by |
 |---|---|---|---|---|---|---|---|
-| `rect` | hardware-proven | OP_RECT via fb_rect() | none (always present) | 1 command per span | measured | none needed | none |
+| `rect` | hardware-proven | OP_RECT via fb_rect() | none (always present) | 1 command per span | measured | none needed | layered_wave |
 | `bar` | hardware-proven | OP_BAR via fb_bar() (B6) | BLIT_READY() | 1 command for a lit+unlit column (2 chained bursts) | measured | two fb_rect() calls per column | bars, winamp_bars |
 | `sblit` | hardware-proven | OP_SBLIT via fb_sblit() (B4) | BLIT_READY() | 1 command per plane scale | measured | per-cell fb_rect() runs (hundreds of commands) | chladni |
 | `cblit` | hardware-proven | OP_CBLIT via fb_cblit() (B8, B9 re-index) | BLIT_READY() | 1 command per palette-indexed bitmap | measured | software RLE decode with fb_rect() runs | none |
 | `rrect` | sim-only | OP_RRECT via fb_rrect() (B11) | RRECT_READY() | 1 command per rounded rectangle | model | fb_round_rect() software corners | none |
-| `hw_spectrum` | hardware-proven | tau_spec_bank.sv, MMIO 0xDC-0xE4 (B-263) | spec_hw (R_SPEC_ST bit 0) | ~0 CPU; 16 bands per window | measured | none: the software octave cascade was removed, meters needing it show idle without the unit | chladni, led |
-| `hw_wave` | hardware-proven | tau_wave_meter.sv, MMIO 0xEC-0xFC (B-283) | wave_hw (R_WAVE_ST bit 0) | capture is free; DRAWING 256 columns cost ~21x a bars meter | measured | 64-column software path | none |
+| `hw_spectrum` | hardware-proven | tau_spec_bank.sv, MMIO 0xDC-0xE4 (B-263) | spec_hw (R_SPEC_ST bit 0) | ~0 CPU; 16 bands per window | measured | none: the software octave cascade was removed, meters needing it show idle without the unit | chladni, led, layered_wave |
+| `hw_wave` | hardware-proven | tau_wave_meter.sv, MMIO 0xEC-0xFC (B-283) | wave_hw (R_WAVE_ST bit 0) | capture is free; DRAWING 256 columns cost ~21x a bars meter | measured | 64-column software path | layered_wave |
 | `sdram_plane` | hardware-proven | mailbox-written plane (fw/chladni.inc, B-276) | chl_ok | CPU writes plane words through the SDRAM mailbox | measured | none (meter shows nothing) | chladni |
-| `vsync_beam` | hardware-proven | helios_rows_safe(), R_SCAN (B-267) | helios beam probe | a compare per gated draw | measured | ungated drawing | chladni |
+| `vsync_beam` | hardware-proven | helios_rows_safe(), R_SCAN (B-267) | helios beam probe | a compare per gated draw | measured | ungated drawing | chladni, layered_wave |
 | `stereo` | hardware-proven | peak_l/peak_r and per-channel spectrum | none | ~0 | model | mono mix | none |
 | `alpha_blend` | shelved | OP_BLIT blend, TAU_BLIT_BLEND (B5) | n/a | 1 command per blended blit | model | plain copy | none |
 | `blit_flip` | design-only | OP_BLIT flip flags (B19) | n/a | 1 command | model | unflipped blit or per-row copies | none |
 | `row_burst_sblit` | design-only | scaled blit with row bursts (B18) | n/a | 1 command | model | OP_SBLIT one word per pixel | none |
 | `index_plane_math` | design-only | index-plane add/sub (B20) | n/a | 1 command | model | CPU plane update | none |
 | `beat_detect` | design-only | hardware onset detector | n/a | ~0 | model | software mtr_onset from the spectrum | none |
+| `blit_shift` | design-only | OP_BLIT rect copy inside the framebuffer via fb_blit() (B1), used as a scroll | BLIT_READY() | 1 command per strip of at most 127 px (3-4 for a 400 px box) | model | full redraw of every column (layered_wave SMOOTH/BLOCKS) | layered_wave |
 
 ## Notes
 
@@ -39,6 +40,7 @@ only use `hardware-proven` ones. `cost_basis` says whether the cost is measured 
 - **row_burst_sblit**: Chladni cost lever.
 - **index_plane_math**: Chladni sand mode.
 - **beat_detect**: docs/HARDWARE_METER_IDEAS.md item 1.
+- **blit_shift**: Rows are bursts through the 127-word row buffer: an overlapping shift needs the far strip first and has not been simulated or measured; OP_BLIT replication in Chladni and the Scope trail blit are proven, an overlapping shift is not.
 
 ## Meters
 
@@ -56,5 +58,6 @@ only use `hardware-proven` ones. `cost_basis` says whether the cost is measured 
 | winamp_scope | 2 | none (base rect) | hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used. The trail (B-334) blends the background strip over the box with the pipelined hardware blend. |
 | chladni | 2 | sblit, sdram_plane, hw_spectrum, vsync_beam | Per-cell rect runs cost 360-640 commands; one scaled blit of a mailbox-written plane replaced them (B-276). B18-B20 would cut CPU further. |
 | vu_master | 0 | none (base rect) | Discrete segments with a gap need one background rect plus up to 3 coalesced zone rects per channel per frame (docs/METER_VU_MASTERING_SPEC.md section 4.2) -- cheaper than OP_BAR's own vertical bar meters, and OP_BAR's shape (vertical, one fg colour) does not fit a horizontal 3-colour ladder anyway (section 4.1). |
+| layered_wave | 2 | rect, hw_spectrum, hw_wave, vsync_beam, blit_shift | Nested mirrored envelope layers need one rect per layer per column, so a smooth full redraw (SMOOTH) costs up to layers x 400 commands (about 225 for the SILK preset after merging equal neighbours, more with more layers or livelier input); SCROLL shifts the picture with engine copies and draws only new columns (about a tenth). Parked until the Omega-first lab is signed off (docs/features/meters/LAYERED_WAVE_METER_SPEC.md). |
 
-Capabilities no meter uses: rect, cblit, rrect, hw_wave, stereo, alpha_blend, blit_flip, row_burst_sblit, index_plane_math, beat_detect.
+Capabilities no meter uses: cblit, rrect, stereo, alpha_blend, blit_flip, row_burst_sblit, index_plane_math, beat_detect.

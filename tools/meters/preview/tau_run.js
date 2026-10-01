@@ -12,7 +12,7 @@
     const fb = new Fb(400, 360, !!o.log); fb.barReady = o.barReady !== false;
     for (let y = 0; y < 360; y++) fb._fill(0, y, 400, 1, theme.gradAt(y));
     fb.cmds = 0; if (fb.log) fb.log.length = 0;
-    const box = { x: 16, y: 152, w: 368, h: 122 }, bg = theme.gradAt(box.y + (box.h >> 1));
+    const box = o.box || { x: 16, y: 152, w: 368, h: 122 }, bg = theme.gradAt(box.y + (box.h >> 1));
     const lvl = Bal.newSpec(), st = mod.state(), perFrame = [], logs = [];
     for (let n = 0; n < (o.frames == null ? 120 : o.frames); n++) {
       const src = o.source(n); if (src.post) { for (let b = 0; b < 16; b++) lvl[b] = src.spec[b]; } else Bal.specStep(lvl, src.spec);

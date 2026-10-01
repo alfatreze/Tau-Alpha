@@ -50,6 +50,23 @@ def load_meters(meters_dir):
     return meters
 
 
+def load_planned(meters_dir):
+    """meters/planned/*/meter.json: manifests that exist for Tau Omega and the preview lab before any firmware module does. They reach
+    tools/meters_schema.json and the docs (planned: true) but NEVER the generated firmware files, so a planned meter cannot grow the ROM or RAM."""
+    out = []
+    for p in sorted(glob.glob(os.path.join(meters_dir, "planned", "*", "meter.json"))):
+        with open(p) as f:
+            m = json.load(f)
+        for req in ("key", "enum", "index", "name", "selectable"):
+            if req not in m:
+                raise SystemExit(f"{p}: missing required field {req!r}")
+        if m["selectable"]:
+            raise SystemExit(f"{p}: a planned meter cannot be selectable")
+        m["_path"], m["planned"] = p, True
+        out.append(m)
+    return out
+
+
 def validate(meters):
     by_index = sorted(meters, key=lambda m: m["index"])
     indices = [m["index"] for m in by_index]
@@ -314,6 +331,8 @@ def render_schema(meters):
              "retired": bool(m.get("retired")), "cost_class": m.get("cost_class"), "caps": m.get("caps", []),
              "needs_hw_spec": bool(m.get("needs_hw_spec")), "params": m.get("params", []), "presets": m.get("presets", []),
              "default_preset": m.get("default_preset")}
+        if m.get("planned"):
+            e["planned"] = True
         if m["selectable"]:
             e["list_position"] = m["sel_index"]
         out["meters"].append(e)
@@ -327,7 +346,7 @@ def render_registry_doc(meters):
              "| Id | Key | Name | List position | Selectable | Cost class | Parameters | Presets |", "|---|---|---|---|---|---|---|---|"]
     for m in sorted(meters, key=lambda m: m["index"]):
         lines.append("| %d | %s | %s | %s | %s | %s | %s | %s |" % (
-            m["index"], m["key"], m["name"], m.get("sel_index", "-"), "yes" if m["selectable"] else ("retired" if m.get("retired") else "parked"),
+            m["index"], m["key"], m["name"], m.get("sel_index", "-"), "yes" if m["selectable"] else ("retired" if m.get("retired") else ("planned" if m.get("planned") else "parked")),
             m.get("cost_class", "-"), ", ".join(x["key"] for x in m.get("params", [])) or "-",
             ", ".join(pr["name"] for pr in m.get("presets", [])) or "-"))
     for m in sorted(meters, key=lambda m: m["index"]):
@@ -357,9 +376,17 @@ def main():
 
     meters = load_meters(args.dir)
     by_index, by_sel = validate(meters)
+    planned = load_planned(args.dir)
+    taken = {m["index"] for m in meters}
+    for m in planned:
+        if m["index"] in taken or m["index"] < len(meters):
+            raise SystemExit(f"{m['_path']}: planned index {m['index']} collides with a firmware meter (firmware ids are 0..{len(meters)-1})")
+        taken.add(m["index"])
+    if len({m["enum"] for m in meters + planned}) != len(meters + planned):
+        raise SystemExit("a planned meter reuses an enum name")
     caps = load_caps()
-    validate_caps(meters, caps)
-    for m in meters:
+    validate_caps(meters + planned, caps)
+    for m in meters + planned:
         validate_params(m)
 
     ok = True
@@ -382,8 +409,8 @@ def main():
             f.write(text)
         print(f"wrote {out}")
 
-    doc = render_caps_doc(caps, meters)
-    extra = [(os.path.join(ROOT, "fw", "meters_gen.h"), render_modules(meters)), (SCHEMA_PATH, render_schema(meters)), (REGISTRY_DOC, render_registry_doc(meters))]
+    doc = render_caps_doc(caps, meters + planned)
+    extra = [(os.path.join(ROOT, "fw", "meters_gen.h"), render_modules(meters)), (SCHEMA_PATH, render_schema(meters + planned)), (REGISTRY_DOC, render_registry_doc(meters + planned))]
     if args.check:
         for path, text in extra:
             if not os.path.exists(path) or open(path).read() != text:

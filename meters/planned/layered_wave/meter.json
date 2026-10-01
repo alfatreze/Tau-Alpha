@@ -1,0 +1,309 @@
+{
+  "key": "layered_wave",
+  "enum": "VIZ_LAYERED_WAVE",
+  "index": 16,
+  "name": "LAYERED WAVE",
+  "selectable": false,
+  "needs_hw_spec": true,
+  "caps": [
+    "rect",
+    "hw_spectrum",
+    "hw_wave",
+    "vsync_beam",
+    "blit_shift"
+  ],
+  "cost_class": 2,
+  "considered": "Nested mirrored envelope layers need one rect per layer per column, so a smooth full redraw (SMOOTH) costs up to layers x 400 commands (about 225 for the SILK preset after merging equal neighbours, more with more layers or livelier input); SCROLL shifts the picture with engine copies and draws only new columns (about a tenth). Parked until the Omega-first lab is signed off (docs/features/meters/LAYERED_WAVE_METER_SPEC.md).",
+  "params": [
+    {
+      "key": "layers",
+      "label": "Layers",
+      "type": "u8",
+      "min": 1,
+      "max": 6,
+      "step": 1,
+      "default": 3
+    },
+    {
+      "key": "split",
+      "label": "Layer split",
+      "type": "enum",
+      "values": [
+        "OCTAVES",
+        "BASS_FINE",
+        "ENERGY",
+        "DYNAMICS"
+      ],
+      "default": 0
+    },
+    {
+      "key": "outer",
+      "label": "Outer layer",
+      "type": "enum",
+      "values": [
+        "BASS",
+        "TREBLE"
+      ],
+      "default": 0
+    },
+    {
+      "key": "nest",
+      "label": "Layer mode",
+      "type": "enum",
+      "values": [
+        "NESTED",
+        "OVERLAP"
+      ],
+      "default": 0
+    },
+    {
+      "key": "draw",
+      "label": "Draw",
+      "type": "enum",
+      "values": [
+        "BLOCKS",
+        "SMOOTH",
+        "SCROLL"
+      ],
+      "default": 2
+    },
+    {
+      "key": "res",
+      "label": "Resolution",
+      "type": "u16",
+      "min": 16,
+      "max": 400,
+      "step": 8,
+      "default": 200,
+      "unit": "cols"
+    },
+    {
+      "key": "speed",
+      "label": "Scroll speed",
+      "type": "u8",
+      "min": 20,
+      "max": 240,
+      "step": 10,
+      "default": 100,
+      "unit": "px/s"
+    },
+    {
+      "key": "response",
+      "label": "Response",
+      "type": "u8",
+      "min": 1,
+      "max": 100,
+      "step": 5,
+      "default": 45
+    },
+    {
+      "key": "taper",
+      "label": "Tail taper",
+      "type": "u8",
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "default": 70,
+      "unit": "%"
+    },
+    {
+      "key": "color_outer",
+      "label": "Outer colour",
+      "type": "enum",
+      "values": [
+        "ACCENT",
+        "TEXT",
+        "TEXT2",
+        "OK",
+        "WARN",
+        "DANGER",
+        "PILL",
+        "ERROR",
+        "SURFACE",
+        "TRACK",
+        "BASE",
+        "BG"
+      ],
+      "default": 5
+    },
+    {
+      "key": "color_inner",
+      "label": "Inner colour",
+      "type": "enum",
+      "values": [
+        "ACCENT",
+        "TEXT",
+        "TEXT2",
+        "OK",
+        "WARN",
+        "DANGER",
+        "PILL",
+        "ERROR",
+        "SURFACE",
+        "TRACK",
+        "BASE",
+        "BG"
+      ],
+      "default": 0
+    },
+    {
+      "key": "color_bg",
+      "label": "Background",
+      "type": "enum",
+      "values": [
+        "ACCENT",
+        "TEXT",
+        "TEXT2",
+        "OK",
+        "WARN",
+        "DANGER",
+        "PILL",
+        "ERROR",
+        "SURFACE",
+        "TRACK",
+        "BASE",
+        "BG"
+      ],
+      "default": 10
+    }
+  ],
+  "presets": [
+    {
+      "name": "AURORA",
+      "values": {
+        "layers": 3,
+        "split": 0,
+        "outer": 0,
+        "nest": 0,
+        "draw": 2,
+        "res": 200,
+        "speed": 100,
+        "response": 45,
+        "taper": 70,
+        "color_outer": 5,
+        "color_inner": 0,
+        "color_bg": 10
+      }
+    },
+    {
+      "name": "SUNSET",
+      "values": {
+        "layers": 5,
+        "split": 1,
+        "outer": 0,
+        "nest": 0,
+        "draw": 2,
+        "res": 160,
+        "speed": 130,
+        "response": 50,
+        "taper": 55,
+        "color_outer": 5,
+        "color_inner": 4,
+        "color_bg": 11
+      }
+    },
+    {
+      "name": "DEEP OCEAN",
+      "values": {
+        "layers": 4,
+        "split": 2,
+        "outer": 1,
+        "nest": 1,
+        "draw": 2,
+        "res": 120,
+        "speed": 80,
+        "response": 40,
+        "taper": 40,
+        "color_outer": 6,
+        "color_inner": 3,
+        "color_bg": 9
+      }
+    },
+    {
+      "name": "HALO",
+      "values": {
+        "layers": 4,
+        "split": 3,
+        "outer": 0,
+        "nest": 0,
+        "draw": 2,
+        "res": 240,
+        "speed": 90,
+        "response": 30,
+        "taper": 85,
+        "color_outer": 2,
+        "color_inner": 1,
+        "color_bg": 10
+      }
+    },
+    {
+      "name": "NEON",
+      "values": {
+        "layers": 6,
+        "split": 0,
+        "outer": 0,
+        "nest": 0,
+        "draw": 2,
+        "res": 400,
+        "speed": 240,
+        "response": 80,
+        "taper": 0,
+        "color_outer": 7,
+        "color_inner": 0,
+        "color_bg": 11
+      }
+    },
+    {
+      "name": "PULSE",
+      "values": {
+        "layers": 1,
+        "split": 3,
+        "outer": 0,
+        "nest": 0,
+        "draw": 0,
+        "res": 64,
+        "speed": 160,
+        "response": 70,
+        "taper": 60,
+        "color_outer": 0,
+        "color_inner": 0,
+        "color_bg": 10
+      }
+    },
+    {
+      "name": "RIBBON",
+      "values": {
+        "layers": 2,
+        "split": 1,
+        "outer": 0,
+        "nest": 1,
+        "draw": 0,
+        "res": 100,
+        "speed": 70,
+        "response": 35,
+        "taper": 90,
+        "color_outer": 3,
+        "color_inner": 6,
+        "color_bg": 9
+      }
+    },
+    {
+      "name": "SILK",
+      "values": {
+        "layers": 3,
+        "split": 0,
+        "outer": 0,
+        "nest": 0,
+        "draw": 1,
+        "res": 400,
+        "speed": 100,
+        "response": 45,
+        "taper": 70,
+        "color_outer": 5,
+        "color_inner": 0,
+        "color_bg": 10
+      }
+    }
+  ],
+  "default_preset": 0
+}

@@ -15,7 +15,7 @@ ROOT = HERE.parent.parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import gen_themes as gt  # noqa: E402
 
-SCRIPTS = ["tau_core.js", "tau_fb.js", "tau_theme.js", "tau_audio.js", "tau_ballistics.js", "tau_cost.js", "tau_run.js", "tau_controls.js"]
+SCRIPTS = ["tau_core.js", "tau_fb.js", "tau_theme.js", "tau_audio.js", "tau_live.js", "tau_ballistics.js", "tau_cost.js", "tau_run.js", "tau_controls.js"]
 
 
 def data():
