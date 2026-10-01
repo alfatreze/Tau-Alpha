@@ -13073,3 +13073,12 @@ one divider with another of comparable size, no surprise). RBF collected and has
 
 This is the bitstream that will actually test whether B-484's diagnosis was right. Next: package +
 install, then the hardware re-test.
+
+## B-487: TAU_DEV_59 refreshed with the tick fix -- ready for the real hardware re-test
+
+Packaged and installed B-486's fit-proven tick-fix bitstream (`cymo-b484` seed 2) onto `alfatreze.TAU_DEV_59`
+via `tools/install_dev_core.py --replace` (bitstream/ROM/cold-image hashes verified, media untouched,
+caches cleared, ejected). This is the real test of B-484's diagnosis: whether the reported "vibrato"
+artifact is actually gone with the resampler's own dedicated, precisely-calibrated 48 kHz tick in place
+of the borrowed `eq_biquad` one. Owner's next step: repeat the same test (CYMO RESAMPLER toggle ON,
+44.1 kHz FLAC/MP3) and listen.
