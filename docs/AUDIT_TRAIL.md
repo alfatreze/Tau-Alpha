@@ -13082,3 +13082,38 @@ caches cleared, ejected). This is the real test of B-484's diagnosis: whether th
 artifact is actually gone with the resampler's own dedicated, precisely-calibrated 48 kHz tick in place
 of the borrowed `eq_biquad` one. Owner's next step: repeat the same test (CYMO RESAMPLER toggle ON,
 44.1 kHz FLAC/MP3) and listen.
+
+## B-488: Cymo resampler -- second hardware-confirmed bug found and fixed (no reset on toggle-on)
+
+Owner's re-test of B-486's tick fix: general music sounded better overall, but with occasional "a tiny
+distortion, kind of like a constant noise"; a direct 1 kHz test-tone comparison was decisive -- **toggling
+LIVE on repeatedly produced a clearly DIFFERENT pitch each time, while OFF was always constant.**
+
+**Root cause, reasoned from first principles before touching RTL:** a fixed-rational-ratio resampler's
+long-term output frequency for a steady input tone cannot depend on its starting phase by construction --
+only a fixed time/phase offset results from a different starting point, never a different frequency. A
+per-toggle pitch DIFFERENCE therefore has to be a settling TRANSIENT being mistaken for steady pitch on a
+brief listen, not an actual ratio error (which B-484/B-486 already fixed and re-verified). Checked the
+actual wiring: `cymo_live_en`'s own clear connection (`.clear(cymo_clear | pcm_flush)`) only reset the
+unit's history/phase on an explicit MMIO clear or a real track change -- NEVER on the toggle itself. Every
+time LIVE engages, the unit resumes computing against whatever 32-tap history was last left in it (stale
+audio from wherever it was last live, or boot-time zeros) -- a genuinely different, unpredictable
+transient on every separate toggle-on, matching the reported symptom exactly (including "OFF is always
+constant": OFF never touches this state at all).
+
+**Fix:** added a plain one-cycle rising-edge detector on `cymo_live_en` (`cymo_live_en_d`, `cymo_live_rise
+= cymo_live_en & ~cymo_live_en_d`) and OR'd it into the clear connection: `.clear(cymo_clear | pcm_flush |
+cymo_live_rise)`. Every toggle-on now forces a full, fresh reset, the same guarantee a track change
+already provided. Deliberately did NOT touch `cymo_tick`/`cymo_tick_acc` (B-486's fix) -- that free-
+running reference tick must stay pristine and continuous; resetting it on every toggle would reintroduce
+exactly the kind of toggle-dependent variability this fix is removing elsewhere.
+
+Verified: `make rtl-lint` clean, full `make test-rtl` (44 PASSED, every mutation hook still caught) and
+`make test-host` green. No firmware changed.
+
+**The separately-reported "tiny constant noise" during ordinary (non-toggling) music playback is NOT
+confirmed fixed by this change** -- it may be the same settling transient if it coincides with track
+changes (which already trigger `pcm_flush`'s own clear), or it may be a separate, still-open issue (the
+architecture's own inherent push/pop timing jitter between pcm_fifo's and the resampler's two independent
+accumulators is a candidate, not yet investigated). Flagged honestly rather than assumed resolved; the
+owner's next listen (after this fix is fit and installed) is needed before drawing a conclusion either way.
