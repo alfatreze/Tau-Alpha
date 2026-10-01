@@ -859,13 +859,18 @@ module mp3_soc #(
     // worst-ever min/max directly. Reads 0/present-bit-0 unless I2S_DIAG_ENABLE is built.
     localparam [8:0] R_I2S_DIAG_MINMAX = 9'h140, R_I2S_DIAG_CNT = 9'h144,
                      R_I2S_DIAG_SUM    = 9'h148, R_I2S_DIAG_ST  = 9'h14C;
-    // Cymo resampler (B-471, docs/features/CYMO_AUDIO_ENGINE.md section 15): R_CYMO_CTRL bit 0 = clear
-    // (pulse), bit 1 = start (pulse, ignored while busy); R_CYMO_PUSH writes {push_r,push_l} and triggers
-    // one push_we pulse (firmware pushes exactly once per observed R_CYMO_STATUS pop_req, same convention
-    // the module's own header documents); R_CYMO_OUT reads {out_r,out_l} and the READ ITSELF acks `done`
-    // (same read-is-ack convention as R_LPC_SAMPLE above -- see tau_cymo_resamp.sv's own out_rd comment
-    // for why a bare one-cycle pulse would be unsafe for a firmware polling loop). Inert (reads 0, out_rd
-    // tied off) unless CYMO_RESAMP_ENABLE is built. Standalone: no firmware caller wired yet.
+    // Cymo resampler (B-471/B-476, docs/features/CYMO_AUDIO_ENGINE.md section 15): R_CYMO_CTRL bit 0 = clear
+    // (pulse), bit 1 = start (pulse, ignored while busy), bit 2 = LIVE_ENABLE -- STICKY, not a pulse: once
+    // set, the EQ's input switches from pcm_fifo's raw fifo_l/fifo_r to this unit's own out_l/out_r and
+    // push/start run fully automatically from hardware (pcm_sample_tick / the EQ's own 48kHz tick) with
+    // zero further CPU involvement, the same probe-then-adopt convention as POLY_FW/LPC_FW/BLIT_READY() --
+    // firmware sets this only after confirming bit 0 of R_CYMO_STATUS via a self-test, defaults to 0
+    // (byte-identical-to-today audio path) on every reset. R_CYMO_PUSH writes {push_r,push_l} and triggers
+    // one push_we pulse (for firmware self-test only; the live audio path never uses this register) --
+    // same convention the module's own header documents; R_CYMO_OUT reads {out_r,out_l} and the READ
+    // ITSELF acks `done` (same read-is-ack convention as R_LPC_SAMPLE above -- see tau_cymo_resamp.sv's own
+    // out_rd comment for why a bare one-cycle pulse would be unsafe for a firmware polling loop). Inert
+    // (reads 0, out_rd tied off, EQ unaffected) unless CYMO_RESAMP_ENABLE is built.
     localparam [8:0] R_CYMO_CTRL = 9'h150, R_CYMO_PUSH = 9'h154, R_CYMO_OUT = 9'h158, R_CYMO_STATUS = 9'h15C;
 
     // Bitstream/firmware interlock. Firmware compares this against its own
@@ -1087,21 +1092,42 @@ module mp3_soc #(
         end
     endgenerate
 
-    // ---- Cymo resampler (B-471) ----------------------------------------------------------------------------------------
-    // Register contract: see the R_CYMO_* localparam block above and tau_cymo_resamp.sv's own header. Standalone unit --
-    // not yet consumed by pcm_fifo.v (K2 names where it will eventually plug in). out_rd is wired straight to the bus's
-    // own one-cycle read-request pulse, same read-is-ack idiom as lpc_sample_rd just above.
+    // ---- Cymo resampler (B-471/B-476) ------------------------------------------------------------------------------------
+    // Register contract: see the R_CYMO_* localparam block above and tau_cymo_resamp.sv's own header. out_rd is wired
+    // straight to the bus's own one-cycle read-request pulse, same read-is-ack idiom as lpc_sample_rd just above.
+    //
+    // LIVE AUDIO PATH (B-476): `cymo_live_en` is a STICKY register (unlike every other cymo_* control signal here, which
+    // are self-clearing one-cycle pulses) -- firmware sets it once, after `CYMO_RESAMP_READY()`-style self-testing, to
+    // hand the real audio path to this unit; it defaults to 0 (same byte-identical-to-today behaviour as if this unit did
+    // not exist) until firmware explicitly opts in, the same probe-then-adopt convention as POLY_FW/LPC_FW/BLIT_READY().
+    // While live, `push_we`/`start` are driven automatically by hardware -- zero CPU involvement, same as the EQ/spectrum/
+    // wave-meter taps already are -- NOT by firmware polling: `push` rides pcm_fifo's own existing `pcm_sample_tick`/
+    // `fifo_l`/`fifo_r` (K2, docs/features/CYMO_AUDIO_ENGINE.md section 14: "place cymo_resamp after the FIFO's own
+    // source-rate output register" -- pcm_fifo.v itself is UNTOUCHED, this unit is simply a second, parallel consumer of
+    // signals the spectrum/wave-meter taps already read), and `start` rides `eq_tick` -- the EQ's OWN internal 48 kHz
+    // tick (eq_biquad.v's new `tick_out`, B-476), reused rather than a second, independently-instantiated copy that could
+    // drift out of phase with it. The OR'd MMIO-driven `cymo_push_we`/`cymo_start` pulses stay available below for
+    // firmware-driven self-test regardless of `cymo_live_en`'s value -- the two paths coexist, never conflict (a
+    // combinational mux at the instantiation's own port connections, no shared register).
     reg         cymo_clear = 1'b0, cymo_start = 1'b0, cymo_push_we = 1'b0;
+    reg         cymo_live_en = 1'b0;
     reg  signed [15:0] cymo_push_l_d = 16'sd0, cymo_push_r_d = 16'sd0;
     wire        cymo_busy, cymo_done, cymo_pop_req;
     wire signed [15:0] cymo_out_l, cymo_out_r;
     wire        cymo_out_rd = d_req & d_is_mmio & ~dWE & (mmio_reg == R_CYMO_OUT);
+    wire        eq_tick;                                           // from u_eq's tick_out, connected below
+    wire        cymo_auto_we    = cymo_live_en & pcm_sample_tick;
+    wire        cymo_auto_start = cymo_live_en & eq_tick;
+    wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out_l : fifo_l;
+    wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out_r : fifo_r;
     generate
         if (CYMO_RESAMP_ENABLE != 0) begin : g_cymo
             tau_cymo_resamp u_cymo (
-                .clk(clk), .rst(rst), .clear(cymo_clear),
-                .push_we(cymo_push_we), .push_l(cymo_push_l_d), .push_r(cymo_push_r_d),
-                .start(cymo_start), .out_rd(cymo_out_rd),
+                .clk(clk), .rst(rst), .clear(cymo_clear | pcm_flush),
+                .push_we(cymo_push_we | cymo_auto_we),
+                .push_l(cymo_auto_we ? fifo_l : cymo_push_l_d),
+                .push_r(cymo_auto_we ? fifo_r : cymo_push_r_d),
+                .start(cymo_start | cymo_auto_start), .out_rd(cymo_out_rd),
                 .busy(cymo_busy), .done(cymo_done), .pop_req(cymo_pop_req),
                 .out_l(cymo_out_l), .out_r(cymo_out_r));
         end else begin : g_nocymo
@@ -1125,11 +1151,12 @@ module mp3_soc #(
 `endif
         .clk    (clk),
         .rst    (rst),
-        .in_l   (fifo_l),
-        .in_r   (fifo_r),
+        .in_l   (eq_in_l),
+        .in_r   (eq_in_r),
         .preset (eq_preset),
         .out_l  (audio_l),
-        .out_r  (audio_r)
+        .out_r  (audio_r),
+        .tick_out (eq_tick)
     );
 
     always @(posedge clk) begin
@@ -1165,6 +1192,7 @@ module mp3_soc #(
             pcm_rate <= 32'd3435974;   // 48 kHz at clk_sys = 60 MHz
 `endif
             eq_preset <= 3'd0;         // FLAT: bypass until asked otherwise
+            cymo_live_en <= 1'b0;      // STICKY register, not covered by the pulse-reset preamble above -- must be reset here explicitly
             set_idx <= 5'd0; set_wdata <= 32'd0;
             sdram_start <= 1'b0;
             sdram_write <= 1'b0;
@@ -1270,8 +1298,9 @@ module mp3_soc #(
                 R_LPC_WARM_DATA: begin lpc_warm_data_d <= dDAT_MOSI; lpc_warm_data_we <= 1'b1; end
                 R_LPC_RESIDUAL:  begin lpc_residual_d <= dDAT_MOSI; lpc_residual_we <= 1'b1; end
                 R_CYMO_CTRL: begin
-                    cymo_clear <= dDAT_MOSI[0];
-                    cymo_start <= dDAT_MOSI[1];
+                    cymo_clear   <= dDAT_MOSI[0];
+                    cymo_start   <= dDAT_MOSI[1];
+                    cymo_live_en <= dDAT_MOSI[2];   // STICKY (not reset every cycle below, unlike bits 0/1)
                 end
                 R_CYMO_PUSH: begin
                     cymo_push_l_d <= dDAT_MOSI[15:0];
@@ -1341,7 +1370,7 @@ module mp3_soc #(
             R_I2S_DIAG_SUM:    mmio_rdata = (I2S_DIAG_ENABLE != 0) ? i2s_diag_sum_r : 32'd0;
             R_I2S_DIAG_ST:     mmio_rdata = {31'd0, (I2S_DIAG_ENABLE != 0)};
             R_CYMO_OUT:    mmio_rdata = {cymo_out_r, cymo_out_l};                                      // this read is the ack (clears done)
-            R_CYMO_STATUS: mmio_rdata = {28'd0, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req
+            R_CYMO_STATUS: mmio_rdata = {27'd0, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end

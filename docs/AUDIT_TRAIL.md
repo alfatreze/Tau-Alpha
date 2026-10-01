@@ -12800,3 +12800,50 @@ synthesis-only clean (B-472), and now a real two-seed fit closing with genuine m
 decision). Next steps, in order: the `pcm_fifo.v` integration (section 14/K2 already specifies where),
 a firmware probe, a card install, and the hardware A/B that the still-pending MacCunn/Clementi listening
 nuance (B-474) makes more important than ever to get right, not less.
+
+## B-476: Cymo resampler -- live audio-path wiring (pcm_fifo.v/eq_biquad.v/mp3_soc.v), sim-verified, no new fit yet
+
+Owner: "fifo now." Designed the actual production signal path per section 14/K2's own guidance ("place
+cymo_resamp after the FIFO's own source-rate output register, consuming out_l/out_r with sample_tick;
+the taps stay untouched and the EQ input moves to the resampler output"). Deliberately made ZERO changes
+to `pcm_fifo.v` itself -- its priming/underrun-glide/flush logic is hardware-proven and carefully tuned
+(`sim/tb_pcm_fifo.v`'s own test names say why), and this design needs none of that touched: the
+resampler is wired as a second, PARALLEL consumer of the exact same `fifo_l`/`fifo_r`/`pcm_sample_tick`
+signals the spectrum/wave-meter taps already read (K2: "the taps stay untouched"), never feeding
+anything back into the FIFO.
+
+`eq_biquad.v`: added one new output port, `tick_out`, a plain wire mirroring the module's own existing
+internal 48 kHz `tick` signal -- purely additive, changes nothing about its bit-exact-tested arithmetic
+(`make test-rtl-eq` re-confirmed bit-exact against `tools/eq_model.py` on all 8 presets after the change).
+This is the resampler's OWN output-rate clock: reusing the EQ's existing tick instance rather than
+instantiating a second, independent 48 kHz divider that could drift out of phase with it.
+
+`mp3_soc.v`: new STICKY register `cymo_live_en` (bit 2 of `R_CYMO_CTRL`, unlike every other cymo_* control
+bit here which are self-clearing pulses -- explicitly added to the module's `if (rst)` block since the
+pulse-reset preamble does NOT cover it, a real correctness requirement for a sticky bit that is easy to
+miss). Defaults to 0 (byte-identical-to-today audio path: EQ reads raw `fifo_l`/`fifo_r`) until firmware
+sets it after self-testing via `R_CYMO_STATUS` bit 0, the same probe-then-adopt convention as
+POLY_FW/LPC_FW/BLIT_READY(). While live: `push_we` rides `pcm_sample_tick` (pcm_fifo's existing per-sample
+strobe) with `push_l`/`push_r` = `fifo_l`/`fifo_r` directly; `start` rides the EQ's own `tick_out`;
+`clear` also fires on `pcm_flush` (a track change/seek resets the resampler's history/phase exactly when
+it resets the FIFO's own pointers); the EQ's `in_l`/`in_r` mux between `fifo_l`/`fifo_r` and the
+resampler's `out_l`/`out_r` on `cymo_live_en`. The MMIO-driven test path (`R_CYMO_PUSH`, the `start` pulse
+bit) stays available regardless of `cymo_live_en` via a simple OR at the instantiation's own port
+connections -- no shared register, the two paths cannot conflict.
+
+Verified: `eq_biquad`'s own testbench still bit-exact; `rtl-lint` clean (0 new warnings); full `make
+test-rtl` (44 PASSED markers, every mutation hook still caught) and `make test-host` both green after
+the wiring; `mp3_soc_sim.v` regenerates correctly (`sim/make_soc_sim.py`) and the real-CPU PSRAM fw/
+ifetch simulations, which build `mp3_soc_sim.v` alongside `eq_biquad.v`/`pcm_fifo.v` directly, still
+pass -- confirming the new `tick_out` port doesn't break that build's own file list. No firmware changed.
+
+**Does NOT need a new fit to verify correctness at the RTL/sim level (done, above) -- DOES need a new
+fit before this specific wiring can be trusted on real hardware.** The already-collected `cymo-b472`
+seed-1 RBF (B-473/B-475) was staged and fit BEFORE this wiring existed; it contains only the standalone
+resampler with its MMIO test registers, not the live-audio mux, `eq_biquad`'s new `tick_out` port, or
+`cymo_live_en`. The added logic is small (two 16-bit muxes, one sticky register, an OR gate) sitting off
+an already-generous timing margin (B-475: every corner positive, worst case +0.073 ns hold / +0.828 ns
+setup) and not on any new per-clock-cycle critical path (the EQ only samples its `in_l`/`in_r` mux once
+every ~1,389 cycles, at its own 48 kHz tick), so a clean re-fit is expected but not assumed -- a fresh
+two-seed fit against this exact tree is the next step, same discipline as every other change in this
+project regardless of how low-risk it looks on paper.
