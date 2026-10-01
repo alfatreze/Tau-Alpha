@@ -611,7 +611,8 @@ SAMPLE_VALUE = {"COLOUR": "AMBER", "THEME": "TAU", "MODE": "DARK", "METER": "OSC
                 "RESUME": "ON", "SPEED": "1.00X", "VOLUME": "65%",
                 "WINDOW TEST": "PASS 89", "READ CYCLES": "48/50/362", "WRITE CYCLES": "47/49/361",
                 "PLAYLIST CHECK": "PASS 13", "COLD CODE TEST": "PASS 31.6 C/W", "CLEAR COUNTERS": "DONE",
-                "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN", "ALL SPEEDS": "OFF", "ACCEPT ALL RATES": "OFF"}
+                "LEVEL": "R2  8 OP BURSTS", "SOAK": "15 MIN", "ALL SPEEDS": "OFF", "ACCEPT ALL RATES": "OFF",
+                "CYMO RESAMPLER": "OFF"}
 
 
 def settings_menu(page, selected):
