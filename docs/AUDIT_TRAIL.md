@@ -12857,3 +12857,49 @@ tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt --seed 1 --se
 as B-472/B-473, no new macro needed since the live-audio wiring is unconditionally inside the same
 `CYMO_RESAMP_ENABLE` generate block). Both seeds confirmed running independently (`readlink
 /proc/<pid>/cwd`: `cymo-b476-s1/src/fpga`, `cymo-b476-s2/src/fpga`), no collision. Result pending.
+
+## B-478: Chladni specs checked and confirmed saved; cross-project reference added for Omega
+
+Owner asked whether all Chladni specs are saved and asked to save the preview lab for further
+iteration, flagging it as potentially useful to Tau Omega.
+
+**Checked, all committed, working tree clean apart from `docs/vendor/`:** `docs/features/meters/
+CHLADNI_METER_SPEC.md`, `fw/chladni_core.h`, `fw/chladni.inc`, `meters/chladni/meter.json`, `sim/
+test_chladni_core.py`, `sim/test_chladni_module.py`, `sim/test_chladni_params.py`, `sim/
+chladni_module_harness.c`, `tools/host/chladni_harness.c`, `tools/lab/chladni_lab.html`. Nothing
+pending, nothing uncommitted.
+
+**Found in passing, not caused by this entry:** `docs/CROSS_PROJECT_INTERFACE.md` (root) and `docs/
+features/CROSS_PROJECT_INTERFACE.md` have drifted — the root copy still has pre-reorg paths (`docs/
+MEDIA_LIBRARY_0.4_SPEC.md` etc.) the `docs/features/` copy already corrected. Per CLAUDE.md's own
+rule (always use the `docs/features/` copy), edited that one only; the root duplicate was left as-is,
+not deleted — a handful of other docs (`METER_CONFIG_SPEC.md`, `THEME_FILE_FORMAT.md`, `CURRENT_STATUS.md`,
+`ROADMAP.md`, and others) have the same root/`features/` duplication from the 2026-09-27 reorg never
+being finished; a real cleanup pass, not attempted here (out of scope for this request).
+
+**Added:** a row in `docs/features/CROSS_PROJECT_INTERFACE.md` section 5 pointing Tau Omega at the
+Chladni lab/spec/golden-test trio as the behaviour reference for the one registered meter with no JS
+twin in the generic `tools/meters/preview/` lab yet — per section 2's standing rule, a pointer, not a
+copy. No file crossed into the sibling repo.
+
+**Lab:** `tools/lab/chladni_lab.html` was already saved in-repo and tracked; republished as a fresh
+Artifact link (this session's earlier watch on it had died) so the owner has a live browser copy to
+keep iterating on without a local server. No change to the file's content.
+
+## B-478: Cymo resampler -- live audio-path wiring fit CLOSED CLEAN, both seeds
+
+`cymo-b476` fit (B-477) finished: **both seeds Successful, every corner positive on both**, resources
+unchanged from the standalone-module fit (RAM 256/308, DSP 20/66 -- confirms the live-audio wiring
+itself (two muxes, one sticky register, an OR gate) cost no measurable extra logic, as expected). Seed
+1: Fast 0C hold +0.119/setup +6.105, Fast 85C hold +0.141/setup +5.884, Slow 0C hold +0.292/setup
++1.493, Slow 85C hold +0.306/setup +1.676. Seed 2: Fast 0C hold +0.107/setup +6.050, Fast 85C hold
++0.150/setup +5.860, Slow 0C hold +0.258/setup +1.430, Slow 85C hold +0.336/setup +1.685. **Seed 1
+selected** -- not a clean sweep (each seed wins on some corners), picked by best overall worst-case
+slack (+0.119 vs seed 2's +0.107). RBF collected and hash-verified:
+`work/diagnostics/cymo-b476/ap_core_s1.rbf`, `sha256
+6010c92833c85e464153d9f8cc10df7c5065fbeb8d4cad10c4e692faeea121a8`.
+
+This is now a real, fit-proven bitstream containing the FULL live audio path -- not yet installed on
+the card, no firmware caller exists yet (`cymo_live_en` can only be set via a raw MMIO write, not a
+Diagnostics menu toggle). Next steps, in order: `CYMO_RESAMP_READY()` firmware probe, a Diagnostics-
+build-only runtime toggle to set `cymo_live_en`, package + install, hardware test, hardware A/B.
