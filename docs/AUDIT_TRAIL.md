@@ -13005,3 +13005,45 @@ the SAME fit-proven RBF (no new fit needed, firmware-only change) and refreshed 
 `tools/install_dev_core.py --replace` (hashes verified, media untouched). Ready for the owner's first
 hardware test: boot, check Info > CYMO RESAMP reads READY (not NO UNIT), then try the Diagnostics >
 CYMO RESAMPLER toggle.
+
+## B-484: Cymo resampler -- real hardware-confirmed bug found and fixed (output tick rate error)
+
+Owner tested `alfatreze.TAU_DEV_59`'s live audio path for the first time on real hardware (MacCunn FLAC
+44.1 kHz, MacCunn MP3, Clementi): **a clearly audible defect, described as "a tiny vibrato," reproducible
+on every 44.1 kHz track tried, more pronounced on the MP3 than the FLAC of the same piece.** The first
+genuine negative hardware result in this whole arc, and a real, structural bug, not a marginal quality
+difference -- root-caused and fixed in this session before any further listening.
+
+**Root cause, confirmed numerically before touching any RTL:** B-476's own design reused `eq_biquad.v`'s
+internal 48 kHz tick for the resampler's `start` signal, reasoning "reuse what's there instead of a
+second copy that could drift out of phase with it" -- the wrong frame entirely. `eq_biquad`'s own tick
+divider (`DIV = CLK_HZ/RATE_HZ`, plain truncating integer division) was never built to be accurate: a
+few hundred ppm of error changes nothing audible in an IIR filter's coefficients. For a sample-rate
+converter, whose entire correctness rests on knowing its own output period precisely, it is a real bug.
+Under `TAU_CLK66` (the macro set on every installed card core right now), `66,666,667 / 48,000` truncates
+to 1388 instead of 1388.89 -- a real tick of 48,030.74 Hz, not 48,000. Through this unit's fixed 147:160
+ratio that implies an effective 44,128.24 Hz input-consumption rate, while `pcm_fifo` supplies real
+samples at a correctly-calibrated 44,100.00 Hz (the SAME `pcm_rate` reset-default constant this fix now
+also reuses). The ~28.24 Hz mismatch means the resampler ran ahead of its own input supply and re-shifted
+a stale sample roughly every 35 ms (~28 times/sec) -- a periodic, hardware-confirmed artifact squarely in
+the range a listener would describe as a wobble or vibrato, independent of track content (consistent
+with the owner hearing it on every track tried).
+
+**Fix:** gave the resampler its own dedicated fractional-accumulator `start` tick -- the exact same
+technique `pcm_fifo.v` already uses correctly for its own drain rate -- instead of borrowing
+`eq_biquad`'s approximate one. Reused the EXACT constants already proven in this codebase for "48 kHz at
+clk_sys," independently re-derived and confirmed before use: `32'd3092376` at 66,666,667 Hz gives
+47,999.993 Hz (-0.14 ppm); `32'd3435974` at 60,000,000 Hz gives 48,000.002 Hz (+0.05 ppm) -- both these
+are the SAME literals `pcm_rate`'s own reset default already carries, now independently re-verified for
+a second purpose. `eq_biquad.v`'s `tick_out` port (B-476) is now dead weight with this fix and was fully
+reverted -- the module is back to its exact pre-B-476 form, re-confirmed bit-exact against
+`tools/eq_model.py` on all 8 presets.
+
+Verified: `make rtl-lint` clean, full `make test-rtl` (44 PASSED markers, every mutation hook still
+caught, `mp3_soc_sim.v` regenerates and the real-CPU PSRAM fw/ifetch sims pass unaffected), `make
+test-host` green. No firmware changed -- this is purely an RTL fix to the live-audio-path wiring itself.
+
+**Not yet done:** a synthesis-only check, a real two-seed fit, package + install, and the hardware
+re-test that would actually confirm this fixes the reported artifact -- the numerical case is strong
+(the beat-frequency math matches the reported symptom closely) but, per this project's own discipline,
+remains a hypothesis until re-tested on real silicon.
