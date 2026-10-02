@@ -151,6 +151,10 @@
     { key: 'hstyle', label: 'Spectrum style', type: 'enum', values: ['BLOCKS', 'EQ BELLS', 'CURVE'], default: 0, group: 'lab', when: { view: 1 },
       help: 'How the layers share the frequency axis in SPECTRUM view (lab-only experiment).',
       value_help: ['BLOCKS: hard blocks, each layer draws only its own frequency range (what the firmware does).', 'EQ BELLS: the same ranges with soft shoulders that taper into the neighbours, like the bell curves of a parametric EQ.', 'CURVE: one continuous gradient-coloured outline across the whole axis; the layer colours become colour stops and the layer gains a smooth gain curve.'] },
+    { key: 'bmode', label: 'Layer blending', type: 'enum', values: ['OFF', 'ALPHA', 'AVERAGE', 'ADD', 'SUBTRACT', 'ADD QUARTER'], default: 0, group: 'lab',
+      help: 'Composite the layers through the hardware blend (B5, lab-only experiment) instead of painting them opaque. Each layer is blended over what is already there, outermost first, so overlapping layers mix. On hardware each run is one blit from a one-row colour strip, so the command count is unchanged.',
+      value_help: ['OFF: opaque layers (what the firmware does).', 'ALPHA: ordinary translucency, 0-255 alpha (the DSP path).', 'AVERAGE: half of each, B/2 + F/2.', 'ADD: layer added to what is underneath, clamped (glow, light on dark).', 'SUBTRACT: layer subtracted from what is underneath, clamped to black.', 'ADD QUARTER: a quarter of the layer added, clamped (a faint glow).'] },
+    { key: 'balpha', label: 'Blend alpha', type: 'u8', min: 5, max: 100, step: 5, default: 60, unit: '%', group: 'lab', when: { bmode: 1 }, help: 'Opacity of each layer in ALPHA blending.' },
   ].concat([1, 2, 3, 4, 5, 6].map((i) => ({ key: 'g' + i, label: 'Gain, layer ' + i, type: 'u8', min: -18, max: 18, step: 1, default: 0, unit: ' dB', group: 'lab',
     help: 'Gain of layer ' + i + ' in dB (lab-only experiment). Also set by dragging the bead on the frequency strip up or down; double-click the bead to reset.' })));
 
@@ -173,13 +177,15 @@
     const cy = Y + (H >> 1), Hh = (H >> 1) - 1;
     st.cnt = 0;
     const rect = (x, y, w, h, c) => { fb.rect(x, y, w, h, c); st.cnt++; };
-    if (p.view === 1) spectrum(ctx, st, dt, cl, cy, Hh, rect); else history(ctx, st, dt, cl, cy, Hh, rect);
+    const bm = p.bmode | 0, ba = Math.round((p.balpha === undefined ? 60 : p.balpha) * 255 / 100);   // lab-only blend experiment: layers composited through the hardware blend instead of opaque
+    const lrect = bm ? (x, y, w, h, c) => { fb.blend(x, y, w, h, c, bm - 1, ba); st.cnt++; } : rect;
+    if (p.view === 1) spectrum(ctx, st, dt, cl, cy, Hh, rect, lrect); else history(ctx, st, dt, cl, cy, Hh, rect, lrect);
     if (st.cnt) st.stride = st.cnt > BUDGET ? Math.min(16, st.stride + 1) : (st.cnt < (BUDGET >> 1) && st.stride > 1 ? st.stride - 1 : st.stride);
   }
 
   /* HISTORY view: x is time (newest left); the box is cleared and every layer drawn outermost first, merging neighbouring cells of equal height
      and colour. `stride` widens the evaluation cell when the last frame needed more than BUDGET commands. */
-  function history(ctx, st, dt, cl, cy, Hh, rect) {
+  function history(ctx, st, dt, cl, cy, Hh, rect, lrect) {
     const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, res = p.res, smooth = p.draw === DRAW.SMOOTH;
     const tg = targets(p, ctx.spec, ctx.wave, st);
     for (let k = 0; k < n; k++) {
@@ -196,7 +202,7 @@
     rect(X, ctx.y, W, ctx.h, cl.bgc);
     for (let k = 0; k < n; k++) {
       const h = st.hist[k]; let run = null;
-      const flush = () => { if (run) { rect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.tbl[k][run.q]); run = null; } };
+      const flush = () => { if (run) { lrect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.tbl[k][run.q]); run = null; } };
       for (let xs = 0; xs < W; xs += s) {
         const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1));
         let a8;
@@ -214,13 +220,13 @@
   /* SPECTRUM view (no scrolling): x is frequency (bass left), the 16 band levels are the outline. With a frequency split every layer draws only the
      part of the axis it listens to (the same ranges as the handles); with DYNAMICS every layer is the whole outline. Layers also differ by response
      time (outer slow, inner fast) and height. Redrawn every frame. */
-  function spectrum(ctx, st, dt, cl, cy, Hh, rect) {
+  function spectrum(ctx, st, dt, cl, cy, Hh, rect, lrect) {
     const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), s = Math.max(st.stride, tdiv(W + p.res - 1, p.res));   // Resolution = columns across the width (cell width), never finer than the self-scaling stride allows
     rect(X, ctx.y, W, ctx.h, cl.bgc);
     if (p.split === SPLIT.ENERGY) learnEnergy(st, ctx.spec, n);
     const bnd = p.split === SPLIT.DYNAMICS ? null : boundsFor(p.split, n, st, xoOf(p));   // frequency splits: each layer draws only the part of the axis it listens to
     const hstyle = p.hstyle | 0;
-    if (hstyle === 2 && bnd) return curveOutline(ctx, st, dt, cl, cy, Hh, rect, bnd);
+    if (hstyle === 2 && bnd) return curveOutline(ctx, st, dt, cl, cy, Hh, rect, bnd, lrect);
     for (let k = 0; k < n; k++) {
       let lo = 0, hi = NB;
       if (bnd) { if (p.nest === 0) { lo = p.outer === 0 ? bnd[k] : 0; hi = p.outer === 0 ? NB : bnd[n - k]; } else { const g = p.outer === 0 ? k : n - 1 - k; lo = bnd[g]; hi = bnd[g + 1]; } }
@@ -234,7 +240,7 @@
         bu[i] = a;
       }
       let run = null;
-      const flush = () => { if (run) { rect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.base[k]); run = null; } };
+      const flush = () => { if (run) { lrect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.base[k]); run = null; } };
       for (let xs = 0; xs < W; xs += s) {
         const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1));
         let a8;
@@ -250,7 +256,7 @@
 
   /* CURVE style (lab-only): ONE continuous outline across the whole axis, coloured by a gradient whose stops are the layer colours at the centres of
      their frequency ranges, with a smooth gain curve through the per-layer gains. Layer 0's response time drives the bands. */
-  function curveOutline(ctx, st, dt, cl, cy, Hh, rect, bnd) {
+  function curveOutline(ctx, st, dt, cl, cy, Hh, rect, bnd, lrect) {
     const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), s = Math.max(st.stride, tdiv(W + p.res - 1, p.res));
     const m = n > 1 ? T.mulQ8[n - 1 + 5] : 256, ca = coef(p.response, m, dt, 1), cr = coef(p.response, m, dt, 0), b = st.band[0], bu = new Array(NB);
     const lay = (g) => (p.outer === 0 ? g : n - 1 - g), cen = [], gdb = [], col = [];
@@ -262,7 +268,7 @@
       bu[i] = Math.min(255, Math.round(toU8(b[i]) * Math.pow(10, db / 20)));
     }
     let run = null;
-    const flush = () => { if (run) { rect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, run.c); run = null; } };
+    const flush = () => { if (run) { lrect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, run.c); run = null; } };
     for (let xs = 0; xs < W; xs += s) {
       const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1));
       let a8;

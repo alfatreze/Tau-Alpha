@@ -11,7 +11,8 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:calc(400px *
 .panel{min-width:260px}.panel label{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0}
 .rgb{display:inline-flex;gap:6px;align-items:center;flex:1}.rgb input[type=text]{font:12px ui-monospace,monospace;width:7em}
 .info{width:18px;height:18px;padding:0;border-radius:50%;border:1px solid var(--mut);background:none;color:var(--mut);font:italic 700 11px/16px Georgia,serif;cursor:pointer}.info:hover,.info:focus-visible{color:var(--fg);border-color:var(--fg)}
-.strip{position:relative;width:calc(400px * var(--z,1));max-width:100%;margin-top:10px}.strip canvas{display:block;width:100%;border:1px solid var(--line);border-bottom:0}
+.stage{position:sticky;top:8px;align-self:flex-start;max-height:calc(100vh - 16px);overflow:auto}.infod{margin-top:6px}.infod summary{cursor:pointer;color:var(--mut)}
+.strip{position:relative;width:calc(400px * var(--z,1));max-width:100%;margin-top:2px}.strip canvas{display:block;width:100%;border:1px solid var(--line);border-bottom:0}
 .hbar{position:relative;height:40px;border:1px solid var(--line);border-top:2px solid var(--line)}
 .beads{position:absolute;left:0;right:0;top:0;pointer-events:none}.bead{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--c,#888);border:2px solid var(--bg);outline:1px solid var(--fg);cursor:ns-resize;pointer-events:auto;touch-action:none}
 .handle{position:absolute;top:-2px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;background:none;border:0;padding:0;cursor:ew-resize;touch-action:none;color:var(--fg);font:11px system-ui,sans-serif}
@@ -26,7 +27,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
 </style></head><body>
 <h1>Tau meter lab <span class="val" id="tag"></span></h1>
 <div class="wrap">
- <div><canvas id="cv" width="400" height="360"></canvas><div class="cost" id="cost"></div><div id="splitwrap" hidden><div class="strip" id="strip"><canvas id="map" width="400" height="56"></canvas><div class="beads" id="beads"></div><div class="hbar" id="hbar"></div></div><div class="cost" id="splitnote"></div></div></div>
+ <div class="stage"><canvas id="cv" width="400" height="360"></canvas><div id="splitwrap" hidden><div class="strip" id="strip"><canvas id="map" width="400" height="56"></canvas><div class="beads" id="beads"></div><div class="hbar" id="hbar"></div></div></div><details class="infod"><summary>Info: commands, CPU, bands</summary><div class="cost" id="cost"></div><div class="cost" id="splitnote"></div></details></div>
  <div class="panel">
   <label>Meter <select id="meter"></select></label>
   <label>Theme <select id="theme"></select></label>

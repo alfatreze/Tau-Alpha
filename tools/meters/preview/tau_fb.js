@@ -31,6 +31,19 @@
       for (let yy = 0; yy < h; yy++) rows.push(this.px.slice((sy + yy) * this.w + sx, (sy + yy) * this.w + sx + w));
       for (let yy = 0; yy < h; yy++) this.px.set(rows[yy], (dy + yy) * this.w + dx);
     }
+    /* Lab-only: a rect drawn through the hardware blend (B5), F = c over the pixel already there B; mode 0..4 as in mp3_fb.sv (0 DSP alpha, 1 average,
+       2 add, 3 subtract, 4 B+F/4). Counted as ONE command: on hardware it is an OP_BLIT with blend from a one-row strip of the colour (src_stride 0). */
+    blend(x, y, w, h, c, mode, alpha) {
+      this._rec('blend', [x, y, w, h, c, mode, alpha]);
+      const x0 = Math.max(0, x), x1 = Math.min(this.w, x + w), y0 = Math.max(0, y), y1 = Math.min(this.h, y + h);
+      const ch = (b, f, mx) => mode === 0 ? ((f * alpha + b * (256 - alpha)) >> 8) : mode === 1 ? ((b + f) >> 1) : mode === 2 ? Math.min(mx, b + f) : mode === 3 ? (f > b ? 0 : b - f) : Math.min(mx, b + (f >> 2));
+      const fr = c >> 11, fg = (c >> 5) & 63, fb = c & 31;
+      for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) {
+        const i = yy * this.w + xx, b = this.px[i];
+        this.px[i] = (ch(b >> 11, fr, 31) << 11) | (ch((b >> 5) & 63, fg, 63) << 5) | ch(b & 31, fb, 31);
+        this.pix++;
+      }
+    }
     _fill(x, y, w, h, c) {
       const x0 = Math.max(0, x), x1 = Math.min(this.w, x + w), y0 = Math.max(0, y), y1 = Math.min(this.h, y + h);
       for (let yy = y0; yy < y1; yy++) this.px.fill(c, yy * this.w + x0, yy * this.w + x1);
