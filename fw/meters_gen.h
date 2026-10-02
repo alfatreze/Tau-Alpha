@@ -6,7 +6,7 @@
 enum { MP_WINAMP_BARS_BANDS, MP_WINAMP_BARS_EASE, MP_WINAMP_BARS_ATTACK, MP_WINAMP_BARS_RELEASE, MP_WINAMP_BARS_PEAK_ON, MP_WINAMP_BARS_PEAK_GRAVITY, MP_WINAMP_BARS_PEAK_HOLD_MS, MP_WINAMP_BARS_PEAK_FALL, MP_WINAMP_BARS_N };
 static const char *const mtr_en_winamp_bars_ease[] = { "INSTANT", "LINEAR", "EXPONENTIAL", "SPRING" };
 static const char *const mtr_en_winamp_bars_peak_gravity[] = { "LINEAR", "GRAVITY" };
-static const mtr_param_t mtr_p_winamp_bars[MP_WINAMP_BARS_N] = {
+static const mtr_param_t mtr_p_winamp_bars[MP_WINAMP_BARS_N] COLD_DATA = {
     { "BANDS", MTR_U8, 4, 16, 1, 16, 255, 0, "", 0, 0 },
     { "EASING", MTR_ENUM, 0, 3, 1, 2, 255, 0, "", mtr_en_winamp_bars_ease, 0 },
     { "ATTACK", MTR_U8, 1, 100, 5, 55, 255, 0, "", 0, 0 },
@@ -32,7 +32,7 @@ static mtr_data_t mtr_d_winamp_bars = { VIZ_WINAMP_BARS, "WINAMP BARS", MP_WINAM
 
 /* WINAMP SCOPE (id 13) */
 enum { MP_WINAMP_SCOPE_SCOPE_SMOOTH, MP_WINAMP_SCOPE_SCOPE_TRAIL, MP_WINAMP_SCOPE_N };
-static const mtr_param_t mtr_p_winamp_scope[MP_WINAMP_SCOPE_N] = {
+static const mtr_param_t mtr_p_winamp_scope[MP_WINAMP_SCOPE_N] COLD_DATA = {
     { "SCOPE SMOOTH", MTR_U8, 0, 90, 5, 35, 255, 0, "%", 0, 0 },
     { "SCOPE TRAIL", MTR_U8, 0, 80, 5, 30, 255, 0, "%", 0, 0 },
 };
@@ -54,7 +54,7 @@ static mtr_data_t mtr_d_winamp_scope = { VIZ_WINAMP_SCOPE, "WINAMP SCOPE", MP_WI
 enum { MP_CHLADNI_LAYOUT, MP_CHLADNI_LINE_WIDTH, MP_CHLADNI_MODES, MP_CHLADNI_RISE, MP_CHLADNI_FALL, MP_CHLADNI_MORPH, MP_CHLADNI_MORPH_GAIN, MP_CHLADNI_TRIGGER, MP_CHLADNI_REFRACTORY, MP_CHLADNI_TONAL, MP_CHLADNI_PAINT, MP_CHLADNI_N };
 static const char *const mtr_en_chladni_layout[] = { "LATTICE", "SHIMMER" };
 static const char *const mtr_en_chladni_paint[] = { "LINE", "EMBER", "OCEAN" };
-static const mtr_param_t mtr_p_chladni[MP_CHLADNI_N] = {
+static const mtr_param_t mtr_p_chladni[MP_CHLADNI_N] COLD_DATA = {
     { "LAYOUT", MTR_ENUM, 0, 1, 1, 0, 255, 0, "", mtr_en_chladni_layout, 0 },
     { "LINE WIDTH", MTR_U16, 200, 6000, 25, 1245, 255, 0, "", 0, 0 },
     { "MODES", MTR_U8, 1, 4, 1, 3, 255, 0, "", 0, 0 },
@@ -83,7 +83,7 @@ static mtr_data_t mtr_d_chladni = { VIZ_CHLADNI, "CHLADNI", MP_CHLADNI_N, mtr_p_
 /* MASTER VU (id 15) */
 enum { MP_VU_MASTER_INFO, MP_VU_MASTER_COLOR_MODE, MP_VU_MASTER_COLOR_GREEN, MP_VU_MASTER_COLOR_YELLOW, MP_VU_MASTER_COLOR_RED, MP_VU_MASTER_N };
 static const char *const mtr_en_vu_master_color_mode[] = { "THEME", "CUSTOM" };
-static const mtr_param_t mtr_p_vu_master[MP_VU_MASTER_N] = {
+static const mtr_param_t mtr_p_vu_master[MP_VU_MASTER_N] COLD_DATA = {
     { "TECH INFO", MTR_BOOL, 0, 1, 1, 1, 255, 0, "", 0, 0 },
     { "SEGMENT COLOUR", MTR_ENUM, 0, 1, 1, 0, 255, 0, "", mtr_en_vu_master_color_mode, 0 },
     { "GREEN", MTR_U16, 0, 65535, 1, 0, 1, 1, "", 0, 0 },

@@ -13390,3 +13390,7 @@ Also: `tau_controls.js`/firmware value text apply the display offset (gains show
 
 **Tau build:** `alfatreze.TAU_0_6_0_A_45` (`work/diagnostics/tau-0_6_0_a_45`, Diagnostic variant, `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, bar-hi-b454 seed-1 RBF `4b82d948...`, hash-checked) -- packaged, **not installed, not run on hardware**. Hardware questions that remain: the real cost of AA/blend on the engine (the lab figures are a model), and the stack margin with the 6 KB stack (run a worst-case Check and read the stack peak).
 
+## B-507: every meter's parameter table moved to cold data
+
+Follow-up to B-506's `cold_tables` (which did this for Layered Wave only). `tools/gen_meters.py` now emits every meter's `mtr_p_*` parameter table as `COLD_DATA`: it is read only by the settings pages and the tau-assets loader, both after `cold_boot_load()`. Preset values stay in RAM for the other meters on purpose: `settings_load()` applies saved presets before the cold image loads, and a tau-assets METR section can overwrite them. Measured on the 192 KB link: Diagnostic heap gap 5,216 to 6,048 B, release 11,632 to 12,464 B (+832 B each). Left in hot RAM, deliberately: Chladni/Winamp/VU preset values and name buffers, the live values arrays, the enum name pointer tables. `make test-host` passes; heap-gap baseline updated. Not packaged or run on hardware (alpha.45 predates it).
+
