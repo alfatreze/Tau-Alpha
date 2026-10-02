@@ -1296,6 +1296,7 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
  * scope), so this is a plain dark-mode layout: title/artist, a real
  * amplitude-driven level meter, elapsed time. Colours are RGB565.
  */
+#include "meter_policy.h"    /* B-525: throttle for the heavy meter (host-tested) */
 #include "start_gesture.h"   /* B-522: Start opens Settings on release; Start+Y chord (pure logic, host-tested) */
 #include "theme.h"   /* named UI colours as roles (step 0a of the theme system); UI_PANEL etc. read th_role[] */
 /* Vertical gradient endpoints. Drawn as horizontal bands rather than a true
@@ -4820,18 +4821,17 @@ static int meter_afford(void);                 /* defined with the audio-yield l
  * It is redrawn at most every HM_MIN_MS and skipped altogether while the FIFO is low (the same yield Chladni uses); the time skipped is added to the next
  * call's dt_ms, so the history still scrolls at the right speed. A forced repaint is never skipped. */
 #define HM_MIN_MS 45u
-static uint32_t hm_last_cyc, hm_skip_ms, hm_n_skip;
-static uint8_t  hm_have;
+static mp_t hm_pol;
+static uint32_t hm_n_skip;
 COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_t flags)
 {
     mtr_in_t inb = *in0;
     const mtr_in_t *in = &inb;
-    if (viz == VIZ_LAYERED_WAVE && !in0->force) {
-        if ((hm_have && (uint32_t)(cycles() - hm_last_cyc) < (CLK_HZ / 1000u) * HM_MIN_MS) || !meter_afford()) { hm_skip_ms += in0->dt_ms; hm_n_skip++; return 0u; }
-        const uint32_t dt = (uint32_t)in0->dt_ms + hm_skip_ms;
-        inb.dt_ms = (uint16_t)(dt > 65535u ? 65535u : dt);
+    if (viz == VIZ_LAYERED_WAVE) {
+        uint32_t dt = in0->dt_ms;
+        if (!mp_throttle(&hm_pol, cycles(), (CLK_HZ / 1000u) * HM_MIN_MS, in0->dt_ms, in0->force, meter_afford(), &dt)) { hm_n_skip++; return 0u; }
+        inb.dt_ms = (uint16_t)dt;
     }
-    hm_skip_ms = 0u;
     const uint32_t full = (viz == VIZ_CHLADNI || viz == VIZ_LAYERED_WAVE);        /* full-repaint meters */
     const uint32_t front = DBUF_READY() ? helios_front_idx() : 0u;
     const uint32_t cpu = DBUF_READY() ? (REG(R_DBUF_CPU) & 1u) : 0u;              /* where plain drawing points right now */
@@ -4842,7 +4842,8 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
     const uint32_t t0 = cycles();
     hs_base = helios_buf_base(comp ? (front ^ 1u) : cpu);
     if (comp) REG(R_DBUF_CPU) = front ^ 1u;                    /* RECT-class commands read this at EXECUTION time: it stays on the back buffer until drained */
-    fig_clip_on = (flags & HM_CLIP) ? 1u : 0u;
+    /* A composed figure is drawn whole in the back buffer and the present copy skips the exclusion rects, so clipping its fills as well would only add commands. */
+    fig_clip_on = ((flags & HM_CLIP) && !comp) ? 1u : 0u;
     uint32_t drew = 0u;
     switch (viz) {
     case VIZ_WINAMP_SCOPE: wviz_scope_tick(in, (flags & HM_GRAD) ? 1 : 0); break;
@@ -4865,7 +4866,7 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
             } else { helios_n_fail++; if (viz == VIZ_LAYERED_WAVE) lw_retry(); }     /* never drained: do not show a half-built box; repaint next time */
         }
     }
-    if (viz == VIZ_LAYERED_WAVE) { hm_last_cyc = cycles(); hm_have = 1u; }
+    if (viz == VIZ_LAYERED_WAVE) mp_drew(&hm_pol, cycles());
     if (full && drew) { helios_t_last = (uint32_t)(cycles() - t0); if (helios_t_last > helios_t_max) helios_t_max = helios_t_last; helios_n_draw++; }
     return res;
 }
