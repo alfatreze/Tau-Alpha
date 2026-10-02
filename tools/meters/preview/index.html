@@ -11,7 +11,8 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:calc(400px *
 .panel{min-width:260px}.panel label{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0}
 .rgb{display:inline-flex;gap:6px;align-items:center;flex:1}.rgb input[type=text]{font:12px ui-monospace,monospace;width:7em}
 .info{width:18px;height:18px;padding:0;border-radius:50%;border:1px solid var(--mut);background:none;color:var(--mut);font:italic 700 11px/16px Georgia,serif;cursor:pointer}.info:hover,.info:focus-visible{color:var(--fg);border-color:var(--fg)}
-.stage{position:sticky;top:8px;align-self:flex-start;max-height:calc(100vh - 16px);overflow:auto}.infod{margin-top:6px}.infod summary{cursor:pointer;color:var(--mut)}
+.stage{position:sticky;top:0;z-index:20;align-self:flex-start;max-height:100vh;overflow:auto;background:var(--bg);padding:8px 8px 6px 0;box-shadow:0 6px 10px -8px rgba(0,0,0,.4)}
+@media (max-width:899px){.stage{position:static;max-height:none;box-shadow:none}}   /* stacked layout: the preview would fill the window, so it scrolls with the page */.infod{margin-top:6px}.infod summary{cursor:pointer;color:var(--mut)}
 .strip{position:relative;width:calc(400px * var(--z,1));max-width:100%;margin-top:2px}.strip canvas{display:block;width:100%;border:1px solid var(--line);border-bottom:0}
 .hbar{position:relative;height:40px;border:1px solid var(--line);border-top:2px solid var(--line)}
 .beads{position:absolute;left:0;right:0;top:0;pointer-events:none}.bead{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--c,#888);border:2px solid var(--bg);outline:1px solid var(--fg);cursor:ns-resize;pointer-events:auto;touch-action:none}
