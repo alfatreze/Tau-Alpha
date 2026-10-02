@@ -114,6 +114,16 @@ comparison and the firmware are untouched (defaults skip every extra operation):
   include the three classic ones: alpha, additive, subtractive). Modelled as one command per run: on hardware it is an `OP_BLIT` with blend from a one-row
   strip of the layer colour with source stride 0, written once per colour change, so the count is unchanged; the strips and the blend-ready probe
   (`BLEND_READY`) would be the real work. SUBTRACT on a dark background gives black, as the arithmetic says.
+- **Antialiasing** (OFF, EDGE 2/4/8 coverage levels): software edge pixels, the row just outside each layer edge mixed over what is there by the sub-pixel
+  coverage. Costs commands (model, default preset: about +85 percent for EDGE 2, +90 for EDGE 4, +95 for EDGE 8; CPU range roughly doubles) and the cost
+  guard then coarsens the cells. See section 8 for why a hardware envelope fill is the real fix.
+- **Cost guard** (ON, RELAXED, OFF): the firmware's self-scaling guard keeps a frame near 300 commands by widening the drawing cells, and the taper, the
+  edges and everything else are evaluated per cell, so with several layers at high Resolution they step at the cell width (the Info section shows the
+  cell width). RELAXED uses a budget of 600, OFF never widens (full Resolution, at whatever it costs). Measured with 5 layers at Resolution 400: ON 2 px
+  cells and about 226 commands, OFF 1 px and about 331.
+- **Option cost**: the Info section has a table of the model CPU range and the engine's SDRAM word operations for every option of the cost-relevant
+  settings, relative to the current ones, and the same numbers appear in the tooltips of those settings. Blend costs no extra commands (126 to 126 in the
+  default preset) but about 38 percent more engine operations (a blended pixel reads the destination, reads the source and writes).
 If a style or the gain proves worth it, the next step is promoting it: manifest parameters, the C twin, golden scenarios.
 
 ## 5. Drawing and cost (Talos / Helios)

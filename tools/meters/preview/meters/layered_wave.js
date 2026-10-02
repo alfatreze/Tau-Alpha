@@ -147,7 +147,32 @@
   /* Lab-only experiments (NOT in the manifest, not in the firmware): per-layer gain g1..g6 in dB and the SPECTRUM style hstyle. With the defaults
      (0 dB, BLOCKS) every operation below is skipped, so the golden-frame comparison with the firmware is unaffected. */
   const gm = (p, k) => { const db = p['g' + (k + 1)] | 0; return db ? Math.round(256 * Math.pow(10, db / 20)) : 256; };
+  /* Antialiasing (lab-only experiment, software edge pixels): the row just outside each layer's edge is painted with the layer colour mixed over what is
+     already there by the sub-pixel coverage, quantised to AA_LEVELS[p.aa] steps so neighbouring columns can still merge. One extra command per run and
+     edge, so it costs commands (and the self-scaling stride then coarsens the cells): see the Info cost table. */
+  const AA_LEVELS = [0, 2, 4, 8];
+  const halfPxAA = (a8, w8, Hh, L) => { const v = a8 * w8 * Hh / 65025; let h = Math.floor(v), q = Math.round((v - h) * L); if (q >= L) { h++; q = 0; } if (h < 1 && w8 > 64) { h = 1; q = 0; } return [h, q]; };
+  function aaPass(ctx, st, cy, rect, L) {
+    const fb = ctx.fb, X = ctx.x, y0 = ctx.y, y1 = ctx.y + ctx.h;
+    for (const [x0, x1, h, cv, c] of st.aaRuns) {
+      if (!cv) continue;
+      for (const y of [cy - h - 1, cy + h]) {
+        if (y < y0 || y >= y1) continue;
+        let a = x0, cur = fb.px[y * fb.w + X + x0];
+        for (let x = x0 + 1; x <= x1; x++) {
+          const u = x < x1 ? fb.px[y * fb.w + X + x] : -1;
+          if (u !== cur) { rect(X + a, y, x - a, 1, mix(cur, c, tdiv(cv * 256, L))); a = x; cur = u; }
+        }
+      }
+    }
+  }
   const LAB_PARAMS = [
+    { key: 'guard', label: 'Cost guard', type: 'enum', values: ['ON', 'RELAXED', 'OFF'], default: 0, group: 'lab',
+      help: 'The self-scaling guard keeps a frame near 300 drawing commands by widening the drawing cells (lab-only control; the firmware always uses ON).',
+      value_help: ['ON: budget 300 commands per frame. With several layers at high Resolution the cells are widened (see the cell width in Info), so edges and the taper step at that width.', 'RELAXED: budget 600 commands; finer cells, about twice the drawing work.', 'OFF: never widen; the full Resolution you asked for, at whatever it costs (can be well over the budget).'] },
+    { key: 'aa', label: 'Antialiasing', type: 'enum', values: ['OFF', 'EDGE 2', 'EDGE 4', 'EDGE 8'], default: 0, group: 'lab',
+      help: 'Soften the stair-steps along each layer edge with partly covered pixels (lab-only experiment, software). The number is how many coverage levels are used: more levels look smoother but merge less, so they need more drawing commands (see the Info cost table).',
+      value_help: ['OFF: whole pixels only (what the firmware does).', 'EDGE 2: one extra pixel row per edge, half or no coverage.', 'EDGE 4: four coverage levels.', 'EDGE 8: eight levels, the smoothest and the most commands.'] },
     { key: 'hstyle', label: 'Spectrum style', type: 'enum', values: ['BLOCKS', 'EQ BELLS', 'CURVE'], default: 0, group: 'lab', when: { view: 1 },
       help: 'How the layers share the frequency axis in SPECTRUM view (lab-only experiment).',
       value_help: ['BLOCKS: hard blocks, each layer draws only its own frequency range (what the firmware does).', 'EQ BELLS: the same ranges with soft shoulders that taper into the neighbours, like the bell curves of a parametric EQ.', 'CURVE: one continuous gradient-coloured outline across the whole axis; the layer colours become colour stops and the layer gains a smooth gain curve.'] },
@@ -160,9 +185,9 @@
 
   /* ---- state ----------------------------------------------------------------------------------------------------------------------- */
   function state() { return { init: false, key: '' }; }
-  function reinit(st, ctx, key) {
+  function reinit(st, ctx, hard) {
     const p = ctx.p, n = p.layers;
-    st.key = key; st.init = true; st.s = new Array(n).fill(0); st.acc = 0; st.dirty = true;
+    st.hard = hard; st.init = true; st.s = new Array(n).fill(0); st.acc = 0; st.dirty = true;
     st.hist = Array.from({ length: n }, () => new Uint8Array(p.res + 4));
     st.band = Array.from({ length: n }, () => new Array(NB).fill(0));
     st.e = new Array(NB).fill(0); st.eTick = 0; st.ebounds = null;
@@ -171,22 +196,30 @@
   function tick(ctx) {
     const p = ctx.p, st = ctx.st, fb = ctx.fb, W = ctx.w, H = ctx.h, X = ctx.x, Y = ctx.y, dt = ctx.dt || 26;
     const cl = colours(ctx);
-    const key = [p.view, p.layers, p.res, p.draw, p.split, p.outer, p.nest, p.taper, W, H, X, Y, cl.co, cl.ci, cl.bgc].join(',');
-    if (!st.init || st.key !== key || ctx.force) { reinit(st, ctx, key); fb.rect(X, Y, W, H, cl.bgc); }   // the solid background: ONE command
+    // Only the history/band array sizes and the box geometry force a reset; every other change (view, draw, split, colours, ...) just repaints on the next
+    // frame and keeps the history, so switching a setting never wipes the picture.
+    const hard = [p.layers, p.res, W, H, X, Y].join(','), soft = [p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bgc, p.aa | 0, p.bmode | 0].join(',');
+    if (!st.init || st.hard !== hard || ctx.force) { reinit(st, ctx, hard); fb.rect(X, Y, W, H, cl.bgc); }   // the solid background: ONE command
+    else if (st.soft !== soft) st.dirty = true;
+    st.soft = soft;
     if (ctx.paused) return;                // the firmware skips drawing while paused: the picture holds
     const cy = Y + (H >> 1), Hh = (H >> 1) - 1;
-    st.cnt = 0;
+    st.cnt = 0; st.aaRuns = [];
+    if ((p.guard | 0) === 2) st.stride = 1;   // guard off: full resolution from the first frame
     const rect = (x, y, w, h, c) => { fb.rect(x, y, w, h, c); st.cnt++; };
     const bm = p.bmode | 0, ba = Math.round((p.balpha === undefined ? 60 : p.balpha) * 255 / 100);   // lab-only blend experiment: layers composited through the hardware blend instead of opaque
     const lrect = bm ? (x, y, w, h, c) => { fb.blend(x, y, w, h, c, bm - 1, ba); st.cnt++; } : rect;
     if (p.view === 1) spectrum(ctx, st, dt, cl, cy, Hh, rect, lrect); else history(ctx, st, dt, cl, cy, Hh, rect, lrect);
-    if (st.cnt) st.stride = st.cnt > BUDGET ? Math.min(16, st.stride + 1) : (st.cnt < (BUDGET >> 1) && st.stride > 1 ? st.stride - 1 : st.stride);
+    if (AA_LEVELS[p.aa | 0] && st.aaRuns.length) aaPass(ctx, st, cy, rect, AA_LEVELS[p.aa | 0]);
+    const bud = [BUDGET, 600, Infinity][p.guard | 0];   // lab-only: the guard's budget (the firmware always uses BUDGET)
+    if (bud === Infinity) st.stride = 1;
+    else if (st.cnt) st.stride = st.cnt > bud ? Math.min(16, st.stride + 1) : (st.cnt < (bud >> 1) && st.stride > 1 ? st.stride - 1 : st.stride);
   }
 
   /* HISTORY view: x is time (newest left); the box is cleared and every layer drawn outermost first, merging neighbouring cells of equal height
      and colour. `stride` widens the evaluation cell when the last frame needed more than BUDGET commands. */
   function history(ctx, st, dt, cl, cy, Hh, rect, lrect) {
-    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, res = p.res, smooth = p.draw === DRAW.SMOOTH;
+    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, res = p.res, smooth = p.draw === DRAW.SMOOTH, aaL = AA_LEVELS[p.aa | 0];
     const tg = targets(p, ctx.spec, ctx.wave, st);
     for (let k = 0; k < n; k++) {
       const m = p.split === SPLIT.DYNAMICS && n > 1 ? T.mulQ8[n - 1 - 2 * k + 5] : 256;
@@ -202,15 +235,15 @@
     rect(X, ctx.y, W, ctx.h, cl.bgc);
     for (let k = 0; k < n; k++) {
       const h = st.hist[k]; let run = null;
-      const flush = () => { if (run) { lrect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.tbl[k][run.q]); run = null; } };
+      const flush = () => { if (run) { if (aaL) st.aaRuns.push([run.x0, run.x1, run.h, run.cv, cl.tbl[k][run.q]]); lrect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.tbl[k][run.q]); run = null; } };
       for (let xs = 0; xs < W; xs += s) {
         const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1));
         let a8;
         if (smooth) { const t = tdiv((2 * xc + 1) * res * 128, W) - phase - 128; a8 = t <= 0 ? h[0] : cr8((j) => h[j], res + 4, t >> 8, t & 255); }
         else a8 = h[Math.min(res - 1, tdiv(xc * res, W))];
-        const w8 = tq === 0 ? 255 : win8(T.winHist, tq, tdiv((2 * xc + 1) * 8192, W)), hh = halfPx(a8, w8, Hh), q = Math.min(AGE - 1, tdiv((2 * xc + 1) * 4, W));
-        if (run && run.h === hh && run.q === q) { run.x1 = xs + wd; continue; }
-        flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, q };
+        const w8 = tq === 0 ? 255 : win8(T.winHist, tq, tdiv((2 * xc + 1) * 8192, W)), aaT = aaL ? halfPxAA(a8, w8, Hh, aaL) : null, hh = aaT ? aaT[0] : halfPx(a8, w8, Hh), cv = aaT ? aaT[1] : 0, q = Math.min(AGE - 1, tdiv((2 * xc + 1) * 4, W));
+        if (run && run.h === hh && run.q === q && run.cv === cv) { run.x1 = xs + wd; continue; }
+        flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, q, cv };
       }
       flush();
     }
@@ -221,7 +254,7 @@
      part of the axis it listens to (the same ranges as the handles); with DYNAMICS every layer is the whole outline. Layers also differ by response
      time (outer slow, inner fast) and height. Redrawn every frame. */
   function spectrum(ctx, st, dt, cl, cy, Hh, rect, lrect) {
-    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), s = Math.max(st.stride, tdiv(W + p.res - 1, p.res));   // Resolution = columns across the width (cell width), never finer than the self-scaling stride allows
+    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), aaL = AA_LEVELS[p.aa | 0], s = Math.max(st.stride, tdiv(W + p.res - 1, p.res));   // Resolution = columns across the width (cell width), never finer than the self-scaling stride allows
     rect(X, ctx.y, W, ctx.h, cl.bgc);
     if (p.split === SPLIT.ENERGY) learnEnergy(st, ctx.spec, n);
     const bnd = p.split === SPLIT.DYNAMICS ? null : boundsFor(p.split, n, st, xoOf(p));   // frequency splits: each layer draws only the part of the axis it listens to
@@ -240,15 +273,15 @@
         bu[i] = a;
       }
       let run = null;
-      const flush = () => { if (run) { lrect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.base[k]); run = null; } };
+      const flush = () => { if (run) { if (aaL) st.aaRuns.push([run.x0, run.x1, run.h, run.cv, cl.base[k]]); lrect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.base[k]); run = null; } };
       for (let xs = 0; xs < W; xs += s) {
         const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1));
         let a8;
         if (smooth) { const t = tdiv((2 * xc + 1) * NB * 128, W) - 128; a8 = t <= 0 ? bu[0] : cr8((j) => bu[j], NB, t >> 8, t & 255); }
         else a8 = bu[Math.min(NB - 1, tdiv(xc * NB, W))];
-        const w8 = tq === 0 ? 255 : win8(T.winSpec, tq, tdiv((2 * xc + 1) * 8192, W)), hh = halfPx(a8, w8, Hh);
-        if (run && run.h === hh) { run.x1 = xs + wd; continue; }
-        flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh };
+        const w8 = tq === 0 ? 255 : win8(T.winSpec, tq, tdiv((2 * xc + 1) * 8192, W)), aaT = aaL ? halfPxAA(a8, w8, Hh, aaL) : null, hh = aaT ? aaT[0] : halfPx(a8, w8, Hh), cv = aaT ? aaT[1] : 0;
+        if (run && run.h === hh && run.cv === cv) { run.x1 = xs + wd; continue; }
+        flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, cv };
       }
       flush();
     }
@@ -257,7 +290,7 @@
   /* CURVE style (lab-only): ONE continuous outline across the whole axis, coloured by a gradient whose stops are the layer colours at the centres of
      their frequency ranges, with a smooth gain curve through the per-layer gains. Layer 0's response time drives the bands. */
   function curveOutline(ctx, st, dt, cl, cy, Hh, rect, bnd, lrect) {
-    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), s = Math.max(st.stride, tdiv(W + p.res - 1, p.res));
+    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), aaL = AA_LEVELS[p.aa | 0], s = Math.max(st.stride, tdiv(W + p.res - 1, p.res));
     const m = n > 1 ? T.mulQ8[n - 1 + 5] : 256, ca = coef(p.response, m, dt, 1), cr = coef(p.response, m, dt, 0), b = st.band[0], bu = new Array(NB);
     const lay = (g) => (p.outer === 0 ? g : n - 1 - g), cen = [], gdb = [], col = [];
     for (let g = 0; g < n; g++) { cen.push((bnd[g] + bnd[g + 1]) / 2); gdb.push(p['g' + (lay(g) + 1)] | 0); col.push(cl.base[lay(g)]); }
@@ -268,16 +301,16 @@
       bu[i] = Math.min(255, Math.round(toU8(b[i]) * Math.pow(10, db / 20)));
     }
     let run = null;
-    const flush = () => { if (run) { lrect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, run.c); run = null; } };
+    const flush = () => { if (run) { if (aaL) st.aaRuns.push([run.x0, run.x1, run.h, run.cv, run.c]); lrect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, run.c); run = null; } };
     for (let xs = 0; xs < W; xs += s) {
       const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1));
       let a8;
       if (smooth) { const t = tdiv((2 * xc + 1) * NB * 128, W) - 128; a8 = t <= 0 ? bu[0] : cr8((j) => bu[j], NB, t >> 8, t & 255); }
       else a8 = bu[Math.min(NB - 1, tdiv(xc * NB, W))];
-      const w8 = tq === 0 ? 255 : win8(T.winSpec, tq, tdiv((2 * xc + 1) * 8192, W)), hh = halfPx(a8, w8, Hh);
+      const w8 = tq === 0 ? 255 : win8(T.winSpec, tq, tdiv((2 * xc + 1) * 8192, W)), aaT = aaL ? halfPxAA(a8, w8, Hh, aaL) : null, hh = aaT ? aaT[0] : halfPx(a8, w8, Hh), cv = aaT ? aaT[1] : 0;
       const [g0, g1, f] = seg((xc + 0.5) / W * NB), c = mix(col[g0], col[g1], Math.round(f * 256));
-      if (run && run.h === hh && run.c === c) { run.x1 = xs + wd; continue; }
-      flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, c };
+      if (run && run.h === hh && run.c === c && run.cv === cv) { run.x1 = xs + wd; continue; }
+      flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, c, cv };
     }
     flush();
   }

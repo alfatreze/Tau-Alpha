@@ -30,10 +30,11 @@ int main(int argc, char **argv) {
     FILE *f = fopen(argv[1], "r");
     int nscen; if (fscanf(f, "%d", &nscen) != 1) return 2;
     for (int s = 0; s < nscen; s++) {
-        int nframes; unsigned bx, by, bw, bh, role[12];
-        if (fscanf(f, "%u %u %u %u %d", &bx, &by, &bw, &bh, &nframes) != 5) return 2;
+        int nframes, chg; unsigned bx, by, bw, bh, role[12], pv2[40];
+        if (fscanf(f, "%u %u %u %u %d %d", &bx, &by, &bw, &bh, &nframes, &chg) != 6) return 2;
         for (int i = 0; i < 12; i++) if (fscanf(f, "%u", &role[i]) != 1) return 2;
         for (int i = 0; i < MP_LAYERED_WAVE_N; i++) { unsigned v; if (fscanf(f, "%u", &v) != 1) return 2; mtr_v_layered_wave[i] = (uint16_t)v; }
+        for (int i = 0; i < MP_LAYERED_WAVE_N; i++) if (fscanf(f, "%u", &pv2[i]) != 1) return 2;
         ui_accent = (uint16_t)role[0];
         th_role[TR_TEXT_PRIMARY] = (uint16_t)role[1]; th_role[TR_TEXT_SECONDARY] = (uint16_t)role[2]; th_role[TR_OK] = (uint16_t)role[3];
         th_role[TR_WARN] = (uint16_t)role[4]; th_role[TR_DANGER] = (uint16_t)role[5]; th_role[TR_PILL] = (uint16_t)role[6]; th_role[TR_ERROR] = (uint16_t)role[7];
@@ -45,6 +46,7 @@ int main(int argc, char **argv) {
             for (int i = 0; i < 16; i++) { unsigned v; if (fscanf(f, "%u", &v) != 1) return 2; spec[i] = (uint8_t)v; }
             for (int i = 0; i < 64; i++) { int v; if (fscanf(f, "%d", &v) != 1) return 2; wave[i] = (int8_t)v; }
             printf("F %d\n", n);
+            if (n == chg) for (int i = 0; i < MP_LAYERED_WAVE_N; i++) mtr_v_layered_wave[i] = (uint16_t)pv2[i];
             mtr_in_t in = {0};
             in.spec = spec; in.wave = wave; in.force = (n == 0) ? 1 : 0; in.dt_ms = 26u;
             in.x = (uint16_t)bx; in.y = (uint16_t)by; in.w = (uint16_t)bw; in.h = (uint16_t)bh;
@@ -65,9 +67,10 @@ def main():
     lines = [str(len(scen))]
     for s in scen:
         b = s["box"]
-        lines.append("%d %d %d %d %d" % (b["x"], b["y"], b["w"], b["h"], len(s["frames"])))
+        lines.append("%d %d %d %d %d %d" % (b["x"], b["y"], b["w"], b["h"], len(s["frames"]), s["chg"]))
         lines.append(" ".join(str(v) for v in s["roles"]))
         lines.append(" ".join(str(v) for v in s["params"]))
+        lines.append(" ".join(str(v) for v in s["params2"]))
         for fr in s["frames"]:
             lines.append(str(fr["paused"]) + " " + " ".join(str(v) for v in fr["spec"]) + " " + " ".join(str(v) for v in fr["wave"]))
     with tempfile.TemporaryDirectory() as d:

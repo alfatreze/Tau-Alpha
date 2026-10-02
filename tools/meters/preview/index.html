@@ -12,7 +12,7 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:calc(400px *
 .rgb{display:inline-flex;gap:6px;align-items:center;flex:1}.rgb input[type=text]{font:12px ui-monospace,monospace;width:7em}
 .info{width:18px;height:18px;padding:0;border-radius:50%;border:1px solid var(--mut);background:none;color:var(--mut);font:italic 700 11px/16px Georgia,serif;cursor:pointer}.info:hover,.info:focus-visible{color:var(--fg);border-color:var(--fg)}
 .stage{flex:0 0 auto;box-sizing:content-box;width:calc(400px * var(--z,1));max-width:calc(100vw - 24px);position:sticky;top:0;z-index:20;align-self:flex-start;max-height:100vh;overflow:auto;background:var(--bg);padding:8px 8px 6px 0;box-shadow:0 6px 10px -8px rgba(0,0,0,.4)}
-@media (max-width:899px){.stage{position:static;max-height:none;box-shadow:none}}   /* stacked layout: the preview would fill the window, so it scrolls with the page */.infod{margin-top:6px;max-width:100%}.infod .cost{overflow-wrap:anywhere;white-space:normal}.infod summary{cursor:pointer;color:var(--mut)}
+@media (max-width:899px){.stage{position:static;max-height:none;box-shadow:none}}   /* stacked layout: the preview would fill the window, so it scrolls with the page */.infod{margin-top:6px;max-width:100%}#costtable table{border-collapse:collapse;font-size:11px;margin-top:6px;width:100%}#costtable th{text-align:left;font-weight:600;padding:2px 6px 2px 0;vertical-align:top;white-space:nowrap}#costtable td{padding:2px 6px;border-left:1px solid var(--line);vertical-align:top;color:var(--mut)}#costtable td.sel{color:var(--fg);font-weight:600}.infod .cost{overflow-wrap:anywhere;white-space:normal}.infod summary{cursor:pointer;color:var(--mut)}
 .strip{position:relative;width:calc(400px * var(--z,1));max-width:100%;margin-top:2px}.strip canvas{display:block;width:100%;border:1px solid var(--line);border-bottom:0}
 .hbar{position:relative;height:40px;border:1px solid var(--line);border-top:2px solid var(--line)}
 .beads{position:absolute;left:0;right:0;top:0;pointer-events:none}.bead{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--c,#888);border:2px solid var(--bg);outline:1px solid var(--fg);cursor:ns-resize;pointer-events:auto;touch-action:none}
@@ -28,7 +28,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
 </style></head><body>
 <h1>Tau meter lab <span class="val" id="tag"></span></h1>
 <div class="wrap">
- <div class="stage"><canvas id="cv" width="400" height="360"></canvas><div id="splitwrap" hidden><div class="strip" id="strip"><canvas id="map" width="400" height="56"></canvas><div class="beads" id="beads"></div><div class="hbar" id="hbar"></div></div></div><details class="infod"><summary>Info: commands, CPU, bands</summary><div class="cost" id="cost"></div><div class="cost" id="splitnote"></div></details></div>
+ <div class="stage"><canvas id="cv" width="400" height="360"></canvas><div id="splitwrap" hidden><div class="strip" id="strip"><canvas id="map" width="400" height="56"></canvas><div class="beads" id="beads"></div><div class="hbar" id="hbar"></div></div></div><details class="infod" id="infod"><summary>Info: commands, CPU, cost of each option</summary><div class="cost" id="cost"></div><div id="costtable"></div><div class="cost" id="splitnote"></div></details></div>
  <div class="panel">
   <label>Meter <select id="meter"></select></label>
   <label>Theme <select id="theme"></select></label>
@@ -58,9 +58,11 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  let params={},frame=0,st=null,key=null;
  const cv=$('cv'),ctx=cv.getContext('2d');
  let ctl=null;
- function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);const lab=TauMeters[key]&&TauMeters[key].LAB_PARAMS;const m2=lab?Object.assign({},m,{params:m.params.concat(lab),groups:(m.groups||[]).concat([{key:'lab',label:'Experimental (lab only)'}])}):m;ctl=TauControls.build($('controls'),m2,p=>{params=p;st=null;});}
- ['meter'].forEach(i=>$(i).onchange=rebuild);rebuild();
- ['theme','mode','accent','src','barready'].forEach(i=>$(i).onchange=()=>{st=null;});
+ function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);const lab=TauMeters[key]&&TauMeters[key].LAB_PARAMS;const m2=lab?Object.assign({},m,{params:m.params.concat(lab),groups:(m.groups||[]).concat([{key:'lab',label:'Experimental (lab only)'}])}):m;ctl=TauControls.build($('controls'),m2,p=>{params=p;infoSoon();},{valueNote:optionNote,noteKeys:COST_KEYS});st=null;}
+ const COST_KEYS=new Set(['view','split','nest','draw','hstyle','bmode','aa']);
+ ['meter'].forEach(i=>$(i).onchange=rebuild);
+ ['theme','mode','accent'].forEach(i=>$(i).onchange=retheme);   // no reset: the meter repaints in the new colours and keeps its history
+ ['src','barready'].forEach(i=>$(i).onchange=()=>{});
  const live=TauLive.create();
  const sources={demo:TauAudio.demo(1),sweep:TauAudio.sweep(),silence:TauAudio.silence(),trace:TauAudio.silence(),file:live.frame,mic:live.frame};
  $('audiofile').onchange=e=>{const f=e.target.files[0];if(f)live.useFile(f,$('repeat').checked).then(()=>{$('src').value='file';}).catch(err=>alert('Audio file: '+err.message));};
@@ -68,19 +70,23 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  $('fullfig').onchange=()=>{st=null;};
  $('zoom').onchange=()=>document.documentElement.style.setProperty('--z',$('zoom').value);
  $('repeat').onchange=()=>live.setLoop($('repeat').checked);
- $('tracefile').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{sources.trace=TauAudio.trace(JSON.parse(t));$('src').value='trace';st=null;});};
+ $('tracefile').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{sources.trace=TauAudio.trace(JSON.parse(t));$('src').value='trace';});};
  let fb=null,lvl=TauBallistics.newSpec(),theme=null,mod=null,box={x:16,y:152,w:368,h:122},costs=[],works=[],pixs=[];
  function setup(){const m=S.meters.find(x=>x.key===key);mod=TauMeters[key];box=$('fullfig').checked?{x:0,y:0,w:400,h:323}:{x:16,y:152,w:368,h:122};theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
   fb=new TauFb.Fb(400,360);fb.barReady=$('barready').checked;for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));st=mod.state();lvl=TauBallistics.newSpec();costs=[];works=[];pixs=[];frame=0;
   ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);}
- function step(){if(!st)setup();const src=sources[$('src').value](frame);TauBallistics.specStep(lvl,src.spec);const bg=theme.gradAt(box.y+(box.h>>1));const c0=fb.cmds,p0=fb.pix;
+ function retheme(){if(!st)return;theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
+  if(key!=='layered_wave'){st=null;return;}   // other meters keep change caches the lab cannot invalidate: they restart as before
+  for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));infoSoon();}
+ function step(){if(!st)setup();fb.barReady=$('barready').checked;const src=sources[$('src').value](frame);TauBallistics.specStep(lvl,src.spec);const bg=theme.gradAt(box.y+(box.h>>1));const c0=fb.cmds,p0=fb.pix;
   mod.tick({fb,x:box.x,y:box.y,w:box.w,h:box.h,bg,theme,spec:lvl,wave:src.wave,paused:src.paused,p:params,st,force:frame===0});
   costs.push(fb.cmds-c0);works.push(st.work||0);pixs.push(fb.pix-p0);if(costs.length>120){costs.shift();works.shift();pixs.shift();}frame++;
   ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);
   splitMap();
   const m=S.meters.find(x=>x.key===key),c=TauCost.summarize(costs,m.cost_class);
   $('cost').innerHTML='commands/frame: mean '+c.mean+', worst '+c.max+' (class '+m.cost_class+' budget '+c.budget+') · '+c.vsBars+'× VIZ_BARS · <span class="'+(c.over?'over':'')+'">'+(c.over?'OVER BUDGET':'within budget')+'</span> · '+c.basis;
-  const avg=a=>a.reduce((x,y)=>x+y,0)/a.length,cp=TauCost.cpu(avg(costs),avg(works));
+  const avg=a=>a.reduce((x,y)=>x+y,0)/a.length,cp=TauCost.cpu(avg(costs),avg(works)),cellW=params.view===1&&params.res?Math.max(st.stride||1,Math.ceil(box.w/params.res)):(st.stride||1);
+  $('cost').innerHTML+='<br>drawing cell width: <b>'+cellW+' px</b>'+(cellW>1&&params.layers!==undefined?' (widened by the cost guard and the Resolution setting: edges and the taper step at this width; set Cost guard to RELAXED or OFF in the experimental section to see more)':' (full resolution)');
   $('cost').innerHTML+='<br>CPU estimate: <b>'+cp.low+'–'+cp.high+'%</b> of one core (model: command issue 60–400 cycles, column evaluation 30–80, 38 Hz, 66.7 MHz; unmeasured) · engine writes '+Math.round(avg(pixs)/1000)+'k px/frame';}
  const strip=$('strip'),hbar=$('hbar');let handles=[],drag=-1;
  const bandsNow=()=>mod.boundsFor(params.split,params.layers,st||{},mod.xoOf(params));
@@ -129,6 +135,30 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
    c.strokeStyle='#fff';c.lineWidth=1.5;c.beginPath();pts.forEach((q,i)=>{if(i)c.lineTo(q[0],q[1]);else c.moveTo(Math.min(0,q[0]),q[1]);});if(pts.length)c.lineTo(400,pts[pts.length-1][1]);c.stroke();c.lineWidth=1;}
   layoutHandles(col);layoutBeads(col);
   $('splitnote').textContent=(handlesOn()?'drag a handle to move a boundary (switches Layer split to CUSTOM) · double-click the strip to add a layer, a handle to remove it · ':'')+'bands = hardware spectrum bank, bass left, coloured by the layer each feeds first · '+d.map(x=>x.spectrum?('layer '+(x.layer+1)+': full spectrum (x axis = frequency), own response time'):x.dynamics?('layer '+(x.layer+1)+': broadband peak, own time constant'):('layer '+(x.layer+1)+': '+x.hzLo+'–'+x.hzHi+' Hz')).join(' · ');}
+ /* What each option costs: run the meter headless for a few dozen frames of the demo source with the current settings and one setting changed, and
+    report the model CPU range and the SDRAM word operations of the drawing engine (fill 1 per pixel, blend 3, copy 2). Model numbers, demo audio. */
+ const estCache=new Map();
+ function estimate(pp){
+  const k=key+JSON.stringify(pp)+box.w+'x'+box.h+$('theme').value+$('mode').value+$('accent').value;if(estCache.has(k))return estCache.get(k);
+  const th=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360),f=new TauFb.Fb(400,360),s=mod.state(),lv=TauBallistics.newSpec(),src=TauAudio.demo(1),N=45,W0=15;
+  let cmds=0,work=0,ops=0;
+  for(let n=0;n<N;n++){const fr=src(n);TauBallistics.specStep(lv,fr.spec);const c0=f.cmds,o0=f.ops;
+   mod.tick({fb:f,x:box.x,y:box.y,w:box.w,h:box.h,bg:0,theme:th,spec:lv,wave:fr.wave,paused:false,p:pp,st:s,force:n===0});
+   if(n>=W0){cmds+=f.cmds-c0;work+=s.work||0;ops+=f.ops-o0;}}
+  const m=N-W0,r={cmds:cmds/m,ops:ops/m,cpu:TauCost.cpu(cmds/m,work/m)};estCache.set(k,r);return r;
+ }
+ const mid=c=>(c.low+c.high)/2,sgn=v=>(v>=0?'+':'')+v.toFixed(1);
+ function optionNote(pk,i){if(!mod||!mod.state)return'';const base=estimate(params),alt=estimate(Object.assign({},params,{[pk]:i}));
+  const d=mid(alt.cpu)-mid(base.cpu),de=base.ops?(alt.ops/base.ops-1)*100:0;
+  return 'CPU '+alt.cpu.low+'–'+alt.cpu.high+'% ('+sgn(d)+'), engine '+Math.round(alt.ops/1000)+'k ops/frame ('+(de>=0?'+':'')+Math.round(de)+'%)';}
+ let infoTimer=0;function infoSoon(){clearTimeout(infoTimer);infoTimer=setTimeout(()=>{if(!$('infod').open||!mod||!mod.state)return;costTable();},500);}
+ function costTable(){const m=S.meters.find(x=>x.key===key),lab=mod.LAB_PARAMS||[],all=m.params.concat(lab);const rows=[];
+  for(const x of all){if(x.type!=='enum'||!COST_KEYS.has(x.key)||(x.when&&!Object.entries(x.when).every(([k,v])=>params[k]===v)))continue;
+   rows.push('<tr><th>'+x.label+'</th>'+x.values.map((v,i)=>{const alt=estimate(Object.assign({},params,{[x.key]:i})),base=estimate(params),d=mid(alt.cpu)-mid(base.cpu);
+    return '<td'+(i===params[x.key]?' class="sel"':'')+'>'+v+'<br>'+alt.cpu.low+'–'+alt.cpu.high+'% <small>('+sgn(d)+')</small><br><small>'+Math.round(alt.ops/1000)+'k ops</small></td>';}).join('')+'</tr>');}
+  $('costtable').innerHTML=rows.length?'<table>'+rows.join('')+'</table><div class="cost">Each cell: model CPU range of one core (change vs your current setting) and SDRAM word operations of the drawing engine per frame, demo audio, current other settings.</div>':'';}
+ $('infod').addEventListener('toggle',()=>{if($('infod').open)costTable();});
+ rebuild();   // after everything it uses is defined
  setInterval(step,26);
 })();
 </script></body></html>

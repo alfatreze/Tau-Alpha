@@ -23,7 +23,7 @@ typedef struct { uint8_t view, layers, split, outer, nest, draw, speed, response
 
 static uint8_t  lw_hist[LW_MAXL][LW_HMAX];
 static int16_t  lw_band[LW_MAXL][LW_NB];
-static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[16], lw_acc, lw_cnt;
+static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_soft[9], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
 static uint8_t  lw_ebounds[LW_MAXL + 1u], lw_ebounds_ok, lw_etick, lw_stride, lw_init, lw_dirty;
 
 static const uint16_t lw_fw[6] = { 1000, 1600, 2560, 4096, 6554, 10486 };   /* BASS_FINE group weights, 1.6^i x 1000 */
@@ -208,9 +208,10 @@ COLD_FN3 static int32_t lw_half(int32_t a8, int32_t w8, int32_t Hh)             
     return h;
 }
 
-COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key)
+COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key, const int32_t *soft)
 {
-    for (uint32_t i = 0; i < 16u; i++) lw_key[i] = key[i];
+    for (uint32_t i = 0; i < 6u; i++) lw_key[i] = key[i];
+    for (uint32_t i = 0; i < 9u; i++) lw_soft[i] = soft[i];
     lw_init = 1u; lw_acc = 0; lw_dirty = 1u; lw_etick = 0; lw_ebounds_ok = 0u; lw_cnt = 0;
     for (uint32_t k = 0; k < LW_MAXL; k++) {
         lw_s[k] = 0;
@@ -316,10 +317,13 @@ COLD_FN3 static void lw_tick(const mtr_in_t *in)
 
     lw_col_t cl;
     lw_colours(&p, &cl);
-    const int32_t key[16] = { p.view, p.layers, p.res, p.draw, p.split, p.outer, p.nest, p.taper, in->w, in->h, in->x, in->y, cl.co, cl.ci, cl.bg, 0 };
+    /* Only the history/band array sizes and the box geometry force a reset; any other change just repaints on the next frame and keeps the history. */
+    const int32_t key[6] = { p.layers, p.res, in->w, in->h, in->x, in->y };
+    const int32_t soft[9] = { p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bg };
     int32_t same = lw_init && !in->force;
-    for (uint32_t i = 0; i < 15u && same; i++) if (lw_key[i] != key[i]) same = 0;
-    if (!same) { lw_reinit(&p, in->w, key); fb_rect(in->x, in->y, in->w, in->h, cl.bg); }
+    for (uint32_t i = 0; i < 6u && same; i++) if (lw_key[i] != key[i]) same = 0;
+    if (!same) { lw_reinit(&p, in->w, key, soft); fb_rect(in->x, in->y, in->w, in->h, cl.bg); }
+    else for (uint32_t i = 0; i < 9u; i++) if (lw_soft[i] != soft[i]) { lw_soft[i] = soft[i]; lw_dirty = 1u; }
     if (!paused) {
         const int32_t cy = (int32_t)in->y + (in->h >> 1), Hh = (in->h >> 1) - 1;
         lw_cnt = 0;
