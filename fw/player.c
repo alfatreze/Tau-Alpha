@@ -4820,6 +4820,7 @@ static void ov_frame(const char *title, const char *right, const char *hint)
 
 #include "chladni.inc"
 #include "vu_master.inc"
+#define LW_BEAM_GATE 1  /* Layered Wave draws only while the beam is clear of its box (fw/layered_wave.inc, docs/issues/022); host harnesses leave this undefined */
 #include "layered_wave.inc"
 #include "fullscreen.inc"
 

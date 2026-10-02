@@ -53,6 +53,25 @@ COLD_FN3 static uint32_t lw_isqrt(uint64_t n)
 
 COLD_FN3 static void lw_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { fb_rect(x, y, w, h, c); lw_cnt++; }
 
+#ifdef LW_BEAM_GATE
+/* Beam gate (docs/issues/022): a redraw wipes the whole box and then repaints every layer, so any scan line that crosses the box between the wipe and its
+ * layer shows plain background -- flicker. Draw only while the beam is in vertical blanking, already below the box, or at least LW_LEAD rows above it (about
+ * 1.3 ms of beam travel, enough for a normal frame; the measured draw time is on Info > LAYERED WAVE). A closed gate skips the WHOLE draw, never part of it.
+ * The history push and the response smoothing run before the gate, so a skipped frame loses no data. Not applied to a forced repaint (reset, mode switch) or
+ * to fullscreen, which is ungated by design (KB-062: a gate on a tall figure called once per decoded frame starves the frame rate). helios_rows_safe() is
+ * true when the beam hardware is absent, so an older bitstream draws as before. */
+#define LW_LEAD 28u
+static uint32_t lw_n_draw, lw_n_defer, lw_t_last, lw_t_max;
+COLD_FN3 static int lw_beam_ok(const mtr_in_t *in)
+{
+    if (in->force || ui_fullscreen) return 1;
+    const uint32_t y0 = (uint32_t)in->y > LW_LEAD ? (uint32_t)in->y - LW_LEAD : 0u;
+    if (helios_rows_safe(y0, (uint32_t)in->y + in->h - 1u)) return 1;
+    lw_n_defer++;
+    return 0;
+}
+#endif
+
 /* ---- colours ------------------------------------------------------------------------------------------------------------------- */
 COLD_FN3 static uint16_t lw_mix(uint16_t a, uint16_t b, int32_t t256)
 {
@@ -374,6 +393,9 @@ COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_co
     lw_acc &= 255;
     for (int32_t i = 0; i < pushes; i++) lw_push(n);
     if (!smooth && pushes == 0 && !lw_dirty) return;
+#ifdef LW_BEAM_GATE
+    if (!lw_beam_ok(in)) { lw_dirty = 1u; return; }    /* the pushes are already consumed, so keep the repaint owed: without this a still box would stay stale */
+#endif
     lw_dirty = 0u;
     const int32_t phase = lw_acc, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, aaL = lay->L;
     lw_rect(X, in->y, W, in->h, cl->bg);
@@ -451,6 +473,9 @@ COLD_FN3 static void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_c
 {
     const int32_t W = in->w, X = in->x, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, dt = in->dt_ms, aaL = lay->L;
     const int32_t s = lw_max(lw_stride, (W + (int32_t)p->res - 1) / (int32_t)p->res);   /* Resolution = columns across the width (cell width), never finer than the self-scaling stride allows */
+#ifdef LW_BEAM_GATE
+    if (!lw_beam_ok(in)) return;                       /* the band smoothing below is skipped too: one step of response lag per skipped frame */
+#endif
     lw_rect(X, in->y, W, in->h, cl->bg);
     uint8_t bnd[LW_MAXL + 1u];
     if (p->split == 2u) lw_learn(in->spec, n);
@@ -553,7 +578,18 @@ COLD_FN3 static void lw_tick(const mtr_in_t *in)
 #if TAU_DIAGNOSTIC
         lay.L = lw_aa_levels[p.aa]; lay.bm = p.bmode; lay.ba = ((int32_t)p.balpha * 255 + 50) / 100; lay.arr = (lay.L || lay.bm) ? 1 : 0;
 #endif
+#ifdef LW_BEAM_GATE
+        const uint32_t lw_t0 = cycles();
+#endif
         if (p.view == 1u) lw_spectrum(&p, in, &cl, cy, Hh, &lay); else lw_history(&p, in, &cl, cy, Hh, &lay);
+#ifdef LW_BEAM_GATE
+        if (lw_cnt) {                                  /* a draw happened (a gated or idle frame issues nothing) */
+#if TAU_DIAGNOSTIC
+            fb_fence();                                /* measure to completion in the engine, not just to the last command accepted; diagnostic builds only */
+#endif
+            lw_t_last = (uint32_t)(cycles() - lw_t0); if (lw_t_last > lw_t_max) lw_t_max = lw_t_last; lw_n_draw++;
+        }
+#endif
         if (bud < 1000000000 && lw_cnt) lw_stride = (uint8_t)(lw_cnt > bud ? lw_min(16, lw_stride + 1) : (lw_cnt < (bud >> 1) && lw_stride > 1u ? lw_stride - 1 : lw_stride));
     }
     wviz_force = 0u;

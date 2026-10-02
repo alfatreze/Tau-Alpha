@@ -573,7 +573,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 31u   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS 32u   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -637,6 +637,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "FLAC LPC"
     , "I2S JITTER"
     , "CYMO RESAMP"
+    , "LAYERED WAVE"
     };
 static uint32_t set_info_at;
 
@@ -832,6 +833,14 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = ui_dec(q, cnt);
         break;
     }
+    case 31:   /* LAYERED WAVE (docs/issues/022): draws done / skipped by the beam gate, last and worst draw time in microseconds (measured to engine completion
+                * in a Diagnostic Build, to the last command accepted otherwise), and the self-scaling stride it settled on */
+        q = set_str(q, "D"); q = ui_dec(q, lw_n_draw);
+        q = set_str(q, " W"); q = ui_dec(q, lw_n_defer);
+        q = set_str(q, " "); q = ui_dec(q, lw_t_last / (CLK_HZ / 1000000u));
+        q = set_str(q, "/"); q = ui_dec(q, lw_t_max / (CLK_HZ / 1000000u));
+        q = set_str(q, "US S"); q = ui_dec(q, lw_stride);
+        break;
     default: {   /* CYMO RESAMP (B-481): whether the probe found the unit, and -- once the Diagnostics >
                   * CYMO RESAMPLER toggle is on -- its live status (busy/done/pop_req), so the owner can
                   * confirm the probe passed before relying on the toggle having any real effect. */
