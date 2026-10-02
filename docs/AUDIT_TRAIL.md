@@ -13228,6 +13228,104 @@ Verified: `make test-host` passes; `tools/check_heap_gap.py` and `tools/check_co
 real release (not diagnostic-only), same as the Select+X/Y chords -- `dist/`'s ROM/cold-image updated
 accordingly (+180 B ROM, +224 B cold image). Not yet hardware-tested.
 
+## B-496: Cymo resampler -- pop_req-gating fix fit CLOSED CLEAN, both seeds; installed and ready for the real re-test
+
+`cymo-b492` finished on schedule (23:39 WEST, within the ~23:52-23:57 estimate's margin). **Both seeds
+Successful, every corner positive on both**, identical footprint to every prior Cymo fit (RAM 256/308,
+DSP 20/66 -- the pop_req gate costs nothing measurable). Seed 1: Fast 0C hold +0.141/setup +5.932, Fast
+85C hold +0.161/setup +5.712, Slow 0C hold +0.341/setup +1.397, Slow 85C hold +0.349/setup +1.373. Seed
+2: Fast 0C hold +0.130/setup +6.092, Fast 85C hold +0.172/setup +5.629, Slow 0C hold +0.365/setup
++0.788, Slow 85C hold +0.381/setup +0.932. **Seed 1 selected** (better worst-case hold on the Slow
+corners). RBF collected and hash-verified:
+`work/diagnostics/cymo-b492/ap_core_s1.rbf`, sha256
+`abb2787256b0322bd3fadae8d7d8c3dd8e7c2edab3570a440bd23472ed25bb97`.
+
+Built `player-library-diagnostic-profile` with `RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1` via
+`package_dev_build.py --build-flags`, packaged against this RBF as `alfatreze.TAU_DEV_59` (reusing the
+same core id the prior two Cymo bug-fix iterations used). Installed via `tools/install_dev_core.py
+--replace` (card had gone briefly unreadable mid-session -- `Input/output error` on every path despite
+`diskutil` reporting it mounted, resolved by a physical reseat; no data lost, nothing written during the
+bad window). Bitstream/ROM/cold-image hashes verified identical post-copy, five catalog caches cleared,
+junk removed, ejected cleanly. One pre-existing, unrelated note surfaced by the install's own media
+check: the `cymo_loopback` test-asset folder has no `tau-art` cover file (slow embedded-JPEG path only,
+not a regression).
+
+**Real test of B-492's diagnosis, now on the card**: does the 1kHz tone give the same pitch every
+toggle? Is the "tiny constant noise" during ordinary playback gone? And new evidence to read either
+way: the CYMO RESAMP Info row's `STALE <n>` field (`R_CYMO_DIAG`, MMIO 0x160) -- should read 0 or stay
+very low if push/pop_req are genuinely rate-matched now.
+
+## B-497: TAU_DEV_59 black screen -- my own mistake, --build-flags needs commas not spaces (repeat of the B-394 class)
+
+Owner reported `alfatreze.TAU_DEV_59` fully black on boot after B-496's install, other cores fine --
+"we've had this same issue at least twice before" (B-394, B-448). Root cause found immediately from that
+history: `tools/package_dev_build.py --build-flags` parses its argument as **comma-separated** `KEY=VAL`
+pairs (`kv.split(",")`), but B-496's install passed them **space-separated**:
+`--build-flags "RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1"`. With no commas present, the whole string is
+one token; `k, v = kv.split("=", 1)` then splits only on the FIRST `=`, so the actual result was
+`env["RAM_192K"] = "1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1"` -- a single garbled value -- while `CLK66`,
+`SDRAM_BUSY` and `LPC_FW` were never set as env vars at all. The firmware built without `CLK66_FW` (etc.)
+while being paired with a bitstream built from the full `TAU_CLK66`/`TAU_RAM_192K`/`TAU_SDRAM_BUSY`/
+`TAU_LPC` bundle; `fw/player.c`'s `VERSION_OK(REG(R_VERSION))` check (the exact mechanism B-394
+root-caused) rejected the mismatch and dropped into its infinite loop with zero framebuffer output --
+indistinguishable on screen from a genuine hang. Confirmed by the build's own printed numbers: the
+broken build reported `tau.rom: 128940 bytes (71.5% of usable RAM)` / heap gap `45248 B` (a 256 KB-style
+link), the corrected one `110404 bytes (61.3%)` / heap gap `6432 B` (the real 192 KB-linked profile) --
+unmistakably two different memory layouts from the same nominal command.
+
+**Fix**: rebuilt and repackaged with the flags correctly comma-separated
+(`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`); same RBF (`cymo-b492` seed 1, hash unchanged), new ROM
+(`4f0dd166...`) and cold image (`1cac2241...`). Installed via `tools/install_dev_core.py --replace`
+(hashes verified post-copy, caches cleared, ejected). `--build-flags`'s own docstring already documents
+the comma-separated format correctly -- this was purely my own invocation mistake, not a tool defect;
+flagging in case the error message deserves hardening (currently a bad separator silently produces a
+working-looking but wrong env var rather than an error) is worth a follow-up, not done here.
+
+**Still the real test to do**: does the resampler toggle now give a consistent pitch, and does `STALE`
+stay near 0?
+
+## B-498: Cymo resampler -- B-492's pop_req gate was incomplete; latched to exactly-once-per-assertion
+
+Owner re-tested the (correctly-booting, per B-497) TAU_DEV_59: per-toggle pitch change still present, but
+the character narrowed -- "doesn't go into the lows as it would sometimes before." Noise still audible
+on MP3s with a perceptible slow tonal shift. This partial-but-incomplete improvement was the key clue:
+B-492's own fix was directionally right but structurally incomplete, not simply ineffective.
+
+Re-read the gate: `cymo_pop_req` is a LEVEL, held high from the wrap that raised it (`S_PHASE`) until
+the NEXT `start` call's `S_SHIFTHIST` actually consumes it -- it does NOT fall after a single push. B-492's
+gate (`cymo_pop_req & pcm_sample_tick`) fires on EVERY `pcm_sample_tick` pulse while `pop_req` stays
+pending, not just the first. If more than one tick lands before the next `start`/`S_SHIFTHIST` (exactly
+the race this fix was meant to close), `held_l`/`held_r` get overwritten repeatedly before any of it is
+ever consumed -- "two pushes before one consume" was still structurally possible, just rarer than the
+completely ungated B-476 original (which fired on literally every tick regardless of `pop_req`). This
+matches the hardware symptom precisely: narrower variation (fewer multi-push events than the fully
+ungated version) but not eliminated (still some).
+
+**Fix**: latch the gate using `cymo_fresh` (already built for the B-492 stale-consume counter) --
+`cymo_auto_we = cymo_live_en & cymo_pop_req & pcm_sample_tick & ~cymo_fresh`. A push can now land only on
+the FIRST tick after a `pop_req` rises; `cymo_fresh` then blocks any further push until the next consume
+clears it. This makes "exactly once per pop_req" a structural guarantee, matching the module's own
+documented contract by construction rather than by hoping push/consume cadence stays in lockstep.
+
+Hit a real Icarus-only circular-declaration-order issue applying this: `cymo_auto_we` now depends on
+`cymo_fresh`, but the register-update `always` block that SETS `cymo_fresh` also READS `cymo_auto_we` --
+a genuine mutual dependency (fine in Verilog semantics, a declare-before-use problem for Icarus's linear
+parse). Fixed by splitting: the `reg`/`wire` declarations stay ahead of `cymo_auto_we`, but the `always`
+block that updates them moved to AFTER `cymo_auto_we`'s own assignment. Two edit passes were needed to
+find this -- the first produced "Unable to bind wire/reg/memory `cymo_auto_we`" in `test-rtl-psram-fw`,
+caught by the real-CPU simulation that regenerates `mp3_soc_sim.v`, not a hand review.
+
+Verified: `make rtl-lint` clean, `make test-rtl-cymo-resamp` still 0 failures/4354 outputs (module-level
+tests unaffected, SoC-wiring-only change), full `make test-rtl` (0 failures across all groups incl. the
+real-CPU PSRAM fw/ifetch sims) and `make test-host` both clean. Launching the fit next.
+
+## B-499: Cymo resampler -- fit launched for the latched pop_req-gate fix
+
+Launched `cymo-b498` (same proven macro bundle), both seeds confirmed running independently
+(`vm_fit.py` reports "2 (expected 2)" -- no collision). Launched 07:50 WEST; this exact bundle has
+consistently landed at 1h40-1h45m elapsed in every prior run (B-473/B-477/B-480/B-486/B-490/B-492 all
+finished in that window) -- **estimated completion ~09:30-09:35 WEST.**
+
 ## B-494: Layered Wave meter -- Omega-first lab module, planned registry entry, spec (no firmware)
 
 Branch `meter-layered-wave`. New meter after the owner's reference image: nested mirrored envelope layers, solid background, scrolling history, pointed head and tail dots. Built as a module of the existing preview stack (`tools/meters/preview/meters/layered_wave.js`) so Omega gets it from the lab html and `tools/meters_schema.json`; **no firmware**. Spec: `docs/features/meters/LAYERED_WAVE_METER_SPEC.md`.
@@ -13246,7 +13344,7 @@ Branch `meter-layered-wave`, worktree `tau-alpha-meter-layered-wave`. `view` par
 
 `color_mode` ACCENT (four gradations from the theme-capped accent: tints, shades, analogous +-30 degrees, complement; background a tint of the accent), THEME (the existing role pickers), CUSTOM (three RGB565 u16 parameters; the lab shows a colour picker and hex field and converts to the Pocket format). Manifest now has 18 parameters (firmware page limit 12: flagged, to be resolved before promotion). Presets HALO/DEEP OCEAN/NEON use ACCENT, PULSE uses CUSTOM. Test: four gradations render distinctly, custom values stored exactly. A `hex` implicit-global slip in the new control was caught on review and fixed. Lab-only; no firmware.
 
-## B-496: Layered Wave meter -- firmware module (fixed point, cold), integer JS twin, golden-frame test
+## B-501: Layered Wave meter -- firmware module (fixed point, cold), integer JS twin, golden-frame test
 
 Branch `meter-layered-wave` (worktree `tau-alpha-meter-layered-wave`), rebased onto main `eb1434b` (the branch's own copy of the Start+X chord commit was dropped; main has it).
 
@@ -13256,26 +13354,26 @@ Branch `meter-layered-wave` (worktree `tau-alpha-meter-layered-wave`), rebased o
 - **Cost** (model): 213-249 commands per frame mean for the presets, worst about 310 (PULSE 54). Heap gap on the 256 KB release build dropped 4,864 B (54,544 to 49,680; baseline updated): 2.4 KB of history RAM, the generated parameter/preset data (18 parameters x 8 presets) and the thumbnail entry.
 - **Not done**: nothing run on a Pocket; no CPU/audio measurement; placeholder thumbnail; SCROLL.
 
-## B-497: Layered Wave -- frequency handles, grouped parameters, hover tooltips
+## B-502: Layered Wave -- frequency handles, grouped parameters, hover tooltips
 
 Branch `meter-layered-wave`. (1) New **CUSTOM split** (`split` value 4) with five boundary parameters `xo1..xo5` (u8 1..15, visible only for CUSTOM), implemented in BOTH the JS twin and `fw/layered_wave.inc` (`lw_bounds`), so a hand-placed split is identical in lab and firmware: golden test now 67 scenarios / 625,647 commands identical, including unsorted and colliding boundary sets (`fixBounds` repairs them the same way). (2) Lab: draggable **frequency handles** under the split map, a gradient-editor interaction (drag to move a boundary, double-click the strip to add a layer, double-click a handle to remove one, arrow keys; any touch switches to CUSTOM seeded from the current split, ENERGY's learned boundaries included); logic verified with a DOM stand-in (add, drag, remove). (3) Parameters carry a `group` and the manifest a `groups` list (General, Source, Display & Theme, Dynamics) -> collapsible sections in the lab, carried to Omega by `meters_schema.json` (`gen_meters.py` now copies `groups`). (4) The (i) is a hover/focus tooltip (tap pins it) instead of an inline expanding block; choices list every option with the selected one bold. (5) Limits: `MTR_MAX_PARAMS` 18 to 24, `WVCFG_MAX_ROWS` 24 to 32 (Configure page; export buffer follows). Firmware builds clean (release heap gap 49,408 B, 192 KB variant 8,592 B vs the 6,144 B minimum). Not run on a Pocket; the Pocket's Configure page remains a flat list (no sections, no handles).
 
-## B-497 addendum: handles in SPECTRUM view; antialiasing analysis
+## B-502 addendum: handles in SPECTRUM view; antialiasing analysis
 
 SPECTRUM view now uses the frequency split too: with a frequency split each layer draws only the part of the axis it listens to (nested or overlap, outer bass or treble, CUSTOM boundaries), with DYNAMICS every layer is the whole outline; the lab's handles work in both views (hidden only for DYNAMICS). Same change in `fw/layered_wave.inc` and the JS twin (ENERGY learning also runs in this view); golden test 72 scenarios / 608,932 commands identical, including CUSTOM boundaries in SPECTRUM. Antialiasing question answered in `docs/features/meters/LAYERED_WAVE_METER_SPEC.md` section 8 (analysis only): software edge pixels cost about 3x the commands, the shipped blend and scaled blit cannot do coverage, the real fix is a planned hardware envelope-fill opcode (candidate B21). The same analysis found that 1-pixel-wide rects are one SDRAM burst per row, a model estimate of about 20,000 short transactions per frame, not yet measured.
 
-## B-498: Layered Wave -- lab-only spectrum styles and per-layer gain beads
+## B-503: Layered Wave -- lab-only spectrum styles and per-layer gain beads
 
 Owner liked the blocked-colour spectrum view and asked for a Premiere-Pro-EQ-like alternative with configurable gain; chose to test all three readings, lab only. Added as `LAB_PARAMS` in the JS module (NOT in `meter.json`, not in the firmware, so the golden test is unchanged: 72 scenarios / 608,932 commands identical): **Spectrum style** BLOCKS / EQ BELLS (soft shoulders) / CURVE (one gradient-coloured outline, layer colours as stops), and **per-layer gain** g1..g6 (-18..+18 dB) set by draggable beads on the frequency strip (double-click resets) with a gain-curve line through them. Verified: rendered all styles and a gained curve with `render.js` (new `--set key=value`), bead drag and handle logic with the DOM stand-in. CURVE needs about half the commands of the layered styles. Nothing in the firmware or manifest changed; promotion of whichever survives is the next step.
 
-## B-498 addendum: Resolution in SPECTRUM view
+## B-503 addendum: Resolution in SPECTRUM view
 
 `res` was hidden in SPECTRUM view because it was defined as history columns, but the spectrum has only 16 hardware bands. It now sets the cell width of the interpolated outline there (`max(stride, ceil(W / res))`), in both `fw/layered_wave.inc` and the JS twin; golden test 72 scenarios / 596,392 commands identical. Manifest `when` removed from `res`, help text updated. Firmware builds clean.
 
-## B-499: Layered Wave lab -- blend experiments, fixed preview, collapsible info
+## B-504: Layered Wave lab -- blend experiments, fixed preview, collapsible info
 
 Lab only (manifest/firmware untouched, golden unchanged: 72 scenarios / 596,392 commands identical). (1) `Layer blending` experiment: OFF, ALPHA, AVERAGE, ADD, SUBTRACT, ADD QUARTER (the five hardware blend modes of `mp3_fb.sv` `blend_ch`, which include the three classic alpha/additive/subtractive) + blend alpha, via a new `Fb.blend()` that mirrors the RTL arithmetic and counts one command per run (hardware: `OP_BLIT` with blend from a one-row colour strip, src stride 0); rendered all modes to check them. (2) Page layout: the preview and the frequency strip form one sticky column (the strip now directly under the preview, scrolls only if taller than the window) so the settings panel scrolls on its own; (3) the commands/CPU/band info moved into a collapsed "Info" section under them.
 
-## B-500: Layered Wave -- no reset on setting changes, antialiasing and cost guard experiments, per-option cost
+## B-505: Layered Wave -- no reset on setting changes, antialiasing and cost guard experiments, per-option cost
 
 (1) **No reset**: only the history/band array sizes and the box geometry (layers, resolution, x/y/w/h) reset the meter; every other change (view, draw, split, colours, taper, theme, mode, accent, source) now just repaints and keeps the history, in the JS twin and in `fw/layered_wave.inc` (key split into a hard key and a soft key that only sets `dirty`). Golden test extended with five mid-run change scenarios (view both ways, colour, split and taper, layers): 77 scenarios / 624,560 commands identical, so the firmware and lab agree on this too; the lab page no longer nulls its state on parameter or theme changes. (2) Lab-only **Antialiasing** (EDGE 2/4/8) and **Cost guard** (ON/RELAXED/OFF) experiments. The blocky taper edge the owner saw at Resolution 400 was the guard, not the taper: with 4+ layers the guard widens the cells (2 px at 5 layers) and everything is evaluated per cell; OFF gives 1 px cells at about 331 instead of 226 commands. Info now shows the cell width. (3) **Per-option cost**: Info table and tooltip notes with the model CPU range and SDRAM word operations (`Fb.ops`: fill 1, blend 3, copy 2) per option. Findings (model): blend 126 commands either way but +38% engine ops; AA about +85-95% commands. Firmware builds clean.
