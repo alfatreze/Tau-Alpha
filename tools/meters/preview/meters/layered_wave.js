@@ -215,7 +215,7 @@
      part of the axis it listens to (the same ranges as the handles); with DYNAMICS every layer is the whole outline. Layers also differ by response
      time (outer slow, inner fast) and height. Redrawn every frame. */
   function spectrum(ctx, st, dt, cl, cy, Hh, rect) {
-    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), s = st.stride;
+    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), s = Math.max(st.stride, tdiv(W + p.res - 1, p.res));   // Resolution = columns across the width (cell width), never finer than the self-scaling stride allows
     rect(X, ctx.y, W, ctx.h, cl.bgc);
     if (p.split === SPLIT.ENERGY) learnEnergy(st, ctx.spec, n);
     const bnd = p.split === SPLIT.DYNAMICS ? null : boundsFor(p.split, n, st, xoOf(p));   // frequency splits: each layer draws only the part of the axis it listens to
@@ -251,7 +251,7 @@
   /* CURVE style (lab-only): ONE continuous outline across the whole axis, coloured by a gradient whose stops are the layer colours at the centres of
      their frequency ranges, with a smooth gain curve through the per-layer gains. Layer 0's response time drives the bands. */
   function curveOutline(ctx, st, dt, cl, cy, Hh, rect, bnd) {
-    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), s = st.stride;
+    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), s = Math.max(st.stride, tdiv(W + p.res - 1, p.res));
     const m = n > 1 ? T.mulQ8[n - 1 + 5] : 256, ca = coef(p.response, m, dt, 1), cr = coef(p.response, m, dt, 0), b = st.band[0], bu = new Array(NB);
     const lay = (g) => (p.outer === 0 ? g : n - 1 - g), cen = [], gdb = [], col = [];
     for (let g = 0; g < n; g++) { cen.push((bnd[g] + bnd[g + 1]) / 2); gdb.push(p['g' + (lay(g) + 1)] | 0); col.push(cl.base[lay(g)]); }

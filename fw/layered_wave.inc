@@ -262,7 +262,8 @@ COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_co
 
 COLD_FN3 static void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh)
 {
-    const int32_t W = in->w, X = in->x, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, dt = in->dt_ms;
+    const int32_t W = in->w, X = in->x, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, dt = in->dt_ms;
+    const int32_t s = lw_max(lw_stride, (W + (int32_t)p->res - 1) / (int32_t)p->res);   /* Resolution = columns across the width (cell width), never finer than the self-scaling stride allows */
     lw_rect(X, in->y, W, in->h, cl->bg);
     uint8_t bnd[LW_MAXL + 1u];
     if (p->split == 2u) lw_learn(in->spec, n);

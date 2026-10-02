@@ -906,10 +906,7 @@
      "step": 8,
      "default": 200,
      "unit": "cols",
-     "help": "Resolution: how many columns span the width, up to 400 (one per pixel). The meter widens its drawing cells automatically if that would need too many commands. HISTORY view only.",
-     "when": {
-      "view": 0
-     },
+     "help": "Resolution: how many columns span the width, up to 400 (one per pixel). In HISTORY view it is the number of history columns; in SPECTRUM view the spectrum has only 16 hardware bands, so it sets how finely the interpolated outline is drawn (lower = chunkier and cheaper). The meter widens its drawing cells automatically if the setting would need too many commands.",
      "group": "display"
     },
     {
