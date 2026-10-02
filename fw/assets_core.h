@@ -103,13 +103,14 @@ static int as_metr(const uint8_t *d, uint32_t n, mtr_data_t *const *mods, uint32
         const uint32_t id = e[0], schema = e[1], npre = e[4], nparams = e[5];
         mtr_data_t *md = 0;
         for (uint32_t i = 0; i < nmods; i++) if (mods[i]->viz == id) md = mods[i];
+        if (md && md->cold) continue;                              /* its tables live read-only in the cold image */
         if (!md || schema > 1u || nparams != md->n || npre < 1u || npre > md->maxpre) continue;
         uint32_t psize = 16u;
         for (uint32_t i = 0; i < md->n; i++) psize += (md->p[i].type == MTR_U16) ? 2u : 1u;
         if (len != 6u + npre * psize + 1u || e[6u + npre * psize] >= npre) continue;
         uint16_t vals[MTR_MAX_PRESET_VALUES];
         char names[8][16];
-        if (md->n > MTR_MAX_PARAMS || npre > 8u) continue;
+        if (md->n > MTR_MAX_PARAMS || npre > 16u) continue;
         uint32_t q = 6u;
         for (uint32_t pr = 0; pr < npre; pr++) {
             uint32_t j = 0;

@@ -200,3 +200,17 @@ SDRAM transactions are the hidden cost today: a 1-pixel-wide rect of height h is
 H x N bursts (roughly 330) of longer runs. Build effort for B21: RTL one new state machine plus an envelope table (one M10K or MLAB) and two MMIO
 registers, sim with a reference-renderer case and a mutation, then a two-seed fit; timing risk is the same dispatch network that cost five retimings
 (B-109/B-111/B-114/B-151/B-211), so it needs the same one-cycle-ahead registers. Until then the meter stays unantialiased and cheap.
+
+## 9. Experimental settings (Diagnostic Build only, B-506)
+
+Eleven further parameters (group "experimental") exist only when `TAU_DIAGNOSTIC` is set; the main build neither has the settings nor the `[EX]` presets nor the code, so the default experience is unchanged.
+
+| Key | Values | Effect |
+|---|---|---|
+| `hstyle` | STEPPED, BELLS, CURVE | how a layer weights the bands it does not own: hard (default), soft shoulders, or one continuous outline coloured by a gradient between layer colours |
+| `aa` | OFF, 2, 4, 8 | sub-pixel coverage on the top and bottom edge rows (software; about +85-95 percent commands) |
+| `bmode`, `balpha` | OFF, ALPHA, AVERAGE, ADD, SUBTRACT, B+F/4; 5..100 percent | each layer is blended onto the one under it with the blend unit's own arithmetic (done in software here, one alpha per layer, never per pixel) |
+| `guard` | ON, RELAXED, OFF | cost guard budget 300 / 600 / unlimited commands per frame (stride self-scaling) |
+| `g1..g6` | -18..+18 dB (stored 0..36) | per-layer gain, Q8 table `lw_gain_q8`; with CURVE it is interpolated across the axis |
+
+Presets 9-16 are the `[EX]` set (SILK, GLOW, STAINED, BELLS, RIBBON, VELVET, INK, FULLRES); the default preset is never experimental. The JS twin and `fw/layered_wave.inc` are verified identical in both configurations by `sim/test_layered_wave_golden.py`. RAM: the manifest key `cold_tables` keeps the parameter table and presets in cold data, and the per-column AA/blend memory is per-frame stack scratch. A hardware antialiasing opcode (candidate B21, an envelope fill) remains the real fix if AA is ever promoted out of the Diagnostic Build.

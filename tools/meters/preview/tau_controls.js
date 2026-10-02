@@ -77,13 +77,13 @@
         info.onmouseleave = info.onblur = () => hideTip(false);
         info.onclick = (e) => { e.preventDefault(); e.stopPropagation(); if (tipPinned === info) hideTip(true); else { showTip(info, fills[x.key]); tipPinned = info; } };
       }
-      if (!inp.rgb) inp.oninput = inp.onchange = () => { cur[x.key] = x.type === 'bool' ? (inp.checked ? 1 : 0) : Number(inp.value); out.textContent = x.type === 'enum' ? x.values[cur[x.key]] : cur[x.key] + (x.unit || ''); fire(); };
+      if (!inp.rgb) inp.oninput = inp.onchange = () => { cur[x.key] = x.type === 'bool' ? (inp.checked ? 1 : 0) : Number(inp.value); out.textContent = x.type === 'enum' ? x.values[cur[x.key]] : (cur[x.key] + (x.offset || 0)) + (x.unit || ''); fire(); };
       inputs[x.key] = [inp, out, x]; row.appendChild(inp); row.appendChild(out); if (info) row.appendChild(info);
       const gk = x.group && holders[x.group] ? x.group : null;
       (gk ? holders[gk] : host).appendChild(row);
       if (gk) groupEls.find((g) => g.key === gk).keys.push(x.key);
     }
-    function sync() { for (const [k, [inp, out, x]] of Object.entries(inputs)) { if (inp.rgb) { inp.sync(); continue; } if (x.type === 'bool') inp.checked = !!cur[k]; else inp.value = cur[k]; out.textContent = x.type === 'enum' ? x.values[cur[k]] : cur[k] + (x.unit || ''); } }
+    function sync() { for (const [k, [inp, out, x]] of Object.entries(inputs)) { if (inp.rgb) { inp.sync(); continue; } if (x.type === 'bool') inp.checked = !!cur[k]; else inp.value = cur[k]; out.textContent = x.type === 'enum' ? x.values[cur[k]] : (cur[k] + (x.offset || 0)) + (x.unit || ''); } }
     sync(); fire();
     return {
       get: () => Object.assign({}, cur),

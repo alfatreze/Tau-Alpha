@@ -30,11 +30,11 @@ int main(int argc, char **argv) {
     FILE *f = fopen(argv[1], "r");
     int nscen; if (fscanf(f, "%d", &nscen) != 1) return 2;
     for (int s = 0; s < nscen; s++) {
-        int nframes, chg; unsigned bx, by, bw, bh, role[12], pv2[40];
+        int nframes, chg; unsigned bx, by, bw, bh, role[12], pv2[64];
         if (fscanf(f, "%u %u %u %u %d %d", &bx, &by, &bw, &bh, &nframes, &chg) != 6) return 2;
         for (int i = 0; i < 12; i++) if (fscanf(f, "%u", &role[i]) != 1) return 2;
-        for (int i = 0; i < MP_LAYERED_WAVE_N; i++) { unsigned v; if (fscanf(f, "%u", &v) != 1) return 2; mtr_v_layered_wave[i] = (uint16_t)v; }
-        for (int i = 0; i < MP_LAYERED_WAVE_N; i++) if (fscanf(f, "%u", &pv2[i]) != 1) return 2;
+        for (int i = 0; i < MP_LAYERED_WAVE_NTOT; i++) { unsigned v; if (fscanf(f, "%u", &v) != 1) return 2; if (i < MP_LAYERED_WAVE_N) mtr_v_layered_wave[i] = (uint16_t)v; }
+        for (int i = 0; i < MP_LAYERED_WAVE_NTOT; i++) if (fscanf(f, "%u", &pv2[i]) != 1) return 2;
         ui_accent = (uint16_t)role[0];
         th_role[TR_TEXT_PRIMARY] = (uint16_t)role[1]; th_role[TR_TEXT_SECONDARY] = (uint16_t)role[2]; th_role[TR_OK] = (uint16_t)role[3];
         th_role[TR_WARN] = (uint16_t)role[4]; th_role[TR_DANGER] = (uint16_t)role[5]; th_role[TR_PILL] = (uint16_t)role[6]; th_role[TR_ERROR] = (uint16_t)role[7];
@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
             for (int i = 0; i < 16; i++) { unsigned v; if (fscanf(f, "%u", &v) != 1) return 2; spec[i] = (uint8_t)v; }
             for (int i = 0; i < 64; i++) { int v; if (fscanf(f, "%d", &v) != 1) return 2; wave[i] = (int8_t)v; }
             printf("F %d\n", n);
-            if (n == chg) for (int i = 0; i < MP_LAYERED_WAVE_N; i++) mtr_v_layered_wave[i] = (uint16_t)pv2[i];
+            if (n == chg) for (int i = 0; i < MP_LAYERED_WAVE_N; i++) if (i < MP_LAYERED_WAVE_N) mtr_v_layered_wave[i] = (uint16_t)pv2[i];
             mtr_in_t in = {0};
             in.spec = spec; in.wave = wave; in.force = (n == 0) ? 1 : 0; in.dt_ms = 26u;
             in.x = (uint16_t)bx; in.y = (uint16_t)by; in.w = (uint16_t)bw; in.h = (uint16_t)bh;
@@ -64,6 +64,20 @@ def main():
     if node.returncode:
         print("golden_lw.js failed:\n" + node.stderr); sys.exit(1)
     scen = json.loads(node.stdout)
+    EXP_DEF = {"hstyle": 0, "aa": 0, "bmode": 0, "balpha": 60, "guard": 0, "g1": 18, "g2": 18, "g3": 18, "g4": 18, "g5": 18, "g6": 18}
+    names = json.loads((ROOT / "tools/meters_schema.json").read_text())["meters"]
+    keys = [m for m in names if m["key"] == "layered_wave"][0]["params"]
+    keys = [k["key"] for k in keys]
+    fails = 0; total = 0
+    for diag in (1, 0):
+        # the main build has no experimental settings at all: only scenarios that leave them at their defaults must match there
+        sc = [x for x in scen if diag or all(x["params"][keys.index(k)] == v and x["params2"][keys.index(k)] == v for k, v in EXP_DEF.items())]
+        f, t = compare(sc, diag); fails += f; total += t
+    print("layered wave golden frames OK: %d commands identical between the firmware code (Diagnostic and main build) and the JS twin" % total if not fails else "%d scenarios differ" % fails)
+    sys.exit(1 if fails else 0)
+
+
+def compare(scen, diag):
     lines = [str(len(scen))]
     for s in scen:
         b = s["box"]
@@ -76,7 +90,7 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         (d / "h.c").write_text(HARNESS); (d / "in.txt").write_text("\n".join(lines) + "\n")
-        r = subprocess.run(["cc", "-O1", "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-I", str(ROOT / "fw"), "-o", str(d / "h"), str(d / "h.c")], capture_output=True, text=True)
+        r = subprocess.run(["cc", "-O1", "-Wall", "-DTAU_DIAGNOSTIC=%d" % diag, "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-I", str(ROOT / "fw"), "-o", str(d / "h"), str(d / "h.c")], capture_output=True, text=True)
         if r.returncode:
             print(r.stderr); sys.exit(1)
         out = subprocess.run([str(d / "h"), str(d / "in.txt")], capture_output=True, text=True, check=True).stdout.splitlines()
@@ -100,9 +114,7 @@ def main():
                 print(f"MISMATCH {s['name']} frame {n}: command {i} js {jl[i:i+2]} vs c {cl[i:i+2]} (js {len(jl)} commands, c {len(cl)})")
                 break
     total = sum(len(x) for s in scen for x in s["log"])
-    print("layered wave golden frames OK: %d scenarios, %d commands identical between the firmware code and the JS twin" % (len(scen), total) if not fails else "%d scenarios differ" % fails)
-    sys.exit(1 if fails else 0)
+    return fails, total
 
 
-if __name__ == "__main__":
-    main()
+main()

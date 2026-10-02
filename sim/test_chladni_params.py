@@ -40,6 +40,9 @@ def equivalence():
 #include "chladni_core.h"
 #include "meter_gen_enum.h"
 #include "meter_module.h"
+#ifndef COLD_DATA
+#define COLD_DATA
+#endif
 #include "meters_gen.h"
 int main(void) {
     int bad = 0;

@@ -58,7 +58,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  let params={},frame=0,st=null,key=null;
  const cv=$('cv'),ctx=cv.getContext('2d');
  let ctl=null;
- function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);const lab=TauMeters[key]&&TauMeters[key].LAB_PARAMS;const m2=lab?Object.assign({},m,{params:m.params.concat(lab),groups:(m.groups||[]).concat([{key:'lab',label:'Experimental (lab only)'}])}):m;ctl=TauControls.build($('controls'),m2,p=>{params=p;infoSoon();},{valueNote:optionNote,noteKeys:COST_KEYS});st=null;}
+ function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);const m2=m;ctl=TauControls.build($('controls'),m2,p=>{params=p;infoSoon();},{valueNote:optionNote,noteKeys:COST_KEYS});st=null;}
  const COST_KEYS=new Set(['view','split','nest','draw','hstyle','bmode','aa']);
  ['meter'].forEach(i=>$(i).onchange=rebuild);
  ['theme','mode','accent'].forEach(i=>$(i).onchange=retheme);   // no reset: the meter repaints in the new colours and keeps its history
@@ -120,17 +120,17 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
   if(beadEls.length!==n){beads.innerHTML='';beadEls=[];
    for(let k=0;k<n;k++){const e=document.createElement('div');e.className='bead';e.setAttribute('role','slider');e.setAttribute('aria-label','Gain, layer '+(k+1));
     e.onpointerdown=ev=>{ev.preventDefault();e.setPointerCapture(ev.pointerId);e._d=true;};
-    e.onpointermove=ev=>{if(!e._d)return;const r=$('map').getBoundingClientRect(),g=Math.max(-18,Math.min(18,Math.round((0.5-(ev.clientY-r.top)/r.height)*36)));if(g!==(params['g'+(k+1)]|0))ctl.set('g'+(k+1),g);};
+    e.onpointermove=ev=>{if(!e._d)return;const r=$('map').getBoundingClientRect(),g=Math.max(-18,Math.min(18,Math.round((0.5-(ev.clientY-r.top)/r.height)*36)));if(g+18!==(params['g'+(k+1)]|0))ctl.set('g'+(k+1),g+18);};
     e.onpointerup=e.onpointercancel=()=>{e._d=false;};e.ondblclick=()=>ctl.set('g'+(k+1),0);
     beads.appendChild(e);beadEls.push(e);}}
-  beadEls.forEach((e,k)=>{const g=params.outer===0?k:n-1-k,cx=params.split===3?(k+0.5)/n:(b[g]+b[g+1])/2/16,gain=params['g'+(k+1)]|0;
+  beadEls.forEach((e,k)=>{const g=params.outer===0?k:n-1-k,cx=params.split===3?(k+0.5)/n:(b[g]+b[g+1])/2/16,gain=(params['g'+(k+1)]|0)-18;
    e.style.left=(cx*100)+'%';e.style.top=((0.5-gain/36)*100)+'%';e.style.setProperty('--c',col[k]||'#888');e.title='Layer '+(k+1)+' gain '+(gain>0?'+':'')+gain+' dB (drag up or down, double-click resets)';});
  }
  function splitMap(){const w=$('splitwrap');if(!mod||!mod.describe){w.hidden=true;return;}w.hidden=false;
   const c=$('map').getContext('2d'),d=mod.describe(params,st),own=mod.bandOwner(params,st),col=mod.layerColours(theme,params).map(v=>{const[r,g,b]=TauFb.from565(v);return 'rgb('+r+','+g+','+b+')'});
   c.clearRect(0,0,400,56);for(let k=0;k<16;k++){const v=lvl[k]/255,h=Math.round(v*46);c.fillStyle=col[own[k]]||'#888';c.fillRect(k*25+2,48-h,21,h);c.fillStyle='rgba(128,128,128,.5)';c.fillRect(k*25+2,48,21,1);}
   c.fillStyle='#888';c.font='8px sans-serif';[0,4,8,12,15].forEach(k=>c.fillText(Math.round(mod.EDGES[k])+'',k*25+2,55));
-  if(params.layers!==undefined){const n=params.layers,b=bandsNow(),pts=[];for(let k=0;k<n;k++){const g=params.outer===0?k:n-1-k,cx=params.split===3?(k+0.5)/n:(b[g]+b[g+1])/2/16;pts.push([cx*400,(0.5-(params['g'+(k+1)]|0)/36)*56]);}
+  if(params.layers!==undefined){const n=params.layers,b=bandsNow(),pts=[];for(let k=0;k<n;k++){const g=params.outer===0?k:n-1-k,cx=params.split===3?(k+0.5)/n:(b[g]+b[g+1])/2/16;pts.push([cx*400,(0.5-((params['g'+(k+1)]|0)-18)/36)*56]);}
    c.strokeStyle='rgba(128,128,128,.6)';c.setLineDash&&c.setLineDash([3,3]);c.beginPath();c.moveTo(0,28);c.lineTo(400,28);c.stroke();c.setLineDash&&c.setLineDash([]);
    c.strokeStyle='#fff';c.lineWidth=1.5;c.beginPath();pts.forEach((q,i)=>{if(i)c.lineTo(q[0],q[1]);else c.moveTo(Math.min(0,q[0]),q[1]);});if(pts.length)c.lineTo(400,pts[pts.length-1][1]);c.stroke();c.lineWidth=1;}
   layoutHandles(col);layoutBeads(col);
@@ -152,7 +152,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
   const d=mid(alt.cpu)-mid(base.cpu),de=base.ops?(alt.ops/base.ops-1)*100:0;
   return 'CPU '+alt.cpu.low+'–'+alt.cpu.high+'% ('+sgn(d)+'), engine '+Math.round(alt.ops/1000)+'k ops/frame ('+(de>=0?'+':'')+Math.round(de)+'%)';}
  let infoTimer=0;function infoSoon(){clearTimeout(infoTimer);infoTimer=setTimeout(()=>{if(!$('infod').open||!mod||!mod.state)return;costTable();},500);}
- function costTable(){const m=S.meters.find(x=>x.key===key),lab=mod.LAB_PARAMS||[],all=m.params.concat(lab);const rows=[];
+ function costTable(){const m=S.meters.find(x=>x.key===key),all=m.params;const rows=[];
   for(const x of all){if(x.type!=='enum'||!COST_KEYS.has(x.key)||(x.when&&!Object.entries(x.when).every(([k,v])=>params[k]===v)))continue;
    rows.push('<tr><th>'+x.label+'</th>'+x.values.map((v,i)=>{const alt=estimate(Object.assign({},params,{[x.key]:i})),base=estimate(params),d=mid(alt.cpu)-mid(base.cpu);
     return '<td'+(i===params[x.key]?' class="sel"':'')+'>'+v+'<br>'+alt.cpu.low+'–'+alt.cpu.high+'% <small>('+sgn(d)+')</small><br><small>'+Math.round(alt.ops/1000)+'k ops</small></td>';}).join('')+'</tr>');}

@@ -8,8 +8,8 @@
 #include <stdint.h>
 
 enum { MTR_U8 = 0, MTR_U16, MTR_BOOL, MTR_ENUM };
-#define MTR_MAX_PARAMS 24u           /* the most parameters one meter may declare (bounds the loader's scratch) */
-#define MTR_MAX_PRESET_VALUES (8u * MTR_MAX_PARAMS)
+#define MTR_MAX_PARAMS 40u           /* the most parameters one meter may declare (bounds the loader's scratch) */
+#define MTR_MAX_PRESET_VALUES (16u * MTR_MAX_PARAMS)
 #define MTR_NO_WHEN 0xFFu
 #define MTR_CUSTOM  0xFFu
 
@@ -21,6 +21,7 @@ typedef struct {
     uint16_t    when_val;
     const char *unit;                /* appended to the value ("%", " MS") */
     const char *const *enums;        /* MTR_ENUM: value names */
+    int8_t      off;                 /* added to the stored value for display only (a gain stored 0..36 shows -18..+18) */
 } mtr_param_t;
 
 typedef struct {
@@ -35,6 +36,7 @@ typedef struct {
     uint16_t           *pre;         /* npre x n values, row major */
     uint16_t           *val;         /* the live values, one array per meter (state is per meter, B-234) */
     uint8_t            *pre_idx;     /* current preset, or MTR_CUSTOM */
+    uint8_t             cold;        /* 1: p[] and pre[] are read-only COLD_DATA (no RAM copy; pre_buf is empty and a tau-assets METR section is ignored for it) */
 } mtr_data_t;
 
 static inline int mtr_visible(const mtr_data_t *d, uint32_t i)

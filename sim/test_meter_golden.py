@@ -39,6 +39,9 @@ HARNESS = r'''
 #include "meter_gen_enum.h"
 #include "meter_module.h"
 #include "meter.h"
+#ifndef COLD_DATA
+#define COLD_DATA
+#endif
 #include "meters_gen.h"
 static uint16_t g_prim, g_track, ui_accent;
 static uint8_t spec_lvl[16], paused, wave_hw, ui_fullscreen;
