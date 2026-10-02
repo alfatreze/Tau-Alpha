@@ -5,6 +5,9 @@ the Cymo row — see below). Why things are the way they are is in `docs/AUDIT_T
 `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
 Full detail on this session: `docs/handoffs/SESSION_HANDOFF_2026-10-01_CYMO_RESAMPLER.md` — **read it first.**
 
+## Update 2026-10-02 (later): Layered Wave flicker closed, one way to draw a meter, merged to main
+`lw-flicker` is merged into `main` (fast-forward, B-512..B-526). Hardware-confirmed on `alfatreze.TAU_DEV_67`: no flicker in the player screen, fullscreen or Settings > Meter > Configure, no corruption, no choppiness. What changed: every meter is drawn through one entry (`helios_meter()`); the full-repaint meters (Layered Wave, Chladni) are composed in the idle H2 back buffer and copied on (`helios_present`, skipping exclusion rects such as the fullscreen CPU% label); Layered Wave is throttled (45 ms, yields to a low audio FIFO, time-based stride); CPU LOAD works (the latch was compiled out); Check reports the heap peak (`SR_T_HEAP`); no library now says "Library file not found" and no track is loaded at boot; data slot 3 (legacy Playlist) is gone (library opens use slot 5 as the template); Start opens Settings on release, Start+Y jumps to Meter > Configure; issues 021 and 022 closed. Card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_67`. Open: some meter settings problems the owner will describe; the asynchronous present; the Helios input layer (`HELIOS_ARCHITECTURE_REVIEW` 8.1); audio distortion under Layered Wave not re-confirmed gone (UNDERRUNS row not captured); the Cymo STALE counter reading 7580 while not live. Not pushed to origin.
+
 ## Headline: the Cymo resampler is built, fit, hardware-tested, and mid bug-fix cycle
 
 Built the Cymo 44.1→48 kHz polyphase FIR resampler end to end this session (host model → golden model →
