@@ -165,7 +165,7 @@ def render_modules(meters):
                 b.append("static const char *const mtr_en_%s_%s[] = { %s };" % (k, x["key"], ", ".join(json.dumps(v) for v in x["values"])))
         cold = bool(m.get("cold_tables"))                # the parameter table and preset values read-only in the cold image: no hot RAM (the build that is tight on RAM)
         cd = " COLD_DATA" if cold else ""
-        b.append("static const mtr_param_t mtr_p_%s[MP_%s_N]%s = {" % (k, K, cd))
+        b.append("static const mtr_param_t mtr_p_%s[MP_%s_N] COLD_DATA = {" % (k, K))   # every meter: the parameter table is only read by the (cold) settings pages and the assets loader, after the cold image is up
         for x in ps:
             lo, hi = param_bounds(x)
             w = x.get("when", {})
