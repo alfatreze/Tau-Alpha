@@ -13227,3 +13227,30 @@ Verified: `make test-host` passes; `tools/check_heap_gap.py` and `tools/check_co
 `player-library-diagnostic` and `player-library-diagnostic-profile` all rebuild clean. This ships in the
 real release (not diagnostic-only), same as the Select+X/Y chords -- `dist/`'s ROM/cold-image updated
 accordingly (+180 B ROM, +224 B cold image). Not yet hardware-tested.
+
+## B-496: Cymo resampler -- pop_req-gating fix fit CLOSED CLEAN, both seeds; installed and ready for the real re-test
+
+`cymo-b492` finished on schedule (23:39 WEST, within the ~23:52-23:57 estimate's margin). **Both seeds
+Successful, every corner positive on both**, identical footprint to every prior Cymo fit (RAM 256/308,
+DSP 20/66 -- the pop_req gate costs nothing measurable). Seed 1: Fast 0C hold +0.141/setup +5.932, Fast
+85C hold +0.161/setup +5.712, Slow 0C hold +0.341/setup +1.397, Slow 85C hold +0.349/setup +1.373. Seed
+2: Fast 0C hold +0.130/setup +6.092, Fast 85C hold +0.172/setup +5.629, Slow 0C hold +0.365/setup
++0.788, Slow 85C hold +0.381/setup +0.932. **Seed 1 selected** (better worst-case hold on the Slow
+corners). RBF collected and hash-verified:
+`work/diagnostics/cymo-b492/ap_core_s1.rbf`, sha256
+`abb2787256b0322bd3fadae8d7d8c3dd8e7c2edab3570a440bd23472ed25bb97`.
+
+Built `player-library-diagnostic-profile` with `RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1` via
+`package_dev_build.py --build-flags`, packaged against this RBF as `alfatreze.TAU_DEV_59` (reusing the
+same core id the prior two Cymo bug-fix iterations used). Installed via `tools/install_dev_core.py
+--replace` (card had gone briefly unreadable mid-session -- `Input/output error` on every path despite
+`diskutil` reporting it mounted, resolved by a physical reseat; no data lost, nothing written during the
+bad window). Bitstream/ROM/cold-image hashes verified identical post-copy, five catalog caches cleared,
+junk removed, ejected cleanly. One pre-existing, unrelated note surfaced by the install's own media
+check: the `cymo_loopback` test-asset folder has no `tau-art` cover file (slow embedded-JPEG path only,
+not a regression).
+
+**Real test of B-492's diagnosis, now on the card**: does the 1kHz tone give the same pitch every
+toggle? Is the "tiny constant noise" during ordinary playback gone? And new evidence to read either
+way: the CYMO RESAMP Info row's `STALE <n>` field (`R_CYMO_DIAG`, MMIO 0x160) -- should read 0 or stay
+very low if push/pop_req are genuinely rate-matched now.
