@@ -198,14 +198,21 @@
     st.ph = new Uint8Array(ctx.w); st.nh = new Uint8Array(ctx.w); st.pc = new Uint16Array(ctx.w); st.nc = new Uint16Array(ctx.w);
     st.stride = 1 + tdiv(n * ctx.w, 900); st.cnt = 0;
   }
+  function n0(p) { return p.layers; }
   function tick(ctx) {
     const p = ctx.p, st = ctx.st, fb = ctx.fb, W = ctx.w, H = ctx.h, X = ctx.x, Y = ctx.y, dt = ctx.dt || 26;
     const cl = colours(ctx);
-    // Only the history/band array sizes and the box geometry force a reset; every other change (view, draw, split, colours, ...) just repaints on the next
-    // frame and keeps the history, so switching a setting never wipes the picture.
-    const hard = [p.layers, p.res, W, H, X, Y].join(','), soft = [p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bgc, p.aa | 0, p.bmode | 0, p.balpha | 0, p.hstyle | 0].join(',');
-    if (!st.init || st.hard !== hard || ctx.force) { reinit(st, ctx, hard); fb.rect(X, Y, W, H, cl.bgc); }   // the solid background: ONE command
-    else if (st.soft !== soft) st.dirty = true;
+    // Only the history/band array sizes force a reset (B-523). A forced repaint, a setting change or a moved/resized box just repaints on the next frame and
+    // keeps the history, so the meter never restarts when it changes view or enters fullscreen. The frame's own draw wipes the whole box, so no separate wipe.
+    const hard = [p.layers, p.res].join(','), geo = [W, H, X, Y].join(','), soft = [p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bgc, p.aa | 0, p.bmode | 0, p.balpha | 0, p.hstyle | 0].join(',');
+    if (!st.init || st.hard !== hard) { reinit(st, ctx, hard); st.geo = geo; }
+    else {
+        if (st.soft !== soft || ctx.force) st.dirty = true;
+        if (st.geo !== geo) {
+            st.geo = geo; st.dirty = true; st.stride = 1 + tdiv(n0(p) * W, 900);
+            st.ph = new Uint8Array(W); st.nh = new Uint8Array(W); st.pc = new Uint16Array(W); st.nc = new Uint16Array(W);
+        }
+    }
     st.soft = soft;
     if (ctx.paused) return;                // the firmware skips drawing while paused: the picture holds
     const cy = Y + (H >> 1), Hh = (H >> 1) - 1;

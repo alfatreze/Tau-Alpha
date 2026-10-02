@@ -55,5 +55,20 @@ addChange('change/view-1-to-0', { view: 1, draw: 1, layers: 4 }, { view: 0 }, 30
 addChange('change/colour', { draw: 0, res: 64 }, { color_mode: 2, custom_outer: 0xF81F, custom_inner: 0x07E0, custom_bg: 0x1082 }, 25);
 addChange('change/split-and-taper', { draw: 0, res: 48, layers: 4 }, { split: 4, xo1: 3, xo2: 7, xo3: 12, taper: 20 }, 35);
 addChange('change/layers-hard', { draw: 1, layers: 3 }, { layers: 5 }, 30);
+// B-523: a forced repaint and a moved/resized box in the middle of a run keep the history (the meter never restarts) -- firmware and lab alike.
+function addEvent(name, v, frc, geoat, box2) {
+  const theme = Th.makeTheme(data, 0, false, 13, 360), fb = new Fb(400, 360, true), st = LW.state(), box = boxes.normal, demo = Audio.demo(91);
+  const p1 = Object.assign({}, base, v), logs = [], frames = [];
+  for (let n = 0; n < FRAMES; n++) {
+    const f = demo(n), paused = n >= 40 && n < 46, l0 = fb.log.length, bx = geoat >= 0 && n >= geoat ? box2 : box;
+    LW.tick({ fb, x: bx.x, y: bx.y, w: bx.w, h: bx.h, theme, spec: f.spec, wave: f.wave, paused, p: p1, st, force: n === 0 || n === frc });
+    logs.push(fb.log.slice(l0)); frames.push({ paused: paused ? 1 : 0, spec: f.spec, wave: f.wave });
+  }
+  scen.push({ name, params: keys.map((k) => p1[k]), params2: keys.map((k) => p1[k]), chg: -1, frc, geoat, box, box2: box2 || box, roles: ROLES.map((k) => (k === 'accent' ? theme.accent : theme.role[k])), frames, log: logs });
+}
+addEvent('event/force-mid-run', { draw: 1, layers: 4 }, 30, -1, null);
+addEvent('event/force-mid-run-blocks', { draw: 0, res: 64, layers: 3 }, 30, -1, null);
+addEvent('event/enter-fullscreen', { draw: 1, layers: 4 }, 30, 30, boxes.full);
+addEvent('event/enter-fullscreen-spectrum', { draw: 0, view: 1, layers: 3 }, 25, 25, boxes.full);
 add('stress/res400-6layers-full', { layers: 6, res: 400, draw: 1, speed: 240 }, 'full', 99, 0, 5);
 process.stdout.write(JSON.stringify(scen));

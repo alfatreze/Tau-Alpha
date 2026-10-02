@@ -30,8 +30,8 @@ int main(int argc, char **argv) {
     FILE *f = fopen(argv[1], "r");
     int nscen; if (fscanf(f, "%d", &nscen) != 1) return 2;
     for (int s = 0; s < nscen; s++) {
-        int nframes, chg; unsigned bx, by, bw, bh, role[12], pv2[64];
-        if (fscanf(f, "%u %u %u %u %d %d", &bx, &by, &bw, &bh, &nframes, &chg) != 6) return 2;
+        int nframes, chg, frc, geoat; unsigned bx, by, bw, bh, bx2, by2, bw2, bh2, role[12], pv2[64];
+        if (fscanf(f, "%u %u %u %u %d %d %d %d %u %u %u %u", &bx, &by, &bw, &bh, &nframes, &chg, &frc, &geoat, &bx2, &by2, &bw2, &bh2) != 12) return 2;
         for (int i = 0; i < 12; i++) if (fscanf(f, "%u", &role[i]) != 1) return 2;
         for (int i = 0; i < MP_LAYERED_WAVE_NTOT; i++) { unsigned v; if (fscanf(f, "%u", &v) != 1) return 2; if (i < MP_LAYERED_WAVE_N) mtr_v_layered_wave[i] = (uint16_t)v; }
         for (int i = 0; i < MP_LAYERED_WAVE_NTOT; i++) if (fscanf(f, "%u", &pv2[i]) != 1) return 2;
@@ -48,8 +48,9 @@ int main(int argc, char **argv) {
             printf("F %d\n", n);
             if (n == chg) for (int i = 0; i < MP_LAYERED_WAVE_N; i++) if (i < MP_LAYERED_WAVE_N) mtr_v_layered_wave[i] = (uint16_t)pv2[i];
             mtr_in_t in = {0};
-            in.spec = spec; in.wave = wave; in.force = (n == 0) ? 1 : 0; in.dt_ms = 26u;
-            in.x = (uint16_t)bx; in.y = (uint16_t)by; in.w = (uint16_t)bw; in.h = (uint16_t)bh;
+            in.spec = spec; in.wave = wave; in.force = (n == 0 || n == frc) ? 1 : 0; in.dt_ms = 26u;
+            if (geoat >= 0 && n >= geoat) { in.x = (uint16_t)bx2; in.y = (uint16_t)by2; in.w = (uint16_t)bw2; in.h = (uint16_t)bh2; }
+            else { in.x = (uint16_t)bx; in.y = (uint16_t)by; in.w = (uint16_t)bw; in.h = (uint16_t)bh; }
             lw_tick(&in);
         }
         printf("S\n");
@@ -81,7 +82,8 @@ def compare(scen, diag):
     lines = [str(len(scen))]
     for s in scen:
         b = s["box"]
-        lines.append("%d %d %d %d %d %d" % (b["x"], b["y"], b["w"], b["h"], len(s["frames"]), s["chg"]))
+        b2 = s.get("box2") or b
+        lines.append("%d %d %d %d %d %d %d %d %d %d %d %d" % (b["x"], b["y"], b["w"], b["h"], len(s["frames"]), s["chg"], s.get("frc", -1), s.get("geoat", -1), b2["x"], b2["y"], b2["w"], b2["h"]))
         lines.append(" ".join(str(v) for v in s["roles"]))
         lines.append(" ".join(str(v) for v in s["params"]))
         lines.append(" ".join(str(v) for v in s["params2"]))

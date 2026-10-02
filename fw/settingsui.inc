@@ -1012,7 +1012,7 @@ static void wvcfg_open(void)
     wviz_force = 1u;   /* B-234: entering at a different rect than the player screen's own */
 }
 
-/* Start+X shortcut (fw/player.c): jump straight to Meter > Configure from the player screen, skipping
+/* Start+Y shortcut (fw/player.c, moved from Start+X in B-522 when Start began opening Settings on release): jump straight to Meter > Configure from the player screen, skipping
  * the Home -> Appearance -> Meter navigation chain. Mirrors set_input()'s own Start-opens-at-SET_HOME
  * path (closing any open library browser first, running the one-time hardware-blend probe before
  * FB_HELD() becomes true) but lands directly on the Configure page and calls its own open() the same way
