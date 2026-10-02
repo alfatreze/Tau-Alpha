@@ -122,17 +122,24 @@ COLD_FN3 static void fig_bar_fn(uint32_t x, uint32_t y, uint32_t w, uint32_t h, 
  * A meter that repaints its whole box (wipe, then every layer) shows the wipe whenever the beam crosses the box before the repaint finishes: measured
  * 83 ms for Layered Wave against a 16.7 ms frame (B-519), so no beam gate can help. Instead the figure is drawn into the idle H2 back buffer, where
  * nothing can see it, and then COPIED onto the displayed buffer with OP_BLIT, which takes about a millisecond -- much faster than the beam -- so the
- * worst case is one seam for one frame, never a flash of background. The copy skips every helios_excl[] rect, so an overlay (the fullscreen CPU% label)
- * is never overwritten and need not be repainted.
+ * worst case is one seam for one frame, never a flash of background. When asked to (clip), the copy skips every helios_excl[] rect, so an overlay (the
+ * fullscreen CPU% label) is never overwritten and need not be repainted.
  *
- * Use only when nothing else holds the back buffer: not while an overlay is up (Settings uses buffer 1 for its crossfade), not blanked, not with a flip
- * pending. helios_offscreen_ok() says so. RECT-class draws follow R_DBUF_CPU (set it to the back buffer for the compose, put it back after the fence);
- * blit-mode draws (Chladni's SBLIT/BLIT) follow the sticky bases instead. */
+ * This is driven from ONE place, helios_meter() (fw/player.c): every context that draws a meter -- the player screen, fullscreen, the Settings >
+ * Meter > Configure preview -- goes through it, so a meter behaves the same everywhere. Meters only draw: RECT-class commands follow R_DBUF_CPU, which
+ * helios_meter points at the back buffer for the compose; blit-mode commands (Chladni's SBLIT/BLIT) read `hs_base`, the word base of the buffer being
+ * drawn into, which helios_meter sets before every meter call (the displayed buffer for a direct draw, the back buffer for a composed one).
+ *
+ * The back buffer is shared with the Settings crossfade, which claims it with helios_back_busy for the ~100 ms of a page transition. */
 #define HELIOS_PRESENT_CHUNK 120u    /* OP_BLIT stages a row in a 128-entry buffer: at most 127 columns, 120 matches chl_replicate */
+
+static uint8_t  helios_back_busy;    /* the back buffer is claimed (Settings crossfade): compose into it is not allowed */
+static uint32_t hs_base;             /* word base of the buffer the current meter call draws into (blit-mode commands use it) */
+static uint32_t helios_n_draw, helios_n_comp, helios_n_fail, helios_t_last, helios_t_max, helios_t_pres;   /* Info > METER DRAW */
 
 COLD_FN3 static int helios_offscreen_ok(void)
 {
-    if (!DBUF_READY() || screen_blank || UI_OVERLAY_UP) return 0;
+    if (!DBUF_READY() || screen_blank || helios_back_busy) return 0;
     return (REG(R_DBUF_DISP) & 2u) == 0u;                     /* a pending flip would swap the roles under us */
 }
 /* fb_fence() that keeps waiting (up to ~200 ms) until the engine has really drained; returns 0 if it never did. The compose must not switch R_DBUF_CPU
@@ -145,14 +152,14 @@ COLD_FN3 static int helios_drain(void)
 COLD_FN3 static uint32_t helios_front_idx(void) { return REG(R_DBUF_DISP) & 1u; }
 COLD_FN3 static uint32_t helios_buf_base(uint32_t idx) { return idx ? DBUF_BASE1_W : 0u; }
 
-/* Copy the box from the back buffer to the displayed one, minus every exclusion rect. Everything composed must have executed (fb_fence) first. */
-COLD_FN3 static void helios_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+/* Copy the box from the back buffer to the displayed one, minus every exclusion rect when `clip`. Everything composed must have executed (fb_fence) first. */
+COLD_FN3 static void helios_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t clip)
 {
     const uint32_t front = helios_front_idx();
     helios_rect_t cur[8];
     uint8_t n = 1;
     cur[0].x = (int32_t)x; cur[0].y = (int32_t)y; cur[0].w = (int32_t)w; cur[0].h = (int32_t)h;
-    for (uint8_t e = 0; e < helios_excl_n; e++) {
+    for (uint8_t e = 0; clip && e < helios_excl_n; e++) {
         if (helios_excl[e].w <= 0 || helios_excl[e].h <= 0) continue;
         helios_rect_t next[8];
         uint8_t nn = 0;

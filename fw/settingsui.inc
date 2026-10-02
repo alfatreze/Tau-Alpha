@@ -637,7 +637,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "FLAC LPC"
     , "I2S JITTER"
     , "CYMO RESAMP"
-    , "LAYERED WAVE"
+    , "METER DRAW"
     , "LW COST"
     };
 static uint32_t set_info_at;
@@ -834,20 +834,20 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = ui_dec(q, cnt);
         break;
     }
-    case 31:   /* LAYERED WAVE (docs/issues/022): redraws done, how many were composed off-screen and presented, last and worst redraw time in microseconds
-                * (to engine completion in a Diagnostic Build), and the self-scaling stride it settled on */
-        q = set_str(q, "D"); q = ui_dec(q, lw_n_draw);
-        q = set_str(q, " O"); q = ui_dec(q, lw_n_off);
-        if (lw_n_fail) { q = set_str(q, " F"); q = ui_dec(q, lw_n_fail); }
-        q = set_str(q, " "); q = ui_dec(q, lw_t_last / (CLK_HZ / 1000000u));
-        q = set_str(q, "/"); q = ui_dec(q, lw_t_max / (CLK_HZ / 1000000u));
+    case 31:   /* METER DRAW (docs/issues/022): redraws of the full-repaint meters (Layered Wave, Chladni), how many were composed off-screen and presented, F = drains
+                * that never finished (frame dropped), last and worst time in microseconds (to engine completion in a Diagnostic Build), and Layered Wave's stride */
+        q = set_str(q, "D"); q = ui_dec(q, helios_n_draw);
+        q = set_str(q, " O"); q = ui_dec(q, helios_n_comp);
+        if (helios_n_fail) { q = set_str(q, " F"); q = ui_dec(q, helios_n_fail); }
+        q = set_str(q, " "); q = ui_dec(q, helios_t_last / (CLK_HZ / 1000000u));
+        q = set_str(q, "/"); q = ui_dec(q, helios_t_max / (CLK_HZ / 1000000u));
         q = set_str(q, "US S"); q = ui_dec(q, lw_stride);
         break;
     case 32:   /* LW COST (B-519): commands in the last draw, CPU time to issue it, and how much of that was reading the PSRAM history (lw_unwrap) */
         q = set_str(q, "C"); q = ui_dec(q, lw_cmd_last);
         q = set_str(q, " CPU "); q = ui_dec(q, lw_t_cpu / (CLK_HZ / 1000000u));
         q = set_str(q, " UNW "); q = ui_dec(q, lw_t_unw / (CLK_HZ / 1000000u));
-        q = set_str(q, " PRES "); q = ui_dec(q, lw_t_pres / (CLK_HZ / 1000000u));
+        q = set_str(q, " PRES "); q = ui_dec(q, helios_t_pres / (CLK_HZ / 1000000u));
         q = set_str(q, "US");
         break;
     default: {   /* CYMO RESAMP (B-481): whether the probe found the unit, and -- once the Diagnostics >
@@ -1252,7 +1252,7 @@ static uint32_t set_fade_at;
  * call site. Fixed at the actual point FB_HELD() is still false: set_input()'s own Start-opens-
  * Settings handler, right before `set_open` flips to 1 (see there). */
 #define SET_XFADE_READY() (BLEND_READY() && DBUF_READY())
-static uint8_t  set_xfade_active;
+/* The crossfade below claims the H2 back buffer through helios_back_busy (fw/helios.inc, set/cleared in place of the old set_xfade_active), so no meter composes into it meanwhile. */
 static uint32_t set_xfade_src_base, set_xfade_dst_base;
 
 COLD_FN static void set_draw_now(void);
@@ -1343,16 +1343,16 @@ COLD_FN static void set_draw(void)
          * set_draw_now()/set_xfade_render() ever set it, matching those functions' own precedent) risks
          * that still-queued blit executing AFTER the reset and reading (0,0) instead of the bases it
          * was actually issued under, same race class as B-410. */
-        if (set_xfade_active) {
+        if (helios_back_busy) {
             const uint8_t o = ov_draw; ov_draw = 1u;
             fb_fence();
             fb_set_bases(0u, 0u);
             ov_draw = o;
         }
-        set_xfade_active = 0u;
+        helios_back_busy = 0u;
         if (fade_ok && SET_XFADE_READY()) {
             set_xfade_render();
-            set_xfade_active = 1u;
+            helios_back_busy = 1u;
             set_fade_step = 0u;
             set_fade_at = cycles();
             set_dirty = 1u;
@@ -1361,13 +1361,13 @@ COLD_FN static void set_draw(void)
         set_fade_step = fade_ok ? 0u : SET_FADE_STEPS;
         set_fade_at = cycles();
     }
-    if (set_xfade_active) {
+    if (helios_back_busy) {
         if ((int32_t)(cycles() - set_fade_at) < 0) { set_dirty = 1u; return; }
         set_xfade_step_draw(set_fade_k[set_fade_step]);
         set_fade_step++;
         set_fade_at = cycles() + CLK_HZ / 60u;
         if (set_fade_step < SET_FADE_STEPS) { set_dirty = 1u; return; }
-        set_xfade_active = 0u;
+        helios_back_busy = 0u;
         return;         /* the displayed buffer already shows the exact final frame -- nothing left to draw */
     }
     if (!fade_ok) set_fade_step = SET_FADE_STEPS;
@@ -1418,12 +1418,12 @@ COLD_FN static void set_close(void)
 {
     set_open = 0u; set_page = SET_HOME;
     set_fade_last = 0xFFFFu;                   /* B-334: the next open fades in again */
-    if (set_xfade_active) {   /* B-405/B-412: same reasoning as set_draw()'s own abandon case -- fence before resetting bases */
+    if (helios_back_busy) {   /* B-405/B-412: same reasoning as set_draw()'s own abandon case -- fence before resetting bases */
         const uint8_t o = ov_draw; ov_draw = 1u;
         fb_fence();
         fb_set_bases(0u, 0u);
         ov_draw = o;
-        set_xfade_active = 0u;
+        helios_back_busy = 0u;
     }
     /* Missing since the legacy playlist overlay was removed (45630c3): that overlay's own close site
      * was apparently the only one still setting the shared repaint flag (fw/player.c's own comment on

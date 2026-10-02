@@ -165,25 +165,21 @@ COLD_FN3 static void ui_fs_dynamic(void)
      * redraw only changed bars, the scope erases and redraws column by column, Chladni copies tile rows). */
     fs_label_prepare();
     if (viz_mode != VIZ_CHLADNI) {                                          /* Winamp Bars / Scope / Layered Wave: explicit geometry, black ground */
-        /* helios_fill_excl() skips the label's corner for the outer clear; the figure's own fills are clipped by fig_clip_on (see the label comment). */
+        /* helios_fill_excl() skips the label's corner for the outer clear; helios_meter(HM_CLIP) keeps the figure's own fills out of it. */
         if (fs_force) { wviz_force = 1u; helios_fill_excl(0, 0, FS_W, FS_FIG_H, 0u); }
         const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, wviz_force);
-        fig_clip_on = 1u;
-        if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(&in);
-        else if (viz_mode == VIZ_LAYERED_WAVE) lw_tick(&in);
-        else                             wviz_scope_tick(&in, 0);
-        fig_clip_on = 0u;
+        (void)helios_meter(viz_mode, &in, HM_CLIP);
         fs_force = 0u; fs_label_paint(0);
     } else {
-        /* Chladni composes off-screen and presents around the label rect (B-520), so the label is untouched and only repainted when its text
-         * changes. Without the H2 back buffer the tile copies still overwrite the corner: then the label is repainted after the figure, and
-         * the figure only runs while the beam is clear of the label rows. */
-        const uint32_t off = helios_offscreen_ok();
-        if (off || fs_corner_ok()) {
+        /* Chladni composes off-screen and is presented around the label rect by helios_meter(HM_CLIP), so the label is untouched and only repainted when its
+         * text changes. Without the H2 back buffer the tile copies still overwrite the corner: then the label is repainted after the figure, and the figure
+         * only runs while the beam is clear of the label rows. */
+        if (helios_offscreen_ok() || fs_corner_ok()) {
             const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force);
-            if (chladni_tick_box(&in)) {
+            const uint32_t r = helios_meter(VIZ_CHLADNI, &in, HM_CLIP);
+            if (r & HM_DREW) {
                 fs_force = 0u;
-                if (!chl_off_last) { fs_lbl_dirty = 1u; fs_label_paint(1); }   /* the tile copies overwrote the corner */
+                if (!(r & HM_COMPOSED)) { fs_lbl_dirty = 1u; fs_label_paint(1); }   /* the tile copies overwrote the corner */
                 else fs_label_paint(0);
             }
         }
