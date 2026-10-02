@@ -86,7 +86,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  function setBounds(list){const v={split:4,layers:list.length+1};for(let i=0;i<5;i++)v['xo'+(i+1)]=list[i]!==undefined?list[i]:params['xo'+(i+1)];ctl.setMany(v);}   // a gradient editor's stops: moving one switches the split to CUSTOM
  const moveTo=(i,nb)=>{const b=bandsNow();nb=Math.max(b[i-1]+1,Math.min(b[i+1]-1,nb));if(nb!==b[i]){const l=b.slice(1,-1);l[i-1]=nb;setBounds(l);}};
  strip.ondblclick=e=>{if(e.target.closest('.handle')||!handlesOn()||params.layers>=6)return;const b=bandsNow(),band=Math.max(1,Math.min(15,bandAt(e.clientX)));if(b.includes(band))return;setBounds(b.slice(1,-1).concat(band).sort((a,c)=>a-c));};
- const handlesOn=()=>!!(mod&&mod.boundsFor&&params.view===0&&params.split!==3);
+ const handlesOn=()=>!!(mod&&mod.boundsFor&&params.split!==3);
  function layoutHandles(col){
   const n=params.layers;
   if(!handlesOn()){hbar.innerHTML='';handles=[];hbar.style.display='none';return;}

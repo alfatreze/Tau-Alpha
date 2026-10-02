@@ -264,14 +264,22 @@ COLD_FN3 static void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_c
 {
     const int32_t W = in->w, X = in->x, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, dt = in->dt_ms;
     lw_rect(X, in->y, W, in->h, cl->bg);
+    uint8_t bnd[LW_MAXL + 1u];
+    if (p->split == 2u) lw_learn(in->spec, n);
+    if (p->split != 3u) lw_bounds(p->split, n, bnd, p->xo);   /* frequency splits: each layer draws only the part of the axis it listens to */
     for (int32_t k = 0; k < n; k++) {
+        int32_t lo = 0, hi = (int32_t)LW_NB;
+        if (p->split != 3u) {
+            if (p->nest == 0u) { lo = p->outer == 0u ? bnd[k] : 0; hi = p->outer == 0u ? (int32_t)LW_NB : bnd[n - k]; }
+            else { const int32_t g = p->outer == 0u ? k : n - 1 - k; lo = bnd[g]; hi = bnd[g + 1]; }
+        }
         const int32_t m = n > 1 ? (int32_t)lw_mul_q8[n - 1 - 2 * k + 5] : 256, sc = n == 1 ? 1024 : 1024 - (512 * k) / (n - 1);
         const uint32_t ca = lw_coef(p->response, m, dt, 1), cr = lw_coef(p->response, m, dt, 0);
         uint8_t bu[LW_NB];
         for (uint32_t i = 0; i < LW_NB; i++) {
             const int32_t v = ((int32_t)in->spec[i] * 4096) / 255;
             lw_band[k][i] = (int16_t)lw_step(lw_band[k][i], v, ca, cr);
-            bu[i] = (uint8_t)((lw_u8(lw_band[k][i]) * (uint32_t)sc) >> 10);
+            bu[i] = ((int32_t)i >= lo && (int32_t)i < hi) ? (uint8_t)((lw_u8(lw_band[k][i]) * (uint32_t)sc) >> 10) : 0u;
         }
         int32_t rx0 = 0, rx1 = 0, rh = 0, have = 0;
         for (int32_t xs = 0; xs < W; xs += s) {

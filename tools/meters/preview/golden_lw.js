@@ -31,6 +31,7 @@ for (const [layers, xo] of [[2, [4]], [3, [2, 9]], [4, [7, 3, 12]], [6, [1, 2, 3
   const v = { split: 4, layers, nest: layers & 1, view: 0, draw: layers & 1 };
   xo.forEach((b, i) => { v['xo' + (i + 1)] = b; });
   add(`custom/n${layers}`, v, 'normal', seed++, 0, 13);
+  add(`custom-spectrum/n${layers}`, Object.assign({}, v, { view: 1, draw: 1 - (layers & 1) }), 'normal', seed++, 0, 13);
 }
 add('stress/res400-6layers-full', { layers: 6, res: 400, draw: 1, speed: 240 }, 'full', 99, 0, 5);
 process.stdout.write(JSON.stringify(scen));
