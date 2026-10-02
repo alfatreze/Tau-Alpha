@@ -18,7 +18,7 @@ function add(name, vals, box, seed, light, accent) {
   const r = Run.run({ data, schema: data.schema, key: 'layered_wave', params, source, frames: FRAMES, themeIdx: 0, light, accentIdx: accent, log: true, box: boxes[box] });
   const frames = []; for (let n = 0; n < FRAMES; n++) { const f = source(n); frames.push({ paused: f.paused ? 1 : 0, spec: f.spec, wave: f.wave }); }
   const roles = ROLES.map((k) => (k === 'accent' ? r.theme.accent : r.theme.role[k]));
-  scen.push({ name, params: keys.map((k) => params[k]), box: boxes[box], roles, frames, log: r.logs });
+  scen.push({ name, params: keys.map((k) => params[k]), params2: keys.map((k) => params[k]), chg: -1, box: boxes[box], roles, frames, log: r.logs });
 }
 m.presets.forEach((pr, i) => add('preset/' + pr.name, pr.values, i % 3 === 2 ? 'full' : 'normal', 3 + i, i % 2 === 1, 1 + i * 2));
 let seed = 40;
@@ -33,5 +33,22 @@ for (const [layers, xo] of [[2, [4]], [3, [2, 9]], [4, [7, 3, 12]], [6, [1, 2, 3
   add(`custom/n${layers}`, v, 'normal', seed++, 0, 13);
   add(`custom-spectrum/n${layers}`, Object.assign({}, v, { view: 1, draw: 1 - (layers & 1) }), 'normal', seed++, 0, 13);
 }
+// A setting changed in the middle of a run: only sizes and geometry reset, everything else must keep the history and just repaint (firmware and lab alike).
+const Th = require('./tau_theme.js'), { Fb } = require('./tau_fb.js'), LW = require('./meters/layered_wave.js');
+function addChange(name, v1, v2, chg) {
+  const theme = Th.makeTheme(data, 0, false, 13, 360), fb = new Fb(400, 360, true), st = LW.state(), box = boxes.normal, demo = Audio.demo(77);
+  const p1 = Object.assign({}, base, v1), p2 = Object.assign({}, p1, v2), logs = [], frames = [];
+  for (let n = 0; n < FRAMES; n++) {
+    const f = demo(n), paused = n >= 40 && n < 46, l0 = fb.log.length;
+    LW.tick({ fb, x: box.x, y: box.y, w: box.w, h: box.h, theme, spec: f.spec, wave: f.wave, paused, p: n >= chg ? p2 : p1, st, force: n === 0 });
+    logs.push(fb.log.slice(l0)); frames.push({ paused: paused ? 1 : 0, spec: f.spec, wave: f.wave });
+  }
+  scen.push({ name, params: keys.map((k) => p1[k]), params2: keys.map((k) => p2[k]), chg, box, roles: ROLES.map((k) => (k === 'accent' ? theme.accent : theme.role[k])), frames, log: logs });
+}
+addChange('change/view-0-to-1', { view: 0, draw: 0, layers: 3 }, { view: 1 }, 30);
+addChange('change/view-1-to-0', { view: 1, draw: 1, layers: 4 }, { view: 0 }, 30);
+addChange('change/colour', { draw: 0, res: 64 }, { color_mode: 2, custom_outer: 0xF81F, custom_inner: 0x07E0, custom_bg: 0x1082 }, 25);
+addChange('change/split-and-taper', { draw: 0, res: 48, layers: 4 }, { split: 4, xo1: 3, xo2: 7, xo3: 12, taper: 20 }, 35);
+addChange('change/layers-hard', { draw: 1, layers: 3 }, { layers: 5 }, 30);
 add('stress/res400-6layers-full', { layers: 6, res: 400, draw: 1, speed: 240 }, 'full', 99, 0, 5);
 process.stdout.write(JSON.stringify(scen));

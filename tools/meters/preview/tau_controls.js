@@ -20,7 +20,8 @@
   }
   function hideTip(force) { if (!tip) return; if (tipPinned && !force) return; tipPinned = null; tip.hidden = true; tipFor = null; }
 
-  function build(host, meter, onChange) {
+  function build(host, meter, onChange, opts) {
+    opts = opts || {};   // opts.valueNote(key, valueIndex) -> text appended to that option's line in the tooltip; opts.noteKeys = Set of parameter keys that get it
     host.innerHTML = '';
     const cur = Object.assign({}, ...meter.params.map((x) => ({ [x.key]: x.default })));
     const rows = {}, fills = {}, inputs = {}, groupEls = [];
@@ -69,7 +70,8 @@
         info.setAttribute('aria-label', 'About ' + x.label);
         fills[x.key] = (t) => {
           t.textContent = ''; const a = document.createElement('div'); a.className = 'tiph'; a.textContent = x.help; t.appendChild(a);
-          if (x.value_help) x.value_help.forEach((s, i) => { const d = document.createElement('div'); d.textContent = s; if (i === cur[x.key]) d.className = 'sel'; t.appendChild(d); });
+          const notes = opts.valueNote && opts.noteKeys && opts.noteKeys.has(x.key) && x.type === 'enum';
+          if (x.value_help || notes) (x.value_help || x.values).forEach((s, i) => { const d = document.createElement('div'); d.textContent = s + (notes ? '  [' + opts.valueNote(x.key, i) + ']' : ''); if (i === cur[x.key]) d.className = 'sel'; t.appendChild(d); });
         };
         info.onmouseenter = info.onfocus = () => showTip(info, fills[x.key]);
         info.onmouseleave = info.onblur = () => hideTip(false);
