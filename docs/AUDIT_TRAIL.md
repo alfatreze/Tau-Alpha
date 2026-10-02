@@ -13283,3 +13283,38 @@ working-looking but wrong env var rather than an error) is worth a follow-up, no
 
 **Still the real test to do**: does the resampler toggle now give a consistent pitch, and does `STALE`
 stay near 0?
+
+## B-498: Cymo resampler -- B-492's pop_req gate was incomplete; latched to exactly-once-per-assertion
+
+Owner re-tested the (correctly-booting, per B-497) TAU_DEV_59: per-toggle pitch change still present, but
+the character narrowed -- "doesn't go into the lows as it would sometimes before." Noise still audible
+on MP3s with a perceptible slow tonal shift. This partial-but-incomplete improvement was the key clue:
+B-492's own fix was directionally right but structurally incomplete, not simply ineffective.
+
+Re-read the gate: `cymo_pop_req` is a LEVEL, held high from the wrap that raised it (`S_PHASE`) until
+the NEXT `start` call's `S_SHIFTHIST` actually consumes it -- it does NOT fall after a single push. B-492's
+gate (`cymo_pop_req & pcm_sample_tick`) fires on EVERY `pcm_sample_tick` pulse while `pop_req` stays
+pending, not just the first. If more than one tick lands before the next `start`/`S_SHIFTHIST` (exactly
+the race this fix was meant to close), `held_l`/`held_r` get overwritten repeatedly before any of it is
+ever consumed -- "two pushes before one consume" was still structurally possible, just rarer than the
+completely ungated B-476 original (which fired on literally every tick regardless of `pop_req`). This
+matches the hardware symptom precisely: narrower variation (fewer multi-push events than the fully
+ungated version) but not eliminated (still some).
+
+**Fix**: latch the gate using `cymo_fresh` (already built for the B-492 stale-consume counter) --
+`cymo_auto_we = cymo_live_en & cymo_pop_req & pcm_sample_tick & ~cymo_fresh`. A push can now land only on
+the FIRST tick after a `pop_req` rises; `cymo_fresh` then blocks any further push until the next consume
+clears it. This makes "exactly once per pop_req" a structural guarantee, matching the module's own
+documented contract by construction rather than by hoping push/consume cadence stays in lockstep.
+
+Hit a real Icarus-only circular-declaration-order issue applying this: `cymo_auto_we` now depends on
+`cymo_fresh`, but the register-update `always` block that SETS `cymo_fresh` also READS `cymo_auto_we` --
+a genuine mutual dependency (fine in Verilog semantics, a declare-before-use problem for Icarus's linear
+parse). Fixed by splitting: the `reg`/`wire` declarations stay ahead of `cymo_auto_we`, but the `always`
+block that updates them moved to AFTER `cymo_auto_we`'s own assignment. Two edit passes were needed to
+find this -- the first produced "Unable to bind wire/reg/memory `cymo_auto_we`" in `test-rtl-psram-fw`,
+caught by the real-CPU simulation that regenerates `mp3_soc_sim.v`, not a hand review.
+
+Verified: `make rtl-lint` clean, `make test-rtl-cymo-resamp` still 0 failures/4354 outputs (module-level
+tests unaffected, SoC-wiring-only change), full `make test-rtl` (0 failures across all groups incl. the
+real-CPU PSRAM fw/ifetch sims) and `make test-host` both clean. Launching the fit next.

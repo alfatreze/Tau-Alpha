@@ -1140,6 +1140,25 @@ module mp3_soc #(
     wire        cymo_busy, cymo_done, cymo_pop_req;
     wire signed [15:0] cymo_out_l, cymo_out_r;
     wire        cymo_out_rd = d_req & d_is_mmio & ~dWE & (mmio_reg == R_CYMO_OUT);
+    // B-488 (hardware-confirmed): a 0->1 transition of cymo_live_en is also a clear. Without this, re-engaging LIVE
+    // resumes against whatever 32-tap history was last left in the unit -- stale audio from a different point in the
+    // (possibly different) track, or boot-time zeros -- producing a genuinely different, unpredictable settling
+    // transient every single time the toggle is switched on. cymo_tick/cymo_tick_acc are deliberately NOT reset
+    // here -- that free-running reference tick should stay pristine and continuous, the one thing that must NOT
+    // vary from toggle to toggle.
+    reg cymo_live_en_d = 1'b0;
+    always @(posedge clk) cymo_live_en_d <= rst ? 1'b0 : cymo_live_en;
+    wire cymo_live_rise = cymo_live_en & ~cymo_live_en_d;
+    // B-492/B-498: `cymo_fresh` tracks whether a push has landed since the last consume (pop_req falling
+    // edge, i.e. S_SHIFTHIST executed) -- used BOTH to gate the push itself (cymo_auto_we below, so a push
+    // can only land once per pop_req assertion) AND to count stale consumes (cymo_stale_cnt) for the
+    // CYMO RESAMP Info row. Declared here, ahead of cymo_auto_we, since Icarus requires declare-before-use
+    // (Quartus tolerates the opposite order, Icarus does not -- the same class of gotcha as B-103).
+    reg         cymo_pop_req_d = 1'b0;
+    always @(posedge clk) cymo_pop_req_d <= rst ? 1'b0 : cymo_pop_req;
+    wire        cymo_consume_ev = cymo_pop_req_d & ~cymo_pop_req;   // falling edge = S_SHIFTHIST executed
+    reg         cymo_fresh = 1'b0;
+    reg  [15:0] cymo_stale_cnt = 16'd0;
     // B-492 (replaces the never-actually-gated auto-push): the module's OWN header documents the
     // contract as "caller must push exactly once per asserted pop_req, before the next start" -- but the
     // live path here pushed on EVERY pcm_sample_tick unconditionally, regardless of pop_req, ever since
@@ -1150,44 +1169,28 @@ module mp3_soc #(
     // running continuously regardless. So the relative phase between "a sample becomes available" and
     // "the resampler wants one" was whatever it happened to be at the arbitrary instant of the toggle --
     // different every time, explaining the owner's reported per-toggle pitch variance even after B-488's
-    // fix (which could not have touched this, since it only resets the module's OWN state). It also means
-    // held_l/held_r could be silently overwritten before ever being consumed (lost samples) if the two
-    // ticks' instantaneous phase happened to put two pushes between one pair of consumes -- a plausible
-    // source of the separately-reported low-level constant noise. Gating push on `cymo_pop_req` (a LEVEL,
-    // stays high until actually consumed) enforces the real contract: a push can only land while the
-    // module is actually asking for one, so the first `pcm_sample_tick` after a pop_req closes the loop
-    // deterministically regardless of toggle timing, and no push can happen between two consumes (so
-    // "two pushes before one consume" becomes structurally impossible).
-    wire        cymo_auto_we    = cymo_live_en & cymo_pop_req & pcm_sample_tick;
+    // fix (which could not have touched this, since it only resets the module's OWN state).
+    //
+    // B-498 CORRECTION to B-492's own fix: gating on `cymo_pop_req` alone was INCOMPLETE. `pop_req` is a
+    // LEVEL, held high from the wrap that raised it until the NEXT `start` actually consumes it in
+    // S_SHIFTHIST -- it does not fall after a single push. If more than one `pcm_sample_tick` pulse lands
+    // while pop_req is still pending (exactly the scenario this fix was meant to rule out), the old gate
+    // (`pop_req & pcm_sample_tick`) fired on EVERY one of them, repeatedly overwriting `held_l`/`held_r`
+    // before any of it was ever consumed -- "two pushes before one consume" was still possible, just
+    // rarer than the completely ungated B-476 original. Hardware re-test confirmed exactly this shape:
+    // the per-toggle pitch variance narrowed (no longer reaching as far as before) but did not go away,
+    // and the owner could still perceive a slow tonal drift during ordinary playback -- consistent with
+    // occasional multi-push overwrites, not fully eliminated. Fixed by latching: `cymo_fresh` (below,
+    // already built for the stale-consume counter) now ALSO gates the push itself, so a push can land
+    // only on the FIRST tick after a pop_req rises, never again until the next consume clears it --
+    // genuinely "exactly once per pop_req," matching the module's own documented contract by construction
+    // rather than by relying on push/consume cadence happening to stay in lockstep.
+    wire        cymo_auto_we    = cymo_live_en & cymo_pop_req & pcm_sample_tick & ~cymo_fresh;
     wire        cymo_auto_start = cymo_live_en & cymo_tick;
     wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out_l : fifo_l;
     wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out_r : fifo_r;
-    // B-488 (hardware-confirmed): a 0->1 transition of cymo_live_en is also a clear. Without this, re-engaging LIVE
-    // resumes against whatever 32-tap history was last left in the unit -- stale audio from a different point in the
-    // (possibly different) track, or boot-time zeros -- producing a genuinely different, unpredictable settling
-    // transient every single time the toggle is switched on. The owner heard exactly this: a steady 1kHz test tone
-    // reported a DIFFERENT pitch on each separate toggle-on, with OFF always constant -- consistent with a transient
-    // being mistaken for steady pitch on a brief listen, not an actual ratio error (a fixed-rational resampler's
-    // long-term output frequency cannot depend on its starting phase by construction). cymo_tick/cymo_tick_acc are
-    // deliberately NOT reset here -- that free-running reference tick should stay pristine and continuous, the one
-    // thing that must NOT vary from toggle to toggle.
-    // CORRECTION (B-492): resetting the resampler's OWN phase/history here does NOT also resynchronize it to
-    // pcm_fifo's free-running push-tick accumulator, which was the actual, un-fixed cause of the owner's reported
-    // per-toggle pitch variance surviving this very fix on hardware re-test -- see cymo_auto_we's own comment above.
-    reg cymo_live_en_d = 1'b0;
-    always @(posedge clk) cymo_live_en_d <= rst ? 1'b0 : cymo_live_en;
-    wire cymo_live_rise = cymo_live_en & ~cymo_live_en_d;
-    // B-492 diagnostic: did a consume (pop_req falling edge) ever happen WITHOUT a fresh push since the
-    // last one? With cymo_auto_we's new gating above this can only occur if cymo_tick's own implied
-    // consumption rate runs measurably faster than pcm_fifo's real rate_inc for the track (a genuine, if
-    // small, clock-domain mismatch between two independently-configured fractional dividers) -- exactly
-    // the kind of low-level artifact source flagged as unconfirmed in the prior handoff. Saturating, not
-    // wrapping, so a long play session still gives a readable number.
-    reg         cymo_pop_req_d = 1'b0;
-    always @(posedge clk) cymo_pop_req_d <= rst ? 1'b0 : cymo_pop_req;
-    wire        cymo_consume_ev = cymo_pop_req_d & ~cymo_pop_req;   // falling edge = S_SHIFTHIST executed
-    reg         cymo_fresh = 1'b0;
-    reg  [15:0] cymo_stale_cnt = 16'd0;
+    // cymo_fresh/cymo_stale_cnt's own update, placed here (after cymo_auto_we's declaration -- Icarus
+    // requires declare-before-use, Quartus does not care) since it reads cymo_auto_we directly.
     always @(posedge clk) begin
         if (rst || cymo_live_rise) begin
             cymo_fresh <= 1'b0; cymo_stale_cnt <= 16'd0;
