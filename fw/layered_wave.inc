@@ -19,11 +19,11 @@
 #define LW_BUDGET 300u
 #define LW_HMAX   404u                 /* res (<= 400) + 4 */
 
-typedef struct { uint8_t view, layers, split, outer, nest, draw, speed, response, taper, color_mode, grad, color_outer, color_inner, color_bg, xo[5]; uint16_t res, custom_outer, custom_inner, custom_bg; } lw_p_t;
+typedef struct { uint8_t view, layers, split, outer, nest, draw, speed, response, taper, color_mode, grad, color_outer, color_inner, color_bg, xo[5], hstyle, aa, bmode, balpha, guard; int8_t g[6]; uint16_t res, custom_outer, custom_inner, custom_bg; } lw_p_t;   /* hstyle..g[]: the experimental group (zero unless TAU_DIAGNOSTIC) */
 
 static uint8_t  lw_hist[LW_MAXL][LW_HMAX];
 static int16_t  lw_band[LW_MAXL][LW_NB];
-static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_soft[9], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
+static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_soft[13], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
 static uint8_t  lw_ebounds[LW_MAXL + 1u], lw_ebounds_ok, lw_etick, lw_stride, lw_init, lw_dirty;
 
 static const uint16_t lw_fw[6] = { 1000, 1600, 2560, 4096, 6554, 10486 };   /* BASS_FINE group weights, 1.6^i x 1000 */
@@ -208,10 +208,31 @@ COLD_FN3 static int32_t lw_half(int32_t a8, int32_t w8, int32_t Hh)             
     return h;
 }
 
+#if TAU_DIAGNOSTIC
+COLD_FN3 static void lw_half_aa(int32_t a8, int32_t w8, int32_t Hh, int32_t L, int32_t *h, int32_t *q)   /* half height with sub-pixel coverage, L levels */
+{
+    const int32_t v = a8 * w8 * Hh;
+    int32_t hh = v / 65025, qq = ((v - hh * 65025) * L + 32512) / 65025;
+    if (qq >= L) { hh++; qq = 0; }
+    if (hh < 1 && w8 > 64) { hh = 1; qq = 0; }
+    *h = hh; *q = qq;
+}
+COLD_FN3 static void lw_seg(const int32_t *cen, int32_t n, int32_t pos, int32_t *g0, int32_t *g1, int32_t *f)   /* which two layer centres pos lies between, and how far (Q8) */
+{
+    if (pos <= cen[0]) { *g0 = 0; *g1 = 0; *f = 0; return; }
+    if (pos >= cen[n - 1]) { *g0 = n - 1; *g1 = n - 1; *f = 0; return; }
+    int32_t g = 0;
+    while (pos > cen[g + 1]) g++;
+    *g0 = g; *g1 = g + 1; *f = ((pos - cen[g]) * 256) / (cen[g + 1] - cen[g]);
+}
+#else
+#define lw_half_aa(a8, w8, Hh, L, h, q) do { *(h) = 0; *(q) = 0; } while (0)
+#endif
+
 COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key, const int32_t *soft)
 {
     for (uint32_t i = 0; i < 6u; i++) lw_key[i] = key[i];
-    for (uint32_t i = 0; i < 9u; i++) lw_soft[i] = soft[i];
+    for (uint32_t i = 0; i < 13u; i++) lw_soft[i] = soft[i];
     lw_init = 1u; lw_acc = 0; lw_dirty = 1u; lw_etick = 0; lw_ebounds_ok = 0u; lw_cnt = 0;
     for (uint32_t k = 0; k < LW_MAXL; k++) {
         lw_s[k] = 0;
@@ -222,14 +243,95 @@ COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key, 
     lw_stride = (uint8_t)(1 + ((int32_t)p->layers * (int32_t)W) / 900);
 }
 
-COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh)
+/* ---- experimental settings (the Diagnostic Build only; in the main build every one of these is a no-op and the settings do not exist) ----------------- */
+#if TAU_DIAGNOSTIC
+static const uint8_t lw_aa_levels[4] = { 0, 2, 4, 8 };
+static const int32_t lw_budgets[3] = { LW_BUDGET, 600, 1000000000 };               /* cost guard ON / RELAXED / OFF */
+static inline int32_t lw_gm(const lw_p_t *p, int32_t k) { return lw_gain_q8[lw_clamp(p->g[k], -18, 18) + 18]; }
+COLD_FN3 static int32_t lw_bch(int32_t b, int32_t f, int32_t mode, int32_t alpha, int32_t mx)   /* the blend unit's per-channel arithmetic (mp3_fb.sv blend_ch) */
+{
+    switch (mode) {
+    case 0:  return (f * alpha + b * (256 - alpha)) >> 8;
+    case 1:  return (b + f) >> 1;
+    case 2:  return lw_min(mx, b + f);
+    case 3:  return f > b ? 0 : b - f;
+    default: return lw_min(mx, b + (f >> 2));
+    }
+}
+COLD_FN3 static uint16_t lw_blend_px(uint16_t bg, uint16_t fg, int32_t mode, int32_t alpha)
+{
+    return (uint16_t)((lw_bch(bg >> 11, fg >> 11, mode, alpha, 31) << 11) | (lw_bch((bg >> 5) & 63, (fg >> 5) & 63, mode, alpha, 63) << 5) | lw_bch(bg & 31, fg & 31, mode, alpha, 31));
+}
+#endif
+
+/* per frame: antialiasing level, blend mode/alpha, box, and (Diagnostic Build) the per-column memory of the layer drawn before (ph/pc) and of the layer being
+ * drawn (nh/nc) that blending and the antialiasing edge colour need. It is scratch for one lw_tick, so it lives on the stack, not in static RAM. */
+typedef struct { int32_t L, bm, ba, arr, X, Y, H, W, cy; uint16_t bgc;
+#if TAU_DIAGNOSTIC
+    uint8_t *ph, *nh; uint16_t *pc, *nc;
+#endif
+} lw_lay_t;
+typedef struct { int32_t x0, x1, h, cv; uint16_t c; } lw_run_t;
+
+COLD_FN3 static void lw_cell(const lw_lay_t *l, int32_t k, int32_t xs, int32_t wd, int32_t xc, int32_t *hh, int32_t *cv, uint16_t *c)
+{
+#if TAU_DIAGNOSTIC
+    if (l->bm) {                                    /* blending: each layer is clamped to the one outside it, so the colour underneath is known */
+        if (k > 0) { const int32_t ph = l->ph[xc]; if (*hh > ph) { *hh = ph; *cv = 0; } }
+        *c = lw_blend_px(k > 0 ? l->pc[xc] : l->bgc, *c, l->bm - 1, l->ba);
+    }
+    if (l->arr) for (int32_t x = xs; x < xs + wd; x++) { l->nh[x] = (uint8_t)*hh; l->nc[x] = *c; }
+#else
+    (void)l; (void)k; (void)xs; (void)wd; (void)xc; (void)hh; (void)cv; (void)c;
+#endif
+}
+COLD_FN3 static void lw_emit(const lw_lay_t *l, int32_t k, const lw_run_t *r)
+{
+#if TAU_DIAGNOSTIC
+    if (l->L && r->cv) {                            /* antialiasing: the row just outside each edge, the layer colour mixed over what is there by the coverage */
+        const int32_t d = r->h + 1, yt = l->cy - r->h - 1, yb = l->cy + r->h;
+        int32_t a = r->x0, cur = (k > 0 && l->ph[r->x0] >= d) ? (int32_t)l->pc[r->x0] : (int32_t)l->bgc;
+        for (int32_t x = r->x0 + 1; x <= r->x1; x++) {
+            const int32_t u = x < r->x1 ? ((k > 0 && l->ph[x] >= d) ? (int32_t)l->pc[x] : (int32_t)l->bgc) : -1;
+            if (u != cur) {
+                const uint16_t ec = lw_mix((uint16_t)cur, r->c, (r->cv * 256) / l->L);
+                if (yt >= l->Y) lw_rect(l->X + a, yt, x - a, 1, ec);
+                if (yb < l->Y + l->H) lw_rect(l->X + a, yb, x - a, 1, ec);
+                a = x; cur = u;
+            }
+        }
+    }
+#else
+    (void)k;
+#endif
+    lw_rect(l->X + r->x0, l->cy - r->h, r->x1 - r->x0, 2 * r->h, r->c);
+}
+COLD_FN3 static void lw_endlayer(const lw_lay_t *l)
+{
+#if TAU_DIAGNOSTIC
+    if (l->arr) for (int32_t x = 0; x < l->W; x++) { l->ph[x] = l->nh[x]; l->pc[x] = l->nc[x]; }
+#else
+    (void)l;
+#endif
+}
+/* run building shared by the three layer functions: extend the current run or flush it and start a new one */
+#define LW_RUN_STEP(K, HH, CC, CV) do { \
+    if (have && run.h == (HH) && run.c == (CC) && run.cv == (CV)) { run.x1 = xs + wd; continue; } \
+    if (have) lw_emit(lay, (K), &run); \
+    have = (HH) > 0; run.x0 = xs; run.x1 = xs + wd; run.h = (HH); run.c = (CC); run.cv = (CV); } while (0)
+
+COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
 {
     const int32_t W = in->w, X = in->x, n = p->layers, res = p->res, smooth = p->draw == 1u, dt = in->dt_ms;
     int32_t tg[LW_MAXL];
     lw_targets(p, in->spec, in->wave, tg);
     for (int32_t k = 0; k < n; k++) {
         const int32_t m = (p->split == 3u && n > 1) ? (int32_t)lw_mul_q8[n - 1 - 2 * k + 5] : 256;
-        lw_s[k] = lw_step(lw_s[k], tg[k], lw_coef(p->response, m, dt, 1), lw_coef(p->response, m, dt, 0));
+        int32_t tk = tg[k];
+#if TAU_DIAGNOSTIC
+        { const int32_t gk = lw_gm(p, k); if (gk != 256) tk = lw_min(4096, (tk * gk) >> 8); }
+#endif
+        lw_s[k] = lw_step(lw_s[k], tk, lw_coef(p->response, m, dt, 1), lw_coef(p->response, m, dt, 0));
     }
     lw_acc += (dt * p->speed * res * 256) / (1000 * W);
     const int32_t pushes = lw_min(lw_acc >> 8, res);
@@ -238,22 +340,26 @@ COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_co
         for (int32_t k = 0; k < n; k++) { uint8_t *h = lw_hist[k]; for (int32_t j = res + 3; j > 0; j--) h[j] = h[j - 1]; h[0] = (uint8_t)lw_u8(lw_s[k]); }
     if (!smooth && pushes == 0 && !lw_dirty) return;
     lw_dirty = 0u;
-    const int32_t phase = lw_acc, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride;
+    const int32_t phase = lw_acc, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, aaL = lay->L;
     lw_rect(X, in->y, W, in->h, cl->bg);
     for (int32_t k = 0; k < n; k++) {
         const uint8_t *h = lw_hist[k];
-        int32_t rx0 = 0, rx1 = 0, rh = 0, rq = 0, have = 0;
+        lw_run_t run = { 0, 0, 0, 0, 0 };
+        int32_t have = 0;
         for (int32_t xs = 0; xs < W; xs += s) {
             const int32_t wd = lw_min(s, W - xs), xc = lw_min(W - 1, xs + (s >> 1));
             int32_t a8;
             if (smooth) { const int32_t t = ((2 * xc + 1) * res * 128) / W - phase - 128; a8 = t <= 0 ? h[0] : lw_cr8(h, res + 4, t >> 8, t & 255); }
             else a8 = h[lw_min(res - 1, (xc * res) / W)];
-            const int32_t w8 = tq == 0 ? 255 : lw_win(lw_win_hist, tq, ((2 * xc + 1) * 8192) / W), hh = lw_half(a8, w8, Hh), q = lw_min((int32_t)LW_AGE - 1, ((2 * xc + 1) * 4) / W);
-            if (have && rh == hh && rq == q) { rx1 = xs + wd; continue; }
-            if (have) lw_rect(X + rx0, cy - rh, rx1 - rx0, 2 * rh, cl->tbl[k][rq]);
-            have = hh > 0; rx0 = xs; rx1 = xs + wd; rh = hh; rq = q;
+            const int32_t w8 = tq == 0 ? 255 : lw_win(lw_win_hist, tq, ((2 * xc + 1) * 8192) / W), q = lw_min((int32_t)LW_AGE - 1, ((2 * xc + 1) * 4) / W);
+            int32_t hh, cv = 0;
+            if (aaL) lw_half_aa(a8, w8, Hh, aaL, &hh, &cv); else hh = lw_half(a8, w8, Hh);
+            uint16_t c = cl->tbl[k][q];
+            lw_cell(lay, k, xs, wd, xc, &hh, &cv, &c);
+            LW_RUN_STEP(k, hh, c, cv);
         }
-        if (have) lw_rect(X + rx0, cy - rh, rx1 - rx0, 2 * rh, cl->tbl[k][rq]);
+        if (have) lw_emit(lay, k, &run);
+        lw_endlayer(lay);
     }
     if (p->taper > 0u) {
         static const uint8_t dots[3] = { 4, 3, 3 };
@@ -261,14 +367,61 @@ COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_co
     }
 }
 
-COLD_FN3 static void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh)
+#if TAU_DIAGNOSTIC
+/* CURVE style: one continuous outline across the whole axis, coloured by a gradient whose stops are the layer colours at the centres of their frequency
+ * ranges, with a smooth gain curve through the per-layer gains (all Q8 integer, the same operations as the JS twin's curveOutline). */
+COLD_FN3 static void lw_curve(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay, const uint8_t *bnd, int32_t s)
 {
-    const int32_t W = in->w, X = in->x, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, dt = in->dt_ms;
+    const int32_t W = in->w, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, aaL = lay->L, dt = in->dt_ms;
+    const int32_t m = n > 1 ? (int32_t)lw_mul_q8[n - 1 + 5] : 256;
+    const uint32_t ca = lw_coef(p->response, m, dt, 1), cr = lw_coef(p->response, m, dt, 0);
+    int32_t cen[LW_MAXL], gdb[LW_MAXL];
+    uint16_t col[LW_MAXL];
+    uint8_t bu[LW_NB];
+    for (int32_t g = 0; g < n; g++) {
+        const int32_t lg = p->outer == 0u ? g : n - 1 - g;
+        cen[g] = ((int32_t)bnd[g] + bnd[g + 1]) * 128; gdb[g] = lw_clamp(p->g[lg], -18, 18); col[g] = cl->base[lg];
+    }
+    for (uint32_t i = 0; i < LW_NB; i++) {
+        const int32_t v = ((int32_t)in->spec[i] * 4096) / 255;
+        lw_band[0][i] = (int16_t)lw_step(lw_band[0][i], v, ca, cr);
+        int32_t g0, g1, f;
+        lw_seg(cen, n, (int32_t)i * 256 + 128, &g0, &g1, &f);
+        const int32_t dbq = gdb[g0] * 256 + (gdb[g1] - gdb[g0]) * f, vq = dbq + 18 * 256, i0 = vq >> 8, fr = vq & 255;
+        const int32_t mult = (int32_t)lw_gain_q8[i0] + ((((int32_t)lw_gain_q8[lw_min(37, i0 + 1)] - (int32_t)lw_gain_q8[i0]) * fr) >> 8);
+        bu[i] = (uint8_t)lw_min(255, (int32_t)(lw_u8(lw_band[0][i]) * (uint32_t)mult) >> 8);
+    }
+    lw_run_t run = { 0, 0, 0, 0, 0 };
+    int32_t have = 0;
+    for (int32_t xs = 0; xs < W; xs += s) {
+        const int32_t wd = lw_min(s, W - xs), xc = lw_min(W - 1, xs + (s >> 1));
+        int32_t a8;
+        if (smooth) { const int32_t t = ((2 * xc + 1) * (int32_t)LW_NB * 128) / W - 128; a8 = t <= 0 ? bu[0] : lw_cr8(bu, (int32_t)LW_NB, t >> 8, t & 255); }
+        else a8 = bu[lw_min((int32_t)LW_NB - 1, (xc * (int32_t)LW_NB) / W)];
+        const int32_t w8 = tq == 0 ? 255 : lw_win(lw_win_spec, tq, ((2 * xc + 1) * 8192) / W);
+        int32_t hh, cv = 0, g0, g1, f;
+        if (aaL) lw_half_aa(a8, w8, Hh, aaL, &hh, &cv); else hh = lw_half(a8, w8, Hh);
+        lw_seg(cen, n, ((2 * xc + 1) * (int32_t)LW_NB * 128) / W, &g0, &g1, &f);
+        uint16_t c = lw_mix(col[g0], col[g1], f);
+        lw_cell(lay, 0, xs, wd, xc, &hh, &cv, &c);
+        LW_RUN_STEP(0, hh, c, cv);
+    }
+    if (have) lw_emit(lay, 0, &run);
+    lw_endlayer(lay);
+}
+#endif
+
+COLD_FN3 static void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
+{
+    const int32_t W = in->w, X = in->x, n = p->layers, smooth = p->draw == 1u, tq = ((int32_t)p->taper + 2) / 5, dt = in->dt_ms, aaL = lay->L;
     const int32_t s = lw_max(lw_stride, (W + (int32_t)p->res - 1) / (int32_t)p->res);   /* Resolution = columns across the width (cell width), never finer than the self-scaling stride allows */
     lw_rect(X, in->y, W, in->h, cl->bg);
     uint8_t bnd[LW_MAXL + 1u];
     if (p->split == 2u) lw_learn(in->spec, n);
     if (p->split != 3u) lw_bounds(p->split, n, bnd, p->xo);   /* frequency splits: each layer draws only the part of the axis it listens to */
+#if TAU_DIAGNOSTIC
+    if (p->hstyle == 2u && p->split != 3u) { lw_curve(p, in, cl, cy, Hh, lay, bnd, s); return; }
+#endif
     for (int32_t k = 0; k < n; k++) {
         int32_t lo = 0, hi = (int32_t)LW_NB;
         if (p->split != 3u) {
@@ -281,20 +434,32 @@ COLD_FN3 static void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_c
         for (uint32_t i = 0; i < LW_NB; i++) {
             const int32_t v = ((int32_t)in->spec[i] * 4096) / 255;
             lw_band[k][i] = (int16_t)lw_step(lw_band[k][i], v, ca, cr);
-            bu[i] = ((int32_t)i >= lo && (int32_t)i < hi) ? (uint8_t)((lw_u8(lw_band[k][i]) * (uint32_t)sc) >> 10) : 0u;
+            int32_t wt = ((int32_t)i >= lo && (int32_t)i < hi) ? 256 : 0;
+#if TAU_DIAGNOSTIC
+            if (p->hstyle == 1u && p->split != 3u) wt = ((int32_t)i >= lo && (int32_t)i < hi) ? 256 : ((int32_t)i == lo - 1 || (int32_t)i == hi) ? 128 : ((int32_t)i == lo - 2 || (int32_t)i == hi + 1) ? 40 : 0;
+#endif
+            int32_t a = wt == 256 ? (int32_t)((lw_u8(lw_band[k][i]) * (uint32_t)sc) >> 10) : wt == 0 ? 0 : ((((int32_t)((lw_u8(lw_band[k][i]) * (uint32_t)sc) >> 10)) * wt) >> 8);
+#if TAU_DIAGNOSTIC
+            { const int32_t gk = lw_gm(p, k); if (gk != 256) a = lw_min(255, (a * gk) >> 8); }
+#endif
+            bu[i] = (uint8_t)a;
         }
-        int32_t rx0 = 0, rx1 = 0, rh = 0, have = 0;
+        lw_run_t run = { 0, 0, 0, 0, 0 };
+        int32_t have = 0;
         for (int32_t xs = 0; xs < W; xs += s) {
             const int32_t wd = lw_min(s, W - xs), xc = lw_min(W - 1, xs + (s >> 1));
             int32_t a8;
             if (smooth) { const int32_t t = ((2 * xc + 1) * (int32_t)LW_NB * 128) / W - 128; a8 = t <= 0 ? bu[0] : lw_cr8(bu, (int32_t)LW_NB, t >> 8, t & 255); }
             else a8 = bu[lw_min((int32_t)LW_NB - 1, (xc * (int32_t)LW_NB) / W)];
-            const int32_t w8 = tq == 0 ? 255 : lw_win(lw_win_spec, tq, ((2 * xc + 1) * 8192) / W), hh = lw_half(a8, w8, Hh);
-            if (have && rh == hh) { rx1 = xs + wd; continue; }
-            if (have) lw_rect(X + rx0, cy - rh, rx1 - rx0, 2 * rh, cl->base[k]);
-            have = hh > 0; rx0 = xs; rx1 = xs + wd; rh = hh;
+            const int32_t w8 = tq == 0 ? 255 : lw_win(lw_win_spec, tq, ((2 * xc + 1) * 8192) / W);
+            int32_t hh, cv = 0;
+            if (aaL) lw_half_aa(a8, w8, Hh, aaL, &hh, &cv); else hh = lw_half(a8, w8, Hh);
+            uint16_t c = cl->base[k];
+            lw_cell(lay, k, xs, wd, xc, &hh, &cv, &c);
+            LW_RUN_STEP(k, hh, c, cv);
         }
-        if (have) lw_rect(X + rx0, cy - rh, rx1 - rx0, 2 * rh, cl->base[k]);
+        if (have) lw_emit(lay, k, &run);
+        lw_endlayer(lay);
     }
 }
 
@@ -314,21 +479,43 @@ COLD_FN3 static void lw_tick(const mtr_in_t *in)
     p.color_mode = (uint8_t)MV_LAYERED_WAVE(COLOR_MODE); p.grad = (uint8_t)MV_LAYERED_WAVE(GRAD);
     p.color_outer = (uint8_t)MV_LAYERED_WAVE(COLOR_OUTER); p.color_inner = (uint8_t)MV_LAYERED_WAVE(COLOR_INNER); p.color_bg = (uint8_t)MV_LAYERED_WAVE(COLOR_BG);
     p.custom_outer = (uint16_t)MV_LAYERED_WAVE(CUSTOM_OUTER); p.custom_inner = (uint16_t)MV_LAYERED_WAVE(CUSTOM_INNER); p.custom_bg = (uint16_t)MV_LAYERED_WAVE(CUSTOM_BG);
+    p.hstyle = 0; p.aa = 0; p.bmode = 0; p.balpha = 60; p.guard = 0;
+    for (uint32_t i = 0; i < 6u; i++) p.g[i] = 0;
+#if TAU_DIAGNOSTIC
+    p.hstyle = (uint8_t)lw_min(2, (int32_t)MV_LAYERED_WAVE(HSTYLE)); p.aa = (uint8_t)lw_min(3, (int32_t)MV_LAYERED_WAVE(AA)); p.bmode = (uint8_t)lw_min(5, (int32_t)MV_LAYERED_WAVE(BMODE));
+    p.balpha = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(BALPHA), 5, 100); p.guard = (uint8_t)lw_min(2, (int32_t)MV_LAYERED_WAVE(GUARD));
+    p.g[0] = (int8_t)((int32_t)MV_LAYERED_WAVE(G1) - 18); p.g[1] = (int8_t)((int32_t)MV_LAYERED_WAVE(G2) - 18); p.g[2] = (int8_t)((int32_t)MV_LAYERED_WAVE(G3) - 18);
+    p.g[3] = (int8_t)((int32_t)MV_LAYERED_WAVE(G4) - 18); p.g[4] = (int8_t)((int32_t)MV_LAYERED_WAVE(G5) - 18); p.g[5] = (int8_t)((int32_t)MV_LAYERED_WAVE(G6) - 18);
+#endif
 
     lw_col_t cl;
     lw_colours(&p, &cl);
     /* Only the history/band array sizes and the box geometry force a reset; any other change just repaints on the next frame and keeps the history. */
     const int32_t key[6] = { p.layers, p.res, in->w, in->h, in->x, in->y };
-    const int32_t soft[9] = { p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bg };
+    const int32_t soft[13] = { p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bg, p.aa, p.bmode, p.balpha, p.hstyle };
     int32_t same = lw_init && !in->force;
     for (uint32_t i = 0; i < 6u && same; i++) if (lw_key[i] != key[i]) same = 0;
     if (!same) { lw_reinit(&p, in->w, key, soft); fb_rect(in->x, in->y, in->w, in->h, cl.bg); }
-    else for (uint32_t i = 0; i < 9u; i++) if (lw_soft[i] != soft[i]) { lw_soft[i] = soft[i]; lw_dirty = 1u; }
+    else for (uint32_t i = 0; i < 13u; i++) if (lw_soft[i] != soft[i]) { lw_soft[i] = soft[i]; lw_dirty = 1u; }
     if (!paused) {
         const int32_t cy = (int32_t)in->y + (in->h >> 1), Hh = (in->h >> 1) - 1;
+        int32_t bud = LW_BUDGET;
+#if TAU_DIAGNOSTIC
+        bud = lw_budgets[p.guard];
+        if (bud >= 1000000000) lw_stride = 1u;
+#endif
         lw_cnt = 0;
-        if (p.view == 1u) lw_spectrum(&p, in, &cl, cy, Hh); else lw_history(&p, in, &cl, cy, Hh);
-        if (lw_cnt) lw_stride = (uint8_t)(lw_cnt > (int32_t)LW_BUDGET ? lw_min(16, lw_stride + 1) : (lw_cnt < (int32_t)(LW_BUDGET >> 1) && lw_stride > 1u ? lw_stride - 1 : lw_stride));
+        lw_lay_t lay;
+#if TAU_DIAGNOSTIC
+        uint8_t sc_ph[400], sc_nh[400]; uint16_t sc_pc[400], sc_nc[400];
+        lay.ph = sc_ph; lay.nh = sc_nh; lay.pc = sc_pc; lay.nc = sc_nc;
+#endif
+        lay.L = 0; lay.bm = 0; lay.ba = 0; lay.arr = 0; lay.X = in->x; lay.Y = in->y; lay.H = in->h; lay.W = in->w; lay.cy = cy; lay.bgc = cl.bg;
+#if TAU_DIAGNOSTIC
+        lay.L = lw_aa_levels[p.aa]; lay.bm = p.bmode; lay.ba = ((int32_t)p.balpha * 255 + 50) / 100; lay.arr = (lay.L || lay.bm) ? 1 : 0;
+#endif
+        if (p.view == 1u) lw_spectrum(&p, in, &cl, cy, Hh, &lay); else lw_history(&p, in, &cl, cy, Hh, &lay);
+        if (bud < 1000000000 && lw_cnt) lw_stride = (uint8_t)(lw_cnt > bud ? lw_min(16, lw_stride + 1) : (lw_cnt < (bud >> 1) && lw_stride > 1u ? lw_stride - 1 : lw_stride));
     }
     wviz_force = 0u;
 }

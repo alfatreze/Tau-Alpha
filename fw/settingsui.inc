@@ -966,7 +966,7 @@ COLD_FN static void set_info_tick(void)
 #define WVR_P0     2u              /* parameter i is row WVR_P0 + i */
 #define WVR_EXPORT 250u
 #define WVCFG_ROWS_VISIBLE 8u
-#define WVCFG_MAX_ROWS 32u
+#define WVCFG_MAX_ROWS 48u
 static uint8_t wvcfg_sel, wvcfg_top;
 static uint8_t wvcfg_vis[WVCFG_MAX_ROWS], wvcfg_vis_n;
 static const mtr_data_t *wvcfg_md;
@@ -1048,7 +1048,11 @@ COLD_FN static void wvcfg_value_text(uint32_t row, char *o)
         const uint32_t v = wvcfg_md->val[row - WVR_P0];
         if (p->type == MTR_ENUM) q = set_str(q, p->enums[v]);
         else if (p->type == MTR_BOOL) q = set_str(q, v ? "ON" : "OFF");
-        else { q = ui_dec(q, v); q = set_str(q, p->unit); }
+        else {
+            const int32_t sv = (int32_t)v + (int32_t)p->off;
+            if (sv < 0) { *q++ = '-'; q = ui_dec(q, (uint32_t)(-sv)); } else if (p->off) { if (sv) *q++ = '+'; q = ui_dec(q, (uint32_t)sv); } else q = ui_dec(q, v);
+            q = set_str(q, p->unit);
+        }
     }
     *q = 0;
 }

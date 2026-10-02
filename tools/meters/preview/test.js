@@ -42,12 +42,12 @@ check('winamp_bars: Light theme renders too (accent capped, box respected)', () 
 {
   const LW = require('./meters/layered_wave.js'), lm = schema.meters.find((m) => m.key === 'layered_wave');
   const box = { x: 16, y: 152, w: 368, h: 122 };
-  check('layered_wave: registered, selectable, grouped parameters within MTR_MAX_PARAMS', () => { assert.ok(lm && lm.selectable && !lm.planned && lm.caps.every((c) => ['rect', 'hw_spectrum', 'hw_wave'].includes(c))); assert.ok(lm.params.length <= 24 && lm.groups.length === 4 && lm.params.every((x) => lm.groups.some((g) => g.key === x.group)));
-    for (const x of lm.params) assert.ok(x.help, x.key + ' has no (i) help text'); assert.ok(lm.presets.length <= 8); });
+  check('layered_wave: registered, selectable, grouped parameters within MTR_MAX_PARAMS', () => { assert.ok(lm && lm.selectable && !lm.planned && lm.caps.every((c) => ['rect', 'hw_spectrum', 'hw_wave'].includes(c))); assert.ok(lm.params.length <= 40 && lm.groups.length === 5 && lm.params.every((x) => lm.groups.some((g) => g.key === x.group)));
+    for (const x of lm.params) assert.ok(x.help, x.key + ' has no (i) help text'); assert.ok(lm.presets.length <= 16 && lm.presets.some((q) => q.experimental) && lm.presets.every((q) => !!q.experimental === /\[EX\]$/.test(q.name)) && !lm.presets[lm.default_preset].experimental); });
   lm.presets.forEach((pr, pi) => {
     const opts = { data, schema, key: 'layered_wave', params: pr.values, source: Audio.demo(2), frames: 200 };
     check(`layered_wave/${pr.name}: deterministic, inside its box, within the cost class`, () => {
-      const a = Run.run(opts), b = Run.run(opts); assert.strictEqual(a.fb.checksum(), b.fb.checksum()); assert.ok(!a.cost.over, `worst ${a.cost.max} > ${a.cost.budget}`);
+      const a = Run.run(opts), b = Run.run(opts); assert.strictEqual(a.fb.checksum(), b.fb.checksum()); assert.ok(pr.experimental || !a.cost.over, `worst ${a.cost.max} > ${a.cost.budget}`);   // [EX] presets trade cost for quality on purpose
       const bg = Run.run(Object.assign({}, opts, { frames: 0 })).fb; let inside = 0, outside = 0;
       for (let y = 0; y < 360; y++) for (let x = 0; x < 400; x++) if (a.fb.px[y * 400 + x] !== bg.px[y * 400 + x]) ((x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h) ? inside++ : outside++);
       assert.ok(inside > 300, 'nothing drawn'); assert.strictEqual(outside, 0, outside + ' pixels outside the box');

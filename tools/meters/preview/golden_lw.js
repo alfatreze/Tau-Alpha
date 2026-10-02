@@ -20,7 +20,7 @@ function add(name, vals, box, seed, light, accent) {
   const roles = ROLES.map((k) => (k === 'accent' ? r.theme.accent : r.theme.role[k]));
   scen.push({ name, params: keys.map((k) => params[k]), params2: keys.map((k) => params[k]), chg: -1, box: boxes[box], roles, frames, log: r.logs });
 }
-m.presets.forEach((pr, i) => add('preset/' + pr.name, pr.values, i % 3 === 2 ? 'full' : 'normal', 3 + i, i % 2 === 1, 1 + i * 2));
+m.presets.forEach((pr, i) => add('preset/' + pr.name, pr.values, i % 3 === 2 ? 'full' : 'normal', 3 + i, i % 2 === 1, 1 + (i * 2) % 17));
 let seed = 40;
 for (const view of [0, 1]) for (const draw of [0, 1]) for (const layers of [1, 3, 6]) for (const split of [0, 1, 2, 3]) {
   const nest = (layers + split) % 2, outer = (layers + draw) % 2;
@@ -33,6 +33,11 @@ for (const [layers, xo] of [[2, [4]], [3, [2, 9]], [4, [7, 3, 12]], [6, [1, 2, 3
   add(`custom/n${layers}`, v, 'normal', seed++, 0, 13);
   add(`custom-spectrum/n${layers}`, Object.assign({}, v, { view: 1, draw: 1 - (layers & 1) }), 'normal', seed++, 0, 13);
 }
+// The experimental group (Diagnostic Build only): each setting alone and combined, in both views and with a cost guard that engages
+for (const [name, v] of [['hstyle1', { hstyle: 1, view: 1, draw: 1, split: 0 }], ['hstyle2', { hstyle: 2, view: 1, draw: 0, split: 1, g1: 24, g2: 12, g3: 18, g4: 30 }], ['aa2', { aa: 2 }], ['aa3', { aa: 3, layers: 5, view: 1 }],
+  ['bm1', { bmode: 1 }], ['bm2', { bmode: 2, balpha: 40 }], ['bm3', { bmode: 3, layers: 5 }], ['bm4', { bmode: 4, view: 1, draw: 1 }], ['bm5', { bmode: 5, balpha: 30, layers: 4 }],
+  ['aa+bm', { aa: 1, bmode: 1, res: 400, view: 1 }], ['guard1', { guard: 1, res: 400, layers: 6 }], ['guard2', { guard: 2, res: 400, aa: 2, layers: 6 }],
+  ['gains', { g1: 0, g2: 36, g3: 6, g4: 28, g5: 18, g6: 10, layers: 6, view: 1, split: 0 }]]) { add('exp/' + name, v, 'normal', seed++, 0, 5); add('exp-full/' + name, v, 'full', seed++, 1, 9); }
 // A setting changed in the middle of a run: only sizes and geometry reset, everything else must keep the history and just repaint (firmware and lab alike).
 const Th = require('./tau_theme.js'), { Fb } = require('./tau_fb.js'), LW = require('./meters/layered_wave.js');
 function addChange(name, v1, v2, chg) {
