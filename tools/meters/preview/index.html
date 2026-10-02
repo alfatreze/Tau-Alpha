@@ -7,11 +7,11 @@
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,sans-serif;padding:16px}
 h1{font-size:18px;margin:0 0 12px}
 .wrap{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
-canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-width:100%}
+canvas{image-rendering:pixelated;border:1px solid var(--line);width:calc(400px * var(--z,1));max-width:100%}
 .panel{min-width:260px}.panel label{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0}
 .rgb{display:inline-flex;gap:6px;align-items:center;flex:1}.rgb input[type=text]{font:12px ui-monospace,monospace;width:7em}
 .info{width:18px;height:18px;padding:0;border-radius:50%;border:1px solid var(--mut);background:none;color:var(--mut);font:italic 700 11px/16px Georgia,serif;cursor:pointer}.info:hover,.info:focus-visible{color:var(--fg);border-color:var(--fg)}
-.strip{position:relative;width:800px;max-width:100%;margin-top:10px}.strip canvas{display:block;width:100%;border:1px solid var(--line);border-bottom:0}
+.strip{position:relative;width:calc(400px * var(--z,1));max-width:100%;margin-top:10px}.strip canvas{display:block;width:100%;border:1px solid var(--line);border-bottom:0}
 .hbar{position:relative;height:40px;border:1px solid var(--line);border-top:2px solid var(--line)}
 .handle{position:absolute;top:-2px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;background:none;border:0;padding:0;cursor:ew-resize;touch-action:none;color:var(--fg);font:11px system-ui,sans-serif}
 .handle .tri{width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:11px solid var(--c)}
@@ -35,6 +35,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
   <label>Audio file <input type="file" id="audiofile" accept="audio/*"></label>
   <label>Repeat audio file <input type="checkbox" id="repeat" checked></label>
   <label>Fullscreen figure (400×323) <input type="checkbox" id="fullfig"></label>
+  <label>Preview size <select id="zoom"><option value="1" selected>1× (400 px, the real size)</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
   <label>Trace file <input type="file" id="tracefile" accept=".json"></label>
   <label>Bars use OP_BAR <input type="checkbox" id="barready" checked></label>
   <div id="controls"></div>
@@ -62,6 +63,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  $('audiofile').onchange=e=>{const f=e.target.files[0];if(f)live.useFile(f,$('repeat').checked).then(()=>{$('src').value='file';}).catch(err=>alert('Audio file: '+err.message));};
  $('src').addEventListener('change',()=>{if($('src').value==='mic')live.useMic().catch(err=>{alert('Microphone: '+err.message);$('src').value='demo';});});
  $('fullfig').onchange=()=>{st=null;};
+ $('zoom').onchange=()=>document.documentElement.style.setProperty('--z',$('zoom').value);
  $('repeat').onchange=()=>live.setLoop($('repeat').checked);
  $('tracefile').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{sources.trace=TauAudio.trace(JSON.parse(t));$('src').value='trace';st=null;});};
  let fb=null,lvl=TauBallistics.newSpec(),theme=null,mod=null,box={x:16,y:152,w:368,h:122},costs=[],works=[],pixs=[];
