@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 enum { MTR_U8 = 0, MTR_U16, MTR_BOOL, MTR_ENUM };
-#define MTR_MAX_PARAMS 18u           /* the most parameters one meter may declare (bounds the loader's scratch) */
+#define MTR_MAX_PARAMS 24u           /* the most parameters one meter may declare (bounds the loader's scratch) */
 #define MTR_MAX_PRESET_VALUES (8u * MTR_MAX_PARAMS)
 #define MTR_NO_WHEN 0xFFu
 #define MTR_CUSTOM  0xFFu

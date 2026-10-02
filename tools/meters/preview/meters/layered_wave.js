@@ -13,7 +13,7 @@
   const T = (typeof module !== 'undefined') ? require('../lw_tables.js') : root.LwTables;
   const NB = 16, AGE = 8, BUDGET = 300;
   /* enum order == meters/layered_wave/meter.json "values" order (the persisted/wire value is the index). */
-  const SPLIT = { OCTAVES: 0, BASS_FINE: 1, ENERGY: 2, DYNAMICS: 3 };
+  const SPLIT = { OCTAVES: 0, BASS_FINE: 1, ENERGY: 2, DYNAMICS: 3, CUSTOM: 4 };
   const DRAW = { BLOCKS: 0, SMOOTH: 1 };
   const ROLES = ['accent', 'text_primary', 'text_secondary', 'ok', 'warn', 'danger', 'pill', 'error', 'surface', 'surface_track', 'base', 'bg_bottom'];
   const DOTS = [4, 3, 3];                // tail dot sizes, drawn when the taper is on (the three dots at the end of the reference image)
@@ -67,9 +67,12 @@
     for (let i = 1; i < n; i++) b[i] = Math.max(b[i], b[i - 1] + 1);
     return b;
   }
-  function boundsFor(split, n, st) {
+  const xoOf = (p) => [p.xo1, p.xo2, p.xo3, p.xo4, p.xo5];
+  function boundsFor(split, n, st, xo) {   // xo: the CUSTOM split's boundaries (band index 1..15 between layer i and i+1)
     const b = [0];
-    if (split === SPLIT.BASS_FINE) {       // group widths grow x1.6 with frequency: bass gets the finest layers
+    if (split === SPLIT.CUSTOM && xo) {
+      for (let i = 1; i < n; i++) b.push(xo[i - 1]);
+    } else if (split === SPLIT.BASS_FINE) {       // group widths grow x1.6 with frequency: bass gets the finest layers
       let s = 0; for (let i = 0; i < n; i++) s += FW[i];
       let acc = 0; for (let i = 1; i <= n; i++) { acc += FW[i - 1]; b.push(tdiv(acc * 32 + s, 2 * s)); }
     } else if (split === SPLIT.ENERGY && st.ebounds && st.ebounds.length === n + 1) {
@@ -102,7 +105,7 @@
       return out;
     }
     if (p.split === SPLIT.ENERGY) learnEnergy(st, spec, n);
-    const b = boundsFor(p.split, n, st);
+    const b = boundsFor(p.split, n, st, xoOf(p));
     for (let k = 0; k < n; k++) {
       if (p.nest === 0) {                  // NESTED: layer k hears its own group plus every group inside it; inner layers sit a little lower
         const lo = p.outer === 0 ? b[k] : 0, hi = p.outer === 0 ? NB : b[n - k], v = pnorm(spec, lo, hi, 4);
@@ -225,14 +228,14 @@
   function bandOwner(p, st) {
     const n = p.layers, own = new Array(NB).fill(0);
     if (p.split === SPLIT.DYNAMICS || p.view === 1) return own;
-    const b = boundsFor(p.split, n, st || {});
+    const b = boundsFor(p.split, n, st || {}, xoOf(p));
     for (let g = 0; g < n; g++) for (let k = b[g]; k < b[g + 1]; k++) own[k] = p.outer === 0 ? g : n - 1 - g;
     return own;
   }
   function describe(p, st) {
     const n = p.layers; if (p.view === 1) return Array.from({ length: n }, (_, k) => ({ layer: k, spectrum: true }));
     if (p.split === SPLIT.DYNAMICS) return Array.from({ length: n }, (_, k) => ({ layer: k, dynamics: true }));
-    const b = boundsFor(p.split, n, st || {});
+    const b = boundsFor(p.split, n, st || {}, xoOf(p));
     return Array.from({ length: n }, (_, k) => {
       const own = p.outer === 0 ? k : n - 1 - k;
       const lo = p.nest === 0 ? (p.outer === 0 ? b[k] : 0) : b[own], hi = p.nest === 0 ? (p.outer === 0 ? NB : b[n - k]) : b[own + 1];
@@ -241,6 +244,6 @@
   }
   const layerColours = (theme, p) => colours({ p, theme }).base;
 
-  const api = { key: 'layered_wave', state, tick, targets, bandOwner, boundsFor, describe, layerColours, ends, EDGES, SPLIT, DRAW, ROLES, BUDGET };
+  const api = { key: 'layered_wave', state, tick, targets, bandOwner, boundsFor, xoOf, describe, layerColours, ends, EDGES, SPLIT, DRAW, ROLES, BUDGET };
   if (typeof module !== 'undefined') module.exports = api; else (root.TauMeters = root.TauMeters || {}).layered_wave = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

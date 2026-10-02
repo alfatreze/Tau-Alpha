@@ -42,7 +42,7 @@ check('winamp_bars: Light theme renders too (accent capped, box respected)', () 
 {
   const LW = require('./meters/layered_wave.js'), lm = schema.meters.find((m) => m.key === 'layered_wave');
   const box = { x: 16, y: 152, w: 368, h: 122 };
-  check('layered_wave: registered, selectable, 18 parameters (MTR_MAX_PARAMS)', () => { assert.ok(lm && lm.selectable && !lm.planned && lm.caps.every((c) => ['rect', 'hw_spectrum', 'hw_wave'].includes(c))); assert.ok(lm.params.length <= 18);
+  check('layered_wave: registered, selectable, grouped parameters within MTR_MAX_PARAMS', () => { assert.ok(lm && lm.selectable && !lm.planned && lm.caps.every((c) => ['rect', 'hw_spectrum', 'hw_wave'].includes(c))); assert.ok(lm.params.length <= 24 && lm.groups.length === 4 && lm.params.every((x) => lm.groups.some((g) => g.key === x.group)));
     for (const x of lm.params) assert.ok(x.help, x.key + ' has no (i) help text'); assert.ok(lm.presets.length <= 8); });
   lm.presets.forEach((pr, pi) => {
     const opts = { data, schema, key: 'layered_wave', params: pr.values, source: Audio.demo(2), frames: 200 };
@@ -75,13 +75,13 @@ check('winamp_bars: Light theme renders too (accent capped, box respected)', () 
   });
   check('layered_wave: nested layers never cross, for every split and both orders; groups tile the 16 bands', () => {
     const rng = Audio.rng(7);
-    for (const split of [0, 1, 2]) for (const outer of [0, 1]) for (let n = 1; n <= 6; n++) {
-      const p = { layers: n, split, outer, nest: 0 }, st = { e: new Array(16).fill(6500), eTick: 0, ebounds: null };
+    for (const split of [0, 1, 2, 4]) for (const outer of [0, 1]) for (let n = 1; n <= 6; n++) {
+      const p = { layers: n, split, outer, nest: 0, xo1: 4, xo2: 2, xo3: 9, xo4: 9, xo5: 15 }, st = { e: new Array(16).fill(6500), eTick: 0, ebounds: null };
       for (let t = 0; t < 40; t++) {
         const spec = Array.from({ length: 16 }, () => Math.round(rng() * 255)), tg = LW.targets(p, spec, [], st);
         for (let k = 1; k < n; k++) assert.ok(tg[k] <= tg[k - 1] + 1e-9, `split ${split} outer ${outer} n ${n}: layer ${k} above layer ${k - 1}`);
       }
-      const b = LW.boundsFor(split, n, st); assert.strictEqual(b[0], 0); assert.strictEqual(b[n], 16); for (let i = 1; i <= n; i++) assert.ok(b[i] > b[i - 1]);
+      const b = LW.boundsFor(split, n, st, LW.xoOf(p)); assert.strictEqual(b[0], 0); assert.strictEqual(b[n], 16); for (let i = 1; i <= n; i++) assert.ok(b[i] > b[i - 1]);
     }
   });
 }

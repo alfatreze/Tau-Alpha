@@ -37,13 +37,14 @@ a shared onset signal (kick the layers). None blocks this meter.
 
 ## 3. Splitting frequencies into layers
 
-`layers` 1-6. Layer 0 is the outermost. Four splits (`split`):
+`layers` 1-6. Layer 0 is the outermost. Five splits (`split`):
 
 | Split | Boundaries | Why |
 |---|---|---|
 | **OCTAVES** | equal band counts (16/N bands each; 3 layers = ~94-530, 530-4k, 4k-24k Hz) | predictable, matches the spectrum bars |
 | **BASS_FINE** | group widths grow x1.6 with frequency | bass is where music has structure; most layers resolve it |
 | **ENERGY** | boundaries at equal cumulative slow-averaged energy, recomputed ~4x a second | layers stay evenly "alive" whatever the track; adapts |
+| **CUSTOM** | you place the boundaries: `xo1`..`xo5` (band index 1-15 between layer i and i+1; unsorted or colliding values are repaired the same way in the lab and the firmware). **In the lab they are draggable handles**, see below | the gradient-editor idea: each layer owns a frequency range you can see and move |
 | **DYNAMICS** | no frequency split: every layer follows the broadband peak with its own time constant (outer slow, inner fast, inner height 0.5x) | the "echo" look of the reference; needs only the hardware peak |
 
 `outer` (BASS or TREBLE) decides which end is the big outer wave. `nest`:
@@ -52,10 +53,16 @@ ones (tested, all splits, both orders) and inner layers sit a little lower so th
 **OVERLAP** = each layer hears only its own group, layers may cross.
 The lab's split map shows the 16 live bands coloured by layer, with the Hz range per layer.
 
+**Frequency handles (lab).** Under the split map sits a strip with one handle per layer boundary, like the stops of a gradient editor: drag a
+handle to move that boundary (the Hz it sits at is on the handle; neighbours cannot be crossed), **double-click the strip to add a layer**,
+**double-click a handle to remove one** (1-6 layers), arrow keys move a focused handle. Touching any handle switches the split to CUSTOM, seeded
+from whatever the previous split had produced (including ENERGY's learned boundaries). Handles are hidden where they mean nothing (SPECTRUM
+view, DYNAMICS split). On the Pocket the same boundaries are the Split 1-5 rows of the Configure page (visible only for CUSTOM).
+
 Per-layer motion: attack is 4x faster than release; `response` sets release 40-600 ms; the DYNAMICS split staggers
 the time constants 1.6x per layer.
 
-## 4. Parameters (18; `MTR_MAX_PARAMS` raised from 12 to 18)
+## 4. Parameters (23; `MTR_MAX_PARAMS` raised from 12 to 24)
 
 `view` (scrolling vs fixed) and the colour source (`color_mode`, `grad`, three `custom_*`) were added after the first cut; the colour block alone is 8 parameters, most hidden by `when` at any time. `MTR_MAX_PARAMS` (`fw/meter_module.h`, `gen_meters.py`) and `WVCFG_MAX_ROWS` (the Configure page, 16 to 24) were raised for this meter; the tau-assets METR loader scratch grows from 192 to 288 bytes of stack. On the Pocket the custom colours are raw RGB565 numbers stepped by 1, which is only practical from Omega or a preset file. Every parameter carries `help` (and enums `value_help`) in the manifest: the lab shows them behind an (i) button, and Omega receives them through the schema.
 
@@ -63,7 +70,8 @@ the time constants 1.6x per layer.
 |---|---|---|---|
 | **view** | enum HISTORY, SPECTRUM | HISTORY | **HISTORY** scrolls (x = time, newest left). **SPECTRUM** does not scroll: x = frequency (bass left), layers differ by response time and height, both ends pointed. Split, Outer, Layer mode, Speed and Resolution are ignored in SPECTRUM. Cost: layers x 16 (BLOCKS) or up to layers x 400 (SMOOTH), about 195 commands for TIDE |
 | layers | u8 1..6 | 3 | number of layers |
-| split | enum OCTAVES, BASS_FINE, ENERGY, DYNAMICS | OCTAVES | section 3 |
+| xo1..xo5 | u8 1..15 (CUSTOM split only) | 3, 5, 8, 11, 13 | boundaries between layers (section 3); only the first `layers - 1` are used |
+| split | enum OCTAVES, BASS_FINE, ENERGY, DYNAMICS, CUSTOM | OCTAVES | section 3 |
 | outer | enum BASS, TREBLE | BASS | which end is outermost |
 | nest | enum NESTED, OVERLAP | NESTED | section 3 |
 | draw | enum BLOCKS, SMOOTH | SMOOTH | section 5 (SCROLL parked) |
@@ -87,6 +95,12 @@ yet), stereo skew, measure choice.
 AURORA (the reference: 3 nested layers, danger to accent), SUNSET (5 layers, bass-fine), DEEP OCEAN (4 overlapped
 layers, energy split, treble outer), HALO (broadband echoes, long taper), NEON (6 layers, 400 columns, no taper),
 PULSE (single chunky layer), TIDE (SPECTRUM view, no scrolling, 4 layers), SILK (smooth full redraw, the cost showcase).
+
+**Organisation and help.** Every parameter has a `group` and the manifest has a `groups` list: **General** (view, layers), **Source** (split, outer
+layer, layer mode, the five boundaries), **Display & Theme** (draw, resolution, taper, colour source, gradation, theme roles, custom colours) and
+**Dynamics** (scroll speed, response). The lab folds them into collapsible sections (a section with no visible parameter disappears); Omega gets the
+same grouping through the schema. The Pocket's Configure page stays a flat list for now. The (i) next to each parameter is a **hover tooltip**
+(also on keyboard focus; a tap pins it for touch), showing the explanation and, for choices, one line per option with the selected one bold.
 
 ## 5. Drawing and cost (Talos / Helios)
 

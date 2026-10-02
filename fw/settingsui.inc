@@ -966,7 +966,7 @@ COLD_FN static void set_info_tick(void)
 #define WVR_P0     2u              /* parameter i is row WVR_P0 + i */
 #define WVR_EXPORT 250u
 #define WVCFG_ROWS_VISIBLE 8u
-#define WVCFG_MAX_ROWS 24u
+#define WVCFG_MAX_ROWS 32u
 static uint8_t wvcfg_sel, wvcfg_top;
 static uint8_t wvcfg_vis[WVCFG_MAX_ROWS], wvcfg_vis_n;
 static const mtr_data_t *wvcfg_md;

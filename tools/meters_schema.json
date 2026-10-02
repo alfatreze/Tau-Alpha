@@ -751,7 +751,8 @@
      "value_help": [
       "HISTORY: the wave scrolls away from a pointed head; the horizontal axis is time (newest on the left).",
       "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. Layers then differ by response time (outer slow, inner fast); Layer split, Outer layer, Layer mode, Scroll speed and Resolution are ignored."
-     ]
+     ],
+     "group": "general"
     },
     {
      "key": "layers",
@@ -761,7 +762,8 @@
      "max": 6,
      "step": 1,
      "default": 3,
-     "help": "How many nested waves are drawn, from 1 to 6. More layers cost one drawing command per layer per column run."
+     "help": "How many nested waves are drawn, from 1 to 6. More layers cost one drawing command per layer per column run.",
+     "group": "general"
     },
     {
      "key": "split",
@@ -771,7 +773,8 @@
       "OCTAVES",
       "BASS_FINE",
       "ENERGY",
-      "DYNAMICS"
+      "DYNAMICS",
+      "CUSTOM"
      ],
      "default": 0,
      "help": "What each layer listens to.",
@@ -779,8 +782,10 @@
       "OCTAVES: equal groups of the 16 spectrum bands.",
       "BASS_FINE: bass gets the finest layers, treble one wide layer.",
       "ENERGY: boundaries adapt so every layer carries about the same energy, whatever the track.",
-      "DYNAMICS: no frequency split; every layer follows the overall peak with its own time constant (the echo look)."
-     ]
+      "DYNAMICS: no frequency split; every layer follows the overall peak with its own time constant (the echo look).",
+      "CUSTOM: you place the boundaries. In the lab drag the handles under the meter (double-click the strip to add a layer, double-click a handle to remove one); on the Pocket use the Split 1-5 settings."
+     ],
+     "group": "source"
     },
     {
      "key": "outer",
@@ -791,7 +796,8 @@
       "TREBLE"
      ],
      "default": 0,
-     "help": "Which end of the spectrum is the big outer wave: BASS or TREBLE."
+     "help": "Which end of the spectrum is the big outer wave: BASS or TREBLE.",
+     "group": "source"
     },
     {
      "key": "nest",
@@ -802,7 +808,78 @@
       "OVERLAP"
      ],
      "default": 0,
-     "help": "NESTED: each layer also hears everything inside it, so inner waves can never poke out of outer ones. OVERLAP: each layer hears only its own frequencies and layers may cross."
+     "help": "NESTED: each layer also hears everything inside it, so inner waves can never poke out of outer ones. OVERLAP: each layer hears only its own frequencies and layers may cross.",
+     "group": "source"
+    },
+    {
+     "key": "xo1",
+     "label": "Split 1",
+     "type": "u8",
+     "min": 1,
+     "max": 15,
+     "step": 1,
+     "default": 3,
+     "when": {
+      "split": 4
+     },
+     "group": "source",
+     "help": "Band boundary (1-15) between layer 1 and layer 2, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 1. In the lab, drag the handles under the meter instead."
+    },
+    {
+     "key": "xo2",
+     "label": "Split 2",
+     "type": "u8",
+     "min": 1,
+     "max": 15,
+     "step": 1,
+     "default": 5,
+     "when": {
+      "split": 4
+     },
+     "group": "source",
+     "help": "Band boundary (1-15) between layer 2 and layer 3, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 2. In the lab, drag the handles under the meter instead."
+    },
+    {
+     "key": "xo3",
+     "label": "Split 3",
+     "type": "u8",
+     "min": 1,
+     "max": 15,
+     "step": 1,
+     "default": 8,
+     "when": {
+      "split": 4
+     },
+     "group": "source",
+     "help": "Band boundary (1-15) between layer 3 and layer 4, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 3. In the lab, drag the handles under the meter instead."
+    },
+    {
+     "key": "xo4",
+     "label": "Split 4",
+     "type": "u8",
+     "min": 1,
+     "max": 15,
+     "step": 1,
+     "default": 11,
+     "when": {
+      "split": 4
+     },
+     "group": "source",
+     "help": "Band boundary (1-15) between layer 4 and layer 5, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 4. In the lab, drag the handles under the meter instead."
+    },
+    {
+     "key": "xo5",
+     "label": "Split 5",
+     "type": "u8",
+     "min": 1,
+     "max": 15,
+     "step": 1,
+     "default": 13,
+     "when": {
+      "split": 4
+     },
+     "group": "source",
+     "help": "Band boundary (1-15) between layer 5 and layer 6, counted in half-octave bands from the bass end (band 1 = about 133 Hz). Only used by the CUSTOM split, and only while Layers is greater than 5. In the lab, drag the handles under the meter instead."
     },
     {
      "key": "draw",
@@ -817,7 +894,8 @@
      "value_help": [
       "BLOCKS: flat chunky columns, redrawn only when a new column arrives.",
       "SMOOTH: a curved outline evaluated across the width with sub-column motion; the best look. Both modes self-scale: if a frame needs more than about 300 drawing commands the meter widens its drawing cells (coarser, never slower)."
-     ]
+     ],
+     "group": "display"
     },
     {
      "key": "res",
@@ -831,7 +909,8 @@
      "help": "Resolution: how many columns span the width, up to 400 (one per pixel). The meter widens its drawing cells automatically if that would need too many commands. HISTORY view only.",
      "when": {
       "view": 0
-     }
+     },
+     "group": "display"
     },
     {
      "key": "speed",
@@ -845,7 +924,8 @@
      "help": "How fast the wave scrolls, in pixels per second. HISTORY view only.",
      "when": {
       "view": 0
-     }
+     },
+     "group": "dynamics"
     },
     {
      "key": "response",
@@ -855,7 +935,8 @@
      "max": 100,
      "step": 5,
      "default": 45,
-     "help": "How quickly layers follow the music. Low = slow, lingering; high = snappy. Attack is always about 4 times faster than release."
+     "help": "How quickly layers follow the music. Low = slow, lingering; high = snappy. Attack is always about 4 times faster than release.",
+     "group": "dynamics"
     },
     {
      "key": "taper",
@@ -866,7 +947,8 @@
      "step": 5,
      "default": 70,
      "unit": "%",
-     "help": "Roll-off toward the tail: the wave narrows, fades into the background, and ends in three dots. 0 = full height to the edge. In SPECTRUM view both ends are pointed."
+     "help": "Roll-off toward the tail: the wave narrows, fades into the background, and ends in three dots. 0 = full height to the edge. In SPECTRUM view both ends are pointed.",
+     "group": "display"
     },
     {
      "key": "color_mode",
@@ -883,7 +965,8 @@
       "ACCENT: derived from your accent colour, with the gradation chosen below. Follows the accent, theme and Dark/Light.",
       "THEME: pick theme colours (roles) for outer layer, inner layer and background. Follows the theme and Dark/Light.",
       "CUSTOM: your own colours, entered as hex in Omega or the lab (colour picker) and stored in the Pocket's 16-bit format."
-     ]
+     ],
+     "group": "display"
     },
     {
      "key": "grad",
@@ -905,7 +988,8 @@
       "SHADES: inner = accent, outer layers darken.",
       "ANALOGOUS: neighbouring hues, 30 degrees either side of the accent (pink to violet from a pink accent).",
       "COMPLEMENT: outer = accent, inner = the opposite hue."
-     ]
+     ],
+     "group": "display"
     },
     {
      "key": "color_outer",
@@ -929,7 +1013,8 @@
      "help": "Theme role for the outermost layer. Colours are roles, not RGB, so they follow the theme, your accent and Dark/Light.",
      "when": {
       "color_mode": 1
-     }
+     },
+     "group": "display"
     },
     {
      "key": "color_inner",
@@ -953,7 +1038,8 @@
      "help": "Theme role for the innermost layer; layers in between blend from outer to inner.",
      "when": {
       "color_mode": 1
-     }
+     },
+     "group": "display"
     },
     {
      "key": "color_bg",
@@ -977,7 +1063,8 @@
      "help": "Theme role for the solid background of the meter box (one fill command).",
      "when": {
       "color_mode": 1
-     }
+     },
+     "group": "display"
     },
     {
      "key": "custom_outer",
@@ -991,7 +1078,8 @@
      "when": {
       "color_mode": 2
      },
-     "help": "RGB565 colour for the outer layer (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result)."
+     "help": "RGB565 colour for the outer layer (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result).",
+     "group": "display"
     },
     {
      "key": "custom_inner",
@@ -1005,7 +1093,8 @@
      "when": {
       "color_mode": 2
      },
-     "help": "RGB565 colour for the inner layer (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result)."
+     "help": "RGB565 colour for the inner layer (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result).",
+     "group": "display"
     },
     {
      "key": "custom_bg",
@@ -1019,7 +1108,8 @@
      "when": {
       "color_mode": 2
      },
-     "help": "RGB565 colour for the background box (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result)."
+     "help": "RGB565 colour for the background box (CUSTOM source only). In the lab use the picker or type hex; it is converted to the Pocket's 16-bit format (the swatch shows the quantised result).",
+     "group": "display"
     }
    ],
    "presets": [
@@ -1043,7 +1133,12 @@
       "grad": 0,
       "custom_outer": 57905,
       "custom_inner": 41662,
-      "custom_bg": 6277
+      "custom_bg": 6277,
+      "xo1": 3,
+      "xo2": 5,
+      "xo3": 8,
+      "xo4": 11,
+      "xo5": 13
      }
     },
     {
@@ -1066,7 +1161,12 @@
       "grad": 0,
       "custom_outer": 57905,
       "custom_inner": 41662,
-      "custom_bg": 6277
+      "custom_bg": 6277,
+      "xo1": 3,
+      "xo2": 5,
+      "xo3": 8,
+      "xo4": 11,
+      "xo5": 13
      }
     },
     {
@@ -1089,7 +1189,12 @@
       "grad": 2,
       "custom_outer": 57905,
       "custom_inner": 41662,
-      "custom_bg": 6277
+      "custom_bg": 6277,
+      "xo1": 3,
+      "xo2": 5,
+      "xo3": 8,
+      "xo4": 11,
+      "xo5": 13
      }
     },
     {
@@ -1112,7 +1217,12 @@
       "grad": 0,
       "custom_outer": 57905,
       "custom_inner": 41662,
-      "custom_bg": 6277
+      "custom_bg": 6277,
+      "xo1": 3,
+      "xo2": 5,
+      "xo3": 8,
+      "xo4": 11,
+      "xo5": 13
      }
     },
     {
@@ -1135,7 +1245,12 @@
       "grad": 3,
       "custom_outer": 57905,
       "custom_inner": 41662,
-      "custom_bg": 6277
+      "custom_bg": 6277,
+      "xo1": 3,
+      "xo2": 5,
+      "xo3": 8,
+      "xo4": 11,
+      "xo5": 13
      }
     },
     {
@@ -1158,7 +1273,12 @@
       "grad": 0,
       "custom_outer": 63981,
       "custom_inner": 65067,
-      "custom_bg": 4228
+      "custom_bg": 4228,
+      "xo1": 3,
+      "xo2": 5,
+      "xo3": 8,
+      "xo4": 11,
+      "xo5": 13
      }
     },
     {
@@ -1181,7 +1301,12 @@
       "grad": 0,
       "custom_outer": 57905,
       "custom_inner": 41662,
-      "custom_bg": 6277
+      "custom_bg": 6277,
+      "xo1": 3,
+      "xo2": 5,
+      "xo3": 8,
+      "xo4": 11,
+      "xo5": 13
      }
     },
     {
@@ -1204,11 +1329,34 @@
       "grad": 0,
       "custom_outer": 57905,
       "custom_inner": 41662,
-      "custom_bg": 6277
+      "custom_bg": 6277,
+      "xo1": 3,
+      "xo2": 5,
+      "xo3": 8,
+      "xo4": 11,
+      "xo5": 13
      }
     }
    ],
    "default_preset": 0,
+   "groups": [
+    {
+     "key": "general",
+     "label": "General"
+    },
+    {
+     "key": "source",
+     "label": "Source"
+    },
+    {
+     "key": "display",
+     "label": "Display & Theme"
+    },
+    {
+     "key": "dynamics",
+     "label": "Dynamics"
+    }
+   ],
    "list_position": 12
   }
  ]
