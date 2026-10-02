@@ -856,16 +856,15 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
                   * confirm the probe passed before relying on the toggle having any real effect. */
 #if TAU_DIAGNOSTIC
         if (!CYMO_RESAMP_READY()) { q = set_str(q, "NO UNIT"); break; }
-        uint32_t st = REG(R_CYMO_STATUS);
+        uint32_t st = REG(R_CYMO_STATUS), dg = REG(R_CYMO_DIAG);
         q = set_str(q, (st & 0x10u) ? "LIVE " : "READY ");
-        q = set_str(q, (st & 0x2u) ? "BUSY " : "IDLE ");
         q = set_str(q, (st & 0x8u) ? "POP " : "- ");
-        /* B-492: stale-consume counter -- how many times the resampler reused the last pushed sample
-         * instead of a fresh one since the toggle was last switched on. Should read 0 or stay very low
-         * if push/pop_req are genuinely rate-matched; a counter that climbs steadily during playback is
-         * direct evidence of the push/consume cadence drifting apart. */
-        q = set_str(q, "STALE ");
-        q = ui_dec(q, REG(R_CYMO_DIAG) & 0xFFFFu);
+        /* B-527: S = consumes that found no pushed sample (the resampler repeated one), D = ticks dropped because the hand-off queue was full, Q = the queue
+         * level now. Both counters clear when the toggle is switched on and keep their value when it is switched off. With the elastic hand-off S and D should
+         * stay at 0 (the old tick-gated hand-off read thousands within a second, B-527); Q should sit at 2-3. */
+        q = set_str(q, "S"); q = ui_dec(q, dg & 0xFFFFu);
+        q = set_str(q, " D"); q = ui_dec(q, dg >> 16);
+        q = set_str(q, " Q"); q = ui_dec(q, (st >> 5) & 7u);
 #else
         q = set_str(q, "OFF");
 #endif

@@ -1149,72 +1149,39 @@ module mp3_soc #(
     reg cymo_live_en_d = 1'b0;
     always @(posedge clk) cymo_live_en_d <= rst ? 1'b0 : cymo_live_en;
     wire cymo_live_rise = cymo_live_en & ~cymo_live_en_d;
-    // B-492/B-498: `cymo_fresh` tracks whether a push has landed since the last consume (pop_req falling
-    // edge, i.e. S_SHIFTHIST executed) -- used BOTH to gate the push itself (cymo_auto_we below, so a push
-    // can only land once per pop_req assertion) AND to count stale consumes (cymo_stale_cnt) for the
-    // CYMO RESAMP Info row. Declared here, ahead of cymo_auto_we, since Icarus requires declare-before-use
-    // (Quartus tolerates the opposite order, Icarus does not -- the same class of gotcha as B-103).
-    reg         cymo_pop_req_d = 1'b0;
-    always @(posedge clk) cymo_pop_req_d <= rst ? 1'b0 : cymo_pop_req;
-    wire        cymo_consume_ev = cymo_pop_req_d & ~cymo_pop_req;   // falling edge = S_SHIFTHIST executed
-    reg         cymo_fresh = 1'b0;
-    reg  [15:0] cymo_stale_cnt = 16'd0;
-    // B-492 (replaces the never-actually-gated auto-push): the module's OWN header documents the
-    // contract as "caller must push exactly once per asserted pop_req, before the next start" -- but the
-    // live path here pushed on EVERY pcm_sample_tick unconditionally, regardless of pop_req, ever since
-    // B-476. pcm_sample_tick (pcm_fifo's own output tick, rate-matched to the TRACK's real sample rate)
-    // and cymo_tick (this unit's own independent, fixed 48kHz-side tick) are two free-running
-    // accumulators with no phase relationship to each other -- toggling cymo_live_en only resets the
-    // RESAMPLER's own internal phase/history (B-488), never pcm_fifo's push-tick accumulator, which keeps
-    // running continuously regardless. So the relative phase between "a sample becomes available" and
-    // "the resampler wants one" was whatever it happened to be at the arbitrary instant of the toggle --
-    // different every time, explaining the owner's reported per-toggle pitch variance even after B-488's
-    // fix (which could not have touched this, since it only resets the module's OWN state).
-    //
-    // B-498 CORRECTION to B-492's own fix: gating on `cymo_pop_req` alone was INCOMPLETE. `pop_req` is a
-    // LEVEL, held high from the wrap that raised it until the NEXT `start` actually consumes it in
-    // S_SHIFTHIST -- it does not fall after a single push. If more than one `pcm_sample_tick` pulse lands
-    // while pop_req is still pending (exactly the scenario this fix was meant to rule out), the old gate
-    // (`pop_req & pcm_sample_tick`) fired on EVERY one of them, repeatedly overwriting `held_l`/`held_r`
-    // before any of it was ever consumed -- "two pushes before one consume" was still possible, just
-    // rarer than the completely ungated B-476 original. Hardware re-test confirmed exactly this shape:
-    // the per-toggle pitch variance narrowed (no longer reaching as far as before) but did not go away,
-    // and the owner could still perceive a slow tonal drift during ordinary playback -- consistent with
-    // occasional multi-push overwrites, not fully eliminated. Fixed by latching: `cymo_fresh` (below,
-    // already built for the stale-consume counter) now ALSO gates the push itself, so a push can land
-    // only on the FIRST tick after a pop_req rises, never again until the next consume clears it --
-    // genuinely "exactly once per pop_req," matching the module's own documented contract by construction
-    // rather than by relying on push/consume cadence happening to stay in lockstep.
-    wire        cymo_auto_we    = cymo_live_en & cymo_pop_req & pcm_sample_tick & ~cymo_fresh;
+    // B-527: the hand-off from pcm_fifo's track-rate tick to the resampler is tau_cymo_feed (an elastic queue), not a gate on
+    // pcm_sample_tick & pop_req. The old gate (B-476, narrowed by B-492/B-498) could only deliver a sample when a tick happened
+    // to land while pop_req was high, which loses/repeats 9-29% of the input samples at the real clock ratio (cycle-level model,
+    // and the hardware's own STALE counter: 7,580 after about a second). See tau_cymo_feed.sv for the full reasoning and
+    // docs/AUDIT_TRAIL.md B-527. `cymo_stale_cnt` (a consume found nothing pushed) and `cymo_drop_cnt` (a tick found the queue full)
+    // now come from the feed and read back through R_CYMO_DIAG.
+    wire        cymo_auto_we;
+    wire signed [15:0] cymo_feed_l, cymo_feed_r;
+    wire [15:0] cymo_stale_cnt, cymo_drop_cnt;
+    wire [2:0]  cymo_feed_level;
     wire        cymo_auto_start = cymo_live_en & cymo_tick;
     wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out_l : fifo_l;
     wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out_r : fifo_r;
-    // cymo_fresh/cymo_stale_cnt's own update, placed here (after cymo_auto_we's declaration -- Icarus
-    // requires declare-before-use, Quartus does not care) since it reads cymo_auto_we directly.
-    always @(posedge clk) begin
-        if (rst || cymo_live_rise) begin
-            cymo_fresh <= 1'b0; cymo_stale_cnt <= 16'd0;
-        end else begin
-            if (cymo_auto_we) cymo_fresh <= 1'b1;
-            if (cymo_consume_ev) begin
-                cymo_fresh <= 1'b0;
-                if (!cymo_fresh && cymo_stale_cnt != 16'hFFFF) cymo_stale_cnt <= cymo_stale_cnt + 16'd1;
-            end
-        end
-    end
     generate
         if (CYMO_RESAMP_ENABLE != 0) begin : g_cymo
+            tau_cymo_feed u_cymo_feed (
+                .clk(clk), .rst(rst), .clear(cymo_clear | pcm_flush | cymo_live_rise), .live(cymo_live_en),
+                .tick(pcm_sample_tick), .in_l(fifo_l), .in_r(fifo_r), .pop_req(cymo_pop_req),
+                .push_we(cymo_auto_we), .push_l(cymo_feed_l), .push_r(cymo_feed_r),
+                .stale_cnt(cymo_stale_cnt), .drop_cnt(cymo_drop_cnt), .level(cymo_feed_level));
             tau_cymo_resamp u_cymo (
                 .clk(clk), .rst(rst), .clear(cymo_clear | pcm_flush | cymo_live_rise),
                 .push_we(cymo_push_we | cymo_auto_we),
-                .push_l(cymo_auto_we ? fifo_l : cymo_push_l_d),
-                .push_r(cymo_auto_we ? fifo_r : cymo_push_r_d),
+                .push_l(cymo_auto_we ? cymo_feed_l : cymo_push_l_d),
+                .push_r(cymo_auto_we ? cymo_feed_r : cymo_push_r_d),
                 .start(cymo_start | cymo_auto_start), .out_rd(cymo_out_rd),
                 .busy(cymo_busy), .done(cymo_done), .pop_req(cymo_pop_req),
                 .out_l(cymo_out_l), .out_r(cymo_out_r));
         end else begin : g_nocymo
             assign cymo_busy = 1'b0; assign cymo_done = 1'b0; assign cymo_pop_req = 1'b0;
             assign cymo_out_l = 16'sd0; assign cymo_out_r = 16'sd0;
+            assign cymo_auto_we = 1'b0; assign cymo_feed_l = 16'sd0; assign cymo_feed_r = 16'sd0;
+            assign cymo_stale_cnt = 16'd0; assign cymo_drop_cnt = 16'd0; assign cymo_feed_level = 3'd0;
         end
     endgenerate
 
@@ -1451,8 +1418,8 @@ module mp3_soc #(
             R_I2S_DIAG_SUM:    mmio_rdata = (I2S_DIAG_ENABLE != 0) ? i2s_diag_sum_r : 32'd0;
             R_I2S_DIAG_ST:     mmio_rdata = {31'd0, (I2S_DIAG_ENABLE != 0)};
             R_CYMO_OUT:    mmio_rdata = {cymo_out_r, cymo_out_l};                                      // this read is the ack (clears done)
-            R_CYMO_STATUS: mmio_rdata = {27'd0, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en
-            R_CYMO_DIAG:   mmio_rdata = {16'd0, cymo_stale_cnt}; // B-492: count of consumes with no fresh push since the last one (saturating)
+            R_CYMO_STATUS: mmio_rdata = {24'd0, cymo_feed_level, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en, [7:5] feed queue level (B-527)
+            R_CYMO_DIAG:   mmio_rdata = {cymo_drop_cnt, cymo_stale_cnt}; // B-527: [15:0] consumes that found no pushed sample (repeat), [31:16] ticks dropped because the queue was full; both saturate, both clear on live engage
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase
     end
