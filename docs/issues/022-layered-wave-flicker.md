@@ -1,6 +1,8 @@
 # Layered Wave meter flickers on hardware
 
-**Status:** Reported on hardware (owner, first boot of `alfatreze.TAU_DEV_59`, 2026-10-02). **Tagged for later by the owner; not investigated.**
+**CLOSED, hardware-confirmed (2026-10-02, TAU_DEV_67, B-526):** no flicker anywhere (player screen, fullscreen, Settings > Meter > Configure), no corruption, the redraw does not look choppy. Fixed by drawing off-screen and copying the finished box (B-520), one draw path for every context (B-521), the Settings-fade nesting fix and the audio protection (B-524), and the dt clamp (B-525). History below.
+
+**Status (original):** Reported on hardware (owner, first boot of `alfatreze.TAU_DEV_59`, 2026-10-02). **Tagged for later by the owner; not investigated.**
 This file only records what is and is not known, so the next person does not start from zero or from a guess.
 
 ## Observed
