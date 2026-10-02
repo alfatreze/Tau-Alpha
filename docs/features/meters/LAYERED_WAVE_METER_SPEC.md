@@ -102,6 +102,15 @@ layer, layer mode, the five boundaries), **Display & Theme** (draw, resolution, 
 same grouping through the schema. The Pocket's Configure page stays a flat list for now. The (i) next to each parameter is a **hover tooltip**
 (also on keyboard focus; a tap pins it for touch), showing the explanation and, for choices, one line per option with the selected one bold.
 
+**Lab-only experiments (not in the manifest or the firmware).** Group "Experimental (lab only)", defined in the JS module (`LAB_PARAMS`) so the golden
+comparison and the firmware are untouched (defaults skip every extra operation):
+- **Spectrum style** (SPECTRUM view): BLOCKS (hard ranges, what the firmware does), **EQ BELLS** (the same ranges with soft shoulders, one and two bands
+  at half and a fifth strength, like parametric-EQ bells) and **CURVE** (one continuous outline, coloured by a gradient whose stops are the layer colours at
+  the centres of their ranges, with a smooth gain curve). CURVE costs about half the commands (one outline instead of one per layer).
+- **Per-layer gain**, -18..+18 dB: a bead per layer on the frequency strip (drag up or down, double-click resets) with the gain curve drawn through the
+  beads; also sliders. Works in both views and every style, and rebalances bass-heavy layers.
+If a style or the gain proves worth it, the next step is promoting it: manifest parameters, the C twin, golden scenarios.
+
 ## 5. Drawing and cost (Talos / Helios)
 
 One engine command per layer per run of cells with equal height and colour, plus the background fill and (history view, taper on) three tail dots.

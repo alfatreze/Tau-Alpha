@@ -144,6 +144,16 @@
   }
   const halfPx = (a8, w8, Hh) => { let h = tdiv(a8 * w8 * Hh + 32512, 65025); if (h < 1 && w8 > 64) h = 1; return h; };   // a thin centre line stays in silence
 
+  /* Lab-only experiments (NOT in the manifest, not in the firmware): per-layer gain g1..g6 in dB and the SPECTRUM style hstyle. With the defaults
+     (0 dB, BLOCKS) every operation below is skipped, so the golden-frame comparison with the firmware is unaffected. */
+  const gm = (p, k) => { const db = p['g' + (k + 1)] | 0; return db ? Math.round(256 * Math.pow(10, db / 20)) : 256; };
+  const LAB_PARAMS = [
+    { key: 'hstyle', label: 'Spectrum style', type: 'enum', values: ['BLOCKS', 'EQ BELLS', 'CURVE'], default: 0, group: 'lab', when: { view: 1 },
+      help: 'How the layers share the frequency axis in SPECTRUM view (lab-only experiment).',
+      value_help: ['BLOCKS: hard blocks, each layer draws only its own frequency range (what the firmware does).', 'EQ BELLS: the same ranges with soft shoulders that taper into the neighbours, like the bell curves of a parametric EQ.', 'CURVE: one continuous gradient-coloured outline across the whole axis; the layer colours become colour stops and the layer gains a smooth gain curve.'] },
+  ].concat([1, 2, 3, 4, 5, 6].map((i) => ({ key: 'g' + i, label: 'Gain, layer ' + i, type: 'u8', min: -18, max: 18, step: 1, default: 0, unit: ' dB', group: 'lab',
+    help: 'Gain of layer ' + i + ' in dB (lab-only experiment). Also set by dragging the bead on the frequency strip up or down; double-click the bead to reset.' })));
+
   /* ---- state ----------------------------------------------------------------------------------------------------------------------- */
   function state() { return { init: false, key: '' }; }
   function reinit(st, ctx, key) {
@@ -174,7 +184,8 @@
     const tg = targets(p, ctx.spec, ctx.wave, st);
     for (let k = 0; k < n; k++) {
       const m = p.split === SPLIT.DYNAMICS && n > 1 ? T.mulQ8[n - 1 - 2 * k + 5] : 256;
-      st.s[k] = stepTo(st.s[k], tg[k], coef(p.response, m, dt, 1), coef(p.response, m, dt, 0));
+      const gk = gm(p, k), tk = gk === 256 ? tg[k] : Math.min(4096, (tg[k] * gk) >> 8);
+      st.s[k] = stepTo(st.s[k], tk, coef(p.response, m, dt, 1), coef(p.response, m, dt, 0));
     }
     st.acc += tdiv(dt * p.speed * res * 256, 1000 * W);
     const pushes = Math.min(st.acc >> 8, res); st.acc &= 255;
@@ -208,11 +219,20 @@
     rect(X, ctx.y, W, ctx.h, cl.bgc);
     if (p.split === SPLIT.ENERGY) learnEnergy(st, ctx.spec, n);
     const bnd = p.split === SPLIT.DYNAMICS ? null : boundsFor(p.split, n, st, xoOf(p));   // frequency splits: each layer draws only the part of the axis it listens to
+    const hstyle = p.hstyle | 0;
+    if (hstyle === 2 && bnd) return curveOutline(ctx, st, dt, cl, cy, Hh, rect, bnd);
     for (let k = 0; k < n; k++) {
       let lo = 0, hi = NB;
       if (bnd) { if (p.nest === 0) { lo = p.outer === 0 ? bnd[k] : 0; hi = p.outer === 0 ? NB : bnd[n - k]; } else { const g = p.outer === 0 ? k : n - 1 - k; lo = bnd[g]; hi = bnd[g + 1]; } }
       const m = n > 1 ? T.mulQ8[n - 1 - 2 * k + 5] : 256, ca = coef(p.response, m, dt, 1), cr = coef(p.response, m, dt, 0), sc = n === 1 ? 1024 : 1024 - tdiv(512 * k, n - 1), b = st.band[k], bu = new Array(NB);
-      for (let i = 0; i < NB; i++) { const v = tdiv(ctx.spec[i] * 4096, 255); b[i] = stepTo(b[i], v, ca, cr); bu[i] = i >= lo && i < hi ? (toU8(b[i]) * sc) >> 10 : 0; }
+      const gk = gm(p, k);
+      for (let i = 0; i < NB; i++) {
+        const v = tdiv(ctx.spec[i] * 4096, 255); b[i] = stepTo(b[i], v, ca, cr);
+        const wt = hstyle === 1 && bnd ? (i >= lo && i < hi ? 256 : (i === lo - 1 || i === hi) ? 128 : (i === lo - 2 || i === hi + 1) ? 40 : 0) : (i >= lo && i < hi ? 256 : 0);
+        let a = wt === 256 ? (toU8(b[i]) * sc) >> 10 : wt === 0 ? 0 : (((toU8(b[i]) * sc) >> 10) * wt) >> 8;
+        if (gk !== 256) a = Math.min(255, (a * gk) >> 8);
+        bu[i] = a;
+      }
       let run = null;
       const flush = () => { if (run) { rect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.base[k]); run = null; } };
       for (let xs = 0; xs < W; xs += s) {
@@ -226,6 +246,34 @@
       }
       flush();
     }
+  }
+
+  /* CURVE style (lab-only): ONE continuous outline across the whole axis, coloured by a gradient whose stops are the layer colours at the centres of
+     their frequency ranges, with a smooth gain curve through the per-layer gains. Layer 0's response time drives the bands. */
+  function curveOutline(ctx, st, dt, cl, cy, Hh, rect, bnd) {
+    const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), s = st.stride;
+    const m = n > 1 ? T.mulQ8[n - 1 + 5] : 256, ca = coef(p.response, m, dt, 1), cr = coef(p.response, m, dt, 0), b = st.band[0], bu = new Array(NB);
+    const lay = (g) => (p.outer === 0 ? g : n - 1 - g), cen = [], gdb = [], col = [];
+    for (let g = 0; g < n; g++) { cen.push((bnd[g] + bnd[g + 1]) / 2); gdb.push(p['g' + (lay(g) + 1)] | 0); col.push(cl.base[lay(g)]); }
+    const seg = (pos) => { if (pos <= cen[0]) return [0, 0, 0]; if (pos >= cen[n - 1]) return [n - 1, n - 1, 0]; let g = 0; while (pos > cen[g + 1]) g++; return [g, g + 1, (pos - cen[g]) / (cen[g + 1] - cen[g])]; };
+    for (let i = 0; i < NB; i++) {
+      const v = tdiv(ctx.spec[i] * 4096, 255); b[i] = stepTo(b[i], v, ca, cr);
+      const [g0, g1, f] = seg(i + 0.5), db = gdb[g0] + (gdb[g1] - gdb[g0]) * f;
+      bu[i] = Math.min(255, Math.round(toU8(b[i]) * Math.pow(10, db / 20)));
+    }
+    let run = null;
+    const flush = () => { if (run) { rect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, run.c); run = null; } };
+    for (let xs = 0; xs < W; xs += s) {
+      const wd = Math.min(s, W - xs), xc = Math.min(W - 1, xs + (s >> 1));
+      let a8;
+      if (smooth) { const t = tdiv((2 * xc + 1) * NB * 128, W) - 128; a8 = t <= 0 ? bu[0] : cr8((j) => bu[j], NB, t >> 8, t & 255); }
+      else a8 = bu[Math.min(NB - 1, tdiv(xc * NB, W))];
+      const w8 = tq === 0 ? 255 : win8(T.winSpec, tq, tdiv((2 * xc + 1) * 8192, W)), hh = halfPx(a8, w8, Hh);
+      const [g0, g1, f] = seg((xc + 0.5) / W * NB), c = mix(col[g0], col[g1], Math.round(f * 256));
+      if (run && run.h === hh && run.c === c) { run.x1 = xs + wd; continue; }
+      flush(); if (hh > 0) run = { x0: xs, x1: xs + wd, h: hh, c };
+    }
+    flush();
   }
 
   /* Lab helpers: what each layer listens to (Hz from the half-octave bank, band 0 = bass), and the layer colours for the split map. */
@@ -249,6 +297,6 @@
   }
   const layerColours = (theme, p) => colours({ p, theme }).base;
 
-  const api = { key: 'layered_wave', state, tick, targets, bandOwner, boundsFor, xoOf, describe, layerColours, ends, EDGES, SPLIT, DRAW, ROLES, BUDGET };
+  const api = { key: 'layered_wave', state, tick, targets, bandOwner, boundsFor, xoOf, describe, layerColours, ends, EDGES, LAB_PARAMS, SPLIT, DRAW, ROLES, BUDGET };
   if (typeof module !== 'undefined') module.exports = api; else (root.TauMeters = root.TauMeters || {}).layered_wave = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
