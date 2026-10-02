@@ -22,17 +22,6 @@
                 ]
             },
             {
-                "name": "Playlist",
-                "id": 3,
-                "required": false,
-                "deferload": true,
-                "parameters": "0x0",
-                "filename": "playlist.m3u",
-                "extensions": [
-                    "m3u"
-                ]
-            },
-            {
                 "name": "Tau loading artwork",
                 "id": 4,
                 "required": false,
