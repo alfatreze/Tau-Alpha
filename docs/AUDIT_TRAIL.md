@@ -13254,3 +13254,32 @@ not a regression).
 toggle? Is the "tiny constant noise" during ordinary playback gone? And new evidence to read either
 way: the CYMO RESAMP Info row's `STALE <n>` field (`R_CYMO_DIAG`, MMIO 0x160) -- should read 0 or stay
 very low if push/pop_req are genuinely rate-matched now.
+
+## B-497: TAU_DEV_59 black screen -- my own mistake, --build-flags needs commas not spaces (repeat of the B-394 class)
+
+Owner reported `alfatreze.TAU_DEV_59` fully black on boot after B-496's install, other cores fine --
+"we've had this same issue at least twice before" (B-394, B-448). Root cause found immediately from that
+history: `tools/package_dev_build.py --build-flags` parses its argument as **comma-separated** `KEY=VAL`
+pairs (`kv.split(",")`), but B-496's install passed them **space-separated**:
+`--build-flags "RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1"`. With no commas present, the whole string is
+one token; `k, v = kv.split("=", 1)` then splits only on the FIRST `=`, so the actual result was
+`env["RAM_192K"] = "1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1"` -- a single garbled value -- while `CLK66`,
+`SDRAM_BUSY` and `LPC_FW` were never set as env vars at all. The firmware built without `CLK66_FW` (etc.)
+while being paired with a bitstream built from the full `TAU_CLK66`/`TAU_RAM_192K`/`TAU_SDRAM_BUSY`/
+`TAU_LPC` bundle; `fw/player.c`'s `VERSION_OK(REG(R_VERSION))` check (the exact mechanism B-394
+root-caused) rejected the mismatch and dropped into its infinite loop with zero framebuffer output --
+indistinguishable on screen from a genuine hang. Confirmed by the build's own printed numbers: the
+broken build reported `tau.rom: 128940 bytes (71.5% of usable RAM)` / heap gap `45248 B` (a 256 KB-style
+link), the corrected one `110404 bytes (61.3%)` / heap gap `6432 B` (the real 192 KB-linked profile) --
+unmistakably two different memory layouts from the same nominal command.
+
+**Fix**: rebuilt and repackaged with the flags correctly comma-separated
+(`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`); same RBF (`cymo-b492` seed 1, hash unchanged), new ROM
+(`4f0dd166...`) and cold image (`1cac2241...`). Installed via `tools/install_dev_core.py --replace`
+(hashes verified post-copy, caches cleared, ejected). `--build-flags`'s own docstring already documents
+the comma-separated format correctly -- this was purely my own invocation mistake, not a tool defect;
+flagging in case the error message deserves hardening (currently a bad separator silently produces a
+working-looking but wrong env var rather than an error) is worth a follow-up, not done here.
+
+**Still the real test to do**: does the resampler toggle now give a consistent pitch, and does `STALE`
+stay near 0?
