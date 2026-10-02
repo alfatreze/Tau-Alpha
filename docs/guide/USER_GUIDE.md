@@ -37,7 +37,8 @@ The controls (checked against the firmware input handling in `fw/player.c`):
 | Pocket | Action |
 |---|---|
 | **A** | *Tap*: play / pause |
-| **Start** | Open the settings menu (colour, theme, meter, equalizer, repeat, speed and more). In any menu or the library, Start closes it from any depth |
+| **Start** | Open the settings menu (colour, theme, meter, equalizer, repeat, speed and more) -- it opens when you let go of the button, and not at all if you pressed another button while holding it. In any menu or the library, Start closes it from any depth |
+| **Start + Y** | Jump straight to Settings > Meter > Configure |
 | **Left** / **Right** | *Tap*: previous / next track (library queue) |
 | **Left** / **Right** | *Hold*: seek, faster the longer you hold (5 s, then 10 s, then 30 s per step) |
 | **Select** + **Left** / **Right** | Seek one second |

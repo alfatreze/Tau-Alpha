@@ -272,3 +272,10 @@ invalidation) exist once, not replace the whole immediate-mode drawing model.
 - `docs/features/meters/METER_MODULE_SPEC.md` sections 2-3 — the meter audit and on-device contract this
   review's items 1/5 point at building, not redesigning.
 - `docs/AUDIT_TRAIL.md` B-349/B-350/B-351 — the bug and the first structural fix that prompted this review.
+
+## 8. Added items (later sessions)
+
+### 8.1 STRUCTURAL: an input layer (press / release / chord resolution) -- tagged 2026-10-02, B-522
+Found while moving the Meter > Configure shortcut: `poll_input()` (fw/player.c) resolves every gesture with per-button special cases written inline, ordered by hand. Start opened Settings on PRESS, so no chord with Start could exist (the menu was open before the second button landed); Select already works the other way (a modifier checked with `keys`, tap-to-act on release, a hold timer); Left/Right have their own tap/hold state; and each of the three has its own "was it used as a modifier" flag (`sel_used`, `lr_fired`, now `sg_t.pend`). Three buttons, three hand-rolled state machines, no shared rule for "one physical gesture produces one action".
+Interim fix (B-522, `fw/start_gesture.h`, host-tested): Start arms on press and opens Settings on release unless another button went down in between (that claims the gesture); Start+Y is the Meter > Configure chord. For the framework review: one input layer that owns press/release/hold/chord resolution for every button, with a declared gesture table (button, modifiers, on press / on release / on hold / claimed-by), so a new chord or a new "act on release" is a table row, not another flag; Settings/library/fullscreen handlers then receive resolved gestures instead of raw edges. Same shape as items 2 and 4: a hand-maintained chain that should be a declared table. Related: the Select combos, the Left/Right hold-to-seek, the library's own Start/B close handling, and the diagnostic Select+Start HUD all resolve gestures in different places today.
+

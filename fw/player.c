@@ -1139,7 +1139,7 @@ static int  set_input(uint32_t edge, uint32_t keys);
 #endif
 static void set_draw(void);
 static void set_close(void);
-static void set_open_wvizcfg_direct(void);   /* Start+X chord in poll_input(), defined in settingsui.inc */
+static void set_open_wvizcfg_direct(void);   /* Start+Y chord in poll_input(), defined in settingsui.inc */
 
 enum { REP_OFF = 0, REP_ALL, REP_ONE };
 static uint8_t  rep_mode;                /* cycles off -> all -> one -> off */
@@ -1296,6 +1296,7 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
  * scope), so this is a plain dark-mode layout: title/artist, a real
  * amplitude-driven level meter, elapsed time. Colours are RGB565.
  */
+#include "start_gesture.h"   /* B-522: Start opens Settings on release; Start+Y chord (pure logic, host-tested) */
 #include "theme.h"   /* named UI colours as roles (step 0a of the theme system); UI_PANEL etc. read th_role[] */
 /* Vertical gradient endpoints. Drawn as horizontal bands rather than a true
  * per-pixel ramp: a rect is ONE engine command, so 40 bands cost 40 commands
@@ -6341,17 +6342,17 @@ static void poll_input(void)
         edge = 0; fall = 0; keys = 0;
     }
 
-    /* Start+X: jump straight to Meter > Configure, skipping Home -> Appearance -> Meter navigation.
-     * Checked BEFORE SET_INPUT below, which otherwise treats any bare Start edge (settings closed) as
-     * "open at SET_HOME" and would consume it first. Two-sided check -- either button's edge can land
-     * first as long as the other is already held by the time it does -- because Start, unlike Select,
-     * has a strong action of its own on a bare press, so a one-sided "Start held, X edges" convention
-     * (the way Select+X/Y work) cannot be used: SET_INPUT would already have opened Settings before X
-     * is ever pressed. */
-    if (!set_open && !lib_ui_open && cold_code_ok &&
-        (((edge & KEY_START) && (keys & KEY_X)) || ((edge & KEY_X) && (keys & KEY_START)))) {
-        set_open_wvizcfg_direct();          /* cold code (fw/settingsui.inc) -- not visible this early in the file */
-        edge &= ~(uint32_t)(KEY_START | KEY_X);
+    /* ---- Start: opens Settings on RELEASE, and only if nothing else claimed it (B-522) -------------------------------------------------
+     * A press-time open meant every chord with Start was impossible (Settings was already open before the second button landed), and a Start
+     * used as a modifier also opened the menu. Now a bare Start press on the player screen only ARMS the menu (start_pend); the menu opens when
+     * Start is released, unless in between any other button went down (a chord, or a plain action of its own) -- that claims the press and the
+     * release then does nothing, so one physical gesture can never produce two actions. Closing is unchanged and stays on press: with Settings
+     * or the library open a Start press is not armed at all, so its release cannot reopen what the press just closed. Without the cold image
+     * the menu cannot open (set_input refuses), so the press is left alone and keeps its old meaning (stop). */
+    {
+        static sg_t start_g;
+        if (sg_step(&start_g, &edge, fall, keys, KEY_START, KEY_Y, KEY_SELECT, !set_open && !lib_ui_open, cold_code_ok) & SG_CHORD)
+            set_open_wvizcfg_direct();      /* Start+Y: Meter > Configure, skipping Home -> Appearance -> Meter. Cold code (fw/settingsui.inc) -- not visible this early in the file */
     }
     /* ---- the overlay owns most of the pad while it is up -------------------
      * Handled BEFORE every normal binding, then the consumed bits are cleared

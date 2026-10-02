@@ -34,7 +34,7 @@ static uint32_t lw_ring[LW_MAXL][LW_RW] MTR_PSRAM;
 static uint8_t  lw_row[LW_HMAX];
 static uint16_t lw_head;
 static int16_t  lw_band[LW_MAXL][LW_NB];
-static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_soft[13], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
+static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_geo[4], lw_soft[13], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
 static uint8_t  lw_ebounds[LW_MAXL + 1u], lw_ebounds_ok, lw_etick, lw_stride, lw_init, lw_dirty;
 
 static const uint16_t lw_fw[6] = { 1000, 1600, 2560, 4096, 6554, 10486 };   /* BASS_FINE group weights, 1.6^i x 1000 */
@@ -542,13 +542,26 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
     /* The history ring is in PSRAM: nothing may be stored there until the window is proven (fw/meter.h). A bitstream without it leaves the box a flat
      * background, never a write to an address that is not RAM. Constant 1 on the host build. */
     if (!mtr_psram_ready()) { if (in->force) fb_rect(in->x, in->y, in->w, in->h, cl.bg); wviz_force = 0u; return in->force ? 1 : 0; }   /* 1: it drew (the box was filled) */
-    /* Only the history/band array sizes and the box geometry force a reset; any other change just repaints on the next frame and keeps the history. */
-    const int32_t key[6] = { p.layers, p.res, in->w, in->h, in->x, in->y };
+    /* Only the history/band array sizes force a reset (B-523). Everything else just repaints on the next frame and KEEPS the history, so changing a setting,
+     * forcing a repaint (a view switch, entering fullscreen) or moving the box never makes the meter restart: that is what the owner saw as "the meter
+     * restarts once or twice, particularly when I go fullscreen". The reset used to include the box geometry and any forced repaint, and then filled the box
+     * directly on screen with one unclipped rectangle, which also erased the fullscreen label corner whenever a preset change caused a reset. The frame's own
+     * draw wipes the whole box (inside helios_meter's compose), so no separate wipe is needed here. */
+    const int32_t key[6] = { p.layers, p.res, 0, 0, 0, 0 };
+    const int32_t geo[4] = { in->w, in->h, in->x, in->y };
     const int32_t soft[13] = { p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bg, p.aa, p.bmode, p.balpha, p.hstyle };
-    int32_t same = lw_init && !in->force;
-    for (uint32_t i = 0; i < 6u && same; i++) if (lw_key[i] != key[i]) same = 0;
-    if (!same) { lw_reinit(&p, in->w, key, soft); fb_rect(in->x, in->y, in->w, in->h, cl.bg); }
-    else for (uint32_t i = 0; i < 13u; i++) if (lw_soft[i] != soft[i]) { lw_soft[i] = soft[i]; lw_dirty = 1u; }
+    int32_t same = lw_init;
+    for (uint32_t i = 0; i < 2u && same; i++) if (lw_key[i] != key[i]) same = 0;
+    if (!same) { lw_reinit(&p, in->w, key, soft); for (uint32_t i = 0; i < 4u; i++) lw_geo[i] = geo[i]; }
+    else {
+        for (uint32_t i = 0; i < 13u; i++) if (lw_soft[i] != soft[i]) { lw_soft[i] = soft[i]; lw_dirty = 1u; }
+        if (in->force) lw_dirty = 1u;
+        for (uint32_t i = 0; i < 4u; i++) if (lw_geo[i] != geo[i]) {                       /* the box moved or resized: repaint, and size the stride for the new width */
+            for (uint32_t k = 0; k < 4u; k++) lw_geo[k] = geo[k];
+            lw_dirty = 1u; lw_stride = (uint8_t)(1 + ((int32_t)p.layers * in->w) / 900);
+            break;
+        }
+    }
     if (!paused) {
         const int32_t cy = (int32_t)in->y + (in->h >> 1), Hh = (in->h >> 1) - 1;
         int32_t bud = LW_BUDGET;
