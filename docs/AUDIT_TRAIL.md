@@ -13425,3 +13425,39 @@ init-on-switch care); gate Layered Wave out of the diagnostic-profile build for 
 if its access pattern allows. The Cymo hardware re-test does not depend on any of this: the pre-merge
 firmware + `cymo-b498` RBF package (`work/diagnostics/tau-dev-59/pocket`, ROM `4f0dd166...`, RBF-reversed
 `fab94ebe...`) is intact and ready, and Layered Wave touches no Cymo code.
+
+## B-509: Layered Wave history moved to a PSRAM ring; PSRAM-resident meter state adopted as the framework strategy (D-M14)
+
+Trigger (B-508): the merged diagnostic build was 368 B under its 4,096 B heap-gap floor (3,728 B), and `lw_hist` (6 layers x 404 B = 2,424 B of hot RAM) was nearly all of the
+loss. Owner chose to move it to PSRAM "as a good structural approach for all future meters" and asked for it to be documented as the framework's strategy, with risks and remediations.
+
+**Built.** `fw/link.ld`: new region `psram_state` (`0xA4009000..0xA400FFFF`, 28 KB, clear of `art_acc`, of every fixed-address Check buffer, and ending where the library image
+starts) and section `.psram_state`, so the linker assigns addresses and an overflow is a link error. `fw/meter.h`: `MTR_PSRAM` attribute, `mtr_psram_ready()` (one proof per boot, shared by
+every meter: ID register, window-present bit, two patterns at the region's first and last word; the same proof `art_psram_prove()` uses), host fallback (empty attribute, constant 1)
+selected by `MTR_PSRAM_FW`, which only `fw/player.c` defines (two host harnesses define `REG`, so `#ifdef REG` was not a safe discriminator). `fw/layered_wave.inc`: a ring of `uint32_t`
+words (`lw_ring[6][101]`), a shared head, `lw_push()` (one word read-modify-write per layer instead of shifting up to 400 bytes), `lw_unwrap()` (word reads of the arc a frame needs into a
+404 B hot scratch `lw_row`, so the draw code is unchanged), the fail-safe (flat background if the window is not proven), and `_Static_assert`s for the ring invariants. The shift register was
+the one design that could not simply be relocated: every push moved up to 400 bytes per layer, which is free in SRAM and ruinous through a ~32-cycle window.
+
+**Verified.** (1) `sim/test_layered_wave_golden.py`: 1,866,565 engine commands identical between the real firmware code (host-compiled) and the JS twin, unchanged by the ring. (2) New
+`sim/test_lw_ring.py` (in `make test-host`): drives the real `lw_reinit`/`lw_push`/`lw_unwrap` against an independent copy of the original shift register over 400 runs, 177,356 pushes,
+643 head wraps, 29.5 M samples compared: 0 differences; an off-by-one control differs in 20.2 M places so the comparison is demonstrably sensitive; and 5 of 5 injected ring bugs (wrong
+head wrap, wrong lane mask, no unwrap wrap, wrong start lane, layer index dropped) are caught. (3) `make test-host` passes in full; `check_cold_calls.py` shows the new functions are cold-only
+(no new hot-to-cold entry); `check_heap_gap.py` passes and its baseline is raised by exactly the 2,016 B saved on all three tracked targets. (4) Link map checked: `lw_ring` at `0xA4009000`,
+2,424 B, inside the region; `lw_row` 404 B hot; `mtr_psram_prove`, `mtr_psram_ready_fn` and `lw_unwrap` in the cold image.
+
+**Result.** The merged diagnostic build (`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`) now links with a heap gap of **5,744 B** (floor 4,096 B; was 3,728 B), so the build packages. Packaged as
+`alfatreze.TAU_DEV_59` with the `cymo-b498` seed-1 RBF. **Not run on hardware.**
+
+**Documented** (the part the owner asked for): `docs/features/meters/METER_MODULE_SPEC.md` section 27 (decision, rejected alternatives, mechanism, six rules, cost model, an 11-row risk table with
+remediations, suggestions S1-S6, consequences), a new line in the section 8 "done" checklist, a section 25 register row and a section 14 pointer; `docs/DECISIONS.md` D-M14 with detail;
+`docs/features/meters/LAYERED_WAVE_METER_SPEC.md` section 10; the PSRAM map in `docs/features/MEDIA_LIBRARY_0.4_SPEC.md`.
+
+**Honest limits.** The frame-time cost (about 0.29 ms worst case) is arithmetic from the measured 32 cycles per window read, not a measurement of the finished meter, and B-027 is the standing
+reminder that PSRAM cost has come out about 4x worse than predicted before; the Meter Sweep on a card is the real test. The fail-safe path cannot be reached by host tests and is unexercised on
+hardware. The 700-accesses-per-frame budget is a judgement. A pre-existing overlap was found while mapping the window: `art_acc` (`+0x0000..+0x3BFF`) overlaps `CHK_QR` (`+0x3000..+0x6398`); it is
+time-shared today and not changed here (suggestion S2 would catch it).
+
+**Process notes.** `check_heap_gap.py` rebuilds `release` unflagged and rewrote the tracked `dist/` ROM again (the B-472 hazard); restored with `git checkout -- dist/...` after confirming `dist/` was
+clean beforehand. The Layered Wave session works in its own worktree on branch `meter-layered-wave`: **it must merge `main` before it edits `fw/layered_wave.inc` again**, or the two will conflict on
+exactly the code changed here.

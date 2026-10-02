@@ -214,3 +214,19 @@ Eleven further parameters (group "experimental") exist only when `TAU_DIAGNOSTIC
 | `g1..g6` | -18..+18 dB (stored 0..36) | per-layer gain, Q8 table `lw_gain_q8`; with CURVE it is interpolated across the axis |
 
 Presets 9-16 are the `[EX]` set (SILK, GLOW, STAINED, BELLS, RIBBON, VELVET, INK, FULLRES); the default preset is never experimental. The JS twin and `fw/layered_wave.inc` are verified identical in both configurations by `sim/test_layered_wave_golden.py`. RAM: the manifest key `cold_tables` keeps the parameter table and presets in cold data, and the per-column AA/blend memory is per-frame stack scratch. A hardware antialiasing opcode (candidate B21, an envelope fill) remains the real fix if AA is ever promoted out of the Diagnostic Build.
+
+## 10. State memory: the history ring lives in PSRAM (B-509)
+
+The HISTORY view keeps up to 6 layers x 404 samples. That was a hot-RAM shift register (2,424 B); merging this meter into `main` left the 192 KB Diagnostic Build
+368 B under its heap-gap floor, so it is now a **ring in PSRAM**, the first user of the meter framework's rule for persistent state
+(`METER_MODULE_SPEC.md` section 27, D-M14).
+
+- `lw_ring[6][101]` (`uint32_t`, `MTR_PSRAM`) at `0xA4009000`; `lw_head` (hot, 2 B) is the index of the newest sample, shared by every layer. Sample `j` (0 = newest) is at ring index
+  `(lw_head + j) mod 404`. A push moves the head back one slot and does one word read-modify-write per layer (`lw_push`). A redraw unwraps one layer's `res + 4` samples
+  into the 404-byte hot scratch `lw_row` with word reads (`lw_unwrap`), after which the drawing code is exactly what it was.
+- Behaviour is **identical** to the shift register: golden frames still match the JS twin command for command (1,866,565 commands), and `sim/test_lw_ring.py` compares the ring with the
+  original algorithm over 177 k pushes and 643 head wraps (29.5 M samples, 0 differences, 5 of 5 injected ring bugs caught). The JS twin keeps its shift register: it is the reference.
+- Cost: a push is 6 window writes' worth of work; a full redraw reads up to 6 x 101 words (about 19 k cycles, 0.29 ms, **arithmetic from the measured 32 cycles per read, not yet measured on the finished meter**).
+  A reset (any size or geometry change) zeroes 606 words (about 16 k cycles).
+- **Fail-safe:** if the PSRAM window cannot be proven, the meter paints a flat background and draws nothing. Not yet exercised on hardware (risk 1 in section 27.5).
+- Hot RAM saved: 2,020 B (heap gap 3,728 B to 5,744 B). The invariants (`LW_HMAX` a multiple of 4 and at least `400 + 4`) are `_Static_assert`s next to the declaration.

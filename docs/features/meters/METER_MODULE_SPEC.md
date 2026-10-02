@@ -254,7 +254,10 @@ A meter is finished when all of these pass, in this order of cheapness:
    selectable meter, open it, run 10 s over the Test Album, record commands/frame, late underruns and yield time.
    Reported in the Check QR. This turns "the new meter is fine" into a measured line per meter, the same discipline as
    the blit-storm test, and closes the "cost vs classic" TBD in the README.
-6. Only then a hardware install and a look.
+6. **If the meter keeps persistent mutable state of 1 KB or more** (a history ring, an accumulator): it uses `MTR_PSRAM` and follows section 27.3, with a
+   ring-versus-reference test in the style of `sim/test_lw_ring.py` (far more pushes than the ring length, a mutation check) in addition to golden frames,
+   and a hardware label in the audit trail before it is called done.
+7. Only then a hardware install and a look.
 
 ## 9. Existing and new meters mapped onto the structure
 
@@ -421,6 +424,8 @@ geometry), and anything that draws pixels outside the `mtr_*` primitives.
 - **Beam and audio policy stays in the host.** Vsync/beam gating (Helios), `meter_afford()` yield, the 1/6, 1/3, 2 s
   latch rules and `force` on context change are applied uniformly by the host. A module cannot opt out, so the
   audio-first guarantee cannot be weakened by one meter's author.
+- **Mutable state placement.** Persistent mutable buffers of 1 KB or more live in PSRAM through `MTR_PSRAM`, never shifted through the window, never scatter-read; the rules,
+  cost model and risks are section 27 (D-M14).
 - **Failure containment.** The host wraps `tick` with a command-count guard: a module that exceeds its cost class for N
   consecutive frames is switched to its declared fallback (or a plain bars meter) and the Info page shows a code. The
   audio path never waits on a meter.
@@ -659,6 +664,7 @@ All open questions from sections 10, 17 and 24, with the reason. Recorded in `do
 | 11 | Licence for shared presets and packs | **MIT** | Owner decision; same as the project. `pack.json` `licence` defaults to `MIT` |
 | 12 | Public preset gallery | **Parked** (D-M12), presets are exchanged as files and text strings | Owner decision; needs hosting, moderation and identity, none of which serve the device. Revisit after M4 has real users |
 | 13 | Build order | **As sections 17 and 24: M0, M0.5, M1, M1.5, M2, M2.5, M3, M4, M5, M6** | M0 is byte-identical and risk-free, so it comes first and unblocks everything |
+| 14 | Where a meter's persistent mutable state lives | **PSRAM (`MTR_PSRAM`), as a ring unwrapped into a small hot scratch** (section 27, D-M14) | On-chip RAM is the scarcest resource and almost all meter state is append-and-scan history that a ~32-cycle window serves well; each meter owning its state removes buffer sharing between meters |
 
 ## 26. Consequences of the decisions
 
@@ -666,3 +672,94 @@ All open questions from sections 10, 17 and 24, with the reason. Recorded in `do
 - **Generator checks** that a fallback exists and is `selectable`, and that no template locks a property the fallback path needs.
 - **`make_release.py`** ships `meters_schema.json` and the preview bundle as release assets with hashes; Omega pins to them.
 - **No gallery work** in any milestone. The `.tmeter` `id` (content hash) is kept because it is useful for dedupe in a local library, not because of a gallery.
+
+## 27. Mutable meter state lives in PSRAM (D-M14, B-509)
+
+**Decision (owner, 2026-10-02): a meter's long-lived mutable buffers live in PSRAM, behind one framework mechanism, and this is the strategy every new
+meter follows.** First user: Layered Wave's history (2,424 B), which did not fit the 192 KB link next to the rest of the merged build (heap gap 3,728 B
+against a 4,096 B floor) and now costs the on-chip RAM only a 404-byte scratch row (heap gap 5,744 B, +2,016 B).
+
+### 27.1 Why this is the structural answer
+
+On-chip RAM is the scarcest resource in the project (the whole RAM-shrink track exists because of it) and every meter's state competes with the audio
+path for it. Almost all of a meter's state is *history*: written once per push, read a few times per frame, never touched per pixel. That access
+pattern is exactly what a ~32-cycle window can serve, whereas the on-chip RAM is wasted holding it. PSRAM has 32 MiB of window and the project uses well
+under 1% of it. Moving state out also removes the "which meter's buffer do we alias onto whose" problem for good: each meter owns its state, nothing is
+shared or time-multiplexed, so there is no init-on-switch coupling between meters.
+
+Rejected alternatives (kept so they are not re-litigated):
+
+| Option | Why not |
+|---|---|
+| Shrink the buffer (fewer layers / lower max resolution) | Takes a capability away from the user to solve a memory-layout problem, and must be changed in three places (C, JS twin, golden test) |
+| Alias one meter's buffers onto another's (e.g. Chladni's `chl_half`) | Meters are exclusive at runtime, so it works, but every switch must invalidate the other meter's "initialised" state or it draws stale frames; the coupling is invisible in the code |
+| Gate the meter out of the build that needs the RAM | The Diagnostic Build is the build meant to carry the experimental settings |
+| Cold data | Cold data is read-only (loaded once from `tau-cold.bin`); a per-frame buffer is written constantly |
+
+### 27.2 The mechanism (all in `fw/meter.h`, `fw/link.ld`)
+
+- **`MTR_PSRAM`** is a storage attribute. Declaring `static uint32_t my_ring[..] MTR_PSRAM;` places the object in the `.psram_state` linker section, region
+  `psram_state` = `0xA4009000..0xA400FFFF` (28 KB). The linker assigns the addresses, so no module picks one, and an overflow is a **link error**, not silent
+  corruption. The region starts after every fixed-address Check buffer and ends where the media library image begins (`+0x10000`).
+- **`mtr_psram_ready()`** proves the window once per boot and caches the verdict for every meter: the PSRAM expansion ID must read back, the build must
+  report the CPU window present, and the first and last word of the region must hold two test patterns (the same proof `art_psram_prove()` uses for the album-art
+  accumulator, applied to the state region). A module calls it **before its first store**. On failure the module draws a flat background and returns, never
+  a write to an address that is not RAM.
+- **Host builds:** the firmware branch is enabled only by `MTR_PSRAM_FW` (defined in `fw/player.c`). Host harnesses leave it undefined, so `MTR_PSRAM` is empty and
+  `mtr_psram_ready()` is a constant 1. The *same module source* therefore compiles on the host and is compared against its JS twin with plain arrays.
+
+### 27.3 The rules a module must follow
+
+1. **Classify first.** *Hot RAM*: anything touched per pixel or per row, or smaller than about 512 B. *PSRAM*: a persistent mutable buffer of about 1 KB or
+   more whose access is "append at one end, scan sequentially". A random-access plane written per pixel stays in hot RAM (or is not a candidate).
+2. **Ring, never shift.** Shifting a buffer through the window costs one read and one write per byte moved. A ring moves an index instead; a push is one write.
+3. **Unwrap into a hot scratch with word reads.** One window read returns four samples. A frame reads the arc it will draw into a small hot scratch (one layer,
+   404 B for Layered Wave) and the existing draw code reads the scratch unchanged.
+4. **Word-aligned 32-bit access only.** Declare the storage as `uint32_t`. A sub-word store is a read-modify-write on the whole word. Never assume byte-lane
+   write support in the window, and never rely on a byte layout (use shifts and masks, so host and firmware agree).
+5. **Initialise after `mtr_psram_ready()`.** Contents at power-up are undefined, and the proof deliberately overwrites the region's first and last word. This
+   is safe only because every user calls `mtr_psram_ready()` before its first store and then initialises its own state.
+6. **Compile-time guards for the ring invariants** (`_Static_assert`): the ring length is a multiple of 4 and is at least as long as the longest span a frame
+   reads. If either is broken, old samples alias new ones and the picture is wrong in a way no crash reveals.
+
+### 27.4 Cost model (measured numbers, not estimates, except where marked)
+
+An uncached window read costs about 32 cycles and a write about 26 [HW, B-022 / KB-040]; at 66.667 MHz one millisecond is about 2,080 reads. Layered Wave's worst
+case per redraw is 6 layers x 101 words = 606 reads (about 19 k cycles, 0.29 ms) plus 600 stores only on a reset (about 16 k cycles). A push is 6 word
+read-modify-writes. **The frame-time figure is arithmetic from those per-access numbers, not a measurement of the finished meter**: the Meter Sweep
+(Diagnostics) is the place to confirm it on a card. A working budget for any one meter is **at most about 700 window accesses per frame** (about 0.35 ms); this
+is a judgement, chosen to leave the audio loop clear of the B-299-style regression, and should be revised once the sweep has real data.
+
+The cautionary precedent is B-027: the album-art accumulator in PSRAM came out about **4x slower than predicted**. Predict, then measure.
+
+### 27.5 Risks, and what to do about each
+
+| # | Risk | Likelihood / impact | Remediation or mitigation |
+|---|---|---|---|
+| 1 | **The window is absent or fails the proof** (old bitstream, or a build without the P4 window) | Low, because cold code (which every meter here is) already requires the PSRAM instruction alias, and the bundles ship both together. Impact: that meter is blank | Fail-safe is built (flat background). **Not yet exercised on hardware**: add the meter to the old-bitstream fail-safe test (the J1-J8 style) the next time that test runs |
+| 2 | **Frame time grows** (a meter scatter-reads the window per pixel, or shifts through it) | Medium for a new meter written without these rules. Impact: the B-299 failure mode, audio jitter from a meter that spends the CPU | Follow 27.3. Add window accesses to the cost accounting (suggestion S1). Fall back by widening the draw stride or lowering resolution, the same self-scaling the command-count guard uses |
+| 3 | **Contention with other PSRAM clients** (cold code instruction fetch, the media library index, the art accumulator) | Medium. The worst single access measured is about 380 cycles [HW, B-054], and the CPU stalls while it waits | Real-time masters never use PSRAM, so audio is not directly delayed; keep per-frame accesses bounded (27.4); rely on the existing `meter_afford()` yield. If the Check blit-storm or the sweep ever shows late underruns tied to a PSRAM-heavy meter, cut the unwrap to the columns actually drawn (stride) before anything else |
+| 4 | **Address-map collision** with the fixed-address Check buffers (`CHK_QR 0xA4003000`, `CHK_REC 0xA4007000`, `CHK_TXT 0xA4007800`, `CKM 0xA4008400`) | Low today (the state region starts at `0xA4009000`). Impact: silent corruption of a persistent buffer | The linker region is placed clear of them and is checked at link time only against *itself*. **Suggestion S2**: a small script that scans `fw/` for `0xA4xxxxxx` literals and the linker regions and fails on any overlap. **Pre-existing finding while mapping this:** `art_acc` (`0x0000..0x3C00`) already overlaps `CHK_QR` (`0x3000..0x6398`). It is time-shared today (cover decode versus the Check page) and has not been observed to matter, but it is exactly what S2 would flag |
+| 5 | **The proof overwrites the region's first and last word** | Low; safe only by convention | Rule 5. Any future user that stored to the region before calling `mtr_psram_ready()` would be corrupted. Keep the call as the first line of the module's tick |
+| 6 | **Hot scratch is still needed** | Certain; small | One layer's worth (404 B). A meter needing per-pixel random access keeps that data in hot RAM and should not use this mechanism for it |
+| 7 | **Correctness is no longer visible in the data** (a wrong ring index draws a plausible but wrong picture) | Medium for a new ring | Golden-frame equality against the JS twin covers it (Layered Wave: 1,866,565 commands identical) and a dedicated ring-versus-shift-register test (`sim/test_lw_ring.py`) drives far more pushes than the ring length. Any meter adopting this must have both |
+| 8 | **Host tests cannot see PSRAM behaviour** (timing, window presence, contention) | Certain | Hardware verification is separate: the Meter Sweep and the Check on a card. Record the result as a hardware label in the audit trail before calling a PSRAM-state meter done |
+| 9 | **Region is 28 KB, hard-limited above by the library image** | Low (Layered Wave uses 2.4 KB) | A link error appears first. If it ever fills, move the library image's start in a coordinated change; do not reach into it |
+| 10 | **Heap margin is judged on the gap only** (heap-peak instrumentation is still parked, B-230) | Unchanged | Not made worse by this change; the gap went up 2,016 B. Revisit if the parked instrumentation is built |
+| 11 | **Stack margin on the 192 KB link** (a separate change on the Layered Wave branch reduced the stack) | Unverified on hardware | Not caused by this mechanism, noted here because the headroom it buys is easy to spend. Run a worst-case Check and read the stack peak |
+
+### 27.6 Suggestions (not built)
+
+- **S1.** Extend `tools/meter_cost_estimate.py` so it counts accesses to `MTR_PSRAM` objects per redraw and gates them like draw commands (the 700-access budget above).
+- **S2.** `tools/check_psram_map.py`: fail on any overlap between linker regions and fixed `0xA4xxxxxx` literals (see risk 4).
+- **S3.** Show the proof verdict (`mtr_ps_state`) and the last frame's window-access count on the Diagnostics Info page, next to the existing meter rows.
+- **S4.** Candidates to migrate when hot RAM is next needed, each needing its own access-pattern review (D-M07: legacy meters stay as they are until the owner approves): Chladni's `chl_half` (1,600 B) and its two `K x RX` coefficient tables (320 B each).
+- **S5.** If the draw engine ever gains a PSRAM-sourced blit, a ring could feed it directly and the unwrap scratch would go away.
+- **S6.** A second proof-style fail-safe test: run a PSRAM-state meter on a bitstream without the window and confirm the flat-background path, since the host build cannot reach it.
+
+### 27.7 Consequences
+
+- `fw/meter.h` gains `MTR_PSRAM`, `mtr_psram_ready()` and the proof; `fw/link.ld` gains the `psram_state` region and `.psram_state` section; `fw/player.c` defines
+  `MTR_PSRAM_FW`. No existing meter changes (D-M07).
+- `meters/*/meter.json` does not need to declare state placement: it is a property of the module source, enforced by the linker and the spec's review checklist.
+- The module-addition checklist (section 8) gains one line: *does it keep persistent mutable state of 1 KB or more? then 27.3, with a ring test and a hardware label.*

@@ -81,7 +81,9 @@ Location `Assets/tau/common/tau-library-art.bin` (data slot 6, deferload, not re
 PSRAM window `0xA4000000`, 32 MiB, uncached, 32 read / 26 write cycles [HW, KB-040]. Real-time masters never touch it.
 | Range | Use |
 |---|---|
-| `0xA4000000` + 0x0000..0xFFFF | firmware static PSRAM data (art accumulator 11,040 B today); 64 KiB reserved |
+| `0xA4000000` + 0x0000..0x3BFF | album-art accumulator `art_acc`, 15,360 B (linker section `.psram`, region `psram`, 16 KB) |
+| `+0x3000` .. `+0x84FF` | **Diagnostic Build only**, fixed addresses in `fw/suite.inc`: `CHK_QR` `+0x3000..+0x6398`, `CHK_REC` `+0x7000`, `CHK_TXT` `+0x7800`, `CKM` `+0x8400`. Note `CHK_QR` overlaps the tail of `art_acc` (`+0x3000..+0x3BFF`); time-shared today (cover decode versus the Check page), never observed to matter |
+| `+0x009000` .. `+0x00FFFF` | **persistent meter state** (`MTR_PSRAM`, linker section `.psram_state`, region `psram_state`, 28 KB; Layered Wave's history ring is 2,424 B of it). Rules: `docs/features/meters/METER_MODULE_SPEC.md` section 27 (B-509) |
 | `+0x010000` .. `+0x40FFFF` | library index image (4 MiB cap) |
 | `+0x410000` .. `+0x50FFFF` | reserved (thumbnail page cache, deferred) |
 | `+0x510000` .. `+0x51FFFF` | queue / shuffle order u16[16,384] (32 KiB) + play history |

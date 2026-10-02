@@ -20,6 +20,7 @@ too, with why. Newest last. Detail lives in the spec each entry points at.
 | D-M11 | Licence for shared presets and packs is MIT | Decided (owner) |
 | D-M12 | Public preset gallery | **Parked** (owner) |
 | D-M13 | Build order M0 to M6 as in the spec | Decided |
+| D-M14 | A meter's persistent mutable state (1 KB or more, append-and-scan) lives in PSRAM via `MTR_PSRAM`, as a ring unwrapped into a hot scratch; this is the framework's strategy for all future meters | Decided (owner, 2026-10-02) |
 
 ### D-M12 detail: public preset gallery (parked)
 
@@ -50,3 +51,19 @@ repository (reviewed pull requests) rather than a service.
 | # | Decision | Status |
 |---|---|---|
 | D-H01 | `helios_excl[]` stays a one-caller mechanism (fullscreen's CPU%/hint label) rather than gaining a synthetic second caller to "prove it generalizes." Checked for a natural second use case (VU Master's overlay -- sits in its own reserved space below the ladders, no overlap; the stress HUD row -- occupies documented "otherwise unused" screen space, no conflict; Chladni's corner -- the mechanism's own comment already rules this out, tile-replication needs the source offsets adjusted too, separate larger work) and found none currently broken in the shape the mechanism exists to fix (a fill redrawing across a persistent on-top label, a beam-race glitch). Revisit when a real second need appears -- e.g. a future meter redesign adding a persistent corner element to the normal (non-fullscreen) player screen. | Parked (owner) |
+
+### D-M14 detail: meter state in PSRAM (2026-10-02, B-509)
+
+Trigger: merging the Layered Wave branch left the 192 KB Diagnostic Build 368 B under its 4,096 B heap-gap floor, and 2,424 B of that was one meter's
+history buffer. Chosen: move it to PSRAM as a ring (`MTR_PSRAM`, `mtr_psram_ready()`, `.psram_state` region at `0xA4009000`), with a 404 B hot scratch. Result:
+heap gap 3,728 B to 5,744 B. Full mechanism, rules, cost model, risks and suggestions: `docs/features/meters/METER_MODULE_SPEC.md` section 27.
+
+Why it is a framework decision rather than a Layered Wave fix: nearly all meter state is history that is appended and scanned, which a ~32-cycle window serves
+well and on-chip RAM is wasted on; and each meter owning its own PSRAM state removes any buffer sharing between meters.
+
+Rejected, so it is not re-litigated: **shrink the buffer** (removes a capability to fix a layout problem; three places to change), **alias onto another meter's
+buffers** (works because meters are exclusive, but every switch must invalidate the other meter's initialised flag, an invisible coupling), **gate the meter out of
+the build that needs the RAM** (that build exists to carry it), **cold data** (read-only; this buffer is written every frame).
+
+Open (not decided): the window-access budget of about 700 per frame is a judgement pending Meter Sweep data; migrating Chladni's `chl_half` is a candidate that
+needs an access-pattern review and owner approval (D-M07).
