@@ -16,7 +16,11 @@
  * rather than found by scanning the card.
  */
 
-#define PL_SLOT_ID   3u
+/* The template slot for every open-by-name (0192): the media library index, data slot 5 (LIB_SLOT_ID in library.inc, which is
+ * included after this file). It always has a descriptor APF built for a real file whenever a library is loaded, and a library is
+ * the only reason anything is opened by name. This used to be data slot 3, the legacy playlist slot, kept declared only for its
+ * default file playlist.m3u; that slot is gone (B-517), and with it the need for a root playlist.m3u on the card. */
+#define PL_TEMPLATE_SLOT_ID   5u
 
 /* ---------------------------------------------------------------------------
  * The 0192 parameter struct, WITHOUT guessing its layout.
@@ -107,9 +111,10 @@ static int pl_open_name(const char *name);   /* -> pl_open_into(MP3 slot) */
  *
  * Either slot will do. The MP3 slot is preferred because its path is the folder
  * the current track came from, but at launch it may hold nothing at all -- the
- * core no longer forces a file to be picked before it starts. The PL_SLOT_ID
- * slot is filled by APF at boot (data.json still declares a default file for
- * it) and sits in some folder on the card, so it is a perfectly good stand-in. */
+ * core no longer forces a file to be picked before it starts. The
+ * PL_TEMPLATE_SLOT_ID slot (the library index) is filled by APF at boot (data.json
+ * declares its file) and sits in the core's folder on the card, so it is the
+ * template of record. */
 COLD_FN2 static uint32_t pl_template(uint32_t slot, uint8_t *buf, uint32_t *name_at)
 {
     if (!pl_cmd(TGT_GETFILE, slot, CLK_HZ)) return 0;
@@ -134,9 +139,8 @@ COLD_FN2 static uint32_t pl_template(uint32_t slot, uint8_t *buf, uint32_t *name
     return best_len;
 }
 
-/* Open `name` into ANY slot. The target used to be hardwired to the MP3 slot;
- * slot 3 needs it too now that the PL_SLOT_ID slot no longer declares a
- * default filename and has to be filled by the core on a fresh card. */
+/* Open `name` into ANY slot (the MP3 slot for tracks, the cover slot for TIM1 images). The target is
+ * the slot argument; the descriptor template comes from tmpl_slot. */
 COLD_FN2 static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_slot)
 {
     pl_open_err = PLO_OK; pl_open_errcode = 0; pl_open_timeout = 0;
@@ -217,8 +221,8 @@ COLD_FN2 static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_s
     return 1;
 }
 
-/* The PL_SLOT_ID slot is the template of record, and the MP3 slot is the
- * fallback.
+/* The PL_TEMPLATE_SLOT_ID slot (the library index) is the template of record, and
+ * the MP3 slot is the fallback.
  *
  * Only the directory of the template matters here: the last component is
  * replaced either way (or the whole path, for an absolute name such as the
@@ -228,7 +232,7 @@ COLD_FN2 static int pl_open_try(uint32_t slot, const char *name, uint32_t tmpl_s
  * is not there and no directory will change that. */
 COLD_FN2 static int pl_open_into(uint32_t slot, const char *name)
 {
-    if (pl_open_try(slot, name, PL_SLOT_ID)) return 1;
+    if (pl_open_try(slot, name, PL_TEMPLATE_SLOT_ID)) return 1;
     if (pl_open_errcode == PL_ERRCODE_NOFILE) return 0;
     return pl_open_try(slot, name, MP3_SLOT_ID);
 }
