@@ -13461,3 +13461,13 @@ time-shared today and not changed here (suggestion S2 would catch it).
 **Process notes.** `check_heap_gap.py` rebuilds `release` unflagged and rewrote the tracked `dist/` ROM again (the B-472 hazard); restored with `git checkout -- dist/...` after confirming `dist/` was
 clean beforehand. The Layered Wave session works in its own worktree on branch `meter-layered-wave`: **it must merge `main` before it edits `fw/layered_wave.inc` again**, or the two will conflict on
 exactly the code changed here.
+
+## B-510: TAU_DEV_59 (cymo-b498 + merged Layered Wave PSRAM-ring firmware) installed on the card
+
+Installed with `tools/install_dev_core.py --replace --yes` (backup `work/card-backups/20261002-122548`, verified): bitstream `fab94ebe...` (cymo-b498 seed 1, bit-reversed once), `tau.rom`
+`91f308a5...`, `tau-cold.bin` `57a5897995fa...`, all identical after copy; five catalog caches cleared; card ejected. The firmware is the final B-509 source built with the correctly comma-separated
+`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1` (heap gap 5,744 B). Media untouched. Not hardware-tested.
+
+**What the owner's first boot should answer:** (1) does it boot at all (the B-497 class of failure is excluded by construction here, but a black screen would mean the bitstream/firmware pairing is wrong again);
+(2) Cymo: is the 1 kHz toggle pitch now the same every time (B-498 latched gate), does the noise on MP3s go, and what does `STALE <n>` on the CYMO RESAMP Info row read; (3) Layered Wave: does it draw, scroll
+and respond normally (first hardware run of the PSRAM ring: a flat or empty box would mean the window proof failed, risk 1 in METER_MODULE_SPEC section 27.5), and does the Meter Sweep show a sane cost for it.
