@@ -28,4 +28,49 @@ typedef struct {                 /* everything a meter may read, refreshed once 
     uint8_t         force;       /* 1 = repaint the whole rect and drop every redraw cache            */
 } mtr_in_t;
 
+/* ---- Mutable meter state lives in PSRAM (docs/features/meters/METER_MODULE_SPEC.md, "Mutable meter state lives in PSRAM", D-M14) ----
+ * A meter's long-lived mutable buffers (history rings, accumulators -- anything beyond a few hundred bytes that is not touched per pixel) are
+ * declared MTR_PSRAM, which the linker places in the .psram_state region (fw/link.ld, 0xA4009000..0xA400FFFF). That keeps scarce on-chip RAM for
+ * the audio path. The rules that make this safe are in the spec; the short version a module must follow:
+ *   - call mtr_psram_ready() before the FIRST store; if it returns 0 the module draws nothing (or a flat background) and returns;
+ *   - uncached window = ~32 cycles per read, ~26 per write [HW, KB-040]: never scatter-read it per pixel, never shift a buffer through it.
+ *     Use a ring (an index moves, not the bytes) and unwrap what a frame needs into a small hot scratch with WORD reads;
+ *   - word-aligned 32-bit accesses only (declare the storage as uint32_t); a sub-word store is a read-modify-write on the word.
+ * Host harnesses (golden-frame tests) do not define MTR_PSRAM_FW: there MTR_PSRAM is empty and the readiness check is a constant 1, so the very same
+ * module source compiles and is compared against its JS twin with plain arrays. */
+#ifdef MTR_PSRAM_FW
+#define MTR_PSRAM __attribute__((section(".psram_state")))
+extern uint32_t __psram_state_start[], __psram_state_end[];
+#define MTR_PS_ID      0x80000088u     /* PSRAM expansion ID register (same proof art.inc's art_psram_prove() uses) */
+#define MTR_PS_CFG     0x800000A0u     /* bit 16 = the CPU window is built into this bitstream */
+#define MTR_PS_ID_VAL  0x50535231u
+static uint8_t mtr_ps_state;           /* 0 untested, 1 proven, 2 failed -- shared by every meter, proven once per boot */
+
+/* Runs once, before any meter has stored anything into .psram_state (every user calls mtr_psram_ready() first), so overwriting the first and
+ * last word of the region with test patterns destroys nothing: each meter initialises its state after this returns. */
+COLD_FN3 static int mtr_psram_prove(void)
+{
+    static const uint32_t pat[2] = { 0xA5C33C5Au, 0x5A3CC3A5u };
+    if (REG(MTR_PS_ID) != MTR_PS_ID_VAL) return 0;
+    if (!((REG(MTR_PS_CFG) >> 16) & 1u)) return 0;
+    volatile uint32_t *w0 = (volatile uint32_t *)__psram_state_start;
+    volatile uint32_t *w1 = (__psram_state_end > __psram_state_start) ? (volatile uint32_t *)__psram_state_end - 1 : w0;
+    for (uint32_t k = 0; k < 2u; k++) {
+        *w0 = pat[k]; *w1 = ~pat[k];
+        if (w1 == w0) { if (*w0 != ~pat[k]) return 0; }
+        else if (*w0 != pat[k] || *w1 != ~pat[k]) return 0;
+    }
+    return 1;
+}
+COLD_FN3 static int mtr_psram_ready_fn(void)
+{
+    if (!mtr_ps_state) mtr_ps_state = mtr_psram_prove() ? 1u : 2u;
+    return mtr_ps_state == 1u;
+}
+#define mtr_psram_ready() mtr_psram_ready_fn()
+#else
+#define MTR_PSRAM
+#define mtr_psram_ready() 1
+#endif
+
 #endif

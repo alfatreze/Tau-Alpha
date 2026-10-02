@@ -9,8 +9,8 @@
  *
  * Cost: one command per run of equal-height cells per layer plus the background. A self-scaling `stride` (the width of one evaluation cell) widens
  * when the previous frame needed more than LW_BUDGET commands and narrows when it needed less than half, so a 6-layer 400-column setting degrades
- * to coarser steps instead of starving the audio loop (the B-299 lesson). The meter is COLD code and its state is plain RAM:
- * 6 x 404 history bytes, 6 x 16 band words and a few dozen scalars. */
+ * to coarser steps instead of starving the audio loop (the B-299 lesson). The meter is COLD code; its 6 x 404-byte history is a RING in PSRAM
+ * (MTR_PSRAM, B-509, see below), the rest -- 6 x 16 band words and a few dozen scalars, plus a 404-byte unwrap scratch -- is plain RAM. */
 #include "layered_wave_tables.h"
 
 #define LW_MAXL   6u
@@ -21,7 +21,18 @@
 
 typedef struct { uint8_t view, layers, split, outer, nest, draw, speed, response, taper, color_mode, grad, color_outer, color_inner, color_bg, xo[5], hstyle, aa, bmode, balpha, guard; int8_t g[6]; uint16_t res, custom_outer, custom_inner, custom_bg; } lw_p_t;   /* hstyle..g[]: the experimental group (zero unless TAU_DIAGNOSTIC) */
 
-static uint8_t  lw_hist[LW_MAXL][LW_HMAX];
+/* HISTORY lives in PSRAM as a ring (B-509, the meter framework's rule for mutable state, fw/meter.h / METER_MODULE_SPEC.md D-M14): 6 x 404 bytes
+ * (2,424 B) off the scarce on-chip RAM. The old design SHIFTED up to 400 bytes per layer per push, free in SRAM and ruinous through a ~32-cycle
+ * window; a ring turns a push into one word read-modify-write per layer. `lw_head` is the ring index of the newest sample and is shared, because
+ * every layer pushes together (a layer-count change resets, see lw_key). Sample j (0 = newest) is at ring index (lw_head + j) mod LW_HMAX. A frame
+ * unwraps what it draws into the 404-byte hot scratch `lw_row` with WORD reads (lw_unwrap), after which the draw code is unchanged from the shift
+ * register's. The storage is uint32_t words on purpose: word-aligned access only, no byte-lane assumption, and no aliasing on the host build. */
+#define LW_RW (LW_HMAX / 4u)
+_Static_assert(LW_HMAX % 4u == 0u, "the ring is addressed in whole words, and a word must never straddle the wrap");
+_Static_assert(LW_HMAX >= 400u + 4u, "a frame reads res + 4 history samples, res <= 400: the ring must hold them all or old samples alias new ones");
+static uint32_t lw_ring[LW_MAXL][LW_RW] MTR_PSRAM;
+static uint8_t  lw_row[LW_HMAX];
+static uint16_t lw_head;
 static int16_t  lw_band[LW_MAXL][LW_NB];
 static int32_t  lw_s[LW_MAXL], lw_e[LW_NB], lw_key[6], lw_soft[13], lw_acc, lw_cnt;   /* lw_key: sizes and geometry (a change resets), lw_soft: everything else (a change only repaints) */
 static uint8_t  lw_ebounds[LW_MAXL + 1u], lw_ebounds_ok, lw_etick, lw_stride, lw_init, lw_dirty;
@@ -234,9 +245,10 @@ COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key, 
     for (uint32_t i = 0; i < 6u; i++) lw_key[i] = key[i];
     for (uint32_t i = 0; i < 13u; i++) lw_soft[i] = soft[i];
     lw_init = 1u; lw_acc = 0; lw_dirty = 1u; lw_etick = 0; lw_ebounds_ok = 0u; lw_cnt = 0;
+    lw_head = 0;
     for (uint32_t k = 0; k < LW_MAXL; k++) {
         lw_s[k] = 0;
-        for (uint32_t i = 0; i < LW_HMAX; i++) lw_hist[k][i] = 0;
+        for (uint32_t i = 0; i < LW_RW; i++) lw_ring[k][i] = 0;      /* ~600 window stores, ~16k cycles, only on a reset */
         for (uint32_t i = 0; i < LW_NB; i++) lw_band[k][i] = 0;
     }
     for (uint32_t i = 0; i < LW_NB; i++) lw_e[i] = 0;
@@ -320,6 +332,30 @@ COLD_FN3 static void lw_endlayer(const lw_lay_t *l)
     if (have) lw_emit(lay, (K), &run); \
     have = (HH) > 0; run.x0 = xs; run.x1 = xs + wd; run.h = (HH); run.c = (CC); run.cv = (CV); } while (0)
 
+/* Push the current layer values lw_s[0..n-1] as the new newest sample of each layer. The head moves back one slot (every layer pushes at the same
+ * index), then each layer takes ONE word read-modify-write; (uint8_t) is the truncation the shift-register's own store had. */
+COLD_FN3 static void lw_push(int32_t n)
+{
+    lw_head = (uint16_t)(lw_head == 0u ? LW_HMAX - 1u : lw_head - 1u);
+    const uint32_t wi = (uint32_t)lw_head >> 2, sh = ((uint32_t)lw_head & 3u) * 8u;
+    for (int32_t k = 0; k < n; k++) lw_ring[k][wi] = (lw_ring[k][wi] & ~(0xFFu << sh)) | ((uint32_t)(uint8_t)lw_u8(lw_s[k]) << sh);
+}
+
+/* Unwrap layer k's newest `len` samples (newest first) into the hot scratch lw_row: lw_row[j] = the value pushed j pushes ago, exactly what
+ * `h[j]` was in the shift-register design, so everything downstream (lw_cr8, the nearest-sample read) is untouched. One window READ per four
+ * samples (~32 cycles each, so ~3k cycles for a full 404-sample layer) instead of one per sample. Pure shifts and masks on a u32, so the result is
+ * the same on little- and big-endian hosts. The ring length is a multiple of 4, so a word never straddles the wrap. */
+COLD_FN3 static void lw_unwrap(int32_t k, uint32_t len)
+{
+    uint32_t i = lw_head, j = 0;
+    while (j < len) {
+        const uint32_t w = lw_ring[k][i >> 2];
+        for (uint32_t b = i & 3u; b < 4u && j < len; b++) lw_row[j++] = (uint8_t)(w >> (b * 8u));
+        i = (i & ~3u) + 4u;
+        if (i >= LW_HMAX) i -= LW_HMAX;
+    }
+}
+
 COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
 {
     const int32_t W = in->w, X = in->x, n = p->layers, res = p->res, smooth = p->draw == 1u, dt = in->dt_ms;
@@ -336,14 +372,14 @@ COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_co
     lw_acc += (dt * p->speed * res * 256) / (1000 * W);
     const int32_t pushes = lw_min(lw_acc >> 8, res);
     lw_acc &= 255;
-    for (int32_t i = 0; i < pushes; i++)
-        for (int32_t k = 0; k < n; k++) { uint8_t *h = lw_hist[k]; for (int32_t j = res + 3; j > 0; j--) h[j] = h[j - 1]; h[0] = (uint8_t)lw_u8(lw_s[k]); }
+    for (int32_t i = 0; i < pushes; i++) lw_push(n);
     if (!smooth && pushes == 0 && !lw_dirty) return;
     lw_dirty = 0u;
     const int32_t phase = lw_acc, tq = ((int32_t)p->taper + 2) / 5, s = lw_stride, aaL = lay->L;
     lw_rect(X, in->y, W, in->h, cl->bg);
     for (int32_t k = 0; k < n; k++) {
-        const uint8_t *h = lw_hist[k];
+        lw_unwrap(k, (uint32_t)(res + 4));                 /* res + 4 = every sample lw_cr8() and the nearest read can touch */
+        const uint8_t *h = lw_row;
         lw_run_t run = { 0, 0, 0, 0, 0 };
         int32_t have = 0;
         for (int32_t xs = 0; xs < W; xs += s) {
@@ -490,6 +526,9 @@ COLD_FN3 static void lw_tick(const mtr_in_t *in)
 
     lw_col_t cl;
     lw_colours(&p, &cl);
+    /* The history ring is in PSRAM: nothing may be stored there until the window is proven (fw/meter.h). A bitstream without it leaves the box a flat
+     * background, never a write to an address that is not RAM. Constant 1 on the host build. */
+    if (!mtr_psram_ready()) { if (in->force) fb_rect(in->x, in->y, in->w, in->h, cl.bg); wviz_force = 0u; return; }
     /* Only the history/band array sizes and the box geometry force a reset; any other change just repaints on the next frame and keeps the history. */
     const int32_t key[6] = { p.layers, p.res, in->w, in->h, in->x, in->y };
     const int32_t soft[13] = { p.view, p.draw, p.split, p.outer, p.nest, p.taper, cl.co, cl.ci, cl.bg, p.aa, p.bmode, p.balpha, p.hstyle };

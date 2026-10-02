@@ -28,6 +28,12 @@ MEMORY {
 	/* P5: uncached CPU window onto PSRAM (0xA4000000). Only the album-art accumulator,
 	 * 11,040 B, and only in TAU_ART_PSRAM builds; empty otherwise. NOLOAD. */
 	psram : ORIGIN = 0xA4000000, LENGTH = 0x00004000   /* art accumulator: 15,360 B at ART_IMG 128 (was 0x2C00 at 92); the library image starts at +0x10000 */
+	/* B-509: PERSISTENT meter state (docs/features/meters/METER_MODULE_SPEC.md, "Mutable meter state lives in PSRAM", D-M14). A meter's
+	 * long-lived mutable buffers (history rings, accumulators) are declared MTR_PSRAM (fw/meter.h) and the linker places them here, so no
+	 * module hand-picks an address and an overflow is a LINK ERROR, not silent corruption. 0xA4009000 is the first address clear of every
+	 * fixed-address Check buffer (CHK_QR 0x3000..0x6398, CHK_REC 0x7000, CHK_TXT 0x7800, CKM 0x8400..~0x84A0 in fw/suite.inc) and of
+	 * art_acc (0x0000..0x3C00); the region ends exactly where the media library image starts (+0x10000). 28 KB. NOLOAD. */
+	psram_state : ORIGIN = 0xA4009000, LENGTH = 0x00007000
 	/* Phase G1: cold READ-ONLY DATA (meter previews, help text) lives in PSRAM at 8 MiB and is loaded at boot from the
 	 * data slot file tau-cold.bin (tools/pack_cold.py). Never in the ROM image (build.sh strips it with objcopy -R).
 	 * Empty unless TAU_COLD=1. 1 MiB reserved; the library index (0x010000..0x40FFFF) and queue areas are below. */
@@ -90,6 +96,12 @@ SECTIONS {
 
 	.sdram (NOLOAD) : { *(.sdram .sdram.*) } > sdram
 	.psram (NOLOAD) : { *(.psram .psram.*) } > psram
+	.psram_state (NOLOAD) : {
+		__psram_state_start = .;
+		*(.psram_state .psram_state.*)
+		. = ALIGN(4);
+		__psram_state_end = .;
+	} > psram_state
 
 	.bss : {
 		__bss_start = .;

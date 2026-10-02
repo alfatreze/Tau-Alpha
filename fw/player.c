@@ -1726,6 +1726,7 @@ static uint32_t peak_l, peak_r;          /* per-channel, for LEVELS */
  * WVIZ_BANDS_MIN/MAX bound the band count (= SPEC_BANDS, the octave cascade's real band count: more would mean interpolating fake data;
  * the manifest range and a _Static_assert below keep them equal). */
 #include "meter_module.h"
+#define MTR_PSRAM_FW 1      /* firmware build: MTR_PSRAM puts meter state in PSRAM and mtr_psram_ready() really proves the window (host harnesses leave this undefined) */
 #include "meter.h"          /* the draw contract, docs/features/meters/METER_MODULE_SPEC.md section 3 */
 #include "meters_gen.h"
 #define WVIZ_BANDS_MIN 4u
