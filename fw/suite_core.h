@@ -16,7 +16,10 @@
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
        SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK, SR_T_WVIZCFG,
-       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE, SR_T_DECPROF2 };
+       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE, SR_T_DECPROF2, SR_T_HEAP };
+/* SR_T_HEAP (B-514, PHASE_F_SPEC.md section 4.1's other half): u32 x 2 -- peak heap bytes in use since boot, heap region size in bytes. The firmware's
+ * _sbrk (fw/sysio.c) only ever grows, so heap_used() IS the high-water mark. Present on every Check run, like SR_T_STACK. A NEW tag (23) rather than a longer
+ * SR_T_STACK so an older decoder skips it as unknown instead of misreading a 4-word stack record. */
 /* SR_T_DECPROF2 (2026-09-28, owner request after the alpha.12 packaging incident: get the finer
  * decode-stage split into Check's QR directly, instead of needing a separate screenshot of the
  * bench-only row; widened same day, B-361, before anything else depended on the original 4-field
