@@ -13267,3 +13267,7 @@ SPECTRUM view now uses the frequency split too: with a frequency split each laye
 ## B-498: Layered Wave -- lab-only spectrum styles and per-layer gain beads
 
 Owner liked the blocked-colour spectrum view and asked for a Premiere-Pro-EQ-like alternative with configurable gain; chose to test all three readings, lab only. Added as `LAB_PARAMS` in the JS module (NOT in `meter.json`, not in the firmware, so the golden test is unchanged: 72 scenarios / 608,932 commands identical): **Spectrum style** BLOCKS / EQ BELLS (soft shoulders) / CURVE (one gradient-coloured outline, layer colours as stops), and **per-layer gain** g1..g6 (-18..+18 dB) set by draggable beads on the frequency strip (double-click resets) with a gain-curve line through them. Verified: rendered all styles and a gained curve with `render.js` (new `--set key=value`), bead drag and handle logic with the DOM stand-in. CURVE needs about half the commands of the layered styles. Nothing in the firmware or manifest changed; promotion of whichever survives is the next step.
+
+## B-498 addendum: Resolution in SPECTRUM view
+
+`res` was hidden in SPECTRUM view because it was defined as history columns, but the spectrum has only 16 hardware bands. It now sets the cell width of the interpolated outline there (`max(stride, ceil(W / res))`), in both `fw/layered_wave.inc` and the JS twin; golden test 72 scenarios / 596,392 commands identical. Manifest `when` removed from `res`, help text updated. Firmware builds clean.

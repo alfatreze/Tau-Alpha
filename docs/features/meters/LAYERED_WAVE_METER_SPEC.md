@@ -68,14 +68,14 @@ the time constants 1.6x per layer.
 
 | Key | Type / range | Default | Meaning |
 |---|---|---|---|
-| **view** | enum HISTORY, SPECTRUM | HISTORY | **HISTORY** scrolls (x = time, newest left). **SPECTRUM** does not scroll: x = frequency (bass left), both ends pointed. With a frequency split every layer draws only the part of the axis it listens to (the handle ranges); with DYNAMICS each layer is the whole outline. Layers also differ by response time and height. Speed and Resolution are ignored in SPECTRUM. Cost: layers x 16 (BLOCKS) or up to layers x 400 (SMOOTH), about 195 commands for TIDE |
+| **view** | enum HISTORY, SPECTRUM | HISTORY | **HISTORY** scrolls (x = time, newest left). **SPECTRUM** does not scroll: x = frequency (bass left), both ends pointed. With a frequency split every layer draws only the part of the axis it listens to (the handle ranges); with DYNAMICS each layer is the whole outline. Layers also differ by response time and height. Scroll speed is ignored in SPECTRUM. Cost: layers x 16 (BLOCKS) or up to layers x 400 (SMOOTH), about 195 commands for TIDE |
 | layers | u8 1..6 | 3 | number of layers |
 | xo1..xo5 | u8 1..15 (CUSTOM split only) | 3, 5, 8, 11, 13 | boundaries between layers (section 3); only the first `layers - 1` are used |
 | split | enum OCTAVES, BASS_FINE, ENERGY, DYNAMICS, CUSTOM | OCTAVES | section 3 |
 | outer | enum BASS, TREBLE | BASS | which end is outermost |
 | nest | enum NESTED, OVERLAP | NESTED | section 3 |
 | draw | enum BLOCKS, SMOOTH | SMOOTH | section 5 (SCROLL parked) |
-| **res** | u16 16..400 step 8 | 200 | **Resolution: columns across the width.** 400 = one per pixel, the maximum the screen can show |
+| **res** | u16 16..400 step 8 | 200 | **Resolution: columns across the width.** 400 = one per pixel. HISTORY view: the number of history columns. SPECTRUM view: the spectrum has only 16 hardware bands, so it is the cell width of the interpolated outline (lower = chunkier and cheaper). Never finer than the self-scaling stride allows |
 | speed | u8 20..240 px/s | 100 | scroll speed |
 | response | u8 1..100 | 45 | how quickly layers follow |
 | taper | u8 0..100 % | 70 | roll-off toward the tail, pointed head, tail dots; 0 = flat |

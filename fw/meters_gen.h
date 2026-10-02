@@ -126,7 +126,7 @@ static const mtr_param_t mtr_p_layered_wave[MP_LAYERED_WAVE_N] = {
     { "SPLIT 4", MTR_U8, 1, 15, 1, 11, 2, 4, "", 0 },
     { "SPLIT 5", MTR_U8, 1, 15, 1, 13, 2, 4, "", 0 },
     { "DRAW", MTR_ENUM, 0, 1, 1, 1, 255, 0, "", mtr_en_layered_wave_draw },
-    { "RESOLUTION", MTR_U16, 16, 400, 8, 200, 0, 0, " COLS", 0 },
+    { "RESOLUTION", MTR_U16, 16, 400, 8, 200, 255, 0, " COLS", 0 },
     { "SCROLL SPEED", MTR_U8, 20, 240, 10, 100, 0, 0, " PX/S", 0 },
     { "RESPONSE", MTR_U8, 1, 100, 5, 45, 255, 0, "", 0 },
     { "TAIL TAPER", MTR_U8, 0, 100, 5, 70, 255, 0, "%", 0 },
