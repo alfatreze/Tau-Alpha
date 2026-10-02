@@ -58,7 +58,7 @@ static void helios_exclude_clear(uint8_t id)
 /* Drop-in replacement for fb_rect(x, y, w, h, color): splits the fill around every active exclusion rect instead of
  * drawing over it. Sequential subtraction (each exclusion applied to every piece the previous one produced) -- fine
  * for HELIOS_MAX_EXCL this small; each piece is a plain fb_rect() call, same cost model as the direct call it replaces. */
-static void helios_fill_excl(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
+COLD_FN3 static void helios_fill_excl(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
 {
     helios_rect_t cur[8];
     uint8_t n = 1;
@@ -80,6 +80,41 @@ static void helios_fill_excl(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uin
     }
     for (uint8_t i = 0; i < n; i++)
         fb_rect((uint32_t)cur[i].x, (uint32_t)cur[i].y, (uint32_t)cur[i].w, (uint32_t)cur[i].h, color);
+}
+
+/* Clipped figure draws (fig_rect/fig_bar, fw/player.c): while fig_clip_on is set they split around every helios_excl[] area; otherwise they are the plain
+ * primitives. The bar needs its own splitter because OP_BAR is "lit rows at the bottom of the rect", which survives a cut of the TOP rows exactly (fewer
+ * rows, lit capped to them) but not a cut anywhere else (that case falls back to two clipped rects). */
+COLD_FN3 static void helios_clip_bar_in(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg)
+{
+    for (uint8_t e = 0; e < helios_excl_n; e++) {
+        const int32_t ex = helios_excl[e].x, ey = helios_excl[e].y, ew = helios_excl[e].w, eh = helios_excl[e].h;
+        if (ew <= 0 || eh <= 0) continue;
+        const int32_t x1 = (int32_t)(x + w), y1 = (int32_t)(y + h);
+        if (ex >= x1 || ex + ew <= (int32_t)x || ey >= y1 || ey + eh <= (int32_t)y) continue;      /* no overlap */
+        const int32_t mx0 = ex > (int32_t)x ? ex : (int32_t)x, mx1 = (ex + ew) < x1 ? (ex + ew) : x1;
+        if (mx0 > (int32_t)x) helios_clip_bar_in(x, y, (uint32_t)(mx0 - (int32_t)x), h, lit, fg, bg);               /* left of the exclusion */
+        if (mx1 < x1)         helios_clip_bar_in((uint32_t)mx1, y, (uint32_t)(x1 - mx1), h, lit, fg, bg);           /* right of it */
+        if (ey <= (int32_t)y) {                                                                                     /* exclusion reaches the top: cut it off */
+            const int32_t ny = ey + eh;
+            if (ny < y1) { const uint32_t nh = (uint32_t)(y1 - ny); fb_bar((uint32_t)mx0, (uint32_t)ny, (uint32_t)(mx1 - mx0), nh, lit < nh ? lit : nh, fg, bg); }
+        } else {                                                                                                    /* anywhere else: two clipped rects */
+            const uint32_t unlit = h > lit ? h - lit : 0u, lt = h - unlit;
+            helios_fill_excl((uint32_t)mx0, y, (uint32_t)(mx1 - mx0), unlit, bg);
+            helios_fill_excl((uint32_t)mx0, y + unlit, (uint32_t)(mx1 - mx0), lt, fg);
+        }
+        return;
+    }
+    fb_bar(x, y, w, h, lit, fg, bg);
+}
+
+__attribute__((noinline)) COLD_FN3 static void fig_rect_fn(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
+{
+    if (fig_clip_on) helios_fill_excl(x, y, w, h, color); else fb_rect(x, y, w, h, color);
+}
+COLD_FN3 static void fig_bar_fn(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg)
+{
+    if (fig_clip_on) helios_clip_bar_in(x, y, w, h, lit, fg, bg); else fb_bar(x, y, w, h, lit, fg, bg);
 }
 
 /* ---- Wraparound list navigation ---------------------------------------------------------------------------------

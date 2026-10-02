@@ -51,7 +51,7 @@ COLD_FN3 static uint32_t lw_isqrt(uint64_t n)
     return (uint32_t)r;
 }
 
-COLD_FN3 static void lw_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { fb_rect(x, y, w, h, c); lw_cnt++; }
+COLD_FN3 static void lw_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { fig_rect(x, y, w, h, c); lw_cnt++; }
 
 #ifdef LW_BEAM_GATE
 /* Beam gate (docs/issues/022): a redraw wipes the whole box and then repaints every layer, so any scan line that crosses the box between the wipe and its

@@ -1727,6 +1727,14 @@ static uint32_t peak_l, peak_r;          /* per-channel, for LEVELS */
  * the manifest range and a _Static_assert below keep them equal). */
 #include "meter_module.h"
 #define MTR_PSRAM_FW 1      /* firmware build: MTR_PSRAM puts meter state in PSRAM and mtr_psram_ready() really proves the window (host harnesses leave this undefined) */
+/* Figure draws that may be clipped around a Helios exclusion rect (fw/helios.inc fig_rect_fn/fig_bar_fn): the fullscreen figures (Winamp Bars/Scope, Layered
+ * Wave) call fig_rect/fig_bar instead of fb_rect/fb_bar. A separate wrapper rather than a check inside fb_rect(), which is inlined at hundreds of sites
+ * (that cost 1.4 KB of heap gap). Host harnesses that include meter.h without this get fig_rect = fb_rect. */
+static uint8_t fig_clip_on;
+static void fig_rect_fn(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color);
+static void fig_bar_fn(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg);
+#define fig_rect fig_rect_fn
+#define fig_bar  fig_bar_fn
 #include "meter.h"          /* the draw contract, docs/features/meters/METER_MODULE_SPEC.md section 3 */
 #include "meters_gen.h"
 #define WVIZ_BANDS_MIN 4u
@@ -4092,7 +4100,7 @@ COLD_FN3 static void wviz_bars_tick(const mtr_in_t *in)
      * closed) -- wipe the whole preview rect once so no leftover pixels from a
      * DIFFERENT geometry or a different mode's draw survive, then force every
      * band to redraw below regardless of the change cache. */
-    if (force) fb_rect(x0, y, w, h, bg);
+    if (force) fig_rect(x0, y, w, h, bg);
 
     for (uint32_t b = 0; b < bands; b++) {
         uint32_t target = mtr_band_target(in->spec, SPEC_BANDS, bands, b);
@@ -4112,15 +4120,15 @@ COLD_FN3 static void wviz_bars_tick(const mtr_in_t *in)
 
         blit_probe_ensure();
         if (BLIT_READY()) {
-            fb_bar(x, y, colw, h, bh, ui_accent, bg);
+            fig_bar(x, y, colw, h, bh, ui_accent, bg);
         } else {
-            fb_rect(x, y + h - bh, colw, bh, ui_accent);
-            if (h > bh) fb_rect(x, y, colw, h - bh, bg);
+            fig_rect(x, y + h - bh, colw, bh, ui_accent);
+            if (h > bh) fig_rect(x, y, colw, h - bh, bg);
         }
         if (MV_WINAMP_BARS(PEAK_ON)) {
             uint32_t ph = (wviz_pk[b].peak * h) / 255u;
             if (ph > bh + 1u && ph < h)
-                fb_rect(x, y + h - ph, colw, 1u, UI_WHITE);
+                fig_rect(x, y + h - ph, colw, 1u, UI_WHITE);
         }
     }
     wviz_force = 0u;
@@ -4154,7 +4162,7 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
     if (in->force) { wviz_scope_init = 0u; wviz_force = 0u; }
 
     /* B-298/B-300/B-301 STOPGAP: the hardware wave path below draws up to 256 columns x up to 3
-     * fb_rect() calls each (measured DRAW STALL 34,663 ms cumulative, CPU LOAD 100%, real audible
+     * fig_rect() calls each (measured DRAW STALL 34,663 ms cumulative, CPU LOAD 100%, real audible
      * jitter on hardware) -- about 21x wviz_bars_tick()'s own baseline. Forced off here, keeping the
      * 64-column software path (tools/meter_cost_estimate.py: 198 commands, within budget) until the
      * real fix -- batching the hardware path's per-column draws -- is designed and built. Flip this
@@ -4173,8 +4181,8 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
             const int percol = ui_fullscreen;               /* fullscreen: erase per column, see the software path */
             if (!percol) {
                 if (use_gradient) ui_bg_restore(x0, y, w, h);
-                else              fb_rect(x0, y, w, h, bg);
-                fb_rect(x0, cy, w, 1, UI_TRACK);
+                else              fig_rect(x0, y, w, h, bg);
+                fig_rect(x0, cy, w, 1, UI_TRACK);
             }
             uint32_t npk = 1u;
             for (uint32_t c = 0; c < WAVE_HW_COLS; c++) {
@@ -4207,8 +4215,8 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
                 if (s_bot < s_top) s_bot = s_top;
                 const uint32_t top = (uint32_t)s_top, rh = (uint32_t)(s_bot - s_top);
                 const uint32_t cwid = (cxn > cx) ? (cxn - cx) : 1u;
-                if (percol) { fb_rect(cx, y, cwid, h, bg); fb_rect(cx, cy, cwid, 1, UI_TRACK); }
-                fb_rect(cx, top, cwid, rh, ui_accent);
+                if (percol) { fig_rect(cx, y, cwid, h, bg); fig_rect(cx, cy, cwid, 1, UI_TRACK); }
+                fig_rect(cx, top, cwid, rh, ui_accent);
             }
             sc_pk = npk;
             wviz_scope_init = 1u;
@@ -4249,9 +4257,9 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
                        of which column is sampled. */
         if (!did_blend) {
             if (use_gradient) ui_bg_restore(x0, y, w, h);
-            else              fb_rect(x0, y, w, h, bg);
+            else              fig_rect(x0, y, w, h, bg);
         }
-        fb_rect(x0, cy, w, 1, UI_TRACK);
+        fig_rect(x0, cy, w, 1, UI_TRACK);
     }
 
     if (!paused) {
@@ -4282,8 +4290,8 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
             if (s_bot > (int32_t)(y + h)) s_bot = (int32_t)(y + h);
             if (s_bot < s_top) s_bot = s_top;
             const uint32_t top = (uint32_t)s_top, rh = (uint32_t)(s_bot - s_top);
-            if (percol) { fb_rect(cx, y, cw, h, bg); fb_rect(cx, cy, cw, 1, UI_TRACK); }
-            fb_rect(cx, top, cw, rh, ui_accent);
+            if (percol) { fig_rect(cx, y, cw, h, bg); fig_rect(cx, cy, cw, 1, UI_TRACK); }
+            fig_rect(cx, top, cw, rh, ui_accent);
         }
         wviz_scope_init = 1u;
     }
@@ -5761,6 +5769,23 @@ ui_tail:
     }
 #endif
 
+    /* CPU load / underrun-attribution latch. This used to live inside the UI_SHOW_SPEED_DIAG block below, which is compiled out (default 0), so
+     * fl_idle_pct and fl_io_pct were never written: ui_cpu_pct() read 100% in every state (and Chladni's CPU shedding, which reads it, always shed).
+     * Always on now, and normalised to the real elapsed cycles of the window rather than assumed to be one second, because this runs from the UI
+     * tick and the window stretches while an overlay holds the screen. */
+    {
+        static uint32_t load_t0;
+        const uint32_t now = cycles(), el = now - load_t0;
+        if (el >= CLK_HZ) {
+            load_t0 = now;
+            fl_idle_pct = (uint8_t)(fl_idle_cyc / (el / 100u));
+            fl_io_pct   = (uint8_t)(fl_io_cyc   / (el / 100u));
+            if (fl_idle_pct > 99u) fl_idle_pct = 99u;
+            if (fl_io_pct   > 99u) fl_io_pct   = 99u;
+            fl_idle_cyc = fl_io_cyc = 0u;
+        }
+    }
+
     /* Speed-branch readout. These five values ARE the suspected fault, not a
      * general-purpose dump:
      *
@@ -5794,12 +5819,6 @@ ui_tail:
      * investigations are closed, and legacy playlist mode itself is removed. */
     if (ui_sec != ui_last_spd) {
         ui_last_spd = ui_sec;
-        /* Latch and reset the attribution for the second just finished. */
-        fl_idle_pct = (uint8_t)(fl_idle_cyc / (CLK_HZ / 100u));
-        fl_io_pct   = (uint8_t)(fl_io_cyc   / (CLK_HZ / 100u));
-        if (fl_idle_pct > 99u) fl_idle_pct = 99u;
-        if (fl_io_pct   > 99u) fl_io_pct   = 99u;
-        fl_idle_cyc = fl_io_cyc = 0u;
         char b[64], *q = b;
         /* The speed prefix this row was built for is dropped while the
          * playlist switch is under investigation: measured against the real

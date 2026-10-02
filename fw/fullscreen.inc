@@ -91,22 +91,52 @@ COLD_FN3 static void fs_draw_progress(void)
 
 #define FS_LABEL_EXCL 0u   /* helios_excl[] slot reserved for this corner */
 
-/* The top-right corner: hint and CPU load on a black plate. Kept as an exclusion rect (helios.inc)
- * so the figure's own outer clear skips it instead of covering it and relying on this to repaint
- * every frame -- that redraw-after approach is what glitched: the beam can pass through this
- * corner between the figure's clear and this repaint. Still called every frame (the CPU% text
- * itself changes), which also keeps the exclusion rect's width current for next frame -- see
- * ui_fs_dynamic()'s use of helios_fill_excl(). */
-COLD_FN3 static void fs_draw_label(void)
+/* The top-right corner: hint and CPU load on a black plate. Three rules keep it from flickering:
+ *   1. The figure never draws into it. Its rectangle is a helios_excl[] slot, and while a Winamp/Layered Wave figure is drawn fig_clip_on makes
+ *      fb_rect()/fb_bar() split around it (helios_clip_rect/helios_clip_bar), so the plate is not overwritten and need not be repainted after every figure.
+ *   2. The label is repainted only when its text changes (CPU% updates once a second) or the screen was wiped, never per figure.
+ *   3. Chladni fills by replicating a computed tile with block copies, which cannot be clipped (the vertical copies would carry the hole's pixels down), so
+ *      its figure and the label repaint run only while the beam is well clear of the label rows (fs_corner_ok()).
+ * fs_label_prepare() runs BEFORE the figure so the exclusion rect always matches the width the label will have. A width change forces one full figure
+ * repaint (its outer clear honours the new rect) so no sliver of the old, wider plate is left behind. */
+static char     fs_lbl_txt[8];
+static uint32_t fs_lbl_x, fs_lbl_w;
+static uint8_t  fs_lbl_dirty = 1u;
+
+/* The beam is inside the active picture and well below the label rows (22) and well above the bottom, so a draw of a few ms finishes before it wraps. */
+COLD_FN3 static int fs_corner_ok(void)
+{
+    if (!helios_beam_ok) return 1;
+    const uint32_t vc = REG(R_SCAN) & 0x1FFu;
+    if (vc < HELIOS_VOFF || vc >= HELIOS_VOFF + HELIOS_VACT) return 0;
+    const uint32_t by = vc - HELIOS_VOFF;
+    return by >= 26u && by <= 290u;
+}
+
+COLD_FN3 static void fs_label_prepare(void)
 {
     char b[8], *q = b;
     q = ui_dec(q, ui_cpu_pct()); *q++ = '%'; *q = 0;
     const uint32_t wh = fb_text_width("SELECT+Y", TS_1X), wp = fb_text_width(b, TS_1X);
-    const uint32_t w = wh + 12u + wp + 14u, x = FS_W - w;
-    helios_exclude_set(FS_LABEL_EXCL, (int32_t)x, 0, (int32_t)w, 22);
-    fb_rect(x, 0u, w, 22u, 0u);
+    const uint32_t w = wh + 12u + wp + 14u;
+    helios_exclude_set(FS_LABEL_EXCL, (int32_t)(FS_W - w), 0, (int32_t)w, 22);
+    uint32_t same = (fs_lbl_w == w);
+    for (uint32_t i = 0; i < sizeof fs_lbl_txt; i++) { if (fs_lbl_txt[i] != b[i]) same = 0u; if (!b[i]) break; }
+    if (same) return;
+    for (uint32_t i = 0; i < sizeof fs_lbl_txt; i++) { fs_lbl_txt[i] = b[i]; if (!b[i]) break; }
+    if (fs_lbl_w && fs_lbl_w != w) fs_force = 1u;
+    fs_lbl_w = w; fs_lbl_x = FS_W - w; fs_lbl_dirty = 1u;
+}
+
+/* Paint the plate and its two texts. `now` skips the beam check (Chladni, which only calls this inside its own beam-checked figure). */
+COLD_FN3 static void fs_label_paint(int now)
+{
+    if (!fs_lbl_dirty || (!now && !fs_corner_ok())) return;
+    const uint32_t x = fs_lbl_x, wh = fb_text_width("SELECT+Y", TS_1X), wp = fb_text_width(fs_lbl_txt, TS_1X);
+    fb_rect(x, 0u, fs_lbl_w, 22u, 0u);
     fb_set_color(UI_DIM, 0u);   fb_text_clipped(x + 8u, 3u, "SELECT+Y", TS_1X, TS_1X, wh);
-    fb_set_color(UI_WHITE, 0u); fb_text_clipped(x + 8u + wh + 12u, 3u, b, TS_1X, TS_1X, wp);
+    fb_set_color(UI_WHITE, 0u); fb_text_clipped(x + 8u + wh + 12u, 3u, fs_lbl_txt, TS_1X, TS_1X, wp);
+    fs_lbl_dirty = 0u;
 }
 
 /* Called by ui_draw_chrome() in place of the normal screen: a black frame, the bar, and a request for an immediate figure. */
@@ -117,7 +147,7 @@ COLD_FN3 static void ui_fs_frame(void)
     fs_draw_text();
     fs_draw_progress();
     ov_draw = o;
-    fs_force = 1u;
+    fs_force = 1u; fs_lbl_dirty = 1u;        /* the wipe above took the label with it */
 }
 
 /* Called every display frame while fullscreen (after the normal, now silent, dynamic pass). */
@@ -133,21 +163,20 @@ COLD_FN3 static void ui_fs_dynamic(void)
      * (26 ms), not polled, so a closed gate meant no figure at all until the NEXT frame: about 38 x 0.19 = 7 figures a second, which is
      * the "very slow" fullscreen. The figures are all drawn so that a partly finished frame is still a coherent picture (Winamp Bars
      * redraw only changed bars, the scope erases and redraws column by column, Chladni copies tile rows). */
-    if (viz_mode != VIZ_CHLADNI) {                                          /* Winamp Bars / Scope: explicit geometry, black ground */
-        /* helios_fill_excl(), not fb_rect(): skip the label's corner (fs_draw_label()'s exclusion
-         * rect) instead of clearing over it every time it's forced -- see fs_draw_label(). This
-         * covers the outer clear; a bar or the scope trace swinging all the way to the top rows
-         * could still touch the corner from inside wviz_bars_tick()/wviz_scope_tick()'s own fills,
-         * which is a separate, deeper follow-up (docs/HELIOS_SPEC.md), not attempted here. */
+    fs_label_prepare();
+    if (viz_mode != VIZ_CHLADNI) {                                          /* Winamp Bars / Scope / Layered Wave: explicit geometry, black ground */
+        /* helios_fill_excl() skips the label's corner for the outer clear; the figure's own fills are clipped by fig_clip_on (see the label comment). */
         if (fs_force) { wviz_force = 1u; helios_fill_excl(0, 0, FS_W, FS_FIG_H, 0u); }
         const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, wviz_force);
+        fig_clip_on = 1u;
         if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(&in);
         else if (viz_mode == VIZ_LAYERED_WAVE) lw_tick(&in);
         else                             wviz_scope_tick(&in, 0);
-        fs_force = 0u; fs_draw_label();
-    } else {
+        fig_clip_on = 0u;
+        fs_force = 0u; fs_label_paint(0);
+    } else if (fs_corner_ok()) {
         const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force);
-        if (chladni_tick_box(&in)) { fs_force = 0u; fs_draw_label(); }
+        if (chladni_tick_box(&in)) { fs_force = 0u; fs_lbl_dirty = 1u; fs_label_paint(1); }   /* the tile copies overwrote the corner */
     }
     if (ui_sec != fs_last_sec || (uint8_t)(paused ? 1u : stopped ? 2u : 0u) != fs_last_state) fs_draw_progress();
     ov_draw = o;
