@@ -13,6 +13,7 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:calc(400px *
 .info{width:18px;height:18px;padding:0;border-radius:50%;border:1px solid var(--mut);background:none;color:var(--mut);font:italic 700 11px/16px Georgia,serif;cursor:pointer}.info:hover,.info:focus-visible{color:var(--fg);border-color:var(--fg)}
 .strip{position:relative;width:calc(400px * var(--z,1));max-width:100%;margin-top:10px}.strip canvas{display:block;width:100%;border:1px solid var(--line);border-bottom:0}
 .hbar{position:relative;height:40px;border:1px solid var(--line);border-top:2px solid var(--line)}
+.beads{position:absolute;left:0;right:0;top:0;pointer-events:none}.bead{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--c,#888);border:2px solid var(--bg);outline:1px solid var(--fg);cursor:ns-resize;pointer-events:auto;touch-action:none}
 .handle{position:absolute;top:-2px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;background:none;border:0;padding:0;cursor:ew-resize;touch-action:none;color:var(--fg);font:11px system-ui,sans-serif}
 .handle .tri{width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:11px solid var(--c)}
 .handle .lbl{margin-top:1px;background:var(--bg);border:1px solid var(--c);padding:1px 6px;border-radius:9px;white-space:nowrap}
@@ -25,7 +26,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
 </style></head><body>
 <h1>Tau meter lab <span class="val" id="tag"></span></h1>
 <div class="wrap">
- <div><canvas id="cv" width="400" height="360"></canvas><div class="cost" id="cost"></div><div id="splitwrap" hidden><div class="strip" id="strip"><canvas id="map" width="400" height="56"></canvas><div class="hbar" id="hbar"></div></div><div class="cost" id="splitnote"></div></div></div>
+ <div><canvas id="cv" width="400" height="360"></canvas><div class="cost" id="cost"></div><div id="splitwrap" hidden><div class="strip" id="strip"><canvas id="map" width="400" height="56"></canvas><div class="beads" id="beads"></div><div class="hbar" id="hbar"></div></div><div class="cost" id="splitnote"></div></div></div>
  <div class="panel">
   <label>Meter <select id="meter"></select></label>
   <label>Theme <select id="theme"></select></label>
@@ -55,7 +56,7 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
  let params={},frame=0,st=null,key=null;
  const cv=$('cv'),ctx=cv.getContext('2d');
  let ctl=null;
- function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);ctl=TauControls.build($('controls'),m,p=>{params=p;st=null;});}
+ function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);const lab=TauMeters[key]&&TauMeters[key].LAB_PARAMS;const m2=lab?Object.assign({},m,{params:m.params.concat(lab),groups:(m.groups||[]).concat([{key:'lab',label:'Experimental (lab only)'}])}):m;ctl=TauControls.build($('controls'),m2,p=>{params=p;st=null;});}
  ['meter'].forEach(i=>$(i).onchange=rebuild);rebuild();
  ['theme','mode','accent','src','barready'].forEach(i=>$(i).onchange=()=>{st=null;});
  const live=TauLive.create();
@@ -104,11 +105,27 @@ details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp
   const b=bandsNow();
   handles.forEach((h,k)=>{const i=k+1,layer=params.outer===0?i-1:n-i;h.style.left=(b[i]/16*100)+'%';h.style.setProperty('--c',col[layer]||'#888');h.querySelector('.lbl').textContent=hz(b[i]);h.title='Boundary between layers '+i+' and '+(i+1)+' at about '+hz(b[i])+'Hz';});
  }
+ const beads=$('beads');let beadEls=[];
+ function layoutBeads(col){   // one bead per layer: drag up/down to set that layer's gain (dB), double-click to reset; the line through them is the gain curve
+  if(!mod||!mod.boundsFor||params.layers===undefined){beads.innerHTML='';beadEls=[];return;}
+  const n=params.layers,b=bandsNow();beads.style.height=($('map').clientHeight||56)+'px';
+  if(beadEls.length!==n){beads.innerHTML='';beadEls=[];
+   for(let k=0;k<n;k++){const e=document.createElement('div');e.className='bead';e.setAttribute('role','slider');e.setAttribute('aria-label','Gain, layer '+(k+1));
+    e.onpointerdown=ev=>{ev.preventDefault();e.setPointerCapture(ev.pointerId);e._d=true;};
+    e.onpointermove=ev=>{if(!e._d)return;const r=$('map').getBoundingClientRect(),g=Math.max(-18,Math.min(18,Math.round((0.5-(ev.clientY-r.top)/r.height)*36)));if(g!==(params['g'+(k+1)]|0))ctl.set('g'+(k+1),g);};
+    e.onpointerup=e.onpointercancel=()=>{e._d=false;};e.ondblclick=()=>ctl.set('g'+(k+1),0);
+    beads.appendChild(e);beadEls.push(e);}}
+  beadEls.forEach((e,k)=>{const g=params.outer===0?k:n-1-k,cx=params.split===3?(k+0.5)/n:(b[g]+b[g+1])/2/16,gain=params['g'+(k+1)]|0;
+   e.style.left=(cx*100)+'%';e.style.top=((0.5-gain/36)*100)+'%';e.style.setProperty('--c',col[k]||'#888');e.title='Layer '+(k+1)+' gain '+(gain>0?'+':'')+gain+' dB (drag up or down, double-click resets)';});
+ }
  function splitMap(){const w=$('splitwrap');if(!mod||!mod.describe){w.hidden=true;return;}w.hidden=false;
   const c=$('map').getContext('2d'),d=mod.describe(params,st),own=mod.bandOwner(params,st),col=mod.layerColours(theme,params).map(v=>{const[r,g,b]=TauFb.from565(v);return 'rgb('+r+','+g+','+b+')'});
   c.clearRect(0,0,400,56);for(let k=0;k<16;k++){const v=lvl[k]/255,h=Math.round(v*46);c.fillStyle=col[own[k]]||'#888';c.fillRect(k*25+2,48-h,21,h);c.fillStyle='rgba(128,128,128,.5)';c.fillRect(k*25+2,48,21,1);}
   c.fillStyle='#888';c.font='8px sans-serif';[0,4,8,12,15].forEach(k=>c.fillText(Math.round(mod.EDGES[k])+'',k*25+2,55));
-  layoutHandles(col);
+  if(params.layers!==undefined){const n=params.layers,b=bandsNow(),pts=[];for(let k=0;k<n;k++){const g=params.outer===0?k:n-1-k,cx=params.split===3?(k+0.5)/n:(b[g]+b[g+1])/2/16;pts.push([cx*400,(0.5-(params['g'+(k+1)]|0)/36)*56]);}
+   c.strokeStyle='rgba(128,128,128,.6)';c.setLineDash&&c.setLineDash([3,3]);c.beginPath();c.moveTo(0,28);c.lineTo(400,28);c.stroke();c.setLineDash&&c.setLineDash([]);
+   c.strokeStyle='#fff';c.lineWidth=1.5;c.beginPath();pts.forEach((q,i)=>{if(i)c.lineTo(q[0],q[1]);else c.moveTo(Math.min(0,q[0]),q[1]);});if(pts.length)c.lineTo(400,pts[pts.length-1][1]);c.stroke();c.lineWidth=1;}
+  layoutHandles(col);layoutBeads(col);
   $('splitnote').textContent=(handlesOn()?'drag a handle to move a boundary (switches Layer split to CUSTOM) · double-click the strip to add a layer, a handle to remove it · ':'')+'bands = hardware spectrum bank, bass left, coloured by the layer each feeds first · '+d.map(x=>x.spectrum?('layer '+(x.layer+1)+': full spectrum (x axis = frequency), own response time'):x.dynamics?('layer '+(x.layer+1)+': broadband peak, own time constant'):('layer '+(x.layer+1)+': '+x.hzLo+'–'+x.hzHi+' Hz')).join(' · ');}
  setInterval(step,26);
 })();
