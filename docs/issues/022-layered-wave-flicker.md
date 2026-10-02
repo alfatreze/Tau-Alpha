@@ -38,3 +38,6 @@ this repository.
 
 ## Update (B-512)
 Hypothesis 1 confirmed from source as the only live meter without beam protection; a beam gate (`LW_BEAM_GATE`, 28-row margin) and an Info > LAYERED WAVE row (draws, skips, last/worst draw time, stride) are built on branch `lw-flicker`, host-verified, not yet on hardware. Next: install a build with it, read the draw time, and judge the flicker. Double buffering was rejected (whole-frame flip, ~100 ms flip wait in the decode loop).
+
+## Update 2 (B-519, B-520)
+Hardware read of the gate build: a redraw takes 83 ms (worst 103 ms), so the beam gate is useless and was removed. Replaced by off-screen compose + present (draw into the idle H2 back buffer, copy the finished box on); see B-520. Chladni's fullscreen label overdraw uses the same present with an exclusion rect. Still to confirm on a Pocket.

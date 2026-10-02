@@ -16,6 +16,15 @@ static uint32_t fake_scan;
  * link here; this test never calls it (only helios_rows_safe), so a no-op stub is enough. */
 static uint8_t fig_clip_on;
 #define COLD_FN3
+#define DBUF_READY() 1
+#define UI_OVERLAY_UP 0
+#define R_DBUF_DISP 0x8000011Cu
+#define DBUF_BASE1_W 1048576u
+static uint8_t screen_blank;
+static void fb_set_bases(uint32_t a, uint32_t b) { (void)a; (void)b; }
+static void fb_blit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
+static uint8_t fb_fence_timeout;
+static void fb_fence(void) {}
 static void fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
 { (void)x; (void)y; (void)w; (void)h; (void)color; }
 static void fb_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg)

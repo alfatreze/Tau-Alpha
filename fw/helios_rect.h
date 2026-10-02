@@ -21,8 +21,13 @@
 
 typedef struct { int32_t x, y, w, h; } helios_rect_t;
 
+/* Placement attribute: the firmware defines HELIOS_RECT_FN as COLD_FN3 (every caller is cold code); host tests leave it empty. */
+#ifndef HELIOS_RECT_FN
+#define HELIOS_RECT_FN
+#endif
+
 /* out must have room for 4 rects. Returns the count written (0..4). */
-static int helios_rect_subtract(int32_t rx, int32_t ry, int32_t rw, int32_t rh,
+HELIOS_RECT_FN static int helios_rect_subtract(int32_t rx, int32_t ry, int32_t rw, int32_t rh,
                                  int32_t hx, int32_t hy, int32_t hw, int32_t hh,
                                  helios_rect_t *out)
 {

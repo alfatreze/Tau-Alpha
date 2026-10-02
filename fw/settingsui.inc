@@ -834,10 +834,11 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = ui_dec(q, cnt);
         break;
     }
-    case 31:   /* LAYERED WAVE (docs/issues/022): draws done / skipped by the beam gate, last and worst draw time in microseconds (measured to engine completion
-                * in a Diagnostic Build, to the last command accepted otherwise), and the self-scaling stride it settled on */
+    case 31:   /* LAYERED WAVE (docs/issues/022): redraws done, how many were composed off-screen and presented, last and worst redraw time in microseconds
+                * (to engine completion in a Diagnostic Build), and the self-scaling stride it settled on */
         q = set_str(q, "D"); q = ui_dec(q, lw_n_draw);
-        q = set_str(q, " W"); q = ui_dec(q, lw_n_defer);
+        q = set_str(q, " O"); q = ui_dec(q, lw_n_off);
+        if (lw_n_fail) { q = set_str(q, " F"); q = ui_dec(q, lw_n_fail); }
         q = set_str(q, " "); q = ui_dec(q, lw_t_last / (CLK_HZ / 1000000u));
         q = set_str(q, "/"); q = ui_dec(q, lw_t_max / (CLK_HZ / 1000000u));
         q = set_str(q, "US S"); q = ui_dec(q, lw_stride);
@@ -846,6 +847,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "C"); q = ui_dec(q, lw_cmd_last);
         q = set_str(q, " CPU "); q = ui_dec(q, lw_t_cpu / (CLK_HZ / 1000000u));
         q = set_str(q, " UNW "); q = ui_dec(q, lw_t_unw / (CLK_HZ / 1000000u));
+        q = set_str(q, " PRES "); q = ui_dec(q, lw_t_pres / (CLK_HZ / 1000000u));
         q = set_str(q, "US");
         break;
     default: {   /* CYMO RESAMP (B-481): whether the probe found the unit, and -- once the Diagnostics >

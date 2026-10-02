@@ -174,9 +174,19 @@ COLD_FN3 static void ui_fs_dynamic(void)
         else                             wviz_scope_tick(&in, 0);
         fig_clip_on = 0u;
         fs_force = 0u; fs_label_paint(0);
-    } else if (fs_corner_ok()) {
-        const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force);
-        if (chladni_tick_box(&in)) { fs_force = 0u; fs_lbl_dirty = 1u; fs_label_paint(1); }   /* the tile copies overwrote the corner */
+    } else {
+        /* Chladni composes off-screen and presents around the label rect (B-520), so the label is untouched and only repainted when its text
+         * changes. Without the H2 back buffer the tile copies still overwrite the corner: then the label is repainted after the figure, and
+         * the figure only runs while the beam is clear of the label rows. */
+        const uint32_t off = helios_offscreen_ok();
+        if (off || fs_corner_ok()) {
+            const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, fs_force);
+            if (chladni_tick_box(&in)) {
+                fs_force = 0u;
+                if (!chl_off_last) { fs_lbl_dirty = 1u; fs_label_paint(1); }   /* the tile copies overwrote the corner */
+                else fs_label_paint(0);
+            }
+        }
     }
     if (ui_sec != fs_last_sec || (uint8_t)(paused ? 1u : stopped ? 2u : 0u) != fs_last_state) fs_draw_progress();
     ov_draw = o;

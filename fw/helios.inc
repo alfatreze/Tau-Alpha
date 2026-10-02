@@ -26,6 +26,7 @@
 
 #define HELIOS_MAX_REGIONS 16u
 
+#define HELIOS_RECT_FN COLD_FN3     /* every caller (helios_fill_excl, the clip wrappers, helios_present) is cold code */
 #include "helios_rect.h"
 
 /* ---- exclusion rects: let a fill skip a reserved area instead of drawing over it ------------------------------------
@@ -115,6 +116,63 @@ __attribute__((noinline)) COLD_FN3 static void fig_rect_fn(uint32_t x, uint32_t 
 COLD_FN3 static void fig_bar_fn(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg)
 {
     if (fig_clip_on) helios_clip_bar_in(x, y, w, h, lit, fg, bg); else fb_bar(x, y, w, h, lit, fg, bg);
+}
+
+/* ---- Off-screen compose + present ---------------------------------------------------------------------------------
+ * A meter that repaints its whole box (wipe, then every layer) shows the wipe whenever the beam crosses the box before the repaint finishes: measured
+ * 83 ms for Layered Wave against a 16.7 ms frame (B-519), so no beam gate can help. Instead the figure is drawn into the idle H2 back buffer, where
+ * nothing can see it, and then COPIED onto the displayed buffer with OP_BLIT, which takes about a millisecond -- much faster than the beam -- so the
+ * worst case is one seam for one frame, never a flash of background. The copy skips every helios_excl[] rect, so an overlay (the fullscreen CPU% label)
+ * is never overwritten and need not be repainted.
+ *
+ * Use only when nothing else holds the back buffer: not while an overlay is up (Settings uses buffer 1 for its crossfade), not blanked, not with a flip
+ * pending. helios_offscreen_ok() says so. RECT-class draws follow R_DBUF_CPU (set it to the back buffer for the compose, put it back after the fence);
+ * blit-mode draws (Chladni's SBLIT/BLIT) follow the sticky bases instead. */
+#define HELIOS_PRESENT_CHUNK 120u    /* OP_BLIT stages a row in a 128-entry buffer: at most 127 columns, 120 matches chl_replicate */
+
+COLD_FN3 static int helios_offscreen_ok(void)
+{
+    if (!DBUF_READY() || screen_blank || UI_OVERLAY_UP) return 0;
+    return (REG(R_DBUF_DISP) & 2u) == 0u;                     /* a pending flip would swap the roles under us */
+}
+/* fb_fence() that keeps waiting (up to ~200 ms) until the engine has really drained; returns 0 if it never did. The compose must not switch R_DBUF_CPU
+ * back while commands are still queued, or they would execute against the displayed buffer. */
+COLD_FN3 static int helios_drain(void)
+{
+    for (uint32_t i = 0; i < 4u; i++) { fb_fence(); if (!fb_fence_timeout) return 1; }
+    return 0;
+}
+COLD_FN3 static uint32_t helios_front_idx(void) { return REG(R_DBUF_DISP) & 1u; }
+COLD_FN3 static uint32_t helios_buf_base(uint32_t idx) { return idx ? DBUF_BASE1_W : 0u; }
+
+/* Copy the box from the back buffer to the displayed one, minus every exclusion rect. Everything composed must have executed (fb_fence) first. */
+COLD_FN3 static void helios_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+    const uint32_t front = helios_front_idx();
+    helios_rect_t cur[8];
+    uint8_t n = 1;
+    cur[0].x = (int32_t)x; cur[0].y = (int32_t)y; cur[0].w = (int32_t)w; cur[0].h = (int32_t)h;
+    for (uint8_t e = 0; e < helios_excl_n; e++) {
+        if (helios_excl[e].w <= 0 || helios_excl[e].h <= 0) continue;
+        helios_rect_t next[8];
+        uint8_t nn = 0;
+        for (uint8_t i = 0; i < n; i++) {
+            helios_rect_t piece[4];
+            const int pn = helios_rect_subtract(cur[i].x, cur[i].y, cur[i].w, cur[i].h,
+                                                helios_excl[e].x, helios_excl[e].y, helios_excl[e].w, helios_excl[e].h, piece);
+            for (int q = 0; q < pn && nn < 8u; q++) next[nn++] = piece[q];
+        }
+        for (uint8_t i = 0; i < nn; i++) cur[i] = next[i];
+        n = nn;
+    }
+    fb_set_bases(helios_buf_base(front ^ 1u), helios_buf_base(front));
+    for (uint8_t i = 0; i < n; i++)
+        for (int32_t cx = 0; cx < cur[i].w; cx += (int32_t)HELIOS_PRESENT_CHUNK) {
+            const uint32_t c = (uint32_t)(cur[i].w - cx) < HELIOS_PRESENT_CHUNK ? (uint32_t)(cur[i].w - cx) : HELIOS_PRESENT_CHUNK;
+            fb_blit((uint32_t)(cur[i].x + cx), (uint32_t)cur[i].y, (uint32_t)(cur[i].x + cx), (uint32_t)cur[i].y, c, (uint32_t)cur[i].h);
+        }
+    fb_fence();
+    fb_set_bases(0u, 0u);
 }
 
 /* ---- Wraparound list navigation ---------------------------------------------------------------------------------
