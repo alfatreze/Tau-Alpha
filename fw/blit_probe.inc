@@ -242,8 +242,10 @@ COLD_FN3 static int blend_mb_read(uint32_t a, uint32_t *out)
 /* Returns once every command queued before it has executed (the engine runs its queue in order): a one-pixel rectangle is queued behind
  * them and the mailbox polls that pixel for the change. Gives up after about 50 ms. Does nothing while an overlay holds the engine
  * (its commands are dropped, so there is nothing to wait for). */
+static uint8_t fb_fence_timeout;   /* set when the last fb_fence() gave up before the engine drained (B-520: off-screen compose must not switch R_DBUF_CPU back until it has) */
 COLD_FN3 static void fb_fence(void)
 {
+    fb_fence_timeout = 0u;
     if (FB_HELD()) return;
     const uint32_t a = BLEND_CELL_Y * FB_STRIDE + BLEND_CELL_X;
     uint32_t r = 0;
@@ -255,6 +257,7 @@ COLD_FN3 static void fb_fence(void)
         while ((uint32_t)(cycles() - t) < 256u) { }
         if (blend_mb_read(a, &r)) return;
     } while (r == 0xDEADBEEFu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
+    if (r == 0xDEADBEEFu) fb_fence_timeout = 1u;
 }
 
 /* B-440: owner reports trail=0 fixes the Scope accumulation completely, but trail=5% and trail=80%
