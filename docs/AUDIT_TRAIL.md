@@ -13318,3 +13318,10 @@ caught by the real-CPU simulation that regenerates `mp3_soc_sim.v`, not a hand r
 Verified: `make rtl-lint` clean, `make test-rtl-cymo-resamp` still 0 failures/4354 outputs (module-level
 tests unaffected, SoC-wiring-only change), full `make test-rtl` (0 failures across all groups incl. the
 real-CPU PSRAM fw/ifetch sims) and `make test-host` both clean. Launching the fit next.
+
+## B-499: Cymo resampler -- fit launched for the latched pop_req-gate fix
+
+Launched `cymo-b498` (same proven macro bundle), both seeds confirmed running independently
+(`vm_fit.py` reports "2 (expected 2)" -- no collision). Launched 07:50 WEST; this exact bundle has
+consistently landed at 1h40-1h45m elapsed in every prior run (B-473/B-477/B-480/B-486/B-490/B-492 all
+finished in that window) -- **estimated completion ~09:30-09:35 WEST.**
