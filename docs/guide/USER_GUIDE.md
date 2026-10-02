@@ -28,9 +28,9 @@ A second core, **TAU Diagnostic Build**, is released beside the normal one for t
 ## Playing
 
 Tau needs a [media library](#media-library) -- it is the only way to browse and play your music. At launch, with a
-library built, it reopens what you were last playing (loaded, not started). With no library yet, you get a
-getting-started screen telling you to run the sync tool; a file picked from the Pocket's own **Load MP3** menu still
-plays once, but does not browse or queue anything.
+library built, it reopens what you were last playing (loaded, not started). If the library file
+(`tau-library.tdb`) is missing or cannot be read, Tau says so and asks you to sync your library to the card again with
+Tau Omega; it does not try to load a track on its own.
 
 The controls (checked against the firmware input handling in `fw/player.c`):
 

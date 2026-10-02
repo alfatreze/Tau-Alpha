@@ -2965,7 +2965,7 @@ COLD_SR static void ui_draw_chrome(void)
     else if (!track_title[0] && !track_file[0] && lib_state == LIB_ST_OK)
         title = "Select a track from your library";
     else if (!track_title[0] && !track_file[0] && lib_state != LIB_ST_OK)
-        title = "Sync your library to play music";
+        title = "Sync your library with Tau Omega";
     else if (!track_title[0]) {
         /* Last path component, extension dropped: the slot holds a full path
          * ("/Assets/tau/common/Flodown.mp3"). */
@@ -4547,20 +4547,16 @@ COLD_SR static void ui_idle_screen(const char *reason)     /* B-333: cold code *
      * as a separate alert. */
     if (reason) ui_gs_line(144u, reason, UI_RED, TS_1X);
 
-    ui_gs_line(170u, "Getting started",                     ui_accent, TS_15X);
-
-    /* 18 px within a step, 26 between them. An even pitch throughout made the
-     * steps read as one block -- the grouping has to be visible or the
-     * numbers are doing all the work. */
     /* Colour carries meaning here, so it follows one rule: prose is white,
-     * literal values and menu names are grey. */
-    ui_gs_line(206u, "1  Copy your music to your SD card:",  UI_WHITE,  TS_1X);
-    ui_gs_line(224u, "   /Assets/tau/common/",               UI_DIM,    TS_1X);
-
-    ui_gs_line(250u, "2  Run the sync tool (see the README)", UI_WHITE, TS_1X);
-    ui_gs_line(268u, "   to build tau-library.tdb.",          UI_WHITE, TS_1X);
-
-    ui_gs_line(294u, "3  Press Select to browse and play.",  UI_WHITE,  TS_1X);
+     * literal values and file names are grey. There is no "load a track" instruction any more: without a
+     * library there is nothing to browse, and the one remedy is to sync again with Tau Omega. The same
+     * screen covers a missing index and one that could not be read (Info > LIBRARY shows which). */
+    ui_gs_line(170u, "Library file not found",               ui_accent, TS_15X);
+    ui_gs_line(206u, "The library index is missing or",      UI_WHITE,  TS_1X);
+    ui_gs_line(224u, "could not be read:",                   UI_WHITE,  TS_1X);
+    ui_gs_line(242u, "   tau-library.tdb",                   UI_DIM,    TS_1X);
+    ui_gs_line(268u, "Use Tau Omega to sync your",           UI_WHITE,  TS_1X);
+    ui_gs_line(286u, "library to this card again.",          UI_WHITE,  TS_1X);
 }
 
 /* The failure screen, with the two explanatory lines supplied by the caller.
@@ -9032,8 +9028,9 @@ int main(void)
     if (lib_state == LIB_ST_OK) { from_lib = lib_boot_restore();
         lib_boot_ok = (uint8_t)from_lib;   /* B-080: shown on Info so a release-vs-diagnostic mismatch has evidence, not a guess */
     }
-    if (lib_state != LIB_ST_OK)      /* a library is browsed from the Select button; no auto-start from the file slot */
-    from_slot = SR_READY() ? load_track() : 0;      /* B-333: load_track is cold code; no cold image, nothing plays */
+    /* No library: do NOT fall back to loading the audio slot's file. Tau plays from the library only; the idle screen below tells the
+     * user the library file is missing and to sync again with Tau Omega. (A file picked from the Pocket's Load menu while running is
+     * still handled by the reload path in the main loop.) */
     ui_boot_cancel();          /* not _clear: see the note on that function */
 
     if (!from_slot && !from_lib) {
