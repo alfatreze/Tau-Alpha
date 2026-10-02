@@ -409,6 +409,52 @@ the soft clipper leaves a -6 dBFS tone identical and never exceeds full scale on
 
 **Validation of the analyser itself:** on synthetic signals it reproduces the plan's own prediction: nearest-neighbour 44.1 to 48 kHz reads 27.7 dB SINAD with images at 4,899.9 and 2,900.4 Hz, cubic interpolation reads 85.6 dB, and a clean 16-bit tone reads 86 dB, so a real capture is judged against known numbers.
 
+### 6.8 Time-resolved tone tracking: did the pitch change, and is anything glitching? (B-511)
+
+**Why this exists.** By B-499 the Cymo investigation had gone through four rounds of "owner listens, I read the RTL, I fix what the source suggests" (the borrowed tick, the missing reset, the ungated push,
+the half-latched gate), and every round was judged by ear, comparing ON against ON. Nothing had ever measured whether the *same* tone is stable with Cymo **OFF**, which is the baseline the whole question
+depends on, and the owner reasonably doubted their own earlier attention. `analyze` cannot settle it: it is one 1.4 s snapshot at 0.7 Hz resolution, so it cannot show a pitch that steps between toggles, drifts,
+or wobbles, nor a click that comes and goes.
+
+**The tool.** `python3 tools/lab/cymo_loopback.py track rec1.wav rec2.wav ... --freq 1000` demodulates the tone in overlapping 50 ms blocks and reports, per recording, the frequency (from the phase slope between
+blocks: about 0.001 Hz resolution at a healthy signal level), the level, and a per-block SINAD from an exact weighted least-squares sinusoid fit, then prints one comparison row per recording. Blocks are flagged
+as events when the frequency moves more than `--fthr` Hz (default 0.3) off the median, the level moves `--lthr` dB (0.5), or the SINAD drops `--sthr` dB (6) below its median. `--csv` writes the frequency series.
+Pure Python, about a second per ten seconds of 48 kHz audio.
+
+**How it was validated** (so a clean report means something): a synthetic 1000.37 Hz tone is recovered to 0.0000 Hz error (std 0.0001 Hz) with block SINAD 66.2 dB against a true 66; a 2 Hz step, a +-2 Hz 3 Hz vibrato,
+six 2 ms click bursts and an 8 ms dropout are each detected; `sim/test_cymo_loopback.py` (in `make test-host`) runs these, and 4 of 4 deliberately broken versions of the maths (frequency sign, hop length, residual,
+level) fail it. Two instructive bugs were found while building it: a rectangular window leaks about -40 dB of a fractional-cycle tone into its own residual, and even a Hann-windowed demodulation leaves ~1e-6 of the
+tone's image, more than a 66 dB noise floor, so the residual subtraction went negative in 60% of blocks; the exact least-squares fit fixed both.
+
+**Reading the numbers.** The absolute frequency includes the offset between the Pocket's DAC clock and the interface's ADC clock (tens of ppm, a few hundredths of a Hz at 1 kHz). That offset is the same in every
+recording, so compare recordings by their *difference*. One cent is 0.58 Hz at 1 kHz; a steady shift under about 0.3 Hz (half a cent) is below what anyone hears as a pitch change when two tones are heard in turn, so
+a table of medians within that spread means the signal is stable and what is being heard is something else.
+
+**The protocol** (same capture chain as 6.7: headphone out to interface line-in, WAV 48 kHz, identical gain, Pocket volume and EQ FLAT for every file; start recording, start playback, record about 12 s of steady tone):
+
+| Recording | Core state | File played | What it answers |
+|---|---|---|---|
+| `a_off_1.wav`, `a_off_2.wav` | Cymo **OFF**, two separate plays | `tone_1k_44100.flac` | The baseline: is the tone already unstable with Cymo off, and how reproducible is the chain? |
+| `b_on_1.wav`, `b_on_2.wav`, `b_on_3.wav` | Cymo **ON**, toggled OFF and ON again between each; note the `STALE` count read from the Info page right after each | `tone_1k_44100.flac` | Does the pitch differ between toggles, and does `STALE` correlate with it? |
+| `c_48_off.wav` | Cymo OFF | `tone_1k_48000.flac` | Control: a 48 kHz source needs no resampling at all |
+| `c_48_on.wav` (optional) | Cymo ON | `tone_1k_48000.flac` | **Expected to be wrong**: the resampler is fixed at 147:160 for 44.1 kHz input and mis-resamples anything else by design. A shift here is not a defect |
+| `s_off.wav`, `s_on.wav` | OFF, ON | `silence_44100.flac` | The "constant noise": does the noise floor change with Cymo on? (`analyze` on each reports the floor) |
+
+```
+python3 tools/lab/cymo_loopback.py track a_off_1.wav a_off_2.wav b_on_1.wav b_on_2.wav b_on_3.wav c_48_off.wav --freq 1000
+python3 tools/lab/cymo_loopback.py track c_48_on.wav          # no --freq: the shifted tone is outside the +-1% search window
+python3 tools/lab/cymo_loopback.py analyze s_off.wav ; python3 tools/lab/cymo_loopback.py analyze s_on.wav
+```
+
+**How to read the outcome** (decided in advance so the result is not re-interpreted afterwards):
+
+| Result | Meaning | Next step |
+|---|---|---|
+| The two OFF recordings differ from each other about as much as the ON ones | The shift is not Cymo: it is in the base path (decoder timing, the FIFO drain, the clocks, or the analog chain) | Stop Cymo RTL work; investigate the base path with this same tool |
+| OFF steady, ON medians differ between toggles by more than ~0.1 Hz | The start-up phase problem is real and still present | Redesign the hand-off (derive the resampler's start from the FIFO's own tick rather than a second free-running one); do not add another gate |
+| ON steady in frequency but SINAD events or level events appear | Occasional sample slips or repeats rather than a pitch shift | Correlate event times and counts with the `STALE` readings |
+| Everything steady and clean | The signal does not move; the difference heard is not a pitch change (the resampler's different image spectrum or level are the candidates) | Compare spectra with `analyze` rather than chasing pitch |
+
 ## 7. Speed and pitch: options and recommendation
 
 Definitions used here: **varispeed** = tempo and pitch both scale (today). **Tempo** = tempo scales, pitch unchanged.
