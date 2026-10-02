@@ -27,5 +27,10 @@ for (const view of [0, 1]) for (const draw of [0, 1]) for (const layers of [1, 3
   add(`grid/v${view}d${draw}n${layers}s${split}`, { view, draw, layers, split, nest, outer, res: draw ? 400 : 120, taper: (layers * 15) % 100, speed: 60 + layers * 20, response: 20 + split * 20 }, 'normal', seed++, 0, 13);
 }
 for (const [cm, grad] of [[0, 0], [0, 1], [0, 2], [0, 3], [2, 0]]) add(`colour/m${cm}g${grad}`, { color_mode: cm, grad, custom_outer: 0xF81F, custom_inner: 0x07E0, custom_bg: 0x1082, layers: 4 }, 'normal', seed++, grad & 1, 13);
+for (const [layers, xo] of [[2, [4]], [3, [2, 9]], [4, [7, 3, 12]], [6, [1, 2, 3, 14, 15]], [5, [15, 15, 2, 2]]]) {   // CUSTOM split: ordinary, unsorted and colliding boundaries
+  const v = { split: 4, layers, nest: layers & 1, view: 0, draw: layers & 1 };
+  xo.forEach((b, i) => { v['xo' + (i + 1)] = b; });
+  add(`custom/n${layers}`, v, 'normal', seed++, 0, 13);
+}
 add('stress/res400-6layers-full', { layers: 6, res: 400, draw: 1, speed: 240 }, 'full', 99, 0, 5);
 process.stdout.write(JSON.stringify(scen));

@@ -19,7 +19,7 @@
 #define LW_BUDGET 300u
 #define LW_HMAX   404u                 /* res (<= 400) + 4 */
 
-typedef struct { uint8_t view, layers, split, outer, nest, draw, speed, response, taper, color_mode, grad, color_outer, color_inner, color_bg; uint16_t res, custom_outer, custom_inner, custom_bg; } lw_p_t;
+typedef struct { uint8_t view, layers, split, outer, nest, draw, speed, response, taper, color_mode, grad, color_outer, color_inner, color_bg, xo[5]; uint16_t res, custom_outer, custom_inner, custom_bg; } lw_p_t;
 
 static uint8_t  lw_hist[LW_MAXL][LW_HMAX];
 static int16_t  lw_band[LW_MAXL][LW_NB];
@@ -106,9 +106,12 @@ COLD_FN3 static void lw_fix(uint8_t *b, int32_t n)
     for (int32_t i = n - 1; i >= 1; i--) b[i] = (uint8_t)lw_min(b[i], (int32_t)LW_NB - (n - i));
     for (int32_t i = 1; i < n; i++) b[i] = (uint8_t)lw_max(b[i], b[i - 1] + 1);
 }
-COLD_FN3 static void lw_bounds(uint32_t split, int32_t n, uint8_t *b)
+COLD_FN3 static void lw_bounds(uint32_t split, int32_t n, uint8_t *b, const uint8_t *xo)
 {
-    if (split == 1u) {
+    if (split == 4u) {                       /* CUSTOM: the boundaries are parameters (band index between layer i and i+1) */
+        b[0] = 0;
+        for (int32_t i = 1; i < n; i++) b[i] = xo[i - 1];
+    } else if (split == 1u) {
         int32_t s = 0, acc = 0;
         for (int32_t i = 0; i < n; i++) s += lw_fw[i];
         b[0] = 0;
@@ -157,7 +160,7 @@ COLD_FN3 static void lw_targets(const lw_p_t *p, const uint8_t *spec, const int8
     }
     if (p->split == 2u) lw_learn(spec, n);
     uint8_t b[LW_MAXL + 1u];
-    lw_bounds(p->split, n, b);
+    lw_bounds(p->split, n, b, p->xo);
     for (int32_t k = 0; k < n; k++) {
         if (p->nest == 0u) {
             const int32_t lo = p->outer == 0u ? b[k] : 0, hi = p->outer == 0u ? (int32_t)LW_NB : b[n - k], v = lw_pnorm(spec, lo, hi, 4);
@@ -296,6 +299,8 @@ COLD_FN3 static void lw_tick(const mtr_in_t *in)
     p.speed = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(SPEED), 20, 240);
     p.response = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(RESPONSE), 1, 100);
     p.taper = (uint8_t)lw_min(100, (int32_t)MV_LAYERED_WAVE(TAPER));
+    p.xo[0] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO1), 1, 15); p.xo[1] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO2), 1, 15); p.xo[2] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO3), 1, 15);
+    p.xo[3] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO4), 1, 15); p.xo[4] = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(XO5), 1, 15);
     p.color_mode = (uint8_t)MV_LAYERED_WAVE(COLOR_MODE); p.grad = (uint8_t)MV_LAYERED_WAVE(GRAD);
     p.color_outer = (uint8_t)MV_LAYERED_WAVE(COLOR_OUTER); p.color_inner = (uint8_t)MV_LAYERED_WAVE(COLOR_INNER); p.color_bg = (uint8_t)MV_LAYERED_WAVE(COLOR_BG);
     p.custom_outer = (uint16_t)MV_LAYERED_WAVE(CUSTOM_OUTER); p.custom_inner = (uint16_t)MV_LAYERED_WAVE(CUSTOM_INNER); p.custom_bg = (uint16_t)MV_LAYERED_WAVE(CUSTOM_BG);

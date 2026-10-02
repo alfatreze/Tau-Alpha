@@ -103,9 +103,9 @@ static mtr_data_t mtr_d_vu_master = { VIZ_VU_MASTER, "MASTER VU", MP_VU_MASTER_N
 #define MV_VU_MASTER(name) (mtr_v_vu_master[MP_VU_MASTER_##name])
 
 /* LAYERED WAVE (id 16) */
-enum { MP_LAYERED_WAVE_VIEW, MP_LAYERED_WAVE_LAYERS, MP_LAYERED_WAVE_SPLIT, MP_LAYERED_WAVE_OUTER, MP_LAYERED_WAVE_NEST, MP_LAYERED_WAVE_DRAW, MP_LAYERED_WAVE_RES, MP_LAYERED_WAVE_SPEED, MP_LAYERED_WAVE_RESPONSE, MP_LAYERED_WAVE_TAPER, MP_LAYERED_WAVE_COLOR_MODE, MP_LAYERED_WAVE_GRAD, MP_LAYERED_WAVE_COLOR_OUTER, MP_LAYERED_WAVE_COLOR_INNER, MP_LAYERED_WAVE_COLOR_BG, MP_LAYERED_WAVE_CUSTOM_OUTER, MP_LAYERED_WAVE_CUSTOM_INNER, MP_LAYERED_WAVE_CUSTOM_BG, MP_LAYERED_WAVE_N };
+enum { MP_LAYERED_WAVE_VIEW, MP_LAYERED_WAVE_LAYERS, MP_LAYERED_WAVE_SPLIT, MP_LAYERED_WAVE_OUTER, MP_LAYERED_WAVE_NEST, MP_LAYERED_WAVE_XO1, MP_LAYERED_WAVE_XO2, MP_LAYERED_WAVE_XO3, MP_LAYERED_WAVE_XO4, MP_LAYERED_WAVE_XO5, MP_LAYERED_WAVE_DRAW, MP_LAYERED_WAVE_RES, MP_LAYERED_WAVE_SPEED, MP_LAYERED_WAVE_RESPONSE, MP_LAYERED_WAVE_TAPER, MP_LAYERED_WAVE_COLOR_MODE, MP_LAYERED_WAVE_GRAD, MP_LAYERED_WAVE_COLOR_OUTER, MP_LAYERED_WAVE_COLOR_INNER, MP_LAYERED_WAVE_COLOR_BG, MP_LAYERED_WAVE_CUSTOM_OUTER, MP_LAYERED_WAVE_CUSTOM_INNER, MP_LAYERED_WAVE_CUSTOM_BG, MP_LAYERED_WAVE_N };
 static const char *const mtr_en_layered_wave_view[] = { "HISTORY", "SPECTRUM" };
-static const char *const mtr_en_layered_wave_split[] = { "OCTAVES", "BASS_FINE", "ENERGY", "DYNAMICS" };
+static const char *const mtr_en_layered_wave_split[] = { "OCTAVES", "BASS_FINE", "ENERGY", "DYNAMICS", "CUSTOM" };
 static const char *const mtr_en_layered_wave_outer[] = { "BASS", "TREBLE" };
 static const char *const mtr_en_layered_wave_nest[] = { "NESTED", "OVERLAP" };
 static const char *const mtr_en_layered_wave_draw[] = { "BLOCKS", "SMOOTH" };
@@ -117,36 +117,41 @@ static const char *const mtr_en_layered_wave_color_bg[] = { "ACCENT", "TEXT", "T
 static const mtr_param_t mtr_p_layered_wave[MP_LAYERED_WAVE_N] = {
     { "VIEW", MTR_ENUM, 0, 1, 1, 0, 255, 0, "", mtr_en_layered_wave_view },
     { "LAYERS", MTR_U8, 1, 6, 1, 3, 255, 0, "", 0 },
-    { "LAYER SPLIT", MTR_ENUM, 0, 3, 1, 0, 255, 0, "", mtr_en_layered_wave_split },
+    { "LAYER SPLIT", MTR_ENUM, 0, 4, 1, 0, 255, 0, "", mtr_en_layered_wave_split },
     { "OUTER LAYER", MTR_ENUM, 0, 1, 1, 0, 255, 0, "", mtr_en_layered_wave_outer },
     { "LAYER MODE", MTR_ENUM, 0, 1, 1, 0, 255, 0, "", mtr_en_layered_wave_nest },
+    { "SPLIT 1", MTR_U8, 1, 15, 1, 3, 2, 4, "", 0 },
+    { "SPLIT 2", MTR_U8, 1, 15, 1, 5, 2, 4, "", 0 },
+    { "SPLIT 3", MTR_U8, 1, 15, 1, 8, 2, 4, "", 0 },
+    { "SPLIT 4", MTR_U8, 1, 15, 1, 11, 2, 4, "", 0 },
+    { "SPLIT 5", MTR_U8, 1, 15, 1, 13, 2, 4, "", 0 },
     { "DRAW", MTR_ENUM, 0, 1, 1, 1, 255, 0, "", mtr_en_layered_wave_draw },
     { "RESOLUTION", MTR_U16, 16, 400, 8, 200, 0, 0, " COLS", 0 },
     { "SCROLL SPEED", MTR_U8, 20, 240, 10, 100, 0, 0, " PX/S", 0 },
     { "RESPONSE", MTR_U8, 1, 100, 5, 45, 255, 0, "", 0 },
     { "TAIL TAPER", MTR_U8, 0, 100, 5, 70, 255, 0, "%", 0 },
     { "COLOUR SOURCE", MTR_ENUM, 0, 2, 1, 1, 255, 0, "", mtr_en_layered_wave_color_mode },
-    { "ACCENT GRADATION", MTR_ENUM, 0, 3, 1, 0, 10, 0, "", mtr_en_layered_wave_grad },
-    { "OUTER COLOUR", MTR_ENUM, 0, 11, 1, 5, 10, 1, "", mtr_en_layered_wave_color_outer },
-    { "INNER COLOUR", MTR_ENUM, 0, 11, 1, 0, 10, 1, "", mtr_en_layered_wave_color_inner },
-    { "BACKGROUND", MTR_ENUM, 0, 11, 1, 10, 10, 1, "", mtr_en_layered_wave_color_bg },
-    { "CUSTOM OUTER", MTR_U16, 0, 65535, 1, 57905, 10, 2, "", 0 },
-    { "CUSTOM INNER", MTR_U16, 0, 65535, 1, 41662, 10, 2, "", 0 },
-    { "CUSTOM BACKGROUND", MTR_U16, 0, 65535, 1, 6277, 10, 2, "", 0 },
+    { "ACCENT GRADATION", MTR_ENUM, 0, 3, 1, 0, 15, 0, "", mtr_en_layered_wave_grad },
+    { "OUTER COLOUR", MTR_ENUM, 0, 11, 1, 5, 15, 1, "", mtr_en_layered_wave_color_outer },
+    { "INNER COLOUR", MTR_ENUM, 0, 11, 1, 0, 15, 1, "", mtr_en_layered_wave_color_inner },
+    { "BACKGROUND", MTR_ENUM, 0, 11, 1, 10, 15, 1, "", mtr_en_layered_wave_color_bg },
+    { "CUSTOM OUTER", MTR_U16, 0, 65535, 1, 57905, 15, 2, "", 0 },
+    { "CUSTOM INNER", MTR_U16, 0, 65535, 1, 41662, 15, 2, "", 0 },
+    { "CUSTOM BACKGROUND", MTR_U16, 0, 65535, 1, 6277, 15, 2, "", 0 },
 };
 static const char *mtr_pn_layered_wave[MTR_MAX_PRE] = { "AURORA", "SUNSET", "DEEP OCEAN", "HALO", "NEON", "PULSE", "TIDE", "SILK" };
 static char mtr_pb_layered_wave[MTR_MAX_PRE][16];
 static uint16_t mtr_pre_layered_wave[MTR_MAX_PRE * MP_LAYERED_WAVE_N] = {
-    0, 3, 0, 0, 0, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277,   /* AURORA */
-    0, 5, 1, 0, 0, 1, 160, 130, 50, 55, 1, 0, 5, 4, 11, 57905, 41662, 6277,   /* SUNSET */
-    0, 4, 2, 1, 1, 1, 120, 80, 40, 40, 0, 2, 6, 3, 9, 57905, 41662, 6277,   /* DEEP OCEAN */
-    0, 4, 3, 0, 0, 1, 240, 90, 30, 85, 0, 0, 2, 1, 10, 57905, 41662, 6277,   /* HALO */
-    0, 6, 0, 0, 0, 1, 400, 240, 80, 0, 0, 3, 7, 0, 11, 57905, 41662, 6277,   /* NEON */
-    0, 1, 3, 0, 0, 0, 64, 160, 70, 60, 2, 0, 0, 0, 10, 63981, 65067, 4228,   /* PULSE */
-    1, 4, 0, 0, 0, 1, 200, 100, 40, 60, 1, 0, 0, 1, 9, 57905, 41662, 6277,   /* TIDE */
-    0, 3, 0, 0, 0, 1, 400, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277,   /* SILK */
+    0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277,   /* AURORA */
+    0, 5, 1, 0, 0, 3, 5, 8, 11, 13, 1, 160, 130, 50, 55, 1, 0, 5, 4, 11, 57905, 41662, 6277,   /* SUNSET */
+    0, 4, 2, 1, 1, 3, 5, 8, 11, 13, 1, 120, 80, 40, 40, 0, 2, 6, 3, 9, 57905, 41662, 6277,   /* DEEP OCEAN */
+    0, 4, 3, 0, 0, 3, 5, 8, 11, 13, 1, 240, 90, 30, 85, 0, 0, 2, 1, 10, 57905, 41662, 6277,   /* HALO */
+    0, 6, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 240, 80, 0, 0, 3, 7, 0, 11, 57905, 41662, 6277,   /* NEON */
+    0, 1, 3, 0, 0, 3, 5, 8, 11, 13, 0, 64, 160, 70, 60, 2, 0, 0, 0, 10, 63981, 65067, 4228,   /* PULSE */
+    1, 4, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 40, 60, 1, 0, 0, 1, 9, 57905, 41662, 6277,   /* TIDE */
+    0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 400, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277,   /* SILK */
 };
-static uint16_t mtr_v_layered_wave[MP_LAYERED_WAVE_N] = { 0, 3, 0, 0, 0, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277 };
+static uint16_t mtr_v_layered_wave[MP_LAYERED_WAVE_N] = { 0, 3, 0, 0, 0, 3, 5, 8, 11, 13, 1, 200, 100, 45, 70, 1, 0, 5, 0, 10, 57905, 41662, 6277 };
 static uint8_t mtr_pi_layered_wave = 0;
 static mtr_data_t mtr_d_layered_wave = { VIZ_LAYERED_WAVE, "LAYERED WAVE", MP_LAYERED_WAVE_N, mtr_p_layered_wave, 8, MTR_MAX_PRE, mtr_pn_layered_wave, mtr_pb_layered_wave, mtr_pre_layered_wave, mtr_v_layered_wave, &mtr_pi_layered_wave };
 #define MV_LAYERED_WAVE(name) (mtr_v_layered_wave[MP_LAYERED_WAVE_##name])

@@ -11,13 +11,21 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-wi
 .panel{min-width:260px}.panel label{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0}
 .rgb{display:inline-flex;gap:6px;align-items:center;flex:1}.rgb input[type=text]{font:12px ui-monospace,monospace;width:7em}
 .info{width:18px;height:18px;padding:0;border-radius:50%;border:1px solid var(--mut);background:none;color:var(--mut);font:italic 700 11px/16px Georgia,serif;cursor:pointer}.info:hover,.info:focus-visible{color:var(--fg);border-color:var(--fg)}
-.help{flex-basis:100%;font-size:12px;color:var(--mut);padding:2px 0 4px 2px}.help .sel{color:var(--fg);font-weight:600}
+.strip{position:relative;width:800px;max-width:100%;margin-top:10px}.strip canvas{display:block;width:100%;border:1px solid var(--line);border-bottom:0}
+.hbar{position:relative;height:40px;border:1px solid var(--line);border-top:2px solid var(--line)}
+.handle{position:absolute;top:-2px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;background:none;border:0;padding:0;cursor:ew-resize;touch-action:none;color:var(--fg);font:11px system-ui,sans-serif}
+.handle .tri{width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:11px solid var(--c)}
+.handle .lbl{margin-top:1px;background:var(--bg);border:1px solid var(--c);padding:1px 6px;border-radius:9px;white-space:nowrap}
+.handle:focus-visible .lbl,.handle.drag .lbl{outline:2px solid var(--fg)}
+#tip{position:fixed;z-index:50;max-width:340px;background:var(--bg);color:var(--mut);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.4;box-shadow:0 4px 16px rgba(0,0,0,.25);pointer-events:none}
+#tip div{margin:2px 0}#tip .tiph{color:var(--fg);margin-bottom:4px}#tip .sel{color:var(--fg);font-weight:600}
+details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp summary{cursor:pointer;font-weight:600;padding:4px 0}.grpbody{padding-left:2px}
 .panel select,.panel input[type=range]{flex:1}.val{min-width:70px;color:var(--mut);font-variant-numeric:tabular-nums}
 .cost{margin-top:12px;color:var(--mut)}.over{color:#c4221b;font-weight:600}
 </style></head><body>
 <h1>Tau meter lab <span class="val" id="tag"></span></h1>
 <div class="wrap">
- <div><canvas id="cv" width="400" height="360"></canvas><div class="cost" id="cost"></div><div id="splitwrap" hidden><canvas id="map" width="400" height="56" style="margin-top:10px;width:800px;max-width:100%"></canvas><div class="cost" id="splitnote"></div></div></div>
+ <div><canvas id="cv" width="400" height="360"></canvas><div class="cost" id="cost"></div><div id="splitwrap" hidden><div class="strip" id="strip"><canvas id="map" width="400" height="56"></canvas><div class="hbar" id="hbar"></div></div><div class="cost" id="splitnote"></div></div></div>
  <div class="panel">
   <label>Meter <select id="meter"></select></label>
   <label>Theme <select id="theme"></select></label>
@@ -45,7 +53,8 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-wi
  D.palette.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.name;$('accent').appendChild(o)});$('accent').value=1;
  let params={},frame=0,st=null,key=null;
  const cv=$('cv'),ctx=cv.getContext('2d');
- function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);TauControls.build($('controls'),m,p=>{params=p;st=null;});}
+ let ctl=null;
+ function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);ctl=TauControls.build($('controls'),m,p=>{params=p;st=null;});}
  ['meter'].forEach(i=>$(i).onchange=rebuild);rebuild();
  ['theme','mode','accent','src','barready'].forEach(i=>$(i).onchange=()=>{st=null;});
  const live=TauLive.create();
@@ -68,11 +77,37 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-wi
   $('cost').innerHTML='commands/frame: mean '+c.mean+', worst '+c.max+' (class '+m.cost_class+' budget '+c.budget+') · '+c.vsBars+'× VIZ_BARS · <span class="'+(c.over?'over':'')+'">'+(c.over?'OVER BUDGET':'within budget')+'</span> · '+c.basis;
   const avg=a=>a.reduce((x,y)=>x+y,0)/a.length,cp=TauCost.cpu(avg(costs),avg(works));
   $('cost').innerHTML+='<br>CPU estimate: <b>'+cp.low+'–'+cp.high+'%</b> of one core (model: command issue 60–400 cycles, column evaluation 30–80, 38 Hz, 66.7 MHz; unmeasured) · engine writes '+Math.round(avg(pixs)/1000)+'k px/frame';}
+ const strip=$('strip'),hbar=$('hbar');let handles=[],drag=-1;
+ const bandsNow=()=>mod.boundsFor(params.split,params.layers,st||{},mod.xoOf(params));
+ const hz=b=>{const f=mod.EDGES[b];return f>=1000?(f/1000).toFixed(f>=10000?0:1)+'k':Math.round(f)+''};
+ const bandAt=x=>{const r=strip.getBoundingClientRect();return Math.round((x-r.left)/r.width*16)};
+ function setBounds(list){const v={split:4,layers:list.length+1};for(let i=0;i<5;i++)v['xo'+(i+1)]=list[i]!==undefined?list[i]:params['xo'+(i+1)];ctl.setMany(v);}   // a gradient editor's stops: moving one switches the split to CUSTOM
+ const moveTo=(i,nb)=>{const b=bandsNow();nb=Math.max(b[i-1]+1,Math.min(b[i+1]-1,nb));if(nb!==b[i]){const l=b.slice(1,-1);l[i-1]=nb;setBounds(l);}};
+ strip.ondblclick=e=>{if(e.target.closest('.handle')||!handlesOn()||params.layers>=6)return;const b=bandsNow(),band=Math.max(1,Math.min(15,bandAt(e.clientX)));if(b.includes(band))return;setBounds(b.slice(1,-1).concat(band).sort((a,c)=>a-c));};
+ const handlesOn=()=>!!(mod&&mod.boundsFor&&params.view===0&&params.split!==3);
+ function layoutHandles(col){
+  const n=params.layers;
+  if(!handlesOn()){hbar.innerHTML='';handles=[];hbar.style.display='none';return;}
+  hbar.style.display='';
+  if(handles.length!==n-1){
+   hbar.innerHTML='';handles=[];
+   for(let i=1;i<n;i++){const h=document.createElement('button');h.type='button';h.className='handle';h.setAttribute('aria-label','Layer boundary '+i+' (arrow keys move it)');h.innerHTML='<span class="tri"></span><span class="lbl"></span>';
+    h.onpointerdown=e=>{e.preventDefault();h.setPointerCapture(e.pointerId);drag=i;h.classList.add('drag');};
+    h.onpointermove=e=>{if(drag===i)moveTo(i,bandAt(e.clientX));};
+    h.onpointerup=h.onpointercancel=()=>{drag=-1;h.classList.remove('drag');};
+    h.ondblclick=e=>{e.stopPropagation();const l=bandsNow().slice(1,-1);l.splice(i-1,1);setBounds(l);};
+    h.onkeydown=e=>{const d=e.key==='ArrowLeft'?-1:e.key==='ArrowRight'?1:0;if(d){e.preventDefault();moveTo(i,bandsNow()[i]+d);}};
+    hbar.appendChild(h);handles.push(h);}
+  }
+  const b=bandsNow();
+  handles.forEach((h,k)=>{const i=k+1,layer=params.outer===0?i-1:n-i;h.style.left=(b[i]/16*100)+'%';h.style.setProperty('--c',col[layer]||'#888');h.querySelector('.lbl').textContent=hz(b[i]);h.title='Boundary between layers '+i+' and '+(i+1)+' at about '+hz(b[i])+'Hz';});
+ }
  function splitMap(){const w=$('splitwrap');if(!mod||!mod.describe){w.hidden=true;return;}w.hidden=false;
   const c=$('map').getContext('2d'),d=mod.describe(params,st),own=mod.bandOwner(params,st),col=mod.layerColours(theme,params).map(v=>{const[r,g,b]=TauFb.from565(v);return 'rgb('+r+','+g+','+b+')'});
   c.clearRect(0,0,400,56);for(let k=0;k<16;k++){const v=lvl[k]/255,h=Math.round(v*46);c.fillStyle=col[own[k]]||'#888';c.fillRect(k*25+2,48-h,21,h);c.fillStyle='rgba(128,128,128,.5)';c.fillRect(k*25+2,48,21,1);}
   c.fillStyle='#888';c.font='8px sans-serif';[0,4,8,12,15].forEach(k=>c.fillText(Math.round(mod.EDGES[k])+'',k*25+2,55));
-  $('splitnote').textContent='bands = hardware spectrum bank, bass left, coloured by the layer each feeds first · '+d.map(x=>x.spectrum?('layer '+(x.layer+1)+': full spectrum (x axis = frequency), own response time'):x.dynamics?('layer '+(x.layer+1)+': broadband peak, own time constant'):('layer '+(x.layer+1)+': '+x.hzLo+'–'+x.hzHi+' Hz')).join(' · ');}
+  layoutHandles(col);
+  $('splitnote').textContent=(handlesOn()?'drag a handle to move a boundary (switches Layer split to CUSTOM) · double-click the strip to add a layer, a handle to remove it · ':'')+'bands = hardware spectrum bank, bass left, coloured by the layer each feeds first · '+d.map(x=>x.spectrum?('layer '+(x.layer+1)+': full spectrum (x axis = frequency), own response time'):x.dynamics?('layer '+(x.layer+1)+': broadband peak, own time constant'):('layer '+(x.layer+1)+': '+x.hzLo+'–'+x.hzHi+' Hz')).join(' · ');}
  setInterval(step,26);
 })();
 </script></body></html>
