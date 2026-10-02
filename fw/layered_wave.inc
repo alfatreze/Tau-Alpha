@@ -62,6 +62,7 @@ COLD_FN3 static void lw_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uin
  * true when the beam hardware is absent, so an older bitstream draws as before. */
 #define LW_LEAD 28u
 static uint32_t lw_n_draw, lw_n_defer, lw_t_last, lw_t_max;
+static uint32_t lw_t_cpu, lw_t_unw, lw_cmd_last;   /* B-519: CPU time to issue the last draw, time inside lw_unwrap (PSRAM history reads) in it, commands issued */
 COLD_FN3 static int lw_beam_ok(const mtr_in_t *in)
 {
     if (in->force || ui_fullscreen) return 1;
@@ -366,6 +367,9 @@ COLD_FN3 static void lw_push(int32_t n)
  * the same on little- and big-endian hosts. The ring length is a multiple of 4, so a word never straddles the wrap. */
 COLD_FN3 static void lw_unwrap(int32_t k, uint32_t len)
 {
+#ifdef LW_BEAM_GATE
+    const uint32_t u0 = cycles();
+#endif
     uint32_t i = lw_head, j = 0;
     while (j < len) {
         const uint32_t w = lw_ring[k][i >> 2];
@@ -373,6 +377,9 @@ COLD_FN3 static void lw_unwrap(int32_t k, uint32_t len)
         i = (i & ~3u) + 4u;
         if (i >= LW_HMAX) i -= LW_HMAX;
     }
+#ifdef LW_BEAM_GATE
+    lw_t_unw += (uint32_t)(cycles() - u0);
+#endif
 }
 
 COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay)
@@ -580,10 +587,12 @@ COLD_FN3 static void lw_tick(const mtr_in_t *in)
 #endif
 #ifdef LW_BEAM_GATE
         const uint32_t lw_t0 = cycles();
+        lw_t_unw = 0;
 #endif
         if (p.view == 1u) lw_spectrum(&p, in, &cl, cy, Hh, &lay); else lw_history(&p, in, &cl, cy, Hh, &lay);
 #ifdef LW_BEAM_GATE
         if (lw_cnt) {                                  /* a draw happened (a gated or idle frame issues nothing) */
+            lw_t_cpu = (uint32_t)(cycles() - lw_t0); lw_cmd_last = (uint32_t)lw_cnt;   /* before the fence: what the CPU itself spent issuing */
 #if TAU_DIAGNOSTIC
             fb_fence();                                /* measure to completion in the engine, not just to the last command accepted; diagnostic builds only */
 #endif
