@@ -472,6 +472,8 @@ COLD_TEXT static uint32_t stack_high_water(void)
     return total - i * 4u;
 }
 
+extern unsigned int heap_used(void), heap_total(void);   /* fw/sysio.c */
+
 /* Build the report: record, QR text, persisted words, short code. */
 COLD_TEXT static void chk_finish(void)
 {
@@ -485,6 +487,8 @@ COLD_TEXT static void chk_finish(void)
     sr_vals(&s, SR_T_BUILD, 4, build, 4);
     uint32_t stackv[2] = { stack_high_water(), (uint32_t)(uintptr_t)&_stack_size };
     sr_vals(&s, SR_T_STACK, 4, stackv, 2);
+    uint32_t heapv[2] = { heap_used(), heap_total() };
+    sr_vals(&s, SR_T_HEAP, 4, heapv, 2);
     for (uint32_t i = 0; i < chk_n; i++) {
         sr_test(&s, chk_id(i), chk_res[i], chk_val[i]);
         if (chk_res[i] == SR_FAIL) fails |= 1u << i;

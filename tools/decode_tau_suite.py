@@ -27,7 +27,7 @@ TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window te
                                      # called once per ui_draw_dynamic() (~38 Hz); diagnostic-only, TAU_COLD_FRAME_PROBE builds
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
         10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest", 16: "stack",
-        22: "decprof2"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
+        22: "decprof2", 23: "heap"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
 BLIT_OPS = ["RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT"]
 # meters/*/meter.json (meter module M0, tools/gen_meters.py) index order -- the VIZ_* enum.
 VIZ_NAMES = ["BARS", "WATERFALL", "-", "PHASE SCOPE", "OSCILLOSCOPE", "VU", "WAVEFORM", "-", "PEAK DOTS", "-",
@@ -175,7 +175,7 @@ def parse_record(rec: bytes) -> dict:
                 "scope_smooth": v[11], "scope_trail": v[12],
             }
         elif tag in TAGS:
-            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1, 16: 4, 22: 2}[tag]
+            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1, 16: 4, 22: 2, 23: 4}[tag]
             if tag == 1:
                 fw, rev, flags, gap = (struct.unpack("<I", v[k:k + 4])[0] for k in range(0, 16, 4))
                 out["entries"]["build"] = {"firmware": f"{fw >> 16 & 255}.{fw >> 8 & 255}.{fw & 255}", "bitstream": f"{rev:08X}",
@@ -200,6 +200,9 @@ def parse_record(rec: bytes) -> dict:
                 elif tag == 16 and len(vals) == 2:         # SR_T_STACK (B-204): stack high-water mark
                     vals = dict(zip(("peak_bytes", "stack_size"), vals))
                     vals["free_bytes"] = vals["stack_size"] - vals["peak_bytes"]
+                elif tag == 23 and len(vals) == 2:         # SR_T_HEAP (B-514): heap high-water mark
+                    vals = dict(zip(("peak_bytes", "heap_size"), vals))
+                    vals["free_bytes"] = vals["heap_size"] - vals["peak_bytes"]
                 out["entries"][TAGS[tag]] = vals
         else:
             out["unknown"].append({"tag": tag, "hex": v.hex()})

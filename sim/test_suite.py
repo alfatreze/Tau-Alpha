@@ -83,6 +83,9 @@ def main():
     # SR_T_STACK (B-204): peak bytes used (the stack-painting high-water mark) + the region size, u32 each.
     stack = D.parse_record(D.build_record(1, [(16, le(4, 2048, 16384))]))["entries"]["stack"]
     check("decode stack", stack == {"peak_bytes": 2048, "stack_size": 16384, "free_bytes": 14336}, stack)
+    # SR_T_HEAP (B-514): peak heap bytes in use + the heap region size, u32 each.
+    heap = D.parse_record(D.build_record(1, [(23, le(4, 30000, 55000))]))["entries"]["heap"]
+    check("decode heap", heap == {"peak_bytes": 30000, "heap_size": 55000, "free_bytes": 25000}, heap)
     # SR_T_WVIZCFG (B-218): a one-off Configure-page export, not part of a Check run -- 13 raw bytes,
     # mixed widths (see fw/suite_core.h's own comment for the exact layout).
     wviz_bytes = bytes([1, 0xFF, 12, 3, 60, 25, 1, 1]) + (250).to_bytes(2, "little") + bytes([30, 45, 20])
