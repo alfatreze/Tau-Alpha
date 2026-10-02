@@ -13271,3 +13271,7 @@ Owner liked the blocked-colour spectrum view and asked for a Premiere-Pro-EQ-lik
 ## B-498 addendum: Resolution in SPECTRUM view
 
 `res` was hidden in SPECTRUM view because it was defined as history columns, but the spectrum has only 16 hardware bands. It now sets the cell width of the interpolated outline there (`max(stride, ceil(W / res))`), in both `fw/layered_wave.inc` and the JS twin; golden test 72 scenarios / 596,392 commands identical. Manifest `when` removed from `res`, help text updated. Firmware builds clean.
+
+## B-499: Layered Wave lab -- blend experiments, fixed preview, collapsible info
+
+Lab only (manifest/firmware untouched, golden unchanged: 72 scenarios / 596,392 commands identical). (1) `Layer blending` experiment: OFF, ALPHA, AVERAGE, ADD, SUBTRACT, ADD QUARTER (the five hardware blend modes of `mp3_fb.sv` `blend_ch`, which include the three classic alpha/additive/subtractive) + blend alpha, via a new `Fb.blend()` that mirrors the RTL arithmetic and counts one command per run (hardware: `OP_BLIT` with blend from a one-row colour strip, src stride 0); rendered all modes to check them. (2) Page layout: the preview and the frequency strip form one sticky column (the strip now directly under the preview, scrolls only if taller than the window) so the settings panel scrolls on its own; (3) the commands/CPU/band info moved into a collapsed "Info" section under them.

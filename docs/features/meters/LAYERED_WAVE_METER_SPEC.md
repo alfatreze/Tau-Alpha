@@ -109,6 +109,11 @@ comparison and the firmware are untouched (defaults skip every extra operation):
   the centres of their ranges, with a smooth gain curve). CURVE costs about half the commands (one outline instead of one per layer).
 - **Per-layer gain**, -18..+18 dB: a bead per layer on the frequency strip (drag up or down, double-click resets) with the gain curve drawn through the
   beads; also sliders. Works in both views and every style, and rebalances bass-heavy layers.
+- **Layer blending** (OFF, ALPHA, AVERAGE, ADD, SUBTRACT, ADD QUARTER; plus a blend alpha for ALPHA): the layers are composited through the shipped
+  hardware blend (B5) instead of painted opaque, with exactly the RTL's per-channel arithmetic (`blend_ch` in `mp3_fb.sv`; the five hardware modes, which
+  include the three classic ones: alpha, additive, subtractive). Modelled as one command per run: on hardware it is an `OP_BLIT` with blend from a one-row
+  strip of the layer colour with source stride 0, written once per colour change, so the count is unchanged; the strips and the blend-ready probe
+  (`BLEND_READY`) would be the real work. SUBTRACT on a dark background gives black, as the arithmetic says.
 If a style or the gain proves worth it, the next step is promoting it: manifest parameters, the C twin, golden scenarios.
 
 ## 5. Drawing and cost (Talos / Helios)
