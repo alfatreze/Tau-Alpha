@@ -587,7 +587,17 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
 #ifdef LW_STATS
         if (lw_cnt) { lw_t_cpu = (uint32_t)(cycles() - lw_t0); lw_cmd_last = (uint32_t)lw_cnt; }   /* what the CPU itself spent issuing */
 #endif
+#ifdef LW_STATS
+        /* On the firmware the cost guard is TIME, not commands (B-524): the redraw is CPU-bound (~60-90 us a command, more in the column maths), so a command
+         * budget held the stride high without actually bounding the time. 9 ms of CPU for a redraw on the default guard, scaled by the guard setting. The host
+         * build has no clock and keeps the command-count rule below, which is what the golden test compares. */
+        if (bud < 1000000000 && lw_cnt) {
+            const uint32_t hi = (CLK_HZ / 1000u) * 9u * (uint32_t)bud / 300u;
+            lw_stride = (uint8_t)(lw_t_cpu > hi ? lw_min(16, lw_stride + 1) : (lw_t_cpu < (hi >> 1) && lw_stride > 1u ? lw_stride - 1 : lw_stride));
+        }
+#else
         if (bud < 1000000000 && lw_cnt) lw_stride = (uint8_t)(lw_cnt > bud ? lw_min(16, lw_stride + 1) : (lw_cnt < (bud >> 1) && lw_stride > 1u ? lw_stride - 1 : lw_stride));
+#endif
     }
     wviz_force = 0u;
     return !paused && lw_cnt > 0;                                 /* commands were issued: helios_meter() presents the box (if it composed it off-screen) */

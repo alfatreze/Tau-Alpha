@@ -835,10 +835,11 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         break;
     }
     case 31:   /* METER DRAW (docs/issues/022): redraws of the full-repaint meters (Layered Wave, Chladni), how many were composed off-screen and presented, F = drains
-                * that never finished (frame dropped), last and worst time in microseconds (to engine completion in a Diagnostic Build), and Layered Wave's stride */
+                * that never finished (frame dropped), K = Layered Wave redraws skipped for the audio, last and worst time in microseconds (to engine completion in a Diagnostic Build), and Layered Wave's stride */
         q = set_str(q, "D"); q = ui_dec(q, helios_n_draw);
         q = set_str(q, " O"); q = ui_dec(q, helios_n_comp);
         if (helios_n_fail) { q = set_str(q, " F"); q = ui_dec(q, helios_n_fail); }
+        if (hm_n_skip) { q = set_str(q, " K"); q = ui_dec(q, hm_n_skip); }          /* redraws skipped to protect the audio (rate limit / low FIFO) */
         q = set_str(q, " "); q = ui_dec(q, helios_t_last / (CLK_HZ / 1000000u));
         q = set_str(q, "/"); q = ui_dec(q, helios_t_max / (CLK_HZ / 1000000u));
         q = set_str(q, "US S"); q = ui_dec(q, lw_stride);
@@ -1004,8 +1005,10 @@ static void wvcfg_build_vis(void)
 
 static inline uint32_t wvcfg_row(uint32_t k) { return wvcfg_vis[k]; }
 
+static uint8_t wvcfg_direct;                 /* B-524: the page was opened by the Start+Y shortcut: B closes Settings instead of going back to Appearance */
 static void wvcfg_open(void)
 {
+    wvcfg_direct = 0u;
     wvcfg_sel = 0u; wvcfg_top = 0u;
     if (!mtr_of(viz_mode)) viz_mode = mtr_modules[0]->viz;      /* editing a meter without parameters: start with the first that has some */
     wvcfg_build_vis();
@@ -1023,6 +1026,7 @@ COLD_FN static void set_open_wvizcfg_direct(void)
     blend_ensure();
     set_open = 1u; set_page = SET_WVIZCFG_PG; set_dirty = 1u;
     wvcfg_open();
+    wvcfg_direct = 1u;                  /* after wvcfg_open(), which clears it for the ordinary route */
 }
 
 COLD_FN static void wvcfg_follow(void)
@@ -1171,7 +1175,14 @@ static int wvcfg_input(uint32_t edge)
         return 1;
     }
 #endif
-    if (edge & (KEY_B | KEY_START)) { set_page = SET_APPEAR; wviz_force = 1u; set_dirty = 1u; return 1; }
+    /* Start closes Settings from any depth (like every other page); B goes back one level, or closes when the page was opened by the Start+Y shortcut
+     * (there is no Appearance page behind it to return to in the user's head). B-524. */
+    if (edge & KEY_START) { wvcfg_direct = 0u; wviz_force = 1u; set_close(); return 1; }
+    if (edge & KEY_B) {
+        if (wvcfg_direct) { wvcfg_direct = 0u; wviz_force = 1u; set_close(); }
+        else { set_page = SET_APPEAR; wviz_force = 1u; set_dirty = 1u; }
+        return 1;
+    }
     if (edge & KEY_UP)    { wvcfg_sel = wvcfg_sel ? (uint8_t)(wvcfg_sel - 1u) : (uint8_t)(wvcfg_vis_n - 1u); wvcfg_follow(); set_dirty = 1u; }
     if (edge & KEY_DOWN)  { wvcfg_sel = (uint8_t)((wvcfg_sel + 1u) % wvcfg_vis_n); wvcfg_follow(); set_dirty = 1u; }
     if (edge & KEY_LEFT)  { wvcfg_adjust(wvcfg_row(wvcfg_sel), -1); set_dirty = 1u; }

@@ -4815,13 +4815,32 @@ static void ov_frame(const char *title, const char *right, const char *hint)
  * Returns HM_DREW if the meter issued commands, plus HM_COMPOSED if they were composed off-screen and presented. */
 enum { HM_CLIP = 1u, HM_GRAD = 2u };           /* flags: honour helios_excl[] rects; the scope paints the player screen's gradient behind itself */
 enum { HM_DREW = 1u, HM_COMPOSED = 2u };       /* result */
-COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in, uint32_t flags)
+static int meter_afford(void);                 /* defined with the audio-yield logic further down */
+/* Policy for the heavy meter (B-524): Layered Wave's redraw costs 10-20 ms of CPU inside the decode loop (worst seen 52 ms), which starves the PCM FIFO.
+ * It is redrawn at most every HM_MIN_MS and skipped altogether while the FIFO is low (the same yield Chladni uses); the time skipped is added to the next
+ * call's dt_ms, so the history still scrolls at the right speed. A forced repaint is never skipped. */
+#define HM_MIN_MS 45u
+static uint32_t hm_last_cyc, hm_skip_ms, hm_n_skip;
+static uint8_t  hm_have;
+COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_t flags)
 {
+    mtr_in_t inb = *in0;
+    const mtr_in_t *in = &inb;
+    if (viz == VIZ_LAYERED_WAVE && !in0->force) {
+        if ((hm_have && (uint32_t)(cycles() - hm_last_cyc) < (CLK_HZ / 1000u) * HM_MIN_MS) || !meter_afford()) { hm_skip_ms += in0->dt_ms; hm_n_skip++; return 0u; }
+        const uint32_t dt = (uint32_t)in0->dt_ms + hm_skip_ms;
+        inb.dt_ms = (uint16_t)(dt > 65535u ? 65535u : dt);
+    }
+    hm_skip_ms = 0u;
     const uint32_t full = (viz == VIZ_CHLADNI || viz == VIZ_LAYERED_WAVE);        /* full-repaint meters */
-    const uint32_t comp = full && helios_offscreen_ok();
     const uint32_t front = DBUF_READY() ? helios_front_idx() : 0u;
+    const uint32_t cpu = DBUF_READY() ? (REG(R_DBUF_CPU) & 1u) : 0u;              /* where plain drawing points right now */
+    /* Nested inside an off-screen render that someone else started (the Settings crossfade renders the new page into the back buffer, preview included):
+     * R_DBUF_CPU already points at the back buffer, so draw there and leave composing and presenting to the outer render. Switching it back to the front
+     * buffer here sent the rest of that page to the displayed buffer and presented the preview onto it -- the corruption seen in the Configure screen (B-524). */
+    const uint32_t comp = full && cpu == front && helios_offscreen_ok();
     const uint32_t t0 = cycles();
-    hs_base = helios_buf_base(comp ? (front ^ 1u) : front);
+    hs_base = helios_buf_base(comp ? (front ^ 1u) : cpu);
     if (comp) REG(R_DBUF_CPU) = front ^ 1u;                    /* RECT-class commands read this at EXECUTION time: it stays on the back buffer until drained */
     fig_clip_on = (flags & HM_CLIP) ? 1u : 0u;
     uint32_t drew = 0u;
@@ -4846,6 +4865,7 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in, uint32_t
             } else { helios_n_fail++; if (viz == VIZ_LAYERED_WAVE) lw_retry(); }     /* never drained: do not show a half-built box; repaint next time */
         }
     }
+    if (viz == VIZ_LAYERED_WAVE) { hm_last_cyc = cycles(); hm_have = 1u; }
     if (full && drew) { helios_t_last = (uint32_t)(cycles() - t0); if (helios_t_last > helios_t_max) helios_t_max = helios_t_last; helios_n_draw++; }
     return res;
 }
