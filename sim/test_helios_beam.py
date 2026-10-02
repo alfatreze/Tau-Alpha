@@ -14,8 +14,12 @@ static uint32_t fake_scan;
 #define REG(a) (*(volatile uint32_t *)((a) == R_SCAN ? &fake_scan : &fake_scan))
 /* helios_fill_excl() (fw/helios_rect.h's caller) needs fb_rect declared/defined to compile and
  * link here; this test never calls it (only helios_rows_safe), so a no-op stub is enough. */
+static uint8_t fig_clip_on;
+#define COLD_FN3
 static void fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
 { (void)x; (void)y; (void)w; (void)h; (void)color; }
+static void fb_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg)
+{ (void)x; (void)y; (void)w; (void)h; (void)lit; (void)fg; (void)bg; }
 /* helios_flush()'s cold-aware regions (B-391 follow-up) read this directly, not through the
  * COLD_READY() macro (defined in fw/cold.inc, not included here) -- see fw/helios.inc's own comment.
  * This test never marks a region dirty, so the value never matters, only that the symbol exists. */

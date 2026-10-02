@@ -74,3 +74,9 @@ COLD_FN3 static int mtr_psram_ready_fn(void)
 #endif
 
 #endif
+
+/* fig_rect/fig_bar: see fw/player.c. Without the firmware's clipping wrappers they are the plain primitives. */
+#ifndef fig_rect
+#define fig_rect fb_rect
+#define fig_bar  fb_bar
+#endif
