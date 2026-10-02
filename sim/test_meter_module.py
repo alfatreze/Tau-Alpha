@@ -14,6 +14,9 @@ HARNESS = r'''
 #include <stdio.h>
 #include "meter_gen_enum.h"
 #include "meter_module.h"
+#ifndef COLD_DATA
+#define COLD_DATA
+#endif
 #include "meters_gen.h"
 
 /* ---- verbatim from fw/player.c and fw/settingsui.inc before M2 ------------------------------------ */

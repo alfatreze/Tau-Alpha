@@ -1566,7 +1566,7 @@ static ui_marquee_t ui_mq_title, ui_mq_artist;
  * row for it, so it costs a few dozen extra fb_rect() calls on the rare occasions its Settings-list thumbnail is drawn,
  * not a stash row it doesn't have room for. */
 #if TAU_ART_TIMG
-#define THUMB_LIVE_SLOTS (VIZ_COUNT - 5u)
+#define THUMB_LIVE_SLOTS (VIZ_COUNT - 6u)
 static inline uint32_t thumb_slot(uint32_t v)
 {
     return v - (v > VIZ_RETIRED_LEVELS) - (v > VIZ_RETIRED_MIRROR) - (v > VIZ_RETIRED_EYE) - (v > VIZ_RETIRED_TAPE) - (v > VIZ_CHLADNI);
@@ -4292,6 +4292,7 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
  * but B-415 needs to call both from here. */
 static int  chladni_tick_box(const mtr_in_t *in);
 static void vum_tick(const mtr_in_t *in);
+static void lw_tick(const mtr_in_t *in);
 
 /* Draws the meter `viz` into an arbitrary rect against a flat background: the Configure page's live preview. The one hand-written binding
  * between a generated parameter module and its drawing function (a meter module's `tick`, docs/METER_MODULE_SPEC.md section 3). */
@@ -4311,6 +4312,7 @@ COLD_FN3 static void mtr_preview(uint32_t viz, uint32_t x, uint32_t y, uint32_t 
     else if (viz == VIZ_WINAMP_BARS)  wviz_bars_tick(&in);
     else if (viz == VIZ_CHLADNI)      (void)chladni_tick_box(&in);
     else if (viz == VIZ_VU_MASTER)    vum_tick(&in);
+    else if (viz == VIZ_LAYERED_WAVE) lw_tick(&in);
 }
 
 static void ui_draw_dynamic(void);
@@ -4817,6 +4819,7 @@ static void ov_frame(const char *title, const char *right, const char *hint)
 
 #include "chladni.inc"
 #include "vu_master.inc"
+#include "layered_wave.inc"
 #include "fullscreen.inc"
 
 /* G4 step 4 (B-199..B-201): the real "meters go cold" conversion. Body unchanged from the original
@@ -4954,6 +4957,16 @@ COLD_FN3 static void ui_meter_redraw(void)
         goto viz_done;
     }
 
+    /* ---- LAYERED WAVE ---------------------------------------------------
+     * Nested mirrored envelope layers on a solid background -- see lw_tick() (fw/layered_wave.inc). Fullscreen-capable:
+     * fullscreen.inc draws it there. */
+    if (viz_mode == VIZ_LAYERED_WAVE) {
+        if (ui_fullscreen) goto viz_done;
+        const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
+        lw_tick(&in);
+        goto viz_done;
+    }
+
     /* ---- PEAK DOTS ----------------------------------------------------
      * Only the peak-hold markers, no bars: a row of floating dots tracing
      * the loudness contour. ~2 commands a column and the sparsest mode
@@ -5071,7 +5084,7 @@ COLD_FN3 static void meters_publish(void)
          * the factor it was downsampled by, which is a convincing-looking
          * wrong answer. */
         uint32_t hw_mean[SPEC_BANDS];
-        int have = spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI)
+        int have = spec_hw && (viz_mode == VIZ_LED || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_CHLADNI || viz_mode == VIZ_LAYERED_WAVE)
                    && spec_hw_fetch(hw_mean);
         if (have) {
             for (uint32_t b = 0; b < SPEC_BANDS; b++) {
@@ -6374,6 +6387,7 @@ static void poll_input(void)
                    : viz_mode == VIZ_WINAMP_SCOPE ? "METER: WINAMP SCOPE"
                    : viz_mode == VIZ_CHLADNI      ? "METER: CHLADNI"
                    : viz_mode == VIZ_VU_MASTER    ? "METER: MASTER VU"
+                   : viz_mode == VIZ_LAYERED_WAVE ? "METER: LAYERED WAVE"
                                             : "METER");
         settings_mark_dirty();
     }

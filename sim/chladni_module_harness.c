@@ -91,6 +91,9 @@ static uint16_t ui_mix(uint16_t a, uint16_t b, uint32_t t, uint32_t d) {      /*
 #include "../fw/meter_gen_enum.h"
 #include "../fw/meter_module.h"
 #include "../fw/meter.h"
+#ifndef COLD_DATA
+#define COLD_DATA
+#endif
 #include "../fw/meters_gen.h"
 #include "../fw/chladni.inc"
 

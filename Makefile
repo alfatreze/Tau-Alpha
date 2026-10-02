@@ -35,12 +35,13 @@ test-host:
 	$(PYTHON) tools/check_ui_snapshot_renderer.py
 	$(PYTHON) tools/check_audit_trail.py
 	$(PYTHON) tools/gen_meters.py --check
+	$(PYTHON) tools/gen_layered_wave_tables.py --check
 	$(PYTHON) tools/check_meter_deps.py
 	$(PYTHON) sim/test_meter_core.py --check
 	$(PYTHON) sim/test_meter_module.py
 	$(PYTHON) sim/test_chladni_params.py
 	$(PYTHON) sim/test_cymo_loopback.py
-	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js && $(PYTHON) sim/test_meter_golden.py && $(PYTHON) sim/test_meter_trace.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
+	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js && $(PYTHON) sim/test_meter_golden.py && $(PYTHON) sim/test_layered_wave_golden.py && $(PYTHON) sim/test_meter_trace.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
 	$(PYTHON) tools/gen_themes.py --check
 	$(PYTHON) tools/meter_cost_estimate.py
 	$(PYTHON) sim/test_psram_decode.py

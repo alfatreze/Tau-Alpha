@@ -42,6 +42,9 @@ METR_HARNESS = r'''
 #include <stdlib.h>
 #include "meter_gen_enum.h"
 #include "assets_core.h"
+#ifndef COLD_DATA
+#define COLD_DATA
+#endif
 #include "meters_gen.h"
 int main(int argc, char **argv) {
     FILE *f = fopen(argv[1], "rb"); static uint8_t b[4096]; uint32_t n = (uint32_t)fread(b, 1, sizeof b, f); fclose(f);
