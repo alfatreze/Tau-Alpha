@@ -23,6 +23,14 @@ Three steps:
          python3 tools/lab/cymo_loopback.py analyze rec_sweep.wav --sweep
          python3 tools/lab/cymo_loopback.py compare base_1k_44100.json later_1k_44100.json
 
+  4. Did the pitch move, or is something glitching? `track` is the time-resolved view (analyze is one snapshot):
+     frequency to ~0.001 Hz, level and per-block SINAD versus time, with flagged events, several recordings side by side.
+     Compare recordings by their DIFFERENCE (the Pocket's DAC clock and the interface's ADC clock differ by tens of ppm).
+
+         python3 tools/lab/cymo_loopback.py track off_1.wav off_2.wav on_1.wav on_2.wav --freq 1000
+
+     The recording protocol and how to read the outcome: docs/features/CYMO_AUDIO_ENGINE.md section 6.8.
+
 `selftest` checks the analyser against known signals, including the nearest-neighbour
 resampling error the plan predicts for 44.1 kHz material on a 48 kHz DAC.
 
@@ -364,6 +372,168 @@ def print_tone(r, name=''):
         print('    spur %8.1f Hz   %7.2f dBc' % (s['hz'], s['dbc']))
 
 
+def _median(v):
+    s = sorted(v)
+    n = len(s)
+    return s[n // 2] if n % 2 else 0.5 * (s[n // 2 - 1] + s[n // 2])
+
+
+def _events(flags, t, kind, worst):
+    """Group consecutive flagged blocks into events: {kind, t0, t1, worst}."""
+    out, i, n = [], 0, len(flags)
+    while i < n:
+        if flags[i]:
+            j = i
+            while j + 1 < n and flags[j + 1]:
+                j += 1
+            seg = range(i, j + 1)
+            out.append({'kind': kind, 't0': round(t[i], 3), 't1': round(t[j], 3), 'worst': round(worst(seg), 3)})
+            i = j + 1
+        else:
+            i += 1
+    return out
+
+
+def track_tone(samples, rate, freq=None, win_s=0.05, hop_s=0.025, fthr=0.3, lthr=0.5, sthr=6.0):
+    """Time-resolved view of a steady tone: frequency, level and a residual (SINAD) per block, versus time.
+
+    analyze_tone() gives ONE snapshot at ~0.7 Hz resolution, so it cannot show a pitch that drifts, steps between
+    toggles, wobbles, or a click that comes and goes. This demodulates the tone at a coarse frequency in overlapping
+    blocks (default 50 ms every 25 ms); the PHASE SLOPE between consecutive blocks is the exact frequency (about
+    0.001 Hz at a healthy signal level), the block magnitude is the level, and the energy left after removing the
+    tone is the block's SINAD. Blocks are flagged when the frequency leaves the median by fthr Hz, the level moves
+    lthr dB, or the SINAD falls sthr dB below its median. Absolute frequency includes the two audio clocks' offset
+    (the Pocket's DAC and the interface's ADC differ by tens of ppm, i.e. a few hundredths of a Hz at 1 kHz), which is
+    the SAME in every recording, so compare recordings by difference, not by absolute value.
+    Pure Python (the tool stays standard-library only): about a second per ten seconds of 48 kHz audio."""
+    f_coarse = analyze_tone(samples, rate, freq, 1 << 16)['freq_hz']
+    n = len(samples)
+    w = max(16, int(win_s * rate))
+    hop = max(1, int(hop_s * rate))
+    step = cmath.exp(-2j * math.pi * f_coarse / rate)
+    # A Hann window, not a rectangular one: a rectangular block holding a fractional number of cycles leaks about -40 dB
+    # of the tone into its own residual, which would bury any real noise floor below that and invent phantom events.
+    hw = [0.5 - 0.5 * math.cos(2.0 * math.pi * (i + 0.5) / w) for i in range(w)]
+    hw2 = [v * v for v in hw]
+    dt = hop / float(rate)
+
+    def demod(fc):
+        """Cheap pass: Hann-windowed demodulation, only to find the frequency to ~0.001 Hz."""
+        step = cmath.exp(-2j * math.pi * fc / rate)
+        zs = []
+        s = 0
+        while s + w <= n:
+            p = cmath.exp(-2j * math.pi * fc * s / rate)
+            z = 0j
+            for i in range(w):
+                z += samples[s + i] * hw[i] * p
+                p *= step
+            zs.append(z)
+            s += hop
+        return zs
+
+    def lsfit(fc):
+        """Exact pass: per block, the weighted least-squares fit of a*cos + b*sin at fc, so the residual is the REAL noise. (A windowed demodulation
+        leaves ~1e-6 of the tone's image in its residual, more than a 66 dB noise floor (2.5e-7), and the subtraction then goes negative.)"""
+        step = cmath.exp(-2j * math.pi * fc / rate)
+        t, zs, lev, sinad = [], [], [], []
+        s = 0
+        while s + w <= n:
+            p = cmath.exp(-2j * math.pi * fc * s / rate)
+            sxc = sxs = scc = sss = scs = sxx = 0.0
+            for i in range(w):
+                x = samples[s + i]
+                c, sn = p.real, -p.imag
+                g = hw2[i]
+                gx = g * x
+                sxc += gx * c
+                sxs += gx * sn
+                scc += g * c * c
+                sss += g * sn * sn
+                scs += g * c * sn
+                sxx += gx * x
+                p *= step
+            det = scc * sss - scs * scs
+            a = (sxc * sss - sxs * scs) / det
+            b = (scc * sxs - scs * sxc) / det
+            fit = a * sxc + b * sxs
+            amp = math.hypot(a, b)
+            zs.append(complex(a, -b))                      # = A*exp(-j*phi): its phase slope is the frequency offset from fc
+            t.append((s + w / 2.0) / rate)
+            lev.append(20.0 * math.log10(max(amp, 1e-15)))
+            sinad.append(10.0 * math.log10(max(fit, 1e-30) / max(sxx - fit, 1e-30)))
+            s += hop
+        return t, zs, lev, sinad
+
+    def freqs(zs, fc):
+        return [fc + cmath.phase(zs[i + 1] * zs[i].conjugate()) / (2.0 * math.pi * dt) for i in range(len(zs) - 1)]
+
+    zs0 = demod(f_coarse)
+    if len(zs0) < 4:
+        raise ValueError('recording too short to track')
+    fr0 = freqs(zs0, f_coarse)
+    f_ref = _median(fr0[len(fr0) // 4: 3 * len(fr0) // 4 + 1] or fr0)
+    t, zs, lev, sinad = lsfit(f_ref)
+    fr = freqs(zs, f_ref)
+    f_coarse = f_ref
+    nb = len(zs)
+    ft = [0.5 * (t[i] + t[i + 1]) for i in range(nb - 1)]
+    lref = sorted(lev)[int(0.9 * (nb - 1))]
+    live = [i for i in range(nb) if lev[i] >= lref - 3.0]
+    i0, i1 = live[0], live[-1]                              # trim the lead-in and tail-out silence
+    sel = list(range(i0, i1))                               # frequency j lies between blocks j and j+1
+    f_sel = [fr[j] for j in sel]
+    f_med = _median(f_sel)
+    l_sel = lev[i0:i1 + 1]
+    l_med = _median(l_sel)
+    s_sel = sinad[i0:i1 + 1]
+    s_med = _median(s_sel)
+    mean = sum(f_sel) / len(f_sel)
+    std = math.sqrt(sum((v - mean) ** 2 for v in f_sel) / len(f_sel))
+    f_flags = [abs(fr[j] - f_med) > fthr for j in sel]
+    l_flags = [abs(lev[i] - l_med) > lthr for i in range(i0, i1 + 1)]
+    s_flags = [sinad[i] < s_med - sthr for i in range(i0, i1 + 1)]
+    ev = (_events(f_flags, [ft[j] for j in sel], 'freq', lambda r: max((fr[sel[k]] - f_med for k in r), key=abs))
+          + _events(l_flags, t[i0:i1 + 1], 'level', lambda r: max((lev[i0 + k] - l_med for k in r), key=abs))
+          + _events(s_flags, t[i0:i1 + 1], 'sinad', lambda r: min(sinad[i0 + k] - s_med for k in r)))
+    ev.sort(key=lambda e: e['t0'])
+    return {
+        'rate': rate, 'f_coarse_hz': round(f_coarse, 3), 'win_s': win_s, 'hop_s': hop_s,
+        'steady_s': round(t[i1] - t[i0], 2), 'blocks': len(sel),
+        'freq_median_hz': round(f_med, 4), 'freq_min_hz': round(min(f_sel), 4), 'freq_max_hz': round(max(f_sel), 4),
+        'freq_std_hz': round(std, 4), 'freq_span_cents': round(1200.0 * math.log2(max(f_sel) / min(f_sel)), 3),
+        'level_median_dbfs': round(l_med, 2), 'level_min_dbfs': round(min(l_sel), 2), 'level_max_dbfs': round(max(l_sel), 2),
+        'block_sinad_median_db': round(s_med, 2), 'block_sinad_min_db': round(min(s_sel), 2),
+        'events': ev, 'thresholds': {'freq_hz': fthr, 'level_db': lthr, 'sinad_drop_db': sthr},
+        'series': {'t': [round(v, 4) for v in ft[i0:i1]], 'freq_hz': [round(fr[j], 4) for j in sel]},
+    }
+
+
+def print_track(r, name=''):
+    print('%s' % (name or 'track'))
+    print('  steady %.1f s (%d blocks of %.0f ms)   frequency median %.4f Hz   min %.4f   max %.4f   std %.4f Hz   span %.2f cents' % (
+        r['steady_s'], r['blocks'], r['win_s'] * 1000, r['freq_median_hz'], r['freq_min_hz'], r['freq_max_hz'], r['freq_std_hz'], r['freq_span_cents']))
+    print('  level median %.2f dBFS (min %.2f, max %.2f)   block SINAD median %.2f dB (worst %.2f)' % (
+        r['level_median_dbfs'], r['level_min_dbfs'], r['level_max_dbfs'], r['block_sinad_median_db'], r['block_sinad_min_db']))
+    th = r['thresholds']
+    ev = r['events']
+    print('  events (frequency > %.2f Hz off median, level > %.2f dB off, SINAD > %.0f dB below median): %d' % (th['freq_hz'], th['level_db'], th['sinad_drop_db'], len(ev)))
+    for e in ev[:8]:
+        print('    %-6s %7.3f-%7.3f s   worst %+.3f' % (e['kind'], e['t0'], e['t1'], e['worst']))
+    if len(ev) > 8:
+        print('    ... %d more' % (len(ev) - 8))
+
+
+def print_track_table(rows):
+    """Side-by-side view of several recordings: the question 'did the pitch change between toggles' at a glance."""
+    base = rows[0][1]['freq_median_hz']
+    print('\n%-34s %12s %10s %9s %9s %10s %10s %7s' % ('recording', 'median Hz', 'vs first', 'std Hz', 'span ct', 'SINAD med', 'SINAD min', 'events'))
+    for name, r in rows:
+        print('%-34s %12.4f %+10.4f %9.4f %9.2f %10.2f %10.2f %7d' % (
+            name[:34], r['freq_median_hz'], r['freq_median_hz'] - base, r['freq_std_hz'], r['freq_span_cents'],
+            r['block_sinad_median_db'], r['block_sinad_min_db'], len(r['events'])))
+
+
 def compare(a, b):
     print('%-16s %12s %12s %12s' % ('metric', 'baseline', 'later', 'change'))
     for key in ('freq_hz', 'level_dbfs', 'sinad_db', 'thd_db', 'floor_dbfs'):
@@ -452,6 +622,73 @@ def selftest(nfft=1 << 15, verbose=True):
                 fails.append('WAV reader round trip failed for format %d/%d' % (tag, bits))
         finally:
             os.unlink(t.name)
+    # 6. the time-resolved tracker (track_tone): recovers a known frequency, and DETECTS each kind of fault it exists to find
+    rate = 48000
+    secs = 4.0
+    pad = int(0.5 * rate)
+    state = [0x2545F491]
+
+    def noise(amp):                                          # deterministic LCG, so the test is repeatable
+        state[0] = (state[0] * 1664525 + 1013904223) & 0xFFFFFFFF
+        return amp * ((state[0] >> 8) / float(1 << 24) - 0.5) * 2.0
+
+    def synth(freq_of_t, amp=0.5, floor=3e-4, mutate=None):
+        ph, out = 0.0, []
+        for i in range(int(secs * rate)):
+            ph += 2 * math.pi * freq_of_t(i / rate) / rate
+            out.append(amp * math.sin(ph) + noise(floor))
+        if mutate:
+            mutate(out)
+        return [0.0] * pad + out + [0.0] * pad
+
+    def run(x, **kw):
+        return track_tone(x, rate, 1000.0, **kw)
+
+    r = run(synth(lambda t: 1000.37))
+    if verbose:
+        print_track(r, 'steady 1000.37 Hz')
+    if abs(r['freq_median_hz'] - 1000.37) > 0.01 or r['freq_std_hz'] > 0.02 or r['events']:
+        fails.append('tracker: steady tone not recovered cleanly (median %.4f, std %.4f, %d events)' % (r['freq_median_hz'], r['freq_std_hz'], len(r['events'])))
+
+    # a step of 2 Hz half way (a pitch change between two toggles, in one recording)
+    ph0 = []
+    def stepf(t):
+        return 1000.0 if t < secs / 2 else 1002.0
+    r = run(synth(stepf))
+    ser = list(zip(r['series']['t'], r['series']['freq_hz']))
+    lo = [f for tt, f in ser if tt < pad / rate + secs / 2 - 0.2]
+    hi = [f for tt, f in ser if tt > pad / rate + secs / 2 + 0.2]
+    if not lo or not hi or abs(_median(lo) - 1000.0) > 0.02 or abs(_median(hi) - 1002.0) > 0.02:
+        fails.append('tracker: a 2 Hz step is not measured as 1000 then 1002 Hz (%.3f / %.3f)' % (_median(lo) if lo else -1, _median(hi) if hi else -1))
+    if not any(e['kind'] == 'freq' for e in r['events']):
+        fails.append('tracker: a 2 Hz step raised no frequency event')
+
+    # a 3 Hz vibrato of +-2 Hz (a slow wobble)
+    r = run(synth(lambda t: 1000.0 + 2.0 * math.sin(2 * math.pi * 3.0 * t)))
+    if r['freq_max_hz'] - r['freq_min_hz'] < 3.0 or not (1.0 < r['freq_std_hz'] < 2.0):
+        fails.append('tracker: a +-2 Hz vibrato is not measured (span %.2f, std %.3f)' % (r['freq_max_hz'] - r['freq_min_hz'], r['freq_std_hz']))
+
+    # 2 ms noise bursts every half second (clicks)
+    def clicks(x):
+        for k in range(1, 7):
+            a = int(k * 0.5 * rate)
+            for i in range(a, a + int(0.002 * rate)):
+                x[i] += noise(0.3)
+    r = run(synth(lambda t: 1000.0, mutate=clicks))
+    nsin = sum(1 for e in r['events'] if e['kind'] == 'sinad')
+    if nsin < 5 or r['block_sinad_min_db'] > r['block_sinad_median_db'] - 6.0:
+        fails.append('tracker: six 2 ms clicks are not seen (%d SINAD events, worst %.1f vs median %.1f dB)' % (nsin, r['block_sinad_min_db'], r['block_sinad_median_db']))
+
+    # an 8 ms dropout
+    def drop(x):
+        a = int(2.0 * rate)
+        for i in range(a, a + int(0.008 * rate)):
+            x[i] = 0.0
+    r = run(synth(lambda t: 1000.0, mutate=drop))
+    if not any(e['kind'] == 'level' for e in r['events']):
+        fails.append('tracker: an 8 ms dropout raised no level event')
+    if verbose:
+        print_track(r, '8 ms dropout')
     return fails
 
 
@@ -470,6 +707,15 @@ def main():
     a.add_argument('--channel', type=int, default=0, help='channel of the recording to analyse (0 = left)')
     a.add_argument('--fft', type=int, default=1 << 16, help='FFT length (power of two)')
     a.add_argument('--json', help='write the result to this file (for compare)')
+    t = sub.add_parser('track', help='time-resolved frequency / level / residual of one or more steady-tone recordings')
+    t.add_argument('wav', nargs='+')
+    t.add_argument('--freq', type=float, help='expected tone frequency in Hz (default: strongest peak)')
+    t.add_argument('--channel', type=int, default=0)
+    t.add_argument('--win-ms', type=float, default=50.0, help='block length; shorter sees faster wobble but is noisier (default %(default)s)')
+    t.add_argument('--fthr', type=float, default=0.3, help='flag a frequency this many Hz off the median (default %(default)s; 1 cent is about 0.58 Hz at 1 kHz)')
+    t.add_argument('--lthr', type=float, default=0.5, help='flag a level this many dB off the median (default %(default)s)')
+    t.add_argument('--sthr', type=float, default=6.0, help='flag a block whose SINAD is this many dB below the median (default %(default)s)')
+    t.add_argument('--csv', help='write the per-block frequency series (one file per recording: <csv>.<n>.csv)')
     c = sub.add_parser('compare', help='compare two saved results')
     c.add_argument('baseline')
     c.add_argument('later')
@@ -491,6 +737,20 @@ def main():
         if args.json:
             with open(args.json, 'w') as f:
                 json.dump(r, f, indent=2)
+    elif args.cmd == 'track':
+        rows = []
+        for n, path in enumerate(args.wav):
+            rate, x = read_wav(path, args.channel)
+            r = track_tone(x, rate, args.freq, args.win_ms / 1000.0, args.win_ms / 2000.0, args.fthr, args.lthr, args.sthr)
+            print_track(r, os.path.basename(path))
+            rows.append((os.path.basename(path), r))
+            if args.csv:
+                with open('%s.%d.csv' % (args.csv, n), 'w') as f:
+                    f.write('t_s,freq_hz\n')
+                    for tt, ff in zip(r['series']['t'], r['series']['freq_hz']):
+                        f.write('%.4f,%.4f\n' % (tt, ff))
+        if len(rows) > 1:
+            print_track_table(rows)
     elif args.cmd == 'compare':
         with open(args.baseline) as f1, open(args.later) as f2:
             compare(json.load(f1), json.load(f2))

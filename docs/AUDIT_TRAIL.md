@@ -13471,3 +13471,28 @@ Installed with `tools/install_dev_core.py --replace --yes` (backup `work/card-ba
 **What the owner's first boot should answer:** (1) does it boot at all (the B-497 class of failure is excluded by construction here, but a black screen would mean the bitstream/firmware pairing is wrong again);
 (2) Cymo: is the 1 kHz toggle pitch now the same every time (B-498 latched gate), does the noise on MP3s go, and what does `STALE <n>` on the CYMO RESAMP Info row read; (3) Layered Wave: does it draw, scroll
 and respond normally (first hardware run of the PSRAM ring: a flat or empty box would mean the window proof failed, risk 1 in METER_MODULE_SPEC section 27.5), and does the Meter Sweep show a sane cost for it.
+
+## B-511: Owner's first read of TAU_DEV_59 -- the Cymo symptoms persist; stop iterating by ear and build the measurement; Layered Wave flicker tagged
+
+**Report (owner, TAU_DEV_59, B-510 build):** the 1 kHz tone still shifts, "even the 48000 one"; the noise is audible on the MacCunn FLAC (44.1 kHz) and on MP3s; listening attentively the pitch/tone shift is audible there
+too; the owner added that they "may not have always been playing sufficient attention in previous versions". Layered Wave "has flickering issues" -- tagged for later, not investigated (`docs/issues/022`).
+
+**Reading it honestly.** Four rounds of "owner listens, I read the RTL, I fix what the source suggests" (B-484 tick, B-488 reset, B-492 gate, B-498 latch) have each been judged by ear and each compared ON against ON; none has ever
+measured the Cymo **OFF** baseline, so it is genuinely unknown whether the shift is Cymo at all. Two specific points: a shift on a **48 kHz** tone is *expected* with Cymo ON (the resampler is fixed at 147:160 for
+44.1 kHz input and mis-resamples anything else by design, flagged since B-488), so it says nothing unless it also appears with Cymo OFF; and the owner's own doubt about earlier attention means the "different every toggle"
+observation is not firmly established either. Also now noted: the latched gate is built and on the card, so the symptoms surviving it is weak evidence that the remaining cause is not the push/pop hand-off, but that is an
+inference, not a measurement. **No RTL was changed this turn, deliberately.**
+
+**Built: `tools/lab/cymo_loopback.py track`.** A time-resolved tone analyser (the existing `analyze` is one 1.4 s snapshot at 0.7 Hz resolution and cannot show a pitch that steps between toggles, drifts or wobbles). Overlapping
+50 ms blocks; frequency from the phase slope (about 0.001 Hz), level, and per-block SINAD from an exact weighted least-squares sinusoid fit; flagged events for frequency, level and SINAD drops; several recordings side by side in one
+table. Validated against synthetic signals: a 1000.37 Hz tone is recovered to 0.0000 Hz (std 0.0001 Hz), block SINAD 66.2 dB against a true 66, and a 2 Hz step, a +-2 Hz vibrato, six 2 ms clicks and an 8 ms dropout are each detected;
+`sim/test_cymo_loopback.py` (in `make test-host`) runs them and **4 of 4** deliberately broken versions of the maths (frequency sign, hop length, residual, level) fail it. Two real estimator bugs were found and fixed on the way,
+both caught by the test rather than by inspection: the rectangular-window leakage (~-40 dB, phantom SINAD events on a clean tone), then, after switching to Hann, the windowed demodulation's residual subtraction going *negative* in 60% of
+blocks (a 66 dB floor is 2.5e-7 and the image leakage is ~1e-6); replaced by an exact least-squares fit per block.
+
+**Documented** with the recording protocol and the outcome table decided in advance (so the result cannot be re-interpreted afterwards): `docs/features/CYMO_AUDIO_ENGINE.md` section 6.8. The protocol: two Cymo-OFF recordings of the
+44.1 kHz tone (the baseline and chain reproducibility), three Cymo-ON recordings with a toggle between each (note the `STALE` count each time), a 48 kHz OFF control, an optional 48 kHz ON "expected wrong" control, and silence OFF/ON for
+the noise question.
+
+**Layered Wave flicker:** `docs/issues/022-layered-wave-flicker.md` and a line in `docs/ROADMAP.md` section 3. Recorded as unattributed: this was the first hardware run of the merged build, which contains both the Layered Wave meter
+and the new PSRAM ring (B-509), so the flicker cannot yet be assigned to either, to the meter's clear-then-redraw drawing, to the self-scaling stride, or to contention. Hypotheses are labelled as hypotheses; cheap discriminators listed.

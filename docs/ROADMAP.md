@@ -40,7 +40,7 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 - Tracker/MOD support, CJK/UTF-8 fonts, Chladni presets beyond Lattice/Shimmer, per-channel waveform presets.
 - Resolution 720: **last** by owner decision, everything earlier must stay resolution-agnostic.
 - Defects: `Track changes` Check failure; boot-restore mismatch (`docs/issues/021`, waits for the UI redesign); heap-peak instrumentation for Check;
-  BUG-001 accented names (`docs/issues/001`).
+  BUG-001 accented names (`docs/issues/001`); Layered Wave flicker on hardware (`docs/issues/022`, owner deferred, cause not yet attributed to the meter, the PSRAM ring, or contention).
 
 ## 4. Standing decisions (still in force; ask before reversing)
 
