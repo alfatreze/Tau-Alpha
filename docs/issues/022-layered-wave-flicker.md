@@ -35,3 +35,6 @@ this repository.
 ## Where it is recorded
 
 `docs/ROADMAP.md` section 3 ("Later and parked"), `docs/AUDIT_TRAIL.md` B-511. Owned by the Layered Wave session / worktree (`../tau-alpha-meter-layered-wave`).
+
+## Update (B-512)
+Hypothesis 1 confirmed from source as the only live meter without beam protection; a beam gate (`LW_BEAM_GATE`, 28-row margin) and an Info > LAYERED WAVE row (draws, skips, last/worst draw time, stride) are built on branch `lw-flicker`, host-verified, not yet on hardware. Next: install a build with it, read the draw time, and judge the flicker. Double buffering was rejected (whole-frame flip, ~100 ms flip wait in the decode loop).
