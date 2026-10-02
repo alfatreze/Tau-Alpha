@@ -13394,3 +13394,34 @@ Also: `tau_controls.js`/firmware value text apply the display offset (gains show
 
 Follow-up to B-506's `cold_tables` (which did this for Layered Wave only). `tools/gen_meters.py` now emits every meter's `mtr_p_*` parameter table as `COLD_DATA`: it is read only by the settings pages and the tau-assets loader, both after `cold_boot_load()`. Preset values stay in RAM for the other meters on purpose: `settings_load()` applies saved presets before the cold image loads, and a tau-assets METR section can overwrite them. Measured on the 192 KB link: Diagnostic heap gap 5,216 to 6,048 B, release 11,632 to 12,464 B (+832 B each). Left in hot RAM, deliberately: Chladni/Winamp/VU preset values and name buffers, the live values arrays, the enum name pointer tables. `make test-host` passes; heap-gap baseline updated. Not packaged or run on hardware (alpha.45 predates it).
 
+
+## B-508: meter-layered-wave merged into main; merged diagnostic build does NOT fit the 192 KB link (368 B short)
+
+**Merge**: `meter-layered-wave` (B-494..B-507, developed in its own worktree `../tau-alpha-meter-layered-wave`,
+clean at merge time) merged into `main` with `--no-ff` (`6ea0087`), no conflicts. The branch had already
+merged `main` once (including the B-498 pop_req latch) and had renumbered its own audit entries around the
+B-496..B-499 collision. Post-merge: `make test-host` passes in full (incl. the Layered Wave golden-frame
+test, meter generator consistency, audit-trail check: 654 unique IDs, the repeated headings are legitimate
+same-ID addenda).
+
+**Fit**: `cymo-b498` (the B-498 latched pop_req gate) closed clean on both seeds at 09:25 WEST, ahead of the
+~09:30-09:35 estimate; every corner positive (seed 1 worst hold +0.117 / setup +0.918 ns, seed 2 +0.116 /
++1.033 -- an essentially tied pair, seed 1 taken on the strict worst-case rule). RAM 256/308, DSP 20/66,
+unchanged. Seed 1 RBF collected and hash-verified (`4e701844...`).
+
+**Build gate**: packaging the MERGED firmware (`player-library-diagnostic-profile`,
+`RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, flags correctly comma-separated) was REFUSED by
+`package_dev_build.py`'s own heap-gap check: **3,728 B against the 4,096 B minimum**. The two branches each
+fit alone (main 6,432 B; the layered-wave branch measured 6,048 B on its own) but not together. `bss` grew
+2,836 B across the merge; the dominant contributor is Layered Wave's `lw_hist` at 2,424 B of hot RAM (its
+history buffer), plus ~400 B of other state. This is the gate doing its job, not a defect to route around:
+the floor protects heap/stack collisions, and the heap-peak instrumentation is still a parked item (B-230),
+so there is no evidence to justify lowering it. Nothing was packaged or written to the card from the merged
+tree.
+
+Options (owner/Layered-Wave-session decision, `lw_hist` is that module's design): shrink `lw_hist`; alias it
+onto another meter's buffer (meters are mutually exclusive, e.g. Chladni's `chl_half` is 1,600 B -- needs
+init-on-switch care); gate Layered Wave out of the diagnostic-profile build for now; or move it to cold data
+if its access pattern allows. The Cymo hardware re-test does not depend on any of this: the pre-merge
+firmware + `cymo-b498` RBF package (`work/diagnostics/tau-dev-59/pocket`, ROM `4f0dd166...`, RBF-reversed
+`fab94ebe...`) is intact and ready, and Layered Wave touches no Cymo code.
