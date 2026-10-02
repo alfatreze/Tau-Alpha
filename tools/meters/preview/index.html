@@ -7,20 +7,38 @@
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,sans-serif;padding:16px}
 h1{font-size:18px;margin:0 0 12px}
 .wrap{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start}
-canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-width:100%}
-.panel{min-width:260px}.panel label{display:flex;gap:8px;align-items:center;margin:4px 0}
+canvas{image-rendering:pixelated;border:1px solid var(--line);width:calc(400px * var(--z,1));max-width:100%}
+.panel{min-width:260px}.panel label{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0}
+.rgb{display:inline-flex;gap:6px;align-items:center;flex:1}.rgb input[type=text]{font:12px ui-monospace,monospace;width:7em}
+.info{width:18px;height:18px;padding:0;border-radius:50%;border:1px solid var(--mut);background:none;color:var(--mut);font:italic 700 11px/16px Georgia,serif;cursor:pointer}.info:hover,.info:focus-visible{color:var(--fg);border-color:var(--fg)}
+.stage{flex:0 0 auto;box-sizing:content-box;width:calc(400px * var(--z,1));max-width:calc(100vw - 24px);position:sticky;top:0;z-index:20;align-self:flex-start;max-height:100vh;overflow:auto;background:var(--bg);padding:8px 8px 6px 0;box-shadow:0 6px 10px -8px rgba(0,0,0,.4)}
+@media (max-width:899px){.stage{position:static;max-height:none;box-shadow:none}}   /* stacked layout: the preview would fill the window, so it scrolls with the page */.infod{margin-top:6px;max-width:100%}#costtable table{border-collapse:collapse;font-size:11px;margin-top:6px;width:100%}#costtable th{text-align:left;font-weight:600;padding:2px 6px 2px 0;vertical-align:top;white-space:nowrap}#costtable td{padding:2px 6px;border-left:1px solid var(--line);vertical-align:top;color:var(--mut)}#costtable td.sel{color:var(--fg);font-weight:600}.infod .cost{overflow-wrap:anywhere;white-space:normal}.infod summary{cursor:pointer;color:var(--mut)}
+.strip{position:relative;width:calc(400px * var(--z,1));max-width:100%;margin-top:2px}.strip canvas{display:block;width:100%;border:1px solid var(--line);border-bottom:0}
+.hbar{position:relative;height:40px;border:1px solid var(--line);border-top:2px solid var(--line)}
+.beads{position:absolute;left:0;right:0;top:0;pointer-events:none}.bead{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--c,#888);border:2px solid var(--bg);outline:1px solid var(--fg);cursor:ns-resize;pointer-events:auto;touch-action:none}
+.handle{position:absolute;top:-2px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;background:none;border:0;padding:0;cursor:ew-resize;touch-action:none;color:var(--fg);font:11px system-ui,sans-serif}
+.handle .tri{width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:11px solid var(--c)}
+.handle .lbl{margin-top:1px;background:var(--bg);border:1px solid var(--c);padding:1px 6px;border-radius:9px;white-space:nowrap}
+.handle:focus-visible .lbl,.handle.drag .lbl{outline:2px solid var(--fg)}
+#tip{position:fixed;z-index:50;max-width:340px;background:var(--bg);color:var(--mut);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.4;box-shadow:0 4px 16px rgba(0,0,0,.25);pointer-events:none}
+#tip div{margin:2px 0}#tip .tiph{color:var(--fg);margin-bottom:4px}#tip .sel{color:var(--fg);font-weight:600}
+details.grp{border-top:1px solid var(--line);margin-top:8px;padding-top:2px}.grp summary{cursor:pointer;font-weight:600;padding:4px 0}.grpbody{padding-left:2px}
 .panel select,.panel input[type=range]{flex:1}.val{min-width:70px;color:var(--mut);font-variant-numeric:tabular-nums}
 .cost{margin-top:12px;color:var(--mut)}.over{color:#c4221b;font-weight:600}
 </style></head><body>
 <h1>Tau meter lab <span class="val" id="tag"></span></h1>
 <div class="wrap">
- <div><canvas id="cv" width="400" height="360"></canvas><div class="cost" id="cost"></div></div>
+ <div class="stage"><canvas id="cv" width="400" height="360"></canvas><div id="splitwrap" hidden><div class="strip" id="strip"><canvas id="map" width="400" height="56"></canvas><div class="beads" id="beads"></div><div class="hbar" id="hbar"></div></div></div><details class="infod" id="infod"><summary>Info: commands, CPU, cost of each option</summary><div class="cost" id="cost"></div><div id="costtable"></div><div class="cost" id="splitnote"></div></details></div>
  <div class="panel">
   <label>Meter <select id="meter"></select></label>
   <label>Theme <select id="theme"></select></label>
   <label>Mode <select id="mode"><option value="0">Dark</option><option value="1">Light</option></select></label>
   <label>Accent <select id="accent"></select></label>
-  <label>Source <select id="src"><option value="demo">Demo (deterministic)</option><option value="sweep">Sweep</option><option value="silence">Silence</option><option value="trace">Recorded trace (load file)</option></select></label>
+  <label>Source <select id="src"><option value="demo">Demo (deterministic)</option><option value="sweep">Sweep</option><option value="silence">Silence</option><option value="trace">Recorded trace (load file)</option><option value="file">Audio file (live)</option><option value="mic">Microphone (live)</option></select></label>
+  <label>Audio file <input type="file" id="audiofile" accept="audio/*"></label>
+  <label>Repeat audio file <input type="checkbox" id="repeat" checked></label>
+  <label>Fullscreen figure (400×323) <input type="checkbox" id="fullfig"></label>
+  <label>Preview size <select id="zoom"><option value="1" selected>1× (400 px, the real size)</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
   <label>Trace file <input type="file" id="tracefile" accept=".json"></label>
   <label>Bars use OP_BAR <input type="checkbox" id="barready" checked></label>
   <div id="controls"></div>
@@ -39,21 +57,108 @@ canvas{image-rendering:pixelated;border:1px solid var(--line);width:800px;max-wi
  D.palette.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.name;$('accent').appendChild(o)});$('accent').value=1;
  let params={},frame=0,st=null,key=null;
  const cv=$('cv'),ctx=cv.getContext('2d');
- function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);TauControls.build($('controls'),m,p=>{params=p;st=null;});}
- ['meter'].forEach(i=>$(i).onchange=rebuild);rebuild();
- ['theme','mode','accent','src','barready'].forEach(i=>$(i).onchange=()=>{st=null;});
- const sources={demo:TauAudio.demo(1),sweep:TauAudio.sweep(),silence:TauAudio.silence(),trace:TauAudio.silence()};
- $('tracefile').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{sources.trace=TauAudio.trace(JSON.parse(t));$('src').value='trace';st=null;});};
- let fb=null,lvl=TauBallistics.newSpec(),theme=null,mod=null,box={x:16,y:152,w:368,h:122},costs=[];
- function setup(){const m=S.meters.find(x=>x.key===key);mod=TauMeters[key];theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
-  fb=new TauFb.Fb(400,360);fb.barReady=$('barready').checked;for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));st=mod.state();lvl=TauBallistics.newSpec();costs=[];frame=0;
+ let ctl=null;
+ function rebuild(){key=$('meter').value;const m=S.meters.find(x=>x.key===key);const m2=m;ctl=TauControls.build($('controls'),m2,p=>{params=p;infoSoon();},{valueNote:optionNote,noteKeys:COST_KEYS});st=null;}
+ const COST_KEYS=new Set(['view','split','nest','draw','hstyle','bmode','aa']);
+ ['meter'].forEach(i=>$(i).onchange=rebuild);
+ ['theme','mode','accent'].forEach(i=>$(i).onchange=retheme);   // no reset: the meter repaints in the new colours and keeps its history
+ ['src','barready'].forEach(i=>$(i).onchange=()=>{});
+ const live=TauLive.create();
+ const sources={demo:TauAudio.demo(1),sweep:TauAudio.sweep(),silence:TauAudio.silence(),trace:TauAudio.silence(),file:live.frame,mic:live.frame};
+ $('audiofile').onchange=e=>{const f=e.target.files[0];if(f)live.useFile(f,$('repeat').checked).then(()=>{$('src').value='file';}).catch(err=>alert('Audio file: '+err.message));};
+ $('src').addEventListener('change',()=>{if($('src').value==='mic')live.useMic().catch(err=>{alert('Microphone: '+err.message);$('src').value='demo';});});
+ $('fullfig').onchange=()=>{st=null;};
+ $('zoom').onchange=()=>document.documentElement.style.setProperty('--z',$('zoom').value);
+ $('repeat').onchange=()=>live.setLoop($('repeat').checked);
+ $('tracefile').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{sources.trace=TauAudio.trace(JSON.parse(t));$('src').value='trace';});};
+ let fb=null,lvl=TauBallistics.newSpec(),theme=null,mod=null,box={x:16,y:152,w:368,h:122},costs=[],works=[],pixs=[];
+ function setup(){const m=S.meters.find(x=>x.key===key);mod=TauMeters[key];box=$('fullfig').checked?{x:0,y:0,w:400,h:323}:{x:16,y:152,w:368,h:122};theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
+  fb=new TauFb.Fb(400,360);fb.barReady=$('barready').checked;for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));st=mod.state();lvl=TauBallistics.newSpec();costs=[];works=[];pixs=[];frame=0;
   ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);}
- function step(){if(!st)setup();const src=sources[$('src').value](frame);TauBallistics.specStep(lvl,src.spec);const bg=theme.gradAt(box.y+(box.h>>1));const c0=fb.cmds;
+ function retheme(){if(!st)return;theme=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360);
+  if(key!=='layered_wave'){st=null;return;}   // other meters keep change caches the lab cannot invalidate: they restart as before
+  for(let y=0;y<360;y++)fb._fill(0,y,400,1,theme.gradAt(y));infoSoon();}
+ function step(){if(!st)setup();fb.barReady=$('barready').checked;const src=sources[$('src').value](frame);TauBallistics.specStep(lvl,src.spec);const bg=theme.gradAt(box.y+(box.h>>1));const c0=fb.cmds,p0=fb.pix;
   mod.tick({fb,x:box.x,y:box.y,w:box.w,h:box.h,bg,theme,spec:lvl,wave:src.wave,paused:src.paused,p:params,st,force:frame===0});
-  costs.push(fb.cmds-c0);if(costs.length>120)costs.shift();frame++;
+  costs.push(fb.cmds-c0);works.push(st.work||0);pixs.push(fb.pix-p0);if(costs.length>120){costs.shift();works.shift();pixs.shift();}frame++;
   ctx.putImageData(new ImageData(fb.rgba(),400,360),0,0);
+  splitMap();
   const m=S.meters.find(x=>x.key===key),c=TauCost.summarize(costs,m.cost_class);
-  $('cost').innerHTML='commands/frame: mean '+c.mean+', worst '+c.max+' (class '+m.cost_class+' budget '+c.budget+') · '+c.vsBars+'× VIZ_BARS · <span class="'+(c.over?'over':'')+'">'+(c.over?'OVER BUDGET':'within budget')+'</span> · '+c.basis;}
+  $('cost').innerHTML='commands/frame: mean '+c.mean+', worst '+c.max+' (class '+m.cost_class+' budget '+c.budget+') · '+c.vsBars+'× VIZ_BARS · <span class="'+(c.over?'over':'')+'">'+(c.over?'OVER BUDGET':'within budget')+'</span> · '+c.basis;
+  const avg=a=>a.reduce((x,y)=>x+y,0)/a.length,cp=TauCost.cpu(avg(costs),avg(works)),cellW=params.view===1&&params.res?Math.max(st.stride||1,Math.ceil(box.w/params.res)):(st.stride||1);
+  $('cost').innerHTML+='<br>drawing cell width: <b>'+cellW+' px</b>'+(cellW>1&&params.layers!==undefined?' (widened by the cost guard and the Resolution setting: edges and the taper step at this width; set Cost guard to RELAXED or OFF in the experimental section to see more)':' (full resolution)');
+  $('cost').innerHTML+='<br>CPU estimate: <b>'+cp.low+'–'+cp.high+'%</b> of one core (model: command issue 60–400 cycles, column evaluation 30–80, 38 Hz, 66.7 MHz; unmeasured) · engine writes '+Math.round(avg(pixs)/1000)+'k px/frame';}
+ const strip=$('strip'),hbar=$('hbar');let handles=[],drag=-1;
+ const bandsNow=()=>mod.boundsFor(params.split,params.layers,st||{},mod.xoOf(params));
+ const hz=b=>{const f=mod.EDGES[b];return f>=1000?(f/1000).toFixed(f>=10000?0:1)+'k':Math.round(f)+''};
+ const bandAt=x=>{const r=strip.getBoundingClientRect();return Math.round((x-r.left)/r.width*16)};
+ function setBounds(list){const v={split:4,layers:list.length+1};for(let i=0;i<5;i++)v['xo'+(i+1)]=list[i]!==undefined?list[i]:params['xo'+(i+1)];ctl.setMany(v);}   // a gradient editor's stops: moving one switches the split to CUSTOM
+ const moveTo=(i,nb)=>{const b=bandsNow();nb=Math.max(b[i-1]+1,Math.min(b[i+1]-1,nb));if(nb!==b[i]){const l=b.slice(1,-1);l[i-1]=nb;setBounds(l);}};
+ strip.ondblclick=e=>{if(e.target.closest('.handle')||!handlesOn()||params.layers>=6)return;const b=bandsNow(),band=Math.max(1,Math.min(15,bandAt(e.clientX)));if(b.includes(band))return;setBounds(b.slice(1,-1).concat(band).sort((a,c)=>a-c));};
+ const handlesOn=()=>!!(mod&&mod.boundsFor&&params.split!==3);
+ function layoutHandles(col){
+  const n=params.layers;
+  if(!handlesOn()){hbar.innerHTML='';handles=[];hbar.style.display='none';return;}
+  hbar.style.display='';
+  if(handles.length!==n-1){
+   hbar.innerHTML='';handles=[];
+   for(let i=1;i<n;i++){const h=document.createElement('button');h.type='button';h.className='handle';h.setAttribute('aria-label','Layer boundary '+i+' (arrow keys move it)');h.innerHTML='<span class="tri"></span><span class="lbl"></span>';
+    h.onpointerdown=e=>{e.preventDefault();h.setPointerCapture(e.pointerId);drag=i;h.classList.add('drag');};
+    h.onpointermove=e=>{if(drag===i)moveTo(i,bandAt(e.clientX));};
+    h.onpointerup=h.onpointercancel=()=>{drag=-1;h.classList.remove('drag');};
+    h.ondblclick=e=>{e.stopPropagation();const l=bandsNow().slice(1,-1);l.splice(i-1,1);setBounds(l);};
+    h.onkeydown=e=>{const d=e.key==='ArrowLeft'?-1:e.key==='ArrowRight'?1:0;if(d){e.preventDefault();moveTo(i,bandsNow()[i]+d);}};
+    hbar.appendChild(h);handles.push(h);}
+  }
+  const b=bandsNow();
+  handles.forEach((h,k)=>{const i=k+1,layer=params.outer===0?i-1:n-i;h.style.left=(b[i]/16*100)+'%';h.style.setProperty('--c',col[layer]||'#888');h.querySelector('.lbl').textContent=hz(b[i]);h.title='Boundary between layers '+i+' and '+(i+1)+' at about '+hz(b[i])+'Hz';});
+ }
+ const beads=$('beads');let beadEls=[];
+ function layoutBeads(col){   // one bead per layer: drag up/down to set that layer's gain (dB), double-click to reset; the line through them is the gain curve
+  if(!mod||!mod.boundsFor||params.layers===undefined){beads.innerHTML='';beadEls=[];return;}
+  const n=params.layers,b=bandsNow();beads.style.height=($('map').clientHeight||56)+'px';
+  if(beadEls.length!==n){beads.innerHTML='';beadEls=[];
+   for(let k=0;k<n;k++){const e=document.createElement('div');e.className='bead';e.setAttribute('role','slider');e.setAttribute('aria-label','Gain, layer '+(k+1));
+    e.onpointerdown=ev=>{ev.preventDefault();e.setPointerCapture(ev.pointerId);e._d=true;};
+    e.onpointermove=ev=>{if(!e._d)return;const r=$('map').getBoundingClientRect(),g=Math.max(-18,Math.min(18,Math.round((0.5-(ev.clientY-r.top)/r.height)*36)));if(g+18!==(params['g'+(k+1)]|0))ctl.set('g'+(k+1),g+18);};
+    e.onpointerup=e.onpointercancel=()=>{e._d=false;};e.ondblclick=()=>ctl.set('g'+(k+1),0);
+    beads.appendChild(e);beadEls.push(e);}}
+  beadEls.forEach((e,k)=>{const g=params.outer===0?k:n-1-k,cx=params.split===3?(k+0.5)/n:(b[g]+b[g+1])/2/16,gain=(params['g'+(k+1)]|0)-18;
+   e.style.left=(cx*100)+'%';e.style.top=((0.5-gain/36)*100)+'%';e.style.setProperty('--c',col[k]||'#888');e.title='Layer '+(k+1)+' gain '+(gain>0?'+':'')+gain+' dB (drag up or down, double-click resets)';});
+ }
+ function splitMap(){const w=$('splitwrap');if(!mod||!mod.describe){w.hidden=true;return;}w.hidden=false;
+  const c=$('map').getContext('2d'),d=mod.describe(params,st),own=mod.bandOwner(params,st),col=mod.layerColours(theme,params).map(v=>{const[r,g,b]=TauFb.from565(v);return 'rgb('+r+','+g+','+b+')'});
+  c.clearRect(0,0,400,56);for(let k=0;k<16;k++){const v=lvl[k]/255,h=Math.round(v*46);c.fillStyle=col[own[k]]||'#888';c.fillRect(k*25+2,48-h,21,h);c.fillStyle='rgba(128,128,128,.5)';c.fillRect(k*25+2,48,21,1);}
+  c.fillStyle='#888';c.font='8px sans-serif';[0,4,8,12,15].forEach(k=>c.fillText(Math.round(mod.EDGES[k])+'',k*25+2,55));
+  if(params.layers!==undefined){const n=params.layers,b=bandsNow(),pts=[];for(let k=0;k<n;k++){const g=params.outer===0?k:n-1-k,cx=params.split===3?(k+0.5)/n:(b[g]+b[g+1])/2/16;pts.push([cx*400,(0.5-((params['g'+(k+1)]|0)-18)/36)*56]);}
+   c.strokeStyle='rgba(128,128,128,.6)';c.setLineDash&&c.setLineDash([3,3]);c.beginPath();c.moveTo(0,28);c.lineTo(400,28);c.stroke();c.setLineDash&&c.setLineDash([]);
+   c.strokeStyle='#fff';c.lineWidth=1.5;c.beginPath();pts.forEach((q,i)=>{if(i)c.lineTo(q[0],q[1]);else c.moveTo(Math.min(0,q[0]),q[1]);});if(pts.length)c.lineTo(400,pts[pts.length-1][1]);c.stroke();c.lineWidth=1;}
+  layoutHandles(col);layoutBeads(col);
+  $('splitnote').textContent=(handlesOn()?'drag a handle to move a boundary (switches Layer split to CUSTOM) · double-click the strip to add a layer, a handle to remove it · ':'')+'bands = hardware spectrum bank, bass left, coloured by the layer each feeds first · '+d.map(x=>x.spectrum?('layer '+(x.layer+1)+': full spectrum (x axis = frequency), own response time'):x.dynamics?('layer '+(x.layer+1)+': broadband peak, own time constant'):('layer '+(x.layer+1)+': '+x.hzLo+'–'+x.hzHi+' Hz')).join(' · ');}
+ /* What each option costs: run the meter headless for a few dozen frames of the demo source with the current settings and one setting changed, and
+    report the model CPU range and the SDRAM word operations of the drawing engine (fill 1 per pixel, blend 3, copy 2). Model numbers, demo audio. */
+ const estCache=new Map();
+ function estimate(pp){
+  const k=key+JSON.stringify(pp)+box.w+'x'+box.h+$('theme').value+$('mode').value+$('accent').value;if(estCache.has(k))return estCache.get(k);
+  const th=TauTheme.makeTheme(D,+$('theme').value,$('mode').value==='1',+$('accent').value,360),f=new TauFb.Fb(400,360),s=mod.state(),lv=TauBallistics.newSpec(),src=TauAudio.demo(1),N=45,W0=15;
+  let cmds=0,work=0,ops=0;
+  for(let n=0;n<N;n++){const fr=src(n);TauBallistics.specStep(lv,fr.spec);const c0=f.cmds,o0=f.ops;
+   mod.tick({fb:f,x:box.x,y:box.y,w:box.w,h:box.h,bg:0,theme:th,spec:lv,wave:fr.wave,paused:false,p:pp,st:s,force:n===0});
+   if(n>=W0){cmds+=f.cmds-c0;work+=s.work||0;ops+=f.ops-o0;}}
+  const m=N-W0,r={cmds:cmds/m,ops:ops/m,cpu:TauCost.cpu(cmds/m,work/m)};estCache.set(k,r);return r;
+ }
+ const mid=c=>(c.low+c.high)/2,sgn=v=>(v>=0?'+':'')+v.toFixed(1);
+ function optionNote(pk,i){if(!mod||!mod.state)return'';const base=estimate(params),alt=estimate(Object.assign({},params,{[pk]:i}));
+  const d=mid(alt.cpu)-mid(base.cpu),de=base.ops?(alt.ops/base.ops-1)*100:0;
+  return 'CPU '+alt.cpu.low+'–'+alt.cpu.high+'% ('+sgn(d)+'), engine '+Math.round(alt.ops/1000)+'k ops/frame ('+(de>=0?'+':'')+Math.round(de)+'%)';}
+ let infoTimer=0;function infoSoon(){clearTimeout(infoTimer);infoTimer=setTimeout(()=>{if(!$('infod').open||!mod||!mod.state)return;costTable();},500);}
+ function costTable(){const m=S.meters.find(x=>x.key===key),all=m.params;const rows=[];
+  for(const x of all){if(x.type!=='enum'||!COST_KEYS.has(x.key)||(x.when&&!Object.entries(x.when).every(([k,v])=>params[k]===v)))continue;
+   rows.push('<tr><th>'+x.label+'</th>'+x.values.map((v,i)=>{const alt=estimate(Object.assign({},params,{[x.key]:i})),base=estimate(params),d=mid(alt.cpu)-mid(base.cpu);
+    return '<td'+(i===params[x.key]?' class="sel"':'')+'>'+v+'<br>'+alt.cpu.low+'–'+alt.cpu.high+'% <small>('+sgn(d)+')</small><br><small>'+Math.round(alt.ops/1000)+'k ops</small></td>';}).join('')+'</tr>');}
+  $('costtable').innerHTML=rows.length?'<table>'+rows.join('')+'</table><div class="cost">Each cell: model CPU range of one core (change vs your current setting) and SDRAM word operations of the drawing engine per frame, demo audio, current other settings.</div>':'';}
+ $('infod').addEventListener('toggle',()=>{if($('infod').open)costTable();});
+ rebuild();   // after everything it uses is defined
  setInterval(step,26);
 })();
 </script></body></html>

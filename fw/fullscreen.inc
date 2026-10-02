@@ -121,7 +121,7 @@ COLD_FN3 static void ui_fs_frame(void)
 }
 
 /* Called every display frame while fullscreen (after the normal, now silent, dynamic pass). */
-static inline int fs_capable(void) { return viz_mode == VIZ_CHLADNI || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE; }
+static inline int fs_capable(void) { return viz_mode == VIZ_CHLADNI || viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE || viz_mode == VIZ_LAYERED_WAVE; }
 
 COLD_FN3 static void ui_fs_dynamic(void)
 {
@@ -142,6 +142,7 @@ COLD_FN3 static void ui_fs_dynamic(void)
         if (fs_force) { wviz_force = 1u; helios_fill_excl(0, 0, FS_W, FS_FIG_H, 0u); }
         const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, wviz_force);
         if (viz_mode == VIZ_WINAMP_BARS) wviz_bars_tick(&in);
+        else if (viz_mode == VIZ_LAYERED_WAVE) lw_tick(&in);
         else                             wviz_scope_tick(&in, 0);
         fs_force = 0u; fs_draw_label();
     } else {
@@ -180,7 +181,7 @@ COLD_FN3 static void meter_preset_next(void)
         ui_wave_clear(); ui_wave_force = 1u;
         settings_mark_dirty();
         ui_toast_msg(bars_layout ? "PRESET: MIRRORED" : "PRESET: BARS");
-    } else if (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE || viz_mode == VIZ_VU_MASTER) {
+    } else if (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE || viz_mode == VIZ_VU_MASTER || viz_mode == VIZ_LAYERED_WAVE) {
         const mtr_data_t *md = mtr_of(viz_mode);
         const uint32_t p = (*md->pre_idx < md->npre) ? ((uint32_t)*md->pre_idx + 1u) % md->npre : 0u;   /* from CUSTOM: the first preset */
         mtr_apply_preset(md, p);
