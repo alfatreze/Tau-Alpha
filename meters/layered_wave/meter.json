@@ -25,7 +25,7 @@
       "help": "Scrolling or fixed picture.",
       "value_help": [
         "HISTORY: the wave scrolls away from a pointed head; the horizontal axis is time (newest on the left).",
-        "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. Layers then differ by response time (outer slow, inner fast); Layer split, Outer layer, Layer mode, Scroll speed and Resolution are ignored."
+        "SPECTRUM: nothing scrolls; the horizontal axis is frequency, bass on the left, and every layer breathes live. With a frequency split each layer draws only the part of the axis it listens to (the handles show those ranges); with the DYNAMICS split every layer is the whole outline. Layers also differ by response time (outer slow, inner fast). Scroll speed and Resolution are ignored."
       ],
       "group": "general"
     },

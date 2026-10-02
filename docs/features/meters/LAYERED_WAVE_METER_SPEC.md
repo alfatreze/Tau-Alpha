@@ -56,8 +56,8 @@ The lab's split map shows the 16 live bands coloured by layer, with the Hz range
 **Frequency handles (lab).** Under the split map sits a strip with one handle per layer boundary, like the stops of a gradient editor: drag a
 handle to move that boundary (the Hz it sits at is on the handle; neighbours cannot be crossed), **double-click the strip to add a layer**,
 **double-click a handle to remove one** (1-6 layers), arrow keys move a focused handle. Touching any handle switches the split to CUSTOM, seeded
-from whatever the previous split had produced (including ENERGY's learned boundaries). Handles are hidden where they mean nothing (SPECTRUM
-view, DYNAMICS split). On the Pocket the same boundaries are the Split 1-5 rows of the Configure page (visible only for CUSTOM).
+from whatever the previous split had produced (including ENERGY's learned boundaries). Handles work in both views and are hidden only for the
+DYNAMICS split, which has no frequency ranges. On the Pocket the same boundaries are the Split 1-5 rows of the Configure page (visible only for CUSTOM).
 
 Per-layer motion: attack is 4x faster than release; `response` sets release 40-600 ms; the DYNAMICS split staggers
 the time constants 1.6x per layer.
@@ -68,7 +68,7 @@ the time constants 1.6x per layer.
 
 | Key | Type / range | Default | Meaning |
 |---|---|---|---|
-| **view** | enum HISTORY, SPECTRUM | HISTORY | **HISTORY** scrolls (x = time, newest left). **SPECTRUM** does not scroll: x = frequency (bass left), layers differ by response time and height, both ends pointed. Split, Outer, Layer mode, Speed and Resolution are ignored in SPECTRUM. Cost: layers x 16 (BLOCKS) or up to layers x 400 (SMOOTH), about 195 commands for TIDE |
+| **view** | enum HISTORY, SPECTRUM | HISTORY | **HISTORY** scrolls (x = time, newest left). **SPECTRUM** does not scroll: x = frequency (bass left), both ends pointed. With a frequency split every layer draws only the part of the axis it listens to (the handle ranges); with DYNAMICS each layer is the whole outline. Layers also differ by response time and height. Speed and Resolution are ignored in SPECTRUM. Cost: layers x 16 (BLOCKS) or up to layers x 400 (SMOOTH), about 195 commands for TIDE |
 | layers | u8 1..6 | 3 | number of layers |
 | xo1..xo5 | u8 1..15 (CUSTOM split only) | 3, 5, 8, 11, 13 | boundaries between layers (section 3); only the first `layers - 1` are used |
 | split | enum OCTAVES, BASS_FINE, ENERGY, DYNAMICS, CUSTOM | OCTAVES | section 3 |
@@ -158,3 +158,21 @@ Next, in order:
 
 Open questions for the owner: whether BLOCKS (chunky) is worth keeping, and whether 18 settings on the Pocket's Configure page is too many (most are hidden by
 the colour source and view at any time).
+
+## 8. Antialiasing (analysis, nothing built)
+
+Where it would show: the curved top and bottom edge of every layer (integer-row steps along shallow slopes) and the tail dots.
+
+| Option | Idea | Cost (model) | Verdict |
+|---|---|---|---|
+| Edge pixels in software | per column and layer, two 1-pixel rects at the layer edge, colour mixed by the sub-pixel coverage | about 3x the commands (a flat run no longer merges once its edge pixel varies): AURORA 213 to about 600; the self-scaling stride then widens the cells, so horizontal resolution roughly halves; CPU 0.2-1.3 percent to about 0.6-3.5 percent (model) | not worth it |
+| Per-run corner pixel (Wu-style, one half-intensity pixel at each run end) | softens the staircase where a run steps by one row | about +1 command per run, so +50 to +100 percent | marginal gain, same budget problem |
+| Existing hardware blend (B5, shipped) | blend takes ONE alpha per command and a source buffer, not a per-pixel coverage | an edge pixel per column still needs one command each; cannot do coverage | no help |
+| Existing scaled blit (B4) | nearest neighbour only, so no 2x supersample then downscale | n/a | no help |
+| **Planned: a hardware envelope fill (new Talos opcode, candidate B21)** | the CPU loads one 16-bit height per column (Q8.8: whole rows plus coverage) into a small table; one command fills the whole layer by row scan: per row, compare each column against its height, write runs as bursts, and blend the single edge pixel by coverage against the pixel already there (the destination pre-read OP_BLIT keying already has) | N commands per frame instead of N x 100-250; far fewer SDRAM transactions (see below); CPU is N x W table writes; AA comes with it | the right fix: it removes the cost problem and gives AA as a by-product |
+
+SDRAM transactions are the hidden cost today: a 1-pixel-wide rect of height h is h separate row bursts of one word, so a frame is on the order of
+20,000 short transactions in the model (layers x runs x height), not the 100,000 pixel writes the lab prints. A row-scan envelope fill issues about
+H x N bursts (roughly 330) of longer runs. Build effort for B21: RTL one new state machine plus an envelope table (one M10K or MLAB) and two MMIO
+registers, sim with a reference-renderer case and a mutation, then a two-seed fit; timing risk is the same dispatch network that cost five retimings
+(B-109/B-111/B-114/B-151/B-211), so it needs the same one-cycle-ahead registers. Until then the meter stays unantialiased and cheap.

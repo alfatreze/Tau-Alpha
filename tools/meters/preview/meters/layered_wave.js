@@ -200,14 +200,19 @@
     if (p.taper > 0) for (let j = 0; j < DOTS.length; j++) { const d = DOTS[j]; rect(X + W - 8 - j * 12 - (d >> 1), cy - (d >> 1), d, d, cl.tbl[n - 1][AGE - 1]); }
   }
 
-  /* SPECTRUM view (no scrolling): x is frequency (bass left), the 16 band levels are the outline, every layer is the same outline with its own
-     response time (outer slow, inner fast) and height. Redrawn every frame. */
+  /* SPECTRUM view (no scrolling): x is frequency (bass left), the 16 band levels are the outline. With a frequency split every layer draws only the
+     part of the axis it listens to (the same ranges as the handles); with DYNAMICS every layer is the whole outline. Layers also differ by response
+     time (outer slow, inner fast) and height. Redrawn every frame. */
   function spectrum(ctx, st, dt, cl, cy, Hh, rect) {
     const p = ctx.p, W = ctx.w, X = ctx.x, n = p.layers, smooth = p.draw === DRAW.SMOOTH, tq = tdiv(p.taper + 2, 5), s = st.stride;
     rect(X, ctx.y, W, ctx.h, cl.bgc);
+    if (p.split === SPLIT.ENERGY) learnEnergy(st, ctx.spec, n);
+    const bnd = p.split === SPLIT.DYNAMICS ? null : boundsFor(p.split, n, st, xoOf(p));   // frequency splits: each layer draws only the part of the axis it listens to
     for (let k = 0; k < n; k++) {
+      let lo = 0, hi = NB;
+      if (bnd) { if (p.nest === 0) { lo = p.outer === 0 ? bnd[k] : 0; hi = p.outer === 0 ? NB : bnd[n - k]; } else { const g = p.outer === 0 ? k : n - 1 - k; lo = bnd[g]; hi = bnd[g + 1]; } }
       const m = n > 1 ? T.mulQ8[n - 1 - 2 * k + 5] : 256, ca = coef(p.response, m, dt, 1), cr = coef(p.response, m, dt, 0), sc = n === 1 ? 1024 : 1024 - tdiv(512 * k, n - 1), b = st.band[k], bu = new Array(NB);
-      for (let i = 0; i < NB; i++) { const v = tdiv(ctx.spec[i] * 4096, 255); b[i] = stepTo(b[i], v, ca, cr); bu[i] = (toU8(b[i]) * sc) >> 10; }
+      for (let i = 0; i < NB; i++) { const v = tdiv(ctx.spec[i] * 4096, 255); b[i] = stepTo(b[i], v, ca, cr); bu[i] = i >= lo && i < hi ? (toU8(b[i]) * sc) >> 10 : 0; }
       let run = null;
       const flush = () => { if (run) { rect(X + run.x0, cy - run.h, run.x1 - run.x0, 2 * run.h, cl.base[k]); run = null; } };
       for (let xs = 0; xs < W; xs += s) {
