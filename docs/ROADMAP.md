@@ -39,7 +39,7 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 - Winamp on-device Configure page: parked, may be replaced by Tau Omega authoring; do not extend.
 - Tracker/MOD support, CJK/UTF-8 fonts, Chladni presets beyond Lattice/Shimmer, per-channel waveform presets.
 - Resolution 720: **last** by owner decision, everything earlier must stay resolution-agnostic.
-- Defects: `Track changes` Check failure; boot-restore mismatch (`docs/issues/021`, waits for the UI redesign); heap-peak instrumentation for Check;
+- Defects: `Track changes` Check failure; (boot-restore mismatch, `docs/issues/021`, closed as superseded 2026-10-02; heap-peak in Check done, B-514);
   BUG-001 accented names (`docs/issues/001`); Layered Wave flicker on hardware (`docs/issues/022`, owner deferred, cause not yet attributed to the meter, the PSRAM ring, or contention).
 
 ## 4. Standing decisions (still in force; ask before reversing)

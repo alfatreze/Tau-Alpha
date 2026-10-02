@@ -71,7 +71,7 @@ hardware re-test of the toggle-reset fix is the very next step.
 - `CPU LOAD reads 100%` in every state, so it cannot show headroom. Use the per-stage decode percentages instead.
 - `Track changes` Check fails (0 of 10 done): pre-existing, unexplained, unrelated to this session.
 - Hardware wave/scope path is compiled out (`if (0 && wave_hw)`, B-302): unchanged.
-- Boot-restore mismatch between release and diagnostic builds (`docs/issues/021`), re-parked until the UI redesign.
+- ~~Boot-restore mismatch between release and diagnostic builds~~ (`docs/issues/021`): closed as superseded 2026-10-02 (legacy playlist removed; likely stale library index, B-332).
 - Meter-preset persistence: unchanged, still dropped to stay under the 16-entry `interact.json` cap.
 - `docs/ROADMAP.md` has no Cymo row yet — not added this session, since the bug-fix cycle is still open
   and the owner's own ordered list shouldn't be reshuffled mid-investigation.

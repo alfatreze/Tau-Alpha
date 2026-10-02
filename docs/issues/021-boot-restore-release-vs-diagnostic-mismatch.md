@@ -1,5 +1,7 @@
 # `TAU` vs `TAU_DIAGNOSTIC` boot-restore mismatch, no known mechanism
 
+**CLOSED as superseded (owner, 2026-10-02, B-515).** Never reproduced after the first v0.4.0 boot, and two things changed since: the legacy `.m3u` playlist engine was removed on 2026-09-28 (`45630c3`), leaving `lib_boot_restore()` as the only restore path, and B-332 (v0.5.0 smoke test) found the likely mechanism -- the release `TAU` core had a stale library index (entries that could not open), and a failed first-track open makes `lib_play_span()` return 0, so boot falls through to the idle card, while `TAU_DIAGNOSTIC` had a freshly synced index. `tools/install_dev_core.py` now verifies the index against the media on `--replace` and rebuilds it if stale (B-332). The stale-index explanation is probable, not proven (the cards from that day no longer exist). If a release-vs-diagnostic restore difference is ever seen again, reopen with the Info LIBRARY row's `R1`/`R0` marker from both cores. The text below is the history up to the re-park.
+
 **Status:** Confirmed on hardware (owner report, first v0.4.0 boot, B-080, 2026-09-22). Parked as
 "UX friction, not blocking" (B-082, 2026-09-22). **Escalated (B-112, 2026-09-23, full audit):** the
 firmware read found no mechanism in the code that would explain the divergence, so "cosmetic" was
