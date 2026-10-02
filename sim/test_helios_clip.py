@@ -86,7 +86,7 @@ int main(void) {
         fake_disp = rnd(2);                                  /* which buffer is displayed */
         const int front = (int)fake_disp, back = front ^ 1;
         for (int j = 0; j < GH; j++) for (int i = 0; i < GW; i++) { buf[front][j][i] = 100; buf[back][j][i] = (uint16_t)(200 + ((i + j) & 31)); }
-        helios_present(x, y, w, h);
+        helios_present(x, y, w, h, 1);
         for (int j = 0; j < GH; j++) for (int i = 0; i < GW; i++) {
             const int inbox = (uint32_t)i >= x && (uint32_t)i < x + w && (uint32_t)j >= y && (uint32_t)j < y + h;
             const int inex = i >= ex && i < ex + ew && j >= ey && j < ey + eh;
@@ -96,6 +96,12 @@ int main(void) {
         }
         if (sb != 0 || db != 0) { if (bad++ < 5) printf("bases not restored\n"); }
     }
+    /* clip = 0: the exclusion is ignored, the whole box is copied */
+    helios_excl_n = 0; helios_exclude_set(0, 2, 2, 6, 6);
+    fake_disp = 0;
+    for (int j = 0; j < GH; j++) for (int i = 0; i < GW; i++) { buf[0][j][i] = 100; buf[1][j][i] = 300; }
+    helios_present(4, 4, 10, 10, 0);
+    for (int j = 4; j < 14; j++) for (int i = 4; i < 14; i++) if (buf[0][j][i] != 300) { if (bad++ < 5) printf("unclipped present skipped (%%d,%%d)\n", i, j); }
     printf(bad ? "FAILED %%d\n" : "PASSED\n", bad);
     return bad != 0;
 }

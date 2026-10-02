@@ -53,12 +53,9 @@ static void fb_wait(void) {}
 static void fb_fence(void) {}
 /* B-414: this harness has no H2/double-buffer concept -- fb_blit()/fb_sblit() below copy directly in
  * one flat sdram[] array, so a base offset would just corrupt the simulation rather than model
- * anything real. DBUF_READY() hardcoded to 0 makes fw/chladni.inc's own disp_base always compute to
- * 0, so fb_set_bases() calls become harmless no-ops here, matching this harness's existing model. */
+ * anything real. hs_base stays 0, so fb_set_bases() calls become harmless no-ops here, matching this harness's existing model. */
 #define DBUF_READY() 0
-static int helios_offscreen_ok(void) { return 0; }
-static int helios_drain(void) { return 1; }   /* B-520: no H2 in the host harness, so the direct path is what is traced */
-static void helios_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; }
+static uint32_t hs_base;   /* B-521: helios_meter() sets the buffer base a meter draws into; the host trace always draws into base 0 */
 #define R_DBUF_DISP 0u
 #define DBUF_BASE1_W 0u
 static void fb_set_bases(uint32_t src_base, uint32_t dst_base) { (void)src_base; (void)dst_base; }

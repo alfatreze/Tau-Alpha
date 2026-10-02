@@ -42,7 +42,6 @@ static uint8_t  chl_ok;                 /* 0 = not probed yet, 1 = ready, 2 = un
 static uint8_t  chl_swap;               /* 1: the mailbox's high half is the LOWER SDRAM address */
 static uint32_t chl_last_draw, chl_ms_acc, chl_ms_base;
 static uint32_t chl_drawn_n, chl_skipped_n;
-static uint8_t  chl_off_last;      /* B-520: the last figure was composed off-screen and presented around the exclusion rects (so it did not touch the fullscreen label) */
 
 /* Milliseconds since first call, from the 60 MHz cycle counter; accumulated in whole milliseconds so the 71.6 s wrap of
  * cycles() never matters (same technique as ui_blank_touch()). */
@@ -244,12 +243,11 @@ CHL_COLD static int chladni_tick_box(const mtr_in_t *in)
      * the SAME buffer. A `fb_fence()` between the two stages ensures the sblit has genuinely executed
      * before the bases change for replication, not merely been queued (this session's own repeated
      * lesson, docs/TALOS.md). */
-    /* B-520: when the idle H2 back buffer is free, build the whole figure THERE and copy the finished box onto the displayed buffer, skipping every
-     * exclusion rect (helios_present): the figure's tile copies no longer overwrite the fullscreen CPU% label corner, and the half-built figure is never
-     * visible. Blit-mode commands follow the sticky bases, not R_DBUF_CPU, so only the bases change. */
-    const uint32_t off = helios_offscreen_ok() ? 1u : 0u;
-    const uint32_t disp_base = (DBUF_READY() && (REG(R_DBUF_DISP) & 1u)) ? DBUF_BASE1_W : 0u;
-    const uint32_t tgt_base = off ? (disp_base ? 0u : DBUF_BASE1_W) : disp_base;
+    /* Which buffer to draw into is helios_meter()'s decision (fw/player.c, B-521): `hs_base` is the word base of the displayed buffer for a direct draw,
+     * or of the idle back buffer when helios_meter composes the figure there and presents the finished box (around any exclusion rect) afterwards.
+     * Blit-mode commands follow the sticky bases, not R_DBUF_CPU, so the bases are set here from hs_base; the plane (the SBLIT source) is off-screen
+     * scratch and always read from base 0. */
+    const uint32_t tgt_base = hs_base;
     fb_set_bases(0u, tgt_base);
     fb_sblit(0u, CHL_PLANE_Y, x0, y0, sw, sh, cell == 3u ? 3u : cell == 2u ? 2u : 0u, cell == 3u ? 3u : cell == 2u ? 2u : 0u);
     fb_fence();
@@ -257,8 +255,6 @@ CHL_COLD static int chladni_tick_box(const mtr_in_t *in)
     chl_replicate(x0, y0, tw, th, w, h);
     fb_fence();
     fb_set_bases(0u, 0u);
-    if (off && helios_drain()) helios_present(x0, y0, w, h);
-    chl_off_last = (uint8_t)off;
     chl_drawn_n++;
     return 1;
 }

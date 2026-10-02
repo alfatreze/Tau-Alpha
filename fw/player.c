@@ -4297,33 +4297,6 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
     }
 }
 
-/* Forward declarations: chladni.inc/vu_master.inc are #included later in this file (after ov_frame()),
- * but B-415 needs to call both from here. */
-static int  chladni_tick_box(const mtr_in_t *in);
-static void vum_tick(const mtr_in_t *in);
-static void lw_tick(const mtr_in_t *in);
-
-/* Draws the meter `viz` into an arbitrary rect against a flat background: the Configure page's live preview. The one hand-written binding
- * between a generated parameter module and its drawing function (a meter module's `tick`, docs/METER_MODULE_SPEC.md section 3). */
-/* B-415 (owner-reported: Chladni and VU Master "don't show up in the preset configure screen"):
- * the comment this replaces claimed their drawing is refused while an overlay is up -- true of a
- * plain fb_rect()/fb_bar() call with no ov_draw of its own, but wrong for THIS call site: the only
- * caller, wvcfg_preview_tick() (fw/settingsui.inc), already sets ov_draw=1 around its whole call to
- * mtr_preview(), the exact same way it does for Winamp Bars/Scope just above, which DO draw
- * correctly here. Whatever originally motivated excluding these two was either never actually true
- * for this call site or stopped being true once wvcfg_preview_tick() gained its own ov_draw handling
- * -- either way, chladni_tick_box()/vum_tick() take the identical mtr_in_t* signature as the two
- * meters that already work here, so wiring them in is the same pattern, not new plumbing. */
-COLD_FN3 static void mtr_preview(uint32_t viz, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
-{
-    const mtr_in_t in = mtr_build(x, y, w, h, bg, wviz_force);
-    if (viz == VIZ_WINAMP_SCOPE)      wviz_scope_tick(&in, 0);
-    else if (viz == VIZ_WINAMP_BARS)  wviz_bars_tick(&in);
-    else if (viz == VIZ_CHLADNI)      (void)chladni_tick_box(&in);
-    else if (viz == VIZ_VU_MASTER)    vum_tick(&in);
-    else if (viz == VIZ_LAYERED_WAVE) lw_tick(&in);
-}
-
 static void ui_draw_dynamic(void);
 /* fw/cold.inc defines both of these (B-199..B-201, PHASE_F_SPEC.md sections 4.2-4.3) -- forward-
  * declared for the same textual-ordering reason as blit_probe.inc above: cold.inc's own #include
@@ -4824,8 +4797,65 @@ static void ov_frame(const char *title, const char *right, const char *hint)
 
 #include "chladni.inc"
 #include "vu_master.inc"
-#define LW_OFFSCREEN 1  /* Layered Wave composes off-screen and presents (fw/layered_wave.inc, docs/issues/022); host harnesses leave this undefined */
+#define LW_STATS 1  /* Layered Wave keeps its draw-cost statistics (Info > LW COST, fw/layered_wave.inc); host harnesses leave this undefined */
 #include "layered_wave.inc"
+
+/* ==================================================================== helios_meter() -- the ONE way a meter is drawn (B-521, docs/issues/022)
+ * Three places draw meters: the player screen (ui_draw_dynamic), fullscreen (ui_fs_dynamic) and the Settings > Meter > Configure preview
+ * (mtr_preview). They used to dispatch to each meter themselves and each carried its own idea of where to draw, so the same meter behaved differently
+ * in each (Layered Wave and Chladni composed off-screen in two of them and flickered in the third). Every one of them now calls this, which owns:
+ *   - the dispatch from the meter id to its draw function (the one hand-written binding between a meter module and its drawing function);
+ *   - the surface: full-repaint meters (Layered Wave, Chladni -- they wipe their box and repaint it, which takes tens of ms) are drawn into the idle H2
+ *     back buffer and the finished box is copied onto the displayed one (helios_present); the incremental meters (Bars, Scope, VU Master) change only
+ *     what moved, are fast, and are drawn directly. Where the back buffer is not available (no H2 bitstream, blanked, claimed by the Settings
+ *     crossfade, a flip pending) everything draws directly, exactly as before;
+ *   - exclusion rects (HM_CLIP): the fullscreen CPU% label is never drawn over, by the clipped fig_* primitives and by the present copy.
+ * The caller keeps what is genuinely its own: the box and background (the mtr_in_t), the FB_HELD bypass (ov_draw), and whether the draw is forced.
+ * Returns HM_DREW if the meter issued commands, plus HM_COMPOSED if they were composed off-screen and presented. */
+enum { HM_CLIP = 1u, HM_GRAD = 2u };           /* flags: honour helios_excl[] rects; the scope paints the player screen's gradient behind itself */
+enum { HM_DREW = 1u, HM_COMPOSED = 2u };       /* result */
+COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in, uint32_t flags)
+{
+    const uint32_t full = (viz == VIZ_CHLADNI || viz == VIZ_LAYERED_WAVE);        /* full-repaint meters */
+    const uint32_t comp = full && helios_offscreen_ok();
+    const uint32_t front = DBUF_READY() ? helios_front_idx() : 0u;
+    const uint32_t t0 = cycles();
+    hs_base = helios_buf_base(comp ? (front ^ 1u) : front);
+    if (comp) REG(R_DBUF_CPU) = front ^ 1u;                    /* RECT-class commands read this at EXECUTION time: it stays on the back buffer until drained */
+    fig_clip_on = (flags & HM_CLIP) ? 1u : 0u;
+    uint32_t drew = 0u;
+    switch (viz) {
+    case VIZ_WINAMP_SCOPE: wviz_scope_tick(in, (flags & HM_GRAD) ? 1 : 0); break;
+    case VIZ_WINAMP_BARS:  wviz_bars_tick(in); break;
+    case VIZ_VU_MASTER:    vum_tick(in); break;
+    case VIZ_CHLADNI:      drew = (uint32_t)chladni_tick_box(in); break;
+    case VIZ_LAYERED_WAVE: drew = (uint32_t)lw_tick(in); break;
+    default: break;
+    }
+    fig_clip_on = 0u;
+    uint32_t res = drew ? HM_DREW : 0u;
+    if (comp) {
+        const int ok = drew ? helios_drain() : 1;
+        REG(R_DBUF_CPU) = front;
+        if (drew) {
+            if (ok) {
+                const uint32_t pt = cycles();
+                helios_present(in->x, in->y, in->w, in->h, flags & HM_CLIP);
+                helios_t_pres = (uint32_t)(cycles() - pt); helios_n_comp++; res |= HM_COMPOSED;
+            } else { helios_n_fail++; if (viz == VIZ_LAYERED_WAVE) lw_retry(); }     /* never drained: do not show a half-built box; repaint next time */
+        }
+    }
+    if (full && drew) { helios_t_last = (uint32_t)(cycles() - t0); if (helios_t_last > helios_t_max) helios_t_max = helios_t_last; helios_n_draw++; }
+    return res;
+}
+
+/* Draws the meter `viz` into an arbitrary rect against a flat background: the Configure page's live preview (B-415: the caller, wvcfg_preview_tick()
+ * in fw/settingsui.inc, sets ov_draw around the call, which is what lets every meter draw while Settings is up). */
+COLD_FN3 static void mtr_preview(uint32_t viz, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg)
+{
+    const mtr_in_t in = mtr_build(x, y, w, h, bg, wviz_force);
+    (void)helios_meter(viz, &in, 0u);
+}
 #include "fullscreen.inc"
 
 /* G4 step 4 (B-199..B-201): the real "meters go cold" conversion. Body unchanged from the original
@@ -4931,7 +4961,7 @@ COLD_FN3 static void ui_meter_redraw(void)
     if (viz_mode == VIZ_CHLADNI) {
         if (!ui_fullscreen) {
             const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, ui_grad_at(UI_WAVE_Y + UI_WAVE_H / 2u), wf);
-            (void)chladni_tick_box(&in);
+            (void)helios_meter(VIZ_CHLADNI, &in, 0u);
         }
         goto viz_done;
     }
@@ -4939,7 +4969,7 @@ COLD_FN3 static void ui_meter_redraw(void)
     if (ui_fullscreen && (viz_mode == VIZ_WINAMP_BARS || viz_mode == VIZ_WINAMP_SCOPE)) goto viz_done;   /* fullscreen.inc draws these */
     if (viz_mode == VIZ_WINAMP_BARS) {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
-        wviz_bars_tick(&in);
+        (void)helios_meter(VIZ_WINAMP_BARS, &in, 0u);
         goto viz_done;
     }
 
@@ -4948,7 +4978,7 @@ COLD_FN3 static void ui_meter_redraw(void)
      * drawing/smoothing logic, shared with the Configure page. */
     if (viz_mode == VIZ_WINAMP_SCOPE) {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, 0u, wviz_force);
-        wviz_scope_tick(&in, 1);
+        (void)helios_meter(VIZ_WINAMP_SCOPE, &in, HM_GRAD);
         goto viz_done;
     }
 
@@ -4959,7 +4989,7 @@ COLD_FN3 static void ui_meter_redraw(void)
      * one above -- fullscreen is always forced off before this meter can be the active one. */
     if (viz_mode == VIZ_VU_MASTER) {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
-        vum_tick(&in);
+        (void)helios_meter(VIZ_VU_MASTER, &in, 0u);
         goto viz_done;
     }
 
@@ -4969,7 +4999,7 @@ COLD_FN3 static void ui_meter_redraw(void)
     if (viz_mode == VIZ_LAYERED_WAVE) {
         if (ui_fullscreen) goto viz_done;
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wviz_force);
-        lw_tick(&in);
+        (void)helios_meter(VIZ_LAYERED_WAVE, &in, 0u);
         goto viz_done;
     }
 
