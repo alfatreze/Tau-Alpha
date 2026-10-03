@@ -25,7 +25,7 @@ def symbols(elf):
     return {ln.split()[-1]: (int(ln.split()[0], 16), ln.split()[1]) for ln in out.splitlines() if len(ln.split()) == 3}
 
 
-SCRATCH_ORG = 0x00300000      # default on-chip meter scratch address (the real one is a symbol of the firmware link)
+SCRATCH_ORG = 0x00027400      # the ABI scratch address (fw/meter_pack.h MTR_PACK_SCRATCH_ORG); host tests pass their own
 
 
 def build(meter, org, elf_out=None, extra=(), scratch=None):
@@ -65,7 +65,7 @@ def build(meter, org, elf_out=None, extra=(), scratch=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("meter"); ap.add_argument("--org", type=lambda s: int(s, 0), required=True); ap.add_argument("--out", required=True); ap.add_argument("--elf-out"); ap.add_argument("--scratch", type=lambda s: int(s, 0), default=SCRATCH_ORG)
+    ap.add_argument("meter"); ap.add_argument("--org", type=lambda s: int(s, 0), default=0x24840000, help="the slot address (default: slot 0 of the PSRAM code window, MTR_PACK_SLOT_BASE)"); ap.add_argument("--out", required=True); ap.add_argument("--elf-out"); ap.add_argument("--scratch", type=lambda s: int(s, 0), default=SCRATCH_ORG)
     ap.add_argument("-D", action="append", default=[], help="extra -D define for the pack build")
     a = ap.parse_args()
     blob, info = build(a.meter, a.org, a.elf_out, ["-D" + d for d in a.D], a.scratch)

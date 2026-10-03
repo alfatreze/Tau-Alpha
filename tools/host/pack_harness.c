@@ -1,6 +1,14 @@
 /* Loads a meter pack (the simulator's data file) through fw/meter_pack_core.h into a slot at PACK_ORG and, if the load is accepted, runs the pack over the
  * shared trace of sim/lw_pack_trace.h. Prints "LOAD E<n>" and, on success, "S <scenario> <commands> <hash>" lines. Built by sim/test_meter_pack.py. */
 #include "hostio.h"
+#ifndef PACK_ORG
+#define PACK_ORG 0x00400000u
+#endif
+#ifndef SCRATCH_ORG
+#define SCRATCH_ORG 0x00300000u
+#endif
+#define MTR_PACK_SLOT_BASE PACK_ORG          /* the simulator has no PSRAM window: slots are plain RAM */
+#define MTR_PACK_SCRATCH_ORG SCRATCH_ORG
 #define COLD_DATA
 #define WAVE_COLS 64u
 #include "../../fw/theme.h"
@@ -10,14 +18,8 @@
 #include "../../fw/meter_pack_core.h"
 #include "../../sim/lw_pack_trace.h"
 
-#ifndef PACK_ORG
-#define PACK_ORG 0x00400000u
-#endif
 #ifndef PACK_CAP
 #define PACK_CAP 0x00040000u
-#endif
-#ifndef SCRATCH_ORG
-#define SCRATCH_ORG 0x00300000u
 #endif
 #ifndef SCRATCH_CAP
 #define SCRATCH_CAP 0x00001000u
@@ -52,9 +54,20 @@ static void report(int s, uint32_t n, uint64_t h)
 int main(void)
 {
     uint32_t addr = 0;
+#ifdef PACK_BUNDLE
+    static mpkb_slot_t slots[MTR_PACK_SLOTS];
+    uint32_t seen = 0;
+    const int be = mpkb_install_all(rd, 0, win, hfilesize(), (volatile uint8_t *)PACK_ORG, SCRATCH_ORG, SCRATCH_CAP, slots, &seen);
+    hputs("BUNDLE E"); hputu((uint32_t)be); hputs(" SEEN "); hputu(seen); hnl();
+    for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) { hputs("SLOT "); hputu(i); if (slots[i].status == 0xFFu) hputs(" none"); else { hputs(" E"); hputu(slots[i].status); } hnl(); }
+    if (slots[0].status != MPK_OK) return 0;
+    mpk_activate(&slots[0].info, (volatile uint8_t *)PACK_ORG, (volatile uint8_t *)SCRATCH_ORG);
+    addr = slots[0].info.entry;
+#else
     const int e = mpk_load(rd, 0, win, (volatile uint8_t *)PACK_ORG, PACK_ORG, PACK_CAP, (volatile uint8_t *)SCRATCH_ORG, SCRATCH_ORG, SCRATCH_CAP, PACK_METER, &addr);
     hputs("LOAD E"); hputu((uint32_t)e); hnl();
     if (e) return 0;
+#endif
     accent = 0x3C0Fu;
     static uint16_t roles[TR_COUNT];
     for (int i = 0; i < TR_COUNT; i++) roles[i] = (uint16_t)(0x1234u + i * 0x0421u);

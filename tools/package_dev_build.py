@@ -40,6 +40,7 @@ def main():
                     help="the shipped Diagnostic Build (alfatreze.TAU_DIAGNOSTIC, used by make_release.py): "
                          "variant diagnostic, needs --rbf/--rbf-sha256, no --number/--semver")
     ap.add_argument("--cover-slot", action="store_true", help="(kept for old command lines; data slot 7, the TIM1 cover image, is always declared now)")
+    ap.add_argument("--packs", type=Path, help="tau-packs.bin to install (data slot 9); the firmware must be a PACKS=1 build (see --build-flags) or the file is ignored")
     ap.add_argument("--note", help="replaces the default text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="pair the ROM with this raw Quartus RBF instead of dist/'s")
     ap.add_argument("--rbf-sha256", help="expected SHA-256 of --rbf (required with --rbf)")
@@ -156,11 +157,15 @@ def main():
     slots_lib.add_cold_slot(c)                          # data slot 6 = the cold image
     slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
     slots_lib.add_cover_slot(c)                         # data slot 7 = the cover image (TIM1 reader, on by default since B-325)
+    if args.packs: slots_lib.add_packs_slot(c)          # data slot 9 = tau-packs.bin (loadable meter packs; PACKS=1 firmware only)
     a = out / "Assets" / platform
     (a / "common").mkdir(parents=True); (a / core_id).mkdir()
     shutil.copy2(rom, a / "common/tau.rom")
     shutil.copy2(rom.parent / "tau-cold.bin", a / "common/tau-cold.bin")
     shutil.copy2(src / "Assets/tau/common/tau-loading.bin", a / "common/tau-loading.bin")
+    if args.packs:
+        if args.packs.read_bytes()[:4] != b"TPKB": sys.exit(f"{args.packs} is not a pack bundle (tools/pack_bundle.py)")
+        shutil.copy2(args.packs, a / "common/tau-packs.bin")
     save(a / core_id / f"{title}.json", {"instance": {"magic": "APF_VER_1", "variant_select": {"id": 0, "select": False},
          "data_path": "", "data_slots": [{"id": 1, "filename": "tau.rom"}], "memory_writes": []}})
     p = out / "Platforms"; (p / "_images").mkdir(parents=True)

@@ -145,7 +145,9 @@ SECTIONS {
 	 * for the same reason as the ring -- it is a DMA target, so an overlap
 	 * would appear as corrupt audio rather than a clean allocation failure. */
 	_tag_start  = _ring_start - _tag_size;
-	_heap_end   = _tag_start;
+	/* TAU_PACKS (loadable meter packs, docs/features/meters/METER_PACKS.md): the top 1 KB of the 192 KB layout's heap gap is the meter scratch, at the fixed ABI
+	 * address 0x27400 (MTR_PACK_SCRATCH_ORG in fw/meter_pack.h, which every pack is linked for). Only with `-Wl,--defsym=PACKS=1`, and only on the 192 KB link. */
+	_heap_end   = DEFINED(PACKS) ? MIN(_tag_start, 0x00027400) : _tag_start;
 
 	/* Fail the link rather than silently overlapping if the image ever grows
 	 * past the reserved regions. */
@@ -169,4 +171,6 @@ SECTIONS {
 	 * This one only keeps a token heap so a stray newlib path that reaches
 	 * _sbrk has somewhere to go rather than returning -1 in a corner. */
 	ASSERT(_heap_end - _heap_start >= _min_heap, "no room left for even a token heap")
+	ASSERT(!DEFINED(PACKS) || (DEFINED(RAM_192K) && _heap_start <= 0x00027400 && 0x00027800 <= _tag_start), "TAU_PACKS needs the 192 KB link and 1 KB of free heap gap at 0x27400 for the meter scratch")
+	.meter_scratch 0x00027400 (NOLOAD) : { __meter_scratch_start = .; . += DEFINED(PACKS) ? 0x400 : 0; __meter_scratch_end = .; } > ram
 }

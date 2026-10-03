@@ -12,8 +12,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import pack_meter as pm
+import pack_bundle
 
 SIM_ORG = 0x00400000
+SIM_SCRATCH = 0x00300000
 FINGERPRINT = "e2d98dff"      # sha256 of the normalised mtr_in_t + mtr_host_api_t definitions, first 8 hex digits
 fails = 0
 
@@ -41,10 +43,10 @@ def run_native(tmp):
     return [ln for ln in subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines() if ln.startswith("S ")]
 
 
-def build_harness(tmp, frames=None):
-    elf = tmp / ("pack_harness%s.elf" % ("" if frames is None else "_%d" % frames))
+def build_harness(tmp, frames=None, bundle=False):
+    elf = tmp / ("pack_harness%s%s.elf" % ("" if frames is None else "_%d" % frames, "_bundle" if bundle else ""))
     cmd = [pm.tool("gcc"), "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-O2", "-ffreestanding", "-nostdlib", "-nostartfiles", "-Wall", "-Wno-unused-function", "-Wno-unused-variable",
-           "-Wno-unused-const-variable", "-Wno-comment", "-DPACK_ORG=0x%X" % SIM_ORG] + (["-DLW_NFRAMES=%d" % frames] if frames is not None else []) + ["-Wl,--no-warn-rwx-segments", "-T", str(ROOT / "tools/host/link.ld"),
+           "-Wno-unused-const-variable", "-Wno-comment", "-DPACK_ORG=0x%X" % SIM_ORG] + (["-DLW_NFRAMES=%d" % frames] if frames is not None else []) + (["-DPACK_BUNDLE"] if bundle else []) + ["-Wl,--no-warn-rwx-segments", "-T", str(ROOT / "tools/host/link.ld"),
            str(ROOT / "tools/host/start.S"), str(ROOT / "tools/host/pack_harness.c"), "-I", str(ROOT / "fw"), "-o", str(elf), "-lgcc"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:
@@ -62,11 +64,11 @@ def run_sim(elf, blob, tmp, counts=(), want_err=False):
 def main():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
-        blob, info = pm.build("layered_wave", SIM_ORG, tmp / "lw.elf")
+        blob, info = pm.build("layered_wave", SIM_ORG, tmp / "lw.elf", scratch=SIM_SCRATCH)
         check("the pack builds freestanding (no undefined symbols) at the simulator slot", len(blob) > pm_hdr and info["entry"] == 0)
         check("working state is small enough for the on-chip scratch area and the history ring stays in the slot", 0 < info["data"] + info["bss"] <= 1024 and info["pstate"] >= 2000, str(info))
-        blob_hw, info_hw = pm.build("layered_wave", 0x24A00000, tmp / "lw_hw.elf")
-        check("the same pack links at a PSRAM code-window address", info_hw["load"] == info["load"] and info_hw["org"] == 0x24A00000)
+        blob_hw, info_hw = pm.build("layered_wave", 0x24840000, tmp / "lw_hw.elf")
+        check("the same pack links at the real slot address and the real scratch address (the ABI defaults)", info_hw["load"] == info["load"] and info_hw["org"] == 0x24840000 and struct.unpack_from("<I", blob_hw, 32)[0] == 0x00027400)
         print("     pack: %d B image in the slot, %d B state in the slot (history ring), %d B working state in on-chip scratch, %d B file" % (info["load"], info["pstate"], info["data"] + info["bss"], len(blob)))
         want = run_native(tmp)
         check("the native reference trace produced 3 scenarios with draw commands", len(want) == 3 and all(int(w.split()[2]) > 100 for w in want), str(want))
@@ -95,6 +97,28 @@ def main():
         bad("a scratch origin the firmware does not use", lambda b: set32(b, 32, 0x00310000), 28)
         bad("working state larger than the scratch area", lambda b: set32(b, 36, 0x00010000), 29)
         bad("an empty file", lambda b: b"", 20)
+        # the bundle file (tau-packs.bin) with several packs, installed together
+        import pack_bundle as pb
+        belf = build_harness(tmp, None, True)
+        def bundle_run(data):
+            return run_sim(belf, data, tmp)
+        good = pb.bundle([blob])
+        out = bundle_run(good)
+        check("a bundle with the pack installs it and runs identically", out[:1] == ["BUNDLE E0 SEEN 1"] and out[1] == "SLOT 0 E0" and out[5:] == want, str(out[:6]))
+        unknown = bytearray(blob); unknown[6] = 77
+        out = bundle_run(pb.bundle([bytes(unknown), blob]))
+        check("a pack for a meter that cannot be a pack is skipped and the next one still installs", out[:1] == ["BUNDLE E0 SEEN 2"] and out[1] == "SLOT 0 E0" and out[5:] == want, str(out[:6]))
+        flipped = bytearray(blob); flipped[60] ^= 0x10
+        out = bundle_run(pb.bundle([bytes(flipped)]))
+        check("a corrupt pack in a bundle is refused (E26) and nothing runs", out == ["BUNDLE E0 SEEN 1", "SLOT 0 E26", "SLOT 1 none", "SLOT 2 none", "SLOT 3 none"], str(out))
+        out = bundle_run(good[:-100])
+        check("a truncated bundle installs nothing and does not crash", out[:1] == ["BUNDLE E0 SEEN 0"] and out[1] == "SLOT 0 none", str(out[:3]))
+        out = bundle_run(b"NOPE" + good[4:])
+        check("a file that is not a bundle is refused (E30)", out[:1] == ["BUNDLE E30 SEEN 0"], str(out[:1]))
+        out = bundle_run(b"TPKB" + struct.pack("<HH", 1, 0))
+        check("an empty bundle is fine and installs nothing", out[:2] == ["BUNDLE E0 SEEN 0", "SLOT 0 none"], str(out[:2]))
+        out = bundle_run(pb.bundle([blob, blob]))
+        check("two packs for the same meter: the last one wins and still runs identically", out[:1] == ["BUNDLE E0 SEEN 2"] and out[5:] == want, str(out[:6]))
         # CPU cost of where the working state lives, counted on the simulator (exact access counts, priced with the measured PSRAM window costs)
         regions = [("scratch", 0x300000, 0x301000), ("slot_ro", SIM_ORG, SIM_ORG + info["load"]), ("slot_state", SIM_ORG + info["load"], SIM_ORG + 0x40000)]
         full, err_full = run_sim(elf, blob, tmp, regions, True)

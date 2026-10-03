@@ -185,6 +185,14 @@ fi
 # B-333: a 192 KB (RAM_192K=1) build never writes over the shipped 256 KB release artefacts in dist/: it goes to work/ram192k/<target>/.
 if [[ "${RAM_192K:-0}" == "1" && "$OUT" == "$ROOT/dist/Assets/tau/common" ]]; then OUT="$ROOT/work/ram192k/$TARGET"; fi
 
+# PACKS=1 (default 0, opt-in): loadable meter packs (docs/features/meters/METER_PACKS.md). Reserves the 1 KB meter scratch at the fixed ABI address 0x27400 in the 192 KB layout's
+# heap gap and compiles in fw/meter_packs.inc (data slot 9 = tau-packs.bin, installed at boot; a pack replaces the built-in Layered Wave drawing when present and valid).
+# Needs RAM_192K=1. Unset, the build is byte-identical to a build without this feature.
+if [[ "${PACKS:-0}" == "1" ]]; then
+    if [[ "${RAM_192K:-0}" != "1" ]]; then echo "PACKS=1 needs RAM_192K=1 (the scratch lives in the 192 KB layout's heap gap)" >&2; exit 1; fi
+    CFLAGS="$CFLAGS -Wl,--defsym=PACKS=1 -DTAU_PACKS=1"
+fi
+
 # A specialised target may redirect OUT away from the release Assets folder.
 # Create it after target selection so objcopy never fails on a missing staging
 # directory (the first sdram-diag build exposed the old ordering).
