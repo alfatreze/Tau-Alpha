@@ -80,6 +80,9 @@ module mp3_soc #(
     // Level and waveform meters (B-283): tau_wave_meter.sv fed from the same sample strobe. Peak L/R, and a 256-column
     // min/max scope capture with its own zero-crossing trigger. Registers 0xEC-0xFC. Inert (reads 0) when 0.
     parameter WAVE_ENABLE = 0,
+    // Audio statistics (tau_audio_stats.sv): per-window signal power, stereo cross sum and full-scale clip counters from the same sample
+    // strobe. Registers 0x180-0x18C. Inert (reads 0) when 0.
+    parameter STATS_ENABLE = 0,
     // MP3 synthesis-window unit (B-292): tau_mp3_poly.sv, registers 0x100-0x110. Inert (reads 0) when 0.
     parameter POLY_ENABLE = 0,
     // Helios H2 (B-340): double buffering via base-pointer swap in mp3_fb.sv. Registers 0x118-0x11C.
@@ -1041,6 +1044,24 @@ module mp3_soc #(
         end
     endgenerate
 
+    // ---- audio statistics ---------------------------------------------------------------------------------------------
+    // 0x180 STATS_CTL W: bit 0 = clear the clip counters. 0x184 STATS_IDX W: word 0..6 to present (0 LL lo, 1 LL hi, 2 RR lo, 3 RR hi, 4 LR lo,
+    // 5 LR hi sign-extended, 6 {clipsR, clipsL}). 0x188 STATS_DATA R. 0x18C STATS_ST R: bit 0 = built in, bits 31:16 = windows completed.
+    localparam [8:0] R_STATS_CTL = 9'h180, R_STATS_IDX = 9'h184, R_STATS_DATA = 9'h188, R_STATS_ST = 9'h18C;
+    reg         stats_ctl_we = 1'b0, stats_idx_we = 1'b0, stats_ctl_d = 1'b0;
+    reg  [2:0]  stats_idx_d = 3'd0;
+    wire [31:0] stats_rd, stats_status;
+    generate
+        if (STATS_ENABLE != 0) begin : g_stats
+            tau_audio_stats #(.WIN_LOG2(10)) u_stats (
+                .clk(clk), .rst(rst), .tick(pcm_sample_tick), .in_l(fifo_l), .in_r(fifo_r),
+                .ctl_we(stats_ctl_we), .ctl_data(stats_ctl_d), .idx_we(stats_idx_we), .idx_data(stats_idx_d),
+                .rd_data(stats_rd), .status(stats_status));
+        end else begin : g_nostats
+            assign stats_rd = 32'd0; assign stats_status = 32'd0;
+        end
+    endgenerate
+
     // ---- MP3 synthesis window (B-292) ------------------------------------------------------------------------------------
     // 0x100 POLY_CTL W: bit 0 = clear the history (1,024 clocks, busy), bit 1 = go. 0x104 POLY_PUSH W: one FDCT32 output word (64 per slot: channel 0's
     // 32 in push order, then channel 1's). 0x108 POLY_IDX W: PCM word 0..31 to present. 0x10C POLY_OUT R: {R sample, L sample}.
@@ -1212,6 +1233,7 @@ module mp3_soc #(
         tgt_go      <= 1'b0;
         fb_cmd_push <= 1'b0;
         wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0;
+        stats_ctl_we <= 1'b0; stats_idx_we <= 1'b0;
         poly_clear <= 1'b0; poly_go <= 1'b0; poly_push_we <= 1'b0; poly_idx_we <= 1'b0;
         lpc_cfg_we <= 1'b0; lpc_coef_idx_we <= 1'b0; lpc_coef_data_we <= 1'b0;
         lpc_warm_idx_we <= 1'b0; lpc_warm_data_we <= 1'b0; lpc_residual_we <= 1'b0;
@@ -1293,6 +1315,8 @@ module mp3_soc #(
                 R_SPEC_IDX: spec_idx <= dDAT_MOSI[3:0];
                 R_WAVE_CTL: begin wave_ctl_d <= dDAT_MOSI[11:0]; wave_ctl_we <= 1'b1; end
                 R_WAVE_IDX: begin wave_idx_d <= dDAT_MOSI[7:0];  wave_idx_we <= 1'b1; end
+                R_STATS_CTL: begin stats_ctl_d <= dDAT_MOSI[0];  stats_ctl_we <= 1'b1; end
+                R_STATS_IDX: begin stats_idx_d <= dDAT_MOSI[2:0]; stats_idx_we <= 1'b1; end
                 9'h100:     begin poly_clear <= dDAT_MOSI[0]; poly_go <= dDAT_MOSI[1]; end
                 9'h104:     begin poly_push_d <= dDAT_MOSI; poly_push_we <= 1'b1; end
                 9'h108:     begin poly_idx_d <= dDAT_MOSI[4:0]; poly_idx_we <= 1'b1; end
@@ -1419,6 +1443,8 @@ module mp3_soc #(
             R_I2S_DIAG_ST:     mmio_rdata = {31'd0, (I2S_DIAG_ENABLE != 0)};
             R_CYMO_OUT:    mmio_rdata = {cymo_out_r, cymo_out_l};                                      // this read is the ack (clears done)
             R_CYMO_STATUS: mmio_rdata = {24'd0, cymo_feed_level, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en, [7:5] feed queue level (B-527)
+            R_STATS_DATA:  mmio_rdata = stats_rd;                                        // audio statistics: word STATS_IDX of the last completed window
+            R_STATS_ST:    mmio_rdata = (STATS_ENABLE != 0) ? stats_status : 32'd0;     // bit 0 present, bits 31:16 windows completed
             R_CYMO_DIAG:   mmio_rdata = {cymo_drop_cnt, cymo_stale_cnt}; // B-527: [15:0] consumes that found no pushed sample (repeat), [31:16] ticks dropped because the queue was full; both saturate, both clear on live engage
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase

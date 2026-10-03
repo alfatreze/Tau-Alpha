@@ -1,4 +1,4 @@
-.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -254,6 +254,17 @@ test-rtl-wave-meter: $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp
 $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp: sim/tb_tau_wave_meter.v src/fpga/core/tau_wave_meter.sv | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
 
+# Audio statistics (power, stereo cross sum, clip counters) against an independent 64-bit model; five deliberate faults must each fail.
+test-rtl-audio-stats: $(RTL_BUILD_DIR)/tb_tau_audio_stats.vvp
+	$(VVP) $< | grep -q "^PASSED"
+
+$(RTL_BUILD_DIR)/tb_tau_audio_stats.vvp: sim/tb_tau_audio_stats.v src/fpga/core/tau_audio_stats.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ $^
+
+test-rtl-audio-stats-mutation: sim/tb_tau_audio_stats.v src/fpga/core/tau_audio_stats.sv | $(RTL_BUILD_DIR)
+	@set -e; for b in 1 2 3 4 5; do $(IVERILOG) -g2012 -Ptb_tau_audio_stats.BUG=$$b -o $(RTL_BUILD_DIR)/audio_stats_mut.vvp sim/tb_tau_audio_stats.v src/fpga/core/tau_audio_stats.sv; \
+	  if $(VVP) $(RTL_BUILD_DIR)/audio_stats_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
+
 test-rtl-vs-counter: $(RTL_BUILD_DIR)/tb_tau_vs_counter.vvp
 	$(VVP) $<
 
@@ -432,6 +443,7 @@ rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cdc_gray_bus src/fpga/core/tau_cdc_gray_bus.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_spec_bank src/fpga/core/tau_spec_bank.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_wave_meter src/fpga/core/tau_wave_meter.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_audio_stats src/fpga/core/tau_audio_stats.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_mp3_poly -Isrc/fpga/core src/fpga/core/tau_mp3_poly.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_vs_counter src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_vs_counter.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_main_ram src/fpga/core/tau_main_ram.sv
