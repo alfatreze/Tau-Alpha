@@ -52,22 +52,43 @@ Priced with the measured uncached PSRAM window costs (about 32 cycles per read, 
 - **The remaining cost is the read-only tables:** about 2,300 reads a frame from PSRAM is roughly 71,000 cycles a frame, about 4% of the CPU at 38 frames a second, **in the built-in meter too** (its tables are in the cold data region
   behind the same window). Copying the hot tables into scratch at load would remove most of it, at the price of about 2.7 KB of scratch. Worth testing against the real `LW COST` row before deciding.
 
-## What is not done, and the real risks
+## Firmware integration (built, behind `PACKS=1`; not run on a Pocket)
 
-1. **Firmware integration.** Nothing calls a pack yet. Needed: a slot allocator in the 1 MB code window beyond the cold image (about 100 KB used today), a directory (which packs are present, their
-   meter ids and cost fields) read from `tau-assets.bin` or a new data slot, dispatch from `helios_meter()` through the entry point, the Settings meter list built from the directory, and the fallback
-   to the built-in meter on any refusal.
-2. **The scratch area itself.** The loader and the link script support it and the simulator shows it works, but the firmware has no scratch region yet: the base link needs a reserved block (1 KB covers
-   Layered Wave; the size is the largest working state any pack declares, which the manifest budget `hot_ram` already bounds) taken from the heap gap, and `mpk_load` is called with its address.
+- **Build switch.** `PACKS=1 RAM_192K=1 bash fw/build.sh <target>` (needs the 192 KB link). Unset, the firmware is **byte-identical** to a build without the feature (checked on the default 256 KB release, the 192 KB release
+  and the 192 KB diagnostic profile). With it: **1 KB of heap gap is reserved as the meter scratch** at the fixed ABI address `0x27400` (`fw/link.ld`, which fails the link if the layout cannot hold it), plus about 224 B of
+  hot code and state; the 192 KB release gap goes 14,464 to 13,216 B and the diagnostic profile 5,680 to 4,384 B (floor 4,096 B).
+- **File and slot.** `tau-packs.bin` is data slot 9 (`tools/tau_data_slots.py add_packs_slot`, `package_dev_build.py --packs`), a `TPKB` bundle (`tools/pack_bundle.py`) of `.tmpk` packs. Optional like the assets file.
+- **Boot.** `packs_boot_load()` runs right after `cold_boot_load()` and does nothing unless cold code (PSRAM instruction fetch) is proven. It checks the scratch symbol against the ABI, reads the bundle through the
+  data-slot reader, probes the slot area for read-back, and installs every pack (`mpkb_install_all`): verify, copy into its fixed slot (slot 0 = Layered Wave, `0x24840000`, written through the `0xA4840000` data alias).
+  Each pack's result is kept; one bad pack never affects another.
+- **Drawing.** `helios_meter()` draws Layered Wave through the pack when a valid one is installed, otherwise through the built-in code (which stays in the firmware for now). The first tick after the meter becomes active
+  calls `mpk_activate()`: the pack's `.data` is copied into the scratch, its `.bss` and its slot state are zeroed. The host table the pack receives points at the real `fb_rect`, the cycle counter, the accent, the theme roles,
+  the repaint flag and Layered Wave's live setting values, so the Settings page, presets and the Configure editor keep working unchanged.
+- **Info page.** Settings, Diagnostics, Info, last row, **METER PACKS**: `OFF E<n>` (feature off: 20 no file, 40 no PSRAM instruction fetch, 41 scratch not where the ABI says, 42 slot area failed read-back, 30 not a bundle) or
+  `FILE <n> LW OK|NONE|E<n> <ms>MS`.
+- **Tools.** `python3 tools/pack_meter.py layered_wave --out work/packs/layered_wave.tmpk` (defaults are the real slot and scratch), `python3 tools/pack_bundle.py work/packs/tau-packs.bin work/packs/layered_wave.tmpk`,
+  `python3 tools/package_dev_build.py --number NN --rbf R --rbf-sha256 H --build-flags RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1,PACKS=1 --packs work/packs/tau-packs.bin`.
+  `python3 tools/check_packs_abi.py` builds the PACKS firmware and checks that the scratch symbol, the heap end and a freshly built pack all agree with `fw/meter_pack.h` (about a minute; not in `make test-host`).
+- **Host-verified:** the loader (install, activate, bundle with skipped, corrupt, truncated, empty and duplicate cases), the pack drawing identically through the bundle path, the ABI numbers against a real firmware build, the data
+  slot and packager (`check_tau_package` passes on the generated test core). **Not verified:** that any of it runs on silicon.
+- **What a Pocket run should show:** with `tau-packs.bin` present, METER PACKS reads `FILE 1 LW OK <few>MS` and Layered Wave looks exactly as before; with the file removed it reads `OFF E20` and Layered Wave still draws
+  (built-in); a corrupted copy reads `LW E26` and still draws. Any crash or blank meter on the first run with a good file is the pack path (the first execution of code the player loaded after boot, from the PSRAM window).
+
+## What is still not done, and the real risks
+
+1. **A directory beyond Layered Wave.** Only meter id 16 has a slot and a pack source; the table in `fw/meter_pack.h` (`mtr_pack_slot_of`) and the pack TUs for the other modular meters are the next additions. The
+   Settings meter list is still built from the built-in manifests: a meter that is *only* a pack (absent from the firmware) needs the list built from the directory, and its parameters and presets (today compiled into the
+   firmware) shipped with the pack.
+2. **The scratch is 1 KB.** Enough for Layered Wave (808 B). A larger pack is refused (E29); the size to reserve is the largest `hot_ram` budget of any pack in the library.
 3. **Hardware proof.** Instruction fetch from the PSRAM window is hardware-proven for the cold image; loading a second blob and branching into it has not been tried on a Pocket.
-4. **Settings and the Info row.** The pack reads its setting values through the table; the Configure page and the QR export still read the built-in manifest data, and the `LW COST` Info row reads
-   statics that live inside the pack. Both need the directory work above.
-5. **Size per pack.** Each pack duplicates a little compiler support code (about 1 KB here); acceptable, and it is the price of ROM independence.
-6. **Packaging and signing.** Omega must write the file where the firmware looks, and a bad file must never brick the player; the loader's refusal matrix covers corruption, not malice (a CRC is not a signature).
+4. **Statistics the pack owns.** The `LW COST` Info row reads statics that live in the built-in code; with a pack drawing, they stay at zero. A pack would publish its own counters through the host table.
+5. **A faulting pack.** A pack runs as ordinary code: a bug in it crashes the player like any other. The loader proves the file is intact, not that the code is correct; a watchdog or a "last pack faulted" boot flag is a later safeguard.
+6. **Size per pack.** Each pack duplicates a little compiler support code (about 1 KB here); acceptable, and it is the price of ROM independence.
+7. **Packaging and signing.** Omega must write the file where the firmware looks, and a bad file must never brick the player; the loader's refusal matrix covers corruption, not malice (a CRC is not a signature).
 
 ## Next steps
 
 1. Hot read-only tables in scratch (the 71,000-cycle finding), measured on a Pocket first via the existing `LW COST` Info row.
-2. Directory and dispatch in the firmware, behind a build switch, with the built-in meters untouched.
-3. A Pocket run: load the pack from the card, draw, fall back on a corrupted copy.
+2. A Pocket run: install the generated test core, check the METER PACKS row, compare Layered Wave with and without the file, and with a corrupted copy.
+3. Pack sources for the other modular meters, and a Settings list built from the directory.
 4. The Omega side: library view, cost ceiling meter (sum of the manifest `budget` fields), pack writer.

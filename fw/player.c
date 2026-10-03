@@ -148,6 +148,9 @@
  * Off by default -- byte-identical to the unmodified decoder; no build target defines this yet (no
  * Quartus fit or hardware test exists for TAU_LPC yet, section 7 item 5). fw/flac_lpc_hw.inc implements
  * fw/flac_lpc_hw.h, which flac.c (a separate translation unit) declares extern. */
+#ifndef TAU_PACKS
+#define TAU_PACKS 0   /* loadable meter packs (fw/meter_packs.inc, docs/features/meters/METER_PACKS.md); opt-in, needs the 192 KB link */
+#endif
 #ifndef TAU_LPC_FW
 #define TAU_LPC_FW 0
 #endif
@@ -4795,6 +4798,10 @@ static void ov_frame(const char *title, const char *right, const char *hint)
 #define LW_STATS 1  /* Layered Wave keeps its draw-cost statistics (Info > LW COST, fw/layered_wave.inc); host harnesses leave this undefined */
 #include "layered_wave.inc"
 
+#if TAU_PACKS
+static int packs_have(uint32_t meter_id);                                   /* fw/meter_packs.inc: a valid pack is installed for this meter */
+static uint32_t packs_tick(uint32_t meter_id, const mtr_in_t *in);          /* ...and runs it */
+#endif
 /* ==================================================================== helios_meter() -- the ONE way a meter is drawn (B-521, docs/issues/022)
  * Three places draw meters: the player screen (ui_draw_dynamic), fullscreen (ui_fs_dynamic) and the Settings > Meter > Configure preview
  * (mtr_preview). They used to dispatch to each meter themselves and each carried its own idea of where to draw, so the same meter behaved differently
@@ -4843,7 +4850,11 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
     case VIZ_WINAMP_BARS:  wviz_bars_tick(in); break;
     case VIZ_VU_MASTER:    vum_tick(in); break;
     case VIZ_CHLADNI:      drew = (uint32_t)chladni_tick_box(in); break;
+#if TAU_PACKS
+    case VIZ_LAYERED_WAVE: drew = packs_have(VIZ_LAYERED_WAVE) ? packs_tick(VIZ_LAYERED_WAVE, in) : (uint32_t)lw_tick(in); break;   /* a valid pack replaces the built-in drawing */
+#else
     case VIZ_LAYERED_WAVE: drew = (uint32_t)lw_tick(in); break;
+#endif
     default: break;
     }
     fig_clip_on = 0u;
@@ -7083,6 +7094,9 @@ static void ui_draw_dynamic(void)
 #pragma GCC optimize ("Os")
 #include "library.inc"
 #include "assets.inc"     /* theme step 0d: extra themes from tau-assets.bin (data slot 8) */
+#if TAU_PACKS
+#include "meter_packs.inc"   /* loadable meter packs from tau-packs.bin (data slot 9) */
+#endif
 #pragma GCC pop_options
 #if TAU_ART_TIMG
 #include "timg.inc"
@@ -9039,6 +9053,9 @@ int main(void)
     ui_splash_anim();
 
     cold_boot_load();                 /* first: the cold image holds data the menus need */
+#if TAU_PACKS
+    packs_boot_load();                /* needs cold code proven (the PSRAM window executes), so right after it */
+#endif
     /* B-162: blit_probe() is NOT called here at boot any more, for TAU_BLIT_PROBE or
      * TAU_METER_THUMBS -- it hung boot on real hardware (TAU_0_5_0_A_6, first time this function
      * was ever exercised on real hardware in any build). Deferred to blit_probe_ensure(), first

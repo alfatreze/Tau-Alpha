@@ -77,6 +77,19 @@ def add_cover_slot(core_dir: Path) -> None:
 
 
 
+def add_packs_slot(core_dir: Path) -> None:
+    """Data slot 9: tau-packs.bin, the bundle of loadable meter packs (TAU_PACKS firmware, docs/features/meters/METER_PACKS.md, tools/pack_bundle.py). Optional, like
+    the assets file: a missing or bad file means the built-in meters are drawn. Only a PACKS=1 firmware reads it."""
+    dj = json.loads((core_dir / "data.json").read_text())
+    expect = {"name": "Meter packs", "id": 9, "required": False, "deferload": True, "parameters": "0x0", "filename": "tau-packs.bin"}
+    existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 9), None)
+    if existing is not None:
+        assert existing == expect, f"data slot 9 already declared, and differently: {existing}"
+        return
+    dj["data"]["data_slots"].append(expect)
+    save(core_dir / "data.json", dj)
+
+
 def add_assets_slot(core_dir: Path) -> None:
     """Data slot 8: tau-assets.bin (theme step 0d, docs/THEME_FILE_FORMAT.md): the one optional file of user-supplied assets (extra
     themes today; meter config and icons later). Never shipped with the core: written by tools/tau_assets.py or Tau Omega. A missing

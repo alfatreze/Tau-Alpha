@@ -570,7 +570,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 34u   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS (34u + TAU_PACKS)   /* +1 for METER PACKS in a TAU_PACKS build (0 or 1) */   /* previously 34u:   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -637,6 +637,9 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "METER DRAW"
     , "LW COST"
     , "AUDIO STATS"
+#if TAU_PACKS
+    , "METER PACKS"
+#endif
     };
 static uint32_t set_info_at;
 
@@ -859,6 +862,16 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, " X"); q = ui_dec(q, (mtr_centroid_q8(spec_lvl, SPEC_BANDS) * 10u / 256u) / 10u);
         q = set_str(q, " CL"); q = ui_dec(q, mtr_stats.clip_l); q = set_str(q, "/"); q = ui_dec(q, mtr_stats.clip_r);
         break;
+#if TAU_PACKS
+    case 34:   /* METER PACKS: why the feature is off, or how many packs the file had, the Layered Wave pack's status (OK or its E-code) and the install time */
+        if (packs_state != 1u) { q = set_str(q, "OFF E"); q = ui_dec(q, packs_err); break; }
+        q = set_str(q, "FILE "); q = ui_dec(q, packs_seen); q = set_str(q, " LW ");
+        if (packs_slot[0].status == 0xFFu) q = set_str(q, "NONE");
+        else if (packs_slot[0].status == MPK_OK) q = set_str(q, "OK");
+        else { q = set_str(q, "E"); q = ui_dec(q, packs_slot[0].status); }
+        q = set_str(q, " "); q = ui_dec(q, packs_ms); q = set_str(q, "MS");
+        break;
+#endif
     default: {   /* CYMO RESAMP (B-481): whether the probe found the unit, and -- once the Diagnostics >
                   * CYMO RESAMPLER toggle is on -- its live status (busy/done/pop_req), so the owner can
                   * confirm the probe passed before relying on the toggle having any real effect. */

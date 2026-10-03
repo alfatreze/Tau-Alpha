@@ -15,6 +15,25 @@
 
 #define MTR_PACK_ABI 1u
 
+/* Where things live. These addresses are part of the ABI: a pack is linked for them, so they are fixed constants, not firmware symbols.
+ *   scratch: the on-chip meter scratch. The shipping 192 KB RAM layout leaves a heap gap whose top 1 KB (0x27400..0x27800, just under the ID3 landing zone) is
+ *            reserved for it when the firmware is built with TAU_PACKS (fw/link.ld asserts that it fits). Whichever meter is active has its working state there.
+ *   slots:   MTR_PACK_SLOTS pack slots of MTR_PACK_SLOT_SIZE bytes in the PSRAM code window, after the cold image (which is far below 0x40000). A slot is executed at
+ *            its 0x24xx_xxxx alias and written through the 0xA4xx_xxxx data alias. A meter id has one fixed slot (mtr_pack_slot_of()).
+ * Host tests override the bases (the simulator has no PSRAM window). */
+#ifndef MTR_PACK_SCRATCH_ORG
+#define MTR_PACK_SCRATCH_ORG  0x00027400u
+#endif
+#define MTR_PACK_SCRATCH_SIZE 0x400u
+#ifndef MTR_PACK_SLOT_BASE
+#define MTR_PACK_SLOT_BASE    0x24840000u          /* instruction alias; the data alias is the same offset from 0xA4800000 */
+#endif
+#define MTR_PACK_SLOT_SIZE    0x10000u
+#define MTR_PACK_SLOTS        4u
+#define MTR_PACK_METER_LAYERED_WAVE 16u            /* the VIZ_* id of the meter (fw/meter_gen_enum.h) */
+/* The slot a meter's pack goes in, or -1 if that meter cannot be a pack. */
+static inline int mtr_pack_slot_of(uint32_t meter_id) { return meter_id == MTR_PACK_METER_LAYERED_WAVE ? 0 : -1; }
+
 typedef struct {
     uint32_t         abi;                                                     /* MTR_PACK_ABI                                                   */
     void           (*fb_rect)(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t colour);   /* the draw engine's rectangle fill     */
