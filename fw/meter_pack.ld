@@ -8,12 +8,13 @@ SECTIONS
 {
     . = PACK_ORG;
     .text   : { KEEP(*(.text.mtr_pack_entry)) *(.text*) }
-    .rodata : { *(.rodata*) *(.srodata*) }
-    . = ALIGN(4);
-    _pack_data_lma = .;
+    /* The PSRAM instruction alias (0x24xx_xxxx) is fetch-only: a data load there is a bus error (docs/MMIO_ALLOCATION.md). So .rodata and .pstate are LINKED at the data
+     * alias (0xA4xx_xxxx = alias + DATA_ALIAS, 0x80000000), the same bytes; code reaches them pc-relative, which wraps correctly in 32 bits. Host tests use DATA_ALIAS=0. */
+    .rodata ADDR(.text) + SIZEOF(.text) + DATA_ALIAS : AT(ADDR(.text) + SIZEOF(.text)) { *(.rodata*) *(.srodata*) }
+    _pack_data_lma = ALIGN(LOADADDR(.rodata) + SIZEOF(.rodata), 4);
     .data SCRATCH_ORG : AT(_pack_data_lma) { _pack_data_start = .; *(.data*) *(.sdata*) . = ALIGN(4); _pack_data_end = .; }
     .bss _pack_data_end (NOLOAD) : { _pack_bss_start = .; *(.bss*) *(.sbss*) *(COMMON) . = ALIGN(4); _pack_bss_end = .; }
     _pack_load_end = _pack_data_lma + SIZEOF(.data);
-    .pstate _pack_load_end (NOLOAD) : { _pack_pstate_start = .; *(.pstate*) . = ALIGN(4); _pack_pstate_end = .; }
+    .pstate _pack_load_end + DATA_ALIAS (NOLOAD) : { _pack_pstate_start = .; *(.pstate*) . = ALIGN(4); _pack_pstate_end = .; }
     /DISCARD/ : { *(.comment) *(.riscv.attributes) *(.note*) *(.eh_frame*) }
 }

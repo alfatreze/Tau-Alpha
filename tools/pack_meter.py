@@ -34,11 +34,13 @@ def build(meter, org, elf_out=None, extra=(), scratch=None):
         raise SystemExit("no pack source %s" % src)
     elf = Path(elf_out) if elf_out else Path(os.environ.get("TMPDIR", "/tmp")) / ("pack_%s.elf" % meter)
     scratch = SCRATCH_ORG if scratch is None else scratch
+    alias = 0x80000000 if org >= 0x24000000 else 0     # rodata/pstate at the data alias of the PSRAM window (the instruction alias cannot be loaded from)
     cmd = [tool("gcc"), "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-O2", "-ffreestanding", "-nostdlib", "-nostartfiles", "-fno-pic", "-mcmodel=medany",
            "-ffunction-sections", "-fdata-sections", "-Wall", "-Wno-unused-function", "-Wno-comment", "-Wno-unused-variable", "-Wno-unused-const-variable", "-I", str(ROOT / "fw"),
-           "-Wl,--gc-sections", "-Wl,--no-warn-rwx-segments", "-Wl,--defsym=PACK_ORG=0x%X" % org, "-Wl,--defsym=SCRATCH_ORG=0x%X" % scratch, "-T", str(ROOT / "fw/meter_pack.ld"), str(src), "-lgcc", "-o", str(elf)] + list(extra)
+           "-Wl,--gc-sections", "-Wl,--no-warn-rwx-segments", "-Wl,--defsym=PACK_ORG=0x%X" % org, "-Wl,--defsym=DATA_ALIAS=0x%X" % alias, "-Wl,--defsym=SCRATCH_ORG=0x%X" % scratch, "-T", str(ROOT / "fw/meter_pack.ld"), str(src), "-lgcc", "-o", str(elf)] + list(extra)
     r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode or "warning" in r.stderr:
+    stderr = "\n".join(l for l in r.stderr.splitlines() if "dot moved backwards" not in l)   # benign: sections at explicit scratch/alias addresses
+    if r.returncode or "warning" in stderr:
         sys.stderr.write(r.stderr); raise SystemExit("pack build failed or warned")
     undef = subprocess.run([tool("nm"), "-u", str(elf)], capture_output=True, text=True, check=True).stdout.split()
     if undef:
@@ -50,7 +52,7 @@ def build(meter, org, elf_out=None, extra=(), scratch=None):
     load_end = sy["_pack_load_end"][0] - org
     data_lma, data_start, data_end = sy["_pack_data_lma"][0] - org, sy["_pack_data_start"][0], sy["_pack_data_end"][0]
     bss_start, bss_end = sy["_pack_bss_start"][0], sy["_pack_bss_end"][0]
-    pst_off, pst_end = sy["_pack_pstate_start"][0] - org, sy["_pack_pstate_end"][0] - org
+    pst_off, pst_end = sy["_pack_pstate_start"][0] - alias - org, sy["_pack_pstate_end"][0] - alias - org
     if load_end - 3 <= len(body) < load_end:        # objcopy stops at the last byte of content; the link script rounds the end up to 4
         body += b"\0" * (load_end - len(body))
     if len(body) != load_end:
