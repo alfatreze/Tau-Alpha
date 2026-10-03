@@ -6256,7 +6256,7 @@ static uint32_t meter_yield_secs;      /* current consecutive seconds yielding, 
 static uint32_t meter_yield_worst;     /* worst consecutive seconds ever seen, since boot */
 static uint32_t meter_yield_deadline;  /* cycles() deadline for the next +1 s tick while yielding */
 
-static int meter_afford(void)
+COLD_FN3 static int meter_afford(void)   /* every caller is cold code (helios_meter, fs_lp_ok, chladni_tick_box); hot it cost 248 B once it had two callers and stopped being inlined */
 {
     if (idle || paused) { meter_yield = 0; meter_yield_secs = 0; return 1; }
     uint32_t lv = pcm_level();
