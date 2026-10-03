@@ -679,7 +679,11 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         if (!art_bad_code) q = set_str(q, art_have ? "OK" : "-");
         else { q = set_str(q, "E"); q = ui_hex2(q, art_bad_code); }
         break;
-    case 8: q = ui_dec(q, pcm_under_n - dg_base_under); break;
+    case 8: q = ui_dec(q, pcm_under_n - dg_base_under);
+#if TAU_DIAGNOSTIC
+        q = set_str(q, " ALL "); q = ui_dec(q, ur_all.n);   /* B-546: every stall since boot; the first number is at most one per flush */
+#endif
+        break;
     case 9: q = ui_dec(q, (REG(R_FB_STALL) - dg_base_stall) / (CLK_HZ / 1000u)); q = set_str(q, " MS"); break;
     case 10:
         q = ui_dec(q, ld_head); *q++ = '/'; q = ui_dec(q, ld_size); *q++ = '/';

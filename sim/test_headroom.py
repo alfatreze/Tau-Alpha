@@ -33,6 +33,18 @@ int main(void)
     chk(h.min_idle == 100u, "reset starts the settling again");
     for (int i = 0; i < 400; i++) hr_update(&h, 50, 7);
     chk(h.secs == 255u && h.min_idle == 50u, "the second counter saturates");
+    { ur_t u = {0, 0, 0};
+      ur_note(&u, 0, 1); ur_note(&u, 0, 1); ur_note(&u, 0, 0);
+      chk(u.n == 0, "empty before the FIFO was ever seen full is the prefill, not an underrun");
+      ur_note(&u, 1, 0); ur_note(&u, 0, 0);
+      chk(u.n == 0, "full then draining is normal");
+      ur_note(&u, 0, 1); ur_note(&u, 0, 1); ur_note(&u, 0, 1);
+      chk(u.n == 1, "a stall spanning several pushes counts once");
+      ur_note(&u, 0, 0); ur_note(&u, 0, 1);
+      chk(u.n == 2, "empty again after refilling counts as a second stall");
+      ur_flush(&u); ur_note(&u, 0, 1); ur_note(&u, 0, 1);
+      chk(u.n == 2, "after a flush the prefill is ignored again, the total is kept");
+    }
     return bad != 0;
 }
 '''
