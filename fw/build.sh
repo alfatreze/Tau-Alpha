@@ -218,7 +218,11 @@ fi
 # has already been flushed. Nothing it does is on the audio path, so trading
 # its speed for size costs a few ms of a load that is already hundreds.
 rm -f "$FW/picojpeg.o"
-if ! "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -Os -ffreestanding         -I "$ROOT/third_party/picojpeg" -c         -o "$FW/picojpeg.o" "$ROOT/third_party/picojpeg/picojpeg.c"         > "$FW/build.log" 2>&1; then
+# B-567: -fdata-sections gives each static its own .bss.<name> input section, so fw/link.ld can place picojpeg's low-traffic
+# work buffers (input, Huffman, quant tables) in PSRAM without editing the vendored source. Only when the PSRAM art path is on
+# (it proves the window before any decode); otherwise they stay in hot .bss.
+PJ_DS=""; [[ "${ART_PSRAM:-1}" == "1" ]] && PJ_DS="-fdata-sections"
+if ! "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -Os -ffreestanding $PJ_DS         -I "$ROOT/third_party/picojpeg" -c         -o "$FW/picojpeg.o" "$ROOT/third_party/picojpeg/picojpeg.c"         > "$FW/build.log" 2>&1; then
     cat "$FW/build.log" >&2
     echo "*** picojpeg.c FAILED TO COMPILE ***" >&2
     exit 1
