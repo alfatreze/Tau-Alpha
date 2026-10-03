@@ -7,6 +7,8 @@
   "sel_index": 0,
   "caps": [],
   "cost_class": 2,
+  "symbols": ["wviz_scope", "dbg_scope", "dbg_pixel", "dbg_strip"],
+  "budget": {"cold": 1472, "hot_rom": 64, "hot_ram": 640, "psram_state": 0},
   "considered": "hw_wave capture exists but its column-per-pixel draw is compiled out (B-302); the software 64-column path is used. The trail (B-334) blends the background strip over the box with the pipelined hardware blend.",
   "params": [
     {

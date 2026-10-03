@@ -13,6 +13,8 @@
     "vsync_beam"
   ],
   "cost_class": 2,
+  "symbols": ["chl_", "chladni"],
+  "budget": {"cold": 7360, "hot_rom": 704, "hot_ram": 3072, "psram_state": 0},
   "considered": "Per-cell rect runs cost 360-640 commands; one scaled blit of a mailbox-written plane replaced them (B-276). B18-B20 would cut CPU further.",
   "params": [
     {
