@@ -570,7 +570,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 33u   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS 34u   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -636,6 +636,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "CYMO RESAMP"
     , "METER DRAW"
     , "LW COST"
+    , "AUDIO STATS"
     };
 static uint32_t set_info_at;
 
@@ -847,6 +848,16 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, " UNW "); q = ui_dec(q, lw_t_unw / (CLK_HZ / 1000000u));
         q = set_str(q, " PRES "); q = ui_dec(q, helios_t_pres / (CLK_HZ / 1000000u));
         q = set_str(q, "US");
+        break;
+    case 33:   /* AUDIO STATS: the hardware block's RMS (L and R), stereo correlation in percent, crest factor, spectral centre (band number) and the clip counters */
+        if (!stats_hw) { q = set_str(q, "NO HW"); break; }
+        if (!mtr_stats.ok) { q = set_str(q, "WAITING"); break; }
+        q = set_str(q, "L"); q = ui_dec(q, mtr_stats.rms_l); q = set_str(q, " R"); q = ui_dec(q, mtr_stats.rms_r);
+        q = set_str(q, " C"); q = set_str(q, mtr_stats.corr_q8 < 0 ? "-" : "+");
+        q = ui_dec(q, (uint32_t)((mtr_stats.corr_q8 < 0 ? -mtr_stats.corr_q8 : mtr_stats.corr_q8) * 100) >> 8);
+        q = set_str(q, " K"); q = ui_dec(q, (mtr_stats.crest_q8 * 10u / 256u) / 10u); q = set_str(q, "."); q = ui_dec(q, (mtr_stats.crest_q8 * 10u / 256u) % 10u);
+        q = set_str(q, " X"); q = ui_dec(q, (mtr_centroid_q8(spec_lvl, SPEC_BANDS) * 10u / 256u) / 10u);
+        q = set_str(q, " CL"); q = ui_dec(q, mtr_stats.clip_l); q = set_str(q, "/"); q = ui_dec(q, mtr_stats.clip_r);
         break;
     default: {   /* CYMO RESAMP (B-481): whether the probe found the unit, and -- once the Diagnostics >
                   * CYMO RESAMPLER toggle is on -- its live status (busy/done/pop_req), so the owner can

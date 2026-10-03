@@ -364,6 +364,61 @@ def check_signals():
     print("signal functions OK (mtr_energy, mtr_silent, mtr_slew_pow, mtr_ema_pow, mtr_onset_flux equal the Chladni and Layered Wave originals over 3000 random cases)")
 
 
+DER_C = r'''
+#include <stdio.h>
+#include "meter_core.h"
+int main(void) {
+    unsigned s = 99u;
+    #define R() (s = s * 1664525u + 1013904223u, s >> 8)
+    for (int k = 0; k < 4000; k++) {
+        const int quiet = (k % 5) == 0;
+        uint64_t ll = quiet ? (R() %% 5000u) : ((uint64_t)R() << 24) % 0x10000000000ull, rr = quiet ? (R() %% 5000u) : ((uint64_t)R() << 24) % 0x10000000000ull;
+        int64_t lr = (int64_t)((ll < rr ? ll : rr) / 1) * ((R() %% 3u) == 0 ? -1 : 1) / (1 + (int64_t)(R() %% 4u));
+        if (k %% 11 == 0) { rr = ll; lr = (int64_t)ll; }
+        if (k %% 13 == 0) { rr = ll; lr = -(int64_t)ll; }
+        uint32_t peak = R() %% 32769u, rms = (k %% 17 == 0) ? 0u : 1u + R() %% 32768u;
+        uint8_t lvl[16]; for (int b = 0; b < 16; b++) lvl[b] = (k %% 19 == 0) ? 0 : (uint8_t)(R() %% 256u);
+        uint32_t v32 = R() << 8 | (R() & 255u);
+        printf("%%llu %%llu %%lld %%u %%u %%u %%llu | %%u %%u %%d %%u %%u", (unsigned long long)ll, (unsigned long long)rr, (long long)lr, peak, rms, v32, (unsigned long long)ll,
+               mtr_isqrt32(v32), mtr_rms(ll, 10), mtr_corr_q8(ll, rr, lr), mtr_crest_q8(peak, rms), mtr_centroid_q8(lvl, 16));
+        printf(" |"); for (int b = 0; b < 16; b++) printf(" %%u", lvl[b]);
+        printf(" | %%u\n", mtr_isqrt64((ll %% 0x40000000ull) * (rr %% 0x40000000ull)));
+    }
+    return 0;
+}
+'''.replace("%%", "%")
+
+
+def check_derived():
+    """Square roots, RMS, correlation, crest factor and centroid against exact Python integer references."""
+    import math
+    with tempfile.TemporaryDirectory() as d:
+        c = Path(d) / "c.c"; c.write_text(DER_C); exe = Path(d) / "c"
+        r = subprocess.run(["cc", "-O1", "-I", str(ROOT / "fw"), "-o", str(exe), str(c)], capture_output=True, text=True)
+        if r.returncode: print(r.stderr); sys.exit(1)
+        out = subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines()
+    for k, ln in enumerate(out):
+        a, b, bands, c3 = ln.split(" | ")
+        ll, rr, lr, peak, rms, v32, _ = (int(x) for x in a.split())
+        i32, grms, corr, crest, cen = (int(x) for x in b.split())
+        lvl = [int(x) for x in bands.split()]
+        sq64 = int(c3)
+        want_corr = 0
+        if ll and rr:
+            sh = 0
+            while (ll >> sh) >= 0x80000000 or (rr >> sh) >= 0x80000000: sh += 1
+            den = math.isqrt((ll >> sh) * (rr >> sh))
+            if den:
+                q = min(256, (abs(lr) >> sh) * 256 // den)
+                want_corr = -q if lr < 0 else q
+        want_cen = 0
+        if sum(lvl): want_cen = (sum(i * v for i, v in enumerate(lvl)) << 8) // sum(lvl)
+        want = (math.isqrt(v32), math.isqrt((ll >> 10) & 0xFFFFFFFF), want_corr, 0 if not rms else min(0xFFFF, (peak << 8) // rms), want_cen)
+        if (i32, grms, corr, crest, cen) != want or sq64 != math.isqrt((ll % 0x40000000) * (rr % 0x40000000)):
+            print("derived MISMATCH at", k, (i32, grms, corr, crest, cen), want); sys.exit(1)
+    print("derived measurements OK (isqrt32/64, rms, corr_q8, crest_q8, centroid_q8 equal the exact integer references over 4000 random cases)")
+
+
 def main():
     rc, out = build_run(True)
     if rc:
@@ -378,6 +433,7 @@ def main():
     check_geometry()
     check_cache()
     check_signals()
+    check_derived()
     print("meter core OK (equal to the original code; vectors " + ("checked" if "--check" in sys.argv else "computed") + ")")
 
 

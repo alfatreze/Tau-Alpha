@@ -154,6 +154,10 @@
 #if TAU_LPC_FW
 #include "flac_lpc_hw.inc"
 #endif
+#define R_STATS_CTL  0x80000180u  /* audio statistics (tau_audio_stats.sv): write bit 0 = clear the clip counters */
+#define R_STATS_IDX  0x80000184u  /* write: word 0..6 to present (0 LL lo, 1 LL hi, 2 RR lo, 3 RR hi, 4 LR lo, 5 LR hi, 6 {clipsR, clipsL}) */
+#define R_STATS_DATA 0x80000188u  /* read: the selected word of the last completed window */
+#define R_STATS_ST   0x8000018Cu  /* read: bit 0 = built in, bits 31:16 = windows completed */
 #define R_SPEC_ST   0x800000E4u   /* read: bit 0 = the bank is built into this bitstream, bits 31:16 = windows completed */
 #define R_SCAN      0x800000E8u   /* B-267 Helios beam position: bit 9 = present (TAU_BEAM bitstream), bits 8:0 = video line counter */
 #define R_VBLANK    0x800000D0u   /* Helios/Talos H0: bit 0 = vblank status, CDC'd from clk_vid; 0 when TAU_VBLANK is off */
@@ -1807,6 +1811,8 @@ _Static_assert(WVIZ_BANDS_MAX == SPEC_BANDS, "WVIZ_BANDS_MAX must track SPEC_BAN
 
 static unsigned char spec_lvl[SPEC_BANDS];    /* published, 0..255           */
 static uint8_t  wave_hw;                  /* B-283: the bitstream has the level/scope block (probed once at boot) */
+static uint8_t  stats_hw;                 /* the bitstream has the audio-statistics block (probed once at boot) */
+static struct { uint16_t rms_l, rms_r, crest_q8, clip_l, clip_r; int16_t corr_q8; uint16_t win; uint8_t ok; } mtr_stats;
 static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardware filter bank (probed once at boot) */
 static uint8_t  text_mode_hw;             /* theme/gamma: the bitstream has the second text weight table (probed once at boot) */
 static uint8_t  hw_poly;                  /* B-292: the bitstream has the MP3 window unit (probed once at boot) */
@@ -3687,6 +3693,9 @@ COLD_FN3 static mtr_in_t mtr_build(uint32_t x, uint32_t y, uint32_t w, uint32_t 
     in.paused = (uint8_t)paused;
     in.env    = wave;
     in.env_pk = wave_pk;
+    in.stats_ok = mtr_stats.ok; in.rms_l = mtr_stats.rms_l; in.rms_r = mtr_stats.rms_r; in.corr_q8 = mtr_stats.corr_q8;
+    in.crest_q8 = mtr_stats.crest_q8; in.clip_l = mtr_stats.clip_l; in.clip_r = mtr_stats.clip_r;
+    in.centroid_q8 = (uint16_t)mtr_centroid_q8(spec_lvl, SPEC_BANDS);
     in.energy = (uint8_t)mtr_energy(spec_lvl, SPEC_BANDS);
     in.silent = mtr_silent(spec_lvl, SPEC_BANDS, peak_amp);
     return in;
@@ -5078,6 +5087,31 @@ viz_done: ;
  * into `peak_l`/`peak_r`/`spec_lvl[]` was gated. Extracted verbatim (no logic changed) so
  * `wvcfg_preview_tick()` can call it too, bypassing the overlay gate on purpose for exactly the
  * meter currently being previewed. */
+/* Read the hardware audio-statistics block once per display frame: the three window sums of the last completed 1024-sample window and the
+ * clip counters, then the derived values (fw/meter_core.h). The sums are latched as a set by the block; a window completing between two of
+ * the reads is caught by comparing the window counter before and after, and the whole read is retried once. pk_l/pk_r are the raw
+ * peaks since the last frame, so the crest factor uses the same scale as the RMS. */
+COLD_FN3 static void meters_stats_poll(uint32_t pk_l, uint32_t pk_r)
+{
+    uint32_t w[6], w0, w1, tries = 0;
+    do {
+        w0 = (REG(R_STATS_ST) >> 16) & 0xFFFFu;
+        for (uint32_t i = 0; i < 6u; i++) { REG(R_STATS_IDX) = i; w[i] = REG(R_STATS_DATA); }
+        w1 = (REG(R_STATS_ST) >> 16) & 0xFFFFu;
+    } while (w0 != w1 && ++tries < 2u);
+    REG(R_STATS_IDX) = 6u;
+    const uint32_t clips = REG(R_STATS_DATA);
+    mtr_stats.clip_l = (uint16_t)(clips & 0xFFFFu); mtr_stats.clip_r = (uint16_t)(clips >> 16);
+    if (!w1) return;                                    /* no window finished yet: the sums are not valid */
+    const uint64_t ll = ((uint64_t)w[1] << 32) | w[0], rr = ((uint64_t)w[3] << 32) | w[2];
+    const int64_t  lr = (int64_t)(((uint64_t)(int64_t)(int32_t)w[5] << 32) | w[4]);
+    const uint32_t rl = mtr_rms(ll, 10u), rg = mtr_rms(rr, 10u);
+    mtr_stats.rms_l = (uint16_t)rl; mtr_stats.rms_r = (uint16_t)rg;
+    mtr_stats.corr_q8 = (int16_t)mtr_corr_q8(ll, rr, lr);
+    mtr_stats.crest_q8 = (uint16_t)((rl >= rg) ? mtr_crest_q8(pk_l, rl) : mtr_crest_q8(pk_r, rg));
+    mtr_stats.win = (uint16_t)w1; mtr_stats.ok = 1u;
+}
+
 COLD_FN3 static void meters_publish(void)
 {
     /* Publish the peaks once per display frame, so every meter below reads a
@@ -5113,6 +5147,7 @@ COLD_FN3 static void meters_publish(void)
             peak_acc   = (peak_acc_l > peak_acc_r) ? peak_acc_l : peak_acc_r;
             peak_acc_any = 1u;
         }
+        if (stats_hw) meters_stats_poll(peak_acc_l, peak_acc_r);   /* raw peaks, before the headroom scaling below */
         peak_amp     = (peak_acc   * MTR_HEADROOM_NUM) / MTR_HEADROOM_DEN;
         peak_l       = (peak_acc_l * MTR_HEADROOM_NUM) / MTR_HEADROOM_DEN;
         peak_r       = (peak_acc_r * MTR_HEADROOM_NUM) / MTR_HEADROOM_DEN;
@@ -8915,6 +8950,7 @@ int main(void)
                                                              * presence bit (unlike BLIT_READY()/RRECT_READY()'s functional
                                                              * probe, needed only because THOSE opcodes have no such bit) */
     wave_hw = (uint8_t)(REG(R_WAVE_ST) & 1u);      /* B-283: hardware level/scope block present? */
+    stats_hw = (uint8_t)(REG(R_STATS_ST) & 1u);    /* audio-statistics block present? (0 on any other bitstream) */
     spec_hw = (uint8_t)(REG(R_SPEC_ST) & 1u);      /* B-263: hardware spectrum bank present? (0 on any other bitstream) */
     text_mode_hw = (uint8_t)((REG(R_TEXT_MODE) >> 31) & 1u);   /* theme/gamma: second text weight table present? (0 on an older bitstream) */
     hw_poly = (uint8_t)(REG(R_POLY_ST) & 1u);      /* B-292: hardware MP3 window unit present? (0 on any other bitstream) */
