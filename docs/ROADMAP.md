@@ -39,6 +39,7 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 - Library items waiting for RAM (`MEDIA_LIBRARY_0.4_SPEC` section 14) and the migration-across-versions question (section 15).
 - Firmware modularization (`FIRMWARE_MODULARIZATION_PLAN`, parked until key features land).
 - Winamp on-device Configure page: parked, may be replaced by Tau Omega authoring; do not extend.
+- **RAM headroom (parked 2026-10-04, owner: explore later):** shrink the MP3 ring to its working size, 4 to 7 KB, no change in buffering (`docs/features/RAM_BSS_AUDIT.md` section 6.1); meter scratch about 2 KB, last (6.3). Branch `art-overlay` (JPEG fallback buffers in PSRAM, +3,968 B) is built and host-tested but not merged or Pocket-tested; `TAU_DEV_82` packaged, not installed.
 - Tracker/MOD support, CJK/UTF-8 fonts, Chladni presets beyond Lattice/Shimmer, per-channel waveform presets.
 - Resolution 720: **last** by owner decision, everything earlier must stay resolution-agnostic.
 - Defects: `Track changes` Check failure; (boot-restore mismatch, `docs/issues/021`, closed as superseded 2026-10-02; heap-peak in Check done, B-514);

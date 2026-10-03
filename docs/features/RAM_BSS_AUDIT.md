@@ -66,3 +66,45 @@ see stale art bytes as PCM (it never reads before writing, but the flag makes th
 (if any exist: `tools/check_art_load_order.py` is the only art test found today, so a host decode test comes first), then the
 heap-gap and RAM snapshot check (`tools/check_heap_gap.py --update`), then a Pocket run: MP3 then FLAC track change with
 covers, same-album reuse, a JPEG-fallback cover, and a long soak with Chladni.
+
+## 6. Added 2026-10-04 (B-568): the ring, the tag buffer and the meter scratch, parked for later
+
+Read from `fw/player.c` and `fw/link.ld`; nothing measured on a Pocket, CPU figures are estimates. Not scheduled.
+
+### 6.1 MP3 ring (24,576 B): about half of it is slack, 4 to 7 KB can be freed with no change in buffering
+
+- The ring is LINEAR, not circular (Helix needs contiguous bytes). `refill_pump` (about lines 7899-7926) refills only when
+  `ring_fill - ring_rd < RING_SIZE / 2` (12 KB trigger), then appends one `REFILL_CHUNK` (4 KB); when `ring_fill + 4096 > RING_SIZE` it
+  compacts (copies the unread bytes down to offset 0, `w[i] = w[src + i]` through the uncached alias, about 7160-7190 and 7910-7926).
+  So the buffered amount sits between about 8 and 16 KB; the rest of the 24 KB is room for appends and compaction.
+- Buffering depth is set by the 12 KB trigger, not by the ring size: 12 KB is about 0.3 s at 320 kbps, about 0.14 s at 700 kbps FLAC.
+  Minimum ring for an unchanged trigger = trigger + one chunk + a little (16,384 + about 512 B); 20 KB leaves a second chunk of slack.
+- Options (estimates): 20 KB saves 4 KB, compaction every second refill; about 17 KB saves about 7 KB, compaction at nearly every
+  refill, copying about 11 KB (about 2,800 uncached word moves, roughly 0.4 ms) per refill, so about 0.4% CPU at 320 kbps MP3, about 1%
+  on 700 kbps FLAC, about 2% at 2.00x MP3.
+- Hazard: `RING_SIZE` is used in 8 places and several scale with it: `/ 2` (trigger, 7899), `/ 4 * 3` (size-probe gate, 9506, which at
+  18 KB is almost never reachable in steady state), `want` clamps in `prefill` (7939) and the ID3 skip fill (8474), the compaction tests
+  (7171, 7910). Shrinking the ring without first turning these into explicit byte constants would silently shrink the trigger and change
+  buffering. Stale comment: "The ring is 32 KB" near line 8470.
+- Plan: (1) a ring-level min/max tracker on the Info page (Diagnostic Build) and one long soak to confirm the 8-16 KB steady state;
+  (2) explicit constants (`RING_REFILL_AT` 12,288 B, the probe gate and clamps in absolute bytes), build identical to today; (3) resize
+  `_ring_size` in `fw/link.ld` to 20 KB, then to about 17 KB if the CPU cost is acceptable; (4) Pocket: HEADROOM file waits (`O`),
+  `UNDERRUNS n ALL m`, idle, on the hard FLAC (415K 48K) and a 320 kbps MP3 at 2.00x (fastest drain), plus seek, pause/resume and a
+  track change. Worktree, host-testable pieces first (the thresholds as a pure function with a test).
+
+### 6.2 Tag buffer (4,096 B): leave it
+
+It is a DMA landing zone with many users, several live during playback: size-probe pump (512 B reads at far offsets), FLAC seek-table and
+probe reads, ID3 and tail probes, the I/O benchmark (4 KB reads), the art window (4 KB per read). Sharing it with `pcm` is unsafe
+(FLAC's meter staging keeps data in `pcm` across calls, `fl_meter_n`); shrinking the art window to 1 KB multiplies SD commands for big covers.
+
+### 6.3 Meter scratch (about 2 KB): last
+
+Overlay of Chladni (2.7 KB), scope arrays and Layered Wave rows needs a re-init-on-activate hook in each meter and has a bug class that only
+shows when switching meters. PSRAM instead: `chl_half` (1.6 KB) would cost about 4% CPU (about 60 K accesses per second at about 48 cycles,
+estimate); `chl_cxm`/`chl_cxn` are inner-loop data and must stay hot. Only worth doing if the ring and the art change are not enough.
+
+### 6.4 Where the other RAM work stands (2026-10-04)
+
+Branch `art-overlay` (`386f4f9`, B-567): JPEG fallback work buffers in PSRAM, +3,968 B heap in every build, host test in place; NOT merged;
+`TAU_DEV_82` packaged, not installed (dry run clean; compare `LOAD MS` against DEV 80 on a no-`tau-art` album such as Daft Punk).
