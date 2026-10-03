@@ -79,7 +79,7 @@ int main(int argc, char **argv) {
             for (int i = 0; i < 64; i++) { int v; fscanf(f, "%d", &v); wav_v[i] = (signed char)v; }
             printf("F %d\n", n);
             mtr_in_t in = {0};
-            in.spec = spec_lvl; in.wave = wav_v; in.force = wviz_force; in.dt_ms = 26u;
+            in.paused = paused; in.spec = spec_lvl; in.wave = wav_v; in.force = wviz_force; in.dt_ms = 26u;
             in.x = (uint16_t)bx; in.y = (uint16_t)by; in.w = (uint16_t)bw; in.h = (uint16_t)bh; in.bg = (uint16_t)bg;
             if (isbars) wviz_bars_tick(&in); else wviz_scope_tick(&in, 0);
         }

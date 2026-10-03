@@ -1923,6 +1923,11 @@ static const uint16_t spec_gain[SPEC_BANDS] = {
 
 static unsigned char wave[UI_WAVE_N], wave_drawn[UI_WAVE_N];
 static unsigned char wave_pk[UI_WAVE_N], wave_pk_drawn[UI_WAVE_N];
+/* Mark every older-meter redraw cache stale (a context change left the pixels under the meter out of date); see mtr_invalidate() in fw/meter_core.h. */
+__attribute__((noinline)) static void ui_meter_caches_invalidate(void)
+{
+    mtr_invalidate(wave_drawn, UI_WAVE_N); mtr_invalidate(wave_pk_drawn, UI_WAVE_N); mtr_invalidate(spec_drawn, SPEC_BANDS);
+}
 
 /* Art panel: art_x is where it currently sits, animated toward its target.
  * FB_W means fully off the right edge. */
@@ -1958,12 +1963,9 @@ static int      ui_underrun_shown;
 
 /* Linear blend of two RGB565s, t in 0..UI_BANDS. Per channel so the ramp keeps
  * its hue instead of sliding through grey. */
-static uint16_t ui_mix(uint16_t a, uint16_t b, uint32_t t, uint32_t n)
+static inline uint16_t ui_mix(uint16_t a, uint16_t b, uint32_t t, uint32_t n)
 {
-    uint32_t r = (((a >> 11) & 0x1Fu) * (n - t) + ((b >> 11) & 0x1Fu) * t) / n;
-    uint32_t g = (((a >> 5)  & 0x3Fu) * (n - t) + ((b >> 5)  & 0x3Fu) * t) / n;
-    uint32_t bl = ((a & 0x1Fu) * (n - t) + (b & 0x1Fu) * t) / n;
-    return (uint16_t)((r << 11) | (g << 5) | bl);
+    return mtr_ramp(a, b, t, n);   /* the implementation lives in fw/meter_core.h; this name stays for the non-meter UI */
 }
 
 /* Top of the background ramp, tinted toward the user's accent. Recomputed
@@ -2731,8 +2733,7 @@ static void ui_wave_clear(void)
 
     for (uint32_t y = UI_WAVE_Y - UI_WAVE_TOP; y < UI_WAVE_Y + UI_WAVE_H && y < FB_H; y++)
         fb_rect(UI_MARGIN, y, UI_INNER_W, 1, ui_grad_at(y));
-    for (uint32_t i = 0; i < UI_WAVE_N; i++) { wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu;
-            for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu; }
+    ui_meter_caches_invalidate();
 }
 
 /* Transport glyphs drawn as shapes, not characters: the font atlas is ASCII
@@ -3546,9 +3547,8 @@ static void ui_wave_frame(void)
 
     for (uint32_t i = 0; i < UI_WAVE_N; i++) {
         uint32_t h   = wv_h[i];
-        uint32_t x   = UI_MARGIN + (i * ww) / UI_WAVE_N;
-        uint32_t xn  = UI_MARGIN + ((i + 1u) * ww) / UI_WAVE_N;
-        uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
+        uint32_t x, lit;
+        mtr_col_span(UI_MARGIN, ww, UI_WAVE_N, i, UI_WAVE_GAP, &x, &lit);
 
         fb_rect(x, UI_WAVE_Y + UI_WAVE_H - h, lit, h,
                 ui_mix(UI_TRACK, ui_accent, i + 1u, UI_WAVE_N));
@@ -3670,7 +3670,7 @@ static void ui_icon_dot(uint32_t x, uint32_t y, uint16_t c)
                           * this project has always assumed here, not a measured per-call delta --
                           * nothing tracks a real one yet. Was wviz_bars_tick's own local `dec_ms`. */
 static uint32_t mtr_frame_ctr;
-static inline mtr_in_t mtr_build(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg, uint32_t force)
+COLD_FN3 static mtr_in_t mtr_build(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg, uint32_t force)
 {
     mtr_in_t in;
     in.spec   = spec_lvl;
@@ -3684,6 +3684,11 @@ static inline mtr_in_t mtr_build(uint32_t x, uint32_t y, uint32_t w, uint32_t h,
     in.bg   = bg;
     in.role = th_role;
     in.force = (uint8_t)force;
+    in.paused = (uint8_t)paused;
+    in.env    = wave;
+    in.env_pk = wave_pk;
+    in.energy = (uint8_t)mtr_energy(spec_lvl, SPEC_BANDS);
+    in.silent = mtr_silent(spec_lvl, SPEC_BANDS, peak_amp);
     return in;
 }
 
@@ -3710,16 +3715,15 @@ static void viz_scroll_tick(const mtr_in_t *in)
     const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
     const uint32_t cy = y + h / 2u;
     const uint32_t half = h / 2u - 1u;
-    if (paused) return;
+    if (in->paused) return;
     fb_copy(x0 + 1u, y, x0, y, w - 1u, h);
 
-    uint32_t a = (in->peak * half) / 32768u;
-    if (a > half) a = half;
+    uint32_t a = mtr_scale_u(in->peak, half, 32768u);
 
     uint32_t cx = x0 + w - 1u;
     ui_bg_restore(cx, y, 1, h);     /* clear column */
     if (a) fb_rect(cx, cy - a, 1, a * 2u + 1u,
-                   ui_mix(UI_TRACK, ui_accent, a, half));
+                   mtr_ramp(UI_TRACK, ui_accent, a, half));
     else   fb_rect(cx, cy, 1, 1, UI_TRACK);         /* silence line */
 }
 
@@ -3728,7 +3732,7 @@ static void viz_scroll_tick(const mtr_in_t *in)
 static void viz_led_tick(const mtr_in_t *in)
 {
     const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
-    if (paused)
+    if (in->paused)
         for (uint32_t b = 0; b < SPEC_BANDS; b++) spec_lvl[b] = 0;
 
     /* The gaps between blocks show background, and the background is a per-row ramp -- a flat fill
@@ -3746,22 +3750,17 @@ static void viz_led_tick(const mtr_in_t *in)
 
         /* Nothing crossed a row boundary: draw nothing at all. In ordinary music most bands are in
          * this state on most updates, which is the whole saving. */
-        if (!repaint && lit == prev) continue;
+        if (!mtr_delta1(&spec_drawn[b], (uint8_t)lit, (uint8_t)repaint)) continue;
 
         uint32_t lo = repaint ? 0u : (lit < prev ? lit : prev);
         uint32_t hi = repaint ? LED_ROWS : (lit > prev ? lit : prev);
-        spec_drawn[b] = (unsigned char)lit;
 
         uint32_t bx = x0 + b * colw;
         for (uint32_t r = lo; r < hi; r++) {
             uint32_t by = y + h - (r + 1u) * pitch;
             uint16_t c;
             if (r < lit) {
-                uint32_t half = LED_ROWS / 2u;
-                c = (r < half)
-                  ? ui_mix(LED_LO, LED_MIDC, r, half)
-                  : ui_mix(LED_MIDC, LED_HI, r - half,
-                           LED_ROWS - half);
+                c = mtr_ladder(LED_LO, LED_MIDC, LED_HI, r, LED_ROWS);
             } else {
                 c = UI_TRACK;
             }
@@ -3778,18 +3777,16 @@ static void viz_dots_tick(const mtr_in_t *in)
 {
     const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
     for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-        uint32_t x   = x0 + (i * w) / UI_WAVE_N;
-        uint32_t xn  = x0 + ((i + 1u) * w) / UI_WAVE_N;
-        uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
-        uint32_t pk  = wave_pk[i];
+        uint32_t x, lit;
+        mtr_col_span(x0, w, UI_WAVE_N, i, UI_WAVE_GAP, &x, &lit);
+        uint32_t pk  = in->env_pk[i];
         if (pk < 2u) pk = 2u;
 
         /* Same treatment as the mirrored bars: skip an unmoved column, and restore around the dot
          * rather than through it. */
-        if (pk == wave_pk_drawn[i]) continue;
-        wave_pk_drawn[i] = (unsigned char)pk;
+        if (!mtr_delta1(&wave_pk_drawn[i], (uint8_t)pk, 0u)) continue;
 
-        uint16_t c   = ui_mix(UI_TRACK, ui_accent, i + 1u, UI_WAVE_N);
+        uint16_t c   = mtr_ramp(UI_TRACK, ui_accent, i + 1u, UI_WAVE_N);
         uint32_t top = y + h - pk;   /* first dot row */
         uint32_t end = y + h;        /* one past box  */
         if (top > y)
@@ -3808,18 +3805,17 @@ static void viz_dots_tick(const mtr_in_t *in)
 static void viz_water_tick(const mtr_in_t *in)
 {
     const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
-    if (paused) return;
+    if (in->paused) return;
     fb_copy(x0 + 1u, y, x0, y, w - 1u, h);
 
-    uint32_t a = (in->peak * h) / 32768u;
-    if (a > h) a = h;
+    uint32_t a = mtr_scale_u(in->peak, h, 32768u);
 
     /* Column drawn as three bands -- quiet bed, body, hot tip -- so loud passages read as brighter
      * AND taller. */
     uint32_t cx = x0 + w - 1u;
     ui_bg_restore(cx, y, 1, h - a);
     if (a) {
-        uint16_t c = ui_mix(UI_TRACK, ui_accent, a, h);
+        uint16_t c = mtr_ramp(UI_TRACK, ui_accent, a, h);
         fb_rect(cx, y + h - a, 1, a, c);
         fb_rect(cx, y + h - a, 1, 1, UI_WHITE);
     }
@@ -3860,7 +3856,7 @@ static void viz_vu_tick(const mtr_in_t *in)
         uint32_t tgt = (pkc * 255u) / 32768u;
         if (tgt > 255u) tgt = 255u;
         uint32_t *v = ch ? &vu_r : &vu_l;
-        if (paused) tgt = 0;
+        if (in->paused) tgt = 0;
         if (tgt > *v) { *v += VU_ATT; if (*v > tgt) *v = tgt; }
         else          { *v = (*v > VU_DEC) ? (*v - VU_DEC) : 0u;
                         if (*v < tgt) *v = tgt; }
@@ -3882,7 +3878,7 @@ static void viz_vu_tick(const mtr_in_t *in)
                  * as "the loud end" in any palette. */
                 fb_rect((uint32_t)ax, (uint32_t)ay, 2, 2,
                         (t >= 60u) ? ui_accent
-                                   : ui_mix(ui_grad_at((uint32_t)ay),
+                                   : mtr_ramp(ui_grad_at((uint32_t)ay),
                                             ui_accent, 2u, 5u));
             }
             for (uint32_t t = 0; t <= 4u; t++) {
@@ -3894,7 +3890,7 @@ static void viz_vu_tick(const mtr_in_t *in)
                     if (ay < (int32_t)y) continue;
                     fb_rect((uint32_t)ax, (uint32_t)ay, 1, 1,
                             (t >= 3u) ? ui_accent
-                                      : ui_mix(ui_grad_at((uint32_t)ay),
+                                      : mtr_ramp(ui_grad_at((uint32_t)ay),
                                                ui_accent, 3u, 5u));
                 }
             }
@@ -3952,16 +3948,13 @@ static void viz_wave_tick(const mtr_in_t *in)
     ui_bg_restore(x0, y, w, h);
     fb_rect(x0, cy, w, 1, UI_TRACK);      /* zero line */
 
-    if (paused) return;
+    if (in->paused) return;
     int32_t prev_y = 0;
     for (uint32_t c = 0; c < WAVE_COLS; c++) {
-        uint32_t x  = x0 + (c * w) / WAVE_COLS;
-        uint32_t xn = x0 + ((c + 1u) * w) / WAVE_COLS;
-        uint32_t cw = (xn > x) ? (xn - x) : 1u;
+        uint32_t x, cw;
+        mtr_col_cw(x0, w, WAVE_COLS, c, &x, &cw);
 
-        int32_t v = (in->wave[c] * ey) / SCOPE_UNIT;
-        if (v >  ey) v =  ey;
-        if (v < -ey) v = -ey;
+        int32_t v = mtr_scale_s(in->wave[c], ey, SCOPE_UNIT);
 
         /* Span from the previous sample to this one, so the trace is continuous rather than a row of
          * disconnected marks -- and stays thin, because consecutive samples in a short window are
@@ -3974,7 +3967,7 @@ static void viz_wave_tick(const mtr_in_t *in)
         uint32_t top = (uint32_t)((int32_t)cy - hi);
         uint32_t ch = (uint32_t)(hi - lo) + 2u;   /* min 2 px line */
         if (top + ch > y + h) ch = y + h - top;
-        uint16_t col = ui_mix(UI_TRACK, ui_accent, c + 1u, WAVE_COLS);
+        uint16_t col = mtr_ramp(UI_TRACK, ui_accent, c + 1u, WAVE_COLS);
         fb_rect(x, top, cw, ch, col);
     }
 }
@@ -3997,7 +3990,7 @@ static void viz_phase_tick(const mtr_in_t *in)
     fb_rect(cx, y, 1, h, UI_TRACK);
     fb_rect(x0, cy, w, 1, UI_TRACK);
 
-    if (paused) return;
+    if (in->paused) return;
     const int32_t ex = (int32_t)(w / 2u) - 2;   /* horizontal reach */
     const int32_t ey = (int32_t)r - 2;           /* vertical reach   */
     /* Oldest first, so the newest trace lands on top of the fading ones rather than under them. */
@@ -4007,16 +4000,13 @@ static void viz_phase_tick(const mtr_in_t *in)
         /* Blended from the background, so it has to be the background near where the trace actually
          * sits -- the dots cluster around the centre line. Per-dot would cost a call for each of
          * 48 x 4. */
-        uint16_t c  = ui_mix(ui_grad_at(cy), ui_accent,
+        uint16_t c  = mtr_ramp(ui_grad_at(cy), ui_accent,
                              SCOPE_HIST - age, SCOPE_HIST);
         uint32_t sz = age ? 1u : 2u;     /* newest trace is fatter */
         for (uint32_t k = 0; k < SCOPE_N; k++) {
             int32_t px = (int32_t)cx + (sx[k] * ex) / SCOPE_UNIT;
             int32_t py = (int32_t)cy - (sy[k] * ey) / SCOPE_UNIT;
-            if (px < (int32_t)x0 ||
-                px + (int32_t)sz > (int32_t)(x0 + w)) continue;
-            if (py < (int32_t)y ||
-                py + (int32_t)sz > (int32_t)(y + h)) continue;
+            if (!mtr_in_box(px, py, (int32_t)sz, (int32_t)x0, (int32_t)y, (int32_t)w, (int32_t)h)) continue;
             fb_rect((uint32_t)px, (uint32_t)py, sz, sz, c);
 
             /* Newest trace only: drop a point midway to the next sample so the figure closes into a
@@ -4046,25 +4036,22 @@ static void viz_bars_tick(const mtr_in_t *in)
     const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
     const uint16_t bg = in->bg;
     blit_probe_ensure();
-    const uint16_t lit_c = paused ? ui_mix(UI_TRACK, ui_accent, 1u, 3u) : ui_accent;
+    const uint16_t lit_c = in->paused ? mtr_ramp(UI_TRACK, ui_accent, 1u, 3u) : ui_accent;
     const uint32_t hh = h / 2u, cy = y + hh;
     for (uint32_t i = 0; i < UI_WAVE_N; i++) {
         /* Bar edges come from scaling the index across the full width, so the row always reaches its
          * right edge. */
-        const uint32_t x   = x0 + (i * w) / UI_WAVE_N;
-        const uint32_t xn  = x0 + ((i + 1u) * w) / UI_WAVE_N;
-        const uint32_t lit = (xn - x > UI_WAVE_GAP) ? (xn - x - UI_WAVE_GAP) : 1u;
-        uint32_t bh = wave[i];
+        uint32_t x, lit;
+        mtr_col_span(x0, w, UI_WAVE_N, i, UI_WAVE_GAP, &x, &lit);
+        uint32_t bh = in->env[i];
         if (bars_layout) { bh = (bh * (hh - 1u)) / h; if (bh < 1u) bh = 1u; }   /* mirrored: each half is half the box */
         else if (bh < 2u) bh = 2u;                 /* always show a floor */
         /* Most bars land on the height already drawn there: skip them (one compare instead of a draw
          * command). */
-        uint32_t pk = bars_layout ? bh : wave_pk[i];
+        uint32_t pk = bars_layout ? bh : in->env_pk[i];
         if (pk < bh) pk = bh;
-        if (bh == wave_drawn[i] && pk == wave_pk_drawn[i]) continue;
-        wave_drawn[i]    = (unsigned char)bh;
-        wave_pk_drawn[i] = (unsigned char)pk;
-        const uint16_t c = ui_mix(UI_TRACK, lit_c, i + 1u, UI_WAVE_N);       /* newest bars brightest */
+        if (!mtr_delta(&wave_drawn[i], &wave_pk_drawn[i], (uint8_t)bh, (uint8_t)pk, 0u)) continue;
+        const uint16_t c = mtr_ramp(UI_TRACK, lit_c, i + 1u, UI_WAVE_N);       /* newest bars brightest */
         if (bars_layout) {
             /* MIRRORED: two OP_BAR per changed column. The upper half is an ordinary bar (lit rows at
              * its bottom, the centre line); the lower half is the same bar inverted -- OP_BAR always
@@ -4106,7 +4093,7 @@ COLD_FN3 static void wviz_bars_tick(const mtr_in_t *in)
 
     for (uint32_t b = 0; b < bands; b++) {
         uint32_t target = mtr_band_target(in->spec, SPEC_BANDS, bands, b);
-        if (paused) target = 0u;
+        if (in->paused) target = 0u;
 
         uint32_t rate = (target >= wviz_disp[b]) ? MV_WINAMP_BARS(ATTACK) : MV_WINAMP_BARS(RELEASE);
         wviz_disp[b] = mtr_ease(wviz_disp[b], (uint8_t)target, MV_WINAMP_BARS(EASE), rate, &wviz_vel[b]);
@@ -4178,7 +4165,7 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
         static uint32_t sc_pk = 1u;
         static uint8_t  sc_armed;
         if (!sc_armed) { REG(R_WAVE_CTL) = 2u | (1u << 8); sc_armed = 1u; return; }   /* nothing captured yet */
-        if (!paused && !(REG(R_WAVE_ST) & 2u)) {
+        if (!in->paused && !(REG(R_WAVE_ST) & 2u)) {
             const int32_t smooth = MV_WINAMP_SCOPE(SCOPE_SMOOTH);
             const int percol = ui_fullscreen;               /* fullscreen: erase per column, see the software path */
             if (!percol) {
@@ -4224,7 +4211,7 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
             wviz_scope_init = 1u;
             REG(R_WAVE_CTL) = 2u | (1u << 8);              /* arm the next capture: 2 samples per column */
         }
-        if (paused) wviz_scope_init = 0u;
+        if (in->paused) wviz_scope_init = 0u;
         return;
     }
 
@@ -4246,7 +4233,7 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
          * legitimate use_gradient=0 skip is not counted as a "failure" here, only a real attempted-and-failed
          * blend is. */
         const uint32_t trail = (uint32_t)MV_WINAMP_SCOPE(SCOPE_TRAIL);
-        const int attempt = use_gradient && trail && !paused;
+        const int attempt = use_gradient && trail && !in->paused;
         const int did_blend = attempt && ui_bg_blend(x0, y, w, h, (100u - trail) * 256u / 100u);
         if (attempt) { if (did_blend) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check();
                        dbg_pixel_log(x0 + w / 2u, y + 8u); }   /* B-449: B-447's (cy-4, centre column) spot
@@ -4264,17 +4251,14 @@ COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
         fig_rect(x0, cy, w, 1, UI_TRACK);
     }
 
-    if (!paused) {
+    if (!in->paused) {
         int32_t smooth = MV_WINAMP_SCOPE(SCOPE_SMOOTH);      /* 0..90 */
         int32_t prev_y = 0;
         for (uint32_t c = 0; c < WAVE_COLS; c++) {
-            uint32_t cx  = x0 + (c * w) / WAVE_COLS;
-            uint32_t cxn = x0 + ((c + 1u) * w) / WAVE_COLS;
-            uint32_t cw  = (cxn > cx) ? (cxn - cx) : 1u;
+            uint32_t cx, cw;
+            mtr_col_cw(x0, w, WAVE_COLS, c, &cx, &cw);
 
-            int32_t raw = (in->wave[c] * ey) / SCOPE_UNIT;
-            if (raw >  ey) raw =  ey;
-            if (raw < -ey) raw = -ey;
+            int32_t raw = mtr_scale_s(in->wave[c], ey, SCOPE_UNIT);
             if (!wviz_scope_init) wviz_scope_y[c] = (int16_t)raw;
             wviz_scope_y[c] = (int16_t)(wviz_scope_y[c]
                              + (((raw - wviz_scope_y[c]) * (100 - smooth)) / 100));
@@ -4321,7 +4305,7 @@ static void ui_loader_tick(uint32_t t)
         uint32_t dist = (t + 8u - i) & 7u;                     /* 0 = the leading dot */
         uint32_t l = 31u - dist * 4u;
         if (l < 5u) l = 5u;
-        ui_icon_dot(cx + dot[i][0] - 3u, cy + dot[i][1] - 3u, ui_mix(UI_PANEL, ui_accent, l, 31u));
+        ui_icon_dot(cx + dot[i][0] - 3u, cy + dot[i][1] - 3u, mtr_ramp(UI_PANEL, ui_accent, l, 31u));
     }
     if (ui_loader_txt) {
         ui_loader_txt = 0;
@@ -4431,7 +4415,7 @@ static void ui_boot_tick(void)
          * cannot. */
         if (l < UI_DOT_FLOOR) l = UI_DOT_FLOOR;
         ui_icon_dot(ui_boot_x + i * (UI_DOT_W + UI_DOT_GAP), dy,
-                    ui_mix(bg, ui_accent, l, 31u));
+                    mtr_ramp(bg, ui_accent, l, 31u));
     }
 }
 
@@ -6439,10 +6423,7 @@ static void poll_input(void)
         wviz_force = 1u;                 /* B-234: same reason -- Winamp Bars/Scope's own
                                            * change-cache/smoothing state must not carry over
                                            * from whatever was last drawn in this position. */
-        for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-            wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu;
-            for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu;
-        }
+        ui_meter_caches_invalidate();
         if (art_ready && art_shown) ui_art_draw();
         ui_toast_msg(viz_mode == VIZ_BARS   ? "METER: BARS"
                    : viz_mode == VIZ_WATER  ? "METER: WATERFALL"
@@ -9757,9 +9738,9 @@ int main(void)
              * a fix it didn't provide.) */
             if ((hm & HELIOS_INV_WAVE) || dbuf_active) {
                 ui_wave_force = 1u;
-                for (uint32_t i = 0; i < UI_WAVE_N; i++) { wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu; }
+                mtr_invalidate(wave_drawn, UI_WAVE_N); mtr_invalidate(wave_pk_drawn, UI_WAVE_N);
             }
-            if ((hm & HELIOS_INV_SPEC) || dbuf_active) { for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu; }
+            if ((hm & HELIOS_INV_SPEC) || dbuf_active) mtr_invalidate(spec_drawn, SPEC_BANDS);
             if ((hm & HELIOS_INV_WAVE) || dbuf_active) wviz_force = 1u;
             if (hm & HELIOS_INV_EXCL) { for (uint8_t i = 0; i < HELIOS_MAX_EXCL; i++) helios_exclude_clear(i); }
         }
@@ -9812,10 +9793,7 @@ int main(void)
             if (!ui_was_paused || (int32_t)(cycles() - ui_pause_next) >= 0) {
                 if (!ui_was_paused) {
                     ui_wave_force = 1;
-                    for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-                        wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu;
-            for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu;
-                    }
+                    ui_meter_caches_invalidate();
                 }
                 ui_was_paused = 1;
                 ui_pause_next = cycles() + CLK_HZ / 30u;
@@ -9826,10 +9804,7 @@ int main(void)
         st0 &= ~(1u << 7); REG(R_STAT0) = st0;
         if (ui_was_paused) {
             ui_wave_force = 1;              /* recolour back to full on resume */
-            for (uint32_t i = 0; i < UI_WAVE_N; i++) {
-                wave_drawn[i] = 0xFFu; wave_pk_drawn[i] = 0xFFu;
-            for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu;
-            }
+            ui_meter_caches_invalidate();
             /* The FIFO drained during the pause and its output has glided to
              * zero, so the resume must ramp up from zero like any other
              * discontinuity -- see FADE_SAMPLES. */

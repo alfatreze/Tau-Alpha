@@ -55,6 +55,7 @@ THUMB_HARNESS = r'''
 #include <stdio.h>
 #include <stdlib.h>
 #define COLD_FN
+#include "meter_core.h"
 #define TR_BASE 0
 #define TR_TEXT_PRIMARY 1
 static uint16_t th_role[2];
@@ -79,12 +80,12 @@ def check_thumbs():
            [r.replace("u", "").replace("{", "").replace("}", "").strip() for r in pal_txt.splitlines() if r.strip().startswith("{")]]
     assert len(pal) == 17 and all(len(r) == 8 for r in pal)
     code = THUMB_HARNESS % ("static const uint16_t meter_thumb_pal[17][8] = { " + ",".join("{" + ",".join(map(str, r)) + "}" for r in pal) + " };",
-                            cut("static uint16_t ui_mix", SRC) + "\n" + cut("COLD_FN static void set_thumb_pal", settings))
+                            cut("static inline uint16_t ui_mix", SRC) + "\n" + cut("COLD_FN static void set_thumb_pal", settings))
     fails = 0
     with tempfile.TemporaryDirectory() as d:
         c, exe = Path(d) / "t.c", Path(d) / "t"
         c.write_text(code)
-        r = subprocess.run(["cc", "-O1", "-Wall", "-Werror", "-o", str(exe), str(c)], capture_output=True, text=True)
+        r = subprocess.run(["cc", "-O1", "-Wall", "-Werror", "-I", str(ROOT / "fw"), "-o", str(exe), str(c)], capture_output=True, text=True)
         if r.returncode:
             print(r.stderr)
             return 1
@@ -152,7 +153,7 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         c, exe = Path(d) / "t.c", Path(d) / "t"
         c.write_text(code)
-        r = subprocess.run(["cc", "-O1", "-Wall", "-Werror", "-o", str(exe), str(c)], capture_output=True, text=True)
+        r = subprocess.run(["cc", "-O1", "-Wall", "-Werror", "-I", str(ROOT / "fw"), "-o", str(exe), str(c)], capture_output=True, text=True)
         if r.returncode:
             print(r.stderr)
             sys.exit(1)

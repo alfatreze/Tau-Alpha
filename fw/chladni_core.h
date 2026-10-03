@@ -9,6 +9,7 @@
 #ifndef CHLADNI_CORE_H
 #define CHLADNI_CORE_H
 #include <stdint.h>
+#include "meter_core.h"   /* mtr_energy, mtr_slew_pow, mtr_onset_flux: the signal measurements Chladni shares with every meter */
 
 #ifndef CHL_DATA
 #define CHL_DATA
@@ -128,9 +129,7 @@ static void chl_init(chl_state_t *s, const chl_cfg_t *c)
 /* Mean band level, Q8 (0..255). */
 static uint32_t chl_energy(const uint8_t *lvl)
 {
-    uint32_t sum = 0;
-    for (uint32_t b = 0; b < CHL_BANDS; b++) sum += lvl[b];
-    return sum >> 4;
+    return mtr_energy(lvl, CHL_BANDS);
 }
 
 /* Called every meter tick (about 26 ms). Returns 1 when a trigger fired: the scene advances, the family phase turns a
@@ -148,11 +147,7 @@ static int chl_detect(chl_state_t *s, const chl_cfg_t *c, const uint8_t *lvl, ui
             if (s->hold >= 4u && elapsed > c->refr_ms) { fire = 1; s->arg = (uint8_t)a; s->hold = 0; }
         } else s->hold = 0;
     } else {
-        uint32_t rise = 0;
-        for (uint32_t b = 0; b < CHL_BANDS; b++) if (lvl[b] > s->prev[b]) rise += lvl[b] - s->prev[b];
-        uint32_t thr = ((c->sens_q4 * s->ema_q8) >> 12) + 6u;
-        if (rise > thr && elapsed > c->refr_ms) fire = 1;
-        s->ema_q8 += (int32_t)((rise << 8) - s->ema_q8) >> 5;
+        fire = mtr_onset_flux(s->prev, &s->ema_q8, lvl, CHL_BANDS, c->sens_q4, elapsed, c->refr_ms);
     }
     for (uint32_t b = 0; b < CHL_BANDS; b++) s->prev[b] = lvl[b];
     if (fire) {
@@ -169,13 +164,7 @@ static int chl_detect(chl_state_t *s, const chl_cfg_t *c, const uint8_t *lvl, ui
 static void chl_update(chl_state_t *s, const chl_cfg_t *c, const uint8_t *lvl, uint32_t dt_ms)
 {
     int32_t up = (int32_t)(c->up_q12_s * dt_ms / 1000u), dn = (int32_t)(c->dn_q12_s * dt_ms / 1000u);
-    for (uint32_t b = 0; b < CHL_BANDS; b++) {
-        int32_t t = ((int32_t)lvl[b] * lvl[b]) >> 4;
-        int32_t d = t - s->w[b];
-        if (d > up) d = up;
-        if (d < -dn) d = -dn;
-        s->w[b] += d;
-    }
+    mtr_slew_pow(s->w, lvl, CHL_BANDS, up, dn);
     s->energy_q8 = (uint16_t)chl_energy(lvl);
     s->psi += ((c->morph_base + ((s->energy_q8 * (uint32_t)c->morph_gain) >> 8)) * dt_ms) / 1000u;
     uint32_t dec = 1024u * dt_ms / 1000u;
