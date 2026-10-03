@@ -33,7 +33,7 @@ static lib_lv_t lib_stk[4];
 static uint8_t  lib_depth;
 #define LIB_CUR (lib_stk[lib_depth])
 
-static uint32_t lib_rep_at;
+static kr_t lib_kr;   /* B-534: hold-to-repeat state for the list's Up/Down */
 static uint16_t lib_mq_sel = 0xFFFFu, lib_mq_off;
 static uint32_t lib_mq_next;
 
@@ -517,15 +517,9 @@ COLD_FN static void lib_ui_input(uint32_t *edge_p, uint32_t *fall_p, uint32_t *k
     if (v->kind == LV_HOME) v->count = (uint16_t)lib_home_n();
     uint32_t n = v->count ? v->count : 1u;      /* never divide by zero on an empty list */
 
+    edge = kr_step(&lib_kr, edge, keys, KEY_UP | KEY_DOWN, cycles(), CLK_HZ / 1000u * PL_HOLD_MS, CLK_HZ / 16u, 0);   /* B-534: the shared hold-to-repeat primitive */
     if (edge & KEY_UP)   { v->sel = v->sel ? (uint16_t)(v->sel - 1u) : (uint16_t)(n - 1u); lib_follow(); lib_ui_dirty = 1u; }
     if (edge & KEY_DOWN) { v->sel = (uint16_t)((v->sel + 1u) % n); lib_follow(); lib_ui_dirty = 1u; }
-    if (edge & (KEY_UP | KEY_DOWN)) lib_rep_at = cycles() + CLK_HZ / 1000u * PL_HOLD_MS;
-    if ((keys & (KEY_UP | KEY_DOWN)) && (int32_t)(cycles() - lib_rep_at) >= 0) {
-        lib_rep_at = cycles() + CLK_HZ / 16u;
-        if (keys & KEY_UP) v->sel = v->sel ? (uint16_t)(v->sel - 1u) : (uint16_t)(n - 1u);
-        else               v->sel = (uint16_t)((v->sel + 1u) % n);
-        lib_follow(); lib_ui_dirty = 1u;
-    }
     /* Left and Right are Back and Forward, as in the menus (they used to page, and both jumped to an end of a short list). Long
      * lists: hold Up/Down, or the letter jump on L1/R1. */
     if (edge & KEY_RIGHT) edge |= KEY_A;

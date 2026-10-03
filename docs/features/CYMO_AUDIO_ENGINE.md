@@ -512,8 +512,8 @@ Pause shortening (included):
   - a single cut is capped (about 700 ms removed), so a deliberate long silence such as a chapter gap is shortened, not erased;
   - the removed span is taken from the **middle** of the pause, with a look-ahead so a word onset is never clipped;
   - the join uses the same overlap-add crossfade as the WSOLA splice, so it is not audible as a click.
-- **Setting.** Off, Gentle, Normal, Strong (the four sets of thresholds above), stored as one small persist word alongside the tempo
-  setting. Active only in the audiobook tempo mode, never for music.
+- **Setting.** **Off (the default), Small, Medium, High** (owner, 2026-10-03; renamed from Gentle/Normal/Strong), stored as one small persist word alongside the tempo
+  setting. Active only in the audiobook tempo mode, never for music. Measured starting values from the host model (B-536, `tools/lab/cymo_tempo_model.py` `PRESETS`; owner listened and approved the three presets): Small = pauses over 400 ms, keep 60% (at least 200 ms), cut at most 400 ms, detector 6 dB over the noise floor; Medium = 250 ms / 40% / 120 ms / 700 ms / 9 dB; High = 150 ms / 25% / 80 ms / 1,000 ms / 12 dB. Saved on the 331 s Twain clip: 3.0% / 6.2% / 9.8%. The noise floor is the 5th percentile of the envelope over +-4 s (not the window minimum, which sits on digital silence in an MP3).
 - **Position and time.** Position is derived from file position, so the resume point stays exact. The remaining-time display will
   drop faster than real time while pauses are being skipped, which is correct, and should be labelled or smoothed so it does not
   look like a bug **[to decide with the UI]**.
