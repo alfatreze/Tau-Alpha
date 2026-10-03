@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import subprocess
+import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -90,6 +91,14 @@ def main():
     env = dict(os.environ)
     sh(["bash", "-n", "fw/build.sh"])
     sh(["bash", "fw/build.sh", "release"], env=env)                       # v0.4.0 (B-078): library + Phase G, no Check
+    # B-563: a RAM_192K=1 build never writes dist/ (build.sh, B-333) but goes to work/ram192k/release/. The
+    # release ships that build, so put it where package.py and the zip expect it -- and refuse to go on if
+    # the ROM in dist/ is not the one just built (the earlier run silently zipped a stale 256 KB ROM).
+    built = ROOT / ("work/ram192k/release" if env.get("RAM_192K") == "1" else "dist/Assets/tau/common")
+    for name in ("tau.rom", "tau-cold.bin"):
+        if built != ROOT / "dist/Assets/tau/common":
+            shutil.copy2(built / name, ROOT / "dist/Assets/tau/common" / name)
+        assert sha(built / name) == sha(ROOT / "dist/Assets/tau/common" / name), f"dist/{name} is not the freshly built one"
     sh(["bash", "fw/build.sh", "player-library-diagnostic"], env=env)     # Diagnostic Build: adds Tests/Stress and the Check
     sh([sys.executable, "package.py", "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256, "--release-library"])
     sh([sys.executable, "tools/check_tau_package.py"])
