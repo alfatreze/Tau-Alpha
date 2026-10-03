@@ -22,15 +22,29 @@ int main(void)
     chk(hr_max_speed_x100(50, 1, 1, 100) == 0u, "an extra load of 100%% leaves nothing");
     chk(hr_max_speed_x100(70, 17, 20, 0) == 283u, "70%% idle at 0.85x");
     hr_t h; hr_reset(&h);
-    chk(h.min_idle == 100u && h.secs == 0u, "reset: no history");
-    hr_update(&h, 5); hr_update(&h, 5);
-    chk(h.min_idle == 100u, "the first HR_SETTLE_SECS seconds are ignored (loading is not steady state)");
-    hr_update(&h, 70); hr_update(&h, 40); hr_update(&h, 80);
+    chk(h.min_idle == 100u && h.secs == 0u && h.last == 255u && h.max_io == 0u, "reset: no history");
+    hr_update(&h, 5, 90); hr_update(&h, 5, 90);
+    chk(h.min_idle == 100u && h.last == 255u, "the first HR_SETTLE_SECS seconds are ignored (loading is not steady state)");
+    hr_update(&h, 70, 3); hr_update(&h, 40, 12); hr_update(&h, 80, 5);
     chk(h.min_idle == 40u, "afterwards the worst (lowest idle) second is kept");
-    hr_reset(&h); hr_update(&h, 0);
+    chk(h.last == 80u, "and the latest counted second is remembered");
+    chk(h.max_io == 12u, "the worst file-wait second is kept, settling seconds excluded");
+    hr_reset(&h); hr_update(&h, 0, 0);
     chk(h.min_idle == 100u, "reset starts the settling again");
-    for (int i = 0; i < 400; i++) hr_update(&h, 50);
+    for (int i = 0; i < 400; i++) hr_update(&h, 50, 7);
     chk(h.secs == 255u && h.min_idle == 50u, "the second counter saturates");
+    { ur_t u = {0, 0, 0};
+      ur_note(&u, 0, 1); ur_note(&u, 0, 1); ur_note(&u, 0, 0);
+      chk(u.n == 0, "empty before the FIFO was ever seen full is the prefill, not an underrun");
+      ur_note(&u, 1, 0); ur_note(&u, 0, 0);
+      chk(u.n == 0, "full then draining is normal");
+      ur_note(&u, 0, 1); ur_note(&u, 0, 1); ur_note(&u, 0, 1);
+      chk(u.n == 1, "a stall spanning several pushes counts once");
+      ur_note(&u, 0, 0); ur_note(&u, 0, 1);
+      chk(u.n == 2, "empty again after refilling counts as a second stall");
+      ur_flush(&u); ur_note(&u, 0, 1); ur_note(&u, 0, 1);
+      chk(u.n == 2, "after a flush the prefill is ignored again, the total is kept");
+    }
     return bad != 0;
 }
 '''

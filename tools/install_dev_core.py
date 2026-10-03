@@ -13,7 +13,8 @@ Steps (docs/CARD_INSTALL_PROCEDURE.md): 1 back up everything about to be removed
 2 copy the new core, verify every file by SHA-256; 3 (--carry-from) copy the media and REBUILD the library
 index for the new core's own path (B-136); 4 remove the named cores; 5 delete the five Pocket catalog caches
 (B-143 -- a new core does not appear without this); 6 remove AppleDouble/.DS_Store junk in the touched paths;
-7 eject. The release cores (alfatreze.TAU, alfatreze.TAU_DIAGNOSTIC) are never removed or replaced unless
+7 eject. A backup leaves out the media (audio/images) of the core whose media is carried over or which is replaced in place -- it is a
+duplicate that used to make every backup about 0.8 GB (B-542); --backup-media keeps it. A core removed WITHOUT being carried from keeps a full backup. The release cores (alfatreze.TAU, alfatreze.TAU_DIAGNOSTIC) are never removed or replaced unless
 --allow-release is given.
 
 If the procedure changes, change THIS script and the doc together (owner rule, 2026-09-25).
@@ -26,6 +27,8 @@ CACHES = ["core_viewby_platform.bin", "corelist_cache.bin", "cores_cache.bin",
           "platform_viewby_category.bin", "platforms_cache.bin"]
 RELEASE_CORES = {"alfatreze.TAU", "alfatreze.TAU_DIAGNOSTIC"}
 JUNK = ("._", ".DS_Store")
+# Audio and image files under Assets/<platform>/common/: the bulk of a core's size (about 0.8 GB a core) and always a copy of media that lives somewhere else.
+MEDIA_EXT = {".mp3", ".flac", ".wav", ".ogg", ".m4a", ".jpg", ".jpeg", ".png", ".timg"}
 
 
 def sha(p):
@@ -52,17 +55,45 @@ def is_junk(name):
     return name.startswith("._") or name == ".DS_Store"
 
 
-def tree(p):
-    """{relative path: sha256} of every real file under p (junk ignored)."""
+def is_media(rel):
+    """True for an audio/image file under common/ (rel is the path relative to Assets/<platform>)."""
+    r = Path(rel)
+    return "common" in r.parts and r.suffix.lower() in MEDIA_EXT
+
+
+def skip_media_for(core, new_id, carry_from, backup_media):
+    """Whether to leave a core's media out of its backup (B-542: it was 99% of 34 GB of backups, every one a duplicate). Only when the media is provably not
+    lost: the core being removed is the one whose media is carried to the new core (copied and SHA-256 verified before anything is removed), or the core
+    being replaced (its Assets folder is not touched by --replace). Any other core being removed keeps a full backup, media included."""
+    return (not backup_media) and (core == carry_from or core == new_id)
+
+
+def tree(p, skip_media=False):
+    """{relative path: sha256} of every real file under p (junk ignored; media too when skip_media)."""
     out = {}
     for f in sorted(Path(p).rglob("*")):
         if f.is_file() and not is_junk(f.name):
-            out[str(f.relative_to(p))] = sha(f)
+            rel = f.relative_to(p)
+            if skip_media and is_media(rel):
+                continue
+            out[str(rel)] = sha(f)
     return out
 
 
-def copy_tree(src, dst):
-    shutil.copytree(src, dst, ignore=lambda d, names: [n for n in names if is_junk(n)], dirs_exist_ok=True)
+def copy_tree(src, dst, skip_media=False):
+    def ignore(d, names):
+        out = []
+        for n in names:
+            if is_junk(n):
+                out.append(n)
+            elif skip_media and (Path(d) / n).is_file() and is_media(Path(d).relative_to(src) / n):
+                out.append(n)
+        return out
+    shutil.copytree(src, dst, ignore=ignore, dirs_exist_ok=True)
+    if skip_media:                      # leave no empty media folders behind
+        for d in sorted((q for q in Path(dst).rglob("*") if q.is_dir()), key=lambda q: len(q.parts), reverse=True):
+            if not any(d.iterdir()):
+                d.rmdir()
 
 
 def die(msg):
@@ -107,6 +138,7 @@ def main():
     ap.add_argument("--replace", action="store_true", help="the new core already exists on the card: back it up and refresh its core files (its media stays)")
     ap.add_argument("--allow-release", action="store_true", help="permit touching alfatreze.TAU / alfatreze.TAU_DIAGNOSTIC")
     ap.add_argument("--backup-dir", type=Path, help="default: work/card-backups/<timestamp>")
+    ap.add_argument("--backup-media", action="store_true", help="include media in the backup of the carried-from or replaced core (default: skipped, it is a duplicate -- B-542)")
     ap.add_argument("--no-eject", action="store_true")
     ap.add_argument("--yes", action="store_true", help="actually write (default is a dry run)")
     a = ap.parse_args()
@@ -136,7 +168,8 @@ def main():
 
     to_backup = list(dict.fromkeys(a.remove + ([new_id] if exists else [])))
     bdir = a.backup_dir or ROOT / "work/card-backups" / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    print(f"backup:  {bdir}  <- {to_backup or 'nothing to back up'} + {len(CACHES)} catalog caches")
+    print(f"backup:  {bdir}  <- {to_backup or 'nothing to back up'} + {len(CACHES)} catalog caches"
+          + ("" if a.backup_media else "  (media skipped for the carried-from/replaced core)"))
     print(f"install: {new_id}" + (f"  (replacing the copy on the card)" if exists else ""))
     if a.carry_from:
         print(f"media:   carry from {a.carry_from}, rebuild the library index for {new_id}")
@@ -152,14 +185,15 @@ def main():
     for c in to_backup:
         cdir, adir, pjson, pimg = core_paths(card, c)
         dst = bdir / c
+        skip = skip_media_for(c, new_id, a.carry_from, a.backup_media)
         copy_tree(cdir, dst / "Cores" / c)
-        if adir.is_dir(): copy_tree(adir, dst / "Assets" / adir.name)
+        if adir.is_dir(): copy_tree(adir, dst / "Assets" / adir.name, skip_media=skip)
         for f, sub in ((pjson, "Platforms"), (pimg, "Platforms/_images")):
             if f.exists():
                 (dst / sub).mkdir(parents=True, exist_ok=True); shutil.copy2(f, dst / sub / f.name)
-        ok = tree(cdir) == tree(dst / "Cores" / c) and (not adir.is_dir() or tree(adir) == tree(dst / "Assets" / adir.name))
+        ok = tree(cdir) == tree(dst / "Cores" / c) and (not adir.is_dir() or tree(adir, skip) == tree(dst / "Assets" / adir.name))
         if not ok: die(f"backup of {c} does not match the card")
-        print(f"   {c}: backed up and verified")
+        print(f"   {c}: backed up and verified" + (" (media not backed up: carried to the new core / left in place)" if skip else ""))
     (bdir / "System").mkdir(exist_ok=True)
     for f in CACHES:
         p = card / "System" / f
