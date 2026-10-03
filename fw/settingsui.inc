@@ -111,19 +111,17 @@ static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", 
     "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE" };
 static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
     SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR };
-/* Only the speeds that play cleanly are offered (A-133/A-135: 1.30x and above degrade and 1.25x micro-stuttered on some
- * material, the decoder budget at 60 MHz allows about 1.20x). The higher entries stay in speed_num/speed_den in
- * player.c for the resampler / decoder work and return here by raising SET_SPEED_SHOWN. */
-#define SET_SPEED_SHOWN 5u
+/* The speed list offers every entry up to 2.00x for an MP3 (owner decision 2026-10-03, B-555). The old limit of 1.20x came from A-133/A-135, when 1.25x micro-stuttered at
+ * 60 MHz with the software MP3 synthesis window; with the hardware window and the 66.7 MHz clock a stereo 128 kbps MP3 is 83% busy at 1.50x with no FIFO stalls
+ * (B-553) and the owner heard clean MP3 at 1.75x. These are VARISPEED speeds: the pitch rises with the speed (real tempo without the pitch change is the Cymo C7
+ * work). Above 1.20x is not a promise for every file: a stereo MP3 has about a quarter of the CPU free at 1.50x. 2.50x stays behind Diagnostics > ALL SPEEDS. A FLAC
+ * always plays at 1.00x (B-554). The speed table itself lives in player.c. */
+#define SET_SPEED_SHOWN 9u
 _Static_assert(SET_SPEED_SHOWN <= SPEED_N, "speed list longer than the speed table");
-#if TAU_DIAGNOSTIC
 static const char *const set_speed_nm[SPEED_N] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.20X",
     "1.30X", "1.50X", "1.75X", "2.00X", "2.50X" };
-#else
-static const char *const set_speed_nm[SET_SPEED_SHOWN] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.20X" };
-#endif
-/* Diagnostic Build only: Diagnostics > ALL SPEEDS offers the whole speed table (up to 2.50x) in the speed list, as a
- * test bed for the audio work. Not persisted; off at every start; turning it off returns a fast speed to 1.00x. */
+/* Diagnostic Build only: Diagnostics > ALL SPEEDS adds the last table entry (2.50x) to the speed list, as a
+ * test bed for the audio work. Not persisted; off at every start; turning it off returns 2.50x to 1.00x. */
 #if TAU_DIAGNOSTIC
 static uint8_t set_speed_all;
 #define SET_SPEED_COUNT() ((uint32_t)(set_speed_all ? SPEED_N : SET_SPEED_SHOWN))
