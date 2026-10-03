@@ -21,6 +21,7 @@ HARNESS = r'''
 #include "meter_module.h"
 #include "meter.h"
 #include "meters_gen.h"
+#include "meter_core.h"
 static uint16_t ui_accent;
 static uint8_t paused, wviz_force;
 static void fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { printf("rect %u %u %u %u %u\n", x, y, w, h, c); }
@@ -48,7 +49,7 @@ int main(int argc, char **argv) {
             printf("F %d\n", n);
             if (n == chg) for (int i = 0; i < MP_LAYERED_WAVE_N; i++) if (i < MP_LAYERED_WAVE_N) mtr_v_layered_wave[i] = (uint16_t)pv2[i];
             mtr_in_t in = {0};
-            in.spec = spec; in.wave = wave; in.force = (n == 0 || n == frc) ? 1 : 0; in.dt_ms = 26u;
+            in.paused = paused; in.spec = spec; in.wave = wave; in.force = (n == 0 || n == frc) ? 1 : 0; in.dt_ms = 26u;
             if (geoat >= 0 && n >= geoat) { in.x = (uint16_t)bx2; in.y = (uint16_t)by2; in.w = (uint16_t)bw2; in.h = (uint16_t)bh2; }
             else { in.x = (uint16_t)bx; in.y = (uint16_t)by; in.w = (uint16_t)bw; in.h = (uint16_t)bh; }
             lw_tick(&in);

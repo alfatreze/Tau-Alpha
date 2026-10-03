@@ -212,8 +212,8 @@ CHL_COLD static int chladni_tick_box(const mtr_in_t *in)
         ctx.pal[0] = 0x0806u; ctx.pal[1] = 0x1237u; ctx.pal[2] = 0x25F7u; ctx.pal[3] = 0xBF7Eu;
     } else {                                                    /* LINE (paint 0): unchanged ground->accent monochrome ramp */
         ctx.pal[0] = ground;
-        ctx.pal[1] = ui_mix(ground, ui_accent, 1u, 3u);
-        ctx.pal[2] = ui_mix(ground, ui_accent, 2u, 3u);
+        ctx.pal[1] = mtr_ramp(ground, ui_accent, 1u, 3u);
+        ctx.pal[2] = mtr_ramp(ground, ui_accent, 2u, 3u);
         ctx.pal[3] = ui_accent;
     }
     chl_render(md, K, rx, ry, chl_hw_q8(&chl_st, &chl_cfg, rx), chl_ring, chl_cfg.fold ? chl_half : (int16_t *)0,

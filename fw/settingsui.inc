@@ -384,10 +384,7 @@ COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
         viz_mode = (uint8_t)viz_sel_to_mode(i);
         ui_wave_clear();
         ui_wave_force = 1u;
-        for (uint32_t k = 0; k < UI_WAVE_N; k++) {
-            wave_drawn[k] = 0xFFu; wave_pk_drawn[k] = 0xFFu;
-            for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu;
-        }
+        ui_meter_caches_invalidate();
     } else if (c == CH_EQ) {
         eq_idx = (uint8_t)i;
         eq_apply = 1u;

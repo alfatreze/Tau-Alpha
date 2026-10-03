@@ -95,6 +95,7 @@ static uint16_t ui_mix(uint16_t a, uint16_t b, uint32_t t, uint32_t d) {      /*
 #define COLD_DATA
 #endif
 #include "../fw/meters_gen.h"
+#include "../fw/meter_core.h"
 #include "../fw/chladni.inc"
 
 /* chladni_tick_box() takes the draw-contract struct (fw/meter.h) directly since the removal of the

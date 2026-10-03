@@ -61,11 +61,8 @@ static uint32_t lw_t_cpu, lw_t_unw, lw_cmd_last;
 #endif
 
 /* ---- colours ------------------------------------------------------------------------------------------------------------------- */
-COLD_FN3 static uint16_t lw_mix(uint16_t a, uint16_t b, int32_t t256)
-{
-    const int32_t ar = (a >> 11) & 31, ag = (a >> 5) & 63, ab = a & 31, br = (b >> 11) & 31, bg = (b >> 5) & 63, bb = b & 31;
-    return (uint16_t)(((ar + (((br - ar) * t256) >> 8)) << 11) | ((ag + (((bg - ag) * t256) >> 8)) << 5) | (ab + (((bb - ab) * t256) >> 8)));
-}
+#include "meter_core.h"   /* include-guarded; this module uses mtr_mix256 */
+COLD_FN3 static uint16_t lw_mix(uint16_t a, uint16_t b, int32_t t256) { return mtr_mix256(a, b, t256); }   /* the implementation lives in fw/meter_core.h */
 COLD_FN3 static uint16_t lw_pack(int32_t r, int32_t g, int32_t b) { return (uint16_t)((((r * 31 + 127) / 255) << 11) | (((g * 63 + 127) / 255) << 5) | ((b * 31 + 127) / 255)); }
 COLD_FN3 static uint16_t lw_hue_rot(uint16_t c, uint32_t which)               /* 0 = -30, 1 = +30, 2 = 180 degrees; grey stays grey */
 {
@@ -145,7 +142,7 @@ COLD_FN3 static void lw_bounds(uint32_t split, int32_t n, uint8_t *b, const uint
 }
 COLD_FN3 static void lw_learn(const uint8_t *spec, int32_t n)             /* ENERGY: boundaries at equal cumulative slow-averaged energy, ~4 times a second */
 {
-    for (uint32_t k = 0; k < LW_NB; k++) { const int32_t sq = (int32_t)spec[k] * spec[k]; lw_e[k] += (sq - lw_e[k]) / 48; }
+    mtr_ema_pow(lw_e, spec, LW_NB, 48);
     if (++lw_etick < 12u) return;
     lw_etick = 0;
     int32_t tot = 0, acc = 0, g = 1, cnt = 1;
@@ -562,7 +559,7 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
             break;
         }
     }
-    if (!paused) {
+    if (!in->paused) {
         const int32_t cy = (int32_t)in->y + (in->h >> 1), Hh = (in->h >> 1) - 1;
         int32_t bud = LW_BUDGET;
 #if TAU_DIAGNOSTIC
@@ -600,7 +597,7 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
 #endif
     }
     wviz_force = 0u;
-    return !paused && lw_cnt > 0;                                 /* commands were issued: helios_meter() presents the box (if it composed it off-screen) */
+    return !in->paused && lw_cnt > 0;                                 /* commands were issued: helios_meter() presents the box (if it composed it off-screen) */
 }
 
 /* helios_meter(): the composed frame could not be shown (the draw engine never drained). Repaint on the next call instead of showing a half-built box. */

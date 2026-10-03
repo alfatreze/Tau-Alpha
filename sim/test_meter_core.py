@@ -176,6 +176,194 @@ def parse_vectors(out):
     return res
 
 
+COLOUR_C = r'''
+#include <stdio.h>
+#include "meter_core.h"
+int main(void) {
+    unsigned s = 12345u;
+    for (int k = 0; k < 20000; k++) {
+        s = s * 1664525u + 1013904223u; uint16_t a = (uint16_t)(s >> 8);
+        s = s * 1664525u + 1013904223u; uint16_t b = (uint16_t)(s >> 8);
+        s = s * 1664525u + 1013904223u; uint32_t n = 1u + (s >> 8) % 200u;
+        s = s * 1664525u + 1013904223u; uint32_t t = (s >> 8) % (n + 1u);
+        s = s * 1664525u + 1013904223u; int32_t t256 = (int32_t)((s >> 8) % 257u);
+        s = s * 1664525u + 1013904223u; uint32_t r = (s >> 8) % (n + 1u);
+        printf("%u %u %u %u %d %u %u %u\n", a, b, n, t, t256, r, mtr_ramp(a, b, t, n), mtr_mix256(a, b, t256));
+        printf("L %u %u %u\n", mtr_ladder(a, b, (uint16_t)(a ^ b), r % n, n), 0u, 0u);
+    }
+    return 0;
+}
+'''
+
+
+def check_colour():
+    """mtr_ramp / mtr_mix256 / mtr_ladder against independent Python references of the arithmetic ui_mix and lw_mix always used."""
+    with tempfile.TemporaryDirectory() as d:
+        c = Path(d) / "c.c"; c.write_text(COLOUR_C); exe = Path(d) / "c"
+        r = subprocess.run(["cc", "-O1", "-I", str(ROOT / "fw"), "-o", str(exe), str(c)], capture_output=True, text=True)
+        if r.returncode: print(r.stderr); sys.exit(1)
+        out = subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines()
+    def ramp(a, b, t, n):
+        rr = (((a >> 11) & 31) * (n - t) + ((b >> 11) & 31) * t) // n
+        gg = (((a >> 5) & 63) * (n - t) + ((b >> 5) & 63) * t) // n
+        bb = ((a & 31) * (n - t) + (b & 31) * t) // n
+        return (rr << 11) | (gg << 5) | bb
+    def mix256(a, b, t):
+        ar, ag, ab, br, bg, bb = (a >> 11) & 31, (a >> 5) & 63, a & 31, (b >> 11) & 31, (b >> 5) & 63, b & 31
+        return ((ar + (((br - ar) * t) >> 8)) << 11) | ((ag + (((bg - ag) * t) >> 8)) << 5) | (ab + (((bb - ab) * t) >> 8))
+    for i in range(0, len(out), 2):
+        a, b, n, t, t256, r, gr, gm = (int(x) for x in out[i].split())
+        if gr != ramp(a, b, t, n) or gm != mix256(a, b, t256):
+            print("colour MISMATCH", out[i]); sys.exit(1)
+        mid = a ^ b; half = n // 2; rr = r % n
+        want = ramp(a, b, rr, half) if rr < half else ramp(b, mid, rr - half, n - half)
+        if int(out[i + 1].split()[1]) != want:
+            print("ladder MISMATCH", out[i], out[i + 1]); sys.exit(1)
+    print("colour helpers OK (mtr_ramp, mtr_mix256, mtr_ladder equal the original arithmetic over 20000 random cases)")
+
+
+GEOM_C = r'''
+#include <stdio.h>
+#include "meter_core.h"
+int main(void) {
+    unsigned s = 777u;
+    #define R() (s = s * 1664525u + 1013904223u, s >> 8)
+    for (int k = 0; k < 20000; k++) {
+        uint32_t x0 = R() % 100u, w = 1u + R() % 500u, n = 1u + R() % 80u, i = R() % n, gap = R() % 8u, x, lit, cw;
+        mtr_col_span(x0, w, n, i, gap, &x, &lit); mtr_col_cw(x0, w, n, i, &x, &cw);
+        uint32_t h = 1u + R() % 400u, full = 1u + R() % 40000u, v = R() % 70000u;
+        int32_t ey = 1 + (int32_t)(R() % 200u), unit = 1 + (int32_t)(R() % 32000u), sv = (int32_t)(R() % 256u) - 128;
+        int32_t px = (int32_t)(R() % 600u) - 50, py = (int32_t)(R() % 500u) - 50, sz = 1 + (int32_t)(R() % 3u);
+        printf("%u %u %u %u %u %u %u %u %u %u %u %d %d %d %d %d %d %d %u %d %d\n", x0, w, n, i, gap, x, lit, cw, h, full, v, ey, unit, sv,
+               px, py, sz, mtr_scale_s(sv, ey, unit), mtr_scale_u(v, h, full), mtr_in_box(px, py, sz, (int32_t)x0, 20, (int32_t)w, (int32_t)h), 0);
+    }
+    return 0;
+}
+'''
+
+
+def check_geometry():
+    """The geometry helpers against independent Python references of the arithmetic the meters wrote inline."""
+    with tempfile.TemporaryDirectory() as d:
+        c = Path(d) / "g.c"; c.write_text(GEOM_C); exe = Path(d) / "g"
+        r = subprocess.run(["cc", "-O1", "-I", str(ROOT / "fw"), "-o", str(exe), str(c)], capture_output=True, text=True)
+        if r.returncode: print(r.stderr); sys.exit(1)
+        out = subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines()
+    def cdiv(a, b):   # C division truncates toward zero
+        q = abs(a) // abs(b); return q if (a >= 0) == (b > 0) else -q
+    for ln in out:
+        (x0, w, n, i, gap, x, lit, cw, h, full, v, ey, unit, sv, px, py, sz, ss, su, inb, _) = (int(a) for a in ln.split())
+        a_, b_ = x0 + (i * w) // n, x0 + ((i + 1) * w) // n
+        ok = x == a_ and lit == ((b_ - a_ - gap) if b_ - a_ > gap else 1) and cw == ((b_ - a_) if b_ > a_ else 1)
+        want_s = max(-ey, min(ey, cdiv(sv * ey, unit)))
+        want_u = min(h, (v * h) // full)
+        want_b = int(px >= x0 and px + sz <= x0 + w and py >= 20 and py + sz <= 20 + h)
+        if not ok or ss != want_s or su != want_u or inb != want_b:
+            print("geometry MISMATCH", ln); sys.exit(1)
+    print("geometry helpers OK (mtr_col_span, mtr_col_cw, mtr_scale_u, mtr_scale_s, mtr_in_box equal the original arithmetic over 20000 random cases)")
+
+
+CACHE_C = r'''
+#include <stdio.h>
+#include "meter_core.h"
+int main(void) {
+    uint8_t a = 7, b = 9, c = 3;
+    printf("%d", mtr_delta1(&c, 3, 0)); printf("%d", mtr_delta1(&c, 4, 0)); printf("%d", (int)c); printf("%d", mtr_delta1(&c, 4, 1)); printf("%d", mtr_delta1(&c, 4, 0));
+    printf(" %d", mtr_delta(&a, &b, 7, 9, 0)); printf("%d", mtr_delta(&a, &b, 7, 10, 0)); printf("%d%d", (int)a, (int)b);
+    uint8_t arr[5] = {1, 2, 3, 4, 5}; mtr_invalidate(arr, 4);
+    printf(" %u %u %u %u %u", arr[0], arr[1], arr[2], arr[3], arr[4]);
+    /* a stale cell is redrawn by both forms without force */
+    uint8_t s1 = MTR_STALE, s2 = MTR_STALE;
+    printf(" %d%d", mtr_delta1(&s1, 0, 0), mtr_delta(&s1, &s2, 0, 0, 0));
+    printf("\n");
+    return 0;
+}
+'''
+
+
+def check_cache():
+    with tempfile.TemporaryDirectory() as d:
+        c = Path(d) / "c.c"; c.write_text(CACHE_C); exe = Path(d) / "c"
+        r = subprocess.run(["cc", "-O1", "-I", str(ROOT / "fw"), "-o", str(exe), str(c)], capture_output=True, text=True)
+        if r.returncode: print(r.stderr); sys.exit(1)
+        out = subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.strip()
+    want = "01410 01710 255 255 255 255 5 11"
+    if out != want:
+        print("cache MISMATCH: got %r want %r" % (out, want)); sys.exit(1)
+    print("cache helpers OK (mtr_delta1, mtr_invalidate, stale cells redraw without force)")
+
+
+SIG_C = r'''
+#include <stdio.h>
+#include "meter_core.h"
+int main(void) {
+    unsigned s = 4242u;
+    #define R() (s = s * 1664525u + 1013904223u, s >> 8)
+    for (int k = 0; k < 3000; k++) {
+        uint8_t lvl[16], prev[16]; int32_t w[16], e[16];
+        const int quiet = (k % 7) == 0, zero = (k % 29) == 0;
+        for (int b = 0; b < 16; b++) { lvl[b] = zero ? 0 : (uint8_t)(quiet ? R() % 3u : R() % 256u); prev[b] = (uint8_t)(R() % 256u); w[b] = (int32_t)(R() % 4096u); e[b] = (int32_t)(R() % 65000u); }
+        uint32_t ema = R() % 5000u, sens = 8u + R() % 40u, elapsed = R() % 600u, refr = R() % 300u, peak = (k % 5) ? R() % 3u : 0u;
+        int32_t up = (int32_t)(R() % 300u), dn = (int32_t)(R() % 300u), div = 1 + (int32_t)(R() % 64u);
+        printf("%u %u", mtr_energy(lvl, 16), (unsigned)mtr_silent(lvl, 16, peak));
+        mtr_slew_pow(w, lvl, 16, up, dn); mtr_ema_pow(e, lvl, 16, div);
+        uint32_t ema0 = ema; int fire = mtr_onset_flux(prev, &ema, lvl, 16, sens, elapsed, refr);
+        printf(" %d %u", fire, ema);
+        for (int b = 0; b < 16; b++) printf(" %d %d", w[b], e[b]);
+        printf(" |");
+        for (int b = 0; b < 16; b++) printf(" %u %u", lvl[b], prev[b]);
+        printf(" | %u %u %u %u %d %d %d\n", ema0, sens, elapsed, refr, up, dn, div);
+        /* the inputs w0/e0 are regenerated by the python side from the same LCG, see below */
+    }
+    return 0;
+}
+'''
+
+
+def check_signals():
+    """The signal functions against Python transcriptions of the arithmetic Chladni (chl_energy/chl_update/chl_detect) and
+    Layered Wave (lw_learn) carried before they were moved into the core. The C side prints its results; the LCG replay supplies the inputs."""
+    with tempfile.TemporaryDirectory() as d:
+        c = Path(d) / "c.c"; c.write_text(SIG_C); exe = Path(d) / "c"
+        r = subprocess.run(["cc", "-O1", "-I", str(ROOT / "fw"), "-o", str(exe), str(c)], capture_output=True, text=True)
+        if r.returncode: print(r.stderr); sys.exit(1)
+        out = subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines()
+    s = [4242]
+    def R():
+        s[0] = (s[0] * 1664525 + 1013904223) & 0xFFFFFFFF; return s[0] >> 8
+    def cdiv(a, b):
+        q = abs(a) // abs(b); return q if (a >= 0) == (b > 0) else -q
+    for k, ln in enumerate(out):
+        quiet, zero = k % 7 == 0, k % 29 == 0
+        lvl = []; prev = []; w = []; e = []
+        for b in range(16):
+            lvl.append(0 if zero else (R() % 3 if quiet else R() % 256)); prev.append(R() % 256); w.append(R() % 4096); e.append(R() % 65000)
+        ema = R() % 5000; sens = 8 + R() % 40; elapsed = R() % 600; refr = R() % 300; peak = (R() % 3) if (k % 5) else 0
+        up = R() % 300; dn = R() % 300; div = 1 + R() % 64
+        head, rest = ln.split(" |", 1)
+        f = [int(x) for x in head.split()]
+        en, sil, fire, ema_out = f[0], f[1], f[2], f[3]
+        got_w = f[4::2][:16]; got_e = f[5::2][:16]
+        want_en = sum(lvl) >> 4
+        want_sil = int(peak == 0 and not any(lvl))
+        nw = []
+        for b in range(16):
+            t = (lvl[b] * lvl[b]) >> 4; dd = t - w[b]
+            if dd > up: dd = up
+            if dd < -dn: dd = -dn
+            nw.append(w[b] + dd)
+        ne = [e[b] + cdiv(lvl[b] * lvl[b] - e[b], div) for b in range(16)]
+        rise = sum(lvl[b] - prev[b] for b in range(16) if lvl[b] > prev[b])
+        thr = ((sens * ema) >> 12) + 6
+        want_fire = int(rise > thr and elapsed > refr)
+        d = ((rise << 8) - ema) & 0xFFFFFFFF
+        d = d - (1 << 32) if d & 0x80000000 else d
+        want_ema = (ema + (d >> 5)) & 0xFFFFFFFF
+        if (en, sil, fire, ema_out) != (want_en, want_sil, want_fire, want_ema) or got_w != nw or got_e != ne:
+            print("signals MISMATCH at case", k, (en, sil, fire, ema_out), (want_en, want_sil, want_fire, want_ema)); sys.exit(1)
+    print("signal functions OK (mtr_energy, mtr_silent, mtr_slew_pow, mtr_ema_pow, mtr_onset_flux equal the Chladni and Layered Wave originals over 3000 random cases)")
+
+
 def main():
     rc, out = build_run(True)
     if rc:
@@ -186,6 +374,10 @@ def main():
             print("core_vectors.json is stale; run sim/test_meter_core.py --write"); sys.exit(1)
     elif "--write" in sys.argv:
         VEC.parent.mkdir(parents=True, exist_ok=True); VEC.write_text(text); print("wrote", VEC)
+    check_colour()
+    check_geometry()
+    check_cache()
+    check_signals()
     print("meter core OK (equal to the original code; vectors " + ("checked" if "--check" in sys.argv else "computed") + ")")
 
 

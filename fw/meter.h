@@ -26,6 +26,11 @@ typedef struct {                 /* everything a meter may read, refreshed once 
     uint16_t        bg;          /* flat background when the host says so                            */
     const uint16_t *role;        /* th_role[], TR_COUNT entries (fw/theme.h); never hard-code colours */
     uint8_t         force;       /* 1 = repaint the whole rect and drop every redraw cache            */
+    uint8_t         paused;      /* playback is paused: a meter holds or dims, it never reads the player global */
+    const uint8_t  *env;         /* UI_WAVE_N entries: rolling amplitude envelope, 0..h, oldest first (the host shifts it once per tick) */
+    uint8_t         energy;      /* mean of the spectrum bands, 0..255 (mtr_energy), computed once per frame by the host */
+    uint8_t         silent;      /* 1 = digital silence: zero peak and every band zero (mtr_silent) */
+    const uint8_t  *env_pk;      /* the matching peak-hold marker per entry, sinking toward env by the host           */
 } mtr_in_t;
 
 /* ---- Mutable meter state lives in PSRAM (docs/features/meters/METER_MODULE_SPEC.md, "Mutable meter state lives in PSRAM", D-M14) ----
