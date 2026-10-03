@@ -5859,7 +5859,7 @@ ui_tail:
             fl_io_pct   = (uint8_t)(fl_io_cyc   / (el / 100u));
             if (fl_idle_pct > 99u) fl_idle_pct = 99u;
             if (fl_io_pct   > 99u) fl_io_pct   = 99u;
-            if (!idle && !paused && !UI_OVERLAY_UP) hr_update(&hr, fl_idle_pct);   /* B-538: only seconds of plain playback -- a menu or the Info page redrawing is not decode load */
+            if (!idle && !paused && !UI_OVERLAY_UP) hr_update(&hr, fl_idle_pct, fl_io_pct);   /* B-538: only seconds of plain playback -- a menu or the Info page redrawing is not decode load */
             fl_idle_cyc = fl_io_cyc = 0u;
         }
     }

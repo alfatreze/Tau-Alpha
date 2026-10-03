@@ -22,15 +22,16 @@ int main(void)
     chk(hr_max_speed_x100(50, 1, 1, 100) == 0u, "an extra load of 100%% leaves nothing");
     chk(hr_max_speed_x100(70, 17, 20, 0) == 283u, "70%% idle at 0.85x");
     hr_t h; hr_reset(&h);
-    chk(h.min_idle == 100u && h.secs == 0u && h.last == 255u, "reset: no history");
-    hr_update(&h, 5); hr_update(&h, 5);
+    chk(h.min_idle == 100u && h.secs == 0u && h.last == 255u && h.max_io == 0u, "reset: no history");
+    hr_update(&h, 5, 90); hr_update(&h, 5, 90);
     chk(h.min_idle == 100u && h.last == 255u, "the first HR_SETTLE_SECS seconds are ignored (loading is not steady state)");
-    hr_update(&h, 70); hr_update(&h, 40); hr_update(&h, 80);
+    hr_update(&h, 70, 3); hr_update(&h, 40, 12); hr_update(&h, 80, 5);
     chk(h.min_idle == 40u, "afterwards the worst (lowest idle) second is kept");
     chk(h.last == 80u, "and the latest counted second is remembered");
-    hr_reset(&h); hr_update(&h, 0);
+    chk(h.max_io == 12u, "the worst file-wait second is kept, settling seconds excluded");
+    hr_reset(&h); hr_update(&h, 0, 0);
     chk(h.min_idle == 100u, "reset starts the settling again");
-    for (int i = 0; i < 400; i++) hr_update(&h, 50);
+    for (int i = 0; i < 400; i++) hr_update(&h, 50, 7);
     chk(h.secs == 255u && h.min_idle == 50u, "the second counter saturates");
     return bad != 0;
 }
