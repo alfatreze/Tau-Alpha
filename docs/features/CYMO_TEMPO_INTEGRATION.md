@@ -33,7 +33,7 @@ Mono: the funnel always hands over a left/right pair (a mono file has L = R); th
 
 ## 4. Components
 
-1. **Staging ring** (PSRAM window, proposed offset 0x500000, 256 KB, clear of the library image at +0x10000 (4 MiB cap) and the cold image at 8 MiB; to be confirmed against the PSRAM map before use): the decoder writes decoded samples sequentially; the stretcher reads windows from it. 256 KB is 1.5 s of stereo or 3 s of mono at 44.1 kHz, enough for the stretcher window (about 4,100 samples at 3 x) and the pause-shortening lookahead (section 7).
+1. **Staging ring** (PSRAM window at offset **0x600000** from 0xA4000000, planar: 64 KB per channel = 32,768 samples each, two samples per 32-bit word; checked against the map in `fw/library.inc` (image from +0x10000 with a 4 MiB cap, play queue at +0x510000, dead-track bitmap at +0x520000, cold image at 8 MiB, Check scratch at 26 MiB): the first proposal, 0x500000, would have collided with the queue): the decoder writes decoded samples sequentially; the stretcher reads windows from it. 256 KB is 1.5 s of stereo or 3 s of mono at 44.1 kHz, enough for the stretcher window (about 4,100 samples at 3 x) and the pause-shortening lookahead (section 7).
 2. **Stretcher** (`fw/wsola_core.h`, unchanged API: `ws_need()` says which absolute sample range the next step reads, `ws_step()` produces one 512-sample hop).
 3. **Funnel** (`tempo_push(l, r)`): the new function the two decode paths call instead of `cymo_push()` when tempo is on; it owns the staging write pointer, runs the hops, and calls `cymo_push()` for every output pair.
 4. **Settings and persistence** (section 8) and the **guard** (section 9).
