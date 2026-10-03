@@ -35,6 +35,11 @@ script implements, kept for reference and for the rare manual case.
   `Platforms/_images/<platform>.bin` to the session scratchpad (not `/tmp`).
 - Verify the backup byte-identical (`diff -rq`) **before** deleting anything from the card. A backup that
   wasn't verified isn't a backup.
+- **Media is left out of a backup only when it is provably not lost** (B-542; backups had grown to 34 GB, 99% duplicate media): the core whose media
+  is carried to the new core (`--carry-from`, copied and SHA-256 verified before anything is removed) and a core replaced in place (`--replace`, its
+  `Assets` folder is not touched) are backed up without their audio/image files (`.mp3 .flac .wav .ogg .m4a .jpg .jpeg .png .timg` under `common/`).
+  A core removed WITHOUT being carried from keeps a full backup, media included, and `--backup-media` forces a full backup. `tools/install_dev_core.py`
+  does this; if you back up by hand, do the same or keep the media.
 
 ## 2. Copy the new files, verify by hash
 

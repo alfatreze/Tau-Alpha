@@ -48,6 +48,9 @@ with tempfile.TemporaryDirectory() as td:
     rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk2", "--replace", "--allow-release", "--no-eject", "--yes")
     check("--replace refreshes the core and keeps the media", rc == 0 and (card / "Assets/tau/common/my-track.mp3").exists())
     check("--replace backed up the old copy", (td / "bk2/alfatreze.TAU/Cores/alfatreze.TAU").is_dir())
+    check("--replace backup leaves the duplicate media out (B-542)", not (td / "bk2/alfatreze.TAU/Assets/tau/common/my-track.mp3").exists())
+    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk2b", "--replace", "--allow-release", "--backup-media", "--no-eject", "--yes")
+    check("--backup-media keeps the media in the backup", rc == 0 and (td / "bk2b/alfatreze.TAU/Assets/tau/common/my-track.mp3").read_bytes() == b"media")
 
     ta = td / "tau-assets.bin"; ta.write_bytes(b"TAUA-test")
     rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk3", "--replace", "--allow-release", "--assets", ta, "--no-eject", "--yes")
@@ -80,6 +83,18 @@ with tempfile.TemporaryDirectory() as td:
 
     rc, out = run(pkg, "--card", td / "nocard")
     check("a missing card is a clean stop", rc != 0 and "not mounted" in out)
+
+# B-542: media is only left out of a backup when it is provably not lost.
+sys.path.insert(0, str(ROOT / "tools"))
+import install_dev_core as idc
+check("media skipped for the carried-from core", idc.skip_media_for("A", "NEW", "A", False))
+check("media skipped for the replaced core (its Assets stay)", idc.skip_media_for("NEW", "NEW", None, False))
+check("a core removed WITHOUT --carry-from keeps its media in the backup", not idc.skip_media_for("B", "NEW", "A", False))
+check("--backup-media always keeps it", not idc.skip_media_for("A", "NEW", "A", True))
+check("media extensions recognised, everything else kept",
+      idc.is_media("common/Album/01.mp3") and idc.is_media("common/cover.JPG") and idc.is_media("common/x/y.timg")
+      and not idc.is_media("common/tau-library.tdb") and not idc.is_media("common/playlist.m3u") and not idc.is_media("common/tau.rom")
+      and not idc.is_media("Album/01.mp3"))
 
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
