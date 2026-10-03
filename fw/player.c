@@ -59,6 +59,7 @@
 #if MP3_PROFILE
 #include "mp3_profile.h"
 #endif
+#include "headroom.h"       /* Cymo C0a (B-538): worst-second idle and projected maximum speed (pure, host-tested) */
 
 #define REG(a)      (*(volatile uint32_t *)(uintptr_t)(a))
 
@@ -894,9 +895,11 @@ static uint8_t speed_idx = SPEED_1X;
 #if TAU_DIAGNOSTIC
 static void cymo_guard_apply(uint32_t hz);   /* B-530: defined with the Cymo toggle below */
 #endif
+static hr_t hr;   /* B-538: worst idle second since the track or speed last changed (Info > HEADROOM) */
 static void pcm_rate_apply(uint32_t hz)
 {
     if (!hz) return;
+    hr_reset(&hr);   /* a new track or a new speed starts a fresh measurement */
 #if TAU_DIAGNOSTIC
     cymo_guard_apply(hz);
 #endif
@@ -5856,6 +5859,7 @@ ui_tail:
             fl_io_pct   = (uint8_t)(fl_io_cyc   / (el / 100u));
             if (fl_idle_pct > 99u) fl_idle_pct = 99u;
             if (fl_io_pct   > 99u) fl_io_pct   = 99u;
+            if (!idle && !paused) hr_update(&hr, fl_idle_pct);   /* B-538: only while decoding */
             fl_idle_cyc = fl_io_cyc = 0u;
         }
     }

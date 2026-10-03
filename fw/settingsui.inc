@@ -573,7 +573,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 33u   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS 34u   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -639,6 +639,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "CYMO RESAMP"
     , "METER DRAW"
     , "LW COST"
+    , "HEADROOM"
     };
 static uint32_t set_info_at;
 
@@ -844,6 +845,21 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "/"); q = ui_dec(q, helios_t_max / (CLK_HZ / 1000000u));
         q = set_str(q, "US S"); q = ui_dec(q, lw_stride);
         break;
+    case 33: {   /* HEADROOM (Cymo C0a, B-538): spare CPU while decoding. I = idle share of the last second, MIN = the worst second since the track or speed changed (underruns
+                  * come from the worst second), MAX = the speed the idle share projects (fw/headroom.h: an approximation, confirm with a run), WS = the same with the tempo
+                  * stretcher's ESTIMATED fixed cost taken off first. Shows "-" until a track has played past the settling seconds. */
+        if (idle || paused || hr.min_idle > 99u) { q = set_str(q, "-"); break; }
+        const uint32_t n = speed_num[speed_idx], d = speed_den[speed_idx];
+        const uint32_t m0 = hr_max_speed_x100(fl_idle_pct, n, d, 0u), m1 = hr_max_speed_x100(hr.min_idle, n, d, HR_WSOLA_EST_PCT);
+        q = set_str(q, "I"); q = ui_dec(q, fl_idle_pct);
+        q = set_str(q, " MIN"); q = ui_dec(q, hr.min_idle);
+        q = set_str(q, " MAX ");
+        if (m0 > 999u) { q = set_str(q, ">9.9"); } else { q = ui_dec(q, m0 / 100u); q = set_str(q, "."); q = ui_dec(q, (m0 % 100u) / 10u); }
+        q = set_str(q, "X WS ");
+        if (m1 > 999u) { q = set_str(q, ">9.9"); } else { q = ui_dec(q, m1 / 100u); q = set_str(q, "."); q = ui_dec(q, (m1 % 100u) / 10u); }
+        q = set_str(q, "X");
+        break;
+    }
     case 32:   /* LW COST (B-519): commands in the last draw, CPU time to issue it, and how much of that was reading the PSRAM history (lw_unwrap) */
         q = set_str(q, "C"); q = ui_dec(q, lw_cmd_last);
         q = set_str(q, " CPU "); q = ui_dec(q, lw_t_cpu / (CLK_HZ / 1000000u));
