@@ -4849,19 +4849,33 @@ static uint32_t packs_tick(uint32_t meter_id, const mtr_in_t *in);          /* .
 enum { HM_CLIP = 1u, HM_GRAD = 2u };           /* flags: honour helios_excl[] rects; the scope paints the player screen's gradient behind itself */
 enum { HM_DREW = 1u, HM_COMPOSED = 2u };       /* result */
 static int meter_afford(void);                 /* defined with the audio-yield logic further down */
-/* Policy for the heavy meter (B-524): Layered Wave's redraw costs 10-20 ms of CPU inside the decode loop (worst seen 52 ms), which starves the PCM FIFO.
- * It is redrawn at most every HM_MIN_MS and skipped altogether while the FIFO is low (the same yield Chladni uses); the time skipped is added to the next
- * call's dt_ms, so the history still scrolls at the right speed. A forced repaint is never skipped. */
+/* MANDATORY throttle for every meter in every context (player screen, fullscreen, Configure preview). Whatever a meter draws goes through helios_meter(),
+ * and helios_meter() gives it a CPU budget (fw/meter_policy.h mp_gate): after a draw that cost C the next may not start before C*100/duty cycles, so a meter
+ * can never take more than `duty` percent of the CPU from the decoder, however heavy it is or whichever mode it runs in. The duty is HM_DUTY_PCT normally and
+ * HM_DUTY_LOW_PCT while the last measured second of playback left under HM_LOW_IDLE_PCT idle (hr.last, the same figure as Info > HEADROOM): a track that is
+ * already hard to decode (a high-bitrate 48 kHz FLAC) gets a smaller share for the meter. On top of that the audio-FIFO yield (meter_afford) skips draws
+ * while the FIFO is nearly dry, and Layered Wave keeps its own minimum interval (HM_MIN_MS). The time a skipped call would have advanced is added to the next
+ * call's dt_ms, so history and ballistics keep the right speed; a forced repaint is never held. A cheap meter's interval is far below the frame time, so
+ * the throttle only ever shows on a meter that is expensive on this track. Measured on a Pocket (TAU_DEV_METER_05): fullscreen Winamp Bars drew in 9.8 ms
+ * every 26 ms frame and starved a 415 kbps 48 kHz FLAC (idle 0, 201 FIFO stalls). */
 #define HM_MIN_MS 45u
+#define HM_DUTY_PCT 40u
+#define HM_DUTY_LOW_PCT 20u
+#define HM_LOW_IDLE_PCT 20u
 static mp_t hm_pol;
+static uint8_t hm_pol_viz = 0xFFu;
 static uint32_t hm_n_skip;
 COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_t flags)
 {
     mtr_in_t inb = *in0;
     const mtr_in_t *in = &inb;
-    if (viz == VIZ_LAYERED_WAVE) {
+    if (hm_pol_viz != (uint8_t)viz) { hm_pol.cost_cyc = 0u; hm_pol.skip_ms = 0u; hm_pol_viz = (uint8_t)viz; }   /* another meter: its predecessor's cost says nothing about it */
+    const uint32_t tg = cycles();
+    {
         uint32_t dt = in0->dt_ms;
-        if (!mp_throttle(&hm_pol, cycles(), (CLK_HZ / 1000u) * HM_MIN_MS, in0->dt_ms, in0->force, meter_afford(), &dt)) { hm_n_skip++; return 0u; }
+        const uint32_t duty = (hr.last != 255u && hr.last < HM_LOW_IDLE_PCT) ? HM_DUTY_LOW_PCT : HM_DUTY_PCT;
+        const uint32_t floor_cyc = (viz == VIZ_LAYERED_WAVE) ? (CLK_HZ / 1000u) * HM_MIN_MS : 0u;
+        if (!mp_gate(&hm_pol, tg, floor_cyc, duty, in0->dt_ms, in0->force, meter_afford(), &dt)) { hm_n_skip++; return 0u; }
         inb.dt_ms = (uint16_t)dt;
     }
     const uint32_t full = (viz == VIZ_CHLADNI || viz == VIZ_LAYERED_WAVE);        /* full-repaint meters */
@@ -4902,7 +4916,7 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
             } else { helios_n_fail++; if (viz == VIZ_LAYERED_WAVE) lw_retry(); }     /* never drained: do not show a half-built box; repaint next time */
         }
     }
-    if (viz == VIZ_LAYERED_WAVE) mp_drew(&hm_pol, cycles());
+    mp_drew_cost(&hm_pol, tg, (uint32_t)(cycles() - tg));
     if (full && drew) { helios_t_last = (uint32_t)(cycles() - t0); if (helios_t_last > helios_t_max) helios_t_max = helios_t_last; helios_n_draw++; }
     return res;
 }

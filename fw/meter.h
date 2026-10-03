@@ -10,7 +10,12 @@
  * step (Helios review item 1): get the input shape real and used by the meters that already have
  * generated config, without also inventing the descriptor table, cost counting or the host layer in
  * the same pass. fw/meter_module.h (mtr_data_t/mtr_param_t, the PARAMETER half) already exists and is
- * unrelated to this file -- that one is the config contract; this one is the draw contract. */
+ * unrelated to this file -- that one is the config contract; this one is the draw contract.
+ *
+ * FRAMEWORK RULE (mandatory for every meter, every mode): a meter is never called directly; the host calls helios_meter() (fw/player.c), which applies the CPU
+ * budget of fw/meter_policy.h (duty cap from the measured cost of the last draw, audio-FIFO yield, headroom-aware) before the tick runs. A tick may therefore
+ * be skipped: it must keep all its state in its own statics (not assume one call per frame) and take elapsed time from in->dt_ms, which carries the time
+ * of any skipped calls (clamped to MP_MAX_DT_MS). A forced repaint (in->force) is never skipped. */
 #ifndef TAU_METER_H
 #define TAU_METER_H
 #include <stdint.h>
