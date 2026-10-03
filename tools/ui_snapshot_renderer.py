@@ -599,6 +599,7 @@ def _rows(name):
 
 def _names(source, name):
     body = re.search(rf"{name}[^=]*=\s*\{{(.*?)\}};", source, re.S).group(1)
+    body = re.sub(r"#if TAU_PACKS.*?#endif", "", body, flags=re.S)       # labels that exist only in a PACKS build are not part of the default firmware
     return re.findall(r'"([^"]*)"', body)
 
 
