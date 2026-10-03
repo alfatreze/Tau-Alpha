@@ -52,7 +52,7 @@ Priced with the measured uncached PSRAM window costs (about 32 cycles per read, 
 - **The remaining cost is the read-only tables:** about 2,300 reads a frame from PSRAM is roughly 71,000 cycles a frame, about 4% of the CPU at 38 frames a second, **in the built-in meter too** (its tables are in the cold data region
   behind the same window). Copying the hot tables into scratch at load would remove most of it, at the price of about 2.7 KB of scratch. Worth testing against the real `LW COST` row before deciding.
 
-## Firmware integration (built, behind `PACKS=1`; not run on a Pocket)
+## Firmware integration (built, behind `PACKS=1`; test cores are named `TAU DEV METER NN` until the branch is merged)
 
 - **Build switch.** `PACKS=1 RAM_192K=1 bash fw/build.sh <target>` (needs the 192 KB link). Unset, the firmware is **byte-identical** to a build without the feature (checked on the default 256 KB release, the 192 KB release
   and the 192 KB diagnostic profile). With it: **1 KB of heap gap is reserved as the meter scratch** at the fixed ABI address `0x27400` (`fw/link.ld`, which fails the link if the layout cannot hold it), plus about 224 B of
@@ -67,7 +67,7 @@ Priced with the measured uncached PSRAM window costs (about 32 cycles per read, 
 - **Info page.** Settings, Diagnostics, Info, last row, **METER PACKS**: `OFF E<n>` (feature off: 20 no file, 40 no PSRAM instruction fetch, 41 scratch not where the ABI says, 42 slot area failed read-back, 30 not a bundle) or
   `FILE <n> LW OK|NONE|E<n> <ms>MS`.
 - **Tools.** `python3 tools/pack_meter.py layered_wave --out work/packs/layered_wave.tmpk` (defaults are the real slot and scratch), `python3 tools/pack_bundle.py work/packs/tau-packs.bin work/packs/layered_wave.tmpk`,
-  `python3 tools/package_dev_build.py --number NN --rbf R --rbf-sha256 H --build-flags RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1,PACKS=1 --packs work/packs/tau-packs.bin`.
+  `python3 tools/package_dev_build.py --meter NN --rbf R --rbf-sha256 H --build-flags RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1,PACKS=1 --packs work/packs/tau-packs.bin`.
   `python3 tools/check_packs_abi.py` builds the PACKS firmware and checks that the scratch symbol, the heap end and a freshly built pack all agree with `fw/meter_pack.h` (about a minute; not in `make test-host`).
 - **Host-verified:** the loader (install, activate, bundle with skipped, corrupt, truncated, empty and duplicate cases), the pack drawing identically through the bundle path, the ABI numbers against a real firmware build, the data
   slot and packager (`check_tau_package` passes on the generated test core). **Not verified:** that any of it runs on silicon.
