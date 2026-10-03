@@ -151,7 +151,9 @@ SECTIONS {
 	 * past the reserved regions. */
 	ASSERT(_heap_start < _tag_start, "firmware image collides with reserved DMA buffers")
 
-	/* The gap between BSS and the DMA buffers IS the heap, and Helix mallocs
+	/* HISTORICAL (B-565: the next comment is current -- malloc is now the static arena in alloc.c, so
+	 * this gap is unused RAM and the floors in fw/build.sh are policy margins). The gap between BSS and
+	 * the DMA buffers WAS the heap, and Helix mallocs
 	 * 23816 bytes of it for the decoder instance -- so BSS fitting is not the
 	 * same as the core working. Growing a static buffer into that space once
 	 * left a 15 KB heap: BSS still fit, the linker was satisfied, the build
