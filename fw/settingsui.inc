@@ -1506,10 +1506,9 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
      * the read-only Info/Stress-Status scroll below, which used to `return` before this ever ran --
      * owner-reported: "let me know if you want continuous scroll while holding" -- so it never got the
      * repeat treatment B-073 gave every other list). */
-    static uint32_t set_rep_at;
-    if (edge & (KEY_UP | KEY_DOWN)) set_rep_at = cycles() + CLK_HZ / 1000u * PL_HOLD_MS;
-    uint32_t rep = (keys & (KEY_UP | KEY_DOWN)) && (int32_t)(cycles() - set_rep_at) >= 0;
-    if (rep) { set_rep_at = cycles() + CLK_HZ / 16u; edge |= keys & (KEY_UP | KEY_DOWN); }
+    static kr_t set_kr;
+    uint32_t rep;
+    edge = kr_step(&set_kr, edge, keys, KEY_UP | KEY_DOWN, cycles(), CLK_HZ / 1000u * PL_HOLD_MS, CLK_HZ / 16u, &rep);   /* B-534: the shared primitive */
 
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
 #if TAU_DIAGNOSTIC
