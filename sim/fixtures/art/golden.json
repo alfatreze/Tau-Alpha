@@ -1,0 +1,44 @@
+{
+  "gray_160": {
+    "fail": 0,
+    "hash": "666f17bc",
+    "rc": 1,
+    "sig": "ca6fea89"
+  },
+  "large_1000": {
+    "fail": 0,
+    "hash": "c9750443",
+    "rc": 1,
+    "sig": "677f67f2"
+  },
+  "odd_457x331": {
+    "fail": 0,
+    "hash": "8970b3ba",
+    "rc": 1,
+    "sig": "958844bc"
+  },
+  "progressive_300": {
+    "fail": 37,
+    "hash": "38699dc5",
+    "rc": 0,
+    "sig": "318752ea"
+  },
+  "small_420_300": {
+    "fail": 0,
+    "hash": "52437f7e",
+    "rc": 1,
+    "sig": "b59d29c0"
+  },
+  "small_444_200x120": {
+    "fail": 0,
+    "hash": "c14d052e",
+    "rc": 1,
+    "sig": "10417092"
+  },
+  "tiny_64": {
+    "fail": 0,
+    "hash": "d6838221",
+    "rc": 1,
+    "sig": "2c1e854a"
+  }
+}
