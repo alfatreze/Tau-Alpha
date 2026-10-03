@@ -339,7 +339,7 @@ COLD_FN static uint32_t set_ch_active(uint32_t c)
 #endif
     }
     if (c == CH_SOAK) return dg_soak_active();
-    if (c == CH_SPEED) return speed_idx;
+    if (c == CH_SPEED) return speed_eff();      /* a FLAC always plays at 1.00x (B-554) */
     if (c == CH_THEME) return th_theme;
     if (c == CH_MODE) return th_pol;
     return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode_to_sel(viz_mode) : c == CH_EQ ? eq_idx
@@ -369,6 +369,7 @@ COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
         return;
     }
     if (c == CH_SPEED) {
+        if (track_fmt == FMT_FLAC) { ui_toast_msg("SPEED: MP3 ONLY"); return; }   /* B-554: no speed for FLAC */
         speed_idx = (uint8_t)i;
         pcm_rate_apply(track_hz);
         ui_last_sec = 0xFFFFFFFFu;               /* repaint the speed marker next frame */
@@ -854,10 +855,10 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
                   * second spent blocked waiting for file bytes, in percent (FLAC only; a stall there, not CPU, can cause a click). WS = the speed the WORST second projects
                   * with the tempo stretcher's ESTIMATED fixed cost taken off first (fw/headroom.h; an approximation, confirm with a run). */
         if (idle || paused || hr.last > 99u) { q = set_str(q, "PLAY 10 S, NO MENUS"); break; }   /* needs a few seconds of plain playback first */
-        const uint32_t n = speed_num[speed_idx], d = speed_den[speed_idx];
+        const uint32_t n = speed_num[speed_eff()], d = speed_den[speed_eff()];
         const uint32_t m1 = hr_max_speed_x100(hr.min_idle, n, d, HR_WSOLA_EST_PCT);
         /* <speed> I<latest idle>/<worst idle> O<worst file-wait> WS<x.x>X -- at most 25 characters: a longer value runs into the label (DEV 74 showed that). */
-        q = set_str(q, speed_txt[speed_idx]); q = set_str(q, " I");
+        q = set_str(q, speed_txt[speed_eff()]); q = set_str(q, " I");
         q = ui_dec(q, hr.last); q = set_str(q, "/"); q = ui_dec(q, hr.min_idle);
         q = set_str(q, " O"); q = ui_dec(q, hr.max_io);
         q = set_str(q, " WS");

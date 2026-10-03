@@ -892,6 +892,12 @@ static uint8_t speed_idx = SPEED_1X;
  * distances are all derived from FILE POSITION, not wall clock, so they stay
  * correct by construction. The FIFO drain is the only wall-clock-domain thing
  * here. */
+enum { FMT_MP3 = 0, FMT_FLAC };
+static uint8_t  track_fmt;
+/* B-554: speed changes are MP3-only for now (owner decision, 2026-10-03: FLAC audiobooks are doubtful, and stereo FLAC music has no decode headroom even at 1.00x, B-553).
+ * `speed_idx` keeps what the owner chose, so it applies again on the next MP3; this is the speed that actually applies: always 1.00x for a FLAC. Every user of the speed
+ * (the FIFO drain, the Cymo guard, the on-screen marker, the Info headroom row) goes through it. */
+static inline uint8_t speed_eff(void) { return track_fmt == FMT_FLAC ? (uint8_t)SPEED_1X : speed_idx; }
 #if TAU_DIAGNOSTIC
 static void cymo_guard_apply(uint32_t hz);   /* B-530: defined with the Cymo toggle below */
 #endif
@@ -904,13 +910,11 @@ static void pcm_rate_apply(uint32_t hz)
     cymo_guard_apply(hz);
 #endif
     uint64_t inc = DIV64((uint64_t)hz << 32, CLK_HZ);
-    if (speed_idx != SPEED_1X) inc = DIV64(inc * speed_num[speed_idx], speed_den[speed_idx]);
+    if (speed_eff() != SPEED_1X) inc = DIV64(inc * speed_num[speed_eff()], speed_den[speed_eff()]);
     REG(R_PCM_RATE) = (uint32_t)inc;
 }
 static uint32_t track_bytes;      /* audio length the FILE declares (Xing/VBRI) */
 static uint32_t fl_first_frame;   /* absolute offset of the first audio frame */
-enum { FMT_MP3 = 0, FMT_FLAC };
-static uint8_t  track_fmt;
 static uint8_t  size_suspect;     /* directory disagrees with the file itself   */
 static uint8_t  ui_size_warned;
 /* Load timing, in milliseconds, for the phases between pcm_flush() and
@@ -4653,7 +4657,7 @@ static void cymo_guard_apply(uint32_t hz)
 {
     if (hz) cymo_last_hz = hz;
     if (!CYMO_RESAMP_READY()) return;
-    uint8_t want = (uint8_t)(cymo_live_toggle && cymo_last_hz == 44100u && speed_idx == SPEED_1X);
+    uint8_t want = (uint8_t)(cymo_live_toggle && cymo_last_hz == 44100u && speed_eff() == SPEED_1X);
     if (want != cymo_live_on) {
         cymo_live_on = want;
         REG(R_CYMO_CTRL) = want ? 4u : 0u;   /* bit 2 = LIVE_ENABLE, sticky */
@@ -5382,8 +5386,8 @@ ui_tail:
          *
          * Accent, not white: it is a state the user chose, and the same colour
          * every other active mode indicator uses. */
-        if (speed_idx != SPEED_1X) {
-            const char *sp = speed_txt[speed_idx];
+        if (speed_eff() != SPEED_1X) {
+            const char *sp = speed_txt[speed_eff()];
             uint32_t sw = fb_text_width(sp, TS_1X);
             uint32_t sx = FB_W - UI_MARGIN - sw;
             uint32_t sy = UI_TIME_Y + (FB_CELL(TS_15X) > FB_CELL(TS_1X)

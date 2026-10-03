@@ -87,7 +87,7 @@ It is a separate stage between the staging ring and the stretcher and can ship a
 
 ## 9. Fail-safe: tempo must never make playback worse than 1.00 x
 
-1. **Eligibility:** file rate 22.05-48 kHz and 1 or 2 channels; anything else plays at 1.00 x with a short message (96 kHz FLAC is already refused for speed reasons, B-356).
+1. **Eligibility:** MP3 only for now (owner decision 2026-10-03, B-554: no speed changes for FLAC; FLAC audiobooks are doubtful, and stereo FLAC music has no decode headroom, B-553; the varispeed list is already blocked for FLAC); file rate 22.05-48 kHz and 1 or 2 channels; anything else plays at 1.00 x with a short message (96 kHz FLAC is already refused for speed reasons, B-356).
 2. **Headroom guard:** the worst second of plain playback (`hr_t.min_idle`, B-539) and the stall counter (`ur_all`, B-546) are already measured. If a stall occurs or the worst idle falls under a threshold (initially 8%) for a few seconds, tempo steps down one setting and says so ("TEMPO 1.50x"); it never steps back up on its own within a track. This turns the unmeasured stereo cost into a runtime decision.
 3. **Pure firmware:** no bitstream dependency, so no probe or version interlock is needed; the failure mode of a bug is "no tempo", reachable by the Off setting at any time.
 
