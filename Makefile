@@ -67,6 +67,7 @@ test-host:
 	$(PYTHON) sim/test_helios_clip.py
 	$(PYTHON) sim/test_start_gesture.py
 	$(PYTHON) sim/test_meter_policy.py
+	$(PYTHON) sim/test_pcm_push.py
 	$(PYTHON) sim/test_theme.py
 	$(PYTHON) sim/test_tau_assets.py
 	$(PYTHON) sim/test_flac_lpc_symmetry.py

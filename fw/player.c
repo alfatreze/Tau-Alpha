@@ -1302,6 +1302,7 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
  * scope), so this is a plain dark-mode layout: title/artist, a real
  * amplitude-driven level meter, elapsed time. Colours are RGB565.
  */
+#include "pcm_push.h"       /* Cymo C1 (B-533): the shared volume + fade + pack arithmetic (host-tested) */
 #include "meter_policy.h"    /* B-525: throttle for the heavy meter (host-tested) */
 #include "start_gesture.h"   /* B-522: Start opens Settings on release; Start+Y chord (pure logic, host-tested) */
 #include "theme.h"   /* named UI colours as roles (step 0a of the theme system); UI_PANEL etc. read th_role[] */
@@ -7563,6 +7564,27 @@ static int flac_restart(void)
 static uint32_t fl_meter_n;
 
 
+/* Cymo C1 (B-533): the ONE place a decoded sample pair reaches the audio FIFO. MP3 and FLAC each had their own copy of volume, fade, FIFO wait and write, and the
+ * two had already drifted apart once (FLAC shipped without volume). The arithmetic is fw/pcm_push.h (host-tested against the old lines); the wait is the old wait,
+ * unchanged: block while the FIFO is full (it silently DROPS pushes when full, so skipping the wait corrupts audio), servicing input and I/O from inside it, and
+ * count the time as idle. `abortable` is the MP3 loop's behaviour: a pending reload leaves the wait and the sample is NOT pushed (returns 0); the FLAC callback
+ * has no such exit and never aborts. Always inlined, so the generated code per call site is what the hand-written copies produced. */
+static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_t r, uint8_t abortable)
+{
+    pcm_gain_apply(&l, &r, vol_gain, &fade_left, FADE_SAMPLES);
+    if (PCM_FULL(REG(R_PCM_ST))) {
+        uint32_t t0 = cycles();
+        do {
+            poll_input();
+            refill_pump();
+            if (abortable && reload_pending) { fl_idle_cyc += cycles() - t0; return 0u; }
+        } while (PCM_FULL(REG(R_PCM_ST)));
+        fl_idle_cyc += cycles() - t0;
+    }
+    REG(R_AUDIO) = pcm_pack(l, r);
+    return 1u;
+}
+
 /* `src`, not `pcm`: the file-scope pcm[] is the meter capture buffer, and a
  * parameter of that name would shadow it. */
 HOT_O2 static void flac_emit(void *ctx, const int16_t *src, uint32_t frames)
@@ -7613,34 +7635,7 @@ HOT_O2 static void flac_emit(void *ctx, const int16_t *src, uint32_t frames)
             meters_feed(pcm, (int)(FL_METER_PAIRS * 2u), 1);
             fl_meter_n = 0;
         }
-        int32_t l = src[i * 2], r = src[i * 2 + 1];
-        /* Volume, which this path did not apply at all -- the d-pad moved the
-         * number on screen while FLAC played at full scale, and volume 0 was
-         * not silent. The MP3 loop has had this the whole time; adding FLAC
-         * added a second push path and only one of them was volume-aware.
-         * Same order as MP3: volume first, then the fade, so a fade-in at low
-         * volume stays at low volume. Capped at unity, so it only ever
-         * attenuates and cannot overflow. */
-        if (vol_gain != 256) {
-            l = (l * vol_gain) >> 8;
-            r = (r * vol_gain) >> 8;
-        }
-        if (fade_left) {
-            int32_t g = (int32_t)((FADE_SAMPLES - fade_left) >> 3);
-            l = (l * g) >> 8;
-            r = (r * g) >> 8;
-            fade_left--;
-        }
-        if (PCM_FULL(REG(R_PCM_ST))) {
-            uint32_t t0 = cycles();
-            do {
-                poll_input();
-                refill_pump();
-            } while (PCM_FULL(REG(R_PCM_ST)));
-            fl_idle_cyc += cycles() - t0;
-        }
-        REG(R_AUDIO) = ((uint32_t)(uint16_t)(int16_t)r << 16)
-                     | (uint32_t)(uint16_t)(int16_t)l;
+        cymo_push(src[i * 2], src[i * 2 + 1], 0u);   /* volume, fade, FIFO wait, write: the one shared path (C1) */
     }
 }
 
@@ -10058,37 +10053,7 @@ int main(void)
         for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
             int32_t l = pcm[i];
             int32_t r = stereo ? pcm[i + 1] : l;
-            /* Capped at unity, so this only ever attenuates and cannot
-             * overflow -- no clamp needed. */
-            if (vol_gain != 256) {
-                l = (l * vol_gain) >> 8;
-                r = (r * vol_gain) >> 8;
-            }
-            /* Ramp out of a discontinuity: one shift per sample, and only
-             * while the fade is live. Grows 0 -> 255/256 across FADE_SAMPLES. */
-            if (fade_left) {
-                int32_t g = (int32_t)((FADE_SAMPLES - fade_left) >> 3);
-                l = (l * g) >> 8;
-                r = (r * g) >> 8;
-                fade_left--;
-            }
-            /* Block while the FIFO is full -- pcm_fifo silently DROPS pushes
-             * when full, so skipping this corrupts the audio rather than
-             * merely delaying it. Being blocked here is the healthy state.
-             * This is also where the CPU spends most of its time, so input and
-             * I/O are serviced from inside the wait. */
-            if (PCM_FULL(REG(R_PCM_ST))) {
-                uint32_t t0 = cycles();
-                do {
-                    poll_input();
-                    refill_pump();
-                    if (reload_pending) { fl_idle_cyc += cycles() - t0;
-                                          goto next_outer; }
-                } while (PCM_FULL(REG(R_PCM_ST)));
-                fl_idle_cyc += cycles() - t0;
-            }
-            REG(R_AUDIO) = ((uint32_t)(uint16_t)(int16_t)r << 16)
-                         | (uint32_t)(uint16_t)(int16_t)l;
+            if (!cymo_push(l, r, 1u)) goto next_outer;   /* volume, fade, FIFO wait, write (C1); aborts on a pending reload */
         }
 
         frames++;
