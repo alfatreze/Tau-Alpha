@@ -58,6 +58,22 @@ int main(void) {
         chk(maxdt <= MP_MAX_DT_MS, "random run: dt never above the clamp");
         chk(delivered <= elapsed, "random run: no more time delivered than elapsed");
     }
+    { /* duty cap: a 10 ms draw at 40%% may repeat no sooner than 25 ms; a 1 ms draw is never held; first draw never held */
+        mp_t m = {0}; uint32_t dt = 0;
+        chk(mp_gate(&m, 0, 0, 40u, 26u, 0, 1, &dt), "duty: first draw (no cost known) goes ahead");
+        mp_drew_cost(&m, 0, 10u * MS);
+        chk(!mp_gate(&m, 20u * MS, 0, 40u, 20u, 0, 1, &dt), "duty: 20 ms after a 10 ms draw at 40%% is held");
+        chk(mp_gate(&m, 26u * MS, 0, 40u, 26u, 0, 1, &dt) && dt == 46u, "duty: 26 ms later draws, carrying the held 20 ms");
+        mp_drew_cost(&m, 26u * MS, 10u * MS);
+        chk(!mp_gate(&m, 26u * MS + 40u * MS / 2u, 0, 20u, 20u, 0, 1, &dt), "duty: at 20%% the same draw needs 50 ms: 20 ms later is held");
+        chk(mp_gate(&m, 26u * MS + 50u * MS, 0, 20u, 50u, 0, 1, &dt), "duty: ...and 50 ms later draws");
+        mp_t c = {0}; mp_drew_cost(&c, 0, 1u * MS);
+        chk(mp_gate(&c, 5u * MS, 0, 40u, 5u, 0, 1, &dt), "duty: a 1 ms draw repeats after 5 ms (limit 2.5 ms): never held");
+        mp_t f = {0}; mp_drew_cost(&f, 0, 10u * MS);
+        chk(mp_gate(&f, 1u, 0, 20u, 1u, 1, 0, &dt), "duty: a forced repaint is never held");
+        mp_t z = {0}; mp_drew_cost(&z, 0, 10u * MS);
+        chk(mp_gate(&z, 1u * MS, 0, 0u, 1u, 0, 1, &dt), "duty 0 = no cap");
+    }
     printf(bad ? "FAILED %%d\n" : "PASSED\n", bad);
     return bad != 0;
 }
