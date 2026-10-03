@@ -117,7 +117,7 @@ COLD_FN3 static void fs_label_prepare(void)
 {
     char b[8], *q = b;
     q = ui_dec(q, ui_cpu_pct()); *q++ = '%'; *q = 0;
-    const uint32_t wh = fb_text_width("SELECT+Y", TS_1X), wp = fb_text_width(b, TS_1X);
+    const uint32_t wh = fb_text_width("SELECT+Y", TS_1X), wp = fb_text_width("100%", TS_1X);   /* fixed width: a 99/100% reading must not change the plate and force a full figure repaint */
     const uint32_t w = wh + 12u + wp + 14u;
     helios_exclude_set(FS_LABEL_EXCL, (int32_t)(FS_W - w), 0, (int32_t)w, 22);
     uint32_t same = (fs_lbl_w == w);
