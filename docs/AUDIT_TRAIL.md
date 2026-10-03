@@ -13787,3 +13787,20 @@ Size (MEASURED, 192 KB link, `RAM_192K=1 CLK66=1 SDRAM_BUSY=1 LPC_FW=1`): heap g
 Pocket plan (owner-approved scope): one reading on the hard file (FLAC 415K 48.0K) at 1.00x with this build and with the same build without the change: Info HEADROOM idle and worst, `UNDERRUNS n ALL m`, decode-profile row. Acceptance: higher idle, no new error counters, no audible change. Expectation (ESTIMATE): 20 to 40 points less CPU at 48 kHz stereo (B-560). Open items: package a test core (needs the next free TAU_DEV number and the owner's approval for the card), 24-bit workload not measured in the simulator.
 
 **B-561 addendum (card):** packaged `alfatreze.TAU_DEV_80` (C1, profile diagnostic build, heap gap 4,336 B) and `alfatreze.TAU_DEV_81` (same build with `FLAC_RICE_FAST=0`, 4,816 B), both on the cymo-feed-b527 seed 1 bitstream, flags `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, `check_tau_package` PASS. Installed both with `tools/install_dev_core.py` (hashes verified, media carried from `TAU_DEV_79`, library index rebuilt and verified for each core's own root, `tau-assets.bin` installed, catalog caches cleared, ejected) and removed `TAU_DEV_79` (tempo results parked, B-559). Cores on the card: `TAU`, `TAU_DIAGNOSTIC`, `TAU_DEV_80`, `TAU_DEV_81`, and the owner's `TAU_DEV_METER_01/03/08` (untouched). Not yet run on a Pocket.
+
+
+## B-562: FLAC Rice fast path on a Pocket: DEV 80 (C1) against DEV 81 (old Rice), hard file, 30 s each
+
+Evidence (HARDWARE, 6 card screenshots, cores told apart by Info FREE RAM 4336 B = DEV 80 and 4816 B = DEV 81, which matches their heap gaps; owner ran DEV 80 first, then DEV 81). Same file (FLAC 415K 48.0K, stereo), 1.00x, about 30 s each, Info read after the menu was opened; same bitstream (cymo-feed-b527 seed 1).
+
+| | DEV 80 (C1) | DEV 81 (old) |
+|---|---|---|
+| HEADROOM idle latest / worst | 45% / 45% | 0% / 0% |
+| HEADROOM projected max speed (`WS`) | 1.6x | 0.8x |
+| UNDERRUNS (once per flush) / ALL (every FIFO stall) | 0 / 0 | 1 / 12 |
+| LOAD MS, cold image | 117/18/12/169, 263 ms | 119/18/115/292, 266 ms |
+| FLAC LPC hardware samples | 3,316,987, 0 timeouts | 3,123,772, 0 timeouts |
+
+Result. On the hard file the fast path takes the CPU from saturated (0% idle, 12 FIFO stalls in 30 s, projection 0.8x) to 45% idle with no stalls: about 45 points of CPU, at the top of the 20-40 point estimate in B-560. Owner by ear: both sound the same, no audible difference at 1.00x (the 12 stalls on DEV 81 were not audible); owner noticed slight interference on DEV 81 when opening menus to take the screenshots, not on DEV 80, which fits an old decoder with no idle left. Caveats: one file, one 30 s run per core, order fixed (80 then 81); the worst-second figure includes the moment the Info page was opened on both. The old `LOAD MS` third figure (12 against 115) was not examined. Not measured: 24-bit files, 96 kHz, long soak, seek/pause behaviour, mono FLAC.
+
+Next: merge `flac-rice` into `main` (owner decision), long soak and a second file on DEV 80; FLAC speed changes stay off by policy (B-554) though the projection is now 1.6x.
