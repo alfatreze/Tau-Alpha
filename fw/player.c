@@ -4889,20 +4889,24 @@ static uint8_t hm_pol_viz = 0xFFu;
 static uint32_t hm_n_skip;
 /* Info > METER COST (every meter, measured around the whole helios_meter() call): cost of the last/worst draw in cycles, draws held back by the audio FIFO / by the duty
  * cap, and the share of SDRAM port-busy time while drawing (everything that used the SDRAM during the draws, not only the meter). */
-static uint32_t hm_cost_last, hm_cost_max, hm_skip_fifo, hm_skip_duty, hm_busy_acc, hm_el_acc;
+static uint32_t hm_cost_last, hm_cost_max, hm_cost_w, hm_skip_fifo, hm_skip_duty, hm_busy_acc, hm_el_acc;   /* hm_cost_w: the recent WORST cost (decays 1/16 per draw), what the FIFO gate uses */
+#define HM_THIN_IDLE_PCT 5u      /* decoder nearly saturated (HEADROOM idle under this): every meter is held to HM_THIN_MS between draws */
+#define HM_THIN_MS 100u
 static uint8_t  hm_cost_viz;
 COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_t flags)
 {
     mtr_in_t inb = *in0;
     const mtr_in_t *in = &inb;
-    if (hm_pol_viz != (uint8_t)viz) { hm_pol.cost_cyc = 0u; hm_pol.skip_ms = 0u; hm_pol.starve_ms = 0u; hm_pol_viz = (uint8_t)viz; hm_cost_last = hm_cost_max = hm_skip_fifo = hm_skip_duty = 0u; }   /* another meter: its predecessor's cost says nothing about it */
+    if (hm_pol_viz != (uint8_t)viz) { hm_pol.cost_cyc = 0u; hm_pol.skip_ms = 0u; hm_pol.starve_ms = 0u; hm_pol_viz = (uint8_t)viz; hm_cost_last = hm_cost_max = hm_cost_w = hm_skip_fifo = hm_skip_duty = 0u; }   /* another meter: its predecessor's cost says nothing about it */
     const uint32_t tg = cycles();
     const uint32_t sb0 = REG(R_SDR_BUSY);
     {
         uint32_t dt = in0->dt_ms;
         const uint32_t duty = (hr.last != 255u && hr.last < HM_LOW_IDLE_PCT) ? HM_DUTY_LOW_PCT : HM_DUTY_PCT;
-        const uint32_t floor_cyc = (viz == VIZ_LAYERED_WAVE) ? (CLK_HZ / 1000u) * HM_MIN_MS : 0u;
-        const int fifo_ok = meter_afford() && mp_fifo_covers(pcm_level(), hm_pol.cost_cyc, samprate ? CLK_HZ / samprate : 0u);   /* the FIFO must hold the draw (cost in audio entries) */
+        uint32_t floor_cyc = (viz == VIZ_LAYERED_WAVE) ? (CLK_HZ / 1000u) * HM_MIN_MS : 0u;
+        const uint32_t thin = (hr.last != 255u && hr.last < HM_THIN_IDLE_PCT);        /* no spare CPU on this track: a meter may draw about 10 times a second, no more */
+        if (thin && floor_cyc < (CLK_HZ / 1000u) * HM_THIN_MS) floor_cyc = (CLK_HZ / 1000u) * HM_THIN_MS;
+        const int fifo_ok = meter_afford() && mp_fifo_covers(pcm_level(), hm_cost_w, samprate ? CLK_HZ / samprate : 0u);   /* the FIFO must hold the draw (cost in audio entries) */
         if (!mp_gate(&hm_pol, tg, floor_cyc, duty, in0->dt_ms, in0->force, fifo_ok, &dt)) { hm_n_skip++; if (!fifo_ok) hm_skip_fifo++; else hm_skip_duty++; return 0u; }
         inb.dt_ms = (uint16_t)dt;
     }
@@ -4955,7 +4959,8 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
     {
         const uint32_t el = (uint32_t)(cycles() - tg);
         mp_drew_cost(&hm_pol, tg, el);
-        hm_cost_last = el; if (el > hm_cost_max) hm_cost_max = el; hm_cost_viz = (uint8_t)viz;
+        hm_cost_last = el; if (el > hm_cost_max) hm_cost_max = el;
+        hm_cost_w = el > hm_cost_w ? el : hm_cost_w - (hm_cost_w >> 4); hm_cost_viz = (uint8_t)viz;
         hm_busy_acc += REG(R_SDR_BUSY) - sb0; hm_el_acc += el;
         if (hm_el_acc > 0x40000000u) { hm_el_acc >>= 1; hm_busy_acc >>= 1; }
     }
@@ -7164,6 +7169,22 @@ static int32_t *fl_buf;            /* one blocksize of int32, from the arena */
  * same degrade-cleanly convention every other G4 fail-safe already uses. On any build below this
  * tier (TAU_G4 < 3, every release so far), ui_draw_dynamic_cold() is ordinary hot code and this is
  * exactly the original function, just with the section 4.2 synthetic-probe hook still available. */
+/* Info > UI COST (METER_08): the whole per-frame UI pass (meters, publish, stats read, fullscreen label/progress) per call, and its share of wall time over windows of
+ * UI_DD_WIN calls (about 1.7 s at 38 calls a second; short enough that the cycle counter cannot wrap inside one window). */
+#define UI_DD_WIN 64u
+static uint32_t ui_dd_acc, ui_dd_n, ui_dd_t0, ui_dd_max, ui_dd_last, ui_dd_pm, ui_dd_pm_max;
+COLD_FN3 static void ui_dd_account(uint32_t t0)
+{
+    const uint32_t now = cycles(), dt = now - t0;
+    if (!ui_dd_n) ui_dd_t0 = t0;
+    ui_dd_acc += dt; ui_dd_last = dt; if (dt > ui_dd_max) ui_dd_max = dt;
+    if (++ui_dd_n >= UI_DD_WIN) {
+        const uint32_t el = now - ui_dd_t0;
+        ui_dd_pm = el >= 1000u ? ui_dd_acc / (el / 1000u) : 0u;
+        if (ui_dd_pm > ui_dd_pm_max) ui_dd_pm_max = ui_dd_pm;
+        ui_dd_acc = 0u; ui_dd_n = 0u;
+    }
+}
 static void ui_draw_dynamic(void)
 {
 #if TAU_G4 >= 3
@@ -7172,6 +7193,7 @@ static void ui_draw_dynamic(void)
     ui_draw_dynamic_cold();
     coldframe_record(cycles() - t0);
     if (ui_fullscreen) ui_fs_dynamic();
+    ui_dd_account(t0);
 #else
     coldframe_tick();
     ui_draw_dynamic_cold();
