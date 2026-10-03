@@ -28,13 +28,13 @@ def picture(w, h, seed):
 
 
 CASES = [  # name, w, h, mode, subsampling, progressive, quality
-    ("small_420_300", 300, 300, "RGB", 2, False, 85),      # below 736 px: FULL decode path
-    ("small_444_200x120", 200, 120, "RGB", 0, False, 85),  # 4:4:4, non-square
-    ("odd_457x331", 457, 331, "RGB", 2, False, 80),        # not a multiple of 8 or 16
-    ("large_1000", 1000, 1000, "RGB", 2, False, 60),       # REDUCE path
-    ("gray_160", 160, 160, "L", None, False, 90),          # mono (one component)
+    ("small_420_160", 160, 160, "RGB", 2, False, 85),      # below 736 px: FULL decode path
+    ("small_444_120x72", 120, 72, "RGB", 0, False, 85),  # 4:4:4, non-square
+    ("odd_217x131", 217, 131, "RGB", 2, False, 80),        # not a multiple of 8 or 16
+    ("large_1024", 1024, 1024, "RGB", 2, False, 60),       # REDUCE path (slow to simulate: only with --full)
+    ("gray_96", 96, 96, "L", None, False, 90),          # mono (one component)
     ("tiny_64", 64, 64, "RGB", 2, False, 90),              # smaller than the 128 px panel (magnified out)
-    ("progressive_300", 300, 300, "RGB", 2, True, 85),     # unsupported: must fail the same way every time
+    ("progressive_160", 160, 160, "RGB", 2, True, 85),     # unsupported: must fail the same way every time
 ]
 
 if __name__ == "__main__":

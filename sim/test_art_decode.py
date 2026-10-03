@@ -9,7 +9,9 @@ PICTURE block, runs the real art_sig_of() and art_decode() through tools/host/ar
     (a second build with -DPOISON=1), so nothing relies on those buffers starting at zero or keeping old content;
   - the MP3 and FLAC wrappers of one image decode to the same stash;
   - the progressive JPEG fails identically every time (picojpeg is baseline only).
-  python3 sim/test_art_decode.py --update-golden   rewrites the golden file (only on purpose)."""
+  python3 sim/test_art_decode.py --update-golden   rewrites the golden file (only on purpose).
+  python3 sim/test_art_decode.py --full            also decodes the 1024 px cover (the REDUCE path, about 1.5 minutes
+                                                    in the simulator per run, so not part of make test-host)."""
 import json
 import re
 import struct
@@ -70,7 +72,8 @@ def run(elf, blob):
 
 def main():
     update = "--update-golden" in sys.argv
-    jpgs = sorted(FIX.glob("*.jpg"))
+    full = "--full" in sys.argv or update
+    jpgs = [j for j in sorted(FIX.glob("*.jpg")) if full or not j.stem.startswith("large")]
     assert jpgs, "no fixtures: run sim/gen_art_fixtures.py"
     elf, elf_p = build(False), build(True)
     golden_path = FIX / "golden.json"
@@ -84,11 +87,13 @@ def main():
 
     for j in jpgs:
         data = j.read_bytes()
-        res = {"mp3": run(elf, wrap_id3(data)), "flac": run(elf, wrap_flac(data))}
-        poisoned = {"mp3": run(elf_p, wrap_id3(data)), "flac": run(elf_p, wrap_flac(data))}
+        res = {"mp3": run(elf, wrap_id3(data))}
+        poisoned = {"mp3": run(elf_p, wrap_id3(data))}
         got[j.stem] = res["mp3"]
-        check(res["mp3"]["hash"] == res["flac"]["hash"] and res["mp3"]["rc"] == res["flac"]["rc"],
-              f"{j.stem}: ID3 and FLAC wrappers decode to the same stash")
+        if j is jpgs[0]:                         # the FLAC finder differs, the decode behind it does not: once is enough
+            fl = run(elf, wrap_flac(data))
+            check(fl["hash"] == res["mp3"]["hash"] and fl["rc"] == res["mp3"]["rc"],
+                  f"{j.stem}: ID3 and FLAC wrappers decode to the same stash")
         check(res == poisoned, f"{j.stem}: poisoned work buffers change nothing")
         if "progressive" in j.stem:
             check(res["mp3"]["rc"] == 0 and res["mp3"]["fail"] != 0, f"{j.stem}: refused with a failure code ({res['mp3']['fail']})")

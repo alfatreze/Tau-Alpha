@@ -1,39 +1,39 @@
 {
-  "gray_160": {
+  "gray_96": {
     "fail": 0,
-    "hash": "666f17bc",
+    "hash": "6dfc81b3",
     "rc": 1,
-    "sig": "ca6fea89"
+    "sig": "9e107b73"
   },
-  "large_1000": {
+  "large_1024": {
     "fail": 0,
-    "hash": "c9750443",
+    "hash": "31c421a9",
     "rc": 1,
-    "sig": "677f67f2"
+    "sig": "83f50f42"
   },
-  "odd_457x331": {
+  "odd_217x131": {
     "fail": 0,
-    "hash": "8970b3ba",
+    "hash": "738ca285",
     "rc": 1,
-    "sig": "958844bc"
+    "sig": "72e37d35"
   },
-  "progressive_300": {
+  "progressive_160": {
     "fail": 37,
     "hash": "38699dc5",
     "rc": 0,
-    "sig": "318752ea"
+    "sig": "ed51bc1f"
   },
-  "small_420_300": {
+  "small_420_160": {
     "fail": 0,
-    "hash": "52437f7e",
+    "hash": "7b70b3a0",
     "rc": 1,
-    "sig": "b59d29c0"
+    "sig": "d9cbbadd"
   },
-  "small_444_200x120": {
+  "small_444_120x72": {
     "fail": 0,
-    "hash": "c14d052e",
+    "hash": "1a7382b0",
     "rc": 1,
-    "sig": "10417092"
+    "sig": "f56eb159"
   },
   "tiny_64": {
     "fail": 0,
