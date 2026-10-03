@@ -307,6 +307,9 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * Check and its QR report (fw/suite.inc), the Tests and Stress pages, the SDRAM stress pump, soak and
  * HUD, and the diagnostic menus. Off in `release`; on in `player-library-diagnostic` and
  * `player-library-diagnostic-profile` (fw/build.sh). Needs the same RBF features as the release. */
+#ifndef TAU_TEMPO
+#define TAU_TEMPO 0      /* Cymo C7 T2 (B-558): pitch-preserving tempo for MP3 (fw/tempo_core.h); off by default so every default build is byte-identical */
+#endif
 #ifndef TAU_DIAGNOSTIC
 #define TAU_DIAGNOSTIC 0
 #endif
@@ -897,7 +900,39 @@ static uint8_t  track_fmt;
 /* B-554: speed changes are MP3-only for now (owner decision, 2026-10-03: FLAC audiobooks are doubtful, and stereo FLAC music has no decode headroom even at 1.00x, B-553).
  * `speed_idx` keeps what the owner chose, so it applies again on the next MP3; this is the speed that actually applies: always 1.00x for a FLAC. Every user of the speed
  * (the FIFO drain, the Cymo guard, the on-screen marker, the Info headroom row) goes through it. */
-static inline uint8_t speed_eff(void) { return track_fmt == FMT_FLAC ? (uint8_t)SPEED_1X : speed_idx; }
+#if TAU_TEMPO
+/* Cymo C7 T2 (B-558): tempo = faster or slower speech WITHOUT the pitch change, MP3 only. The setting is separate from the speed list (that one is varispeed) and
+ * exclusive with it. While it is on the FIFO drains at the native rate and fw/tempo_core.h's stretcher consumes the decoded audio faster than it plays it. */
+#define TEMPO_N 6u
+static uint8_t  tempo_idx;                /* 0 = off */
+static uint32_t tempo_cfg_key;            /* what the stretcher was started for; 0 = start it again at the next frame (every flush clears it) */
+static const uint16_t tempo_q8[TEMPO_N] = { 256u, 282u, 320u, 384u, 448u, 512u };
+static const char *const tempo_txt[TEMPO_N] = { "OFF", "1.10x", "1.25x", "1.50x", "1.75x", "2.00x" };
+#endif
+static inline uint8_t speed_eff(void)
+{
+    if (track_fmt == FMT_FLAC) return (uint8_t)SPEED_1X;
+#if TAU_TEMPO
+    if (tempo_idx) return (uint8_t)SPEED_1X;          /* tempo plays at the native rate; the stretcher makes it faster */
+#endif
+    return speed_idx;
+}
+/* the multiplier the decoder has to keep up with, as a fraction: the varispeed speed or the tempo ratio */
+static inline void speed_ratio(uint32_t *n, uint32_t *d)
+{
+#if TAU_TEMPO
+    if (track_fmt != FMT_FLAC && tempo_idx) { *n = tempo_q8[tempo_idx]; *d = 256u; return; }
+#endif
+    *n = speed_num[speed_eff()]; *d = speed_den[speed_eff()];
+}
+/* the text of the on-screen speed marker, or 0 when the audio plays at 1.00x */
+static inline const char *speed_marker(void)
+{
+#if TAU_TEMPO
+    if (track_fmt != FMT_FLAC && tempo_idx) return tempo_txt[tempo_idx];
+#endif
+    return speed_eff() != SPEED_1X ? speed_txt[speed_eff()] : (const char *)0;
+}
 #if TAU_DIAGNOSTIC
 static void cymo_guard_apply(uint32_t hz);   /* B-530: defined with the Cymo toggle below */
 #endif
@@ -5386,8 +5421,8 @@ ui_tail:
          *
          * Accent, not white: it is a state the user chose, and the same colour
          * every other active mode indicator uses. */
-        if (speed_eff() != SPEED_1X) {
-            const char *sp = speed_txt[speed_eff()];
+        const char *sp = speed_marker();
+        if (sp) {
             uint32_t sw = fb_text_width(sp, TS_1X);
             uint32_t sx = FB_W - UI_MARGIN - sw;
             uint32_t sy = UI_TIME_Y + (FB_CELL(TS_15X) > FB_CELL(TS_1X)
@@ -6685,6 +6720,9 @@ static inline void pcm_flush(void)
     REG(R_PCM_ST) = 1u;
     fade_left    = FADE_SAMPLES;  /* every flush is a discontinuity */
     under_shadow = 0;             /* flush clears the sticky underrun flag */
+#if TAU_TEMPO
+    tempo_cfg_key = 0u;           /* B-558: the stretcher starts again from the next decoded frame (a hard reset: what it had staged is dropped) */
+#endif
 #if TAU_DIAGNOSTIC
     ur_flush(&ur_all);
     stress_frames_at_flush = frames;
@@ -7606,6 +7644,59 @@ static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_
     REG(R_AUDIO) = pcm_pack(l, r);
     return 1u;
 }
+
+#if TAU_TEMPO
+/* Cymo C7 T2 (B-558): the tempo funnel (fw/tempo_core.h) wired to the player. The staging ring is the PSRAM window at +6 MiB (planar, 64 KB a channel; the map is in
+ * docs/features/CYMO_TEMPO_INTEGRATION.md section 4: the library image, queue and dead-track bitmap, the cold image and the Check scratch are elsewhere). Output pairs go through
+ * cymo_push(), the same volume / fade-in / FIFO wait as everything else, so the FIFO paces the whole chain at the native rate; the meters are fed from the stretched
+ * output, so they move at real time and not at tempo times real time. */
+#define TEMPO_PS_L ((volatile uint32_t *)(uintptr_t)0xA4600000u)
+#define TEMPO_PS_R ((volatile uint32_t *)(uintptr_t)0xA4610000u)
+#define TEMPO_PUSH(l, r) cymo_push((l), (r), 1u)
+COLD_FN3 static void tempo_meter(const int16_t *l, const int16_t *r, uint32_t n);
+#define TEMPO_METER(l, r, n) tempo_meter((l), (r), (n))
+/* The stretcher and the funnel are COLD CODE (the 192 KB link has 13.9 KB of heap in the release build, and the hot code alone would not fit); the Hann table is cold data.
+ * The hot MP3 loop enters them only through tempo_use(), which is gated on COLD_READY(). */
+#define WS_FN    COLD_FN3 static
+#define TEMPO_FN COLD_FN3 static
+#define WS_DATA  COLD_DATA
+#include "tempo_core.h"
+static tempo_t tempo_st;
+/* The meters take interleaved pairs; to avoid a 2 KB buffer a stereo hop is handed over as every 4th pair (128 of 512): the peaks of speech are slightly underestimated,
+ * the spectrum is measured in hardware and does not use this. */
+COLD_FN3 static void tempo_meter(const int16_t *l, const int16_t *r, uint32_t n)
+{
+    if (r) {
+        int16_t il[2u * (WS_MAX_HS / 4u)];
+        uint32_t m = n / 4u;
+        for (uint32_t i = 0; i < m; i++) { il[2u * i] = l[4u * i]; il[2u * i + 1u] = r[4u * i]; }
+        meters_feed(il, (int)(2u * m), 1);
+    } else {
+        meters_feed(l, (int)n, 0);
+    }
+}
+static uint8_t tempo_psram;               /* 0 unknown, 1 proven, 2 not available */
+static int tempo_psram_ok(void)
+{
+    if (tempo_psram == 0u) {              /* write and read back four words; the staging ring is scratch, so nothing is lost */
+        volatile uint32_t *a = TEMPO_PS_L, *b = TEMPO_PS_R;
+        a[0] = 0x5A5AC3C3u; b[0] = 0xA5A53C3Cu; a[1] = 0x12345678u; b[1] = 0x9ABCDEF0u;
+        tempo_psram = (a[0] == 0x5A5AC3C3u && b[0] == 0xA5A53C3Cu && a[1] == 0x12345678u && b[1] == 0x9ABCDEF0u) ? 1u : 2u;
+    }
+    return tempo_psram == 1u;
+}
+/* 1 when this MP3 frame goes through the stretcher. Eligibility: MP3 only, 22.05-48 kHz, mono or stereo, the PSRAM window proven. (Re)starts the stretcher when the
+ * stream's parameters or the setting changed, or after a flush. Anything else plays normally, at 1.00x. */
+static int tempo_use(uint32_t rate, uint32_t nch)
+{
+    if (!tempo_idx || track_fmt == FMT_FLAC || !COLD_READY()) return 0;   /* the stretcher is cold code: only once the cold image is loaded */
+    if (rate < 22050u || rate > 48000u || (nch != 1u && nch != 2u)) return 0;
+    if (!tempo_psram_ok()) return 0;
+    const uint32_t key = ((rate << 8) ^ (nch << 4) ^ (uint32_t)tempo_idx) | 0x80000000u;
+    if (key != tempo_cfg_key) { tempo_start(&tempo_st, rate, (uint8_t)nch, tempo_q8[tempo_idx]); tempo_cfg_key = key; }
+    return 1;
+}
+#endif
 
 /* `src`, not `pcm`: the file-scope pcm[] is the meter capture buffer, and a
  * parameter of that name would shadow it. */
@@ -10070,12 +10161,20 @@ int main(void)
         int n = fi.outputSamps;                  /* interleaved L,R */
         int stereo = (fi.nChans == 2);
 
+#if TAU_TEMPO
+        if (tempo_use(fi.samprate, (uint32_t)fi.nChans)) {
+            /* B-558: through the stretcher; it feeds the meters itself, from its output */
+            if (!tempo_frame(&tempo_st, (const int16_t *)pcm, (uint32_t)n, stereo)) goto next_outer;
+        } else
+#endif
+        {
         meters_feed(pcm, n, stereo);
 
         for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
             int32_t l = pcm[i];
             int32_t r = stereo ? pcm[i + 1] : l;
             if (!cymo_push(l, r, 1u)) goto next_outer;   /* volume, fade, FIFO wait, write (C1); aborts on a pending reload */
+        }
         }
 
         frames++;

@@ -22,6 +22,10 @@ VARIANTS = {   # fw/build.sh target -> (ROM dir, kind text, default note)
     "profile":    ("library-diagnostic-profile", "diagnostic build with the media library plus decoder profiling",
                    "per-stage MP3/FLAC decode cost in the Check QR record"),
     "diagnostic": ("library-diagnostic", "diagnostic build with the media library", "Check, Tests and Stress pages"),
+    # B-558: the release-style firmware (settings menu, Info page, no Check) built for the 192 KB link with the Cymo tempo funnel (TEMPO=1): fw/build.sh release
+    # writes to work/ram192k/release when RAM_192K=1, so dist/ is never touched. Needs --build-flags with RAM_192K=1.
+    "tempo":      ("release", "release-style build with Cymo tempo for MP3 (Settings > Playback > TEMPO)", "pitch-preserving MP3 speed, release-style",
+                   "release", "work/ram192k"),
 }
 
 def save(p, v): p.write_text(json.dumps(v, indent=4) + "\n")
@@ -68,8 +72,12 @@ def main():
     elif (args.number is None) == (not args.semver):
         sys.exit("give exactly one of --number or --semver")
 
-    romdir, kind, default_note = VARIANTS[args.variant]
-    rom = root / "work/diagnostics" / romdir / "tau.rom"
+    romdir, kind, default_note, *extra = VARIANTS[args.variant]
+    target = extra[0] if extra else f"player-{romdir}"
+    base = extra[1] if len(extra) > 1 else "work/diagnostics"
+    rom = root / base / romdir / "tau.rom"
+    if args.variant == "tempo" and (args.build_flags is None or "RAM_192K=1" not in args.build_flags):
+        sys.exit("--variant tempo needs --build-flags including RAM_192K=1 (otherwise fw/build.sh release would overwrite dist/)")
     if args.build_flags is not None:
         env = dict(os.environ)
         for kv in args.build_flags.split(","):
@@ -80,12 +88,14 @@ def main():
                 sys.exit(f"--build-flags: '{kv}' is not KEY=VAL")
             k, v = kv.split("=", 1)
             env[k.strip()] = v.strip()
-        print(f"building player-{romdir} ({args.build_flags}) ...", file=sys.stderr)
-        r = subprocess.run(["bash", "fw/build.sh", f"player-{romdir}"], cwd=root, env=env)
+        if args.variant == "tempo":
+            env.setdefault("TEMPO", "1")
+        print(f"building {target} ({args.build_flags}) ...", file=sys.stderr)
+        r = subprocess.run(["bash", "fw/build.sh", target], cwd=root, env=env)
         if r.returncode != 0:
-            sys.exit(f"build failed (player-{romdir}, {args.build_flags})")
+            sys.exit(f"build failed ({target}, {args.build_flags})")
     if not rom.exists():
-        sys.exit(f"{rom} missing -- build it first (bash fw/build.sh player-{romdir})")
+        sys.exit(f"{rom} missing -- build it first (bash fw/build.sh {target})")
     if args.rbf:
         if not args.rbf_sha256:
             sys.exit("--rbf also needs --rbf-sha256 (refusing an unaudited RBF)")
