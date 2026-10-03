@@ -845,13 +845,13 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "/"); q = ui_dec(q, helios_t_max / (CLK_HZ / 1000000u));
         q = set_str(q, "US S"); q = ui_dec(q, lw_stride);
         break;
-    case 33: {   /* HEADROOM (Cymo C0a, B-538): spare CPU while decoding. I = idle share of the last second, MIN = the worst second since the track or speed changed (underruns
+    case 33: {   /* HEADROOM (Cymo C0a, B-538): spare CPU while decoding. I = idle share of the latest second of plain playback (seconds with a menu or this page up are not counted: redrawing is not decode load), MIN = the worst such second since the track or speed changed (underruns
                   * come from the worst second), MAX = the speed the idle share projects (fw/headroom.h: an approximation, confirm with a run), WS = the same with the tempo
                   * stretcher's ESTIMATED fixed cost taken off first. Shows "-" until a track has played past the settling seconds. */
-        if (idle || paused || hr.min_idle > 99u) { q = set_str(q, "-"); break; }
+        if (idle || paused || hr.last > 99u) { q = set_str(q, "PLAY 10 S, NO MENUS"); break; }   /* needs a few seconds of plain playback first */
         const uint32_t n = speed_num[speed_idx], d = speed_den[speed_idx];
-        const uint32_t m0 = hr_max_speed_x100(fl_idle_pct, n, d, 0u), m1 = hr_max_speed_x100(hr.min_idle, n, d, HR_WSOLA_EST_PCT);
-        q = set_str(q, "I"); q = ui_dec(q, fl_idle_pct);
+        const uint32_t m0 = hr_max_speed_x100(hr.last, n, d, 0u), m1 = hr_max_speed_x100(hr.min_idle, n, d, HR_WSOLA_EST_PCT);
+        q = set_str(q, "I"); q = ui_dec(q, hr.last);
         q = set_str(q, " MIN"); q = ui_dec(q, hr.min_idle);
         q = set_str(q, " MAX ");
         if (m0 > 999u) { q = set_str(q, ">9.9"); } else { q = ui_dec(q, m0 / 100u); q = set_str(q, "."); q = ui_dec(q, (m0 % 100u) / 10u); }
