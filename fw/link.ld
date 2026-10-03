@@ -99,6 +99,8 @@ SECTIONS {
 	.psram_state (NOLOAD) : {
 		__psram_state_start = .;
 		*(.psram_state .psram_state.*)
+		/* B-567: picojpeg's low-traffic work buffers (fw/build.sh compiles it -fdata-sections when the PSRAM art path is on) */
+		*picojpeg.o(.bss.gInBuf .bss.gHuffVal0 .bss.gHuffVal1 .bss.gHuffVal2 .bss.gHuffVal3 .bss.gHuffTab0 .bss.gHuffTab1 .bss.gHuffTab2 .bss.gHuffTab3 .bss.gQuant0 .bss.gQuant1)
 		. = ALIGN(4);
 		__psram_state_end = .;
 	} > psram_state
