@@ -6,11 +6,15 @@ algorithm, the same discipline as the JS twins of the meter modules and the gold
 requires identical output. The float model (tools/lab/cymo_tempo_model.py) stays the quality reference; this file is the bit-exact contract.
 
 The algorithm (every constant is shared with the C header; change both together):
-  Rates >= 32 kHz: coarse decimation DEC = 8, grain N = 1024, hop Hs = 512; below: DEC = 4, N = 512 (the grain is about 23 ms either way).
-  The search is +-delta_c = 55 coarse samples (about 10 ms), then +-DEC samples at the full rate over a 256-sample window.
-  Coarse signal: the mono mix (L+R)>>1, summed over DEC samples and shifted right by log2(DEC).
+  Rates >= 32 kHz: grain N = 1024, hop Hs = 512, stage decimations D1 = 32 and D2 = 8; below: N = 512, D1 = 16, D2 = 4 (the grain is about 23 ms either way).
+  Three-stage search (B-550; the single coarse stage of B-549 cost 4x as many multiply-adds for no better quality, see tools/lab/wsola_search_lab.py):
+    1. coarse: +-14 candidates (units of D1, about +-10 ms) around the nominal position, window N/D1 = 32 samples;
+    2. middle: +-4 candidates (units of D2) around stage 1's winner, window N/D2 = 128 samples;
+    3. fine:   +-D2 samples at the full rate around stage 2's winner, window 128 samples.
+  Mono mix = (L+R)>>1. A stage-2 sample is the sum of D2 mixes shifted right by log2(D2); a stage-1 sample is the sum of 4 stage-2 samples shifted right by 2, so the
+  input is decimated once and the coarse signal is derived from it.
   Correlation inputs are scaled by a per-search right shift so the reference peaks at <= 1023 and clamped to +-2047, which keeps every sum inside int32.
-  The best candidate maximises num*num/en (first maximum wins), only num > 0 counts; with no positive correlation (silence) the nominal position is used.
+  The best candidate maximises num*num/en (first maximum wins), only num > 0 counts; with no positive correlation (silence) the stage's centre is used.
   The grain is overlap-added with a Q15 Hann window at 50% overlap: out = (prev_tail*(32768-w) + grain_head*w + 16384) >> 15, where the two weights sum to
   32768 exactly, so there is no gain error and no clipping.
 Usage: this module is imported by the test; `python3 tools/lab/wsola_fixed_ref.py --emit-header` prints fw/wsola_tables.h.
@@ -18,8 +22,9 @@ Usage: this module is imported by the test; `python3 tools/lab/wsola_fixed_ref.p
 import math
 import sys
 
-REF_LEN = 256
-DELTA_C = 55
+REF_LEN = 128
+R1 = 14          # stage-1 radius in candidates
+R2 = 4           # stage-2 radius in candidates
 Q15 = 32768
 
 
@@ -46,12 +51,12 @@ class Wsola:
         speed_q8 = max(128, min(768, speed_q8))        # 0.5x .. 3.0x, as in the C core
         self.fs, self.ch, self.speed_q8 = fs, ch, speed_q8
         if fs >= 32000:
-            self.dec, self.shift, self.N = 8, 3, 1024
+            self.D1, self.D2, self.shift, self.N = 32, 8, 3, 1024
         else:
-            self.dec, self.shift, self.N = 4, 2, 512
+            self.D1, self.D2, self.shift, self.N = 16, 4, 2, 512
         self.Hs = self.N // 2
-        self.nc = self.N // self.dec
-        self.delta = DELTA_C * self.dec
+        self.nc1 = self.N // self.D1
+        self.nc2 = self.N // self.D2
         self.k = 0
         self.prev = 0
         self.p_q8 = self.Hs * speed_q8
@@ -65,21 +70,30 @@ class Wsola:
             return (x[0][i] + x[1][i]) >> 1
         return x[0][i]
 
+    def _xd2(self, x, j):
+        s = 0
+        for i in range(self.D2):
+            s += self._mix(x, j * self.D2 + i)
+        return s >> self.shift
+
     def _geometry(self):
         tgt = self.prev + self.Hs
         p = (self.p_q8 + 128) >> 8
-        lo_c = (p - self.delta) // self.dec if p > self.delta else 0
-        hi_c = (p + self.delta) // self.dec
-        return tgt, p, lo_c, hi_c
+        c1 = p // self.D1
+        lo1 = c1 - R1 if c1 > R1 else 0
+        hi1 = c1 + R1
+        e0 = lo1 * 4 - 4 if lo1 * 4 > 4 else 0           # first stage-2 sample of the candidate region
+        e1 = hi1 * 4 + 4 + self.nc2                        # one past its last
+        return tgt, p, c1, lo1, hi1, e0, e1
 
     def need(self):
         """(lo, hi): the absolute sample range the next step reads."""
         if self.k == 0:
             return 0, self.N
-        tgt, p, lo_c, hi_c = self._geometry()
-        lo_a = (lo_c * self.dec - self.dec) if lo_c > 0 else 0
-        lo = min((tgt // self.dec) * self.dec, lo_a)   # the coarse reference starts at the decimation boundary at or below tgt
-        hi = max(tgt + self.N, hi_c * self.dec + self.dec + self.N)
+        tgt, p, c1, lo1, hi1, e0, e1 = self._geometry()
+        rb = (tgt // self.D1) * self.D1                    # the reference region starts on the coarse grid at or below tgt
+        lo = min(rb, e0 * self.D2)
+        hi = max(rb + (self.nc2 + 3) * self.D2, e1 * self.D2, (hi1 * 4 + 4) * self.D2 + self.D2 + self.N)
         return lo, hi
 
     @staticmethod
@@ -122,37 +136,46 @@ class Wsola:
             self.prev = 0
             self.k = 1
             return out
-        dec = self.dec
-        tgt, p, lo_c, hi_c = self._geometry()
-        # coarse: decimated mono mix over the reference and every candidate window
-        j0 = min(lo_c, tgt // dec)
-        j1 = max(hi_c + self.nc, tgt // dec + self.nc)
-        xd = {}
-        for j in range(j0, j1):
-            s = 0
-            for i in range(dec):
-                s += self._mix(x, j * dec + i)
-            xd[j] = s >> self.shift
-        ref = [xd[tgt // dec + i] for i in range(self.nc)]
-        sc = self._scale(ref)
-        ref = [v >> sc for v in ref]
-        ncand = hi_c - lo_c + 1
-        cand = [max(-2047, min(2047, xd[lo_c + i] >> sc)) for i in range(ncand + self.nc - 1)]
-        idx, m1 = self._search(ref, cand, ncand, self.nc)
-        cd = lo_c + idx if idx >= 0 else max(lo_c, min(hi_c, p // dec))
-        # refine at the full rate
-        c0 = cd * dec
-        rlo = c0 - dec if c0 > dec else 0
-        rhi = c0 + dec
-        nref = rhi - rlo + 1
+        D1, D2, nc1, nc2 = self.D1, self.D2, self.nc1, self.nc2
+        tgt, p, c1, lo1, hi1, e0, e1 = self._geometry()
+        # the reference: stage-2 samples from the coarse grid at or below tgt (nc2 + 3 of them), the stage-1 reference derived from them
+        rbase = (tgt // D1) * 4
+        R = [self._xd2(x, rbase + i) for i in range(nc2 + 3)]
+        ref1 = [(R[4 * i] + R[4 * i + 1] + R[4 * i + 2] + R[4 * i + 3]) >> 2 for i in range(nc1)]
+        sc1 = self._scale(ref1)
+        ref1 = [v >> sc1 for v in ref1]
+        # the candidate region at the stage-2 rate, and the stage-1 candidates derived from it
+        C = [self._xd2(x, e0 + i) for i in range(e1 - e0)]
+        ncand1 = hi1 - lo1 + 1
+        cand1 = []
+        for i in range(ncand1 + nc1 - 1):
+            b = 4 * (lo1 + i) - e0
+            cand1.append(max(-2047, min(2047, ((C[b] + C[b + 1] + C[b + 2] + C[b + 3]) >> 2) >> sc1)))
+        idx1, m1 = self._search(ref1, cand1, ncand1, nc1)
+        w1 = lo1 + idx1 if idx1 >= 0 else max(lo1, min(hi1, c1))
+        # stage 2
+        c2 = w1 * 4
+        lo2 = c2 - 4 if c2 > 4 else 0
+        ncand2 = c2 + 4 - lo2 + 1
+        off2 = (tgt // D2) - rbase
+        ref2 = R[off2:off2 + nc2]
+        sc2 = self._scale(ref2)
+        ref2 = [v >> sc2 for v in ref2]
+        cand2 = [max(-2047, min(2047, C[lo2 - e0 + i] >> sc2)) for i in range(ncand2 + nc2 - 1)]
+        idx2, m2 = self._search(ref2, cand2, ncand2, nc2)
+        w2 = lo2 + idx2 if idx2 >= 0 else c2
+        # fine, at the full rate over +-D2 samples
+        c0 = w2 * D2
+        rlo = c0 - D2 if c0 > D2 else 0
+        nref = c0 + D2 - rlo + 1
         mix = [self._mix(x, rlo + j) for j in range(nref + REF_LEN - 1)]
         rf = [self._mix(x, tgt + i) for i in range(REF_LEN)]
-        s2 = self._scale(rf)
-        rf = [v >> s2 for v in rf]
-        cd2 = [max(-2047, min(2047, v >> s2)) for v in mix]
-        idx2, m2 = self._search(rf, cd2, nref, REF_LEN)
-        c = rlo + idx2 if idx2 >= 0 else c0
-        self.macs += m1 + m2
+        s3 = self._scale(rf)
+        rf = [v >> s3 for v in rf]
+        cd3 = [max(-2047, min(2047, v >> s3)) for v in mix]
+        idx3, m3 = self._search(rf, cd3, nref, REF_LEN)
+        c = rlo + idx3 if idx3 >= 0 else c0
+        self.macs += m1 + m2 + m3
         # overlap-add the grain
         step = 1 if N == 1024 else 2
         out = []
