@@ -32,6 +32,11 @@
 #define WS_SPEED_MIN_Q8 128u      /* 0.5x */
 #define WS_SPEED_MAX_Q8 768u      /* 3.0x: the largest the fixed scratch below is sized for */
 
+/* WS_FN: the linkage/placement of the core's functions. The default is `static inline`; the firmware defines it to put them in cold code (PSRAM, fw/player.c). */
+#ifndef WS_FN
+#define WS_FN static inline
+#endif
+
 #ifdef WS_COUNT
 static uint32_t ws_macs;          /* host tests only: multiply-adds spent in the search */
 #endif
@@ -46,7 +51,7 @@ typedef struct {
     int16_t  pend[2][WS_MAX_HS];  /* second half of the previous grain (raw) */
 } ws_t;
 
-static inline void ws_init(ws_t *s, uint32_t fs, uint8_t ch, uint32_t speed_q8)
+WS_FN void ws_init(ws_t *s, uint32_t fs, uint8_t ch, uint32_t speed_q8)
 {
     s->ch = ch;
     if (speed_q8 < WS_SPEED_MIN_Q8) speed_q8 = WS_SPEED_MIN_Q8;
@@ -65,7 +70,7 @@ static inline void ws_init(ws_t *s, uint32_t fs, uint8_t ch, uint32_t speed_q8)
 
 /* Where the next grain is searched: tgt = where the previous grain's tail leads on, p = the nominal start, [lo1, hi1] = the stage-1 candidates (units of D1),
  * [e0, e1) = the stage-2-rate samples the candidate region covers (stage-2 candidates reach 4 beyond stage 1's). */
-static inline void ws_geom(const ws_t *s, uint32_t *tgt, uint32_t *p, uint32_t *c1, uint32_t *lo1, uint32_t *hi1, uint32_t *e0, uint32_t *e1)
+WS_FN void ws_geom(const ws_t *s, uint32_t *tgt, uint32_t *p, uint32_t *c1, uint32_t *lo1, uint32_t *hi1, uint32_t *e0, uint32_t *e1)
 {
     *tgt = s->prev + s->Hs;
     *p = (uint32_t)((s->p_q8 + 128u) >> 8);
@@ -77,7 +82,7 @@ static inline void ws_geom(const ws_t *s, uint32_t *tgt, uint32_t *p, uint32_t *
 }
 
 /* The absolute sample range [lo, hi) the next ws_step reads. */
-static inline void ws_need(const ws_t *s, uint32_t *lo, uint32_t *hi)
+WS_FN void ws_need(const ws_t *s, uint32_t *lo, uint32_t *hi)
 {
     if (s->k == 0u) { *lo = 0u; *hi = s->N; return; }
     uint32_t tgt, p, c1, lo1, hi1, e0, e1;
@@ -92,12 +97,12 @@ static inline void ws_need(const ws_t *s, uint32_t *lo, uint32_t *hi)
     *hi = h;
 }
 
-static inline int32_t ws_mix(const ws_t *s, const int16_t *xl, const int16_t *xr, uint32_t i)
+WS_FN int32_t ws_mix(const ws_t *s, const int16_t *xl, const int16_t *xr, uint32_t i)
 {
     return s->ch == 2u ? ((int32_t)xl[i] + (int32_t)xr[i]) >> 1 : (int32_t)xl[i];
 }
 
-static inline uint32_t ws_scale(const int16_t *v, uint32_t n)
+WS_FN uint32_t ws_scale(const int16_t *v, uint32_t n)
 {
     int32_t m = 0;
     for (uint32_t i = 0; i < n; i++) { int32_t a = v[i] < 0 ? -(int32_t)v[i] : v[i]; if (a > m) m = a; }
@@ -108,7 +113,7 @@ static inline uint32_t ws_scale(const int16_t *v, uint32_t n)
 
 static inline int32_t ws_clamp2047(int32_t v) { return v > 2047 ? 2047 : (v < -2047 ? -2047 : v); }
 
-static inline uint32_t ws_nlz(uint32_t x)
+WS_FN uint32_t ws_nlz(uint32_t x)
 {
     uint32_t n = 0;
     if (!(x & 0xFFFF0000u)) { n += 16u; x <<= 16; }
@@ -120,7 +125,7 @@ static inline uint32_t ws_nlz(uint32_t x)
 }
 
 /* floor((u1 * 2^32 + u0) / v) for u1 < v and v > 0, from 32-bit operations only (Hacker's Delight, divlu). */
-static inline uint32_t ws_divlu(uint32_t u1, uint32_t u0, uint32_t v)
+WS_FN uint32_t ws_divlu(uint32_t u1, uint32_t u0, uint32_t v)
 {
     const uint32_t b = 65536u;
     const uint32_t s = ws_nlz(v);
@@ -139,7 +144,7 @@ static inline uint32_t ws_divlu(uint32_t u1, uint32_t u0, uint32_t v)
 }
 
 /* Best start in cand[0 .. ncand) for `ref` (length n); cand has ncand + n - 1 entries. Returns the index, or -1 if nothing correlates positively. */
-static inline int32_t ws_search(const int16_t *ref, const int16_t *cand, uint32_t ncand, uint32_t n)
+WS_FN int32_t ws_search(const int16_t *ref, const int16_t *cand, uint32_t ncand, uint32_t n)
 {
     int32_t refen = 0;
     for (uint32_t i = 0; i < n; i++) refen += (int32_t)ref[i] * ref[i];
@@ -174,7 +179,7 @@ static inline int32_t ws_search(const int16_t *ref, const int16_t *cand, uint32_
 
 /* Produce one hop: Hs samples per channel into outl (and outr when stereo). xl/xr: slab pointers, slab_lo: absolute index of xl[0]; the range from ws_need must lie
  * inside the slab. Returns Hs. */
-static inline uint32_t ws_step(ws_t *s, const int16_t *xl, const int16_t *xr, uint32_t slab_lo, int16_t *outl, int16_t *outr)
+WS_FN uint32_t ws_step(ws_t *s, const int16_t *xl, const int16_t *xr, uint32_t slab_lo, int16_t *outl, int16_t *outr)
 {
     const uint32_t N = s->N, Hs = s->Hs;
     int16_t *outs[2] = { outl, outr };
@@ -293,14 +298,14 @@ typedef struct {
     uint32_t cnt;                 /* samples in it so far */
 } ws2_t;
 
-static inline void ws2_init(ws2_t *s, uint32_t fs, uint8_t ch, uint32_t speed_q8)
+WS_FN void ws2_init(ws2_t *s, uint32_t fs, uint8_t ch, uint32_t speed_q8)
 {
     ws_init(&s->core, fs, ch, speed_q8);
     s->fed = 0u; s->acc = 0; s->cnt = 0u;
     for (uint32_t i = 0; i < WS2_RING; i++) s->ring[i] = 0;
 }
 
-static inline void ws2_feed(ws2_t *s, const int16_t *l, const int16_t *r, uint32_t n)
+WS_FN void ws2_feed(ws2_t *s, const int16_t *l, const int16_t *r, uint32_t n)
 {
     const uint32_t D2 = s->core.D2, sh = s->core.shift;
     const uint8_t st = s->core.ch;
@@ -327,7 +332,7 @@ static inline void ws2_feed(ws2_t *s, const int16_t *l, const int16_t *r, uint32
 }
 
 /* The first decimated entry the next step reads (so the ring check below can tell whether it is still held). */
-static inline uint32_t ws2_first_entry(const ws2_t *s)
+WS_FN uint32_t ws2_first_entry(const ws2_t *s)
 {
     uint32_t tgt, p, c1, lo1, hi1, e0, e1;
     ws_geom(&s->core, &tgt, &p, &c1, &lo1, &hi1, &e0, &e1);
@@ -336,7 +341,7 @@ static inline uint32_t ws2_first_entry(const ws2_t *s)
 }
 
 /* 1 when the next ws2_step may run: enough samples have been fed and the ring still holds the oldest entry the step reads. */
-static inline int ws2_ready(const ws2_t *s)
+WS_FN int ws2_ready(const ws2_t *s)
 {
     uint32_t lo, hi;
     ws_need(&s->core, &lo, &hi);
@@ -345,7 +350,7 @@ static inline int ws2_ready(const ws2_t *s)
     return (s->fed / s->core.D2) - ws2_first_entry(s) <= WS2_RING;
 }
 
-static inline uint32_t ws2_step(ws2_t *s, ws2_read_t rd, void *ctx, int16_t *outl, int16_t *outr)
+WS_FN uint32_t ws2_step(ws2_t *s, ws2_read_t rd, void *ctx, int16_t *outl, int16_t *outr)
 {
     ws_t *c = &s->core;
     const uint32_t N = c->N, Hs = c->Hs, D2 = c->D2, nc1 = c->nc1, nc2 = c->nc2;

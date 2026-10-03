@@ -44,14 +44,15 @@ The core as built reads a contiguous on-chip window. The window `ws_need()` asks
 
 | Build | Free on chip at run time | Fits? |
 |---|---|---|
-| release | 52,720 B heap gap (B-538) | yes (also holds the 2.1 KB step scratch and the 2 KB overlap state) |
+| release, 256 KB link (the default `check_heap_gap.py` figure) | 52,720 B | yes, but this is NOT what the shipping bitstream runs |
+| **release, 192 KB link (RAM-shrink bitstream, what every DEV build and the release use)** | **13,872 B (floor 6,144 B), so 7.7 KB usable** | **only with the stretcher in cold code (B-558: the first tempo build overshot the floor by 8.8 KB)** |
 | Diagnostic / profile | 5,088 B (floor 4,096) | **no** |
 
 Reading the window straight from the PSRAM window instead costs 32 cycles per halfword load (B-022/B-054): the core touches about 4,400 samples per grain (three decimation passes re-read the same region), about 140,000 cycles per grain against a grain period of 774,000 cycles: 18% of the CPU, and it triples the stretcher's cost. Not acceptable.
 
 **Recommended:** change the core, with the same golden-test discipline, so that (a) the input is decimated ONCE, as it enters the stretcher, into a small on-chip ring at the stage-2 rate (about 480 entries, 1 KB; each input sample is touched once instead of about four times, which also cuts the stretcher's own instruction count), and (b) the full-rate samples it still needs are fetched in blocks from the PSRAM staging ring: the 128-sample reference and the candidate window of the fine stage (about 300 samples) and the 1,024-sample grain (two 512-sample chunks into a 1 KB on-chip buffer). PSRAM block reads of about 650 words per grain are about 21,000 cycles, 2.7% of the CPU. On-chip total about 5 KB for mono (2.1 KB step scratch, 1 KB decimated ring, 1 KB chunk, the overlap tail 1 KB held on chip) and about 8 KB for stereo; with the overlap tail also in PSRAM about 4 KB and 6 KB. That still does not fit the Diagnostic build's 5 KB gap for stereo, so:
 
-**Owner decision 1.** Build and test tempo first in the **release-style build** (52 KB free; the Info page and its HEADROOM row already exist there), and bring it to the Diagnostic Build only after a stack-and-heap pass (B-230's stack peak is 1,672 B; the Diagnostic stack is 6 KB with 2.4 KB of Layered Wave scratch already counted, so 2.1 KB more inside `flac_emit` is a stack-overflow risk that needs its own check, section 12 risk 1).
+**Owner decision 1.** Build and test tempo first in the **release-style build** (7.7 KB usable on the 192 KB link, not the 52 KB first assumed; the Info page and its HEADROOM row already exist there), and bring it to the Diagnostic Build only after a stack-and-heap pass (B-230's stack peak is 1,672 B; the Diagnostic stack is 6 KB with 2.4 KB of Layered Wave scratch already counted, so 2.1 KB more inside `flac_emit` is a stack-overflow risk that needs its own check, section 12 risk 1).
 
 Code size: the core is 5.4 KB. It runs from the cold-code PSRAM alias if the instruction cache holds its small loops (the dot product is about 20 instructions); that must be MEASURED (cycles per grain in cold code against hot) before choosing hot or cold.
 

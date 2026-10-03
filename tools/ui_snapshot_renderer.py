@@ -407,6 +407,8 @@ SETTINGS_SRC = (ROOT / "fw/settingsui.inc").read_text(encoding="utf-8")
 SETTINGS_SRC += (ROOT / "fw/meter_gen_names.h").read_text(encoding="utf-8")
 # Fixtures model the standard (non-cold) build: take the #else branch of "#if TAU_COLD ... #else ... #endif" blocks.
 SETTINGS_SRC = re.sub(r"#if TAU_COLD\n(.*?)#else\n(.*?)#endif\n", r"\2", SETTINGS_SRC, flags=re.S)
+# The fixtures model the default build, where TAU_TEMPO is 0 (B-558): drop the "#if TAU_TEMPO ... #endif" blocks (the TEMPO row).
+SETTINGS_SRC = re.sub(r"#if TAU_TEMPO\n.*?#endif\n", "", SETTINGS_SRC, flags=re.S)
 EQ_SRC = (ROOT / "fw/eq_curve.h").read_text(encoding="utf-8")
 
 

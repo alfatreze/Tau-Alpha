@@ -17,7 +17,7 @@
  * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). The Library on/off toggle and
  * How it works page that used to live here were removed with legacy playlist mode. */
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
-enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_N };
+enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_TEMPO, CH_N };
 #if TAU_DIAGNOSTIC
 static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced by set_info_tick() below its own include */
 #endif
@@ -58,7 +58,11 @@ static const set_row_t set_appear_rows[] = {
 static const set_row_t set_audio_rows[] = {
     { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 } };
 static const set_row_t set_play_rows[] = {
-    { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SPEED", RT_CHOICE, CH_SPEED } };
+    { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SPEED", RT_CHOICE, CH_SPEED }
+#if TAU_TEMPO
+    , { "TEMPO", RT_CHOICE, CH_TEMPO }
+#endif
+};
 static const set_row_t set_diag_rows[] = {
     { "INFO", RT_GROUP, SET_INFO_PG },
 #if TAU_DIAGNOSTIC
@@ -108,9 +112,9 @@ static const char *const set_menu_title[SET_MENUS] = {
 static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME, SET_HOME, SET_HOME,
     SET_DGN, SET_DGN, SET_DIAG };
 static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
-    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE" };
+    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE", "TEMPO" };
 static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
-    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR };
+    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR, SET_PLAY };
 /* The speed list offers every entry up to 2.00x for an MP3 (owner decision 2026-10-03, B-555). The old limit of 1.20x came from A-133/A-135, when 1.25x micro-stuttered at
  * 60 MHz with the software MP3 synthesis window; with the hardware window and the 66.7 MHz clock a stereo 128 kbps MP3 is 83% busy at 1.50x with no FIFO stalls
  * (B-553) and the owner heard clean MP3 at 1.75x. These are VARISPEED speeds: the pitch rises with the speed (real tempo without the pitch change is the Cymo C7
@@ -319,7 +323,7 @@ COLD_FN static uint32_t set_ch_count(uint32_t c)
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_SEL_COUNT
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
          : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT()
-         : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : 5u;
+         : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : c == CH_TEMPO ? 6u : 5u;
 }
 COLD_FN static uint32_t set_blank_idx(void)
 {
@@ -340,6 +344,9 @@ COLD_FN static uint32_t set_ch_active(uint32_t c)
     if (c == CH_SPEED) return speed_eff();      /* a FLAC always plays at 1.00x (B-554) */
     if (c == CH_THEME) return th_theme;
     if (c == CH_MODE) return th_pol;
+#if TAU_TEMPO
+    if (c == CH_TEMPO) return tempo_idx;
+#endif
     return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode_to_sel(viz_mode) : c == CH_EQ ? eq_idx
          : c == CH_REPEAT ? rep_mode : set_blank_idx();
 }
@@ -349,7 +356,11 @@ COLD_FN static const char *set_ch_name(uint32_t c, uint32_t i)
          : c == CH_EQ ? eq_name[i] : c == CH_REPEAT ? set_rep[i]
          : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i]
          : c == CH_SPEED ? set_speed_nm[i] : c == CH_THEME ? th_get(i)->name
-         : c == CH_MODE ? (i ? "LIGHT" : "DARK") : set_blank_nm[i];
+         : c == CH_MODE ? (i ? "LIGHT" : "DARK")
+#if TAU_TEMPO
+         : c == CH_TEMPO ? tempo_txt[i]
+#endif
+         : set_blank_nm[i];
 }
 COLD_FN static uint32_t set_ch_rowh(uint32_t c)
 {
@@ -368,12 +379,27 @@ COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
     }
     if (c == CH_SPEED) {
         if (track_fmt == FMT_FLAC) { ui_toast_msg("SPEED: MP3 ONLY"); return; }   /* B-554: no speed for FLAC */
+#if TAU_TEMPO
+        tempo_idx = 0u;                          /* B-558: choosing a varispeed speed turns tempo off */
+#endif
         speed_idx = (uint8_t)i;
         pcm_rate_apply(track_hz);
         ui_last_sec = 0xFFFFFFFFu;               /* repaint the speed marker next frame */
         ui_mode_dirty = 1u;
         return;                                  /* not persisted */
     }
+#if TAU_TEMPO
+    if (c == CH_TEMPO) {
+        if (track_fmt == FMT_FLAC) { ui_toast_msg("TEMPO: MP3 ONLY"); return; }
+        tempo_idx = (uint8_t)i;
+        if (i) speed_idx = SPEED_1X;             /* tempo and varispeed exclude each other */
+        tempo_cfg_key = 0u;                      /* the stretcher starts again at the next frame */
+        pcm_rate_apply(track_hz);
+        ui_last_sec = 0xFFFFFFFFu;               /* repaint the speed marker next frame */
+        ui_mode_dirty = 1u;
+        return;                                  /* not persisted */
+    }
+#endif
     if (c == CH_COLOUR) {
         ui_pal_idx = i;
         ui_accent = th_accent_of(i);
@@ -853,10 +879,11 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
                   * second spent blocked waiting for file bytes, in percent (FLAC only; a stall there, not CPU, can cause a click). WS = the speed the WORST second projects
                   * with the tempo stretcher's ESTIMATED fixed cost taken off first (fw/headroom.h; an approximation, confirm with a run). */
         if (idle || paused || hr.last > 99u) { q = set_str(q, "PLAY 10 S, NO MENUS"); break; }   /* needs a few seconds of plain playback first */
-        const uint32_t n = speed_num[speed_eff()], d = speed_den[speed_eff()];
+        uint32_t n, d;
+        speed_ratio(&n, &d);
         const uint32_t m1 = hr_max_speed_x100(hr.min_idle, n, d, HR_WSOLA_EST_PCT);
         /* <speed> I<latest idle>/<worst idle> O<worst file-wait> WS<x.x>X -- at most 25 characters: a longer value runs into the label (DEV 74 showed that). */
-        q = set_str(q, speed_txt[speed_eff()]); q = set_str(q, " I");
+        { const char *sm = speed_marker(); q = set_str(q, sm ? sm : "1.00x"); } q = set_str(q, " I");
         q = ui_dec(q, hr.last); q = set_str(q, "/"); q = ui_dec(q, hr.min_idle);
         q = set_str(q, " O"); q = ui_dec(q, hr.max_io);
         q = set_str(q, " WS");

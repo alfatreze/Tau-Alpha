@@ -144,6 +144,8 @@ CFLAGS="$CFLAGS $STRESS_CFLAGS"
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) POLY_FW="${POLY_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && POLY_FW="${POLY_FW:-1}"      # v0.5.0: the release ships the poly bitstream, so the release firmware uses the unit too
 CFLAGS="$CFLAGS -DTAU_POLY_FW=${POLY_FW:-0}"
+# B-558: TEMPO=1 builds in the Cymo C7 tempo funnel (fw/tempo_core.h; MP3 only; the Settings > Playback > TEMPO row). Default 0 = byte-identical to a build without it.
+CFLAGS="$CFLAGS -DTAU_TEMPO=${TEMPO:-0}"
 if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw/mp3_poly_hw.h (only then, so default builds see no new include path)
 
 # B-368/B-369/B-370: LPC_FW=1 redirects FLAC LPC reconstruction (fw/flac.c) to the hardware unit (needs
