@@ -9,6 +9,8 @@
     "bar"
   ],
   "cost_class": 1,
+  "symbols": ["wviz_bars_tick", "wviz_disp", "wviz_vel", "wviz_pk", "wviz_drawn", "wviz_peak_drawn"],
+  "budget": {"cold": 1344, "hot_rom": 64, "hot_ram": 192, "psram_state": 0},
   "considered": "Solid per-band bars are exactly OP_BAR's shape; peak caps are one rect each.",
   "params": [
     {

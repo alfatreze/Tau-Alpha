@@ -6,6 +6,8 @@
   "selectable": true,
   "sel_index": 11,
   "cost_class": 0,
+  "symbols": ["vum_", "vu_master"],
+  "budget": {"cold": 2752, "hot_rom": 64, "hot_ram": 64, "psram_state": 0},
   "considered": "Discrete segments with a gap need one background rect plus up to 3 coalesced zone rects per channel per frame (docs/METER_VU_MASTERING_SPEC.md section 4.2) -- cheaper than OP_BAR's own vertical bar meters, and OP_BAR's shape (vertical, one fg colour) does not fit a horizontal 3-colour ladder anyway (section 4.1).",
   "params": [
     {

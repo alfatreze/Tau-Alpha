@@ -129,3 +129,20 @@ Owner direction: the core offers several ways to measure the audio and each mete
 - **Moved:** Chladni's `chl_energy`, the mode-weight loop of `chl_update` and the non-tonal branch of `chl_detect` now call the core; Layered Wave's `lw_learn` calls `mtr_ema_pow`. The tonal trigger stays in Chladni (an argmax-hold rule only that meter uses).
 - **Proof:** `sim/test_meter_core.py` compares all five against Python transcriptions of the original arithmetic over 3,000 random cases (including digital silence and quiet input); the Chladni core, module and params tests, the Layered Wave golden frames (1,929,343 commands) and the legacy golden frames all still pass; heap gaps are identical to step 4 on every build.
 - **Next signals** (each needs a cost): RMS, stereo correlation, crest factor, spectral centroid, clip count (`AUDIO_METERING_RESEARCH.md`); RMS and correlation are the ones worth a hardware block.
+
+## Status: step 7 done (manifest budgets, 2026-10-03)
+
+The five modular meters (Layered Wave, Chladni, VU Master, Winamp Bars, Winamp Scope) now declare `symbols` (name prefixes that belong to them) and a `budget` of byte ceilings
+(`cold`, `hot_rom`, `hot_ram`, `psram_state`) in `meters/*/meter.json`; `tools/gen_meters.py` validates both. `tools/meter_budget.py --elf fw/fw.elf` measures the real footprint from the firmware and fails if any meter is over
+its ceiling (sim/test_meter_budget.py proves it can fail, including a renamed-symbol guard). Ceilings were set about 12% above the measured 192 KB release footprint:
+
+| Meter | cold B | hot ROM B | hot RAM B | PSRAM state B |
+|---|---|---|---|---|
+| Layered Wave | 10,608 / 11,904 | 12 / 64 | 810 / 960 | 2,424 / 2,560 |
+| Chladni | 6,532 / 7,360 | 583 / 704 | 2,729 / 3,072 | 0 |
+| VU Master | 2,440 / 2,752 | 8 / 64 | 18 / 64 | 0 |
+| Winamp Bars | 1,156 / 1,344 | 0 / 64 | 144 / 192 | 0 |
+| Winamp Scope | 1,296 / 1,472 | 0 / 64 | 546 / 640 | 0 |
+
+(measured / ceiling). Attribution is by symbol-name prefix, so unnamed statics and compiler tables are not counted; the eight older meters are inlined into `ui_draw_dynamic_cold` and are not listed. Run it after a firmware build;
+it is not part of `make test-host` because that does not build the firmware ELF. These per-meter numbers are what an Omega meter-library cost ceiling would sum.

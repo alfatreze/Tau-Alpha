@@ -253,6 +253,12 @@ def validate_caps(meters, caps):
             raise SystemExit(f"{m['_path']}: needs_hw_spec and the hw_spectrum capability disagree")
         if m.get("cost_class") is not None and m["cost_class"] not in (0, 1, 2):
             raise SystemExit(f"{m['_path']}: cost_class must be 0, 1 or 2")
+        if "budget" in m or "symbols" in m:
+            bud, sym = m.get("budget"), m.get("symbols")
+            if not (isinstance(sym, list) and sym and all(isinstance(s, str) and s for s in sym)):
+                raise SystemExit(f"{m['_path']}: symbols must be a non-empty list of symbol-name prefixes (tools/meter_budget.py)")
+            if not (isinstance(bud, dict) and bud and set(bud) <= {"cold", "hot_rom", "hot_ram", "psram_state"} and all(isinstance(v, int) and v >= 0 for v in bud.values())):
+                raise SystemExit(f"{m['_path']}: budget must map cold/hot_rom/hot_ram/psram_state to non-negative byte counts")
 
 
 def render_caps_doc(caps, meters):

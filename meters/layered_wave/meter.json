@@ -12,6 +12,8 @@
     "hw_wave"
   ],
   "cost_class": 2,
+  "symbols": ["lw_", "layered_wave", "LW_"],
+  "budget": {"cold": 11904, "hot_rom": 64, "hot_ram": 960, "psram_state": 2560},
   "considered": "Nested mirrored envelope layers need one rect per layer per column run, so cost scales with layers x width. The meter keeps itself near 300 commands per frame with a self-scaling cell width (graceful degradation, never audio jitter); equal neighbouring cells merge into one run. SPECTRUM view (no scrolling) redraws the same way. A scroll-by-copy mode (blit_shift: shift the picture with one engine copy, draw only new columns, about 45 commands) was prototyped in the lab (commit 419fea5) and parked until the overlapping copy is simulated and measured. 34 parameters (the CUSTOM split's five boundaries are visible only for that split; eleven more are the experimental group, present only in the Diagnostic Build), hence MTR_MAX_PARAMS raised from 12 to 40; parameters carry a `group` (general, source, display, dynamics) that the lab and Omega fold into collapsible sections. docs/features/meters/LAYERED_WAVE_METER_SPEC.md.",
   "params": [
     {
