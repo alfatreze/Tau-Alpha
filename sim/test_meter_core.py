@@ -419,11 +419,134 @@ def check_derived():
     print("derived measurements OK (isqrt32/64, rms, corr_q8, crest_q8, centroid_q8 equal the exact integer references over 4000 random cases)")
 
 
+# ---- reference implementations (exact Python integers) of the newer core functions; the C is proven equal to these by the check_* tests above,
+# and the JS twin (tau_core.js) is tested against the vectors made from them.
+def _cdiv(a, b):
+    q = abs(a) // abs(b); return q if (a >= 0) == (b > 0) else -q
+
+def r_ramp(a, b, t, n):
+    r = (((a >> 11) & 31) * (n - t) + ((b >> 11) & 31) * t) // n
+    g = (((a >> 5) & 63) * (n - t) + ((b >> 5) & 63) * t) // n
+    bl = ((a & 31) * (n - t) + (b & 31) * t) // n
+    return (r << 11) | (g << 5) | bl
+
+def r_mix256(a, b, t):
+    ar, ag, ab, br, bg, bb = (a >> 11) & 31, (a >> 5) & 63, a & 31, (b >> 11) & 31, (b >> 5) & 63, b & 31
+    return ((ar + (((br - ar) * t) >> 8)) << 11) | ((ag + (((bg - ag) * t) >> 8)) << 5) | (ab + (((bb - ab) * t) >> 8))
+
+def r_ladder(lo, mid, hi, r, n):
+    half = n // 2
+    return r_ramp(lo, mid, r, half) if r < half else r_ramp(mid, hi, r - half, n - half)
+
+def r_col_span(x0, w, n, i, gap):
+    a, b = x0 + (i * w) // n, x0 + ((i + 1) * w) // n
+    return [a, (b - a - gap) if b - a > gap else 1]
+
+def r_col_cw(x0, w, n, i):
+    a, b = x0 + (i * w) // n, x0 + ((i + 1) * w) // n
+    return [a, (b - a) if b > a else 1]
+
+def r_scale_u(v, h, full):
+    return min(h, (v * h) // full)
+
+def r_scale_s(v, ey, unit):
+    return max(-ey, min(ey, _cdiv(v * ey, unit)))
+
+def r_in_box(px, py, sz, x, y, w, h):
+    return int(px >= x and px + sz <= x + w and py >= y and py + sz <= y + h)
+
+def r_energy(lvl):
+    return sum(lvl) // len(lvl)
+
+def r_silent(lvl, peak):
+    return int(peak == 0 and not any(lvl))
+
+def r_slew(w, lvl, up, dn):
+    out = []
+    for b in range(len(lvl)):
+        t = (lvl[b] * lvl[b]) >> 4; d = t - w[b]
+        d = up if d > up else (-dn if d < -dn else d)
+        out.append(w[b] + d)
+    return out
+
+def r_ema(e, lvl, div):
+    return [e[b] + _cdiv(lvl[b] * lvl[b] - e[b], div) for b in range(len(lvl))]
+
+def r_onset(prev, ema, lvl, sens, elapsed, refr):
+    rise = sum(lvl[b] - prev[b] for b in range(len(lvl)) if lvl[b] > prev[b])
+    fire = int(rise > ((sens * ema) >> 12) + 6 and elapsed > refr)
+    d = ((rise << 8) - ema) & 0xFFFFFFFF
+    d = d - (1 << 32) if d & 0x80000000 else d
+    return fire, (ema + (d >> 5)) & 0xFFFFFFFF
+
+def r_rms(s, lg):
+    import math
+    return math.isqrt((s >> lg) & 0xFFFFFFFF)
+
+def r_corr(ll, rr, lr):
+    import math
+    if not ll or not rr: return 0
+    sh = 0
+    while (ll >> sh) >= 0x80000000 or (rr >> sh) >= 0x80000000: sh += 1
+    den = math.isqrt((ll >> sh) * (rr >> sh))
+    if not den: return 0
+    q = min(256, (abs(lr) >> sh) * 256 // den)
+    return -q if lr < 0 else q
+
+def r_crest(peak, rms):
+    return 0 if not rms else min(0xFFFF, (peak << 8) // rms)
+
+def r_centroid(lvl):
+    s = sum(lvl)
+    return (sum(i * v for i, v in enumerate(lvl)) << 8) // s if s else 0
+
+
+def extra_vectors():
+    """Golden vectors for the JS twin: inputs from a fixed seed, outputs from the reference implementations above."""
+    import math
+    rg = random.Random(20261003)
+    v = {"colour": [], "geometry": [], "signals": [], "derived": []}
+    for _ in range(300):
+        a, b = rg.randrange(65536), rg.randrange(65536); n = rg.randrange(1, 120); t = rg.randrange(n + 1); t256 = rg.randrange(257); r = rg.randrange(n)
+        v["colour"].append({"a": a, "b": b, "n": n, "t": t, "t256": t256, "r": r, "ramp": r_ramp(a, b, t, n), "mix256": r_mix256(a, b, t256),
+                            "ladder": r_ladder(a, b, a ^ b, r, n)})
+    for _ in range(300):
+        x0, w, n = rg.randrange(100), rg.randrange(1, 500), rg.randrange(1, 80); i = rg.randrange(n); gap = rg.randrange(8)
+        h, full, val = rg.randrange(1, 400), rg.randrange(1, 40000), rg.randrange(70000)
+        ey, unit, sv = rg.randrange(1, 200), rg.randrange(1, 32000), rg.randrange(-128, 128)
+        px, py, sz = rg.randrange(-50, 550), rg.randrange(-50, 450), rg.randrange(1, 4)
+        v["geometry"].append({"x0": x0, "w": w, "n": n, "i": i, "gap": gap, "span": r_col_span(x0, w, n, i, gap), "cw": r_col_cw(x0, w, n, i),
+                              "h": h, "full": full, "val": val, "scale_u": r_scale_u(val, h, full), "ey": ey, "unit": unit, "sv": sv, "scale_s": r_scale_s(sv, ey, unit),
+                              "px": px, "py": py, "sz": sz, "box": [x0, 20, w, h], "inbox": r_in_box(px, py, sz, x0, 20, w, h)})
+    for k in range(300):
+        quiet, zero = k % 7 == 0, k % 29 == 0
+        lvl = [0 if zero else (rg.randrange(3) if quiet else rg.randrange(256)) for _ in range(16)]
+        prev = [rg.randrange(256) for _ in range(16)]; w = [rg.randrange(4096) for _ in range(16)]; e = [rg.randrange(65000) for _ in range(16)]
+        ema, sens, elapsed, refr = rg.randrange(5000), 8 + rg.randrange(40), rg.randrange(600), rg.randrange(300)
+        up, dn, div = rg.randrange(300), rg.randrange(300), rg.randrange(1, 64); peak = rg.randrange(3) if k % 5 else 0
+        fire, ema2 = r_onset(prev, ema, lvl, sens, elapsed, refr)
+        v["signals"].append({"lvl": lvl, "prev": prev, "w": w, "e": e, "ema": ema, "sens": sens, "elapsed": elapsed, "refr": refr, "up": up, "dn": dn, "div": div, "peak": peak,
+                             "energy": r_energy(lvl), "silent": r_silent(lvl, peak), "slew": r_slew(w, lvl, up, dn), "ema_out": r_ema(e, lvl, div), "fire": fire, "ema_new": ema2})
+    for k in range(300):
+        quiet = k % 5 == 0
+        ll = rg.randrange(5000) if quiet else rg.randrange(0x10000000000); rr = rg.randrange(5000) if quiet else rg.randrange(0x10000000000)
+        lr = int(min(ll, rr) * rg.random()) * (-1 if rg.randrange(3) == 0 else 1)
+        if k % 11 == 0: rr, lr = ll, ll
+        if k % 13 == 0: rr, lr = ll, -ll
+        peak = rg.randrange(32769); rms = 0 if k % 17 == 0 else rg.randrange(1, 32769); v32 = rg.randrange(1 << 32)
+        lvl = [0 if k % 19 == 0 else rg.randrange(256) for _ in range(16)]
+        v["derived"].append({"ll": ll, "rr": rr, "lr": lr, "peak": peak, "rms_in": rms, "v32": v32, "lvl": lvl, "isqrt32": math.isqrt(v32), "rms": r_rms(ll, 10),
+                             "corr": r_corr(ll, rr, lr), "crest": r_crest(peak, rms), "centroid": r_centroid(lvl),
+                             "p64": [ll % 0x40000000, rr % 0x40000000], "isqrt64": math.isqrt((ll % 0x40000000) * (rr % 0x40000000))})
+    return v
+
+
 def main():
     rc, out = build_run(True)
     if rc:
         print("MISMATCH between meter_core.h and the original wviz_bars_tick code:\n" + out.splitlines()[0]); sys.exit(1)
-    text = json.dumps(parse_vectors(out), separators=(",", ":")) + "\n"
+    vecs = parse_vectors(out); vecs.update(extra_vectors())
+    text = json.dumps(vecs, separators=(",", ":")) + "\n"
     if "--check" in sys.argv:
         if not VEC.exists() or VEC.read_text() != text:
             print("core_vectors.json is stale; run sim/test_meter_core.py --write"); sys.exit(1)

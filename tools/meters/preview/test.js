@@ -12,6 +12,24 @@ check('core twin: ease vectors', () => { for (const v of cv.ease) { const vel = 
 check('core twin: peak-cap vectors', () => { for (const run of cv.peak) { const p = C.newPeak(); for (const s of run.steps) { C.peakStep(p, s.disp, run.cfg, 26); assert.deepStrictEqual([p.peak, p.vel, p.hold], [s.peak, s.vel, s.hold]); } } });
 check('core twin: band-mapping vectors', () => { for (const v of cv.band) assert.deepStrictEqual(Array.from({ length: v.bands }, (_, b) => C.bandTarget(v.spec, 16, v.bands, b)), v.out); });
 
+check('core twin: colour vectors (ramp, mix256, ladder)', () => { for (const v of cv.colour) { assert.strictEqual(C.ramp(v.a, v.b, v.t, v.n), v.ramp); assert.strictEqual(C.mix256(v.a, v.b, v.t256), v.mix256); assert.strictEqual(C.ladder(v.a, v.b, v.a ^ v.b, v.r, v.n), v.ladder); } });
+check('core twin: geometry vectors (columns, scaling, box test)', () => { for (const v of cv.geometry) {
+  assert.deepStrictEqual(C.colSpan(v.x0, v.w, v.n, v.i, v.gap), v.span); assert.deepStrictEqual(C.colCw(v.x0, v.w, v.n, v.i), v.cw);
+  assert.strictEqual(C.scaleU(v.val, v.h, v.full), v.scale_u); assert.strictEqual(C.scaleS(v.sv, v.ey, v.unit), v.scale_s);
+  assert.strictEqual(C.inBox(v.px, v.py, v.sz, ...v.box), v.inbox); } });
+check('core twin: signal vectors (energy, silent, slew, ema, onset)', () => { for (const v of cv.signals) {
+  assert.strictEqual(C.energy(v.lvl, 16), v.energy); assert.strictEqual(C.silent(v.lvl, 16, v.peak), v.silent);
+  const w = v.w.slice(); C.slewPow(w, v.lvl, 16, v.up, v.dn); assert.deepStrictEqual(w, v.slew);
+  const e = v.e.slice(); C.emaPow(e, v.lvl, 16, v.div); assert.deepStrictEqual(e, v.ema_out);
+  const ema = { v: v.ema }; assert.strictEqual(C.onsetFlux(v.prev, ema, v.lvl, 16, v.sens, v.elapsed, v.refr), v.fire); assert.strictEqual(ema.v, v.ema_new); } });
+check('core twin: derived vectors (isqrt, rms, correlation, crest, centroid)', () => { for (const v of cv.derived) {
+  assert.strictEqual(C.isqrt32(v.v32), v.isqrt32); assert.strictEqual(C.rms(v.ll, 10), v.rms); assert.strictEqual(C.corrQ8(v.ll, v.rr, v.lr), v.corr);
+  assert.strictEqual(C.crestQ8(v.peak, v.rms_in), v.crest); assert.strictEqual(C.centroidQ8(v.lvl, 16), v.centroid); assert.strictEqual(C.isqrt64(BigInt(v.p64[0]) * BigInt(v.p64[1])), v.isqrt64); } });
+check('core twin: cache helpers (delta1, invalidate, stale redraw without force)', () => {
+  const d = [3]; assert.strictEqual(C.delta1(d, 0, 3, 0), false); assert.strictEqual(C.delta1(d, 0, 4, 0), true); assert.strictEqual(d[0], 4);
+  assert.strictEqual(C.delta1(d, 0, 4, 1), true); assert.strictEqual(C.delta1(d, 0, 4, 0), false);
+  const a = [1, 2, 3, 4, 5]; C.invalidate(a, 4); assert.deepStrictEqual(a, [255, 255, 255, 255, 5]); assert.strictEqual(C.delta1(a, 0, 0, 0), true); });
+
 const tv = JSON.parse(fs.readFileSync(path.join(here, 'fixtures', 'theme_vectors.json')));
 const build = require('child_process').execFileSync('python3', [path.join(here, 'build.py'), '--out', '/dev/null'], { cwd: root });   // data() is in python; read it via a tiny dump
 const data = JSON.parse(require('child_process').execFileSync('python3', ['-c', 'import sys,json;sys.path.insert(0,"tools/meters/preview");import build;print(json.dumps(build.data()))'], { cwd: root, maxBuffer: 1 << 26 }).toString());
