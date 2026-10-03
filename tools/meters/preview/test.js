@@ -54,6 +54,15 @@ for (const key of ['winamp_bars', 'winamp_scope']) {
     assert.ok(inside > 500, 'nothing drawn'); assert.strictEqual(outside, 0, outside + ' pixels outside the meter box');
   });
 }
+check('winamp_bars: the delta repaint leaves exactly the pixels a full repaint every frame would, with fewer pixels written', () => {
+  const m = schema.meters.find((x) => x.key === 'winamp_bars');
+  for (let pi = 0; pi < m.presets.length; pi++) for (const light of [false, true]) {
+    const o = { data, schema, key: 'winamp_bars', params: m.presets[pi].values, source: Audio.demo(3 + pi), frames: 150, light, log: false };
+    const d = Run.run(o), f = Run.run(Object.assign({}, o, { forceEvery: true }));
+    assert.strictEqual(d.fb.checksum(), f.fb.checksum(), `${m.presets[pi].name}${light ? ' (light)' : ''}: pixels differ`);
+    assert.ok(d.fb.pix < f.fb.pix, 'the delta repaint should write fewer pixels');
+  }
+});
 check('winamp_bars: Light theme renders too (accent capped, box respected)', () => { const r = Run.run({ data, schema, key: 'winamp_bars', source: Audio.demo(1), frames: 30, light: true }); assert.ok(r.theme.accent !== undefined && r.cost.max > 0); });
 
 /* layered_wave (firmware: fw/layered_wave.inc; the C-vs-JS golden frames are sim/test_layered_wave_golden.py) */

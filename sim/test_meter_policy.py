@@ -74,6 +74,16 @@ int main(void) {
         mp_t z = {0}; mp_drew_cost(&z, 0, 10u * MS);
         chk(mp_gate(&z, 1u * MS, 0, 0u, 1u, 0, 1, &dt), "duty 0 = no cap");
     }
+    { /* FIFO cover and starvation cap */
+        chk(mp_fifo_covers(1000u, 0u, 1388u), "fifo: unknown cost is covered");
+        chk(mp_fifo_covers(1000u, 5000000u, 0u), "fifo: unknown rate is covered");
+        chk(!mp_fifo_covers(500u, 10u * MS, 1388u), "fifo: a 10 ms draw at 48 kHz (480 entries + margin) is not covered by 500 entries");
+        chk(mp_fifo_covers(700u, 10u * MS, 1388u), "fifo: ...but is covered by 700");
+        mp_t m = {0}; uint32_t dt = 0; int drew = 0; uint32_t t = 0;
+        for (int i = 0; i < 40 && !drew; i++) { t += 26u * MS; drew = mp_gate(&m, t, 0, 0u, 26u, 0, 0, &dt); }
+        chk(drew && m.starve_ms == 0u, "starve: a FIFO-gated meter is let through after MP_STARVE_MS");
+        chk(dt == MP_MAX_DT_MS, "starve: the delivered dt is still clamped");
+    }
     printf(bad ? "FAILED %%d\n" : "PASSED\n", bad);
     return bad != 0;
 }

@@ -48,6 +48,7 @@ static uint8_t spec_lvl[16], paused, wave_hw, ui_fullscreen;
 static signed char wav_v[64];
 #include "meter_core.h"
 static uint8_t wviz_force, wviz_disp[16], wviz_peak_drawn[16], wviz_drawn[16], wviz_scope_init;
+static uint16_t wviz_bh_d[16], wviz_ph_d[16]; static uint32_t wviz_geo[7];
 static int16_t wviz_vel[16], wviz_scope_y[256];
 static mtr_peak_t wviz_pk[16];
 static void fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { printf("rect %u %u %u %u %u\n", x, y, w, h, c); }
@@ -70,7 +71,8 @@ int main(int argc, char **argv) {
         ui_accent = (uint16_t)acc; g_prim = (uint16_t)prim; g_track = (uint16_t)track;
         if (isbars) { for (int i = 0; i < np; i++) mtr_v_winamp_bars[i] = (uint16_t)p[i]; }
         else        { for (int i = 0; i < np; i++) mtr_v_winamp_scope[i] = (uint16_t)p[i]; }
-        for (int i = 0; i < 16; i++) { wviz_disp[i] = 0; wviz_vel[i] = 0; wviz_pk[i].peak = 0; wviz_pk[i].vel = 0; wviz_pk[i].hold = 0; wviz_drawn[i] = 0; wviz_peak_drawn[i] = 0; }
+        for (int i = 0; i < 16; i++) { wviz_disp[i] = 0; wviz_vel[i] = 0; wviz_pk[i].peak = 0; wviz_pk[i].vel = 0; wviz_pk[i].hold = 0; wviz_drawn[i] = 0; wviz_peak_drawn[i] = 0; wviz_bh_d[i] = 0; wviz_ph_d[i] = 0; }
+        for (int i = 0; i < 7; i++) wviz_geo[i] = 0;
         for (int i = 0; i < 256; i++) wviz_scope_y[i] = 0;
         wviz_scope_init = 0; wviz_force = 1;
         for (int n = 0; n < nframes; n++) {

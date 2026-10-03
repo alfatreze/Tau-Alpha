@@ -1792,6 +1792,8 @@ static uint8_t  wviz_disp[WVIZ_BANDS_MAX];        /* displayed height, 0..255 */
 static int16_t  wviz_vel[WVIZ_BANDS_MAX];         /* spring mode velocity only */
 static mtr_peak_t wviz_pk[WVIZ_BANDS_MAX];       /* peak cap state per band: level, gravity fall speed, ms of hold left */
 static uint8_t  wviz_drawn[WVIZ_BANDS_MAX], wviz_peak_drawn[WVIZ_BANDS_MAX];
+static uint16_t wviz_bh_d[WVIZ_BANDS_MAX], wviz_ph_d[WVIZ_BANDS_MAX];   /* what is on screen per band, in pixels: bar height and peak-marker height (0 = none): the redraw paints only the difference */
+static uint32_t wviz_geo[7];                                           /* x, y, w, h, bands, accent, bg the pixels were drawn for: any change repaints everything */
 static int16_t  wviz_scope_y[256];          /* smoothed scope trace, signed pixel offset */
 static uint8_t  wviz_scope_init;
 
@@ -4115,7 +4117,15 @@ COLD_FN3 static void wviz_bars_tick(const mtr_in_t *in)
      * closed) -- wipe the whole preview rect once so no leftover pixels from a
      * DIFFERENT geometry or a different mode's draw survive, then force every
      * band to redraw below regardless of the change cache. */
-    if (force) fig_rect(x0, y, w, h, bg);
+    /* Delta repaint (METER_07): a band whose height changed paints only the rows between its old and new height (one rectangle) instead of the whole column, so
+     * the draw engine writes a few hundred pixels per band per frame instead of 22 x 323 in fullscreen. Anything that makes the pixels on screen unreliable
+     * (a forced repaint, a new geometry, accent or ground colour) clears the box and repaints every band in full, as before. */
+    const uint32_t geo[7] = { x0, y, w, h, bands, ui_accent, bg };
+    uint32_t full = force;
+    for (uint32_t i = 0; i < 7u; i++) if (wviz_geo[i] != geo[i]) { full = 1u; wviz_geo[i] = geo[i]; }
+    if (full) fig_rect(x0, y, w, h, bg);
+    blit_probe_ensure();
+    const int hw_bar = BLIT_READY();
 
     for (uint32_t b = 0; b < bands; b++) {
         uint32_t target = mtr_band_target(in->spec, SPEC_BANDS, bands, b);
@@ -4127,24 +4137,35 @@ COLD_FN3 static void wviz_bars_tick(const mtr_in_t *in)
         const mtr_peak_cfg_t pcfg = { MV_WINAMP_BARS(PEAK_ON), MV_WINAMP_BARS(PEAK_GRAVITY), MV_WINAMP_BARS(PEAK_HOLD_MS), MV_WINAMP_BARS(PEAK_FALL) };
         mtr_peak_step(&wviz_pk[b], wviz_disp[b], &pcfg, in->dt_ms);
 
-        if (!mtr_delta(&wviz_drawn[b], &wviz_peak_drawn[b], wviz_disp[b], wviz_pk[b].peak, force)) continue;
+        if (!mtr_delta(&wviz_drawn[b], &wviz_peak_drawn[b], wviz_disp[b], wviz_pk[b].peak, full)) continue;
 
-        uint32_t x = x0 + b * (colw + gap);
+        const uint32_t x = x0 + b * (colw + gap);
         uint32_t bh = (wviz_disp[b] * h) / 255u;
         if (bh < 2u) bh = 2u;
-
-        blit_probe_ensure();
-        if (BLIT_READY()) {
-            fig_bar(x, y, colw, h, bh, ui_accent, bg);
-        } else {
-            fig_rect(x, y + h - bh, colw, bh, ui_accent);
-            if (h > bh) fig_rect(x, y, colw, h - bh, bg);
-        }
+        uint32_t pnew = 0u;
         if (MV_WINAMP_BARS(PEAK_ON)) {
-            uint32_t ph = (wviz_pk[b].peak * h) / 255u;
-            if (ph > bh + 1u && ph < h)
-                fig_rect(x, y + h - ph, colw, 1u, UI_WHITE);
+            const uint32_t ph = (wviz_pk[b].peak * h) / 255u;
+            if (ph > bh + 1u && ph < h) pnew = ph;
         }
+        const uint32_t old = wviz_bh_d[b], pold = wviz_ph_d[b];
+
+        if (full || !old) {                                   /* nothing reliable on screen for this band: the whole column */
+            if (hw_bar) {
+                fig_bar(x, y, colw, h, bh, ui_accent, bg);
+            } else {
+                fig_rect(x, y + h - bh, colw, bh, ui_accent);
+                if (h > bh) fig_rect(x, y, colw, h - bh, bg);
+            }
+            if (pnew) fig_rect(x, y + h - pnew, colw, 1u, UI_WHITE);
+        } else {
+            if (bh > old)      fig_rect(x, y + h - bh, colw, bh - old, ui_accent);        /* grew: the new rows */
+            else if (bh < old) fig_rect(x, y + h - old, colw, old - bh, bg);              /* shrank: the rows it gave up */
+            if (pold != pnew) {
+                if (pold > bh) fig_rect(x, y + h - pold, colw, 1u, bg);                   /* old marker above the bar (inside it, the growth already covered it) */
+                if (pnew) fig_rect(x, y + h - pnew, colw, 1u, UI_WHITE);
+            }
+        }
+        wviz_bh_d[b] = (uint16_t)bh; wviz_ph_d[b] = (uint16_t)pnew;
     }
     wviz_force = 0u;
 }
@@ -4856,8 +4877,9 @@ static int meter_afford(void);                 /* defined with the audio-yield l
  * already hard to decode (a high-bitrate 48 kHz FLAC) gets a smaller share for the meter. On top of that the audio-FIFO yield (meter_afford) skips draws
  * while the FIFO is nearly dry, and Layered Wave keeps its own minimum interval (HM_MIN_MS). The time a skipped call would have advanced is added to the next
  * call's dt_ms, so history and ballistics keep the right speed; a forced repaint is never held. A cheap meter's interval is far below the frame time, so
- * the throttle only ever shows on a meter that is expensive on this track. Measured on a Pocket (TAU_DEV_METER_05): fullscreen Winamp Bars drew in 9.8 ms
- * every 26 ms frame and starved a 415 kbps 48 kHz FLAC (idle 0, 201 FIFO stalls). */
+ * the throttle only ever shows on a meter that is expensive on this track. Measured on a Pocket (TAU_DEV_METER_05/06): fullscreen Winamp Bars with a 415 kbps
+ * 48 kHz FLAC gave 149-201 FIFO stalls, against 0 with a menu covering the meter. (An earlier version of this comment quoted 9.8 ms per Bars draw: that figure came
+ * from Info > METER DRAW, which only times the full-repaint meters, Chladni and Layered Wave; the real per-meter cost is Info > METER COST, below.) */
 #define HM_MIN_MS 45u
 #define HM_DUTY_PCT 40u
 #define HM_DUTY_LOW_PCT 20u
@@ -4865,17 +4887,23 @@ static int meter_afford(void);                 /* defined with the audio-yield l
 static mp_t hm_pol;
 static uint8_t hm_pol_viz = 0xFFu;
 static uint32_t hm_n_skip;
+/* Info > METER COST (every meter, measured around the whole helios_meter() call): cost of the last/worst draw in cycles, draws held back by the audio FIFO / by the duty
+ * cap, and the share of SDRAM port-busy time while drawing (everything that used the SDRAM during the draws, not only the meter). */
+static uint32_t hm_cost_last, hm_cost_max, hm_skip_fifo, hm_skip_duty, hm_busy_acc, hm_el_acc;
+static uint8_t  hm_cost_viz;
 COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_t flags)
 {
     mtr_in_t inb = *in0;
     const mtr_in_t *in = &inb;
-    if (hm_pol_viz != (uint8_t)viz) { hm_pol.cost_cyc = 0u; hm_pol.skip_ms = 0u; hm_pol_viz = (uint8_t)viz; }   /* another meter: its predecessor's cost says nothing about it */
+    if (hm_pol_viz != (uint8_t)viz) { hm_pol.cost_cyc = 0u; hm_pol.skip_ms = 0u; hm_pol.starve_ms = 0u; hm_pol_viz = (uint8_t)viz; hm_cost_last = hm_cost_max = hm_skip_fifo = hm_skip_duty = 0u; }   /* another meter: its predecessor's cost says nothing about it */
     const uint32_t tg = cycles();
+    const uint32_t sb0 = REG(R_SDR_BUSY);
     {
         uint32_t dt = in0->dt_ms;
         const uint32_t duty = (hr.last != 255u && hr.last < HM_LOW_IDLE_PCT) ? HM_DUTY_LOW_PCT : HM_DUTY_PCT;
         const uint32_t floor_cyc = (viz == VIZ_LAYERED_WAVE) ? (CLK_HZ / 1000u) * HM_MIN_MS : 0u;
-        if (!mp_gate(&hm_pol, tg, floor_cyc, duty, in0->dt_ms, in0->force, meter_afford(), &dt)) { hm_n_skip++; return 0u; }
+        const int fifo_ok = meter_afford() && mp_fifo_covers(pcm_level(), hm_pol.cost_cyc, samprate ? CLK_HZ / samprate : 0u);   /* the FIFO must hold the draw (cost in audio entries) */
+        if (!mp_gate(&hm_pol, tg, floor_cyc, duty, in0->dt_ms, in0->force, fifo_ok, &dt)) { hm_n_skip++; if (!fifo_ok) hm_skip_fifo++; else hm_skip_duty++; return 0u; }
         inb.dt_ms = (uint16_t)dt;
     }
     const uint32_t full = (viz == VIZ_CHLADNI || viz == VIZ_LAYERED_WAVE);        /* full-repaint meters */
@@ -4895,6 +4923,14 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
     case VIZ_WINAMP_SCOPE: wviz_scope_tick(in, (flags & HM_GRAD) ? 1 : 0); break;
     case VIZ_WINAMP_BARS:  wviz_bars_tick(in); break;
     case VIZ_VU_MASTER:    vum_tick(in); break;
+    case VIZ_SCROLL:       viz_scroll_tick(in); break;
+    case VIZ_LED:          viz_led_tick(in); break;
+    case VIZ_DOTS:         viz_dots_tick(in); break;
+    case VIZ_WATER:        viz_water_tick(in); break;
+    case VIZ_VU:           viz_vu_tick(in); break;
+    case VIZ_WAVE:         viz_wave_tick(in); break;
+    case VIZ_SCOPE:        viz_phase_tick(in); break;
+    case VIZ_BARS:         viz_bars_tick(in); break;
     case VIZ_CHLADNI:      drew = (uint32_t)chladni_tick_box(in); break;
 #if TAU_PACKS
     case VIZ_LAYERED_WAVE: drew = packs_have(VIZ_LAYERED_WAVE) ? packs_tick(VIZ_LAYERED_WAVE, in) : (uint32_t)lw_tick(in); break;   /* a valid pack replaces the built-in drawing */
@@ -4916,7 +4952,13 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
             } else { helios_n_fail++; if (viz == VIZ_LAYERED_WAVE) lw_retry(); }     /* never drained: do not show a half-built box; repaint next time */
         }
     }
-    mp_drew_cost(&hm_pol, tg, (uint32_t)(cycles() - tg));
+    {
+        const uint32_t el = (uint32_t)(cycles() - tg);
+        mp_drew_cost(&hm_pol, tg, el);
+        hm_cost_last = el; if (el > hm_cost_max) hm_cost_max = el; hm_cost_viz = (uint8_t)viz;
+        hm_busy_acc += REG(R_SDR_BUSY) - sb0; hm_el_acc += el;
+        if (hm_el_acc > 0x40000000u) { hm_el_acc >>= 1; hm_busy_acc >>= 1; }
+    }
     if (full && drew) { helios_t_last = (uint32_t)(cycles() - t0); if (helios_t_last > helios_t_max) helios_t_max = helios_t_last; helios_n_draw++; }
     return res;
 }
@@ -5001,7 +5043,7 @@ COLD_FN3 static void ui_meter_redraw(void)
      * because COPY moves the whole strip for the price of one. */
     if (viz_mode == VIZ_SCROLL) {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
-        viz_scroll_tick(&in);
+        (void)helios_meter(VIZ_SCROLL, &in, 0u);   /* through the framework: the mandatory throttle applies */
         goto viz_done;
     }
 
@@ -5020,7 +5062,7 @@ COLD_FN3 static void ui_meter_redraw(void)
      * frequency data, and the cascade is what provides it. */
     if (viz_mode == VIZ_LED) {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
-        viz_led_tick(&in);
+        (void)helios_meter(VIZ_LED, &in, 0u);   /* through the framework: the mandatory throttle applies */
         goto viz_done;
     }
 
@@ -5081,13 +5123,13 @@ COLD_FN3 static void ui_meter_redraw(void)
      * here. */
     if (viz_mode == VIZ_DOTS) {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
-        viz_dots_tick(&in);
+        (void)helios_meter(VIZ_DOTS, &in, 0u);   /* through the framework: the mandatory throttle applies */
         goto viz_done;
     }
 
     if (viz_mode == VIZ_WATER) {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
-        viz_water_tick(&in);
+        (void)helios_meter(VIZ_WATER, &in, 0u);   /* through the framework: the mandatory throttle applies */
         goto viz_done;
     }
 
@@ -5098,7 +5140,7 @@ COLD_FN3 static void ui_meter_redraw(void)
      * pair huddled at the left -- the same trap the waterfall fell into. */
     if (viz_mode == VIZ_VU) {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
-        viz_vu_tick(&in);
+        (void)helios_meter(VIZ_VU, &in, 0u);   /* through the framework: the mandatory throttle applies */
         goto viz_done;
     }
 
@@ -5107,7 +5149,7 @@ COLD_FN3 static void ui_meter_redraw(void)
      * than the bars. */
     if (viz_mode == VIZ_WAVE) {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
-        viz_wave_tick(&in);
+        (void)helios_meter(VIZ_WAVE, &in, 0u);   /* through the framework: the mandatory throttle applies */
         goto viz_done;
     }
     /* ---- STEREO PHASE SCOPE -------------------------------------------
@@ -5116,14 +5158,14 @@ COLD_FN3 static void ui_meter_redraw(void)
      * by point, which would double the count for no gain. */
     if (viz_mode == VIZ_SCOPE) {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
-        viz_phase_tick(&in);
+        (void)helios_meter(VIZ_SCOPE, &in, 0u);   /* through the framework: the mandatory throttle applies */
         goto viz_done;
     }
 
     /* Classic bars: the default meter. */
     {
         const mtr_in_t in = mtr_build(UI_MARGIN, UI_WAVE_Y, ww, UI_WAVE_H, bed, wf);
-        viz_bars_tick(&in);
+        (void)helios_meter(VIZ_BARS, &in, 0u);
     }
 viz_done: ;
 #if TAU_DIAGNOSTIC

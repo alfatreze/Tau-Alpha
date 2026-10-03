@@ -570,7 +570,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS (35u + TAU_PACKS)   /* +1 for METER PACKS in a TAU_PACKS build (0 or 1); 35 = main's 34 + AUDIO STATS. B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS (36u + TAU_PACKS)   /* +1 for METER PACKS in a TAU_PACKS build (0 or 1); 36 = main's 34 + AUDIO STATS + METER COST. B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -637,6 +637,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "METER DRAW"
     , "LW COST"
     , "HEADROOM"
+    , "METER COST"
     , "AUDIO STATS"
 #if TAU_PACKS
     , "METER PACKS"
@@ -873,7 +874,19 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, " PRES "); q = ui_dec(q, helios_t_pres / (CLK_HZ / 1000000u));
         q = set_str(q, "US");
         break;
-    case 34:   /* AUDIO STATS: the hardware block's RMS (L and R), stereo correlation in percent, crest factor, spectral centre (band number) and the clip counters */
+    case 34: {   /* METER COST (METER_07): the meter on screen, measured around every helios_meter() call: V<id> L<last>/M<worst> in microseconds, F = draws held back
+                  * because the audio FIFO could not cover them, D = held back by the duty cap, B = SDRAM port-busy share of the time spent drawing, in permille (it
+                  * includes everything else that used the SDRAM meanwhile). Counters restart when another meter is selected. */
+        const uint32_t us = CLK_HZ / 1000000u;
+        q = set_str(q, "V"); q = ui_dec(q, hm_cost_viz);
+        q = set_str(q, " L"); q = ui_dec(q, hm_cost_last / us);
+        q = set_str(q, "/"); q = ui_dec(q, hm_cost_max / us);
+        q = set_str(q, " F"); q = ui_dec(q, hm_skip_fifo);
+        q = set_str(q, " D"); q = ui_dec(q, hm_skip_duty);
+        q = set_str(q, " B"); q = ui_dec(q, hm_el_acc ? (uint32_t)(((uint64_t)hm_busy_acc * 1000u * CLK_HZ) / ((uint64_t)hm_el_acc * SDR_CLK_HZ)) : 0u);
+        break;
+    }
+    case 35:   /* AUDIO STATS: the hardware block's RMS (L and R), stereo correlation in percent, crest factor, spectral centre (band number) and the clip counters */
         if (!stats_hw) { q = set_str(q, "NO HW"); break; }
         if (!mtr_stats.ok) { q = set_str(q, "WAITING"); break; }
         q = set_str(q, "L"); q = ui_dec(q, mtr_stats.rms_l); q = set_str(q, " R"); q = ui_dec(q, mtr_stats.rms_r);
@@ -884,7 +897,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, " CL"); q = ui_dec(q, mtr_stats.clip_l); q = set_str(q, "/"); q = ui_dec(q, mtr_stats.clip_r);
         break;
 #if TAU_PACKS
-    case 35:   /* METER PACKS: why the feature is off, or how many packs the file had, the Layered Wave pack's status (OK or its E-code) and the install time */
+    case 36:   /* METER PACKS: why the feature is off, or how many packs the file had, the Layered Wave pack's status (OK or its E-code) and the install time */
         if (packs_state != 1u) { q = set_str(q, "OFF E"); q = ui_dec(q, packs_err); break; }
         q = set_str(q, "FILE "); q = ui_dec(q, packs_seen); q = set_str(q, " LW ");
         if (packs_slot[0].status == 0xFFu) q = set_str(q, "NONE");

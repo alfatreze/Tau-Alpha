@@ -10,7 +10,7 @@
 
 #define MP_MAX_DT_MS 80u
 
-typedef struct { uint32_t last_cyc, skip_ms, cost_cyc; uint8_t have; } mp_t;   /* cost_cyc: what the last draw cost, for the duty cap */
+typedef struct { uint32_t last_cyc, skip_ms, cost_cyc, starve_ms; uint8_t have; } mp_t;   /* cost_cyc: what the last draw cost, for the duty cap */
 
 /* Returns 1 to draw now (*dt_out = this call's dt plus the skipped time, clamped), 0 to skip (the dt is banked). A forced repaint always draws. */
 static int mp_throttle(mp_t *m, uint32_t now, uint32_t min_cyc, uint32_t dt_ms, int force, int afford, uint32_t *dt_out)
@@ -33,14 +33,28 @@ static void mp_drew(mp_t *m, uint32_t now) { m->last_cyc = now; m->have = 1u; }
  * the next one is not allowed until C*100/duty_pct cycles have passed since the last started (so a 10 ms draw at 40% repeats at most every 25 ms), on top of the
  * meter's own minimum interval and the audio-FIFO gate. A cheap meter's interval is far below the frame time, so it is never held back; an expensive one is
  * stretched exactly as much as it would otherwise have taken from the decoder. duty_pct 0 = no duty cap. The first draw (no cost known yet) is never held. */
+/* The audio FIFO must hold the draw: a draw that costs C cycles takes C/cyc_per_entry entries of audio out of the FIFO's cover, so it may start only if the FIFO
+ * holds at least that many entries plus MP_FIFO_MARGIN. (The yield in meter_afford() alone triggers below ~7 ms of audio, shorter than one heavy draw.) Cost 0 or an
+ * unknown sample rate (cyc_per_entry 0) = no information = covered. */
+#define MP_FIFO_MARGIN 64u
+#define MP_STARVE_MS   300u        /* never let the FIFO gate alone hold a meter off longer than this: a frozen meter is the worse failure */
+static int mp_fifo_covers(uint32_t level, uint32_t cost_cyc, uint32_t cyc_per_entry)
+{
+    if (!cost_cyc || !cyc_per_entry) return 1;
+    return level >= cost_cyc / cyc_per_entry + MP_FIFO_MARGIN;
+}
 static int mp_gate(mp_t *m, uint32_t now, uint32_t min_cyc, uint32_t duty_pct, uint32_t dt_ms, int force, int afford, uint32_t *dt_out)
 {
+    if (!afford && m->starve_ms >= MP_STARVE_MS) afford = 1;       /* starvation cap */
     uint32_t need = min_cyc;
     if (duty_pct && m->cost_cyc) {
-        const uint32_t d = (uint32_t)(((uint64_t)m->cost_cyc * 100u) / duty_pct);
+        const uint32_t d = (m->cost_cyc / duty_pct) * 100u;        /* 32-bit: cost <= ~2^27 cycles, so the *100 cannot overflow */
         if (d > need) need = d;
     }
-    return mp_throttle(m, now, need, dt_ms, force, afford, dt_out);
+    const int drew = mp_throttle(m, now, need, dt_ms, force, afford, dt_out);
+    if (drew) m->starve_ms = 0u;
+    else if (!afford) { m->starve_ms += dt_ms; if (m->starve_ms > 100000u) m->starve_ms = 100000u; }
+    return drew;
 }
 /* Call after a gated draw with its measured cost in cycles. */
 static void mp_drew_cost(mp_t *m, uint32_t now, uint32_t cost_cyc) { mp_drew(m, now); m->cost_cyc = cost_cyc; }
