@@ -1054,6 +1054,9 @@ static uint32_t paused, volume = 65u;    /* overridden by the saved setting     
 #define FADE_SAMPLES 2048u
 static uint32_t fade_left;
 static uint8_t  under_shadow;   /* underrun already faded this flush epoch */
+#if TAU_DIAGNOSTIC
+static ur_t     ur_all;          /* B-546: EVERY underrun (the shadow above and the hardware flag give at most one per flush) -- Info > UNDERRUNS, ALL n */
+#endif
 static uint32_t pcm_under_n;    /* underrun EDGES since boot, for the diag  */
 
 #if TAU_DIAGNOSTIC
@@ -5890,7 +5893,7 @@ ui_tail:
             fl_io_pct   = (uint8_t)(fl_io_cyc   / (el / 100u));
             if (fl_idle_pct > 99u) fl_idle_pct = 99u;
             if (fl_io_pct   > 99u) fl_io_pct   = 99u;
-            if (!idle && !paused) hr_update(&hr, fl_idle_pct);   /* B-538: only while decoding */
+            if (!idle && !paused && !UI_OVERLAY_UP) hr_update(&hr, fl_idle_pct, fl_io_pct);   /* B-538: only seconds of plain playback -- a menu or the Info page redrawing is not decode load */
             fl_idle_cyc = fl_io_cyc = 0u;
         }
     }
@@ -6707,6 +6710,7 @@ static inline void pcm_flush(void)
     fade_left    = FADE_SAMPLES;  /* every flush is a discontinuity */
     under_shadow = 0;             /* flush clears the sticky underrun flag */
 #if TAU_DIAGNOSTIC
+    ur_flush(&ur_all);
     stress_frames_at_flush = frames;
 #endif
 }
@@ -7613,7 +7617,11 @@ static uint32_t fl_meter_n;
 static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_t r, uint8_t abortable)
 {
     pcm_gain_apply(&l, &r, vol_gain, &fade_left, FADE_SAMPLES);
-    if (PCM_FULL(REG(R_PCM_ST))) {
+    const uint32_t st = REG(R_PCM_ST);
+#if TAU_DIAGNOSTIC
+    ur_note(&ur_all, PCM_FULL(st), PCM_EMPTY(st));   /* B-546: counts every stall, not just the first per flush */
+#endif
+    if (PCM_FULL(st)) {
         uint32_t t0 = cycles();
         do {
             poll_input();
