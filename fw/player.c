@@ -4890,6 +4890,20 @@ static uint32_t hm_n_skip;
 /* Info > METER COST (every meter, measured around the whole helios_meter() call): cost of the last/worst draw in cycles, draws held back by the audio FIFO / by the duty
  * cap, and the share of SDRAM port-busy time while drawing (everything that used the SDRAM during the draws, not only the meter). */
 static uint32_t hm_cost_last, hm_cost_max, hm_cost_w, hm_skip_fifo, hm_skip_duty, hm_busy_acc, hm_el_acc;   /* hm_cost_w: the recent WORST cost (decays 1/16 per draw), what the FIFO gate uses */
+/* Info > UI PARTS (METER_09): worst time in cycles of the parts of the per-frame UI pass -- [0] the main pass (meters' data, stats, chrome), [1] the whole fullscreen
+ * pass, [2] the fullscreen label, [3] the progress bar. The label and progress are the fullscreen work that is not a meter draw; they run only when the audio FIFO
+ * can cover their recent worst cost (fs_lp_ok(), fullscreen.inc), at most FS_LP_MAX_SKIP calls late. */
+static uint32_t ui_pt_max[4], fs_lp_w;
+static uint8_t  fs_lp_skip;
+COLD_FN3 static void ui_pt_rec(uint32_t i, uint32_t cyc) { if (cyc > ui_pt_max[i]) ui_pt_max[i] = cyc; }
+#define FS_LP_MAX_SKIP 12u       /* about 300 ms of display frames: never leave the label/progress stale longer than this */
+COLD_FN3 static int fs_lp_ok(void)
+{
+    const int ok = meter_afford() && mp_fifo_covers(pcm_level(), fs_lp_w, samprate ? CLK_HZ / samprate : 0u);
+    if (ok) { fs_lp_skip = 0u; return 1; }
+    if (++fs_lp_skip >= FS_LP_MAX_SKIP) { fs_lp_skip = 0u; return 1; }
+    return 0;
+}
 #define HM_THIN_IDLE_PCT 5u      /* decoder nearly saturated (HEADROOM idle under this): every meter is held to HM_THIN_MS between draws */
 #define HM_THIN_MS 100u
 static uint8_t  hm_cost_viz;
@@ -7173,9 +7187,10 @@ static int32_t *fl_buf;            /* one blocksize of int32, from the arena */
  * UI_DD_WIN calls (about 1.7 s at 38 calls a second; short enough that the cycle counter cannot wrap inside one window). */
 #define UI_DD_WIN 64u
 static uint32_t ui_dd_acc, ui_dd_n, ui_dd_t0, ui_dd_max, ui_dd_last, ui_dd_pm, ui_dd_pm_max;
-COLD_FN3 static void ui_dd_account(uint32_t t0)
+COLD_FN3 static void ui_dd_account(uint32_t t0, uint32_t t1, uint32_t t2)
 {
     const uint32_t now = cycles(), dt = now - t0;
+    ui_pt_rec(0u, t1 - t0); if (t2 != t1) ui_pt_rec(1u, t2 - t1);
     if (!ui_dd_n) ui_dd_t0 = t0;
     ui_dd_acc += dt; ui_dd_last = dt; if (dt > ui_dd_max) ui_dd_max = dt;
     if (++ui_dd_n >= UI_DD_WIN) {
@@ -7191,9 +7206,10 @@ static void ui_draw_dynamic(void)
     if (!COLD_READY()) return;
     uint32_t t0 = cycles();
     ui_draw_dynamic_cold();
-    coldframe_record(cycles() - t0);
+    const uint32_t t1 = cycles();
+    coldframe_record(t1 - t0);
     if (ui_fullscreen) ui_fs_dynamic();
-    ui_dd_account(t0);
+    ui_dd_account(t0, t1, cycles());
 #else
     coldframe_tick();
     ui_draw_dynamic_cold();

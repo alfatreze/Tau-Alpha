@@ -164,12 +164,15 @@ COLD_FN3 static void ui_fs_dynamic(void)
      * the "very slow" fullscreen. The figures are all drawn so that a partly finished frame is still a coherent picture (Winamp Bars
      * redraw only changed bars, the scope erases and redraws column by column, Chladni copies tile rows). */
     fs_label_prepare();
+    const int lp = fs_lp_ok();                 /* label and progress only when the FIFO can cover them (METER_09); the figure has its own gate in helios_meter() */
+    uint32_t lp_cyc = 0u;
     if (viz_mode != VIZ_CHLADNI) {                                          /* Winamp Bars / Scope / Layered Wave: explicit geometry, black ground */
         /* helios_fill_excl() skips the label's corner for the outer clear; helios_meter(HM_CLIP) keeps the figure's own fills out of it. */
         if (fs_force) { wviz_force = 1u; helios_fill_excl(0, 0, FS_W, FS_FIG_H, 0u); }
         const mtr_in_t in = mtr_build(0u, 0u, FS_W, FS_FIG_H, 0u, wviz_force);
         (void)helios_meter(viz_mode, &in, HM_CLIP);
-        fs_force = 0u; fs_label_paint(0);
+        fs_force = 0u;
+        if (lp) { const uint32_t a = cycles(); fs_label_paint(0); lp_cyc += cycles() - a; }
     } else {
         /* Chladni composes off-screen and is presented around the label rect by helios_meter(HM_CLIP), so the label is untouched and only repainted when its
          * text changes. Without the H2 back buffer the tile copies still overwrite the corner: then the label is repainted after the figure, and the figure
@@ -179,12 +182,16 @@ COLD_FN3 static void ui_fs_dynamic(void)
             const uint32_t r = helios_meter(VIZ_CHLADNI, &in, HM_CLIP);
             if (r & HM_DREW) {
                 fs_force = 0u;
-                if (!(r & HM_COMPOSED)) { fs_lbl_dirty = 1u; fs_label_paint(1); }   /* the tile copies overwrote the corner */
-                else fs_label_paint(0);
+                if (!(r & HM_COMPOSED)) { fs_lbl_dirty = 1u; if (lp) { const uint32_t a = cycles(); fs_label_paint(1); lp_cyc += cycles() - a; } }   /* the tile copies overwrote the corner */
+                else if (lp) { const uint32_t a = cycles(); fs_label_paint(0); lp_cyc += cycles() - a; }
             }
         }
     }
-    if (ui_sec != fs_last_sec || (uint8_t)(paused ? 1u : stopped ? 2u : 0u) != fs_last_state) fs_draw_progress();
+    if (lp && (ui_sec != fs_last_sec || (uint8_t)(paused ? 1u : stopped ? 2u : 0u) != fs_last_state)) {
+        const uint32_t a = cycles(); fs_draw_progress(); const uint32_t d = cycles() - a;
+        lp_cyc += d; ui_pt_rec(3u, d);
+    }
+    if (lp) { ui_pt_rec(2u, lp_cyc); fs_lp_w = lp_cyc > fs_lp_w ? lp_cyc : fs_lp_w - (fs_lp_w >> 4); }
     ov_draw = o;
 }
 
