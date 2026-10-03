@@ -891,9 +891,15 @@ static uint8_t speed_idx = SPEED_1X;
  * distances are all derived from FILE POSITION, not wall clock, so they stay
  * correct by construction. The FIFO drain is the only wall-clock-domain thing
  * here. */
+#if TAU_DIAGNOSTIC
+static void cymo_guard_apply(uint32_t hz);   /* B-530: defined with the Cymo toggle below */
+#endif
 static void pcm_rate_apply(uint32_t hz)
 {
     if (!hz) return;
+#if TAU_DIAGNOSTIC
+    cymo_guard_apply(hz);
+#endif
     uint64_t inc = DIV64((uint64_t)hz << 32, CLK_HZ);
     if (speed_idx != SPEED_1X) inc = DIV64(inc * speed_num[speed_idx], speed_den[speed_idx]);
     REG(R_PCM_RATE) = (uint32_t)inc;
@@ -4626,7 +4632,25 @@ static uint8_t flac_accept_all_rates;
  * proven on real silicon. No-op if CYMO_RESAMP_READY() is false (the write lands on an unmapped
  * register on any bitstream without the unit, same inert-when-absent convention as every other probe
  * here). */
-static uint8_t cymo_live_toggle;
+static uint8_t cymo_live_toggle;   /* what the owner switched on */
+static uint8_t cymo_live_on;       /* what is actually engaged in hardware (B-530) */
+static uint32_t cymo_last_hz;      /* last file rate seen by pcm_rate_apply() */
+
+/* B-530: the resampler is a fixed 147:160 (44.1 -> 48 kHz) and mis-resamples anything else by design, so the
+ * hardware is engaged only while the toggle is on AND the current file is 44.1 kHz at 1.00x speed. pcm_rate_apply()
+ * is the one place that learns the rate and the speed (every track load and every speed change goes through it),
+ * so the guard follows both with no extra call sites. Re-engaging is a clear in hardware (B-488), so each return
+ * to a 44.1 kHz track starts from a clean history. */
+static void cymo_guard_apply(uint32_t hz)
+{
+    if (hz) cymo_last_hz = hz;
+    if (!CYMO_RESAMP_READY()) return;
+    uint8_t want = (uint8_t)(cymo_live_toggle && cymo_last_hz == 44100u && speed_idx == SPEED_1X);
+    if (want != cymo_live_on) {
+        cymo_live_on = want;
+        REG(R_CYMO_CTRL) = want ? 4u : 0u;   /* bit 2 = LIVE_ENABLE, sticky */
+    }
+}
 #endif
 
 /* Shown ON THE TRACK CARD rather than as a takeover screen. The card is

@@ -443,7 +443,7 @@ COLD_FN static void set_toggle(uint32_t t)
          * not a listening preference, same convention as TG_RATES/TG_SPEEDS. */
         if (CYMO_RESAMP_READY()) {
             cymo_live_toggle = (uint8_t)!cymo_live_toggle;
-            REG(R_CYMO_CTRL) = cymo_live_toggle ? 4u : 0u;   /* bit 2 = LIVE_ENABLE, sticky */
+            cymo_guard_apply(0u);   /* B-530: engages only for a 44.1 kHz file at 1.00x */
         }
         return;                                  /* not persisted */
 #endif
@@ -483,7 +483,7 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     else if (r->arg == TG_ART)    s = art_pref ? "ON" : "OFF";
 #if TAU_DIAGNOSTIC
     else if (r->arg == TG_RATES)  s = flac_accept_all_rates ? "ON" : "OFF";
-    else if (r->arg == TG_CYMO)   s = cymo_live_toggle ? "ON" : "OFF";
+    else if (r->arg == TG_CYMO)   s = !cymo_live_toggle ? "OFF" : cymo_live_on ? "ON" : "WAIT";   /* WAIT = on, but this file is not 44.1 kHz at 1.00x (B-530) */
 #endif
     else                          s = set_speed_all ? "ON" : "OFF";   /* TG_SPEEDS, the only remaining toggle */
     while (*s) *q++ = *s++;
