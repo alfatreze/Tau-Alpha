@@ -5283,7 +5283,8 @@ COLD_FN3 static void ui_draw_dynamic_cold(void)
     /* B-267: draw the meter only when the scanning beam is not inside its rows (or about to be) -- the frame's
      * tear-free window. If the beam is in the way, ui_last_vu stays >= 2 and the very next pass tries again, so
      * nothing is lost, the meter just waits (at most a fraction of a frame) for the beam to move on. */
-    if ((!paused || ui_wave_force || vu_settling) && ++ui_last_vu >= 2u
+    /* Winamp Bars draws on every pass (fullscreen already does, and looked clearly smoother than the every-second-pass normal screen); the other meters keep every second pass. */
+    if ((!paused || ui_wave_force || vu_settling) && ++ui_last_vu >= (viz_mode == VIZ_WINAMP_BARS ? 1u : 2u)
         && helios_rows_safe_counted(UI_WAVE_Y - UI_WAVE_TOP, UI_WAVE_Y + UI_WAVE_H - 1u)) {
         ui_last_vu = 0;
         if (ui_meter_region == 0xFFu)
