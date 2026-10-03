@@ -101,7 +101,7 @@ It is a separate stage between the staging ring and the stretcher and can ship a
 | PSRAM block reads for the fine stage and grain | 1.6-2.7% (1.5x-2.0x) | twice that | 32 cycles per word read, B-054 |
 | Decode work | FLAC mono 40% busy at 1.00 x, 51% at 1.50 x, 67% at 2.00 x; MP3 mono 128k 44% at 1.00 x | **not measured** | B-545, B-539 |
 
-Mono total at 2.00 x: about 67% + 12% = 79% (about 20 points free); at 1.50 x about 51% + 11% = 62%. **Stereo audiobooks are the open question**: the decode work is roughly double for stereo MP3/FLAC, so tempo above about 1.25x may not fit; that needs a measurement before any promise (section 11, step 0).
+Mono total at 2.00 x: about 67% + 12% = 79% (about 20 points free); at 1.50 x about 51% + 11% = 62%. **Stereo measured (B-552, B-553, DEV 76, plain playback, worst second):** stereo MP3 128 kbps 44.1 kHz is about 58% busy at 1.00x and 83% busy at 1.50x (idle 42% and 17%), so a stereo MP3 at 1.50x leaves about 17 points and the stretcher's estimated 12% would take almost all of it: the stereo MP3 ceiling is about 1.25x (projection: 58% x 1.25 = 73% + 12% = 85%). **Stereo FLAC has no headroom at all at 1.00x**: 48 kHz 354 kbps reads idle 0%, 44.1 kHz 354 kbps idle 6-9%, with thousands of FIFO-empty events (the FIFO hovers near empty because the decoder only just keeps pace). Tempo on stereo FLAC is therefore not available in firmware; the guard must refuse it (eligibility rule: stereo FLAC is ineligible, stereo MP3 is capped at the measured ceiling, mono is allowed to 2.0x). Mono is the audiobook case that works: the mono speech FLAC and MP3 leave 56-62% idle at 1.00x.
 
 Burst check (why the FIFO is no longer the limit): at 1.00 x playback the longest decode burst between pushes is about 40 ms against 46 ms of FIFO, and it measures zero stalls (B-548); with tempo the FIFO drains at the same native rate, and the decoder's frame still decodes while the FIFO is full. Tempo does not add a longer burst; the stretcher's own hop (about 0.35 ms of CPU per 512 output samples at 1.00 x equivalent) runs between pushes where the CPU is otherwise waiting.
 
@@ -120,7 +120,7 @@ Burst check (why the FIFO is no longer the limit): at 1.00 x playback the longes
 
 1. **Stack:** 2.1 KB of step scratch inside the decode callback on a 6 KB stack (192 KB link) that already carries a 2.4 KB meter scratch in Diagnostic builds. Mitigate by making the scratch static (counted against the heap) or splitting it; the Check's stack-peak reading (B-230) is the guard.
 2. **Cold-code speed** of the core is unmeasured (T0).
-3. **Stereo cost** is unmeasured (T0); the guard makes it safe either way.
+3. **Stereo cost** is now measured (section 10): stereo MP3 about 1.25x, stereo FLAC none; the eligibility rule and the guard enforce it. Decode speed (the hardware decode kernels) is what limits stereo, not the stretcher.
 4. **Staging ring placement** in the PSRAM map needs confirming (`docs/features/MEDIA_LIBRARY_0.4_SPEC.md` has the map; the proposed 0x500000 is clear of everything named in `fw/link.ld`).
 5. **A PSRAM that is slow at the wrong moment:** the worst single PSRAM access is 380 cycles (B-054); block reads are short and between pushes, but a worst case burst should be bounded in the T2 harness.
 6. **Other rates:** the core supports 22.05-48 kHz with the two grain sizes; 32 kHz uses the 1,024 grain (about 32 ms); only 44.1 kHz has been listened to.
