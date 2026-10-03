@@ -17,19 +17,20 @@
 #define HR_WSOLA_EST_PCT 16u   /* ESTIMATE: tools/lab/cymo_tempo_model.py counts 1.61 M MAC per output second, about 12-20% of the 66.7 MHz CPU at 5-8 cycles per MAC. Replace by a measurement. */
 #define HR_SETTLE_SECS   2u    /* ignore the first seconds after a track load or speed change: loading and prefill are not steady-state decode */
 
-typedef struct { uint8_t min_idle, secs, last; } hr_t;   /* last = idle of the latest counted second, 255 = none yet */
+typedef struct { uint8_t min_idle, secs, last, max_io; } hr_t;   /* last = idle of the latest counted second, 255 = none yet; max_io = the most time any counted second spent blocked waiting for file bytes (percent) */
 
-static inline void hr_reset(hr_t *h) { h->min_idle = 100u; h->secs = 0u; h->last = 255u; }
+static inline void hr_reset(hr_t *h) { h->min_idle = 100u; h->secs = 0u; h->last = 255u; h->max_io = 0u; }
 
 /* Call once per latched second while playing, with the idle percentage of that second -- and only for seconds where nothing but playback was running:
  * the caller must NOT count seconds with a menu or the Info page up, because redrawing a page (every scroll step is a full redraw) is real CPU load that has nothing
  * to do with decoding (TAU_DEV_73 read MIN4 and CPU 96% while the Info page was being scrolled, against 56% idle at rest). */
-static inline void hr_update(hr_t *h, uint32_t idle)
+static inline void hr_update(hr_t *h, uint32_t idle, uint32_t io)
 {
     if (h->secs < 255u) h->secs++;
     if (h->secs <= HR_SETTLE_SECS) return;
     h->last = (uint8_t)idle;
     if (idle < h->min_idle) h->min_idle = (uint8_t)idle;
+    if (io > h->max_io) h->max_io = (uint8_t)(io > 100u ? 100u : io);
 }
 
 /* Projected maximum speed, times 100 (250 = 2.5x), at `idle` percent idle while running at speed num/den, with `extra_pct` of fixed extra load.
