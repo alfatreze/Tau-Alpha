@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Host test for the fixed-point WSOLA core (Cymo C7, B-549): fw/wsola_core.h must match the independent integer twin tools/lab/wsola_fixed_ref.py sample for sample.
-Cases: mono 44.1 kHz at 0.8x, 1.25x, 1.5x, 2.0x and 3.0x; stereo; mono 22.05 kHz (the 4x decimation / 512-sample grain); a speed outside the allowed range (clamped).
-Also: the table header equals what the generator emits, the output length follows the speed, identical channels give identical output, and five deliberately
+The search is the three-stage one of B-550 (32x / 8x / full rate). Cases: mono 44.1 kHz at 0.8x, 1.25x, 1.5x, 2.0x and 3.0x; stereo; mono 22.05 kHz (the 4x decimation / 512-sample grain); a speed outside the allowed range (clamped).
+Also: the table header equals what the generator emits, the output length follows the speed, identical channels give identical output, and seven deliberately
 broken copies of the C core must each FAIL the comparison (the test can see what it claims to check). With numpy present the pitch is checked too."""
 import math, struct, subprocess, sys, tempfile
 from pathlib import Path
@@ -127,7 +127,9 @@ int main(void){ unsigned long long x = 88172645463325252ULL; long bad = 0, n = 0
     src = (ROOT / "fw/wsola_core.h").read_text()
     mutants = [("overlap weight off by one", "(WS_Q15 - w)", "(WS_Q15 - w + 1)"),
                ("sliding energy drops only half of the oldest sample", "en += nw * nw - o * o;", "en += nw * nw - ((o * o) >> 1);"),
-               ("coarse decimation scaled wrongly", "xd[j - j0] = (int16_t)(acc >> s->shift);", "xd[j - j0] = (int16_t)(acc >> (s->shift - 1u));"),
+               ("stage-2 decimation scaled wrongly", "R[i] = (int16_t)(acc >> s->shift);", "R[i] = (int16_t)(acc >> (s->shift - 1u));"),
+               ("stage-1 signal derived from three of the four stage-2 samples", "C[b + 2u] + C[b + 3u]) >> 2) >> sc1);", "C[b + 2u]) >> 2) >> sc1);"),
+               ("stage 2 looks at a single candidate", "const uint32_t ncand2 = c2 + 4u - lo2 + 1u;", "const uint32_t ncand2 = 1u;"),
                ("no rounding in the overlap-add", "+ 16384) >> 15", ") >> 15"),
                ("refine reference one sample off", "rf[i] = (int16_t)ws_mix(s, l, r, tgt + i);", "rf[i] = (int16_t)ws_mix(s, l, r, tgt + i + 1u);")]
     per = [int(12000 * math.sin(2 * math.pi * i / 160)) + int(5000 * math.sin(2 * math.pi * 3 * i / 160)) for i in range(44100)]   # exactly periodic: equal scores tie
