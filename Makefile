@@ -36,6 +36,7 @@ test-host:
 	$(PYTHON) tools/check_audit_trail.py
 	$(PYTHON) tools/gen_meters.py --check
 	$(PYTHON) sim/test_meter_budget.py
+	$(PYTHON) sim/test_meter_pack.py
 	$(PYTHON) tools/gen_layered_wave_tables.py --check
 	$(PYTHON) tools/check_meter_deps.py
 	$(PYTHON) sim/test_meter_core.py --check
