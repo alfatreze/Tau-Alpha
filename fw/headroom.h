@@ -42,4 +42,18 @@ static inline uint32_t hr_max_speed_x100(uint32_t idle, uint32_t num, uint32_t d
     const uint32_t busy = 100u - idle;                      /* 1..100 */
     return ((100u - extra_pct) * 100u * num) / (busy * den);
 }
+
+/* ---- Every underrun, not just the first (B-546) ----------------------------------------------------------------------------------------------------------
+ * The hardware `underrun` flag is sticky until the next flush and the firmware's shadow of it (under_shadow) is cleared only by a flush, so the Info
+ * UNDERRUNS row counts at most ONE event per track start, seek or resume: the start-of-track transient normally uses it up, and an audible underrun later in
+ * the same stretch is invisible. The FIFO's own EMPTY bit is not sticky, and every push already reads the status word, so a stall shows as "the FIFO is empty
+ * at a push, after it had been seen full since the last flush" (empty before that is just the prefill). One count per stall, however many pushes it spans. */
+typedef struct { uint32_t n; uint8_t full_seen, empty_prev; } ur_t;
+static inline void ur_flush(ur_t *u) { u->full_seen = 0u; u->empty_prev = 0u; }
+static inline void ur_note(ur_t *u, uint32_t full, uint32_t empty)
+{
+    if (full) { u->full_seen = 1u; u->empty_prev = 0u; }
+    else if (empty) { if (u->full_seen && !u->empty_prev) u->n++; u->empty_prev = 1u; }
+    else u->empty_prev = 0u;
+}
 #endif
