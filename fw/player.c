@@ -59,6 +59,7 @@
 #if MP3_PROFILE
 #include "mp3_profile.h"
 #endif
+#include "headroom.h"       /* Cymo C0a (B-538): worst-second idle and projected maximum speed (pure, host-tested) */
 
 #define REG(a)      (*(volatile uint32_t *)(uintptr_t)(a))
 
@@ -898,9 +899,17 @@ static uint8_t speed_idx = SPEED_1X;
  * distances are all derived from FILE POSITION, not wall clock, so they stay
  * correct by construction. The FIFO drain is the only wall-clock-domain thing
  * here. */
+#if TAU_DIAGNOSTIC
+static void cymo_guard_apply(uint32_t hz);   /* B-530: defined with the Cymo toggle below */
+#endif
+static hr_t hr;   /* B-538: worst idle second since the track or speed last changed (Info > HEADROOM) */
 static void pcm_rate_apply(uint32_t hz)
 {
     if (!hz) return;
+    hr_reset(&hr);   /* a new track or a new speed starts a fresh measurement */
+#if TAU_DIAGNOSTIC
+    cymo_guard_apply(hz);
+#endif
     uint64_t inc = DIV64((uint64_t)hz << 32, CLK_HZ);
     if (speed_idx != SPEED_1X) inc = DIV64(inc * speed_num[speed_idx], speed_den[speed_idx]);
     REG(R_PCM_RATE) = (uint32_t)inc;
@@ -1303,6 +1312,8 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
  * scope), so this is a plain dark-mode layout: title/artist, a real
  * amplitude-driven level meter, elapsed time. Colours are RGB565.
  */
+#include "key_repeat.h"     /* B-534: the one hold-to-repeat primitive (volume, Settings, library lists; host-tested) */
+#include "pcm_push.h"       /* Cymo C1 (B-533): the shared volume + fade + pack arithmetic (host-tested) */
 #include "meter_policy.h"    /* B-525: throttle for the heavy meter (host-tested) */
 #include "start_gesture.h"   /* B-522: Start opens Settings on release; Start+Y chord (pure logic, host-tested) */
 #include "theme.h"   /* named UI colours as roles (step 0a of the theme system); UI_PANEL etc. read th_role[] */
@@ -4617,12 +4628,30 @@ static uint8_t flac_accept_all_rates;
 /* Settings > Diagnostics > CYMO RESAMPLER (default OFF). First-ever hardware test of the real 44.1:48
  * polyphase FIR resampler (B-471..B-478) -- hands the live audio path (EQ input) from pcm_fifo's own
  * zero-order hold to the resampler's output via mp3_soc.v's R_CYMO_CTRL bit 2 (sticky LIVE_ENABLE).
- * Diagnostic-build-only, off at every boot, never persisted -- same convention as TG_RATES/TG_SPEEDS:
- * this is a test switch for the owner's own hardware A/B, not a listening preference, until it has been
+ * Diagnostic-build-only, never persisted. Default ON at every boot since 2026-10-03 (owner), the other
+ * diagnostic toggles stay off: this is a test switch for the owner's own hardware A/B, not a listening preference, until it has been
  * proven on real silicon. No-op if CYMO_RESAMP_READY() is false (the write lands on an unmapped
  * register on any bitstream without the unit, same inert-when-absent convention as every other probe
  * here). */
-static uint8_t cymo_live_toggle;
+static uint8_t cymo_live_toggle = 1u;   /* what the owner switched on; ON at every boot (owner decision 2026-10-03, B-534) -- engages only for a 44.1 kHz file at 1.00x, see cymo_guard_apply() */
+static uint8_t cymo_live_on;       /* what is actually engaged in hardware (B-530) */
+static uint32_t cymo_last_hz;      /* last file rate seen by pcm_rate_apply() */
+
+/* B-530: the resampler is a fixed 147:160 (44.1 -> 48 kHz) and mis-resamples anything else by design, so the
+ * hardware is engaged only while the toggle is on AND the current file is 44.1 kHz at 1.00x speed. pcm_rate_apply()
+ * is the one place that learns the rate and the speed (every track load and every speed change goes through it),
+ * so the guard follows both with no extra call sites. Re-engaging is a clear in hardware (B-488), so each return
+ * to a 44.1 kHz track starts from a clean history. */
+static void cymo_guard_apply(uint32_t hz)
+{
+    if (hz) cymo_last_hz = hz;
+    if (!CYMO_RESAMP_READY()) return;
+    uint8_t want = (uint8_t)(cymo_live_toggle && cymo_last_hz == 44100u && speed_idx == SPEED_1X);
+    if (want != cymo_live_on) {
+        cymo_live_on = want;
+        REG(R_CYMO_CTRL) = want ? 4u : 0u;   /* bit 2 = LIVE_ENABLE, sticky */
+    }
+}
 #endif
 
 /* Shown ON THE TRACK CARD rather than as a takeover screen. The card is
@@ -5861,6 +5890,7 @@ ui_tail:
             fl_io_pct   = (uint8_t)(fl_io_cyc   / (el / 100u));
             if (fl_idle_pct > 99u) fl_idle_pct = 99u;
             if (fl_io_pct   > 99u) fl_io_pct   = 99u;
+            if (!idle && !paused) hr_update(&hr, fl_idle_pct);   /* B-538: only while decoding */
             fl_idle_cyc = fl_io_cyc = 0u;
         }
     }
@@ -6568,6 +6598,11 @@ static void poll_input(void)
      * Select+Up used to change the volume AND toggle the art panel on release,
      * because nothing claimed the combo. Select+Down needs it properly. */
     if (!(keys & KEY_SELECT)) {
+        /* Holding Up/Down keeps stepping the volume (B-534): the same press-then-hold-then-steady shape as the menus and
+         * lists (kr_step), at about 12 steps a second after the shared hold delay, so the whole 0-100 range takes about
+         * 1.7 s to sweep. A repeat is just another edge, so the handling below is unchanged. */
+        static kr_t vol_kr;
+        edge = kr_step(&vol_kr, edge, keys, KEY_UP | KEY_DOWN, cycles(), CLK_HZ / 1000u * PL_HOLD_MS, CLK_HZ / 12u, 0);
         if (edge & KEY_UP)   { volume = (volume + VOL_STEP > VOL_MAX)
                                       ? VOL_MAX : volume + VOL_STEP;
                                vol_apply(); ui_toast_set("VOLUME", volume, "%");
@@ -7570,6 +7605,27 @@ static int flac_restart(void)
 static uint32_t fl_meter_n;
 
 
+/* Cymo C1 (B-533): the ONE place a decoded sample pair reaches the audio FIFO. MP3 and FLAC each had their own copy of volume, fade, FIFO wait and write, and the
+ * two had already drifted apart once (FLAC shipped without volume). The arithmetic is fw/pcm_push.h (host-tested against the old lines); the wait is the old wait,
+ * unchanged: block while the FIFO is full (it silently DROPS pushes when full, so skipping the wait corrupts audio), servicing input and I/O from inside it, and
+ * count the time as idle. `abortable` is the MP3 loop's behaviour: a pending reload leaves the wait and the sample is NOT pushed (returns 0); the FLAC callback
+ * has no such exit and never aborts. Always inlined, so the generated code per call site is what the hand-written copies produced. */
+static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_t r, uint8_t abortable)
+{
+    pcm_gain_apply(&l, &r, vol_gain, &fade_left, FADE_SAMPLES);
+    if (PCM_FULL(REG(R_PCM_ST))) {
+        uint32_t t0 = cycles();
+        do {
+            poll_input();
+            refill_pump();
+            if (abortable && reload_pending) { fl_idle_cyc += cycles() - t0; return 0u; }
+        } while (PCM_FULL(REG(R_PCM_ST)));
+        fl_idle_cyc += cycles() - t0;
+    }
+    REG(R_AUDIO) = pcm_pack(l, r);
+    return 1u;
+}
+
 /* `src`, not `pcm`: the file-scope pcm[] is the meter capture buffer, and a
  * parameter of that name would shadow it. */
 HOT_O2 static void flac_emit(void *ctx, const int16_t *src, uint32_t frames)
@@ -7620,34 +7676,7 @@ HOT_O2 static void flac_emit(void *ctx, const int16_t *src, uint32_t frames)
             meters_feed(pcm, (int)(FL_METER_PAIRS * 2u), 1);
             fl_meter_n = 0;
         }
-        int32_t l = src[i * 2], r = src[i * 2 + 1];
-        /* Volume, which this path did not apply at all -- the d-pad moved the
-         * number on screen while FLAC played at full scale, and volume 0 was
-         * not silent. The MP3 loop has had this the whole time; adding FLAC
-         * added a second push path and only one of them was volume-aware.
-         * Same order as MP3: volume first, then the fade, so a fade-in at low
-         * volume stays at low volume. Capped at unity, so it only ever
-         * attenuates and cannot overflow. */
-        if (vol_gain != 256) {
-            l = (l * vol_gain) >> 8;
-            r = (r * vol_gain) >> 8;
-        }
-        if (fade_left) {
-            int32_t g = (int32_t)((FADE_SAMPLES - fade_left) >> 3);
-            l = (l * g) >> 8;
-            r = (r * g) >> 8;
-            fade_left--;
-        }
-        if (PCM_FULL(REG(R_PCM_ST))) {
-            uint32_t t0 = cycles();
-            do {
-                poll_input();
-                refill_pump();
-            } while (PCM_FULL(REG(R_PCM_ST)));
-            fl_idle_cyc += cycles() - t0;
-        }
-        REG(R_AUDIO) = ((uint32_t)(uint16_t)(int16_t)r << 16)
-                     | (uint32_t)(uint16_t)(int16_t)l;
+        cymo_push(src[i * 2], src[i * 2 + 1], 0u);   /* volume, fade, FIFO wait, write: the one shared path (C1) */
     }
 }
 
@@ -10063,37 +10092,7 @@ int main(void)
         for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
             int32_t l = pcm[i];
             int32_t r = stereo ? pcm[i + 1] : l;
-            /* Capped at unity, so this only ever attenuates and cannot
-             * overflow -- no clamp needed. */
-            if (vol_gain != 256) {
-                l = (l * vol_gain) >> 8;
-                r = (r * vol_gain) >> 8;
-            }
-            /* Ramp out of a discontinuity: one shift per sample, and only
-             * while the fade is live. Grows 0 -> 255/256 across FADE_SAMPLES. */
-            if (fade_left) {
-                int32_t g = (int32_t)((FADE_SAMPLES - fade_left) >> 3);
-                l = (l * g) >> 8;
-                r = (r * g) >> 8;
-                fade_left--;
-            }
-            /* Block while the FIFO is full -- pcm_fifo silently DROPS pushes
-             * when full, so skipping this corrupts the audio rather than
-             * merely delaying it. Being blocked here is the healthy state.
-             * This is also where the CPU spends most of its time, so input and
-             * I/O are serviced from inside the wait. */
-            if (PCM_FULL(REG(R_PCM_ST))) {
-                uint32_t t0 = cycles();
-                do {
-                    poll_input();
-                    refill_pump();
-                    if (reload_pending) { fl_idle_cyc += cycles() - t0;
-                                          goto next_outer; }
-                } while (PCM_FULL(REG(R_PCM_ST)));
-                fl_idle_cyc += cycles() - t0;
-            }
-            REG(R_AUDIO) = ((uint32_t)(uint16_t)(int16_t)r << 16)
-                         | (uint32_t)(uint16_t)(int16_t)l;
+            if (!cymo_push(l, r, 1u)) goto next_outer;   /* volume, fade, FIFO wait, write (C1); aborts on a pending reload */
         }
 
         frames++;

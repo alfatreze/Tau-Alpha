@@ -440,7 +440,7 @@ COLD_FN static void set_toggle(uint32_t t)
          * not a listening preference, same convention as TG_RATES/TG_SPEEDS. */
         if (CYMO_RESAMP_READY()) {
             cymo_live_toggle = (uint8_t)!cymo_live_toggle;
-            REG(R_CYMO_CTRL) = cymo_live_toggle ? 4u : 0u;   /* bit 2 = LIVE_ENABLE, sticky */
+            cymo_guard_apply(0u);   /* B-530: engages only for a 44.1 kHz file at 1.00x */
         }
         return;                                  /* not persisted */
 #endif
@@ -480,7 +480,7 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     else if (r->arg == TG_ART)    s = art_pref ? "ON" : "OFF";
 #if TAU_DIAGNOSTIC
     else if (r->arg == TG_RATES)  s = flac_accept_all_rates ? "ON" : "OFF";
-    else if (r->arg == TG_CYMO)   s = cymo_live_toggle ? "ON" : "OFF";
+    else if (r->arg == TG_CYMO)   s = !cymo_live_toggle ? "OFF" : cymo_live_on ? "ON" : "WAIT";   /* WAIT = on, but this file is not 44.1 kHz at 1.00x (B-530) */
 #endif
     else                          s = set_speed_all ? "ON" : "OFF";   /* TG_SPEEDS, the only remaining toggle */
     while (*s) *q++ = *s++;
@@ -570,7 +570,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS (34u + TAU_PACKS)   /* +1 for METER PACKS in a TAU_PACKS build (0 or 1) */   /* previously 34u:   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS (35u + TAU_PACKS)   /* +1 for METER PACKS in a TAU_PACKS build (0 or 1); 35 = main's 34 + AUDIO STATS. B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -636,6 +636,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "CYMO RESAMP"
     , "METER DRAW"
     , "LW COST"
+    , "HEADROOM"
     , "AUDIO STATS"
 #if TAU_PACKS
     , "METER PACKS"
@@ -845,6 +846,21 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "/"); q = ui_dec(q, helios_t_max / (CLK_HZ / 1000000u));
         q = set_str(q, "US S"); q = ui_dec(q, lw_stride);
         break;
+    case 33: {   /* HEADROOM (Cymo C0a, B-538): spare CPU while decoding. I = idle share of the last second, MIN = the worst second since the track or speed changed (underruns
+                  * come from the worst second), MAX = the speed the idle share projects (fw/headroom.h: an approximation, confirm with a run), WS = the same with the tempo
+                  * stretcher's ESTIMATED fixed cost taken off first. Shows "-" until a track has played past the settling seconds. */
+        if (idle || paused || hr.min_idle > 99u) { q = set_str(q, "-"); break; }
+        const uint32_t n = speed_num[speed_idx], d = speed_den[speed_idx];
+        const uint32_t m0 = hr_max_speed_x100(fl_idle_pct, n, d, 0u), m1 = hr_max_speed_x100(hr.min_idle, n, d, HR_WSOLA_EST_PCT);
+        q = set_str(q, "I"); q = ui_dec(q, fl_idle_pct);
+        q = set_str(q, " MIN"); q = ui_dec(q, hr.min_idle);
+        q = set_str(q, " MAX ");
+        if (m0 > 999u) { q = set_str(q, ">9.9"); } else { q = ui_dec(q, m0 / 100u); q = set_str(q, "."); q = ui_dec(q, (m0 % 100u) / 10u); }
+        q = set_str(q, "X WS ");
+        if (m1 > 999u) { q = set_str(q, ">9.9"); } else { q = ui_dec(q, m1 / 100u); q = set_str(q, "."); q = ui_dec(q, (m1 % 100u) / 10u); }
+        q = set_str(q, "X");
+        break;
+    }
     case 32:   /* LW COST (B-519): commands in the last draw, CPU time to issue it, and how much of that was reading the PSRAM history (lw_unwrap) */
         q = set_str(q, "C"); q = ui_dec(q, lw_cmd_last);
         q = set_str(q, " CPU "); q = ui_dec(q, lw_t_cpu / (CLK_HZ / 1000000u));
@@ -852,7 +868,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, " PRES "); q = ui_dec(q, helios_t_pres / (CLK_HZ / 1000000u));
         q = set_str(q, "US");
         break;
-    case 33:   /* AUDIO STATS: the hardware block's RMS (L and R), stereo correlation in percent, crest factor, spectral centre (band number) and the clip counters */
+    case 34:   /* AUDIO STATS: the hardware block's RMS (L and R), stereo correlation in percent, crest factor, spectral centre (band number) and the clip counters */
         if (!stats_hw) { q = set_str(q, "NO HW"); break; }
         if (!mtr_stats.ok) { q = set_str(q, "WAITING"); break; }
         q = set_str(q, "L"); q = ui_dec(q, mtr_stats.rms_l); q = set_str(q, " R"); q = ui_dec(q, mtr_stats.rms_r);
@@ -863,7 +879,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, " CL"); q = ui_dec(q, mtr_stats.clip_l); q = set_str(q, "/"); q = ui_dec(q, mtr_stats.clip_r);
         break;
 #if TAU_PACKS
-    case 34:   /* METER PACKS: why the feature is off, or how many packs the file had, the Layered Wave pack's status (OK or its E-code) and the install time */
+    case 35:   /* METER PACKS: why the feature is off, or how many packs the file had, the Layered Wave pack's status (OK or its E-code) and the install time */
         if (packs_state != 1u) { q = set_str(q, "OFF E"); q = ui_dec(q, packs_err); break; }
         q = set_str(q, "FILE "); q = ui_dec(q, packs_seen); q = set_str(q, " LW ");
         if (packs_slot[0].status == 0xFFu) q = set_str(q, "NONE");
@@ -1527,10 +1543,9 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
      * the read-only Info/Stress-Status scroll below, which used to `return` before this ever ran --
      * owner-reported: "let me know if you want continuous scroll while holding" -- so it never got the
      * repeat treatment B-073 gave every other list). */
-    static uint32_t set_rep_at;
-    if (edge & (KEY_UP | KEY_DOWN)) set_rep_at = cycles() + CLK_HZ / 1000u * PL_HOLD_MS;
-    uint32_t rep = (keys & (KEY_UP | KEY_DOWN)) && (int32_t)(cycles() - set_rep_at) >= 0;
-    if (rep) { set_rep_at = cycles() + CLK_HZ / 16u; edge |= keys & (KEY_UP | KEY_DOWN); }
+    static kr_t set_kr;
+    uint32_t rep;
+    edge = kr_step(&set_kr, edge, keys, KEY_UP | KEY_DOWN, cycles(), CLK_HZ / 1000u * PL_HOLD_MS, CLK_HZ / 16u, &rep);   /* B-534: the shared primitive */
 
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
 #if TAU_DIAGNOSTIC
