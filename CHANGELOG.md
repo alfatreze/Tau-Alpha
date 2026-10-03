@@ -2,6 +2,25 @@
 
 What changed in each release, newest first.
 
+## v0.6.0-alpha.2 — 4 October 2026
+
+- **FLAC decodes much faster.** The residual (Rice) decoding was rewritten around a 32-bit window with an
+  inline leading-zero count. On a hard 48 kHz stereo file (415 kbps) the CPU went from fully busy (0% idle,
+  12 FIFO stalls in 30 s) to 45% idle with none. Output is bit-identical to before (checked on random
+  streams and on eight real files, including a 96 kHz 24-bit one). Speed changes remain MP3 only.
+- **Layered Wave meter**, a new nested-envelope meter, plus fixes for meter flicker and for the Configure
+  screen; Settings and fullscreen meters no longer steal time from the audio.
+- **Start opens Settings** (on release), **Start+Y** jumps to Meter > Configure; **hold Up/Down repeats the
+  volume**; the speed list goes up to 2.00x for MP3.
+- **Better diagnostics.** A HEADROOM row on the Info page (idle CPU, worst second, projected maximum speed),
+  a library-file-missing screen, CPU LOAD and fullscreen label fixes. The Diagnostic Build also counts every
+  FIFO stall and reports the heap peak in Check.
+- **Audio hand-off fix (bitstream).** The resampler's input hand-off no longer repeats or drops samples
+  (hardware-confirmed); the resampler is on by default only in the Diagnostic Build, for 44.1 kHz files at
+  1.00x.
+- **Known limits.** `Track changes` still fails in the Diagnostic Build's Check (a test issue). Audiobook
+  tempo is built but not in this release.
+
 ## v0.6.0-alpha.1 — 30 September 2026
 
 - **FLAC decoding on hardware.** Like MP3's synthesis filterbank in v0.5.0, FLAC's LPC/FIXED sample
