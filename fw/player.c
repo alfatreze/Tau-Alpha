@@ -1302,6 +1302,7 @@ static uint32_t tag_corrections;   /* periodic probe found a wrong tag */
  * scope), so this is a plain dark-mode layout: title/artist, a real
  * amplitude-driven level meter, elapsed time. Colours are RGB565.
  */
+#include "key_repeat.h"     /* B-534: the one hold-to-repeat primitive (volume, Settings, library lists; host-tested) */
 #include "pcm_push.h"       /* Cymo C1 (B-533): the shared volume + fade + pack arithmetic (host-tested) */
 #include "meter_policy.h"    /* B-525: throttle for the heavy meter (host-tested) */
 #include "start_gesture.h"   /* B-522: Start opens Settings on release; Start+Y chord (pure logic, host-tested) */
@@ -4628,12 +4629,12 @@ static uint8_t flac_accept_all_rates;
 /* Settings > Diagnostics > CYMO RESAMPLER (default OFF). First-ever hardware test of the real 44.1:48
  * polyphase FIR resampler (B-471..B-478) -- hands the live audio path (EQ input) from pcm_fifo's own
  * zero-order hold to the resampler's output via mp3_soc.v's R_CYMO_CTRL bit 2 (sticky LIVE_ENABLE).
- * Diagnostic-build-only, off at every boot, never persisted -- same convention as TG_RATES/TG_SPEEDS:
- * this is a test switch for the owner's own hardware A/B, not a listening preference, until it has been
+ * Diagnostic-build-only, never persisted. Default ON at every boot since 2026-10-03 (owner), the other
+ * diagnostic toggles stay off: this is a test switch for the owner's own hardware A/B, not a listening preference, until it has been
  * proven on real silicon. No-op if CYMO_RESAMP_READY() is false (the write lands on an unmapped
  * register on any bitstream without the unit, same inert-when-absent convention as every other probe
  * here). */
-static uint8_t cymo_live_toggle;   /* what the owner switched on */
+static uint8_t cymo_live_toggle = 1u;   /* what the owner switched on; ON at every boot (owner decision 2026-10-03, B-534) -- engages only for a 44.1 kHz file at 1.00x, see cymo_guard_apply() */
 static uint8_t cymo_live_on;       /* what is actually engaged in hardware (B-530) */
 static uint32_t cymo_last_hz;      /* last file rate seen by pcm_rate_apply() */
 
@@ -6565,6 +6566,11 @@ static void poll_input(void)
      * Select+Up used to change the volume AND toggle the art panel on release,
      * because nothing claimed the combo. Select+Down needs it properly. */
     if (!(keys & KEY_SELECT)) {
+        /* Holding Up/Down keeps stepping the volume (B-534): the same press-then-hold-then-steady shape as the menus and
+         * lists (kr_step), at about 12 steps a second after the shared hold delay, so the whole 0-100 range takes about
+         * 1.7 s to sweep. A repeat is just another edge, so the handling below is unchanged. */
+        static kr_t vol_kr;
+        edge = kr_step(&vol_kr, edge, keys, KEY_UP | KEY_DOWN, cycles(), CLK_HZ / 1000u * PL_HOLD_MS, CLK_HZ / 12u, 0);
         if (edge & KEY_UP)   { volume = (volume + VOL_STEP > VOL_MAX)
                                       ? VOL_MAX : volume + VOL_STEP;
                                vol_apply(); ui_toast_set("VOLUME", volume, "%");

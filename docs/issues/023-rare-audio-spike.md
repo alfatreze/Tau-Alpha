@@ -29,3 +29,7 @@ Owner, on `alfatreze.TAU_DEV_69` (Cymo resampler available, 44.1 kHz guard, B-52
 4. Only then consider instrumentation (a counter, or a JTAG probe), per the project rule to measure rather than guess.
 
 Related: `docs/AUDIT_TRAIL.md` B-527, B-529, B-531; `docs/features/CYMO_AUDIO_ENGINE.md` section 6.8.
+
+## Second observation (2026-10-03, TAU_DEV_71): noise profile changes after toggling the resampler ON then OFF
+
+Owner: after switching Cymo ON and then OFF again, the OFF sound seems worse than the OFF sound heard from a cold boot, and the noise profile changes. Not measured; not attributed. Related to this issue only in that both are unexplained audio-quality observations around the resampler. Plan (later): boot with Cymo OFF (the default is now ON, so switch it OFF first thing, before playing anything), record the 1 kHz 44.1 kHz tone and the silence file; then switch ON, record; then switch OFF again, record; compare tone SINAD/spurs (`cymo_loopback.py track`/`analyze`) and the silence noise floor between the first and last OFF recordings. If they differ, suspects are state the toggle leaves behind (the EQ/output stage state, the FIFO's fill level or rate accumulator phase, the queue/resampler state, a pcm_rate change) -- not yet examined.
