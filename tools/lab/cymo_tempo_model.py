@@ -126,16 +126,18 @@ def envelope(x, fs, win_ms=10.0):
     return e
 
 
-def shorten_pauses(x, fs, min_pause=0.250, keep_frac=0.4, floor=0.120, max_cut=0.700, margin=0.060, xfade=0.010, thr_db=9.0):
+def shorten_pauses(x, fs, min_pause=0.250, keep_frac=0.4, floor=0.120, max_cut=0.700, margin=0.060, xfade=0.010, thr_db=9.0, floor_pct=5.0):
     """Remove the middle of long pauses. Returns (y, info). A pause is a run where the 10 ms envelope stays below (noise_floor * thr) for > min_pause, with
     hysteresis (it must rise 3 dB above the threshold to end a pause). Kept = max(floor, keep_frac * length); at most max_cut is removed; `margin` seconds on
     each side of the pause are never touched, so a word onset is not clipped."""
     e = envelope(x, fs)
     hop = int(fs * 0.010)
     ee = e[::hop]
-    # noise floor: slowly-updated minimum (a 4 s window minimum of the envelope, smoothed)
+    # noise floor: the 5th percentile of the envelope over +-4 s. The first version used the window MINIMUM, which on an MP3 sits on digital silence (-70 dBFS on
+    # the Twain clip) far below the room/encoder noise of a real pause (-55 dBFS), so a threshold of 'floor + 9 dB' missed most pauses (12 detected >= 250 ms
+    # instead of 55). A low percentile tracks the pause level and ignores a few deep-silent frames (B-536).
     wl = int(4.0 / 0.010)
-    floor_env = np.array([ee[max(0, i - wl): i + wl].min() for i in range(len(ee))]) + 1e-6
+    floor_env = np.array([np.percentile(ee[max(0, i - wl): i + wl], floor_pct) for i in range(len(ee))]) + 1e-6
     thr = floor_env * (10 ** (thr_db / 20.0))
     hi = thr * (10 ** (3.0 / 20.0))
     quiet = np.zeros(len(ee), bool)
@@ -184,6 +186,15 @@ def shorten_pauses(x, fs, min_pause=0.250, keep_frac=0.4, floor=0.120, max_cut=0
         else:
             y = np.concatenate([y, s])
     return y, {"cuts": cuts, "removed_s": removed}
+
+
+# The three user-facing pause settings (Off is "do not call it"). Each is a set of the same four constants; the detector threshold is shared. Starting values to be
+# chosen by listening (B-536): Small only trims clear sentence pauses, Medium is the original default, High also trims short breaths and caps cuts higher.
+PRESETS = {
+    "small":  dict(min_pause=0.400, keep_frac=0.60, floor=0.200, max_cut=0.400, thr_db=6.0),
+    "medium": dict(min_pause=0.250, keep_frac=0.40, floor=0.120, max_cut=0.700, thr_db=9.0),
+    "high":   dict(min_pause=0.150, keep_frac=0.25, floor=0.080, max_cut=1.000, thr_db=12.0),
+}
 
 
 def f0_median(x, fs, lo=70.0, hi=400.0):
@@ -257,7 +268,7 @@ def selftest():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["selftest", "run"])
+    ap.add_argument("cmd", choices=["selftest", "run", "pauses"])
     ap.add_argument("wav", nargs="?")
     ap.add_argument("--speeds", type=float, nargs="+", default=[1.25, 1.5, 2.0])
     ap.add_argument("--start", type=float, default=30.0)
@@ -266,6 +277,24 @@ def main():
     a = ap.parse_args()
     if a.cmd == "selftest":
         sys.exit(selftest())
+    if a.cmd == "pauses":
+        x, fs = read_wav(a.wav)
+        full = x
+        x = x[int(a.start * fs): int((a.start + a.dur) * fs)]
+        out = Path(a.out) if a.out else None
+        if out: out.mkdir(parents=True, exist_ok=True)
+        print("whole file %.0f s; excerpt %.0f s from %.0f s" % (len(full) / fs, len(x) / fs, a.start))
+        print("%-8s %-9s %6s %9s %9s %9s %s" % ("preset", "scope", "cuts", "removed", "saved", "shortest", "pause kept (min)"))
+        for name, kw in PRESETS.items():
+            for scope, sig in (("file", full), ("excerpt", x)):
+                ys, si = shorten_pauses(sig, fs, **kw)
+                tot = len(sig) / fs
+                kept = min([c[2] - (c[1] - c[0]) for c in si["cuts"]] or [0.0])
+                print("%-8s %-9s %6d %8.1fs %8.1f%% %8.2fs" % (name, scope, len(si["cuts"]), si["removed_s"], 100 * si["removed_s"] / tot, kept))
+                if out and scope == "excerpt":
+                    write_wav(out / ("pauses_%s.wav" % name), ys, fs)
+                    y15, _ = wsola(ys, 1.5, fs=fs); write_wav(out / ("pauses_%s_plus_wsola_1.50.wav" % name), y15, fs)
+        return
     x, fs = read_wav(a.wav)
     x = x[int(a.start * fs): int((a.start + a.dur) * fs)]
     print("input: %.1f s at %d Hz" % (len(x) / fs, fs))
