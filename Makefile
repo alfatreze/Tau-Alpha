@@ -70,6 +70,7 @@ test-host:
 	$(PYTHON) sim/test_pcm_push.py
 	$(PYTHON) sim/test_key_repeat.py
 	$(PYTHON) sim/test_headroom.py
+	$(PYTHON) sim/test_wsola.py
 	$(PYTHON) sim/test_theme.py
 	$(PYTHON) sim/test_tau_assets.py
 	$(PYTHON) sim/test_flac_lpc_symmetry.py
