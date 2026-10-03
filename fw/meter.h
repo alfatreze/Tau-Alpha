@@ -30,6 +30,12 @@ typedef struct {                 /* everything a meter may read, refreshed once 
     const uint8_t  *env;         /* UI_WAVE_N entries: rolling amplitude envelope, 0..h, oldest first (the host shifts it once per tick) */
     uint8_t         energy;      /* mean of the spectrum bands, 0..255 (mtr_energy), computed once per frame by the host */
     uint8_t         silent;      /* 1 = digital silence: zero peak and every band zero (mtr_silent) */
+    uint8_t         stats_ok;    /* 1 = the hardware audio-statistics block is built in and has produced a window (the six fields below are valid) */
+    uint16_t        rms_l, rms_r;   /* sqrt of the mean square over the last window, 0..32768 (the same scale as a sample)   */
+    int16_t         corr_q8;     /* stereo correlation, -256 (opposite) .. 0 (unrelated) .. +256 (identical channels)        */
+    uint16_t        crest_q8;    /* peak / rms of the louder channel in Q8 (256 = square wave, ~362 = sine)                  */
+    uint16_t        centroid_q8; /* spectral centre of mass in band index Q8 (0 .. 15*256); 0 in silence; always valid       */
+    uint16_t        clip_l, clip_r;   /* samples at full scale since the firmware last cleared the counters (saturating)    */
     const uint8_t  *env_pk;      /* the matching peak-hold marker per entry, sinking toward env by the host           */
 } mtr_in_t;
 

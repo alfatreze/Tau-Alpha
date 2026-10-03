@@ -217,4 +217,57 @@ static inline int mtr_onset_flux(const uint8_t *prev, uint32_t *ema_q8, const ui
     *ema_q8 += (int32_t)((rise << 8) - *ema_q8) >> 5;
     return fire;
 }
+
+/* ---- Derived level and stereo measurements ------------------------------------------------------------------------------------
+ * From the window sums the hardware block publishes (tau_audio_stats.sv: LL = sum L*L, RR = sum R*R, LR = sum L*R over 2^win_log2 samples)
+ * and from the spectrum bands. The square roots and divides are done here, once per display frame, not per sample.
+ *   mtr_isqrt32 / mtr_isqrt64: floor square root.
+ *   mtr_rms:        sqrt(sum / 2^win_log2), 0..32768 (the same scale as a sample).
+ *   mtr_corr_q8:    stereo correlation LR / sqrt(LL * RR), -256..256 (Q8): +256 identical channels, 0 unrelated, -256 opposite; 0 when either side is silent.
+ *   mtr_crest_q8:   peak / rms in Q8 (256 = a square wave, ~362 = a sine, more = peakier); 0 when rms is 0; clamped to 0xFFFF.
+ *   mtr_centroid_q8: spectral centre of mass, in band index Q8 (0 .. (n-1)*256); 0 for silence. */
+MTR_AI uint32_t mtr_isqrt32(uint32_t v)
+{
+    uint32_t r = 0, bit = 1u << 30;
+    while (bit > v) bit >>= 2;
+    while (bit) { if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; } else r >>= 1; bit >>= 2; }
+    return r;
+}
+MTR_AI uint32_t mtr_isqrt64(uint64_t v)
+{
+    uint64_t r = 0, bit = (uint64_t)1 << 62;
+    while (bit > v) bit >>= 2;
+    while (bit) { if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; } else r >>= 1; bit >>= 2; }
+    return (uint32_t)r;
+}
+MTR_AI uint32_t mtr_rms(uint64_t sum, uint32_t win_log2)
+{
+    return mtr_isqrt32((uint32_t)(sum >> win_log2));
+}
+MTR_AI int32_t mtr_corr_q8(uint64_t ll, uint64_t rr, int64_t lr)
+{
+    if (!ll || !rr) return 0;
+    uint32_t sh = 0;
+    while ((ll >> sh) >= 0x80000000ull || (rr >> sh) >= 0x80000000ull) sh++;       /* keep the product inside 64 bits */
+    const uint64_t a = ll >> sh, b = rr >> sh;
+    const int neg = lr < 0;
+    const uint64_t m = (uint64_t)(neg ? -lr : lr) >> sh;
+    const uint32_t den = mtr_isqrt64(a * b);
+    if (!den) return 0;
+    uint64_t q = (m * 256u) / den;
+    if (q > 256u) q = 256u;
+    return neg ? -(int32_t)q : (int32_t)q;
+}
+MTR_AI uint32_t mtr_crest_q8(uint32_t peak, uint32_t rms)
+{
+    if (!rms) return 0;
+    const uint32_t q = (peak << 8) / rms;
+    return q > 0xFFFFu ? 0xFFFFu : q;
+}
+MTR_AI uint32_t mtr_centroid_q8(const uint8_t *lvl, uint32_t n)
+{
+    uint32_t sum = 0, num = 0;
+    for (uint32_t b = 0; b < n; b++) { sum += lvl[b]; num += b * lvl[b]; }
+    return sum ? (num << 8) / sum : 0u;
+}
 #endif
