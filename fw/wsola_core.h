@@ -269,4 +269,165 @@ static inline uint32_t ws_step(ws_t *s, const int16_t *xl, const int16_t *xr, ui
     s->k++;
     return Hs;
 }
+
+/* ===================================================================================================================================================================
+ * Core v2 (Cymo C7 T1, B-556): the same algorithm and the same output sample for sample, restructured so it needs little on-chip memory and no contiguous window.
+ *
+ *   - The input is decimated ONCE, as it is fed in (ws2_feed): the stage-2-rate mono mix goes into a ring of WS2_RING entries (2 KB). Every decimated value v1 recomputed
+ *     from the raw samples on each grain (about four times each) is now a ring read, and the values are identical, because they are defined on the same absolute grid.
+ *   - The full-rate samples the fine stage and the grain need (about 1,300 per channel per grain) come through a caller-supplied reader, so they can live anywhere:
+ *     the firmware reads them in blocks from a staging ring in PSRAM; the host test reads an array. The scratch is one 1 KB buffer reused by the stages.
+ *   - On-chip: this struct (about 5 KB with the 2 KB overlap tail) plus 1 KB of stack. v1 needed a 5-17 KB window on top of its 2.1 KB of stack scratch.
+ * Contract: feed samples in order (any chunk size, but step between feeds so the ring keeps the span the next step reads: at most 570 entries at 3.0x, so feed less than
+ * about 450 entries (3,600 samples) between steps); a step is allowed when ws2_ready() says so; the reader must serve any range ws_need() names, from the start of the
+ * stream (absolute sample numbers). */
+#define WS2_RING 1024u
+
+typedef void (*ws2_read_t)(void *ctx, uint32_t ch, uint32_t lo, uint32_t n, int16_t *dst);   /* copy n samples of channel ch starting at absolute sample lo */
+
+typedef struct {
+    ws_t     core;
+    int16_t  ring[WS2_RING];      /* stage-2-rate mono mix, entry j holds the mix of samples j*D2 .. j*D2+D2-1 (shifted) */
+    uint32_t fed;                 /* samples fed so far */
+    int32_t  acc;                 /* running sum of the entry being built */
+    uint32_t cnt;                 /* samples in it so far */
+} ws2_t;
+
+static inline void ws2_init(ws2_t *s, uint32_t fs, uint8_t ch, uint32_t speed_q8)
+{
+    ws_init(&s->core, fs, ch, speed_q8);
+    s->fed = 0u; s->acc = 0; s->cnt = 0u;
+    for (uint32_t i = 0; i < WS2_RING; i++) s->ring[i] = 0;
+}
+
+static inline void ws2_feed(ws2_t *s, const int16_t *l, const int16_t *r, uint32_t n)
+{
+    const uint32_t D2 = s->core.D2, sh = s->core.shift;
+    const uint8_t st = s->core.ch;
+    uint32_t i = 0;
+    /* finish the entry in progress, one sample at a time */
+    while (i < n && s->cnt != 0u) {
+        s->acc += st == 2u ? ((int32_t)l[i] + (int32_t)r[i]) >> 1 : (int32_t)l[i];
+        i++; s->fed++;
+        if (++s->cnt == D2) { s->ring[((s->fed - 1u) / D2) & (WS2_RING - 1u)] = (int16_t)(s->acc >> sh); s->acc = 0; s->cnt = 0u; }
+    }
+    /* whole entries: D2 samples at a time with no per-sample bookkeeping (the hot path) */
+    while (n - i >= D2) {
+        int32_t a = 0;
+        if (st == 2u) { for (uint32_t k = 0; k < D2; k++) a += ((int32_t)l[i + k] + (int32_t)r[i + k]) >> 1; }
+        else          { const int16_t *q = l + i; for (uint32_t k = 0; k < D2; k++) a += q[k]; }
+        s->ring[(s->fed / D2) & (WS2_RING - 1u)] = (int16_t)(a >> sh);
+        s->fed += D2; i += D2;
+    }
+    /* the start of the next entry */
+    while (i < n) {
+        s->acc += st == 2u ? ((int32_t)l[i] + (int32_t)r[i]) >> 1 : (int32_t)l[i];
+        i++; s->fed++; s->cnt++;
+    }
+}
+
+/* The first decimated entry the next step reads (so the ring check below can tell whether it is still held). */
+static inline uint32_t ws2_first_entry(const ws2_t *s)
+{
+    uint32_t tgt, p, c1, lo1, hi1, e0, e1;
+    ws_geom(&s->core, &tgt, &p, &c1, &lo1, &hi1, &e0, &e1);
+    const uint32_t rb = (tgt / s->core.D1) * 4u;
+    return rb < e0 ? rb : e0;
+}
+
+/* 1 when the next ws2_step may run: enough samples have been fed and the ring still holds the oldest entry the step reads. */
+static inline int ws2_ready(const ws2_t *s)
+{
+    uint32_t lo, hi;
+    ws_need(&s->core, &lo, &hi);
+    if (s->fed < hi) return 0;
+    if (s->core.k == 0u) return 1;
+    return (s->fed / s->core.D2) - ws2_first_entry(s) <= WS2_RING;
+}
+
+static inline uint32_t ws2_step(ws2_t *s, ws2_read_t rd, void *ctx, int16_t *outl, int16_t *outr)
+{
+    ws_t *c = &s->core;
+    const uint32_t N = c->N, Hs = c->Hs, D2 = c->D2, nc1 = c->nc1, nc2 = c->nc2;
+    int16_t *outs[2] = { outl, outr };
+    int16_t buf[512];
+    if (c->k == 0u) {
+        for (uint32_t ch = 0; ch < c->ch; ch++) {
+            rd(ctx, ch, 0u, Hs, outs[ch]);
+            rd(ctx, ch, Hs, Hs, c->pend[ch]);
+        }
+        c->prev = 0u;
+        c->k = 1u;
+        return Hs;
+    }
+    uint32_t tgt, p, c1, lo1, hi1, e0, e1;
+    ws_geom(c, &tgt, &p, &c1, &lo1, &hi1, &e0, &e1);
+    const int16_t *R = s->ring;
+#define WS2_E(j) ((int32_t)R[(j) & (WS2_RING - 1u)])
+    /* stage 1 */
+    const uint32_t rbase = (tgt / c->D1) * 4u;
+    int16_t *ref1 = buf;                 /* [0, 32) */
+    for (uint32_t i = 0; i < nc1; i++) ref1[i] = (int16_t)((WS2_E(rbase + 4u * i) + WS2_E(rbase + 4u * i + 1u) + WS2_E(rbase + 4u * i + 2u) + WS2_E(rbase + 4u * i + 3u)) >> 2);
+    const uint32_t sc1 = ws_scale(ref1, nc1);
+    for (uint32_t i = 0; i < nc1; i++) ref1[i] = (int16_t)(ref1[i] >> sc1);
+    const uint32_t ncand1 = hi1 - lo1 + 1u;
+    int16_t *cand1 = buf + 32;           /* [32, 92) */
+    for (uint32_t i = 0; i < ncand1 + nc1 - 1u; i++) {
+        const uint32_t b = 4u * (lo1 + i);
+        cand1[i] = (int16_t)ws_clamp2047(((WS2_E(b) + WS2_E(b + 1u) + WS2_E(b + 2u) + WS2_E(b + 3u)) >> 2) >> sc1);
+    }
+    const int32_t idx1 = ws_search(ref1, cand1, ncand1, nc1);
+    uint32_t w1;
+    if (idx1 >= 0) w1 = lo1 + (uint32_t)idx1;
+    else { w1 = c1; if (w1 < lo1) w1 = lo1; if (w1 > hi1) w1 = hi1; }
+    /* stage 2 */
+    const uint32_t c2 = w1 * 4u;
+    const uint32_t lo2 = c2 > 4u ? c2 - 4u : 0u;
+    const uint32_t ncand2 = c2 + 4u - lo2 + 1u;
+    const uint32_t off2 = (tgt / D2);
+    int16_t *ref2 = buf;                 /* [0, 128) */
+    for (uint32_t i = 0; i < nc2; i++) ref2[i] = R[(off2 + i) & (WS2_RING - 1u)];
+    const uint32_t sc2 = ws_scale(ref2, nc2);
+    for (uint32_t i = 0; i < nc2; i++) ref2[i] = (int16_t)(ref2[i] >> sc2);
+    int16_t *cand2 = buf + 128;          /* [128, 264) */
+    for (uint32_t i = 0; i < ncand2 + nc2 - 1u; i++) cand2[i] = (int16_t)ws_clamp2047(WS2_E(lo2 + i) >> sc2);
+    const int32_t idx2 = ws_search(ref2, cand2, ncand2, nc2);
+    const uint32_t w2 = idx2 >= 0 ? lo2 + (uint32_t)idx2 : c2;
+#undef WS2_E
+    /* fine: the full-rate window comes through the reader (mono mix of both channels when stereo) */
+    const uint32_t c0 = w2 * D2;
+    const uint32_t rlo = c0 > D2 ? c0 - D2 : 0u;
+    const uint32_t nref = c0 + D2 - rlo + 1u;
+    const uint32_t nm = nref + WS_REF_LEN - 1u;
+    int16_t *mixr = buf;                 /* [0, nm) <= 144 */
+    int16_t *rf = buf + 160;             /* [160, 288) */
+    int16_t *tmp = buf + 288;            /* [288, 432): the right channel while mixing */
+    rd(ctx, 0u, rlo, nm, mixr);
+    rd(ctx, 0u, tgt, WS_REF_LEN, rf);
+    if (c->ch == 2u) {
+        rd(ctx, 1u, rlo, nm, tmp);
+        for (uint32_t j = 0; j < nm; j++) mixr[j] = (int16_t)(((int32_t)mixr[j] + tmp[j]) >> 1);
+        rd(ctx, 1u, tgt, WS_REF_LEN, tmp);
+        for (uint32_t i = 0; i < WS_REF_LEN; i++) rf[i] = (int16_t)(((int32_t)rf[i] + tmp[i]) >> 1);
+    }
+    const uint32_t s3 = ws_scale(rf, WS_REF_LEN);
+    for (uint32_t i = 0; i < WS_REF_LEN; i++) rf[i] = (int16_t)(rf[i] >> s3);
+    for (uint32_t j = 0; j < nm; j++) mixr[j] = (int16_t)ws_clamp2047((int32_t)mixr[j] >> s3);
+    const int32_t idx3 = ws_search(rf, mixr, nref, WS_REF_LEN);
+    const uint32_t cg = idx3 >= 0 ? rlo + (uint32_t)idx3 : c0;
+    /* overlap-add the chosen grain: the first half is read into the scratch and mixed with the tail, the second half becomes the new tail directly */
+    const uint32_t stp = (N == 1024u) ? 1u : 2u;
+    for (uint32_t ch = 0; ch < c->ch; ch++) {
+        rd(ctx, ch, cg, Hs, buf);
+        for (uint32_t i = 0; i < Hs; i++) {
+            const int32_t w = ws_hann_q15[i * stp];
+            outs[ch][i] = (int16_t)(((int32_t)c->pend[ch][i] * (WS_Q15 - w) + (int32_t)buf[i] * w + 16384) >> 15);
+        }
+        rd(ctx, ch, cg + Hs, Hs, c->pend[ch]);
+    }
+    c->prev = cg;
+    c->p_q8 += (uint64_t)Hs * c->speed_q8;
+    c->k++;
+    return Hs;
+}
 #endif

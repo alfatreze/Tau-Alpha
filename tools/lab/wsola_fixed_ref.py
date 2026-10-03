@@ -193,6 +193,123 @@ class Wsola:
         return out
 
 
+class Wsola2(Wsola):
+    """Core v2 (B-556): the same algorithm, restructured. The input is decimated once, as it is fed, into a ring of RING entries (the stage-2-rate mono mix, entry j
+    = the mix of samples j*D2 .. j*D2+D2-1, summed and shifted); the stage-1 signal is derived from four ring entries as before; the full-rate samples the fine stage and
+    the grain need come through a reader `rd(ch, lo, n)` instead of a window. Output is identical to Wsola's, sample for sample; written separately from the C."""
+    RING = 1024
+
+    def __init__(self, fs, ch, speed_q8):
+        super().__init__(fs, ch, speed_q8)
+        self.ring = [0] * self.RING
+        self.fed = 0
+        self.acc = 0
+        self.cnt = 0
+
+    def feed(self, chans, lo, n):
+        """Feed samples lo .. lo+n-1 of every channel (in order)."""
+        for i in range(lo, lo + n):
+            self.acc += (chans[0][i] + chans[1][i]) >> 1 if self.ch == 2 else chans[0][i]
+            self.cnt += 1
+            if self.cnt == self.D2:
+                self.ring[(self.fed // self.D2) % self.RING] = self.acc >> self.shift
+                self.acc = 0
+                self.cnt = 0
+            self.fed += 1
+
+    def ready(self):
+        lo, hi = self.need()
+        if self.fed < hi:
+            return False
+        if self.k == 0:
+            return True
+        tgt, p, c1, lo1, hi1, e0, e1 = self._geometry()
+        first = min((tgt // self.D1) * 4, e0)
+        return (self.fed // self.D2) - first <= self.RING
+
+    def step2(self, rd):
+        ch, N, Hs, D2, nc1, nc2 = self.ch, self.N, self.Hs, self.D2, self.nc1, self.nc2
+        if self.k == 0:
+            out = [rd(c, 0, Hs) for c in range(ch)]
+            for c in range(ch):
+                self.pend[c] = rd(c, Hs, Hs)
+            self.prev = 0
+            self.k = 1
+            return out
+        E = lambda j: self.ring[j % self.RING]
+        tgt, p, c1, lo1, hi1, e0, e1 = self._geometry()
+        rbase = (tgt // self.D1) * 4
+        ref1 = [(E(rbase + 4 * i) + E(rbase + 4 * i + 1) + E(rbase + 4 * i + 2) + E(rbase + 4 * i + 3)) >> 2 for i in range(nc1)]
+        sc1 = self._scale(ref1)
+        ref1 = [v >> sc1 for v in ref1]
+        ncand1 = hi1 - lo1 + 1
+        cand1 = []
+        for i in range(ncand1 + nc1 - 1):
+            b = 4 * (lo1 + i)
+            cand1.append(max(-2047, min(2047, ((E(b) + E(b + 1) + E(b + 2) + E(b + 3)) >> 2) >> sc1)))
+        idx1, m1 = self._search(ref1, cand1, ncand1, nc1)
+        w1 = lo1 + idx1 if idx1 >= 0 else max(lo1, min(hi1, c1))
+        c2 = w1 * 4
+        lo2 = c2 - 4 if c2 > 4 else 0
+        ncand2 = c2 + 4 - lo2 + 1
+        ref2 = [E(tgt // D2 + i) for i in range(nc2)]
+        sc2 = self._scale(ref2)
+        ref2 = [v >> sc2 for v in ref2]
+        cand2 = [max(-2047, min(2047, E(lo2 + i) >> sc2)) for i in range(ncand2 + nc2 - 1)]
+        idx2, m2 = self._search(ref2, cand2, ncand2, nc2)
+        w2 = lo2 + idx2 if idx2 >= 0 else c2
+        c0 = w2 * D2
+        rlo = c0 - D2 if c0 > D2 else 0
+        nref = c0 + D2 - rlo + 1
+        nm = nref + REF_LEN - 1
+        if ch == 2:
+            mix = [(a + b) >> 1 for a, b in zip(rd(0, rlo, nm), rd(1, rlo, nm))]
+            rf = [(a + b) >> 1 for a, b in zip(rd(0, tgt, REF_LEN), rd(1, tgt, REF_LEN))]
+        else:
+            mix, rf = rd(0, rlo, nm), rd(0, tgt, REF_LEN)
+        s3 = self._scale(rf)
+        rf = [v >> s3 for v in rf]
+        cd3 = [max(-2047, min(2047, v >> s3)) for v in mix]
+        idx3, m3 = self._search(rf, cd3, nref, REF_LEN)
+        cg = rlo + idx3 if idx3 >= 0 else c0
+        self.macs += m1 + m2 + m3
+        step = 1 if N == 1024 else 2
+        out = []
+        for chn in range(ch):
+            first = rd(chn, cg, Hs)
+            out.append([(self.pend[chn][i] * (Q15 - self.w[i * step]) + first[i] * self.w[i * step] + 16384) >> 15 for i in range(Hs)])
+            self.pend[chn] = rd(chn, cg + Hs, Hs)
+        self.prev = cg
+        self.p_q8 += self.Hs * self.speed_q8
+        self.k += 1
+        return out
+
+
+def run2(x, fs, speed_q8, chunk=64):
+    """Feed `chunk` samples at a time and step whenever ready. Returns (output channels, macs, grains, overran) where overran means the ring lost data the next
+    step needed (the caller fed too much between steps)."""
+    ch = len(x)
+    ws = Wsola2(fs, ch, speed_q8)
+    n = len(x[0])
+    outs = [[] for _ in range(ch)]
+    rd = lambda c, lo, m: list(x[c][lo:lo + m])
+    pos = 0
+    overran = False
+    while pos < n:
+        m = min(chunk, n - pos)
+        ws.feed(x, pos, m)
+        pos += m
+        while ws.ready():
+            o = ws.step2(rd)
+            for c in range(ch):
+                outs[c].extend(o[c])
+        lo, hi = ws.need()
+        if ws.fed >= hi and not ws.ready():
+            overran = True
+            break
+    return outs, ws.macs, ws.k, overran
+
+
 def run(x, fs, speed_q8):
     """Process the whole input (x is a list of channels). Returns (output channels, macs, grains)."""
     ch = len(x)
