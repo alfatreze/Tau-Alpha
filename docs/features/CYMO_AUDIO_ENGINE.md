@@ -530,6 +530,8 @@ firmware, or under about 15% of a 66 MHz CPU. That is small enough that the **fi
 measured follow-up only if the firmware version costs too much, which keeps this inside D-C04 (probe-gated, old bitstream unchanged) and
 inside the 6.5-12 KB firmware heap limit (section 11). Both figures are estimates until measured.
 
+**Measured (B-549, instruction count of the real fixed-point core built for rv32im and run under `tools/rv32sim.py`):** `fw/wsola_core.h` costs about 130,600 instructions per grain, i.e. 11.25 million instructions per second of output (1.56 M multiply-adds per output second, about 7 instructions each including the rest of the grain), which is 16.9% of the 66.7 MHz CPU at one instruction per cycle and probably 20-25% with real load-use and multiply latencies; code 4.8 KB, stack about 2.3 KB, state 2 KB per channel pair. That is above the 12-20% estimate and means: with the decode load measured at 1.00x/1.50x/2.00x (40/51/67% busy on the speech FLAC, B-545) plus about a quarter for the stretcher, firmware tempo fits to about 1.5x on that material and not to 2.0x without a cheaper search or the hardware correlator (the case this section made for `cymo_stretch`).
+
 **Correction (B-421, found while checking collisions):** an earlier version of this section put the working buffers in the PSRAM window.
 That is wrong for the correlation loop. PSRAM CPU reads cost about 32 cycles each and up to about 380 in the worst case **[HW]** (B-022, B-054), so
 about 24,000 reads per hop would cost roughly 770,000 cycles, which is about the whole 12 ms hop at 66 MHz. The correlation working set (the
