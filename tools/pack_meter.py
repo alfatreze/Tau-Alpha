@@ -25,14 +25,18 @@ def symbols(elf):
     return {ln.split()[-1]: (int(ln.split()[0], 16), ln.split()[1]) for ln in out.splitlines() if len(ln.split()) == 3}
 
 
-def build(meter, org, elf_out=None, extra=()):
+SCRATCH_ORG = 0x00300000      # default on-chip meter scratch address (the real one is a symbol of the firmware link)
+
+
+def build(meter, org, elf_out=None, extra=(), scratch=None):
     src = ROOT / "fw" / ("meter_pack_%s.c" % meter)
     if not src.exists():
         raise SystemExit("no pack source %s" % src)
     elf = Path(elf_out) if elf_out else Path(os.environ.get("TMPDIR", "/tmp")) / ("pack_%s.elf" % meter)
+    scratch = SCRATCH_ORG if scratch is None else scratch
     cmd = [tool("gcc"), "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-O2", "-ffreestanding", "-nostdlib", "-nostartfiles", "-fno-pic", "-mcmodel=medany",
            "-ffunction-sections", "-fdata-sections", "-Wall", "-Wno-unused-function", "-Wno-comment", "-Wno-unused-variable", "-Wno-unused-const-variable", "-I", str(ROOT / "fw"),
-           "-Wl,--gc-sections", "-Wl,--no-warn-rwx-segments", "-Wl,--defsym=PACK_ORG=0x%X" % org, "-T", str(ROOT / "fw/meter_pack.ld"), str(src), "-lgcc", "-o", str(elf)] + list(extra)
+           "-Wl,--gc-sections", "-Wl,--no-warn-rwx-segments", "-Wl,--defsym=PACK_ORG=0x%X" % org, "-Wl,--defsym=SCRATCH_ORG=0x%X" % scratch, "-T", str(ROOT / "fw/meter_pack.ld"), str(src), "-lgcc", "-o", str(elf)] + list(extra)
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode or "warning" in r.stderr:
         sys.stderr.write(r.stderr); raise SystemExit("pack build failed or warned")
@@ -44,24 +48,29 @@ def build(meter, org, elf_out=None, extra=()):
     subprocess.run([tool("objcopy"), "-O", "binary", str(elf), str(binf)], check=True)
     body = binf.read_bytes()
     load_end = sy["_pack_load_end"][0] - org
+    data_lma, data_start, data_end = sy["_pack_data_lma"][0] - org, sy["_pack_data_start"][0], sy["_pack_data_end"][0]
+    bss_start, bss_end = sy["_pack_bss_start"][0], sy["_pack_bss_end"][0]
+    pst_off, pst_end = sy["_pack_pstate_start"][0] - org, sy["_pack_pstate_end"][0] - org
     if load_end - 3 <= len(body) < load_end:        # objcopy stops at the last byte of content; the link script rounds the end up to 4
         body += b"\0" * (load_end - len(body))
     if len(body) != load_end:
         raise SystemExit("load image %d B but sections end at %d" % (len(body), load_end))
-    bss_off, bss_end = sy["_pack_bss_start"][0] - org, sy["_pack_bss_end"][0] - org
     entry = sy["mtr_pack_entry"][0] - org
-    hdr = struct.pack("<IHHIIIIII", 0x4B504D54, ABI, METER_IDS[meter], len(body), bss_end - bss_off, org, entry, zlib.crc32(body) & 0xFFFFFFFF, bss_off)
-    return hdr + body, {"load": len(body), "bss": bss_end - bss_off, "entry": entry, "org": org}
+    if bss_start != data_end:
+        raise SystemExit(".bss does not follow .data in the scratch area")
+    hdr = struct.pack("<IHHIIIIIIIIII", 0x4B504D54, ABI, METER_IDS[meter], len(body), org, entry, zlib.crc32(body) & 0xFFFFFFFF, data_lma, data_end - data_start,
+                      data_start, bss_end - bss_start, pst_off, pst_end - pst_off)
+    return hdr + body, {"load": len(body), "data": data_end - data_start, "bss": bss_end - bss_start, "pstate": pst_end - pst_off, "entry": entry, "org": org, "scratch": scratch}
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("meter"); ap.add_argument("--org", type=lambda s: int(s, 0), required=True); ap.add_argument("--out", required=True); ap.add_argument("--elf-out")
+    ap.add_argument("meter"); ap.add_argument("--org", type=lambda s: int(s, 0), required=True); ap.add_argument("--out", required=True); ap.add_argument("--elf-out"); ap.add_argument("--scratch", type=lambda s: int(s, 0), default=SCRATCH_ORG)
     ap.add_argument("-D", action="append", default=[], help="extra -D define for the pack build")
     a = ap.parse_args()
-    blob, info = build(a.meter, a.org, a.elf_out, ["-D" + d for d in a.D])
+    blob, info = build(a.meter, a.org, a.elf_out, ["-D" + d for d in a.D], a.scratch)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True); Path(a.out).write_bytes(blob)
-    print("%s: %d B file (%d B image + %d B bss), entry +0x%X, org 0x%X" % (a.out, len(blob), info["load"], info["bss"], info["entry"], info["org"]))
+    print("%s: %d B file (%d B image), slot state %d B, scratch %d B (data %d + bss %d), entry +0x%X, org 0x%X, scratch 0x%X" % (a.out, len(blob), info["load"], info["pstate"], info["data"] + info["bss"], info["data"], info["bss"], info["entry"], info["org"], info["scratch"]))
 
 
 if __name__ == "__main__":

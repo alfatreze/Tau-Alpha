@@ -16,6 +16,12 @@
 #ifndef PACK_CAP
 #define PACK_CAP 0x00040000u
 #endif
+#ifndef SCRATCH_ORG
+#define SCRATCH_ORG 0x00300000u
+#endif
+#ifndef SCRATCH_CAP
+#define SCRATCH_CAP 0x00001000u
+#endif
 #ifndef PACK_METER
 #define PACK_METER 16u
 #endif
@@ -46,7 +52,7 @@ static void report(int s, uint32_t n, uint64_t h)
 int main(void)
 {
     uint32_t addr = 0;
-    const int e = mpk_load(rd, 0, win, (volatile uint8_t *)PACK_ORG, PACK_ORG, PACK_CAP, PACK_METER, &addr);
+    const int e = mpk_load(rd, 0, win, (volatile uint8_t *)PACK_ORG, PACK_ORG, PACK_CAP, (volatile uint8_t *)SCRATCH_ORG, SCRATCH_ORG, SCRATCH_CAP, PACK_METER, &addr);
     hputs("LOAD E"); hputu((uint32_t)e); hnl();
     if (e) return 0;
     accent = 0x3C0Fu;

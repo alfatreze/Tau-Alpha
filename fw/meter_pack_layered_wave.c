@@ -12,6 +12,11 @@
 #include "meters_gen.h"
 #include "meter_core.h"
 
+/* State that is touched only a word at a time (the history ring) lives in the slot's PSRAM, in .pstate; everything else the meter keeps (its per-frame
+ * working state) is ordinary .data/.bss, which the link script places in the on-chip meter scratch area. */
+#undef  MTR_PSRAM
+#define MTR_PSRAM __attribute__((section(".pstate")))
+
 static const mtr_host_api_t *g_api;
 #define fb_rect(...)       g_api->fb_rect(__VA_ARGS__)
 #define cycles()           g_api->cycles()
