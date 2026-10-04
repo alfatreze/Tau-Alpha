@@ -53,7 +53,7 @@ COLD_FN static void info_build_qr(void)
 COLD_TEXT static void info_draw_qr(void)
 {
 #if TAU_TPG
-    if (REP_GRID(info_qr_len)) { rep_draw_grid("INFO EXPORT"); return; }
+    { char d[48], *q = d; q = ui_dec(q, SET_INFO_ROWS); q = set_str(q, " ROWS"); *q = 0; rep_draw("INFO EXPORT", d, info_qr_len, info_qr_ver); return; }
 #endif
     const uint32_t sz = info_qr_len;
     uint32_t m = 354u / (sz + 8u);

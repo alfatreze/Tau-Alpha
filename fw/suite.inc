@@ -72,20 +72,21 @@ static uint32_t chk_at, chk_u0, chk_s0, chk_under, chk_stall, chk_qr_len, chk_qr
 #define TAU_QR_MAXV 38u   /* largest QR version shown; 14 keeps every code phone-scannable (bigger reports then show the grid only) */
 #endif
 /* Report view shared by every page that shows a report code (Check, Decode Sweep, Meter Sweep, Meter Trace, Blit Test, Info and Meter Config exports):
- * rep_len = byte length of the record in CHK_REC, rep_view = 0 QR code, 1 pixel grid lossless (TPG1 mode L), 2 pixel grid robust (mode R). X cycles.
+ * rep_len = byte length of the record in CHK_REC, rep_view = 0 robust pixel grid (the default; the lossless grid takes over by itself when the report is too
+ * big for it), 1 lossless pixel grid, 2 QR code. X cycles (the QR step is skipped when no QR code could be made).
  * With TAU_TPG=0 every macro collapses to the old QR-only behaviour. A report too big for the QR code is still available as a grid. */
 #if TAU_TPG
 static uint32_t rep_len;
 static uint8_t rep_view;
 #define REP_SET(l) (rep_len = (l))
 #define REP_AVAIL(qrlen) ((qrlen) || rep_len)
-#define REP_GRID(qrlen) (rep_view || !(qrlen))
-#define REP_KEY(edge) (((edge) & KEY_X) ? (rep_view = (uint8_t)((rep_view + 1u) % 3u), set_dirty = 1u, 1) : 0)
+#define REP_GRID(qrlen) (rep_view != 2u || !(qrlen))
+#define REP_KEY(edge, qrlen) (((edge) & KEY_X) ? (rep_view = (uint8_t)((rep_view + 1u) % ((qrlen) ? 3u : 2u)), set_dirty = 1u, 1) : 0)
 #else
 #define REP_SET(l) ((void)(l))
 #define REP_AVAIL(qrlen) (qrlen)
 #define REP_GRID(qrlen) 0
-#define REP_KEY(edge) 0
+#define REP_KEY(edge, qrlen) 0
 #endif
 /* B-088/B-089: latched once when the CT_AUD window ends, from the run-total
  * accumulators (mp3_*_total_cyc / flac_*_total_cyc), so chk_finish() reads a
@@ -645,43 +646,78 @@ COLD_TEXT static int pg_mb_write(uint32_t word_addr, uint32_t data)
 #define TPG_FN COLD_TEXT static
 #define TPG_CRC32 sr_crc32
 #include "tpg.h"
-/* Draws the report in CHK_REC as a TPG1 pixel grid: the stream's rows go into BOTH H2 buffers through the mailbox (the draw engine cannot
- * be asked for one value per pixel); the background and caption go through the normal draw path into the CPU buffer, with fb_fence() first
- * so no queued command lands over the pixels. `title` names the report (a bare screenshot must identify itself). */
-COLD_TEXT static void rep_draw_grid(const char *title)
+/* The one drawing path of every report page (Check, Decode Sweep, Meter Sweep, Meter Trace, Blit Test, Info and Meter Config exports), so they all look
+ * the same: the code block centred on the screen (robust grid, lossless grid or QR code, X cycles), a frame round a grid, and the same caption lines:
+ * title (what), detail (one short page-specific line), view (which code, how many bytes) at the top; the controls at the bottom. A line that would touch
+ * the block is left out (a big block fills the screen). The grid rows go into BOTH H2 buffers through the mailbox (the draw engine cannot be asked for
+ * one value per pixel), after fb_fence() so no queued command lands over them. */
+COLD_TEXT static void rep_line(uint32_t y, uint32_t y0, uint32_t px, uint32_t color, const char *txt)
+{
+    if (!((int32_t)y + 14 <= (int32_t)y0 - 4 || (int32_t)y >= (int32_t)(y0 + px) + 4)) return;
+    fb_set_color(color, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, y, txt, TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
+COLD_TEXT static void rep_draw(const char *title, const char *detail, uint32_t qrlen, uint32_t qrver)
 {
     tpg_t t;
-    const uint32_t mode = rep_view == 2u ? TPG_MODE_R : TPG_MODE_L;
+    uint32_t x0 = 0, y0 = 0, px = 0, fell = 0;
+    char view[48], *q = view;
     fb_rect(0u, 0u, FB_W, FB_H, UI_BG);
-    fb_fence();
-    if (!tpg_init(&t, CHK_REC, rep_len, mode)) {
-        fb_set_color(UI_RED, UI_BG);
-        fb_text_clipped(PL_UI_TEXT_X, 12u, "REPORT TOO BIG FOR THIS GRID MODE", TS_1X, TS_1X, PL_UI_W - 32u);
-        return;
+    if (!REP_GRID(qrlen)) {                                                 /* QR code */
+        const uint32_t sz = qrlen;
+        uint32_t m = 354u / (sz + 8u);
+        if (m > 4u) m = 4u;
+        px = (sz + 8u) * m; x0 = (FB_W - px) / 2u; y0 = (FB_H - px) / 2u;
+        fb_rect(x0, y0, px, px, 0xFFFFu);                                   /* the 4-module quiet zone is part of the white square */
+        for (uint32_t y = 0; y < sz; y++) {
+            uint32_t x = 0;
+            while (x < sz) {
+                if (!qr_get(CHK_QR, sz, (int)x, (int)y)) { x++; continue; }
+                uint32_t e = x + 1u;
+                while (e < sz && qr_get(CHK_QR, sz, (int)e, (int)y)) e++;
+                fb_rect(x0 + (x + 4u) * m, y0 + (y + 4u) * m, (e - x) * m, m, 0x0000u);
+                x = e;
+            }
+        }
+        q = set_str(q, "QR CODE V"); q = ui_dec(q, qrver);
+    } else {                                                                /* pixel grid: robust by default, lossless when it does not fit */
+        uint32_t mode = rep_view == 1u ? TPG_MODE_L : TPG_MODE_R;
+        int ok = tpg_init(&t, CHK_REC, rep_len, mode);
+        if (!ok && mode == TPG_MODE_R) { fell = 1u; mode = TPG_MODE_L; ok = tpg_init(&t, CHK_REC, rep_len, mode); }
+        if (!ok) {
+            rep_line(8u, 0u, 0u, UI_RED, "REPORT TOO BIG FOR A PIXEL GRID");
+            return;
+        }
+        x0 = t.x0; y0 = t.y0; px = t.px;
+        if (x0 >= 8u && y0 >= 8u) {                                         /* frame: 2 px, 4 px outside the block */
+            fb_rect(x0 - 4u, y0 - 4u, px + 8u, 2u, UI_DIM); fb_rect(x0 - 4u, y0 + px + 2u, px + 8u, 2u, UI_DIM);
+            fb_rect(x0 - 4u, y0 - 4u, 2u, px + 8u, UI_DIM); fb_rect(x0 + px + 2u, y0 - 4u, 2u, px + 8u, UI_DIM);
+        }
+        fb_fence();
+        for (uint32_t buf = 0; buf < 2u; buf++) {
+            const uint32_t base = buf ? DBUF_BASE1_W : 0u;
+            for (uint32_t y = y0; y < y0 + px; y++)
+                for (uint32_t x = x0; x < x0 + px; x += 2u)
+                    if (pg_mb_write(base + y * FB_STRIDE + x, ((uint32_t)tpg_pixel(&t, x + 1u, y) << 16) | tpg_pixel(&t, x, y))) return;
+        }
+        q = set_str(q, mode == TPG_MODE_R ? "ROBUST GRID" : "LOSSLESS GRID");
     }
-    const uint32_t rows = tpg_rows(&t);
-    for (uint32_t buf = 0; buf < 2u; buf++) {
-        const uint32_t base = buf ? DBUF_BASE1_W : 0u;
-        for (uint32_t y = 0; y < rows; y++)
-            for (uint32_t x = 0; x < TPG_W; x += 2u)
-                if (pg_mb_write(base + y * FB_STRIDE + x, ((uint32_t)tpg_pixel(&t, x + 1u, y) << 16) | tpg_pixel(&t, x, y))) return;
-    }
-    if (rows + 60u > FB_H) return;                                  /* the grid fills the screen: no caption */
-    fb_set_color(ui_accent, UI_BG);
-    fb_text_clipped(PL_UI_TEXT_X, rows + 8u, title, TS_1X, TS_1X, PL_UI_W - 32u);
-    char c[40], *q = c;
-    q = set_str(q, mode == TPG_MODE_R ? "TPG1 ROBUST  " : "TPG1 LOSSLESS  "); q = ui_dec(q, rep_len); q = set_str(q, " BYTES"); *q = 0;
-    fb_set_color(UI_DIM, UI_BG);
-    fb_text_clipped(PL_UI_TEXT_X, rows + 22u, c, TS_1X, TS_1X, PL_UI_W - 32u);
-    fb_set_color(UI_FAINT, UI_BG);
-    fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, "X VIEW (QR / GRID)   BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+    q = set_str(q, "  "); q = ui_dec(q, rep_len); q = set_str(q, " B");
+    if (fell) q = set_str(q, "  (TOO BIG FOR ROBUST)");
+    *q = 0;
+    rep_line(8u, y0, px, ui_accent, title);
+    rep_line(22u, y0, px, UI_DIM, view);
+    rep_line(36u, y0, px, UI_DIM, detail);
+    rep_line(FB_H - 36u, y0, px, UI_FAINT, "X VIEW   B BACK");
+    rep_line(FB_H - 22u, y0, px, UI_FAINT, "MENU+START FOR A SCREENSHOT");
 }
 #endif
 
 COLD_TEXT static void chk_draw_qr(void)
 {
 #if TAU_TPG
-    if (REP_GRID(chk_qr_len)) { rep_draw_grid(chk_s(CS_PROF + chk_prof)); return; }
+    { char d[48], *q = d; q = set_str(q, "RUN "); q = ui_dec(q, chk_run); *q = 0; rep_draw(chk_s(CS_PROF + chk_prof), d, chk_qr_len, chk_qr_ver); return; }
 #endif
     const uint32_t sz = chk_qr_len;
     uint32_t m = 354u / (sz + 8u);                                  /* module size in pixels: 4 down to 2 (version 38) */
@@ -865,7 +901,7 @@ COLD_TEXT static int chk_input(uint32_t edge)
         else if (edge & (KEY_B | KEY_LEFT)) { chk_state = CK_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else {
 #if TAU_TPG
-        if (REP_KEY(edge)) return 1;
+        if (REP_KEY(edge, chk_qr_len)) return 1;
 #endif
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { chk_state = CK_DONE; set_dirty = 1u; }
     }
@@ -1036,7 +1072,7 @@ static void sw_tick(void)
 COLD_TEXT static void sw_draw_qr(void)
 {
 #if TAU_TPG
-    if (REP_GRID(sw_qr_len)) { rep_draw_grid("DECODE SWEEP"); return; }
+    { char d[48], *q = d; q = ui_dec(q, sw_done_n); q = set_str(q, " TRACKS"); if (sw_skip_n) { q = set_str(q, "  "); q = ui_dec(q, sw_skip_n); q = set_str(q, " SKIPPED"); } *q = 0; rep_draw("DECODE SWEEP", d, sw_qr_len, sw_qr_ver); return; }
 #endif
     const uint32_t sz = sw_qr_len;
     uint32_t m = 354u / (sz + 8u);
@@ -1141,7 +1177,7 @@ COLD_TEXT static int sw_input(uint32_t edge)
         if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL(sw_qr_len)) { sw_state = SW_QR; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { sw_state = SW_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else {   /* SW_QR */
-        if (REP_KEY(edge)) return 1;
+        if (REP_KEY(edge, sw_qr_len)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { sw_state = SW_DONE; set_dirty = 1u; }
     }
     return 1;
@@ -1305,7 +1341,7 @@ static void mw_tick(void)
 COLD_TEXT static void mw_draw_qr(void)
 {
 #if TAU_TPG
-    if (REP_GRID(mw_qr_len)) { rep_draw_grid("METER SWEEP"); return; }
+    { char d[48], *q = d; q = ui_dec(q, VIZ_SEL_COUNT); q = set_str(q, " METERS"); *q = 0; rep_draw("METER SWEEP", d, mw_qr_len, mw_qr_ver); return; }
 #endif
     const uint32_t sz = mw_qr_len;
     uint32_t m = 354u / (sz + 8u);
@@ -1405,7 +1441,7 @@ COLD_TEXT static int mw_input(uint32_t edge)
         if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL(mw_qr_len)) { mw_state = MW_QR; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { mw_state = MW_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else {   /* MW_QR */
-        if (REP_KEY(edge)) return 1;
+        if (REP_KEY(edge, mw_qr_len)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { mw_state = MW_DONE; set_dirty = 1u; }
     }
     return 1;
@@ -1480,7 +1516,7 @@ static void mt_open(void) { if (mt_state != MT_REC && mt_state != MT_FIN) mt_sta
 COLD_TEXT static void mt_draw_qr(void)
 {
 #if TAU_TPG
-    if (REP_GRID(mt_qr_len)) { rep_draw_grid("METER TRACE"); return; }
+    { char d[48], *q = d; q = ui_dec(q, mt_n); q = set_str(q, " FRAMES"); *q = 0; rep_draw("METER TRACE", d, mt_qr_len, mt_qr_ver); return; }
 #endif
     const uint32_t sz = mt_qr_len;
     uint32_t m = 354u / (sz + 8u);
@@ -1538,7 +1574,7 @@ COLD_TEXT static int mt_input(uint32_t edge)
         if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL(mt_qr_len)) { mt_state = MT_QR; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { mt_state = MT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else if (mt_state == MT_QR) {
-        if (REP_KEY(edge)) return 1;
+        if (REP_KEY(edge, mt_qr_len)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { mt_state = MT_DONE; set_dirty = 1u; }
     }
     return 1;
@@ -1852,7 +1888,7 @@ static void bt_tick(void)
 COLD_TEXT static void bt_draw_qr(void)
 {
 #if TAU_TPG
-    if (REP_GRID(bt_qr_len)) { rep_draw_grid("BLIT TEST"); return; }
+    { char d[48], *q = d; q = set_str(q, "DRAW ENGINE"); *q = 0; rep_draw("BLIT TEST", d, bt_qr_len, bt_qr_ver); return; }
 #endif
     const uint32_t sz = bt_qr_len;
     uint32_t m = 354u / (sz + 8u);
@@ -1937,7 +1973,7 @@ COLD_TEXT static int bt_input(uint32_t edge)
         if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL(bt_qr_len)) { bt_state = BT_QR; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { bt_state = BT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else {   /* BT_QR */
-        if (REP_KEY(edge)) return 1;
+        if (REP_KEY(edge, bt_qr_len)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { bt_state = BT_DONE; set_dirty = 1u; }
     }
     return 1;

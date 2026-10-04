@@ -41,7 +41,7 @@ COLD_FN static void wvcfg_build_qr(void)
 COLD_TEXT static void wvcfg_draw_qr(void)
 {
 #if TAU_TPG
-    if (REP_GRID(wvcfg_qr_len)) { rep_draw_grid("METER CONFIG"); return; }
+    { char d[48], *q = d; q = set_str(q, "LIVE EDITOR"); *q = 0; rep_draw("METER CONFIG", d, wvcfg_qr_len, wvcfg_qr_ver); return; }
 #endif
     const uint32_t sz = wvcfg_qr_len;
     uint32_t m = 354u / (sz + 8u);
