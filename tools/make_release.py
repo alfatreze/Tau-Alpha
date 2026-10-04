@@ -89,6 +89,11 @@ def main():
     print(f"release v{version} ({date})")
 
     env = dict(os.environ)
+    # B-581: the release bitstream is the 192 KB / 66.667 MHz one (CORE_VERSION rev 26), so the firmware must be
+    # built to match. Set the flags here instead of relying on the caller's shell: a plain run silently built a
+    # 256 KB / 60 MHz ROM that the rev 26 bitstream refuses (the black screen, B-394/B-448/B-563).
+    for k, v in (("RAM_192K", "1"), ("CLK66", "1"), ("SDRAM_BUSY", "1")):
+        env.setdefault(k, v)
     sh(["bash", "-n", "fw/build.sh"])
     sh(["bash", "fw/build.sh", "release"], env=env)                       # v0.4.0 (B-078): library + Phase G, no Check
     # B-563: a RAM_192K=1 build never writes dist/ (build.sh, B-333) but goes to work/ram192k/release/. The
