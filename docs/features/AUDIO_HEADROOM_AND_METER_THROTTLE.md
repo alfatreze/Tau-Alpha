@@ -141,6 +141,10 @@ estimate). Freeing about half of the per-sample FLAC cycles is the cheapest way 
 Same track, same length, always from the start of the track (the stall counter is cumulative): 60 seconds each in three states -- normal screen, fullscreen, menu open -- then Settings > Diagnostics > Info, page 1 (`UNDERRUNS`) and the page with
 `HEADROOM`, `METER COST`, `UI COST`, `UI PARTS`. Say what was heard in each state. Do not scroll the Info page for long before reading (each scroll step is a full redraw and adds load).
 
+## 6b. A display bug found by the same hardware session (not caused by the meters)
+
+A Check profile that includes the stress test showed random colour noise on screen once in four runs. The stress pump's SDRAM region started at word `0x100000`, which is the second display buffer of the double-buffered engine, so it overwrote that buffer, which is visible whenever it is the displayed one. Fixed on this branch (`fw/stress_defs.inc`: region moved to `0x140000`, static asserts) and verified by a 15-minute FULL Check with stress R3 on `TAU_DEV_METER_11`; main has the same overlap until this lands. Also from that Check: the decode-profile fields `t_pct` and `c1_pct` read 99 and 88 even with 45 percent idle, because the streamed channel's time includes time blocked on the FIFO: after the Rice fast path they no longer measure CPU use, so use Info `HEADROOM`. Details: `docs/AUDIT_TRAIL.md` B-605.
+
 ## 7. Where things are
 
 - Branch `meter-builder` (worktree `../tau-alpha-meter-builder`): commits `41a7ff2` (first throttle), `4fa805d` (METER_07), `5c416aa` (METER_08), `89c369a` and `0ed1c07` (METER_09). Main was merged in twice. **Not merged to main.** Merge notes: shared files are
