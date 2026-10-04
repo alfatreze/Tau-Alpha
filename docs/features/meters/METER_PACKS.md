@@ -74,13 +74,22 @@ Priced with the measured uncached PSRAM window costs (about 32 cycles per read, 
 - **What a Pocket run should show:** with `tau-packs.bin` present, METER PACKS reads `FILE 1 LW OK <few>MS` and Layered Wave looks exactly as before; with the file removed it reads `OFF E20` and Layered Wave still draws
   (built-in); a corrupted copy reads `LW E26` and still draws. Any crash or blank meter on the first run with a good file is the pack path (the first execution of code the player loaded after boot, from the PSRAM window).
 
+## First Pocket run (2026-10-03): the pack loaded, then froze the player; root cause and fix
+
+`TAU_DEV_METER_01` booted: `METER PACKS FILE 1 LW OK 26MS` (load, CRC, ABI, scratch and slot checks all passed on silicon), but selecting Layered Wave froze the player. Cause (read from the RTL docs, not yet re-confirmed by a
+clean run): the PSRAM **instruction alias** (`0x24xx_xxxx`) is fetch-only (`docs/MMIO_ALLOCATION.md`: "there is no cached alias"; a data load there is a bus error), but the pack's `.rodata` tables and its `.pstate` history ring were linked at that alias,
+so the pack's first data read froze the CPU. The simulator has no PSRAM window, so no host test could see it. Fix (`TAU_DEV_METER_03` onward): `fw/meter_pack.ld` now links `.rodata` and `.pstate` at the **data alias**
+(`0xA4xx_xxxx`, `DATA_ALIAS = 0x80000000`; the same bytes, reached pc-relative, which wraps correctly in 32 bits) while `.text` stays at the instruction alias; `tools/pack_meter.py` sets `DATA_ALIAS` for real slot addresses and 0 for host tests. The file
+layout and sizes are unchanged. **A Pocket run of Layered Wave through the pack after the fix is still outstanding** (later screenshots showed `LW COST` at 0 commands, i.e. the meter was not selected).
+Rule to keep: a loadable module's data must never be linked at an alias the data bus cannot decode.
+
 ## What is still not done, and the real risks
 
 1. **A directory beyond Layered Wave.** Only meter id 16 has a slot and a pack source; the table in `fw/meter_pack.h` (`mtr_pack_slot_of`) and the pack TUs for the other modular meters are the next additions. The
    Settings meter list is still built from the built-in manifests: a meter that is *only* a pack (absent from the firmware) needs the list built from the directory, and its parameters and presets (today compiled into the
    firmware) shipped with the pack.
 2. **The scratch is 1 KB.** Enough for Layered Wave (808 B). A larger pack is refused (E29); the size to reserve is the largest `hot_ram` budget of any pack in the library.
-3. **Hardware proof.** Instruction fetch from the PSRAM window is hardware-proven for the cold image; loading a second blob and branching into it has not been tried on a Pocket.
+3. **Hardware proof.** Loading a second blob works on a Pocket (`LW OK 26MS`, first run); executing it with data at the data alias is built and unproven (see the first-run section above).
 4. **Statistics the pack owns.** The `LW COST` Info row reads statics that live in the built-in code; with a pack drawing, they stay at zero. A pack would publish its own counters through the host table.
 5. **A faulting pack.** A pack runs as ordinary code: a bug in it crashes the player like any other. The loader proves the file is intact, not that the code is correct; a watchdog or a "last pack faulted" boot flag is a later safeguard.
 6. **Size per pack.** Each pack duplicates a little compiler support code (about 1 KB here); acceptable, and it is the price of ROM independence.
