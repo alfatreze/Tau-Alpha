@@ -789,3 +789,4 @@ When delegating, write the subagent prompt to minimize its cost and the tokens i
 - 2026-10-04 (Claude): analysis (B-591). DEV 90 Check: stress noise gone; busy 48% = decode 30 + meter feed 2 + push 11 + UI 0 (Check page covers the meters) + ~5 other; the per-sample push loop (~166 cycles per pair) is the next target.
 - 2026-10-04 (Claude): firmware (B-592). MP3 sample push in bursts (one FIFO status read per burst), host-proven stream-identical (new sim/test_pcm_burst.py, mutants caught); DEV 91 packaged, NOT installed; expected push 11% to ~5%.
 - 2026-10-04 (Claude): analysis (B-593). DEV 91 measured: burst push cut push 11% to 7%, busy 48% to 44% (55% to 44% since the Subband pipelining); listening and the Stress R1 display check still to be reported.
+- 2026-10-04 (Claude): owner confirmed DEV 91 clean (no clicks or gaps, clean screen during Stress R1): B-590 stress-range fix, B-592 burst push and B-587 pipelined handoff cleared for the next release.
