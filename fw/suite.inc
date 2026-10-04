@@ -64,7 +64,13 @@ struct chk_mem { uint32_t val[CHK_MAX]; uint16_t sd[6], ps[6]; uint8_t res[CHK_M
 #define chk_res (CKM->res)
 #define chk_aud_full (CKM->aud_full)
 #define chk_blt_full (CKM->blt_full)
-static uint32_t chk_at, chk_u0, chk_s0, chk_under, chk_stall, chk_qr_len, chk_qr_ver;
+static uint32_t chk_at, chk_u0, chk_s0, chk_under, chk_stall, chk_qr_len, chk_qr_ver, chk_rec_len;
+#ifndef TAU_TPG
+#define TAU_TPG 0
+#endif
+#if TAU_TPG
+static uint8_t chk_view;      /* result page: 0 QR code, 1 pixel grid lossless (TPG1 mode L), 2 pixel grid robust (mode R) */
+#endif
 /* B-088/B-089: latched once when the CT_AUD window ends, from the run-total
  * accumulators (mp3_*_total_cyc / flac_*_total_cyc), so chk_finish() reads a
  * stable value instead of touching the profiling globals directly. */
@@ -534,6 +540,7 @@ COLD_TEXT static void chk_finish(void)
     uint8_t er[3] = { lib_err, cold_err, (uint8_t)pl_sdram_state };
     sr_tlv(&s, SR_T_ERR, er, 3);
     uint32_t len = sr_finish(&s);
+    chk_rec_len = len;
     chk_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
         uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
@@ -568,8 +575,59 @@ COLD_TEXT static void chk_row(uint32_t i, uint32_t rh, const char *label, const 
     fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, y, val, TS_1X, TS_1X, w + 2u);
 }
 
+/* ---- SDRAM mailbox pixel writer (shared by the pixel grid views and the PIXEL GRID TEST page) ---- */
+COLD_TEXT static int pg_mb_write(uint32_t word_addr, uint32_t data)
+{
+    REG(R_SDR_ADDR) = word_addr; REG(R_SDR_DATA) = data;
+    REG(R_SDR_CTRL) = 0x3Fu;
+    uint32_t t = cycles();
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u)
+        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return -1;
+    return 0;
+}
+
+#if TAU_TPG
+#define TPG_FN COLD_TEXT static
+#define TPG_CRC32 sr_crc32
+#include "tpg.h"
+/* Writes the stream's rows into BOTH H2 buffers through the mailbox (the draw engine cannot be asked for 1 px per value). The page's
+ * background and caption go through the normal draw path into the CPU buffer; fb_fence() first so no queued command lands over the pixels. */
+COLD_TEXT static void chk_draw_tpg(void)
+{
+    tpg_t t;
+    const uint32_t mode = chk_view == 2u ? TPG_MODE_R : TPG_MODE_L;
+    fb_rect(0u, 0u, FB_W, FB_H, UI_BG);
+    fb_fence();
+    if (!tpg_init(&t, CHK_REC, chk_rec_len, mode)) {
+        fb_set_color(UI_RED, UI_BG);
+        fb_text_clipped(PL_UI_TEXT_X, 12u, "REPORT TOO BIG FOR THIS GRID MODE", TS_1X, TS_1X, PL_UI_W - 32u);
+        return;
+    }
+    const uint32_t rows = tpg_rows(&t);
+    for (uint32_t buf = 0; buf < 2u; buf++) {
+        const uint32_t base = buf ? DBUF_BASE1_W : 0u;
+        for (uint32_t y = 0; y < rows; y++)
+            for (uint32_t x = 0; x < TPG_W; x += 2u)
+                if (pg_mb_write(base + y * FB_STRIDE + x, ((uint32_t)tpg_pixel(&t, x + 1u, y) << 16) | tpg_pixel(&t, x, y))) return;
+    }
+    if (rows + 60u > FB_H) return;                                  /* the grid fills the screen: no caption */
+    fb_set_color(ui_accent, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, rows + 8u, chk_s(CS_PROF + chk_prof), TS_1X, TS_1X, PL_UI_W - 32u);
+    char c[40], *q = c;
+    q = set_str(q, mode == TPG_MODE_R ? "TPG1 ROBUST  " : "TPG1 LOSSLESS  "); q = ui_dec(q, chk_rec_len); q = set_str(q, " BYTES"); *q = 0;
+    fb_set_color(UI_DIM, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, rows + 22u, c, TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_set_color(UI_FAINT, UI_BG);
+    fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, "X QR / GRID    A BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+}
+#endif
+
 COLD_TEXT static void chk_draw_qr(void)
 {
+#if TAU_TPG
+    if (chk_view) { chk_draw_tpg(); return; }
+#endif
     const uint32_t sz = chk_qr_len;
     uint32_t m = 354u / (sz + 8u);                                  /* module size in pixels: 4 down to 2 (version 38) */
     if (m > 4u) m = 4u;
@@ -597,6 +655,9 @@ COLD_TEXT static void chk_draw_qr(void)
     fb_text_clipped(PL_UI_TEXT_X, side + 20u, t, TS_1X, TS_1X, PL_UI_W - 32u);
     fb_set_color(UI_FAINT, UI_BG);
     fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, chk_s(CS_SHOT), TS_1X, TS_1X, PL_UI_W - 32u);
+#if TAU_TPG
+    fb_text_clipped(PL_UI_TEXT_X, FB_H - 36u, "X PIXEL GRID", TS_1X, TS_1X, PL_UI_W - 32u);
+#endif
 }
 
 /* One result row (also repainted alone once a second while a timed step counts down, so a run does not redraw the whole page:
@@ -748,6 +809,9 @@ COLD_TEXT static int chk_input(uint32_t edge)
         else if (edge & KEY_Y) chk_begin();
         else if (edge & (KEY_B | KEY_LEFT)) { chk_state = CK_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else {
+#if TAU_TPG
+        if (edge & KEY_X) { chk_view = (uint8_t)((chk_view + 1u) % 3u); set_dirty = 1u; return 1; }
+#endif
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { chk_state = CK_DONE; set_dirty = 1u; }
     }
     return 1;
@@ -1413,17 +1477,6 @@ COLD_TEXT static int mt_input(uint32_t edge)
 #include "pixgrid.h"
 enum { PG_IDLE = 0, PG_SHOW };
 static uint8_t pg_state, pg_pat, pg_swap;
-
-COLD_TEXT static int pg_mb_write(uint32_t word_addr, uint32_t data)
-{
-    REG(R_SDR_ADDR) = word_addr; REG(R_SDR_DATA) = data;
-    REG(R_SDR_CTRL) = 0x3Fu;
-    uint32_t t = cycles();
-    while ((uint32_t)(cycles() - t) < 128u) { }
-    while (REG(R_SDR_STATUS) & 1u)
-        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return -1;
-    return 0;
-}
 
 COLD_TEXT static void pg_paint(void)
 {
