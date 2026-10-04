@@ -1181,6 +1181,18 @@ static uint32_t clk_max;                 /* largest jump seen, any time */
  * Cycles, not iterations: a wait iteration and a decode iteration are not the
  * same size, and comparing counts of them would prove nothing. */
 static uint32_t fl_idle_cyc, fl_io_cyc;    /* accumulating, this second     */
+#if TAU_DIAGNOSTIC
+/* Cymo C0 follow-up (B-589): where the non-decode CPU goes, MP3 main loop. Monotonic cycle totals (never reset; the Check window takes deltas, wrap-safe in u32
+ * for a 15 s window): MP3Decode, meters_feed, the whole push loop, ui_draw_dynamic, and the part of the push loop spent blocked on a full FIFO (= idle). */
+static uint32_t ld_t_dec, ld_t_feed, ld_t_push, ld_t_ui, ld_t_wait;
+#define LD_MARK(v)    uint32_t v = cycles()
+#define LD_ACC(v, A)  ((A) += cycles() - (v))
+#define LD_WAIT(d)    (ld_t_wait += (d))
+#else
+#define LD_MARK(v)    do {} while (0)
+#define LD_ACC(v, A)  do {} while (0)
+#define LD_WAIT(d)    do {} while (0)
+#endif
 static uint32_t fl_rate_hz;                /* mirrors fl.rate, declared later */
 static uint8_t  fl_bps_mirror;             /* mirrors fl.bps, declared later -- vu_master.inc's overlay needs it before fl exists */
 static uint8_t  fl_io_pct;
@@ -7675,9 +7687,9 @@ static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_
         do {
             poll_input();
             refill_pump();
-            if (abortable && reload_pending) { fl_idle_cyc += cycles() - t0; return 0u; }
+            if (abortable && reload_pending) { const uint32_t d = cycles() - t0; fl_idle_cyc += d; LD_WAIT(d); return 0u; }
         } while (PCM_FULL(REG(R_PCM_ST)));
-        fl_idle_cyc += cycles() - t0;
+        { const uint32_t d = cycles() - t0; fl_idle_cyc += d; LD_WAIT(d); }
     }
     REG(R_AUDIO) = pcm_pack(l, r);
     return 1u;
@@ -10124,7 +10136,9 @@ int main(void)
 
         unsigned char *inbuf = &ring[ring_rd];
         int before = bytesLeft;
+        LD_MARK(ld0);
         int err = MP3Decode(dec, &inbuf, &bytesLeft, pcm, 0);
+        LD_ACC(ld0, ld_t_dec);
         ring_rd += (uint32_t)(before - bytesLeft);
 
         if (err) {
@@ -10206,20 +10220,26 @@ int main(void)
         } else
 #endif
         {
+        LD_MARK(ld1);
         meters_feed(pcm, n, stereo);
+        LD_ACC(ld1, ld_t_feed);
 
+        LD_MARK(ld2);
         for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
             int32_t l = pcm[i];
             int32_t r = stereo ? pcm[i + 1] : l;
             if (!cymo_push(l, r, 1u)) goto next_outer;   /* volume, fade, FIFO wait, write (C1); aborts on a pending reload */
         }
+        LD_ACC(ld2, ld_t_push);
         }
 
         frames++;
         st0 |= (1u << 3);
         REG(R_STAT0) = st0;
 
+        LD_MARK(ld3);
         if (!ui_dump_mode) ui_draw_dynamic();
+        LD_ACC(ld3, ld_t_ui);
 
 next_outer: ;
     }

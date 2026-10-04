@@ -784,3 +784,4 @@ When delegating, write the subagent prompt to minimize its cost and the tokens i
 - 2026-10-04 (Claude): firmware (B-587). The Subband hardware handoff is pipelined (start/finish): the CPU overlapped the unit's ~4,400-clock compute with the next slot's software DCT instead of polling; host-proven identical PCM, silence for one slot on a hardware timeout; DEV 88 packaged, NOT installed, expected -8 points of CPU, unmeasured.
 - 2026-10-04 (Claude): analysis (B-588). DEV 88 measured: pipelined Subband handoff cut CPU busy 55% to 47% (Subband 20% to 12%, handoff 11% to 3%), as predicted; no underruns; listening pass still pending.
 - 2026-10-04 (Claude): owner confirmed DEV 88 (pipelined Subband handoff) sounds clean all round (B-588).
+- 2026-10-04 (Claude): firmware (B-589). Cymo C0 follow-up: SR_T_LOAD2 (decode / meters_feed / push / UI cycle split of the MP3 loop) in the Check QR, Diagnostic Build only; DEV 89 packaged, NOT installed.
