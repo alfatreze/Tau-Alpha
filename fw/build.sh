@@ -194,6 +194,10 @@ if [[ -n "${TAU_BUILD_OUT:-}" ]]; then OUT="$TAU_BUILD_OUT/$TARGET"; fi
 # A specialised target may redirect OUT away from the release Assets folder.
 # Create it after target selection so objcopy never fails on a missing staging
 # directory (the first sdram-diag build exposed the old ordering).
+# HEAP_MIN_OVERRIDE=<bytes> replaces the per-target policy floor above (B-601): the gap is unused RAM (B-565), so an experimental build that is a little under the policy margin
+# (a Diagnostic Build with the tempo stretcher, 1.9 KB against the 2 KB floor) can be packaged on purpose. The hard link minimum still applies. Never used by release builds.
+HEAP_MIN="${HEAP_MIN_OVERRIDE:-$HEAP_MIN}"
+
 mkdir -p "$OUT"
 
 # Compile status is checked EXPLICITLY. This used to be
