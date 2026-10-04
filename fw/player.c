@@ -7695,6 +7695,24 @@ static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_
     return 1u;
 }
 
+/* Cymo C0 follow-up (B-592): the MP3 loop's burst push (fw/pcm_push.h pcm_push_pairs, host-tested against the per-pair path): one status read per burst instead of one per
+ * pair. The hooks are the same hardware accesses cymo_push() makes; the wait is counted as idle exactly as before. FLAC and the tempo funnel still use cymo_push(). */
+static uint32_t cpb_t0;
+static inline __attribute__((always_inline)) uint32_t cpb_rd(void)  { return REG(R_PCM_ST); }
+static inline __attribute__((always_inline)) void     cpb_wr(uint32_t w) { REG(R_AUDIO) = w; }
+static inline __attribute__((always_inline)) void     cpb_wb(void)  { cpb_t0 = cycles(); }
+static inline __attribute__((always_inline)) void     cpb_we(void)  { const uint32_t d = cycles() - cpb_t0; fl_idle_cyc += d; LD_WAIT(d); }
+static inline __attribute__((always_inline)) int      cpb_spin(void) { poll_input(); refill_pump(); return reload_pending ? 1 : 0; }
+static inline __attribute__((always_inline)) void     cpb_note(uint32_t no_room, uint32_t empty)
+{
+#if TAU_DIAGNOSTIC
+    ur_note(&ur_all, no_room, empty);   /* B-546: counts every stall, not just the first per flush */
+#else
+    (void)no_room; (void)empty;
+#endif
+}
+static const pcm_hooks_t cymo_hooks = { cpb_rd, cpb_wr, cpb_wb, cpb_we, cpb_spin, cpb_note };
+
 #if TAU_TEMPO
 /* Cymo C7 T2 (B-558): the tempo funnel (fw/tempo_core.h) wired to the player. The staging ring is the PSRAM window at +6 MiB (planar, 64 KB a channel; the map is in
  * docs/features/CYMO_TEMPO_INTEGRATION.md section 4: the library image, queue and dead-track bitmap, the cold image and the Check scratch are elsewhere). Output pairs go through
@@ -10225,11 +10243,8 @@ int main(void)
         LD_ACC(ld1, ld_t_feed);
 
         LD_MARK(ld2);
-        for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
-            int32_t l = pcm[i];
-            int32_t r = stereo ? pcm[i + 1] : l;
-            if (!cymo_push(l, r, 1u)) goto next_outer;   /* volume, fade, FIFO wait, write (C1); aborts on a pending reload */
-        }
+        if (!pcm_push_pairs(&cymo_hooks, pcm, (uint32_t)(stereo ? n / 2 : n), (uint32_t)stereo, vol_gain, &fade_left, FADE_SAMPLES))
+            goto next_outer;                         /* volume, fade, FIFO wait, write (C1, burst form B-592); aborts on a pending reload */
         LD_ACC(ld2, ld_t_push);
         }
 
