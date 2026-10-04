@@ -101,12 +101,16 @@
 #define R_CLUT_IDX  0x800000C8u   /* Phase F B8: sticky CLUT index (W), 0-255 */
 #define R_DBG_MARK  0x800000D0u   /* B-186: CPU-side checkpoint, read live by TAU_ISSP's DBGM probe -- see fw/suite.inc's bt_crumb(). Harmless write if TAU_ISSP isn't built. */
 #define R_CLUT_DATA 0x800000CCu   /* Phase F B8: CLUT entry at that index (W), RGB565; index auto-increments */
-/* B-570: the CLUT write path in every bitstream built so far stores an entry one slot ABOVE the index it was issued at: mp3_soc.v raises
- * a one-cycle write pulse and advances clut_idx on the same edge while clut_waddr follows clut_idx, so the pulse is seen after the index
- * has moved on. A load that starts at R_CLUT_IDX = 0 therefore lands entry n in slot n + 1 (entry 255 in slot 0): every TIM1 cover and
- * meter preview was drawn with its palette shifted by one. Starting at 255 puts entry 0 in slot 0. 0 once the RTL registers the write
- * address with the pulse (then bump CORE_VERSION and gate this on it); sim/test_clut_contract.py fails if the two ever disagree. */
-#define CLUT_START_IDX 255u
+/* B-570/B-575: bitstreams up to cymo-feed-b527 store a CLUT entry one slot ABOVE the index it was issued at (mp3_soc.v raised the write
+ * pulse and advanced clut_idx on the same edge while clut_waddr followed clut_idx), so a load starting at R_CLUT_IDX = 0 landed entry n in
+ * slot n + 1 and every TIM1 cover and meter preview was drawn with its palette shifted by one (B-569). Starting at 255 compensates. From
+ * B-575 the RTL registers the address with the pulse (tau_clut_wr.sv) and the start must be 0. The two cannot be told apart by a version
+ * number without pairing mistakes black-screening a core (B-130, B-353), and a wrong guess here only shifts colours, so the firmware PROBES
+ * once (clut_probe(), fw/blit_probe.inc, run from blit_probe_ensure()): load a known CLUT, CLUT-blit one pixel, read it back. Until the
+ * probe has run, and if it cannot tell, the legacy 255 is used. sim/test_clut_contract.py and the two host models (CLUT_SKEW 0 and 1) hold
+ * the pieces together. */
+static uint8_t clut_start_idx_v = 255u;
+#define CLUT_START_IDX ((uint32_t)clut_start_idx_v)
 #define R_RC_IDX    0x800000D4u   /* B11: corner-cut LUT entry select (W), 0-15 -- see fw/rc_lut.h */
 #define R_RC_DATA   0x800000D8u   /* B11: corner-cut LUT entry value (W), 0-31 (5 bits) at the index above */
 #define R_SPEC_IDX  0x800000DCu   /* B-263: spectrum bank -- write the band index 0..15 */

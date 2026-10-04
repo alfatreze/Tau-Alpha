@@ -38,9 +38,12 @@
 #define R_CLUT_DATA 0x800000CCu
 #define R_DBUF_CPU  0x80000118u
 #define R_DBUF_DISP 0x8000011Cu
-#ifndef CLUT_START_IDX
-#define CLUT_START_IDX 255u
-#endif
+#define R_SDR_ADDR   0x80000074u
+#define R_SDR_DATA   0x80000078u
+#define R_SDR_CTRL   0x8000007Cu
+#define R_SDR_RDATA  0x80000080u
+#define R_SDR_STATUS 0x80000084u
+#define CLK_HZ 66666667u
 #ifndef CLUT_SKEW
 #define CLUT_SKEW 1u
 #endif
@@ -57,6 +60,7 @@ static uint16_t mem[2u * DBUF_BASE1_W];
 static uint32_t r_fb_addr, r_fb_size, r_fb_color, go_val, go_pending, r_cpu, r_disp;
 static uint32_t blt_field[8], blt_idx, clut_idx, clut_data_dummy, blt_idx_dummy, scratch;
 static uint16_t clut[256];
+static uint32_t mb[5];                                    /* SDRAM mailbox: addr, data, ctrl, rdata, status */
 typedef struct { int kind; uint32_t a, b, c, d, e; } cmd_t;       /* RECT: x,y,w,h,colour   CBLIT: addr,size,color */
 static cmd_t q[4096];
 static int qn;
@@ -97,6 +101,18 @@ static uint32_t *reg_ptr(uint32_t a)
     case R_CLUT_DATA: { uint32_t slot = (clut_idx + CLUT_SKEW) & 255u; clut_idx = (clut_idx + 1u) & 255u; scratch = 0; (void)slot;
                         /* the stored value lands in `scratch`; applied at the next access (below) */
                         clut_pending_slot = slot; return &scratch; }
+    case R_SDR_ADDR: return &mb[0];
+    case R_SDR_DATA: return &mb[1];
+    case R_SDR_CTRL: return &mb[2];
+    case R_SDR_STATUS:
+    case R_SDR_RDATA:
+        if (mb[2]) {                                                            /* the mailbox: a plain word access, not queued */
+            const uint32_t addr = mb[0];
+            if (mb[2] & 2u) { mem[addr] = (uint16_t)mb[1]; mem[addr + 1u] = (uint16_t)(mb[1] >> 16); }
+            else mb[3] = ((uint32_t)mem[addr + 1u] << 16) | mem[addr];
+            mb[4] = 0; mb[2] = 0;
+        }
+        return a == R_SDR_RDATA ? &mb[3] : &mb[4];
     case R_DBUF_CPU: return &r_cpu;
     case R_DBUF_DISP: return &r_disp;
     }
@@ -111,7 +127,9 @@ static void clut_flush(void) { if (clut_pending_slot != 0xFFFFFFFFu) { clut[clut
 #define DBUF_READY() 1
 #define BLIT_READY() 1
 #define cold_ready() 1
-static void blit_probe_ensure(void) {}
+static void blit_probe_ensure(void);
+static uint32_t cyc;
+static uint32_t cycles(void) { cyc += 100u; return cyc; }
 static uint32_t fb_color_shadow;
 static void fb_wait(void) { process_go(); clut_flush(); while (qn >= FIFO_DEPTH) drain(1); }
 static void fb_fence(void) { process_go(); clut_flush(); drain(qn); }
@@ -124,6 +142,12 @@ static void fb_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 }
 /* ---- the real firmware code under test ---- */
 #include "thumb_fw.inc"
+/* the real bitstream probe runs from blit_probe_ensure() (fw/blit_probe.inc); NO_PROBE keeps the legacy start for the negative test */
+#ifdef NO_PROBE
+static void blit_probe_ensure(void) {}
+#else
+static void blit_probe_ensure(void) { if (!clut_probed) clut_probe(); }
+#endif
 
 static uint8_t thumb_flat_ready_dummy;
 static int tests, fails;
@@ -135,6 +159,7 @@ int main(void)
     const uint32_t vizs[] = { VIZ_WINAMP_SCOPE, VIZ_WINAMP_BARS, VIZ_CHLADNI, VIZ_BARS, VIZ_WATER, VIZ_SCOPE, VIZ_WAVE, VIZ_VU, VIZ_DOTS, VIZ_LED };
     for (uint32_t disp = 0; disp < 2u; disp++) {
         memset(mem, 0, sizeof mem); memset(clut, 0, sizeof clut); memset(blt_field, 0, sizeof blt_field);
+        clut_start_idx_v = 255u; clut_probed = 0u;
         qn = 0; thumb_flat_ready = 0u; r_cpu = disp; r_disp = disp;
         const uint32_t base = disp ? DBUF_BASE1_W : 0u;
         int bad_prev = 0;
@@ -156,6 +181,7 @@ int main(void)
         char m[96]; snprintf(m, sizeof m, "displayed buffer %u: sticky bases are back to 0,0 and the CPU buffer is untouched", disp);
         check(blt_field[0] == 0 && blt_field[2] == 0 && r_cpu == disp, m, (int)blt_field[2], (int)r_cpu);
     }
+    printf("probe: CLUT start index chosen = %u (CLUT_SKEW %u)\n", (unsigned)clut_start_idx_v, (unsigned)CLUT_SKEW);
     printf(fails ? "%d of %d FAILED\n" : "PASSED (%d checks, %d failures)\n", fails ? fails : tests, fails ? tests : fails);
     return fails ? 1 : 0;
 }

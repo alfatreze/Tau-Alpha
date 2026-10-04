@@ -942,12 +942,20 @@ module mp3_soc #(
     // matching how mp3_fb.sv's own clut_wr port is meant to be driven -- a
     // single dDAT_MOSI write should write exactly one CLUT entry, not hold the
     // write-enable high across whatever the next unrelated MMIO write is.
-    reg  [7:0]  clut_idx = 8'd0;
-    reg         clut_wr_r = 1'b0;
-    reg  [15:0] clut_wdata_r = 16'd0;
-    assign clut_wr    = (BLIT_ENABLE != 0) ? clut_wr_r    : 1'b0;
-    assign clut_waddr = clut_idx;
-    assign clut_wdata = clut_wdata_r;
+    // B-575: the index/pulse/address logic lives in tau_clut_wr (own testbench): the write address is registered WITH the pulse, so an
+    // entry lands in the slot the index named when it was written. The inline version let the address follow the index register, which had
+    // already advanced when the pulse was seen: every entry landed one slot too high (B-569).
+    reg         clut_idx_we = 1'b0, clut_data_we = 1'b0;
+    reg  [7:0]  clut_idx_d = 8'd0;
+    reg  [15:0] clut_data_d = 16'd0;
+    wire        clut_wr_m;
+    wire [7:0]  clut_waddr_m;
+    wire [15:0] clut_wdata_m;
+    tau_clut_wr u_clut_wr (.clk(clk), .idx_we(clut_idx_we), .idx_d(clut_idx_d), .data_we(clut_data_we), .data_d(clut_data_d),
+                           .wr(clut_wr_m), .waddr(clut_waddr_m), .wdata(clut_wdata_m));
+    assign clut_wr    = (BLIT_ENABLE != 0) ? clut_wr_m : 1'b0;
+    assign clut_waddr = clut_waddr_m;
+    assign clut_wdata = clut_wdata_m;
 
     // B11: corner-cut LUT. 16 entries x 5 bits as one packed register (plain flops, no M10K --
     // matches the table's own "0 M10K" budget); R_RC_IDX selects an entry, R_RC_DATA writes it
@@ -1219,7 +1227,7 @@ module mp3_soc #(
         dt_wren     <= 1'b0;
         set_wr      <= 1'b0;
         sdram_start <= 1'b0;
-        clut_wr_r   <= 1'b0;
+        clut_idx_we <= 1'b0; clut_data_we <= 1'b0;
 
         if (rst) begin
             status0 <= 32'd0; status1 <= 32'd0;
@@ -1323,12 +1331,8 @@ module mp3_soc #(
                     // at SRC_BASE instead of landing on an unused index.
                     blt_idx <= (blt_idx == 3'd6) ? 3'd0 : blt_idx + 3'd1;
                 end
-                R_CLUT_IDX:  clut_idx <= dDAT_MOSI[7:0];
-                R_CLUT_DATA: begin
-                    clut_wdata_r <= dDAT_MOSI[15:0];
-                    clut_wr_r    <= 1'b1;
-                    clut_idx     <= clut_idx + 8'd1;   // wraps 255->0 naturally (8-bit)
-                end
+                R_CLUT_IDX:  begin clut_idx_d <= dDAT_MOSI[7:0]; clut_idx_we <= 1'b1; end
+                R_CLUT_DATA: begin clut_data_d <= dDAT_MOSI[15:0]; clut_data_we <= 1'b1; end   // index advance and wrap: tau_clut_wr
                 R_DBG_MARK: dbg_mark <= dDAT_MOSI[7:0];
                 R_RC_IDX:  rc_idx <= dDAT_MOSI[3:0];
                 R_RC_DATA: begin

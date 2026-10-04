@@ -1,4 +1,4 @@
-.PHONY: test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-clut-wr test-rtl-clut-wr-mutation test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -58,6 +58,7 @@ test-host:
 	$(PYTHON) sim/test_helios_beam.py
 	$(PYTHON) sim/test_chladni_module.py
 	$(PYTHON) sim/test_tau_timg.py
+	CLUT_FIXED=1 $(PYTHON) sim/test_tau_timg.py
 	$(PYTHON) sim/test_clut_contract.py
 	$(PYTHON) sim/test_thumb_dbuf.py
 	$(PYTHON) sim/test_splash_asset.py
@@ -84,7 +85,7 @@ test-host:
 	$(PYTHON) sim/test_art_decode.py
 	$(PYTHON) tools/check_art_load_order.py --check
 
-test-rtl: test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -265,6 +266,19 @@ test-rtl-wave-meter: $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp
 $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp: sim/tb_tau_wave_meter.v src/fpga/core/tau_wave_meter.sv | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
 
+# B-575: the CLUT write port (R_CLUT_IDX / R_CLUT_DATA) as a testable module; the mutant (the old inline behaviour) must FAIL.
+$(RTL_BUILD_DIR)/tb_tau_clut_wr.vvp: sim/tb_tau_clut_wr.v src/fpga/core/tau_clut_wr.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ sim/tb_tau_clut_wr.v src/fpga/core/tau_clut_wr.sv
+
+$(RTL_BUILD_DIR)/tb_tau_clut_wr_mut.vvp: sim/tb_tau_clut_wr.v src/fpga/core/tau_clut_wr.sv | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -Ptb_tau_clut_wr.BUG=1 -o $@ sim/tb_tau_clut_wr.v src/fpga/core/tau_clut_wr.sv
+
+test-rtl-clut-wr: $(RTL_BUILD_DIR)/tb_tau_clut_wr.vvp
+	$(VVP) $< | tee $(RTL_BUILD_DIR)/clut_wr.log; grep -q '^PASSED' $(RTL_BUILD_DIR)/clut_wr.log
+
+test-rtl-clut-wr-mutation: $(RTL_BUILD_DIR)/tb_tau_clut_wr_mut.vvp
+	@$(VVP) $< > $(RTL_BUILD_DIR)/clut_wr_mut.log; if grep -q '^FAILED' $(RTL_BUILD_DIR)/clut_wr_mut.log; then echo "mutant (old inline CLUT address) caught"; else echo "MUTANT NOT CAUGHT"; cat $(RTL_BUILD_DIR)/clut_wr_mut.log; exit 1; fi
+
 test-rtl-vs-counter: $(RTL_BUILD_DIR)/tb_tau_vs_counter.vvp
 	$(VVP) $<
 
@@ -348,7 +362,7 @@ test-rtl-sdram-wb-return: $(RTL_BUILD_DIR)/tb_tau_sdram_wb_return_regression.vvp
 	$(VVP) $<
 
 # ---- PSRAM (P0/P1): idle-pin static check, controller, bus regression, mutations
-PSRAM_SRC = src/fpga/core/tau_psram_async.sv src/fpga/core/tau_psram_bus.sv sim/psram_chip_model.v
+PSRAM_SRC = src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_psram_async.sv src/fpga/core/tau_psram_bus.sv sim/psram_chip_model.v
 
 test-rtl-psram-idle:
 	$(PYTHON) tools/check_psram_idle.py
@@ -440,6 +454,7 @@ rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_bridge_mux src/fpga/core/tau_sdram_bridge_mux.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cdc_gray_ctr src/fpga/core/tau_cdc_gray_ctr.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cdc_sync1 src/fpga/core/tau_cdc_sync1.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_clut_wr src/fpga/core/tau_clut_wr.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cdc_gray_bus src/fpga/core/tau_cdc_gray_bus.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_spec_bank src/fpga/core/tau_spec_bank.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_wave_meter src/fpga/core/tau_wave_meter.sv
