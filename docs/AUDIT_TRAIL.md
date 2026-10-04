@@ -13905,3 +13905,7 @@ Owner asked to merge `clut-rtl` into `main` while the fit was still running (mer
 ## B-579: JPEG fallback (PSRAM work buffers, B-567/B-575) confirmed on a Pocket
 
 Owner added the Avalon album (14 MP3s, about 195 kbps 44.1 kHz, embedded covers, no `tau-art` files) to `TAU_DEV_86`; the library index was rebuilt with `tools/tau_library.py build --core alfatreze.TAU_DEV_86 --card /Volumes/Pock --playlists` (114 tracks, 9 albums, 7 artists; old index backed up; the build writes only `tau-library.tdb`, it creates no cover variants). **Owner result: the embedded JPEG covers load fine with correct colours, `04 Murphy's Ghost` (apostrophe in the filename) plays, track changes are a quick swap; no noticeable load-time difference against before** (decode time not captured from the Info page). Closes the Pocket test B-575 left owed.
+
+## B-580: v0.6.0-alpha.2 release zips rebuilt from merged `main`
+
+`tools/make_release.py --rbf work/diagnostics/clut-rtl-b576/ap_core_s2.rbf --rbf-sha256 a44c9f99...3da4 --test`: both ROMs built (192 KB link, rev 26 interlock), `make test-host` passed, both zips checked (15 files each): `alfatreze.TAU_0.6.0_2026-10-04.zip` (SHA-256 `5d2d0553...1442`) and `alfatreze.TAU_DIAGNOSTIC_0.6.0_2026-10-04.zip` (`9ab494d3...bf1a`). The normal core's bitstream is the same `ed977c71...` already running as DEV 86. Supersedes the earlier stale alpha.2 zips (FLAC Rice + cymo-feed bitstream, pre-CLUT). Not tagged, pushed, published or smoke-tested; the normal core still needs a boot on a Pocket.
