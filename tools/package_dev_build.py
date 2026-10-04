@@ -130,7 +130,7 @@ def main():
         desc, out = "TAU developer build: settings, Info page and diagnostic tests", root / "work/diagnostics/library-diagnostic/pocket"
     elif args.barcode is not None:
         nn = f"{args.barcode:02d}"
-        platform, core_id = f"tau_devbarcode{nn}", f"alfatreze.TAU_DEV_BARCODE_{nn}"   # platform id limit: 15 characters
+        platform, core_id = f"tau_devbar{nn}", f"alfatreze.TAU_DEV_BARCODE_{nn}"   # platform id limit: 15 characters
         short, title, label = f"TAU_DEV_BARCODE_{nn}", f"TAU DEV BARCODE {nn}", f"barcode-study test build {nn}"
         out = root / f"work/diagnostics/tau-dev-barcode-{nn}/pocket"
     elif args.semver:
