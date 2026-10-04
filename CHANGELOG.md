@@ -18,6 +18,10 @@ What changed in each release, newest first.
 - **Audio hand-off fix (bitstream).** The resampler's input hand-off no longer repeats or drops samples
   (hardware-confirmed); the resampler is on by default only in the Diagnostic Build, for 44.1 kHz files at
   1.00x.
+- **Cover and splash colours fixed.** Cover art and the meter previews had their palette shifted by one
+  slot (a hardware write-address skew); the hardware now writes the right slot and the firmware detects
+  which behaviour it is on. The boot splash uses a 256-colour palette. Meter previews now draw correctly in
+  both display buffers, and the embedded-JPEG cover fallback uses less on-chip RAM.
 - **Known limits.** `Track changes` still fails in the Diagnostic Build's Check (a test issue). Audiobook
   tempo is built but not in this release.
 
