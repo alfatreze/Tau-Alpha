@@ -1083,7 +1083,7 @@ COLD_TEXT static void mw_sample(void)
     if (under_d > 255u) under_d = 255u;
     uint32_t yield_d = yield1 - mw_yield0;
     if (yield_d > 255u) yield_d = 255u;
-    uint8_t t[9] = { (uint8_t)viz_order[mw_idx], (uint8_t)busy_permille, (uint8_t)(busy_permille >> 8),
+    uint8_t t[9] = { (uint8_t)VIZ_LIST(mw_idx), (uint8_t)busy_permille, (uint8_t)(busy_permille >> 8),
                      (uint8_t)stall_ms, (uint8_t)(stall_ms >> 8), (uint8_t)ui_cpu_pct(),
                      (uint8_t)under_d, (uint8_t)yield_d, mw_audio_full };
     sr_tlv(&mw_rec, SR_T_METERSWEEP, t, 9);
@@ -1128,8 +1128,8 @@ COLD_TEXT static void mw_advance(void)
     if (!track_hz || paused || stopped) mw_audio_full = 0u;
     if ((int32_t)(cycles() - mw_at) < 0) return;                 /* still running this meter's window */
     mw_sample();
-    if (++mw_idx >= VIZ_SEL_COUNT) { mw_finish(); mw_state = mw_qr_len ? MW_QR : MW_DONE; set_dirty = 1u; return; }
-    viz_mode = viz_order[mw_idx]; bars_layout = 0u;
+    if (++mw_idx >= VIZ_N) { mw_finish(); mw_state = mw_qr_len ? MW_QR : MW_DONE; set_dirty = 1u; return; }
+    viz_mode = VIZ_LIST(mw_idx); bars_layout = 0u;
     mw_window_reset();
     set_dirty = 1u;
 }
@@ -1138,7 +1138,7 @@ COLD_TEXT static void mw_begin(void)
 {
     if (!track_hz || paused || stopped) { mw_state = MW_REFUSED; set_dirty = 1u; return; }
     mw_saved_mode = (uint8_t)viz_mode; mw_saved_layout = bars_layout; mw_saved_fullscreen = ui_fullscreen;
-    mw_idx = 0u; viz_mode = viz_order[0]; bars_layout = 0u;
+    mw_idx = 0u; viz_mode = VIZ_LIST(0); bars_layout = 0u;
     sr_init(&mw_rec, CHK_REC, CHK_REC_CAP, 7u);
     uint32_t fwv = ((uint32_t)(APP_VER[0] - '0') << 16) | ((uint32_t)(APP_VER[2] - '0') << 8) | (uint32_t)(APP_VER[4] - '0');
     uint32_t build[4] = { fwv, REG(R_VERSION), 0u, 0u };
@@ -1229,7 +1229,7 @@ COLD_TEXT static void mw_draw(void)
         return;
     }
     char ln[40], *q = ln;
-    q = set_str(q, "Meter "); q = ui_dec(q, mw_idx + (mw_state == MW_DONE ? 0u : 1u)); q = set_str(q, " / "); q = ui_dec(q, VIZ_SEL_COUNT); *q = 0;
+    q = set_str(q, "Meter "); q = ui_dec(q, mw_idx + (mw_state == MW_DONE ? 0u : 1u)); q = set_str(q, " / "); q = ui_dec(q, VIZ_N); *q = 0;
     fb_set_color(UI_WHITE, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
     if (mw_state == MW_RUN) {

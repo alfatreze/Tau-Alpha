@@ -155,8 +155,14 @@
  * Off by default -- byte-identical to the unmodified decoder; no build target defines this yet (no
  * Quartus fit or hardware test exists for TAU_LPC yet, section 7 item 5). fw/flac_lpc_hw.inc implements
  * fw/flac_lpc_hw.h, which flac.c (a separate translation unit) declares extern. */
+#ifndef PACKS_ONLY
+#define PACKS_ONLY 0  /* the five pack-capable meters are NOT compiled in: they exist only as packs, and the Settings list is built from the pack directory (METER_PACKS.md); needs TAU_PACKS */
+#endif
 #ifndef TAU_PACKS
 #define TAU_PACKS 0   /* loadable meter packs (fw/meter_packs.inc, docs/features/meters/METER_PACKS.md); opt-in, needs the 192 KB link */
+#endif
+#if PACKS_ONLY && !TAU_PACKS
+#error "PACKS_ONLY needs TAU_PACKS"
 #endif
 #ifndef TAU_LPC_FW
 #define TAU_LPC_FW 0
@@ -1657,9 +1663,19 @@ static inline uint32_t thumb_slot(uint32_t v) { return v; }
  * slot VIZ_RETIRED_MIRROR is now how the mirrored layout is SAVED (settings hold viz_mode as an index, so a saved MIRRORED BARS keeps
  * meaning "mirrored"): the setting is written as VIZ_RETIRED_MIRROR and read back as VIZ_BARS + layout 1. */
 static uint8_t bars_layout;
-static inline uint32_t viz_sel_to_mode(uint32_t row)  { return viz_order[row < VIZ_SEL_COUNT ? row : 0u]; }
+#if PACKS_ONLY
+/* The list the user sees is viz_order[] minus the meters that exist only as packs and whose pack is not valid: rebuilt by viz_list_rebuild() (fw/meter_packs.inc) after the packs are installed. */
+static uint8_t viz_list[VIZ_SEL_COUNT];
+static uint8_t viz_n;
+#define VIZ_LIST(i) viz_list[i]
+#define VIZ_N       ((uint32_t)viz_n)
+#else
+#define VIZ_LIST(i) viz_order[i]
+#define VIZ_N       VIZ_SEL_COUNT
+#endif
+static inline uint32_t viz_sel_to_mode(uint32_t row)  { return VIZ_LIST(row < VIZ_N ? row : 0u); }
 static inline uint32_t viz_mode_to_sel(uint32_t mode) {
-    for (uint32_t i = 0; i < VIZ_SEL_COUNT; i++) if (viz_order[i] == mode) return i;
+    for (uint32_t i = 0; i < VIZ_N; i++) if (VIZ_LIST(i) == mode) return i;
     return 0u;
 }
 static inline int viz_selectable(uint32_t mode) { for (uint32_t i = 0; i < VIZ_SEL_COUNT; i++) if (viz_order[i] == mode) return 1; return 0; }
@@ -4147,10 +4163,12 @@ static void viz_bars_tick(const mtr_in_t *in)
  * logic -- one source of truth for both places. Explicit (x0, y, w, h)
  * rather than reading UI_MARGIN/UI_WAVE_Y/ww/UI_WAVE_H directly, precisely
  * so the Configure page can pin the preview wherever its own layout wants. */
+#define SCOPE_NOTE(ok, px, py) do { if (ok) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check(); dbg_pixel_log((px), (py)); } while (0)
+#if !PACKS_ONLY
 #include "winamp_bars.inc"   /* wviz_bars_tick and its state: a separate file so the loadable pack (fw/meter_pack_winamp_bars.c) compiles the same code */
 
-#define SCOPE_NOTE(ok, px, py) do { if (ok) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check(); dbg_pixel_log((px), (py)); } while (0)
 #include "winamp_scope.inc"   /* wviz_scope_tick and its state: a separate file so the loadable pack (fw/meter_pack_winamp_scope.c) compiles the same code */
+#endif
 
 static void ui_draw_dynamic(void);
 /* fw/cold.inc defines both of these (B-199..B-201, PHASE_F_SPEC.md sections 4.2-4.3) -- forward-
@@ -4668,7 +4686,12 @@ static void ov_frame(const char *title, const char *right, const char *hint)
     ov_hint_repaint(hint);
 }
 
+#if !PACKS_ONLY
 #include "chladni.inc"
+#else
+#include "chl_mailbox.inc"      /* the host side of the Chladni pack still needs the mailbox */
+static uint8_t chl_ok, chl_swap; static uint32_t chl_drawn_n, chl_skipped_n;   /* Info > CHLADNI: the pack does not publish these */
+#endif
 /* The MASTER VU info overlay's readout (mtr_info_t, fw/meter.h): measured here, in the host, so the meter itself never reads decoder counters or the SDRAM busy counter. Once per
  * second (ui_sec), and only while the meter shows its overlay: the DEC figure reads and resets a dedicated third accumulator set (mp3_*_vum_cyc / flac_*_vum_cyc), which would
  * otherwise keep growing. 0xFF = not available on this build. See the long note on the overlay in fw/vu_master.inc's history (B-347) for what DEC does and does not cover. */
@@ -4717,9 +4740,16 @@ COLD_FN3 static void vum_info_refresh(void)
     }
 #endif
 }
+#if !PACKS_ONLY
 #include "vu_master.inc"
+#endif
 #define LW_STATS 1  /* Layered Wave keeps its draw-cost statistics (Info > LW COST, fw/layered_wave.inc); host harnesses leave this undefined */
+#if !PACKS_ONLY
 #include "layered_wave.inc"
+#else
+static uint32_t lw_t_cpu, lw_t_unw, lw_cmd_last; static uint8_t lw_stride;   /* Info LW COST / METER DRAW: filled from the pack's stats words (fw/meter_packs.inc) */
+COLD_FN3 static void lw_retry(void) { }
+#endif
 
 #if TAU_PACKS
 static int packs_have(uint32_t meter_id);                                   /* fw/meter_packs.inc: a valid pack is installed for this meter */
@@ -4809,14 +4839,21 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
     fig_clip_on = ((flags & HM_CLIP) && !comp) ? 1u : 0u;
     uint32_t drew = 0u;
     switch (viz) {
-#if TAU_PACKS
+#if PACKS_ONLY
+    case VIZ_WINAMP_SCOPE: if (packs_have(VIZ_WINAMP_SCOPE)) { packs_grad = (flags & HM_GRAD) ? 1u : 0u; (void)packs_tick(VIZ_WINAMP_SCOPE, in); } break;
+    case VIZ_WINAMP_BARS:  if (packs_have(VIZ_WINAMP_BARS)) (void)packs_tick(VIZ_WINAMP_BARS, in); break;
+    case VIZ_VU_MASTER:    vum_info_refresh(); if (packs_have(VIZ_VU_MASTER)) (void)packs_tick(VIZ_VU_MASTER, in); break;
+    case VIZ_CHLADNI:      drew = packs_have(VIZ_CHLADNI) ? packs_tick(VIZ_CHLADNI, in) : 0u; break;
+    case VIZ_LAYERED_WAVE: drew = packs_have(VIZ_LAYERED_WAVE) ? packs_tick(VIZ_LAYERED_WAVE, in) : 0u; break;
+#elif TAU_PACKS
     case VIZ_WINAMP_SCOPE: if (packs_have(VIZ_WINAMP_SCOPE)) { packs_grad = (flags & HM_GRAD) ? 1u : 0u; (void)packs_tick(VIZ_WINAMP_SCOPE, in); } else wviz_scope_tick(in, (flags & HM_GRAD) ? 1 : 0); break;   /* the pack's trail/erase choice follows in->bg and the host's bg_blend, as the built-in's does */
     case VIZ_WINAMP_BARS:  if (packs_have(VIZ_WINAMP_BARS)) (void)packs_tick(VIZ_WINAMP_BARS, in); else wviz_bars_tick(in); break;   /* a valid pack replaces the built-in drawing */
 #else
     case VIZ_WINAMP_SCOPE: wviz_scope_tick(in, (flags & HM_GRAD) ? 1 : 0); break;
     case VIZ_WINAMP_BARS:  wviz_bars_tick(in); break;
 #endif
-    #if TAU_PACKS
+#if PACKS_ONLY
+#elif TAU_PACKS
     case VIZ_VU_MASTER:    vum_info_refresh(); if (packs_have(VIZ_VU_MASTER)) (void)packs_tick(VIZ_VU_MASTER, in); else vum_tick(in); break;
 #else
     case VIZ_VU_MASTER:    vum_info_refresh(); vum_tick(in); break;
@@ -4829,12 +4866,14 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
     case VIZ_WAVE:         viz_wave_tick(in); break;
     case VIZ_SCOPE:        viz_phase_tick(in); break;
     case VIZ_BARS:         viz_bars_tick(in); break;
-#if TAU_PACKS
+#if PACKS_ONLY
+#elif TAU_PACKS
     case VIZ_CHLADNI:      drew = packs_have(VIZ_CHLADNI) ? packs_tick(VIZ_CHLADNI, in) : (uint32_t)chladni_tick_box(in); break;   /* a valid pack replaces the built-in drawing */
 #else
     case VIZ_CHLADNI:      drew = (uint32_t)chladni_tick_box(in); break;
 #endif
-#if TAU_PACKS
+#if PACKS_ONLY
+#elif TAU_PACKS
     case VIZ_LAYERED_WAVE: drew = packs_have(VIZ_LAYERED_WAVE) ? packs_tick(VIZ_LAYERED_WAVE, in) : (uint32_t)lw_tick(in); break;   /* a valid pack replaces the built-in drawing */
 #else
     case VIZ_LAYERED_WAVE: drew = (uint32_t)lw_tick(in); break;
@@ -6456,7 +6495,7 @@ static void poll_input(void)
         /* Forward only. A reverse on Select+X existed and was dropped: nine
          * modes wrap in a handful of taps, and every Select combo the user has to
          * remember costs more than it saves. */
-        viz_mode = (uint8_t)viz_sel_to_mode((viz_mode_to_sel(viz_mode) + 1u) % VIZ_SEL_COUNT);
+        viz_mode = (uint8_t)viz_sel_to_mode((viz_mode_to_sel(viz_mode) + 1u) % VIZ_N);
         ui_wave_clear();                 /* modes do not share a screen layout */
         ui_wave_force = 1u;
         wviz_force = 1u;                 /* B-234: same reason -- Winamp Bars/Scope's own

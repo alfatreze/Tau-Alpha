@@ -115,9 +115,29 @@ COLD_FN3 static uint32_t packs_tick(uint32_t meter_id, const mtr_in_t *in)
     return r;
 }
 
+#if PACKS_ONLY
+/* The Settings meter list from the pack directory: every meter of viz_order[] except those that exist only as packs (mtr_pack_slot_of() >= 0) and have no valid pack on this card.
+ * Run once before anything shows the list (so the built-in meters work without the file) and again after the packs are installed. If the saved meter dropped out of the list
+ * (its pack is missing), the first meter of the list is used and the setting follows on the next save. */
+COLD_FN3 static void viz_list_rebuild(void)
+{
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < VIZ_SEL_COUNT; i++) {
+        const uint32_t id = viz_order[i];
+        if (mtr_pack_slot_of(id) >= 0 && !packs_have(id)) continue;
+        viz_list[n++] = (uint8_t)id;
+    }
+    viz_n = (uint8_t)n;
+    if (viz_mode != VIZ_BARS && viz_mode_to_sel(viz_mode) == 0u && viz_list[0] != viz_mode) viz_mode = viz_list[0];
+}
+#endif
+
 /* The one hot piece: called at boot right after cold_boot_load(), it only starts the real work if cold code (the PSRAM instruction window) is proven. */
 static void packs_boot_load(void)
 {
     packs_state = 2u; packs_err = PACKS_E_NOFETCH;
     if (cold_code_ok) packs_boot_load_cold();
+#if PACKS_ONLY
+    viz_list_rebuild();
+#endif
 }

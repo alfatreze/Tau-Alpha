@@ -33,6 +33,18 @@ def main():
     s_org = struct.unpack_from("<I", blob, 32)[0]
     if s_org != scratch: bad.append("a pack built with defaults is linked for scratch 0x%X, not 0x%X" % (s_org, scratch))
     if info["data"] + info["bss"] > size: bad.append("the Layered Wave pack's working state (%d B) does not fit the %d B scratch" % (info["data"] + info["bss"], size))
+    for m in pm.METER_IDS:
+        _, mi = pm.build(m, const("MTR_PACK_SLOT_BASE") + pm.SLOT[m] * 0x10000, ROOT / ("work/%s_abi.elf" % m))
+        if mi["data"] + mi["bss"] > size: bad.append("the %s pack's working state (%d B) does not fit the %d B scratch" % (m, mi["data"] + mi["bss"], size))
+    # PACKS_ONLY: the five meters must be absent from the firmware and the directory-built list present
+    r = subprocess.run(["bash", str(ROOT / "fw/build.sh"), "release"], capture_output=True, text=True, env=dict(env, PACKS_ONLY="1"), cwd=ROOT)
+    if r.returncode:
+        print(r.stdout[-1500:], r.stderr[-1500:]); return 1
+    sy2 = pm.symbols(ROOT / "fw/fw.elf")
+    for name in ("wviz_bars_tick", "wviz_scope_tick", "chladni_tick_box", "vum_tick", "lw_tick", "chl_render"):
+        if name in sy2: bad.append("a PACKS_ONLY firmware still contains %s" % name)
+    for name in ("viz_list", "viz_n"):
+        if name not in sy2: bad.append("a PACKS_ONLY firmware has no %s" % name)
     for b in bad: print("ABI MISMATCH: " + b)
     if not bad: print("packs ABI OK: scratch 0x%X (%d B used of %d), heap ends there, Layered Wave pack linked for it (%d B image)" % (scratch, info["data"] + info["bss"], size, info["load"]))
     return 1 if bad else 0

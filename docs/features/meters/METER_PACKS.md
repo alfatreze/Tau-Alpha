@@ -104,6 +104,10 @@ Slot 3 = MASTER VU (meter 15). Its framework violations were removed first: the 
 
 Slot 4 = Chladni (meter 14). The scratch grew from 1 KB at 0x27400 to 4 KB at 0x26800 (owner decision; Chladni's working state is 2,744 B) and the slots from 4 to 5. ABI 6 added the mailbox, engine-copy, yield and toast services. Host-verified equal to the built-in over four scenarios; **not yet run on a Pocket** (`TAU_DEV_METER_17`). The diagnostic-profile PACKS build now has a 2,320 B heap gap (floor 2,048 B). **Possible later improvements:** see B-612 in `docs/AUDIT_TRAIL.md` (Chladni state in the PSRAM slot, shared transient buffers, per-pack scratch sizing).
 
+## PACKS_ONLY: the list from the pack directory (2026-10-04, B-613)
+
+`PACKS_ONLY=1` (with `PACKS=1`) leaves the five pack meters out of the firmware; Settings > Meter lists only meters whose pack is valid (plus the always-built-in ones). Frees about 5.8 KB of hot RAM (diagnostic profile gap 2,320 to 8,112 B) and 21 KB of cold image. Parameters and presets are still firmware tables; shipping them inside a pack (so a meter can be card-only) is the next step. Test core `TAU_DEV_METER_18`, not yet run on a Pocket.
+
 ## What is still not done, and the real risks
 
 1. **A directory beyond Layered Wave.** Only meter id 16 has a slot and a pack source; the table in `fw/meter_pack.h` (`mtr_pack_slot_of`) and the pack TUs for the other modular meters are the next additions. The

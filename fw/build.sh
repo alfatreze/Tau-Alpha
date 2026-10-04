@@ -193,6 +193,9 @@ if [[ "${RAM_192K:-0}" == "1" && "$OUT" == "$ROOT/dist/Assets/tau/common" ]]; th
 if [[ "${PACKS:-0}" == "1" ]]; then
     if [[ "${RAM_192K:-0}" != "1" ]]; then echo "PACKS=1 needs RAM_192K=1 (the scratch lives in the 192 KB layout's heap gap)" >&2; exit 1; fi
     CFLAGS="$CFLAGS -Wl,--defsym=PACKS=1 -DTAU_PACKS=1"
+    # PACKS_ONLY=1 (default 0, opt-in, needs PACKS=1): the five pack-capable meters (Layered Wave, Winamp Bars, Winamp Scope, MASTER VU, Chladni) are not compiled into the firmware at all;
+    # they exist only as packs and the Settings meter list is built from the pack directory at boot. Frees their hot RAM and cold code; without the pack file those meters are not offered.
+    if [[ "${PACKS_ONLY:-0}" == "1" ]]; then CFLAGS="$CFLAGS -DPACKS_ONLY=1"; fi
 fi
 
 # A specialised target may redirect OUT away from the release Assets folder.

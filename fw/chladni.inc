@@ -56,28 +56,7 @@ static uint32_t chl_now_ms(void)
 }
 
 #ifndef MTR_PACK   /* as a pack the mailbox is the host's: chl_mb_write/chl_mb_read are macros onto the host table (fw/meter_pack_chladni.c) */
-/* One 32-bit mailbox transaction = two adjacent 16-bit SDRAM words. Returns 0 on success, -1 on timeout. */
-static int chl_mb_write(uint32_t word_addr, uint32_t data)
-{
-    REG(R_SDR_ADDR) = word_addr; REG(R_SDR_DATA) = data;
-    REG(R_SDR_CTRL) = 0x3Fu;                                   /* start, write, all four lanes: the pattern blit_probe() proved */
-    uint32_t t = cycles();
-    while ((uint32_t)(cycles() - t) < 128u) { }
-    while (REG(R_SDR_STATUS) & 1u)
-        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return -1;
-    return 0;
-}
-
-static int chl_mb_read(uint32_t word_addr, uint32_t *out)
-{
-    REG(R_SDR_ADDR) = word_addr; REG(R_SDR_CTRL) = 0x3Du;      /* start, read, all lanes */
-    uint32_t t = cycles();
-    while ((uint32_t)(cycles() - t) < 128u) { }
-    while (REG(R_SDR_STATUS) & 1u)
-        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return -1;
-    *out = REG(R_SDR_RDATA);
-    return 0;
-}
+#include "chl_mailbox.inc"
 #endif
 
 /* Known-answer probe. Write two DIFFERENT pixels (0x07E0 low half, 0xF800 high half) at the probe word, have the draw engine
