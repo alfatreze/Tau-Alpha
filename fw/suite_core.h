@@ -16,10 +16,15 @@
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
        SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK, SR_T_WVIZCFG,
-       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE, SR_T_DECPROF2, SR_T_HEAP };
+       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE, SR_T_DECPROF2, SR_T_HEAP, SR_T_LOAD };
 /* SR_T_HEAP (B-514, PHASE_F_SPEC.md section 4.1's other half): u32 x 2 -- peak heap bytes in use since boot, heap region size in bytes. The firmware's
  * _sbrk (fw/sysio.c) only ever grows, so heap_used() IS the high-water mark. Present on every Check run, like SR_T_STACK. A NEW tag (23) rather than a longer
  * SR_T_STACK so an older decoder skips it as unknown instead of misreading a 4-word stack record. */
+/* SR_T_LOAD (Cymo C0, 2026-10-04): u16 x 6 -- CPU load over the Check audio (CT_AUD) window: busy_pct (100 minus the mean idle share, idle = time the decode
+ * loop was blocked on a full FIFO, the same measure as Info > CPU LOAD / HEADROOM), busy_worst_pct (busiest latched second), io_pct (mean share blocked on
+ * file reads), secs (latched seconds counted), sub_fdct_pct and sub_hw_pct (MP3 only, profile build, else 0: percent of window realtime spent in the two
+ * software FDCT32 calls per slot and in the hardware-window handoff; Subband total s_pct minus these = the rest). Compare busy_pct with the decode-stage
+ * sum (h+i+s of SR_T_DECPROF) to see how much of the CPU is NOT decode (push/resample, meters, UI, file I/O). Always present in a Check record. */
 /* SR_T_DECPROF2 (2026-09-28, owner request after the alpha.12 packaging incident: get the finer
  * decode-stage split into Check's QR directly, instead of needing a separate screenshot of the
  * bench-only row; widened same day, B-361, before anything else depended on the original 4-field

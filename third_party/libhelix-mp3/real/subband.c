@@ -53,6 +53,7 @@
 #ifndef TAU_POLY_FW
 #define TAU_POLY_FW 0
 #endif
+#include "mp3_profile.h"   /* Cymo C0: MPROF_MARK/MPROF_ACC1 (no-ops unless MP3_PROFILE) */
 #if TAU_POLY_FW
 #include "mp3_poly_hw.h"
 extern int tau_poly_wlog[33];
@@ -100,13 +101,18 @@ int Subband(MP3DecInfo *mp3DecInfo, short *pcmBuf)
 #if TAU_POLY_FW
 			if (hw_this_track) {
 				int w0[32], w1[32];
+				MPROF_MARK(pm0);
 				tau_poly_wn = 0;
 				FDCT32(mi->outBuf[0][b], sbi->vbuf + 0*32, sbi->vindex, (b & 0x01), mi->gb[0]);
 				for (int k = 0, j = 0; k < 33; k++) if (k != 17) w0[j++] = tau_poly_wlog[k];
 				tau_poly_wn = 0;
 				FDCT32(mi->outBuf[1][b], sbi->vbuf + 1*32, sbi->vindex, (b & 0x01), mi->gb[1]);
 				for (int k = 0, j = 0; k < 33; k++) if (k != 17) w1[j++] = tau_poly_wlog[k];
-				if (!tau_poly_hw_slot(w0, w1, pcmBuf)) {
+				MPROF_ACC1(pm0, mp3_sub_fdct_total_cyc);
+				MPROF_MARK(pm1);
+				const int hw_ok = tau_poly_hw_slot(w0, w1, pcmBuf);
+				MPROF_ACC1(pm1, mp3_sub_hw_total_cyc);
+				if (!hw_ok) {
 					hw_this_track = 0;              /* this slot's redirect failed: finish the track in software */
 					PolyphaseStereo(pcmBuf, sbi->vbuf + sbi->vindex + VBUF_LENGTH * (b & 0x01), polyCoef);
 				} else if (tau_poly_verify_left > 0) {

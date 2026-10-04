@@ -86,6 +86,9 @@ def main():
     # SR_T_HEAP (B-514): peak heap bytes in use + the heap region size, u32 each.
     heap = D.parse_record(D.build_record(1, [(23, le(4, 30000, 55000))]))["entries"]["heap"]
     check("decode heap", heap == {"peak_bytes": 30000, "heap_size": 55000, "free_bytes": 25000}, heap)
+    # SR_T_LOAD (Cymo C0, 2026-10-04): window CPU load + the Subband split, u16 x 6.
+    ld = D.parse_record(D.build_record(0, [(24, le(2, 58, 71, 3, 15, 9, 14)[:12])]))["entries"]["load"]
+    check("decode load", ld == {"busy_pct": 58, "busy_worst_pct": 71, "io_pct": 3, "secs": 15, "sub_fdct_pct": 9, "sub_hw_pct": 14}, ld)
     # SR_T_WVIZCFG (B-218): a one-off Configure-page export, not part of a Check run -- 13 raw bytes,
     # mixed widths (see fw/suite_core.h's own comment for the exact layout).
     wviz_bytes = bytes([1, 0xFF, 12, 3, 60, 25, 1, 1]) + (250).to_bytes(2, "little") + bytes([30, 45, 20])
