@@ -13968,3 +13968,5 @@ Target from B-591: the per-pair push loop cost about 166 cycles a pair (11% of t
 ## B-593: burst push measured on a Pocket (DEV 91): push 11% to 7%, busy 48% to 44%
 
 Screenshot `20261004_192601.png` (FULL Check, DEV 91, same bitstream, same settings as B-591). `busy_pct` 48 to **44** (worst second 51 to 47), `wait_pct` 53 to 57, **`push_pct` 11 to 7** (about 106 cycles a pair, against the estimate of about 5%), decode 30 and meter feed 2 unchanged, 0 late underruns, `audio_full` true, I/O wait 0%. All checks PASS except `Track changes` (unchanged). The 7% that is left is the audio MMIO write (one uncached register write a pair) plus the gain multiplies and loop. **Not yet confirmed by ear, and the display during Stress R1 was not reported** (B-590 visual fix still unconfirmed by the owner). Cumulative since B-586: busy 55% to 44%.
+
+**Owner result (2026-10-04), DEV 91: no clicks or gaps while playing, and the screen stayed clean during Stress R1.** This confirms B-590 (the stress pump no longer overwrites display buffer 1) and clears the burst push (B-592) and the pipelined Subband handoff (B-587, already cleared on DEV 88) for the next release.
