@@ -100,6 +100,10 @@ Slot 2 = Winamp Scope (meter 13): `fw/winamp_scope.inc` is shared by the built-i
 
 Slot 3 = MASTER VU (meter 15). Its framework violations were removed first: the time step comes from `in->dt_ms`, and the info overlay's figures come from the host as `mtr_info_t` (`in->info`), measured once a second only while the overlay is on. ABI 5 added `info` and the host text services. 3,076 B image, 28 B working state; host-verified equal to the built-in over four scenarios; **not yet run on a Pocket** (`TAU_DEV_METER_16`).
 
+## Fifth pack, Chladni, 4 KB scratch, ABI 6 (2026-10-04, B-612)
+
+Slot 4 = Chladni (meter 14). The scratch grew from 1 KB at 0x27400 to 4 KB at 0x26800 (owner decision; Chladni's working state is 2,744 B) and the slots from 4 to 5. ABI 6 added the mailbox, engine-copy, yield and toast services. Host-verified equal to the built-in over four scenarios; **not yet run on a Pocket** (`TAU_DEV_METER_17`). The diagnostic-profile PACKS build now has a 2,320 B heap gap (floor 2,048 B). **Possible later improvements:** see B-612 in `docs/AUDIT_TRAIL.md` (Chladni state in the PSRAM slot, shared transient buffers, per-pack scratch sizing).
+
 ## What is still not done, and the real risks
 
 1. **A directory beyond Layered Wave.** Only meter id 16 has a slot and a pack source; the table in `fw/meter_pack.h` (`mtr_pack_slot_of`) and the pack TUs for the other modular meters are the next additions. The

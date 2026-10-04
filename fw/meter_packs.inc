@@ -2,7 +2,7 @@
  * Loadable meter modules. tau-packs.bin (data slot 9, tools/pack_bundle.py) carries meter packs; at boot each is verified and installed into its fixed slot in the PSRAM code window,
  * and a meter whose pack is valid is drawn by the pack instead of the built-in code. Everything is fail-safe: a missing file, a bitstream without PSRAM instruction fetch, a pack
  * with a bad header, size, ABI, slot or CRC -- the meter is simply drawn by the built-in code, as if this file did not exist. Only the active meter's working state is resident (the
- * 1 KB scratch at MTR_PACK_SCRATCH_ORG, reserved in fw/link.ld); a pack is activated when its meter becomes the one on screen. */
+ * 4 KB scratch at MTR_PACK_SCRATCH_ORG, reserved in fw/link.ld); a pack is activated when its meter becomes the one on screen. */
 #include "meter_pack_core.h"
 
 #define PACKS_SLOT_ID 9u
@@ -22,6 +22,17 @@ COLD_FN3 static int packs_psram_ready(void) { return mtr_psram_ready(); }
 COLD_FN3 static void packs_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { ui_bg_restore(x, y, w, h); }
 COLD_FN3 static int packs_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t a) { return ui_bg_blend(x, y, w, h, a); }
 COLD_FN3 static void packs_scope_note(int ok, uint32_t x, uint32_t y) { SCOPE_NOTE(ok, x, y); }
+COLD_FN3 static int packs_held(void) { return FB_HELD(); }
+COLD_FN3 static int packs_afford(void) { return meter_afford(); }
+COLD_FN3 static uint32_t packs_cpu_pct(void) { return ui_cpu_pct(); }
+COLD_FN3 static void packs_toast(const char *m) { ui_toast_msg(m); }
+COLD_FN3 static int packs_mb_write(uint32_t a, uint32_t d) { return chl_mb_write(a, d); }
+COLD_FN3 static int packs_mb_read(uint32_t a, uint32_t *o) { return chl_mb_read(a, o); }
+COLD_FN3 static void packs_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { fb_blit(sx, sy, dx, dy, w, h); }
+COLD_FN3 static void packs_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t a, uint32_t b) { fb_sblit(sx, sy, dx, dy, w, h, a, b); }
+COLD_FN3 static void packs_wait(void) { fb_wait(); }
+COLD_FN3 static void packs_fence(void) { fb_fence(); }
+COLD_FN3 static void packs_set_bases(uint32_t s, uint32_t d) { fb_set_bases(s, d); }
 COLD_FN3 static void packs_set_color(uint16_t fg, uint16_t bg) { fb_set_color(fg, bg); }
 COLD_FN3 static void packs_ch(uint32_t x, uint32_t y, char c, uint32_t sx, uint32_t sy) { fb_char(x, y, c, sx, sy); }
 COLD_FN3 static uint32_t packs_text_clipped(uint32_t x, uint32_t y, const char *s, uint32_t sx, uint32_t sy, uint32_t w) { return fb_text_clipped(x, y, s, sx, sy, w); }
@@ -71,13 +82,15 @@ COLD_FN3 static void packs_boot_load_cold(void)
         a->role = th_role;
         a->force = &wviz_force;
         a->stats = packs_stats[i];
+        a->hs_base = &hs_base; a->held = packs_held; a->afford = packs_afford; a->cpu_pct = packs_cpu_pct; a->toast = packs_toast; a->mb_write = packs_mb_write; a->mb_read = packs_mb_read;
+        a->blit = packs_blit; a->sblit = packs_sblit; a->wait = packs_wait; a->fence = packs_fence; a->set_bases = packs_set_bases;
         a->set_color = packs_set_color; a->ch = packs_ch; a->text_clipped = packs_text_clipped; a->dec = packs_dec; a->cell = packs_cell;
         a->grad = &packs_grad;
         a->fullscreen = &ui_fullscreen;
         a->bg_restore = packs_bg_restore;
         a->bg_blend = packs_bg_blend;
         a->scope_note = packs_scope_note;
-        a->params = i == 0u ? mtr_v_layered_wave : i == 1u ? mtr_v_winamp_bars : i == 2u ? mtr_v_winamp_scope : i == 3u ? mtr_v_vu_master : mtr_v_layered_wave;   /* slot 0 = Layered Wave, 1 = Winamp Bars, 2 = Winamp Scope, 3 = VU Master (fw/meter_pack.h mtr_pack_slot_of) */
+        a->params = i == 0u ? mtr_v_layered_wave : i == 1u ? mtr_v_winamp_bars : i == 2u ? mtr_v_winamp_scope : i == 3u ? mtr_v_vu_master : i == 4u ? mtr_v_chladni : mtr_v_layered_wave;   /* slot 0 = Layered Wave, 1 = Winamp Bars, 2 = Winamp Scope, 3 = VU Master, 4 = Chladni (fw/meter_pack.h mtr_pack_slot_of) */
     }
     packs_state = 1u;
 }

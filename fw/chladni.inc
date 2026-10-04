@@ -30,7 +30,9 @@
 #define CHL_PROBE_DY   2u
 #define CHL_PERIOD_MS  66u              /* about 15 figures a second */
 
+#ifndef MTR_PACK
 static int meter_afford(void);          /* defined later in this file */
+#endif
 
 static chl_state_t         chl_st;
 static chl_cfg_t           chl_cfg;
@@ -53,6 +55,7 @@ static uint32_t chl_now_ms(void)
     return chl_ms_acc;
 }
 
+#ifndef MTR_PACK   /* as a pack the mailbox is the host's: chl_mb_write/chl_mb_read are macros onto the host table (fw/meter_pack_chladni.c) */
 /* One 32-bit mailbox transaction = two adjacent 16-bit SDRAM words. Returns 0 on success, -1 on timeout. */
 static int chl_mb_write(uint32_t word_addr, uint32_t data)
 {
@@ -75,6 +78,7 @@ static int chl_mb_read(uint32_t word_addr, uint32_t *out)
     *out = REG(R_SDR_RDATA);
     return 0;
 }
+#endif
 
 /* Known-answer probe. Write two DIFFERENT pixels (0x07E0 low half, 0xF800 high half) at the probe word, have the draw engine
  * copy one word from there to a second place, and read that place back through the mailbox. If the mailbox's low half is the

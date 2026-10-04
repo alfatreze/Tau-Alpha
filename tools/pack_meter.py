@@ -11,8 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ABI = int(re.search(r"#define MTR_PACK_ABI (\d+)u", (ROOT / "fw/meter_pack.h").read_text()).group(1))      # read from the firmware header: one source of truth
-METER_IDS = {"layered_wave": 16, "winamp_bars": 12, "winamp_scope": 13, "vu_master": 15}      # the VIZ_* id of the meter (fw/meter_gen_enum.h)
-SLOT = {"layered_wave": 0, "winamp_bars": 1, "winamp_scope": 2, "vu_master": 3}              # the slot of each meter (fw/meter_pack.h mtr_pack_slot_of)
+METER_IDS = {"layered_wave": 16, "winamp_bars": 12, "winamp_scope": 13, "vu_master": 15, "chladni": 14}      # the VIZ_* id of the meter (fw/meter_gen_enum.h)
+SLOT = {"layered_wave": 0, "winamp_bars": 1, "winamp_scope": 2, "vu_master": 3, "chladni": 4}              # the slot of each meter (fw/meter_pack.h mtr_pack_slot_of)
 SLOT_BASE, SLOT_SIZE = 0x24840000, 0x10000
 
 
@@ -27,7 +27,7 @@ def symbols(elf):
     return {ln.split()[-1]: (int(ln.split()[0], 16), ln.split()[1]) for ln in out.splitlines() if len(ln.split()) == 3}
 
 
-SCRATCH_ORG = 0x00027400      # the ABI scratch address (fw/meter_pack.h MTR_PACK_SCRATCH_ORG); host tests pass their own
+SCRATCH_ORG = 0x00026800      # the ABI scratch address (fw/meter_pack.h MTR_PACK_SCRATCH_ORG); host tests pass their own
 
 
 def build(meter, org, elf_out=None, extra=(), scratch=None):

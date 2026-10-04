@@ -187,7 +187,7 @@ fi
 # B-333: a 192 KB (RAM_192K=1) build never writes over the shipped 256 KB release artefacts in dist/: it goes to work/ram192k/<target>/.
 if [[ "${RAM_192K:-0}" == "1" && "$OUT" == "$ROOT/dist/Assets/tau/common" ]]; then OUT="$ROOT/work/ram192k/$TARGET"; fi
 
-# PACKS=1 (default 0, opt-in): loadable meter packs (docs/features/meters/METER_PACKS.md). Reserves the 1 KB meter scratch at the fixed ABI address 0x27400 in the 192 KB layout's
+# PACKS=1 (default 0, opt-in): loadable meter packs (docs/features/meters/METER_PACKS.md). Reserves the 4 KB meter scratch at the fixed ABI address 0x26800 in the 192 KB layout's
 # heap gap and compiles in fw/meter_packs.inc (data slot 9 = tau-packs.bin, installed at boot; a pack replaces the built-in Layered Wave drawing when present and valid).
 # Needs RAM_192K=1. Unset, the build is byte-identical to a build without this feature.
 if [[ "${PACKS:-0}" == "1" ]]; then

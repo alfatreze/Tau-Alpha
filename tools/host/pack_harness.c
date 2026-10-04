@@ -18,6 +18,8 @@
 #include "../../fw/meter_pack_core.h"
 #ifdef PACK_BARS
 #include "../../sim/bars_pack_trace.h"       /* Winamp Bars: -DPACK_BARS -DPACK_METER=12 */
+#elif defined(PACK_CHL)
+#include "../../sim/chladni_pack_trace.h"      /* Chladni: -DPACK_CHL -DPACK_METER=14 */
 #elif defined(PACK_VU)
 #include "../../sim/vu_pack_trace.h"         /* MASTER VU: -DPACK_VU -DPACK_METER=15 */
 #elif defined(PACK_SCOPE)
@@ -48,7 +50,10 @@ static int rd(void *ctx, uint32_t off, uint8_t *d, uint32_t len)
     if (off + len > hfilesize()) return 0;
     return hread(off, d, len) == len;
 }
-#ifdef PACK_VU
+#ifdef PACK_CHL
+static void api_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
+static void api_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg) { (void)x; (void)y; (void)w; (void)h; (void)lit; (void)fg; (void)bg; }
+#elif defined(PACK_VU)
 static void api_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { vp_hash_rect(x, y, w, h, c); }
 static void api_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg) { (void)x; (void)y; (void)w; (void)h; (void)lit; (void)fg; (void)bg; }
 #elif defined(PACK_SCOPE)
@@ -101,7 +106,13 @@ int main(void)
     api.stats = api_stats; api.clk_hz = 66666667u;
     api.rect_clip = api_rect; api.bar_clip = api_bar; api.bar_ready = api_bar_ready;
     api.accent = &accent; api.role = roles; api.force = &force_flag;
-#ifdef PACK_VU
+#ifdef PACK_CHL
+    api.cycles = cp_cycles; api.hs_base = &cp_hsb; api.held = cp_held; api.afford = cp_afford; api.cpu_pct = cp_cpu_pct; api.toast = cp_toast; api.mb_write = cp_mb_write; api.mb_read = cp_mb_read;
+    api.blit = cp_blit; api.sblit = cp_sblit; api.wait = cp_wait; api.fence = cp_fence; api.set_bases = cp_set_bases;
+    api.params = mtr_v_chladni;
+    api_p = &api; entry = (mtr_pack_entry_fn)addr;
+    chl_trace(mtr_v_chladni, &force_flag, run, report);
+#elif defined(PACK_VU)
     api.set_color = vp_hash_color; api.ch = vp_hash_ch; api.text_clipped = vp_hash_text; api.dec = vp_dec; api.cell = vp_cell;
     api.params = mtr_v_vu_master;
     api_p = &api; entry = (mtr_pack_entry_fn)addr;

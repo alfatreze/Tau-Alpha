@@ -978,14 +978,14 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, " CL"); q = ui_dec(q, mtr_stats.clip_l); q = set_str(q, "/"); q = ui_dec(q, mtr_stats.clip_r);
         break;
 #if TAU_PACKS
-    case 38:   /* METER PACKS: why the feature is off, or how many packs the file had, each pack's status (LW = Layered Wave, BR = Winamp Bars: OK, - none, or its E-code) and the install time */
+    case 38:   /* METER PACKS: why the feature is off, or how many packs the file had, each pack's status (LW, BR, SC, VU, CH: the code alone = OK, code- = none, code+E-number = refused) and the install time */
         if (packs_state != 1u) { q = set_str(q, "OFF E"); q = ui_dec(q, packs_err); break; }
         q = set_str(q, "FILE "); q = ui_dec(q, packs_seen);
-        for (uint32_t i = 0; i < 2u; i++) {                           /* slot 0 = Layered Wave (LW), slot 1 = Winamp Bars (BR) */
-            q = set_str(q, i ? " BR " : " LW ");
+        for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) {               /* slot 0 LW Layered Wave, 1 BR Winamp Bars, 2 SC Winamp Scope, 3 VU Master, 4 CH Chladni: the code alone = installed OK; code- = none; code and E-number = refused (fits the 40-character row) */
+            static const char nm[MTR_PACK_SLOTS][3] = { "LW", "BR", "SC", "VU", "CH" };
+            q = set_str(q, " "); q = set_str(q, nm[i]);
             if (packs_slot[i].status == 0xFFu) q = set_str(q, "-");
-            else if (packs_slot[i].status == MPK_OK) q = set_str(q, "OK");
-            else { q = set_str(q, "E"); q = ui_dec(q, packs_slot[i].status); }
+            else if (packs_slot[i].status != MPK_OK) { q = set_str(q, "E"); q = ui_dec(q, packs_slot[i].status); }
         }
         q = set_str(q, " "); q = ui_dec(q, packs_ms); q = set_str(q, "MS");
         break;
