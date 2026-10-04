@@ -176,6 +176,9 @@ def main():
     p = out / "Platforms"; (p / "_images").mkdir(parents=True)
     shutil.copy2(src / "Platforms/_images/tau.bin", p / "_images" / f"{platform}.bin")
     save(p / f"{platform}.json", {"platform": {"category": "Media Players", "name": title, "year": 2026, "manufacturer": "alfatreze"}})
+    r = subprocess.run([sys.executable, "tools/check_fw_bitstream_pair.py", str(out)], cwd=root)   # B-581
+    if r.returncode != 0:
+        sys.exit("firmware/bitstream pairing check failed (see above); package left in " + str(out) + " but do not install it")
     print(core_id, digest(c / "bitstream.rbf_r"), digest(a / "common/tau.rom"))
 
 if __name__ == "__main__":

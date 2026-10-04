@@ -300,13 +300,22 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
 #define EXPECT_VERSION_192K_CLK66 0x4D50331Au
 #if TAU_RAM_192K_FW && TAU_CLK66_FW
 #define VERSION_OK(v) ((v) == EXPECT_VERSION_192K_CLK66)
+#define FW_ACCEPTS "4D50331A"
 #elif TAU_RAM_192K_FW
 #define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_192K)
+#define FW_ACCEPTS "4D503317,4D503318"
 #elif TAU_CLK66_FW
 #define VERSION_OK(v) ((v) == EXPECT_VERSION || (v) == EXPECT_VERSION_CLK66)
+#define FW_ACCEPTS "4D503317,4D503319"
 #else
 #define VERSION_OK(v) ((v) == EXPECT_VERSION)
+#define FW_ACCEPTS "4D503317"
 #endif
+/* B-581: the CORE_VERSION list this image accepts, as plain text inside the ROM, so tools/check_fw_bitstream_pair.py can
+ * refuse a firmware/bitstream pairing at package and install time instead of on the Pocket (a build made without the
+ * RAM_192K/CLK66 flags is refused by the 192 KB bitstream and shows only a black screen: B-394, B-448, B-563, B-580). Keep
+ * this beside VERSION_OK; sim/test_fw_pair_check.py checks the two agree. */
+static const char tau_fw_pair_marker[] __attribute__((used, retain)) = "TAUFWPAIR:" FW_ACCEPTS ";";
 
 /* Shown on the splash. This is the PRODUCT version, not the RTL/firmware
  * contract above -- they answer different questions and must not be conflated.

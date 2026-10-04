@@ -107,6 +107,7 @@ def main():
     sh(["bash", "fw/build.sh", "player-library-diagnostic"], env=env)     # Diagnostic Build: adds Tests/Stress and the Check
     sh([sys.executable, "package.py", "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256, "--release-library"])
     sh([sys.executable, "tools/check_tau_package.py"])
+    sh([sys.executable, "tools/check_fw_bitstream_pair.py", "dist"])   # B-581: the ROM in the zip must be accepted by the bitstream
     sh([sys.executable, "tools/package_dev_build.py", "--release-diagnostic",
         "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256])
     if args.test:
