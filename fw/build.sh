@@ -187,6 +187,10 @@ fi
 # B-333: a 192 KB (RAM_192K=1) build never writes over the shipped 256 KB release artefacts in dist/: it goes to work/ram192k/<target>/.
 if [[ "${RAM_192K:-0}" == "1" && "$OUT" == "$ROOT/dist/Assets/tau/common" ]]; then OUT="$ROOT/work/ram192k/$TARGET"; fi
 
+# B-585: TAU_BUILD_OUT=<dir> sends the ROM and cold image of ANY target to <dir>/<target>/ instead of dist/ or work/diagnostics/. For measurement-only
+# builds (tools/check_heap_gap.py): its unflagged rebuilds used to overwrite dist/ and the flagged work/diagnostics/ ROMs (the B-448 clobber hazard).
+if [[ -n "${TAU_BUILD_OUT:-}" ]]; then OUT="$TAU_BUILD_OUT/$TARGET"; fi
+
 # A specialised target may redirect OUT away from the release Assets folder.
 # Create it after target selection so objcopy never fails on a missing staging
 # directory (the first sdram-diag build exposed the old ordering).
