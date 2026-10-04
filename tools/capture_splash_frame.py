@@ -35,18 +35,21 @@ def rgb565_to_rgb(value):
 
 
 def decode_asset(path):
+    """TAU1 (16-colour palette, 44-byte header) or TAU2 (256 colours, 524-byte header), exactly as the firmware reads them."""
     data = path.read_bytes()
-    if len(data) < 44:
+    if len(data) < 12:
         raise SystemExit("splash asset is shorter than its header")
     magic, width, height, rle_bytes = struct.unpack_from("<4sHHI", data)
-    if magic != b"TAU1" or (width, height) != (WIDTH, HEIGHT):
-        raise SystemExit("splash asset header is not a 400x360 TAU1 image")
-    if rle_bytes & 1 or len(data) != 44 + rle_bytes:
+    ncol = {b"TAU1": 16, b"TAU2": 256}.get(magic)
+    if not ncol or (width, height) != (WIDTH, HEIGHT):
+        raise SystemExit("splash asset header is not a 400x360 TAU1/TAU2 image")
+    hdr = 12 + 2 * ncol
+    if len(data) < hdr or rle_bytes & 1 or len(data) != hdr + rle_bytes:
         raise SystemExit("splash asset RLE length is invalid")
 
-    palette = [rgb565_to_rgb(v) for v in struct.unpack_from("<16H", data, 12)]
+    palette = [rgb565_to_rgb(v) for v in struct.unpack_from(f"<{ncol}H", data, 12)]
     pixels = []
-    for offset in range(44, len(data), 2):
+    for offset in range(hdr, len(data), 2):
         count, index = data[offset], data[offset + 1]
         if not count or index >= len(palette) or len(pixels) + count > WIDTH * HEIGHT:
             raise SystemExit("splash asset contains an invalid RLE run")

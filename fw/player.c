@@ -3356,7 +3356,7 @@ static void poll_input(void);
 #define UI_SPL_VER_Y    (UI_TITLE_Y - 14u + UI_CARD_H - 14u - 16u)
 #define UI_SPL_INFO_Y  262u    /* the transport row's line */
 
-/* Authored Tau loading screen. The generated 16-colour RLE file lives in its
+/* Authored Tau loading screen. The generated RLE file (TAU2: 256 colours, B-574; TAU1, the original 16-colour format, is still read) lives in its
  * own deferred APF slot and streams through the existing 4 KB tag scratch
  * window. Embedding it in the firmware crossed the reserved DMA boundary by
  * 12.5 KB; keeping it external preserves both image quality and decoder RAM.
@@ -3364,7 +3364,8 @@ static void poll_input(void);
 #define TAU_SPLASH_SLOT_ID  4u
 #define TAU_SPLASH_W        400u
 #define TAU_SPLASH_H        360u
-#define TAU_SPLASH_HEADER   44u
+#define TAU_SPLASH_HEADER   44u      /* TAU1: 12-byte header + 16 colours  */
+#define TAU_SPLASH_HEADER2  524u     /* TAU2: 12-byte header + 256 colours */
 #define TAU_SPLASH_CHUNK    4096u
 #define TAU_SPLASH_STATUS_X 104u
 #define TAU_SPLASH_STATUS_Y 256u
@@ -3397,29 +3398,34 @@ static int ui_splash_asset(void)
 {
     uint32_t dst = (uint32_t)(uintptr_t)&_tag_start;
     uint8_t *buf = (uint8_t *)(uintptr_t)(0xC0000000u + dst);
-    uint16_t palette[16];
+    uint16_t palette[256];
 
-    if (!target_read_slot(TAU_SPLASH_SLOT_ID, 0u, dst, TAU_SPLASH_HEADER))
+    /* One read serves both formats: the larger header, of which TAU1 uses the first 44 bytes. */
+    if (!target_read_slot(TAU_SPLASH_SLOT_ID, 0u, dst, TAU_SPLASH_HEADER2))
         return 0;
-    if (buf[0] != 'T' || buf[1] != 'A' || buf[2] != 'U' || buf[3] != '1' ||
-        tau_u16(buf + 4u) != TAU_SPLASH_W ||
+    uint32_t ncol = 0, hdr = 0;
+    if (buf[0] == 'T' && buf[1] == 'A' && buf[2] == 'U') {
+        if (buf[3] == '1')      { ncol = 16u;  hdr = TAU_SPLASH_HEADER;  }
+        else if (buf[3] == '2') { ncol = 256u; hdr = TAU_SPLASH_HEADER2; }
+    }
+    if (!ncol || tau_u16(buf + 4u) != TAU_SPLASH_W ||
         tau_u16(buf + 6u) != TAU_SPLASH_H)
         return 0;
 
     uint32_t bytes = tau_u32(buf + 8u);
     if (!bytes || (bytes & 1u) || bytes > TAU_SPLASH_W * TAU_SPLASH_H * 2u)
         return 0;
-    for (uint32_t i = 0; i < 16u; i++)
+    for (uint32_t i = 0; i < ncol; i++)
         palette[i] = tau_u16(buf + 12u + i * 2u);
 
-    uint32_t file_off = TAU_SPLASH_HEADER, pos = 0;
+    uint32_t file_off = hdr, pos = 0;
     while (bytes) {
         uint32_t chunk = bytes > TAU_SPLASH_CHUNK ? TAU_SPLASH_CHUNK : bytes;
         if (!target_read_slot(TAU_SPLASH_SLOT_ID, file_off, dst, chunk))
             return 0;
         for (uint32_t i = 0; i < chunk; i += 2u) {
             uint32_t left = buf[i];
-            uint16_t c = palette[buf[i + 1u] & 15u];
+            uint16_t c = palette[buf[i + 1u] & (ncol - 1u)];
             if (!left || pos + left > TAU_SPLASH_W * TAU_SPLASH_H)
                 return 0;
             while (left) {

@@ -60,6 +60,7 @@ test-host:
 	$(PYTHON) sim/test_tau_timg.py
 	$(PYTHON) sim/test_clut_contract.py
 	$(PYTHON) sim/test_thumb_dbuf.py
+	$(PYTHON) sim/test_splash_asset.py
 	$(PYTHON) sim/test_mp3_poly_probe.py
 	$(PYTHON) sim/test_mp3_poly_fw.py
 	$(PYTHON) sim/test_mp3_poly_subband.py

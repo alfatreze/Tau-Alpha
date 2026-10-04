@@ -2,8 +2,11 @@
 """Generate Tau's compact boot-screen asset from the authored source image.
 
 The Pocket framebuffer is 400x360 RGB565.  Storing that raw would cost 288 KB,
-more than the complete firmware budget.  The boot image is quantised to 16
-colours and run-length encoded into a deferred APF asset.  Firmware streams it
+more than the complete firmware budget.  The boot image is quantised to a palette
+and run-length encoded into a deferred APF asset: TAU2 (default, 256 colours,
+524-byte header) or TAU1 (16 colours, 44-byte header, the original format: the
+firmware reads both).  16 colours cost the bright oscilloscope trace (B-573: 25.8 dB
+against 45.9 dB at 256).  Firmware streams it
 through its existing 4 KB scratch window and draws it with the framebuffer
 rectangle engine, so the image consumes no permanent firmware RAM.
 
@@ -25,7 +28,6 @@ from PIL import Image
 
 SRC_W = 400
 SRC_H = 360
-COLORS = 16
 
 
 def rgb565(rgb):
@@ -53,7 +55,11 @@ def main():
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--preview", type=Path)
+    parser.add_argument("--colors", type=int, choices=(16, 256), default=256,
+                        help="256 writes TAU2 (default), 16 writes the original TAU1")
     args = parser.parse_args()
+    COLORS = args.colors
+    MAGIC = b"TAU2" if COLORS == 256 else b"TAU1"
 
     authored = Image.open(args.source).convert("RGB")
     if authored.size != (SRC_W, SRC_H):
@@ -69,10 +75,11 @@ def main():
     if sum(encoded[0::2]) != SRC_W * SRC_H:
         raise SystemExit("RLE does not cover the complete image")
 
-    raw_palette = indexed.getpalette()[:COLORS * 3]
+    raw_palette = (indexed.getpalette() or [])[:COLORS * 3]
+    raw_palette += [0] * (COLORS * 3 - len(raw_palette))      # fewer distinct colours than slots: pad
     palette = [rgb565(raw_palette[i:i + 3]) for i in range(0, len(raw_palette), 3)]
-    header = struct.pack("<4sHHI", b"TAU1", SRC_W, SRC_H, len(encoded))
-    header += struct.pack("<16H", *palette)
+    header = struct.pack("<4sHHI", MAGIC, SRC_W, SRC_H, len(encoded))
+    header += struct.pack(f"<{COLORS}H", *palette)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(header + bytes(encoded))
 
@@ -83,7 +90,7 @@ def main():
     print(
         f"{args.output}: {len(header) + len(encoded)} bytes, "
         f"{len(encoded) // 2} runs, "
-        f"{COLORS} RGB565 colours"
+        f"{COLORS} RGB565 colours ({MAGIC.decode()})"
     )
 
 
