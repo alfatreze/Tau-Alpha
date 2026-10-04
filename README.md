@@ -9,7 +9,7 @@ of MP3 decoding (the synthesis filterbank) runs in FPGA hardware instead, and si
 for FLAC's LPC/FIXED reconstruction; the screen is drawn by a small 2D drawing engine ("Talos") rather than
 pixel by pixel from the CPU.
 
-Current version **v0.6.0** (30 September 2026), published as pre-release **0.6.0-alpha.1**. See [CHANGELOG.md](CHANGELOG.md).
+Current version **v0.6.0** (4 October 2026), pre-release **0.6.0-alpha.2**. See [CHANGELOG.md](CHANGELOG.md).
 
 <img width="400" height="360" alt="20260930_235633" src="https://github.com/user-attachments/assets/103e9513-db6b-42d2-8834-debe4b39251d" />
 <img width="400" height="360" alt="20260930_235713" src="https://github.com/user-attachments/assets/1194cfac-1036-40ce-a656-de22e0866354" />
@@ -32,7 +32,7 @@ Current version **v0.6.0** (30 September 2026), published as pre-release **0.6.0
   FPGA, bit-exact with the software decoder and with automatic fallback to it. More CPU headroom, so
   playback stays clean at speeds that used to stutter.
 - **Equalizer.** Eight loudness-matched presets, built as hardware (five biquads per channel).
-- **Playback speed** 0.85x to 1.20x in the normal build (more in the Diagnostic Build), for spoken word.
+- **Playback speed** 0.85x to 2.00x for MP3 (FLAC plays at 1.00x), for spoken word; the pitch rises with the speed.
 - **Diagnostics.** An Info page in every build, and a separate Diagnostic Build with one-button Check
   profiles, a Meter Sweep and QR-code reports that can be decoded from a screenshot.
 

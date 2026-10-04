@@ -102,9 +102,19 @@ static int art_psram_ready(void)
 #else
 #define art_psram_ready() 1
 #endif
-static uint16_t art_rowcnt[ART_IMG];    /* source rows feeding each dest row */
-static uint16_t art_colcnt[ART_IMG];    /* source cols feeding each dest col */
-static uint16_t art_line[ART_IMG];      /* the row currently being emitted   */
+/* B-567: the embedded-JPEG fallback is rare (TIM1 covers are the normal path), so its low-traffic work buffers live in PSRAM
+ * (.psram_state, uninitialised: every one is written before it is read, proved by the poisoned-buffer run of
+ * sim/test_art_decode.py) instead of hot RAM. They are only touched after art_psram_ready() has proved the window. The
+ * high-traffic ones stay hot: picojpeg's MCU and coefficient buffers take 20+ M accesses on a 1024 px cover, which at about
+ * 48 cycles per uncached access would add 15+ s to the load. Measured accesses and the sums in docs/features/RAM_BSS_AUDIT.md. */
+#if TAU_ART_PSRAM
+#define ART_COLD_BSS __attribute__((section(".psram_state.art")))
+#else
+#define ART_COLD_BSS
+#endif
+static uint16_t art_rowcnt[ART_IMG] ART_COLD_BSS;    /* source rows feeding each dest row */
+static uint16_t art_colcnt[ART_IMG] ART_COLD_BSS;    /* source cols feeding each dest col */
+static uint16_t art_line[ART_IMG] ART_COLD_BSS;      /* the row currently being emitted   */
 
 /* Source coordinate -> accumulator cell, precomputed.
  *
@@ -114,8 +124,8 @@ static uint16_t art_line[ART_IMG];      /* the row currently being emitted   */
  * decode was added for. The row map absorbs the `% ART_ACC_ROWS` too, a second
  * divide by a non-power-of-two. Both maps depend only on the axis, so the whole
  * cost collapses into sw+sh divisions done once. */
-static uint8_t art_xmap[ART_FULL_MAX];  /* sx -> accumulator column   */
-static uint8_t art_yslot[ART_FULL_MAX]; /* sy -> accumulator row slot */
+static uint8_t art_xmap[ART_FULL_MAX] ART_COLD_BSS;  /* sx -> accumulator column   */
+static uint8_t art_yslot[ART_FULL_MAX] ART_COLD_BSS; /* sy -> accumulator row slot */
 static uint32_t art_jpg_pos, art_jpg_end;   /* file offsets of the image data */
 
 /* Why the last art_decode() gave up, as picojpeg reported it. 0 means either

@@ -14,7 +14,7 @@
 #define HEADROOM_H
 #include <stdint.h>
 
-#define HR_WSOLA_EST_PCT 16u   /* ESTIMATE: tools/lab/cymo_tempo_model.py counts 1.61 M MAC per output second, about 12-20% of the 66.7 MHz CPU at 5-8 cycles per MAC. Replace by a measurement. */
+#define HR_WSOLA_EST_PCT 12u   /* ESTIMATE from a measured instruction count (B-550: fw/wsola_core.h costs 5.37 M instructions per output second on the rv32im build, 8% of the 66.7 MHz CPU at one instruction per cycle; about 12% with a typical 1.3-1.5 cycles per instruction, which is not measured). Replace by a measurement on a Pocket. */
 #define HR_SETTLE_SECS   2u    /* ignore the first seconds after a track load or speed change: loading and prefill are not steady-state decode */
 
 typedef struct { uint8_t min_idle, secs, last, max_io; } hr_t;   /* last = idle of the latest counted second, 255 = none yet; max_io = the most time any counted second spent blocked waiting for file bytes (percent) */

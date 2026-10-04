@@ -24,6 +24,9 @@
 #define R_SDR_CTRL   0x8000007Cu
 #define R_SDR_RDATA  0x80000080u
 #define R_SDR_STATUS 0x80000084u
+#ifndef CLUT_START_IDX
+#define CLUT_START_IDX 255u      /* must equal fw/player.c's (sim/test_clut_contract.py checks that) */
+#endif
 #define R_CLUT_IDX   0x800000C8u
 #define R_CLUT_DATA  0x800000CCu
 
@@ -39,10 +42,16 @@ static int engine_delay, pend_left = -1;
 static uint32_t pb[6];
 static void do_copy(void) { for (uint32_t y = 0; y < pb[5]; y++) for (uint32_t x = 0; x < pb[4]; x++) sdram[(pb[3] + y) * FB_STRIDE + pb[2] + x] = sdram[(pb[1] + y) * FB_STRIDE + pb[0] + x]; }
 #define REG(a) (*reg_ptr(a))
-static uint32_t clut_sink;
+#ifndef CLUT_SKEW
+#define CLUT_SKEW 1u
+#endif
 static uint32_t *reg_ptr(uint32_t a) {
-    if (a == R_CLUT_IDX) { clut_idx = 0u; return &clut_sink; }                 /* write index 0 */
-    if (a == R_CLUT_DATA) return &clut32[clut_idx++ & 255u];                   /* each store lands in the next entry (auto-increment) */
+    /* B-570: models the RTL as it is, not as documented. mp3_soc.v raises a one-cycle write pulse and advances clut_idx on the same
+     * edge, while clut_waddr follows clut_idx, so a DATA write lands one slot ABOVE the index it was issued at (CLUT_SKEW 1). Build with
+     * -DCLUT_SKEW=0 for a bitstream whose write address is registered with the pulse. The old model (index forced to 0, each store in
+     * the next entry) is what let this ship. */
+    if (a == R_CLUT_IDX) return &clut_idx;                                     /* the written value becomes the index */
+    if (a == R_CLUT_DATA) { uint32_t slot = (clut_idx + CLUT_SKEW) & 255u; clut_idx = (clut_idx + 1u) & 255u; return &clut32[slot]; }
     uint32_t i = (a - R_SDR_ADDR) / 4u;
     if (a == R_SDR_RDATA && pend_left >= 0) { if (pend_left == 0) { do_copy(); pend_left = -1; } else pend_left--; }
     if ((a == R_SDR_STATUS || a == R_SDR_RDATA) && mb[2] != 0u) {

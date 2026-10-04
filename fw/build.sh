@@ -72,7 +72,7 @@ release)
     INC=(-I "$HELIX/pub" -I "$HELIX/real" -I "$ROOT/third_party/picojpeg")
     STRESS_CFLAGS="-DTAU_ART_TIMG=${ART_TIMG:-1} -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_G4=${G4:-3}"
     COLD_PACK=1
-    HEAP_MIN=6144        # with the previews (about 6 KiB) the floor is 6 KiB; the hard link minimum is 1 KiB
+    HEAP_MIN=6144        # policy margin (B-565: the gap is unused RAM, malloc is the static arena); the hard link minimum is 1 KiB
     ;;
 player-library-diagnostic)
     SRCS=(
@@ -89,7 +89,7 @@ player-library-diagnostic)
     OUT="$ROOT/work/diagnostics/library-diagnostic"
     STRESS_CFLAGS="-DTAU_ART_TIMG=${ART_TIMG:-1} -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAGNOSTIC=1 -DTAU_G4=${G4:-3}"
     COLD_PACK=1
-    HEAP_MIN=4096        # developer build: the tests may use the space, never below 4 KiB
+    HEAP_MIN=2048        # B-565: the gap is unused RAM (malloc is the static arena in alloc.c, nothing calls _sbrk), so this is a policy margin, not a need; 2 KiB, twice the link minimum
     ;;
 player-library-diagnostic-profile)
     # B-088/B-089 (docs/TEST_SUITE_SPEC.md section 11): the Diagnostic Build
@@ -117,7 +117,7 @@ player-library-diagnostic-profile)
     STRESS_CFLAGS="-DTAU_ART_TIMG=${ART_TIMG:-1} -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAGNOSTIC=1 -DTAU_G4=${G4:-3} -DMP3_PROFILE=1 -DFLAC_PROFILE=1 -DTAU_SDRAM_BUSY=${SDRAM_BUSY:-0}"
     FLAC_O_CFLAGS="-DFLAC_PROFILE=1"
     COLD_PACK=1
-    HEAP_MIN=4096
+    HEAP_MIN=2048        # B-565, as player-library-diagnostic
     ;;
 psram-diag-sim)
     SRCS=("$FW/start.S" "$FW/psram_diag.c")
@@ -144,6 +144,8 @@ CFLAGS="$CFLAGS $STRESS_CFLAGS"
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) POLY_FW="${POLY_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && POLY_FW="${POLY_FW:-1}"      # v0.5.0: the release ships the poly bitstream, so the release firmware uses the unit too
 CFLAGS="$CFLAGS -DTAU_POLY_FW=${POLY_FW:-0}"
+# B-558: TEMPO=1 builds in the Cymo C7 tempo funnel (fw/tempo_core.h; MP3 only; the Settings > Playback > TEMPO row). Default 0 = byte-identical to a build without it.
+CFLAGS="$CFLAGS -DTAU_TEMPO=${TEMPO:-0}"
 if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw/mp3_poly_hw.h (only then, so default builds see no new include path)
 
 # B-368/B-369/B-370: LPC_FW=1 redirects FLAC LPC reconstruction (fw/flac.c) to the hardware unit (needs
@@ -159,7 +161,7 @@ if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) LPC_FW="${LPC_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && LPC_FW="${LPC_FW:-1}"
 CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0}"
-FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0}"
+FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DFLAC_RICE_FAST=${FLAC_RICE_FAST:-1}"
 
 # RAM_192K=1 (default 0, every target): links against 192 KB instead of 256 KB (fw/link.ld's
 # _ram_limit) -- the RAM-shrink RTL's own real benefit, timing-closed B-235, not yet card-tested.
@@ -224,7 +226,11 @@ fi
 # has already been flushed. Nothing it does is on the audio path, so trading
 # its speed for size costs a few ms of a load that is already hundreds.
 rm -f "$FW/picojpeg.o"
-if ! "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -Os -ffreestanding         -I "$ROOT/third_party/picojpeg" -c         -o "$FW/picojpeg.o" "$ROOT/third_party/picojpeg/picojpeg.c"         > "$FW/build.log" 2>&1; then
+# B-567: -fdata-sections gives each static its own .bss.<name> input section, so fw/link.ld can place picojpeg's low-traffic
+# work buffers (input, Huffman, quant tables) in PSRAM without editing the vendored source. Only when the PSRAM art path is on
+# (it proves the window before any decode); otherwise they stay in hot .bss.
+PJ_DS=""; [[ "${ART_PSRAM:-1}" == "1" ]] && PJ_DS="-fdata-sections"
+if ! "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -Os -ffreestanding $PJ_DS         -I "$ROOT/third_party/picojpeg" -c         -o "$FW/picojpeg.o" "$ROOT/third_party/picojpeg/picojpeg.c"         > "$FW/build.log" 2>&1; then
     cat "$FW/build.log" >&2
     echo "*** picojpeg.c FAILED TO COMPILE ***" >&2
     exit 1

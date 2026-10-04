@@ -17,7 +17,7 @@
  * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). The Library on/off toggle and
  * How it works page that used to live here were removed with legacy playlist mode. */
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
-enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_N };
+enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_TEMPO, CH_N };
 #if TAU_DIAGNOSTIC
 static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced by set_info_tick() below its own include */
 #endif
@@ -58,7 +58,11 @@ static const set_row_t set_appear_rows[] = {
 static const set_row_t set_audio_rows[] = {
     { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 } };
 static const set_row_t set_play_rows[] = {
-    { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SPEED", RT_CHOICE, CH_SPEED } };
+    { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SPEED", RT_CHOICE, CH_SPEED }
+#if TAU_TEMPO
+    , { "TEMPO", RT_CHOICE, CH_TEMPO }
+#endif
+};
 static const set_row_t set_diag_rows[] = {
     { "INFO", RT_GROUP, SET_INFO_PG },
 #if TAU_DIAGNOSTIC
@@ -108,22 +112,20 @@ static const char *const set_menu_title[SET_MENUS] = {
 static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME, SET_HOME, SET_HOME,
     SET_DGN, SET_DGN, SET_DIAG };
 static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
-    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE" };
+    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE", "TEMPO" };
 static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
-    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR };
-/* Only the speeds that play cleanly are offered (A-133/A-135: 1.30x and above degrade and 1.25x micro-stuttered on some
- * material, the decoder budget at 60 MHz allows about 1.20x). The higher entries stay in speed_num/speed_den in
- * player.c for the resampler / decoder work and return here by raising SET_SPEED_SHOWN. */
-#define SET_SPEED_SHOWN 5u
+    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR, SET_PLAY };
+/* The speed list offers every entry up to 2.00x for an MP3 (owner decision 2026-10-03, B-555). The old limit of 1.20x came from A-133/A-135, when 1.25x micro-stuttered at
+ * 60 MHz with the software MP3 synthesis window; with the hardware window and the 66.7 MHz clock a stereo 128 kbps MP3 is 83% busy at 1.50x with no FIFO stalls
+ * (B-553) and the owner heard clean MP3 at 1.75x. These are VARISPEED speeds: the pitch rises with the speed (real tempo without the pitch change is the Cymo C7
+ * work). Above 1.20x is not a promise for every file: a stereo MP3 has about a quarter of the CPU free at 1.50x. 2.50x stays behind Diagnostics > ALL SPEEDS. A FLAC
+ * always plays at 1.00x (B-554). The speed table itself lives in player.c. */
+#define SET_SPEED_SHOWN 9u
 _Static_assert(SET_SPEED_SHOWN <= SPEED_N, "speed list longer than the speed table");
-#if TAU_DIAGNOSTIC
 static const char *const set_speed_nm[SPEED_N] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.20X",
     "1.30X", "1.50X", "1.75X", "2.00X", "2.50X" };
-#else
-static const char *const set_speed_nm[SET_SPEED_SHOWN] = { "0.85X", "0.95X", "1.00X", "1.10X", "1.20X" };
-#endif
-/* Diagnostic Build only: Diagnostics > ALL SPEEDS offers the whole speed table (up to 2.50x) in the speed list, as a
- * test bed for the audio work. Not persisted; off at every start; turning it off returns a fast speed to 1.00x. */
+/* Diagnostic Build only: Diagnostics > ALL SPEEDS adds the last table entry (2.50x) to the speed list, as a
+ * test bed for the audio work. Not persisted; off at every start; turning it off returns 2.50x to 1.00x. */
 #if TAU_DIAGNOSTIC
 static uint8_t set_speed_all;
 #define SET_SPEED_COUNT() ((uint32_t)(set_speed_all ? SPEED_N : SET_SPEED_SHOWN))
@@ -240,6 +242,11 @@ static uint8_t thumb_flat_ready;
 COLD_FN static void set_thumb_flat_build(void)
 {
     if (FB_HELD()) return;
+    /* B-572: the index plane must live in buffer 0, where set_draw_thumb()'s CLUT blit reads it (blit-mode commands follow the sticky bases,
+     * never R_DBUF_CPU). fb_rect() follows R_DBUF_CPU, which Settings leaves on the DISPLAYED buffer (0 or 1 depending on how many chrome
+     * redraws the session has had), so build with it forced to 0 and restore it once the commands have really executed. */
+    const uint32_t was_cpu = ui_bg_cur_buf();
+    if (was_cpu) REG(R_DBUF_CPU) = 0u;
     for (uint32_t viz = 0; viz < VIZ_COUNT; viz++) {
 #if TAU_ART_TIMG
         if (viz == VIZ_VU_MASTER || viz == VIZ_LAYERED_WAVE) continue;    /* excluded from the compacted stash -- no row budget for it, see thumb_slot() */
@@ -261,6 +268,7 @@ COLD_FN static void set_thumb_flat_build(void)
         }
     }
     fb_wait();
+    if (was_cpu) { fb_fence(); REG(R_DBUF_CPU) = was_cpu; }
     thumb_flat_ready = 1u;
 }
 
@@ -276,7 +284,14 @@ COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
     uint16_t pal[8];
     set_thumb_pal(viz, pal);
     fb_clut_load(pal, 8u);
+    /* B-572: source = the plane in buffer 0, destination = the buffer the page is being drawn into (R_DBUF_CPU: the displayed one, or the
+     * back buffer during the menu cross-fade render). fb_fence() makes the blit EXECUTE before the bases are restored and before the next
+     * preview reloads the (single, shared) CLUT: fb_clut_load() only waits for FIFO space, so without it the previews drew with each
+     * other's palettes. */
+    fb_set_bases(0u, ui_bg_cur_buf() ? DBUF_BASE1_W : 0u);
     fb_cblit(0u, THUMB_STASH_Y + thumb_slot(viz) * METER_THUMB_H, x, y, METER_THUMB_W, METER_THUMB_H);
+    fb_fence();
+    fb_set_bases(0u, 0u);
 }
 
 #if TAU_DIAGNOSTIC
@@ -321,7 +336,7 @@ COLD_FN static uint32_t set_ch_count(uint32_t c)
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_SEL_COUNT
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
          : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT()
-         : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : 5u;
+         : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : c == CH_TEMPO ? 6u : 5u;
 }
 COLD_FN static uint32_t set_blank_idx(void)
 {
@@ -339,9 +354,12 @@ COLD_FN static uint32_t set_ch_active(uint32_t c)
 #endif
     }
     if (c == CH_SOAK) return dg_soak_active();
-    if (c == CH_SPEED) return speed_idx;
+    if (c == CH_SPEED) return speed_eff();      /* a FLAC always plays at 1.00x (B-554) */
     if (c == CH_THEME) return th_theme;
     if (c == CH_MODE) return th_pol;
+#if TAU_TEMPO
+    if (c == CH_TEMPO) return tempo_idx;
+#endif
     return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode_to_sel(viz_mode) : c == CH_EQ ? eq_idx
          : c == CH_REPEAT ? rep_mode : set_blank_idx();
 }
@@ -351,7 +369,11 @@ COLD_FN static const char *set_ch_name(uint32_t c, uint32_t i)
          : c == CH_EQ ? eq_name[i] : c == CH_REPEAT ? set_rep[i]
          : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i]
          : c == CH_SPEED ? set_speed_nm[i] : c == CH_THEME ? th_get(i)->name
-         : c == CH_MODE ? (i ? "LIGHT" : "DARK") : set_blank_nm[i];
+         : c == CH_MODE ? (i ? "LIGHT" : "DARK")
+#if TAU_TEMPO
+         : c == CH_TEMPO ? tempo_txt[i]
+#endif
+         : set_blank_nm[i];
 }
 COLD_FN static uint32_t set_ch_rowh(uint32_t c)
 {
@@ -369,12 +391,28 @@ COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
         return;
     }
     if (c == CH_SPEED) {
+        if (track_fmt == FMT_FLAC) { ui_toast_msg("SPEED: MP3 ONLY"); return; }   /* B-554: no speed for FLAC */
+#if TAU_TEMPO
+        tempo_idx = 0u;                          /* B-558: choosing a varispeed speed turns tempo off */
+#endif
         speed_idx = (uint8_t)i;
         pcm_rate_apply(track_hz);
         ui_last_sec = 0xFFFFFFFFu;               /* repaint the speed marker next frame */
         ui_mode_dirty = 1u;
         return;                                  /* not persisted */
     }
+#if TAU_TEMPO
+    if (c == CH_TEMPO) {
+        if (track_fmt == FMT_FLAC) { ui_toast_msg("TEMPO: MP3 ONLY"); return; }
+        tempo_idx = (uint8_t)i;
+        if (i) speed_idx = SPEED_1X;             /* tempo and varispeed exclude each other */
+        tempo_cfg_key = 0u;                      /* the stretcher starts again at the next frame */
+        pcm_rate_apply(track_hz);
+        ui_last_sec = 0xFFFFFFFFu;               /* repaint the speed marker next frame */
+        ui_mode_dirty = 1u;
+        return;                                  /* not persisted */
+    }
+#endif
     if (c == CH_COLOUR) {
         ui_pal_idx = i;
         ui_accent = th_accent_of(i);
@@ -858,10 +896,11 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
                   * second spent blocked waiting for file bytes, in percent (FLAC only; a stall there, not CPU, can cause a click). WS = the speed the WORST second projects
                   * with the tempo stretcher's ESTIMATED fixed cost taken off first (fw/headroom.h; an approximation, confirm with a run). */
         if (idle || paused || hr.last > 99u) { q = set_str(q, "PLAY 10 S, NO MENUS"); break; }   /* needs a few seconds of plain playback first */
-        const uint32_t n = speed_num[speed_idx], d = speed_den[speed_idx];
+        uint32_t n, d;
+        speed_ratio(&n, &d);
         const uint32_t m1 = hr_max_speed_x100(hr.min_idle, n, d, HR_WSOLA_EST_PCT);
         /* <speed> I<latest idle>/<worst idle> O<worst file-wait> WS<x.x>X -- at most 25 characters: a longer value runs into the label (DEV 74 showed that). */
-        q = set_str(q, speed_txt[speed_idx]); q = set_str(q, " I");
+        { const char *sm = speed_marker(); q = set_str(q, sm ? sm : "1.00x"); } q = set_str(q, " I");
         q = ui_dec(q, hr.last); q = set_str(q, "/"); q = ui_dec(q, hr.min_idle);
         q = set_str(q, " O"); q = ui_dec(q, hr.max_io);
         q = set_str(q, " WS");

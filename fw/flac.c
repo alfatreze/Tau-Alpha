@@ -431,6 +431,135 @@ static flac_err rice_init(flac_t *f, rice_t *r, uint32_t order)
     return FLAC_OK;
 }
 
+/* ---- Rice fast path (B-561, docs/features/FLAC_RICE_DECODER_SPEC.md) ----------------------------
+ *
+ * The 64-bit reservoir costs a libgcc call per shift and per count-leading-zeros on rv32im -Os (about
+ * 38 instructions per sample). For the ordinary value this decodes from a left-aligned 32-bit window
+ * cut with 32-bit operations only, one inline clz, no 64-bit shifts. Anything unusual -- no whole word
+ * left in buf, 32 or more zero bits, q + 1 + k > 32 -- goes to the unchanged unary()/bits() path, so
+ * bitstream consumption, end-of-stream and corrupt-stream behaviour are identical by construction.
+ * FLAC_RICE_FAST 0 builds the old path (host differential test only; never set in firmware). */
+#ifndef FLAC_RICE_FAST
+#define FLAC_RICE_FAST 1
+#endif
+#if FLAC_RICE_FAST
+static inline __attribute__((always_inline)) uint32_t clz32(uint32_t x)   /* x != 0 */
+{
+    /* Inline on purpose: __builtin_clz is a libgcc call under -Os. The quotient is 0, 1 or 2 for most
+     * values with a well-chosen k, so those are tested first. */
+    if (x & 0x80000000u) return 0;
+    if (x & 0x40000000u) return 1;
+    if (x & 0x20000000u) return 2;
+    uint32_t n = 0;
+    if (!(x & 0xFFFF0000u)) { n += 16; x <<= 16; }
+    if (!(x & 0xFF000000u)) { n += 8;  x <<= 8; }
+    if (!(x & 0xF0000000u)) { n += 4;  x <<= 4; }
+    if (!(x & 0xC0000000u)) { n += 2;  x <<= 2; }
+    if (!(x & 0x80000000u)) { n += 1; }
+    return n;
+}
+
+static inline __attribute__((always_inline)) int32_t zigzag(uint32_t v)
+{
+    return (v & 1u) ? -(int32_t)((v >> 1) + 1u) : (int32_t)(v >> 1);
+}
+
+/* One Rice value with parameter k (not the escape code). acc/cnt/pos/have are the caller's locals
+ * (the reservoir state); the caller writes them back to f once per run. */
+static inline __attribute__((always_inline)) int32_t rice_one(flac_t *f, uint64_t *acc, uint32_t *cnt,
+                                                              uint32_t *pos, uint32_t *have, uint32_t k)
+{
+    uint32_t c = *cnt;
+    if (c < 32u) {
+        if (*pos + 4u > *have) goto slow;
+        const uint8_t *p = f->buf + *pos;
+        *acc = (*acc << 32) | ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16)
+                            | ((uint32_t)p[2] << 8)  |  (uint32_t)p[3];
+        *pos += 4u; c += 32u; *cnt = c;
+    }
+    {
+        uint32_t hi = (uint32_t)(*acc >> 32), lo = (uint32_t)*acc;
+        uint32_t s  = c - 32u;                              /* 0..31 */
+        uint32_t w  = s ? (hi << (32u - s)) | (lo >> s) : lo;   /* next 32 unread bits, left-aligned */
+        if (w) {
+            uint32_t q = clz32(w);
+#ifdef RICE_MUT_CLZ                                   /* test-only mutants, see sim/test_flac_rice_fast.py */
+            if (q > 4u) q--;
+#endif
+            uint32_t used = q + 1u + k;
+#ifdef RICE_MUT_USED
+            if (k == 7u) used++;
+#endif
+            if (used <= 32u) {
+                uint32_t t = (w << q) << 1;                  /* drop the zeros and the 1; two shifts so */
+                uint32_t v = (q << k) | ((t >> 1) >> (31u - k));        /* a count of 32 never occurs; k = 0 gives 0 */
+                *cnt = c - used;
+#if FLAC_PROFILE
+                flac_unary_calls++; flac_unary_calls_total++;
+#endif
+                return zigzag(v);
+            }
+        }
+    }
+slow:
+    f->bitacc = *acc; f->bitcnt = *cnt; f->pos = *pos;
+    {
+        uint32_t q = unary(f);
+        uint32_t v = (q << k) | bits(f, k);
+        *acc = f->bitacc; *cnt = f->bitcnt; *pos = f->pos; *have = f->have;
+        return zigzag(v);
+    }
+}
+
+/* `count` values with parameter k into out[]. The one copy of the fast decode loop in the firmware:
+ * every caller (batch residual(), the streamed channel's chunks) goes through it. */
+static void rice_run(flac_t *f, uint32_t k, int32_t *out, uint32_t count)
+{
+    uint64_t acc = f->bitacc; uint32_t cnt = f->bitcnt, pos = f->pos, have = f->have;
+    for (uint32_t i = 0; i < count; i++)
+        out[i] = rice_one(f, &acc, &cnt, &pos, &have, k);
+    f->bitacc = acc; f->bitcnt = cnt; f->pos = pos;
+}
+
+/* n residuals of the partition state r into out[]; exactly n are decoded, so a
+ * caller that passes at most the residuals still owed never reads into the next subframe. Opens
+ * partitions exactly as rice_next() does (empty partitions, escape partitions, running past the last
+ * partition yields 0) so the bitstream consumption is that of n calls of rice_next(). */
+#define RICE_CHUNK 16u
+static uint32_t rice_chunk(flac_t *f, rice_t *r, int32_t *out, uint32_t n)
+{
+    uint32_t left = n;
+    while (left) {
+        if (!r->left) {
+            if (r->part >= r->parts) { *out++ = 0; left--; continue; }
+            r->left  = r->per - (r->part == 0u ? r->order : 0u);
+            r->param = bits(f, r->pbits);
+            r->raw   = (r->param == r->escape) ? bits(f, 5) : 0u;
+            r->part++;
+            continue;
+        }
+        uint32_t m = left < r->left ? left : r->left;
+        r->left -= m; left -= m;
+        if (r->param == r->escape) { while (m--) *out++ = sbits(f, r->raw); }
+        else { rice_run(f, r->param, out, m); out += m; }
+    }
+    return n;
+}
+/* Per-sample access for the streamed channel: refill the small local buffer when it runs dry. `want` is
+ * the number of residuals still owed to this subframe. */
+#define RICE_BUF_DECL  int32_t rb_[RICE_CHUNK]; uint32_t rb_n = 0, rb_i = 0
+#define RICE_GET(f, r, want) (rb_i < rb_n ? rb_[rb_i++]                                        : (rb_n = rice_chunk((f), (r), rb_, (want) < RICE_CHUNK ? (want) : RICE_CHUNK), rb_i = 1, rb_[0]))
+/* Same, as one shared out-of-line copy for the two cold call sites (FIXED predictors, the software-LPC
+ * fallback); only the hardware-LPC loop pays for the inline expansion. */
+static __attribute__((noinline)) int32_t rice_get(flac_t *f, rice_t *r, int32_t *rb, uint32_t *rb_n,
+                                                  uint32_t *rb_i, uint32_t want)
+{
+    if (*rb_i < *rb_n) return rb[(*rb_i)++];
+    *rb_n = rice_chunk(f, r, rb, want < RICE_CHUNK ? want : RICE_CHUNK); *rb_i = 1;
+    return rb[0];
+}
+#define RICE_GET_COLD(f, r, want) rice_get((f), (r), rb_, &rb_n, &rb_i, (want))
+#else
 static int32_t rice_next(flac_t *f, rice_t *r)
 {
     if (!r->left) {                                   /* open next partition */
@@ -447,10 +576,23 @@ static int32_t rice_next(flac_t *f, rice_t *r)
     uint32_t v = (q << r->param) | bits(f, r->param);
     return (v & 1u) ? -(int32_t)((v >> 1) + 1u) : (int32_t)(v >> 1);
 }
+#define RICE_BUF_DECL
+#define RICE_GET(f, r, want) rice_next((f), (r))
+#define RICE_GET_COLD RICE_GET
+#endif
 
 
 /* Decodes `n` residuals starting at out[0]. Rice partitions are flat in the
  * bitstream, so this can run straight into the caller's reconstruction. */
+#if FLAC_RICE_FAST
+static flac_err residual(flac_t *f, uint32_t order, int32_t *out)
+{
+    rice_t r; flac_err e = rice_init(f, &r, order);
+    if (e) return e;
+    (void)rice_chunk(f, &r, out, f->blocksize - order);
+    return f->eof ? FLAC_ERR_SHORT : FLAC_OK;
+}
+#else
 static flac_err residual(flac_t *f, uint32_t order, int32_t *out)
 {
     uint32_t method = bits(f, 2);
@@ -470,6 +612,10 @@ static flac_err residual(flac_t *f, uint32_t order, int32_t *out)
             uint32_t raw = bits(f, 5);
             for (uint32_t i = 0; i < count; i++) out[idx++] = sbits(f, raw);
         } else {
+#if FLAC_RICE_FAST
+            rice_run(f, param, out + idx, count);
+            idx += count;
+#else
             for (uint32_t i = 0; i < count; i++) {
                 uint32_t q = unary(f);
                 uint32_t r = bits(f, param);
@@ -478,11 +624,14 @@ static flac_err residual(flac_t *f, uint32_t order, int32_t *out)
                 out[idx++] = (v & 1u) ? -(int32_t)((v >> 1) + 1u)
                                       :  (int32_t)(v >> 1);
             }
+#endif
         }
         if (f->eof) return FLAC_ERR_SHORT;
     }
     return FLAC_OK;
 }
+
+#endif
 
 /* ------------------------------------------------------------- subframe */
 
@@ -678,6 +827,7 @@ static flac_err subframe_stream(flac_t *f, uint32_t bps, uint32_t out_bps,
     int16_t pcm[128];
     uint32_t k = 0;
     uint32_t i = 0;
+    RICE_BUF_DECL;
 
     /* Emits one pair and hands the buffer slot over to channel 1. */
     #define EMIT(S) do {                                                           int32_t a_ = buf[i], s_ = (S), l_, r_;                                     if      (m == 8u)  { l_ = a_;             r_ = a_ - s_; }                  else if (m == 9u)  { r_ = s_;             l_ = s_ + a_; }                  else if (m == 10u) { int32_t mid_ = (a_ << 1) | (s_ & 1);                                       l_ = (mid_ + s_) >> 1;                                                     r_ = (mid_ - s_) >> 1; }                              else               { l_ = a_;             r_ = s_; }                       pcm[k * 2] = to16(l_, out_bps); pcm[k * 2 + 1] = to16(r_, out_bps);        buf[i] = s_;                                                               if (++k == 64u) { sink(sctx, pcm, k); k = 0; }                             i++;                                                                   } while (0)
@@ -698,7 +848,7 @@ static flac_err subframe_stream(flac_t *f, uint32_t bps, uint32_t out_bps,
         while (i < n) {
             int32_t p = 0;
             for (uint32_t j = 0; j < order; j++) p += c[j] * (buf[i - 1u - j] >> wasted);
-            EMIT((rice_next(f, &r) + p) << wasted);
+            EMIT((RICE_GET_COLD(f, &r, n - i) + p) << wasted);
         }
     } else if (type >= 32u) {                      /* LPC */
         uint32_t order = type - 31u;
@@ -725,7 +875,7 @@ static flac_err subframe_stream(flac_t *f, uint32_t bps, uint32_t out_bps,
                  * whether the hardware call then succeeds -- so a mid-subframe failure would silently
                  * drop that residual and desync every sample after it. Caught by
                  * sim/test_flac_lpc_fw_redirect.py's fallback case, not assumed safe. */
-                int32_t res = rice_next(f, &r);
+                int32_t res = RICE_GET(f, &r, n - i);
                 int ok;
                 int32_t s = tau_lpc_hw_sample(res, &ok);
                 if (!ok) {
@@ -743,7 +893,7 @@ static flac_err subframe_stream(flac_t *f, uint32_t bps, uint32_t out_bps,
             int64_t p = 0;
             for (uint32_t j = 0; j < order; j++)
                 p += (int64_t)coef[j] * (buf[i - 1u - j] >> wasted);
-            EMIT((rice_next(f, &r) + (int32_t)(p >> shift)) << wasted);
+            EMIT((RICE_GET_COLD(f, &r, n - i) + (int32_t)(p >> shift)) << wasted);
         }
     } else {
         return FLAC_ERR_DATA;
@@ -761,6 +911,16 @@ static flac_err subframe_stream(flac_t *f, uint32_t bps, uint32_t out_bps,
  * build. */
 #ifdef FLAC_TEST_EXPOSE
 flac_err flac_test_subframe(flac_t *f, int32_t *out, uint32_t bps) { return subframe(f, out, bps); }
+/* B-561: the Rice entry points, for sim/flac_rice_diff_harness.c. */
+flac_err flac_test_residual(flac_t *f, uint32_t order, int32_t *out) { return residual(f, order, out); }
+flac_err flac_test_rice_stream(flac_t *f, uint32_t order, uint32_t n, int32_t *out)
+{
+    rice_t r; flac_err e = rice_init(f, &r, order);
+    if (e) return e;
+    RICE_BUF_DECL;
+    for (uint32_t i = 0; i < n; i++) out[i] = RICE_GET(f, &r, n - i);
+    return f->eof ? FLAC_ERR_SHORT : FLAC_OK;
+}
 flac_err flac_test_subframe_stream(flac_t *f, uint32_t bps, uint32_t out_bps, uint8_t m,
                                     flac_sink_fn sink, void *sctx)
 { return subframe_stream(f, bps, out_bps, m, sink, sctx); }

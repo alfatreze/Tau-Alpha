@@ -101,6 +101,12 @@
 #define R_CLUT_IDX  0x800000C8u   /* Phase F B8: sticky CLUT index (W), 0-255 */
 #define R_DBG_MARK  0x800000D0u   /* B-186: CPU-side checkpoint, read live by TAU_ISSP's DBGM probe -- see fw/suite.inc's bt_crumb(). Harmless write if TAU_ISSP isn't built. */
 #define R_CLUT_DATA 0x800000CCu   /* Phase F B8: CLUT entry at that index (W), RGB565; index auto-increments */
+/* B-570: the CLUT write path in every bitstream built so far stores an entry one slot ABOVE the index it was issued at: mp3_soc.v raises
+ * a one-cycle write pulse and advances clut_idx on the same edge while clut_waddr follows clut_idx, so the pulse is seen after the index
+ * has moved on. A load that starts at R_CLUT_IDX = 0 therefore lands entry n in slot n + 1 (entry 255 in slot 0): every TIM1 cover and
+ * meter preview was drawn with its palette shifted by one. Starting at 255 puts entry 0 in slot 0. 0 once the RTL registers the write
+ * address with the pulse (then bump CORE_VERSION and gate this on it); sim/test_clut_contract.py fails if the two ever disagree. */
+#define CLUT_START_IDX 255u
 #define R_RC_IDX    0x800000D4u   /* B11: corner-cut LUT entry select (W), 0-15 -- see fw/rc_lut.h */
 #define R_RC_DATA   0x800000D8u   /* B11: corner-cut LUT entry value (W), 0-31 (5 bits) at the index above */
 #define R_SPEC_IDX  0x800000DCu   /* B-263: spectrum bank -- write the band index 0..15 */
@@ -314,6 +320,9 @@ static inline int      pcm_underrun(void) { return PCM_UNDER(REG(R_PCM_ST)); }
  * Check and its QR report (fw/suite.inc), the Tests and Stress pages, the SDRAM stress pump, soak and
  * HUD, and the diagnostic menus. Off in `release`; on in `player-library-diagnostic` and
  * `player-library-diagnostic-profile` (fw/build.sh). Needs the same RBF features as the release. */
+#ifndef TAU_TEMPO
+#define TAU_TEMPO 0      /* Cymo C7 T2 (B-558): pitch-preserving tempo for MP3 (fw/tempo_core.h); off by default so every default build is byte-identical */
+#endif
 #ifndef TAU_DIAGNOSTIC
 #define TAU_DIAGNOSTIC 0
 #endif
@@ -547,15 +556,15 @@ static void fb_copy(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
 }
 
 /* Phase F B8: load N palette entries into the 256-entry CLUT, starting at
- * index 0 (R_CLUT_DATA auto-increments after each write, R_CLUT_IDX=0 resets
- * it -- see mp3_soc.v R-CLUT_IDX/R_CLUT_DATA). fb_wait() first: the CLUT is a
+ * index 0 (R_CLUT_DATA auto-increments after each write, R_CLUT_IDX=CLUT_START_IDX
+ * resets it -- see mp3_soc.v R-CLUT_IDX/R_CLUT_DATA). fb_wait() first: the CLUT is a
  * single shared table the draw engine reads asynchronously, so it must not be
  * reloaded while an earlier OP_CBLIT command is still draining the FIFO,
  * exactly the same reasoning fb_rect/fb_char already apply to fg/bg. */
 static void fb_clut_load(const uint16_t *pal, uint32_t n)
 {
     fb_wait();
-    REG(R_CLUT_IDX) = 0u;
+    REG(R_CLUT_IDX) = CLUT_START_IDX;
     for (uint32_t i = 0; i < n; i++) REG(R_CLUT_DATA) = pal[i];
 }
 
@@ -899,6 +908,44 @@ static uint8_t speed_idx = SPEED_1X;
  * distances are all derived from FILE POSITION, not wall clock, so they stay
  * correct by construction. The FIFO drain is the only wall-clock-domain thing
  * here. */
+enum { FMT_MP3 = 0, FMT_FLAC };
+static uint8_t  track_fmt;
+/* B-554: speed changes are MP3-only for now (owner decision, 2026-10-03: FLAC audiobooks are doubtful, and stereo FLAC music has no decode headroom even at 1.00x, B-553).
+ * `speed_idx` keeps what the owner chose, so it applies again on the next MP3; this is the speed that actually applies: always 1.00x for a FLAC. Every user of the speed
+ * (the FIFO drain, the Cymo guard, the on-screen marker, the Info headroom row) goes through it. */
+#if TAU_TEMPO
+/* Cymo C7 T2 (B-558): tempo = faster or slower speech WITHOUT the pitch change, MP3 only. The setting is separate from the speed list (that one is varispeed) and
+ * exclusive with it. While it is on the FIFO drains at the native rate and fw/tempo_core.h's stretcher consumes the decoded audio faster than it plays it. */
+#define TEMPO_N 6u
+static uint8_t  tempo_idx;                /* 0 = off */
+static uint32_t tempo_cfg_key;            /* what the stretcher was started for; 0 = start it again at the next frame (every flush clears it) */
+static const uint16_t tempo_q8[TEMPO_N] = { 256u, 282u, 320u, 384u, 448u, 512u };
+static const char *const tempo_txt[TEMPO_N] = { "OFF", "1.10x", "1.25x", "1.50x", "1.75x", "2.00x" };
+#endif
+static inline uint8_t speed_eff(void)
+{
+    if (track_fmt == FMT_FLAC) return (uint8_t)SPEED_1X;
+#if TAU_TEMPO
+    if (tempo_idx) return (uint8_t)SPEED_1X;          /* tempo plays at the native rate; the stretcher makes it faster */
+#endif
+    return speed_idx;
+}
+/* the multiplier the decoder has to keep up with, as a fraction: the varispeed speed or the tempo ratio */
+static inline void speed_ratio(uint32_t *n, uint32_t *d)
+{
+#if TAU_TEMPO
+    if (track_fmt != FMT_FLAC && tempo_idx) { *n = tempo_q8[tempo_idx]; *d = 256u; return; }
+#endif
+    *n = speed_num[speed_eff()]; *d = speed_den[speed_eff()];
+}
+/* the text of the on-screen speed marker, or 0 when the audio plays at 1.00x */
+static inline const char *speed_marker(void)
+{
+#if TAU_TEMPO
+    if (track_fmt != FMT_FLAC && tempo_idx) return tempo_txt[tempo_idx];
+#endif
+    return speed_eff() != SPEED_1X ? speed_txt[speed_eff()] : (const char *)0;
+}
 #if TAU_DIAGNOSTIC
 static void cymo_guard_apply(uint32_t hz);   /* B-530: defined with the Cymo toggle below */
 #endif
@@ -911,13 +958,11 @@ static void pcm_rate_apply(uint32_t hz)
     cymo_guard_apply(hz);
 #endif
     uint64_t inc = DIV64((uint64_t)hz << 32, CLK_HZ);
-    if (speed_idx != SPEED_1X) inc = DIV64(inc * speed_num[speed_idx], speed_den[speed_idx]);
+    if (speed_eff() != SPEED_1X) inc = DIV64(inc * speed_num[speed_eff()], speed_den[speed_eff()]);
     REG(R_PCM_RATE) = (uint32_t)inc;
 }
 static uint32_t track_bytes;      /* audio length the FILE declares (Xing/VBRI) */
 static uint32_t fl_first_frame;   /* absolute offset of the first audio frame */
-enum { FMT_MP3 = 0, FMT_FLAC };
-static uint8_t  track_fmt;
 static uint8_t  size_suspect;     /* directory disagrees with the file itself   */
 static uint8_t  ui_size_warned;
 /* Load timing, in milliseconds, for the phases between pcm_flush() and
@@ -3323,7 +3368,7 @@ static void poll_input(void);
 #define UI_SPL_VER_Y    (UI_TITLE_Y - 14u + UI_CARD_H - 14u - 16u)
 #define UI_SPL_INFO_Y  262u    /* the transport row's line */
 
-/* Authored Tau loading screen. The generated 16-colour RLE file lives in its
+/* Authored Tau loading screen. The generated RLE file (TAU2: 256 colours, B-574; TAU1, the original 16-colour format, is still read) lives in its
  * own deferred APF slot and streams through the existing 4 KB tag scratch
  * window. Embedding it in the firmware crossed the reserved DMA boundary by
  * 12.5 KB; keeping it external preserves both image quality and decoder RAM.
@@ -3331,7 +3376,8 @@ static void poll_input(void);
 #define TAU_SPLASH_SLOT_ID  4u
 #define TAU_SPLASH_W        400u
 #define TAU_SPLASH_H        360u
-#define TAU_SPLASH_HEADER   44u
+#define TAU_SPLASH_HEADER   44u      /* TAU1: 12-byte header + 16 colours  */
+#define TAU_SPLASH_HEADER2  524u     /* TAU2: 12-byte header + 256 colours */
 #define TAU_SPLASH_CHUNK    4096u
 #define TAU_SPLASH_STATUS_X 104u
 #define TAU_SPLASH_STATUS_Y 256u
@@ -3364,29 +3410,34 @@ static int ui_splash_asset(void)
 {
     uint32_t dst = (uint32_t)(uintptr_t)&_tag_start;
     uint8_t *buf = (uint8_t *)(uintptr_t)(0xC0000000u + dst);
-    uint16_t palette[16];
+    uint16_t palette[256];
 
-    if (!target_read_slot(TAU_SPLASH_SLOT_ID, 0u, dst, TAU_SPLASH_HEADER))
+    /* One read serves both formats: the larger header, of which TAU1 uses the first 44 bytes. */
+    if (!target_read_slot(TAU_SPLASH_SLOT_ID, 0u, dst, TAU_SPLASH_HEADER2))
         return 0;
-    if (buf[0] != 'T' || buf[1] != 'A' || buf[2] != 'U' || buf[3] != '1' ||
-        tau_u16(buf + 4u) != TAU_SPLASH_W ||
+    uint32_t ncol = 0, hdr = 0;
+    if (buf[0] == 'T' && buf[1] == 'A' && buf[2] == 'U') {
+        if (buf[3] == '1')      { ncol = 16u;  hdr = TAU_SPLASH_HEADER;  }
+        else if (buf[3] == '2') { ncol = 256u; hdr = TAU_SPLASH_HEADER2; }
+    }
+    if (!ncol || tau_u16(buf + 4u) != TAU_SPLASH_W ||
         tau_u16(buf + 6u) != TAU_SPLASH_H)
         return 0;
 
     uint32_t bytes = tau_u32(buf + 8u);
     if (!bytes || (bytes & 1u) || bytes > TAU_SPLASH_W * TAU_SPLASH_H * 2u)
         return 0;
-    for (uint32_t i = 0; i < 16u; i++)
+    for (uint32_t i = 0; i < ncol; i++)
         palette[i] = tau_u16(buf + 12u + i * 2u);
 
-    uint32_t file_off = TAU_SPLASH_HEADER, pos = 0;
+    uint32_t file_off = hdr, pos = 0;
     while (bytes) {
         uint32_t chunk = bytes > TAU_SPLASH_CHUNK ? TAU_SPLASH_CHUNK : bytes;
         if (!target_read_slot(TAU_SPLASH_SLOT_ID, file_off, dst, chunk))
             return 0;
         for (uint32_t i = 0; i < chunk; i += 2u) {
             uint32_t left = buf[i];
-            uint16_t c = palette[buf[i + 1u] & 15u];
+            uint16_t c = palette[buf[i + 1u] & (ncol - 1u)];
             if (!left || pos + left > TAU_SPLASH_W * TAU_SPLASH_H)
                 return 0;
             while (left) {
@@ -4670,7 +4721,7 @@ static void cymo_guard_apply(uint32_t hz)
 {
     if (hz) cymo_last_hz = hz;
     if (!CYMO_RESAMP_READY()) return;
-    uint8_t want = (uint8_t)(cymo_live_toggle && cymo_last_hz == 44100u && speed_idx == SPEED_1X);
+    uint8_t want = (uint8_t)(cymo_live_toggle && cymo_last_hz == 44100u && speed_eff() == SPEED_1X);
     if (want != cymo_live_on) {
         cymo_live_on = want;
         REG(R_CYMO_CTRL) = want ? 4u : 0u;   /* bit 2 = LIVE_ENABLE, sticky */
@@ -5488,8 +5539,8 @@ ui_tail:
          *
          * Accent, not white: it is a state the user chose, and the same colour
          * every other active mode indicator uses. */
-        if (speed_idx != SPEED_1X) {
-            const char *sp = speed_txt[speed_idx];
+        const char *sp = speed_marker();
+        if (sp) {
             uint32_t sw = fb_text_width(sp, TS_1X);
             uint32_t sx = FB_W - UI_MARGIN - sw;
             uint32_t sy = UI_TIME_Y + (FB_CELL(TS_15X) > FB_CELL(TS_1X)
@@ -6784,6 +6835,9 @@ static inline void pcm_flush(void)
     REG(R_PCM_ST) = 1u;
     fade_left    = FADE_SAMPLES;  /* every flush is a discontinuity */
     under_shadow = 0;             /* flush clears the sticky underrun flag */
+#if TAU_TEMPO
+    tempo_cfg_key = 0u;           /* B-558: the stretcher starts again from the next decoded frame (a hard reset: what it had staged is dropped) */
+#endif
 #if TAU_DIAGNOSTIC
     ur_flush(&ur_all);
     stress_frames_at_flush = frames;
@@ -7727,6 +7781,59 @@ static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_
     REG(R_AUDIO) = pcm_pack(l, r);
     return 1u;
 }
+
+#if TAU_TEMPO
+/* Cymo C7 T2 (B-558): the tempo funnel (fw/tempo_core.h) wired to the player. The staging ring is the PSRAM window at +6 MiB (planar, 64 KB a channel; the map is in
+ * docs/features/CYMO_TEMPO_INTEGRATION.md section 4: the library image, queue and dead-track bitmap, the cold image and the Check scratch are elsewhere). Output pairs go through
+ * cymo_push(), the same volume / fade-in / FIFO wait as everything else, so the FIFO paces the whole chain at the native rate; the meters are fed from the stretched
+ * output, so they move at real time and not at tempo times real time. */
+#define TEMPO_PS_L ((volatile uint32_t *)(uintptr_t)0xA4600000u)
+#define TEMPO_PS_R ((volatile uint32_t *)(uintptr_t)0xA4610000u)
+#define TEMPO_PUSH(l, r) cymo_push((l), (r), 1u)
+COLD_FN3 static void tempo_meter(const int16_t *l, const int16_t *r, uint32_t n);
+#define TEMPO_METER(l, r, n) tempo_meter((l), (r), (n))
+/* The stretcher and the funnel are COLD CODE (the 192 KB link has 13.9 KB of heap in the release build, and the hot code alone would not fit); the Hann table is cold data.
+ * The hot MP3 loop enters them only through tempo_use(), which is gated on COLD_READY(). */
+#define WS_FN    COLD_FN3 static
+#define TEMPO_FN COLD_FN3 static
+#define WS_DATA  COLD_DATA
+#include "tempo_core.h"
+static tempo_t tempo_st;
+/* The meters take interleaved pairs; to avoid a 2 KB buffer a stereo hop is handed over as every 4th pair (128 of 512): the peaks of speech are slightly underestimated,
+ * the spectrum is measured in hardware and does not use this. */
+COLD_FN3 static void tempo_meter(const int16_t *l, const int16_t *r, uint32_t n)
+{
+    if (r) {
+        int16_t il[2u * (WS_MAX_HS / 4u)];
+        uint32_t m = n / 4u;
+        for (uint32_t i = 0; i < m; i++) { il[2u * i] = l[4u * i]; il[2u * i + 1u] = r[4u * i]; }
+        meters_feed(il, (int)(2u * m), 1);
+    } else {
+        meters_feed(l, (int)n, 0);
+    }
+}
+static uint8_t tempo_psram;               /* 0 unknown, 1 proven, 2 not available */
+static int tempo_psram_ok(void)
+{
+    if (tempo_psram == 0u) {              /* write and read back four words; the staging ring is scratch, so nothing is lost */
+        volatile uint32_t *a = TEMPO_PS_L, *b = TEMPO_PS_R;
+        a[0] = 0x5A5AC3C3u; b[0] = 0xA5A53C3Cu; a[1] = 0x12345678u; b[1] = 0x9ABCDEF0u;
+        tempo_psram = (a[0] == 0x5A5AC3C3u && b[0] == 0xA5A53C3Cu && a[1] == 0x12345678u && b[1] == 0x9ABCDEF0u) ? 1u : 2u;
+    }
+    return tempo_psram == 1u;
+}
+/* 1 when this MP3 frame goes through the stretcher. Eligibility: MP3 only, 22.05-48 kHz, mono or stereo, the PSRAM window proven. (Re)starts the stretcher when the
+ * stream's parameters or the setting changed, or after a flush. Anything else plays normally, at 1.00x. */
+static int tempo_use(uint32_t rate, uint32_t nch)
+{
+    if (!tempo_idx || track_fmt == FMT_FLAC || !COLD_READY()) return 0;   /* the stretcher is cold code: only once the cold image is loaded */
+    if (rate < 22050u || rate > 48000u || (nch != 1u && nch != 2u)) return 0;
+    if (!tempo_psram_ok()) return 0;
+    const uint32_t key = ((rate << 8) ^ (nch << 4) ^ (uint32_t)tempo_idx) | 0x80000000u;
+    if (key != tempo_cfg_key) { tempo_start(&tempo_st, rate, (uint8_t)nch, tempo_q8[tempo_idx]); tempo_cfg_key = key; }
+    return 1;
+}
+#endif
 
 /* `src`, not `pcm`: the file-scope pcm[] is the meter capture buffer, and a
  * parameter of that name would shadow it. */
@@ -10189,12 +10296,20 @@ int main(void)
         int n = fi.outputSamps;                  /* interleaved L,R */
         int stereo = (fi.nChans == 2);
 
+#if TAU_TEMPO
+        if (tempo_use(fi.samprate, (uint32_t)fi.nChans)) {
+            /* B-558: through the stretcher; it feeds the meters itself, from its output */
+            if (!tempo_frame(&tempo_st, (const int16_t *)pcm, (uint32_t)n, stereo)) goto next_outer;
+        } else
+#endif
+        {
         meters_feed(pcm, n, stereo);
 
         for (int i = 0; i < n; i += (stereo ? 2 : 1)) {
             int32_t l = pcm[i];
             int32_t r = stereo ? pcm[i + 1] : l;
             if (!cymo_push(l, r, 1u)) goto next_outer;   /* volume, fade, FIFO wait, write (C1); aborts on a pending reload */
+        }
         }
 
         frames++;

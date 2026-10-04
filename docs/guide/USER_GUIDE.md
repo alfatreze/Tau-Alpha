@@ -180,10 +180,10 @@ Presets are loudness-matched, so switching changes the tone without changing how
 
 ## Playback speed
 
-Choose it in **Settings > Playback > Speed**: 0.85x, 0.95x, 1.00x, 1.10x or 1.20x. It's meant for spoken word: pitch rises
-with the speed, so music sounds wrong. Off every launch. The Diagnostic Build can offer more (1.30x, 1.50x, 1.75x, 2.00x, 2.50x)
-through Diagnostics > ALL SPEEDS, for experiments; since the MP3 synthesis window moved into hardware, MP3 playback was clean
-at 1.75x in owner tests, but those speeds are not offered in the normal build yet.
+Choose it in **Settings > Playback > Speed**: 0.85x, 0.95x, 1.00x, 1.10x, 1.20x, 1.30x, 1.50x, 1.75x or 2.00x. It's meant for spoken word: pitch
+rises with the speed, so music sounds wrong (a speed change that keeps the voice natural is planned). Off every launch. **MP3 only:** a FLAC always plays at
+1.00x. High speeds depend on the file: a mono speech MP3 is comfortable at 2.00x, a stereo 128 kbps MP3 has about a quarter of the processor free at 1.50x
+and may stutter above that. The Diagnostic Build adds 2.50x through Diagnostics > ALL SPEEDS.
 
 ## Screen blanking
 
@@ -225,8 +225,8 @@ from a handheld it isn't a difference you're going to hear. (The hardware window
   re-save covers at around 100 KB. The same cover is not decoded again for the rest of the album.
 - **Meter Configure settings are not yet remembered across a restart.** Theme, mode and the accent colour now are;
   the meter presets were left out of `interact.json`'s persisted list to stay under its 16-entry display cap.
-- **Speeds above 1.20x are Diagnostic Build only** for now. The old note that 1.2x could distort in dense passages dates from
-  before the hardware MP3 window unit; it is expected to be much better now but has not been re-measured as a release claim.
+- **Speeds above 1.20x (up to 2.00x) are MP3 only and depend on the file.** A stereo 128 kbps MP3 has about a quarter of the processor free at 1.50x
+  (measured), and speed changes the pitch; a FLAC always plays at 1.00x. 2.50x is Diagnostic Build only.
 - **`Track changes` in the Diagnostic Build's Check** still fails; playback itself is unaffected. The release and diagnostic builds
   may restore the last track differently after a restart.
 - See the [roadmap](../ROADMAP_PUBLIC.md) for what is planned.
