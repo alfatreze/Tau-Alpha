@@ -119,7 +119,7 @@ the list is freshly shuffled.
 
 ## Themes and colours
 
-**Settings > Appearance** (Start opens Settings) has the rows COLOUR, THEME, MODE, METER, ALBUM ART and SCREEN BLANK.
+**Settings** (Start opens it) has METER and METER: CONFIGURE on its main page, next to APPEARANCE, AUDIO, PLAYBACK and SETTINGS. **Settings > Appearance** has the rows COLOUR, THEME, MODE, ALBUM ART and SCREEN BLANK.
 
 - **THEME** picks one of the built-in themes, **TAU** or **OCEAN**, plus up to four more from a `tau-assets.bin` file if you
   have one (see [Media and tools](MEDIA_AND_TOOLS.md#the-theme-and-meter-file-tau-assetsbin)). Info shows THEME FILE.
@@ -133,7 +133,7 @@ The chosen theme, mode and accent colour are all remembered across a restart.
 
 ## Meters
 
-Cycle with **X**, or choose one in Settings > Appearance > METER (the list order below is the firmware's order):
+Cycle with **X**, or choose one in Settings > METER (the list order below is the firmware's order). In that list A selects a meter, and **X opens the settings of the highlighted meter** (it selects it first); a small gear on the right of a row marks the meters that have settings:
 
 | Meter | What it shows |
 |---|---|
@@ -152,7 +152,7 @@ Cycle with **X**, or choose one in Settings > Appearance > METER (the list order
 Sources: `meters/*/meter.json` and `fw/meter_gen_order.h`. The Magic Eye, L/R Levels, Mirrored Bars (now a layout of Bars)
 and cassette meters no longer exist as separate choices.
 
-**Configure.** Settings > Appearance > METER > CONFIGURE opens a page for the current meter's parameters: presets, band
+**Configure.** Settings > METER: CONFIGURE (or X in the meter list) opens a page for the current meter's parameters: presets, band
 count, easing, attack and release, peak cap and fall (Winamp Bars), scope smoothing and trail (Winamp Scope), and the
 Chladni parameters. Use Up/Down to pick a row and Left/Right to change it; the live meter stays on screen above. These settings
 are **session-only** (not remembered across a restart yet). In the Diagnostic Build the page can also show the configuration
