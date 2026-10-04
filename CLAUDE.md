@@ -785,3 +785,4 @@ When delegating, write the subagent prompt to minimize its cost and the tokens i
 - 2026-10-04 (Claude): analysis (B-588). DEV 88 measured: pipelined Subband handoff cut CPU busy 55% to 47% (Subband 20% to 12%, handoff 11% to 3%), as predicted; no underruns; listening pass still pending.
 - 2026-10-04 (Claude): owner confirmed DEV 88 (pipelined Subband handoff) sounds clean all round (B-588).
 - 2026-10-04 (Claude): firmware (B-589). Cymo C0 follow-up: SR_T_LOAD2 (decode / meters_feed / push / UI cycle split of the MP3 loop) in the Check QR, Diagnostic Build only; DEV 89 packaged, NOT installed.
+- 2026-10-04 (Claude): firmware (B-590). Check's stress tests drew random noise over the screen: STRESS_BASE (2 MiB) overlapped display buffer 1 of the H2 double buffer; pump moved to 3..4 MiB, host overlap test added (red then green). DEV 90 packaged (includes SR_T_LOAD2), NOT installed.
