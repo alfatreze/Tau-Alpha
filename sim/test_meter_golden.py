@@ -61,6 +61,7 @@ static void blit_probe_ensure(void) {}
 #define BLIT_READY() 1
 static void ui_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; }
 static int ui_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t a) { (void)x; (void)y; (void)w; (void)h; (void)a; return 0; }   /* no blend bitstream: the trail falls back to the plain erase the JS twin models */
+#define SCOPE_NOTE(ok, px, py) do { if (ok) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check(); dbg_pixel_log((px), (py)); } while (0)
 static uint32_t dbg_scope_blend_ok, dbg_scope_blend_fail;   /* B-413: cut into wviz_scope_tick(), stubbed here same as the other globals it touches */
 static void dbg_strip_check(void) {}   /* B-433: same reasoning -- real body reads SDRAM via the mailbox, irrelevant to this host trace comparison */
 static void dbg_pixel_log(uint32_t x, uint32_t y) { (void)x; (void)y; }   /* B-444: same reasoning */
@@ -109,7 +110,7 @@ def main():
         lines.append(" ".join(str(v) for v in s["params"]))
         for fr in s["frames"]:
             lines.append(str(fr["paused"]) + " " + " ".join(str(v) for v in fr["spec"]) + " " + " ".join(str(v) for v in fr["wave"]))
-    code = HARNESS.replace("@@BARS@@", cut("COLD_FN3 static void wviz_bars_tick", INC)).replace("@@SCOPE@@", cut("COLD_FN3 static void wviz_scope_tick"))
+    code = HARNESS.replace("@@BARS@@", cut("COLD_FN3 static void wviz_bars_tick", INC)).replace("@@SCOPE@@", cut("COLD_FN3 static void wviz_scope_tick", (ROOT / "fw/winamp_scope.inc").read_text()))
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         (d / "h.c").write_text(code); (d / "in.txt").write_text("\n".join(lines) + "\n")

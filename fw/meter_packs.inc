@@ -16,8 +16,12 @@ static uint32_t packs_ms;
 static uint32_t packs_stats[MTR_PACK_SLOTS][MTR_PACK_STATS];     /* what each pack publishes for Info */
 static mtr_host_api_t packs_api[MTR_PACK_SLOTS];     /* one per slot: the same services, that meter's own setting values */
 static uint32_t packs_seen_n;
+static uint8_t  packs_grad;         /* the HM_GRAD flag of the draw in progress, for the pack (host table field grad) */
 COLD_FN3 static uint32_t packs_cycles(void) { return cycles(); }
 COLD_FN3 static int packs_psram_ready(void) { return mtr_psram_ready(); }
+COLD_FN3 static void packs_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { ui_bg_restore(x, y, w, h); }
+COLD_FN3 static int packs_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t a) { return ui_bg_blend(x, y, w, h, a); }
+COLD_FN3 static void packs_scope_note(int ok, uint32_t x, uint32_t y) { SCOPE_NOTE(ok, x, y); }
 COLD_FN3 static int packs_bar_ready(void) { blit_probe_ensure(); return BLIT_READY(); }   /* the bar opcode exists on this bitstream (probed once) */
 
 #define PACKS_E_NOFETCH 40u         /* cold code (PSRAM instruction fetch) is not proven: a pack could not run */
@@ -62,7 +66,12 @@ COLD_FN3 static void packs_boot_load_cold(void)
         a->role = th_role;
         a->force = &wviz_force;
         a->stats = packs_stats[i];
-        a->params = i == 0u ? mtr_v_layered_wave : i == 1u ? mtr_v_winamp_bars : mtr_v_layered_wave;   /* slot 0 = Layered Wave, slot 1 = Winamp Bars (fw/meter_pack.h mtr_pack_slot_of) */
+        a->grad = &packs_grad;
+        a->fullscreen = &ui_fullscreen;
+        a->bg_restore = packs_bg_restore;
+        a->bg_blend = packs_bg_blend;
+        a->scope_note = packs_scope_note;
+        a->params = i == 0u ? mtr_v_layered_wave : i == 1u ? mtr_v_winamp_bars : i == 2u ? mtr_v_winamp_scope : mtr_v_layered_wave;   /* slot 0 = Layered Wave, 1 = Winamp Bars, 2 = Winamp Scope (fw/meter_pack.h mtr_pack_slot_of) */
     }
     packs_state = 1u;
 }

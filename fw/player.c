@@ -1833,8 +1833,6 @@ static const mtr_data_t *mtr_of(uint32_t viz)
 static uint8_t wviz_force;
 
 #include "meter_core.h"   /* M1.5: ease, peak cap, band mapping, redraw cache (was inline in wviz_bars_tick) */
-static int16_t  wviz_scope_y[256];          /* smoothed scope trace, signed pixel offset */
-static uint8_t  wviz_scope_init;
 
 /* ---- OCTAVE FILTER BANK -----------------------------------------------
  *
@@ -4149,165 +4147,8 @@ static void viz_bars_tick(const mtr_in_t *in)
  * so the Configure page can pin the preview wherever its own layout wants. */
 #include "winamp_bars.inc"   /* wviz_bars_tick and its state: a separate file so the loadable pack (fw/meter_pack_winamp_bars.c) compiles the same code */
 
-/* Classic Winamp oscilloscope -- reuses wav_v[]/SCOPE_UNIT and the span-per-
- * column draw exactly as VIZ_WAVE does, plus temporal smoothing. scope_trail
- * is accepted but has no visible effect yet: a real soft trail needs B5
- * alpha blend (shelved). Explicit geometry, same reason as wviz_bars_tick().
- *
- * B-234: `use_gradient` picks how the trace's old position is erased.
- * ui_bg_restore() copies from a gradient strip pre-rendered ONLY for the
- * player screen's own UI_WAVE_Y row range (fw/player.c's UI_BG_X/UI_BG_W
- * comment) -- calling it with a `y` outside that range (as the Configure
- * page's own preview position does) reads whatever garbage happens to sit in
- * that off-screen memory for those rows, which is the reported "Scope
- * preview garbled." The player screen passes use_gradient=1 (its call site's
- * y IS UI_WAVE_Y, so the cache is valid there); Configure passes 0 and a flat
- * panel colour, matching how wviz_bars_tick() already takes an explicit bg
- * for exactly this reason. */
-COLD_FN3 static void wviz_scope_tick(const mtr_in_t *in, int use_gradient)
-{
-    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
-    const uint16_t bg = in->bg;
-    const int32_t  ey = (int32_t)(h / 2u) - 1;
-    const uint32_t cy = y + h / 2u;
-
-    /* B-234: context just changed -- re-seed the smoothing state cleanly
-     * instead of lerping from a stale wviz_scope_y[] left over from a
-     * different geometry or a different preset's smoothing amount. */
-    if (in->force) { wviz_scope_init = 0u; wviz_force = 0u; }
-
-    /* B-298/B-300/B-301 STOPGAP: the hardware wave path below draws up to 256 columns x up to 3
-     * fig_rect() calls each (measured DRAW STALL 34,663 ms cumulative, CPU LOAD 100%, real audible
-     * jitter on hardware) -- about 21x wviz_bars_tick()'s own baseline. Forced off here, keeping the
-     * 64-column software path (tools/meter_cost_estimate.py: 198 commands, within budget) until the
-     * real fix -- batching the hardware path's per-column draws -- is designed and built. Flip this
-     * back to `if (wave_hw)` once that lands; do not remove the hardware branch below, it is the
-     * higher-resolution path this was always meant to be. */
-    if (0 && wave_hw) {
-        /* B-283: the hardware capture -- 256 columns, each the min..max envelope of the mono mix over 2 samples, started at
-         * its own rising zero crossing. Normalised to the PREVIOUS frame's peak (the software path uses the current
-         * frame's; the peak of consecutive windows barely moves, and this needs no second pass). The capture is re-armed
-         * after every draw and read next time round; while it is still running the last picture stays. */
-        static uint32_t sc_pk = 1u;
-        static uint8_t  sc_armed;
-        if (!sc_armed) { REG(R_WAVE_CTL) = 2u | (1u << 8); sc_armed = 1u; return; }   /* nothing captured yet */
-        if (!in->paused && !(REG(R_WAVE_ST) & 2u)) {
-            const int32_t smooth = MV_WINAMP_SCOPE(SCOPE_SMOOTH);
-            const int percol = ui_fullscreen;               /* fullscreen: erase per column, see the software path */
-            if (!percol) {
-                if (use_gradient) ui_bg_restore(x0, y, w, h);
-                else              fig_rect(x0, y, w, h, bg);
-                fig_rect(x0, cy, w, 1, UI_TRACK);
-            }
-            uint32_t npk = 1u;
-            for (uint32_t c = 0; c < WAVE_HW_COLS; c++) {
-                REG(R_WAVE_IDX) = c;
-                const uint32_t d = REG(R_WAVE_DATA);
-                int32_t mn = (int16_t)(d >> 16), mx = (int16_t)(d & 0xFFFFu);
-                const uint32_t am = (uint32_t)(mn < 0 ? -mn : mn), ax = (uint32_t)(mx < 0 ? -mx : mx);
-                if (am > npk) npk = am;
-                if (ax > npk) npk = ax;
-                int32_t lo = (mn * ey) / (int32_t)sc_pk, hi = (mx * ey) / (int32_t)sc_pk;
-                /* Both bounds, both variables: a DC-biased or unusually polarised capture window can
-                 * make `lo` come out positive or `hi` come out negative, and either one being clamped
-                 * on only one side let it escape [-ey, ey] -- which is exactly what drew outside the
-                 * meter's own box (real corruption seen on hardware, not a timing/RTL issue). */
-                if (lo < -ey) lo = -ey; else if (lo > ey) lo = ey;
-                if (hi < -ey) hi = -ey; else if (hi > ey) hi = ey;
-                if (lo > hi) lo = hi;
-                int32_t mid = (lo + hi) / 2, half = (hi - lo) / 2;
-                if (!wviz_scope_init) wviz_scope_y[c] = (int16_t)mid;
-                wviz_scope_y[c] = (int16_t)(wviz_scope_y[c] + (((mid - wviz_scope_y[c]) * (100 - smooth)) / 100));
-                mid = wviz_scope_y[c];
-                const uint32_t cx = x0 + (c * w) / WAVE_HW_COLS, cxn = x0 + ((c + 1u) * w) / WAVE_HW_COLS;
-                /* Defence in depth: clamp the whole rect to the box in SIGNED space before ever
-                 * casting to uint32_t, so a value that still somehow escaped the lo/hi clamp above
-                 * clips to the box instead of wrapping to a huge address (a negative int32_t cast to
-                 * uint32_t is how a bounds miss here turns into drawing at a garbage location). */
-                int32_t s_top = (int32_t)cy - (mid + half), s_bot = s_top + (2 * half) + 2;
-                if (s_top < (int32_t)y)     s_top = (int32_t)y;
-                if (s_bot > (int32_t)(y + h)) s_bot = (int32_t)(y + h);
-                if (s_bot < s_top) s_bot = s_top;
-                const uint32_t top = (uint32_t)s_top, rh = (uint32_t)(s_bot - s_top);
-                const uint32_t cwid = (cxn > cx) ? (cxn - cx) : 1u;
-                if (percol) { fig_rect(cx, y, cwid, h, bg); fig_rect(cx, cy, cwid, 1, UI_TRACK); }
-                fig_rect(cx, top, cwid, rh, ui_accent);
-            }
-            sc_pk = npk;
-            wviz_scope_init = 1u;
-            REG(R_WAVE_CTL) = 2u | (1u << 8);              /* arm the next capture: 2 samples per column */
-        }
-        if (in->paused) wviz_scope_init = 0u;
-        return;
-    }
-
-
-    /* Fullscreen: erase COLUMN BY COLUMN, each just before its own trace segment, instead of one clear of the whole box. A
-     * whole-box clear is only tear-free if the beam is kept out of the way (which is what starved the fullscreen frame rate), and
-     * leaves a blank frame on screen if the beam catches it between the clear and the redraw. Per column, every column is always
-     * either the old picture or the new one. The same pixel count; more, smaller commands. */
-    const int percol = ui_fullscreen;
-    if (!percol) {
-        /* B-334: a trail. With the blend bitstream the old trace is faded toward the background instead of erased: `trail` % of it survives
-         * each frame (the background strip is blended over the box with the remaining weight). 0, no blend bitstream, or the Configure preview
-         * (flat background) erases as before.
-         * B-413: neither the ui_bg_ready race (B-411) nor the sticky-base fence audit (B-412) fixed the
-         * owner's reported "accumulates after a fullscreen/Configure visit" -- rather than guess a third
-         * time, capture WHICH branch actually ran, live, so the next repro tells us directly instead of
-         * needing another theory. Counted only when a blend was genuinely attempted (use_gradient && trail
-         * && !paused all true), matching did_blend's own short-circuit exactly -- fullscreen/Configure's own
-         * legitimate use_gradient=0 skip is not counted as a "failure" here, only a real attempted-and-failed
-         * blend is. */
-        const uint32_t trail = (uint32_t)MV_WINAMP_SCOPE(SCOPE_TRAIL);
-        const int attempt = use_gradient && trail && !in->paused;
-        const int did_blend = attempt && ui_bg_blend(x0, y, w, h, (100u - trail) * 256u / 100u);
-        if (attempt) { if (did_blend) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check();
-                       dbg_pixel_log(x0 + w / 2u, y + 8u); }   /* B-449: B-447's (cy-4, centre column) spot
-                       STILL read a dark, gradient-consistent value even during an owner-confirmed active
-                       repro -- a real screenshot of the accumulation showed the actual bright mass sits
-                       in the box's UPPER region (solid across nearly the full width there), not near the
-                       centreline; the centre column at cy-4 most likely just hit a real local amplitude
-                       dip for that one column, not a diagnostic bug. Moved to (x0+w/2, y+8) -- near the
-                       box's own TOP edge, in the region the screenshot shows solidly filled regardless
-                       of which column is sampled. */
-        if (!did_blend) {
-            if (use_gradient) ui_bg_restore(x0, y, w, h);
-            else              fig_rect(x0, y, w, h, bg);
-        }
-        fig_rect(x0, cy, w, 1, UI_TRACK);
-    }
-
-    if (!in->paused) {
-        int32_t smooth = MV_WINAMP_SCOPE(SCOPE_SMOOTH);      /* 0..90 */
-        int32_t prev_y = 0;
-        for (uint32_t c = 0; c < WAVE_COLS; c++) {
-            uint32_t cx, cw;
-            mtr_col_cw(x0, w, WAVE_COLS, c, &cx, &cw);
-
-            int32_t raw = mtr_scale_s(in->wave[c], ey, SCOPE_UNIT);
-            if (!wviz_scope_init) wviz_scope_y[c] = (int16_t)raw;
-            wviz_scope_y[c] = (int16_t)(wviz_scope_y[c]
-                             + (((raw - wviz_scope_y[c]) * (100 - smooth)) / 100));
-            int32_t v = wviz_scope_y[c];
-
-            int32_t a  = (c == 0) ? v : prev_y;
-            int32_t lo = (a < v) ? a : v;
-            int32_t hi = (a < v) ? v : a;
-            prev_y = v;
-
-            /* Same defence in depth as the hardware path above: clamp in signed space before the
-             * uint32_t cast, so this can never draw outside its own box. */
-            int32_t s_top = (int32_t)cy - hi, s_bot = s_top + (hi - lo) + 2;
-            if (s_top < (int32_t)y)     s_top = (int32_t)y;
-            if (s_bot > (int32_t)(y + h)) s_bot = (int32_t)(y + h);
-            if (s_bot < s_top) s_bot = s_top;
-            const uint32_t top = (uint32_t)s_top, rh = (uint32_t)(s_bot - s_top);
-            if (percol) { fig_rect(cx, y, cw, h, bg); fig_rect(cx, cy, cw, 1, UI_TRACK); }
-            fig_rect(cx, top, cw, rh, ui_accent);
-        }
-        wviz_scope_init = 1u;
-    }
-}
+#define SCOPE_NOTE(ok, px, py) do { if (ok) dbg_scope_blend_ok++; else dbg_scope_blend_fail++; dbg_strip_check(); dbg_pixel_log((px), (py)); } while (0)
+#include "winamp_scope.inc"   /* wviz_scope_tick and its state: a separate file so the loadable pack (fw/meter_pack_winamp_scope.c) compiles the same code */
 
 static void ui_draw_dynamic(void);
 /* fw/cold.inc defines both of these (B-199..B-201, PHASE_F_SPEC.md sections 4.2-4.3) -- forward-
@@ -4833,6 +4674,7 @@ static void ov_frame(const char *title, const char *right, const char *hint)
 #if TAU_PACKS
 static int packs_have(uint32_t meter_id);                                   /* fw/meter_packs.inc: a valid pack is installed for this meter */
 static uint32_t packs_tick(uint32_t meter_id, const mtr_in_t *in);          /* ...and runs it */
+static uint8_t  packs_grad;                                                  /* fw/meter_packs.inc: HM_GRAD of the draw in progress, for a pack */
 #endif
 /* ==================================================================== helios_meter() -- the ONE way a meter is drawn (B-521, docs/issues/022)
  * Three places draw meters: the player screen (ui_draw_dynamic), fullscreen (ui_fs_dynamic) and the Settings > Meter > Configure preview
@@ -4917,10 +4759,11 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
     fig_clip_on = ((flags & HM_CLIP) && !comp) ? 1u : 0u;
     uint32_t drew = 0u;
     switch (viz) {
-    case VIZ_WINAMP_SCOPE: wviz_scope_tick(in, (flags & HM_GRAD) ? 1 : 0); break;
 #if TAU_PACKS
+    case VIZ_WINAMP_SCOPE: if (packs_have(VIZ_WINAMP_SCOPE)) { packs_grad = (flags & HM_GRAD) ? 1u : 0u; (void)packs_tick(VIZ_WINAMP_SCOPE, in); } else wviz_scope_tick(in, (flags & HM_GRAD) ? 1 : 0); break;   /* the pack's trail/erase choice follows in->bg and the host's bg_blend, as the built-in's does */
     case VIZ_WINAMP_BARS:  if (packs_have(VIZ_WINAMP_BARS)) (void)packs_tick(VIZ_WINAMP_BARS, in); else wviz_bars_tick(in); break;   /* a valid pack replaces the built-in drawing */
 #else
+    case VIZ_WINAMP_SCOPE: wviz_scope_tick(in, (flags & HM_GRAD) ? 1 : 0); break;
     case VIZ_WINAMP_BARS:  wviz_bars_tick(in); break;
 #endif
     case VIZ_VU_MASTER:    vum_tick(in); break;

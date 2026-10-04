@@ -92,6 +92,10 @@ Rule to keep: a loadable module's data must never be linked at an alias the data
 - **Hardware (Pocket).** `METER PACKS FILE 2 LW OK BR OK 35-37MS`. Layered Wave through the pack runs (the first-run freeze is fixed): `LW COST C437 CPU 7740 UNW 252`, draw 9.7 ms. Winamp Bars through the pack: 0.56-0.69 ms per draw (built-in 0.29 ms), clean fullscreen label. No audible impact (owner).
 - **Open.** Packs for Winamp Scope, VU Master (clean its framework violations first) and Chladni (its 3,072 B state exceeds the 1 KB scratch: decide the scratch size or move the plane to PSRAM); a Settings meter list built from the pack directory; the fallback tests (file removed `OFF E20`, corrupt copy `LW E26`) are deliberately left to the end of the whole feature work (owner, 2026-10-04).
 
+## Third pack, Winamp Scope, ABI 4 (2026-10-04, B-610)
+
+Slot 2 = Winamp Scope (meter 13): `fw/winamp_scope.inc` is shared by the built-in meter and `fw/meter_pack_winamp_scope.c`. ABI 4 added the host table fields `grad`, `fullscreen`, `bg_restore`, `bg_blend` and `scope_note`, so the trail fade (blend, falling back to the gradient restore) and the per-column fullscreen erase behave exactly as built-in; the pack carries 136 B of working state. Host-verified equal to the built-in over four scenarios; **not yet run on a Pocket** (`TAU_DEV_METER_15`).
+
 ## What is still not done, and the real risks
 
 1. **A directory beyond Layered Wave.** Only meter id 16 has a slot and a pack source; the table in `fw/meter_pack.h` (`mtr_pack_slot_of`) and the pack TUs for the other modular meters are the next additions. The

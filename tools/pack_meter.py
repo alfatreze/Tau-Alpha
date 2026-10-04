@@ -11,8 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ABI = int(re.search(r"#define MTR_PACK_ABI (\d+)u", (ROOT / "fw/meter_pack.h").read_text()).group(1))      # read from the firmware header: one source of truth
-METER_IDS = {"layered_wave": 16, "winamp_bars": 12}      # the VIZ_* id of the meter (fw/meter_gen_enum.h)
-SLOT = {"layered_wave": 0, "winamp_bars": 1}              # the slot of each meter (fw/meter_pack.h mtr_pack_slot_of)
+METER_IDS = {"layered_wave": 16, "winamp_bars": 12, "winamp_scope": 13}      # the VIZ_* id of the meter (fw/meter_gen_enum.h)
+SLOT = {"layered_wave": 0, "winamp_bars": 1, "winamp_scope": 2}              # the slot of each meter (fw/meter_pack.h mtr_pack_slot_of)
 SLOT_BASE, SLOT_SIZE = 0x24840000, 0x10000
 
 
