@@ -16,7 +16,14 @@
 #include "../../fw/meter_module.h"
 #include "../../fw/meters_gen.h"
 #include "../../fw/meter_pack_core.h"
+#ifdef PACK_BARS
+#include "../../sim/bars_pack_trace.h"       /* Winamp Bars: -DPACK_BARS -DPACK_METER=12 */
+#else
 #include "../../sim/lw_pack_trace.h"
+#endif
+#ifndef PACK_SLOT
+#define PACK_SLOT 0u                            /* the bundle slot whose pack is activated and run */
+#endif
 
 #ifndef PACK_CAP
 #define PACK_CAP 0x00040000u
@@ -37,7 +44,14 @@ static int rd(void *ctx, uint32_t off, uint8_t *d, uint32_t len)
     if (off + len > hfilesize()) return 0;
     return hread(off, d, len) == len;
 }
+#ifdef PACK_BARS
+static void api_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { bp_hash_rect(x, y, w, h, c); }
+static void api_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg) { bp_hash_bar(x, y, w, h, lit, fg, bg); }
+#else
 static void api_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { lw_hash_rect(x, y, w, h, c); }
+static void api_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg) { (void)x; (void)y; (void)w; (void)h; (void)lit; (void)fg; (void)bg; }
+#endif
+static int api_bar_ready(void) { return 1; }
 static uint32_t api_cycles(void) { return 0u; }
 static int api_psram(void) { return 1; }
 static mtr_pack_entry_fn entry;
@@ -60,9 +74,9 @@ int main(void)
     const int be = mpkb_install_all(rd, 0, win, hfilesize(), (volatile uint8_t *)PACK_ORG, SCRATCH_ORG, SCRATCH_CAP, slots, &seen);
     hputs("BUNDLE E"); hputu((uint32_t)be); hputs(" SEEN "); hputu(seen); hnl();
     for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) { hputs("SLOT "); hputu(i); if (slots[i].status == 0xFFu) hputs(" none"); else { hputs(" E"); hputu(slots[i].status); } hnl(); }
-    if (slots[0].status != MPK_OK) return 0;
-    mpk_activate(&slots[0].info, (volatile uint8_t *)PACK_ORG, (volatile uint8_t *)SCRATCH_ORG);
-    addr = slots[0].info.entry;
+    if (slots[PACK_SLOT].status != MPK_OK) return 0;
+    mpk_activate(&slots[PACK_SLOT].info, (volatile uint8_t *)PACK_ORG + PACK_SLOT * MTR_PACK_SLOT_SIZE, (volatile uint8_t *)SCRATCH_ORG);
+    addr = slots[PACK_SLOT].info.entry;
 #else
     const int e = mpk_load(rd, 0, win, (volatile uint8_t *)PACK_ORG, PACK_ORG, PACK_CAP, (volatile uint8_t *)SCRATCH_ORG, SCRATCH_ORG, SCRATCH_CAP, PACK_METER, &addr);
     hputs("LOAD E"); hputu((uint32_t)e); hnl();
@@ -73,8 +87,16 @@ int main(void)
     for (int i = 0; i < TR_COUNT; i++) roles[i] = (uint16_t)(0x1234u + i * 0x0421u);
     static mtr_host_api_t api;
     api.abi = MTR_PACK_ABI; api.fb_rect = api_rect; api.cycles = api_cycles; api.psram_ready = api_psram;
-    api.accent = &accent; api.role = roles; api.force = &force_flag; api.params = mtr_v_layered_wave;
+    api.rect_clip = api_rect; api.bar_clip = api_bar; api.bar_ready = api_bar_ready;
+    api.accent = &accent; api.role = roles; api.force = &force_flag;
+#ifdef PACK_BARS
+    api.params = mtr_v_winamp_bars;
+    api_p = &api; entry = (mtr_pack_entry_fn)addr;
+    bars_trace(mtr_v_winamp_bars, &force_flag, run, report);
+#else
+    api.params = mtr_v_layered_wave;
     api_p = &api; entry = (mtr_pack_entry_fn)addr;
     lw_trace(mtr_v_layered_wave, &force_flag, run, report);
+#endif
     return 0;
 }

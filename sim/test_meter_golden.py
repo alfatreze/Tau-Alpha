@@ -11,10 +11,14 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = (ROOT / "fw" / "player.c").read_text()
 
 
-def cut(sig):
-    i = SRC.index(sig)
-    j = SRC.index("\n}\n", i) + 3
-    return SRC[i:j]
+INC = (ROOT / "fw/winamp_bars.inc").read_text()   # wviz_bars_tick lives in its own file (shared with the loadable pack)
+
+
+def cut(sig, src=None):
+    src = SRC if src is None else src
+    i = src.index(sig)
+    j = src.index("\n}\n", i) + 3
+    return src[i:j]
 
 
 HARNESS = r'''
@@ -105,7 +109,7 @@ def main():
         lines.append(" ".join(str(v) for v in s["params"]))
         for fr in s["frames"]:
             lines.append(str(fr["paused"]) + " " + " ".join(str(v) for v in fr["spec"]) + " " + " ".join(str(v) for v in fr["wave"]))
-    code = HARNESS.replace("@@BARS@@", cut("COLD_FN3 static void wviz_bars_tick")).replace("@@SCOPE@@", cut("COLD_FN3 static void wviz_scope_tick"))
+    code = HARNESS.replace("@@BARS@@", cut("COLD_FN3 static void wviz_bars_tick", INC)).replace("@@SCOPE@@", cut("COLD_FN3 static void wviz_scope_tick"))
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         (d / "h.c").write_text(code); (d / "in.txt").write_text("\n".join(lines) + "\n")

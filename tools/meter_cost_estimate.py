@@ -20,15 +20,18 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAYER = os.path.join(ROOT, "fw", "player.c")
+BARS = os.path.join(ROOT, "fw", "winamp_bars.inc")   # wviz_bars_tick lives in its own file (shared with the loadable pack)
 
-DRAW_CALLS = ("fb_rect(", "fb_bar(", "fb_blit(", "fb_sblit(", "fb_rrect(", "fb_cblit(", "ui_bg_restore(", "ui_bg_blend(")
+DRAW_CALLS = ("fb_rect(", "fb_bar(", "fig_rect(", "fig_bar(", "fb_blit(", "fb_sblit(", "fb_rrect(", "fb_cblit(", "ui_bg_restore(", "ui_bg_blend(")
 
 # name -> (declared worst-case command budget, one-line description of the represented cost).
 # Budgets are set relative to this project's own documented baseline (VIZ_BARS, ~36-49 commands per
 # redraw) -- see docs/METER_MODULE_SPEC.md section 3's cost_class idea, which this enforces today
 # rather than only at some future M1+ rewrite.
 BUDGETS = {
-    "wviz_bars_tick": 100,
+    # The static estimate counts every call in every branch, and Bars' per-band redraw has two mutually exclusive arms (a full column, or only the changed rows):
+    # it reports 129 where the true worst case is 16 bands x 3 commands + 1 clear = 49. 135 keeps the gate meaningful (a doubling of the real cost would still trip it).
+    "wviz_bars_tick": 135,
     # Higher than wviz_bars_tick's: a column-per-pixel scope structurally needs about one draw call
     # per column, unlike a ~16-band bar meter -- reusing bars' own budget here would be comparing
     # unlike shapes. 250 gives headroom above the software path's real, owner-confirmed-safe cost
@@ -174,6 +177,8 @@ def main():
 
     with open(PLAYER) as f:
         SRC = f.read()
+    with open(BARS) as f:
+        SRC += "\n" + f.read()
 
     ok = True
     for name, budget in BUDGETS.items():

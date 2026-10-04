@@ -13,10 +13,11 @@ static uint8_t  packs_err;          /* why the whole feature is off, or 0 */
 static uint8_t  packs_seen;         /* packs found in the file */
 static uint8_t  packs_active = 0xFFu;   /* the slot whose working state is in the scratch right now */
 static uint32_t packs_ms;
-static mtr_host_api_t packs_api;
+static mtr_host_api_t packs_api[MTR_PACK_SLOTS];     /* one per slot: the same services, that meter's own setting values */
 static uint32_t packs_seen_n;
 COLD_FN3 static uint32_t packs_cycles(void) { return cycles(); }
 COLD_FN3 static int packs_psram_ready(void) { return mtr_psram_ready(); }
+COLD_FN3 static int packs_bar_ready(void) { blit_probe_ensure(); return BLIT_READY(); }   /* the bar opcode exists on this bitstream (probed once) */
 
 #define PACKS_E_NOFETCH 40u         /* cold code (PSRAM instruction fetch) is not proven: a pack could not run */
 #define PACKS_E_SCRATCH 41u         /* the linked scratch is not where the ABI says */
@@ -46,14 +47,20 @@ COLD_FN3 static void packs_boot_load_cold(void)
     packs_ms = (cycles() - t0) / (CLK_HZ / 1000u);
     packs_seen = (uint8_t)packs_seen_n;
     if (e) { packs_err = (uint8_t)e; return; }
-    packs_api.abi = MTR_PACK_ABI;
-    packs_api.fb_rect = fb_rect;
-    packs_api.cycles = packs_cycles;
-    packs_api.psram_ready = packs_psram_ready;
-    packs_api.accent = &ui_accent;
-    packs_api.role = th_role;
-    packs_api.force = &wviz_force;
-    packs_api.params = mtr_v_layered_wave;
+    for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) {
+        mtr_host_api_t *a = &packs_api[i];
+        a->abi = MTR_PACK_ABI;
+        a->fb_rect = fb_rect;
+        a->rect_clip = fig_rect_fn;
+        a->bar_clip = fig_bar_fn;
+        a->bar_ready = packs_bar_ready;
+        a->cycles = packs_cycles;
+        a->psram_ready = packs_psram_ready;
+        a->accent = &ui_accent;
+        a->role = th_role;
+        a->force = &wviz_force;
+        a->params = i == 0u ? mtr_v_layered_wave : i == 1u ? mtr_v_winamp_bars : mtr_v_layered_wave;   /* slot 0 = Layered Wave, slot 1 = Winamp Bars (fw/meter_pack.h mtr_pack_slot_of) */
+    }
     packs_state = 1u;
 }
 
@@ -70,7 +77,7 @@ COLD_FN3 static uint32_t packs_tick(uint32_t meter_id, const mtr_in_t *in)
         mpk_activate(&packs_slot[s].info, packs_slot_data(s), (volatile uint8_t *)&__meter_scratch_start);
         packs_active = (uint8_t)s;
     }
-    return ((mtr_pack_entry_fn)packs_slot[s].info.entry)(in, &packs_api);
+    return ((mtr_pack_entry_fn)packs_slot[s].info.entry)(in, &packs_api[s]);
 }
 
 /* The one hot piece: called at boot right after cold_boot_load(), it only starts the real work if cold code (the PSRAM instruction window) is proven. */
