@@ -333,7 +333,7 @@ COLD_FN static uint32_t set_ch_count(uint32_t c)
 {
     /* VIZ_SEL_COUNT, not VIZ_COUNT: retired meters (cassette, magic eye, L/R levels, mirrored bars)
      * have no row, so the choice list offers fewer rows than the enum has values -- see viz_sel_to_mode()/viz_mode_to_sel() in fw/player.c. */
-    return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_SEL_COUNT
+    return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_N
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
          : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT()
          : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : c == CH_TEMPO ? 6u : 5u;
