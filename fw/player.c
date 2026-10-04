@@ -101,6 +101,12 @@
 #define R_CLUT_IDX  0x800000C8u   /* Phase F B8: sticky CLUT index (W), 0-255 */
 #define R_DBG_MARK  0x800000D0u   /* B-186: CPU-side checkpoint, read live by TAU_ISSP's DBGM probe -- see fw/suite.inc's bt_crumb(). Harmless write if TAU_ISSP isn't built. */
 #define R_CLUT_DATA 0x800000CCu   /* Phase F B8: CLUT entry at that index (W), RGB565; index auto-increments */
+/* B-570: the CLUT write path in every bitstream built so far stores an entry one slot ABOVE the index it was issued at: mp3_soc.v raises
+ * a one-cycle write pulse and advances clut_idx on the same edge while clut_waddr follows clut_idx, so the pulse is seen after the index
+ * has moved on. A load that starts at R_CLUT_IDX = 0 therefore lands entry n in slot n + 1 (entry 255 in slot 0): every TIM1 cover and
+ * meter preview was drawn with its palette shifted by one. Starting at 255 puts entry 0 in slot 0. 0 once the RTL registers the write
+ * address with the pulse (then bump CORE_VERSION and gate this on it); sim/test_clut_contract.py fails if the two ever disagree. */
+#define CLUT_START_IDX 255u
 #define R_RC_IDX    0x800000D4u   /* B11: corner-cut LUT entry select (W), 0-15 -- see fw/rc_lut.h */
 #define R_RC_DATA   0x800000D8u   /* B11: corner-cut LUT entry value (W), 0-31 (5 bits) at the index above */
 #define R_SPEC_IDX  0x800000DCu   /* B-263: spectrum bank -- write the band index 0..15 */
@@ -543,15 +549,15 @@ static void fb_copy(uint32_t sx_, uint32_t sy_, uint32_t dx, uint32_t dy,
 }
 
 /* Phase F B8: load N palette entries into the 256-entry CLUT, starting at
- * index 0 (R_CLUT_DATA auto-increments after each write, R_CLUT_IDX=0 resets
- * it -- see mp3_soc.v R-CLUT_IDX/R_CLUT_DATA). fb_wait() first: the CLUT is a
+ * index 0 (R_CLUT_DATA auto-increments after each write, R_CLUT_IDX=CLUT_START_IDX
+ * resets it -- see mp3_soc.v R-CLUT_IDX/R_CLUT_DATA). fb_wait() first: the CLUT is a
  * single shared table the draw engine reads asynchronously, so it must not be
  * reloaded while an earlier OP_CBLIT command is still draining the FIFO,
  * exactly the same reasoning fb_rect/fb_char already apply to fg/bg. */
 static void fb_clut_load(const uint16_t *pal, uint32_t n)
 {
     fb_wait();
-    REG(R_CLUT_IDX) = 0u;
+    REG(R_CLUT_IDX) = CLUT_START_IDX;
     for (uint32_t i = 0; i < n; i++) REG(R_CLUT_DATA) = pal[i];
 }
 
