@@ -83,6 +83,15 @@ so the pack's first data read froze the CPU. The simulator has no PSRAM window, 
 layout and sizes are unchanged. **A Pocket run of Layered Wave through the pack after the fix is still outstanding** (later screenshots showed `LW COST` at 0 commands, i.e. the meter was not selected).
 Rule to keep: a loadable module's data must never be linked at an alias the data bus cannot decode.
 
+## Second pack, ABI 3 and hardware results (2026-10-04)
+
+- **Slots.** Slot 0 = Layered Wave (meter 16), slot 1 = Winamp Bars (meter 12) (`mtr_pack_slot_of`, `tools/pack_meter.py` derives each meter's slot origin). Winamp Bars lives in `fw/winamp_bars.inc`, included by the built-in meter and by `fw/meter_pack_winamp_bars.c` (1,868 B image, 240 B working state, no state in the slot).
+- **ABI.** ABI 2 added `rect_clip`, `bar_clip` and `bar_ready` (the clip-aware fills the fullscreen figures use; named so the `fig_rect` macros in `fw/meter.h` cannot rename the members). ABI 3 added `clk_hz` (the CPU clock the cycle counter runs at) and `stats` (4 words a pack may publish: commands, CPU cycles, history-read cycles, stride; the host copies them into the built-in names so Info `LW COST` and `METER DRAW` work with a pack). The ABI is read from `fw/meter_pack.h` by the pack tool; the fingerprint in `sim/test_meter_pack.py` must change with any layout change.
+- **Same feature macros as the firmware.** The firmware always compiles Layered Wave with `LW_STATS` (statistics and the time-based cost guard, about 9 ms of CPU); a pack built without it used the host build's command-count rule and drew 12.2 ms against 9.7 ms. The pack now defines it; host reference builds do too (`cycles()` is 0 on both sides).
+- **Tests (host).** `sim/test_meter_pack.py`: each pack on rv32sim draws exactly what the built-in meter draws (`sim/lw_pack_native.c`, `sim/bars_pack_native.c`, `sim/bars_pack_trace.h`, `tools/host/pack_harness.c` with `PACK_BARS` / `PACK_SLOT`), a two-pack bundle installs both, pack order is irrelevant, bad packs are refused, the stats words equal the built-in's.
+- **Hardware (Pocket).** `METER PACKS FILE 2 LW OK BR OK 35-37MS`. Layered Wave through the pack runs (the first-run freeze is fixed): `LW COST C437 CPU 7740 UNW 252`, draw 9.7 ms. Winamp Bars through the pack: 0.56-0.69 ms per draw (built-in 0.29 ms), clean fullscreen label. No audible impact (owner).
+- **Open.** Packs for Winamp Scope, VU Master (clean its framework violations first) and Chladni (its 3,072 B state exceeds the 1 KB scratch: decide the scratch size or move the plane to PSRAM); a Settings meter list built from the pack directory; the fallback tests (file removed `OFF E20`, corrupt copy `LW E26`) are deliberately left to the end of the whole feature work (owner, 2026-10-04).
+
 ## What is still not done, and the real risks
 
 1. **A directory beyond Layered Wave.** Only meter id 16 has a slot and a pack source; the table in `fw/meter_pack.h` (`mtr_pack_slot_of`) and the pack TUs for the other modular meters are the next additions. The
