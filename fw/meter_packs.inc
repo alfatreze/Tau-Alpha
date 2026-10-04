@@ -22,6 +22,11 @@ COLD_FN3 static int packs_psram_ready(void) { return mtr_psram_ready(); }
 COLD_FN3 static void packs_bg_restore(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { ui_bg_restore(x, y, w, h); }
 COLD_FN3 static int packs_bg_blend(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t a) { return ui_bg_blend(x, y, w, h, a); }
 COLD_FN3 static void packs_scope_note(int ok, uint32_t x, uint32_t y) { SCOPE_NOTE(ok, x, y); }
+COLD_FN3 static void packs_set_color(uint16_t fg, uint16_t bg) { fb_set_color(fg, bg); }
+COLD_FN3 static void packs_ch(uint32_t x, uint32_t y, char c, uint32_t sx, uint32_t sy) { fb_char(x, y, c, sx, sy); }
+COLD_FN3 static uint32_t packs_text_clipped(uint32_t x, uint32_t y, const char *s, uint32_t sx, uint32_t sy, uint32_t w) { return fb_text_clipped(x, y, s, sx, sy, w); }
+COLD_FN3 static char *packs_dec(char *p, uint32_t v) { return ui_dec(p, v); }
+COLD_FN3 static uint32_t packs_cell(uint32_t size) { return FB_CELL(size); }
 COLD_FN3 static int packs_bar_ready(void) { blit_probe_ensure(); return BLIT_READY(); }   /* the bar opcode exists on this bitstream (probed once) */
 
 #define PACKS_E_NOFETCH 40u         /* cold code (PSRAM instruction fetch) is not proven: a pack could not run */
@@ -66,12 +71,13 @@ COLD_FN3 static void packs_boot_load_cold(void)
         a->role = th_role;
         a->force = &wviz_force;
         a->stats = packs_stats[i];
+        a->set_color = packs_set_color; a->ch = packs_ch; a->text_clipped = packs_text_clipped; a->dec = packs_dec; a->cell = packs_cell;
         a->grad = &packs_grad;
         a->fullscreen = &ui_fullscreen;
         a->bg_restore = packs_bg_restore;
         a->bg_blend = packs_bg_blend;
         a->scope_note = packs_scope_note;
-        a->params = i == 0u ? mtr_v_layered_wave : i == 1u ? mtr_v_winamp_bars : i == 2u ? mtr_v_winamp_scope : mtr_v_layered_wave;   /* slot 0 = Layered Wave, 1 = Winamp Bars, 2 = Winamp Scope (fw/meter_pack.h mtr_pack_slot_of) */
+        a->params = i == 0u ? mtr_v_layered_wave : i == 1u ? mtr_v_winamp_bars : i == 2u ? mtr_v_winamp_scope : i == 3u ? mtr_v_vu_master : mtr_v_layered_wave;   /* slot 0 = Layered Wave, 1 = Winamp Bars, 2 = Winamp Scope, 3 = VU Master (fw/meter_pack.h mtr_pack_slot_of) */
     }
     packs_state = 1u;
 }

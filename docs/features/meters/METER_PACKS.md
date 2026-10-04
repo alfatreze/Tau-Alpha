@@ -96,6 +96,10 @@ Rule to keep: a loadable module's data must never be linked at an alias the data
 
 Slot 2 = Winamp Scope (meter 13): `fw/winamp_scope.inc` is shared by the built-in meter and `fw/meter_pack_winamp_scope.c`. ABI 4 added the host table fields `grad`, `fullscreen`, `bg_restore`, `bg_blend` and `scope_note`, so the trail fade (blend, falling back to the gradient restore) and the per-column fullscreen erase behave exactly as built-in; the pack carries 136 B of working state. Host-verified equal to the built-in over four scenarios; **not yet run on a Pocket** (`TAU_DEV_METER_15`).
 
+## Fourth pack, MASTER VU, ABI 5 (2026-10-04, B-611)
+
+Slot 3 = MASTER VU (meter 15). Its framework violations were removed first: the time step comes from `in->dt_ms`, and the info overlay's figures come from the host as `mtr_info_t` (`in->info`), measured once a second only while the overlay is on. ABI 5 added `info` and the host text services. 3,076 B image, 28 B working state; host-verified equal to the built-in over four scenarios; **not yet run on a Pocket** (`TAU_DEV_METER_16`).
+
 ## What is still not done, and the real risks
 
 1. **A directory beyond Layered Wave.** Only meter id 16 has a slot and a pack source; the table in `fw/meter_pack.h` (`mtr_pack_slot_of`) and the pack TUs for the other modular meters are the next additions. The

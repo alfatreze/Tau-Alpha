@@ -18,6 +18,8 @@
 #include "../../fw/meter_pack_core.h"
 #ifdef PACK_BARS
 #include "../../sim/bars_pack_trace.h"       /* Winamp Bars: -DPACK_BARS -DPACK_METER=12 */
+#elif defined(PACK_VU)
+#include "../../sim/vu_pack_trace.h"         /* MASTER VU: -DPACK_VU -DPACK_METER=15 */
 #elif defined(PACK_SCOPE)
 #include "../../sim/scope_pack_trace.h"      /* Winamp Scope: -DPACK_SCOPE -DPACK_METER=13 */
 #else
@@ -46,7 +48,10 @@ static int rd(void *ctx, uint32_t off, uint8_t *d, uint32_t len)
     if (off + len > hfilesize()) return 0;
     return hread(off, d, len) == len;
 }
-#ifdef PACK_SCOPE
+#ifdef PACK_VU
+static void api_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { vp_hash_rect(x, y, w, h, c); }
+static void api_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg) { (void)x; (void)y; (void)w; (void)h; (void)lit; (void)fg; (void)bg; }
+#elif defined(PACK_SCOPE)
 static void api_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { sp_hash_rect(x, y, w, h, c); }
 static void api_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg) { (void)x; (void)y; (void)w; (void)h; (void)lit; (void)fg; (void)bg; }
 #elif defined(PACK_BARS)
@@ -96,7 +101,12 @@ int main(void)
     api.stats = api_stats; api.clk_hz = 66666667u;
     api.rect_clip = api_rect; api.bar_clip = api_bar; api.bar_ready = api_bar_ready;
     api.accent = &accent; api.role = roles; api.force = &force_flag;
-#ifdef PACK_SCOPE
+#ifdef PACK_VU
+    api.set_color = vp_hash_color; api.ch = vp_hash_ch; api.text_clipped = vp_hash_text; api.dec = vp_dec; api.cell = vp_cell;
+    api.params = mtr_v_vu_master;
+    api_p = &api; entry = (mtr_pack_entry_fn)addr;
+    vu_trace(mtr_v_vu_master, &force_flag, run, report);
+#elif defined(PACK_SCOPE)
     static uint8_t grad_flag, fs_flag;
     api.grad = &grad_flag; api.fullscreen = &fs_flag; api.bg_restore = sp_hash_restore; api.bg_blend = sp_hash_blend; api.scope_note = sp_hash_note;
     api.params = mtr_v_winamp_scope;

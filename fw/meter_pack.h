@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include "meter.h"
 
-#define MTR_PACK_ABI 4u
+#define MTR_PACK_ABI 5u
 
 /* Where things live. These addresses are part of the ABI: a pack is linked for them, so they are fixed constants, not firmware symbols.
  *   scratch: the on-chip meter scratch. The shipping 192 KB RAM layout leaves a heap gap whose top 1 KB (0x27400..0x27800, just under the ID3 landing zone) is
@@ -33,8 +33,9 @@
 #define MTR_PACK_METER_LAYERED_WAVE 16u            /* the VIZ_* id of the meter (fw/meter_gen_enum.h) */
 #define MTR_PACK_METER_WINAMP_BARS  12u
 #define MTR_PACK_METER_WINAMP_SCOPE 13u
-/* The slot a meter's pack goes in, or -1 if that meter cannot be a pack. Slot 0 = Layered Wave, slot 1 = Winamp Bars, slot 2 = Winamp Scope. */
-static inline int mtr_pack_slot_of(uint32_t meter_id) { return meter_id == MTR_PACK_METER_LAYERED_WAVE ? 0 : meter_id == MTR_PACK_METER_WINAMP_BARS ? 1 : meter_id == MTR_PACK_METER_WINAMP_SCOPE ? 2 : -1; }
+#define MTR_PACK_METER_VU_MASTER    15u
+/* The slot a meter's pack goes in, or -1 if that meter cannot be a pack. Slot 0 = Layered Wave, slot 1 = Winamp Bars, slot 2 = Winamp Scope, slot 3 = VU Master. */
+static inline int mtr_pack_slot_of(uint32_t meter_id) { return meter_id == MTR_PACK_METER_LAYERED_WAVE ? 0 : meter_id == MTR_PACK_METER_WINAMP_BARS ? 1 : meter_id == MTR_PACK_METER_WINAMP_SCOPE ? 2 : meter_id == MTR_PACK_METER_VU_MASTER ? 3 : -1; }
 
 #define MTR_PACK_STATS 4u
 typedef struct {
@@ -51,6 +52,11 @@ typedef struct {
     uint8_t         *force;                                                   /* the "repaint everything" request flag; the pack clears it once it has drawn */
     const uint16_t  *params;                                                  /* this meter's current setting values (the order of its manifest) */
     uint32_t        *stats;                                                   /* MTR_PACK_STATS words the pack may publish for Info (Info > LW COST, METER DRAW): [0] draw commands of the last tick, [1] CPU cycles spent issuing them, [2] cycles spent reading its PSRAM history, [3] its draw stride; 0 = none. May be NULL. */
+    void           (*set_color)(uint16_t fg, uint16_t bg);                     /* text colours for the next fb_char / text_clipped                */
+    void           (*ch)(uint32_t x, uint32_t y, char c, uint32_t sx, uint32_t sy);   /* one glyph (sizes are the firmware's TS_* enum: 0 = 1x)   */
+    uint32_t       (*text_clipped)(uint32_t x, uint32_t y, const char *s, uint32_t sx, uint32_t sy, uint32_t max_w);   /* a string clipped to max_w advance */
+    char          *(*dec)(char *p, uint32_t v);                               /* append v in decimal, return the end                             */
+    uint32_t       (*cell)(uint32_t size);                                    /* height of a text row at that size                              */
     const uint8_t   *grad;                                                    /* non-zero when the meter is drawn over the player screen's gradient (HM_GRAD): the scope then restores or blends that gradient; zero = flat in->bg */
     const uint8_t   *fullscreen;                                              /* non-zero while the fullscreen figure is up (the scope then erases column by column) */
     void           (*bg_restore)(uint32_t x, uint32_t y, uint32_t w, uint32_t h);               /* repaint the player's gradient background over a box */
