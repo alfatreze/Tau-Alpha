@@ -99,7 +99,7 @@ COLD_FN3 static int timg_load(const char *path)
 
     if (!target_read_slot(TIMG_SLOT_ID, TIMG_HDR_BYTES, TAG_OFF, TIMG_CLUT_BYTES)) return TIMG_E_READ;
     fb_wait();
-    REG(R_CLUT_IDX) = 0u;
+    REG(R_CLUT_IDX) = CLUT_START_IDX;                     /* B-570: see player.c */
     for (uint32_t i = 0; i < 256u; i++) REG(R_CLUT_DATA) = timg_le16((const uint8_t *)tagbuf + 2u * i);
 
     const uint32_t total = (uint32_t)h.w * h.h, chunk_max = TAG_SIZE & ~1u;
