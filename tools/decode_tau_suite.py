@@ -30,7 +30,7 @@ TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window te
                                      # called once per ui_draw_dynamic() (~38 Hz); diagnostic-only, TAU_COLD_FRAME_PROBE builds
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
         10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest", 16: "stack",
-        22: "decprof2", 23: "heap", 24: "load", 25: "infotext", 26: "nowplaying"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
+        22: "decprof2", 23: "heap", 24: "load", 25: "load2", 26: "infotext", 27: "nowplaying"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
 BLIT_OPS = ["RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT"]
 # meters/*/meter.json (meter module M0, tools/gen_meters.py) index order -- the VIZ_* enum.
 VIZ_NAMES = ["BARS", "WATERFALL", "-", "PHASE SCOPE", "OSCILLOSCOPE", "VU", "WAVEFORM", "-", "PEAK DOTS", "-",
@@ -138,11 +138,11 @@ def parse_record(rec: bytes) -> dict:
                 "free_ram": free_ram, "underruns": underruns, "draw_stall_ms": stall_ms, "load_ms": load_ms,
                 "cpu_pct": v[19],
             }
-        elif tag == 25 and n >= 2 and 0 in v[1:]:  # SR_T_INFOTEXT: one Info page row exactly as shown on screen (row, label, 0, value)
+        elif tag == 26 and n >= 2 and 0 in v[1:]:  # SR_T_INFOTEXT: one Info page row exactly as shown on screen (row, label, 0, value)
             z = v.index(0, 1)
             out["entries"].setdefault("infotext", []).append({"row": v[0], "label": v[1:z].decode("ascii", "replace"),
                                                               "value": v[z + 1:].decode("ascii", "replace")})
-        elif tag == 26 and n >= 5:                # SR_T_NOWPLAYING: what was playing when the report was made
+        elif tag == 27 and n >= 5:                # SR_T_NOWPLAYING: what was playing when the report was made
             parts = v[5:].split(b"\0")
             txt = [x.decode("utf-8", "replace") for x in parts] + [""] * 3
             out["entries"]["nowplaying"] = {"state": ["nothing loaded", "stopped", "paused", "playing"][min(v[0], 3)],
@@ -188,7 +188,7 @@ def parse_record(rec: bytes) -> dict:
                 "scope_smooth": v[11], "scope_trail": v[12],
             }
         elif tag in TAGS:
-            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1, 16: 4, 22: 2, 23: 4, 24: 2}[tag]
+            w = {1: 4, 2: 2, 3: 4, 4: 2, 5: 2, 6: 2, 7: 4, 8: 2, 9: 4, 10: 1, 11: 1, 12: 1, 13: 2, 14: 1, 16: 4, 22: 2, 23: 4, 24: 2, 25: 2}[tag]
             if tag == 1:
                 fw, rev, flags, gap = (struct.unpack("<I", v[k:k + 4])[0] for k in range(0, 16, 4))
                 out["entries"]["build"] = {"firmware": f"{fw >> 16 & 255}.{fw >> 8 & 255}.{fw & 255}", "bitstream": f"{rev:08X}",
@@ -215,6 +215,8 @@ def parse_record(rec: bytes) -> dict:
                     vals["free_bytes"] = vals["stack_size"] - vals["peak_bytes"]
                 elif tag == 24 and len(vals) == 6:         # SR_T_LOAD (Cymo C0, 2026-10-04): window CPU load and the Subband split
                     vals = dict(zip(("busy_pct", "busy_worst_pct", "io_pct", "secs", "sub_fdct_pct", "sub_hw_pct"), vals))
+                elif tag == 25 and len(vals) == 5:         # SR_T_LOAD2 (B-589): where the non-decode CPU goes (MP3 loop)
+                    vals = dict(zip(("dec_pct", "feed_pct", "push_pct", "ui_pct", "wait_pct"), vals))
                 elif tag == 23 and len(vals) == 2:         # SR_T_HEAP (B-514): heap high-water mark
                     vals = dict(zip(("peak_bytes", "heap_size"), vals))
                     vals["free_bytes"] = vals["heap_size"] - vals["peak_bytes"]

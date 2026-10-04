@@ -81,12 +81,12 @@ Still to do: migrate Sweep, Info export and the Layered Wave config export (each
 
 ## 6. What every screenshot should carry (context block)
 
-With a grid the record is no longer squeezed by QR capacity, so every report page (Check, Decode Sweep, Meter Sweep, Meter Trace, Blit Test, Info export, Meter Config) now appends one shared context block (`rep_context()` in `fw/suite.inc`, `TAU_TPG=1` builds). The Info export additionally dumps **every Info page row** as text (`SR_T_INFOTEXT`, tag 25, one entry per row, label + value exactly as on screen, so a new Info row needs no decoder change): `decode_tau_suite.py --grid shot.png --table` prints the whole page as a table. The record budget is still the 2,048 B buffer (`CHK_REC_CAP`): the 34 Info rows take about 0.9-1.5 KB, the context 150-300 B, the Decode Sweep cap is 48 tracks.
+With a grid the record is no longer squeezed by QR capacity, so every report page (Check, Decode Sweep, Meter Sweep, Meter Trace, Blit Test, Info export, Meter Config) now appends one shared context block (`rep_context()` in `fw/suite.inc`, `TAU_TPG=1` builds). The Info export additionally dumps **every Info page row** as text (`SR_T_INFOTEXT`, tag 26, one entry per row, label + value exactly as on screen, so a new Info row needs no decoder change): `decode_tau_suite.py --grid shot.png --table` prints the whole page as a table. The record budget is still the 2,048 B buffer (`CHK_REC_CAP`): the 34 Info rows take about 0.9-1.5 KB, the context 150-300 B, the Decode Sweep cap is 48 tracks.
 
 | Item | Status | Where it comes from |
 |---|---|---|
 | Firmware version, FPGA revision, cold-image state, track format/rate row, library state, underruns | **built** (`SR_T_INFOTEXT` rows) | the Info page's own rows, so they always match what the page shows |
-| Now playing: state (none / stopped / paused / playing), queue position and length, title, artist, album | **built** (`SR_T_NOWPLAYING`, tag 26) | `track_title/artist/album`, `stopped`, `paused`, `lib_qpos/lib_qn` |
+| Now playing: state (none / stopped / paused / playing), queue position and length, title, artist, album | **built** (`SR_T_NOWPLAYING`, tag 27) | `track_title/artist/album`, `stopped`, `paused`, `lib_qpos/lib_qn` |
 | Date and time of the screenshot | **free, no bytes**: the Pocket names every screenshot `YYYYMMDD_HHMMSS.png` | Tau Omega already parses it (`list_screenshots`); `decode_tau_suite.py` can read it from the file name |
 | Which page made the report | already implied (profile / tag set) and printed as the on-screen title | |
 | Settings snapshot (theme, mode, accent, meter and preset, EQ, speed, volume, repeat, shuffle, Cymo toggle) | **suggested next**, firmware only, about 20 bytes | the settings variables; Check already has `SR_T_SET`, the other pages do not |
@@ -115,3 +115,7 @@ Eight card screenshots read with `decode_tau_suite.py --grid`: a USER CHECK, two
 ## 9. Hardware result: TPG2 centred layout (TAU_DEV_BARCODE_04, 2026-10-04)
 
 Six card screenshots, two reports (Info export 883 B, USER CHECK with context 421 B), each in all three views. **All decode and the three views of a report are byte-identical records.** Robust is what each page opens on (the first screenshot of each report), blocks are centred and framed (160 px and 112 px robust squares, 64 px lossless, QR versions 25 and 16), and the captions are the same on every view (title, view and size, one detail line; controls at the bottom). The six files are the first real TPG2 captures and now live in Tau Omega's `testdata/screenshots/` (uncommitted there, provenance in its README).
+
+## 10. Merge notes and what is left (2026-10-04)
+
+Merged with `main` at B-593 (see audit B-594): the only functional change was moving `SR_T_INFOTEXT`/`SR_T_NOWPLAYING` to record tags 26/27 because `main` took 25 for `SR_T_LOAD2`. Decisions D-R01..D-R05 in `docs/DECISIONS.md`; handoff `docs/handoffs/SESSION_HANDOFF_2026-10-04_BARCODE_TPG.md`. Left: a Pocket run of the merged build, the default-on decision, an Omega decoder, Reed-Solomon for robust mode (optional), the cheap context items, wall-clock time (RTL). The pre-merge captures in Tau Omega's testdata use tags 25/26 for the two entries.

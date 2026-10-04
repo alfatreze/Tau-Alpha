@@ -16,7 +16,7 @@
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
        SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK, SR_T_WVIZCFG,
-       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE, SR_T_DECPROF2, SR_T_HEAP, SR_T_LOAD, SR_T_INFOTEXT, SR_T_NOWPLAYING };
+       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE, SR_T_DECPROF2, SR_T_HEAP, SR_T_LOAD, SR_T_LOAD2, SR_T_INFOTEXT, SR_T_NOWPLAYING };
 /* SR_T_HEAP (B-514, PHASE_F_SPEC.md section 4.1's other half): u32 x 2 -- peak heap bytes in use since boot, heap region size in bytes. The firmware's
  * _sbrk (fw/sysio.c) only ever grows, so heap_used() IS the high-water mark. Present on every Check run, like SR_T_STACK. A NEW tag (23) rather than a longer
  * SR_T_STACK so an older decoder skips it as unknown instead of misreading a 4-word stack record. */
@@ -25,6 +25,10 @@ enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, S
  * file reads), secs (latched seconds counted), sub_fdct_pct and sub_hw_pct (MP3 only, profile build, else 0: percent of window realtime spent in the two
  * software FDCT32 calls per slot and in the hardware-window handoff; Subband total s_pct minus these = the rest). Compare busy_pct with the decode-stage
  * sum (h+i+s of SR_T_DECPROF) to see how much of the CPU is NOT decode (push/resample, meters, UI, file I/O). Always present in a Check record. */
+/* SR_T_LOAD2 (Cymo C0 follow-up, B-589): u16 x 5, each a percent of the CT_AUD window's realtime, MP3 main loop only (0 on FLAC): dec (MP3Decode, incl. the profile ticks'
+ * own small cost in the profile build), feed (meters_feed), push (the sample push loop NET of the time blocked on a full FIFO: volume, fade, FIFO status read, write),
+ * ui (ui_draw_dynamic), wait (blocked on a full FIFO: idle, plus the input/refill work done while waiting, which is also counted as idle by the load latch).
+ * busy_pct of SR_T_LOAD minus dec+feed+push+ui = what is left (file reads and refill outside the wait, input polling, tag/clock bookkeeping). */
 /* SR_T_DECPROF2 (2026-09-28, owner request after the alpha.12 packaging incident: get the finer
  * decode-stage split into Check's QR directly, instead of needing a separate screenshot of the
  * bench-only row; widened same day, B-361, before anything else depended on the original 4-field
@@ -69,9 +73,9 @@ enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, S
  * fw_patch(u8) (parsed from APP_VER), fpga_rev(u32 LE, REG(R_VERSION)), window_read_cyc(u16 LE),
  * free_ram(u32 LE), underruns(u16 LE, pcm_under_n), draw_stall_ms(u16 LE, R_FB_STALL/(CLK_HZ/1000)),
  * load_ms(u16 LE, the LOAD MS row's own total), cpu_pct(u8, ui_cpu_pct()). */
-/* SR_T_INFOTEXT (2026-10-04, tag 25, repeatable, Info export only): one entry per Info page row, exactly as shown on screen: row_index(u8), label (ASCII),
+/* SR_T_INFOTEXT (2026-10-04, tag 26, repeatable, Info export only): one entry per Info page row, exactly as shown on screen: row_index(u8), label (ASCII),
  * 0, value (ASCII, no terminator; the entry length ends it). Self-describing, so a new Info row needs no decoder change. */
-/* SR_T_NOWPLAYING (2026-10-04, tag 26, once per report, grid builds): what was playing when the report was made: state(u8: 0 nothing loaded, 1 stopped, 2 paused,
+/* SR_T_NOWPLAYING (2026-10-04, tag 27, once per report, grid builds): what was playing when the report was made: state(u8: 0 nothing loaded, 1 stopped, 2 paused,
  * 3 playing), queue_pos(u16 LE, 1-based, 0 = no library queue), queue_len(u16 LE), then title, 0, artist, 0, album (ASCII/UTF-8, each cut at 40 bytes, no
  * terminator after the album: the entry length ends it). */
 /* SR_T_METERCFG (M2, docs/METER_MODULE_SPEC.md section 5): generic replacement for SR_T_WVIZCFG. A one-off export of the meter being edited on

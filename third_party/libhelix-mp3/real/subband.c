@@ -97,6 +97,13 @@ int Subband(MP3DecInfo *mp3DecInfo, short *pcmBuf)
 			sbi->hwPolyReady = 1;                  /* either way: don't ask again for this decoder instance */
 		}
 #endif
+		/* Cymo C0 follow-up (B-587): the unit needs about 4,400 clocks per slot and takes no pushes while busy, so a slot's result is collected AFTER the next slot's
+		 * software FDCT32 has run (hw_pend = where the in-flight slot's PCM goes). The first slots of every decoder instance (the self-check window) stay
+		 * synchronous. If the unit times out with a slot in flight that slot's PCM is lost for good -- FDCT32 of the following slot has already overwritten the
+		 * oldest history line the software window would need -- so it is output as silence (32 stereo samples) and the rest of the track runs in software. */
+#if TAU_POLY_FW
+		short *hw_pend = 0;
+#endif
 		for (b = 0; b < BLOCK_SIZE; b++) {
 #if TAU_POLY_FW
 			if (hw_this_track) {
@@ -110,12 +117,27 @@ int Subband(MP3DecInfo *mp3DecInfo, short *pcmBuf)
 				for (int k = 0, j = 0; k < 33; k++) if (k != 17) w1[j++] = tau_poly_wlog[k];
 				MPROF_ACC1(pm0, mp3_sub_fdct_total_cyc);
 				MPROF_MARK(pm1);
+				if (tau_poly_verify_left <= 0) {
+					/* pipelined: collect the previous slot (its compute overlapped the FDCT32 above), then start this one */
+					if (hw_pend) {
+						const int ok = tau_poly_hw_finish(hw_pend);
+						if (!ok) for (int j = 0; j < 2 * NBANDS; j++) hw_pend[j] = 0;
+						hw_pend = 0;
+						if (!ok) hw_this_track = 0;
+					}
+					if (hw_this_track && tau_poly_hw_start(w0, w1)) hw_pend = pcmBuf;
+					else {
+						hw_this_track = 0;
+						PolyphaseStereo(pcmBuf, sbi->vbuf + sbi->vindex + VBUF_LENGTH * (b & 0x01), polyCoef);
+					}
+					MPROF_ACC1(pm1, mp3_sub_hw_total_cyc);
+				} else {
 				const int hw_ok = tau_poly_hw_slot(w0, w1, pcmBuf);
 				MPROF_ACC1(pm1, mp3_sub_hw_total_cyc);
 				if (!hw_ok) {
 					hw_this_track = 0;              /* this slot's redirect failed: finish the track in software */
 					PolyphaseStereo(pcmBuf, sbi->vbuf + sbi->vindex + VBUF_LENGTH * (b & 0x01), polyCoef);
-				} else if (tau_poly_verify_left > 0) {
+				} else {
 					/* self-check the first slots of every decoder instance against the real window (vbuf is always current, FDCT32 above updated it) */
 					short chk[2 * NBANDS];
 					tau_poly_verify_left--;
@@ -128,6 +150,7 @@ int Subband(MP3DecInfo *mp3DecInfo, short *pcmBuf)
 						break;
 					}
 				}
+				}
 			} else
 #endif
 			{
@@ -138,6 +161,13 @@ int Subband(MP3DecInfo *mp3DecInfo, short *pcmBuf)
 			sbi->vindex = (sbi->vindex - (b & 0x01)) & 7;
 			pcmBuf += (2 * NBANDS);
 		}
+#if TAU_POLY_FW
+		if (hw_pend) {                              /* the last slot of this call is still in the unit: its PCM is due before we return */
+			MPROF_MARK(pm2);
+			if (!tau_poly_hw_finish(hw_pend)) for (int j = 0; j < 2 * NBANDS; j++) hw_pend[j] = 0;
+			MPROF_ACC1(pm2, mp3_sub_hw_total_cyc);
+		}
+#endif
 	} else {
 		/* mono */
 		for (b = 0; b < BLOCK_SIZE; b++) {
