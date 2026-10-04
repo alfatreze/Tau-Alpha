@@ -1,9 +1,12 @@
 # Current status (one page)
 
-Updated 2026-10-01. **What is true right now.** What to do next is in `docs/ROADMAP.md` (the only ordered list, not yet updated with
+Updated 2026-10-04 (evening). **What is true right now.** What to do next is in `docs/ROADMAP.md` (the only ordered list, not yet updated with
 the Cymo row — see below). Why things are the way they are is in `docs/AUDIT_TRAIL.md`. The old, long version of this file is
 `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
 Full detail on this session: `docs/handoffs/SESSION_HANDOFF_2026-10-03_CYMO_TEMPO.md` — **read it first** (the 2026-10-01 resampler handoff is still correct for what it covers).
+
+## Update 2026-10-04 (evening): alpha.3 published, CPU headroom, dB volume, ReplayGain
+Entry point: `docs/handoffs/SESSION_HANDOFF_2026-10-04_ALPHA3_CPU_VOLUME_RG.md`; audit B-576..B-599. **Published:** `v0.6.0-alpha.3` (CLUT RTL fix, pipelined Subband handoff and burst push: MP3 stereo CPU busy 55% to 44%, stress-pump noise fix, pixel-grid reports, load records, pairing gate); alpha.1 marked superseded. **On the card:** `TAU` and `TAU_DIAGNOSTIC` (alpha.3, smoke-tested), `TAU_DEV_93` (dB volume + ReplayGain + tempo build, NOT yet run on a Pocket), `TAU_DEV_BARCODE_04` and `TAU_DEV_METER_*` (the owner's, untouched). **Built, host-tested, not yet heard:** dB-tapered volume with a 5 ms ramp (default 94, step 3; saved volumes now sound quieter) and ReplayGain Off/Track/Album (Settings > Audio, Info row, attenuate-only, cold code). **Next:** test DEV 93, then alpha.4; Cymo gapless, output stage, EQ; `Track changes`. Check tags 24-27 are used; next free is 28.
 
 ## Update 2026-10-04 (barcode session): report codes as a pixel grid, merged from `barcode-study`
 Entry point: `docs/handoffs/SESSION_HANDOFF_2026-10-04_BARCODE_TPG.md`; study `docs/features/BARCODE_STUDY.md`; audit B-594. The Check/Sweep/Info reports now have a **TPG pixel-grid view** (robust grid by default, lossless grid when the report is big, QR as the third view, X cycles) on all seven report pages, with one shared layout and caption set, and the Info page exports every row (`decode_tau_suite.py --grid shot.png --table`). Hardware-confirmed on the branch builds `TAU DEV BARCODE 01-04`; off by default (`TAU_TPG=0`, `fw/build.sh TPG=1`); the merged result has not been run on a Pocket. Record tags 26/27 are new (25 is `main`'s `SR_T_LOAD2`).
