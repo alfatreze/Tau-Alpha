@@ -49,9 +49,13 @@ The "cam" column is a crude model, not a phone: it says only that none of the de
 
 Other options considered and dropped: Aztec, Data Matrix, PDF417 (all 1 bit per module, kilobyte-scale, no gain over QR here); animated or multi-frame QR streams (needs the Pocket to hold still across screenshots, the screenshot path cannot capture video); a second RGB565 plane through the existing Chladni mailbox mechanism is the *implementation* of TPG, not an alternative.
 
-## 4. Open risks (must be settled on a Pocket before any firmware work)
+## 4. Open risks
 
-1. **Dense-pixel fidelity.** The 13 screenshots only show the colour levels are exact. A 1 px checkerboard and a full 16 bpp ramp must survive a real screenshot without filtering. Test: a "PIXEL GRID TEST" Diagnostics page drawing a known pattern; compare the card screenshot to the generator.
+**Result 2026-10-04 (TAU_DEV_BARCODE_01, Pocket, four card screenshots, `tools/pixgrid_check.py`): risks 1 and 2 are closed.** All four patterns came back **100.000% pixel exact, 0 wrong pixels**: the dense pseudo-random 16-bit field, the 1 px checkerboard, the colour gradient and the counter. So the screenshot path keeps every pixel of dense content bit exact (no scaling, filtering or dithering), and the mailbox pixel writer works as designed, in default pixel order (swap 0), with no tearing or stale pixels. The 1 px / 16 bpp grid mode is therefore physically possible on this hardware. Not yet measured: the drawing time (estimated about 0.1-0.3 s per buffer, only felt as a pause here) and behaviour with audio playing.
+
+Original list, kept for reference:
+
+1. ~~**Dense-pixel fidelity.** The 13 screenshots only show the colour levels are exact. A 1 px checkerboard and a full 16 bpp ramp must survive a real screenshot without filtering. Test: a "PIXEL GRID TEST" Diagnostics page drawing a known pattern; compare the card screenshot to the generator.
 2. **How the firmware writes the pixels.** The CPU cannot touch the framebuffer directly (raw `0xA0000000` pointers hang, B-192/B-193). The route is the one Chladni already uses: write a plane through the SDRAM mailbox and place it with `OP_BLIT`/`OP_SBLIT`, or use `OP_CBLIT` for 8 b/px indexed cells. Cost is estimated, not measured: about 130k words at roughly 50 cycles per uncached mailbox access is about 0.1 s [EST]. Needs the H2 double-buffer (`R_DBUF_CPU`) and `FB_HELD()` bracket handled, the two traps that bit the Settings crossfade and the Scope trail.
 3. **Pattern scaling/cropping by the screenshot path** under any video-mode change: the grid must be drawn after the frame is stable, with the header strip as the geometry check.
 4. **JAB numbers are estimates** from my memory of the spec, not from running the reference implementation.
