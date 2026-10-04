@@ -9,7 +9,7 @@ of MP3 decoding (the synthesis filterbank) runs in FPGA hardware instead, and si
 for FLAC's LPC/FIXED reconstruction; the screen is drawn by a small 2D drawing engine ("Talos") rather than
 pixel by pixel from the CPU.
 
-Current version **v0.6.0** (4 October 2026), pre-release **0.6.0-alpha.2**. See [CHANGELOG.md](CHANGELOG.md).
+Current version **v0.6.0** (4 October 2026), pre-release **0.6.0-alpha.3**. See [CHANGELOG.md](CHANGELOG.md).
 
 <img width="400" height="360" alt="20260930_235633" src="https://github.com/user-attachments/assets/103e9513-db6b-42d2-8834-debe4b39251d" />
 <img width="400" height="360" alt="20260930_235713" src="https://github.com/user-attachments/assets/1194cfac-1036-40ce-a656-de22e0866354" />

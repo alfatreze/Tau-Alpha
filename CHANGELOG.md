@@ -2,6 +2,23 @@
 
 What changed in each release, newest first.
 
+## v0.6.0-alpha.3 — 4 October 2026
+
+- **MP3 playback uses much less CPU.** On a stereo MP3 at 1.00x the processor was busy 55% of the time; it is now
+  44%. Two firmware changes: the hardware synthesis-window unit now works while the CPU runs the next slot's
+  software transform (the CPU used to wait for it), and audio samples are pushed to the output FIFO in bursts
+  instead of one status check per sample. Output is sample-for-sample identical (checked against the old path on
+  the host); the extra headroom goes to meters, speed changes and the UI. The bitstream is the same as alpha.2.
+- **Diagnostic Build: stress tests no longer fill the screen with noise.** The SDRAM stress pump overlapped the
+  second display buffer used by the double-buffered UI; it now works on memory nothing else uses.
+- **Diagnostic Build: new report and measurement tools.** Check and the Info page can show their report as a pixel
+  grid as well as a QR code, and the Check report now includes CPU load over the audio window and where the time
+  goes (decode, meters, sample push).
+- **Release tooling.** Packaging now refuses a firmware that the bitstream would refuse at boot (the cause of the
+  alpha.1 normal core not starting).
+- **Known limits.** `Track changes` still fails in the Diagnostic Build's Check (a test issue). Audiobook tempo is
+  built but not in this release.
+
 ## v0.6.0-alpha.2 — 4 October 2026
 
 - **FLAC decodes much faster.** The residual (Rice) decoding was rewritten around a 32-bit window with an
