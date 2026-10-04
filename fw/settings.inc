@@ -242,7 +242,7 @@ static int settings_load(void)
     for (uint32_t w = 0; w < SW_N; w++) any |= set_rd(w);
     if (!any) return 0;
 
-    v = set_rd(SW_VOL);   if (v <= VOL_MAX)      { volume = v; vol_apply(); }
+    v = set_rd(SW_VOL);   if (v <= VOL_MAX)      { volume = v; vol_apply_snap(); }
     v = set_rd(SW_PAL);   if (v < UI_PALETTE_N)  { ui_pal_idx = v;
                                                    ui_accent = th_accent_of(v); }
     v = set_rd(SW_REP);   if (v <= REP_ONE)        rep_mode = (uint8_t)v;

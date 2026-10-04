@@ -42,7 +42,7 @@ The controls (checked against the firmware input handling in `fw/player.c`):
 | **Left** / **Right** | *Tap*: previous / next track (library queue) |
 | **Left** / **Right** | *Hold*: seek, faster the longer you hold (5 s, then 10 s, then 30 s per step) |
 | **Select** + **Left** / **Right** | Seek one second |
-| **Up** / **Down** | Volume, in 5% steps |
+| **Up** / **Down** | Volume: 100 positions over a 60 dB range (each position 0.6 dB, so every step sounds like the same change), 3 positions a press, hold to repeat |
 | **B** | Restart the current track from the beginning |
 | **X** | Cycle the meter (eleven styles) |
 | **Y** | Cycle the EQ preset (eight) |
