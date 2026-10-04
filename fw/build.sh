@@ -339,7 +339,6 @@ fi
 
 echo "version $APP_VER (core.json date_release $JSON_DATE)"
 
-HEAP_MIN=${HEAP_MIN_OVERRIDE:-$HEAP_MIN}   # throwaway test builds only (owner-approved per build); never set for a release
 if [ "$HEAP_MIN" -gt 0 ]; then
     GAP=$("$TOOL_BIN/${TOOL_PREFIX}nm" "$FW/fw.elf" | "$PYTHON" -c "
 import sys
