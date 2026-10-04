@@ -21,9 +21,9 @@ def jpeg(rgb, q):
     return np.asarray(Image.open(b).convert("RGB"))
 
 # capacity numbers quoted in the docs
-check("capacity L = 287984", tpg.capacity(tpg.MODE_L) == 287984)
-check("capacity R = 6734", tpg.capacity(tpg.MODE_R) == 6734)
-check("a 400 byte report takes one row in mode L", tpg.rows_used(400, tpg.MODE_L) == 2 or tpg.rows_used(400, tpg.MODE_L) == 1)
+check("capacity L = 259184", tpg.capacity(tpg.MODE_L) == 259184)
+check("capacity R = 6059", tpg.capacity(tpg.MODE_R) == 6059)
+check("a 231 byte report is an 80 px robust square and a 64 px lossless square, both centred", tpg.block(231, 1) == (160, 140, 80) and tpg.block(231, 0) == (168, 148, 64))
 
 for mode, name in ((tpg.MODE_L, "L"), (tpg.MODE_R, "R")):
     for n in (0, 1, 2, 5, 399, 400, 401, 1000, tpg.capacity(mode)):
@@ -38,15 +38,27 @@ for mode, name in ((tpg.MODE_L, "L"), (tpg.MODE_R, "R")):
     except ValueError:
         check(f"mode {name} refuses one byte over", True)
 
-# rows_used matches what is actually written
+# the block is a centred square, as small as the report allows, and everything lies inside it
 for mode in (tpg.MODE_L, tpg.MODE_R):
-    for n in (0, 100, 400, 1001, 3000 if mode == tpg.MODE_R else 20000):
-        img = tpg.encode(blob(n), mode)
-        used = int(np.nonzero(img.any(1))[0].max()) + 1 if img.any() else 0
-        check(f"mode {'LR'[mode]} rows_used covers the drawn rows ({n} B)", used <= tpg.rows_used(n, mode) <= used + (4 if mode else 1))
+    for n in (0, 100, 231, 400, 1001, 3000, 5000 if mode else 20000, tpg.capacity(mode)):
+        x0, y0, px = tpg.block(n, mode)
+        img = tpg.encode(blob(n) if n else b"", mode)
+        ys, xs = np.nonzero(img)
+        inside = len(ys) == 0 or (ys.min() >= y0 and ys.max() < y0 + px and xs.min() >= x0 and xs.max() < x0 + px)
+        centred = x0 * 2 + px == tpg.W and y0 * 2 + px == tpg.H and x0 % 2 == 0
+        ladder = tpg.LADDER_L if mode == tpg.MODE_L else tpg.LADDER_R
+        smallest = all(tpg._units(s, mode) < tpg.HDR + n for s in ladder if (s if mode == tpg.MODE_L else s * 4) < px)
+        check(f"mode {'LR'[mode]} {n} B: centred square {px}px, inside, smallest that fits", inside and centred and smallest)
+
+# the first hardware captures (TPG1, stream from pixel (0, 0)) still decode
+old = blob(231)
+for mode in (tpg.MODE_L, tpg.MODE_R):
+    try: ok = tpg.decode(shot(tpg.encode_v1(old, mode))) == old
+    except ValueError: ok = False
+    check(f"legacy TPG1 mode {'LR'[mode]} still decodes", ok)
 
 # damage is detected, never silently decoded wrong
-p = blob(2000); img = shot(tpg.encode(p, tpg.MODE_L)); bad = img.copy(); bad[1, 7, 0] ^= 8
+p = blob(2000); img = shot(tpg.encode(p, tpg.MODE_L)); bad = img.copy(); bad[tpg.block(2000, 0)[1] + 1, tpg.block(2000, 0)[0] + 7, 0] ^= 8
 try: tpg.decode(bad); check("mode L: one flipped pixel bit is detected", False)
 except ValueError: check("mode L: one flipped pixel bit is detected", True)
 try: tpg.decode(np.zeros((tpg.H, tpg.W, 3), np.uint8)); check("blank screen is refused", False)
