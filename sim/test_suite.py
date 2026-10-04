@@ -89,6 +89,9 @@ def main():
     # SR_T_LOAD (Cymo C0, 2026-10-04): window CPU load + the Subband split, u16 x 6.
     ld = D.parse_record(D.build_record(0, [(24, le(2, 58, 71, 3, 15, 9, 14)[:12])]))["entries"]["load"]
     check("decode load", ld == {"busy_pct": 58, "busy_worst_pct": 71, "io_pct": 3, "secs": 15, "sub_fdct_pct": 9, "sub_hw_pct": 14}, ld)
+    # SR_T_LOAD2 (B-589): where the non-decode CPU goes, u16 x 5.
+    l2 = D.parse_record(D.build_record(0, [(25, le(2, 37, 4, 6, 2, 53))]))["entries"]["load2"]
+    check("decode load2", l2 == {"dec_pct": 37, "feed_pct": 4, "push_pct": 6, "ui_pct": 2, "wait_pct": 53}, l2)
     # SR_T_WVIZCFG (B-218): a one-off Configure-page export, not part of a Check run -- 13 raw bytes,
     # mixed widths (see fw/suite_core.h's own comment for the exact layout).
     wviz_bytes = bytes([1, 0xFF, 12, 3, 60, 25, 1, 1]) + (250).to_bytes(2, "little") + bytes([30, 45, 20])

@@ -3,10 +3,11 @@
  * Moved out of that file unchanged (B-251); behaviour and generated code are identical. */
 /* Developer-only contention pump. This is deliberately MMIO-only: it never
  * changes the player linker map or exposes mapped SDRAM. */
-/* The playlist buffers live at physical 1 MiB (A-105); the pump must not touch them, so it
- * works on 2..3 MiB instead. (Word units of 16 bits, like the mailbox address.) */
-#define STRESS_BASE 0x00100000u
-#define STRESS_LAST 0x0017FFFEu
+/* The playlist buffers live at physical 1 MiB (A-105) and the second display buffer of the H2 double buffer sits at 2 MiB (mp3_fb.sv DBUF_BASE1, about 360 KiB), so
+ * the pump works on 3..4 MiB. (Word units of 16 bits, like the mailbox address.) It used to run over 2..3 MiB, which is where display buffer 1 lives: during Check's
+ * Stress R1-R3 the screen filled with the pump's random data (B-590). sim/test_sdram_map_overlap.py keeps the ranges apart. */
+#define STRESS_BASE 0x00180000u
+#define STRESS_LAST 0x001FFFFEu
 #define STRESS_WORDS_PER_PASS (((STRESS_LAST - STRESS_BASE) / 2u) + 1u)
 #define STRESS_GAP  (CLK_HZ / 16000u)
 #define STRESS_TIMEOUT (CLK_HZ / 4u)

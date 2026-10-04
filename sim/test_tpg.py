@@ -97,7 +97,7 @@ for mode in (tpg.MODE_L, tpg.MODE_R):
 
 # the two reports the grid exists for: the Info page's full text (34 rows) and a 64-track Decode Sweep
 rows = [(i, f"ROW{i}LABEL", f"VALUE {i * 37 % 1000} B") for i in range(34)]
-info = d.build_record(0, [(25, bytes([i]) + l.encode() + b"\0" + v.encode()) for i, l, v in rows])
+info = d.build_record(0, [(26, bytes([i]) + l.encode() + b"\0" + v.encode()) for i, l, v in rows])
 sweep = d.build_record(1, [(14, bytes([i, 100, 3, 0, 11, 0, 55, 0, 0, 0]) + b"Track title %02d" % i) for i in range(64)])
 for name, rec in (("Info page (34 rows)", info), ("64-track sweep", sweep)):
     for mode in (tpg.MODE_L, tpg.MODE_R):
@@ -110,12 +110,12 @@ check("Info rows decode with label and value", len(tab) == 34 and tab[5] == {"ro
 check("the Info record is above what a version-14 QR code holds (the reason for the grid)", len(info) > 330)
 
 # the always-on context: Info identity rows + now playing
-ctx = d.build_record(1, [(25, bytes([1]) + b"FPGA REV\0" + b"4D50331A"), (26, bytes([3, 4, 0, 11, 0]) + "Aqua Marina\0Anna Måne\0Album One".encode())])
+ctx = d.build_record(1, [(26, bytes([1]) + b"FPGA REV\0" + b"4D50331A"), (27, bytes([3, 4, 0, 11, 0]) + "Aqua Marina\0Anna Måne\0Album One".encode())])
 rep = d.parse_record(tpg.decode(shot(tpg.encode(ctx, tpg.MODE_R))))
 np_ = rep["entries"]["nowplaying"]
 check("now playing decodes", np_ == {"state": "playing", "queue_pos": 4, "queue_len": 11, "title": "Aqua Marina", "artist": "Anna Måne", "album": "Album One"})
 check("context row decodes", rep["entries"]["infotext"] == [{"row": 1, "label": "FPGA REV", "value": "4D50331A"}])
-nothing = d.parse_record(d.build_record(1, [(26, bytes([0, 0, 0, 0, 0]) + b"\0\0")]))
+nothing = d.parse_record(d.build_record(1, [(27, bytes([0, 0, 0, 0, 0]) + b"\0\0")]))
 check("nothing loaded decodes", nothing["entries"]["nowplaying"]["state"] == "nothing loaded" and nothing["entries"]["nowplaying"]["title"] == "")
 
 print("PASSED" if not fails else f"{fails} FAILED")
