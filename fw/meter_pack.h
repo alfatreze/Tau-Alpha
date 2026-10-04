@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include "meter.h"
 
-#define MTR_PACK_ABI 1u
+#define MTR_PACK_ABI 2u
 
 /* Where things live. These addresses are part of the ABI: a pack is linked for them, so they are fixed constants, not firmware symbols.
  *   scratch: the on-chip meter scratch. The shipping 192 KB RAM layout leaves a heap gap whose top 1 KB (0x27400..0x27800, just under the ID3 landing zone) is
@@ -31,12 +31,16 @@
 #define MTR_PACK_SLOT_SIZE    0x10000u
 #define MTR_PACK_SLOTS        4u
 #define MTR_PACK_METER_LAYERED_WAVE 16u            /* the VIZ_* id of the meter (fw/meter_gen_enum.h) */
-/* The slot a meter's pack goes in, or -1 if that meter cannot be a pack. */
-static inline int mtr_pack_slot_of(uint32_t meter_id) { return meter_id == MTR_PACK_METER_LAYERED_WAVE ? 0 : -1; }
+#define MTR_PACK_METER_WINAMP_BARS  12u
+/* The slot a meter's pack goes in, or -1 if that meter cannot be a pack. Slot 0 = Layered Wave, slot 1 = Winamp Bars. */
+static inline int mtr_pack_slot_of(uint32_t meter_id) { return meter_id == MTR_PACK_METER_LAYERED_WAVE ? 0 : meter_id == MTR_PACK_METER_WINAMP_BARS ? 1 : -1; }
 
 typedef struct {
     uint32_t         abi;                                                     /* MTR_PACK_ABI                                                   */
     void           (*fb_rect)(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t colour);   /* the draw engine's rectangle fill     */
+    void           (*rect_clip)(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t colour);  /* the same, clipped around the fullscreen overlay rects (a meter drawn straight onto the screen uses this one) */
+    void           (*bar_clip)(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg);   /* OP_BAR column, clipped likewise; only if bar_ready() */
+    int            (*bar_ready)(void);                                        /* the bitstream has the bar opcode (probed once by the host) */
     uint32_t       (*cycles)(void);                                           /* free-running CPU cycle counter                                 */
     int            (*psram_ready)(void);                                      /* the PSRAM window has been proven (the pack's own state lives there) */
     const uint16_t  *accent;                                                  /* the current accent colour (RGB565)                             */

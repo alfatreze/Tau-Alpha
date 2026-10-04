@@ -16,7 +16,7 @@ import pack_bundle
 
 SIM_ORG = 0x00400000
 SIM_SCRATCH = 0x00300000
-FINGERPRINT = "e2d98dff"      # sha256 of the normalised mtr_in_t + mtr_host_api_t definitions, first 8 hex digits
+FINGERPRINT = "eccedcee"      # sha256 of the normalised mtr_in_t + mtr_host_api_t definitions, first 8 hex digits
 fails = 0
 
 
@@ -35,18 +35,18 @@ def abi_fingerprint():
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:8]
 
 
-def run_native(tmp):
-    exe = tmp / "native"
-    r = subprocess.run(["cc", "-O1", "-w", "-I", str(ROOT / "fw"), "-I", str(ROOT / "sim"), "-o", str(exe), str(ROOT / "sim/lw_pack_native.c")], capture_output=True, text=True)
+def run_native(tmp, src="lw_pack_native.c"):
+    exe = tmp / ("native_" + src.split("_")[0])
+    r = subprocess.run(["cc", "-O1", "-w", "-I", str(ROOT / "fw"), "-I", str(ROOT / "sim"), "-o", str(exe), str(ROOT / "sim" / src)], capture_output=True, text=True)
     if r.returncode:
         print(r.stderr); sys.exit(1)
     return [ln for ln in subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines() if ln.startswith("S ")]
 
 
-def build_harness(tmp, frames=None, bundle=False):
-    elf = tmp / ("pack_harness%s%s.elf" % ("" if frames is None else "_%d" % frames, "_bundle" if bundle else ""))
+def build_harness(tmp, frames=None, bundle=False, defs=()):
+    elf = tmp / ("pack_harness%s%s%s.elf" % ("" if frames is None else "_%d" % frames, "_bundle" if bundle else "", "".join(re.sub(r"\W", "", d) for d in defs)))
     cmd = [pm.tool("gcc"), "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-O2", "-ffreestanding", "-nostdlib", "-nostartfiles", "-Wall", "-Wno-unused-function", "-Wno-unused-variable",
-           "-Wno-unused-const-variable", "-Wno-comment", "-DPACK_ORG=0x%X" % SIM_ORG] + (["-DLW_NFRAMES=%d" % frames] if frames is not None else []) + (["-DPACK_BUNDLE"] if bundle else []) + ["-Wl,--no-warn-rwx-segments", "-T", str(ROOT / "tools/host/link.ld"),
+           "-Wno-unused-const-variable", "-Wno-comment", "-DPACK_ORG=0x%X" % SIM_ORG] + (["-DLW_NFRAMES=%d" % frames] if frames is not None else []) + (["-DPACK_BUNDLE"] if bundle else []) + ["-D" + d for d in defs] + ["-Wl,--no-warn-rwx-segments", "-T", str(ROOT / "tools/host/link.ld"),
            str(ROOT / "tools/host/start.S"), str(ROOT / "tools/host/pack_harness.c"), "-I", str(ROOT / "fw"), "-o", str(elf), "-lgcc"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:
@@ -119,6 +119,33 @@ def main():
         check("an empty bundle is fine and installs nothing", out[:2] == ["BUNDLE E0 SEEN 0", "SLOT 0 none"], str(out[:2]))
         out = bundle_run(pb.bundle([blob, blob]))
         check("two packs for the same meter: the last one wins and still runs identically", out[:1] == ["BUNDLE E0 SEEN 2"] and out[5:] == want, str(out[:6]))
+        # ---- Winamp Bars as the second pack (slot 1): same checks, plus both packs in one bundle
+        want_b = run_native(tmp, "bars_pack_native.c")
+        check("the native Winamp Bars reference trace produced 4 scenarios with draw commands", len(want_b) == 4 and all(int(w.split()[2]) > 300 for w in want_b), str(want_b))
+        blob_b, info_b = pm.build("winamp_bars", SIM_ORG, tmp / "wb.elf", scratch=SIM_SCRATCH)
+        check("the Winamp Bars pack builds freestanding with a few hundred bytes of working state and no state in the slot", len(blob_b) > pm_hdr and info_b["entry"] == 0 and 0 < info_b["data"] + info_b["bss"] <= 1024 and info_b["pstate"] == 0, str(info_b))
+        blob_b_hw, info_b_hw = pm.build("winamp_bars", 0x24850000, tmp / "wb_hw.elf")
+        check("the Winamp Bars pack links at slot 1 of the real PSRAM window (data at the data alias)", info_b_hw["org"] == 0x24850000 and struct.unpack_from("<I", blob_b_hw, 32)[0] == 0x00027400 and info_b_hw["load"] == info_b["load"])
+        print("     winamp bars pack: %d B image, %d B working state in scratch, %d B file" % (info_b["load"], info_b["data"] + info_b["bss"], len(blob_b)))
+        elf_b = build_harness(tmp, None, False, ["PACK_BARS", "PACK_METER=12"])
+        got_b = run_sim(elf_b, blob_b, tmp)
+        check("the Winamp Bars loader accepts the pack", got_b[:1] == ["LOAD E0"], str(got_b[:3]))
+        check("the Winamp Bars pack run on rv32sim draws exactly what the built-in meter draws (command counts and hashes, 4 scenarios incl. a mid-run geometry change)", got_b[1:] == want_b, "\n got  %s\n want %s" % (got_b[1:], want_b))
+        mut = bytearray(blob_b); mut[60] ^= 0x10
+        out = run_sim(elf_b, bytes(mut), tmp)
+        check("a corrupt Winamp Bars pack is refused (E26), nothing runs", out == ["LOAD E26"], str(out))
+        wrong = bytearray(blob_b); wrong[6] = 16
+        out = run_sim(elf_b, bytes(wrong), tmp)
+        check("a Layered Wave id in the Winamp Bars slot is refused (E23)", out == ["LOAD E23"], str(out))
+        blob_b1, _ = pm.build("winamp_bars", SIM_ORG + 0x10000, tmp / "wb1.elf", scratch=SIM_SCRATCH)
+        both = pb.bundle([blob, blob_b1])
+        out = bundle_run(both)
+        check("a bundle with both packs installs both (slots 0 and 1) and Layered Wave still runs identically", out[:3] == ["BUNDLE E0 SEEN 2", "SLOT 0 E0", "SLOT 1 E0"] and out[5:] == want, str(out[:6]))
+        belf1 = build_harness(tmp, None, True, ["PACK_BARS", "PACK_METER=12", "PACK_SLOT=1"])
+        out = run_sim(belf1, both, tmp)
+        check("the same bundle's Winamp Bars (slot 1) runs identically to the built-in meter", out[:3] == ["BUNDLE E0 SEEN 2", "SLOT 0 E0", "SLOT 1 E0"] and out[5:] == want_b, str(out[:6]))
+        out = run_sim(belf1, pb.bundle([blob_b1, blob]), tmp)
+        check("the order of the packs in the bundle does not matter", out[:3] == ["BUNDLE E0 SEEN 2", "SLOT 0 E0", "SLOT 1 E0"] and out[5:] == want_b, str(out[:6]))
         # CPU cost of where the working state lives, counted on the simulator (exact access counts, priced with the measured PSRAM window costs)
         regions = [("scratch", 0x300000, 0x301000), ("slot_ro", SIM_ORG, SIM_ORG + info["load"]), ("slot_state", SIM_ORG + info["load"], SIM_ORG + 0x40000)]
         full, err_full = run_sim(elf, blob, tmp, regions, True)

@@ -6,12 +6,14 @@
 The pack source is fw/meter_pack_<meter>.c. It is compiled for rv32im with no libc and no firmware symbols, linked at --org (the slot's address in the
 PSRAM code window), checked to have no undefined symbols, and written as a 32-byte header (fw/meter_pack_core.h) followed by the load image. Needs the
 vendored RISC-V toolchain (toolchain/ or RISCV_TOOLCHAIN_BIN)."""
-import argparse, os, struct, subprocess, sys, zlib
+import argparse, os, re, struct, subprocess, sys, zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ABI = 1
-METER_IDS = {"layered_wave": 16}      # the VIZ_* id of the meter (fw/meter_gen_enum.h)
+ABI = int(re.search(r"#define MTR_PACK_ABI (\d+)u", (ROOT / "fw/meter_pack.h").read_text()).group(1))      # read from the firmware header: one source of truth
+METER_IDS = {"layered_wave": 16, "winamp_bars": 12}      # the VIZ_* id of the meter (fw/meter_gen_enum.h)
+SLOT = {"layered_wave": 0, "winamp_bars": 1}              # the slot of each meter (fw/meter_pack.h mtr_pack_slot_of)
+SLOT_BASE, SLOT_SIZE = 0x24840000, 0x10000
 
 
 def tool(name):
@@ -67,9 +69,10 @@ def build(meter, org, elf_out=None, extra=(), scratch=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("meter"); ap.add_argument("--org", type=lambda s: int(s, 0), default=0x24840000, help="the slot address (default: slot 0 of the PSRAM code window, MTR_PACK_SLOT_BASE)"); ap.add_argument("--out", required=True); ap.add_argument("--elf-out"); ap.add_argument("--scratch", type=lambda s: int(s, 0), default=SCRATCH_ORG)
+    ap.add_argument("meter"); ap.add_argument("--org", type=lambda s: int(s, 0), default=None, help="the slot address (default: this meter's slot in the PSRAM code window, MTR_PACK_SLOT_BASE + slot x MTR_PACK_SLOT_SIZE)"); ap.add_argument("--out", required=True); ap.add_argument("--elf-out"); ap.add_argument("--scratch", type=lambda s: int(s, 0), default=SCRATCH_ORG)
     ap.add_argument("-D", action="append", default=[], help="extra -D define for the pack build")
     a = ap.parse_args()
+    if a.org is None: a.org = SLOT_BASE + SLOT[a.meter] * SLOT_SIZE
     blob, info = build(a.meter, a.org, a.elf_out, ["-D" + d for d in a.D], a.scratch)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True); Path(a.out).write_bytes(blob)
     print("%s: %d B file (%d B image), slot state %d B, scratch %d B (data %d + bss %d), entry +0x%X, org 0x%X, scratch 0x%X" % (a.out, len(blob), info["load"], info["pstate"], info["data"] + info["bss"], info["data"], info["bss"], info["entry"], info["org"], info["scratch"]))
