@@ -29,6 +29,8 @@ static const mtr_host_api_t *g_api;
 #undef  MV_LAYERED_WAVE
 #define MV_LAYERED_WAVE(name) (g_api->params[MP_LAYERED_WAVE_##name])
 
+#define LW_STATS 1          /* the firmware's built-in Layered Wave defines it too (fw/player.c): draw-cost statistics AND the time-based cost guard (9 ms of CPU) instead of the host build's command count */
+#define CLK_HZ (g_api->clk_hz)
 #include "layered_wave.inc"
 
 /* The compiler may call these even in freestanding code; the pack carries its own so it names no firmware symbol. */
@@ -39,5 +41,7 @@ __attribute__((section(".text.mtr_pack_entry"), used))
 uint32_t mtr_pack_entry(const mtr_in_t *in, const mtr_host_api_t *api)
 {
     g_api = api;
-    return (uint32_t)lw_tick(in);
+    const uint32_t n = (uint32_t)lw_tick(in);
+    if (api->stats) { api->stats[0] = lw_cmd_last; api->stats[1] = lw_t_cpu; api->stats[2] = lw_t_unw; api->stats[3] = lw_stride; }   /* Info reads these: the pack's statics are not visible to the firmware */
+    return n;
 }
