@@ -60,9 +60,19 @@ Original list, kept for reference:
 3. **Pattern scaling/cropping by the screenshot path** under any video-mode change: the grid must be drawn after the frame is stable, with the header strip as the geometry check.
 4. **JAB numbers are estimates** from my memory of the spec, not from running the reference implementation.
 
-## 5. Proposed steps
+## 5. Status (2026-10-04)
 
 1. Hardware pixel-fidelity test page (no new RTL): confirms or kills TPG. Smallest possible spend.
 2. `tools/tpg.py` reference encoder/decoder + golden test in `make test-host`, `decode_tau_suite.py --grid`; hand the format description to Tau Omega through `docs/CROSS_PROJECT_INTERFACE.md` (reference, never copy files).
 3. Firmware pixel writer in cold code, behind a build switch; QR encoder trimmed to version <= 14.
 4. Migrate Check, Sweep, Info export, Layered Wave config export; raise the 48-track Sweep cap.
+
+Built so far (host-verified, `make test-host` passes; none of it run on a Pocket with a real report yet):
+
+- **Format TPG1** (`tools/tpg.py` docstring): 16-byte header (`TPG1`, mode, length, CRC32) + the binary record. Mode L = 1 px per 16 bits, lossless PNG only, 287,984 B. Mode R = 4x4 cells, 2 bits per channel, 6,734 B; survives JPEG q80+ and box/Lanczos/nearest/bicubic resizing, but a heavy bilinear 50% downscale corrupts about 14% of the cells and is only detected (CRC), not repaired. No error correction in v1: if the shareable path matters, add Reed-Solomon to mode R.
+- **Reference codec + golden tests**: `tools/tpg.py`, `sim/test_tpg.py` (round trips, capacity, damage detection, robustness, a Check-style record through both modes).
+- **Decoder**: `tools/decode_tau_suite.py --grid shot.png` (needs only numpy and Pillow, no OpenCV).
+- **Firmware**: `fw/tpg.h` (portable pixel source, equal to the Python codec pixel for pixel, `sim/test_tpg_fw.py`) and a cold-code page writer in `fw/suite.inc` behind `TAU_TPG=1` (`TPG=1` for `fw/build.sh`; default 0, the default builds are unchanged: heap gap 7,664 B in the profile build, 7,536 B with it on). On the Check result page X cycles QR -> grid L -> grid R. The Pixel Grid Test page shares the mailbox writer.
+- **Omega**: interface entry in `docs/features/CROSS_PROJECT_INTERFACE.md`.
+
+Still to do: a Pocket run of a real Check report in each mode (screenshot -> `--grid`), then migrate Sweep, Info export and the Layered Wave config export (each has its own QR block), trim the QR encoder to version <= 14 (the 6 KB table set and 13 KB buffer go away), lift the 48-track Sweep cap, and decide whether mode R needs error correction.

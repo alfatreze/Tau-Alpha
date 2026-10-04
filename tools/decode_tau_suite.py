@@ -2,6 +2,7 @@
 """Decoder (and reference encoder) for the Tau diagnostics report (fw/suite_core.h, docs/TEST_SUITE_SPEC.md).
 
   decode_tau_suite.py --text 'TAUD1:...'          full report from the QR text (also reads it from stdin with '-')
+  decode_tau_suite.py --grid screenshot.png       decode a Tau pixel grid (TPG1, tools/tpg.py) in a screenshot; needs only numpy and Pillow
   decode_tau_suite.py --qr screenshot.png         decode the QR code in a screenshot (needs OpenCV; use the PNG, not a resized copy)
   decode_tau_suite.py --interact persist.json     the four-word summary from Settings/<core>/Interact/_core/interact_persist.json
   decode_tau_suite.py --words A B C D             the same from four numbers
@@ -291,6 +292,11 @@ def qr_text(path: str) -> str:
     return txt
 
 
+def grid_record(path: str) -> bytes:
+    import tpg                                    # tools/tpg.py: the TPG1 container (docs/features/BARCODE_STUDY.md)
+    return tpg.decode_file(path)
+
+
 def show(d: dict) -> str:
     return json.dumps(d, indent=2)
 
@@ -300,19 +306,24 @@ def main(argv=None) -> int:
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--text")
     g.add_argument("--qr")
+    g.add_argument("--grid")
     g.add_argument("--interact")
     g.add_argument("--words", nargs=4, type=int)
     g.add_argument("--code")
     ap.add_argument("--ids", default="20,21,22,23", help="interact variable ids of the four words")
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("--trace", metavar="OUT.json", help="with --text/--qr: write the recorded meter trace (SR_T_METERTRACE) as the JSON the preview lab and golden tests replay")
+    ap.add_argument("--trace", metavar="OUT.json", help="with --text/--qr/--grid: write the recorded meter trace (SR_T_METERTRACE) as the JSON the preview lab and golden tests replay")
     a = ap.parse_args(argv)
     try:
-        if a.text or a.qr:
-            txt = a.text if a.text else qr_text(a.qr)
-            if txt == "-":
-                txt = sys.stdin.read()
-            res = parse_record(from_text(txt))
+        if a.text or a.qr or a.grid:
+            if a.grid:
+                rec = grid_record(a.grid)
+            else:
+                txt = a.text if a.text else qr_text(a.qr)
+                if txt == "-":
+                    txt = sys.stdin.read()
+                rec = from_text(txt)
+            res = parse_record(rec)
             if a.trace:
                 frames = res["entries"].get("metertrace")
                 if not frames:
