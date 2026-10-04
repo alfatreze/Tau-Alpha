@@ -16,6 +16,8 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 | 3 | Remove software paths made redundant by hardware | Spectrum cascade already removed | After 2: delete software level/scope in `meters_feed` and `wviz_scope_tick` | ALPHA22 handoff item 3 |
 | 4 | Meter modules: **M0 to M5 built and host-verified (B-294, B-317..B-323)**; M6 (wrapping the legacy meters) deliberately not done | Winamp pair, Chladni and every future meter with parameters run on generated modules, a generic Configure page, `SR_T_METERCFG`, the METR presets file, the meter trace recorder and a preview lab whose ports are proven command-for-command against the firmware. Open: hardware run of alpha builds carrying it; reorder/hide meters from a file; a JS twin for Chladni; Omega's METR writer | `docs/AUDIT_TRAIL.md` B-317..B-323, `METER_MODULE_SPEC` |
 
+> **DEFECT (2026-10-04, B-569): the hardware CLUT is written one slot too high, so TIM1 covers and meter previews show shifted colours.** Fix is a one-line firmware start index (255) now, and an RTL fix with a version bump later; see `docs/AUDIT_TRAIL.md` B-569.
+
 ## 2. Next (needs an owner call first)
 
 | # | Item | Why it needs a decision | Reference |
