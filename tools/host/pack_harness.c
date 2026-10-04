@@ -52,6 +52,7 @@ static void api_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c)
 static void api_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg) { (void)x; (void)y; (void)w; (void)h; (void)lit; (void)fg; (void)bg; }
 #endif
 static int api_bar_ready(void) { return 1; }
+static uint32_t api_stats[MTR_PACK_STATS];
 static uint32_t api_cycles(void) { return 0u; }
 static int api_psram(void) { return 1; }
 static mtr_pack_entry_fn entry;
@@ -87,6 +88,7 @@ int main(void)
     for (int i = 0; i < TR_COUNT; i++) roles[i] = (uint16_t)(0x1234u + i * 0x0421u);
     static mtr_host_api_t api;
     api.abi = MTR_PACK_ABI; api.fb_rect = api_rect; api.cycles = api_cycles; api.psram_ready = api_psram;
+    api.stats = api_stats; api.clk_hz = 66666667u;
     api.rect_clip = api_rect; api.bar_clip = api_bar; api.bar_ready = api_bar_ready;
     api.accent = &accent; api.role = roles; api.force = &force_flag;
 #ifdef PACK_BARS
@@ -97,6 +99,9 @@ int main(void)
     api.params = mtr_v_layered_wave;
     api_p = &api; entry = (mtr_pack_entry_fn)addr;
     lw_trace(mtr_v_layered_wave, &force_flag, run, report);
+#endif
+#ifdef PACK_STATS
+    hputs("STATS "); hputu(api_stats[0]); hputc(' '); hputu(api_stats[3]); hnl();
 #endif
     return 0;
 }

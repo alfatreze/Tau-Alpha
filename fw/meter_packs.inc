@@ -13,6 +13,7 @@ static uint8_t  packs_err;          /* why the whole feature is off, or 0 */
 static uint8_t  packs_seen;         /* packs found in the file */
 static uint8_t  packs_active = 0xFFu;   /* the slot whose working state is in the scratch right now */
 static uint32_t packs_ms;
+static uint32_t packs_stats[MTR_PACK_SLOTS][MTR_PACK_STATS];     /* what each pack publishes for Info */
 static mtr_host_api_t packs_api[MTR_PACK_SLOTS];     /* one per slot: the same services, that meter's own setting values */
 static uint32_t packs_seen_n;
 COLD_FN3 static uint32_t packs_cycles(void) { return cycles(); }
@@ -50,6 +51,7 @@ COLD_FN3 static void packs_boot_load_cold(void)
     for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) {
         mtr_host_api_t *a = &packs_api[i];
         a->abi = MTR_PACK_ABI;
+        a->clk_hz = CLK_HZ;
         a->fb_rect = fb_rect;
         a->rect_clip = fig_rect_fn;
         a->bar_clip = fig_bar_fn;
@@ -59,6 +61,7 @@ COLD_FN3 static void packs_boot_load_cold(void)
         a->accent = &ui_accent;
         a->role = th_role;
         a->force = &wviz_force;
+        a->stats = packs_stats[i];
         a->params = i == 0u ? mtr_v_layered_wave : i == 1u ? mtr_v_winamp_bars : mtr_v_layered_wave;   /* slot 0 = Layered Wave, slot 1 = Winamp Bars (fw/meter_pack.h mtr_pack_slot_of) */
     }
     packs_state = 1u;
@@ -77,7 +80,11 @@ COLD_FN3 static uint32_t packs_tick(uint32_t meter_id, const mtr_in_t *in)
         mpk_activate(&packs_slot[s].info, packs_slot_data(s), (volatile uint8_t *)&__meter_scratch_start);
         packs_active = (uint8_t)s;
     }
-    return ((mtr_pack_entry_fn)packs_slot[s].info.entry)(in, &packs_api[s]);
+    const uint32_t r = ((mtr_pack_entry_fn)packs_slot[s].info.entry)(in, &packs_api[s]);
+    if (meter_id == MTR_PACK_METER_LAYERED_WAVE) {          /* Info > LW COST and METER DRAW read the built-in names: hand them the pack's figures */
+        lw_cmd_last = packs_stats[s][0]; lw_t_cpu = packs_stats[s][1]; lw_t_unw = packs_stats[s][2]; lw_stride = (uint8_t)packs_stats[s][3];
+    }
+    return r;
 }
 
 /* The one hot piece: called at boot right after cold_boot_load(), it only starts the real work if cold code (the PSRAM instruction window) is proven. */

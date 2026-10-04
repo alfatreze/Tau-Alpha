@@ -16,7 +16,7 @@ import pack_bundle
 
 SIM_ORG = 0x00400000
 SIM_SCRATCH = 0x00300000
-FINGERPRINT = "eccedcee"      # sha256 of the normalised mtr_in_t + mtr_host_api_t definitions, first 8 hex digits
+FINGERPRINT = "21a85f6d"      # sha256 of the normalised mtr_in_t + mtr_host_api_t definitions, first 8 hex digits
 fails = 0
 
 
@@ -40,7 +40,9 @@ def run_native(tmp, src="lw_pack_native.c"):
     r = subprocess.run(["cc", "-O1", "-w", "-I", str(ROOT / "fw"), "-I", str(ROOT / "sim"), "-o", str(exe), str(ROOT / "sim" / src)], capture_output=True, text=True)
     if r.returncode:
         print(r.stderr); sys.exit(1)
-    return [ln for ln in subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines() if ln.startswith("S ")]
+    out = subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines()
+    run_native.stats = next((ln for ln in out if ln.startswith("STATS ")), None)
+    return [ln for ln in out if ln.startswith("S ")]
 
 
 def build_harness(tmp, frames=None, bundle=False, defs=()):
@@ -119,6 +121,9 @@ def main():
         check("an empty bundle is fine and installs nothing", out[:2] == ["BUNDLE E0 SEEN 0", "SLOT 0 none"], str(out[:2]))
         out = bundle_run(pb.bundle([blob, blob]))
         check("two packs for the same meter: the last one wins and still runs identically", out[:1] == ["BUNDLE E0 SEEN 2"] and out[5:] == want, str(out[:6]))
+        elf_s = build_harness(tmp, None, False, ["PACK_STATS"])
+        out_s = run_sim(elf_s, blob, tmp)
+        check("the Layered Wave pack publishes its draw-command count and stride through the stats words, equal to the built-in meter's", run_native.stats is not None and out_s[-1] == run_native.stats and int(out_s[-1].split()[1]) > 0, "%s vs %s" % (out_s[-1:], run_native.stats))
         # ---- Winamp Bars as the second pack (slot 1): same checks, plus both packs in one bundle
         want_b = run_native(tmp, "bars_pack_native.c")
         check("the native Winamp Bars reference trace produced 4 scenarios with draw commands", len(want_b) == 4 and all(int(w.split()[2]) > 300 for w in want_b), str(want_b))

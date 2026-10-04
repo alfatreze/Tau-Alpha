@@ -13,7 +13,7 @@
  * Every change goes through the same variables and side effects as the direct shortcuts
  * (which stay); nothing new is persisted; Screen blank is not persisted (as Select+Down). */
 
-/* The home is titled MENU. SET_DIAG is the SETTINGS group (Info, and in the Diagnostic Build a
+/* The home is titled MENU: APPEARANCE, METER, METER: CONFIGURE, AUDIO, PLAYBACK, SETTINGS (the meter rows are no longer under APPEARANCE). SET_DIAG is the SETTINGS group (Info, and in the Diagnostic Build a
  * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). The Library on/off toggle and
  * How it works page that used to live here were removed with legacy playlist mode. */
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
@@ -46,14 +46,15 @@ enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 
 typedef struct { const char *label; uint8_t type, arg; } set_row_t;
 static const set_row_t set_home_rows[] = {
-    { "APPEARANCE", RT_GROUP, SET_APPEAR }, { "AUDIO", RT_GROUP, SET_AUDIO },
+    { "APPEARANCE", RT_GROUP, SET_APPEAR },
+    { "METER", RT_CHOICE, CH_METER },                           /* the meters live on the main page (no longer under APPEARANCE); X in the list opens their settings */
+    { "METER: CONFIGURE", RT_GROUP, SET_WVIZCFG_PG },
+    { "AUDIO", RT_GROUP, SET_AUDIO },
     { "PLAYBACK", RT_GROUP, SET_PLAY },
     { "SETTINGS", RT_GROUP, SET_DIAG },
 };
 static const set_row_t set_appear_rows[] = {
     { "COLOUR", RT_CHOICE, CH_COLOUR }, { "THEME", RT_CHOICE, CH_THEME }, { "MODE", RT_CHOICE, CH_MODE },
-    { "METER", RT_CHOICE, CH_METER },
-    { "METER: CONFIGURE", RT_GROUP, SET_WVIZCFG_PG },
     { "ALBUM ART", RT_TOGGLE, TG_ART }, { "SCREEN BLANK", RT_CHOICE, CH_BLANK } };
 static const set_row_t set_audio_rows[] = {
     { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 } };
@@ -113,8 +114,6 @@ static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME
     SET_DGN, SET_DGN, SET_DIAG };
 static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
     "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE", "TEMPO" };
-static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
-    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR, SET_PLAY };
 /* The speed list offers every entry up to 2.00x for an MP3 (owner decision 2026-10-03, B-555). The old limit of 1.20x came from A-133/A-135, when 1.25x micro-stuttered at
  * 60 MHz with the software MP3 synthesis window; with the hardware window and the 66.7 MHz clock a stereo 128 kbps MP3 is 83% busy at 1.50x with no FIFO stalls
  * (B-553) and the owner heard clean MP3 at 1.75x. These are VARISPEED speeds: the pitch rises with the speed (real tempo without the pitch change is the Cymo C7
@@ -154,6 +153,8 @@ static const uint8_t     set_blank[5]    = { 0u, 1u, 5u, 10u, 30u };
 _Static_assert(LIB_ROW_H == SET_MENU_ROW_H, "the library rows must match the settings rows");
 
 static uint8_t set_page, set_sel[SET_MENUS], set_ch_cur[CH_N], set_ch_top[CH_N];
+static uint8_t set_ch_back[CH_N];             /* the page each choice list was opened from (B returns there): the meter list can be opened from the home page or from APPEARANCE */
+static uint8_t wvcfg_back = SET_HOME;         /* likewise for Meter > Configure (from the home page, or from the meter list with X) */
 /* B-410 (owner-reported: "when the menu is visible and overflows it will overlay the action bar"):
  * set_draw_menu() drew every row in set_menu_rows[p] unconditionally, with no bound against the
  * visible list area -- unlike set_draw_choice()'s own set_ch_top[]/set_ch_follow() scrolling, which
@@ -531,6 +532,17 @@ COLD_FN static void set_disc(uint32_t cx, uint32_t cy, uint32_t d, uint16_t colo
     fb_round_rect_on(cx - d / 2u, cy - d / 2u, d, d, d / 2u, colour, bg);
 }
 
+/* A small settings gear (about 15 px), drawn from rectangles and discs like every other icon here: the body, eight teeth, a hole. Marks a meter that has settings (Meter list). */
+COLD_FN static void set_icon_gear(uint32_t cx, uint32_t cy, uint16_t colour, uint16_t bg)
+{
+    set_disc(cx, cy, 11u, colour, bg);
+    fb_rect(cx - 1u, cy - 7u, 3u, 3u, colour); fb_rect(cx - 1u, cy + 5u, 3u, 3u, colour);       /* north, south */
+    fb_rect(cx - 7u, cy - 1u, 3u, 3u, colour); fb_rect(cx + 5u, cy - 1u, 3u, 3u, colour);       /* west, east */
+    fb_rect(cx - 6u, cy - 6u, 3u, 3u, colour); fb_rect(cx + 4u, cy - 6u, 3u, 3u, colour);       /* the four diagonals */
+    fb_rect(cx - 6u, cy + 4u, 3u, 3u, colour); fb_rect(cx + 4u, cy + 4u, 3u, 3u, colour);
+    set_disc(cx, cy, 5u, bg, colour);                                                            /* the hole */
+}
+
 COLD_FN static void set_draw_menu(uint32_t p)
 {
     const set_row_t *rows = set_menu_rows[p];
@@ -574,7 +586,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 {
     uint32_t n = set_ch_count(c), rowh = set_ch_rowh(c), vis = set_ch_visible(c);
     uint32_t top = set_ch_top[c], act = set_ch_active(c);
-    ov_frame(set_ch_title[c], "", "A SELECT   B BACK");
+    ov_frame(set_ch_title[c], "", c == CH_METER ? "A SELECT   X CONFIGURE   B BACK" : "A SELECT   B BACK");
     if (n > vis) {                               /* scroll track, as the playlist */
         uint32_t tx = PL_UI_X + PL_UI_W - 11u, th = SET_LIST_H * vis / n;
         fb_rect(tx, PL_UI_LIST_Y - 2u, 3u, SET_LIST_H, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
@@ -596,13 +608,17 @@ COLD_FN static void set_draw_choice(uint32_t c)
             if (on) set_disc(mx, cy, 8u, sel ? UI_PANEL : ui_accent, bg);
         }
         uint32_t tx = mx + 24u;
+        uint32_t tr = PL_UI_X + PL_UI_W - 24u;        /* right edge of the text */
         if (c == CH_METER) {                      /* preview placeholder */
             set_draw_thumb(tx, y + (rowh - 2u - SET_TH_H) / 2u, viz_sel_to_mode(i));
             tx += SET_TH_W + 14u;
+            if (mtr_of(viz_sel_to_mode(i))) {     /* this meter has settings (X opens them): a gear at the right of the row */
+                set_icon_gear(PL_UI_X + PL_UI_W - 40u, cy, sel ? UI_PANEL : UI_DIM, bg);
+                tr -= 26u;
+            }
         }
         fb_set_color(sel ? UI_PANEL : UI_WHITE, bg);
-        fb_text_clipped(tx, y + (rowh - 2u - 16u) / 2u, set_ch_name(c, i), TS_1X, TS_1X,
-                        PL_UI_X + PL_UI_W - 24u - tx);
+        fb_text_clipped(tx, y + (rowh - 2u - 16u) / 2u, set_ch_name(c, i), TS_1X, TS_1X, tr - tx);
     }
 }
 
@@ -1300,7 +1316,7 @@ static int wvcfg_input(uint32_t edge)
     if (edge & KEY_START) { wvcfg_direct = 0u; wviz_force = 1u; set_close(); return 1; }
     if (edge & KEY_B) {
         if (wvcfg_direct) { wvcfg_direct = 0u; wviz_force = 1u; set_close(); }
-        else { set_page = SET_APPEAR; wviz_force = 1u; set_dirty = 1u; }
+        else { set_page = wvcfg_back; wviz_force = 1u; set_dirty = 1u; }
         return 1;
     }
     if (edge & KEY_UP)    { wvcfg_sel = wvcfg_sel ? (uint8_t)(wvcfg_sel - 1u) : (uint8_t)(wvcfg_vis_n - 1u); wvcfg_follow(); set_dirty = 1u; }
@@ -1660,7 +1676,14 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
         if (edge & KEY_UP)   { set_ch_cur[c] = (uint8_t)helios_wrap_index(set_ch_cur[c], n, 1); set_ch_follow(c); set_dirty = 1u; }
         if (edge & KEY_DOWN) { set_ch_cur[c] = (uint8_t)helios_wrap_index(set_ch_cur[c], n, 0); set_ch_follow(c); set_dirty = 1u; }
         if ((edge & (KEY_A | KEY_RIGHT)) && !rep) { set_ch_apply(c, set_ch_cur[c]); set_dirty = 1u; }     /* Right = forward = select */
-        if ((edge & (KEY_B | KEY_LEFT)) && !rep)  { set_page = set_ch_parent[c]; set_dirty = 1u; }         /* Left = back */
+        if ((edge & KEY_X) && !rep && c == CH_METER && mtr_of(viz_sel_to_mode(set_ch_cur[c]))) {   /* X = configure the highlighted meter: select it, then open its settings */
+            set_ch_apply(c, set_ch_cur[c]);
+            set_page = SET_WVIZCFG_PG; set_dirty = 1u;
+            wvcfg_open();
+            wvcfg_back = SET_PAGE_CH(c);                        /* B from Configure returns to this list */
+            return 1;
+        }
+        if ((edge & (KEY_B | KEY_LEFT)) && !rep)  { set_page = set_ch_back[c]; set_dirty = 1u; }              /* Left = back, to the page it was opened from */
         return 1;
     }
     uint8_t *sel = &set_sel[set_page];
@@ -1670,10 +1693,13 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
     const set_row_t *r = &set_menu_rows[set_page][*sel];
     if (edge & (KEY_A | KEY_RIGHT)) {
         if (r->type == RT_GROUP) {
+            const uint8_t from = set_page;
             set_page = r->arg; set_dirty = 1u;
             { const set_spg_t *spg = set_spg_find(set_page); if (spg && spg->open) spg->open(); }
+            if (set_page == SET_WVIZCFG_PG) wvcfg_back = from;       /* after open(): B returns to the page it was opened from */
         }
         else if (r->type == RT_CHOICE) {
+            set_ch_back[r->arg] = set_page;
             set_page = SET_PAGE_CH(r->arg);
             set_ch_cur[r->arg] = (uint8_t)set_ch_active(r->arg);
             set_ch_follow(r->arg);
