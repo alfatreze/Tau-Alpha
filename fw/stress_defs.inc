@@ -4,9 +4,14 @@
 /* Developer-only contention pump. This is deliberately MMIO-only: it never
  * changes the player linker map or exposes mapped SDRAM. */
 /* The playlist buffers live at physical 1 MiB (A-105); the pump must not touch them, so it
- * works on 2..3 MiB instead. (Word units of 16 bits, like the mailbox address.) */
-#define STRESS_BASE 0x00100000u
+ * works above 2 MiB instead. (Word units of 16 bits, like the mailbox address.)
+ * The helios H2 back buffer (buffer 1: mp3_fb.sv DBUF_BASE1, fw/player.c DBUF_BASE1_W) occupies words 0x100000 .. 0x12D000 (1,048,576 + 512 x 360).
+ * The pump used to start at 0x100000 and overwrote it with its pattern: whenever buffer 1 was the DISPLAYED buffer during a Check with the stress test
+ * the screen showed random colour noise (seen on a Pocket, 2026-10-04). It now starts above the buffer, and the assert below keeps it there. */
+#define STRESS_BASE 0x00140000u
 #define STRESS_LAST 0x0017FFFEu
+_Static_assert(STRESS_BASE >= 1048576u + 512u * 360u, "the stress pump region must not overlap the H2 back buffer (buffer 1)");
+_Static_assert(STRESS_BASE >= 0x100000u && STRESS_LAST < 0x00200000u, "the stress pump stays inside 2..4 MiB (clear of the playlist at 1 MiB and the 8 MiB scratch)");
 #define STRESS_WORDS_PER_PASS (((STRESS_LAST - STRESS_BASE) / 2u) + 1u)
 #define STRESS_GAP  (CLK_HZ / 16000u)
 #define STRESS_TIMEOUT (CLK_HZ / 4u)
