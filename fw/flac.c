@@ -172,7 +172,12 @@ static void vorbis_comments(flac_t *f, uint32_t length)
 
         const char *v = e;
         uint32_t    vn = keep;
-        if      (key_is(e, keep, "TITLE"))       { v += 6; vn = keep - 6u;
+        if (key_is(e, keep, "REPLAYGAIN_TRACK_GAIN") || key_is(e, keep, "REPLAYGAIN_ALBUM_GAIN")) {   /* B-599: kept as text; parsed later in cold code */
+            const uint32_t which = (e[11] == 'A' || e[11] == 'a') ? 1u : 0u;   /* "REPLAYGAIN_ALBUM_GAIN": the 12th character is the A of ALBUM (T of TRACK) */
+            tag_copy(f->rg_txt[which], 16u, e + 22, keep - 22u);
+            f->rg_have |= (uint8_t)(1u << which);
+        }
+        else if (key_is(e, keep, "TITLE"))       { v += 6; vn = keep - 6u;
                                                    tag_copy(f->tag_title,  f->tag_cap, v, vn); }
         else if (key_is(e, keep, "ARTIST"))      { v += 7; vn = keep - 7u;
                                                    tag_copy(f->tag_artist, f->tag_cap, v, vn); }

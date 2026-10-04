@@ -17,7 +17,7 @@
  * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). The Library on/off toggle and
  * How it works page that used to live here were removed with legacy playlist mode. */
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
-enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_TEMPO, CH_N };
+enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_TEMPO, CH_RG, CH_N };
 #if TAU_DIAGNOSTIC
 static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced by set_info_tick() below its own include */
 #endif
@@ -57,7 +57,7 @@ static const set_row_t set_appear_rows[] = {
     { "METER: CONFIGURE", RT_GROUP, SET_WVIZCFG_PG },
     { "ALBUM ART", RT_TOGGLE, TG_ART }, { "SCREEN BLANK", RT_CHOICE, CH_BLANK } };
 static const set_row_t set_audio_rows[] = {
-    { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 } };
+    { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 }, { "REPLAYGAIN", RT_CHOICE, CH_RG } };
 static const set_row_t set_play_rows[] = {
     { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SPEED", RT_CHOICE, CH_SPEED }
 #if TAU_TEMPO
@@ -114,9 +114,9 @@ static const char *const set_menu_title[SET_MENUS] = {
 static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME, SET_HOME, SET_HOME,
     SET_DGN, SET_DGN, SET_DIAG };
 static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
-    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE", "TEMPO" };
+    "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE", "TEMPO", "REPLAYGAIN" };
 static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
-    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR, SET_PLAY };
+    SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR, SET_PLAY, SET_AUDIO };
 /* The speed list offers every entry up to 2.00x for an MP3 (owner decision 2026-10-03, B-555). The old limit of 1.20x came from A-133/A-135, when 1.25x micro-stuttered at
  * 60 MHz with the software MP3 synthesis window; with the hardware window and the 66.7 MHz clock a stereo 128 kbps MP3 is 83% busy at 1.50x with no FIFO stalls
  * (B-553) and the owner heard clean MP3 at 1.75x. These are VARISPEED speeds: the pitch rises with the speed (real tempo without the pitch change is the Cymo C7
@@ -338,7 +338,7 @@ COLD_FN static uint32_t set_ch_count(uint32_t c)
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_SEL_COUNT
          : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
          : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT()
-         : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : c == CH_TEMPO ? 6u : 5u;
+         : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : c == CH_TEMPO ? 6u : c == CH_RG ? (uint32_t)RG_MODES : 5u;
 }
 COLD_FN static uint32_t set_blank_idx(void)
 {
@@ -359,6 +359,7 @@ COLD_FN static uint32_t set_ch_active(uint32_t c)
     if (c == CH_SPEED) return speed_eff();      /* a FLAC always plays at 1.00x (B-554) */
     if (c == CH_THEME) return th_theme;
     if (c == CH_MODE) return th_pol;
+    if (c == CH_RG) return rg_mode;
 #if TAU_TEMPO
     if (c == CH_TEMPO) return tempo_idx;
 #endif
@@ -372,6 +373,7 @@ COLD_FN static const char *set_ch_name(uint32_t c, uint32_t i)
          : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i]
          : c == CH_SPEED ? set_speed_nm[i] : c == CH_THEME ? th_get(i)->name
          : c == CH_MODE ? (i ? "LIGHT" : "DARK")
+         : c == CH_RG ? (i == RG_TRACK ? "TRACK" : i == RG_ALBUM ? "ALBUM" : "OFF")
 #if TAU_TEMPO
          : c == CH_TEMPO ? tempo_txt[i]
 #endif
@@ -434,6 +436,9 @@ COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
     } else if (c == CH_REPEAT) {
         rep_mode = (uint8_t)i;
         ui_mode_dirty = 1u;
+    } else if (c == CH_RG) {
+        rg_mode = (uint8_t)i;                    /* B-599: ReplayGain Off / Track / Album; takes effect now, saved with the theme polarity word */
+        rg_update();
     } else if (c == CH_THEME || c == CH_MODE) {
         /* B-416 (owner-reported: theme and mode fail to persist across a restart, while colour and
          * meter preset both pass): this comment used to say "session-only (step 0b): reapplies every
@@ -613,7 +618,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 34u   /* B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS 35u   /* B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -680,6 +685,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "METER DRAW"
     , "LW COST"
     , "HEADROOM"
+    , "REPLAYGAIN"
     };
 static uint32_t set_info_at;
 
@@ -904,6 +910,17 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, " WS");
         if (m1 > 999u) { q = set_str(q, ">9.9"); } else { q = ui_dec(q, m1 / 100u); q = set_str(q, "."); q = ui_dec(q, (m1 % 100u) / 10u); }
         q = set_str(q, "X");
+        break;
+    }
+    case 34: {   /* REPLAYGAIN (B-599): `OFF`, `NO TAG`, or `TRACK -6.5 DB` / `ALBUM -3.1 DB` -- the gain this track's tags ask for in the chosen mode (the volume target never rises above full volume) */
+        if (rg_mode == RG_OFF) { q = set_str(q, "OFF"); break; }
+        const uint8_t use_album = (rg_mode == RG_ALBUM) && (rg_cur.have & 2u);
+        if (!(rg_cur.have & (use_album ? 2u : 1u)) && !(rg_cur.have & 3u)) { q = set_str(q, "NO TAG"); break; }
+        const uint8_t from_album = use_album || !(rg_cur.have & 1u);
+        int32_t c = from_album ? rg_cur.album_cdb : rg_cur.track_cdb;
+        q = set_str(q, from_album ? "ALBUM " : "TRACK ");
+        if (c < 0) { q = set_str(q, "-"); c = -c; } else q = set_str(q, "+");
+        q = ui_dec(q, (uint32_t)c / 100u); q = set_str(q, "."); q = ui_dec(q, ((uint32_t)c % 100u) / 10u); q = set_str(q, " DB");
         break;
     }
     case 32:   /* LW COST (B-519): commands in the last draw, CPU time to issue it, and how much of that was reading the PSRAM history (lw_unwrap) */

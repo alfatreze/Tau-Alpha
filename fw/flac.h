@@ -73,6 +73,8 @@ typedef struct {
      * year and track are fixed 8-byte fields, matching the ID3 path. */
     char         *tag_title, *tag_artist, *tag_album, *tag_year, *tag_trk;
     uint32_t      tag_cap;
+    char          rg_txt[2][16];  /* raw values of REPLAYGAIN_TRACK_GAIN [0] / ALBUM_GAIN [1] from the Vorbis comments, NUL-terminated; parsed in cold code (B-599) */
+    uint8_t       rg_have;        /* bit 0 / 1: that entry was present (flac_open zeroes it) */
 
     /* ---- from STREAMINFO ---- */
     uint32_t      rate;
