@@ -16,7 +16,7 @@ import pack_bundle
 
 SIM_ORG = 0x00400000
 SIM_SCRATCH = 0x00300000
-FINGERPRINT = "baf1b846"      # sha256 of the normalised mtr_in_t + mtr_host_api_t definitions, first 8 hex digits
+FINGERPRINT = "1d3f0d1b"      # sha256 of the normalised mtr_in_t + mtr_host_api_t definitions, first 8 hex digits
 fails = 0
 
 
@@ -174,6 +174,27 @@ def main():
         belf2 = build_harness(tmp, None, True, ["PACK_SCOPE", "PACK_METER=13", "PACK_SLOT=2"])
         out = run_sim(belf2, three, tmp)
         check("the same bundle's Winamp Scope (slot 2) runs identically to the built-in meter", out[:4] == ["BUNDLE E0 SEEN 3", "SLOT 0 E0", "SLOT 1 E0", "SLOT 2 E0"] and out[5:] == want_s, str(out[:6]))
+        # ---- MASTER VU as the fourth pack (slot 3)
+        want_v = run_native(tmp, "vu_pack_native.c")
+        check("the native MASTER VU reference trace produced 4 scenarios with draw commands (rectangles, colours, glyphs, strings)", len(want_v) == 4 and all(int(w.split()[2]) > 100 for w in want_v), str(want_v))
+        blob_v, info_v = pm.build("vu_master", SIM_ORG, tmp / "vu.elf", scratch=SIM_SCRATCH)
+        check("the MASTER VU pack builds freestanding with a small working state and no state in the slot", len(blob_v) > pm_hdr and info_v["entry"] == 0 and 0 < info_v["data"] + info_v["bss"] <= 256 and info_v["pstate"] == 0, str(info_v))
+        blob_v_hw, info_v_hw = pm.build("vu_master", 0x24870000, tmp / "vu_hw.elf")
+        check("the MASTER VU pack links at slot 3 of the real PSRAM window (data at the data alias)", info_v_hw["org"] == 0x24870000 and struct.unpack_from("<I", blob_v_hw, 32)[0] == 0x00027400 and info_v_hw["load"] == info_v["load"])
+        print("     master vu pack: %d B image, %d B working state in scratch, %d B file" % (info_v["load"], info_v["data"] + info_v["bss"], len(blob_v)))
+        elf_v = build_harness(tmp, None, False, ["PACK_VU", "PACK_METER=15"])
+        got_v = run_sim(elf_v, blob_v, tmp)
+        check("the MASTER VU loader accepts the pack", got_v[:1] == ["LOAD E0"], str(got_v[:3]))
+        check("the MASTER VU pack run on rv32sim draws exactly what the built-in meter does (counts and hashes, 4 scenarios: overlay on and off, custom colours, varying dt)", got_v[1:] == want_v, "\n got  %s\n want %s" % (got_v[1:], want_v))
+        mut = bytearray(blob_v); mut[60] ^= 0x10
+        check("a corrupt MASTER VU pack is refused (E26), nothing runs", run_sim(elf_v, bytes(mut), tmp) == ["LOAD E26"])
+        blob_v3, _ = pm.build("vu_master", SIM_ORG + 0x30000, tmp / "vu3.elf", scratch=SIM_SCRATCH)
+        four = pb.bundle([blob, blob_b1, blob_s2, blob_v3])
+        out = bundle_run(four)
+        check("a bundle with all four packs fills every slot and Layered Wave still runs identically", out[:5] == ["BUNDLE E0 SEEN 4", "SLOT 0 E0", "SLOT 1 E0", "SLOT 2 E0", "SLOT 3 E0"] and out[5:] == want, str(out[:6]))
+        belf3 = build_harness(tmp, None, True, ["PACK_VU", "PACK_METER=15", "PACK_SLOT=3"])
+        out = run_sim(belf3, four, tmp)
+        check("the same bundle's MASTER VU (slot 3) runs identically to the built-in meter", out[:5] == ["BUNDLE E0 SEEN 4", "SLOT 0 E0", "SLOT 1 E0", "SLOT 2 E0", "SLOT 3 E0"] and out[5:] == want_v, str(out[:6]))
         # CPU cost of where the working state lives, counted on the simulator (exact access counts, priced with the measured PSRAM window costs)
         regions = [("scratch", 0x300000, 0x301000), ("slot_ro", SIM_ORG, SIM_ORG + info["load"]), ("slot_state", SIM_ORG + info["load"], SIM_ORG + 0x40000)]
         full, err_full = run_sim(elf, blob, tmp, regions, True)

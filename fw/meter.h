@@ -20,6 +20,21 @@
 #define TAU_METER_H
 #include <stdint.h>
 
+/* The technical readout a meter may show about the stream and the machine (the MASTER VU info overlay). The HOST measures it (once per second, only while the
+ * meter asks for it: it reads decoder counters and the SDRAM busy counter, which a meter must never touch) and the meter only draws it. 0xFF in a percent = not
+ * available on this build (no decode profiler, no SDRAM busy counter). */
+typedef struct {
+    uint32_t        sec;         /* the second these figures belong to: changes once a second, the meter's refresh latch */
+    uint32_t        hz;          /* sample rate of the track                                         */
+    uint16_t        kbps;        /* bitrate, 0 = unknown                                             */
+    uint8_t         flac;        /* 1 = FLAC (bps below valid), 0 = MP3                              */
+    uint8_t         bps;         /* FLAC bit depth                                                   */
+    const char     *encoder;     /* encoder tag, "" if none (host string, valid for the call)        */
+    uint8_t         cpu_pct;     /* whole-system non-idle time                                       */
+    uint8_t         dec_pct;     /* audio decoder stages only, percent of realtime                   */
+    uint8_t         sdr_pct;     /* SDRAM port busy                                                  */
+} mtr_info_t;
+
 typedef struct {                 /* everything a meter may read, refreshed once per display frame */
     const uint8_t  *spec;        /* SPEC_BANDS bands, 0..255, after the shared ballistics (spec_lvl) */
     const int8_t   *wave;        /* WAVE_COLS signed samples (wav_v)                                */
@@ -42,6 +57,7 @@ typedef struct {                 /* everything a meter may read, refreshed once 
     uint16_t        centroid_q8; /* spectral centre of mass in band index Q8 (0 .. 15*256); 0 in silence; always valid       */
     uint16_t        clip_l, clip_r;   /* samples at full scale since the firmware last cleared the counters (saturating)    */
     const uint8_t  *env_pk;      /* the matching peak-hold marker per entry, sinking toward env by the host           */
+    const mtr_info_t *info;      /* stream and machine readout for an info overlay; refreshed by the host only while the meter shows one (its sec is 0 until then) */
 } mtr_in_t;
 
 /* ---- Mutable meter state lives in PSRAM (docs/features/meters/METER_MODULE_SPEC.md, "Mutable meter state lives in PSRAM", D-M14) ----

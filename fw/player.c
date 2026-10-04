@@ -3738,6 +3738,7 @@ static void ui_icon_dot(uint32_t x, uint32_t y, uint16_t c)
                           * this project has always assumed here, not a measured per-call delta --
                           * nothing tracks a real one yet. Was wviz_bars_tick's own local `dec_ms`. */
 static uint32_t mtr_frame_ctr;
+static mtr_info_t vum_info = { 0xFFFFFFFEu, 0u, 0u, 0u, 0u, "", 0u, 0xFFu, 0xFFu };   /* the info overlay's readout, refreshed by vum_info_refresh() (below) only while MASTER VU shows it */
 COLD_FN3 static mtr_in_t mtr_build(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t bg, uint32_t force)
 {
     mtr_in_t in;
@@ -3755,6 +3756,7 @@ COLD_FN3 static mtr_in_t mtr_build(uint32_t x, uint32_t y, uint32_t w, uint32_t 
     in.paused = (uint8_t)paused;
     in.env    = wave;
     in.env_pk = wave_pk;
+    in.info   = &vum_info;
     in.stats_ok = mtr_stats.ok; in.rms_l = mtr_stats.rms_l; in.rms_r = mtr_stats.rms_r; in.corr_q8 = mtr_stats.corr_q8;
     in.crest_q8 = mtr_stats.crest_q8; in.clip_l = mtr_stats.clip_l; in.clip_r = mtr_stats.clip_r;
     in.centroid_q8 = (uint16_t)mtr_centroid_q8(spec_lvl, SPEC_BANDS);
@@ -4667,6 +4669,54 @@ static void ov_frame(const char *title, const char *right, const char *hint)
 }
 
 #include "chladni.inc"
+/* The MASTER VU info overlay's readout (mtr_info_t, fw/meter.h): measured here, in the host, so the meter itself never reads decoder counters or the SDRAM busy counter. Once per
+ * second (ui_sec), and only while the meter shows its overlay: the DEC figure reads and resets a dedicated third accumulator set (mp3_*_vum_cyc / flac_*_vum_cyc), which would
+ * otherwise keep growing. 0xFF = not available on this build. See the long note on the overlay in fw/vu_master.inc's history (B-347) for what DEC does and does not cover. */
+COLD_FN3 static void vum_info_refresh(void)
+{
+    if (!MV_VU_MASTER(INFO) || vum_info.sec == ui_sec) return;
+    mtr_info_t *n = &vum_info;
+    n->sec = ui_sec;
+    n->hz = track_hz; n->kbps = (uint16_t)track_kbps; n->flac = (uint8_t)(track_fmt == FMT_FLAC);
+    n->bps = fl_bps_mirror; n->encoder = track_encoder;
+    n->cpu_pct = (uint8_t)ui_cpu_pct();
+    n->dec_pct = 0xFFu;
+#if MP3_PROFILE || FLAC_PROFILE
+    {
+        uint32_t dec_pct = 0u;
+#if MP3_PROFILE
+        if (track_fmt == FMT_MP3) {
+            uint32_t sum = mp3_huff_vum_cyc + mp3_dequant_vum_cyc + mp3_alias_vum_cyc + mp3_xform_vum_cyc + mp3_sub_vum_cyc;
+            dec_pct = sum / (CLK_HZ / 100u);
+            mp3_huff_vum_cyc = mp3_dequant_vum_cyc = mp3_alias_vum_cyc = 0u;
+            mp3_xform_vum_cyc = mp3_sub_vum_cyc = 0u;
+        }
+#endif
+#if FLAC_PROFILE
+        if (track_fmt == FMT_FLAC) {
+            uint32_t sum = flac_res_vum_cyc + flac_lpc_vum_cyc;
+            dec_pct = sum / (CLK_HZ / 100u);
+            flac_res_vum_cyc = flac_lpc_vum_cyc = 0u;
+        }
+#endif
+        n->dec_pct = (uint8_t)(dec_pct > 100u ? 100u : dec_pct);
+    }
+#endif
+    n->sdr_pct = 0xFFu;
+#if TAU_SDRAM_BUSY
+    {
+        static uint32_t busy0, sec0 = 0xFFFFFFFFu;
+        if (sec0 == 0xFFFFFFFFu) { sec0 = ui_sec; busy0 = REG(R_SDR_BUSY); }
+        const uint32_t dt = ui_sec - sec0;
+        if (dt) {
+            const uint32_t total = dt * (SDR_CLK_HZ / 100u), delta = REG(R_SDR_BUSY) - busy0;
+            uint32_t pct = total ? delta / total : 0u;
+            n->sdr_pct = (uint8_t)(pct > 100u ? 100u : pct);
+            sec0 = ui_sec; busy0 = REG(R_SDR_BUSY);
+        }
+    }
+#endif
+}
 #include "vu_master.inc"
 #define LW_STATS 1  /* Layered Wave keeps its draw-cost statistics (Info > LW COST, fw/layered_wave.inc); host harnesses leave this undefined */
 #include "layered_wave.inc"
@@ -4766,7 +4816,11 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
     case VIZ_WINAMP_SCOPE: wviz_scope_tick(in, (flags & HM_GRAD) ? 1 : 0); break;
     case VIZ_WINAMP_BARS:  wviz_bars_tick(in); break;
 #endif
-    case VIZ_VU_MASTER:    vum_tick(in); break;
+    #if TAU_PACKS
+    case VIZ_VU_MASTER:    vum_info_refresh(); if (packs_have(VIZ_VU_MASTER)) (void)packs_tick(VIZ_VU_MASTER, in); else vum_tick(in); break;
+#else
+    case VIZ_VU_MASTER:    vum_info_refresh(); vum_tick(in); break;
+#endif
     case VIZ_SCROLL:       viz_scroll_tick(in); break;
     case VIZ_LED:          viz_led_tick(in); break;
     case VIZ_DOTS:         viz_dots_tick(in); break;

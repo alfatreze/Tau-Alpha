@@ -90,7 +90,7 @@ COLD_FN3 static uint16_t vum_zone_color(uint32_t zone)
  * marker (section 2.4/6) is drawn only when it sits ABOVE the currently lit run (the same "float above
  * the bar" convention wviz_bars_tick()'s own peak cap already uses), in the colour of the zone it is
  * currently in -- no separate marker colour setting. */
-COLD_FN3 static void vum_draw_ladder(uint32_t ch, uint32_t lx, uint32_t ly, uint32_t lw, uint16_t bg, uint32_t peak, uint32_t force)
+COLD_FN3 static void vum_draw_ladder(uint32_t ch, uint32_t lx, uint32_t ly, uint32_t lw, uint16_t bg, uint32_t peak, uint32_t force, uint32_t dt_ms)
 {
     uint32_t idx = peak >> 7;
     if (idx > 255u) idx = 255u;
@@ -105,7 +105,7 @@ COLD_FN3 static void vum_draw_ladder(uint32_t ch, uint32_t lx, uint32_t ly, uint
     }
     uint32_t lit = vum_peak_to_segments((uint32_t)vum_disp_idx[ch] << 7, vu_db_to_segment, VU_SEGMENT_TABLE_N);
 
-    mtr_peak_step(&vum_peak[ch], (uint8_t)((lit * 255u) / VUM_SEGMENTS), &vum_peak_cfg, 26u);
+    mtr_peak_step(&vum_peak[ch], (uint8_t)((lit * 255u) / VUM_SEGMENTS), &vum_peak_cfg, dt_ms);
     uint32_t peak_seg = ((uint32_t)vum_peak[ch].peak * VUM_SEGMENTS) / 255u;
     if (peak_seg > VUM_SEGMENTS) peak_seg = VUM_SEGMENTS;
 
@@ -195,90 +195,60 @@ COLD_FN3 static void vum_draw_face(uint32_t x0, uint32_t y0, uint32_t w, uint16_
  * doesn't hold for an absolute percent-of-realtime figure) and only the residual/reconstruction passes,
  * not frame-header parsing or output scaling -- so FLAC's DEC% is a real but likely-understated lower
  * bound on true decoder cost, unlike MP3's DEC%, which covers the whole decode path. */
-COLD_FN3 static void vum_draw_overlay(uint32_t x0, uint32_t y0, uint32_t w, uint32_t h, uint16_t bg, uint32_t force)
+COLD_FN3 static void vum_draw_overlay(const mtr_in_t *in, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h, uint16_t bg, uint32_t force)
 {
     if (!MV_VU_MASTER(INFO)) {
         if (force) fb_rect(x0, y0, w, h, bg);
         return;
     }
-    if (!force && ui_sec == vum_last_sec) return;
-    vum_last_sec = ui_sec;
+    if (!force && in->info->sec == vum_last_sec) return;
+    vum_last_sec = in->info->sec;
 
     fb_rect(x0, y0, w, h, bg);
     fb_set_color(UI_DIM, bg);
     uint32_t row_h = FB_CELL(TS_1X), ry = y0;
 
     char b[48], *q;
+    const mtr_info_t *nf = in->info;
 
     /* Format / bitrate / rate, FLAC also carries bit-depth (section 5.2's field table; MP3 has no
      * bit-depth concept and the row is simply not appended, per the resolved open question item 5). */
     q = b;
-    *q++ = (track_fmt == FMT_FLAC) ? 'F' : 'M';
-    *q++ = (track_fmt == FMT_FLAC) ? 'L' : 'P';
-    *q++ = (track_fmt == FMT_FLAC) ? 'A' : '3';
-    if (track_fmt == FMT_FLAC) *q++ = 'C';
+    *q++ = nf->flac ? 'F' : 'M';
+    *q++ = nf->flac ? 'L' : 'P';
+    *q++ = nf->flac ? 'A' : '3';
+    if (nf->flac) *q++ = 'C';
     *q++ = ' ';
-    if (track_kbps) { q = ui_dec(q, track_kbps); *q++ = 'K'; *q++ = ' '; }
-    q = ui_dec(q, track_hz / 1000u);
-    *q++ = '.'; q = ui_dec(q, (track_hz % 1000u) / 100u);
+    if (nf->kbps) { q = ui_dec(q, nf->kbps); *q++ = 'K'; *q++ = ' '; }
+    q = ui_dec(q, nf->hz / 1000u);
+    *q++ = '.'; q = ui_dec(q, (nf->hz % 1000u) / 100u);
     *q++ = 'K'; *q++ = 'H'; *q++ = 'Z';
-    if (track_fmt == FMT_FLAC) { *q++ = ' '; q = ui_dec(q, fl_bps_mirror); *q++ = 'B'; }
+    if (nf->flac) { *q++ = ' '; q = ui_dec(q, nf->bps); *q++ = 'B'; }
     *q = 0;
     fb_text_clipped(x0, ry, b, TS_1X, TS_1X, w);
     ry += row_h;
 
-    if (track_encoder[0]) {
-        fb_text_clipped(x0, ry, track_encoder, TS_1X, TS_1X, w);
+    if (nf->encoder[0]) {
+        fb_text_clipped(x0, ry, nf->encoder, TS_1X, TS_1X, w);
         ry += row_h;
     }
 
-    q = b; *q++ = 'C'; *q++ = 'P'; *q++ = 'U'; *q++ = ' '; q = ui_dec(q, ui_cpu_pct()); *q++ = '%'; *q = 0;
+    q = b; *q++ = 'C'; *q++ = 'P'; *q++ = 'U'; *q++ = ' '; q = ui_dec(q, nf->cpu_pct); *q++ = '%'; *q = 0;
     fb_text_clipped(x0, ry, b, TS_1X, TS_1X, w);
     ry += row_h;
 
-#if MP3_PROFILE || FLAC_PROFILE
-    {
-        uint32_t dec_pct = 0u;
-#if MP3_PROFILE
-        if (track_fmt == FMT_MP3) {
-            uint32_t sum = mp3_huff_vum_cyc + mp3_dequant_vum_cyc + mp3_alias_vum_cyc
-                         + mp3_xform_vum_cyc + mp3_sub_vum_cyc;
-            dec_pct = sum / (CLK_HZ / 100u);
-            mp3_huff_vum_cyc = mp3_dequant_vum_cyc = mp3_alias_vum_cyc = 0u;
-            mp3_xform_vum_cyc = mp3_sub_vum_cyc = 0u;
-        }
-#endif
-#if FLAC_PROFILE
-        if (track_fmt == FMT_FLAC) {
-            uint32_t sum = flac_res_vum_cyc + flac_lpc_vum_cyc;
-            dec_pct = sum / (CLK_HZ / 100u);
-            flac_res_vum_cyc = flac_lpc_vum_cyc = 0u;
-        }
-#endif
+    if (nf->dec_pct != 0xFFu) {
         q = b; *q++ = 'D'; *q++ = 'E'; *q++ = 'C'; *q++ = ' ';
-        q = ui_dec(q, dec_pct); *q++ = '%'; *q = 0;
+        q = ui_dec(q, nf->dec_pct); *q++ = '%'; *q = 0;
         fb_text_clipped(x0, ry, b, TS_1X, TS_1X, w);
         ry += row_h;
     }
-#endif
 
-#if TAU_SDRAM_BUSY
-    {
-        static uint32_t vum_busy0, vum_sec0 = 0xFFFFFFFFu;
-        if (vum_sec0 == 0xFFFFFFFFu) { vum_sec0 = ui_sec; vum_busy0 = REG(R_SDR_BUSY); }
-        uint32_t dt = ui_sec - vum_sec0;
-        if (dt) {
-            uint32_t delta = REG(R_SDR_BUSY) - vum_busy0;
-            uint32_t total = dt * (SDR_CLK_HZ / 100u);   /* window length in clk_sdram cycles / 100, for a direct percent */
-            uint32_t pct = total ? delta / total : 0u;
-            if (pct > 100u) pct = 100u;
-            q = b; *q++ = 'S'; *q++ = 'D'; *q++ = 'R'; *q++ = 'A'; *q++ = 'M'; *q++ = ' ';
-            q = ui_dec(q, pct); *q++ = '%'; *q = 0;
-            fb_text_clipped(x0, ry, b, TS_1X, TS_1X, w);
-            vum_sec0 = ui_sec; vum_busy0 = REG(R_SDR_BUSY);
-        }
+    if (nf->sdr_pct != 0xFFu) {
+        q = b; *q++ = 'S'; *q++ = 'D'; *q++ = 'R'; *q++ = 'A'; *q++ = 'M'; *q++ = ' ';
+        q = ui_dec(q, nf->sdr_pct); *q++ = '%'; *q = 0;
+        fb_text_clipped(x0, ry, b, TS_1X, TS_1X, w);
     }
-#endif
 }
 
 /* Entry point, matching the draw contract (fw/meter.h) every fullscreen-ready meter uses (wviz_bars_tick()/
@@ -299,9 +269,9 @@ COLD_FN3 static void vum_tick(const mtr_in_t *in)
     }
 
     uint32_t lx = x0 + VUM_LABEL_W, lw = (w > VUM_LABEL_W) ? w - VUM_LABEL_W : 1u;
-    vum_draw_ladder(0u, lx, y0, lw, bg, in->peak_l, force);
-    vum_draw_ladder(1u, lx, y0 + VUM_ROW2_Y, lw, bg, in->peak_r, force);
+    vum_draw_ladder(0u, lx, y0, lw, bg, in->peak_l, force, in->dt_ms);
+    vum_draw_ladder(1u, lx, y0 + VUM_ROW2_Y, lw, bg, in->peak_r, force, in->dt_ms);
 
     if (h > VUM_OVERLAY_Y)
-        vum_draw_overlay(x0, y0 + VUM_OVERLAY_Y, w, h - VUM_OVERLAY_Y, bg, force);
+        vum_draw_overlay(in, x0, y0 + VUM_OVERLAY_Y, w, h - VUM_OVERLAY_Y, bg, force);
 }
