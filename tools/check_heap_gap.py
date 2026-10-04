@@ -23,6 +23,7 @@ Usage:
 """
 import json
 import re
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -38,7 +39,8 @@ DEFAULT_TARGETS = ["release", "player-library-diagnostic", "player-library-diagn
 
 
 def build_heap_gap(target):
-    r = subprocess.run(["bash", "fw/build.sh", target], cwd=ROOT, capture_output=True, text=True)
+    env = dict(os.environ, TAU_BUILD_OUT=str(ROOT / "work/heapcheck"))   # B-585: never write dist/ or the flagged work/diagnostics/ ROMs
+    r = subprocess.run(["bash", "fw/build.sh", target], cwd=ROOT, capture_output=True, text=True, env=env)
     if r.returncode != 0:
         print(r.stdout)
         print(r.stderr, file=sys.stderr)
