@@ -4,7 +4,7 @@ aspect ratios incl. odd widths and 128 x 128) are read by the firmware code unde
 SDRAM mailbox with both half orders, draw engine BLIT/CBLIT + CLUT) and the pixels that reach the art stash are compared with the
 Python decoder. Also: corrupt/absent files are refused with the right code and draw nothing, a broken mailbox disables the
 reader, and the cover path / reuse key derive from the library track path. Skipped (not failed) when Pillow/numpy are missing."""
-import struct, subprocess, sys, tempfile
+import os, struct, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
@@ -41,10 +41,13 @@ def expected(data):
     out[dy:dy + ch, dx:dx + cw] = img[sy:sy + ch, sx:sx + cw]
     return out
 
+# B-575: CLUT_FIXED=1 models a bitstream with the registered CLUT write address (start index 0, no slot skew); default = the legacy RTL.
+CLUT_FLAGS = ["-DCLUT_SKEW=0", "-DCLUT_START_IDX=0u"] if os.environ.get("CLUT_FIXED") else []
+print("CLUT model:", "registered write address (start 0)" if CLUT_FLAGS else "legacy write skew (start 255)")
 with tempfile.TemporaryDirectory() as td:
     td = Path(td)
     exe = td / "h"
-    r = subprocess.run(["cc", "-std=c11", "-O1", "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable",
+    r = subprocess.run(["cc", "-std=c11", "-O1", "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable", *CLUT_FLAGS,
                         "-o", str(exe), str(ROOT / "sim/timg_harness.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
 
@@ -104,7 +107,7 @@ with tempfile.TemporaryDirectory() as td:
         (td / "timg_mut.inc").write_text(m)
         h = (ROOT / "sim/timg_harness.c").read_text().replace('#include "../fw/timg.inc"', f'#include "{td}/timg_mut.inc"').replace('#include "../fw/timg_core.h"', f'#include "{ROOT}/fw/timg_core.h"')
         (td / "hm.c").write_text(h)
-        r = subprocess.run(["cc", "-std=c11", "-O1", "-I", str(ROOT / "fw"), "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-o", str(td / "hm"), str(td / "hm.c")], capture_output=True, text=True)
+        r = subprocess.run(["cc", "-std=c11", "-O1", "-I", str(ROOT / "fw"), *CLUT_FLAGS, "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-o", str(td / "hm"), str(td / "hm.c")], capture_output=True, text=True)
         if r.returncode: print(r.stderr); sys.exit(1)
         return run(td / "c_128x128.timg", exe=td / "hm", **kw)
     rc, out, px = mutant("no exemption", lambda t: t.replace("const uint8_t ov_saved = ov_draw; ov_draw = 1u;", "const uint8_t ov_saved = ov_draw;"), overlay=1)
