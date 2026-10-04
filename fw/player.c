@@ -1248,6 +1248,13 @@ static uint8_t  hold_paused;             /* stay paused across a track change  *
  * waiting for room in the PCM FIFO. The decode loop blocks there when it is ahead of the DAC, so the blocked time is the
  * idle time (fl_idle_pct, latched once a second, capped at 99). Nothing is decoding while stopped or paused, so 0. */
 static uint8_t fl_idle_pct;
+#if TAU_DIAGNOSTIC
+/* Cymo C0 (2026-10-04): CPU load over one Check audio window (fw/suite.inc CT_AUD), summed from the once-a-second latch below. secs counts latch periods
+ * (at least a second each). Counts every second while armed, including the Check page's own redraws: this is what the Check run itself costs. */
+static uint8_t  ld_win_on, ld_win_worst;
+static uint16_t ld_win_secs;
+static uint32_t ld_win_idle, ld_win_io;
+#endif
 static inline uint32_t ui_cpu_pct(void) { return (idle || paused) ? 0u : 100u - (uint32_t)fl_idle_pct; }
 static uint32_t stop_req;
 
@@ -5927,6 +5934,12 @@ ui_tail:
             if (fl_idle_pct > 99u) fl_idle_pct = 99u;
             if (fl_io_pct   > 99u) fl_io_pct   = 99u;
             if (!idle && !paused && !UI_OVERLAY_UP) hr_update(&hr, fl_idle_pct, fl_io_pct);   /* B-538: only seconds of plain playback -- a menu or the Info page redrawing is not decode load */
+#if TAU_DIAGNOSTIC
+            if (ld_win_on) {
+                ld_win_secs++; ld_win_idle += fl_idle_pct; ld_win_io += fl_io_pct;
+                if (100u - fl_idle_pct > ld_win_worst) ld_win_worst = (uint8_t)(100u - fl_idle_pct);
+            }
+#endif
             fl_idle_cyc = fl_io_cyc = 0u;
         }
     }

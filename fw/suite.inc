@@ -69,6 +69,7 @@ static uint32_t chk_at, chk_u0, chk_s0, chk_under, chk_stall, chk_qr_len, chk_qr
  * accumulators (mp3_*_total_cyc / flac_*_total_cyc), so chk_finish() reads a
  * stable value instead of touching the profiling globals directly. */
 static uint16_t chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r;
+static uint16_t chk_ld_busy, chk_ld_worst, chk_ld_io, chk_ld_secs, chk_dec_sf, chk_dec_sh;   /* Cymo C0: SR_T_LOAD (window CPU load, Subband split) */
 static uint16_t chk_dec_d, chk_dec_a, chk_dec_x, chk_dec_u;   /* 2026-09-28: the finer split, SR_T_DECPROF2 */
 static uint16_t chk_dec_t;   /* 2026-09-28, B-361: FLAC's TRUE total percent-of-realtime (ch0 + ch1) */
 static uint16_t chk_dec_c1;  /* 2026-09-28, B-361: channel 1's own percent-of-realtime (0 on mono) */
@@ -224,7 +225,9 @@ COLD_TEXT static int chk_do(uint32_t id)
             if (!track_hz || paused || stopped) { chk_set(SR_SKIP, 0); break; }
             chk_u0 = pcm_under_n; chk_s0 = REG(R_FB_STALL); chk_at = (cycles() + CHK_AUDIO_S * CLK_HZ) | 1u;
             chk_val[chk_step] = 0; chk_aud_full = 1u;
+            ld_win_secs = 0u; ld_win_idle = ld_win_io = 0u; ld_win_worst = 0u; ld_win_on = 1u;   /* Cymo C0: window CPU load */
 #if MP3_PROFILE
+            mp3_sub_fdct_total_cyc = mp3_sub_hw_total_cyc = 0u;
             mp3_huff_total_cyc = mp3_imdct_total_cyc = mp3_sub_total_cyc = 0u;
             mp3_dequant_total_cyc = mp3_alias_total_cyc = mp3_xform_total_cyc = 0u;
 #endif
@@ -244,6 +247,13 @@ COLD_TEXT static int chk_do(uint32_t id)
         if ((int32_t)(cycles() - chk_at) < 0) { chk_val[chk_step] = (uint32_t)((int32_t)(chk_at - cycles()) / (int32_t)CLK_HZ + 1); return 0; }
         chk_under = pcm_under_n - chk_u0;
         chk_stall = (REG(R_FB_STALL) - chk_s0) / (CLK_HZ / 1000u);
+        ld_win_on = 0u;                                          /* Cymo C0: latch the window's CPU load (busy = 100 - idle, mean over the latched seconds) */
+        if (ld_win_secs) {
+            chk_ld_busy  = (uint16_t)(100u - ld_win_idle / ld_win_secs);
+            chk_ld_io    = (uint16_t)(ld_win_io / ld_win_secs);
+            chk_ld_worst = ld_win_worst;
+        } else chk_ld_busy = chk_ld_io = chk_ld_worst = 0u;
+        chk_ld_secs = ld_win_secs;
         /* B-088/B-089: latch this window's decode-stage percentages once,
          * here, at the exact moment the run-total accumulators stop moving --
          * same CHK_AUDIO_S/CLK_HZ arithmetic as the screen row's per-second
@@ -260,8 +270,10 @@ COLD_TEXT static int chk_do(uint32_t id)
              * percent of the window's real time, uncapped like the screen row's own D/A/X. */
             chk_dec_d = (uint16_t)(mp3_dequant_total_cyc / (CHK_AUDIO_S * (CLK_HZ / 100u)));
             chk_dec_a = (uint16_t)(mp3_alias_total_cyc   / (CHK_AUDIO_S * (CLK_HZ / 100u)));
+            chk_dec_sf = (uint16_t)(mp3_sub_fdct_total_cyc / (CHK_AUDIO_S * (CLK_HZ / 100u)));   /* Cymo C0: Subband split */
+            chk_dec_sh = (uint16_t)(mp3_sub_hw_total_cyc   / (CHK_AUDIO_S * (CLK_HZ / 100u)));
             chk_dec_x = (uint16_t)(mp3_xform_total_cyc   / (CHK_AUDIO_S * (CLK_HZ / 100u)));
-        } else { chk_dec_h = chk_dec_i = chk_dec_s = 0u; chk_dec_d = chk_dec_a = chk_dec_x = 0u; }
+        } else { chk_dec_h = chk_dec_i = chk_dec_s = 0u; chk_dec_d = chk_dec_a = chk_dec_x = 0u; chk_dec_sf = chk_dec_sh = 0u; }
 #endif
 #if FLAC_PROFILE
         if (track_fmt == FMT_FLAC) {
@@ -509,6 +521,8 @@ COLD_TEXT static void chk_finish(void)
      * value) or dropped out partway through. */
     uint32_t au[4] = { chk_under, chk_aud_full, chk_stall, CHK_AUDIO_S };
     sr_vals(&s, SR_T_AUDIO, 2, au, 4);
+    { uint32_t ld[6] = { chk_ld_busy, chk_ld_worst, chk_ld_io, chk_ld_secs, chk_dec_sf, chk_dec_sh };   /* Cymo C0 (2026-10-04) */
+      sr_vals(&s, SR_T_LOAD, 2, ld, 6); }
 #if MP3_PROFILE || FLAC_PROFILE
     { uint32_t dp[4] = { chk_dec_h, chk_dec_i, chk_dec_s, chk_dec_r };
       sr_vals(&s, SR_T_DECPROF, 2, dp, 4); }

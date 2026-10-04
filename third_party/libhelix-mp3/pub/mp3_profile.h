@@ -30,7 +30,11 @@
 #if MP3_PROFILE
 #define MPROF_T0()   uint32_t mprof_t0 = mp3_tick ? mp3_tick() : 0u
 #define MPROF_ADD(A, AT, AV) do { if (mp3_tick) { uint32_t _mprof_d = mp3_tick() - mprof_t0; (A) += _mprof_d; (AT) += _mprof_d; (AV) += _mprof_d; } } while (0)
+#define MPROF_MARK(v)      uint32_t v = mp3_tick ? mp3_tick() : 0u
+#define MPROF_ACC1(v, AT)  do { if (mp3_tick) (AT) += mp3_tick() - (v); } while (0)
 #else
+#define MPROF_MARK(v)      do {} while (0)
+#define MPROF_ACC1(v, AT)  do {} while (0)
 #define MPROF_T0()   do {} while (0)
 #define MPROF_ADD(A, AT, AV) do {} while (0)
 #endif
@@ -67,6 +71,11 @@ extern uint32_t mp3_sub_total_cyc;
 extern uint32_t mp3_dequant_total_cyc;
 extern uint32_t mp3_alias_total_cyc;
 extern uint32_t mp3_xform_total_cyc;
+/* 2026-10-04 (Cymo C0): Subband split, Check window totals only. fdct = the two software FDCT32 calls per slot (+ the log copy), hw = the
+ * MMIO handoff to the window unit (tau_poly_hw_slot, TAU_POLY_FW only). Subband total minus these = the remainder (verify, loop, the software
+ * window when the unit is off). */
+extern uint32_t mp3_sub_fdct_total_cyc;
+extern uint32_t mp3_sub_hw_total_cyc;
 
 /* B-347: a THIRD, independent accumulator set for the VU Master overlay's decoder-CPU% row
  * (fw/vu_master.inc's vum_draw_overlay()) -- reset once a second by that row's own code, on its
