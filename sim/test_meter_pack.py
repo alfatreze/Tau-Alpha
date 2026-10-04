@@ -16,7 +16,7 @@ import pack_bundle
 
 SIM_ORG = 0x00400000
 SIM_SCRATCH = 0x00300000
-FINGERPRINT = "21a85f6d"      # sha256 of the normalised mtr_in_t + mtr_host_api_t definitions, first 8 hex digits
+FINGERPRINT = "baf1b846"      # sha256 of the normalised mtr_in_t + mtr_host_api_t definitions, first 8 hex digits
 fails = 0
 
 
@@ -151,6 +151,29 @@ def main():
         check("the same bundle's Winamp Bars (slot 1) runs identically to the built-in meter", out[:3] == ["BUNDLE E0 SEEN 2", "SLOT 0 E0", "SLOT 1 E0"] and out[5:] == want_b, str(out[:6]))
         out = run_sim(belf1, pb.bundle([blob_b1, blob]), tmp)
         check("the order of the packs in the bundle does not matter", out[:3] == ["BUNDLE E0 SEEN 2", "SLOT 0 E0", "SLOT 1 E0"] and out[5:] == want_b, str(out[:6]))
+        # ---- Winamp Scope as the third pack (slot 2)
+        want_s = run_native(tmp, "scope_pack_native.c")
+        check("the native Winamp Scope reference trace produced 4 scenarios with draw commands (rectangles, background restores, blends, notes)", len(want_s) == 4 and all(int(w.split()[2]) > 300 for w in want_s), str(want_s))
+        blob_s, info_s = pm.build("winamp_scope", SIM_ORG, tmp / "ws.elf", scratch=SIM_SCRATCH)
+        check("the Winamp Scope pack builds freestanding with a small working state (the 64-column trace) and no state in the slot", len(blob_s) > pm_hdr and info_s["entry"] == 0 and 0 < info_s["data"] + info_s["bss"] <= 512 and info_s["pstate"] == 0, str(info_s))
+        blob_s_hw, info_s_hw = pm.build("winamp_scope", 0x24860000, tmp / "ws_hw.elf")
+        check("the Winamp Scope pack links at slot 2 of the real PSRAM window (data at the data alias)", info_s_hw["org"] == 0x24860000 and struct.unpack_from("<I", blob_s_hw, 32)[0] == 0x00027400 and info_s_hw["load"] == info_s["load"])
+        print("     winamp scope pack: %d B image, %d B working state in scratch, %d B file" % (info_s["load"], info_s["data"] + info_s["bss"], len(blob_s)))
+        elf_s2 = build_harness(tmp, None, False, ["PACK_SCOPE", "PACK_METER=13"])
+        got_s = run_sim(elf_s2, blob_s, tmp)
+        check("the Winamp Scope loader accepts the pack", got_s[:1] == ["LOAD E0"], str(got_s[:3]))
+        check("the Winamp Scope pack run on rv32sim draws and calls exactly what the built-in meter does (counts and hashes, 4 scenarios: gradient trail, flat, fullscreen, moved box)", got_s[1:] == want_s, "\n got  %s\n want %s" % (got_s[1:], want_s))
+        mut = bytearray(blob_s); mut[60] ^= 0x10
+        check("a corrupt Winamp Scope pack is refused (E26), nothing runs", run_sim(elf_s2, bytes(mut), tmp) == ["LOAD E26"])
+        wrong = bytearray(blob_s); wrong[6] = 12
+        check("a Winamp Bars id in the Winamp Scope slot is refused (E23)", run_sim(elf_s2, bytes(wrong), tmp) == ["LOAD E23"])
+        blob_s2, _ = pm.build("winamp_scope", SIM_ORG + 0x20000, tmp / "ws2.elf", scratch=SIM_SCRATCH)
+        three = pb.bundle([blob, blob_b1, blob_s2])
+        out = bundle_run(three)
+        check("a bundle with all three packs installs them (slots 0, 1, 2) and Layered Wave still runs identically", out[:4] == ["BUNDLE E0 SEEN 3", "SLOT 0 E0", "SLOT 1 E0", "SLOT 2 E0"] and out[5:] == want, str(out[:6]))
+        belf2 = build_harness(tmp, None, True, ["PACK_SCOPE", "PACK_METER=13", "PACK_SLOT=2"])
+        out = run_sim(belf2, three, tmp)
+        check("the same bundle's Winamp Scope (slot 2) runs identically to the built-in meter", out[:4] == ["BUNDLE E0 SEEN 3", "SLOT 0 E0", "SLOT 1 E0", "SLOT 2 E0"] and out[5:] == want_s, str(out[:6]))
         # CPU cost of where the working state lives, counted on the simulator (exact access counts, priced with the measured PSRAM window costs)
         regions = [("scratch", 0x300000, 0x301000), ("slot_ro", SIM_ORG, SIM_ORG + info["load"]), ("slot_state", SIM_ORG + info["load"], SIM_ORG + 0x40000)]
         full, err_full = run_sim(elf, blob, tmp, regions, True)

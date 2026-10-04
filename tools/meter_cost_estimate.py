@@ -20,6 +20,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PLAYER = os.path.join(ROOT, "fw", "player.c")
+SCOPE = os.path.join(ROOT, "fw", "winamp_scope.inc")   # wviz_scope_tick likewise
 BARS = os.path.join(ROOT, "fw", "winamp_bars.inc")   # wviz_bars_tick lives in its own file (shared with the loadable pack)
 
 DRAW_CALLS = ("fb_rect(", "fb_bar(", "fig_rect(", "fig_bar(", "fb_blit(", "fb_sblit(", "fb_rrect(", "fb_cblit(", "ui_bg_restore(", "ui_bg_blend(")
@@ -177,8 +178,9 @@ def main():
 
     with open(PLAYER) as f:
         SRC = f.read()
-    with open(BARS) as f:
-        SRC += "\n" + f.read()
+    for extra in (BARS, SCOPE):
+        with open(extra) as f:
+            SRC += "\n" + f.read()
 
     ok = True
     for name, budget in BUDGETS.items():
