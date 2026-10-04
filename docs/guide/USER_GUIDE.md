@@ -119,7 +119,7 @@ the list is freshly shuffled.
 
 ## Themes and colours
 
-**Settings** (Start opens it) has METER and METER: CONFIGURE on its main page, next to APPEARANCE, AUDIO, PLAYBACK and SETTINGS. **Settings > Appearance** has the rows COLOUR, THEME, MODE, ALBUM ART and SCREEN BLANK.
+**Settings** (Start opens it) has METER on its main page, next to APPEARANCE, AUDIO, PLAYBACK and SETTINGS. When the METER row is highlighted and the current meter has settings, a gear appears beside its name and **X** opens them. **Settings > Appearance** has the rows COLOUR, THEME, MODE, ALBUM ART and SCREEN BLANK.
 
 - **THEME** picks one of the built-in themes, **TAU** or **OCEAN**, plus up to four more from a `tau-assets.bin` file if you
   have one (see [Media and tools](MEDIA_AND_TOOLS.md#the-theme-and-meter-file-tau-assetsbin)). Info shows THEME FILE.
@@ -152,7 +152,7 @@ Cycle with **X**, or choose one in Settings > METER (the list order below is the
 Sources: `meters/*/meter.json` and `fw/meter_gen_order.h`. The Magic Eye, L/R Levels, Mirrored Bars (now a layout of Bars)
 and cassette meters no longer exist as separate choices.
 
-**Configure.** Settings > METER: CONFIGURE (or X in the meter list) opens a page for the current meter's parameters: presets, band
+**Configure.** X on the METER row (or X in the meter list) opens a page for the current meter's parameters: presets, band
 count, easing, attack and release, peak cap and fall (Winamp Bars), scope smoothing and trail (Winamp Scope), and the
 Chladni parameters. Use Up/Down to pick a row and Left/Right to change it; the live meter stays on screen above. These settings
 are **session-only** (not remembered across a restart yet). In the Diagnostic Build the page can also show the configuration

@@ -13,7 +13,7 @@
  * Every change goes through the same variables and side effects as the direct shortcuts
  * (which stay); nothing new is persisted; Screen blank is not persisted (as Select+Down). */
 
-/* The home is titled MENU: APPEARANCE, METER, METER: CONFIGURE, AUDIO, PLAYBACK, SETTINGS (the meter rows are no longer under APPEARANCE). SET_DIAG is the SETTINGS group (Info, and in the Diagnostic Build a
+/* The home is titled MENU: APPEARANCE, METER, AUDIO, PLAYBACK, SETTINGS (METER is no longer under APPEARANCE; X on it opens the meter's settings). SET_DIAG is the SETTINGS group (Info, and in the Diagnostic Build a
  * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). The Library on/off toggle and
  * How it works page that used to live here were removed with legacy playlist mode. */
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
@@ -47,8 +47,7 @@ enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 typedef struct { const char *label; uint8_t type, arg; } set_row_t;
 static const set_row_t set_home_rows[] = {
     { "APPEARANCE", RT_GROUP, SET_APPEAR },
-    { "METER", RT_CHOICE, CH_METER },                           /* the meters live on the main page (no longer under APPEARANCE); X in the list opens their settings */
-    { "METER: CONFIGURE", RT_GROUP, SET_WVIZCFG_PG },
+    { "METER", RT_CHOICE, CH_METER },                           /* the meters live on the main page (no longer under APPEARANCE). X on this row, or in the list, opens the current meter's settings (a gear marks it when it has some) */
     { "AUDIO", RT_GROUP, SET_AUDIO },
     { "PLAYBACK", RT_GROUP, SET_PLAY },
     { "SETTINGS", RT_GROUP, SET_DIAG },
@@ -547,8 +546,10 @@ COLD_FN static void set_draw_menu(uint32_t p)
 {
     const set_row_t *rows = set_menu_rows[p];
     uint32_t n = set_menu_n[p], top = set_top[p];
+    const set_row_t *srow = &rows[set_sel[p]];
+    const int meter_cfg = (p == SET_HOME && srow->type == RT_CHOICE && srow->arg == CH_METER && mtr_of(viz_mode));   /* the METER row is selected and the current meter has settings */
     ov_frame(set_menu_title[p], "",
-             p == SET_HOME ? "A OPEN   B CLOSE"
+             p == SET_HOME ? (meter_cfg ? "A OPEN   X CONFIGURE   B CLOSE" : "A OPEN   B CLOSE")
              : p == SET_DIAG || p == SET_STRESS || p == SET_DGN ? "A OPEN   B BACK" : p == SET_TESTS ? "A RUN   B BACK"
              : "A CHANGE   B BACK");
     if (n > SET_MENU_VIS) {                      /* scroll track, as set_draw_choice()'s own */
@@ -579,6 +580,7 @@ COLD_FN static void set_draw_menu(uint32_t p)
             fb_set_color(sel ? UI_PANEL : UI_DIM, bg);
             fb_text_clipped(right - w, ty, v, TS_1X, TS_1X, w + 2u);
         }
+        if (sel && meter_cfg) set_icon_gear(right - w - 16u, y + (SET_MENU_ROW_H - 4u) / 2u, UI_PANEL, bg);   /* the selected meter has settings: X opens them */
     }
 }
 
@@ -1691,6 +1693,12 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
     if (edge & KEY_DOWN) { *sel = (uint8_t)helios_wrap_index(*sel, set_menu_n[set_page], 0); set_menu_follow(set_page); set_dirty = 1u; }
     if (rep) return 1;      /* a repeat only ever moves the cursor: A/B/Left/Right below react to a real press */
     const set_row_t *r = &set_menu_rows[set_page][*sel];
+    if ((edge & KEY_X) && set_page == SET_HOME && r->type == RT_CHOICE && r->arg == CH_METER && mtr_of(viz_mode)) {   /* X on the METER row: the current meter's settings */
+        set_page = SET_WVIZCFG_PG; set_dirty = 1u;
+        wvcfg_open();
+        wvcfg_back = SET_HOME;
+        return 1;
+    }
     if (edge & (KEY_A | KEY_RIGHT)) {
         if (r->type == RT_GROUP) {
             const uint8_t from = set_page;
