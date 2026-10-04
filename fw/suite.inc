@@ -1403,6 +1403,67 @@ COLD_TEXT static int mt_input(uint32_t edge)
     return 1;
 }
 
+/* ================================================================== PIXEL GRID TEST (barcode study)
+ * Draws a known 400x360 RGB565 pattern with every pixel written through the SDRAM mailbox (the path Chladni uses), into BOTH H2
+ * buffers so it does not matter which one is displayed. A card screenshot of it is compared with tools/pixgrid_check.py to
+ * prove the screenshot path keeps every pixel exact (docs/features/BARCODE_STUDY.md, risk 1). A = next pattern, X = swap the
+ * pixel order inside each mailbox word (the checker also tries both, so this is only for a clean picture), B = leave.
+ * Nothing is persisted and the page is cold code. The mailbox loop blocks the main loop for about a third of a second per
+ * buffer, so run it with nothing playing. */
+#include "pixgrid.h"
+enum { PG_IDLE = 0, PG_SHOW };
+static uint8_t pg_state, pg_pat, pg_swap;
+
+COLD_TEXT static int pg_mb_write(uint32_t word_addr, uint32_t data)
+{
+    REG(R_SDR_ADDR) = word_addr; REG(R_SDR_DATA) = data;
+    REG(R_SDR_CTRL) = 0x3Fu;
+    uint32_t t = cycles();
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG(R_SDR_STATUS) & 1u)
+        if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return -1;
+    return 0;
+}
+
+COLD_TEXT static void pg_paint(void)
+{
+    fb_fence();                                                  /* queued draw commands must land before the mailbox overwrites them */
+    for (uint32_t buf = 0; buf < 2u; buf++) {
+        const uint32_t base = buf ? DBUF_BASE1_W : 0u;
+        for (uint32_t y = 0; y < PG_H; y++)
+            for (uint32_t x = 0; x < PG_W; x += 2u) {
+                uint32_t p0 = pg_pixel(pg_pat, x, y), p1 = pg_pixel(pg_pat, x + 1u, y);
+                if (pg_mb_write(base + y * FB_STRIDE + x, pg_swap ? ((p0 << 16) | p1) : ((p1 << 16) | p0))) return;
+            }
+    }
+}
+
+COLD_TEXT static void pg_draw(void)
+{
+    if (pg_state == PG_SHOW) { pg_paint(); return; }
+    ov_frame("PIXEL GRID TEST", "", "A DRAW   B BACK");
+    fb_set_color(UI_WHITE, OV_BODY);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, "PRESS A TO DRAW A PATTERN", TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_set_color(UI_DIM, OV_BODY);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, "Take a screenshot of each", TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, "pattern (A = next, 4 in all).", TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 4u * PL_UI_ROW_H, "Stop playback first.", TS_1X, TS_1X, PL_UI_W - 32u);
+}
+
+COLD_TEXT static int pg_input(uint32_t edge)
+{
+    if (edge & KEY_START) { pg_state = PG_IDLE; set_close(); return 1; }
+    if (pg_state == PG_IDLE) {
+        if (edge & KEY_A) { pg_pat = 0; pg_state = PG_SHOW; set_dirty = 1u; }
+        else if (edge & KEY_B) { set_page = CHK_PARENT; set_dirty = 1u; }
+    } else {
+        if (edge & KEY_A) { pg_pat = (uint8_t)((pg_pat + 1u) % PG_PATTERNS); set_dirty = 1u; }
+        else if (edge & KEY_X) { pg_swap ^= 1u; set_dirty = 1u; }
+        else if (edge & KEY_B) { pg_state = PG_IDLE; set_dirty = 1u; }
+    }
+    return 1;
+}
+
 /* ================================================================== BLIT TEST (B-166)
  * Exercises every draw-engine opcode individually, full-screen, at increasing concurrency,
  * without needing audio -- deliberately separate from Check (which assumes playback context) and

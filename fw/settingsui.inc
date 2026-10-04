@@ -38,6 +38,7 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #endif
 #define SET_METERSWEEP_PG ((uint8_t)(SET_BLITTEST_PG + 1u))   /* Meter cost sweep, B-301 (fw/suite.inc) */
 #define SET_METERTRACE_PG ((uint8_t)(SET_METERSWEEP_PG + 1u)) /* Meter trace recorder, M3 (fw/suite.inc) */
+#define SET_PIXGRID_PG ((uint8_t)(SET_METERTRACE_PG + 1u))    /* Pixel grid fidelity test, barcode study (fw/suite.inc) */
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
 enum { TG_ART = 0, TG_SPEEDS, TG_RATES, TG_CYMO };
@@ -84,6 +85,7 @@ static const set_row_t set_dgn_rows[] = {
     { "BLIT TEST", RT_GROUP, SET_BLITTEST_PG },
     { "METER SWEEP", RT_GROUP, SET_METERSWEEP_PG },
     { "METER TRACE", RT_GROUP, SET_METERTRACE_PG },
+    { "PIXEL GRID TEST", RT_GROUP, SET_PIXGRID_PG },
 #else
     { "INFO", RT_GROUP, SET_INFO_PG },          /* unreachable placeholder: the page exists only in the Diagnostic Build */
 #endif
@@ -1274,6 +1276,7 @@ static const set_spg_t set_spg[] = {
     { SET_BLITTEST_PG, bt_draw, bt_input, bt_open },
     { SET_METERSWEEP_PG, mw_draw, mw_input, 0 },
     { SET_METERTRACE_PG, mt_draw, mt_input, 0 },
+    { SET_PIXGRID_PG, pg_draw, pg_input, 0 },
 #endif
 };
 #define SET_SPG_N SET_COUNT(set_spg)
