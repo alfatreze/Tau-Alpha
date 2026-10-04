@@ -6,7 +6,7 @@
  * Coverage: normal / loud (clipping) / quiet inputs, guard-bit counts 8..0 (gb < 6 makes FDCT32 take its es fixup path, which rewrites the words
  * that reach the log), a second decoder instance mid-run (must re-clear the unit's history), mono (never redirected), and an injected unit failure
  * at a chosen slot (the rest of the track must finish in software and still match).
- * Usage: harness <fail_slot -1|N>. Prints "PCM <hex>" per granule and, last, "HWSLOTS n". */
+ * Usage: harness <fail_slot -1|N> [corrupt_slot] [finish_fail_slot]. Prints "PCM <hex>" per granule and, last, "HWSLOTS n". */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,20 +20,35 @@ int tau_poly_hw_enable = 1;
 int tau_poly_wlog[33], tau_poly_wn;
 int tau_poly_verify_left;
 unsigned tau_poly_stat_slots, tau_poly_stat_mismatch, tau_poly_stat_timeout;
-static int hw_slots, fail_slot = -1, slot_no, corrupt_slot = -1;
+static int hw_slots, fail_slot = -1, slot_no, corrupt_slot = -1, finish_fail_slot = -1;
+static short staged[64]; static int staged_slot = -1, pending;
 void tau_poly_hw_clear(void) { memset(ring, 0, sizeof ring); head[0] = head[1] = 0; tau_poly_verify_left = 8; }
-int tau_poly_hw_slot(const int *w0, const int *w1, short *pcm)
+/* B-587: split start/finish like the real unit: no push while a slot is still in flight (the RTL ignores it), no read without one. The result is only
+ * available at finish, so a caller that reads pcm early or pushes early is caught here. */
+int tau_poly_hw_start(const int *w0, const int *w1)
 {
     if (!tau_poly_hw_enable) return 0;
+    if (pending) { fprintf(stderr, "PROTOCOL: start while a slot is in flight\n"); exit(2); }
     if (slot_no++ == fail_slot) { tau_poly_hw_enable = 0; return 0; }
     push(0, w0); push(1, w1);
     short l[32], r[32];
     window(0, l); window(1, r);
-    for (int k = 0; k < 32; k++) { pcm[2 * k] = l[k]; pcm[2 * k + 1] = r[k]; }
-    if (slot_no - 1 == corrupt_slot) pcm[5] = (short)(pcm[5] + 1);          /* a wrong-but-answering unit */
+    for (int k = 0; k < 32; k++) { staged[2 * k] = l[k]; staged[2 * k + 1] = r[k]; }
+    staged_slot = slot_no - 1;
+    pending = 1;
+    return 1;
+}
+int tau_poly_hw_finish(short *pcm)
+{
+    if (!pending) { fprintf(stderr, "PROTOCOL: finish with nothing in flight\n"); exit(2); }
+    pending = 0;
+    if (staged_slot == finish_fail_slot) { tau_poly_hw_enable = 0; return 0; }    /* a slot that never completes: pcm untouched */
+    memcpy(pcm, staged, sizeof staged);
+    if (staged_slot == corrupt_slot) pcm[5] = (short)(pcm[5] + 1);          /* a wrong-but-answering unit */
     hw_slots++;
     return 1;
 }
+int tau_poly_hw_slot(const int *w0, const int *w1, short *pcm) { return tau_poly_hw_start(w0, w1) && tau_poly_hw_finish(pcm); }
 #endif
 
 static uint32_t rng = 31337u;
@@ -58,6 +73,7 @@ int main(int argc, char **argv)
 #if TAU_POLY_FW
     fail_slot = fail;
     corrupt_slot = argc > 2 ? atoi(argv[2]) : -1;
+    finish_fail_slot = argc > 3 ? atoi(argv[3]) : -1;
 #else
     (void)fail;
 #endif

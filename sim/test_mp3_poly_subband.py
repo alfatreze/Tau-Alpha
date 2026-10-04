@@ -50,5 +50,22 @@ with tempfile.TemporaryDirectory() as td:
         o = subprocess.run([str(hw), str(fs)], capture_output=True, text=True).stdout.splitlines()
         check(f"unit fails at slot {fs}: the rest of the track finishes in software, PCM still identical", o[:-1] == ref[:-1] and int(o[-1].split()[1]) == fs,
               o[-1])
+    # B-587 (pipelined handoff): a slot that never COMPLETES (unit disabled at finish) after the next slot's FDCT32 already ran cannot be recomputed in
+    # software; it is output as silence (64 zero samples) and the rest of the track is software. Inside the verify window (synchronous) it is still exact.
+    def zeroed(ref, s):
+        out = [l.split() for l in ref[:-1]]
+        t = out[s // 18]; o = 1 + (s % 18) * 64
+        t[o:o + 64] = ["0000"] * 64
+        return [" ".join(l) for l in out] + ref[-1:]
+    for ff in (0, 7, 8, 18, 100, 431, 435, 864 + 3, 900):
+        o = subprocess.run([str(hw), "-1", "-1", str(ff)], capture_output=True, text=True)
+        o_lines = o.stdout.splitlines()
+        if o.returncode: check(f"unit fails to complete slot {ff}: protocol respected", False, o.stderr.strip()); continue
+        in_verify = ff % 864 < 8
+        want = ref[:-1] if in_verify else zeroed(ref, ff)[:-1]
+        check(f"unit never completes slot {ff} ({'verify window: software slot, PCM identical' if in_verify else 'one slot of silence, everything else identical'})",
+              o_lines[:-1] == want, next((f"granule {i}" for i, (a, b) in enumerate(zip(o_lines, want)) if a != b), "length differs"))
+    o = subprocess.run([str(hw)], capture_output=True, text=True)
+    check("pipelined handoff respects the unit's protocol (no push while busy, no read without a slot in flight)", o.returncode == 0, o.stderr.strip())
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
