@@ -9,6 +9,8 @@
   decode_tau_suite.py --code 'XXXXXX-...'         the 36-character short code (summary plus bitstream revision)
 Add --json for machine output. Exit 0 = record valid, 1 = invalid (bad CRC or format), 2 = usage."""
 import argparse
+import os
+import re
 import base64
 import json
 import struct
@@ -28,7 +30,7 @@ TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window te
                                      # called once per ui_draw_dynamic() (~38 Hz); diagnostic-only, TAU_COLD_FRAME_PROBE builds
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
         10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest", 16: "stack",
-        22: "decprof2", 23: "heap", 24: "load"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
+        22: "decprof2", 23: "heap", 24: "load", 25: "infotext", 26: "nowplaying"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
 BLIT_OPS = ["RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT"]
 # meters/*/meter.json (meter module M0, tools/gen_meters.py) index order -- the VIZ_* enum.
 VIZ_NAMES = ["BARS", "WATERFALL", "-", "PHASE SCOPE", "OSCILLOSCOPE", "VU", "WAVEFORM", "-", "PEAK DOTS", "-",
@@ -136,6 +138,16 @@ def parse_record(rec: bytes) -> dict:
                 "free_ram": free_ram, "underruns": underruns, "draw_stall_ms": stall_ms, "load_ms": load_ms,
                 "cpu_pct": v[19],
             }
+        elif tag == 25 and n >= 2 and 0 in v[1:]:  # SR_T_INFOTEXT: one Info page row exactly as shown on screen (row, label, 0, value)
+            z = v.index(0, 1)
+            out["entries"].setdefault("infotext", []).append({"row": v[0], "label": v[1:z].decode("ascii", "replace"),
+                                                              "value": v[z + 1:].decode("ascii", "replace")})
+        elif tag == 26 and n >= 5:                # SR_T_NOWPLAYING: what was playing when the report was made
+            parts = v[5:].split(b"\0")
+            txt = [x.decode("utf-8", "replace") for x in parts] + [""] * 3
+            out["entries"]["nowplaying"] = {"state": ["nothing loaded", "stopped", "paused", "playing"][min(v[0], 3)],
+                                            "queue_pos": v[1] | v[2] << 8, "queue_len": v[3] | v[4] << 8,
+                                            "title": txt[0], "artist": txt[1], "album": txt[2]}
         elif tag == 20 and n >= 4:                # SR_T_METERCFG (M2): meter id, schema, preset, nparams, values (widths from the registry)
             meter_id, schema, preset, np_ = v[0], v[1], v[2], v[3]
             entry = {"meter_id": meter_id, "schema": schema, "preset": None if preset == 0xFF else preset}
@@ -312,6 +324,7 @@ def main(argv=None) -> int:
     g.add_argument("--code")
     ap.add_argument("--ids", default="20,21,22,23", help="interact variable ids of the four words")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--table", action="store_true", help="with --text/--qr/--grid: print the Info page rows (SR_T_INFOTEXT) as an aligned table instead of JSON")
     ap.add_argument("--trace", metavar="OUT.json", help="with --text/--qr/--grid: write the recorded meter trace (SR_T_METERTRACE) as the JSON the preview lab and golden tests replay")
     a = ap.parse_args(argv)
     try:
@@ -324,6 +337,9 @@ def main(argv=None) -> int:
                     txt = sys.stdin.read()
                 rec = from_text(txt)
             res = parse_record(rec)
+            m = re.search(r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})", os.path.basename(a.grid or a.qr or ""))
+            if m:                                 # the Pocket names screenshots YYYYMMDD_HHMMSS: free capture time, no bytes in the record
+                res["captured"] = "%s-%s-%sT%s:%s:%s" % m.groups()
             if a.trace:
                 frames = res["entries"].get("metertrace")
                 if not frames:
@@ -340,6 +356,15 @@ def main(argv=None) -> int:
     except (ValueError, KeyError, ImportError) as e:
         print(f"invalid: {e}", file=sys.stderr)
         return 1
+    if a.table:
+        rows = res.get("entries", {}).get("infotext")
+        if not rows:
+            print("invalid: the record has no Info page rows (export them from Settings > Diagnostics > Info > A)", file=sys.stderr)
+            return 1
+        w = max(len(r["label"]) for r in rows)
+        for r in sorted(rows, key=lambda r: r["row"]):
+            print(f"{r['label']:<{w}}  {r['value']}")
+        return 0
     print(show(res))
     return 0
 

@@ -22,7 +22,9 @@ COLD_FN static void wvcfg_build_qr(void)
     sr_t s;
     sr_init(&s, CHK_REC, CHK_REC_CAP, 0u);
     sr_tlv(&s, (uint8_t)SR_T_METERCFG, buf, n);
+    REP_CONTEXT(&s, 1);
     uint32_t len = sr_finish(&s);
+    REP_SET(len);
     wvcfg_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
         uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
@@ -38,6 +40,9 @@ COLD_FN static void wvcfg_build_qr(void)
  * that differs. */
 COLD_TEXT static void wvcfg_draw_qr(void)
 {
+#if TAU_TPG
+    if (REP_GRID(wvcfg_qr_len)) { rep_draw_grid("METER CONFIG"); return; }
+#endif
     const uint32_t sz = wvcfg_qr_len;
     uint32_t m = 354u / (sz + 8u);
     if (m > 4u) m = 4u;

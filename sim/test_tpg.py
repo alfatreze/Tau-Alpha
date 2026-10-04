@@ -83,5 +83,28 @@ for mode in (tpg.MODE_L, tpg.MODE_R):
     out = tpg.decode(shot(tpg.encode(rec, mode)))
     check(f"record via mode {'LR'[mode]} parses to the same report", out == rec and d.parse_record(out) == d.parse_record(rec))
 
+# the two reports the grid exists for: the Info page's full text (34 rows) and a 64-track Decode Sweep
+rows = [(i, f"ROW{i}LABEL", f"VALUE {i * 37 % 1000} B") for i in range(34)]
+info = d.build_record(0, [(25, bytes([i]) + l.encode() + b"\0" + v.encode()) for i, l, v in rows])
+sweep = d.build_record(1, [(14, bytes([i, 100, 3, 0, 11, 0, 55, 0, 0, 0]) + b"Track title %02d" % i) for i in range(64)])
+for name, rec in (("Info page (34 rows)", info), ("64-track sweep", sweep)):
+    for mode in (tpg.MODE_L, tpg.MODE_R):
+        try: out = tpg.decode(shot(tpg.encode(rec, mode)))
+        except ValueError: out = None
+        check(f"{name}: {len(rec)} B survives mode {'LR'[mode]}", out == rec)
+rep = d.parse_record(tpg.decode(shot(tpg.encode(info, tpg.MODE_L))))
+tab = rep["entries"]["infotext"]
+check("Info rows decode with label and value", len(tab) == 34 and tab[5] == {"row": 5, "label": "ROW5LABEL", "value": "VALUE 185 B"})
+check("the Info record is above what a version-14 QR code holds (the reason for the grid)", len(info) > 330)
+
+# the always-on context: Info identity rows + now playing
+ctx = d.build_record(1, [(25, bytes([1]) + b"FPGA REV\0" + b"4D50331A"), (26, bytes([3, 4, 0, 11, 0]) + "Aqua Marina\0Anna Måne\0Album One".encode())])
+rep = d.parse_record(tpg.decode(shot(tpg.encode(ctx, tpg.MODE_R))))
+np_ = rep["entries"]["nowplaying"]
+check("now playing decodes", np_ == {"state": "playing", "queue_pos": 4, "queue_len": 11, "title": "Aqua Marina", "artist": "Anna Måne", "album": "Album One"})
+check("context row decodes", rep["entries"]["infotext"] == [{"row": 1, "label": "FPGA REV", "value": "4D50331A"}])
+nothing = d.parse_record(d.build_record(1, [(26, bytes([0, 0, 0, 0, 0]) + b"\0\0")]))
+check("nothing loaded decodes", nothing["entries"]["nowplaying"]["state"] == "nothing loaded" and nothing["entries"]["nowplaying"]["title"] == "")
+
 print("PASSED" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

@@ -19,7 +19,7 @@
 #define CHK_TXT     ((char *)(uintptr_t)0xA4007800u)        /* QR text, 2,800 B (version 38 at level L holds 2,699 B) */
 #define CHK_REC_CAP 2048u
 #define CHK_TXT_CAP 2800u
-#define CHK_QR_MAXV 38u
+#define CHK_QR_MAXV TAU_QR_MAXV
 #define CHK_SDRAM   0xA0800000u                             /* physical 8 MiB, as the Tests page */
 #define CHK_PSRAM   0xA5A00000u                             /* PSRAM offset 26 MiB */
 #define CHK_AUDIO_S 15u                                     /* length of the playback counter test */
@@ -64,12 +64,28 @@ struct chk_mem { uint32_t val[CHK_MAX]; uint16_t sd[6], ps[6]; uint8_t res[CHK_M
 #define chk_res (CKM->res)
 #define chk_aud_full (CKM->aud_full)
 #define chk_blt_full (CKM->blt_full)
-static uint32_t chk_at, chk_u0, chk_s0, chk_under, chk_stall, chk_qr_len, chk_qr_ver, chk_rec_len;
+static uint32_t chk_at, chk_u0, chk_s0, chk_under, chk_stall, chk_qr_len, chk_qr_ver;
 #ifndef TAU_TPG
 #define TAU_TPG 0
 #endif
+#ifndef TAU_QR_MAXV
+#define TAU_QR_MAXV 38u   /* largest QR version shown; 14 keeps every code phone-scannable (bigger reports then show the grid only) */
+#endif
+/* Report view shared by every page that shows a report code (Check, Decode Sweep, Meter Sweep, Meter Trace, Blit Test, Info and Meter Config exports):
+ * rep_len = byte length of the record in CHK_REC, rep_view = 0 QR code, 1 pixel grid lossless (TPG1 mode L), 2 pixel grid robust (mode R). X cycles.
+ * With TAU_TPG=0 every macro collapses to the old QR-only behaviour. A report too big for the QR code is still available as a grid. */
 #if TAU_TPG
-static uint8_t chk_view;      /* result page: 0 QR code, 1 pixel grid lossless (TPG1 mode L), 2 pixel grid robust (mode R) */
+static uint32_t rep_len;
+static uint8_t rep_view;
+#define REP_SET(l) (rep_len = (l))
+#define REP_AVAIL(qrlen) ((qrlen) || rep_len)
+#define REP_GRID(qrlen) (rep_view || !(qrlen))
+#define REP_KEY(edge) (((edge) & KEY_X) ? (rep_view = (uint8_t)((rep_view + 1u) % 3u), set_dirty = 1u, 1) : 0)
+#else
+#define REP_SET(l) ((void)(l))
+#define REP_AVAIL(qrlen) (qrlen)
+#define REP_GRID(qrlen) 0
+#define REP_KEY(edge) 0
 #endif
 /* B-088/B-089: latched once when the CT_AUD window ends, from the run-total
  * accumulators (mp3_*_total_cyc / flac_*_total_cyc), so chk_finish() reads a
@@ -492,6 +508,43 @@ COLD_TEXT static uint32_t stack_high_water(void)
 
 extern unsigned int heap_used(void), heap_total(void);   /* fw/sysio.c */
 
+#if TAU_TPG
+/* What every report carries so a bare screenshot says what it was taken on and while playing what (the Info page's identity rows, as the page
+ * shows them, plus the now-playing entry). `info_rows` = 0 for the Info export, which already dumps every row. About 150-280 bytes. */
+COLD_TEXT static void rep_context(sr_t *s, int info_rows)
+{
+    static const char *const want[] = { "FIRMWARE", "FPGA REV", "COLD IMAGE", "TRACK", "LIBRARY", "UNDERRUNS" };
+    for (uint32_t w = 0; info_rows && w < sizeof want / sizeof want[0]; w++)
+        for (uint32_t i = 0; i < SET_INFO_ROWS; i++) {
+            const char *l = set_info_label[i], *x = want[w];
+            while (*l && *l == *x) { l++; x++; }
+            if (*l || *x) continue;                                  /* not this row */
+            uint8_t e[72]; char v[40]; uint32_t n = 0;
+            set_info_value(i, v);
+            e[n++] = (uint8_t)i;
+            for (const char *p = set_info_label[i]; *p && n < 28u; p++) e[n++] = (uint8_t)*p;
+            e[n++] = 0u;
+            for (const char *p = v; *p && n < sizeof e; p++) e[n++] = (uint8_t)*p;
+            sr_tlv(s, (uint8_t)SR_T_INFOTEXT, e, n);
+            break;
+        }
+    uint8_t e[128]; uint32_t n = 0;
+    const uint32_t have = track_title[0] || track_file[0];
+    const uint32_t qp = (lib_src && lib_qn) ? (uint32_t)lib_qpos + 1u : 0u, ql = lib_src ? lib_qn : 0u;
+    e[n++] = (uint8_t)(!have ? 0u : stopped ? 1u : paused ? 2u : 3u);
+    e[n++] = (uint8_t)qp; e[n++] = (uint8_t)(qp >> 8); e[n++] = (uint8_t)ql; e[n++] = (uint8_t)(ql >> 8);
+    const char *f[3] = { track_title, track_artist, track_album };
+    for (uint32_t k = 0; k < 3u; k++) {
+        for (uint32_t j = 0; f[k][j] && j < 40u; j++) e[n++] = (uint8_t)f[k][j];
+        if (k < 2u) e[n++] = 0u;
+    }
+    sr_tlv(s, (uint8_t)SR_T_NOWPLAYING, e, n);
+}
+#define REP_CONTEXT(s, rows) rep_context((s), (rows))
+#else
+#define REP_CONTEXT(s, rows) ((void)0)
+#endif
+
 /* Build the report: record, QR text, persisted words, short code. */
 COLD_TEXT static void chk_finish(void)
 {
@@ -539,8 +592,9 @@ COLD_TEXT static void chk_finish(void)
     sr_vals(&s, SR_T_LIB, 4, lb, 4);
     uint8_t er[3] = { lib_err, cold_err, (uint8_t)pl_sdram_state };
     sr_tlv(&s, SR_T_ERR, er, 3);
+    REP_CONTEXT(&s, 1);
     uint32_t len = sr_finish(&s);
-    chk_rec_len = len;
+    REP_SET(len);
     chk_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
         uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
@@ -591,15 +645,16 @@ COLD_TEXT static int pg_mb_write(uint32_t word_addr, uint32_t data)
 #define TPG_FN COLD_TEXT static
 #define TPG_CRC32 sr_crc32
 #include "tpg.h"
-/* Writes the stream's rows into BOTH H2 buffers through the mailbox (the draw engine cannot be asked for 1 px per value). The page's
- * background and caption go through the normal draw path into the CPU buffer; fb_fence() first so no queued command lands over the pixels. */
-COLD_TEXT static void chk_draw_tpg(void)
+/* Draws the report in CHK_REC as a TPG1 pixel grid: the stream's rows go into BOTH H2 buffers through the mailbox (the draw engine cannot
+ * be asked for one value per pixel); the background and caption go through the normal draw path into the CPU buffer, with fb_fence() first
+ * so no queued command lands over the pixels. `title` names the report (a bare screenshot must identify itself). */
+COLD_TEXT static void rep_draw_grid(const char *title)
 {
     tpg_t t;
-    const uint32_t mode = chk_view == 2u ? TPG_MODE_R : TPG_MODE_L;
+    const uint32_t mode = rep_view == 2u ? TPG_MODE_R : TPG_MODE_L;
     fb_rect(0u, 0u, FB_W, FB_H, UI_BG);
     fb_fence();
-    if (!tpg_init(&t, CHK_REC, chk_rec_len, mode)) {
+    if (!tpg_init(&t, CHK_REC, rep_len, mode)) {
         fb_set_color(UI_RED, UI_BG);
         fb_text_clipped(PL_UI_TEXT_X, 12u, "REPORT TOO BIG FOR THIS GRID MODE", TS_1X, TS_1X, PL_UI_W - 32u);
         return;
@@ -613,20 +668,20 @@ COLD_TEXT static void chk_draw_tpg(void)
     }
     if (rows + 60u > FB_H) return;                                  /* the grid fills the screen: no caption */
     fb_set_color(ui_accent, UI_BG);
-    fb_text_clipped(PL_UI_TEXT_X, rows + 8u, chk_s(CS_PROF + chk_prof), TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_text_clipped(PL_UI_TEXT_X, rows + 8u, title, TS_1X, TS_1X, PL_UI_W - 32u);
     char c[40], *q = c;
-    q = set_str(q, mode == TPG_MODE_R ? "TPG1 ROBUST  " : "TPG1 LOSSLESS  "); q = ui_dec(q, chk_rec_len); q = set_str(q, " BYTES"); *q = 0;
+    q = set_str(q, mode == TPG_MODE_R ? "TPG1 ROBUST  " : "TPG1 LOSSLESS  "); q = ui_dec(q, rep_len); q = set_str(q, " BYTES"); *q = 0;
     fb_set_color(UI_DIM, UI_BG);
     fb_text_clipped(PL_UI_TEXT_X, rows + 22u, c, TS_1X, TS_1X, PL_UI_W - 32u);
     fb_set_color(UI_FAINT, UI_BG);
-    fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, "X QR / GRID    A BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_text_clipped(PL_UI_TEXT_X, FB_H - 22u, "X VIEW (QR / GRID)   BACK", TS_1X, TS_1X, PL_UI_W - 32u);
 }
 #endif
 
 COLD_TEXT static void chk_draw_qr(void)
 {
 #if TAU_TPG
-    if (chk_view) { chk_draw_tpg(); return; }
+    if (REP_GRID(chk_qr_len)) { rep_draw_grid(chk_s(CS_PROF + chk_prof)); return; }
 #endif
     const uint32_t sz = chk_qr_len;
     uint32_t m = 354u / (sz + 8u);                                  /* module size in pixels: 4 down to 2 (version 38) */
@@ -695,7 +750,7 @@ COLD_TEXT static void chk_line(uint32_t i)
 
 COLD_TEXT static void chk_draw(void)
 {
-    if (chk_state == CK_QR && chk_qr_len) { chk_draw_qr(); return; }
+    if (chk_state == CK_QR && REP_AVAIL(chk_qr_len)) { chk_draw_qr(); return; }
     uint32_t f = 0, sk = 0;
     char head[32], *hq = head;
     *hq = 0;
@@ -805,12 +860,12 @@ COLD_TEXT static int chk_input(uint32_t edge)
     } else if (chk_state == CK_RUN) {
         if (edge & KEY_B) chk_abort();
     } else if (chk_state == CK_DONE) {
-        if ((edge & (KEY_A | KEY_RIGHT)) && chk_qr_len) { chk_state = CK_QR; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL(chk_qr_len)) { chk_state = CK_QR; set_dirty = 1u; }
         else if (edge & KEY_Y) chk_begin();
         else if (edge & (KEY_B | KEY_LEFT)) { chk_state = CK_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else {
 #if TAU_TPG
-        if (edge & KEY_X) { chk_view = (uint8_t)((chk_view + 1u) % 3u); set_dirty = 1u; return 1; }
+        if (REP_KEY(edge)) return 1;
 #endif
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { chk_state = CK_DONE; set_dirty = 1u; }
     }
@@ -839,7 +894,11 @@ enum { SW_IDLE = 0, SW_RUN, SW_DONE, SW_QR, SW_REFUSED };
  * Budget (docs/TEST_SUITE_SPEC.md section 12): 666 - 4 (header) - 20 (build)
  * - 4 (CRC) = 638 B / 28 B = 22 tracks worst case; kept at a round 20. */
 #define SW_TITLE_MAX  16u
+#if TAU_TPG
+#define SW_MAX_TRACKS 48u   /* 48 x 28 B worst case = 1,344 B of the 2,048 B record (the report context takes up to about 300 B more); shown as a pixel grid when it no longer fits a QR code */
+#else
 #define SW_MAX_TRACKS 20u
+#endif
 #define SW_WIN_S      15u   /* matches CHK_AUDIO_S */
 static uint8_t  sw_state, sw_started, sw_qr_len, sw_qr_ver;
 static uint16_t sw_idx, sw_n, sw_done_n, sw_skip_n;
@@ -899,7 +958,9 @@ COLD_TEXT static void sw_finish(void)
      * sweep run implies -- the measurement is over. Same three flags the
      * ordinary end-of-playlist stop uses. */
     if (!stopped) { stopped = 1u; paused |= 1u; stop_req = 1u; }
+    REP_CONTEXT(&sw_rec, 1);
     uint32_t len = sr_finish(&sw_rec);
+    REP_SET(len);
     sw_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
         uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
@@ -920,7 +981,7 @@ COLD_TEXT static void sw_advance(void)
         if (!track_hz || paused || stopped) {
             if ((int32_t)(cycles() - sw_wait0) > (int32_t)(3u * CLK_HZ)) {
                 sw_skip_n++;
-                if (++sw_idx >= sw_n) { sw_finish(); sw_state = sw_qr_len ? SW_QR : SW_DONE; }
+                if (++sw_idx >= sw_n) { sw_finish(); sw_state = REP_AVAIL(sw_qr_len) ? SW_QR : SW_DONE; }
                 else { lib_skip(+1); sw_wait0 = cycles(); }
                 set_dirty = 1u;
             }
@@ -940,7 +1001,7 @@ COLD_TEXT static void sw_advance(void)
     else if ((int32_t)(cycles() - sw_at) < 0) return;                    /* still running */
     else sw_sample(SW_WIN_S * CLK_HZ);                                   /* hit the cap */
     sw_started = 0u;
-    if (++sw_idx >= sw_n) { sw_finish(); sw_state = sw_qr_len ? SW_QR : SW_DONE; }
+    if (++sw_idx >= sw_n) { sw_finish(); sw_state = REP_AVAIL(sw_qr_len) ? SW_QR : SW_DONE; }
     else { lib_skip(+1); sw_wait0 = cycles(); }
     set_dirty = 1u;
 }
@@ -974,6 +1035,9 @@ static void sw_tick(void)
 
 COLD_TEXT static void sw_draw_qr(void)
 {
+#if TAU_TPG
+    if (REP_GRID(sw_qr_len)) { rep_draw_grid("DECODE SWEEP"); return; }
+#endif
     const uint32_t sz = sw_qr_len;
     uint32_t m = 354u / (sz + 8u);
     if (m > 4u) m = 4u;
@@ -1014,7 +1078,7 @@ COLD_TEXT static void sw_draw_qr(void)
 
 COLD_TEXT static void sw_draw(void)
 {
-    if (sw_state == SW_QR && sw_qr_len) { sw_draw_qr(); return; }
+    if (sw_state == SW_QR && REP_AVAIL(sw_qr_len)) { sw_draw_qr(); return; }
     ov_frame("DECODE SWEEP",
              sw_state == SW_RUN ? "RUNNING" : sw_state == SW_REFUSED ? "REFUSED" : sw_state == SW_DONE ? "DONE" : "",
              sw_state == SW_IDLE ? "A START   B BACK" : "B BACK");
@@ -1056,10 +1120,10 @@ COLD_TEXT static void sw_draw(void)
         dq = set_str(dq, "sampled "); dq = ui_dec(dq, sw_done_n);
         if (sw_skip_n) { dq = set_str(dq, ", skipped "); dq = ui_dec(dq, sw_skip_n); }
         *dq = 0;
-        fb_set_color(sw_qr_len ? ui_accent : UI_RED, OV_BODY);
+        fb_set_color(REP_AVAIL(sw_qr_len) ? ui_accent : UI_RED, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, dn, TS_1X, TS_1X, PL_UI_W - 32u);
         fb_set_color(UI_FAINT, OV_BODY);
-        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, sw_qr_len ? "A QR   B BACK" : "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+        fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, REP_AVAIL(sw_qr_len) ? "A CODE   B BACK" : "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
     }
 }
 
@@ -1074,9 +1138,10 @@ COLD_TEXT static int sw_input(uint32_t edge)
     } else if (sw_state == SW_RUN) {
         if (edge & KEY_B) sw_state = SW_IDLE;   /* abort */
     } else if (sw_state == SW_DONE) {
-        if ((edge & (KEY_A | KEY_RIGHT)) && sw_qr_len) { sw_state = SW_QR; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL(sw_qr_len)) { sw_state = SW_QR; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { sw_state = SW_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else {   /* SW_QR */
+        if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { sw_state = SW_DONE; set_dirty = 1u; }
     }
     return 1;
@@ -1185,7 +1250,9 @@ COLD_TEXT static void mw_restore_screen(void)
 COLD_TEXT static void mw_finish(void)
 {
     mw_restore_screen();
+    REP_CONTEXT(&mw_rec, 1);
     uint32_t len = sr_finish(&mw_rec);
+    REP_SET(len);
     mw_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
         uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
@@ -1206,7 +1273,7 @@ COLD_TEXT static void mw_advance(void)
     if (!track_hz || paused || stopped) mw_audio_full = 0u;
     if ((int32_t)(cycles() - mw_at) < 0) return;                 /* still running this meter's window */
     mw_sample();
-    if (++mw_idx >= VIZ_SEL_COUNT) { mw_finish(); mw_state = mw_qr_len ? MW_QR : MW_DONE; set_dirty = 1u; return; }
+    if (++mw_idx >= VIZ_SEL_COUNT) { mw_finish(); mw_state = REP_AVAIL(mw_qr_len) ? MW_QR : MW_DONE; set_dirty = 1u; return; }
     viz_mode = viz_order[mw_idx]; bars_layout = 0u;
     mw_window_reset();
     set_dirty = 1u;
@@ -1237,6 +1304,9 @@ static void mw_tick(void)
 
 COLD_TEXT static void mw_draw_qr(void)
 {
+#if TAU_TPG
+    if (REP_GRID(mw_qr_len)) { rep_draw_grid("METER SWEEP"); return; }
+#endif
     const uint32_t sz = mw_qr_len;
     uint32_t m = 354u / (sz + 8u);
     if (m > 4u) m = 4u;
@@ -1269,14 +1339,14 @@ COLD_TEXT static void mw_draw_qr(void)
 static const char *mw_hint(void)
 {
     if (mw_state == MW_IDLE) return "UP DOWN SELECT   LEFT RIGHT CHANGE   A START   B BACK";
-    if (mw_state == MW_DONE) return mw_qr_len ? "B CLOSE   A QR CODE" : "B CLOSE";
+    if (mw_state == MW_DONE) return REP_AVAIL(mw_qr_len) ? "B CLOSE   A CODE" : "B CLOSE";
     if (mw_state == MW_RUN) return "B ABORT";
     return "B BACK";
 }
 
 COLD_TEXT static void mw_draw(void)
 {
-    if (mw_state == MW_QR && mw_qr_len) { mw_draw_qr(); return; }
+    if (mw_state == MW_QR && REP_AVAIL(mw_qr_len)) { mw_draw_qr(); return; }
     ov_frame("METER SWEEP",
              mw_state == MW_RUN ? "RUNNING" : mw_state == MW_REFUSED ? "REFUSED" : mw_state == MW_DONE ? "DONE" : "",
              mw_hint());
@@ -1315,7 +1385,7 @@ COLD_TEXT static void mw_draw(void)
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, "sampling on the player screen...", TS_1X, TS_1X, PL_UI_W - 32u);
     }
     if (mw_state == MW_DONE) {
-        fb_set_color(mw_qr_len ? ui_accent : UI_RED, OV_BODY);
+        fb_set_color(REP_AVAIL(mw_qr_len) ? ui_accent : UI_RED, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, "METER SWEEP FINISHED", TS_1X, TS_1X, PL_UI_W - 32u);
     }
 }
@@ -1332,9 +1402,10 @@ COLD_TEXT static int mw_input(uint32_t edge)
     } else if (mw_state == MW_RUN) {
         if (edge & KEY_B) { mw_restore_screen(); mw_state = MW_IDLE; set_dirty = 1u; }   /* abort */
     } else if (mw_state == MW_DONE) {
-        if ((edge & (KEY_A | KEY_RIGHT)) && mw_qr_len) { mw_state = MW_QR; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL(mw_qr_len)) { mw_state = MW_QR; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { mw_state = MW_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else {   /* MW_QR */
+        if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { mw_state = MW_DONE; set_dirty = 1u; }
     }
     return 1;
@@ -1373,7 +1444,9 @@ COLD_TEXT static void mt_finish(void)
     viz_mode = mt_saved_mode; bars_layout = mt_saved_layout;
     if (!ui_fullscreen) { ui_wave_clear(); if (art_ready && art_shown) ui_art_draw(); }
     ui_wave_force = 1u; wviz_force = 1u;
+    REP_CONTEXT(&mt_rec, 1);
     uint32_t len = sr_finish(&mt_rec);
+    REP_SET(len);
     mt_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
         uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
@@ -1381,7 +1454,7 @@ COLD_TEXT static void mt_finish(void)
         uint32_t sz = qr_encode((const uint8_t *)CHK_TXT, txtlen, 1u, CHK_QR_MAXV, 0, CHK_QR, &ver, &mask);
         if (sz) { mt_qr_len = (uint8_t)sz; mt_qr_ver = (uint8_t)ver; }
     }
-    mt_state = mt_qr_len ? MT_DONE : MT_IDLE;
+    mt_state = REP_AVAIL(mt_qr_len) ? MT_DONE : MT_IDLE;
     set_open = 1u; set_page = SET_METERTRACE_PG; set_dirty = 1u;   /* the menu was closed on purpose so the meters draw: reopen on the result */
 }
 
@@ -1406,6 +1479,9 @@ static void mt_open(void) { if (mt_state != MT_REC && mt_state != MT_FIN) mt_sta
 
 COLD_TEXT static void mt_draw_qr(void)
 {
+#if TAU_TPG
+    if (REP_GRID(mt_qr_len)) { rep_draw_grid("METER TRACE"); return; }
+#endif
     const uint32_t sz = mt_qr_len;
     uint32_t m = 354u / (sz + 8u);
     if (m > 4u) m = 4u;
@@ -1431,9 +1507,9 @@ COLD_TEXT static void mt_draw_qr(void)
 
 COLD_TEXT static void mt_draw(void)
 {
-    if (mt_state == MT_QR && mt_qr_len) { mt_draw_qr(); return; }
+    if (mt_state == MT_QR && REP_AVAIL(mt_qr_len)) { mt_draw_qr(); return; }
     ov_frame("METER TRACE", mt_state == MT_REC ? "RECORDING" : mt_state == MT_REFUSED ? "REFUSED" : mt_state == MT_DONE ? "DONE" : "",
-             mt_state == MT_DONE ? "B CLOSE   A QR CODE" : mt_state == MT_IDLE ? "A RECORD   B BACK" : "B BACK");
+             mt_state == MT_DONE ? "B CLOSE   A CODE" : mt_state == MT_IDLE ? "A RECORD   B BACK" : "B BACK");
     if (mt_state == MT_IDLE) {
         fb_set_color(UI_WHITE, OV_BODY);
         fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y, "PRESS A TO RECORD", TS_1X, TS_1X, PL_UI_W - 32u);
@@ -1459,9 +1535,10 @@ COLD_TEXT static int mt_input(uint32_t edge)
     } else if (mt_state == MT_REFUSED) {
         if (edge & (KEY_A | KEY_B | KEY_LEFT)) { mt_state = MT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else if (mt_state == MT_DONE) {
-        if ((edge & (KEY_A | KEY_RIGHT)) && mt_qr_len) { mt_state = MT_QR; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL(mt_qr_len)) { mt_state = MT_QR; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { mt_state = MT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else if (mt_state == MT_QR) {
+        if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { mt_state = MT_DONE; set_dirty = 1u; }
     }
     return 1;
@@ -1650,7 +1727,9 @@ static uint32_t bt_crumb_read(void)
 COLD_FN static void bt_finish(void)
 {
     bt_crumb(30);   /* entered bt_finish() */
+    REP_CONTEXT(&bt_rec, 1);
     uint32_t len = sr_finish(&bt_rec);
+    REP_SET(len);
     bt_crumb(31);   /* sr_finish() returned */
     bt_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
@@ -1705,7 +1784,7 @@ COLD_FN static void bt_advance(void)
             bt_crumb(19);   /* last op/level reached -- about to call bt_finish() */
             bt_finish();
             bt_crumb(20);   /* bt_finish() returned */
-            bt_state = bt_qr_len ? BT_QR : BT_DONE;
+            bt_state = REP_AVAIL(bt_qr_len) ? BT_QR : BT_DONE;
             /* B-197 root cause: set_draw() (fw/player.c) only redraws `if (set_open && set_dirty)`
              * -- this finishing return never set it, so the whole test silently completes (QR
              * encoded, bt_finish() done) and the screen never once redraws to show BT_DONE/BT_QR.
@@ -1772,6 +1851,9 @@ static void bt_tick(void)
 
 COLD_TEXT static void bt_draw_qr(void)
 {
+#if TAU_TPG
+    if (REP_GRID(bt_qr_len)) { rep_draw_grid("BLIT TEST"); return; }
+#endif
     const uint32_t sz = bt_qr_len;
     uint32_t m = 354u / (sz + 8u);
     if (m > 4u) m = 4u;
@@ -1799,7 +1881,7 @@ COLD_TEXT static void bt_draw_qr(void)
 
 COLD_TEXT static void bt_draw(void)
 {
-    if (bt_state == BT_QR && bt_qr_len) { bt_draw_qr(); return; }
+    if (bt_state == BT_QR && REP_AVAIL(bt_qr_len)) { bt_draw_qr(); return; }
     if (bt_state == BT_RUN) return;   /* the test itself owns the whole screen; the HUD is its only chrome */
     ov_frame("BLIT TEST",
              bt_state == BT_REFUSED ? "REFUSED" : bt_state == BT_DONE ? "DONE" : "",
@@ -1835,10 +1917,10 @@ COLD_TEXT static void bt_draw(void)
     q = set_str(q, "op "); q = ui_dec(q, (uint32_t)bt_op * BT_LEVELS + bt_lvl); q = set_str(q, " / "); q = ui_dec(q, BT_OPS * BT_LEVELS); *q = 0;
     fb_set_color(UI_WHITE, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
-    fb_set_color(bt_qr_len ? ui_accent : UI_RED, OV_BODY);
-    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, bt_qr_len ? "done" : "record did not fit", TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_set_color(REP_AVAIL(bt_qr_len) ? ui_accent : UI_RED, OV_BODY);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 1u * PL_UI_ROW_H, REP_AVAIL(bt_qr_len) ? "done" : "record did not fit", TS_1X, TS_1X, PL_UI_W - 32u);
     fb_set_color(UI_FAINT, OV_BODY);
-    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, bt_qr_len ? "A QR   B BACK" : "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 3u * PL_UI_ROW_H, REP_AVAIL(bt_qr_len) ? "A CODE   B BACK" : "B BACK", TS_1X, TS_1X, PL_UI_W - 32u);
 }
 
 COLD_TEXT static int bt_input(uint32_t edge)
@@ -1852,9 +1934,10 @@ COLD_TEXT static int bt_input(uint32_t edge)
     } else if (bt_state == BT_RUN) {
         if (edge & KEY_B) bt_state = BT_IDLE;   /* abort */
     } else if (bt_state == BT_DONE) {
-        if ((edge & (KEY_A | KEY_RIGHT)) && bt_qr_len) { bt_state = BT_QR; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL(bt_qr_len)) { bt_state = BT_QR; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { bt_state = BT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else {   /* BT_QR */
+        if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { bt_state = BT_DONE; set_dirty = 1u; }
     }
     return 1;
