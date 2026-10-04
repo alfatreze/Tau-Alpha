@@ -786,3 +786,4 @@ When delegating, write the subagent prompt to minimize its cost and the tokens i
 - 2026-10-04 (Claude): owner confirmed DEV 88 (pipelined Subband handoff) sounds clean all round (B-588).
 - 2026-10-04 (Claude): firmware (B-589). Cymo C0 follow-up: SR_T_LOAD2 (decode / meters_feed / push / UI cycle split of the MP3 loop) in the Check QR, Diagnostic Build only; DEV 89 packaged, NOT installed.
 - 2026-10-04 (Claude): firmware (B-590). Check's stress tests drew random noise over the screen: STRESS_BASE (2 MiB) overlapped display buffer 1 of the H2 double buffer; pump moved to 3..4 MiB, host overlap test added (red then green). DEV 90 packaged (includes SR_T_LOAD2), NOT installed.
+- 2026-10-04 (Claude): analysis (B-591). DEV 90 Check: stress noise gone; busy 48% = decode 30 + meter feed 2 + push 11 + UI 0 (Check page covers the meters) + ~5 other; the per-sample push loop (~166 cycles per pair) is the next target.
