@@ -797,3 +797,4 @@ When delegating, write the subagent prompt to minimize its cost and the tokens i
 - 2026-10-04 (Claude): release (B-596). v0.6.0-alpha.3 zips built (version label + changelog bumped, pairing check PASS, test-host passes); NOT installed, tagged or published; smoke test of the normal core pending (card not mounted).
 - 2026-10-04 (Claude): card/release (B-596). alpha.3 normal core and Diagnostic Build installed and smoke-tested by the owner: both boot, no audio issues on extended listening. Awaiting the owner's OK to tag, push and publish.
 - 2026-10-04 (Claude): release (B-597). v0.6.0-alpha.3 published (tag + pre-release with both zips); main pushed to c228147.
+- 2026-10-04 (Claude): firmware (B-598). Cymo C1: dB-tapered volume (100 positions over 60 dB, owner's choice) with a 5 ms click-free ramp; default 65 to 94, step 3; host-tested incl. mutant; DEV 92 packaged, NOT installed. Saved volumes now sound quieter (same number, different loudness).

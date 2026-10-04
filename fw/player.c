@@ -1088,8 +1088,8 @@ static uint8_t track_vbr_method;      /* 0 = unknown / absent */
  * recomputed once per change, because a divide per sample would be 2304
  * software divides every frame inside the decode budget. */
 #define VOL_MAX   100u
-#define VOL_STEP  5u
-static uint32_t paused, volume = 65u;    /* overridden by the saved setting     */
+#define VOL_STEP  3u
+static uint32_t paused, volume = 94u;    /* overridden by the saved setting     */
 
 /* Fade-in after ANY audio discontinuity, in samples (~46 ms at 44.1 kHz).
  *
@@ -1197,12 +1197,11 @@ static uint32_t fl_rate_hz;                /* mirrors fl.rate, declared later */
 static uint8_t  fl_bps_mirror;             /* mirrors fl.bps, declared later -- vu_master.inc's overlay needs it before fl exists */
 static uint8_t  fl_io_pct;
 static uint32_t ui_last_prof;              /* UI_SHOW_DECODE_PROFILE latch, Phase F step 1 */
-static int32_t  vol_gain = 256;          /* Q8: 256 == unity */
+#include "pcm_push.h"       /* the type below (the include further down stays harmless: it has a guard) */
+static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: current value and the target it ramps to (dB taper, B-598) */
 
-static void vol_apply(void)
-{
-    vol_gain = (int32_t)(volume * 256u / 100u);
-}
+static void vol_apply(void)        { vol_st.target = pcm_vol_target(volume); }                 /* a change: ramps */
+static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = pcm_vol_target(volume); }    /* boot / settings restore: no ramp from full volume */
 /* ------------------------------------------------------------- playlist ----
  * The legacy .m3u-playlist-file playback mode (state + logic in playlist.inc)
  * has been removed: the media library (fw/library.inc) is now the only way to
@@ -7677,7 +7676,7 @@ static uint32_t fl_meter_n;
  * has no such exit and never aborts. Always inlined, so the generated code per call site is what the hand-written copies produced. */
 static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_t r, uint8_t abortable)
 {
-    pcm_gain_apply(&l, &r, vol_gain, &fade_left, FADE_SAMPLES);
+    pcm_gain_apply(&l, &r, &vol_st, &fade_left, FADE_SAMPLES);
     const uint32_t st = REG(R_PCM_ST);
 #if TAU_DIAGNOSTIC
     ur_note(&ur_all, PCM_FULL(st), PCM_EMPTY(st));   /* B-546: counts every stall, not just the first per flush */
@@ -9173,7 +9172,7 @@ int main(void)
      * the first fill is visible as a screenful of noise. */
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
 
-    vol_apply();
+    vol_apply_snap();
 
     /* Phase F step 1 (docs/PHASE_F_SPEC.md section 14): point the decoders'
      * cycle-counting hooks at R_CYCLES. Compiles to nothing unless the
@@ -10243,7 +10242,7 @@ int main(void)
         LD_ACC(ld1, ld_t_feed);
 
         LD_MARK(ld2);
-        if (!pcm_push_pairs(&cymo_hooks, pcm, (uint32_t)(stereo ? n / 2 : n), (uint32_t)stereo, vol_gain, &fade_left, FADE_SAMPLES))
+        if (!pcm_push_pairs(&cymo_hooks, pcm, (uint32_t)(stereo ? n / 2 : n), (uint32_t)stereo, &vol_st, &fade_left, FADE_SAMPLES))
             goto next_outer;                         /* volume, fade, FIFO wait, write (C1, burst form B-592); aborts on a pending reload */
         LD_ACC(ld2, ld_t_push);
         }
