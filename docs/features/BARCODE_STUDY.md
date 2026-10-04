@@ -78,3 +78,23 @@ Built so far (host-verified, `make test-host` passes):
 - **Omega**: interface entry in `docs/features/CROSS_PROJECT_INTERFACE.md`.
 
 Still to do: migrate Sweep, Info export and the Layered Wave config export (each has its own QR block), trim the QR encoder to version <= 14 (the 6 KB table set and 13 KB buffer go away), lift the 48-track Sweep cap, and decide whether mode R needs error correction.
+
+## 6. What every screenshot should carry (context block)
+
+With a grid the record is no longer squeezed by QR capacity, so every report page (Check, Decode Sweep, Meter Sweep, Meter Trace, Blit Test, Info export, Meter Config) now appends one shared context block (`rep_context()` in `fw/suite.inc`, `TAU_TPG=1` builds). The Info export additionally dumps **every Info page row** as text (`SR_T_INFOTEXT`, tag 25, one entry per row, label + value exactly as on screen, so a new Info row needs no decoder change): `decode_tau_suite.py --grid shot.png --table` prints the whole page as a table. The record budget is still the 2,048 B buffer (`CHK_REC_CAP`): the 34 Info rows take about 0.9-1.5 KB, the context 150-300 B, the Decode Sweep cap is 48 tracks.
+
+| Item | Status | Where it comes from |
+|---|---|---|
+| Firmware version, FPGA revision, cold-image state, track format/rate row, library state, underruns | **built** (`SR_T_INFOTEXT` rows) | the Info page's own rows, so they always match what the page shows |
+| Now playing: state (none / stopped / paused / playing), queue position and length, title, artist, album | **built** (`SR_T_NOWPLAYING`, tag 26) | `track_title/artist/album`, `stopped`, `paused`, `lib_qpos/lib_qn` |
+| Date and time of the screenshot | **free, no bytes**: the Pocket names every screenshot `YYYYMMDD_HHMMSS.png` | Tau Omega already parses it (`list_screenshots`); `decode_tau_suite.py` can read it from the file name |
+| Which page made the report | already implied (profile / tag set) and printed as the on-screen title | |
+| Settings snapshot (theme, mode, accent, meter and preset, EQ, speed, volume, repeat, shuffle, Cymo toggle) | **suggested next**, firmware only, about 20 bytes | the settings variables; Check already has `SR_T_SET`, the other pages do not |
+| Uptime and run counter | **suggested next**, firmware only | `cycles()` wraps every ~64 s, so a small seconds accumulator is needed; Check already has a run counter |
+| Hardware feature bits (blit, rrect, dbuf, blend, CLUT mode, MP3 window, FLAC LPC, Cymo, TIM1 ready) | **suggested next**, firmware only, 4 bytes | the boot probes already exist; one bitmask replaces reading eight Info rows |
+| Decoded-file facts (bitrate or bit depth, channels, duration, position, speed) | **suggested next**, firmware only | the decoder structs; lets Omega tie a report to a track and a moment |
+| Last eight error codes | **suggested next**, firmware only | the Check spec already lists it, not yet wired on every page |
+| Wall-clock date and time from the Pocket (not just the file name) | **needs RTL + a fit**: APF host command `0x0090` sends epoch seconds and BCD date/time once at boot; the core must latch it into an MMIO register. Gives the boot time, so a report's time = boot time + uptime | `analogue-pocket-dev` host-target-commands reference |
+| A device identifier | **needs RTL + a fit, and an owner decision**: the Cyclone V has a unique chip ID (`altchip_id`), the APF does not appear to give cores a device id (the build id at `0x2380` identifies the core build, not the unit). Privacy: an id in every shared screenshot makes all of one person's reports linkable. Recommendation: do not add it; if wanted, a 32-bit hash shown on the Info page and opt-in in the export, or a user-chosen "unit name" setting | |
+
+Verification status: the decoder side is covered by golden tests (`sim/test_tpg.py`: Info page, 64-track sweep, now-playing, context rows). The firmware side (`rep_context()`, the Info row dump) is compile-checked on every target and not run on a Pocket yet; it cannot be exercised under the host harness because it reads the player's own state.

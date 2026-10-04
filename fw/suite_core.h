@@ -16,7 +16,7 @@
 #define SR_FMT 1u
 enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, SR_T_TIME, SR_T_AUDIO, SR_T_LIB,
        SR_T_SET, SR_T_ERR, SR_T_NOTE, SR_T_DECPROF, SR_T_DECSWEEP, SR_T_BLITTEST, SR_T_STACK, SR_T_WVIZCFG,
-       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE, SR_T_DECPROF2, SR_T_HEAP, SR_T_LOAD };
+       SR_T_METERSWEEP, SR_T_INFOEXPORT, SR_T_METERCFG, SR_T_METERTRACE, SR_T_DECPROF2, SR_T_HEAP, SR_T_LOAD, SR_T_INFOTEXT, SR_T_NOWPLAYING };
 /* SR_T_HEAP (B-514, PHASE_F_SPEC.md section 4.1's other half): u32 x 2 -- peak heap bytes in use since boot, heap region size in bytes. The firmware's
  * _sbrk (fw/sysio.c) only ever grows, so heap_used() IS the high-water mark. Present on every Check run, like SR_T_STACK. A NEW tag (23) rather than a longer
  * SR_T_STACK so an older decoder skips it as unknown instead of misreading a 4-word stack record. */
@@ -69,6 +69,11 @@ enum { SR_T_BUILD = 1, SR_T_MEM, SR_T_TEST, SR_T_SDRAM, SR_T_PSRAM, SR_T_COLD, S
  * fw_patch(u8) (parsed from APP_VER), fpga_rev(u32 LE, REG(R_VERSION)), window_read_cyc(u16 LE),
  * free_ram(u32 LE), underruns(u16 LE, pcm_under_n), draw_stall_ms(u16 LE, R_FB_STALL/(CLK_HZ/1000)),
  * load_ms(u16 LE, the LOAD MS row's own total), cpu_pct(u8, ui_cpu_pct()). */
+/* SR_T_INFOTEXT (2026-10-04, tag 25, repeatable, Info export only): one entry per Info page row, exactly as shown on screen: row_index(u8), label (ASCII),
+ * 0, value (ASCII, no terminator; the entry length ends it). Self-describing, so a new Info row needs no decoder change. */
+/* SR_T_NOWPLAYING (2026-10-04, tag 26, once per report, grid builds): what was playing when the report was made: state(u8: 0 nothing loaded, 1 stopped, 2 paused,
+ * 3 playing), queue_pos(u16 LE, 1-based, 0 = no library queue), queue_len(u16 LE), then title, 0, artist, 0, album (ASCII/UTF-8, each cut at 40 bytes, no
+ * terminator after the album: the entry length ends it). */
 /* SR_T_METERCFG (M2, docs/METER_MODULE_SPEC.md section 5): generic replacement for SR_T_WVIZCFG. A one-off export of the meter being edited on
  * the Configure page, for ANY meter that has parameters: meter_id(u8, the VIZ_* id), schema(u8, 1), preset_idx(u8, 0xFF = custom),
  * nparams(u8), then the values in manifest order, one byte per u8/bool/enum parameter and two (u16 LE) per u16 parameter. Widths and

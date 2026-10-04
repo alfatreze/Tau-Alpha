@@ -1231,7 +1231,8 @@ COLD_FN static void wvcfg_preview_tick(void)
 static int wvcfg_input(uint32_t edge)
 {
 #if TAU_DIAGNOSTIC
-    if (wvcfg_qr_up) {                             /* QR screen: anything closes it */
+    if (wvcfg_qr_up) {                             /* QR screen: X changes the view, anything else closes it */
+        if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_START)) { wvcfg_qr_up = 0u; set_dirty = 1u; }
         return 1;
     }
@@ -1575,7 +1576,8 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
 
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
 #if TAU_DIAGNOSTIC
-        if (set_page == SET_INFO_PG && info_qr_up) {     /* QR screen: anything closes it */
+        if (set_page == SET_INFO_PG && info_qr_up) {     /* QR screen: X changes the view, anything else closes it */
+            if (REP_KEY(edge)) return 1;
             if (edge & (KEY_A | KEY_B | KEY_START)) { info_qr_up = 0u; set_dirty = 1u; }
             return 1;
         }

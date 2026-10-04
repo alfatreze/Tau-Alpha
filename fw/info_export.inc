@@ -25,7 +25,21 @@ COLD_FN static void info_build_qr(void)
     sr_t s;
     sr_init(&s, CHK_REC, CHK_REC_CAP, 0u);
     sr_tlv(&s, (uint8_t)SR_T_INFOEXPORT, buf, sizeof(buf));
+    /* SR_T_INFOTEXT: every row of the Info page exactly as it reads on screen (the page is the reason the grid exists: far more than a QR code
+     * holds). One entry per row: row index, label, 0, value text. A new Info row needs no change here or in the decoder. */
+    for (uint32_t i = 0; i < SET_INFO_ROWS; i++) {
+        uint8_t e[72]; char v[40]; uint32_t n = 0;
+        set_info_value(i, v);
+        e[n++] = (uint8_t)i;
+        for (const char *p = set_info_label[i]; *p && n < 28u; p++) e[n++] = (uint8_t)*p;
+        e[n++] = 0u;
+        const uint32_t vs = n;
+        for (const char *p = v; *p && n < vs + 28u; p++) e[n++] = (uint8_t)*p;   /* values cut at 28 characters: keeps the 34 rows inside the record */
+        sr_tlv(&s, (uint8_t)SR_T_INFOTEXT, e, n);
+    }
+    REP_CONTEXT(&s, 0);                      /* the rows are all in already */
     uint32_t len = sr_finish(&s);
+    REP_SET(len);
     info_qr_len = 0;
     if (len && sr_text(CHK_REC, len, CHK_TXT, CHK_TXT_CAP)) {
         uint32_t txtlen = 0; while (CHK_TXT[txtlen]) txtlen++;
@@ -38,6 +52,9 @@ COLD_FN static void info_build_qr(void)
 /* Same rendering as wvcfg_draw_qr()/bt_draw_qr(): a plain module grid plus a titled caption. */
 COLD_TEXT static void info_draw_qr(void)
 {
+#if TAU_TPG
+    if (REP_GRID(info_qr_len)) { rep_draw_grid("INFO EXPORT"); return; }
+#endif
     const uint32_t sz = info_qr_len;
     uint32_t m = 354u / (sz + 8u);
     if (m > 4u) m = 4u;
