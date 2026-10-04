@@ -4829,7 +4829,11 @@ COLD_FN3 static uint32_t helios_meter(uint32_t viz, const mtr_in_t *in0, uint32_
     case VIZ_WAVE:         viz_wave_tick(in); break;
     case VIZ_SCOPE:        viz_phase_tick(in); break;
     case VIZ_BARS:         viz_bars_tick(in); break;
+#if TAU_PACKS
+    case VIZ_CHLADNI:      drew = packs_have(VIZ_CHLADNI) ? packs_tick(VIZ_CHLADNI, in) : (uint32_t)chladni_tick_box(in); break;   /* a valid pack replaces the built-in drawing */
+#else
     case VIZ_CHLADNI:      drew = (uint32_t)chladni_tick_box(in); break;
+#endif
 #if TAU_PACKS
     case VIZ_LAYERED_WAVE: drew = packs_have(VIZ_LAYERED_WAVE) ? packs_tick(VIZ_LAYERED_WAVE, in) : (uint32_t)lw_tick(in); break;   /* a valid pack replaces the built-in drawing */
 #else
