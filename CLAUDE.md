@@ -796,3 +796,4 @@ When delegating, write the subagent prompt to minimize its cost and the tokens i
 - 2026-10-04 (Claude): git (B-595). barcode-study (pixel-grid report codes TPG1/TPG2) fast-forward merged into main, tested (make test-host, three firmware builds), worktree and branch deleted; Check tags 26/27 taken, next free 28. Not pushed.
 - 2026-10-04 (Claude): release (B-596). v0.6.0-alpha.3 zips built (version label + changelog bumped, pairing check PASS, test-host passes); NOT installed, tagged or published; smoke test of the normal core pending (card not mounted).
 - 2026-10-04 (Claude): card/release (B-596). alpha.3 normal core and Diagnostic Build installed and smoke-tested by the owner: both boot, no audio issues on extended listening. Awaiting the owner's OK to tag, push and publish.
+- 2026-10-04 (Claude): release (B-597). v0.6.0-alpha.3 published (tag + pre-release with both zips); main pushed to c228147.
