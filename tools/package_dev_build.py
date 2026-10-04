@@ -38,6 +38,8 @@ def main():
                     help="profile = fw/build.sh player-library-diagnostic-profile (default); "
                          "diagnostic = player-library-diagnostic")
     ap.add_argument("--number", type=int, help="name the core 'TAU DEV NN' (throwaway iteration)")
+    ap.add_argument("--barcode", type=int, help="name the core 'TAU DEV BARCODE NN' (alfatreze.TAU_DEV_BARCODE_NN): test builds of the barcode-study branch "
+                                                "(keeps its numbering apart from TAU DEV NN and TAU DEV METER NN)")
     ap.add_argument("--semver", help="name the core after the release it works toward, e.g. 0.5.0-alpha.1 "
                                      "(X.Y.Z-tag.N, tag alpha/beta/rc); use for real feature milestones")
     ap.add_argument("--release-diagnostic", action="store_true",
@@ -66,11 +68,11 @@ def main():
                          "own --release-diagnostic, which never uses these flags).")
     args = ap.parse_args()
     if args.release_diagnostic:
-        if args.number is not None or args.semver or not args.rbf:
-            sys.exit("--release-diagnostic takes --rbf/--rbf-sha256 and no --number/--semver")
+        if args.number is not None or args.semver or args.barcode is not None or not args.rbf:
+            sys.exit("--release-diagnostic takes --rbf/--rbf-sha256 and no --number/--semver/--barcode")
         args.variant = "diagnostic"
-    elif (args.number is None) == (not args.semver):
-        sys.exit("give exactly one of --number or --semver")
+    elif [args.number is not None, bool(args.semver), args.barcode is not None].count(True) != 1:
+        sys.exit("give exactly one of --number, --semver or --barcode")
 
     romdir, kind, default_note, *extra = VARIANTS[args.variant]
     target = extra[0] if extra else f"player-{romdir}"
@@ -126,6 +128,11 @@ def main():
     if args.release_diagnostic:
         platform, core_id, short, title = "tau_diagnostic", "alfatreze.TAU_DIAGNOSTIC", "TAU_DIAGNOSTIC", "TAU Diagnostic Build"
         desc, out = "TAU developer build: settings, Info page and diagnostic tests", root / "work/diagnostics/library-diagnostic/pocket"
+    elif args.barcode is not None:
+        nn = f"{args.barcode:02d}"
+        platform, core_id = f"tau_devbarcode{nn}", f"alfatreze.TAU_DEV_BARCODE_{nn}"   # platform id limit: 15 characters
+        short, title, label = f"TAU_DEV_BARCODE_{nn}", f"TAU DEV BARCODE {nn}", f"barcode-study test build {nn}"
+        out = root / f"work/diagnostics/tau-dev-barcode-{nn}/pocket"
     elif args.semver:
         # Pocket platform ids match [a-z0-9][a-z0-9_]* and are <= 15 chars, so the semver is sanitized there;
         # the human-facing shortname/title/description keep the real string.
