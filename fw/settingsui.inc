@@ -242,6 +242,11 @@ static uint8_t thumb_flat_ready;
 COLD_FN static void set_thumb_flat_build(void)
 {
     if (FB_HELD()) return;
+    /* B-572: the index plane must live in buffer 0, where set_draw_thumb()'s CLUT blit reads it (blit-mode commands follow the sticky bases,
+     * never R_DBUF_CPU). fb_rect() follows R_DBUF_CPU, which Settings leaves on the DISPLAYED buffer (0 or 1 depending on how many chrome
+     * redraws the session has had), so build with it forced to 0 and restore it once the commands have really executed. */
+    const uint32_t was_cpu = ui_bg_cur_buf();
+    if (was_cpu) REG(R_DBUF_CPU) = 0u;
     for (uint32_t viz = 0; viz < VIZ_COUNT; viz++) {
 #if TAU_ART_TIMG
         if (viz == VIZ_VU_MASTER || viz == VIZ_LAYERED_WAVE) continue;    /* excluded from the compacted stash -- no row budget for it, see thumb_slot() */
@@ -263,6 +268,7 @@ COLD_FN static void set_thumb_flat_build(void)
         }
     }
     fb_wait();
+    if (was_cpu) { fb_fence(); REG(R_DBUF_CPU) = was_cpu; }
     thumb_flat_ready = 1u;
 }
 
@@ -278,7 +284,14 @@ COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
     uint16_t pal[8];
     set_thumb_pal(viz, pal);
     fb_clut_load(pal, 8u);
+    /* B-572: source = the plane in buffer 0, destination = the buffer the page is being drawn into (R_DBUF_CPU: the displayed one, or the
+     * back buffer during the menu cross-fade render). fb_fence() makes the blit EXECUTE before the bases are restored and before the next
+     * preview reloads the (single, shared) CLUT: fb_clut_load() only waits for FIFO space, so without it the previews drew with each
+     * other's palettes. */
+    fb_set_bases(0u, ui_bg_cur_buf() ? DBUF_BASE1_W : 0u);
     fb_cblit(0u, THUMB_STASH_Y + thumb_slot(viz) * METER_THUMB_H, x, y, METER_THUMB_W, METER_THUMB_H);
+    fb_fence();
+    fb_set_bases(0u, 0u);
 }
 
 #if TAU_DIAGNOSTIC
