@@ -72,6 +72,7 @@ test-host:
 	$(PYTHON) sim/test_start_gesture.py
 	$(PYTHON) sim/test_meter_policy.py
 	$(PYTHON) sim/test_pcm_push.py
+	$(PYTHON) sim/test_pixgrid.py
 	$(PYTHON) sim/test_key_repeat.py
 	$(PYTHON) sim/test_headroom.py
 	$(PYTHON) sim/test_wsola.py
