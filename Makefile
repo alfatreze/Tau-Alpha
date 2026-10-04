@@ -76,6 +76,7 @@ test-host:
 	$(PYTHON) sim/test_tpg.py
 	$(PYTHON) sim/test_tpg_fw.py
 	$(PYTHON) sim/test_pcm_burst.py
+	$(PYTHON) sim/test_replaygain.py
 	$(PYTHON) sim/test_key_repeat.py
 	$(PYTHON) sim/test_headroom.py
 	$(PYTHON) sim/test_wsola.py

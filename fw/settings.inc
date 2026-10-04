@@ -219,7 +219,7 @@ static int settings_store(void)
     set_wr(SW_LIBB, lib_hb & 0x7FFFFFFFu);
     set_wr(SW_LIBS, lib_hs & 0x7FFFFFFFu);
     set_wr32(SW_THEME, th_theme);
-    set_wr32(SW_POL,   th_pol ? 1u : 0u);
+    set_wr32(SW_POL,   (th_pol ? 1u : 0u) | ((uint32_t)rg_mode << 4));   /* bit 0 polarity, bits 4-5 ReplayGain mode (B-599): an old file has 0 there = Off */
     set_wr32(SW_MPRE_BARS,    mtr_pi_winamp_bars);
     set_wr32(SW_MPRE_SCOPE,   mtr_pi_winamp_scope);
     set_wr32(SW_MPRE_CHLADNI, mtr_pi_chladni);
@@ -280,7 +280,7 @@ static int settings_load(void)
      * theme 0 (TAU), Dark, no saved preset for any of the three meters -- exactly today's defaults, so
      * this degrades to "nothing persisted" rather than to a wrong or corrupted value. */
     v = set_rd32(SW_THEME); if (v < TH_COUNT()) th_theme = (uint8_t)v;
-    th_pol = set_rd32(SW_POL) ? 1u : 0u;
+    { const uint32_t pw = set_rd32(SW_POL); th_pol = (pw & 1u) ? 1u : 0u; rg_mode = (uint8_t)(((pw >> 4) & 3u) < RG_MODES ? ((pw >> 4) & 3u) : RG_OFF); }
     v = set_rd32(SW_MPRE_BARS);    if (v < mtr_d_winamp_bars.npre)  mtr_apply_preset(&mtr_d_winamp_bars,  v);
     v = set_rd32(SW_MPRE_SCOPE);   if (v < mtr_d_winamp_scope.npre) mtr_apply_preset(&mtr_d_winamp_scope, v);
     v = set_rd32(SW_MPRE_CHLADNI); if (v < mtr_d_chladni.npre)      mtr_apply_preset(&mtr_d_chladni,      v);

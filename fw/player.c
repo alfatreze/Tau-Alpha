@@ -1200,8 +1200,26 @@ static uint32_t ui_last_prof;              /* UI_SHOW_DECODE_PROFILE latch, Phas
 #include "pcm_push.h"       /* the type below (the include further down stays harmless: it has a guard) */
 static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: current value and the target it ramps to (dB taper, B-598) */
 
-static void vol_apply(void)        { vol_st.target = pcm_vol_target(volume); }                 /* a change: ramps */
-static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = pcm_vol_target(volume); }    /* boot / settings restore: no ramp from full volume */
+/* ReplayGain (Cymo C6, B-599, fw/replaygain.h): the tags of the track being played, the user's mode (Off / Track / Album) and the resulting Q15 factor, folded into the
+ * volume target and never above unity (attenuate-only). rg_update() runs whenever either changes: after a track's tags are read and when the setting is changed. */
+#define RG_COLD COLD_FN3
+#include "replaygain.h"
+static rg_t     rg_cur;
+static uint8_t  rg_mode;                                   /* RG_OFF (default), RG_TRACK, RG_ALBUM; saved with the theme polarity word */
+static uint32_t rg_factor = RG_UNITY;
+static void vol_apply(void)        { vol_st.target = rg_target(pcm_vol_target(volume), rg_factor); }                 /* a change: ramps */
+static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = rg_target(pcm_vol_target(volume), rg_factor); }    /* boot / settings restore: no ramp from full volume */
+/* The ReplayGain parsing lives in COLD code (it ran to about 2 KB of the on-chip RAM): every entry from the hot track-load path is gated on cold_code_ok, and without cold code
+ * ReplayGain simply does nothing (the factor stays unity). rg_update() is the one entry the hot code uses. */
+COLD_FN3 static void rg_update_cold(void)  { rg_factor = rg_pick_factor(rg_mode, &rg_cur); vol_apply(); }
+COLD_FN3 static void rg_scan_cold(const uint8_t *tag, uint32_t avail, uint32_t len) { rg_id3_scan(&rg_cur, tag, avail, len); }
+COLD_FN3 static void rg_txxx_cold(const uint8_t *b, uint32_t n)                       { rg_txxx_body(&rg_cur, b, n); }
+COLD_FN3 static void rg_flac_cold(const char txt[2][16], uint8_t have)
+{
+    if (have & 1u) rg_note(&rg_cur, "REPLAYGAIN_TRACK_GAIN", 21u, txt[0], 15u);
+    if (have & 2u) rg_note(&rg_cur, "REPLAYGAIN_ALBUM_GAIN", 21u, txt[1], 15u);
+}
+static void rg_update(void) { if (cold_code_ok) rg_update_cold(); }
 /* ------------------------------------------------------------- playlist ----
  * The legacy .m3u-playlist-file playback mode (state + logic in playlist.inc)
  * has been removed: the media library (fw/library.inc) is now the only way to
@@ -8277,6 +8295,16 @@ static void id3_walk_collect(uint32_t tag_len)
                ((uint32_t)h[6] << 8)  |  (uint32_t)h[7]);
         if (!fsize || p + 10u + fsize > tag_len) return;
 
+        if (h[0] == 'T' && h[1] == 'X' && h[2] == 'X' && h[3] == 'X') {      /* ReplayGain (B-599): a TXXX frame behind the picture */
+            if (fsize <= 96u) {
+                if (!cold_code_ok) { /* no cold code: no ReplayGain */ }
+                else if (ID3_HAVE(p + 10u, fsize)) rg_txxx_cold(tagbuf + (p + 10u - wo), fsize);
+                else if (target_read_slot(MP3_SLOT_ID, p + 10u, TAG_OFF, fsize)) { rg_txxx_cold(tagbuf, fsize); wl = 0; }
+            }
+            p += 10u + fsize;
+            continue;                                            /* tagbuf may have been replaced: h is stale */
+        }
+
         for (uint32_t k = 0; k < 7u; k++) {
             if (dst[k][0]) continue;                   /* already have it */
             if (h[0] != (uint8_t)want[k][0] || h[1] != (uint8_t)want[k][1] ||
@@ -8495,6 +8523,7 @@ COLD_SR static int read_track_head(void)
         track_title[0] = 0; track_artist[0] = 0;
         track_album[0] = 0; track_year[0]   = 0; track_trk[0] = 0;
         title_status   = ID3_NO_TAG;      /* filename fallback shows the name */
+        rg_clear(&rg_cur);
         cur_file_id    = slot_file_id();
         return 1;
     }
@@ -8509,6 +8538,7 @@ COLD_SR static int read_track_head(void)
     track_album[0]  = 0;
     track_year[0]   = 0;
     track_trk[0]    = 0;
+    rg_clear(&rg_cur);
     title_status = ID3_NO_TAG;
     if (skip) {
         /* MUST happen before the audio re-read below, which overwrites ring[]
@@ -8521,6 +8551,7 @@ COLD_SR static int read_track_head(void)
                       track_album, sizeof(track_album));
         id3_find_text(ring, ring_fill, skip, "TRCK",
                       track_trk, sizeof(track_trk));
+        if (cold_code_ok) rg_scan_cold(ring, ring_fill, skip);       /* ReplayGain TXXX frames among what is loaded (B-599) */
 
         /* Everything above only saw the first 4 KB of the tag. If the title is
          * not in there, the text frames sit past a large picture -- so walk the
@@ -8554,6 +8585,7 @@ COLD_SR static int read_track_head(void)
                                                 track_album, sizeof(track_album));
             if (!track_trk[0])    id3_find_text(ring, ring_fill, skip, "TRCK",
                                                 track_trk, sizeof(track_trk));
+            if (!rg_cur.have && cold_code_ok) rg_scan_cold(ring, ring_fill, skip);
             if (!track_year[0] && id3_find_text(ring, ring_fill, skip, "TDRC",
                                                 track_year, sizeof(track_year)) != ID3_OK)
                 id3_find_text(ring, ring_fill, skip, "TYER",
@@ -8585,6 +8617,7 @@ COLD_SR static int read_track_head(void)
 
         track_year[4] = 0;
     }
+    rg_update();                                 /* ReplayGain for this track (all-clear when it has no tag): B-599 */
 
     {
         int same = have_prev && (skip == prev_skip);
@@ -8807,6 +8840,8 @@ COLD_SR static int load_track(void)
 
         track_hz       = fl.rate;
         samprate       = fl.rate;
+        if (cold_code_ok) rg_flac_cold(fl.rg_txt, fl.rg_have);   /* ReplayGain tags from the Vorbis comments (B-599) */
+        rg_update();
         track_kbps     = 0;      /* computed after the size probe, below */
         /* The format row's third field. On an MP3 it names the encoder; for a
          * lossless file the bit depth is the equivalent fact, and it is the
