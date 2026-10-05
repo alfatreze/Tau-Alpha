@@ -118,4 +118,3 @@ project it builds on:
 
 💛 **[Support HarpMudd via PayPal](https://www.paypal.com/donate/?hosted_button_id=S22WV924XU2ME)**
 ☕️ **[Buy Alfatreze a Coffee or help out with my redbulls, Claude and Codex Subs 😇](https://buymeacoffee.com/alfatreze)**
-Tau does not currently configure a project funding link.
