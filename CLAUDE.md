@@ -820,3 +820,4 @@ When delegating, write the subagent prompt to minimize its cost and the tokens i
 - 2026-10-06 (Claude): card. Installed TAU_DEV_103 (REPLAYGAIN in the Audio menu, pixel grid default); removed DEV 102/100/99/98/97 after a verified backup (work/card-backups/20261006-235423). Cores on the card: TAU, TAU_DIAGNOSTIC, TAU_DEV_103, TAU_DEV_BARCODE_04, TAU_DEV_METER_14/18.
 - 2026-10-07 (Claude): owner confirmed ReplayGain works on TAU_DEV_103 (first time it was selectable, B-605). Fit audio16-b602 still running.
 - 2026-10-07 (Claude): docs. Resource ledger of the shipped bitstream (B-606): ALM 71%, M10K 256/308, DSP 20/66; corrected the earlier "ALM 98%" claim in the C3 spec review. Not committed.
+- 2026-10-07 (Claude): docs only. docs/features/CYMO_GAIN_STAGE_DESIGN.md (hardware gain stage: volume + ReplayGain + fade-in in RTL, position before the EQ, wide internal word, final quantiser, verification, five owner decisions). Nothing built; not committed.
