@@ -923,15 +923,17 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "X");
         break;
     }
-    case 34: {   /* REPLAYGAIN (B-599): `OFF`, `NO TAG`, or `TRACK -6.5 DB` / `ALBUM -3.1 DB` -- the gain this track's tags ask for in the chosen mode (the volume target never rises above full volume) */
-        if (rg_mode == RG_OFF) { q = set_str(q, "OFF"); break; }
-        const uint8_t use_album = (rg_mode == RG_ALBUM) && (rg_cur.have & 2u);
-        if (!(rg_cur.have & (use_album ? 2u : 1u)) && !(rg_cur.have & 3u)) { q = set_str(q, "NO TAG"); break; }
-        const uint8_t from_album = use_album || !(rg_cur.have & 1u);
-        int32_t c = from_album ? rg_cur.album_cdb : rg_cur.track_cdb;
-        q = set_str(q, from_album ? "ALBUM " : "TRACK ");
-        if (c < 0) { q = set_str(q, "-"); c = -c; } else q = set_str(q, "+");
-        q = ui_dec(q, (uint32_t)c / 100u); q = set_str(q, "."); q = ui_dec(q, ((uint32_t)c % 100u) / 10u); q = set_str(q, " DB");
+    case 34: {   /* REPLAYGAIN (B-599, B-603): the mode, the gain this track's tags ask for, then H = which tags were found (bit 0 track, bit 1 album: 0 = no tag read from this file) and W = the saved settings word read back (bit 0 polarity, bits 4-5 the mode: 16 = Track, 32 = Album) */
+        q = set_str(q, rg_mode == RG_OFF ? "OFF" : rg_mode == RG_TRACK ? "TRACK" : "ALBUM");
+        if (rg_mode != RG_OFF && (rg_cur.have & 3u)) {
+            const uint8_t from_album = (rg_mode == RG_ALBUM && (rg_cur.have & 2u)) || !(rg_cur.have & 1u);
+            int32_t c = from_album ? rg_cur.album_cdb : rg_cur.track_cdb;
+            q = set_str(q, from_album ? " A" : " T");
+            if (c < 0) { q = set_str(q, "-"); c = -c; } else q = set_str(q, "+");
+            q = ui_dec(q, (uint32_t)c / 100u); q = set_str(q, "."); q = ui_dec(q, ((uint32_t)c % 100u) / 10u);
+        }
+        q = set_str(q, " H"); q = ui_dec(q, rg_cur.have);
+        q = set_str(q, " W"); q = ui_dec(q, set_rd32(SW_POL));
         break;
     }
     case 32:   /* LW COST (B-519): commands in the last draw, CPU time to issue it, and how much of that was reading the PSRAM history (lw_unwrap) */
