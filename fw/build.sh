@@ -160,7 +160,7 @@ if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw
 # (both live in $FW), so no INC change is needed the way POLY_FW's subband.c one is.
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) LPC_FW="${LPC_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && LPC_FW="${LPC_FW:-1}"
-CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_TPG=${TPG:-0}"   # TPG=1: Tau pixel grid view on the Check result page (docs/features/BARCODE_STUDY.md), Diagnostic Build only
+CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_TPG=${TPG:-1}"   # pixel grid report codes (docs/features/BARCODE_STUDY.md), Diagnostic Build only, ON by default since 2026-10-06 (D-R04 reversed); TPG=0 gives the old QR-only pages
 FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DFLAC_RICE_FAST=${FLAC_RICE_FAST:-1}"
 
 # RAM_192K=1 (default 0, every target): links against 192 KB instead of 256 KB (fw/link.ld's
