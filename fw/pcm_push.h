@@ -39,13 +39,13 @@ static inline void pcm_gain_apply(int32_t *l, int32_t *r, pcm_vol_t *v, uint32_t
         v->cur += d;
     }
     if (v->cur != PCM_VOL_UNITY) {
-        *l = (*l * v->cur) >> 15;
-        *r = (*r * v->cur) >> 15;
+        *l = (*l * v->cur + 16384) >> 15;      /* round to nearest: a plain floor shift is biased by -0.5 LSB (DC) and its error follows a quiet signal (B-602) */
+        *r = (*r * v->cur + 16384) >> 15;
     }
     if (*fade_left) {
         int32_t g = (int32_t)((fade_samples - *fade_left) >> 3);
-        *l = (*l * g) >> 8;
-        *r = (*r * g) >> 8;
+        *l = (*l * g + 128) >> 8;
+        *r = (*r * g + 128) >> 8;
         (*fade_left)--;
     }
 }

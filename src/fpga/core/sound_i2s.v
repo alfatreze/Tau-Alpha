@@ -45,6 +45,11 @@ module sound_i2s #(
     input wire [CHANNEL_WIDTH-1:0] audio_l,
     input wire [CHANNEL_WIDTH-1:0] audio_r,
 
+    // B-602 (Cymo C3, F2): 1 = put all 16 bits of a 16-bit input in the Pocket's 16-bit slot. 0 (default, and tied 0
+    // unless the bitstream has TAU_AUDIO16) keeps the original 15-bit mapping below, bit for bit. Same clock domain as
+    // audio_l/audio_r (clk_audio), so no crossing. Only meaningful when CHANNEL_WIDTH == 16 with SIGNED_INPUT == 1.
+    input wire full16,
+
     output wire audio_mclk,
     output reg  audio_lrck,
     output reg  audio_dac,
@@ -96,10 +101,13 @@ module sound_i2s #(
   wire right_sign = (SIGNED_INPUT != 0) ? audio_r[CHANNEL_WIDTH-1] : 1'b0;
 
   wire [31:0] audgen_sampdata;
-  assign audgen_sampdata[15]    = left_sign;
-  assign audgen_sampdata[14:0]  = left_mag;
-  assign audgen_sampdata[31]    = right_sign;
-  assign audgen_sampdata[30:16] = right_mag;
+  // Original mapping: {sign, audio[15:1]} -- the input shifted right by one (15 bits, 6 dB down). full16 passes the
+  // whole word. Both words are built every cycle and one is selected, so the select is the only added logic.
+  wire        use16 = full16 && (CHANNEL_WIDTH == 16) && (SIGNED_INPUT != 0);
+  wire [15:0] left_w  = use16 ? audio_l[15:0] : {left_sign,  left_mag};
+  wire [15:0] right_w = use16 ? audio_r[15:0] : {right_sign, right_mag};
+  assign audgen_sampdata[15:0]  = left_w;
+  assign audgen_sampdata[31:16] = right_w;
 
   // ----------------------------------------------------------------
   // Cross from clk_audio (game domain) to clk_mclk (serializer domain)
