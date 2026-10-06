@@ -77,3 +77,10 @@ needs an access-pattern review and owner approval (D-M07).
 - **D-R05: record tag numbers are claimed on `main`.** `SR_T_LOAD2` (25) was taken on `main` while this branch used 25 for `SR_T_INFOTEXT`; the branch moved to 26/27. Before adding a tag on a branch, read the enum on `main`. Captures made with the old numbers are container fixtures only.
 - **Assessed and not done:** a unique device id in every report (privacy: makes all of one person's screenshots linkable; the APF gives cores no device id, the Cyclone V chip id needs RTL and a fit); wall-clock time from APF command 0x0090 (needs RTL; the capture time is already in the screenshot file name).
 
+
+## Sound Shaping (Cymo C5), owner decisions 2026-10-07
+- **D-S01: six biquad stages** (low shelf 100, bell 220, bell 1.8k, bell 3.5k, dip bell 6.5k, high shelf 10k); not five, not ten. 139 clocks per sample (10%), no extra DSP; stage count is a parameter.
+- **D-S02: presets rebuilt from scratch as data** (name + six control positions), derived from the controls and a listening purpose, validated with the real coefficient generator; the old eight voicings retired; configurable in Tau Omega (`PRST`/`EQST` sections) and on the Pocket (sliders, MY SOUND, reset, restore defaults); defaults compiled in and resettable. Preamp is attenuate-only.
+- **D-S03: preset recall by gain-dip first**; dual-bank crossfade only if the dip is audible in tests.
+- **D-S04: de-esser firmware-only, after the basic layer is proven**, driven from the spectrum bank's 5-8 kHz means.
+- **D-S05 (open): on-device persistence of edited presets** is limited by the 16-entry `interact.json` cap (14 used): one user slot now; more means retiring legacy ids 20-23.

@@ -1,5 +1,7 @@
 # Cymo C5 reconsidered: "Sound Shaping", a macro-control EQ layer (design, 2026-10-07)
 
+> **Owner decisions 2026-10-07 (section 11) supersede sections 3-5 wherever they differ: SIX stages (not five), presets rebuilt from the controls as configurable data, recall by gain-dip first, de-esser firmware-only. Host model: `tools/lab/sound_shaping_model.py`, tests: `sim/test_sound_shaping_model.py` (in `make test-host`).**
+
 **Status: DESIGN, with a host prototype of the stage mapping. Nothing built in RTL or firmware.** Owner request: replace the 10-band graphic-EQ plan (C5 option B in `CYMO_AUDIO_ENGINE.md` section 8) with an MSEB-inspired mode, judged together with the gain stage (`CYMO_GAIN_STAGE_DESIGN.md`), the soft clipper and quantiser (`CYMO_OUTPUT_STAGE_SPEC.md`), the 16-bit I2S A/B, and the DSP/ALM budget. Naming: HiBy's MSEB is a proprietary PEQ plus dynamic processing with no public algorithm, so this is **not** an MSEB clone and should not carry the name; the working name here is "Sound Shaping".
 
 ## 1. Verdict
@@ -70,3 +72,36 @@ Host: extend `tools/eq_model.py` with the gain-indexed table build and tests: ea
 3. Keep the eight fixed presets as "styles" next to the sliders, or fold them into macro tuples?
 4. Preset recall: gain-dip (recommended) or dual-bank crossfade if the dip is audible?
 5. De-esser prototype wanted soon, or parked after the basic layer is proven?
+
+## 11. Owner decisions (2026-10-07) and the resulting design
+
+**D-S01: six stages, not five and not ten.** The sixth stage is a separate **punch/definition bell at 3.5 kHz (Q1.2)**, so every control owns a stage of its own and only the Warmth-to-Clarity tilt is shared. Stage map: S1 low shelf 100 Hz Q0.7 (Bass), S2 bell 220 Hz Q1.0 (warm body / low-mid mud), S3 bell 1.8 kHz Q0.8 (Vocal), S4 bell 3.5 kHz Q1.2 (Punch), S5 bell 6.5 kHz Q1.5 (Sibilance, dip only), S6 high shelf 10 kHz Q0.7 (Air, and the clear side of the tilt). Cost, from the verified engine: **139 clocks per sample, 10% of 1,388 at 66.7 MHz** (116 for five), 48 state words, no extra DSP; gain-indexed table 37 steps x 5 coefficients x 6 stages x 18 bits = 19,980 bits (two M10K or MLAB). Both stage count and table size are parameters, so a seventh stage or the 10-band page stays a data change. Versus ten stages: about 40% less clock use and table, and no stage without a name. Versus five: Punch no longer has to share a bell with the low mids, which is what makes it controllable.
+
+**D-S02: the presets are rebuilt from the ground up, as data.** The old eight (BASS/ROCK/POP/JAZZ/TREBLE/CLASSICAL/VOCAL and FLAT) are retired as voicings; a preset is now a name plus the six control positions, so it is exactly "slider positions you can see and change". Method: each preset is derived from the perceptual control it exercises and a known listening purpose (equal-loudness trend for LOW VOLUME, the intelligibility and plosive/sibilance bands for SPEECH, the usual 200-400 Hz "mud", 2-4 kHz presence and 5-8 kHz sibilance regions), then checked with the real coefficient generator for stability, coefficient range, composite peak and the auto-preamp. First defaults (macro tuple [warmth, bass, vocal, punch, sibilance dip, air] -> stage gains in dB, peak, preamp, overshoot after the preamp), from `sound_shaping_model.py`:
+
+| Preset | Tuple | Stage gains (S1..S6) | Peak | Preamp | Overshoot | Purpose |
+|---|---|---|---|---|---|---|
+| FLAT | 0 0 0 0 0 0 | all 0 | 0.0 | 0.0 | 0.0 | reference; bit-exact bypass |
+| WARM | +3 +1 0 0 0 0 | +2.5 +2.5 0 0 0 -1.5 | +3.1 | -1.1 | +2.0 | fuller body, softer top |
+| CLEAR | -3 0 0 +1 0 +1 | -1.5 -2.5 0 +1 0 +2.5 | +2.5 | 0.0 | +2.5 | less mud, more definition and air |
+| BASS | +1 +4 0 +1 0 0 | +4.5 +1 0 +1 0 -0.5 | +3.8 | -1.5 | +2.4 | small-driver bass weight |
+| VOCAL | 0 -1 +3 0 +1 0 | -1 0 +2.5 0 -1 0 | +2.5 | -0.2 | +2.2 | speech band presence, less boom |
+| SPEECH | -1 -3 +3 +1 +2 0 | -3.5 -1 +2.5 +1 -2 +0.5 | +2.7 | 0.0 | +2.7 | audiobooks and podcasts: rumble and plosives down, intelligibility up, sibilance down |
+| LOW VOLUME | +1 +5 0 0 +1 +2 | +5.5 +1 0 0 -1 +1.5 | +5.4 | -1.9 | +3.4 | equal-loudness compensation at low level |
+| SMOOTH | 0 0 0 -2 +2 -2 | 0 0 0 -2 -2 -2 | 0.0 | 0.0 | 0.0 | fatigue reduction for bright or harsh recordings |
+
+Findings that shaped the set: (a) all eight are stable with coefficients inside the 18-bit range, worst overshoot +3.4 dB (LOW VOLUME), inside the +12 dB input range and absorbed by the soft clipper; (b) a pink-weighted loudness-matching preamp turns **positive** on cut-heavy presets (SMOOTH +0.6 dB before the cap), which only eats headroom, so the preamp is **attenuate-only** (capped at 0 dB), the same discipline as ReplayGain, at the price of those presets sounding up to about half a dB quieter than FLAT; (c) LOW VOLUME is a static stand-in for a volume-dependent loudness contour (plan option F: gains that follow the volume position, a cheap follow-on once the gain stage exists); (d) the lists are first voicings: the final numbers are chosen by ear on the lab page and by loopback sweeps through the Pocket's real output, never from the model alone. A "headphone natural" preset (a Harman-style target) needs measurement of the actual headphone chain and is not guessed here.
+
+**Configurability: three layers, and the one hard limit.**
+1. **Built-in defaults:** the table above, compiled into the firmware and checked equal to the model by a host test. Never overwritten.
+2. **Tau Omega:** a `PRST` section in `tau-assets.bin` (the same CRC-checked TAUA container as the themes) with up to 16 named presets (name + six positions) and, for advanced use, an `EQST` section with the stage centres, Qs and the macro-to-dB step table; Omega edits them with a live response-curve preview (the same maths as this model), validates ranges, and can restore defaults by rewriting the section. A missing or invalid section means the built-ins (fail-safe, as for themes).
+3. **On the Pocket (Settings > AUDIO > SOUND):** pick a preset (its tuple loads into the six sliders), move any slider (the preset reads CUSTOM), **SAVE** to a user slot ("MY SOUND"), **RESET** (back to the selected preset's own tuple) and **RESTORE DEFAULTS** (ignore Omega's override and use the built-ins; one persisted bit).
+**The hard limit (and the decision it forces):** the Pocket shows at most 16 `interact.json` entries and 14 are already used (KB-079, B-455/B-456), so only **two** more persisted values fit today. Packed as 4 bits per control (11 positions), six controls are 24 bits: one entry holds the current six positions plus the preset index and the restore-defaults bit, the other holds MY SOUND. Editing a *named* preset in place on the Pocket and keeping it across power-off would need more entries (retire the legacy playlist ids 20-23, which only the Diagnostic Build's Check summary still uses) or a write-back to a data slot (rejected in this project's history: B-216, the A-088 to A-091 flush results). Open decision D-S05 below.
+
+**D-S03: preset recall uses the gain dip first** (ramp down through the gain stage, swap coefficients, ramp up; cover about the 23 ms the slowest filter needs to settle), measured with the loopback step/click detector; the dual-bank crossfade is built only if the dip is audible. Slider moves need neither (ramped 0.5 dB steps).
+
+**D-S04: de-esser is firmware-only for now:** S5's gain follows the 5-8 kHz band means from the hardware spectrum bank (about 23 ms window) through the same ramped coefficient updates, behind a flag, only after the basic layer is hardware-proven. No RTL, no new DSP.
+
+**D-S05 (open): how many presets can the user edit and keep on the Pocket?** (a) the current positions plus ONE user slot (MY SOUND) now, everything else edited in Omega (zero reclaimed ids, recommended start); (b) retire ids 20-23 to get up to four more persisted values, e.g. four user slots; (c) data-slot write-back (not recommended). Omega-edited presets are unaffected by the limit (the core only reads the file).
+
+**Build order (unchanged shape):** F2 A/B and the gain stage first; then the writable coefficient store (six stages), the `PRST`/`EQST` data sections with a Tau Omega editor, the firmware SOUND page and tables, the soft clipper; tuning lab page in parallel; the firmware de-esser flagged last.
