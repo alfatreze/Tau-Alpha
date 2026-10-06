@@ -150,6 +150,7 @@ static uint8_t clut_start_idx_v = 255u;
 #define R_I2S_DIAG_CNT    0x80000144u /* count of update events since reset */
 #define R_I2S_DIAG_SUM    0x80000148u /* sum of measured intervals since reset (average via delta / delta-count) */
 #define R_I2S_DIAG_ST     0x8000014Cu /* bit 0 = built in (I2S_DIAG_ENABLE) */
+#define R_AUDIO_CFG   0x80000164u /* B-602 (Cymo C3, F2): bit 1 (read) = bitstream has the switch, bit 0 = 16-bit I2S slot (STICKY; 0 = the original 15-bit mapping) */
 #define R_CYMO_CTRL   0x80000150u /* B-471/B-476: write: bit0 clear (pulse), bit1 start (pulse, test-only), bit2 LIVE_ENABLE (STICKY -- hands the real audio path to the resampler) */
 #define R_CYMO_PUSH   0x80000154u /* write: {push_r[31:16],push_l[15:0]} + one push_we pulse (self-test only, the live audio path never uses this) */
 #define R_CYMO_OUT    0x80000158u /* read: {out_r[31:16],out_l[15:0]} -- this read is itself the ack that clears STATUS bit 2 (self-test only) */
@@ -1919,6 +1920,8 @@ static uint8_t  spec_hw;                  /* B-263: the bitstream has the hardwa
 static uint8_t  text_mode_hw;             /* theme/gamma: the bitstream has the second text weight table (probed once at boot) */
 static uint8_t  hw_poly;                  /* B-292: the bitstream has the MP3 window unit (probed once at boot) */
 static uint8_t  hw_lpc;                   /* B-369: the bitstream has the FLAC LPC unit (probed once at boot) */
+static uint8_t  hw_a16;                   /* B-602: the bitstream has the 16-bit I2S slot switch (probed once at boot; an unmapped read is 0 on older bitstreams) */
+static uint8_t  a16_on;                   /* B-602: what the owner switched on (Diagnostics > 16-BIT OUTPUT); OFF at every boot, never persisted */
 static uint8_t  hw_cymo;                  /* B-471/B-476: the bitstream has the Cymo resampler (probed once at boot) */
 #define CYMO_RESAMP_READY() (hw_cymo != 0u)   /* a plain status-bit read: unlike BLIT_READY()/RRECT_READY(), this address
                                                 * range is cleanly unmapped on every older bitstream (docs/MMIO_ALLOCATION.md:
@@ -9178,6 +9181,7 @@ int main(void)
 #if TAU_LPC_FW
     tau_lpc_hw_enable = hw_lpc;
 #endif
+    hw_a16  = (uint8_t)((REG(R_AUDIO_CFG) >> 1) & 1u);   /* B-602 */
     hw_cymo = (uint8_t)(REG(R_CYMO_STATUS) & 1u);  /* B-471/B-476: hardware Cymo resampler present? (0 on any other bitstream) */
 #if FLAC_PROFILE
     /* B-342: one-time boot calibration of __clzdi2's real cost on THIS CPU, so flac.c's unary() call

@@ -91,7 +91,9 @@ module mp3_soc #(
     // Cymo polyphase FIR resampler (B-471, docs/features/CYMO_AUDIO_ENGINE.md section 15): tau_cymo_resamp.sv,
     // registers 0x150-0x160. Standalone -- not yet consumed by pcm_fifo.v/firmware. Inert (reads 0,
     // out_rd tied off) when 0.
-    parameter CYMO_RESAMP_ENABLE = 0
+    parameter CYMO_RESAMP_ENABLE = 0,
+    // B-602 (Cymo C3, F2): 16-bit I2S slot switch (register 0x164, sound_i2s.v full16). Inert (reads 0, no output) when 0.
+    parameter AUDIO16_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -126,6 +128,7 @@ module mp3_soc #(
     // sample rate. Firmware pushes bursts; it never has to meet DAC timing.
     output wire [15:0] audio_l,
     output wire [15:0] audio_r,
+    output wire        audio_full16,   // B-602: sound_i2s full16 (0 unless AUDIO16_ENABLE and firmware set it)
 
     // Debug/status words rendered by the video block
     output reg  [31:0] status0,
@@ -871,7 +874,9 @@ module mp3_soc #(
     // ITSELF acks `done` (same read-is-ack convention as R_LPC_SAMPLE above -- see tau_cymo_resamp.sv's own
     // out_rd comment for why a bare one-cycle pulse would be unsafe for a firmware polling loop). Inert
     // (reads 0, out_rd tied off, EQ unaffected) unless CYMO_RESAMP_ENABLE is built.
-    localparam [8:0] R_CYMO_CTRL = 9'h150, R_CYMO_PUSH = 9'h154, R_CYMO_OUT = 9'h158, R_CYMO_STATUS = 9'h15C, R_CYMO_DIAG = 9'h160;
+    localparam [8:0] R_CYMO_CTRL = 9'h150, R_CYMO_PUSH = 9'h154, R_CYMO_OUT = 9'h158, R_CYMO_STATUS = 9'h15C, R_CYMO_DIAG = 9'h160, R_AUDIO_CFG = 9'h164;
+    reg audio16_reg = 1'b0;   // B-602: STICKY, reset to 0 (15-bit mapping) in the if(rst) block
+    assign audio_full16 = (AUDIO16_ENABLE != 0) ? audio16_reg : 1'b0;
 
     // Bitstream/firmware interlock. Firmware compares this against its own
     // expected value and refuses to run on a mismatch.
@@ -1248,6 +1253,7 @@ module mp3_soc #(
             pcm_rate <= 32'd3435974;   // 48 kHz at clk_sys = 60 MHz
 `endif
             eq_preset <= 3'd0;         // FLAT: bypass until asked otherwise
+            audio16_reg  <= 1'b0;      // B-602: STICKY, back to the 15-bit mapping on reset
             cymo_live_en <= 1'b0;      // STICKY register, not covered by the pulse-reset preamble above -- must be reset here explicitly
             set_idx <= 5'd0; set_wdata <= 32'd0;
             sdram_start <= 1'b0;
@@ -1354,6 +1360,7 @@ module mp3_soc #(
                     cymo_start   <= dDAT_MOSI[1];
                     cymo_live_en <= dDAT_MOSI[2];   // STICKY (not reset every cycle below, unlike bits 0/1)
                 end
+                R_AUDIO_CFG: audio16_reg <= dDAT_MOSI[0];   // B-602: STICKY (acts only when AUDIO16_ENABLE is built)
                 R_CYMO_PUSH: begin
                     cymo_push_l_d <= dDAT_MOSI[15:0];
                     cymo_push_r_d <= dDAT_MOSI[31:16];
@@ -1423,6 +1430,7 @@ module mp3_soc #(
             R_I2S_DIAG_ST:     mmio_rdata = {31'd0, (I2S_DIAG_ENABLE != 0)};
             R_CYMO_OUT:    mmio_rdata = {cymo_out_r, cymo_out_l};                                      // this read is the ack (clears done)
             R_CYMO_STATUS: mmio_rdata = {24'd0, cymo_feed_level, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en, [7:5] feed queue level (B-527)
+            R_AUDIO_CFG:   mmio_rdata = {30'd0, (AUDIO16_ENABLE != 0), audio_full16};   // B-602: bit 1 present, bit 0 value; 0 when not built
             R_CYMO_DIAG:   mmio_rdata = {cymo_drop_cnt, cymo_stale_cnt}; // B-527: [15:0] consumes that found no pushed sample (repeat), [31:16] ticks dropped because the queue was full; both saturate, both clear on live engage
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;
         endcase

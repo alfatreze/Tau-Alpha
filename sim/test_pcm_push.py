@@ -18,8 +18,8 @@ static void fail(const char *m, long a, long b) { if (bad++ < 8) printf("FAIL %%
 /* independent reference of the gain stage with a settled gain (no ramp), written from the spec */
 static uint32_t ref(int32_t l, int32_t r, int32_t g15, uint32_t *fade_left)
 {
-    if (g15 != 32768) { l = (int32_t)(((int64_t)l * g15) >> 15); r = (int32_t)(((int64_t)r * g15) >> 15); }
-    if (*fade_left) { int32_t g = (int32_t)((FADE_SAMPLES - *fade_left) >> 3); l = (l * g) >> 8; r = (r * g) >> 8; (*fade_left)--; }
+    if (g15 != 32768) { l = (int32_t)(((int64_t)l * g15 + 16384) >> 15); r = (int32_t)(((int64_t)r * g15 + 16384) >> 15); }
+    if (*fade_left) { int32_t g = (int32_t)((FADE_SAMPLES - *fade_left) >> 3); l = (l * g + 128) >> 8; r = (r * g + 128) >> 8; (*fade_left)--; }
     return ((uint32_t)(uint16_t)(int16_t)r << 16) | (uint32_t)(uint16_t)(int16_t)l;
 }
 int main(void)
@@ -62,6 +62,19 @@ int main(void)
     /* mute is exact silence, unity is untouched */
     { pcm_vol_t v = { 0, 0 }; uint32_t fl = 0; int32_t l = 32767, r = -32768; pcm_gain_apply(&l, &r, &v, &fl, FADE_SAMPLES); n++; if (l != 0 || r != 0) fail("mute", l, r); }
     { pcm_vol_t v = { 32768, 32768 }; uint32_t fl = 0; int32_t l = 32767, r = -32768; pcm_gain_apply(&l, &r, &v, &fl, FADE_SAMPLES); n++; if (l != 32767 || r != -32768) fail("unity", l, r); }
+    /* B-602: rounding. Over every 16-bit sample the mean error against the exact product is ~0 at every position (a floor shift gives -0.5) and no sample is off by more than 0.5 LSB */
+    { double worst_mean = 0, worst_abs = 0;
+      for (int step = 1; step < 100; step++) {
+        const int32_t g = pcm_vol_target((uint32_t)step); double sum = 0; long cnt = 0;
+        for (int32_t x = -32768; x <= 32767; x++) {
+            pcm_vol_t v = { g, g }; uint32_t fl = 0; int32_t l = x, r = x;
+            pcm_gain_apply(&l, &r, &v, &fl, FADE_SAMPLES);
+            const double e = (double)l - (double)x * g / 32768.0; sum += e; cnt++;
+            if ((e < 0 ? -e : e) > worst_abs) worst_abs = e < 0 ? -e : e;
+        }
+        const double m = sum / cnt; if ((m < 0 ? -m : m) > worst_mean) worst_mean = m < 0 ? -m : m;
+      }
+      printf("BIAS %%.5f %%.5f\n", worst_mean, worst_abs); n++; if (worst_mean > 0.01 || worst_abs > 0.5001) fail("rounding bias", 0, 0); }
     printf("%%s: %%ld cases, %%ld failures\n", bad ? "FAIL" : "ok", n, bad);
     return bad != 0;
 }

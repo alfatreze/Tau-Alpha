@@ -41,6 +41,8 @@ test-host:
 	$(PYTHON) sim/test_meter_module.py
 	$(PYTHON) sim/test_chladni_params.py
 	$(PYTHON) sim/test_cymo_loopback.py
+	$(PYTHON) sim/test_cymo_out_model.py
+	$(PYTHON) sim/test_sound_i2s_full16.py
 	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js && $(PYTHON) sim/test_meter_golden.py && $(PYTHON) sim/test_layered_wave_golden.py && $(PYTHON) sim/test_meter_trace.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
 	$(PYTHON) sim/test_lw_ring.py
 	$(PYTHON) tools/gen_themes.py --check

@@ -263,6 +263,13 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `define TAU_CYMO_RESAMP_EN 0
 `endif
 
+// B-602 (Cymo C3, F2): runtime-switchable 16-bit I2S slot. Independent of every macro above.
+`ifdef TAU_AUDIO16
+`define TAU_AUDIO16_EN 1
+`else
+`define TAU_AUDIO16_EN 0
+`endif
+
 `ifdef TAU_VBLANK
 `define TAU_VBLANK_EN 1
 `else
@@ -318,6 +325,7 @@ wire [31:0] soc_sdram_busy_rd;
 // instantiated later, in section 7). Synchronised into clk_sys and turned into a jitter measurement
 // entirely inside mp3_soc.v -- a single bit needs no CDC handling here.
 wire soc_i2s_diag_toggle;
+wire soc_audio_full16;   // B-602: mp3_soc register -> sound_i2s full16
 `ifdef TAU_SDRAM_BUSY
 tau_cdc_gray_ctr #(.WIDTH(32)) u_sdram_busy_ctr (
     .clk_src(clk_sdram), .rst_src(~pll_locked), .inc(~arb_p0_available),
@@ -356,9 +364,9 @@ assign soc_vblank_rd = 17'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN)) u_soc (
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN)) u_soc (
 `else
-mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN)) u_soc (
+mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -389,6 +397,7 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
 
     .audio_l (soc_audio_l),
     .audio_r (soc_audio_r),
+    .audio_full16 (soc_audio_full16),
 
     .status0 (soc_status0),
     .status1 (soc_status1),
@@ -923,7 +932,7 @@ assign video_hs           = vid_hs_w;
 // continuously-running sound chip). SIGNED_INPUT(1) -- PCM is two's complement.
 sound_i2s #(.CHANNEL_WIDTH(16), .SIGNED_INPUT(1)) u_sound_i2s (
     .clk_mclk (clk_audio_mclk), .clk_audio (clk_sys),
-    .audio_l (soc_audio_l), .audio_r (soc_audio_r),
+    .audio_l (soc_audio_l), .audio_r (soc_audio_r), .full16 (soc_audio_full16),
     .audio_mclk (audio_mclk), .audio_dac (audio_dac), .audio_lrck (audio_lrck),
     .diag_toggle (soc_i2s_diag_toggle)
 );

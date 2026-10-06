@@ -65,7 +65,7 @@ module tb_cymo_i2s_rate;
 
     wire mclk, lrck, dac;
     sound_i2s #(.CHANNEL_WIDTH(16), .SIGNED_INPUT(1)) u_i2s (.clk_mclk(clk_mclk), .clk_audio(clk),
-        .audio_l(out_l), .audio_r(out_r), .audio_mclk(mclk), .audio_lrck(lrck), .audio_dac(dac));
+        .audio_l(out_l), .audio_r(out_r), .full16(1'b0), .audio_mclk(mclk), .audio_lrck(lrck), .audio_dac(dac));
 
     // word about to be serialised: captured at the same edge the serialiser reloads. B-457: the
     // serializer now runs entirely inside clk_mclk, gated on sclk_div==3 (the cycle right before
