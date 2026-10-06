@@ -106,8 +106,9 @@ static const set_row_t set_stress_rows[] = {
 static const set_row_t *const set_menu_rows[SET_MENUS] = {
     set_home_rows, set_appear_rows, set_audio_rows, set_play_rows, set_diag_rows,
     set_tests_rows, set_stress_rows, set_dgn_rows };
+/* B-605: the Audio and Playback counts were hard-coded (2u, 4u): REPLAYGAIN, the third Audio row added in B-599, was never drawn or selectable. Always derive them from the tables. */
 static const uint8_t set_menu_n[SET_MENUS] = {
-    SET_COUNT(set_home_rows), SET_COUNT(set_appear_rows), 2u, 4u, SET_COUNT(set_diag_rows), SET_COUNT(set_tests_rows),
+    SET_COUNT(set_home_rows), SET_COUNT(set_appear_rows), SET_COUNT(set_audio_rows), SET_COUNT(set_play_rows), SET_COUNT(set_diag_rows), SET_COUNT(set_tests_rows),
     SET_COUNT(set_stress_rows), SET_COUNT(set_dgn_rows) };
 static const char *const set_menu_title[SET_MENUS] = {
     "MENU", "APPEARANCE", "AUDIO", "PLAYBACK", "SETTINGS", "TESTS", "STRESS", "DIAGNOSTICS" };
