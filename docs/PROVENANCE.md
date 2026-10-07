@@ -32,3 +32,5 @@ Findings from these are marketing-free: where a project's README or audit makes 
 ## Permissively licensed pieces that exist in those trees (not used)
 
 JamesDSP's `compressor.c` is MIT (Sean Connelly's *sndfilter*, itself derived from Chromium's `DynamicsCompressorKernel`, BSD-3). The BS2B crossfeed (libbs2b) is MIT. Both could be reused with attribution if ever wanted; neither is used. Everything else read is copyleft and stays unused.
+
+| Crossfeed in difference form (`L' = L + c, R' = R - c, c = b z^-D LP(R-L)`), mono-invariant (planned, `CYMO_HEADPHONE_PLAN.md` section 4) | Own derivation from the published interaural time and level difference principle; host-modelled | BS2B (MIT) and Linkwitz/Meier crossfeeds exist; **not read** for this | No code, no constants taken; if built, state that the 700 Hz / 0.27 ms values are the textbook ITD/ILD figures |
