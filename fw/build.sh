@@ -145,6 +145,7 @@ case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) POLY_FW="${POLY_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && POLY_FW="${POLY_FW:-1}"      # v0.5.0: the release ships the poly bitstream, so the release firmware uses the unit too
 CFLAGS="$CFLAGS -DTAU_POLY_FW=${POLY_FW:-0}"
 # B-558: TEMPO=1 builds in the Cymo C7 tempo funnel (fw/tempo_core.h; MP3 only; the Settings > Playback > TEMPO row). Default 0 = byte-identical to a build without it.
+case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) TEMPO="${TEMPO:-1}" ;; esac   # alpha.4: the tempo row is in the Diagnostic Build (the release default stays 0)
 CFLAGS="$CFLAGS -DTAU_TEMPO=${TEMPO:-0}"
 if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw/mp3_poly_hw.h (only then, so default builds see no new include path)
 
@@ -160,7 +161,7 @@ if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw
 # (both live in $FW), so no INC change is needed the way POLY_FW's subband.c one is.
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) LPC_FW="${LPC_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && LPC_FW="${LPC_FW:-1}"
-CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_TPG=${TPG:-1}"   # pixel grid report codes (docs/features/BARCODE_STUDY.md), Diagnostic Build only, ON by default since 2026-10-06 (D-R04 reversed); TPG=0 gives the old QR-only pages
+CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_TPG=${TPG:-1} -DTAU_INFO_EXPORT=${INFO_EXPORT:-1}"   # INFO_EXPORT: the Info page report-code export (A), in the normal core too since alpha.4;   # pixel grid report codes (docs/features/BARCODE_STUDY.md), Diagnostic Build only, ON by default since 2026-10-06 (D-R04 reversed); TPG=0 gives the old QR-only pages
 FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DFLAC_RICE_FAST=${FLAC_RICE_FAST:-1}"
 
 # RAM_192K=1 (default 0, every target): links against 192 KB instead of 256 KB (fw/link.ld's
@@ -196,6 +197,8 @@ if [[ -n "${TAU_BUILD_OUT:-}" ]]; then OUT="$TAU_BUILD_OUT/$TARGET"; fi
 # directory (the first sdram-diag build exposed the old ordering).
 # HEAP_MIN_OVERRIDE=<bytes> replaces the per-target policy floor above (B-601): the gap is unused RAM (B-565), so an experimental build that is a little under the policy margin
 # (a Diagnostic Build with the tempo stretcher, 1.9 KB against the 2 KB floor) can be packaged on purpose. The hard link minimum still applies. Never used by release builds.
+# alpha.4: the Diagnostic Build carries the tempo stretcher by default; its gap is about 1.2 KB, under the 2 KB policy margin (the same situation DEV 94/95 ran on a Pocket with).
+case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) if [ "${TEMPO:-0}" = "1" ]; then HEAP_MIN_OVERRIDE="${HEAP_MIN_OVERRIDE:-1024}"; fi ;; esac
 HEAP_MIN="${HEAP_MIN_OVERRIDE:-$HEAP_MIN}"
 
 mkdir -p "$OUT"
