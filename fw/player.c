@@ -1019,10 +1019,7 @@ static uint32_t ui_info_y;            /* where chrome left room for the format l
 static uint32_t ui_last_info, ui_last_prog, ui_pause_next, ui_breath, ui_icon_next;
 static uint32_t ui_arr_t, ui_wave_force, ui_accent_changed;
 
-/* ---- preset EQ ----
- * The curve table and the names are GENERATED from the same quantised
- * coefficients the RTL filters with (tools/gen_eq_coeffs.py --curves), so
- * the shape on screen cannot drift from the shape being applied. */
+static uint8_t  hal_saved;           /* the last preset selection that was saved (CUSTOM is not a saved state, so tweaking sliders keeps the previous preset on file) */
 static uint8_t  hal_sel;             /* the Halcyon EQ selection (fw/halcyon.inc): 0 = off, 1.. = built-in presets then user presets, HAL_SEL_CUSTOM = the page's own controls */
 static uint32_t ui_sec, ui_sec_acc, ui_last_frames, ui_prog_sec;
 static int      ui_was_paused;
@@ -9659,17 +9656,25 @@ int main(void)
          * seamless in a way a track change can never be -- no flush, no reload, nothing to resynchronise (the change itself runs inside a gain dip). */
         if (hal_req || hal_restore) {
 #if TAU_HALCYON_FW
-            if (COLD_READY()) {
-                if (hal_restore) {                           /* a saved value: the user presets are loaded by now, so range-check against them */
+            if (COLD_READY()) {                              /* until the cold image is up the request simply waits (nothing is lost) */
+                if (hal_restore) {                           /* a saved or Core Settings value: the user presets are loaded by now, so range-check against them */
                     if (hal_sel > HAL_NPRESET + hal_user_n || hal_sel >= HAL_SEL_CUSTOM) hal_sel = 0u;
-                    hal_apply_sel();
-                } else hal_cycle();
+                    hal_apply_sel_dipped();                  /* in a gain dip, as every other recall: it can arrive mid-track from Core Settings */
+                    hal_restore = 0u;
+                    ui_eq_pill();
+                    ui_mode_dirty = 1u;
+                }
+                if (hal_req) {                               /* the Y key: a user action, so it is also saved */
+                    hal_cycle();
+                    hal_req = 0u;
+                    ui_eq_pill();
+                    ui_mode_dirty = 1u;                      /* the mode row NAMES the preset */
+                    settings_mark_dirty();
+                }
             }
-#endif
+#else
             hal_req = 0u; hal_restore = 0u;
-            ui_eq_pill();
-            ui_mode_dirty = 1u;          /* the mode row NAMES the preset */
-            settings_mark_dirty();
+#endif
         }
 
         /* Only when nothing is loading: a write is an SD round trip, and the

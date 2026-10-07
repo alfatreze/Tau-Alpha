@@ -52,6 +52,7 @@ enum { SET_AUDIO = 2 };
 static uint32_t dip_calls;
 static void gain_dip_begin(void) { dip_calls++; }
 static void gain_dip_end(void) { dip_calls++; }
+static void settings_mark_dirty(void) { }
 static void set_close(void) { printf("CLOSE\n"); }
 static uint16_t ui_mix(uint16_t a, uint16_t b, uint32_t t, uint32_t n) { (void)b; (void)t; (void)n; return a ^ 0x0101u; }
 static char *ui_dec(char *p, uint32_t v) { char t[12]; int n = 0; if (!v) t[n++] = '0'; while (v) { t[n++] = (char)('0' + v % 10u); v /= 10u; } while (n) *p++ = t[--n]; return p; }

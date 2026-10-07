@@ -2,7 +2,7 @@
  * fw/settingsui.inc where the page table can see it. Top: the response of the cascade you are setting (the six selected table rows added in dB, the infrasonic stage and the
  * preamp's give-back, fw/halcyon_curve.h: no trigonometry on the CPU) on a log frequency axis with the selected control's band lit. Below: the six controls as centre-zero
  * sliders. Controls apply LIVE (a bank written and committed per step, no state clear so no click); L1/R1 step the presets inside a gain dip as Diagnostics > HALCYON does;
- * X compares against the old EQ (engine out of the path), Y resets all six. Not persisted yet (decision D-S05: one saved word is still to be assigned). */
+ * X compares against the EQ off (engine out of the path), Y resets all six. The page's own controls (CUSTOM) are not saved; the preset selection is (persist id 16). */
 #if TAU_HALCYON_FW
 #include "halcyon_curve.h"
 
@@ -56,7 +56,7 @@ COLD_FN static void hal_pg_open(void)
 COLD_FN static const char *hal_pg_preset_text(void)
 {
     if (!hw_hal) return "NO UNIT";
-    if (hal_cmp) return "A/B: EQ";
+    if (hal_cmp) return "A/B: OFF";
     if (hal_sel == HAL_SEL_CUSTOM) return "CUSTOM";
     if (hal_sel == 0u) return "OFF";
     if (hal_sel > HAL_NPRESET) return hp_name(HAL_USER + hal_user_off[hal_sel - HAL_NPRESET - 1u]);
@@ -176,6 +176,7 @@ COLD_FN static void hal_pg_preset_step(int32_t dir)
     hal_cmp = 0u;
     hal_pg_load_sel();
     hal_apply_sel_dipped();
+    settings_mark_dirty();                                               /* a preset is saved (the sliders' own CUSTOM state is not) */
 }
 
 COLD_FN static int hal_pg_input(uint32_t edge)
@@ -197,7 +198,7 @@ COLD_FN static int hal_pg_input(uint32_t edge)
     }
     if (edge & KEY_R1) { hal_pg_preset_step(1); set_dirty = 1u; }
     if (edge & KEY_L1) { hal_pg_preset_step(-1); set_dirty = 1u; }
-    if (edge & KEY_X) {                                                   /* A/B against the old EQ */
+    if (edge & KEY_X) {                                                   /* A/B against the EQ off */
         if (!hal_cmp) { hal_cmp = 1u; hal_hw_off(); } else hal_pg_apply_live();
         set_dirty = 1u;
     }

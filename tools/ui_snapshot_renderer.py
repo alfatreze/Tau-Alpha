@@ -409,7 +409,6 @@ SETTINGS_SRC += (ROOT / "fw/meter_gen_names.h").read_text(encoding="utf-8")
 SETTINGS_SRC = re.sub(r"#if TAU_COLD\n(.*?)#else\n(.*?)#endif\n", r"\2", SETTINGS_SRC, flags=re.S)
 # The fixtures model the default build, where TAU_TEMPO is 0 (B-558): drop the "#if TAU_TEMPO ... #endif" blocks (the TEMPO row).
 SETTINGS_SRC = re.sub(r"#if TAU_TEMPO\n.*?#endif\n", "", SETTINGS_SRC, flags=re.S)
-EQ_SRC = (ROOT / "fw/eq_curve.h").read_text(encoding="utf-8")
 
 
 def ui_mix(a, b, t, n):
@@ -719,15 +718,16 @@ def settings_stress_status():
 
 
 def settings_choice(choice, cursor, active, top=0):
-    """set_draw_choice() fixture. choice: colour, meter, eq, repeat, blank."""
+    """set_draw_choice() fixture. choice: colour, meter, repeat, blank."""
     titles = _names(SETTINGS_SRC, "set_ch_title")
-    idx = ("colour", "meter", "eq", "repeat", "blank", "speed", "stress", "soak").index(choice)
+    idx = ("colour", "meter", "repeat", "blank", "speed", "stress", "soak").index(choice)
+    want = {"colour": "COLOUR", "meter": "METER", "repeat": "REPEAT", "blank": "SCREEN BLANK", "speed": "SPEED", "stress": "STRESS LEVEL", "soak": "SOAK"}[choice]
+    assert titles[idx] == want, f"settings fixture index {idx} is {titles[idx]!r}, expected {want!r}: the choice order in this file no longer matches set_ch_title[]"
     if choice == "colour":
         names = _names(PLAYER, "ui_palette_name")
         colours = [int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{4})u,\s*/\*", PLAYER.split("ui_palette[] = {")[1].split("};")[0])]
     else:
         names = {"meter": lambda: [_names(SETTINGS_SRC, "set_viz")[m] for m in viz_rows()],
-                 "eq": lambda: _names(EQ_SRC, "eq_name"),
                  "repeat": lambda: _names(SETTINGS_SRC, "set_rep"),
                  "blank": lambda: _names(SETTINGS_SRC, "set_blank_nm"),
                  "speed": lambda: _names(SETTINGS_SRC, "set_speed_nm"),
@@ -897,7 +897,6 @@ FIXTURES = {
     "settings-stress-status": settings_stress_status,
     "settings-colour": lambda: settings_choice("colour", 3, 0),
     "settings-meter": lambda: settings_choice("meter", 4, 4),
-    "settings-eq": lambda: settings_choice("eq", 2, 0),
     "settings-repeat": lambda: settings_choice("repeat", 1, 0),
     "settings-blank": lambda: settings_choice("blank", 2, 0),
     "paused": lambda: now_playing_base("paused"),

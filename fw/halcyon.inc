@@ -1,7 +1,6 @@
-/* fw/halcyon.inc -- the Halcyon engine selector (B-640, Diagnostic Build first). Everything here is cold code and cold data: the tables (halcyon_tab.h, about 24 KB) live in PSRAM,
+/* fw/halcyon.inc -- the Halcyon EQ selector (B-640; in every build since the preset EQ was removed, B-651). Everything here is cold code and cold data: the tables (halcyon_tab.h, about 24 KB) live in PSRAM,
  * and the one hot cost is the boot probe in player.c (`hw_hal`). The portable loader is fw/halcyon_hw.h (host-tested, sim/test_halcyon_hw.py); this file only picks a built-in preset
- * and applies it. Diagnostics > HALCYON cycles OFF and the eight built-in presets for the hardware A/B against the old EQ; never persisted (a test switch, like the other
- * Diagnostics toggles). On a bitstream without the engine the row reads NO UNIT and nothing is written. */
+ * and applies it. Diagnostics > HALCYON cycles OFF and the eight built-in presets for Y on the player screen (hal_cycle); the selection is saved with the settings (persist id 16). On a bitstream without the engine the row reads NO UNIT and nothing is written. */
 #if TAU_HALCYON_FW
 #define HAL_TAB COLD_DATA
 #define HAL_FN COLD_FN static
