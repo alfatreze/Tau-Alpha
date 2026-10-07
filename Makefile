@@ -1,4 +1,4 @@
-.PHONY: test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-eq24 rtl-vectors24 test-rtl-clut-wr test-rtl-clut-wr-mutation test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-eq24 rtl-vectors24 test-rtl-clut-wr test-rtl-clut-wr-mutation test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -109,7 +109,7 @@ test-host:
 	$(PYTHON) sim/test_sdram_map_overlap.py
 	$(PYTHON) tools/check_art_load_order.py --check
 
-test-rtl: test-rtl-eq24 test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-eq24 test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
@@ -317,6 +317,17 @@ test-rtl-gain-stage-mutation: $(GAIN_SRC) $(RTL_BUILD_DIR)/gain_vectors.txt | $(
 	@set -e; for b in 1 2 3 4 5 6 7 8 9; do $(IVERILOG) -g2012 -DBUGV=$$b -o $(RTL_BUILD_DIR)/gain_mut.vvp $(GAIN_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/gain_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_gain_stage BUG=$$b"; else echo "MUTANT SURVIVED: tau_gain_stage BUG=$$b"; exit 1; fi; done
 
+# B-635: the Halcyon engine (tau_halcyon.sv), replayed against tools/lab/halcyon_engine_model.py at 16 and 24 bits, plus eight mutants.
+HALCYON_SRC = sim/tb_tau_halcyon.v src/fpga/core/tau_halcyon.sv
+$(RTL_BUILD_DIR)/halcyon_vectors_w%.txt: tools/lab/halcyon_engine_model.py | $(RTL_BUILD_DIR)
+	$(PYTHON) tools/lab/halcyon_engine_model.py --vectors $@ --w $*
+test-rtl-halcyon: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt $(RTL_BUILD_DIR)/halcyon_vectors_w24.txt | $(RTL_BUILD_DIR)
+	@set -e; for w in 16 24; do $(IVERILOG) -g2012 -DHW=$$w -o $(RTL_BUILD_DIR)/halcyon$$w.vvp $(HALCYON_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/halcyon$$w.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_halcyon W=$$w"; done
+test-rtl-halcyon-mutation: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt | $(RTL_BUILD_DIR)
+	@set -e; for b in 1 2 3 4 5 6 7 9; do $(IVERILOG) -g2012 -DHW=16 -DHBUG=$$b -o $(RTL_BUILD_DIR)/halcyon_mut.vvp $(HALCYON_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED: tau_halcyon BUG=$$b"; exit 1; fi; done
+
 test-rtl-wave-meter: $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp
 	$(VVP) $<
 
@@ -506,6 +517,7 @@ rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cymo_resamp -Isrc/fpga/core src/fpga/core/tau_cymo_resamp.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cymo_feed src/fpga/core/tau_cymo_feed.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_gain_stage src/fpga/core/tau_gain_stage.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_halcyon src/fpga/core/tau_halcyon.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_cpu_bridge src/fpga/core/tau_sdram_cpu_bridge.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_addr_decode src/fpga/core/tau_sdram_addr_decode.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_wb_adapter src/fpga/core/tau_sdram_wb_adapter.sv
