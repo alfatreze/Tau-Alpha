@@ -112,3 +112,15 @@ stores are ignored, the mailbox STATUS `GUARD_HIT` sticky bit sets, and the acce
 no cached alias: `0x2400_0000..` and every other unmapped range still terminate as a bus error. Needs the SDRAM Phase 2 decode (`TAU_PHASE2_WINDOW`) and,
 for now, the probe module that owns the controller (`TAU_PSRAM_PROBE`). The mailbox and the window share the controller (window has priority when both wait).
 
+## Halcyon EQ engine (`TAU_HALCYON`, B-639): 0x178-0x180
+
+`tau_halcyon.sv` beside `eq_biquad` (both fed from the same input); a sticky enable selects which one drives the audio output. Inert (reads 0, audio path untouched) without the macro.
+
+| Offset | Name | R/W | Meaning |
+|---|---|---|---|
+| 0x178 | HAL_CTRL | RW | write: [0] ENABLE (sticky, reset 0), [1] BYPASS (sticky), [2] COMMIT pulse (swap the shadow bank in at the next sample boundary, latching NACT), [3] CLEAR pulse (clear the filter state), [13:8] NACT (sticky, sampled by COMMIT). read: [31] present, [13:8] nact, [2] busy, [1] bypass, [0] enable |
+| 0x17C | HAL_IDX | RW | coefficient index (sticky), auto-increments on every DATA write; 0..84 = stage coefficients b0 b1 b2 a1 a2 per stage, 85 = preamp |
+| 0x180 | HAL_DATA | W | [23:0] signed Q2.22 coefficient into the SHADOW bank at IDX |
+
+Firmware writes a complete bank (all `NACT` stages and the preamp) then COMMITs; the previous bank stays live until the next sample boundary, so a coefficient set is never torn. Verified with the real CPU by `make test-rtl-halcyon-soc` (`sim/fw_halcyon/main.c`).
+

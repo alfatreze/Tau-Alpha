@@ -95,7 +95,9 @@ module mp3_soc #(
     // B-602 (Cymo C3, F2): 16-bit I2S slot switch (register 0x164, sound_i2s.v full16). Inert (reads 0, no output) when 0.
     parameter AUDIO16_ENABLE = 0,
     // B-615 (Cymo C3 slice 2): hardware gain stage at the pcm_fifo output (tau_gain_stage.sv), registers 0x168-0x174. Inert (reads 0, audio path untouched) when 0.
-    parameter GAIN_ENABLE = 0
+    parameter GAIN_ENABLE = 0,
+    // B-639 (Halcyon): the Halcyon EQ engine (tau_halcyon.sv) beside eq_biquad, registers 0x178-0x180; a sticky enable selects its output. Inert (reads 0, audio path untouched) when 0.
+    parameter HALCYON_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -881,6 +883,16 @@ module mp3_soc #(
     // bits [5:4] fade length 256 << n samples (STICKY, reset 3 = 2048); read: bit 31 present, bit 0 enable, bit 2 fading, [5:4] shift. TARGET (Q15, 32768 = unity, STICKY, reset 32768),
     // CUR (read: the gain in force), STEP (max change per sample, STICKY, reset 149). With ENABLE 0 the audio path is exactly what it was before this existed.
     localparam [8:0] R_GAIN_CTRL = 9'h168, R_GAIN_TARGET = 9'h16C, R_GAIN_CUR = 9'h170, R_GAIN_STEP = 9'h174;
+    // B-639 Halcyon engine (docs/features/CYMO_HALCYON_SPEC.md). HAL_CTRL write: bit 0 ENABLE (STICKY, reset 0: audio comes from the Halcyon engine instead of eq_biquad), bit 1 BYPASS
+    // (STICKY), bit 2 COMMIT pulse (swap the shadow bank in at the next sample boundary, latching NACT), bit 3 CLEAR pulse (clear the filter state), bits [13:8] NACT (STICKY; the active
+    // stage count, sampled by COMMIT). IDX (STICKY): coefficient index, auto-increments on every DATA write. DATA write: bits [23:0] signed Q2.22 coefficient into the SHADOW bank at IDX
+    // (index NST*5 = 85 is the preamp). Read HAL_CTRL: bit 31 present, bit 2 busy, [13:8] nact, bit 1 bypass, bit 0 enable. Inert (reads 0) unless HALCYON_ENABLE.
+    localparam [8:0] R_HAL_CTRL = 9'h178, R_HAL_IDX = 9'h17C, R_HAL_DATA = 9'h180;
+    reg        hal_en = 1'b0, hal_bypass = 1'b0, hal_commit = 1'b0, hal_clr = 1'b0, hal_we = 1'b0;
+    reg  [5:0] hal_nact = 6'd0;
+    reg  [7:0] hal_idx = 8'd0, hal_widx = 8'd0;   // hal_widx: the index of the word being written (hal_idx has already stepped on by the time hal_we is seen)
+    reg signed [23:0] hal_data = 24'sd0;
+    wire       hal_busy;
     reg        gain_en = 1'b0;
     reg [15:0] gain_target = 16'd32768, gain_ramp = 16'd149;
     reg [1:0]  gain_shift = 2'd3;
@@ -1228,6 +1240,7 @@ module mp3_soc #(
         end
     endgenerate
 
+    wire signed [15:0] eq_o_l, eq_o_r;
     // Preset EQ, spliced between the FIFO and this module's audio outputs.
     // Entirely inside clk_sys, so no new CDC -- sound_i2s already crosses into
     // clk_74a through its own sync_fifo and this sits on the near side of that.
@@ -1246,9 +1259,29 @@ module mp3_soc #(
         .in_l   (eq_in_l),
         .in_r   (eq_in_r),
         .preset (eq_preset),
-        .out_l  (audio_l),
-        .out_r  (audio_r)
+        .out_l  (eq_o_l),
+        .out_r  (eq_o_r)
     );
+
+    // B-639: the Halcyon engine takes the same input; the sticky enable picks which engine drives the audio outputs. With HALCYON_ENABLE 0 (every shipped bitstream) the mux
+    // folds away and audio_l/audio_r are eq_biquad's outputs exactly as before.
+    wire signed [15:0] hal_o_l, hal_o_r;
+    generate
+        if (HALCYON_ENABLE != 0) begin : g_hal
+`ifdef TAU_CLK66
+            tau_halcyon #(.CLK_HZ(66_666_667), .RATE_HZ(48_000), .NST(17), .W(16)) u_hal (
+`else
+            tau_halcyon #(.CLK_HZ(60_000_000), .RATE_HZ(48_000), .NST(17), .W(16)) u_hal (
+`endif
+                .clk(clk), .rst(rst), .in_l(eq_in_l), .in_r(eq_in_r), .bypass(hal_bypass),
+                .wr_we(hal_we), .wr_idx(hal_widx), .wr_data(hal_data), .nact_in(hal_nact), .commit(hal_commit), .clr(hal_clr),
+                .out_l(hal_o_l), .out_r(hal_o_r), .busy(hal_busy));
+        end else begin : g_nohal
+            assign hal_o_l = 16'sd0; assign hal_o_r = 16'sd0; assign hal_busy = 1'b0;
+        end
+    endgenerate
+    assign audio_l = (HALCYON_ENABLE != 0 && hal_en) ? hal_o_l : eq_o_l;
+    assign audio_r = (HALCYON_ENABLE != 0 && hal_en) ? hal_o_r : eq_o_r;
 
     always @(posedge clk) begin
         con_wr      <= 1'b0;
@@ -1260,6 +1293,7 @@ module mp3_soc #(
         lpc_warm_idx_we <= 1'b0; lpc_warm_data_we <= 1'b0; lpc_residual_we <= 1'b0;
         cymo_clear <= 1'b0; cymo_start <= 1'b0; cymo_push_we <= 1'b0;
         gain_snap <= 1'b0; gain_fade_we <= 1'b0;
+        hal_commit <= 1'b0; hal_clr <= 1'b0; hal_we <= 1'b0;
         dt_wren     <= 1'b0;
         set_wr      <= 1'b0;
         sdram_start <= 1'b0;
@@ -1285,6 +1319,7 @@ module mp3_soc #(
 `endif
             eq_preset <= 3'd0;         // FLAT: bypass until asked otherwise
             audio16_reg  <= 1'b0;      // B-602: STICKY, back to the 15-bit mapping on reset
+            hal_en <= 1'b0; hal_bypass <= 1'b0; hal_nact <= 6'd0; hal_idx <= 8'd0; hal_data <= 24'sd0;   // B-639: STICKY, back to 'Halcyon off'
             gain_en <= 1'b0; gain_target <= 16'd32768; gain_ramp <= 16'd149; gain_shift <= 2'd3;   // B-615: STICKY, back to 'stage off, unity'
             cymo_live_en <= 1'b0;      // STICKY register, not covered by the pulse-reset preamble above -- must be reset here explicitly
             set_idx <= 5'd0; set_wdata <= 32'd0;
@@ -1394,6 +1429,11 @@ module mp3_soc #(
                 end
                 R_AUDIO_CFG: audio16_reg <= dDAT_MOSI[0];   // B-602: STICKY (acts only when AUDIO16_ENABLE is built)
                 R_GAIN_CTRL: begin gain_en <= dDAT_MOSI[0]; gain_snap <= dDAT_MOSI[1]; gain_fade_we <= dDAT_MOSI[2]; gain_shift <= dDAT_MOSI[5:4]; end   // B-615
+                R_HAL_CTRL: begin   // B-639
+                    hal_en <= dDAT_MOSI[0]; hal_bypass <= dDAT_MOSI[1]; hal_commit <= dDAT_MOSI[2]; hal_clr <= dDAT_MOSI[3]; hal_nact <= dDAT_MOSI[13:8];
+                end
+                R_HAL_IDX:  hal_idx <= dDAT_MOSI[7:0];
+                R_HAL_DATA: begin hal_data <= dDAT_MOSI[23:0]; hal_widx <= hal_idx; hal_we <= 1'b1; hal_idx <= hal_idx + 8'd1; end
                 R_GAIN_TARGET: gain_target <= dDAT_MOSI[15:0];
                 R_GAIN_STEP:   gain_ramp   <= dDAT_MOSI[15:0];
                 R_CYMO_PUSH: begin
@@ -1466,6 +1506,8 @@ module mp3_soc #(
             R_CYMO_OUT:    mmio_rdata = {cymo_out_r, cymo_out_l};                                      // this read is the ack (clears done)
             R_CYMO_STATUS: mmio_rdata = {24'd0, cymo_feed_level, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en, [7:5] feed queue level (B-527)
             R_GAIN_CTRL:   mmio_rdata = {(GAIN_ENABLE != 0), 25'd0, gain_shift, 1'b0, gain_fading, 1'b0, gain_en};   // B-615
+            R_HAL_CTRL:    mmio_rdata = {(HALCYON_ENABLE != 0), 17'd0, hal_nact, 5'd0, hal_busy, hal_bypass, hal_en};   // B-639
+            R_HAL_IDX:     mmio_rdata = {24'd0, hal_idx};
             R_GAIN_TARGET: mmio_rdata = {16'd0, gain_target};
             R_GAIN_CUR:    mmio_rdata = {16'd0, gain_cur};
             R_GAIN_STEP:   mmio_rdata = {16'd0, gain_ramp};
