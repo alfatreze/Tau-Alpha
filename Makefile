@@ -274,17 +274,23 @@ CYMO_RESAMP_SRC = sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv src/
 $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt: sim/test_cymo_resamp_model.py sim/cymo_resamp_model.c tools/gen_cymo_resamp_rom.py | $(RTL_BUILD_DIR)
 	$(PYTHON) sim/test_cymo_resamp_model.py
 
+$(RTL_BUILD_DIR)/cymo_resamp_vectors18.txt: $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt   # written by the same script run
+
 $(RTL_BUILD_DIR)/tb_cymo_resamp.vvp: $(CYMO_RESAMP_SRC) | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -I src/fpga/core -o $@ sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv
 
 test-rtl-cymo-resamp: $(RTL_BUILD_DIR)/tb_cymo_resamp.vvp $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt
 	$(VVP) $<
+	$(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_cymo_resamp.OUT_W=18 -o $(RTL_BUILD_DIR)/tb_cymo_resamp18.vvp sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv
+	$(VVP) $(RTL_BUILD_DIR)/tb_cymo_resamp18.vvp +VEC=$(RTL_BUILD_DIR)/cymo_resamp_vectors18.txt
 
 # each mutant MUST fail the bench (tap/history index reversed, no shift, sign-extension dropped, wrong phase step, pop_req never asserted)
 test-rtl-cymo-resamp-mutation: $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt
 	@set -e; for b in 1 2 3 4 5; do \
 	  $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_cymo_resamp.BUG=$$b -o $(RTL_BUILD_DIR)/cymo_resamp_mut.vvp sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv; \
 	  if $(VVP) $(RTL_BUILD_DIR)/cymo_resamp_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
+	@set -e; $(IVERILOG) -g2012 -I src/fpga/core -Ptb_tau_cymo_resamp.BUG=6 -Ptb_tau_cymo_resamp.OUT_W=18 -o $(RTL_BUILD_DIR)/cymo_resamp_mut6.vvp sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv; \
+	  if $(VVP) $(RTL_BUILD_DIR)/cymo_resamp_mut6.vvp +VEC=$(RTL_BUILD_DIR)/cymo_resamp_vectors18.txt | grep -q "^FAILED"; then echo "mutant killed: BUG=6 (18-bit output clipped at 16 bits)"; else echo "MUTANT SURVIVED: BUG=6"; exit 1; fi
 
 # B-527: the hand-off between the track-rate tick and the resampler, against the REAL resampler at the real clock ratio (a counting ramp, so a dropped or
 # repeated input sample is a break in the pushed sequence). The mutant is the old tick-gated hand-off, which must fail.

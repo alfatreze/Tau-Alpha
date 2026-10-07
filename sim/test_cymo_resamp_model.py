@@ -24,10 +24,11 @@ def _load_gen():
 
 
 NIN = 4000
+NHOT = 1000
 Q_STEP = 147
 
 
-def python_reference(rom, p_banks, taps):
+def python_reference(rom, p_banks, taps, out_w=16):
     """Independent re-implementation of sim/cymo_resamp_model.c's exact algorithm: same LCG (so the SAME
     input stream, not a different one -- the point is checking the ARITHMETIC, not the test data), same
     phase/history/MAC/shift/clip sequence, pure Python integers (which are already arbitrary-precision --
@@ -52,17 +53,18 @@ def python_reference(rom, p_banks, taps):
         in_l.append(rnd_s16())
         in_r.append(rnd_s16())
 
+    pr = (32767, 32767, -32767, 32767, -32767)
+    for i in range(NIN - NHOT, NIN):      # the hot tail, identical to sim/cymo_resamp_model.c
+        in_l[i] = 32767 if i % 8 < 4 else -32767
+        in_r[i] = pr[i % 5]
     hist = [[0] * taps, [0] * taps]
     phase = 0
     consumed = 0
     out_l, out_r, pop = [], [], []
 
     def clip16(v):
-        if v > 32767:
-            return 32767
-        if v < -32768:
-            return -32768
-        return v
+        mx, mn = (1 << (out_w - 1)) - 1, -(1 << (out_w - 1))
+        return mx if v > mx else mn if v < mn else v
 
     while consumed < NIN:
         bank = rom[phase * taps:(phase + 1) * taps]
@@ -82,33 +84,23 @@ def python_reference(rom, p_banks, taps):
     return in_l, in_r, out_l, out_r, pop
 
 
-def main():
-    out_dir = ROOT / "build/rtl"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    exe = out_dir / "cymo_resamp_model"
-    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-Wall", "-Wextra", "-Werror",
+def run_width(out_w, out_dir, gen, rom, p_banks, taps):
+    exe = out_dir / f"cymo_resamp_model{out_w}"
+    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-Wall", "-Wextra", "-Werror", f"-DOUT_W={out_w}",
                          "-I", str(ROOT / "sim"), "-o", str(exe), str(ROOT / "sim/cymo_resamp_model.c")],
                         capture_output=True, text=True)
     if r.returncode:
         print(r.stderr)
-        return 1
-    vectors = out_dir / "cymo_resamp_vectors.txt"
+        return False
+    vectors = out_dir / ("cymo_resamp_vectors.txt" if out_w == 16 else f"cymo_resamp_vectors{out_w}.txt")
     p = subprocess.run([str(exe), str(vectors)], capture_output=True, text=True)
     print(p.stdout, end="")
     c_ok = p.returncode == 0 and "overflows 0" in p.stdout
-    print("ok   cymo_resamp_model.c: 0 accumulator-width overflows (ACC_WIDTH=40 proven sufficient)"
-          if c_ok else "FAIL cymo_resamp_model.c")
-
-    # ---- independent Python cross-check against the SAME vectors file ----
-    gen = _load_gen()
-    crm = gen._load_lab_model()
-    rom, p_banks = gen.build_rom(crm)
-    taps = gen.TAPS
-    _, _, py_out_l, py_out_r, py_pop = python_reference(rom, p_banks, taps)
-
+    print(f"ok   cymo_resamp_model.c (OUT_W={out_w}): 0 accumulator-width overflows (ACC_WIDTH=40 proven sufficient)"
+          if c_ok else f"FAIL cymo_resamp_model.c (OUT_W={out_w})")
+    _, _, py_out_l, py_out_r, py_pop = python_reference(rom, p_banks, taps, out_w)
     words = [int(x, 16) for x in open(vectors)]
     nin, nout = words[0], words[1]
-    c_in = words[2:2 + nin * 2]
     c_out = words[2 + nin * 2:]
     assert len(c_out) == nout * 3, (len(c_out), nout)
 
@@ -116,24 +108,39 @@ def main():
         return x - (1 << 32) if x >= (1 << 31) else x
 
     mism = 0
+    clipped = 0
     if len(py_out_l) != nout:
         print(f"FAIL vector-count mismatch: C nout={nout} Python nout={len(py_out_l)}")
         mism += 1
     else:
+        lim = (1 << (out_w - 1)) - 1
         for k in range(nout):
             c_l, c_r, c_pop = s32(c_out[3 * k]), s32(c_out[3 * k + 1]), c_out[3 * k + 2]
+            if abs(c_l) >= lim or abs(c_r) >= lim or c_l == -lim - 1 or c_r == -lim - 1:
+                clipped += 1
             if (c_l, c_r, c_pop) != (py_out_l[k], py_out_r[k], py_pop[k]):
                 mism += 1
                 if mism <= 8:
                     print(f"FAIL vector {k}: C=({c_l},{c_r},{c_pop}) Python=({py_out_l[k]},{py_out_r[k]},{py_pop[k]})")
     py_ok = mism == 0
-    print(f"ok   Python cross-check matches C bit-for-bit on {nout} outputs"
-          if py_ok else f"FAIL Python cross-check: {mism} mismatches")
-
-    ok = c_ok and py_ok
-    if ok:
+    print(f"ok   Python cross-check matches C bit-for-bit on {nout} outputs (OUT_W={out_w}; {clipped} outputs at the clip limit)"
+          if py_ok else f"FAIL Python cross-check (OUT_W={out_w}): {mism} mismatches")
+    # the hot tail must actually exercise the clip at 16 bits and NOT at 18 bits, or the width test proves nothing
+    clip_ok = (clipped > 0) if out_w == 16 else (clipped == 0)
+    print(("ok   " if clip_ok else "FAIL ") + f"hot tail {'reaches' if out_w == 16 else 'stays clear of'} the {out_w}-bit clip limit ({clipped} outputs)")
+    if c_ok and py_ok and clip_ok:
         lines = sum(1 for _ in open(vectors))
         print(f"ok   {nin} input + {nout} output RTL vectors ({lines} words) written to {vectors.relative_to(ROOT)}")
+    return c_ok and py_ok and clip_ok
+
+
+def main():
+    out_dir = ROOT / "build/rtl"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    gen = _load_gen()
+    crm = gen._load_lab_model()
+    rom, p_banks = gen.build_rom(crm)
+    ok = all([run_width(16, out_dir, gen, rom, p_banks, gen.TAPS), run_width(18, out_dir, gen, rom, p_banks, gen.TAPS)])
     print("PASSED" if ok else "FAILED")
     return 0 if ok else 1
 
