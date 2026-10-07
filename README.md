@@ -111,11 +111,8 @@ none of it: [Helix](third_party/libhelix-mp3/docs/RPSL.txt) is RPSL 1.0 and [Int
 is SIL OFL 1.1. Details, and the rule that GPL RTL may be studied but never copied in, are in
 [docs/ATTRIBUTIONS.md](docs/ATTRIBUTIONS.md).
 
-## Upstream support
+## Donations
+Use and abuse Tau, if you want to contribute I'd mostly love to get detailed reports on issues, improvement suggestions and feature ideas.
+If you don't want to be bothered but still wan't to show your appreciation, then hit buy me a coffee to fuel my caffeine addition for all the late nights around this project.
 
-Tau preserves HarpMudd's original support link as an acknowledgement of the
-project it builds on:
-
-💛 **[Support HarpMudd via PayPal](https://www.paypal.com/donate/?hosted_button_id=S22WV924XU2ME)**
 ☕️ **[Buy Alfatreze a Coffee or help out with my redbulls, Claude and Codex Subs 😇](https://buymeacoffee.com/alfatreze)**
-Tau does not currently configure a project funding link.
