@@ -118,6 +118,10 @@ player-library-diagnostic-profile)
     FLAC_O_CFLAGS="-DFLAC_PROFILE=1"
     COLD_PACK=1
     HEAP_MIN=2048        # B-565, as player-library-diagnostic
+    # B-653: a decode-cost measurement build. With the Halcyon EQ (on in every other build) and the tempo stretcher (on in the Diagnostic Build) it is 3,120 B over the 192 KB link, and
+    # neither is what it measures, so both default off here (an explicit HALCYON_FW=1 / TEMPO=1 still overrides).
+    HALCYON_FW="${HALCYON_FW:-0}"
+    TEMPO="${TEMPO:-0}"
     ;;
 psram-diag-sim)
     SRCS=("$FW/start.S" "$FW/psram_diag.c")

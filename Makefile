@@ -1,4 +1,4 @@
-.PHONY: test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -111,10 +111,14 @@ test-host:
 	$(PYTHON) sim/test_ram_report.py
 	$(PYTHON) sim/test_art_decode.py
 	$(PYTHON) sim/test_fw_pair_check.py
+	$(PYTHON) sim/test_gain_handover.py
 	$(PYTHON) sim/test_sdram_map_overlap.py
 	$(PYTHON) tools/check_art_load_order.py --check
+	$(PYTHON) tools/check_targets_link.py
+	$(PYTHON) tools/fit_manifest.py check-bundles
+	$(PYTHON) sim/test_fit_manifest.py
 
-test-rtl: test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
@@ -320,6 +324,20 @@ test-rtl-halcyon-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_halcyon.elf $(RTL_BUILD_DIR)/fw_halcyon.bin
 	@set -e; for wide in 0 1; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_halcyon_soc.WIDE=$$wide -o $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp $(HALCYON_SOC_SRC); \
 	  $(VVP) $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_halcyon.bin | tee $(RTL_BUILD_DIR)/halcyon_soc.log | tail -13; grep -q "^PASSED" $(RTL_BUILD_DIR)/halcyon_soc.log; done
+
+# B-653: the stereo pair invariant through the real mp3_soc audio path and the real sound_i2s writer (sim/tb_audio_pair.v, firmware sim/fw_audiopair/main.c), in six configurations; the
+# bench's own mutant (-DTORN=1, the right channel a clock late) must FAIL.
+AUDIO_PAIR_SRC = sim/tb_audio_pair.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_gain_stage.sv $(RTL_BUILD_DIR)/sound_i2s_sim.v src/fpga/core/sync_fifo.v
+# Icarus rejects sound_i2s.v's unused negative-repeat branch ({(15 - CHANNEL_WIDTH){1'b0}} with a 16-bit channel); the copy changes nothing for CHANNEL_WIDTH 16 (as sim/test_cymo_i2s_rate.py).
+$(RTL_BUILD_DIR)/sound_i2s_sim.v: src/fpga/core/sound_i2s.v | $(RTL_BUILD_DIR)
+	$(PYTHON) -c "import sys;s=open(sys.argv[1]).read();open(sys.argv[2],'w').write(s.replace(\"{(15 - CHANNEL_WIDTH){1'b0}}\",\"{((CHANNEL_WIDTH < 15) ? (15 - CHANNEL_WIDTH) : 1){1'b0}}\"))" $< $@
+test-rtl-audio-pair: $(RTL_BUILD_DIR)/mp3_soc_sim.v $(RTL_BUILD_DIR)/sound_i2s_sim.v
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_audiopair/main.c -o $(RTL_BUILD_DIR)/fw_audiopair.elf
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_audiopair.elf $(RTL_BUILD_DIR)/fw_audiopair.bin
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Isim -o $(RTL_BUILD_DIR)/tb_audio_pair.vvp $(AUDIO_PAIR_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/tb_audio_pair.vvp +ROM=$(RTL_BUILD_DIR)/fw_audiopair.bin | tee $(RTL_BUILD_DIR)/audio_pair.log | tail -9; grep -q "^PASSED" $(RTL_BUILD_DIR)/audio_pair.log
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Isim -Ptb_audio_pair.TORN=1 -o $(RTL_BUILD_DIR)/tb_audio_pair_torn.vvp $(AUDIO_PAIR_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/tb_audio_pair_torn.vvp +ROM=$(RTL_BUILD_DIR)/fw_audiopair.bin | grep -q "^FAILED"; then echo "mutant killed: a right channel one clock late is caught"; else echo "MUTANT SURVIVED: tb_audio_pair TORN=1"; exit 1; fi
 
 test-rtl-wave-meter: $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp
 	$(VVP) $<

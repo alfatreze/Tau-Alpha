@@ -356,6 +356,30 @@ static const char tau_fw_pair_marker[] __attribute__((used, retain)) = "TAUFWPAI
 #ifndef TAU_SDRAM_BUSY
 #define TAU_SDRAM_BUSY 0
 #endif
+/* B-653: the bitstream FEATURES this image uses, as plain text inside the ROM (next to TAUFWPAIR), so tools/check_fw_bitstream_pair.py can compare them with the macros a bitstream was
+ * built with (the bitstream manifest tools/vm_fit.py records) at package and install time. Every one degrades gracefully when missing (a boot probe reads NO UNIT), which is exactly
+ * why a mismatch would otherwise go unnoticed: the Halcyon EQ simply does nothing. */
+#if TAU_HALCYON_FW
+#define FW_NEED_HAL "HALCYON,"
+#else
+#define FW_NEED_HAL ""
+#endif
+#if TAU_LPC_FW
+#define FW_NEED_LPC "LPC,"
+#else
+#define FW_NEED_LPC ""
+#endif
+#if TAU_POLY_FW
+#define FW_NEED_POLY "POLY,"
+#else
+#define FW_NEED_POLY ""
+#endif
+#if TAU_SDRAM_BUSY
+#define FW_NEED_BUSY "SDRAM_BUSY,"
+#else
+#define FW_NEED_BUSY ""
+#endif
+static const char tau_fw_need_marker[] __attribute__((used, retain)) = "TAUFWNEED:" FW_NEED_HAL FW_NEED_LPC FW_NEED_POLY FW_NEED_BUSY ";";
 /* P5: place the album-art accumulator (art_acc, 11,040 B) in PSRAM behind the uncached CPU
  * window at 0xA4000000 instead of BRAM. Needs the P4 bitstream (PSRAM window); art_prove()
  * checks for it before the first store and turns cover art off (no BRAM fallback) if it is
@@ -1226,27 +1250,34 @@ static void vol_apply(void)        { vol_st.target = rg_target(pcm_vol_target(vo
 static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = rg_target(pcm_vol_target(volume), rg_factor); if (vol_st.hw) { REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u; } }    /* boot / settings restore: no ramp from full volume */
 /* B-615: restart the discontinuity fade (resume after a pause, an underrun). The hardware stage starts its own fade at every flush; the other cases need this pulse. */
 static inline void fade_restart(void) { fade_left = vol_st.hw ? 0u : FADE_SAMPLES; if (vol_st.hw) REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 4u; }
-/* B-615: hand the gain (volume, ramp, fade-in) to the hardware stage, or take it back. Exactly one of the two owns it: pcm_gain_apply() returns at once while vol_st.hw is set, so
- * the gain is never applied twice, and with the stage off the software path is byte-for-byte what it was. A no-op on a bitstream without the stage (hw_gain 0). */
-static void gain_hw_set(uint8_t on)
+/* B-615: at boot, hand the gain (volume, ramp, fade-in) to the hardware stage. Exactly one of the two owns it: pcm_gain_apply() returns at once while vol_st.hw is set, so the gain is never
+ * applied twice. A no-op on a bitstream without the stage (hw_gain 0). Runtime changes of owner go through gain_handover() below (B-653): this one is only safe while the FIFO is empty. */
+static void gain_hw_adopt(void)
 {
     if (!hw_gain) return;
-    if (on) {
-        vol_st.hw = 1u;
-        REG(R_GAIN_TARGET) = (uint32_t)vol_st.target;
-        REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u;          /* enable, and the stage's gain = target now: no ramp from a stale value */
-    } else {
-        vol_st.hw = 0u;
-        fade_left = 0u;                                  /* the hardware fade owned it: no stale software fade-in */
-        vol_st.cur = vol_st.target;                      /* software resumes at the target, not at a stale mid-ramp value */
-        REG(R_GAIN_CTRL) = 0u;
-    }
+    vol_st.hw = 1u;
+    REG(R_GAIN_TARGET) = (uint32_t)vol_st.target;
+    REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u;              /* enable, and the stage's gain = target now: no ramp from a stale value */
 }
 /* B-620 (parallel plan A2): dip the HARDWARE gain around a change that alters the output abruptly, so the listener never gets a step: the 16-bit slot adds 6 dB in one sample, and the
  * live resampler swaps the signal. gain_dip_begin() ramps the gain to zero (5 ms by the stage's ramp, 8 ms waited), the caller makes the change, gain_dip_end() ramps back up to the
  * volume target. Hardware stage only: the firmware gain acts on samples that sit up to 46 ms ahead of the DAC, so it cannot dip in time (the step remains there, documented). A no-op
  * unless the stage owns the gain. The wait is short against the FIFO's 46 ms, so playback does not underrun. */
 #define GAIN_DIP_WAIT_CYC (CLK_HZ / 1000u * 8u)
+/* B-653: the runtime hand-over of the gain between the firmware and the hardware stage (Diagnostics > HW GAIN): muted at the FIFO output, FIFO flushed, then flipped (fw/gain_handover.h).
+ * gain_hw_adopt() above stays the boot-time adoption (no audio is playing then, so nothing is in the FIFO). */
+#include "gain_handover.h"
+static inline void pcm_flush(void);
+static void gh_ctrl(uint32_t v)   { REG(R_GAIN_CTRL) = v; }
+static void gh_target(uint32_t v) { REG(R_GAIN_TARGET) = v; }
+static void gh_wait_ms(uint32_t ms) { const uint32_t t0 = cycles(); while ((uint32_t)(cycles() - t0) < (CLK_HZ / 1000u) * ms) { } }
+static void gh_flush(void)        { pcm_flush(); }
+COLD_FN2 static void gain_handover(uint8_t on)
+{
+    if (!hw_gain) return;
+    static const gh_ops_t ops = { gh_ctrl, gh_target, gh_wait_ms, gh_flush };
+    gh_handover(&ops, &vol_st, &fade_left, FADE_SAMPLES, GAIN_CTRL_BASE, on);
+}
 COLD_FN2 static void gain_dip_begin(void)
 {
     if (!vol_st.hw) return;
@@ -9302,7 +9333,7 @@ int main(void)
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
 
     vol_apply_snap();
-    gain_hw_set(1u);   /* B-615: probe-then-adopt: with the hardware stage in the bitstream it owns the gain from the first sample (no-op otherwise) */
+    gain_hw_adopt();   /* B-615: probe-then-adopt: with the hardware stage in the bitstream it owns the gain from the first sample (no-op otherwise) */
 
     /* Phase F step 1 (docs/PHASE_F_SPEC.md section 14): point the decoders'
      * cycle-counting hooks at R_CYCLES. Compiles to nothing unless the
@@ -9663,6 +9694,10 @@ int main(void)
                     hal_restore = 0u;
                     ui_eq_pill();
                     ui_mode_dirty = 1u;
+                }
+                if (hal_req && !hw_hal) {                    /* B-653: no engine in this bitstream: say so instead of doing nothing */
+                    hal_req = 0u;
+                    ui_toast_msg("EQ: NEEDS A NEWER CORE");
                 }
                 if (hal_req) {                               /* the Y key: a user action, so it is also saved */
                     hal_cycle();
