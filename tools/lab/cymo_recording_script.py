@@ -40,6 +40,11 @@ add("3 16-bit", "105_a16_on_v94", "tone_1k_48000.flac", "16-BIT ON, core volume 
 add("3 16-bit", "105_sil_a16_on_v94", "silence_44100.flac", "16-BIT ON, core volume 94", "record 15 s", "cymo_loopback.py analyze", "Q3 / G-A16: floor with 16-bit", O)
 for n, s in (("screen_on", "screen on, default meter"), ("screen_blank", "Settings > Appearance > SCREEN BLANK active"), ("menu", "a menu open and static"), ("charger", "charger connected, screen on")):
     add("4 spur source", f"105_spur_{n}", "silence_44100.flac", s, "record 15 s", "cymo_loopback.py analyze (spurs)", "Q4 / G-SPUR", O)
+for n, setup, why in (("paused", "play the silence file, then press Pause (the decoder stops; the I2S stream keeps clocking)", "if the floor falls back to idle (-82.5) the extra noise comes from decoding/CPU/SD activity; if it stays at -73, it is the DAC / amplifier state"),
+                      ("stopped", "play the silence file, then Stop (back to the idle screen of the player)", "the same, with the player fully stopped"),
+                      ("hwoff", "silence file playing, HW GAIN OFF", "excludes the gain stage's activity"),
+                      ("mp3sil", "an MP3 silence file playing (silence_44100.mp3)", "FLAC against MP3 decoding load")):
+    add("4 spur source", f"{{c}}_spur_{n}", "silence_44100.flac" if n != "mp3sil" else "silence_44100.mp3", setup, "record 15 s", "cymo_loopback.py analyze (band levels and spurs)", "G-SPUR follow-up: why playing digital silence is 9.7 dB noisier than idle (" + why + ")", N)
 for v in (94, 100):
     add("load (optional)", f"105_load_v{v}", "tone_1k_48000.flac", f"32 ohm resistor across the jack, 15-bit, core volume {v}", "record 15 s", "cymo_loopback.py analyze", "G-LOAD: distortion under load", O)
 for k in ("ladder", "imd", "hot"):
