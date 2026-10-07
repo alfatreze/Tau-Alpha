@@ -86,7 +86,7 @@ Not everything paid off, and not everything is finished; recorded here instead o
 | **Meter Sweep** | Draw cost of every meter (about 10 s each): draw stall, SDRAM busy share, underruns | [guide/DIAGNOSTICS.md](guide/DIAGNOSTICS.md), [METER_MODULE_SPEC.md](METER_MODULE_SPEC.md) |
 | **Decode Sweep / profile build** | Per-stage decode percentages (Huffman, IMDCT, filterbank) over a library queue | AUDIT_TRAIL B-086..B-092 |
 | **Info page rows** | UNDERRUNS, DRAW STALL, LOAD MS, WINDOW READ, MP3 WINDOW, TIM1 COVER, VBLANK, BEAM, METER YIELD, FREE RAM | [guide/DIAGNOSTICS.md](guide/DIAGNOSTICS.md) |
-| **Stress and soak** | Extra memory traffic beside playback for 5-60 minutes; late underruns must stay 0 | Settings > Diagnostics > Stress |
+| **Stress and soak** | Extra memory traffic beside playback for 5-60 minutes; late underruns must stay 0 | Menu > Diagnostics > Stress |
 | **Fits and host tests** | Timing slack per corner on two seeds; simulation and host tests for correctness | [DEVELOPERS.md](DEVELOPERS.md) |
 | **QR decode on a computer** | `tools/decode_tau_suite.py --qr screenshot.png` turns a screenshot into the exact report | [guide/MEDIA_AND_TOOLS.md](guide/MEDIA_AND_TOOLS.md) |
 

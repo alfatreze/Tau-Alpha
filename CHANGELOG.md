@@ -4,6 +4,7 @@ What changed in each release, newest first.
 
 ## v0.6.0-alpha.4 — 7 October 2026
 
+- **Simpler menu.** The Settings group is gone: Diagnostics (Diagnostic Build only) and Info are now on the main menu, with Info always last.
 - **Volume is a dB taper with a click-free ramp** (100 positions over 60 dB); hold Up/Down repeats the volume. Saved
   volumes sound quieter than before (same number, different loudness); the default is higher to compensate.
 - **ReplayGain** (Off / Track / Album) under Settings > Audio, reading ID3 and FLAC tags, attenuate-only. The setting
@@ -14,7 +15,7 @@ What changed in each release, newest first.
 - **Report codes** (Check, Info) are shown as a pixel grid by default, with the QR code one press away.
 - **Diagnostic Build:** gap-latency and hardware-gain Info rows, MP3 LAME gapless tag parsing, Halcyon EQ data format
   and tools (not active), more Check measurements. `Track changes` still fails in Check (a test issue).
-- **Info page export in the normal core.** Press A on Settings > Diagnostics > Info to show every Info row as a report code (pixel grid, X for the QR code), as the Diagnostic Build already did.
+- **Info page export in the normal core.** Press A on Menu > Info to show every Info row as a report code (pixel grid, X for the QR code), as the Diagnostic Build already did.
 - **Audiobook tempo** (MP3 only, Settings > Playback > TEMPO) is now in the Diagnostic Build; it works to about 1.75x and clicks at 2.00x.
 - The bitstream is the same as alpha.3 (no hardware changes).
 
