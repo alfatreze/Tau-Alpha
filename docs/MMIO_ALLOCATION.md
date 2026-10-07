@@ -73,7 +73,11 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x158 | CYMO_OUT | R | `{out_r[31:16],out_l[15:0]}` -- this read is itself the ack that clears `CYMO_STATUS` bit 2 (self-test only). |
 | 0x15C | CYMO_STATUS | R | bit 0 = built in, bit 1 = busy, bit 2 = done, bit 3 = pop_req, bit 4 = live_en, bits[7:5] = hand-off queue level (B-527, `tau_cymo_feed.sv`). 0 when off. |
 | 0x160 | CYMO_DIAG | R | B-527 (redefines B-492's single counter): bits[15:0] = saturating count of consumes (an internal `pop_req` falling edge) that found no sample pushed since the previous one -- the resampler repeated an input sample; bits[31:16] = saturating count of `pcm_sample_tick`s that found the hand-off queue full -- an input sample was lost. Both should stay at 0 with the elastic hand-off (the old tick-gated hand-off lost/repeated 9-29% of the samples); both clear on every `cymo_live_en` rising edge and keep their value when it falls. |
-| 0x164-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x168 | GAIN_CTRL | R/W | B-615 hardware gain stage (`tau_gain_stage.sv`, `TAU_GAIN`). Write: bit 0 ENABLE (sticky, reset 0), bit 1 SNAP (pulse: gain = target now), bit 2 FADE_NOW (pulse), bits [5:4] fade length 256 << n samples (sticky, reset 3 = 2048). Read: bit 31 present, bit 0 enable, bit 2 fading, [5:4] shift. 0 on a bitstream without the stage. |
+| 0x16C | GAIN_TARGET | R/W | Q15 wanted gain, 32768 = unity (values above are capped: the stage only attenuates); sticky, reset 32768. |
+| 0x170 | GAIN_CUR | R | The gain in force (ramping toward the target). |
+| 0x174 | GAIN_STEP | R/W | Maximum gain change per output sample; sticky, reset 149 (5 ms for full scale). |
+| 0x178-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
