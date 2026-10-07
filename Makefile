@@ -42,6 +42,7 @@ test-host:
 	$(PYTHON) sim/test_chladni_params.py
 	$(PYTHON) sim/test_cymo_loopback.py
 	$(PYTHON) sim/test_cymo_isp.py
+	$(PYTHON) sim/test_cymo_crossfeed.py
 	$(PYTHON) sim/test_cymo_out_model.py
 	$(PYTHON) sim/test_sound_i2s_full16.py
 	$(PYTHON) sim/test_settings_menu_counts.py
