@@ -107,3 +107,5 @@ Feasible with no RTL as planned, but note the limits again: the spectrum bank's 
 | Subsonic filter (new) | fixed 7th stage, 35-40 Hz |
 | Persistence (D-S05) | per-variant `interact.json` (release drops legacy 20-23), four user slots |
 | Recall | gain-dip with state clear (about 10 ms) |
+
+> **Errata 2026-10-07 (headphone review, `CYMO_HEADPHONE_PLAN.md` section 11, A2):** the always-on 35-40 Hz subsonic stage proposed above is wrong for headphones and IEMs (real music lives at 30-40 Hz and the core cannot tell speaker from headphone). Make the fixed stage 15-20 Hz and keep a 35-40 Hz high-pass only inside the SPEECH preset.
