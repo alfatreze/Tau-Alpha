@@ -33,7 +33,9 @@ for a, b in (("on", "v94"), ("off", "v94"), ("on", "v70"), ("off", "v70")):
 for a in ("on", "off"):
     add("2 HW gain A/B", f"105_hw_{a}_step", "tone_1k_48000.flac", f"HW GAIN {a.upper()}; volume 94, then 70, then 94 DURING the tone", "start recording before play; change the volume at about 4 s and 8 s", "cymo_loopback.py track", "Q2 / G-HWGAIN: step shape", O)
 add("3 16-bit", "105_a16_off_v94", "tone_1k_48000.flac", "16-BIT OUTPUT OFF, core volume 94", "record 12 s", "cymo_loopback.py analyze", "Q3 / G-A16: reference", O)
-add("3 16-bit", "105_a16_on_v84", "tone_1k_48000.flac", "16-BIT OUTPUT ON (lower the volume BEFORE switching it on), core volume 84 = level-matched", "record 12 s", "cymo_loopback.py analyze / compare", "Q3 / G-A16: level-matched", O)
+add("3 16-bit", "105_a16_on_v85", "tone_1k_48000.flac", "16-BIT OUTPUT ON (lower the volume BEFORE switching it on), core volume 85 (the volume moves in steps of 3, so 84 cannot be selected; 85 is 0.62 dB above level-matched, expect -11.40 dBFS against -12.02 OFF). Recorded as 105_a16_on_v84.wav", "record 12 s", "cymo_loopback.py analyze / compare", "Q3 / G-A16: level-matched", O)
+for v in (70, 40):
+    add("3 16-bit", f"105_a16_on_v{v}", "tone_1k_48000.flac", f"16-BIT ON, core volume {v}, interface gain as for 105_a16_on_v94 (lowered, note the knob); the 15-bit reference is 105_tone_v{v}", "record the whole tone", "cymo_loopback.py analyze / compare with 105_tone_v%d" % v, "Q3 / G-A16: does the 6 dB pay where the fixed floor dominates (predicted SINAD +6 dB)", N)
 add("3 16-bit", "105_a16_on_v94", "tone_1k_48000.flac", "16-BIT ON, core volume 94; lower the interface gain by about 6 dB first and note the knob", "record 12 s", "cymo_loopback.py analyze / compare", "Q3 / G-A16: same volume", O)
 add("3 16-bit", "105_sil_a16_on_v94", "silence_44100.flac", "16-BIT ON, core volume 94", "record 15 s", "cymo_loopback.py analyze", "Q3 / G-A16: floor with 16-bit", O)
 for n, s in (("screen_on", "screen on, default meter"), ("screen_blank", "Settings > Appearance > SCREEN BLANK active"), ("menu", "a menu open and static"), ("charger", "charger connected, screen on")):

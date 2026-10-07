@@ -14317,3 +14317,22 @@ Level equal to 0.00 dB at both volumes (the prediction allowed 0.05), SINAD with
 - **No start-of-track fade-in is visible in either mode.** The test tone starts at sample 0 at full amplitude, so a 2048-sample (43 ms) fade would show as a ramp over about 8 of the 5 ms windows. Both ON and OFF go from silence to 86-87 % of full level inside one 5 ms window (OFF volume 70: 38 %, then full). Either the discontinuity fade is not armed on this start path, or it ended before the first audible sample; this also means the prediction "same fade shape" could not be tested. To be settled with the group 7 recordings (loop boundary, track change, Next/Previous), where a fade must be armed; a firmware read of the start path is the cheap parallel check.
 - **The step recordings are not a valid step test.** The tone file is 6 s long, and the takes show the volume going from 70 up to 94 by a held key (about 0.6 dB per repeat, smooth, no discontinuity at 100 ms resolution, in both modes), not 94 down to 70 and back. The HW ON take also has a lower first 0.4 s (-28.2 dBFS against -26.4 afterwards, +1.8 dB at the end of that plateau) that the OFF take does not: possibly a volume gesture of the person, possibly the hardware stage; one take each cannot say. Redo with the 60 s tone file (`tone_1k_48000_60s.flac`, to be built) and a stated sequence, or better the group 7 toggle takes.
 - The tone file is 6 s, not the 12 s the plan's "record 12 s" assumed; the script should say "record the whole tone (6 s) plus 3 s either side".
+
+## B-657: group 3 read (16-bit I2S slot, `105_a16_*`, TAU_DEV_105)
+
+Takes: `a16_off_v94` (reference), `a16_on_v84` (recorded at core volume **85**: the volume moves in steps of 3, so 84 cannot be selected; 85 is 0.62 dB above level-matched), `a16_on_v94` (same volume, interface gain lowered by about 11.4 dB, not the 6 dB the plan said: the tone reads -17.37 where -6.0 would be expected at the old gain; SINAD and the dBc profile below do not depend on it), `sil_a16_on_v94`.
+
+| | level | SINAD | THD |
+|---|---|---|---|
+| OFF, volume 94 | -12.02 dBFS | 53.44 dB | -76.13 dB |
+| ON, volume 85 | -11.40 | 53.53 | -73.34 |
+| ON, volume 94 | -17.37 (gain lowered; +6.02 dB at the same gain) | 53.55 | -71.81 |
+| silence, 15-bit v100 / 16-bit ON v94 | -72.8 / -73.7 dBFS RMS | | |
+
+**Reading:**
+- **The slot gives exactly +6.02 dB.** ON at volume 85 is -11.40 dBFS against OFF at 94 at -12.02: +0.62 dB, which is 6.02 dB minus the 9 positions (5.40 dB) it was lowered. The 15-bit mapping really halves the word.
+- **Level-matched, the SINAD is the same (53.53 against 53.44): the analogue chain dominates.** As predicted.
+- **At the same volume (6 dB hotter) the SINAD does NOT rise by 6 dB (53.55 against 53.44).** The prediction "+6 dB if the noise sits after the DAC" is not met for this signal level, and the noise profile explains why: integrated around the tone, the noise in dBc is identical for 16-bit ON and OFF at volume 94 (-79.4 / -75.1 / -64.1 to -64.9 / -63.5 / -55.5 dBc in the bands 15-60 Hz, 60-200 Hz, 200 Hz-1 kHz, 1-5 kHz, 5-19 kHz), so with 6 dB more signal the noise is 6 dB higher: **at this level the noise is proportional to the signal** (a skirt around the tone, like clock jitter or a multiplicative stage), not a fixed floor. The fixed floor shows only at low levels: the dBc profile worsens by 13-15 dB from volume 94 to 70 and 31 dB to volume 40. The silence floor is the same with the slot on (-73.7 against -72.8 dBFS RMS, the same within a dB).
+- **Consequence for G-A16 and the dither question.** The slot's 6 dB buys loudness and headroom, and SNR only where the fixed floor dominates (volume 70 and below): at equal loudness the SNR is the same (the floor is fixed), at the same digital volume it is 6 dB louder with an unchanged SINAD. It is not a quality gain at high level. THD gets slightly worse with the extra level (-76.1 to -73.3 level-matched, -71.8 at +6 dB): small and smooth, not clipping.
+- **Two takes to add** (in the script): `105_a16_on_v70` and `105_a16_on_v40` (16-bit ON at the lower volumes, against group 1's 15-bit takes), to test the prediction that the 6 dB gives +6 dB SINAD where the fixed floor dominates.
+- The script now names the level-matched take `105_a16_on_v85` (the recorded file is `105_a16_on_v84.wav`).
