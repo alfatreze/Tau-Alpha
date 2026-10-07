@@ -19,7 +19,7 @@ Rule (D-G01): nothing in a gated row of `CYMO_RECORDING_PLAN_DEV105.md` section 
 |---|---|---|
 | B1 | Two-seed fit with `TAU_EQ_COEF24` on the gain-stage bundle (64-bit accumulate timing) | **DONE B-629**: `eq24-b618` closed on both seeds, all corners positive (finished 10:22 local after about 1h38) |
 | B2 | Synthesis-only: EQ state and coefficient store to MLAB/M10K, measure ALMs saved (prerequisite of the Halcyon RTL) | **ANALYSED B-627, experiment deferred**: the current module cannot be switched by an attribute (4 async reads, a reset loop over the array, combinational ROM address); the measurement belongs to the rewritten engine (Halcyon spec, section 'Finding while preparing the MLAB experiment') |
-| B3 | Resampler output widened to 18 bits into the 24-bit EQ input (RTL, simulation, mutants, then a fit) | |
+| B3 | Resampler output widened to 18 bits into the 24-bit EQ input (RTL, simulation, mutants, then a fit) | **Resampler side DONE B-634** (`OUT_W` parameter, 16 shipped / 18, model, cross-check, vectors, mutant); the EQ's wide input and the wiring wait for the Halcyon engine (no consumer yet, shipped default unchanged); a fit comes with that step |
 | B4 | Timing experiments: STANDARD FIT, Rapid Recompile | **STANDARD FIT RUNNING** `stdfit-b630` (gain bundle + `FITTER_EFFORT "STANDARD FIT"`, seeds 1 and 2, launched 11:09 local; compare against `gain-b615`, same seeds; expected 2-3 hours, so about 13:10-14:10 local); Rapid Recompile not started |
 
 ## C. Release

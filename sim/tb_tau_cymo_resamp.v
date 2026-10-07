@@ -9,6 +9,7 @@
 `timescale 1ns/1ps
 module tb_tau_cymo_resamp;
     parameter integer BUG = 0;
+    parameter integer OUT_W = 16;      // B-634: 16 (shipped) or 18; the vectors file for the width comes from +VEC=...
 
     reg clk = 0; always #7.5 clk = ~clk;   // ~66.7 MHz, matches clk_sys's own CLK66 rate (irrelevant to correctness, just realistic)
     reg rst = 1;
@@ -18,9 +19,9 @@ module tb_tau_cymo_resamp;
     reg start = 0;
     reg out_rd = 0;
     wire busy, done, pop_req;
-    wire signed [15:0] out_l, out_r;
+    wire signed [OUT_W-1:0] out_l, out_r;
 
-    tau_cymo_resamp #(.BUG(BUG)) dut (
+    tau_cymo_resamp #(.BUG(BUG), .OUT_W(OUT_W)) dut (
         .clk(clk), .rst(rst), .clear(clear),
         .push_we(push_we), .push_l(push_l), .push_r(push_r),
         .start(start), .out_rd(out_rd), .busy(busy), .done(done), .pop_req(pop_req),
@@ -31,7 +32,8 @@ module tb_tau_cymo_resamp;
     reg [31:0] vin [0:7999];     // NIN*2 words (NIN=4000 in the golden model)
     reg [31:0] vout [0:13061];   // NOUT*3 words (NOUT~4354)
     integer i, k, consumed, fails, cyc;
-    reg signed [15:0] exp_l, exp_r;
+    reg signed [OUT_W-1:0] exp_l, exp_r;
+    reg [1023:0] vecfile;
     reg exp_pop;
 
     initial begin
@@ -40,7 +42,8 @@ module tb_tau_cymo_resamp;
         // oversized placeholder) so $readmemh's own word-count check stays a real sanity check, not noise.
         begin : load
             reg [31:0] flat [0:21063];   // 2 + 4000*2 + 4354*3, matches sim/cymo_resamp_model.c's own NIN=4000
-            $readmemh("build/rtl/cymo_resamp_vectors.txt", flat);
+            if (!$value$plusargs("VEC=%s", vecfile)) vecfile = "build/rtl/cymo_resamp_vectors.txt";
+            $readmemh(vecfile, flat);
             nin  = flat[0];
             nout = flat[1];
             for (i = 0; i < nin*2; i = i + 1) vin[i] = flat[2+i];
@@ -61,8 +64,8 @@ module tb_tau_cymo_resamp;
         repeat (40) @(posedge clk);
 
         for (k = 0; k < nout; k = k + 1) begin
-            exp_l   = vout[3*k][15:0];
-            exp_r   = vout[3*k+1][15:0];
+            exp_l   = vout[3*k][OUT_W-1:0];
+            exp_r   = vout[3*k+1][OUT_W-1:0];
             exp_pop = vout[3*k+2][0];
 
             start <= 1; @(posedge clk); start <= 0;

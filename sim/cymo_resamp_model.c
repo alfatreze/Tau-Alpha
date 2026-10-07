@@ -31,16 +31,21 @@
 #define TAPS           CYMO_RESAMP_TAPS    /* 32 */
 #define ACC_WIDTH      40
 #define NIN            4000
+#define NHOT           1000                /* the last NHOT inputs are a deterministic hot (full-scale, hard-clipped looking) stream: filter overshoot beyond 16 bits (B-634) */
+#ifndef OUT_W
+#define OUT_W          16                  /* output word width: 16 (shipped) or 18 */
+#endif
 
 static uint32_t rng = 20260930u;
 static uint32_t rnd32(void) { rng = rng * 1664525u + 1013904223u; return rng >> 8; }
 static int32_t rnd_s16(void) { return (int32_t)(int16_t)(rnd32() & 0xFFFFu); }
 
-static int16_t clip16(int64_t v)
+static int32_t clipw(int64_t v)
 {
-    if (v > 32767) return 32767;
-    if (v < -32768) return -32768;
-    return (int16_t)v;
+    const int64_t mx = ((int64_t)1 << (OUT_W - 1)) - 1, mn = -((int64_t)1 << (OUT_W - 1));
+    if (v > mx) return (int32_t)mx;
+    if (v < mn) return (int32_t)mn;
+    return (int32_t)v;
 }
 
 int main(int argc, char **argv)
@@ -49,6 +54,11 @@ int main(int argc, char **argv)
 
     int32_t in_l[NIN], in_r[NIN];
     for (int i = 0; i < NIN; i++) { in_l[i] = rnd_s16(); in_r[i] = rnd_s16(); }
+    for (int i = NIN - NHOT; i < NIN; i++) {      /* hot tail: L a full-scale square (period 8), R a full-scale pattern of period 5 */
+        in_l[i] = (i % 8 < 4) ? 32767 : -32767;
+        static const int32_t pr[5] = { 32767, 32767, -32767, 32767, -32767 };
+        in_r[i] = pr[i % 5];
+    }
 
     /* Upper bound on output count: phase advances by Q<P every step, so at most one input is consumed
      * per output and the ratio P/Q (~1.088) bounds how many outputs one input stream can produce. 2x NIN
@@ -73,8 +83,8 @@ int main(int argc, char **argv)
             acc_r += (int64_t)bank[t] * (int64_t)hist[1][t];
         }
         if (acc_l < lo || acc_l > hi || acc_r < lo || acc_r > hi) overflows++;
-        out_l[nout] = clip16(acc_l >> 15);
-        out_r[nout] = clip16(acc_r >> 15);
+        out_l[nout] = clipw(acc_l >> 15);
+        out_r[nout] = clipw(acc_r >> 15);
 
         phase += Q_STEP;
         if (phase >= P) {
@@ -91,7 +101,7 @@ int main(int argc, char **argv)
         nout++;
     }
 
-    printf("NIN %d, NOUT %d, overflows %d (ACC_WIDTH=%d)\n", NIN, nout, overflows, ACC_WIDTH);
+    printf("NIN %d, NOUT %d, overflows %d (ACC_WIDTH=%d, OUT_W=%d)\n", NIN, nout, overflows, ACC_WIDTH, OUT_W);
 
     if (vf) {
         fprintf(vf, "%08x\n%08x\n", (uint32_t)NIN, (uint32_t)nout);

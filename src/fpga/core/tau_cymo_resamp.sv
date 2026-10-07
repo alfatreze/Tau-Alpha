@@ -52,7 +52,8 @@
 module tau_cymo_resamp #(
     parameter integer Q_STEP = 147,   // exact 44100:48000 = 160:147 -- 44.1 kHz input ONLY (section 9/15's "start with one ratio" decision)
     parameter integer ACC_WIDTH = 40, // sim/cymo_resamp_model.c: proven sufficient (max product ~2^30 x 32 taps ~2^35, headroom to 2^39)
-    parameter integer BUG = 0         // mutation hooks: 1 tap/history indexing reversed, 2 no final shift, 3 coef sign-extension dropped, 4 wrong phase step, 5 pop_req never asserted (history never advances)
+    parameter integer OUT_W = 16,     // B-634: output word width, 16 (shipped) or 18: with 18 the filter's overshoot on hot material (+2 dB true peaks are routine) is carried to the next stage instead of being hard-clipped at +-32767
+    parameter integer BUG = 0         // mutation hooks (6: clip at 16 bits whatever OUT_W is): 1 tap/history indexing reversed, 2 no final shift, 3 coef sign-extension dropped, 4 wrong phase step, 5 pop_req never asserted (history never advances)
 )(
     input  wire        clk,
     input  wire        rst,
@@ -72,8 +73,8 @@ module tau_cymo_resamp #(
     output wire        pop_req,            // LEVEL, not a pulse: mirrors `pending_pop` directly, so a
                                             // polling read can never land in a race window and miss it
                                             // (the same reasoning that makes `done` a held flag, not a pulse)
-    output reg  signed [15:0] out_l,
-    output reg  signed [15:0] out_r
+    output reg  signed [OUT_W-1:0] out_l,
+    output reg  signed [OUT_W-1:0] out_r
 );
 `include "tau_cymo_resamp_rom.svh"
     localparam integer TAPS = CYMO_RESAMP_TAPS;     // 32
@@ -100,6 +101,10 @@ module tau_cymo_resamp #(
     reg [5:0] tap;
     reg signed [ACC_WIDTH-1:0] acc, acc0_r;
     reg signed [ACC_WIDTH-1:0] shifted0, shifted1;
+    // output clip limits: +-(2^(OUT_W-1)); BUG 6 keeps the 16-bit limits whatever the width (a mutant the 18-bit vectors must catch)
+    localparam integer CLIPW = (BUG == 6) ? 16 : OUT_W;
+    localparam signed [ACC_WIDTH-1:0] OMAX = (64'sd1 <<< (CLIPW - 1)) - 64'sd1;
+    localparam signed [ACC_WIDTH-1:0] OMIN = -(64'sd1 <<< (CLIPW - 1));
     reg [5:0] clr_i;
     // Set at the end of one output's S_PHASE when the phase wrapped (a new input sample is owed), CLEARED
     // by actually performing the shift at the START of the NEXT start -- see S_SHIFTHIST below. This
@@ -138,7 +143,7 @@ module tau_cymo_resamp #(
     // synthesis even when Icarus tolerates it).
     always @(posedge clk) begin
         if (rst) begin
-            st <= S_IDLE; phase <= 9'd0; done <= 1'b0; out_l <= 16'sd0; out_r <= 16'sd0;
+            st <= S_IDLE; phase <= 9'd0; done <= 1'b0; out_l <= {OUT_W{1'b0}}; out_r <= {OUT_W{1'b0}};
             ch <= 1'b0; tap <= 6'd0; clr_i <= 6'd0; pending_pop <= 1'b0;
         end else begin
             if (clear && st == S_IDLE) begin
@@ -205,12 +210,8 @@ module tau_cymo_resamp #(
                 S_SHIFT1: begin
                     // 16-bit clip, its own cycle (same split-out-the-last-small-step discipline, same
                     // clip-literal style as tau_mp3_poly.sv's own clip16()).
-                    out_l <= (shifted0 > $signed({{(ACC_WIDTH-16){1'b0}}, 16'sd32767})) ? 16'sd32767
-                           : (shifted0 < -$signed({{(ACC_WIDTH-16){1'b0}}, 16'sd32768})) ? -16'sd32768
-                           : shifted0[15:0];
-                    out_r <= (shifted1 > $signed({{(ACC_WIDTH-16){1'b0}}, 16'sd32767})) ? 16'sd32767
-                           : (shifted1 < -$signed({{(ACC_WIDTH-16){1'b0}}, 16'sd32768})) ? -16'sd32768
-                           : shifted1[15:0];
+                    out_l <= (shifted0 > OMAX) ? OMAX[OUT_W-1:0] : (shifted0 < OMIN) ? OMIN[OUT_W-1:0] : shifted0[OUT_W-1:0];
+                    out_r <= (shifted1 > OMAX) ? OMAX[OUT_W-1:0] : (shifted1 < OMIN) ? OMIN[OUT_W-1:0] : shifted1[OUT_W-1:0];
                     st <= S_PHASE;
                 end
                 S_PHASE: begin
