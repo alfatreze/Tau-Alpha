@@ -14,6 +14,9 @@ static uint8_t hal_cmp;                 /* 1 = the engine is out of the path (th
 #define HP_Y  38u
 #define HP_H  120u
 #define HP_ROWS_Y (HP_Y + HP_H + 10u)                    /* 168: six rows of PL_UI_ROW_H */
+#define HP_FOOT_Y (HP_ROWS_Y + 6u * PL_UI_ROW_H + 3u)    /* the preamp / high-pass line, 14 px high */
+_Static_assert(HP_FOOT_Y + 16u <= OV_HINT_Y - 6u, "the Halcyon page must stay above the action bar");
+_Static_assert(HP_Y >= OV_HEAD_H, "the Halcyon plot must start below the header");
 
 /* Which stage's band to light for each control (x position in the plot of the stage's centre: 20 Hz to 20 kHz log, 360 px), and the half width. */
 COLD_DATA static const uint16_t hal_band_x[6] = { 125u, 84u, 234u, 269u, 301u, 324u };     /* warmth (body 220 Hz), bass 100, vocal 1.8k, punch 3.5k, sibilance 6.5k, air 10k */
@@ -131,7 +134,8 @@ COLD_FN static void hal_pg_row(uint32_t i, int sel)
 
 COLD_FN static void hal_pg_draw(void)
 {
-    ov_frame("HALCYON", hal_pg_preset_text(), "UP DOWN ROW  L R ADJUST  L1 R1 PRESET  X A/B  Y RESET");
+    static const char hint[] = "UP DOWN ROW  L R ADJUST  L1 R1 PRESET  X A/B  Y RESET";
+    ov_frame("HALCYON", hal_pg_preset_text(), hint);
     if (!hw_hal) {
         fb_set_color(UI_DIM, OV_BODY);
         fb_text_clipped(HP_X, HP_Y + 20u, "NO UNIT", TS_1X, TS_1X, HP_W);
@@ -146,9 +150,10 @@ COLD_FN static void hal_pg_draw(void)
     const uint32_t tenths = ((uint32_t)atten[0] * 10u) / 8u;                    /* 1/8 dB to 1/10 dB */
     q = set_str(q, "PREAMP -"); q = ui_dec(q, tenths / 10u); *q++ = '.'; q = ui_dec(q, tenths % 10u);
     q = set_str(q, " DB   17 HZ HIGH-PASS ON"); *q = 0;
-    fb_rect(PL_UI_X + 4u, HP_ROWS_Y + 6u * PL_UI_ROW_H + 2u, PL_UI_W - 8u, 16u, OV_BODY);
+    fb_rect(PL_UI_X + 4u, HP_FOOT_Y - 1u, PL_UI_W - 8u, 16u, OV_BODY);
     fb_set_color(UI_FAINT, OV_BODY);
-    fb_text_clipped(PL_UI_TEXT_X, HP_ROWS_Y + 6u * PL_UI_ROW_H + 3u, t, TS_1X, TS_1X, PL_UI_W - 32u);
+    fb_text_clipped(PL_UI_TEXT_X, HP_FOOT_Y, t, TS_1X, TS_1X, PL_UI_W - 32u);
+    ov_hint_repaint(hint);
 }
 
 /* L1/R1: the next / previous preset (never OFF), inside a gain dip, with the clear of a recall. */

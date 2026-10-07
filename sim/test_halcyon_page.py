@@ -52,6 +52,7 @@ def script_checks(incdir=None):
     out = run("draw\n", incdir)
     d = blocks(out)[0]
     rs = rects(d)
+    check("nothing the page draws reaches the action bar (y 332..360), and the bar is re-asserted last", all(y + h <= 332 for x, y, w, h in rs) and [l for l in d if l.startswith("H ")] and d[-1].startswith("H "), "(lowest edge %d of 332)" % max(y + h for x, y, w, h in rs))
     check("every drawn rectangle is on the screen (400 x 360)", all(0 <= x and 0 <= y and w > 0 and h > 0 and x + w <= 400 and y + h <= 360 for x, y, w, h in rs), "(%d rectangles)" % len(rs))
     curve = [r for r in rs if r[2] == 3 and 38 <= r[1] and r[1] + r[3] <= 158 and r[0] >= 24]
     check("the curve is at most 140 three-pixel columns inside its plot (y 38..158)", 90 <= len(curve) <= 140 and all(38 <= y and y + h <= 158 for x, y, w, h in curve), "(%d columns)" % len(curve))
