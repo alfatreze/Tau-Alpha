@@ -62,6 +62,14 @@ int main(void)
     /* mute is exact silence, unity is untouched */
     { pcm_vol_t v = { 0, 0 }; uint32_t fl = 0; int32_t l = 32767, r = -32768; pcm_gain_apply(&l, &r, &v, &fl, FADE_SAMPLES); n++; if (l != 0 || r != 0) fail("mute", l, r); }
     { pcm_vol_t v = { 32768, 32768 }; uint32_t fl = 0; int32_t l = 32767, r = -32768; pcm_gain_apply(&l, &r, &v, &fl, FADE_SAMPLES); n++; if (l != 32767 || r != -32768) fail("unity", l, r); }
+    /* B-615: with the hardware gain stage owning the gain (hw = 1) this path must leave the samples, the ramp state and the fade counter untouched: a second application doubles the gain */
+    { long bad0 = bad;
+      for (int step = 0; step <= 100; step += 5) for (uint32_t f0 = 0; f0 <= FADE_SAMPLES; f0 += 301) {
+        pcm_vol_t v = { 32768, pcm_vol_target((uint32_t)step), 1 }; uint32_t fl = f0; int32_t l = 12345, r = -23456;
+        pcm_gain_apply(&l, &r, &v, &fl, FADE_SAMPLES); n++;
+        if (l != 12345 || r != -23456 || fl != f0 || v.cur != 32768) fail("hw gain: software applied it too", step, (long)f0);
+      }
+      printf("HW %%s\n", bad == bad0 ? "single owner" : "DOUBLE"); }
     /* B-602: rounding. Over every 16-bit sample the mean error against the exact product is ~0 at every position (a floor shift gives -0.5) and no sample is off by more than 0.5 LSB */
     { double worst_mean = 0, worst_abs = 0;
       for (int step = 1; step < 100; step++) {

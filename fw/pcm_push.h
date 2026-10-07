@@ -13,7 +13,7 @@
  * as a Q15 factor (32768 = unity; a 16-bit sample times a Q15 gain stays inside int32). The table is the formula rounded to the nearest integer (sim/test_pcm_push.py recomputes it).
  * A change of volume does not jump: `cur` moves toward `target` by PCM_VOL_RAMP per sample pair (full scale in about 220 pairs, 5 ms at 44.1 kHz), so a step is a short smooth
  * slope instead of a click. Steady state is one compare per pair. Boot snaps `cur` to `target` (vol_apply_snap in player.c) so the first samples are not a ramp from full volume. */
-typedef struct { int32_t cur, target; } pcm_vol_t;
+typedef struct { int32_t cur, target; uint8_t hw; } pcm_vol_t;   /* hw: the hardware gain stage (B-615, src/fpga/core/tau_gain_stage.sv) owns volume, ramp and fade: this path must not touch the samples (a second application would apply the gain twice) */
 #define PCM_VOL_UNITY 32768
 #define PCM_VOL_RAMP  149
 static const uint16_t pcm_vol_tab[101] = {
@@ -33,6 +33,7 @@ static inline int32_t pcm_vol_target(uint32_t step) { return step > 100u ? PCM_V
 
 static inline void pcm_gain_apply(int32_t *l, int32_t *r, pcm_vol_t *v, uint32_t *fade_left, uint32_t fade_samples)
 {
+    if (v->hw) return;                              /* B-615: applied in hardware at the FIFO output; the single owner of the gain */
     if (v->cur != v->target) {
         int32_t d = v->target - v->cur;
         if (d > PCM_VOL_RAMP) d = PCM_VOL_RAMP; else if (d < -PCM_VOL_RAMP) d = -PCM_VOL_RAMP;

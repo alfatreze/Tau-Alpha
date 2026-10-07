@@ -41,7 +41,7 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #define SET_PIXGRID_PG ((uint8_t)(SET_METERTRACE_PG + 1u))    /* Pixel grid fidelity test, barcode study (fw/suite.inc) */
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
-enum { TG_ART = 0, TG_SPEEDS, TG_RATES, TG_CYMO, TG_OUT16 };
+enum { TG_ART = 0, TG_SPEEDS, TG_RATES, TG_CYMO, TG_OUT16, TG_GAIN };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 #define SET_PAGE_CH(c) ((uint8_t)(SET_MENUS + (c)))
 
@@ -79,6 +79,7 @@ static const set_row_t set_dgn_rows[] = {
     { "ACCEPT ALL RATES", RT_TOGGLE, TG_RATES },
     { "CYMO RESAMPLER", RT_TOGGLE, TG_CYMO },
     { "16-BIT OUTPUT", RT_TOGGLE, TG_OUT16 },
+    { "HW GAIN", RT_TOGGLE, TG_GAIN },
     { "CHECK", RT_GROUP, SET_CHECK_PG },
 #if MP3_PROFILE || FLAC_PROFILE
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
@@ -502,6 +503,11 @@ COLD_FN static void set_toggle(uint32_t t)
             REG(R_AUDIO_CFG) = a16_on ? 1u : 0u;
         }
         return;                                  /* not persisted */
+    } else if (t == TG_GAIN) {
+        /* B-615: A/B of the hardware gain stage against the firmware gain. ON is the default whenever the bitstream has the stage; this switch takes the gain back to software
+         * (and returns it) without a restart. No-op on a bitstream without the stage. Never persisted. */
+        if (hw_gain) gain_hw_set((uint8_t)!vol_st.hw);
+        return;                                  /* not persisted */
 #endif
     }
     settings_mark_dirty();
@@ -540,6 +546,7 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
 #if TAU_DIAGNOSTIC
     else if (r->arg == TG_RATES)  s = flac_accept_all_rates ? "ON" : "OFF";
     else if (r->arg == TG_OUT16)  s = !hw_a16 ? "NO UNIT" : a16_on ? "ON" : "OFF";
+    else if (r->arg == TG_GAIN)   s = !hw_gain ? "NO UNIT" : vol_st.hw ? "ON" : "OFF";
     else if (r->arg == TG_CYMO)   s = !cymo_live_toggle ? "OFF" : cymo_live_on ? "ON" : "WAIT";   /* WAIT = on, but this file is not 44.1 kHz at 1.00x (B-530) */
 #endif
     else                          s = set_speed_all ? "ON" : "OFF";   /* TG_SPEEDS, the only remaining toggle */

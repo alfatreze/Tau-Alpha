@@ -771,6 +771,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/tau_mp3_poly.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_flac_lpc.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cymo_resamp.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cymo_feed.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/tau_gain_stage.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_cdc_gray_bus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_main_ram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/tau_ram_probe_a.sv
