@@ -103,3 +103,4 @@ fw/*.o
 /UniClaudeProxy/
 /build/
 /release/
+sim/eq24/

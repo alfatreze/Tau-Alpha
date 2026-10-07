@@ -18,6 +18,11 @@
 //     so proves the output CLAMPS rather than wraps
 // =============================================================================
 
+`ifdef TAU_EQ_COEF24
+`define EQ_VEC_DIR "sim/eq24/"
+`else
+`define EQ_VEC_DIR "sim/"
+`endif
 `timescale 1ns/1ps
 
 module tb_eq_biquad;
@@ -50,14 +55,14 @@ module tb_eq_biquad;
     task run_preset(input [2:0] ps, input [255:0] label);
         begin
             case (ps)
-                3'd0: $readmemh("sim/eq_exp_0.hex", expv);
-                3'd1: $readmemh("sim/eq_exp_1.hex", expv);
-                3'd2: $readmemh("sim/eq_exp_2.hex", expv);
-                3'd3: $readmemh("sim/eq_exp_3.hex", expv);
-                3'd4: $readmemh("sim/eq_exp_4.hex", expv);
-                3'd5: $readmemh("sim/eq_exp_5.hex", expv);
-                3'd6: $readmemh("sim/eq_exp_6.hex", expv);
-                3'd7: $readmemh("sim/eq_exp_7.hex", expv);
+                3'd0: $readmemh({`EQ_VEC_DIR, "eq_exp_0.hex"}, expv);
+                3'd1: $readmemh({`EQ_VEC_DIR, "eq_exp_1.hex"}, expv);
+                3'd2: $readmemh({`EQ_VEC_DIR, "eq_exp_2.hex"}, expv);
+                3'd3: $readmemh({`EQ_VEC_DIR, "eq_exp_3.hex"}, expv);
+                3'd4: $readmemh({`EQ_VEC_DIR, "eq_exp_4.hex"}, expv);
+                3'd5: $readmemh({`EQ_VEC_DIR, "eq_exp_5.hex"}, expv);
+                3'd6: $readmemh({`EQ_VEC_DIR, "eq_exp_6.hex"}, expv);
+                3'd7: $readmemh({`EQ_VEC_DIR, "eq_exp_7.hex"}, expv);
             endcase
 
             rst = 1'b1; preset = ps;
@@ -108,7 +113,7 @@ module tb_eq_biquad;
     endtask
 
     initial begin
-        $readmemh("sim/eq_stim.hex", stim);
+        $readmemh({`EQ_VEC_DIR, "eq_stim.hex"}, stim);
         total_errors = 0;
         $display("eq_biquad vs tools/eq_model.py -- exact match required");
         run_preset(3'd0, "FLAT (true bypass)");
