@@ -37,8 +37,6 @@ STATES = [
      "note": "Colour choice list: a swatch circle per theme colour, ring on the active one."},
     {"id": "settings-meter", "status": "model", "file": "settings-meter.framebuffer.png",
      "note": "Meter choice list: radio circle, the Figma preview (fw/meter_thumbs.h) and name per meter, scrolled."},
-    {"id": "settings-eq", "status": "model", "file": "settings-eq.framebuffer.png",
-     "note": "Equalizer choice list with the active preset marked."},
     {"id": "settings-repeat", "status": "model", "file": "settings-repeat.framebuffer.png",
      "note": "Repeat choice list."},
     {"id": "settings-blank", "status": "model", "file": "settings-blank.framebuffer.png",

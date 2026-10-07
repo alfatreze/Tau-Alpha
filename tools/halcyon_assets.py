@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Halcyon preset data (parallel plan A5, B-626): the PRST section of tau-assets.bin, an Equalizer-APO / AutoEQ text importer, and the reference tool Tau Omega's exporter must agree with.
-Format and reasoning: docs/features/HALCYON_DATA_FORMAT.md. Coefficients are Q2.22 (24-bit signed) like the TAU_EQ_COEF24 engine; Direct Form I: y = b0 x + b1 x1 + b2 x2 - a1 y1 - a2 y2.
+Format and reasoning: docs/features/HALCYON_DATA_FORMAT.md. Coefficients are Q2.22 (24-bit signed) like the Halcyon engine; Direct Form I: y = b0 x + b1 x1 + b2 x2 - a1 y1 - a2 y2.
 
 PRST section (magic TPRS, version 1): header <4s H B B I> = magic, version, 0, count, CRC32 of the entries; then count entries:
   type u8 (0 = control preset, 1 = raw biquad preset) | name 16 bytes (A-Z 0-9 space _ -, NUL padded) | flags u8 (0)

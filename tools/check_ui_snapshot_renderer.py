@@ -19,10 +19,10 @@ def main():
             raise SystemExit(f"FAIL: {name} contains a non-RGB565 pixel")
         checksums[name] = sum(frame.pixels) & 0xFFFFFFFF
     settings = ("settings-home", "settings-appearance", "settings-audio", "settings-playback",
-                "settings-colour", "settings-meter", "settings-eq", "settings-repeat",
+                "settings-colour", "settings-meter", "settings-repeat",
                 "settings-blank", "settings-info", "settings-tests", "settings-stress",
                 "settings-stress-level", "settings-soak", "settings-stress-status", "settings-speed")
-    if len({checksums[name] for name in settings + ("now-playing",)}) != 17:
+    if len({checksums[name] for name in settings + ("now-playing",)}) != 16:
         raise SystemExit("FAIL: settings fixtures are not distinct")
     if len({checksums[n] for n in ("settings-check-idle", "settings-check-running", "settings-check-pass", "settings-check-fail")}) != 4:
         raise SystemExit("FAIL: Check page fixtures are not distinct")

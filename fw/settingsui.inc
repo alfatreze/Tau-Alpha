@@ -127,10 +127,12 @@ static const char *const set_menu_title[SET_MENUS] = {
 /* Where B goes from each menu page. */
 static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME, SET_HOME,
     SET_DGN, SET_DGN, SET_HOME };
-static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
+static const char *const set_ch_title[] = { "COLOUR", "METER", "REPEAT",
     "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE", "TEMPO", "REPLAYGAIN" };
-static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
+static const uint8_t set_ch_parent[] = { SET_APPEAR, SET_APPEAR, SET_PLAY,
     SET_APPEAR, SET_PLAY, SET_STRESS, SET_STRESS, SET_APPEAR, SET_APPEAR, SET_PLAY, SET_AUDIO };
+_Static_assert(sizeof(set_ch_title) / sizeof(set_ch_title[0]) == CH_N, "set_ch_title must have exactly one entry per CH_ value, in enum order");
+_Static_assert(sizeof(set_ch_parent) / sizeof(set_ch_parent[0]) == CH_N, "set_ch_parent must have exactly one entry per CH_ value, in enum order");
 /* The speed list offers every entry up to 2.00x for an MP3 (owner decision 2026-10-03, B-555). The old limit of 1.20x came from A-133/A-135, when 1.25x micro-stuttered at
  * 60 MHz with the software MP3 synthesis window; with the hardware window and the 66.7 MHz clock a stereo 128 kbps MP3 is 83% busy at 1.50x with no FIFO stalls
  * (B-553) and the owner heard clean MP3 at 1.75x. These are VARISPEED speeds: the pitch rises with the speed (real tempo without the pitch change is the Cymo C7

@@ -211,7 +211,8 @@ static int settings_store(void)
     set_wr(SW_PAL,  ui_pal_idx);
     set_wr(SW_REP,  rep_mode);
     set_wr(SW_VIZ,  (viz_mode == VIZ_BARS && bars_layout) ? VIZ_RETIRED_MIRROR : viz_mode);
-    set_wr(SW_EQ,   hal_sel < 31u ? hal_sel : 0u);   /* the Halcyon selection (the id was the old preset EQ's); CUSTOM is not saved */
+    if (hal_sel < 31u) hal_saved = hal_sel;          /* the Halcyon selection (the id was the old preset EQ's); CUSTOM keeps the last preset on file */
+    set_wr(SW_EQ,   hal_saved);
 #if TAU_DIAGNOSTIC
     if (chk_rec_on) { for (uint32_t k = 0; k < 4u; k++) set_wr(SW_RETIRED_PLN0 + k, chk_w[k] & 0x7FFFFFFFu); }
 #endif
@@ -251,7 +252,10 @@ static int settings_load(void)
     v = set_rd(SW_VIZ);
     if (v == VIZ_RETIRED_MIRROR) { viz_mode = VIZ_BARS; bars_layout = 1u; }          /* the saved form of BARS in its mirrored layout */
     else if (v < VIZ_COUNT && viz_selectable(v))  viz_mode = (uint8_t)v;
-    v = set_rd(SW_EQ);    if (v < 31u)           { hal_sel = (uint8_t)v; hal_restore = 1u; }   /* applied by the main loop once the cold image is up */
+    /* The Halcyon selection (the id was the old preset EQ's). Adopted only when it DIFFERS from what was last saved: this function also re-runs when Core Settings changes any other
+     * value, and re-applying an unchanged selection would click and would drop the Halcyon page's own CUSTOM controls. Applied by the main loop once cold code is up. */
+    v = set_rd(SW_EQ);
+    if (v < 31u && v != hal_saved) { hal_saved = (uint8_t)v; hal_sel = (uint8_t)v; hal_restore = 1u; }
     /* Retired ids (Shuffle, Resume, Resume point): nothing here reads them into any firmware
      * variable any more, but set_pub[] must still be kept in sync with whatever APF/the persist
      * file holds for them -- otherwise settings_poll_menu()'s comparison sees them permanently

@@ -59,6 +59,6 @@ HAL_FN void hal_hw_apply_ctl_x(const hal_ctl_t *c, uint32_t clear)
 HAL_FN void hal_hw_apply_ctl(const hal_ctl_t *c) { hal_hw_apply_ctl_x(c, 1u); }
 HAL_FN void hal_hw_apply_ctl_live(const hal_ctl_t *c) { hal_hw_apply_ctl_x(c, 0u); }
 
-/* Takes the engine out of the audio path (eq_biquad drives the output again). */
+/* Takes the engine out of the audio path (the unequalised audio drives the output). */
 HAL_FN void hal_hw_off(void) { HAL_WR(R_HAL_CTRL, HAL_CTRL(0u, 0u, 0u, 0u, 0u)); }
 #endif
