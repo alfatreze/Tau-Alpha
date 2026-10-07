@@ -109,6 +109,9 @@ def parse(blob):
         out["themes"] = parse_themes(out["sections"]["THEM"])
     if "METR" in out["sections"]:
         out["meters"] = parse_meters(out["sections"]["METR"])
+    if "PRST" in out["sections"]:                      # B-626: Halcyon presets (tools/halcyon_assets.py, docs/features/HALCYON_DATA_FORMAT.md)
+        import halcyon_assets
+        out["presets"] = halcyon_assets.parse_presets(out["sections"]["PRST"])
     return out
 
 
