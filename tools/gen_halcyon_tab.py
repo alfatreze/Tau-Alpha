@@ -61,6 +61,11 @@ def render():
     for i in range(0, 513, 8):
         o.append("  " + ",".join(str(v) for v in pre[i:i + 8]) + ",")
     o.append("};")
+    ic = m.infra_coeffs()
+    if not g.stable([ic]):
+        raise SystemExit("the infrasonic stage is unstable at Q2.22")
+    o.append(f"/* the fixed infrasonic stage: second-order high-pass {m.INFRA_HZ:g} Hz, Q {m.INFRA_Q:g}, Q2.22 b0 b1 b2 a1 a2; always first in the bank, before the tone stages */")
+    o.append("HAL_TAB static const int32_t hal_infra[5] = {" + ",".join(str(v) for v in ic) + "};")
     o.append("/* the built-in control presets (tools/lab/halcyon_model.py PRESETS): name and warmth, bass, vocal, punch, sibilance, air */")
     o.append("HAL_TAB static const char hal_preset_name[HAL_NPRESET][11] = {" + ",".join('"%s"' % p[0] for p in m.PRESETS) + "};")
     o.append("HAL_TAB static const int8_t hal_preset_ctl[HAL_NPRESET][6] = {")

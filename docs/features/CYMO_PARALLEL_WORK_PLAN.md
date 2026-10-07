@@ -39,3 +39,4 @@ Halcyon engine rewrite **DONE B-636** (RTL `tau_halcyon.sv`, bit-exact model at 
 B2 measured **B-638**: the Halcyon engine's state and coefficient store infer as MLAB (altdpram), 567 registers, 3 DSP, no M10K; fit and wiring still to do.
 Halcyon firmware loader **DONE B-640** (control presets to the engine's shadow bank + commit + clear, host-tested bit-exact against the model with 4 mutants, Diagnostics > HALCYON row in the Diagnostic Build, reads NO UNIT on bitstreams without the engine). Not on a Pocket: needs the `halcyon-b639` bitstream.
 PRST user-preset reader **DONE B-641** (`fw/halcyon_prst.h`, 24 host checks incl. 5 mutants, wired into the Diagnostics > HALCYON row; not on a Pocket: needs the halcyon bitstream and a `tau-assets.bin` carrying a PRST section).
+Infrasonic stage **DONE B-642** (17 Hz Q 0.7 high-pass first in every non-bypassed bank; found and fixed a DC-gain defect from independent coefficient quantisation).

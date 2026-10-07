@@ -549,6 +549,8 @@ HAL_TAB static const int32_t hal_pre[513] = {
   2969,2927,2885,2844,2803,2763,2724,2685,
   2646,
 };
+/* the fixed infrasonic stage: second-order high-pass 17 Hz, Q 0.7, Q2.22 b0 b1 b2 a1 a2; always first in the bank, before the tone stages */
+HAL_TAB static const int32_t hal_infra[5] = {4187643,-8375286,4187643,-8375275,4180992};
 /* the built-in control presets (tools/lab/halcyon_model.py PRESETS): name and warmth, bass, vocal, punch, sibilance, air */
 HAL_TAB static const char hal_preset_name[HAL_NPRESET][11] = {"FLAT","WARM","CLEAR","BASS","VOCAL","SPEECH","LOW VOLUME","SMOOTH"};
 HAL_TAB static const int8_t hal_preset_ctl[HAL_NPRESET][6] = {

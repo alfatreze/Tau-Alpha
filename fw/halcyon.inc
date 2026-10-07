@@ -43,7 +43,7 @@ COLD_FN static void hal_apply_sel(void)
     if (hal_sel > HAL_NPRESET) {                                 /* a user preset from the PRST section */
         hal_ctl_t uc; int32_t coef[HP_MAX_RAW_STAGES * 5u], pre = 0;
         const uint32_t ns = hp_entry(HAL_USER + hal_user_off[hal_sel - HAL_NPRESET - 1u], &uc, coef, &pre);
-        if (ns) hal_hw_commit_bank(coef, ns, pre, 0u); else hal_hw_apply_ctl(&uc);
+        if (ns) hal_hw_commit_with_infra(coef, ns, pre, 0u); else hal_hw_apply_ctl(&uc);
         return;
     }
     hal_ctl_t c;
