@@ -18,7 +18,7 @@ Rule (D-G01): nothing in a gated row of `CYMO_RECORDING_PLAN_DEV105.md` section 
 | # | Item | Status |
 |---|---|---|
 | B1 | Two-seed fit with `TAU_EQ_COEF24` on the gain-stage bundle (64-bit accumulate timing) | **RUNNING** `eq24-b618`, launched 08:44 local 2026-10-07, expected about 10:15-10:20 |
-| B2 | Synthesis-only: EQ state and coefficient store to MLAB/M10K, measure ALMs saved (prerequisite of the Halcyon RTL) | |
+| B2 | Synthesis-only: EQ state and coefficient store to MLAB/M10K, measure ALMs saved (prerequisite of the Halcyon RTL) | **ANALYSED B-627, experiment deferred**: the current module cannot be switched by an attribute (4 async reads, a reset loop over the array, combinational ROM address); the measurement belongs to the rewritten engine (Halcyon spec, section 'Finding while preparing the MLAB experiment') |
 | B3 | Resampler output widened to 18 bits into the 24-bit EQ input (RTL, simulation, mutants, then a fit) | |
 | B4 | Timing experiments: STANDARD FIT, Rapid Recompile | |
 
