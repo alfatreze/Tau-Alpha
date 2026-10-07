@@ -41,9 +41,11 @@ TOLERANCE_B = 512   # a handful of bytes moving with ordinary code changes is no
 SHIPPED = {"RAM_192K": "1", "CLK66": "1", "SDRAM_BUSY": "1"}
 CONFIGS = {   # name -> (fw/build.sh target, extra environment)
     "release": ("release", {}),
-    "release-tempo": ("release", {"TEMPO": "1"}),
+    "release-tempo-slim": ("release", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),   # the RAM-diet A/B build: sliced output hop and a 512-entry stage-2 ring
     "player-library-diagnostic": ("player-library-diagnostic", {}),
+    "player-library-diagnostic-slim": ("player-library-diagnostic", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),
     "player-library-diagnostic-profile": ("player-library-diagnostic-profile", {}),
+    "player-library-diagnostic-profile-slim": ("player-library-diagnostic-profile", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),
 }
 DEFAULT_TARGETS = list(CONFIGS)
 
