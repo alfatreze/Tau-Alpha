@@ -196,7 +196,7 @@ static void     set_wr32(uint32_t w, uint32_t v) { persist32_probe_ensure(); if 
 
 /* Publish every current value. Called at boot after adopting, and whenever a
  * setting changes. Two MMIO writes per word -- nothing to debounce. */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
 /* fw/suite.inc keeps its four-word summary in the words the (now-retired) legacy playlist
  * name/hash used (SW_RETIRED_PLN0..SW_RETIRED_PLHASH). While a summary is held it is what gets
  * published there instead; a summary is recognised by (word & 15) == 1 with that character below
@@ -213,7 +213,7 @@ static int settings_store(void)
     set_wr(SW_VIZ,  (viz_mode == VIZ_BARS && bars_layout) ? VIZ_RETIRED_MIRROR : viz_mode);
     if (hal_sel < 31u) hal_saved = hal_sel;          /* the Halcyon selection (the id was the old preset EQ's); CUSTOM keeps the last preset on file */
     set_wr(SW_EQ,   hal_saved);
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
     if (chk_rec_on) { for (uint32_t k = 0; k < 4u; k++) set_wr(SW_RETIRED_PLN0 + k, chk_w[k] & 0x7FFFFFFFu); }
 #endif
     set_wr(SW_LIBH, lib_h & 0x7FFFFFFFu);
@@ -265,7 +265,7 @@ static int settings_load(void)
     set_pub[SW_RETIRED_SHUF]     = set_rd(SW_RETIRED_SHUF);
     set_pub[SW_RETIRED_RESUME]   = set_rd(SW_RETIRED_RESUME);
     set_pub[SW_RETIRED_RESUMEON] = set_rd(SW_RETIRED_RESUMEON);
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
     chk_rec_on = 0u;
     { uint32_t w0 = set_rd(SW_RETIRED_PLN0);
       if ((w0 & 15u) == 1u && (w0 & 0x7Fu) < 0x20u) { chk_rec_on = 1u; for (uint32_t k = 0; k < 4u; k++) chk_w[k] = set_rd(SW_RETIRED_PLN0 + k); } }

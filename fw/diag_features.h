@@ -12,4 +12,14 @@
 #define TAU_FX_METER_EXPERIMENTAL TAU_DIAGNOSTIC
 #endif
 
+/* dx: Stress pump, HUD, levels R1-R3 and the timed soak (fw/stress.inc, stress_defs.inc, dg_soak_*) */
+#ifndef TAU_DX_STRESS
+#define TAU_DX_STRESS TAU_DIAGNOSTIC
+#endif
+
+/* dx: Check runner and its test list (fw/suite.inc chk_*) */
+#ifndef TAU_DX_CHECK
+#define TAU_DX_CHECK TAU_DIAGNOSTIC
+#endif
+
 #endif

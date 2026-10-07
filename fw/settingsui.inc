@@ -85,13 +85,17 @@ static const set_row_t set_play_rows[] = {
 static const set_row_t set_dgn_rows[] = {
 #if TAU_DIAGNOSTIC
     { "TESTS", RT_GROUP, SET_TESTS },
+#if TAU_DX_STRESS
     { "STRESS", RT_GROUP, SET_STRESS },
+#endif
     { "ALL SPEEDS", RT_TOGGLE, TG_SPEEDS },
     { "ACCEPT ALL RATES", RT_TOGGLE, TG_RATES },
     { "CYMO RESAMPLER", RT_TOGGLE, TG_CYMO },
     { "16-BIT OUTPUT", RT_TOGGLE, TG_OUT16 },
     { "HW GAIN", RT_TOGGLE, TG_GAIN },
+#if TAU_DX_CHECK
     { "CHECK", RT_GROUP, SET_CHECK_PG },
+#endif
 #if MP3_PROFILE || FLAC_PROFILE
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
 #endif
@@ -312,7 +316,7 @@ COLD_FN static void set_draw_thumb(uint32_t x, uint32_t y, uint32_t viz)
     fb_set_bases(0u, 0u);
 }
 
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
 /* ---- Timed soak (Diagnostic Build): runs the stress pump for N minutes beside normal playback,
  * then stops it and reports PASS (no data mismatch or timeout) or FAIL. Late underruns are counted
  * and shown on the status page but are not part of the verdict (at R3 they can be CPU starvation). ---- */
@@ -345,6 +349,7 @@ static void dg_soak_tick(void)
 }
 #else
 #define dg_soak_active() 0u
+#define dg_soak_cancel() ((void)0)
 #endif
 
 COLD_FN static uint32_t set_ch_count(uint32_t c)
@@ -365,7 +370,7 @@ COLD_FN static uint32_t set_blank_idx(void)
 COLD_FN static uint32_t set_ch_active(uint32_t c)
 {
     if (c == CH_STRESS) {
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
         return stress_on ? stress_level : 0u;
 #else
         return 0u;
@@ -404,7 +409,7 @@ COLD_FN static uint32_t set_ch_visible(uint32_t c) { return SET_LIST_H / set_ch_
 COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
 {
     if (c == CH_STRESS || c == CH_SOAK) {
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
         if (c == CH_STRESS) { dg_soak_cancel(); stress_set_level((uint8_t)i); }
         else                dg_soak_start(i);
 #endif
@@ -1058,7 +1063,7 @@ COLD_FN static void set_draw_ro(int full, const char *title, const char *const *
     ov_hint_repaint(hint);
 }
 
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
 #define SET_STAT_ROWS 11u
 static const char *const set_stat_label[SET_STAT_ROWS] = {
     "LEVEL", "STATE", "PASSES", "OPERATIONS", "FAILURES", "EARLY UNDERRUNS", "LATE UNDERRUNS",
@@ -1101,7 +1106,7 @@ COLD_FN static void set_info_tick(void)
 #endif
             set_draw_ro(0, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
     }
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
     else if (set_page == SET_STAT_PG) set_draw_ro(0, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
 #endif
     ov_draw = o;
@@ -1381,7 +1386,9 @@ static const set_spg_t set_spg[] = {
     { SET_HAL_PG, hal_pg_draw, hal_pg_input, hal_pg_open },
 #endif
 #if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
     { SET_CHECK_PG, chk_draw, chk_input, chk_open },
+#endif
 #if MP3_PROFILE || FLAC_PROFILE
     { SET_SWEEP_PG, sw_draw, sw_input, sw_open },
 #endif
@@ -1587,7 +1594,7 @@ COLD_FN static void set_draw_now(void)
 #endif
         set_draw_ro(1, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
     }
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
     else if (set_page == SET_STAT_PG)
         set_draw_ro(1, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
 #endif
@@ -1694,7 +1701,7 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
         }
 #endif
         uint32_t n = SET_INFO_ROWS;
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
         if (set_page == SET_STAT_PG) n = SET_STAT_ROWS;
 #endif
         const uint32_t maxtop = (n > SET_RO_VIS) ? n - SET_RO_VIS : 0u;

@@ -1,14 +1,71 @@
 {
   "_doc": "The single register of everything that is compiled only into the Diagnostic Build (or may graduate out of it). kind 'dx' = a DIAGNOSTIC: measurement, test or reporting code with no user-facing function (stress, Check, sweeps...). kind 'fx' = a FEATURE that is still incubating behind the Diagnostic Build flag and is meant to graduate to the release or be dropped (experimental meter settings, rate/speed toggles...). Each converted feature gets a macro TAU_DX_<NAME> / TAU_FX_<NAME> in the generated fw/diag_features.h that defaults to TAU_DIAGNOSTIC (so the default Diagnostic Build is byte-identical) and can be overridden per build: DIAG_DROP=a,b removes features from a Diagnostic Build, FEATURES_ON=a puts an fx into any build (graduation). 'converted': false entries are classified but their code still hangs off TAU_DIAGNOSTIC directly. Generated header: python3 tools/gen_diag_features.py; checked by make test-host.",
   "features": [
-    {"id": "meter_experimental", "kind": "fx", "converted": true, "title": "Experimental meter parameters and presets (Layered Wave: anti-aliasing, layer blend, EQ-bell and CURVE spectrum styles, per-layer gains, the [EX] presets)", "depends": [], "owner": "meters/*/meter.json 'experimental' flag via tools/gen_meters.py; fw/layered_wave.inc"},
-    {"id": "stress", "kind": "dx", "converted": false, "title": "Stress pump, HUD, levels R1-R3 and the timed soak (fw/stress.inc, stress_defs.inc, dg_soak_*)", "depends": []},
-    {"id": "check", "kind": "dx", "converted": false, "title": "Check runner and its test list (fw/suite.inc chk_*)", "depends": ["stress"]},
-    {"id": "sweeps", "kind": "dx", "converted": false, "title": "Decode Sweep, Meter Sweep and Meter Trace (sw_*, mw_*, mt_*)", "depends": []},
-    {"id": "blit_test", "kind": "dx", "converted": false, "title": "Blit Test page: every Talos opcode drawn on screen (bt_*)", "depends": []},
-    {"id": "tests_page", "kind": "dx", "converted": false, "title": "Diagnostics > Tests: window test, cold-code test with the 12 KB cold_big blob, latency, playlist check (settings_diag.inc, cold.inc)", "depends": []},
-    {"id": "counters", "kind": "dx", "converted": false, "title": "Underrun / gap / headroom / load counters and their Info rows (ur_note, gap_*, ld_*)", "depends": []},
-    {"id": "report_pages", "kind": "dx", "converted": false, "title": "Report code pages and the Info / Configure exports (report.inc, info_export.inc, wvcfg_export.inc)", "depends": []},
-    {"id": "rate_toggles", "kind": "fx", "converted": false, "title": "ACCEPT ALL RATES, ALL SPEEDS (2.50x) and the Cymo resampler / 16-bit I2S toggles", "depends": []}
+    {
+      "id": "meter_experimental",
+      "kind": "fx",
+      "converted": true,
+      "title": "Experimental meter parameters and presets (Layered Wave: anti-aliasing, layer blend, EQ-bell and CURVE spectrum styles, per-layer gains, the [EX] presets)",
+      "depends": [],
+      "owner": "meters/*/meter.json 'experimental' flag via tools/gen_meters.py; fw/layered_wave.inc"
+    },
+    {
+      "id": "stress",
+      "kind": "dx",
+      "converted": true,
+      "title": "Stress pump, HUD, levels R1-R3 and the timed soak (fw/stress.inc, stress_defs.inc, dg_soak_*)",
+      "depends": [],
+      "owner": "fw/stress.inc, stress_defs.inc, dg_soak_*; hooks in player.c; Stress group, level/soak choices and status page in settingsui.inc; Check reports its stress tests as N/A without it"
+    },
+    {
+      "id": "check",
+      "kind": "dx",
+      "converted": true,
+      "title": "Check runner and its test list (fw/suite.inc chk_*)",
+      "depends": [],
+      "owner": "the Check runner region of fw/suite.inc (chk_*), its page row, chk_tick, chk_loads and the summary persistence in settings.inc"
+    },
+    {
+      "id": "sweeps",
+      "kind": "dx",
+      "converted": false,
+      "title": "Decode Sweep, Meter Sweep and Meter Trace (sw_*, mw_*, mt_*)",
+      "depends": []
+    },
+    {
+      "id": "blit_test",
+      "kind": "dx",
+      "converted": false,
+      "title": "Blit Test page: every Talos opcode drawn on screen (bt_*)",
+      "depends": []
+    },
+    {
+      "id": "tests_page",
+      "kind": "dx",
+      "converted": false,
+      "title": "Diagnostics > Tests: window test, cold-code test with the 12 KB cold_big blob, latency, playlist check (settings_diag.inc, cold.inc)",
+      "depends": []
+    },
+    {
+      "id": "counters",
+      "kind": "dx",
+      "converted": false,
+      "title": "Underrun / gap / headroom / load counters and their Info rows (ur_note, gap_*, ld_*)",
+      "depends": []
+    },
+    {
+      "id": "report_pages",
+      "kind": "dx",
+      "converted": false,
+      "title": "Report code pages and the Info / Configure exports (report.inc, info_export.inc, wvcfg_export.inc)",
+      "depends": []
+    },
+    {
+      "id": "rate_toggles",
+      "kind": "fx",
+      "converted": false,
+      "title": "ACCEPT ALL RATES, ALL SPEEDS (2.50x) and the Cymo resampler / 16-bit I2S toggles",
+      "depends": []
+    }
   ]
 }
