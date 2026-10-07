@@ -183,7 +183,14 @@ def main():
     p = out / "Platforms"; (p / "_images").mkdir(parents=True)
     shutil.copy2(src / "Platforms/_images/tau.bin", p / "_images" / f"{platform}.bin")
     save(p / f"{platform}.json", {"platform": {"category": "Media Players", "name": title, "year": 2026, "manufacturer": "alfatreze"}})
-    r = subprocess.run([sys.executable, "tools/check_fw_bitstream_pair.py", str(out)], cwd=root)   # B-581
+    man = Path(str(rbf) + ".json") if args.rbf else None                    # B-653: what this bitstream was built with (tools/vm_fit.py collect)
+    pair_cmd = [sys.executable, "tools/check_fw_bitstream_pair.py", str(out)]
+    if man is not None and man.is_file():
+        shutil.copy2(man, out / "bitstream-manifest.json")                    # stays in the package root: install_dev_core.py reads it, it is never copied to the card
+        pair_cmd += ["--bitstream-manifest", str(out / "bitstream-manifest.json")]
+    else:
+        print("note: no bitstream manifest for this RBF; the firmware/bitstream FEATURE check is skipped (the version check still runs)", file=sys.stderr)
+    r = subprocess.run(pair_cmd, cwd=root)   # B-581
     if r.returncode != 0:
         sys.exit("firmware/bitstream pairing check failed (see above); package left in " + str(out) + " but do not install it")
     print(core_id, digest(c / "bitstream.rbf_r"), digest(a / "common/tau.rom"))

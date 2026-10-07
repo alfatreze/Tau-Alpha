@@ -520,7 +520,7 @@ COLD_FN static void set_toggle(uint32_t t)
     } else if (t == TG_GAIN) {
         /* B-615: A/B of the hardware gain stage against the firmware gain. ON is the default whenever the bitstream has the stage; this switch takes the gain back to software
          * (and returns it) without a restart. No-op on a bitstream without the stage. Never persisted. */
-        if (hw_gain) gain_hw_set((uint8_t)!vol_st.hw);
+        if (hw_gain) gain_handover((uint8_t)!vol_st.hw);          /* B-653: muted, flushed, then flipped (fw/gain_handover.h) */
         return;                                  /* not persisted */
 #endif
     }

@@ -1,5 +1,7 @@
 # Recording plan for TAU DEV 105 and the measurement gates (2026-10-07)
 
+**Superseded for the run list by `CYMO_RECORDING_SCRIPT.md` (+ `.csv` tick-sheet, B-654): every recording with its file name, set-up, procedure, analysis and priority, including the new groups. Sections 1, 2, 4, 5, 6 and 7 below still stand.**
+
 Status: **PLAN SAVED, test files on the card (2026-10-07, B-617), recordings not yet made.** Order: session 0, then 1b (decides how much sessions 1 and 3 matter), 1, 2, 3, 4, 5. Core under test: `alfatreze.TAU_DEV_105` (B-615 hardware gain stage on the `gain-b615` seed 1 bitstream, diagnostic firmware, 16-bit I2S switch, installed 2026-10-07). Owner's capture chain: Volt 1 interface, the Pocket's headphone jack to its input, WAV 48 kHz / 24-bit. Analysis tool: `tools/lab/cymo_loopback.py` (`analyze`, `track`). Background: `CYMO_HEADPHONE_PLAN.md` sections 11-12 (the existing recordings show an analogue noise floor of -76.4 dBFS, idle spurs at 6.18 / 12.30 / 18.48 kHz and signal-dependent sidebands).
 
 ## 1. Questions

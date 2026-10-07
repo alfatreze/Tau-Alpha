@@ -12,8 +12,10 @@ compile running, or if the stage name already exists. Stage dir: ~/tau-local/<NA
 
 If the VM address, key or Quartus path changes, change the constants below and nothing else.
 """
-import argparse, hashlib, io, re, subprocess, sys, tarfile
+import argparse, hashlib, io, json, re, subprocess, sys, tarfile
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fit_manifest  # B-653
 
 ROOT = Path(__file__).resolve().parent.parent
 KEY = Path.home() / ".ssh/taualpha_vm_ed25519"
@@ -58,6 +60,13 @@ def cmd_launch(a):
     if busy and not a.force:
         sys.exit("the VM already has a Quartus process running (use --force only if you are sure it is idle):\n" + "\n".join(busy))
     append = (ROOT / a.append).read_text() if a.append else ""
+    dead = fit_manifest.dead_macros(append)                                  # B-653: a macro nothing reads builds fine and measures something else
+    if dead:
+        sys.exit(f"{a.append} defines macros no RTL reads: {', '.join(dead)}; fix the bundle (tools/fit_bundles_archive/ holds retired ones)")
+    macros = sorted(set(fit_manifest.macros_of((ROOT / "src/fpga/ap_core.qsf").read_text())) | set(fit_manifest.macros_of(append)))
+    mdir = ROOT / "work/diagnostics" / a.name
+    mdir.mkdir(parents=True, exist_ok=True)
+    (mdir / "launch.json").write_text(json.dumps({"name": a.name, "append": a.append, "macros": macros}, indent=1) + "\n")
     data = tree_tar()
     print(f"staged tree: {len(data) / 1e6:.1f} MB")
     for seed in a.seed:
@@ -125,6 +134,16 @@ def cmd_collect(a):
     if remote != local:
         sys.exit(f"hash mismatch after copy: VM {remote} vs local {local}")
     print(f"{dst}\nsha256 {local}  (verified against the VM copy)")
+    if a.append and not (out / "launch.json").exists():                        # a fit launched before B-653: rebuild the record from the bundle it was launched with
+        ap_text = (ROOT / a.append).read_text()
+        macros = sorted(set(fit_manifest.macros_of((ROOT / "src/fpga/ap_core.qsf").read_text())) | set(fit_manifest.macros_of(ap_text)))
+        (out / "launch.json").write_text(json.dumps({"name": a.name, "append": a.append, "macros": macros, "reconstructed": True}, indent=1) + "\n")
+    try:                                                                       # B-653: record what this bitstream was built with, beside it
+        ln = json.loads((out / "launch.json").read_text())
+        fit_manifest.write_manifest(str(dst) + ".json", a.name, a.seed, ln["macros"], local, ln.get("append"))
+        print(f"manifest {dst}.json ({len(ln['macros'])} macros)")
+    except FileNotFoundError:
+        print(f"note: no {out / 'launch.json'} (fit launched before B-653): no manifest written, the packaging feature check cannot run for this RBF")
 
 
 def main():
@@ -133,7 +152,7 @@ def main():
     l = sub.add_parser("launch"); l.add_argument("name"); l.add_argument("--append"); l.add_argument("--seed", action="append", type=int)
     l.add_argument("--force", action="store_true"); l.set_defaults(fn=cmd_launch)
     s = sub.add_parser("status"); s.add_argument("name"); s.set_defaults(fn=cmd_status)
-    c = sub.add_parser("collect"); c.add_argument("name"); c.add_argument("--seed", type=int, required=True); c.set_defaults(fn=cmd_collect)
+    c = sub.add_parser("collect"); c.add_argument("--append", help="the bundle an older fit was launched with (rebuilds the manifest)"); c.add_argument("name"); c.add_argument("--seed", type=int, required=True); c.set_defaults(fn=cmd_collect)
     a = ap.parse_args()
     a.fn(a)
 

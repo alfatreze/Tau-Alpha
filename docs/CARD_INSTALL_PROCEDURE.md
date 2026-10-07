@@ -126,3 +126,9 @@ the whole card or a wide `find` when a narrower check will do.
 
 ## Stale media on --replace (B-332)
 `--replace` keeps the core's media, so an index that no longer matches its files (folders moved or renamed) used to survive an install: the library then showed albums twice and could not open tracks. `tools/install_dev_core.py` now verifies the existing `tau-library.tdb` against the files at step 3a (when `--carry-from` is not used, which rebuilds it anyway), rebuilds it if anything is missing, and notes album folders without a `tau-art` cover file (slow embedded-JPEG covers; `sync_media.py --art-variants` writes them). `tau-assets.bin` is placed at step 3b (`--assets`, else next to the package, else copied from the carried-from core).
+
+## Firmware / bitstream pairing checks (B-581, B-653)
+
+`tools/install_dev_core.py` (and `tools/package_dev_build.py`, and `make_release.py`) refuse a package whose firmware the bitstream would not run:
+- **Version** (B-581): the ROM's `TAUFWPAIR` list must contain the bitstream's CORE_VERSION (a ROM built without `RAM_192K=1 CLK66=1` gives a black screen on the 192 KB bitstream).
+- **Features** (B-653): the ROM's `TAUFWNEED` list (HALCYON, LPC, POLY, SDRAM_BUSY) must be among the macros the bitstream was built with. The macros come from `<rbf>.json`, written by `tools/vm_fit.py collect` (for a fit launched earlier: `collect NAME --seed N --append BUNDLE`); the packager copies it into the package as `bitstream-manifest.json`. Without a manifest the feature check is skipped with a note. A deliberate fail-safe pairing: `check_fw_bitstream_pair.py --bitstream-manifest M --allow-missing HALCYON`.

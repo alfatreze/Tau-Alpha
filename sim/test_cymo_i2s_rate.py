@@ -21,7 +21,7 @@ def main():
     fixed = src.replace("{(15 - CHANNEL_WIDTH){1'b0}}", "{((CHANNEL_WIDTH < 15) ? (15 - CHANNEL_WIDTH) : 1){1'b0}}")
     open(sim, 'w').write(fixed)          # Icarus rejects the unused negative-repeat branch; content is unchanged for 16-bit
     vvp = os.path.join(build, 'tb_cymo_i2s_rate.vvp')
-    subprocess.check_call(['iverilog', '-g2012'] + (['-DUSE_ALTERA_MF', '-DALTERA_RESERVED_QIS'] if mf else []) + ['-o', vvp, os.path.join(ROOT, 'sim/tb_cymo_i2s_rate.v'),
+    subprocess.check_call(['iverilog', '-g2012', '-I', os.path.join(ROOT, 'sim')] + (['-DUSE_ALTERA_MF', '-DALTERA_RESERVED_QIS'] if mf else []) + ['-o', vvp, os.path.join(ROOT, 'sim/tb_cymo_i2s_rate.v'),
                            os.path.join(ROOT, 'src/fpga/core/pcm_fifo.v'), sim,
                            os.path.join(ROOT, 'src/fpga/core/sync_fifo.v')] + ([mf] if mf else []), cwd=ROOT)
     print(subprocess.check_output(['vvp', vvp], cwd=ROOT).decode().strip().splitlines()[-1])

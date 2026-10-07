@@ -153,7 +153,10 @@ def main():
     new_id, new_plat, ver = package_identity(pkg)
     print(f"package: {new_id}  platform {new_plat}  version {ver}")
     run([sys.executable, "tools/check_tau_package.py", pkg], "package check")
-    run([sys.executable, "tools/check_fw_bitstream_pair.py", pkg], "firmware/bitstream pairing (B-581)")
+    pair_cmd = [sys.executable, "tools/check_fw_bitstream_pair.py", pkg]
+    if (Path(pkg) / "bitstream-manifest.json").is_file():
+        pair_cmd += ["--bitstream-manifest", str(Path(pkg) / "bitstream-manifest.json")]     # B-653: the features too
+    run(pair_cmd, "firmware/bitstream pairing (B-581, B-653)")
 
     for c in a.remove + ([new_id] if a.replace else []):
         if c in RELEASE_CORES and not a.allow_release:
