@@ -149,6 +149,10 @@ case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) TEMPO="${TEMPO:-1}" ;; esac
 # ram-diet (owner, 2026-10-07): the tempo stretcher ships in the normal release too (cold code; its 6.2 KB state is the cost, see docs/features/RAM_DIET_PLAN.md). TEMPO=0 builds without it.
 [ "$TARGET" = "release" ] && TEMPO="${TEMPO:-1}"
 CFLAGS="$CFLAGS -DTAU_TEMPO=${TEMPO:-0}"
+# RAM diet A/B switches for the tempo state (both default off = the build is unchanged): TEMPO_SLICE=1 produces the output hop in 64-sample slices (about 1.75 KB less state),
+# TEMPO_RING=512 halves the stage-2 ring (1 KB less; the largest span the stretcher ever needs is 320 entries, measured over speeds 0.5-3.0x and rates 8-48 kHz).
+[ "${TEMPO_SLICE:-0}" = "1" ] && CFLAGS="$CFLAGS -DTEMPO_SLICE=1"
+[ -n "${TEMPO_RING:-}" ] && CFLAGS="$CFLAGS -DWS2_RING=${TEMPO_RING}u"
 if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw/mp3_poly_hw.h (only then, so default builds see no new include path)
 
 # B-368/B-369/B-370: LPC_FW=1 redirects FLAC LPC reconstruction (fw/flac.c) to the hardware unit (needs
@@ -163,7 +167,7 @@ if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw
 # (both live in $FW), so no INC change is needed the way POLY_FW's subband.c one is.
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) LPC_FW="${LPC_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && LPC_FW="${LPC_FW:-1}"
-CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_TPG=${TPG:-1} -DTAU_INFO_EXPORT=${INFO_EXPORT:-1} -DTAU_HALCYON_FW=${HALCYON_FW:-1}"   # the Halcyon EQ is the only EQ (every build; NO UNIT on a bitstream without the engine)   # INFO_EXPORT: the Info page report-code export (A), in the normal core too since alpha.4;   # pixel grid report codes (docs/features/BARCODE_STUDY.md), Diagnostic Build only, ON by default since 2026-10-06 (D-R04 reversed); TPG=0 gives the old QR-only pages
+CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_INFO_EXPORT=${INFO_EXPORT:-1} -DTAU_HALCYON_FW=${HALCYON_FW:-1}"   # the Halcyon EQ is the only EQ (every build; NO UNIT on a bitstream without the engine)   # INFO_EXPORT: the Info page report-code export (A), in the normal core too since alpha.4;   # pixel grid report codes (docs/features/BARCODE_STUDY.md) are the only report view; the QR encoder was archived (archive/qr_encoder/)
 FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DFLAC_RICE_FAST=${FLAC_RICE_FAST:-1}"
 
 # RAM_192K=1 (default 0, every target): links against 192 KB instead of 256 KB (fw/link.ld's

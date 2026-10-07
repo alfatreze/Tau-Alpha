@@ -1031,7 +1031,7 @@ COLD_FN static void set_draw_ro(int full, const char *title, const char *const *
     /* Up/Down scrolling is self-evident. The Info page (diagnostic build) says what A does. */
     const char *hint = "B BACK";
 #if TAU_DIAGNOSTIC
-    if (title[0] == 'I' && title[1] == 'N' && title[2] == 'F' && title[3] == 'O' && !title[4]) hint = "A QR CODE   B BACK";
+    if (title[0] == 'I' && title[1] == 'N' && title[2] == 'F' && title[3] == 'O' && !title[4]) hint = "A CODE   B BACK";
 #endif
     if (full) ov_frame(title, "", hint);
     if (n > vis) {                               /* scroll track, as the lists */
@@ -1201,7 +1201,7 @@ COLD_FN static void wvcfg_follow(void)
 
 COLD_FN static void wvcfg_row_name(uint32_t row, char *o)
 {
-    const char *t = row == WVR_PRESET ? "PRESET" : row == WVR_METER ? "METER" : row == WVR_EXPORT ? "EXPORT QR"
+    const char *t = row == WVR_PRESET ? "PRESET" : row == WVR_METER ? "METER" : row == WVR_EXPORT ? "EXPORT CODE"
                   : (wvcfg_md && row >= WVR_P0 && row - WVR_P0 < wvcfg_md->n) ? wvcfg_md->p[row - WVR_P0].label : "";
     char *q = set_str(o, t);
     *q = 0;
@@ -1339,7 +1339,7 @@ static int wvcfg_input(uint32_t edge)
 {
 #if TAU_DIAGNOSTIC
     if (wvcfg_qr_up) {                             /* QR screen: X changes the view, anything else closes it */
-        if (REP_KEY(edge, wvcfg_qr_len)) return 1;
+        if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_START)) { wvcfg_qr_up = 0u; set_dirty = 1u; }
         return 1;
     }
@@ -1688,7 +1688,7 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
 #if TAU_INFO_EXPORT
         if (set_page == SET_INFO_PG && info_qr_up) {     /* QR screen: X changes the view, anything else closes it */
-            if (REP_KEY(edge, info_qr_len)) return 1;
+            if (REP_KEY(edge)) return 1;
             if (edge & (KEY_A | KEY_B | KEY_START)) { info_qr_up = 0u; set_dirty = 1u; }
             return 1;
         }

@@ -352,21 +352,18 @@ WS_FN int ws2_ready(const ws2_t *s)
     return (s->fed / s->core.D2) - ws2_first_entry(s) <= WS2_RING;
 }
 
-WS_FN uint32_t ws2_step(ws2_t *s, ws2_read_t rd, void *ctx, int16_t *outl, int16_t *outr)
+/* The step in three parts so a caller can produce the output hop in slices instead of holding all of it (RAM diet, TEMPO_SLICE): ws2_step_begin() does the search and returns
+ * the hop length, *cg = the chosen grain start (WS_FIRST_GRAIN for the very first grain, which is copied straight through); ws2_step_emit() writes output samples [a, a+n) of
+ * the hop; ws2_step_end() takes the second half of the grain as the new tail and advances the state. The slices must cover the hop in order and nothing may be fed between
+ * begin and end (the reader must still serve the same range). ws2_step() below is the three calls in one and gives the same samples. */
+#define WS_FIRST_GRAIN 0xFFFFFFFFu
+WS_FN uint32_t ws2_step_begin(ws2_t *s, ws2_read_t rd, void *ctx, uint32_t *cgp)
 {
     ws_t *c = &s->core;
     const uint32_t N = c->N, Hs = c->Hs, D2 = c->D2, nc1 = c->nc1, nc2 = c->nc2;
-    int16_t *outs[2] = { outl, outr };
     int16_t buf[512];
-    if (c->k == 0u) {
-        for (uint32_t ch = 0; ch < c->ch; ch++) {
-            rd(ctx, ch, 0u, Hs, outs[ch]);
-            rd(ctx, ch, Hs, Hs, c->pend[ch]);
-        }
-        c->prev = 0u;
-        c->k = 1u;
-        return Hs;
-    }
+    (void)N;
+    if (c->k == 0u) { *cgp = WS_FIRST_GRAIN; return Hs; }
     uint32_t tgt, p, c1, lo1, hi1, e0, e1;
     ws_geom(c, &tgt, &p, &c1, &lo1, &hi1, &e0, &e1);
     const int16_t *R = s->ring;
@@ -422,19 +419,52 @@ WS_FN uint32_t ws2_step(ws2_t *s, ws2_read_t rd, void *ctx, int16_t *outl, int16
     for (uint32_t j = 0; j < nm; j++) mixr[j] = (int16_t)ws_clamp2047((int32_t)mixr[j] >> s3);
     const int32_t idx3 = ws_search(rf, mixr, nref, WS_REF_LEN);
     const uint32_t cg = idx3 >= 0 ? rlo + (uint32_t)idx3 : c0;
-    /* overlap-add the chosen grain: the first half is read into the scratch and mixed with the tail, the second half becomes the new tail directly */
-    const uint32_t stp = (N == 1024u) ? 1u : 2u;
-    for (uint32_t ch = 0; ch < c->ch; ch++) {
-        rd(ctx, ch, cg, Hs, buf);
-        for (uint32_t i = 0; i < Hs; i++) {
-            const int32_t w = ws_hann_q15[i * stp];
-            outs[ch][i] = (int16_t)(((int32_t)c->pend[ch][i] * (WS_Q15 - w) + (int32_t)buf[i] * w + 16384) >> 15);
-        }
-        rd(ctx, ch, cg + Hs, Hs, c->pend[ch]);
+    *cgp = cg;
+    return Hs;
+}
+
+WS_FN void ws2_step_emit(ws2_t *s, ws2_read_t rd, void *ctx, uint32_t cg, uint32_t a, uint32_t n, int16_t *outl, int16_t *outr)
+{
+    ws_t *c = &s->core;
+    int16_t *outs[2] = { outl, outr };
+    if (cg == WS_FIRST_GRAIN) {
+        for (uint32_t ch = 0; ch < c->ch; ch++) rd(ctx, ch, a, n, outs[ch]);
+        return;
     }
+    const uint32_t stp = (c->N == 1024u) ? 1u : 2u;
+    /* overlap-add: the grain's first half is read straight into the output slice and mixed with the tail in place */
+    for (uint32_t ch = 0; ch < c->ch; ch++) {
+        rd(ctx, ch, cg + a, n, outs[ch]);
+        for (uint32_t i = 0; i < n; i++) {
+            const int32_t w = ws_hann_q15[(a + i) * stp];
+            outs[ch][i] = (int16_t)(((int32_t)c->pend[ch][a + i] * (WS_Q15 - w) + (int32_t)outs[ch][i] * w + 16384) >> 15);
+        }
+    }
+}
+
+WS_FN void ws2_step_end(ws2_t *s, ws2_read_t rd, void *ctx, uint32_t cg)
+{
+    ws_t *c = &s->core;
+    const uint32_t Hs = c->Hs;
+    if (cg == WS_FIRST_GRAIN) {
+        for (uint32_t ch = 0; ch < c->ch; ch++) rd(ctx, ch, Hs, Hs, c->pend[ch]);
+        c->prev = 0u;
+        c->k = 1u;
+        return;
+    }
+    for (uint32_t ch = 0; ch < c->ch; ch++) rd(ctx, ch, cg + Hs, Hs, c->pend[ch]);
     c->prev = cg;
     c->p_q8 += (uint64_t)Hs * c->speed_q8;
     c->k++;
-    return Hs;
+}
+
+/* The whole hop in one call, as before. outl/outr hold Hs samples. */
+WS_FN uint32_t ws2_step(ws2_t *s, ws2_read_t rd, void *ctx, int16_t *outl, int16_t *outr)
+{
+    uint32_t cg;
+    const uint32_t h = ws2_step_begin(s, rd, ctx, &cg);
+    ws2_step_emit(s, rd, ctx, cg, 0u, h, outl, outr);
+    ws2_step_end(s, rd, ctx, cg);
+    return h;
 }
 #endif
