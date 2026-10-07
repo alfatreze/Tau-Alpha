@@ -326,20 +326,26 @@ test-rtl-gain-stage-mutation: $(GAIN_SRC) $(RTL_BUILD_DIR)/gain_vectors.txt | $(
 HALCYON_SRC = sim/tb_tau_halcyon.v src/fpga/core/tau_halcyon.sv
 $(RTL_BUILD_DIR)/halcyon_vectors_w%.txt: tools/lab/halcyon_engine_model.py | $(RTL_BUILD_DIR)
 	$(PYTHON) tools/lab/halcyon_engine_model.py --vectors $@ --w $*
-test-rtl-halcyon: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt $(RTL_BUILD_DIR)/halcyon_vectors_w24.txt | $(RTL_BUILD_DIR)
+$(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt: tools/lab/halcyon_engine_model.py | $(RTL_BUILD_DIR)
+	$(PYTHON) tools/lab/halcyon_engine_model.py --vectors $@ --w 18 --wo 16 --ifb 0 --ofb 0
+test-rtl-halcyon: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt $(RTL_BUILD_DIR)/halcyon_vectors_w24.txt $(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt | $(RTL_BUILD_DIR)
 	@set -e; for w in 16 24; do $(IVERILOG) -g2012 -DHW=$$w -o $(RTL_BUILD_DIR)/halcyon$$w.vvp $(HALCYON_SRC); \
 	  $(VVP) $(RTL_BUILD_DIR)/halcyon$$w.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_halcyon W=$$w"; done
-test-rtl-halcyon-mutation: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt | $(RTL_BUILD_DIR)
+	@set -e; $(IVERILOG) -g2012 -DHWI=18 -DHWO=16 -DHIFB=0 -DHOFB=0 '-DHVEC="$(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt"' -o $(RTL_BUILD_DIR)/halcyon18.vvp $(HALCYON_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/halcyon18.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_halcyon WI=18 (headroom) WO=16"
+test-rtl-halcyon-mutation: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt $(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt | $(RTL_BUILD_DIR)
 	@set -e; for b in 1 2 3 4 5 6 7 9; do $(IVERILOG) -g2012 -DHW=16 -DHBUG=$$b -o $(RTL_BUILD_DIR)/halcyon_mut.vvp $(HALCYON_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED: tau_halcyon BUG=$$b"; exit 1; fi; done
+	@set -e; for b in 6 10; do $(IVERILOG) -g2012 -DHWI=18 -DHWO=16 -DHIFB=0 -DHOFB=0 -DHBUG=$$b '-DHVEC="$(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt"' -o $(RTL_BUILD_DIR)/halcyon_mut.vvp $(HALCYON_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed (wide input): tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED (wide input): tau_halcyon BUG=$$b"; exit 1; fi; done
 
 # B-639: the Halcyon MMIO glue in mp3_soc.v, with the real CPU driving it (firmware sim/fw_halcyon/main.c, the audio output checked after each step).
-HALCYON_SOC_SRC = sim/tb_halcyon_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv
+HALCYON_SOC_SRC = sim/tb_halcyon_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv
 test-rtl-halcyon-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_halcyon/main.c -o $(RTL_BUILD_DIR)/fw_halcyon.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_halcyon.elf $(RTL_BUILD_DIR)/fw_halcyon.bin
-	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp $(HALCYON_SOC_SRC)
-	$(VVP) $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_halcyon.bin | tee $(RTL_BUILD_DIR)/halcyon_soc.log | tail -12; grep -q "^PASSED" $(RTL_BUILD_DIR)/halcyon_soc.log
+	@set -e; for wide in 0 1; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_halcyon_soc.WIDE=$$wide -o $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp $(HALCYON_SOC_SRC); \
+	  $(VVP) $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_halcyon.bin | tee $(RTL_BUILD_DIR)/halcyon_soc.log | tail -13; grep -q "^PASSED" $(RTL_BUILD_DIR)/halcyon_soc.log; done
 
 test-rtl-wave-meter: $(RTL_BUILD_DIR)/tb_tau_wave_meter.vvp
 	$(VVP) $<

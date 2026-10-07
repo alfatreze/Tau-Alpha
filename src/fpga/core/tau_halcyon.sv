@@ -12,7 +12,8 @@
 //  * Filter state lives in a plain RAM with ONE registered read and ONE write
 //    port and NO reset: a clearing sweep (on reset and on `clr`) replaces the
 //    reset loop that kept eq_biquad.v's state in registers (B-627).
-//  * Wide in/out: W = 16..24 bits (W-16 fractional bits below the 16-bit LSB).
+//  * Wide in/out: WI and WO bits, of which IFB / OFB are fractional bits below the 16-bit LSB and the rest above 16 are headroom at the same LSB; the output rounds to nearest
+//    and clamps (headroom bits at the input let a hot signal through when the preamp has attenuated it by the output).
 //  * One multiplier, pipelined: five MACs issue one per clock, 12 clocks per
 //    stage; the output rounds to nearest and CLAMPS (never wraps).
 //  * nact == 0 or bypass = true bypass (a mux); the engine state is kept warm.
@@ -25,13 +26,16 @@ module tau_halcyon #(
     parameter integer CLK_HZ  = 60_000_000,
     parameter integer RATE_HZ = 48_000,
     parameter integer NST     = 17,
-    parameter integer W       = 16,
+    parameter integer WI      = 16,   // input width in bits
+    parameter integer IFB     = 0,    // of which fractional bits below the 16-bit LSB (a 24-bit path: WI 24, IFB 8); the rest above 16 are HEADROOM bits at the same LSB (the Cymo resampler's overshoot: WI 18, IFB 0)
+    parameter integer WO      = 16,   // output width in bits (16 = the I2S path today)
+    parameter integer OFB     = 0,    // output fractional bits below the 16-bit LSB
     parameter integer BUG     = 0
 ) (
     input  wire                 clk,
     input  wire                 rst,
-    input  wire signed [W-1:0]  in_l,
-    input  wire signed [W-1:0]  in_r,
+    input  wire signed [WI-1:0] in_l,
+    input  wire signed [WI-1:0] in_r,
     input  wire                 bypass,
     // coefficient store (shadow bank): idx 0..NST*5-1 = stage coefficients
     // b0 b1 b2 a1 a2 per stage, idx NST*5 = preamp
@@ -41,17 +45,18 @@ module tau_halcyon #(
     input  wire [5:0]           nact_in,     // sampled with commit
     input  wire                 commit,      // pulse: swap banks at next sample boundary
     input  wire                 clr,         // pulse: clear filter state
-    output reg  signed [W-1:0]  out_l,
-    output reg  signed [W-1:0]  out_r,
+    output reg  signed [WO-1:0] out_l,
+    output reg  signed [WO-1:0] out_r,
     output wire                 busy
 );
     localparam integer CW = 24, FC = 22, SW = 36, FS = 16, AW = 64;
-    localparam integer SH = 32 - W;                 // state frac bits above out frac bits
+    localparam integer SHI = 16 - IFB;              // input -> state (16 fraction bits): left shift
+    localparam integer SH  = 16 - OFB;              // state -> output: right shift (rounded)
     localparam integer DIV = CLK_HZ / RATE_HZ;
     localparam integer SDEPTH = 2 * NST * 4;
     localparam integer PRE = NST * 5;
-    localparam signed [SW-1:0] MAXV = (36'sd1 <<< (W - 1)) - 36'sd1;
-    localparam signed [SW-1:0] MINV = -(36'sd1 <<< (W - 1));
+    localparam signed [SW-1:0] MAXV = (36'sd1 <<< (WO - 1)) - 36'sd1;
+    localparam signed [SW-1:0] MINV = -(36'sd1 <<< (WO - 1));
 
     // ---- memories ---------------------------------------------------------
     (* ramstyle = "MLAB, no_rw_check" *) reg signed [SW-1:0] st [0:SDEPTH-1];
@@ -100,10 +105,10 @@ module tau_halcyon #(
     reg [7:0]  cbase;
     reg [8:0]  swc;
     reg signed [SW-1:0] smp;
-    reg signed [W-1:0]  r_hold;
+    reg signed [WI-1:0] r_hold;
     reg signed [SW-1:0] x1_r, y1_r, y_r;
     reg signed [AW-1:0] p_reg, acc;
-    reg signed [W-1:0]  eq_l, eq_r;
+    reg signed [WO-1:0] eq_l, eq_r;
 
     assign busy = (state != S_IDLE);
 
@@ -124,19 +129,30 @@ module tau_halcyon #(
         end
     endfunction
 
-    function signed [W-1:0] clampw;
+    function signed [WO-1:0] clampw;
         input signed [SW-1:0] v;
         reg   signed [SW-1:0] u, w;
         begin
             u = v + (36'sd1 <<< (SH - 1));
             w = u >>> SH;
-            if (BUG == 4)       clampw = w[W-1:0];
-            else if (w > MAXV)  clampw = MAXV[W-1:0];
-            else if (w < MINV)  clampw = MINV[W-1:0];
-            else                clampw = w[W-1:0];
+            if (BUG == 4)       clampw = w[WO-1:0];
+            else if (w > MAXV)  clampw = MAXV[WO-1:0];
+            else if (w < MINV)  clampw = MINV[WO-1:0];
+            else                clampw = w[WO-1:0];
         end
     endfunction
 
+    // BUG 10 (mutant): the headroom bits of a wide input are thrown away (clamped to 16 bits) before the engine sees them
+    function signed [WI-1:0] hin;
+        input signed [WI-1:0] v;
+        begin
+            if (BUG == 10 && WI > 16 && v > 32767) hin = 32767;
+            else if (BUG == 10 && WI > 16 && v < -32768) hin = -32768;
+            else hin = v;
+        end
+    endfunction
+
+    wire signed [WI-1:0] in_l_h = hin(in_l), in_r_h = hin(in_r);
     wire signed [SW-1:0] opnd = (mulk == 4'd0) ? smp : st_rd;
 
     always @(posedge clk) begin
@@ -160,15 +176,15 @@ module tau_halcyon #(
         if (rst) begin
             state <= S_SWEEP; swc <= 9'd0; pend <= 1'b0; bank <= 1'b0;
             nact <= 6'd0; pend_nact <= 6'd0;
-            eq_l <= {W{1'b0}}; eq_r <= {W{1'b0}};
+            eq_l <= {WO{1'b0}}; eq_r <= {WO{1'b0}};
         end else begin
             case (state)
             S_IDLE: begin
                 if (clr_r) begin state <= S_SWEEP; swc <= 9'd0; end
                 else if (tick) begin
                     if (pend) begin bank <= ~bank; nact <= pend_nact; pend <= 1'b0; end
-                    r_hold <= in_r;
-                    smp    <= $signed({{(SW-W){in_l[W-1]}}, in_l}) <<< SH;
+                    r_hold <= in_r_h;
+                    smp    <= $signed({{(SW-WI){in_l_h[WI-1]}}, in_l_h}) <<< SHI;
                     ch <= 1'b0; stg <= 6'd0; t <= 4'd0; sbase <= 9'd0; cbase <= 8'd0;
                     state <= S_ENTER;
                 end
@@ -231,7 +247,7 @@ module tau_halcyon #(
                 if (!ch) begin
                     eq_l <= clampw(smp);
                     ch <= 1'b1; stg <= 6'd0; t <= 4'd0; sbase <= NST * 4; cbase <= 8'd0;
-                    smp <= $signed({{(SW-W){r_hold[W-1]}}, r_hold}) <<< SH;
+                    smp <= $signed({{(SW-WI){r_hold[WI-1]}}, r_hold}) <<< SHI;
                     state <= S_RUN;
                 end else begin
                     eq_r <= clampw(smp);
@@ -250,8 +266,8 @@ module tau_halcyon #(
         end
 
         if (!rst) begin
-            out_l <= ((bypass && BUG != 9) || nact == 6'd0) ? in_l : eq_l;
-            out_r <= ((bypass && BUG != 9) || nact == 6'd0) ? in_r : eq_r;
+            out_l <= ((bypass && BUG != 9) || nact == 6'd0) ? clampw($signed({{(SW-WI){in_l[WI-1]}}, in_l}) <<< SHI) : eq_l;     // the bypass converts the width by the same rounding and clamp
+            out_r <= ((bypass && BUG != 9) || nact == 6'd0) ? clampw($signed({{(SW-WI){in_r[WI-1]}}, in_r}) <<< SHI) : eq_r;
         end
     end
 endmodule

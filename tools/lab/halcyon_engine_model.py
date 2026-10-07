@@ -20,9 +20,15 @@ def wrap(v, bits):
 
 
 class Engine:
-    def __init__(self, w=16):
-        self.w = w
-        self.sh = 32 - w
+    def __init__(self, w=16, wo=None, ifb=None, ofb=None):
+        # w / wo: input / output width; ifb / ofb: the fractional bits below the 16-bit LSB (the rest above 16 are headroom at the same LSB).
+        # Legacy default (no wo, no ifb): every bit above 16 is fractional, as the 24-bit vectors use.
+        wo = wo or w
+        self.ifb = (w - 16) if ifb is None else ifb
+        self.ofb = (wo - 16) if ofb is None else ofb
+        self.w = wo                          # output width (clamp)
+        self.shi = 16 - self.ifb             # input to state
+        self.sh = 16 - self.ofb              # state to output
         self.bank = 0
         self.cm = [[0] * 128 for _ in range(2)]
         self.nact = 0
@@ -53,10 +59,10 @@ class Engine:
             self.pend = None
         out = []
         if self.nact == 0:
-            return xl, xr
+            return self._clamp(wrap(xl << self.shi, SW)), self._clamp(wrap(xr << self.shi, SW))
         cm = self.cm[self.bank]
         for ch, x in enumerate((xl, xr)):
-            smp = wrap(x << self.sh, SW)
+            smp = wrap(x << self.shi, SW)
             for s in range(self.nact):
                 b0, b1, b2, a1, a2 = cm[s * 5:s * 5 + 5]
                 x1, x2, y1, y2 = self.state[ch][s]
@@ -66,7 +72,7 @@ class Engine:
                 smp = y
             smp = self._rnd(cm[PRE] * smp)
             out.append(self._clamp(smp))
-        return (xl, xr) if bypass else (out[0], out[1])
+        return (self._clamp(wrap(xl << self.shi, SW)), self._clamp(wrap(xr << self.shi, SW))) if bypass else (out[0], out[1])
 
 
 def q(x):
@@ -105,7 +111,7 @@ def bank_set(nact, seed, pre_db):
     return words                           # NST*5 + 1 words, index PRE last
 
 
-def stim(n, scale, seed):
+def stim(n, scale, seed, amp=1.0):
     r = random.Random(seed)
     out = []
     for i in range(n):
@@ -117,13 +123,16 @@ def stim(n, scale, seed):
             v = int(31000 * math.sin(2 * math.pi * 16000 * i / 48000))
         else:
             v = r.randint(-30000, 30000)
-        out.append(v)
+        out.append(int(v * amp))
     return [v * scale + r.randint(0, scale - 1) if scale > 1 else v for v in out]
 
 
-def vectors(path, w):
-    scale = 1 << (w - 16)
-    e = Engine(w)
+def vectors(path, w, wo=None, ifb=None, ofb=None):
+    """Writes the golden vectors. Legacy call vectors(path, w): all bits above 16 are fractional. vectors(path, 18, 16, 0, 0): an 18-bit headroom input into a 16-bit output."""
+    ifb_ = (w - 16) if ifb is None else ifb
+    scale = 1 << ifb_
+    e = Engine(w, wo, ifb, ofb)
+    wide_head = w - 16 - ifb_ > 0
     lines = []
     ns = 0
 
@@ -132,9 +141,9 @@ def vectors(path, w):
             e.write(i, v)
             lines.append(f"W {i} {v}")
 
-    def run(n, seed, bypass=0, mid=None):
+    def run(n, seed, bypass=0, mid=None, amp=1.0):
         nonlocal ns
-        xs = stim(n, scale, seed)
+        xs = stim(n, scale, seed, amp)
         for i, x in enumerate(xs):
             xl, xr = x, xs[(i + 7) % n]
             if mid is not None and i == 0:
@@ -156,6 +165,8 @@ def vectors(path, w):
     run(40, 15, bypass=1); run(40, 16)
     load(C); e.commit(1); lines.append("C 1"); run(60, 17)
     load(B); e.commit(17); lines.append("C 17"); run(60, 18)
+    if wide_head:                               # hot input above 16-bit full scale (up to 1.6x): through B's -3 dB preamp it fits, in bypass it clamps at the output
+        run(80, 19, amp=1.6); run(40, 20, bypass=1, amp=1.6)
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
     return ns
@@ -165,7 +176,8 @@ if __name__ == "__main__":
     if "--vectors" in sys.argv:
         path = sys.argv[sys.argv.index("--vectors") + 1]
         w = int(sys.argv[sys.argv.index("--w") + 1]) if "--w" in sys.argv else 16
-        print(vectors(path, w), "samples")
+        opt = lambda k: int(sys.argv[sys.argv.index(k) + 1]) if k in sys.argv else None
+        print(vectors(path, w, opt("--wo"), opt("--ifb"), opt("--ofb")), "samples")
     else:
         e = Engine(16)
         e.write(0, 1 << FC); e.write(1, 0); e.write(2, 0); e.write(3, 0); e.write(4, 0); e.write(PRE, 1 << FC)

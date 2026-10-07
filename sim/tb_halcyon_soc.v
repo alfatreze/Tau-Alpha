@@ -16,7 +16,8 @@ module tb_halcyon_soc;
     reg  [31:0] cont_key = 0;
     wire [4:0]  set_idx;  wire set_wr;  wire [31:0] set_wdata;
     wire [15:0] audio_l, audio_r;
-    mp3_soc #(.HALCYON_ENABLE(1)) u_soc (
+    parameter WIDE = 0;
+    mp3_soc #(.HALCYON_ENABLE(1), .CYMO_RESAMP_ENABLE(1), .WIDE_EQ_ENABLE(WIDE)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
         .ld_wr(ld_wr), .ld_addr(ld_addr), .ld_data(ld_data),
         .cont_key(cont_key), .in_menu(1'b0),
@@ -31,6 +32,8 @@ module tb_halcyon_soc;
         .psram_done(1'b0), .psram_rdata(32'd0), .psram_guard(1'b0),
         .audio_l(audio_l), .audio_r(audio_r)
     );
+    reg track = 0; reg signed [15:0] sv; integer maxabs = 0;
+    always @(posedge clk) if (track) begin sv = audio_l; if (sv < 0) begin if (-sv > maxabs) maxabs = -sv; end else if (sv > maxabs) maxabs = sv; end
     reg [8*80-1:0] line;
     reg [3:0] seen = 0;
     always @(posedge clk) if (u_soc.con_wr) begin
@@ -68,8 +71,16 @@ module tb_halcyon_soc;
         press(5); check(16000, "bypass");
         press(6); check(8000, "bypass off and state cleared");
         press(7); check(16000, "engine off");
+        press(4); repeat (120000) @(posedge clk);                         // the resampler's filter settles on the constant input
+        if (audio_l < 7996 || audio_l > 8004 || audio_r !== audio_l) begin $display("FAIL: resampler + engine: audio %0d,%0d want about 8000", audio_l, audio_r); errors = errors + 1; end
+        else $display("ok: resampler live in front of the engine (WIDE=%0d): audio %0d", WIDE, audio_l);
+        press(6); repeat (400000) @(posedge clk); track = 1; repeat (300000) @(posedge clk); track = 0;
+        // the engine halves the signal: with the 16-bit path the resampler clips at 32767 first, so the output never exceeds 16384; the wide path carries the overshoot through
+        $display("square wave peak at the output: %0d (WIDE=%0d)", maxabs, WIDE);
+        if (WIDE == 0 && maxabs > 16384) begin $display("FAIL: 16-bit path peak %0d above 16384", maxabs); errors = errors + 1; end
+        if (WIDE != 0 && maxabs <= 16500) begin $display("FAIL: wide path peak %0d shows no overshoot above 16500", maxabs); errors = errors + 1; end
         if (u_soc.hal_widx !== 8'd85) begin $display("FAIL: last written index %0d, expected 85", u_soc.hal_widx); errors = errors + 1; end
-        if (!(seen == 4'hF)) begin $display("FAIL: firmware did not reach every step (seen %b)", seen); errors = errors + 1; end
+        if (!(seen[3:0] == 4'hF)) begin $display("FAIL: firmware did not reach every step (seen %b)", seen); errors = errors + 1; end
         if (errors == 0) $display("PASSED: tb_halcyon_soc"); else $display("FAILED: %0d errors", errors);
         $finish;
     end
