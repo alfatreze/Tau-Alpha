@@ -14103,3 +14103,7 @@ Owner: go with the recommendations, build the gain stage. **Decisions applied:**
 ## B-618: parallel work plan saved
 
 `docs/features/CYMO_PARALLEL_WORK_PLAN.md` (items A1-A8 host/firmware, B1-B4 VM fits, C1 alpha.4 candidate, D other roadmap items) records what proceeds alongside the DEV 105 recordings, outside the D-G01 gates. Owner order: A1, A2, A3, the B1 fit and B2 experiment, A8. Status per item is kept in that file.
+
+## B-619: 24-bit FLAC reduced to 16 bits with rounding (parallel plan A1), fit eq24-b618 launched (B1)
+
+`fw/flac.c to16()` now rounds to nearest (`(v + (1 << (sh-1))) >> sh`, int32, no libgcc) instead of an arithmetic floor shift; the floor biased every sample by -0.498 LSB (DC) with error following quiet signals. New `sim/test_flac_to16.py` (in `make test-host`): equals an independent reference over 18,040 values for 8/16/18/20/24-bit (edges, random, around zero), worst error 0.5000 LSB, mean error 0.002 against -0.498 for the floor, +full-scale saturates, 16-bit untouched; `flac_test_to16` exposed under `FLAC_TEST_EXPOSE` only. Release heap gap -16 B (54,192 B), baselines unchanged within tolerance. 16-bit and lower-depth files are bit-identical to before. Not on a Pocket. **B1:** fit `eq24-b618` (two seeds, gain bundle + `TAU_EQ_COEF24=1`, `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_audio16_gain_eq24_qsf_append.txt`) launched 08:44 local, expected done about 10:15-10:20 (this family has landed near 1h30).

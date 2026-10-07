@@ -95,6 +95,7 @@ test-host:
 	$(PYTHON) sim/test_flac_lpc_symmetry.py
 	$(PYTHON) sim/test_flac_lpc_fw_redirect.py
 	$(PYTHON) sim/test_flac_rice_fast.py
+	$(PYTHON) sim/test_flac_to16.py
 	$(PYTHON) sim/test_ram_report.py
 	$(PYTHON) sim/test_art_decode.py
 	$(PYTHON) sim/test_fw_pair_check.py
