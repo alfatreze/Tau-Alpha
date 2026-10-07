@@ -1085,6 +1085,7 @@ static char track_trk[8];
  * and every file with a bare Xing header. */
 static char    track_encoder[12];
 static uint8_t track_vbr_method;      /* 0 = unknown / absent */
+static uint16_t track_enc_delay, track_enc_padding;   /* B-624 gapless groundwork: the LAME tag's encoder delay and end padding in samples (0 = absent); read by nothing yet */
 
 /* Transport state. Declared up here with the other UI-visible globals rather
  * than down with poll_input(): ui_draw_dynamic() shows the play/pause state,
@@ -1211,6 +1212,7 @@ static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: curre
  * volume target and never above unity (attenuate-only). rg_update() runs whenever either changes: after a track's tags are read and when the setting is changed. */
 #define RG_COLD COLD_FN3
 #include "replaygain.h"
+#include "lame_tag.h"
 static rg_t     rg_cur;
 static uint8_t  rg_mode;                                   /* RG_OFF (default), RG_TRACK, RG_ALBUM; saved with the theme polarity word */
 static uint32_t rg_factor = RG_UNITY;
@@ -8429,6 +8431,7 @@ static uint32_t vbr_frame_count(void)
                     for (int k = 8; k >= 0 && track_encoder[k] == ' '; k--)
                         track_encoder[k] = 0;
                     track_vbr_method = ring[e+9] & 0x0Fu;
+                    { uint16_t dl, pd; if (e + 24u <= lim && lame_ext_gapless(&ring[e], 24u, &dl, &pd)) { track_enc_delay = dl; track_enc_padding = pd; } }   /* B-624 */
                 }
             }
             return ((uint32_t)ring[i+8]  << 24) | ((uint32_t)ring[i+9]  << 16) |
@@ -8683,7 +8686,7 @@ COLD_SR static int read_track_head(void)
 
     audio_start  = skip;
     track_frames = 0;
-    track_encoder[0] = 0; track_vbr_method = 0;
+    track_encoder[0] = 0; track_vbr_method = 0; track_enc_delay = 0; track_enc_padding = 0;
     track_secs   = 0;
     meas_rate    = 0; meas_pos0 = 0; meas_sec0 = 0;
     vbr_seen     = 0;
