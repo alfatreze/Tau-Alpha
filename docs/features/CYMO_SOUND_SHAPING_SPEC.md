@@ -1,8 +1,10 @@
-# Cymo C5 reconsidered: "Sound Shaping", a macro-control EQ layer (design, 2026-10-07)
+# Halcyon: the Cymo EQ (macro-control layer over six biquad stages) (design, 2026-10-07)
+
+> **Name (D-H01, owner 2026-10-07): the EQ is called Halcyon.** This file was written as "Sound Shaping" and keeps its old file name; code identifiers keep theirs (`tools/lab/sound_shaping_model.py`, `sim/test_sound_shaping_model.py`) until a rename task renames them to `halcyon_*`. The engine module stays `eq_biquad.v` ("the Halcyon engine"). The legacy 8-preset EQUALIZER choice stays as is until Halcyon replaces it.
 
 > **Owner decisions 2026-10-07 (section 11) supersede sections 3-5 wherever they differ: SIX stages (not five), presets rebuilt from the controls as configurable data, recall by gain-dip first, de-esser firmware-only. Host model: `tools/lab/sound_shaping_model.py`, tests: `sim/test_sound_shaping_model.py` (in `make test-host`).**
 
-**Status: DESIGN, with a host prototype of the stage mapping. Nothing built in RTL or firmware.** Owner request: replace the 10-band graphic-EQ plan (C5 option B in `CYMO_AUDIO_ENGINE.md` section 8) with an MSEB-inspired mode, judged together with the gain stage (`CYMO_GAIN_STAGE_DESIGN.md`), the soft clipper and quantiser (`CYMO_OUTPUT_STAGE_SPEC.md`), the 16-bit I2S A/B, and the DSP/ALM budget. Naming: HiBy's MSEB is a proprietary PEQ plus dynamic processing with no public algorithm, so this is **not** an MSEB clone and should not carry the name; the working name here is "Sound Shaping".
+**Status: DESIGN, with a host prototype of the stage mapping. Nothing built in RTL or firmware.** Owner request: replace the 10-band graphic-EQ plan (C5 option B in `CYMO_AUDIO_ENGINE.md` section 8) with an MSEB-inspired mode, judged together with the gain stage (`CYMO_GAIN_STAGE_DESIGN.md`), the soft clipper and quantiser (`CYMO_OUTPUT_STAGE_SPEC.md`), the 16-bit I2S A/B, and the DSP/ALM budget. Naming: HiBy's MSEB is a proprietary PEQ plus dynamic processing with no public algorithm, so this is **not** an MSEB clone and should not carry the name; the working name here is "Halcyon".
 
 ## 1. Verdict
 
