@@ -96,10 +96,10 @@ module mp3_soc #(
     parameter AUDIO16_ENABLE = 0,
     // B-615 (Cymo C3 slice 2): hardware gain stage at the pcm_fifo output (tau_gain_stage.sv), registers 0x168-0x174. Inert (reads 0, audio path untouched) when 0.
     parameter GAIN_ENABLE = 0,
-    // B-639 (Halcyon): the Halcyon EQ engine (tau_halcyon.sv) beside eq_biquad, registers 0x178-0x180; a sticky enable selects its output. Inert (reads 0, audio path untouched) when 0.
+    // B-639 (Halcyon): the Halcyon EQ engine (tau_halcyon.sv), registers 0x178-0x180; it is the only EQ (the preset EQ and its register 0x68 were removed). With 0 the audio is the unequalised path.
     parameter HALCYON_ENABLE = 0,
     // B-646 (wide EQ input): the Cymo resampler's output is 18 bits (the same LSB, two headroom bits: its +1 dB overshoot is no longer hard-clipped at +-32767) and the Halcyon engine takes
-    // all 18 bits; the old eq_biquad and the MMIO read still see the 16-bit clamp. Inert (0) = every path exactly as before.
+    // all 18 bits; the MMIO read still sees the 16-bit clamp. Inert (0) = every path exactly as before.
     parameter WIDE_EQ_ENABLE = 0
 ) (
     input  wire        clk,
@@ -817,7 +817,7 @@ module mp3_soc #(
                      R_FB_ADDR = 8'h48, R_FB_SIZE = 8'h4C, R_FB_COLOR= 8'h50,
                      R_FB_GO   = 8'h54, R_FB_STALL= 8'h58, R_SLOT_SZ = 8'h5C,
                      R_DT_ADDR = 8'h60, R_DT_DATA = 8'h64,
-                     R_EQ      = 8'h68, R_SET_IDX = 8'h6C,
+                     R_SET_IDX = 8'h6C,
                      R_SET_DAT = 8'h70, R_SDR_ADDR= 8'h74,
                      R_SDR_DATA= 8'h78, R_SDR_CTRL= 8'h7C,
                      R_SDR_RDATA=8'h80, R_SDR_STATUS=8'h84;
@@ -886,7 +886,7 @@ module mp3_soc #(
     // bits [5:4] fade length 256 << n samples (STICKY, reset 3 = 2048); read: bit 31 present, bit 0 enable, bit 2 fading, [5:4] shift. TARGET (Q15, 32768 = unity, STICKY, reset 32768),
     // CUR (read: the gain in force), STEP (max change per sample, STICKY, reset 149). With ENABLE 0 the audio path is exactly what it was before this existed.
     localparam [8:0] R_GAIN_CTRL = 9'h168, R_GAIN_TARGET = 9'h16C, R_GAIN_CUR = 9'h170, R_GAIN_STEP = 9'h174;
-    // B-639 Halcyon engine (docs/features/CYMO_HALCYON_SPEC.md). HAL_CTRL write: bit 0 ENABLE (STICKY, reset 0: audio comes from the Halcyon engine instead of eq_biquad), bit 1 BYPASS
+    // B-639 Halcyon engine (docs/features/CYMO_HALCYON_SPEC.md). HAL_CTRL write: bit 0 ENABLE (STICKY, reset 0: audio comes from the Halcyon engine instead of the unequalised path), bit 1 BYPASS
     // (STICKY), bit 2 COMMIT pulse (swap the shadow bank in at the next sample boundary, latching NACT), bit 3 CLEAR pulse (clear the filter state), bits [13:8] NACT (STICKY; the active
     // stage count, sampled by COMMIT). IDX (STICKY): coefficient index, auto-increments on every DATA write. DATA write: bits [23:0] signed Q2.22 coefficient into the SHADOW bank at IDX
     // (index NST*5 = 85 is the preamp). Read HAL_CTRL: bit 31 present, bit 2 busy, [13:8] nact, bit 1 bypass, bit 0 enable. Inert (reads 0) unless HALCYON_ENABLE.
@@ -1029,7 +1029,6 @@ module mp3_soc #(
     wire signed [15:0] fifo_l, fifo_r;
     wire        pcm_sample_tick;
     wire        pcm_adv;
-    reg   [2:0] eq_preset;
 
     pcm_fifo #(.AW(11)) u_pcm (
         .clk      (clk),
@@ -1166,9 +1165,9 @@ module mp3_soc #(
     // available below for firmware-driven self-test regardless of `cymo_live_en`'s value -- the two paths coexist, never
     // conflict (a combinational mux at the instantiation's own port connections, no shared register).
     //
-    // `start` TICK (B-484, hardware-confirmed bug fix): the first attempt reused `eq_biquad.v`'s OWN internal 48 kHz
+    // `start` TICK (B-484, hardware-confirmed bug fix): the first attempt reused the (since removed) preset EQ's OWN internal 48 kHz
     // tick, reasoning "reuse what's there instead of a second copy that could drift out of phase with it" -- WRONG.
-    // `eq_biquad`'s divider (`DIV = CLK_HZ/RATE_HZ`, plain integer division) was never built to be ACCURATE: for an IIR
+    // that EQ's divider (`DIV = CLK_HZ/RATE_HZ`, plain integer division) was never built to be ACCURATE: for an IIR
     // filter's own coefficients, a few hundred ppm of tick-rate error changes nothing audible. For a sample-rate
     // converter whose entire correctness depends on knowing its own output period precisely, it is NOT harmless: under
     // TAU_CLK66, `66,666,667 / 48,000` truncates to 1388 (not 1388.89), so the EQ's real tick is 48,030.74 Hz, not
@@ -1255,31 +1254,7 @@ module mp3_soc #(
         end
     endgenerate
 
-    wire signed [15:0] eq_o_l, eq_o_r;
-    // Preset EQ, spliced between the FIFO and this module's audio outputs.
-    // Entirely inside clk_sys, so no new CDC -- sound_i2s already crosses into
-    // clk_74a through its own sync_fifo and this sits on the near side of that.
-    // Preset 0 is a true bypass inside eq_biquad, so with the EQ off the audio
-    // path is bit-identical to what it was before this existed.
-`ifdef TAU_CLK66
-    // B-338: eq_biquad's CLK_HZ paces every biquad update against the real system clock -- a stale value
-    // does not fail to build or run, it just mis-paces every EQ preset's corner (HarpMudd upstream's own
-    // estimate for this exact hardcode: about 11% high). Kept in step with mf_pllbase's own clk_sys macro.
-    eq_biquad #(.CLK_HZ(66_666_667), .RATE_HZ(48_000)) u_eq (
-`else
-    eq_biquad #(.CLK_HZ(60_000_000), .RATE_HZ(48_000)) u_eq (
-`endif
-        .clk    (clk),
-        .rst    (rst),
-        .in_l   (eq_in_l),
-        .in_r   (eq_in_r),
-        .preset (eq_preset),
-        .out_l  (eq_o_l),
-        .out_r  (eq_o_r)
-    );
-
-    // B-639: the Halcyon engine takes the same input; the sticky enable picks which engine drives the audio outputs. With HALCYON_ENABLE 0 (every shipped bitstream) the mux
-    // folds away and audio_l/audio_r are eq_biquad's outputs exactly as before.
+    // The Halcyon engine is the only EQ. Its sticky enable picks its output; with it off (or HALCYON_ENABLE 0) the audio is the resampler / gain-stage path unchanged, the 16-bit input.
     wire signed [15:0] hal_o_l, hal_o_r;
     generate
         if (HALCYON_ENABLE != 0) begin : g_hal
@@ -1295,8 +1270,8 @@ module mp3_soc #(
             assign hal_o_l = 16'sd0; assign hal_o_r = 16'sd0; assign hal_busy = 1'b0;
         end
     endgenerate
-    assign audio_l = (HALCYON_ENABLE != 0 && hal_en) ? hal_o_l : eq_o_l;
-    assign audio_r = (HALCYON_ENABLE != 0 && hal_en) ? hal_o_r : eq_o_r;
+    assign audio_l = (HALCYON_ENABLE != 0 && hal_en) ? hal_o_l : eq_in_l;
+    assign audio_r = (HALCYON_ENABLE != 0 && hal_en) ? hal_o_r : eq_in_r;
 
     always @(posedge clk) begin
         con_wr      <= 1'b0;
@@ -1332,7 +1307,6 @@ module mp3_soc #(
 `else
             pcm_rate <= 32'd3435974;   // 48 kHz at clk_sys = 60 MHz
 `endif
-            eq_preset <= 3'd0;         // FLAT: bypass until asked otherwise
             audio16_reg  <= 1'b0;      // B-602: STICKY, back to the 15-bit mapping on reset
             hal_en <= 1'b0; hal_bypass <= 1'b0; hal_nact <= 6'd0; hal_idx <= 8'd0; hal_data <= 24'sd0;   // B-639: STICKY, back to 'Halcyon off'
             gain_en <= 1'b0; gain_target <= 16'd32768; gain_ramp <= 16'd149; gain_shift <= 2'd3;   // B-615: STICKY, back to 'stage off, unity'
@@ -1348,7 +1322,6 @@ module mp3_soc #(
                 R_CONSOLE: begin con_char <= dDAT_MOSI[7:0]; con_wr <= 1'b1; end
                 R_AUDIO:   ;   /* handled by pcm_push -> pcm_fifo */
                 R_PCM_RATE: pcm_rate <= dDAT_MOSI;
-                R_EQ:       eq_preset <= dDAT_MOSI[2:0];
                 R_SET_IDX:  set_idx   <= dDAT_MOSI[4:0];   // B-346: was [3:0]
                 R_SET_DAT:  begin set_wdata <= dDAT_MOSI; set_wr <= 1'b1; end
                 R_SDR_ADDR: sdram_addr <= dDAT_MOSI[24:0];
@@ -1488,7 +1461,6 @@ module mp3_soc #(
             R_DT_DATA: mmio_rdata = dt_q;
             R_FB_GO:   mmio_rdata = {31'd0, fb_cmd_full};
             R_FB_STALL: mmio_rdata = fb_stall_ctr;
-            R_EQ:      mmio_rdata = {29'd0, eq_preset};
             R_SET_DAT: mmio_rdata = set_rdata;
             R_SDR_RDATA: mmio_rdata = sdram_rdata;
             R_SDR_STATUS: mmio_rdata = {30'd0, sdram_done, sdram_busy};

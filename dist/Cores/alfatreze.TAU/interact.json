@@ -67,7 +67,7 @@
                 }
             },
             {
-                "name": "EQ preset",
+                "name": "Halcyon EQ preset",
                 "id": 16,
                 "type": "slider_u32",
                 "enabled": true,
@@ -77,7 +77,7 @@
                 "graphical": {
                     "signed": false,
                     "min": 0,
-                    "max": 7,
+                    "max": 30,
                     "adjust_small": 1,
                     "adjust_large": 1
                 }

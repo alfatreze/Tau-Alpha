@@ -17,7 +17,7 @@
  * that held Info and Diagnostics was removed; both moved up to the home.) The Library on/off toggle and
  * How it works page that used to live here were removed with legacy playlist mode. */
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
-enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_TEMPO, CH_RG, CH_N };
+enum { CH_COLOUR = 0, CH_METER, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_TEMPO, CH_RG, CH_N };
 #ifndef TAU_INFO_EXPORT
 #define TAU_INFO_EXPORT 1                /* the Info page's report-code export (A on the Info page): in the normal core too since alpha.4 (INFO_EXPORT=0 in fw/build.sh turns it off) */
 #endif
@@ -51,7 +51,7 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #endif
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
-enum { TG_ART = 0, TG_SPEEDS, TG_RATES, TG_CYMO, TG_OUT16, TG_GAIN, TG_HAL };
+enum { TG_ART = 0, TG_SPEEDS, TG_RATES, TG_CYMO, TG_OUT16, TG_GAIN };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 #define SET_PAGE_CH(c) ((uint8_t)(SET_MENUS + (c)))
 
@@ -70,9 +70,9 @@ static const set_row_t set_appear_rows[] = {
     { "METER: CONFIGURE", RT_GROUP, SET_WVIZCFG_PG },
     { "ALBUM ART", RT_TOGGLE, TG_ART }, { "SCREEN BLANK", RT_CHOICE, CH_BLANK } };
 static const set_row_t set_audio_rows[] = {
-    { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 }, { "REPLAYGAIN", RT_CHOICE, CH_RG }
+    { "VOLUME", RT_VOL, 0 }, { "REPLAYGAIN", RT_CHOICE, CH_RG }
 #if TAU_HALCYON_FW
-    , { "HALCYON", RT_GROUP, SET_HAL_PG }
+    , { "HALCYON EQ", RT_GROUP, SET_HAL_PG }
 #endif
 };
 static const set_row_t set_play_rows[] = {
@@ -91,9 +91,6 @@ static const set_row_t set_dgn_rows[] = {
     { "CYMO RESAMPLER", RT_TOGGLE, TG_CYMO },
     { "16-BIT OUTPUT", RT_TOGGLE, TG_OUT16 },
     { "HW GAIN", RT_TOGGLE, TG_GAIN },
-#if TAU_HALCYON_FW
-    { "HALCYON", RT_TOGGLE, TG_HAL },
-#endif
     { "CHECK", RT_GROUP, SET_CHECK_PG },
 #if MP3_PROFILE || FLAC_PROFILE
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
@@ -353,7 +350,7 @@ COLD_FN static uint32_t set_ch_count(uint32_t c)
     /* VIZ_SEL_COUNT, not VIZ_COUNT: retired meters (cassette, magic eye, L/R levels, mirrored bars)
      * have no row, so the choice list offers fewer rows than the enum has values -- see viz_sel_to_mode()/viz_mode_to_sel() in fw/player.c. */
     return c == CH_COLOUR ? (uint32_t)UI_PALETTE_N : c == CH_METER ? (uint32_t)VIZ_SEL_COUNT
-         : c == CH_EQ ? (uint32_t)EQ_COUNT : c == CH_REPEAT ? 3u
+         : c == CH_REPEAT ? 3u
          : c == CH_STRESS ? 4u : c == CH_SPEED ? SET_SPEED_COUNT()
          : c == CH_THEME ? TH_COUNT() : c == CH_MODE ? 2u : c == CH_TEMPO ? 6u : c == CH_RG ? (uint32_t)RG_MODES : 5u;
 }
@@ -380,13 +377,13 @@ COLD_FN static uint32_t set_ch_active(uint32_t c)
 #if TAU_TEMPO
     if (c == CH_TEMPO) return tempo_idx;
 #endif
-    return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode_to_sel(viz_mode) : c == CH_EQ ? eq_idx
+    return c == CH_COLOUR ? ui_pal_idx : c == CH_METER ? viz_mode_to_sel(viz_mode)
          : c == CH_REPEAT ? rep_mode : set_blank_idx();
 }
 COLD_FN static const char *set_ch_name(uint32_t c, uint32_t i)
 {
     return c == CH_COLOUR ? ui_palette_name[i] : c == CH_METER ? set_viz[viz_sel_to_mode(i)]
-         : c == CH_EQ ? eq_name[i] : c == CH_REPEAT ? set_rep[i]
+         : c == CH_REPEAT ? set_rep[i]
          : c == CH_STRESS ? set_stress_nm[i] : c == CH_SOAK ? set_soak_nm[i]
          : c == CH_SPEED ? set_speed_nm[i] : c == CH_THEME ? th_get(i)->name
          : c == CH_MODE ? (i ? "LIGHT" : "DARK")
@@ -447,9 +444,6 @@ COLD_FN static void set_ch_apply(uint32_t c, uint32_t i)
             wave_drawn[k] = 0xFFu; wave_pk_drawn[k] = 0xFFu;
             for (uint32_t z = 0; z < SPEC_BANDS; z++) spec_drawn[z] = 0xFFu;
         }
-    } else if (c == CH_EQ) {
-        eq_idx = (uint8_t)i;
-        eq_apply = 1u;
     } else if (c == CH_REPEAT) {
         rep_mode = (uint8_t)i;
         ui_mode_dirty = 1u;
@@ -526,11 +520,6 @@ COLD_FN static void set_toggle(uint32_t t)
          * (and returns it) without a restart. No-op on a bitstream without the stage. Never persisted. */
         if (hw_gain) gain_hw_set((uint8_t)!vol_st.hw);
         return;                                  /* not persisted */
-#if TAU_HALCYON_FW
-    } else if (t == TG_HAL) {
-        hal_cycle();                             /* B-640: OFF -> the eight built-in presets -> OFF; never persisted */
-        return;
-#endif
 #endif
     }
     settings_mark_dirty();
@@ -570,9 +559,6 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     else if (r->arg == TG_RATES)  s = flac_accept_all_rates ? "ON" : "OFF";
     else if (r->arg == TG_OUT16)  s = !hw_a16 ? "NO UNIT" : a16_on ? "ON" : "OFF";
     else if (r->arg == TG_GAIN)   s = !hw_gain ? "NO UNIT" : vol_st.hw ? "ON" : "OFF";
-#if TAU_HALCYON_FW
-    else if (r->arg == TG_HAL)    s = hal_row_text();
-#endif
     else if (r->arg == TG_CYMO)   s = !cymo_live_toggle ? "OFF" : cymo_live_on ? "ON" : "WAIT";   /* WAIT = on, but this file is not 44.1 kHz at 1.00x (B-530) */
 #endif
     else                          s = set_speed_all ? "ON" : "OFF";   /* TG_SPEEDS, the only remaining toggle */

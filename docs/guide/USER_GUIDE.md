@@ -6,7 +6,7 @@ see [Media and tools](MEDIA_AND_TOOLS.md).
 
 Contents: [Installing](#installing) · [Playing](#playing) · [What it shows](#what-it-shows) ·
 [Media library](#media-library) · [Themes and colours](#themes-and-colours) ·
-[Meters](#meters) · [Equalizer](#equalizer) · [Playback speed](#playback-speed) · [Screen blanking](#screen-blanking) ·
+[Meters](#meters) · [Halcyon EQ](#halcyon-eq) · [Playback speed](#playback-speed) · [Screen blanking](#screen-blanking) ·
 [FLAC](#flac) · [Known limitations](#known-limitations)
 
 ## Installing
@@ -37,7 +37,7 @@ The controls (checked against the firmware input handling in `fw/player.c`):
 | Pocket | Action |
 |---|---|
 | **A** | *Tap*: play / pause |
-| **Start** | Open the settings menu (colour, theme, meter, equalizer, repeat, speed and more) -- it opens when you let go of the button, and not at all if you pressed another button while holding it. In any menu or the library, Start closes it from any depth |
+| **Start** | Open the settings menu (colour, theme, meter, Halcyon EQ, repeat, speed and more) -- it opens when you let go of the button, and not at all if you pressed another button while holding it. In any menu or the library, Start closes it from any depth |
 | **Start + Y** | Jump straight to Settings > Meter > Configure |
 | **Left** / **Right** | *Tap*: previous / next track (library queue) |
 | **Left** / **Right** | *Hold*: seek, faster the longer you hold (5 s, then 10 s, then 30 s per step) |
@@ -45,7 +45,7 @@ The controls (checked against the firmware input handling in `fw/player.c`):
 | **Up** / **Down** | Volume: 100 positions over a 60 dB range (each position 0.6 dB, so every step sounds like the same change), 3 positions a press, hold to repeat |
 | **B** | Restart the current track from the beginning |
 | **X** | Cycle the meter (eleven styles) |
-| **Y** | Cycle the EQ preset (eight) |
+| **Y** | Step the Halcyon EQ preset |
 | **Select** | *Tap*: open the library |
 | **Select** + **X** | Next preset of the current meter (Chladni presets; Bars switches between its normal and mirrored layout) |
 | **Select** + **Y** | Fullscreen meter (Chladni and the Winamp meters only) |
@@ -59,7 +59,7 @@ tag read and its artwork loaded; restarting the current one is instant.
 In every menu and list, **Right** goes forward (opens or selects, like **A**) and **Left** goes back (like **B**); on a
 switch or the volume, Left and Right change the value instead.
 
-Volume, accent colour, repeat, the meter and the EQ preset carry over between sessions, in step with **Core
+Volume, accent colour, repeat, the meter and the Halcyon EQ preset carry over between sessions, in step with **Core
 Settings** in the Analogue menu. The **theme and mode** (Dark / Light) and the **meter Configure settings** are *not*
 remembered yet: they return to their defaults each launch.
 
@@ -76,7 +76,7 @@ delete that folder to reset. Nothing is written to your music folder.
   decoded shows the panel with the reason in it.
 - **A meter**, cycled with **X** (see [Meters](#meters)).
 - **Elapsed and total time**, with a progress bar.
-- **A repeat indicator**, dimmed rather than hidden when off, the **EQ preset name**, and the position in the library queue.
+- **A repeat indicator**, dimmed rather than hidden when off, the **Halcyon EQ preset name**, and the position in the library queue.
 - **Bitrate and sample rate**, with the encoder that made the file where it says so, for example `128 kbps - 44.1 kHz - LAME3.100`.
 
 CBR and VBR **MPEG-1 and MPEG-2** Layer III at every standard bitrate and sample rate, mono or stereo, plus FLAC (see
@@ -160,23 +160,14 @@ as a QR code.
 
 Meter drawing waits for the display beam, so it does not tear.
 
-## Equalizer
+## Halcyon EQ
 
-**Y** cycles eight presets. The current one is named in the mode row, dimmed on `FLAT`.
+**Y** steps the Halcyon EQ preset (after the last one, off). The current one is named in the mode row, dimmed when off. **Settings > Audio > HALCYON EQ** opens the full page: a live
+response curve, six sliders (warmth, bass, vocal, punch, sibilance, air) that apply as you move them, and the preset name in the header. **Up** from the first slider selects the
+preset area; **Left / Right** (or **L1 / R1**) there change the preset. **X** compares against the EQ off, **Y** resets the sliders.
 
-| | |
-|---|---|
-| **FLAT** | true bypass; bit-identical to no EQ at all |
-| **BASS** | low shelf lift, gentle upper-mid dip |
-| **ROCK** | smile curve: lows and highs up, mids back |
-| **POP** | presence lift around 2-4 kHz |
-| **JAZZ** | warm lows, relaxed upper-mid |
-| **CLASSICAL** | gentle warmth, honest mids, eased upper mids, air |
-| **VOCAL** | mid forward, lows trimmed |
-| **TREBLE** | high shelf lift |
-
-Presets are loudness-matched, so switching changes the tone without changing how loud the music seems. Design notes:
-[EQ_DESIGN.md](../EQ_DESIGN.md).
+Built-in presets: FLAT, WARM, CLEAR, BASS, VOCAL, SPEECH, LOW VOLUME and SMOOTH. Presets from Tau Omega (a `PRST` section in `tau-assets.bin`) are added after them. All are
+loudness-matched (the preamp gives back what the boost adds), and a 17 Hz high-pass always protects the speaker. Design notes: [CYMO_HALCYON_SPEC.md](../features/CYMO_HALCYON_SPEC.md).
 
 ## Playback speed
 

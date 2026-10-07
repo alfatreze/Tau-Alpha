@@ -114,11 +114,11 @@ licence header of its own; see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
 ### 2.4 Audio path
 
 Decoded PCM goes into a hardware FIFO (`pcm_fifo.v`) that drains at the file's own sample rate, so the CPU can spend about 20 ms on a
-frame without the sound breaking up; the FIFO is primed to half full before output starts (a fix ported from upstream). The equalizer
-(`eq_biquad.v`, coefficients in `eq_coefs.vh`) is five cascaded biquads per channel sharing one time-multiplexed multiplier, using 116
-of the 1,250 clocks available between output samples, with a bit-exact model and loudness-matched presets ([EQ_DESIGN.md](EQ_DESIGN.md),
-[HOW_IT_WORKS.md](HOW_IT_WORKS.md)). `sound_i2s.v` (agg23's I2S bridge) feeds the Pocket. Volume, speed (a resampling rate increment,
-`PCM_RATE`) and the EQ preset are set from the CPU without an audio gap.
+frame without the sound breaking up; the FIFO is primed to half full before output starts (a fix ported from upstream). The equalizer is the Halcyon engine
+(`tau_halcyon.sv`: 17 biquad stages per channel, writable 24-bit coefficients in a shadow bank, one pipelined multiplier, about 421 of the clocks available between output
+samples, with a bit-exact model; [CYMO_HALCYON_SPEC.md](features/CYMO_HALCYON_SPEC.md), [HOW_IT_WORKS.md](HOW_IT_WORKS.md)). It replaced the original fixed-preset EQ
+(`eq_biquad.v`, five biquads, eight presets, see [EQ_DESIGN.md](EQ_DESIGN.md)), which is removed. `sound_i2s.v` (agg23's I2S bridge) feeds the Pocket. Volume, speed (a resampling rate increment,
+`PCM_RATE`) and the Halcyon preset are set from the CPU without an audio gap.
 
 ### 2.5 Hardware measurement and decode blocks
 

@@ -277,7 +277,7 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `define TAU_WIDE_EQ_EN 0
 `endif
 
-// B-639: the Halcyon EQ engine (tau_halcyon.sv) beside eq_biquad. Independent of every macro above.
+// B-639: the Halcyon EQ engine (tau_halcyon.sv), the only EQ. Independent of every macro above.
 `ifdef TAU_HALCYON
 `define TAU_HALCYON_EN 1
 `else

@@ -6,7 +6,7 @@
 #if TAU_HALCYON_FW
 #include "halcyon_curve.h"
 
-static uint8_t hal_pg_sel;              /* selected control row 0..5 */
+static uint8_t hal_pg_sel;              /* selected row: 0 = the preset area in the header (Left/Right change the preset), 1..6 = the six controls */
 static uint8_t hal_cmp;                 /* 1 = the engine is out of the path (the X compare) */
 
 #define HP_X  PL_UI_TEXT_X
@@ -48,7 +48,7 @@ COLD_FN static void hal_pg_load_sel(void)
 
 COLD_FN static void hal_pg_open(void)
 {
-    hal_pg_sel = 0u;
+    hal_pg_sel = 1u;
     hal_cmp = 0u;
     hal_pg_load_sel();
 }
@@ -72,7 +72,8 @@ COLD_FN static void hal_pg_plot(int32_t atten_out[1])
     atten_out[0] = hal_curve(&hal_c, db);
     fb_rect(HP_X - 4u, HP_Y - 4u, HP_W + 8u, HP_H + 8u, bg);
     /* the lit band of the selected control */
-    { int32_t bx = (int32_t)hal_band_x[hal_pg_sel] - 22, bw = 44;
+    { int32_t bx = (int32_t)hal_band_x[hal_pg_sel ? hal_pg_sel - 1u : 0u] - 22, bw = 44;
+      if (!hal_pg_sel) bw = 0;
       if (bx < 0) { bw += bx; bx = 0; }
       if (bx + bw > (int32_t)HP_W) bw = (int32_t)HP_W - bx;
       fb_rect(HP_X + (uint32_t)bx, HP_Y, (uint32_t)bw, HP_H, ui_mix(bg, ui_accent, 1u, 5u)); }
@@ -134,8 +135,17 @@ COLD_FN static void hal_pg_row(uint32_t i, int sel)
 
 COLD_FN static void hal_pg_draw(void)
 {
-    static const char hint[] = "UP DOWN ROW  L R ADJUST  L1 R1 PRESET  X A/B  Y RESET";
-    ov_frame("HALCYON", hal_pg_preset_text(), hint);
+    static const char hint_c[] = "UP DOWN ROW  L R ADJUST  L1 R1 PRESET  X A/B  Y RESET";
+    static const char hint_p[] = "UP DOWN ROW  L R PRESET  X A/B  Y RESET";
+    const char *hint = hal_pg_sel ? hint_c : hint_p;
+    ov_frame("HALCYON EQ", hal_pg_preset_text(), hint);
+    if (hal_pg_sel == 0u && hw_hal) {                                          /* the preset area is selected: its text on an accent pill */
+        const char *pt = hal_pg_preset_text();
+        const uint32_t w = fb_text_width(pt, TS_1X);
+        fb_round_rect_on(FB_W - 24u - w, 3u, w + 16u, OV_HEAD_H - 6u, 5u, ui_accent, OV_CHROME_BG);
+        fb_set_color(UI_PANEL, ui_accent);
+        fb_text_clipped(FB_W - 16u - w, 7u, pt, TS_1X, TS_1X, w + 2u);
+    }
     if (!hw_hal) {
         fb_set_color(UI_DIM, OV_BODY);
         fb_text_clipped(HP_X, HP_Y + 20u, "NO UNIT", TS_1X, TS_1X, HP_W);
@@ -144,7 +154,7 @@ COLD_FN static void hal_pg_draw(void)
     }
     int32_t atten[1];
     hal_pg_plot(atten);
-    for (uint32_t i = 0; i < 6u; i++) hal_pg_row(i, i == hal_pg_sel);
+    for (uint32_t i = 0; i < 6u; i++) hal_pg_row(i, i + 1u == hal_pg_sel);
     /* footer: what the preamp gives back, and the always-on high-pass */
     char t[40], *q = t;
     const uint32_t tenths = ((uint32_t)atten[0] * 10u) / 8u;                    /* 1/8 dB to 1/10 dB */
@@ -173,11 +183,12 @@ COLD_FN static int hal_pg_input(uint32_t edge)
     if (edge & KEY_START) { set_close(); return 1; }
     if (edge & KEY_B) { set_page = SET_AUDIO; set_dirty = 1u; return 1; }
     if (!hw_hal) return 1;
-    if (edge & KEY_UP)   { hal_pg_sel = hal_pg_sel ? (uint8_t)(hal_pg_sel - 1u) : 5u; set_dirty = 1u; }
-    if (edge & KEY_DOWN) { hal_pg_sel = (uint8_t)((hal_pg_sel + 1u) % 6u); set_dirty = 1u; }
-    if (edge & (KEY_LEFT | KEY_RIGHT)) {
-        int8_t *c = hal_ctl_at(hal_pg_sel);
-        const int32_t lo = hal_pg_sel == 4u ? 0 : -5;
+    if (edge & KEY_UP)   { hal_pg_sel = hal_pg_sel ? (uint8_t)(hal_pg_sel - 1u) : 6u; set_dirty = 1u; }
+    if (edge & KEY_DOWN) { hal_pg_sel = (uint8_t)((hal_pg_sel + 1u) % 7u); set_dirty = 1u; }
+    if ((edge & (KEY_LEFT | KEY_RIGHT)) && !hal_pg_sel) { hal_pg_preset_step((edge & KEY_RIGHT) ? 1 : -1); set_dirty = 1u; }
+    else if (edge & (KEY_LEFT | KEY_RIGHT)) {
+        int8_t *c = hal_ctl_at(hal_pg_sel - 1u);
+        const int32_t lo = hal_pg_sel == 5u ? 0 : -5;
         int32_t v = *c + ((edge & KEY_RIGHT) ? 1 : -1);
         if (v < lo) { v = lo; }
         if (v > 5) { v = 5; }

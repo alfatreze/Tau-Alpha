@@ -21,7 +21,7 @@ Contents: [In plain terms](#in-plain-terms) · [The numbers](#the-numbers) · [A
 | Music stability under the heaviest load | Whether audio ever stutters with the busiest visuals and stress traffic running | 0 late underruns in every run so far, including a 30 s blit storm plus audio (B-146) and ENDURANCE runs (B-213) | **no glitches found** |
 | Cost of running cold code from PSRAM | Extra time for code kept off-chip | Worst case about 28,800 cycles per meter draw call, about 1.7% of one audio frame (B-202, B-213) | **a small, deliberate trade for the memory gained** |
 | Screen drawing tearing | Whether meters draw across the display beam | Meter drawing waits for the beam (Helios, B-267); the Info page's BEAM row shows how often it had to wait. Frame rate seen by firmware: about 60/S (B-266) | **tear-free meter drawing** (a numeric wait share: **TBD**) |
-| Equalizer cost | CPU cost of the EQ | None: it is hardware; 116 of the 1,250 clocks between output samples (under 10% of one multiplier's time) | **free to the CPU** |
+| Equalizer cost | CPU cost of the EQ | None: it is hardware (Halcyon); about 421 of the 1,250 clocks between output samples at 66.667 MHz, one multiplier | **free to the CPU** |
 | New Winamp meters vs the classic bars | Draw cost, measured | Static estimate 16-32 commands/frame vs 36 for classic bars (B-215); **measured with Meter Sweep: TBD** | **TBD** |
 | Opening the live meter-tuning screen while music plays | Whether tweaking a meter can be heard as a hiccup | **TBD** | **TBD** |
 | Battery life with the new visuals | Whether the fancier meters drain the battery faster | **TBD** (plan: [BATTERY_AND_POWER_PLAN.md](BATTERY_AND_POWER_PLAN.md)) | **TBD** |

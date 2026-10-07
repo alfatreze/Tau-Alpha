@@ -87,10 +87,15 @@ def script_checks(incdir=None):
     s0 = state(blocks(run(seq, incdir))[-1])
     seq += "key %d\n" % K["RIGHT"] * 8                                          # clamps at 5
     s = state(blocks(run(seq, incdir))[-1])
-    check("sibilance clamps at 0 and 5 (and is row 4)", s0["sel"] == 4 and s0["c"][4] == 0 and s["c"][4] == 5, str(s))
-    seq = "key %d\n" % K["UP"] * 1 + "key %d\n" % K["LEFT"] * 9
+    check("sibilance clamps at 0 and 5 (and is row 5, the page opens on row 1)", s0["sel"] == 5 and s0["c"][4] == 0 and s["c"][4] == 5, str(s))
+    seq = "key %d\n" % K["UP"] * 2 + "key %d\n" % K["LEFT"] * 9
     s = state(blocks(run(seq, incdir))[-1])
-    check("the selected row wraps upward and a normal control clamps at -5", s["sel"] == 5 and s["c"][5] == -5, str(s))
+    check("the selected row wraps upward (through the preset area) and a normal control clamps at -5", s["sel"] == 6 and s["c"][5] == -5, str(s))
+    # the preset area in the header: Up from the first control selects it, Left/Right then change the preset (with a clear, inside a gain dip)
+    pa = blocks(run("key %d\nkey %d\nkey %d\ndraw\n" % (K["UP"], K["RIGHT"], K["RIGHT"]), incdir))
+    sp, s1p, s2p = state(pa[0]), state(pa[1]), state(pa[2])
+    check("Up from the first control selects the preset area; Left/Right there step the presets and leave the controls alone", sp["sel"] == 0 and (s1p["hal_sel"], s2p["hal_sel"]) == (1, 2) and s2p["c"][:2] == [3, 1] and any(v & CLEAR for a, v in writes(pa[1]) if a == 0x178), str((sp, s1p, s2p)))
+    check("the page title is HALCYON EQ and the selected preset area is drawn as a pill in the header", any(l.startswith("F HALCYON EQ|") for l in pa[3]) and any(r[1] == 3 and r[0] >= 250 and r[3] == 22 for r in rects(pa[3])))
     # presets
     pb = blocks(run("key %d\nkey %d\nkey %d\n" % (K["R1"], K["R1"], K["L1"]), incdir))
     s1, s2, s3 = state(pb[0]), state(pb[1]), state(pb[2])
@@ -116,9 +121,10 @@ n = script_checks()
 src = (ROOT / "fw/halcyon_page.inc").read_text()
 mutants = {
     "a live move clears the state": ("hal_hw_apply_ctl_live(&hal_c);", "hal_hw_apply_ctl(&hal_c);"),
+    "the preset area ignores left and right": ("if ((edge & (KEY_LEFT | KEY_RIGHT)) && !hal_pg_sel) {", "if (0) {"),
     "no upper clamp": ("if (v > 5) { v = 5; }", ""),
     "curve may leave the plot at the bottom": ("if (y > (int32_t)(HP_Y + HP_H - 2u)) y = (int32_t)(HP_Y + HP_H - 2u);", ""),
-    "sibilance may go negative": ("const int32_t lo = hal_pg_sel == 4u ? 0 : -5;", "const int32_t lo = -5;"),
+    "sibilance may go negative": ("const int32_t lo = hal_pg_sel == 5u ? 0 : -5;", "const int32_t lo = -5;"),
 }
 for name, (a, b) in mutants.items():
     assert a in src, name
@@ -126,8 +132,11 @@ for name, (a, b) in mutants.items():
     (d / "halcyon_page.inc").write_text(src.replace(a, b, 1))
     import io, contextlib
     saved = fails
-    with contextlib.redirect_stdout(io.StringIO()):
-        k = script_checks(d)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            k = script_checks(d)
+    except subprocess.CalledProcessError:
+        k = 1                                  # the mutant crashed the harness: killed
     fails = saved
     print(("ok   mutant killed: " if k else "FAIL mutant survived: ") + name)
     if not k: fails += 1

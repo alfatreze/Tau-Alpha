@@ -33,7 +33,7 @@ if m:
     check(f"pcm_rate reset default ({m.group(1)}) matches the rounded 48 kHz/66.667 MHz formula ({want})",
           int(m.group(1)) == want)
 
-check("RTL: eq_biquad gets 66_666_667 under TAU_CLK66", "eq_biquad #(.CLK_HZ(66_666_667)" in rtl)
+check("RTL: the Halcyon engine gets 66_666_667 under TAU_CLK66", "tau_halcyon #(.CLK_HZ(66_666_667)" in rtl)
 check("RTL: CORE_VERSION rev 25 (4D503319) under plain TAU_CLK66", "CORE_VERSION = 32'h4D503319;" in rtl)
 check("RTL: CORE_VERSION rev 26 (4D50331A) under combined TAU_CLK66+TAU_RAM_192K", "CORE_VERSION = 32'h4D50331A;" in rtl)
 check("RTL: the combined rev-26 branch is nested inside TAU_CLK66, ahead of its plain-CLK66 `else`",

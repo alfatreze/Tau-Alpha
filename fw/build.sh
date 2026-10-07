@@ -159,9 +159,9 @@ if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw
 # flac.c's own SEPARATE compile line too (FLAC_O_CFLAGS below), since flac.c is compiled outside
 # $CFLAGS/$SRCS -- flac.c and player.c both already find fw/flac_lpc_hw.h/.inc via their own directory
 # (both live in $FW), so no INC change is needed the way POLY_FW's subband.c one is.
-case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) LPC_FW="${LPC_FW:-1}"; HALCYON_FW="${HALCYON_FW:-1}" ;; esac   # B-640: Diagnostics > HALCYON (NO UNIT on a bitstream without the engine)
+case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) LPC_FW="${LPC_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && LPC_FW="${LPC_FW:-1}"
-CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_TPG=${TPG:-1} -DTAU_INFO_EXPORT=${INFO_EXPORT:-1} -DTAU_HALCYON_FW=${HALCYON_FW:-0}"   # INFO_EXPORT: the Info page report-code export (A), in the normal core too since alpha.4;   # pixel grid report codes (docs/features/BARCODE_STUDY.md), Diagnostic Build only, ON by default since 2026-10-06 (D-R04 reversed); TPG=0 gives the old QR-only pages
+CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_TPG=${TPG:-1} -DTAU_INFO_EXPORT=${INFO_EXPORT:-1} -DTAU_HALCYON_FW=${HALCYON_FW:-1}"   # the Halcyon EQ is the only EQ (every build; NO UNIT on a bitstream without the engine)   # INFO_EXPORT: the Info page report-code export (A), in the normal core too since alpha.4;   # pixel grid report codes (docs/features/BARCODE_STUDY.md), Diagnostic Build only, ON by default since 2026-10-06 (D-R04 reversed); TPG=0 gives the old QR-only pages
 FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DFLAC_RICE_FAST=${FLAC_RICE_FAST:-1}"
 
 # RAM_192K=1 (default 0, every target): links against 192 KB instead of 256 KB (fw/link.ld's

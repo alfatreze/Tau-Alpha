@@ -31,7 +31,7 @@ Current version **v0.6.0** (7 October 2026), pre-release **0.6.0-alpha.4**. See 
 - **Hardware decode assist.** MP3's synthesis filterbank and FLAC's LPC/FIXED reconstruction both run in the
   FPGA, bit-exact with the software decoder and with automatic fallback to it. More CPU headroom, so
   playback stays clean at speeds that used to stutter.
-- **Equalizer.** Eight loudness-matched presets, built as hardware (five biquads per channel).
+- **Halcyon EQ.** Eight presets and six sliders (warmth, bass, vocal, punch, sibilance, air) with a live response curve, built as hardware (17 biquad stages per channel, 24-bit coefficients, auto preamp) and loudness-matched.
 - **Playback speed** 0.85x to 2.00x for MP3 (FLAC plays at 1.00x), for spoken word; the pitch rises with the speed.
 - **Diagnostics.** An Info page in every build, and a separate Diagnostic Build with one-button Check
   profiles, a Meter Sweep and QR-code reports that can be decoded from a screenshot.
