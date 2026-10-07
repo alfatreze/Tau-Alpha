@@ -10,7 +10,7 @@ import cmath, math, os, sys
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import gen_eq_coeffs as g
-import sound_shaping_model as m
+import halcyon_model as m
 FS = 48000.0
 
 def svf_coeffs(kind, f0, q, gd):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cymo C5 Sound Shaping host model (docs/features/CYMO_SOUND_SHAPING_SPEC.md): six fixed biquad stages, six perceptual controls, default presets.
+"""Cymo C5 Sound Shaping host model (docs/features/CYMO_HALCYON_SPEC.md): six fixed biquad stages, six perceptual controls, default presets.
 
 Uses the project's own coefficient generator (tools/gen_eq_coeffs.py: RBJ cookbook, the same quantiser the RTL model checks), so what is verified here is the real
 filter maths. Everything here is DATA that the firmware tables and Tau Omega share; the numbers are the proposed first voicing, to be tuned by ear.
@@ -38,15 +38,17 @@ def stage_gains(m):
           0.9 * a - 0.5 * w]         # air, plus the clear side of the tilt
     return [max(-STAGE_MAX, min(STAGE_MAX, round(x * 2) / 2)) for x in gs]   # 0.5 dB steps
 
-def coeffs(gains):
-    return [tuple(g.quantise(v, "x", []) for v in g.design(k, f, q, gd)) for (_, k, f, q), gd in zip(STAGES, gains)]
+def coeffs(gains, matched=False):
+    """Quantised coefficients at the build's width. matched=True uses the offline analog-matched design (gen_eq_coeffs.design_matched, D-H02); the default stays the
+    cookbook so the shipped, bit-exact-tested paths do not change."""
+    return [tuple(g.quantise(v, "x", []) for v in g.design_stage(k, f, q, gd, matched)) for (_, k, f, q), gd in zip(STAGES, gains)]
 
 def response_db(q, f):
     return g.response_db(q, f)
 
-def analyse(m):
+def analyse(m, matched=False):
     gs = stage_gains(m)
-    q = coeffs(gs)
+    q = coeffs(gs, matched)
     peak = max(response_db(q, f) for f in g.FREQS)
     pre = min(0.0, g.loudness_preamp_db(q)) if any(gs) else 0.0   # attenuate-only, like ReplayGain: a loudness-matching boost on a cut-heavy preset would only eat headroom
     return dict(gains=gs, q=q, peak=peak, preamp=pre, overshoot=peak + pre, stable=g.stable(q))
@@ -66,7 +68,36 @@ PRESETS = [
     ("SMOOTH",     P(punch=-2, sibilance=+2, air=-2),                           "fatigue reduction for harsh or bright recordings: eased presence, sibilance and top"),
 ]
 
+def build_table(matched=True):
+    """The preset table as DATA (what Tau Omega's PRST/EQST sections and the firmware loader share): per preset the six stage gains, the quantised stage coefficients
+    at the build's width (run with EQ_COEF_BITS=24 for Q2.22), and the attenuate-only preamp. Every stage is checked with gen_eq_coeffs.quantise_checked (range and quantised poles)."""
+    out, errs = [], []
+    for name, mc, why in PRESETS:
+        a = analyse(mc, matched)
+        for (sn, k, f, q), c, gd in zip(STAGES, a["q"], a["gains"]):
+            if not g.stable([c]):
+                errs.append("%s/%s: unstable after quantisation to Q2.%d" % (name, sn, g.QF))
+        out.append(dict(name=name, gains=a["gains"], coefs=[list(c) for c in a["q"]], preamp_db=a["preamp"], overshoot_db=a["overshoot"]))
+    return dict(width=g.CW, frac_bits=g.QF, matched=matched, stages=[dict(name=n, kind=k, f0=f, q=q) for n, k, f, q in STAGES], presets=out), errs
+
+def raw_preset(name, biquads, preamp_db=0.0):
+    """A preset that carries real biquads (b0 b1 b2 a1 a2, floats, up to NSTAGE) instead of control positions: the form an AutoEQ / Equalizer APO import produces
+    (Tau Omega converts PK / LSC / HSC with design_stage). Each is quantised and checked; returns (preset dict, errors)."""
+    errs = []
+    if len(biquads) > NSTAGE:
+        errs.append("%s: %d biquads, at most %d" % (name, len(biquads), NSTAGE))
+    cs = [list(g.quantise_checked(b, "%s/%d" % (name, i), errs)) for i, b in enumerate(biquads[:NSTAGE])]
+    cs += [[1 << g.QF, 0, 0, 0, 0]] * (NSTAGE - len(cs))      # unused stages are identity (b0 = 1.0), which is exact in the DF1 recursion
+    if preamp_db > 0:
+        errs.append("%s: preamp %+.2f dB (attenuate-only, like ReplayGain)" % (name, preamp_db))
+    return dict(name=name, gains=None, coefs=cs, preamp_db=min(0.0, preamp_db)), errs
+
 if __name__ == "__main__":
+    if "--json" in sys.argv:          # EQ_COEF_BITS=24 python3 tools/lab/halcyon_model.py --json > halcyon_presets_q22.json
+        import json
+        t, e = build_table(True)
+        if e: sys.exit("\n".join(e))
+        print(json.dumps(t, indent=1)); sys.exit(0)
     print("%-11s %-26s  peak   preamp overshoot" % ("preset", "stage gains dB"))
     for name, m, why in PRESETS:
         a = analyse(m)

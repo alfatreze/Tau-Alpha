@@ -28,7 +28,7 @@ The trapezoidal SVF (public equations, re-derived and verified against the cookb
 ### F3. A parallel fixed-band-pass bank cannot replace the cascade [MEASURED, `eq_parallel_study.py`]
 The ZL-style parallel form (`y = x + sum w_i * F_i(x)` with fixed unity-peak filters) would turn every control into one multiplier with no coefficient tables. Tested at the six Halcyon centres with least-squares weights: worst error against the cascade **0.4-1.9 dB (rms 0.15-0.55 dB) across the default presets, and 0.8-4.4 dB for single bands at +-9 dB** (the peaking filter's bandwidth depends on its gain, a fixed band-pass's does not). **Not recommended for the main EQ**; it remains a good fit for one dynamic band (section 5).
 
-### F4. Parameter hardening: shelf slope and quantised stability [MEASURED, `sim/test_sound_shaping_model.py`]
+### F4. Parameter hardening: shelf slope and quantised stability [MEASURED, `sim/test_halcyon_model.py`]
 FreeEQ8's audit found NaN in its shelf bands when the slope exceeded 1. Our generator uses the same cookbook form; within +-12 dB the radicand stays positive even at S = 4, but at larger gains an unclamped S above 1 raises (20 of 540 designs in our sweep), and **12 designs become unstable after 18-bit quantisation (all at 40 Hz with +-24 dB)**, none with 24-bit coefficients. New `clamp_slope()` and a sweep test; Tau Omega's editor and the firmware loader must clamp S to (0, 1] and check stability at the real coefficient width.
 
 ## 4. Review of the existing and planned DSP, with the references in mind

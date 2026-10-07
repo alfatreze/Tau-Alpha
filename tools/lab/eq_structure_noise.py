@@ -10,7 +10,7 @@ os.environ["EQ_COEF_BITS"] = "24"
 import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, ".."))
 import gen_eq_coeffs as g
-import sound_shaping_model as m
+import halcyon_model as m
 import eq_svf_precision as sv
 FS = 48000.0; N = 48000
 def rs(v, n): return (v + (1 << (n - 1))) >> n

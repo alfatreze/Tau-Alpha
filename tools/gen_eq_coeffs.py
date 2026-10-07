@@ -31,6 +31,11 @@ import os
 import math
 import sys
 
+try:
+    import numpy as np          # only the offline matched design needs it; the cookbook path stays dependency-free
+except ImportError:
+    np = None
+
 FS = 48000.0            # fixed output rate; see EQ_DESIGN "what rate it runs at"
 # Coefficient word. 18-bit Q2.16 is what ships. EQ_COEF_BITS=24 selects 24-bit Q2.22 (B-608 / docs/features/CYMO_AUDIO_STACK_REVIEW.md F1): the 100 Hz and
 # 220 Hz stages of Sound Shaping have their poles close to z = 1 and need the extra bits (response error 0.6 dB -> under 0.02 dB, uniform gain steps).
@@ -98,6 +103,91 @@ def design(kind, f0, q, gain_db):
             a1 = 2 * ((A - 1) - (A + 1) * cw)
             a2 = (A + 1) - (A - 1) * cw - tsa
     return (b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0)
+
+
+def analog_response(kind, f0, q, gain_db, f):
+    """Complex response of the analog prototype the cookbook imitates (RBJ Audio EQ Cookbook, public). For shelves `q` is the slope S, as in design()."""
+    A = 10.0 ** (gain_db / 40.0)
+    s = 1j * f / f0
+    if kind == "peak":
+        return (s * s + s * (A / q) + 1) / (s * s + s / (A * q) + 1)
+    r = math.sqrt(A)
+    iq = math.sqrt((A + 1.0 / A) * (1.0 / q - 1.0) + 2.0)
+    if kind == "lowshelf":
+        return A * (s * s + (r * iq) * s + A) / (A * s * s + (r * iq) * s + 1)
+    return A * (A * s * s + (r * iq) * s + 1) / (s * s + (r * iq) * s + A)
+
+
+def _digital(c, f):
+    z = np.exp(-2j * np.pi * f / FS)
+    b0, b1, b2, a1, a2 = c
+    return (b0 + b1 * z + b2 * z * z) / (1 + a1 * z + a2 * z * z)
+
+
+def design_matched(kind, f0, q, gain_db, f_hi=20000.0, n=200):
+    """Analog-magnitude-matched design (B-614, D-H02). Starts from the cookbook coefficients and refines the five of them by Levenberg-Marquardt so the digital
+    log-magnitude follows the analog prototype from 20 Hz to f_hi on a log grid (the cookbook response cramps toward Nyquist: up to 1.14 dB at the 10 kHz shelf).
+    Offline only: the tables are data, so this costs nothing in hardware. numpy only, our own method (see docs/PROVENANCE.md); returns the cookbook design if the
+    refinement is not stable or not better."""
+    if abs(gain_db) < 1e-9 or np is None:
+        return design(kind, f0, q, gain_db)
+    c0 = np.array(design(kind, f0, q, gain_db), dtype=float)
+    f = 20.0 * (f_hi / 20.0) ** (np.arange(n) / (n - 1.0))
+    target = 20.0 * np.log10(np.abs(analog_response(kind, f0, q, gain_db, f)))
+
+    def resid(c):
+        return 20.0 * np.log10(np.abs(_digital(c, f))) - target
+
+    def stable_c(c):
+        return np.all(np.abs(np.roots([1.0, c[3], c[4]])) < 0.9999)
+
+    c, lam = c0.copy(), 1e-3
+    r = resid(c)
+    cost = float(r @ r)
+    for _ in range(80):
+        J = np.empty((n, 5))
+        for k in range(5):                      # forward differences, step scaled to the coefficient
+            h = 1e-7 * max(1.0, abs(c[k]))
+            d = c.copy(); d[k] += h
+            J[:, k] = (resid(d) - r) / h
+        step = np.linalg.solve(J.T @ J + lam * np.eye(5), -J.T @ r)
+        cn = c + step
+        if not stable_c(cn):
+            lam *= 10.0
+            continue
+        rn = resid(cn)
+        costn = float(rn @ rn)
+        if costn < cost:
+            c, r, cost, lam = cn, rn, costn, lam * 0.3
+            if np.max(np.abs(step)) < 1e-12:
+                break
+        else:
+            lam *= 10.0
+    if cost >= float(resid(c0) @ resid(c0)) or not stable_c(c):
+        return tuple(float(v) for v in c0)
+    return tuple(float(v) for v in c)
+
+
+def clamp_slope(S):
+    """Shelf stages use the slope form: the square root in design() goes negative (the design fails) for S > 1 once the gain is large, and S <= 1 is the monotonic
+    range. Any tool that edits a shelf stage must clamp to (0, 1] (lesson from FreeEQ8's published shelf-slope NaN bug, see PROVENANCE.md)."""
+    return max(0.1, min(1.0, S))
+
+
+def design_stage(kind, f0, q, gain_db, matched=True):
+    """The one entry for a written stage: clamps shelf S, designs (matched by default) and returns floats."""
+    if kind != "peak":
+        q = clamp_slope(q)
+    return (design_matched if matched else design)(kind, f0, q, gain_db)
+
+
+def quantise_checked(coefs, where, errors):
+    """Quantise a raw biquad (b0 b1 b2 a1 a2, floats, a0 = 1) at the build's real width and verify the QUANTISED poles. Returns the integer tuple. This is the check any
+    imported or hand-written stage (a raw biquad list, e.g. from Equalizer APO / AutoEQ) must pass: the 18-bit format goes unstable for 40 Hz +-24 dB, 24-bit does not."""
+    qc = tuple(quantise(v, where, errors) for v in coefs)
+    if not stable([qc]):
+        errors.append("%s: a pole is on or outside the unit circle after quantisation to Q2.%d" % (where, QF))
+    return qc
 
 
 def quantise(c, where, errors):

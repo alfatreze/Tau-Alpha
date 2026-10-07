@@ -9,7 +9,7 @@ shipped 18-bit grid and for finer grids (extra fractional bits on every coeffici
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import gen_eq_coeffs as g
-import sound_shaping_model as m
+import halcyon_model as m
 
 S = g.QSCALE
 def q_at(c, extra_bits):
