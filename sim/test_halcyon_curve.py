@@ -30,8 +30,9 @@ def worst(out):
     for c, line in zip(sets, out):
         v = list(map(int, line.split())); n, curve = v[0], v[1:]
         q = m.coeffs(m.stage_gains(c), True) + [ic]
+        flat = all(v == 0 for v in c.values())
         for k, f in enumerate(tab.FREQS):
-            ref = g.response_db(q, f) - n / 8.0
+            ref = 0.0 if flat else g.response_db(q, f) - n / 8.0
             w = max(w, abs(curve[k] / 64.0 - ref))
     return w
 
