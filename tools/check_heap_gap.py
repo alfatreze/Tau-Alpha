@@ -43,6 +43,7 @@ CONFIGS = {   # name -> (fw/build.sh target, extra environment)
     "release": ("release", {}),
     "release-tempo-slim": ("release", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),   # the RAM-diet A/B build: sliced output hop and a 512-entry stage-2 ring
     "player-library-diagnostic": ("player-library-diagnostic", {}),
+    "player-library-diagnostic-lean": ("player-library-diagnostic", {"DIAG_DROP": "stress,check"}),   # a Diagnostic Build without the stress pump and the Check runner (docs/features/DIAG_FEATURES.md)
     "player-library-diagnostic-slim": ("player-library-diagnostic", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),
     "player-library-diagnostic-profile": ("player-library-diagnostic-profile", {}),
     "player-library-diagnostic-profile-slim": ("player-library-diagnostic-profile", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),

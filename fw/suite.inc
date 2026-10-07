@@ -19,6 +19,7 @@
 #define CHK_MAX     14u
 #endif
 static void set_close(void);
+#if TAU_DX_CHECK
 enum { CK_IDLE = 0, CK_RUN, CK_DONE, CK_QR };
 enum { CT_SDW = 0, CT_SDC, CT_PSW, CT_COLD, CT_LIB, CT_AUD, CT_START, CT_R1, CT_R2, CT_R3, CT_SOAK, CT_TRK, CT_CX, CT_BLT, CT_COLDFRAME };   /* test ids -- CT_BLT (B-127) is 13; CT_COLDFRAME (B-199) is 14, the LAST id sp_t's 15-bit pass/fail mask (ids 0..14) can ever hold */
 #define CHK_TRK_N    10u                                    /* track changes in the track-change test */
@@ -309,6 +310,9 @@ COLD_TEXT static int chk_do(uint32_t id)
         chk_set((chk_under == 0u && chk_stall < 50u) ? SR_PASS : SR_FAIL, chk_under);
         break;
     case CT_R1: case CT_R2: case CT_R3:                         /* stress pump beside playback: no mismatch, no late underrun */
+#if !TAU_DX_STRESS
+        chk_set(SR_NA, 0u); break;                              /* built without the stress pump (DIAG_DROP=stress): reported as not applicable */
+#else
         if (!chk_at) {
             stress_set_level(0u); stress_set_level((uint8_t)(id - CT_R1 + 1u));
             if (!stress_on) { chk_set(SR_FAIL, 0xFFFFu); break; }
@@ -323,6 +327,7 @@ COLD_TEXT static int chk_do(uint32_t id)
             chk_set(ok ? SR_PASS : SR_FAIL, late);
         }
         break;
+#endif
     case CT_BLT:  /* B-127, PHASE_F_SPEC.md section 12.1: the L0 regression net for the blit engine's new SDRAM traffic.
                    * Full-height OP_BLIT commands into the never-displayed columns 400-511, re-issued the instant the
                    * draw engine goes idle (non-blocking poll, not fb_wait() -- a blocking wait here would itself risk
@@ -396,6 +401,9 @@ COLD_TEXT static int chk_do(uint32_t id)
         break;
 #endif
     case CT_SOAK:                                               /* the Diagnostics soak; ENDURANCE adds a cold-code test a minute */
+#if !TAU_DX_STRESS
+        chk_set(SR_NA, 0u); break;
+#else
         if (!chk_at) {
             stress_set_level(0u); stress_set_level(chk_lvl);
             if (!stress_on) { chk_set(SR_FAIL, 0xFFFFu); break; }
@@ -413,6 +421,7 @@ COLD_TEXT static int chk_do(uint32_t id)
         chk_set((dg_soak_res == 2u && !stress_und_late && !CKM->cold_fails) ? SR_PASS : SR_FAIL, stress_und_late);
         dg_soak_cancel(); stress_set_level(0u);
         break;
+#endif
     case CT_TRK:                                                /* CHK_TRK_N track changes, next and previous alternating, each waited out */
         if (!chk_at) {
             {
@@ -684,7 +693,10 @@ COLD_TEXT static void chk_begin(void)
 }
 COLD_TEXT static void chk_abort(void)                           /* B, or the page was left: stop what the run started */
 {
-    stress_set_level(0u); dg_soak_cancel();
+#if TAU_DX_STRESS
+    stress_set_level(0u);
+#endif
+    dg_soak_cancel();
     chk_state = CK_IDLE; chk_at = 0u; set_dirty = 1u;
 }
 static void chk_open(void) { chk_state = CK_IDLE; }
@@ -723,6 +735,8 @@ COLD_TEXT static int chk_input(uint32_t edge)
     }
     return 1;
 }
+
+#endif   /* TAU_DX_CHECK */
 
 #if MP3_PROFILE || FLAC_PROFILE
 /* ============================================================ DECODE PROFILE SWEEP (B-090/B-091)

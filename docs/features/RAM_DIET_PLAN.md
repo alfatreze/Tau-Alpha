@@ -33,6 +33,7 @@ Conclusion: with the ring excluded, the performance-neutral list is exhausted ex
 - Tempo state diet, behind switches so it can be A/B tested on a Pocket: `TEMPO_SLICE=1` (output hop produced and pushed in 64-sample slices, -1,792 B) and `TEMPO_RING=512` (stage-2 ring, -1,024 B; the largest span ever needed is 320 entries). Release 11,776 B free, Diagnostic 4,416 B, **the profile build links again (1,760 B)**. Host tests: sliced output == whole-hop output for every slice size and rate, 512 ring == 1024 ring, 11 mutants killed (`sim/test_tempo_slice.py`, `sim/test_tempo_funnel.py -DTEMPO_SLICE=1`). Not run on a Pocket.
 - QR encoder archived (`archive/qr_encoder/`, tag `archive/qr-encoder`): about 4.4 KB cold code, 0.2 KB hot RAM.
 - Diagnostic features register and `DIAG_DROP` / `FEATURES_ON` (phase 1, `docs/features/DIAG_FEATURES.md`).
+- `stress` and `check` converted to switchable diagnostics (`DIAG_DROP=stress,check`): the Diagnostic Build goes from 1,600 B to 5,152 B free hot RAM with both dropped (stress alone +2,944 B, check +720 B and 16 KB of cold code); with `TEMPO_SLICE=1 TEMPO_RING=512` on top about 8 KB. The profile build links with `DIAG_DROP=stress` (1,872 B) even without the tempo diet. Default builds are byte-identical (hash-checked).
 - Mode-overlay: proposal and host prototype only (`docs/features/MODE_OVERLAY_PROPOSAL.md`); recommended against for 2-3 KB.
 
 ## Pocket test of the tempo diet
@@ -40,4 +41,4 @@ Build both from the same tree and compare HEADROOM and UNDERRUNS at 1.00-1.75x o
 
 ## Remaining trade-offs (owner decision)
 - A: the three-region 224 KB RAM is a real RTL project, see the discussion in the log; not proposed.
-- C: convert `stress` (and `check`) to switchable features to shrink the Diagnostic Build further.
+- Next conversions if more is needed: `counters` (hot hooks), `rate_toggles`, then `sweeps` / `blit_test` / `tests_page` (cold).

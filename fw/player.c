@@ -985,7 +985,7 @@ static uint8_t  ui_size_warned;
  * dominates it is the hiccup. Measured rather than reasoned about: four
  * attempts at this were aimed by theory and three of them made it worse. */
 static uint16_t ld_head, ld_size, ld_art, ld_pre, ld_total;
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
 static uint16_t chk_loads;              /* completed track loads (the Check's track-change test waits on it) */
 #endif
 static uint8_t  ui_ld_shown;
@@ -1118,7 +1118,7 @@ static ur_t     ur_all;          /* B-546: EVERY underrun (the shadow above and 
 #endif
 static uint32_t pcm_under_n;    /* underrun EDGES since boot, for the diag  */
 
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
 #include "stress_defs.inc"
 #endif
 
@@ -3306,7 +3306,7 @@ COLD_SR static void ui_draw_chrome(void)
      * Resetting a new track's clock belongs to load_track, which is the only
      * place that knows a new track started. It does it now. */
     ui_prog_sec   = 0xFFFFFFFFu;
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
     /* Chrome repaints the bottom strip too; make the 1 Hz stress HUD restore
      * itself on the next main-loop pass rather than waiting for another tick. */
     stress_hud_tick = 0xFFFFFFFFu;
@@ -6513,7 +6513,7 @@ static void ui_blank_pump(void)
     if (blank_sec >= blank_min * 60u) ui_blank_enter();
 }
 
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
 #include "stress.inc"
 #endif
 
@@ -6529,7 +6529,7 @@ static void poll_input(void)
     static uint8_t  sel_used;            /* Select was used as a modifier      */
     static uint32_t sel_t0;              /* when Select went down              */
     static uint8_t  sel_held;            /* the hold action already ran        */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
     stress_tick();
 #endif
     uint32_t in   = REG(R_INPUT);
@@ -6654,7 +6654,7 @@ static void poll_input(void)
         /* Forward only, matching X: the next Halcyon EQ preset (after the last, off). */
         hal_req = 1u;
     }
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
     /* The normal Start action stops playback. In the developer stress build,
      * Select+Start is an explicit HUD refresh and MUST consume the combo: the
      * test is only meaningful while audio and visualizer traffic continue. */
@@ -6843,6 +6843,8 @@ static inline void pcm_flush(void)
 #endif
 #if TAU_DIAGNOSTIC
     ur_flush(&ur_all);
+#endif
+#if TAU_DX_STRESS
     stress_frames_at_flush = frames;
 #endif
 }
@@ -9202,7 +9204,7 @@ COLD_SR static int load_track(void)
 
     ld_pre   = LD_MS(cycles() - tphase);
     ld_total = LD_MS(cycles() - t0);
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
     chk_loads++;
 #endif
 
@@ -10120,7 +10122,9 @@ int main(void)
         vblank_sample();
         set_info_tick();
 #if TAU_DIAGNOSTIC
+#if TAU_DX_CHECK
         chk_tick();
+#endif
 #if MP3_PROFILE || FLAC_PROFILE
         sw_tick();
 #endif
@@ -10128,7 +10132,7 @@ int main(void)
         mw_tick();
         mt_tick();
 #endif
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
         dg_soak_tick();
 #endif
         if (lib_ui_open && lib_ui_dirty) { lib_ui_dirty = 0u; lib_ui_draw(); }
@@ -10220,7 +10224,7 @@ int main(void)
             if (!under_shadow && pcm_underrun()) {
                 under_shadow = 1u;
                 pcm_under_n++;
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
                 stress_note_underrun();
 #endif
                 fade_restart();
@@ -10366,7 +10370,7 @@ int main(void)
         if (!under_shadow && pcm_underrun()) {
             under_shadow = 1u;
             pcm_under_n++;
-#if TAU_DIAGNOSTIC
+#if TAU_DX_STRESS
             stress_note_underrun();
 #endif
             fade_restart();
