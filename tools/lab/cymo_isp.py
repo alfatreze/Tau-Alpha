@@ -411,6 +411,12 @@ def selftest(verbose=True):
     # a chain with headroom (clips at +3.5 dB) is clean for everything we send
     r = analyze_ladder(_recording('ladder', _clip_chain(10 ** (3.5 / 20))))
     check('clip at +3.5 dB: ladder clean (the files cannot exceed +3 dB)', 'rows' in r and all(q['verdict'] == 'ok' for q in r['rows']), r.get('summary', r.get('error', '')))
+    # interface clipping detector: a clipped sine is flagged, a loud one is not, a hot-but-unclipped one is told to back off
+    t = np.arange(48000) / 48000.0
+    clipped = np.clip(1.6 * np.sin(2 * np.pi * 1000 * t), -1.0, 1.0)
+    check('peak check: a clipped recording is invalid', peak_check(clipped, 48000)[1] > 0 and 'CLIPPED' in peak_check(clipped, 48000)[3])
+    check('peak check: a -3 dBFS sine is fine', 'ok' in peak_check(0.708 * np.sin(2 * np.pi * 1000 * t), 48000)[3])
+    check('peak check: a -0.5 dBFS sine without flat tops is told to lower the gain', 'lower the gain' in peak_check(0.944 * np.sin(2 * np.pi * 1000 * t), 48000)[3])
     # system-volume characterisation: noise after the volume stage (fixed) versus before it (follows)
     sv = sysvol_signal()
     rng = np.random.default_rng(3)
@@ -431,6 +437,25 @@ def selftest(verbose=True):
     return fails
 
 
+def peak_check(x, rate, full=1.0):
+    """Is the recording's INTERFACE input clipping? A converter that clips leaves runs of samples stuck at full scale (flat tops); a signal merely loud does not. Returns
+    (peak_dbfs, clipped_runs, per_second_peaks_dbfs, verdict). Used to set the interface gain BEFORE an inter-sample-peak take: such a take is only valid if this says no clipping."""
+    x = np.abs(np.asarray(x, float)) / full
+    pk = float(np.max(x)) if len(x) else 0.0
+    thr = 0.9995
+    hot = x >= thr
+    runs = int(np.sum(hot[2:] & hot[1:-1] & hot[:-2]))            # three or more samples in a row at full scale
+    per = [20 * np.log10(float(np.max(x[i:i + rate])) + 1e-12) for i in range(0, max(len(x) - rate // 2, 1), rate)]
+    peak_db = 20 * np.log10(pk + 1e-12)
+    if runs:
+        v = 'INTERFACE CLIPPED (%d samples in flat tops at full scale): the take is invalid, lower the interface gain and record again' % runs
+    elif peak_db > -1.0:
+        v = 'no clipping, but only %.1f dB of headroom: lower the gain by about %.0f dB to be safe' % (-peak_db, 3.0 - (-peak_db))
+    else:
+        v = 'ok: peak %.1f dBFS (%.1f dB of headroom)' % (peak_db, -peak_db)
+    return peak_db, runs, per, v
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -442,6 +467,9 @@ def main():
     a.add_argument('--channel', type=int, default=0)
     v = sub.add_parser('sysvol', help='several sysvol recordings (name them *_dN.wav, N = clicks down from the maximum)')
     v.add_argument('wavs', nargs='+')
+    k = sub.add_parser('peak', help='check a recording for interface clipping and headroom (set the gain with this BEFORE an ISP take)')
+    k.add_argument('wav')
+    k.add_argument('--channel', type=int, default=0)
     sub.add_parser('selftest')
     args = ap.parse_args()
     if args.cmd == 'gen':
@@ -452,6 +480,13 @@ def main():
         r = {'ladder': analyze_ladder, 'imd': analyze_imd, 'hot': analyze_hot}[args.kind](x, rate)
         print(os.path.basename(args.wav))
         print_result(args.kind, r)
+    elif args.cmd == 'peak':
+        rate, x = c.read_wav(args.wav, args.channel)
+        pk, runs, per, v = peak_check(np.asarray(x, float), rate)
+        print(os.path.basename(args.wav))
+        print('  peak per second (dBFS): ' + ' '.join('%.1f' % p for p in per[:80]))
+        print('  overall peak %.2f dBFS' % pk)
+        print('  => ' + v)
     elif args.cmd == 'sysvol':
         rows, verdict = sysvol_table(args.wavs)
         print('%-7s %-11s %-11s %-9s %-10s %s' % ('clicks', 'tone dBFS', 'noise dBFS', 'SNR dB', 'dB/click', 'file'))
