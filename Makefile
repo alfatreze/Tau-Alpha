@@ -1,4 +1,4 @@
-.PHONY: test-rtl-clut-wr test-rtl-clut-wr-mutation test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-eq24 rtl-vectors24 test-rtl-clut-wr test-rtl-clut-wr-mutation test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -45,6 +45,7 @@ test-host:
 	$(PYTHON) sim/test_sound_i2s_full16.py
 	$(PYTHON) sim/test_settings_menu_counts.py
 	$(PYTHON) sim/test_sound_shaping_model.py
+	$(PYTHON) sim/test_eq_coeff_precision.py
 	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js && $(PYTHON) sim/test_meter_golden.py && $(PYTHON) sim/test_layered_wave_golden.py && $(PYTHON) sim/test_meter_trace.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
 	$(PYTHON) sim/test_lw_ring.py
 	$(PYTHON) tools/gen_themes.py --check
@@ -97,10 +98,15 @@ test-host:
 	$(PYTHON) sim/test_sdram_map_overlap.py
 	$(PYTHON) tools/check_art_load_order.py --check
 
-test-rtl: test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-eq24 test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 rtl-vectors:
 	$(PYTHON) tools/gen_eq_vectors.py
+
+# B-608: the 24-bit coefficient variant (TAU_EQ_COEF24): coefficients, model vectors, the same bit-exact testbench and the cycle count
+rtl-vectors24:
+	EQ_COEF_BITS=24 $(PYTHON) tools/gen_eq_coeffs.py --verilog > /dev/null
+	EQ_COEF_BITS=24 $(PYTHON) tools/gen_eq_vectors.py
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
@@ -173,6 +179,16 @@ $(RTL_BUILD_DIR)/tb_eq_cycles.vvp: sim/tb_eq_cycles.v src/fpga/core/eq_biquad.v 
 
 test-rtl-eq-cycles: rtl-vectors $(RTL_BUILD_DIR)/tb_eq_cycles.vvp
 	$(VVP) $(RTL_BUILD_DIR)/tb_eq_cycles.vvp
+
+$(RTL_BUILD_DIR)/tb_eq_biquad24.vvp: sim/tb_eq_biquad.v src/fpga/core/eq_biquad.v src/fpga/core/eq_coefs24.vh | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2005-sv -DTAU_EQ_COEF24 -I src/fpga/core -o $@ sim/tb_eq_biquad.v src/fpga/core/eq_biquad.v
+
+$(RTL_BUILD_DIR)/tb_eq_cycles24.vvp: sim/tb_eq_cycles.v src/fpga/core/eq_biquad.v src/fpga/core/eq_coefs24.vh | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -DTAU_EQ_COEF24 -I src/fpga/core -o $@ sim/tb_eq_cycles.v src/fpga/core/eq_biquad.v
+
+test-rtl-eq24: rtl-vectors24 $(RTL_BUILD_DIR)/tb_eq_biquad24.vvp $(RTL_BUILD_DIR)/tb_eq_cycles24.vvp
+	$(VVP) $(RTL_BUILD_DIR)/tb_eq_biquad24.vvp
+	$(VVP) $(RTL_BUILD_DIR)/tb_eq_cycles24.vvp
 
 $(RTL_BUILD_DIR)/tb_tau_sdram_arbiter.vvp: sim/tb_tau_sdram_arbiter.v src/fpga/core/tau_sdram_arbiter.sv | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^

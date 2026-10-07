@@ -43,7 +43,7 @@ def stimulus():
 
 
 def main():
-    simdir = os.path.join(_root, "sim")
+    simdir = os.path.join(_root, "sim") if m.gen.CW == 18 else os.path.join(_root, "sim", "eq%d" % m.gen.CW)   # EQ_COEF_BITS=24 -> sim/eq24/
     os.makedirs(simdir, exist_ok=True)
     stim = stimulus()
 
@@ -60,8 +60,8 @@ def main():
                 out = s if name == "FLAT" else c.step(s)[0]
                 f.write("%04x\n" % (out & 0xFFFF))
 
-    print("wrote sim/eq_stim.hex (%d samples) and %d expected vectors"
-          % (len(stim), len(m.gen.PRESETS)))
+    print("wrote %s/eq_stim.hex (%d samples) and %d expected vectors"
+          % (os.path.relpath(simdir, _root), len(stim), len(m.gen.PRESETS)))
     return 0
 
 

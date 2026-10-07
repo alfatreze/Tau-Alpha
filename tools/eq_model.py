@@ -49,9 +49,9 @@ _spec.loader.exec_module(gen)
 # survives contact with the numbers: 32 bits cannot hold 16 fractional bits
 # plus the headroom, and 18x36 cannot fit in 40.
 FRAC_S = 16                     # sample/state fractional bits
-FRAC_C = gen.QF                 # coefficient fractional bits (16)
+FRAC_C = gen.QF                 # coefficient fractional bits (16 shipped, 22 with EQ_COEF_BITS=24)
 STATE_BITS = 36
-ACC_BITS = 58
+ACC_BITS = gen.CW + STATE_BITS + 4        # 58 for the shipped 18-bit coefficients, 64 for 24-bit (product bits plus 4 guard bits for the five-term sum)
 SAMP_MIN, SAMP_MAX = -32768, 32767
 
 # Measured as the model runs, so the report states what was observed rather
