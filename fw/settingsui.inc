@@ -1138,7 +1138,19 @@ COLD_FN static void set_info_tick(void)
 #define WVR_METER  1u
 #define WVR_P0     2u              /* parameter i is row WVR_P0 + i */
 #define WVR_EXPORT 250u
-#define WVCFG_ROWS_VISIBLE 8u
+/* Page layout (B-647). The content area of every Settings page is PL_UI_LIST_Y down to SET_CONTENT_Y1, just above the action bar the page frame reserves (OV_HINT_Y, ov_frame() /
+ * ov_hint_repaint(): nothing but the hint may be drawn there). The Configure page's geometry is DERIVED from that, not hand-counted: the live preview is the same width as the rows'
+ * highlight (no strip of body colour at its sides), the list gets what is left, and _Static_assert refuses a layout that would reach the action bar. (Until then 8 rows of 22 px
+ * started at y 190: the last two reached into the action bar and the 8th ran off the screen.) */
+#define SET_CONTENT_Y1      (OV_HINT_Y - 6u)
+#define WVCFG_PX            (PL_UI_X + 4u)                     /* the preview spans exactly the rows' highlight: x 12..388 */
+#define WVCFG_PW            (PL_UI_W - 8u)
+#define WVCFG_PY            PL_UI_LIST_Y
+#define WVCFG_PH            UI_WAVE_H
+#define WVCFG_LIST_Y        (WVCFG_PY + WVCFG_PH + 10u)
+#define WVCFG_ROWS_VISIBLE  ((SET_CONTENT_Y1 - WVCFG_LIST_Y) / PL_UI_ROW_H)
+_Static_assert(WVCFG_ROWS_VISIBLE >= 4u, "the Configure page keeps at least four rows");
+_Static_assert(WVCFG_LIST_Y + WVCFG_ROWS_VISIBLE * PL_UI_ROW_H <= OV_HINT_Y, "the Configure page's rows must stay above the action bar");
 #define WVCFG_MAX_ROWS 48u
 static uint8_t wvcfg_sel, wvcfg_top;
 static uint8_t wvcfg_vis[WVCFG_MAX_ROWS], wvcfg_vis_n;
@@ -1264,7 +1276,8 @@ COLD_FN static void wvcfg_draw(void)
 #if TAU_DIAGNOSTIC
     if (wvcfg_qr_up) { wvcfg_draw_qr(); return; }
 #endif
-    ov_frame("METER CONFIGURE", "", (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) ? "UP DOWN SCROLL   L/R ADJUST   B BACK" : "L/R ADJUST   B BACK");
+    const char *hint = (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) ? "UP DOWN SCROLL   L/R ADJUST   B BACK" : "L/R ADJUST   B BACK";
+    ov_frame("METER CONFIGURE", "", hint);
 
     /* Live preview, pinned to the top of the page -- still reads real playing
      * audio (spec_lvl[]/wav_v[]), same wviz_bars_tick()/wviz_scope_tick() the
@@ -1272,12 +1285,12 @@ COLD_FN static void wvcfg_draw(void)
      * and against the panel's flat background instead of the gradient
      * (B-234: wviz_scope_tick()'s use_gradient=0 path fixes the previously-
      * garbled preview -- see that function's own comment). */
-    uint32_t px = PL_UI_TEXT_X, pw = PL_UI_X + PL_UI_W - 8u - px, py = PL_UI_LIST_Y, ph = UI_WAVE_H;
+    const uint32_t px = WVCFG_PX, pw = WVCFG_PW, py = WVCFG_PY, ph = WVCFG_PH;
     fb_rect(px - 4u, py - 4u, pw + 8u, ph + 8u, OV_BODY);
     wviz_force = 1u;                      /* the panel was just wiped: the meters' change caches must repaint everything */
     mtr_preview(viz_mode, px, py, pw, ph, UI_PANEL);
 
-    uint32_t list_y = py + ph + 16u;
+    const uint32_t list_y = WVCFG_LIST_Y;
     if (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) {                      /* scroll track, as the other lists */
         const uint32_t n = wvcfg_vis_n, vis = WVCFG_ROWS_VISIBLE, tx = PL_UI_X + PL_UI_W - 11u, lh = vis * PL_UI_ROW_H, th = lh * vis / n;
         fb_rect(tx, list_y - 2u, 3u, lh, ui_mix(OV_BODY, UI_DIM, 1u, 3u));
@@ -1299,16 +1312,18 @@ COLD_FN static void wvcfg_draw(void)
         fb_set_color(sel ? UI_PANEL : UI_WHITE, bg);
         fb_text_clipped(PL_UI_X + PL_UI_W - 16u - w, y, v, TS_1X, TS_1X, w + 2u);
     }
+    ov_hint_repaint(hint);                /* the action bar is the page frame's alone: re-assert it last, whatever the list drew */
 }
 
 /* Once per display frame while the page is open: ONLY the live preview. The rest of the page is drawn on demand (set_dirty);
  * redrawing it every frame wiped the preview panel under the meters' change caches, which is why bars vanished and the page
  * glitched. */
-COLD_FN static void wvcfg_preview_tick(void)
+/* The preview is a Helios region (B-647), like the player screen's meter box (ui_meter_region, fw/player.c): the draw callback runs through helios_flush(), which defers it while the display beam is inside
+ * the preview's rows (helios_rows_safe_counted) and retries on the next main-loop pass, so the live meter no longer draws into rows being scanned out. Registered once, cold-aware. */
+static uint8_t wvcfg_region = 0xFFu;
+
+COLD_FN static void wvcfg_preview_redraw(void)
 {
-#if TAU_DIAGNOSTIC
-    if (wvcfg_qr_up) return;
-#endif
     /* B-452: meters_publish() (fw/player.c) is normally only reached from ui_draw_dynamic_cold() while
      * !UI_OVERLAY_UP -- correct for the ordinary player screen, but Settings being open here is itself
      * a UI_OVERLAY_UP case, so without this call peak_l/peak_r/spec_lvl[] (everything but Winamp
@@ -1318,9 +1333,18 @@ COLD_FN static void wvcfg_preview_tick(void)
      * step, deliberately bypassing the overlay gate for exactly the meter being previewed. */
     meters_publish();
     const uint8_t o = ov_draw; ov_draw = 1u;
-    const uint32_t px = PL_UI_TEXT_X, pw = PL_UI_X + PL_UI_W - 8u - px, py = PL_UI_LIST_Y, ph = UI_WAVE_H;
-    mtr_preview(viz_mode, px, py, pw, ph, UI_PANEL);
+    mtr_preview(viz_mode, WVCFG_PX, WVCFG_PY, WVCFG_PW, WVCFG_PH, UI_PANEL);
     ov_draw = o;
+}
+
+COLD_FN static void wvcfg_preview_tick(void)
+{
+#if TAU_DIAGNOSTIC
+    if (wvcfg_qr_up) return;
+#endif
+    if (wvcfg_region == 0xFFu) wvcfg_region = helios_region_register_rows_cold(wvcfg_preview_redraw, (uint16_t)WVCFG_PY, (uint16_t)(WVCFG_PY + WVCFG_PH));
+    helios_mark_dirty(wvcfg_region);
+    helios_flush();
 }
 
 static int wvcfg_input(uint32_t edge)

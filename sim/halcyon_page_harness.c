@@ -20,6 +20,9 @@
 #define PL_UI_LIST_Y 52u
 #define PL_UI_TEXT_X (PL_UI_X + 16u)
 #define TS_1X 1u
+#define OV_HEAD_H 28u
+#define OV_HINT_H 28u
+#define OV_HINT_Y (FB_H - OV_HINT_H)
 #define OV_BODY 0x1111u
 #define UI_DIM 0x2222u
 #define UI_FAINT 0x3333u
@@ -57,6 +60,7 @@ static void fb_round_rect_on(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uin
 static void fb_set_color(uint16_t f, uint16_t b) { (void)f; (void)b; }
 static void fb_text_clipped(uint32_t x, uint32_t y, const char *s, uint32_t a, uint32_t b, uint32_t w) { (void)a; (void)b; printf("T %u %u %u %s\n", x, y, w, s); }
 static uint32_t fb_text_width(const char *s, uint32_t a) { (void)a; return (uint32_t)strlen(s) * 7u; }
+static void ov_hint_repaint(const char *hint) { printf("H %s\n", hint); }
 static void ov_frame(const char *title, const char *right, const char *hint) { printf("F %s|%s|%s\n", title, right, hint); }
 /* what halcyon.inc takes from the player */
 #include "halcyon.inc"
