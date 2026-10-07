@@ -1113,6 +1113,8 @@ static uint32_t paused, volume = 94u;    /* overridden by the saved setting     
 static uint32_t fade_left;
 static uint8_t  under_shadow;   /* underrun already faded this flush epoch */
 #if TAU_DIAGNOSTIC
+static uint32_t gap_t0, gap_last_ms, gap_max_ms, gap_n, gap_buf_ms;   /* B-633: natural-track-end gap timing (functions below, next to cymo_push) */
+static uint8_t  gap_armed;
 static ur_t     ur_all;          /* B-546: EVERY underrun (the shadow above and the hardware flag give at most one per flush) -- Info > UNDERRUNS, ALL n */
 #endif
 static uint32_t pcm_under_n;    /* underrun EDGES since boot, for the diag  */
@@ -7731,6 +7733,31 @@ static int flac_restart(void)
 static uint32_t fl_meter_n;
 
 
+/* B-633 (parallel plan A4, gapless groundwork): how long is the gap at a NATURAL track end? Stamped when the decoder meets the end of a file and starts the next track (the
+ * point from which the FIFO's remaining audio, about 46 ms at most, is all that bridges the load), read back when the first frame of the next track has been decoded and pushed.
+ * Diagnostic Build only (Info > GAP LATENCY); other builds compile it to nothing. A deeper FIFO and a no-flush boundary are only worth building if this is longer than the buffer. */
+#if TAU_DIAGNOSTIC
+/* The bodies are cold code (the diagnostic heap gap is tight); hot code only tests a flag. gap_armed is set by the cold function, which implies the cold image is loaded. */
+COLD_FN2 static void gap_eof_cold(void)
+{
+    gap_t0 = cycles(); gap_armed = 1u;
+    const uint32_t hz = track_hz ? track_hz : 44100u;
+    gap_buf_ms = PCM_ST_LEVEL(REG(R_PCM_ST)) * 1000u / hz;       /* audio still queued at the end of the file */
+}
+COLD_FN2 static void gap_frame_cold(void)
+{
+    gap_armed = 0u;
+    gap_last_ms = (cycles() - gap_t0) / (CLK_HZ / 1000u);
+    if (gap_last_ms > gap_max_ms) gap_max_ms = gap_last_ms;
+    gap_n++;
+}
+#define gap_mark_eof()   do { if (COLD_READY()) gap_eof_cold(); } while (0)
+#define gap_mark_frame() do { if (gap_armed) gap_frame_cold(); } while (0)
+#else
+#define gap_mark_eof()   ((void)0)
+#define gap_mark_frame() ((void)0)
+#endif
+
 /* Cymo C1 (B-533): the ONE place a decoded sample pair reaches the audio FIFO. MP3 and FLAC each had their own copy of volume, fade, FIFO wait and write, and the
  * two had already drifted apart once (FLAC shipped without volume). The arithmetic is fw/pcm_push.h (host-tested against the old lines); the wait is the old wait,
  * unchanged: block while the FIFO is full (it silently DROPS pushes when full, so skipping the wait corrupts audio), servicing input and I/O from inside it, and
@@ -10134,6 +10161,7 @@ int main(void)
                  * when it deliberately did not (repeat-one, or the end of a
                  * non-repeating list), and the old replay-this-track behaviour
                  * is the fallback -- so a single file still loops as before. */
+                gap_mark_eof();
                 if (lib_advance_auto()) { ui_mode_dirty = 1; continue; }
                 if (list_ended()) {
                     paused |= 1u;              /* end of the list: stop here */
@@ -10178,6 +10206,7 @@ int main(void)
             /* Meters are fed from flac_emit on a fixed 1152-pair interval,
              * not here: once per frame is 9.6 Hz and looks delayed. */
             if (fe == FLAC_END || fe == FLAC_ERR_SHORT) {
+                gap_mark_eof();
                 if (lib_advance_auto()) { ui_mode_dirty = 1; continue; }
                 if (list_ended()) {
                     paused |= 1u;
@@ -10190,6 +10219,7 @@ int main(void)
                 continue;
             }
             if (fe != FLAC_OK) { errs++; REG(R_STAT2) = 0xC2000000u | fe; }
+            gap_mark_frame();
             frames++;
 #if UI_SHOW_SEEK_DIAG
             /* The three frames after a seek, exactly as the decoder saw them.
@@ -10330,6 +10360,7 @@ int main(void)
         LD_ACC(ld2, ld_t_push);
         }
 
+        gap_mark_frame();
         frames++;
         st0 |= (1u << 3);
         REG(R_STAT0) = st0;

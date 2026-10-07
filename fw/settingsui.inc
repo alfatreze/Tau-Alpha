@@ -641,7 +641,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 36u   /* B-625: +1 for HW GAIN (the hardware gain stage: owner, target, current gain, fading). B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS 37u   /* B-633: +1 for GAP LATENCY (time from a natural track end to the first frame of the next track). B-625: +1 for HW GAIN (the hardware gain stage: owner, target, current gain, fading). B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -710,6 +710,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "HEADROOM"
     , "REPLAYGAIN"
     , "HW GAIN"
+    , "GAP LATENCY"
     };
 static uint32_t set_info_at;
 
@@ -961,6 +962,18 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
 #endif
         break;
     }
+    case 36:   /* GAP LATENCY (B-633): the last and the longest time from the decoder meeting the end of a file to the first frame of the next track being pushed, how many track ends were timed, and how
+                * much audio the FIFO still held at the end of the file (all in ms). If LAST is above BUF the listener hears a gap; the FIFO is about 46 ms deep. */
+#if TAU_DIAGNOSTIC
+        if (!gap_n) { q = set_str(q, "NO TRACK END YET"); break; }
+        q = set_str(q, "LAST "); q = ui_dec(q, gap_last_ms);
+        q = set_str(q, " MAX "); q = ui_dec(q, gap_max_ms);
+        q = set_str(q, " N"); q = ui_dec(q, gap_n);
+        q = set_str(q, " BUF "); q = ui_dec(q, gap_buf_ms);
+#else
+        q = set_str(q, "-");
+#endif
+        break;
     case 32:   /* LW COST (B-519): commands in the last draw, CPU time to issue it, and how much of that was reading the PSRAM history (lw_unwrap) */
         q = set_str(q, "C"); q = ui_dec(q, lw_cmd_last);
         q = set_str(q, " CPU "); q = ui_dec(q, lw_t_cpu / (CLK_HZ / 1000000u));
