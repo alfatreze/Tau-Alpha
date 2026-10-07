@@ -14099,3 +14099,7 @@ Owner: go with the recommendations, build the gain stage. **Decisions applied:**
 **B-617 card write (2026-10-07, owner approved):** copied `isp_ladder_48000.flac`, `isp_imd_48000.flac`, `isp_hot_48000.flac` and `sysvol_48000.flac` to `Assets/tau_dev_105/common/cymo_loopback/` with `sync_media.py --library --no-playlist` (dry run first; 4 new files, SHA-256 identical after copy; library index backed up to `work/card-backups/20261007-isp-sync`, rebuilt and verified: 118 tracks, root `/Assets/tau_dev_105/common/`); junk cleaned, ejected. No core files touched.
 
 **B-617 documentation pass (2026-10-07):** recording plan updated (test files on the card, session order, analysis order, skill references), handoff addendum written, `CURRENT_STATUS.md` and the CLAUDE.md session-start pointer updated, project-local skill entries KB-114 (floor and idle spurs, hardware-validated measurement, source side unresolved), KB-115 (Pocket volume has no readout, 31 clicks, hardware-validated), KB-116 (fs/4 phase-45 ISP signal), KB-117 (single-owner flag), note on KB-111; kb.py validate 0 problems.
+
+## B-618: parallel work plan saved
+
+`docs/features/CYMO_PARALLEL_WORK_PLAN.md` (items A1-A8 host/firmware, B1-B4 VM fits, C1 alpha.4 candidate, D other roadmap items) records what proceeds alongside the DEV 105 recordings, outside the D-G01 gates. Owner order: A1, A2, A3, the B1 fit and B2 experiment, A8. Status per item is kept in that file.
