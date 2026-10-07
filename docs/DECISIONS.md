@@ -78,7 +78,7 @@ needs an access-pattern review and owner approval (D-M07).
 - **Assessed and not done:** a unique device id in every report (privacy: makes all of one person's screenshots linkable; the APF gives cores no device id, the Cyclone V chip id needs RTL and a fit); wall-clock time from APF command 0x0090 (needs RTL; the capture time is already in the screenshot file name).
 
 
-## Sound Shaping (Cymo C5), owner decisions 2026-10-07
+## Halcyon (Cymo C5), owner decisions 2026-10-07
 - **D-S01: six biquad stages** (low shelf 100, bell 220, bell 1.8k, bell 3.5k, dip bell 6.5k, high shelf 10k); not five, not ten. 139 clocks per sample (10%), no extra DSP; stage count is a parameter.
 - **D-S02: presets rebuilt from scratch as data** (name + six control positions), derived from the controls and a listening purpose, validated with the real coefficient generator; the old eight voicings retired; configurable in Tau Omega (`PRST`/`EQST` sections) and on the Pocket (sliders, MY SOUND, reset, restore defaults); defaults compiled in and resettable. Preamp is attenuate-only.
 - **D-S03: preset recall by gain-dip first**; dual-bank crossfade only if the dip is audible in tests.
@@ -87,3 +87,8 @@ needs an access-pattern review and owner approval (D-M07).
 
 ## Provenance of DSP work, 2026-10-07
 - **D-P01: copyleft code is read for ideas, never copied or transcribed.** Tau is MIT; GPL, AGPL and LGPL code, and the constants, tables and fitted numbers in it, stay out of the tree (the same one-way rule as GPL RTL, B-085). Designs come from published papers, public specifications, public-domain algorithms (RBJ cookbook) and our own derivations and measurements. Anything seen in, or substantially informed by, another project is recorded in `docs/PROVENANCE.md` and in the header of the file that uses it; permissively licensed code (for example the MIT `compressor.c` and BS2B in JamesDSP) may be reused only with an in-file attribution and a `PROVENANCE.md` entry.
+
+## Halcyon, owner decisions 2026-10-07
+- **D-H01: the new EQ (macro controls over six biquad stages, writable coefficient store, 24-bit coefficients, presets as data) is named Halcyon**, in docs, menus, Tau Omega and the diagram from now on. Old name "Sound Shaping" survives only in historical audit entries, file names and code identifiers until the rename task (`sound_shaping_model.py` and its test to `halcyon_*`, the spec file to `CYMO_HALCYON_SPEC.md`, the `SOUND` page title to `HALCYON`).
+- **D-H02: follow the DSP review's recommendations** (`docs/features/CYMO_DSP_REVIEW.md` section 7): (1) analog-magnitude-matched refinement in the table generator, (2) keep 24-bit DF1 with the 18-bit SVF stage as documented fallback after a synthesis-only count, (3) clamp shelf slope and check stability at the real coefficient width in every tool that writes a shelf, (4) presets may carry a raw biquad list (AutoEQ / Equalizer APO import in Tau Omega), (5) hardware parallel-dip de-esser as an optional later step after the firmware prototype, (6) no FIR/FFT EQ, per-band saturation or oversampling.
+- **D-H03: parked for a later review (owner, 2026-10-07): the non-EQ parts of the references** (crossfeed and stereo widening, bass boost, multiband compression and limiting as a feature, loudness metering and matching beyond ReplayGain). Not started; see ROADMAP row 15.
