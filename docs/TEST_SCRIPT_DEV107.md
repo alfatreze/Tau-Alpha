@@ -112,6 +112,8 @@ Use headphones. Compare against Halcyon OFF (Diagnostics > HALCYON cycles to OFF
 | 6.13 | Info after 10 minutes of Halcyon ON: UNDERRUNS and the `ALL` count (Diagnostic Build) | **UNDERRUNS 0 ALL 0** (the engine uses about 34% of the clocks per sample, no CPU) | ☐ | numbers: |
 | 6.14 | Switch Halcyon OFF and ON 10 times quickly with X on the page | no clicks, no hang, page still responds | ☐ | |
 
+**First hardware result (2026-10-07, TAU_DEV_107):** every non-FLAT Halcyon setting sounded like fluttering wings (a 30 Hz glitch train). Root cause found and fixed in RTL (B-649: the engines' sample tick was 48,030.7 Hz instead of 48,000 on the 66.667 MHz clock); **the cores on the card still have the bug**, so steps 6.2 to 6.14 are expected to fail on `TAU_DEV_107` for non-FLAT settings. Re-run section 6 on the build that carries the fix. The old preset EQ (Y on the player screen) has the same fault at 66.667 MHz; on the new build compare a Y preset (not FLAT) on a 1 kHz tone: it should be clean.
+
 ## 7. Diagnostics > HALCYON row and the user-preset file (10 min). FIRST RUN
 
 | # | Do | Expect | OK | Notes |
@@ -243,6 +245,8 @@ These were installed before the menu change and are the release candidates.
 
 ## 17. Expected behaviours and known issues (do not report these as new)
 
+- **The 30 Hz flutter on every non-FLAT Halcyon setting and every non-FLAT old-EQ preset is a known bug on every core installed so far** (fixed in source, B-649, waiting for the fit).
+- Switching HW GAIN OFF gives a pop at high volume (the software gain resumes on samples already queued): by design, a diagnostic toggle.
 - Halcyon settings are **not saved** across a restart yet; a raw user preset (TEST IEM) has no sliders.
 - The FLAT curve on 107 may show a small dip at the far left and the footer still says "17 HZ HIGH-PASS ON" although FLAT is a true bypass (cosmetic; fixed in source, not on this card).
 - `Track changes` in Check fails (old unexplained issue).
