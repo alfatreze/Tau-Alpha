@@ -118,6 +118,11 @@ module tau_halcyon #(
     reg signed [SW-1:0] x1_r, y1_r, y_r;
     reg signed [AW-1:0] p_reg, acc;
     reg signed [WO-1:0] eq_l, eq_r;
+    // B-649: the two channels finish ~100 clocks apart, but the I2S writer (sound_i2s.v) pushes a word whenever EITHER output changes and the serializer takes the newest word at
+    // each frame: an output that changed one channel at a time handed it a TORN pair (left of this sample, right of the last) in about 7% of the frames, an error that moves with the
+    // beat against the frame clock. The pair is therefore latched into `pair_l/pair_r` in ONE clock and only those reach the output (BUG 12 = the old per-channel update).
+    reg signed [WO-1:0] pair_l, pair_r;
+    reg                 pair_go;
 
     assign busy = (state != S_IDLE);
 
@@ -167,6 +172,8 @@ module tau_halcyon #(
     always @(posedge clk) begin
         st_we <= 1'b0;
         cm_we <= 1'b0;
+        pair_go <= 1'b0;
+        if (pair_go) begin pair_l <= eq_l; pair_r <= eq_r; end
         commit_r <= commit;
         nact_r   <= nact_in;
         clr_r    <= clr;
@@ -186,6 +193,7 @@ module tau_halcyon #(
             state <= S_SWEEP; swc <= 9'd0; pend <= 1'b0; bank <= 1'b0;
             nact <= 6'd0; pend_nact <= 6'd0;
             eq_l <= {WO{1'b0}}; eq_r <= {WO{1'b0}};
+            pair_l <= {WO{1'b0}}; pair_r <= {WO{1'b0}}; pair_go <= 1'b0;
         end else begin
             case (state)
             S_IDLE: begin
@@ -260,6 +268,7 @@ module tau_halcyon #(
                     state <= S_RUN;
                 end else begin
                     eq_r <= clampw(smp);
+                    pair_go <= 1'b1;
                     state <= S_IDLE;
                 end
             end
@@ -275,8 +284,8 @@ module tau_halcyon #(
         end
 
         if (!rst) begin
-            out_l <= ((bypass && BUG != 9) || nact == 6'd0) ? clampw($signed({{(SW-WI){in_l[WI-1]}}, in_l}) <<< SHI) : eq_l;     // the bypass converts the width by the same rounding and clamp
-            out_r <= ((bypass && BUG != 9) || nact == 6'd0) ? clampw($signed({{(SW-WI){in_r[WI-1]}}, in_r}) <<< SHI) : eq_r;
+            out_l <= ((bypass && BUG != 9) || nact == 6'd0) ? clampw($signed({{(SW-WI){in_l[WI-1]}}, in_l}) <<< SHI) : (BUG == 12 ? eq_l : pair_l);     // the bypass converts the width by the same rounding and clamp
+            out_r <= ((bypass && BUG != 9) || nact == 6'd0) ? clampw($signed({{(SW-WI){in_r[WI-1]}}, in_r}) <<< SHI) : (BUG == 12 ? eq_r : pair_r);
         end
     end
 endmodule
