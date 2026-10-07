@@ -87,6 +87,8 @@ unst = bytearray(good); unst[raw_at + 4 + 12:raw_at + 4 + 15] = h._i24((1 << 22)
 check("refused: an unstable first raw stage (CRC valid)", not accepted(run(recrc(bytes(unst)), ROOT / "fw")))
 check("refused: more than 10 raw stages (CRC valid)", not accepted(run(edit_raw(0, bytes([11])), ROOT / "fw")))
 
+import make_halcyon_test_assets as mt
+check("the hardware-test presets (tools/make_halcyon_test_assets.py) are accepted by the C reader", run(h.pack_presets(mt.PRESETS), ROOT / "fw")[0] == "0 2")
 rnd = random.Random(3)
 pairs = [(rnd.randint(-(1 << 23), (1 << 23) - 1), rnd.randint(-(1 << 23), (1 << 23) - 1)) for _ in range(3000)]
 pairs += [(a, b) for b in (-(1 << 22) - 1, -(1 << 22), -(1 << 22) + 1, 0, (1 << 22) - 1, 1 << 22) for a in (0, (1 << 22) + b - 1, (1 << 22) + b, (1 << 22) + b + 1, -(1 << 22) - b, -(1 << 22) - b + 1, -(1 << 22) - b - 1)]
