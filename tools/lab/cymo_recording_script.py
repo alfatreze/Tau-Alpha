@@ -171,8 +171,14 @@ if __name__ == "__main__":
         sys.exit(0)
     out = ROOT / "docs/features"
     (out / "CYMO_RECORDING_SCRIPT.md").write_text(md())
+    old = {}                                           # keep the tick-sheet's done / date / notes columns when the list is regenerated
+    try:
+        with open(out / "CYMO_RECORDING_SCRIPT.csv", newline="") as fh:
+            for r in csv.DictReader(fh): old[r["name"]] = (r.get("done", ""), r.get("date", ""), r.get("notes", ""))
+    except FileNotFoundError:
+        pass
     with open(out / "CYMO_RECORDING_SCRIPT.csv", "w", newline="") as fh:
         w = csv.writer(fh); w.writerow(["#", "priority", "name", "group", "test_file", "setup", "do", "analysis", "answers", "status", "done", "date", "notes"])
         for i, (s, n, f, setup, do, an, gate, st) in enumerate(R, 1):
-            w.writerow([i, prio((s, n)), n + ".wav", s, f, setup, do, an, gate, st, "", "", ""])
+            w.writerow([i, prio((s, n)), n + ".wav", s, f, setup, do, an, gate, st] + list(old.get(n + ".wav", ("", "", ""))))
     print(f"wrote {len(R)} recordings")
