@@ -149,7 +149,7 @@ COLD_FN static void hal_pg_draw(void)
     char t[40], *q = t;
     const uint32_t tenths = ((uint32_t)atten[0] * 10u) / 8u;                    /* 1/8 dB to 1/10 dB */
     q = set_str(q, "PREAMP -"); q = ui_dec(q, tenths / 10u); *q++ = '.'; q = ui_dec(q, tenths % 10u);
-    q = set_str(q, " DB   17 HZ HIGH-PASS ON"); *q = 0;
+    q = set_str(q, atten[0] || hal_c.warmth || hal_c.bass || hal_c.vocal || hal_c.punch || hal_c.sibilance || hal_c.air ? " DB   17 HZ HIGH-PASS ON" : " DB   FLAT: BYPASS"); *q = 0;
     fb_rect(PL_UI_X + 4u, HP_FOOT_Y - 1u, PL_UI_W - 8u, 16u, OV_BODY);
     fb_set_color(UI_FAINT, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, HP_FOOT_Y, t, TS_1X, TS_1X, PL_UI_W - 32u);
