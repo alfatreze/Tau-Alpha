@@ -7,7 +7,7 @@ Rule (D-G01): nothing in a gated row of `CYMO_RECORDING_PLAN_DEV105.md` section 
 |---|---|---|---|
 | A1 | Round instead of floor in the 24-to-16 FLAC reduction (`fw/flac.c:804`) | one line plus a host test; removes -0.5 LSB DC and signal-following distortion on 24-bit files | **DONE B-619** (host-tested, not on a Pocket) |
 | A2 | Ramp the loudness-changing toggles (16-bit slot, live resampler) | removes the 6 dB step; the default policy of the 16-bit mode stays gated on G-A16 | **DONE B-620** (builds clean, cold code, not host-testable, not on a Pocket) |
-| A3 | Crossfeed model, mono mode, A/B listening WAVs | host model of the difference form plus a classic form for comparison by ear | |
+| A3 | Crossfeed model, mono mode, A/B listening WAVs | host model of the difference form plus a classic form for comparison by ear | **DONE B-621** (model, integer reference, 12 checks, 12 listening WAVs in `test music/Audio Lab/crossfeed_ab/`; waiting for the owner's listening verdict; D corrected 13 to 4 samples) |
 | A4 | Gapless groundwork | load-latency counter (file end to first new sample), LAME delay/padding parsing with host tests; FLAC no-flush boundary and absolute priming threshold as design notes | |
 | A5 | Halcyon firmware and data layer | six-control to stage-gain macro layer, `EQCO`/`PRST` data format with golden vectors, AutoEQ `ParametricEQ.txt` import spec for Tau Omega, tuning-lab HTML page | |
 | A6 | Info row for the hardware gain (target, current, fading) | diagnostic aid for session 2; reaches the card with the next build | |
