@@ -84,3 +84,6 @@ needs an access-pattern review and owner approval (D-M07).
 - **D-S03: preset recall by gain-dip first**; dual-bank crossfade only if the dip is audible in tests.
 - **D-S04: de-esser firmware-only, after the basic layer is proven**, driven from the spectrum bank's 5-8 kHz means.
 - **D-S05 (open): on-device persistence of edited presets** is limited by the 16-entry `interact.json` cap (14 used): one user slot now; more means retiring legacy ids 20-23.
+
+## Provenance of DSP work, 2026-10-07
+- **D-P01: copyleft code is read for ideas, never copied or transcribed.** Tau is MIT; GPL, AGPL and LGPL code, and the constants, tables and fitted numbers in it, stay out of the tree (the same one-way rule as GPL RTL, B-085). Designs come from published papers, public specifications, public-domain algorithms (RBJ cookbook) and our own derivations and measurements. Anything seen in, or substantially informed by, another project is recorded in `docs/PROVENANCE.md` and in the header of the file that uses it; permissively licensed code (for example the MIT `compressor.c` and BS2B in JamesDSP) may be reused only with an in-file attribution and a `PROVENANCE.md` entry.

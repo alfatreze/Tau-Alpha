@@ -54,6 +54,24 @@ check("Sibilance lowers 6.5 kHz and leaves 200 Hz alone", at(dict(m.ZERO, sibila
 check("Air up raises 12 kHz", at(dict(m.ZERO, air=3), 12000) > 1.0)
 check("Warmth is a tilt: warm raises 200 Hz and lowers 12 kHz, clear does the opposite", at(dict(m.ZERO, warmth=4), 200) > 1.0 > -1.0 > at(dict(m.ZERO, warmth=4), 12000) and at(dict(m.ZERO, warmth=-4), 200) < -1.0 and at(dict(m.ZERO, warmth=-4), 12000) > 1.0)
 
+# shelf slope sweep: with S clamped to (0, 1] every design is finite and stable over the whole gain and frequency range, including +-24 dB. Within +-12 dB even S = 4 is still valid (the
+# radicand stays positive), but at larger gains an unclamped S above 1 makes the design raise (a public EQ's audit found NaN in ~11% of its parameter space for the same reason), which is why
+# every tool that edits a shelf (Tau Omega's EQST) must clamp S to (0, 1]
+bad24 = 0; unstable18 = 0; raised = 0; n = 0
+def q_at(c, extra): sc = g.QSCALE * (1 << extra); return tuple(round(v * sc) / (1 << extra) for v in c)   # coefficient grid with `extra` more fractional bits, still on the QSCALE scale
+for kind in ("lowshelf", "highshelf"):
+    for f0 in (40.0, 100.0, 1000.0, 10000.0, 20000.0):
+        for gd in (-24.0, -12.0, -9.0, -4.5, 0.0, 4.5, 9.0, 12.0, 24.0):
+            for S in (0.1, 0.3, 0.7, 1.0, 1.5, 4.0):
+                n += 1
+                c = g.design(kind, f0, m.clamp_slope(S), gd)
+                if not all(math.isfinite(v) for v in c) or not g.stable([q_at(c, 6)]): bad24 += 1
+                if not g.stable([tuple(round(v * g.QSCALE) for v in c)]): unstable18 += 1
+                try: g.design(kind, f0, S, gd)
+                except ValueError: raised += 1
+check("shelf slope sweep: every clamped design is finite and stable with 24-bit coefficients", bad24 == 0, "(%d designs, up to +-24 dB; %d unclamped designs would have raised; %d would be UNSTABLE after 18-bit quantisation, all at 40 Hz with extreme gain)" % (n, raised, unstable18))
+check("18-bit coefficients can go unstable at extreme low-frequency settings (a further reason for 24-bit)", unstable18 > 0)
+
 # cost figures quoted in the spec
 per_stage_clocks = 116 / 5.0
 check("six stages: about 139 clocks per sample, 10% of 1,388 at 66.7 MHz", abs(per_stage_clocks * 6 - 139) < 1 and per_stage_clocks * 6 / 1388 < 0.11, "(%.0f clocks, %.1f%%)" % (per_stage_clocks * 6, per_stage_clocks * 6 / 13.88))
