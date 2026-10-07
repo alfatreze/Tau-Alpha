@@ -18,7 +18,10 @@
  * How it works page that used to live here were removed with legacy playlist mode. */
 enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
 enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_TEMPO, CH_RG, CH_N };
-#if TAU_DIAGNOSTIC
+#ifndef TAU_INFO_EXPORT
+#define TAU_INFO_EXPORT 1                /* the Info page's report-code export (A on the Info page): in the normal core too since alpha.4 (INFO_EXPORT=0 in fw/build.sh turns it off) */
+#endif
+#if TAU_INFO_EXPORT
 static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced by set_info_tick() below its own include */
 #endif
 
@@ -1086,7 +1089,7 @@ COLD_FN static void set_info_tick(void)
     set_info_at = cycles() + CLK_HZ;
     uint8_t o = ov_draw; ov_draw = 1u;
     if (set_page == SET_INFO_PG) {
-#if TAU_DIAGNOSTIC
+#if TAU_INFO_EXPORT
         if (!info_qr_up)
 #endif
             set_draw_ro(0, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
@@ -1097,6 +1100,9 @@ COLD_FN static void set_info_tick(void)
     ov_draw = o;
 }
 
+#if TAU_INFO_EXPORT
+#include "report.inc"                    /* shared report plumbing: record builder, QR encoder, report buffers, pixel-grid view */
+#endif
 #if TAU_DIAGNOSTIC
 #include "suite.inc"
 #endif
@@ -1169,6 +1175,8 @@ COLD_FN static void wvcfg_follow(void)
  * Diagnostic-Build only, like every QR feature here; outside one the row is present but inert. */
 #if TAU_DIAGNOSTIC
 #include "wvcfg_export.inc"
+#endif
+#if TAU_INFO_EXPORT
 #include "info_export.inc"
 #endif
 
@@ -1461,7 +1469,7 @@ COLD_FN static int set_fade_page_ok(void)
 {
     if (set_page < SET_MENUS) return 1;
     if (set_page == SET_INFO_PG)
-#if TAU_DIAGNOSTIC
+#if TAU_INFO_EXPORT
         return info_qr_up ? 0 : 1;
 #else
         return 1;
@@ -1539,7 +1547,7 @@ COLD_FN static void set_draw_now(void)
     if (set_page < SET_MENUS)                set_draw_menu(set_page);
     else if (spg)                            spg->draw();
     else if (set_page == SET_INFO_PG) {
-#if TAU_DIAGNOSTIC
+#if TAU_INFO_EXPORT
         if (info_qr_up) { info_draw_qr(); ov_draw = o; return; }
 #endif
         set_draw_ro(1, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
@@ -1643,7 +1651,7 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
     edge = kr_step(&set_kr, edge, keys, KEY_UP | KEY_DOWN, cycles(), CLK_HZ / 1000u * PL_HOLD_MS, CLK_HZ / 16u, &rep);   /* B-534: the shared primitive */
 
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
-#if TAU_DIAGNOSTIC
+#if TAU_INFO_EXPORT
         if (set_page == SET_INFO_PG && info_qr_up) {     /* QR screen: X changes the view, anything else closes it */
             if (REP_KEY(edge, info_qr_len)) return 1;
             if (edge & (KEY_A | KEY_B | KEY_START)) { info_qr_up = 0u; set_dirty = 1u; }
@@ -1655,7 +1663,7 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
         if (set_page == SET_STAT_PG) n = SET_STAT_ROWS;
 #endif
         const uint32_t maxtop = (n > SET_RO_VIS) ? n - SET_RO_VIS : 0u;
-#if TAU_DIAGNOSTIC
+#if TAU_INFO_EXPORT
         if (set_page == SET_INFO_PG && (edge & KEY_A) && !rep) { info_build_qr(); info_qr_up = 1u; set_dirty = 1u; return 1; }
 #endif
         /* Wraps like every other list here (helios_wrap_index(), fw/helios.inc): past the last visible
