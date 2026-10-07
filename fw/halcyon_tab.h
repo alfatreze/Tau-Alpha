@@ -5,8 +5,12 @@
 #define HAL_NSTAGE 6
 #define HAL_NSTEP 37
 #define HAL_NGRID 40
+#ifndef HAL_TAB
+#define HAL_TAB   /* the firmware defines this as COLD_DATA: the tables (about 24 KB) live in PSRAM, never in on-chip RAM */
+#endif
+#define HAL_NPRESET 8
 
-static const int32_t hal_coef[HAL_NSTAGE][HAL_NSTEP][5] = {
+HAL_TAB static const int32_t hal_coef[HAL_NSTAGE][HAL_NSTEP][5] = {
   {  /* low shelf */
     {4169605,-8266764,4097581,-8266502,4073387},
     {4171052,-8268743,4098125,-8268494,4075346},
@@ -242,7 +246,7 @@ static const int32_t hal_coef[HAL_NSTAGE][HAL_NSTEP][5] = {
     {7191338,-5527843,1337719,-1346661,153338},
   },
 };
-static const int16_t hal_mag[HAL_NSTAGE][HAL_NSTEP][HAL_NGRID] = {
+HAL_TAB static const int16_t hal_mag[HAL_NSTAGE][HAL_NSTEP][HAL_NGRID] = {
   {
     {-564,-558,-550,-538,-521,-496,-461,-415,-358,-294,-229,-170,-122,-85,-59,-40,-28,-19,-13,-9,-6,-4,-3,-2,-1,-1,-1,-1,0,0,0,0,0,0,0,0,0,0,0,0},
     {-533,-528,-521,-509,-493,-470,-437,-393,-339,-277,-216,-160,-114,-79,-55,-37,-26,-18,-12,-8,-6,-4,-3,-2,-1,-1,-1,0,0,0,0,0,0,0,0,0,0,0,0,0},
@@ -478,7 +482,7 @@ static const int16_t hal_mag[HAL_NSTAGE][HAL_NSTEP][HAL_NGRID] = {
     {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,3,4,6,8,12,18,26,37,55,80,115,161,218,282,347,406,455,489},
   },
 };
-static const int32_t hal_pre[513] = {
+HAL_TAB static const int32_t hal_pre[513] = {
   4194304,4134375,4075303,4017075,3959678,3903102,3847334,3792363,
   3738177,3684766,3632118,3580222,3529067,3478643,3428940,3379947,
   3331654,3284051,3237128,3190876,3145284,3100344,3056046,3012381,
@@ -544,5 +548,17 @@ static const int32_t hal_pre[513] = {
   3332,3284,3237,3191,3145,3100,3056,3012,
   2969,2927,2885,2844,2803,2763,2724,2685,
   2646,
+};
+/* the built-in control presets (tools/lab/halcyon_model.py PRESETS): name and warmth, bass, vocal, punch, sibilance, air */
+HAL_TAB static const char hal_preset_name[HAL_NPRESET][11] = {"FLAT","WARM","CLEAR","BASS","VOCAL","SPEECH","LOW VOLUME","SMOOTH"};
+HAL_TAB static const int8_t hal_preset_ctl[HAL_NPRESET][6] = {
+  {0,0,0,0,0,0},  /* FLAT */
+  {3,1,0,0,0,0},  /* WARM */
+  {-3,0,0,1,0,1},  /* CLEAR */
+  {1,4,0,1,0,0},  /* BASS */
+  {0,-1,3,0,1,0},  /* VOCAL */
+  {-1,-3,3,1,2,0},  /* SPEECH */
+  {1,5,0,0,1,2},  /* LOW VOLUME */
+  {0,0,0,-2,2,-2},  /* SMOOTH */
 };
 #endif
