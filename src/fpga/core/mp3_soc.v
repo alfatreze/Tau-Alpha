@@ -97,7 +97,10 @@ module mp3_soc #(
     // B-615 (Cymo C3 slice 2): hardware gain stage at the pcm_fifo output (tau_gain_stage.sv), registers 0x168-0x174. Inert (reads 0, audio path untouched) when 0.
     parameter GAIN_ENABLE = 0,
     // B-639 (Halcyon): the Halcyon EQ engine (tau_halcyon.sv) beside eq_biquad, registers 0x178-0x180; a sticky enable selects its output. Inert (reads 0, audio path untouched) when 0.
-    parameter HALCYON_ENABLE = 0
+    parameter HALCYON_ENABLE = 0,
+    // B-646 (wide EQ input): the Cymo resampler's output is 18 bits (the same LSB, two headroom bits: its +1 dB overshoot is no longer hard-clipped at +-32767) and the Halcyon engine takes
+    // all 18 bits; the old eq_biquad and the MMIO read still see the 16-bit clamp. Inert (0) = every path exactly as before.
+    parameter WIDE_EQ_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -1193,7 +1196,17 @@ module mp3_soc #(
     reg         cymo_live_en = 1'b0;
     reg  signed [15:0] cymo_push_l_d = 16'sd0, cymo_push_r_d = 16'sd0;
     wire        cymo_busy, cymo_done, cymo_pop_req;
-    wire signed [15:0] cymo_out_l, cymo_out_r;
+    localparam integer EQW = (WIDE_EQ_ENABLE != 0) ? 18 : 16;
+    wire signed [EQW-1:0] cymo_out_l, cymo_out_r;
+    function signed [15:0] clip16w;                        // the resampler's own 16-bit clip, applied after the wide output (same LSB, so a plain clamp)
+        input signed [EQW-1:0] v;
+        begin
+            if (v > 32767) clip16w = 16'sh7FFF;
+            else if (v < -32768) clip16w = -16'sh8000;
+            else clip16w = v[15:0];
+        end
+    endfunction
+    wire signed [15:0] cymo_out16_l = clip16w(cymo_out_l), cymo_out16_r = clip16w(cymo_out_r);
     wire        cymo_out_rd = d_req & d_is_mmio & ~dWE & (mmio_reg == R_CYMO_OUT);
     // B-488 (hardware-confirmed): a 0->1 transition of cymo_live_en is also a clear. Without this, re-engaging LIVE
     // resumes against whatever 32-tap history was last left in the unit -- stale audio from a different point in the
@@ -1215,8 +1228,10 @@ module mp3_soc #(
     wire [15:0] cymo_stale_cnt, cymo_drop_cnt;
     wire [2:0]  cymo_feed_level;
     wire        cymo_auto_start = cymo_live_en & cymo_tick;
-    wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out_l : gain_l;
-    wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out_r : gain_r;
+    wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out16_l : gain_l;
+    wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out16_r : gain_r;
+    wire signed [EQW-1:0] hal_in_l = cymo_live_en ? cymo_out_l : gain_l;      // the Halcyon engine's input: the wide resampler output, or the 16-bit path sign-extended
+    wire signed [EQW-1:0] hal_in_r = cymo_live_en ? cymo_out_r : gain_r;
     generate
         if (CYMO_RESAMP_ENABLE != 0) begin : g_cymo
             tau_cymo_feed u_cymo_feed (
@@ -1224,7 +1239,7 @@ module mp3_soc #(
                 .tick(pcm_sample_tick), .in_l(gain_l), .in_r(gain_r), .pop_req(cymo_pop_req),
                 .push_we(cymo_auto_we), .push_l(cymo_feed_l), .push_r(cymo_feed_r),
                 .stale_cnt(cymo_stale_cnt), .drop_cnt(cymo_drop_cnt), .level(cymo_feed_level));
-            tau_cymo_resamp u_cymo (
+            tau_cymo_resamp #(.OUT_W(EQW)) u_cymo (
                 .clk(clk), .rst(rst), .clear(cymo_clear | pcm_flush | cymo_live_rise),
                 .push_we(cymo_push_we | cymo_auto_we),
                 .push_l(cymo_auto_we ? cymo_feed_l : cymo_push_l_d),
@@ -1234,7 +1249,7 @@ module mp3_soc #(
                 .out_l(cymo_out_l), .out_r(cymo_out_r));
         end else begin : g_nocymo
             assign cymo_busy = 1'b0; assign cymo_done = 1'b0; assign cymo_pop_req = 1'b0;
-            assign cymo_out_l = 16'sd0; assign cymo_out_r = 16'sd0;
+            assign cymo_out_l = {EQW{1'b0}}; assign cymo_out_r = {EQW{1'b0}};
             assign cymo_auto_we = 1'b0; assign cymo_feed_l = 16'sd0; assign cymo_feed_r = 16'sd0;
             assign cymo_stale_cnt = 16'd0; assign cymo_drop_cnt = 16'd0; assign cymo_feed_level = 3'd0;
         end
@@ -1269,11 +1284,11 @@ module mp3_soc #(
     generate
         if (HALCYON_ENABLE != 0) begin : g_hal
 `ifdef TAU_CLK66
-            tau_halcyon #(.CLK_HZ(66_666_667), .RATE_HZ(48_000), .NST(17), .W(16)) u_hal (
+            tau_halcyon #(.CLK_HZ(66_666_667), .RATE_HZ(48_000), .NST(17), .WI(EQW), .IFB(0), .WO(16), .OFB(0)) u_hal (
 `else
-            tau_halcyon #(.CLK_HZ(60_000_000), .RATE_HZ(48_000), .NST(17), .W(16)) u_hal (
+            tau_halcyon #(.CLK_HZ(60_000_000), .RATE_HZ(48_000), .NST(17), .WI(EQW), .IFB(0), .WO(16), .OFB(0)) u_hal (
 `endif
-                .clk(clk), .rst(rst), .in_l(eq_in_l), .in_r(eq_in_r), .bypass(hal_bypass),
+                .clk(clk), .rst(rst), .in_l(hal_in_l), .in_r(hal_in_r), .bypass(hal_bypass),
                 .wr_we(hal_we), .wr_idx(hal_widx), .wr_data(hal_data), .nact_in(hal_nact), .commit(hal_commit), .clr(hal_clr),
                 .out_l(hal_o_l), .out_r(hal_o_r), .busy(hal_busy));
         end else begin : g_nohal
@@ -1503,7 +1518,7 @@ module mp3_soc #(
             R_I2S_DIAG_CNT:    mmio_rdata = (I2S_DIAG_ENABLE != 0) ? i2s_diag_cnt_r : 32'd0;
             R_I2S_DIAG_SUM:    mmio_rdata = (I2S_DIAG_ENABLE != 0) ? i2s_diag_sum_r : 32'd0;
             R_I2S_DIAG_ST:     mmio_rdata = {31'd0, (I2S_DIAG_ENABLE != 0)};
-            R_CYMO_OUT:    mmio_rdata = {cymo_out_r, cymo_out_l};                                      // this read is the ack (clears done)
+            R_CYMO_OUT:    mmio_rdata = {cymo_out16_r, cymo_out16_l};                                      // this read is the ack (clears done)
             R_CYMO_STATUS: mmio_rdata = {24'd0, cymo_feed_level, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en, [7:5] feed queue level (B-527)
             R_GAIN_CTRL:   mmio_rdata = {(GAIN_ENABLE != 0), 25'd0, gain_shift, 1'b0, gain_fading, 1'b0, gain_en};   // B-615
             R_HAL_CTRL:    mmio_rdata = {(HALCYON_ENABLE != 0), 17'd0, hal_nact, 5'd0, hal_busy, hal_bypass, hal_en};   // B-639

@@ -5,17 +5,32 @@
 `ifndef HW
 `define HW 16
 `endif
+`ifndef HWI
+`define HWI `HW
+`endif
+`ifndef HIFB
+`define HIFB (`HWI - 16)
+`endif
+`ifndef HWO
+`define HWO `HWI
+`endif
+`ifndef HOFB
+`define HOFB (`HWO - 16)
+`endif
+`ifndef HVEC
+`define HVEC (`HW == 24 ? "build/rtl/halcyon_vectors_w24.txt" : "build/rtl/halcyon_vectors_w16.txt")
+`endif
 `ifndef HBUG
 `define HBUG 0
 `endif
 module tb_tau_halcyon;
-    localparam integer W = `HW;
+    localparam integer WI = `HWI, IFB = `HIFB, WO = `HWO, OFB = `HOFB;
     reg clk = 0; always #8 clk = ~clk;
     reg rst = 1, bypass = 0, wr_we = 0, commit = 0, clr = 0;
     reg [7:0] wr_idx = 0; reg signed [23:0] wr_data = 0; reg [5:0] nact_in = 0;
-    reg signed [W-1:0] in_l = 0, in_r = 0;
-    wire signed [W-1:0] out_l, out_r; wire busy;
-    tau_halcyon #(.W(W), .BUG(`HBUG)) dut (.clk(clk), .rst(rst), .in_l(in_l), .in_r(in_r), .bypass(bypass),
+    reg signed [WI-1:0] in_l = 0, in_r = 0;
+    wire signed [WO-1:0] out_l, out_r; wire busy;
+    tau_halcyon #(.WI(WI), .IFB(IFB), .WO(WO), .OFB(OFB), .BUG(`HBUG)) dut (.clk(clk), .rst(rst), .in_l(in_l), .in_r(in_r), .bypass(bypass),
         .wr_we(wr_we), .wr_idx(wr_idx), .wr_data(wr_data), .nact_in(nact_in), .commit(commit), .clr(clr),
         .out_l(out_l), .out_r(out_r), .busy(busy));
     integer fd, rc, n, bad, maxbusy, cyc, v, idx, nv, byp, xl, xr, el, er;
@@ -33,14 +48,14 @@ module tb_tau_halcyon;
             if (cyc > maxbusy) maxbusy = cyc;
             repeat (3) @(posedge clk);
             n = n + 1;
-            if (out_l !== el[W-1:0] || out_r !== er[W-1:0]) begin
+            if (out_l !== el[WO-1:0] || out_r !== er[WO-1:0]) begin
                 bad = bad + 1;
                 if (bad <= 5) $display("MISMATCH #%0d: got %0d,%0d want %0d,%0d", n, out_l, out_r, el, er);
             end
         end
     endtask
     initial begin
-        fd = $fopen(`HW == 24 ? "build/rtl/halcyon_vectors_w24.txt" : "build/rtl/halcyon_vectors_w16.txt", "r");
+        fd = $fopen(`HVEC, "r");
         if (fd == 0) begin $display("FAIL: no vectors"); $finish; end
         n = 0; bad = 0; maxbusy = 0;
         repeat (4) @(posedge clk); rst = 0;
@@ -55,8 +70,8 @@ module tb_tau_halcyon;
                 else if (op == "P") begin rc = $fscanf(fd, "%d %d %d %d %d %d", nv, byp, xl, xr, el, er); sample(nv); end
             end
         end
-        if (bad == 0) $display("PASS tb_tau_halcyon W=%0d: %0d samples match the model; busy at most %0d clocks (budget %0d)", W, n, maxbusy, dut.DIV);
-        else $display("FAIL tb_tau_halcyon W=%0d: %0d mismatches of %0d", W, bad, n);
+        if (bad == 0) $display("PASS tb_tau_halcyon WI=%0d WO=%0d: %0d samples match the model; busy at most %0d clocks (budget %0d)", WI, WO, n, maxbusy, dut.DIV);
+        else $display("FAIL tb_tau_halcyon WI=%0d WO=%0d: %0d mismatches of %0d", WI, WO, bad, n);
         $finish;
     end
 endmodule
