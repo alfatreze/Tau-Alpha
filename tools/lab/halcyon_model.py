@@ -19,6 +19,22 @@ STAGES = [                       # (name, kind, centre Hz, Q)
     ("air",         "highshelf", 10000.0, 0.70),
 ]
 NSTAGE = len(STAGES)
+INFRA_HZ, INFRA_Q = 17.0, 0.70   # the fixed infrasonic stage (spec section 'Errata', B-623): a second-order high-pass, always on with Halcyon, DC and infrasound protection only
+
+def infra_float():
+    """RBJ cookbook second-order high-pass b0 b1 b2 a1 a2 (a0 normalised), float."""
+    w0 = 2 * math.pi * INFRA_HZ / g.FS
+    c, al = math.cos(w0), math.sin(w0) / (2 * INFRA_Q)
+    a0 = 1 + al
+    return ((1 + c) / 2 / a0, -(1 + c) / a0, (1 + c) / 2 / a0, -2 * c / a0, (1 - al) / a0)
+
+def infra_coeffs():
+    """The stage quantised at the build's width (Q2.22 with EQ_COEF_BITS=24), as the firmware table carries it."""
+    c = [g.quantise(v, "infra", []) for v in infra_float()]
+    # The zeros of a high-pass are at z = 1 exactly. Quantising b0, b1, b2 independently leaves b0 + b1 + b2 at one LSB instead of zero, and with the poles this close to z = 1
+    # (1 + a1 + a2 is only 21 LSB) that one LSB is a DC gain of 1/21 = -26 dB instead of nothing. b1 is therefore set to -(b0 + b2): the zero sum is exact by construction.
+    c[1] = -(c[0] + c[2])
+    return tuple(c)
 STAGE_MAX = 9.0
 MACROS = ("warmth", "bass", "vocal", "punch", "sibilance", "air")   # warmth is bipolar (+ warm, - clear); sibilance is 0..5
 

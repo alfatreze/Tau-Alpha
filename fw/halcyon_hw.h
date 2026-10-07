@@ -30,7 +30,19 @@ HAL_FN void hal_hw_commit_bank(const int32_t *coef, uint32_t nstage, int32_t pre
     HAL_WR(R_HAL_CTRL, HAL_CTRL(1u, bypass, 0u, 1u, nstage));
 }
 
-/* A control preset: the six tone stages from the tables and the peak-safe preamp. All six controls at zero is FLAT: the engine stays selected but bypassed. */
+/* Prepends the fixed infrasonic high-pass (hal_infra, stage 0 of every bank that is not bypassed: DC and infrasound protection first, so the boosts after it never see it) to `n` stages
+ * and commits. At most HAL_NST - 1 stages follow it. */
+HAL_FN void hal_hw_commit_with_infra(const int32_t *coef, uint32_t n, int32_t pre, uint32_t bypass)
+{
+    int32_t bank[HAL_NST * 5u];
+    if (n > HAL_NST - 1u) n = HAL_NST - 1u;
+    for (uint32_t k = 0; k < 5u; k++) bank[k] = hal_infra[k];
+    for (uint32_t i = 0; i < n * 5u; i++) bank[5u + i] = coef[i];
+    hal_hw_commit_bank(bank, n + 1u, pre, bypass);
+}
+
+/* A control preset: the infrasonic stage, the six tone stages from the tables and the peak-safe preamp. All six controls at zero is FLAT: the engine stays selected but bypassed
+ * (a true bypass: no infrasonic filter either, the bit-exact reference). */
 HAL_FN void hal_hw_apply_ctl(const hal_ctl_t *c)
 {
     uint8_t step[HAL_NSTAGE];
@@ -41,7 +53,7 @@ HAL_FN void hal_hw_apply_ctl(const hal_ctl_t *c)
         if (step[s] != 18u) flat = 0u;
         for (uint32_t k = 0; k < 5u; k++) bank[s * 5u + k] = hal_coef[s][step[s]][k];
     }
-    hal_hw_commit_bank(bank, HAL_NSTAGE, hal_preamp_q22(hal_atten_eighths(step)), flat);
+    hal_hw_commit_with_infra(bank, HAL_NSTAGE, hal_preamp_q22(hal_atten_eighths(step)), flat);
 }
 
 /* Takes the engine out of the audio path (eq_biquad drives the output again). */
