@@ -13,10 +13,10 @@
  * Every change goes through the same variables and side effects as the direct shortcuts
  * (which stay); nothing new is persisted; Screen blank is not persisted (as Select+Down). */
 
-/* The home is titled MENU. SET_DIAG is the SETTINGS group (Info, and in the Diagnostic Build a
- * DIAGNOSTICS group = SET_DGN with Tests, Stress and All speeds). The Library on/off toggle and
+/* The home is titled MENU: APPEARANCE, AUDIO, PLAYBACK, then (Diagnostic Build) DIAGNOSTICS = SET_DGN with Tests, Stress and the test switches, and INFO last. (alpha.4: the SETTINGS group
+ * that held Info and Diagnostics was removed; both moved up to the home.) The Library on/off toggle and
  * How it works page that used to live here were removed with legacy playlist mode. */
-enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_DIAG, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
+enum { SET_HOME = 0, SET_APPEAR, SET_AUDIO, SET_PLAY, SET_TESTS, SET_STRESS, SET_DGN, SET_MENUS };
 enum { CH_COLOUR = 0, CH_METER, CH_EQ, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOAK, CH_THEME, CH_MODE, CH_TEMPO, CH_RG, CH_N };
 #ifndef TAU_INFO_EXPORT
 #define TAU_INFO_EXPORT 1                /* the Info page's report-code export (A on the Info page): in the normal core too since alpha.4 (INFO_EXPORT=0 in fw/build.sh turns it off) */
@@ -59,7 +59,10 @@ typedef struct { const char *label; uint8_t type, arg; } set_row_t;
 static const set_row_t set_home_rows[] = {
     { "APPEARANCE", RT_GROUP, SET_APPEAR }, { "AUDIO", RT_GROUP, SET_AUDIO },
     { "PLAYBACK", RT_GROUP, SET_PLAY },
-    { "SETTINGS", RT_GROUP, SET_DIAG },
+#if TAU_DIAGNOSTIC
+    { "DIAGNOSTICS", RT_GROUP, SET_DGN },
+#endif
+    { "INFO", RT_GROUP, SET_INFO_PG },            /* always the last row of the menu */
 };
 static const set_row_t set_appear_rows[] = {
     { "COLOUR", RT_CHOICE, CH_COLOUR }, { "THEME", RT_CHOICE, CH_THEME }, { "MODE", RT_CHOICE, CH_MODE },
@@ -78,13 +81,7 @@ static const set_row_t set_play_rows[] = {
     , { "TEMPO", RT_CHOICE, CH_TEMPO }
 #endif
 };
-static const set_row_t set_diag_rows[] = {
-    { "INFO", RT_GROUP, SET_INFO_PG },
-#if TAU_DIAGNOSTIC
-    { "DIAGNOSTICS", RT_GROUP, SET_DGN },
-#endif
-};
-/* Diagnostic Build only: reached from SETTINGS > DIAGNOSTICS. */
+/* Diagnostic Build only: reached from MENU > DIAGNOSTICS. */
 static const set_row_t set_dgn_rows[] = {
 #if TAU_DIAGNOSTIC
     { "TESTS", RT_GROUP, SET_TESTS },
@@ -122,17 +119,17 @@ static const set_row_t set_stress_rows[] = {
     { "LEVEL", RT_CHOICE, CH_STRESS }, { "SOAK", RT_CHOICE, CH_SOAK },
     { "STATUS", RT_GROUP, SET_STAT_PG } };
 static const set_row_t *const set_menu_rows[SET_MENUS] = {
-    set_home_rows, set_appear_rows, set_audio_rows, set_play_rows, set_diag_rows,
+    set_home_rows, set_appear_rows, set_audio_rows, set_play_rows,
     set_tests_rows, set_stress_rows, set_dgn_rows };
 /* B-605: the Audio and Playback counts were hard-coded (2u, 4u): REPLAYGAIN, the third Audio row added in B-599, was never drawn or selectable. Always derive them from the tables. */
 static const uint8_t set_menu_n[SET_MENUS] = {
-    SET_COUNT(set_home_rows), SET_COUNT(set_appear_rows), SET_COUNT(set_audio_rows), SET_COUNT(set_play_rows), SET_COUNT(set_diag_rows), SET_COUNT(set_tests_rows),
+    SET_COUNT(set_home_rows), SET_COUNT(set_appear_rows), SET_COUNT(set_audio_rows), SET_COUNT(set_play_rows), SET_COUNT(set_tests_rows),
     SET_COUNT(set_stress_rows), SET_COUNT(set_dgn_rows) };
 static const char *const set_menu_title[SET_MENUS] = {
-    "MENU", "APPEARANCE", "AUDIO", "PLAYBACK", "SETTINGS", "TESTS", "STRESS", "DIAGNOSTICS" };
+    "MENU", "APPEARANCE", "AUDIO", "PLAYBACK", "TESTS", "STRESS", "DIAGNOSTICS" };
 /* Where B goes from each menu page. */
-static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME, SET_HOME, SET_HOME,
-    SET_DGN, SET_DGN, SET_DIAG };
+static const uint8_t set_menu_parent[SET_MENUS] = { SET_HOME, SET_HOME, SET_HOME, SET_HOME,
+    SET_DGN, SET_DGN, SET_HOME };
 static const char *const set_ch_title[CH_N] = { "COLOUR", "METER", "EQUALIZER", "REPEAT",
     "SCREEN BLANK", "SPEED", "STRESS LEVEL", "SOAK", "THEME", "MODE", "TEMPO", "REPLAYGAIN" };
 static const uint8_t set_ch_parent[CH_N] = { SET_APPEAR, SET_APPEAR, SET_AUDIO, SET_PLAY,
@@ -595,7 +592,7 @@ COLD_FN static void set_draw_menu(uint32_t p)
     uint32_t n = set_menu_n[p], top = set_top[p];
     ov_frame(set_menu_title[p], "",
              p == SET_HOME ? "A OPEN   B CLOSE"
-             : p == SET_DIAG || p == SET_STRESS || p == SET_DGN ? "A OPEN   B BACK" : p == SET_TESTS ? "A RUN   B BACK"
+             : p == SET_STRESS || p == SET_DGN ? "A OPEN   B BACK" : p == SET_TESTS ? "A RUN   B BACK"
              : "A CHANGE   B BACK");
     if (n > SET_MENU_VIS) {                      /* scroll track, as set_draw_choice()'s own */
         uint32_t tx = PL_UI_X + PL_UI_W - 11u, th = SET_LIST_H * SET_MENU_VIS / n;
@@ -1697,7 +1694,7 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
          * the count of valid `set_ro_top` positions (0..maxtop inclusive). */
         if (edge & KEY_UP)   { set_ro_top = helios_wrap_index(set_ro_top, maxtop + 1u, 1); set_dirty = 1u; }
         if (edge & KEY_DOWN) { set_ro_top = helios_wrap_index(set_ro_top, maxtop + 1u, 0); set_dirty = 1u; }
-        if ((edge & (KEY_B | KEY_LEFT)) && !rep) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_DIAG; set_dirty = 1u; }   /* Info -> SETTINGS */
+        if ((edge & (KEY_B | KEY_LEFT)) && !rep) { set_ro_top = 0u; set_page = (set_page == SET_STAT_PG) ? SET_STRESS : SET_HOME; set_dirty = 1u; }   /* Info -> the menu */
         return 1;
     }
 

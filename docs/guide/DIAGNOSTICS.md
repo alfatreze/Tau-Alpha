@@ -43,7 +43,7 @@ In the Diagnostic Build, **A** on the Info page shows the values as a QR code (s
 ## The Diagnostic Build (a separate core, for testers)
 
 A second core, **TAU Diagnostic Build**, is released beside the normal one (`alfatreze.TAU_DIAGNOSTIC_<version>_<date>.zip`). It is
-the same player on the same FPGA design, with the test menus switched on under **Settings > Diagnostics**. It installs next to TAU
+the same player on the same FPGA design, with the test menus switched on under **Menu > Diagnostics**. It installs next to TAU
 and has its own settings; use TAU for everyday listening, because the stress tests deliberately load the memory system.
 
 | Menu | What it is for |
@@ -67,7 +67,7 @@ only saved when you quit).
 
 ## Check: one button that produces a report (Diagnostic Build only)
 
-**Settings > Diagnostics > Check** runs a fixed set of checks while music keeps playing: the SDRAM and PSRAM memory tests and
+**Menu > Diagnostics > Check** runs a fixed set of checks while music keeps playing: the SDRAM and PSRAM memory tests and
 their speed, the cold-code path, the library, playback counters and what the start-up found. The result page lists each check as
 PASS, FAIL or SKIPPED (playback is skipped if nothing is playing) and gives a verdict. **B** stops a run, **Y** runs it again, **A**
 shows the report as a **QR code**.
@@ -105,7 +105,7 @@ Tau Omega (the companion app) can also decode these reports and list the card's 
 
 ## Meter Sweep and the other diagnostic pages
 
-**Settings > Diagnostics > Meter Sweep** measures every meter in turn with the real hardware counters (about 10 seconds per meter)
+**Menu > Diagnostics > Meter Sweep** measures every meter in turn with the real hardware counters (about 10 seconds per meter)
 and finishes with one QR code carrying a record per meter (draw stall, SDRAM busy share, underruns), so meters can be compared
 like for like. Start it with **A**; it uses the whole screen so the meters draw on the real player screen. When it finishes it
 reopens on its own result page: **B** closes, **A** shows the QR code. Method and the cost budget it checks against:
@@ -116,7 +116,7 @@ replay (decoded by `tools/decode_tau_suite.py`).
 
 ## Info QR export
 
-In the Diagnostic Build, **Settings > Info > A** shows the Info values as a titled QR code (firmware and FPGA revision, MP3 window
+In the Diagnostic Build, **Menu > Info > A** shows the Info values as a titled QR code (firmware and FPGA revision, MP3 window
 timing, free RAM, underruns, draw stall, load time, CPU load). Screenshot it and decode as above. The meter **Configure** page can
 export its settings as a QR the same way.
 

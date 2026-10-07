@@ -43,8 +43,6 @@ STATES = [
      "note": "Repeat choice list."},
     {"id": "settings-blank", "status": "model", "file": "settings-blank.framebuffer.png",
      "note": "Screen-blank choice list."},
-    {"id": "settings-diagnostics", "status": "model", "file": "settings-diagnostics.framebuffer.png",
-     "note": "Diagnostics group page (developer builds), one row: Info."},
     {"id": "settings-info", "status": "model", "file": "settings-info.framebuffer.png",
      "note": "Diagnostics Info page: 11 read-only live values, sample data; labels parsed from fw/settingsui.inc."},
     {"id": "settings-tests", "status": "model", "file": "settings-tests.framebuffer.png",

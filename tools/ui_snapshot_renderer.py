@@ -620,10 +620,10 @@ SAMPLE_VALUE = {"COLOUR": "AMBER", "THEME": "TAU", "MODE": "DARK", "METER": "OSC
 def settings_menu(page, selected):
     """set_draw_menu() fixture. page: 0 home, 1 appearance, 2 audio, 3 playback."""
     rows = _rows(("set_home_rows", "set_appear_rows", "set_audio_rows", "set_play_rows",
-                  "set_diag_rows", "set_tests_rows", "set_stress_rows", "set_dgn_rows")[page])
+                  "set_tests_rows", "set_stress_rows", "set_dgn_rows")[page])
     title = _names(SETTINGS_SRC, "set_menu_title")[page]
-    hint = ("A OPEN   B CLOSE" if page == 0 else "A OPEN   B BACK" if page in (4, 6, 7)
-            else "A RUN   B BACK" if page == 5 else "A CHANGE   B BACK")
+    hint = ("A OPEN   B CLOSE" if page == 0 else "A OPEN   B BACK" if page in (5, 6)
+            else "A RUN   B BACK" if page == 4 else "A CHANGE   B BACK")
     frame, g = ov_frame(title, "", hint)
     row_h = _sconst("SET_MENU_ROW_H")
     for i, (label, kind, _arg) in enumerate(rows):
@@ -882,11 +882,10 @@ FIXTURES = {
     "settings-appearance": lambda: settings_menu(1, 0),
     "settings-audio": lambda: settings_menu(2, 0),
     "settings-playback": lambda: settings_menu(3, 1),
-    "settings-diagnostics": lambda: settings_menu(4, 0),
     "settings-info": settings_info,
-    "settings-tests": lambda: settings_menu(5, 0),
-    "settings-stress": lambda: settings_menu(6, 0),
-    "settings-diagnostics-group": lambda: settings_menu(7, 0),
+    "settings-tests": lambda: settings_menu(4, 0),
+    "settings-stress": lambda: settings_menu(5, 0),
+    "settings-diagnostics-group": lambda: settings_menu(6, 0),
     "settings-check-idle": lambda: check_page("idle", ()),
     "settings-check-running": lambda: check_page("run", ["PASS"] * 5, running_step=5, countdown=9),
     "settings-check-pass": lambda: check_page("done", ["PASS"] * 7),
