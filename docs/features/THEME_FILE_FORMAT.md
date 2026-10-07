@@ -14,7 +14,7 @@ header : "TAUA" | version u16 = 1 | section_count u16 (<= 8) | crc32 of the sect
 table  : section_count x { tag[4] | offset u32 | length u32 | crc32 of the section u32 }                 (16 bytes each)
 data   : the sections; offsets are from the start of the file
 ```
-Sections today: `THEM` (themes) and `METR` (per-meter presets). Planned: `ICON`, `FONT`. The two fail independently. Unknown tags are ignored. The firmware caps the file at 1 KiB today.
+Sections today: `THEM` (themes) and `METR` (per-meter presets). Planned: `ICON`, `FONT`. The two fail independently. Unknown tags are ignored. The firmware reads at most 64 KiB (`AS_MAX_FILE`, B-628; it was 1 KiB): a file up to 4 KiB is read into the tag buffer as before, a larger one is staged window by window in PSRAM at `0xA4520000` (64 KiB; error code 36 = the PSRAM window could not be proven). `tools/tau_assets.py pack` enforces the same 64 KiB.
 
 ## Section `THEM`
 ```

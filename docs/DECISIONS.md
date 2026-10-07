@@ -95,3 +95,6 @@ needs an access-pattern review and owner approval (D-M07).
 
 ## Headphone measurement gates, 2026-10-07
 - **D-G01: the headphone developments listed in `docs/features/CYMO_RECORDING_PLAN_DEV105.md` section 5 are gated on its recordings** (G-FLOOR, G-HWGAIN, G-A16, G-SPUR, G-LOAD, G-ISP). Nothing in a gated row is built, defaulted or shipped before its gate opens; the ungated list in the same section may proceed. A gate opens only when the owner's recordings have been analysed and the result recorded in `AUDIT_TRAIL.md` against the predictions written beforehand.
+
+## Assets container, 2026-10-07
+- **D-A01: `tau-assets.bin` stays ONE file in data slot 8 and its read limit is lifted from 1 KiB to 64 KiB by a chunked read into a PSRAM staging area (B-628).** Rejected for now: a new data slot (id 9) or a second bin for large Halcyon data, and sharing the cold-image file (it is strictly paired with the ROM by a layout id). **Owner: review this arrangement once Cymo is fully shipped** (in particular where the EQCO tables and a full correction-preset library should live); until then it stands.
