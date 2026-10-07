@@ -11,12 +11,15 @@
 #include "library_core.h"      /* lib_crc_update, lib_ld16/32 */
 #include "meter_module.h"       /* mtr_data_t: METR presets are validated against the compiled parameter tables */
 
+#ifndef AS_FN
+#define AS_FN static            /* the firmware defines this as COLD_FN static for the helpers two cold callers share (as_find), so the compiler does not outline them into hot RAM */
+#endif
 enum { AS_OK = 0, AS_E_READ = 30, AS_E_MAGIC = 31, AS_E_VERSION = 32, AS_E_SIZE = 33, AS_E_CRC = 34, AS_E_NOTHEME = 35, AS_E_PSRAM = 36 };
 #define AS_MAX_SECTIONS 8u
 #define AS_MAX_FILE     0x10000u     /* 64 KiB: the format's own limit (section offsets and lengths are checked against 0xFFFF) and the size of the PSRAM staging area */
 #define AS_NOFILE       (-1)         /* as_load(): the slot has no file: not an error */
 
-static uint32_t as_crc(const uint8_t *p, uint32_t n) { return LIB_CRC_DONE(lib_crc_update(LIB_CRC_INIT, p, n)); }
+AS_FN uint32_t as_crc(const uint8_t *p, uint32_t n) { return LIB_CRC_DONE(lib_crc_update(LIB_CRC_INIT, p, n)); }
 
 /* Bytes the whole file must have, from its first 12 + 16*sections bytes (the header and table); 0 = not a valid header. */
 static uint32_t as_total_size(const uint8_t *b, uint32_t have)
@@ -75,7 +78,7 @@ static int as_load(lib_read_fn rd, void *ctx, uint8_t *win, volatile uint8_t *sc
 }
 
 /* Finds section `tag` in a whole file of `len` bytes; checks version, table CRC and that section's CRC. */
-static int as_find(const uint8_t *b, uint32_t len, const char *tag, uint32_t *off, uint32_t *n)
+AS_FN int as_find(const uint8_t *b, uint32_t len, const char *tag, uint32_t *off, uint32_t *n)
 {
     if (len < 12u || b[0] != 'T' || b[1] != 'A' || b[2] != 'U' || b[3] != 'A') return AS_E_MAGIC;
     if (lib_ld16(b + 4) != 1u) return AS_E_VERSION;

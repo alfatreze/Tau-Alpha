@@ -77,4 +77,7 @@ COLD_FN static void th_assets_load(void)
     if (e) { th_file_err = mf_err = (uint8_t)e; return; }
     th_assets_themes(base, total);
     th_assets_meters(base, total);
+#if TAU_HALCYON_FW
+    hal_prst_load(base, total, (const uint8_t *)base == (const uint8_t *)(uintptr_t)ASSETS_PSRAM_BASE, assets_psram_ok);   /* B-641: Halcyon user presets (PRST) */
+#endif
 }

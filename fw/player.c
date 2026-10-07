@@ -7269,6 +7269,7 @@ static void ui_draw_dynamic(void)
 #pragma GCC push_options
 #pragma GCC optimize ("Os")
 #include "library.inc"
+#include "halcyon.inc"     /* B-640/B-641: the Halcyon selector and the PRST user presets (before assets.inc, whose loader hands it the file) */
 #include "assets.inc"     /* theme step 0d: extra themes from tau-assets.bin (data slot 8) */
 #pragma GCC pop_options
 #if TAU_ART_TIMG
@@ -7277,7 +7278,6 @@ static void ui_draw_dynamic(void)
 /* Settings is menu code with no timing role; size-optimise it in the library build, where RAM is the constraint. */
 #pragma GCC push_options
 #pragma GCC optimize ("Os")
-#include "halcyon.inc"
 #include "settings.inc"
 #include "settingsui.inc"
 #pragma GCC pop_options
