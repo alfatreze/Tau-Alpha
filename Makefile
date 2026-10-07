@@ -338,8 +338,8 @@ test-rtl-halcyon: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt $(RTL_
 test-rtl-halcyon-mutation: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt $(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt | $(RTL_BUILD_DIR)
 	@set -e; for b in 1 2 3 4 5 6 7 9; do $(IVERILOG) -g2012 -DHW=16 -DHBUG=$$b -o $(RTL_BUILD_DIR)/halcyon_mut.vvp $(HALCYON_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED: tau_halcyon BUG=$$b"; exit 1; fi; done
-	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -DHBUG=11 -o $(RTL_BUILD_DIR)/halcyon_tick_mut.vvp sim/tb_halcyon_tick.v src/fpga/core/tau_halcyon.sv src/fpga/core/eq_biquad.v; \
-	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_tick_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_halcyon BUG=11 (the integer tick divider)"; else echo "MUTANT SURVIVED: tau_halcyon BUG=11"; exit 1; fi
+	@set -e; for b in 11 12; do $(IVERILOG) -g2012 -Isrc/fpga/core -DHBUG=$$b -o $(RTL_BUILD_DIR)/halcyon_tick_mut.vvp sim/tb_halcyon_tick.v src/fpga/core/tau_halcyon.sv src/fpga/core/eq_biquad.v; \
+	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_tick_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_halcyon BUG=$$b (11 integer tick divider, 12 per-channel output update)"; else echo "MUTANT SURVIVED: tau_halcyon BUG=$$b"; exit 1; fi; done
 	@set -e; for b in 6 10; do $(IVERILOG) -g2012 -DHWI=18 -DHWO=16 -DHIFB=0 -DHOFB=0 -DHBUG=$$b '-DHVEC="$(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt"' -o $(RTL_BUILD_DIR)/halcyon_mut.vvp $(HALCYON_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed (wide input): tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED (wide input): tau_halcyon BUG=$$b"; exit 1; fi; done
 

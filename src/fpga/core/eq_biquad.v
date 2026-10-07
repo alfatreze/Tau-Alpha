@@ -178,13 +178,19 @@ module eq_biquad #(
     endfunction
 
     reg signed [15:0] eq_l, eq_r;
+    // B-649: the channels finish ~80 clocks apart and the I2S writer pushes a word whenever EITHER output changes: updating one channel at a time handed the serializer a torn
+    // pair (this sample's left, the last sample's right) in a few percent of the frames. Both outputs now change in the SAME clock, from `pair_l/pair_r`.
+    reg signed [15:0] pair_l, pair_r;
+    reg               pair_go;
 
     always @(posedge clk) begin
+        pair_go <= 1'b0;                          // default: a one-clock pulse set when the right channel finishes
         if (rst) begin
             busy <= 1'b0; bq <= 4'd0; k <= K_B0;
             smp  <= {SW{1'b0}}; acc <= {AW{1'b0}};
             p_reg <= {AW{1'b0}}; ph <= 1'b0;
             eq_l <= 16'sd0; eq_r <= 16'sd0;
+            pair_l <= 16'sd0; pair_r <= 16'sd0; pair_go <= 1'b0;
             out_l <= 16'sd0; out_r <= 16'sd0;
             r_hold <= 16'sd0;
             for (i = 0; i < NBQ*4; i = i + 1) st[i] <= {SW{1'b0}};
@@ -246,6 +252,7 @@ module eq_biquad #(
                         smp  <= {{(SW-16-FS){r_hold[15]}}, r_hold, {FS{1'b0}}};
                     end else begin                     // finished right
                         eq_r <= clamp16(smp);
+                        pair_go <= 1'b1;
                         busy <= 1'b0;
                         k    <= K_B0;
                     end
@@ -258,8 +265,9 @@ module eq_biquad #(
         // coefficients. The engine keeps running underneath so its state stays
         // warm and switching away from FLAT does not start from silence.
         if (!rst) begin
-            out_l <= (preset == 3'd0) ? in_l : eq_l;
-            out_r <= (preset == 3'd0) ? in_r : eq_r;
+            if (pair_go) begin pair_l <= eq_l; pair_r <= eq_r; end
+            out_l <= (preset == 3'd0) ? in_l : pair_l;
+            out_r <= (preset == 3'd0) ? in_r : pair_r;
         end
     end
 
