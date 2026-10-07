@@ -11,7 +11,7 @@ Rule (D-G01): nothing in a gated row of `CYMO_RECORDING_PLAN_DEV105.md` section 
 | A4 | Gapless groundwork | load-latency counter (file end to first new sample), LAME delay/padding parsing with host tests; FLAC no-flush boundary and absolute priming threshold as design notes | |
 | A5 | Halcyon firmware and data layer | six-control to stage-gain macro layer, `EQCO`/`PRST` data format with golden vectors, AutoEQ `ParametricEQ.txt` import spec for Tau Omega, tuning-lab HTML page | |
 | A6 | Info row for the hardware gain (target, current, fading) | diagnostic aid for session 2; reaches the card with the next build | |
-| A7 | Spec edits: infrasonic stage 15-20 Hz, 17-stage engine sizing, peak-safe preamp default | documentation | |
+| A7 | Spec edits: infrasonic stage 15-20 Hz, 17-stage engine sizing, peak-safe preamp default | documentation | **DONE B-623** |
 | A8 | Host models for the gated branches: final quantiser with ceiling parameter, true-peak limiter (4x oversampled detection) | cheap on the host; ready when G-FLOOR / G-ISP open | **True-peak limiter DONE B-622** (model + 8 checks); the final quantiser with ceiling parameter already exists as `cymo_out_model.py` (dither, soft clip); a ceiling-aware quantiser model waits for G-FLOOR |
 
 ## B. VM fits (one at a time)
