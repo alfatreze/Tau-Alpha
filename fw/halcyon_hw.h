@@ -19,7 +19,7 @@ HAL_FN uint32_t hal_hw_present(void) { return (REG(R_HAL_CTRL) >> 31) & 1u; }
 
 /* Writes `nstage` biquads (b0 b1 b2 a1 a2 each, Q2.22) and the preamp (Q2.22) into the shadow bank, commits it, and enables the engine; `bypass` keeps the engine running
  * but passes the input through (FLAT). A clear pulse follows, so the new filter starts from silence (a recall is done inside a gain dip, the caller's job). */
-HAL_FN void hal_hw_commit_bank(const int32_t *coef, uint32_t nstage, int32_t pre, uint32_t bypass)
+HAL_FN void hal_hw_commit_bank(const int32_t *coef, uint32_t nstage, int32_t pre, uint32_t bypass, uint32_t clear)
 {
     if (nstage > HAL_NST) nstage = HAL_NST;
     HAL_WR(R_HAL_IDX, 0u);
@@ -27,23 +27,24 @@ HAL_FN void hal_hw_commit_bank(const int32_t *coef, uint32_t nstage, int32_t pre
     HAL_WR(R_HAL_IDX, HAL_PRE_IDX);
     HAL_WR(R_HAL_DATA, (uint32_t)pre & 0xFFFFFFu);
     HAL_WR(R_HAL_CTRL, HAL_CTRL(1u, bypass, 1u, 0u, nstage));
-    HAL_WR(R_HAL_CTRL, HAL_CTRL(1u, bypass, 0u, 1u, nstage));
+    if (clear) HAL_WR(R_HAL_CTRL, HAL_CTRL(1u, bypass, 0u, 1u, nstage));
 }
 
 /* Prepends the fixed infrasonic high-pass (hal_infra, stage 0 of every bank that is not bypassed: DC and infrasound protection first, so the boosts after it never see it) to `n` stages
  * and commits. At most HAL_NST - 1 stages follow it. */
-HAL_FN void hal_hw_commit_with_infra(const int32_t *coef, uint32_t n, int32_t pre, uint32_t bypass)
+HAL_FN void hal_hw_commit_with_infra(const int32_t *coef, uint32_t n, int32_t pre, uint32_t bypass, uint32_t clear)
 {
     int32_t bank[HAL_NST * 5u];
     if (n > HAL_NST - 1u) n = HAL_NST - 1u;
     for (uint32_t k = 0; k < 5u; k++) bank[k] = hal_infra[k];
     for (uint32_t i = 0; i < n * 5u; i++) bank[5u + i] = coef[i];
-    hal_hw_commit_bank(bank, n + 1u, pre, bypass);
+    hal_hw_commit_bank(bank, n + 1u, pre, bypass, clear);
 }
 
 /* A control preset: the infrasonic stage, the six tone stages from the tables and the peak-safe preamp. All six controls at zero is FLAT: the engine stays selected but bypassed
  * (a true bypass: no infrasonic filter either, the bit-exact reference). */
-HAL_FN void hal_hw_apply_ctl(const hal_ctl_t *c)
+/* `clear` 1 = a recall (the new filter starts from silence, inside a gain dip); 0 = a live control move (the state keeps running: no click from the clear). */
+HAL_FN void hal_hw_apply_ctl_x(const hal_ctl_t *c, uint32_t clear)
 {
     uint8_t step[HAL_NSTAGE];
     int32_t bank[HAL_NSTAGE * 5];
@@ -53,8 +54,10 @@ HAL_FN void hal_hw_apply_ctl(const hal_ctl_t *c)
         if (step[s] != 18u) flat = 0u;
         for (uint32_t k = 0; k < 5u; k++) bank[s * 5u + k] = hal_coef[s][step[s]][k];
     }
-    hal_hw_commit_with_infra(bank, HAL_NSTAGE, hal_preamp_q22(hal_atten_eighths(step)), flat);
+    hal_hw_commit_with_infra(bank, HAL_NSTAGE, hal_preamp_q22(hal_atten_eighths(step)), flat, clear);
 }
+HAL_FN void hal_hw_apply_ctl(const hal_ctl_t *c) { hal_hw_apply_ctl_x(c, 1u); }
+HAL_FN void hal_hw_apply_ctl_live(const hal_ctl_t *c) { hal_hw_apply_ctl_x(c, 0u); }
 
 /* Takes the engine out of the audio path (eq_biquad drives the output again). */
 HAL_FN void hal_hw_off(void) { HAL_WR(R_HAL_CTRL, HAL_CTRL(0u, 0u, 0u, 0u, 0u)); }

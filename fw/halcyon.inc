@@ -18,6 +18,8 @@
 #define HAL_USER       ((const uint8_t *)(uintptr_t)HAL_PRST_PSRAM)
 static uint8_t  hal_user_n;
 static uint16_t hal_user_off[HP_MAX_PRESETS];
+#define HAL_SEL_CUSTOM 200u              /* hal_sel while the controls on the Halcyon page are the user's own (not a preset) */
+static hal_ctl_t hal_c;                 /* the six controls last set on the Halcyon page (fw/halcyon_page.inc) */
 static uint8_t hal_sel;                 /* 0 = engine off (the old EQ drives the output), 1..HAL_NPRESET = built-in preset index + 1, then the user presets */
 
 /* Called by th_assets_load() with the whole file in memory. `staged`: base is the PSRAM staging area already (a large file); otherwise `prove` must say the PSRAM window is usable. */
@@ -40,10 +42,11 @@ COLD_FN static void hal_apply_sel(void)
 {
     if (!hw_hal) return;
     if (hal_sel == 0u) { hal_hw_off(); return; }
+    if (hal_sel == HAL_SEL_CUSTOM) { hal_hw_apply_ctl(&hal_c); return; }
     if (hal_sel > HAL_NPRESET) {                                 /* a user preset from the PRST section */
         hal_ctl_t uc; int32_t coef[HP_MAX_RAW_STAGES * 5u], pre = 0;
         const uint32_t ns = hp_entry(HAL_USER + hal_user_off[hal_sel - HAL_NPRESET - 1u], &uc, coef, &pre);
-        if (ns) hal_hw_commit_with_infra(coef, ns, pre, 0u); else hal_hw_apply_ctl(&uc);
+        if (ns) hal_hw_commit_with_infra(coef, ns, pre, 0u, 1u); else hal_hw_apply_ctl(&uc);
         return;
     }
     hal_ctl_t c;
@@ -52,10 +55,20 @@ COLD_FN static void hal_apply_sel(void)
     hal_hw_apply_ctl(&c);
 }
 
+/* A preset recall (clear included) inside a gain dip, as B-620: the change of filter and preamp is not a step in the listener's ears. */
+COLD_FN static void hal_apply_sel_dipped(void)
+{
+    if (!hw_hal) return;
+    gain_dip_begin();
+    hal_apply_sel();
+    gain_dip_end();
+}
+
 /* A on the row: the next preset (after the last, back to OFF), inside a gain dip so the change of filter and preamp is not a step in the listener's ears (B-620). */
 COLD_FN static void hal_cycle(void)
 {
     if (!hw_hal) return;
+    if (hal_sel >= HAL_SEL_CUSTOM) hal_sel = 0u;                  /* from the Halcyon page's own controls, the cycle restarts at OFF */
     gain_dip_begin();
     hal_sel = (uint8_t)((hal_sel + 1u) % (HAL_NPRESET + 1u + hal_user_n));
     hal_apply_sel();
@@ -66,6 +79,7 @@ COLD_FN static const char *hal_row_text(void)
 {
     if (!hw_hal) return "NO UNIT";
     if (hal_sel == 0u) return "OFF";
+    if (hal_sel == HAL_SEL_CUSTOM) return "CUSTOM";
     if (hal_sel > HAL_NPRESET) return hp_name(HAL_USER + hal_user_off[hal_sel - HAL_NPRESET - 1u]);
     return hal_preset_name[hal_sel - 1u];
 }

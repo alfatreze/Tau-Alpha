@@ -65,6 +65,8 @@ def render():
     if not g.stable([ic]):
         raise SystemExit("the infrasonic stage is unstable at Q2.22")
     o.append(f"/* the fixed infrasonic stage: second-order high-pass {m.INFRA_HZ:g} Hz, Q {m.INFRA_Q:g}, Q2.22 b0 b1 b2 a1 a2; always first in the bank, before the tone stages */")
+    o.append("/* the infrasonic stage's magnitude on the same 40-point grid, 1/64 dB (the curve on the Halcyon page includes it) */")
+    o.append("HAL_TAB static const int16_t hal_infra_mag[HAL_NGRID] = {" + ",".join(str(int(round(g.response_db([ic], f) * 64.0))) for f in FREQS) + "};")
     o.append("HAL_TAB static const int32_t hal_infra[5] = {" + ",".join(str(v) for v in ic) + "};")
     o.append("/* the built-in control presets (tools/lab/halcyon_model.py PRESETS): name and warmth, bass, vocal, punch, sibilance, air */")
     o.append("HAL_TAB static const char hal_preset_name[HAL_NPRESET][11] = {" + ",".join('"%s"' % p[0] for p in m.PRESETS) + "};")

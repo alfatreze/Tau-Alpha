@@ -43,6 +43,13 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #define SET_METERTRACE_PG ((uint8_t)(SET_METERSWEEP_PG + 1u)) /* Meter trace recorder, M3 (fw/suite.inc) */
 #define SET_PIXGRID_PG ((uint8_t)(SET_METERTRACE_PG + 1u))    /* Pixel grid fidelity test, barcode study (fw/suite.inc) */
 #endif
+#if TAU_HALCYON_FW
+#if TAU_DIAGNOSTIC
+#define SET_HAL_PG ((uint8_t)(SET_PIXGRID_PG + 1u))    /* Halcyon: six controls and the live response curve (fw/halcyon_page.inc) */
+#else
+#define SET_HAL_PG ((uint8_t)(SET_WVIZCFG_PG + 1u))
+#endif
+#endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
 enum { TG_ART = 0, TG_SPEEDS, TG_RATES, TG_CYMO, TG_OUT16, TG_GAIN, TG_HAL };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
@@ -60,7 +67,11 @@ static const set_row_t set_appear_rows[] = {
     { "METER: CONFIGURE", RT_GROUP, SET_WVIZCFG_PG },
     { "ALBUM ART", RT_TOGGLE, TG_ART }, { "SCREEN BLANK", RT_CHOICE, CH_BLANK } };
 static const set_row_t set_audio_rows[] = {
-    { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 }, { "REPLAYGAIN", RT_CHOICE, CH_RG } };
+    { "EQUALIZER", RT_CHOICE, CH_EQ }, { "VOLUME", RT_VOL, 0 }, { "REPLAYGAIN", RT_CHOICE, CH_RG }
+#if TAU_HALCYON_FW
+    , { "HALCYON", RT_GROUP, SET_HAL_PG }
+#endif
+};
 static const set_row_t set_play_rows[] = {
     { "REPEAT", RT_CHOICE, CH_REPEAT }, { "SPEED", RT_CHOICE, CH_SPEED }
 #if TAU_TEMPO
@@ -1353,9 +1364,13 @@ static int wvcfg_input(uint32_t edge)
  * exactly mirror the ones on each page's own definition (SET_CHECK_PG etc., lines ~26-40) and on
  * suite.inc's own #include (TAU_DIAGNOSTIC) -- a page that would not compile in this build simply has
  * no row, same as the old chains simply had no branch for it. */
+#include "halcyon_page.inc"
 typedef struct { uint8_t page; void (*draw)(void); int (*input)(uint32_t); void (*open)(void); } set_spg_t;
 static const set_spg_t set_spg[] = {
     { SET_WVIZCFG_PG, wvcfg_draw, wvcfg_input, wvcfg_open },
+#if TAU_HALCYON_FW
+    { SET_HAL_PG, hal_pg_draw, hal_pg_input, hal_pg_open },
+#endif
 #if TAU_DIAGNOSTIC
     { SET_CHECK_PG, chk_draw, chk_input, chk_open },
 #if MP3_PROFILE || FLAC_PROFILE

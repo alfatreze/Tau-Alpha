@@ -50,6 +50,8 @@ test-host:
 	$(PYTHON) sim/test_halcyon_core.py
 	$(PYTHON) sim/test_halcyon_hw.py
 	$(PYTHON) sim/test_halcyon_prst.py
+	$(PYTHON) sim/test_halcyon_curve.py
+	$(PYTHON) sim/test_halcyon_page.py
 	$(PYTHON) tools/make_halcyon_test_assets.py selftest
 	$(PYTHON) sim/test_halcyon_lab.py
 	$(PYTHON) sim/test_cymo_out_model.py
