@@ -87,7 +87,8 @@ PSRAM window `0xA4000000`, 32 MiB, uncached, 32 read / 26 write cycles [HW, KB-0
 | `+0x010000` .. `+0x40FFFF` | library index image (4 MiB cap) |
 | `+0x410000` .. `+0x50FFFF` | reserved (thumbnail page cache, deferred) |
 | `+0x510000` .. `+0x51FFFF` | queue / shuffle order u16[16,384] (32 KiB) + play history |
-| `+0x520000` .. | reserved (blit engine, later features) |
+| `+0x520000` .. `+0x52FFFF` | `tau-assets.bin` staging for files over one 4 KiB window (`ASSETS_PSRAM_BASE`, 64 KiB, B-628) |
+| `+0x530000` .. | reserved (blit engine, later features); the tempo staging ring is at `+0x600000` |
 SDRAM is not used. BRAM budget for the feature (state only): under 1 KiB [EST] (browse stack, cursors, counts, a 256 B path buffer, a 64 B string scratch). Strings are read from PSRAM into that scratch for drawing.
 
 ## 5. Load and browse behaviour, latency targets

@@ -30,3 +30,6 @@ Tau Omega decoders and parsers; one Pocket run of the merged pixel-grid tree (ow
 
 ## Order of work chosen by the owner (2026-10-07)
 Start with A1 (FLAC rounding), A2 (toggle ramps), A3 (crossfeed model and WAVs), the B1 fit and B2 experiment on the free VM, and A8 (host models), in that order where they do not conflict; items 1 and 3 and the VM fit run at the same time.
+
+## Added 2026-10-07
+A9 **Assets read limit lifted to 64 KiB** (chunked PSRAM read, B-628, D-A01): DONE on the host and in firmware (cold code, release heap gap unchanged); needs a Pocket test with a file over 4 KiB. The owner will review the one-container arrangement after Cymo is fully shipped.

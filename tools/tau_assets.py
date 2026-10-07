@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import gen_themes as gt  # noqa: E402
 
 FILE_MAX_THEMES = 4          # fw/theme.h TH_FILE_MAX
+FILE_MAX_BYTES = 0x10000     # fw/assets_core.h AS_MAX_FILE (B-628: was 1024); up to 4096 bytes is read into the tag buffer as before, larger files go through the PSRAM staging area
 NAME_LEN = 16
 ASSETS_MAGIC, THEM_MAGIC = b"TAUA", b"TTHM"
 VERSION = 1
@@ -225,8 +226,8 @@ def cmd_pack(a):
     if not secs:
         raise ValueError("nothing to pack: give theme files and/or --meters")
     blob = pack_container(secs)
-    if len(blob) > 1024:
-        raise ValueError(f"file is {len(blob)} bytes; the firmware reads at most 1024")
+    if len(blob) > FILE_MAX_BYTES:
+        raise ValueError(f"file is {len(blob)} bytes; the firmware reads at most {FILE_MAX_BYTES} (fw/assets_core.h AS_MAX_FILE; files over 4096 bytes are staged in PSRAM)")
     Path(a.output).write_bytes(blob)
     print(f"wrote {a.output}: {len(blob)} bytes, {len(themes)} theme(s), sections: " + ", ".join(t.decode() for t, _ in secs))
 
