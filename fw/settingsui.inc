@@ -641,7 +641,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 35u   /* B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS 36u   /* B-625: +1 for HW GAIN (the hardware gain stage: owner, target, current gain, fading). B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -709,6 +709,7 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "LW COST"
     , "HEADROOM"
     , "REPLAYGAIN"
+    , "HW GAIN"
     };
 static uint32_t set_info_at;
 
@@ -946,6 +947,18 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         }
         q = set_str(q, " H"); q = ui_dec(q, rg_cur.have);
         q = set_str(q, " W"); q = ui_dec(q, set_rd32(SW_POL));
+        break;
+    }
+    case 35: {   /* HW GAIN (B-625): who owns the gain (HW = the hardware stage, SW = the firmware path, NO UNIT = bitstream without the stage), the target and the gain in force (Q15, 32768 = unity), and F1 while a fade-in runs */
+#if TAU_DIAGNOSTIC
+        if (!hw_gain) { q = set_str(q, "NO UNIT"); break; }
+        q = set_str(q, vol_st.hw ? "HW" : "SW");
+        q = set_str(q, " T"); q = ui_dec(q, REG(R_GAIN_TARGET) & 0xFFFFu);
+        q = set_str(q, " C"); q = ui_dec(q, REG(R_GAIN_CUR) & 0xFFFFu);
+        q = set_str(q, " F"); q = ui_dec(q, (REG(R_GAIN_CTRL) >> 2) & 1u);
+#else
+        q = set_str(q, "-");
+#endif
         break;
     }
     case 32:   /* LW COST (B-519): commands in the last draw, CPU time to issue it, and how much of that was reading the PSRAM history (lw_unwrap) */
