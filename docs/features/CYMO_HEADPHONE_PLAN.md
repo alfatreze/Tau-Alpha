@@ -124,3 +124,6 @@ Direct monitoring only mixes the input to the interface's own headphone output; 
 
 ## 13. Gating (D-G01)
 The measurement plan is saved as `CYMO_RECORDING_PLAN_DEV105.md`; its section 5 lists which items of the ranked table in section 9 are gated on which measurement (G-FLOOR, G-HWGAIN, G-A16, G-SPUR, G-LOAD, G-ISP) and which may proceed now. Rows 2 (gain-stage extensions), 3 (quantiser, ceiling), 5 (correction) and 7 are gated; rows 1, 4 (model and listening) and 6 (measurement only) are not.
+
+## 14. Pocket system volume (owner, 2026-10-07)
+The Pocket's own volume has no numeric display: only + and -, a maximum and a minimum, 31 clicks between them. For measurements it is defined from an end stop (maximum = click 0, `dN` = N clicks down) and characterised by `sysvol_48000.flac` and `cymo_isp.py sysvol` (recording plan session 1b). It also answers the open question of section 12 (is the Pocket's system volume analogue or digital, and where is the noise generated). The earlier recordings used an unknown position and are a pre-baseline only.

@@ -112,6 +112,15 @@ def hot():
 
 
 KINDS = {'ladder': ladder, 'imd': imd, 'hot': hot}
+SYSVOL_S = 6.0
+
+
+def sysvol_signal():
+    """6 s of digital silence, 6 s of 1 kHz at -6 dBFS, 6 s of silence: one recording per Pocket system-volume position gives the tone level and the noise floor at that position."""
+    n = _n(SYSVOL_S)
+    k = np.arange(n)
+    tone = 0.5 * np.sin(2 * np.pi * 1000.0 * k / RATE)
+    return np.concatenate([np.zeros(n), _q(tone) / 32767.0, np.zeros(n)])
 
 
 def gen(outdir):
@@ -130,6 +139,9 @@ def gen(outdir):
         c._write_flac(path, pcm, RATE)
         manifest[name] = meta
         print('%-24s %5.1f MB  %s' % (name, os.path.getsize(path) / 1e6, '; '.join('%+.1f/%+.2f' % (m.get('true_db', m.get('level_db')), m['sample_peak_db']) if kind != 'hot' else '%s peak %.2f true %.2f' % (m['name'], m['sample_peak_db'], m['true_peak_db_measured']) for m in meta)))
+    sv = sysvol_signal()
+    c._write_flac(os.path.join(outdir, 'sysvol_48000.flac'), [(int(v), int(v)) for v in _q(sv)], RATE)
+    print('%-24s %5.1f MB  6 s silence, 6 s 1 kHz -6 dBFS, 6 s silence (Pocket system-volume characterisation)' % ('sysvol_48000.flac', os.path.getsize(os.path.join(outdir, 'sysvol_48000.flac')) / 1e6))
     with open(os.path.join(outdir, 'isp_manifest.json'), 'w') as f:
         json.dump(manifest, f, indent=1)
     print('\nManifest: isp_manifest.json. Copy the three FLAC files into a core\'s Assets/<core>/common/ folder (card write: ask first) and rescan the library.')
@@ -271,6 +283,57 @@ def analyze_hot(x, rate=RATE):
             'summary': '%s (%d spectral lines, gain step %.2f dB, deviation p95 %.2f dB, max %.2f dB)' % (verdict, int(lines.sum()), float(np.median(ratio)), p95, mx)}
 
 
+def analyze_sysvol(x, rate=RATE):
+    """One sysvol recording: tone level, and the noise (AC RMS, dBFS) in the silence before and after the tone."""
+    secs = find_sections(x, rate, min_s=3.0)
+    if len(secs) != 1:
+        return {'error': 'found %d tone sections, expected 1' % len(secs)}
+    a, b = secs[0]
+    m = int(0.7 * rate)
+    amp, f = fit_tone(_mid(x, a, b), 1000.0, rate)
+
+    def rms(seg):
+        seg = seg - seg.mean()
+        return 20 * math.log10(max(float(np.sqrt(np.mean(seg ** 2))), 1e-12))
+    pre, post = x[m:a - m], x[b + m:len(x) - int(0.2 * rate)]
+    noise = 10 * math.log10((10 ** (rms(pre) / 10) + 10 ** (rms(post) / 10)) / 2)
+    tone_rms = 20 * math.log10(max(amp, 1e-12) / math.sqrt(2))
+    return {'tone_dbfs': round(20 * math.log10(max(amp, 1e-12)), 2), 'noise_dbfs': round(noise, 2), 'snr_db': round(tone_rms - noise, 2), 'freq': round(f, 2)}
+
+
+def sysvol_table(paths, channel=0):
+    import re
+    rows = []
+    for p in paths:
+        rate, x = c.read_wav(p, channel)
+        r = analyze_sysvol(np.asarray(x, float), rate)
+        m = re.search(r'_d(\d+)', os.path.basename(p))
+        r['clicks'] = int(m.group(1)) if m else len(rows)
+        r['file'] = os.path.basename(p)
+        rows.append(r)
+    rows.sort(key=lambda r: r['clicks'])
+    ok = [r for r in rows if 'error' not in r]
+    for i, r in enumerate(ok):
+        r['step_db'] = round((r['tone_dbfs'] - ok[i - 1]['tone_dbfs']) / max(r['clicks'] - ok[i - 1]['clicks'], 1), 2) if i else None
+    return rows, classify_sysvol(ok)
+
+
+def classify_sysvol(ok):
+    """Where is the noise generated? Compare how the tone and the idle noise move between the loudest and the quietest position."""
+    if len(ok) < 3:
+        return 'need at least 3 positions'
+    dt = ok[0]['tone_dbfs'] - ok[-1]['tone_dbfs']
+    dn = ok[0]['noise_dbfs'] - ok[-1]['noise_dbfs']
+    if dt < 6:
+        return 'the tone level hardly changes with the system volume (%.1f dB): check the positions' % dt
+    ratio = dn / dt
+    if ratio < 0.3:
+        return 'noise is FIXED (%.1f dB for a %.1f dB tone change): generated after the volume stage; SNR falls with the volume' % (dn, dt)
+    if ratio > 0.7:
+        return 'noise FOLLOWS the volume (%.1f dB for a %.1f dB tone change): generated before the volume stage; SNR roughly constant' % (dn, dt)
+    return 'noise partly follows the volume (%.1f dB for a %.1f dB tone change): two sources, one before and one after the stage' % (dn, dt)
+
+
 def print_result(kind, r):
     if 'error' in r:
         print('ERROR: ' + r['error'])
@@ -348,6 +411,23 @@ def selftest(verbose=True):
     # a chain with headroom (clips at +3.5 dB) is clean for everything we send
     r = analyze_ladder(_recording('ladder', _clip_chain(10 ** (3.5 / 20))))
     check('clip at +3.5 dB: ladder clean (the files cannot exceed +3 dB)', 'rows' in r and all(q['verdict'] == 'ok' for q in r['rows']), r.get('summary', r.get('error', '')))
+    # system-volume characterisation: noise after the volume stage (fixed) versus before it (follows)
+    sv = sysvol_signal()
+    rng = np.random.default_rng(3)
+    def rec(att_db, before):
+        g = 10 ** (-att_db / 20)
+        n_fix, n_pre = 10 ** (-76 / 20), 10 ** (-76 / 20)
+        if before:
+            return (sv + rng.normal(0, n_pre, len(sv))) * g + rng.normal(0, 1e-6, len(sv))
+        return sv * g + rng.normal(0, n_fix, len(sv))
+    for before, want in ((False, 'FIXED'), (True, 'FOLLOWS')):
+        ok = []
+        for i, att in enumerate((0, 6, 12, 24, 40)):
+            r = analyze_sysvol(rec(att, before))
+            r['clicks'] = i
+            ok.append(r)
+        v = classify_sysvol(ok)
+        check('sysvol: noise %s the stage is classified %s' % ('before' if before else 'after', want), v.split()[1] == want or want in v, v)
     return fails
 
 
@@ -360,6 +440,8 @@ def main():
     a.add_argument('wav')
     a.add_argument('--kind', choices=sorted(KINDS), required=True)
     a.add_argument('--channel', type=int, default=0)
+    v = sub.add_parser('sysvol', help='several sysvol recordings (name them *_dN.wav, N = clicks down from the maximum)')
+    v.add_argument('wavs', nargs='+')
     sub.add_parser('selftest')
     args = ap.parse_args()
     if args.cmd == 'gen':
@@ -370,6 +452,12 @@ def main():
         r = {'ladder': analyze_ladder, 'imd': analyze_imd, 'hot': analyze_hot}[args.kind](x, rate)
         print(os.path.basename(args.wav))
         print_result(args.kind, r)
+    elif args.cmd == 'sysvol':
+        rows, verdict = sysvol_table(args.wavs)
+        print('%-7s %-11s %-11s %-9s %-10s %s' % ('clicks', 'tone dBFS', 'noise dBFS', 'SNR dB', 'dB/click', 'file'))
+        for r in rows:
+            print('%-7d %-11s %-11s %-9s %-10s %s' % (r['clicks'], r.get('tone_dbfs', '-'), r.get('noise_dbfs', '-'), r.get('snr_db', '-'), r.get('step_db') if r.get('step_db') is not None else '', r.get('error', r['file'])))
+        print('=> ' + verdict)
     else:
         sys.exit(1 if selftest() else 0)
 

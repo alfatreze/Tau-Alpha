@@ -7,7 +7,8 @@ Q1 Is the floor analogue (Pocket or interface) or digital? Q2 Does the hardware 
 
 ## 2. Core and settings (set once, then leave)
 - Core `TAU DEV 105`. Settings > Audio: EQ FLAT, REPLAYGAIN Off, volume as listed per run. Settings > Diagnostics: HW GAIN ON (NO UNIT means the bitstream is wrong), CYMO RESAMPLER OFF (48 kHz files do not use it), 16-BIT OUTPUT OFF except session 3, ACCEPT ALL RATES OFF.
-- Pocket: note its own volume position and do not change it; battery, charger unplugged (except run 4d); screen on with the default meter (except where stated); nothing plugged into the Pocket's jack but the capture cable.
+- **Pocket system volume (owner, 2026-10-07): it shows only + and - and a max/min indication, 31 clicks from maximum to minimum, no number.** So position is defined by counting from an END STOP: press + until it stops (**maximum = click 0**) and, when a lower position is needed, press - exactly N times (`dN` = N clicks down from maximum; minimum = d31). Every run uses **maximum (d0)** unless a row says dN, and each file name records it. The earlier recordings' system-volume position is unknown, so they are a pre-baseline only and the DEV 105 takes at d0 become the baseline. Press the keys deliberately and re-check the end stop after each change (a missed click shifts every later reading).
+- Pocket: battery, charger unplugged (except run 4d); screen on with the default meter (except where stated); nothing plugged into the Pocket's jack but the capture cable.
 - Interface: same input and cable as the earlier takes; set the gain once so `tone_1k_48000` at core volume 94 reads about -12 dBFS peak, then never touch it (photograph the knob). Direct monitoring does not affect the recording.
 - Files (folder `cymo_loopback` on the card): `tone_1k_48000.flac`, `silence_44100.flac`, optional `levels_44100.flac`. If missing on the core, they must be synced (card write: ask).
 - Per recording: start recording, wait 3 s, start playback, record 12 s of steady tone or silence. Name `105_<test>.wav`, put in `test music/Audio Lab/`.
@@ -15,15 +16,17 @@ Q1 Is the floor analogue (Pocket or interface) or digital? Q2 Does the hardware 
 ## 3. Runs
 Session 0 (floors): `105_if_short` (interface alone, shorted 3.5 mm plug or the cable with the Pocket off, 15 s); `105_idle` (core loaded, nothing playing, 15 s).
 Session 1 (volume, 15-bit; positions are 0.6 dB each: 100 = 0 dB, 70 = -18, 40 = -36, 10 = -54): `105_sil_v100/v70/v40/v10` (silence file) and `105_tone_v100/v70/v40/v10` (tone file).
+Session 1b (system volume characterisation, new file `sysvol_48000.flac`: 6 s silence, 6 s 1 kHz at -6 dBFS, 6 s silence; core volume 100, 15-bit, HW GAIN ON): one 18 s recording per system position `105_sysvol_d00`, `_d01`, `_d02`, `_d04`, `_d08`, `_d16`, `_d24`, `_d30`, `_d31` (9 recordings; d0 = maximum, d31 = minimum). Analyse together: `python3 tools/lab/cymo_isp.py sysvol 105_sysvol_d*.wav` gives tone level, noise, SNR, dB per click, and says whether the noise is generated before the system volume stage (it follows the volume, SNR constant) or after it (fixed, SNR falls). This also measures the Pocket's click size and taper, and replaces the "system volume at two settings" test.
 Session 2 (HW GAIN A/B; start recording before pressing play so the 43 ms fade-in is captured): `105_hw_on_v94` / `105_hw_off_v94`, `105_hw_on_v70` / `105_hw_off_v70`, `105_hw_on_step` / `105_hw_off_step` (volume 94, then 70, then 94 during the tone).
 Session 3 (16-bit; lower the volume before switching it ON, it gives about +6 dB): `105_a16_off_v94`; `105_a16_on_v84` (level-matched, 10 positions = 6.0 dB); `105_a16_on_v94` (same volume; lower the interface gain by about 6 dB first and note it); `105_sil_a16_on_v94` (silence).
 Session 4 (spur source, silence 15 s): `105_spur_screen_on`, `105_spur_screen_blank` (Settings > Appearance > SCREEN BLANK), `105_spur_menu` (a menu open, static), `105_spur_charger` (charger connected, screen on).
 Optional (needs a 32 ohm resistor across the jack): `105_load_v94`, `105_load_v100` (tone, 15-bit): distortion under load.
 Session 5 (inter-sample peaks, gate G-ISP; files built B-617, see section 6): `105_isp_ladder_a16on`, `105_isp_imd_a16on`, `105_isp_hot_a16on` (16-BIT OUTPUT ON, core volume 100, HW GAIN ON) and the same three with 16-BIT OFF (`..._a16off`). Interface gain lowered by about 10 dB for the 16-bit ON takes (note the knob).
-About 33 recordings, 35 minutes.
+About 42 recordings, 45 minutes. Do session 1b right after session 0: it decides how much the other volume tests matter.
 
 ## 4. Predictions (written before the data)
 - Floor at -76 +-1 dB across all volumes: analogue and fixed. A floor that falls with volume: digital.
+- Session 1b: if the noise is generated after the system volume stage it stays within about 3 dB across d0..d31 while the tone falls (SNR falls with the clicks); if before, it falls with the tone. A volume stage that is digital in the DAC path would follow; an analogue attenuator after the DAC leaves the amp noise fixed.
 - Fixed floor means tone SINAD falls about 1 dB per dB of attenuation (about 55 dB at volume 100, about 37 dB at volume 70).
 - HW GAIN ON vs OFF: level within 0.05 dB, SINAD and THD within about 1 dB, same fade shape.
 - 16-bit level-matched: SINAD the same as 15-bit if the analogue chain dominates; 16-bit at the same volume: about +6 dB SINAD if the noise sits after the DAC.
@@ -32,7 +35,7 @@ About 33 recordings, 35 minutes.
 ## 5. Gates: developments that must wait for this plan (decision D-G01)
 | Gate | Opens when | Developments held until then |
 |---|---|---|
-| **G-FLOOR** (Q1, sessions 0 and 1) | The floor is classified analogue-fixed or digital | Scope and priority of the final quantiser's dither, noise shaping, the 24-bit gain-stage output, and any work whose value depends on the digital noise floor; the order of volume mapping, start-volume, maximum-volume and peak-aware positive ReplayGain work (they move up if the floor is analogue) |
+| **G-FLOOR** (Q1, sessions 0, 1 and 1b) | The floor is classified analogue-fixed or digital | Scope and priority of the final quantiser's dither, noise shaping, the 24-bit gain-stage output, and any work whose value depends on the digital noise floor; the order of volume mapping, start-volume, maximum-volume and peak-aware positive ReplayGain work (they move up if the floor is analogue) |
 | **G-HWGAIN** (Q2, session 2) | HW GAIN ON equals OFF within the predictions | Putting `TAU_GAIN` in any release or alpha bitstream; making hardware gain the shipped default; the gain stage's extensions (per-channel balance targets, positive ReplayGain, 24-bit output); folding the EQ preamp into the gain target |
 | **G-A16** (Q3, session 3) | The level-matched and same-volume results are read | Adopting or defaulting the 16-bit I2S slot; the loudness-neutral toggle policy for it; the clipper ceiling that depends on the extra +6 dB |
 | **G-SPUR** (Q4, session 4) | The spur source is named | Any mitigation of the idle spurs (screen blank policy, power advice); the idle-noise claims in the user documentation |
