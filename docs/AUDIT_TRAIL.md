@@ -14299,3 +14299,21 @@ Capture: 48 kHz / 24-bit stereo files, but the two channels are the SAME signal 
 - **Volume taper.** The dB taper is exact to 0.1 dB at all four points: confirmed on hardware.
 - **Tone distortion.** SINAD at full volume is 55 dB with THD -72.9 dB; the spurs sit at exact kilohertz multiples (19.48, 17.48, 13.30, 11.30 kHz at v100; 12.00, 21.00, 22.00 kHz at lower volumes), -78 to -87 dBFS and mostly independent of the tone's level at the lower volumes (a fixed pattern) but about 7 dB higher at v100 (signal-dependent). Not the harmonics of the tone (999.76 Hz).
 - **Not yet answered:** G-SPUR (session 4), G-HWGAIN (session 2), G-A16 (session 3). The noise findings change which of them matters most (see above).
+
+## B-656: group 2 read (HW GAIN ON against OFF, `105_hw_on|off_v94|v70|step`, TAU_DEV_105)
+
+**Steady state: the prediction holds.** 1 kHz tone, same file, same settings except HW GAIN:
+
+| | level | SINAD | THD | frequency (median) |
+|---|---|---|---|---|
+| ON, volume 94 | -12.02 dBFS | 53.37 dB | -77.08 dB | 1000.0676 Hz |
+| OFF, volume 94 | -12.02 | 53.47 | -76.21 | 1000.0676 |
+| ON, volume 70 | -26.42 | 42.09 | -66.75 | 1000.0676 |
+| OFF, volume 70 | -26.42 | 41.90 | -67.15 | 1000.0675 |
+
+Level equal to 0.00 dB at both volumes (the prediction allowed 0.05), SINAD within 0.2 dB and THD within 0.9 dB (allowed about 1 dB), the tone frequency identical to 0.0001 Hz, the same spurs. Level at 94 against the 100 recording is exactly 6 positions x 0.6 dB (-8.41 to -12.02). `track` flagged 3 events in each OFF take and none in the ON takes, but all three sit on the tone's start and stop edges (50 ms blocks cut by the file's start and end), not inside the steady part. **G-HWGAIN: the steady-state half is met;** the hardware gain stage can be called equal to the firmware gain at 94 and 70.
+
+**Not answered, and one surprise:**
+- **No start-of-track fade-in is visible in either mode.** The test tone starts at sample 0 at full amplitude, so a 2048-sample (43 ms) fade would show as a ramp over about 8 of the 5 ms windows. Both ON and OFF go from silence to 86-87 % of full level inside one 5 ms window (OFF volume 70: 38 %, then full). Either the discontinuity fade is not armed on this start path, or it ended before the first audible sample; this also means the prediction "same fade shape" could not be tested. To be settled with the group 7 recordings (loop boundary, track change, Next/Previous), where a fade must be armed; a firmware read of the start path is the cheap parallel check.
+- **The step recordings are not a valid step test.** The tone file is 6 s long, and the takes show the volume going from 70 up to 94 by a held key (about 0.6 dB per repeat, smooth, no discontinuity at 100 ms resolution, in both modes), not 94 down to 70 and back. The HW ON take also has a lower first 0.4 s (-28.2 dBFS against -26.4 afterwards, +1.8 dB at the end of that plateau) that the OFF take does not: possibly a volume gesture of the person, possibly the hardware stage; one take each cannot say. Redo with the 60 s tone file (`tone_1k_48000_60s.flac`, to be built) and a stated sequence, or better the group 7 toggle takes.
+- The tone file is 6 s, not the 12 s the plan's "record 12 s" assumed; the script should say "record the whole tone (6 s) plus 3 s either side".
