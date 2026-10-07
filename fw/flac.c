@@ -801,7 +801,9 @@ static flac_err subframe(flac_t *f, int32_t *out, uint32_t bps)
  * interface. */
 static int16_t to16(int32_t v, uint32_t bps)
 {
-    if (bps > 16u) v >>= (int)(bps - 16u);
+    /* B-619: round to nearest, not floor. An arithmetic shift floors, which biases every sample by -0.5 LSB (a DC offset) and makes the error follow the signal on quiet
+     * passages (distortion); this is the only place a 24-bit file is reduced to the 16-bit pipeline. Half rounds up; a +full-scale sample saturates in the clamp below. */
+    if (bps > 16u) { const int sh = (int)(bps - 16u); v = (v + (1 << (sh - 1))) >> sh; }   /* |v| < 2^24 for every legal bit depth, so the int32 sum cannot overflow */
     else if (bps < 16u) v <<= (int)(16u - bps);
     if (v >  32767) v =  32767;
     if (v < -32768) v = -32768;
@@ -915,6 +917,7 @@ static flac_err subframe_stream(flac_t *f, uint32_t bps, uint32_t out_bps,
  * subframe hardware-failure fallback path. Never defined by fw/build.sh; adds nothing to any shipped
  * build. */
 #ifdef FLAC_TEST_EXPOSE
+int16_t flac_test_to16(int32_t v, uint32_t bps) { return to16(v, bps); }   /* B-619 */
 flac_err flac_test_subframe(flac_t *f, int32_t *out, uint32_t bps) { return subframe(f, out, bps); }
 /* B-561: the Rice entry points, for sim/flac_rice_diff_harness.c. */
 flac_err flac_test_residual(flac_t *f, uint32_t order, int32_t *out) { return residual(f, order, out); }
