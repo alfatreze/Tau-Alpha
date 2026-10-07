@@ -32,10 +32,11 @@ def run(fwdir, quiet=False):
         r = subprocess.run(["cc", "-std=gnu11", "-O1", "-Wall", "-Wextra", "-I", str(fwdir), "-o", str(exe), str(ROOT / "sim/halcyon_hw_harness.c")], capture_output=True, text=True)
         if r.returncode:
             print(r.stdout, r.stderr); sys.exit(1)
-        inp = "\n".join(" ".join(str(c[k]) for k in m.MACROS) for c in sets)
+        inp = "\n".join(" ".join(str(c[k]) for k in m.MACROS) + " %d" % (i % 3 == 2) for i, c in enumerate(sets))
         out = subprocess.run([str(exe)], input=inp, capture_output=True, text=True, check=True).stdout.splitlines()
     bad_bank = bad_ctl = bad_engine = bad_flat = bad_pre = 0
-    for c, line in zip(sets, out):
+    for i, (c, line) in enumerate(zip(sets, out)):
+        live = i % 3 == 2                                   # every third setting is a live control move: committed WITHOUT the clear
         wr = [tuple(int(x, 16) for x in t.split(":")) for t in line.split()]
         gains = m.stage_gains(c)
         q = m.coeffs(gains, True)                       # six stages x five Q2.22 values
@@ -44,7 +45,8 @@ def run(fwdir, quiet=False):
         if wr[:len(want)] != want or wr[len(want):len(want) + 1] != [(0x17C, 85)]:
             bad_bank += 1; continue
         byp = 1 if flat else 0
-        if wr[-2:] != [(0x178, 1 | (byp << 1) | 4 | (7 << 8)), (0x178, 1 | (byp << 1) | 8 | (7 << 8))] or len(wr) != len(want) + 4:
+        tail = [(0x178, 1 | (byp << 1) | 4 | (7 << 8))] + ([] if live else [(0x178, 1 | (byp << 1) | 8 | (7 << 8))])
+        if wr[-len(tail):] != tail or len(wr) != len(want) + 2 + len(tail):
             bad_ctl += 1; continue
         words = [x[1] for x in wr if x[0] == 0x180]
         pre = sx(words[35])
@@ -92,8 +94,9 @@ mutants = {
     "preamp one index off": ("(HAL_NST * 5u)", "(HAL_NST * 5u + 1u)"),
     "coefficients not masked to 24 bits": ("(uint32_t)coef[i] & 0xFFFFFFu", "(uint32_t)coef[i]"),
     "infrasonic stage missing": ("    for (uint32_t k = 0; k < 5u; k++) bank[k] = hal_infra[k];\n", "    for (uint32_t k = 0; k < 5u; k++) bank[k] = 0;\n"),
-    "no clear after the commit": ("    HAL_WR(R_HAL_CTRL, HAL_CTRL(1u, bypass, 0u, 1u, nstage));\n", ""),
-    "FLAT not bypassed": ("hal_hw_commit_with_infra(bank, HAL_NSTAGE, hal_preamp_q22(hal_atten_eighths(step)), flat);", "hal_hw_commit_with_infra(bank, HAL_NSTAGE, hal_preamp_q22(hal_atten_eighths(step)), 0u);"),
+    "no clear after the commit": ("    if (clear) HAL_WR(R_HAL_CTRL, HAL_CTRL(1u, bypass, 0u, 1u, nstage));\n", ""),
+    "a live move clears the state": ("    if (clear) HAL_WR(R_HAL_CTRL, HAL_CTRL(1u, bypass, 0u, 1u, nstage));\n", "    HAL_WR(R_HAL_CTRL, HAL_CTRL(1u, bypass, 0u, 1u, nstage));\n"),
+    "FLAT not bypassed": ("hal_hw_commit_with_infra(bank, HAL_NSTAGE, hal_preamp_q22(hal_atten_eighths(step)), flat, clear);", "hal_hw_commit_with_infra(bank, HAL_NSTAGE, hal_preamp_q22(hal_atten_eighths(step)), 0u, clear);"),
 }
 import io, contextlib
 for name, (a, b) in mutants.items():
