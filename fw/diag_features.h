@@ -22,4 +22,74 @@
 #define TAU_DX_CHECK TAU_DIAGNOSTIC
 #endif
 
+/* dx: CPU load accounting: the per-stage cycle totals (ld_t_*, LD_MARK) and the Check audio window (ld_win_*) that feed the Check load records */
+#ifndef TAU_DX_LOAD_STATS
+#define TAU_DX_LOAD_STATS TAU_DIAGNOSTIC
+#endif
+
+/* dx: Every-FIFO-stall counter (ur_all) behind Info > UNDERRUNS "ALL n" */
+#ifndef TAU_DX_UNDERRUN_LOG
+#define TAU_DX_UNDERRUN_LOG TAU_DIAGNOSTIC
+#endif
+
+/* dx: Natural-track-end gap timing (gap_*) behind Info > GAP LATENCY */
+#ifndef TAU_DX_GAP_TIMING
+#define TAU_DX_GAP_TIMING TAU_DIAGNOSTIC
+#endif
+
+/* fx: ALL SPEEDS: the 2.50x entry of the speed table */
+#ifndef TAU_FX_ALL_SPEEDS
+#define TAU_FX_ALL_SPEEDS TAU_DIAGNOSTIC
+#endif
+
+/* fx: ACCEPT ALL RATES: bypass the measured FLAC sample-rate cutoff so a 96 kHz file loads for a decode reading */
+#ifndef TAU_FX_ACCEPT_ALL_RATES
+#define TAU_FX_ACCEPT_ALL_RATES TAU_DIAGNOSTIC
+#endif
+
+/* fx: CYMO RESAMPLER: the live 44.1 to 48 kHz hardware resampler (on by default in the Diagnostic Build), its 44.1 kHz-at-1.00x guard and its Info row */
+#ifndef TAU_FX_CYMO_TOGGLE
+#define TAU_FX_CYMO_TOGGLE TAU_DIAGNOSTIC
+#endif
+
+/* fx: 16-BIT OUTPUT: send the full 16-bit I2S word instead of the 15-bit slot */
+#ifndef TAU_FX_OUT16_TOGGLE
+#define TAU_FX_OUT16_TOGGLE TAU_DIAGNOSTIC
+#endif
+
+/* fx: HW GAIN: switch the gain between the hardware stage and the firmware path, and the HW GAIN Info row */
+#ifndef TAU_FX_GAIN_TOGGLE
+#define TAU_FX_GAIN_TOGGLE TAU_DIAGNOSTIC
+#endif
+
+/* dx: Diagnostics > Tests: window test, read/write cycles, cold-code test (and the 12 KB cold_big blob), clear counters (settings_diag.inc, cold.inc) */
+#ifndef TAU_DX_TESTS_PAGE
+#define TAU_DX_TESTS_PAGE TAU_DIAGNOSTIC
+#endif
+
+/* dx: Decode Sweep (profile builds) and Meter Sweep pages (sw_*, mw_*) */
+#ifndef TAU_DX_SWEEPS
+#define TAU_DX_SWEEPS TAU_DIAGNOSTIC
+#endif
+
+/* dx: Meter Trace page and the per-frame recorder hook (mt_*) */
+#ifndef TAU_DX_METER_TRACE
+#define TAU_DX_METER_TRACE TAU_DIAGNOSTIC
+#endif
+
+/* dx: Blit Test page: every Talos opcode drawn on screen (bt_*) */
+#ifndef TAU_DX_BLIT_TEST
+#define TAU_DX_BLIT_TEST TAU_DIAGNOSTIC
+#endif
+
+/* dx: Pixel grid fidelity test page (pg_*) */
+#ifndef TAU_DX_PIXEL_GRID_TEST
+#define TAU_DX_PIXEL_GRID_TEST TAU_DIAGNOSTIC
+#endif
+
+/* dx: Meter Configure page: the EXPORT row and its report page (wvcfg_export.inc) */
+#ifndef TAU_DX_CONFIG_EXPORT
+#define TAU_DX_CONFIG_EXPORT TAU_DIAGNOSTIC
+#endif
+
 #endif

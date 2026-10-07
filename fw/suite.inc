@@ -738,7 +738,7 @@ COLD_TEXT static int chk_input(uint32_t edge)
 
 #endif   /* TAU_DX_CHECK */
 
-#if MP3_PROFILE || FLAC_PROFILE
+#if TAU_DX_SWEEPS && (MP3_PROFILE || FLAC_PROFILE)
 /* ============================================================ DECODE PROFILE SWEEP (B-090/B-091)
  * A batch companion to CT_AUD's single sample: sweeps the library's CURRENT
  * QUEUE (whatever album or playlist is open), measuring each track up to
@@ -965,6 +965,7 @@ COLD_TEXT static int sw_input(uint32_t edge)
 }
 #endif
 
+#if TAU_DX_SWEEPS
 /* ================================================================== METER COST SWEEP (B-301)
  * docs/METER_MODULE_SPEC.md section 15: cycle every selectable meter (viz_order[], meter module M0)
  * for MW_WIN_S seconds each while music keeps playing UNDERNEATH, and record a real hardware cost
@@ -1196,6 +1197,9 @@ COLD_TEXT static int mw_input(uint32_t edge)
     return 1;
 }
 
+#endif   /* TAU_DX_SWEEPS */
+
+#if TAU_DX_METER_TRACE
 /* ================================================================== METER TRACE (M3)
  * Records what the meters saw on REAL audio -- spec_lvl[] (after the firmware ballistics) and wav_v[] for 20 consecutive displayed frames
  * with their timing -- and shows it as a QR (SR_T_METERTRACE, fw/suite_core.h). tools/decode_tau_suite.py --trace turns a screenshot's QR
@@ -1299,6 +1303,9 @@ COLD_TEXT static int mt_input(uint32_t edge)
     return 1;
 }
 
+#endif   /* TAU_DX_METER_TRACE */
+
+#if TAU_DX_PIXEL_GRID_TEST
 /* ================================================================== PIXEL GRID TEST (barcode study)
  * Draws a known 400x360 RGB565 pattern with every pixel written through the SDRAM mailbox (the path Chladni uses), into BOTH H2
  * buffers so it does not matter which one is displayed. A card screenshot of it is compared with tools/pixgrid_check.py to
@@ -1349,6 +1356,9 @@ COLD_TEXT static int pg_input(uint32_t edge)
     return 1;
 }
 
+#endif   /* TAU_DX_PIXEL_GRID_TEST */
+
+#if TAU_DX_BLIT_TEST
 /* ================================================================== BLIT TEST (B-166)
  * Exercises every draw-engine opcode individually, full-screen, at increasing concurrency,
  * without needing audio -- deliberately separate from Check (which assumes playback context) and
@@ -1662,4 +1672,5 @@ COLD_TEXT static int bt_input(uint32_t edge)
     }
     return 1;
 }
+#endif   /* TAU_DX_BLIT_TEST */
 #endif

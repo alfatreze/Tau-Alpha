@@ -961,7 +961,7 @@ static inline const char *speed_marker(void)
 #endif
     return speed_eff() != SPEED_1X ? speed_txt[speed_eff()] : (const char *)0;
 }
-#if TAU_DIAGNOSTIC
+#if TAU_FX_CYMO_TOGGLE
 static void cymo_guard_apply(uint32_t hz);   /* B-530: defined with the Cymo toggle below */
 #endif
 static hr_t hr;   /* B-538: worst idle second since the track or speed last changed (Info > HEADROOM) */
@@ -969,7 +969,7 @@ static void pcm_rate_apply(uint32_t hz)
 {
     if (!hz) return;
     hr_reset(&hr);   /* a new track or a new speed starts a fresh measurement */
-#if TAU_DIAGNOSTIC
+#if TAU_FX_CYMO_TOGGLE
     cymo_guard_apply(hz);
 #endif
     uint64_t inc = DIV64((uint64_t)hz << 32, CLK_HZ);
@@ -1111,9 +1111,11 @@ static uint32_t paused, volume = 94u;    /* overridden by the saved setting     
 #define FADE_SAMPLES 2048u
 static uint32_t fade_left;
 static uint8_t  under_shadow;   /* underrun already faded this flush epoch */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_GAP_TIMING
 static uint32_t gap_t0, gap_last_ms, gap_max_ms, gap_n, gap_buf_ms;   /* B-633: natural-track-end gap timing (functions below, next to cymo_push) */
 static uint8_t  gap_armed;
+#endif
+#if TAU_DX_UNDERRUN_LOG
 static ur_t     ur_all;          /* B-546: EVERY underrun (the shadow above and the hardware flag give at most one per flush) -- Info > UNDERRUNS, ALL n */
 #endif
 static uint32_t pcm_under_n;    /* underrun EDGES since boot, for the diag  */
@@ -1189,7 +1191,7 @@ static uint32_t clk_max;                 /* largest jump seen, any time */
  * Cycles, not iterations: a wait iteration and a decode iteration are not the
  * same size, and comparing counts of them would prove nothing. */
 static uint32_t fl_idle_cyc, fl_io_cyc;    /* accumulating, this second     */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_LOAD_STATS
 /* Cymo C0 follow-up (B-589): where the non-decode CPU goes, MP3 main loop. Monotonic cycle totals (never reset; the Check window takes deltas, wrap-safe in u32
  * for a 15 s window): MP3Decode, meters_feed, the whole push loop, ui_draw_dynamic, and the part of the push loop spent blocked on a full FIFO (= idle). */
 static uint32_t ld_t_dec, ld_t_feed, ld_t_push, ld_t_ui, ld_t_wait;
@@ -1324,7 +1326,7 @@ static uint8_t  hold_paused;             /* stay paused across a track change  *
  * waiting for room in the PCM FIFO. The decode loop blocks there when it is ahead of the DAC, so the blocked time is the
  * idle time (fl_idle_pct, latched once a second, capped at 99). Nothing is decoding while stopped or paused, so 0. */
 static uint8_t fl_idle_pct;
-#if TAU_DIAGNOSTIC
+#if TAU_DX_LOAD_STATS
 /* Cymo C0 (2026-10-04): CPU load over one Check audio window (fw/suite.inc CT_AUD), summed from the once-a-second latch below. secs counts latch periods
  * (at least a second each). Counts every second while armed, including the Check page's own redraws: this is what the Check run itself costs. */
 static uint8_t  ld_win_on, ld_win_worst;
@@ -4772,7 +4774,7 @@ static void ui_load_failed(void)
  * lands near 87% for 24-bit, which fits; nothing above it does. */
 #define FLAC_MAX_RATE 48000u
 static uint8_t rate_unsupported;   /* set at load, consumed by the main loop */
-#if TAU_DIAGNOSTIC
+#if TAU_FX_ACCEPT_ALL_RATES
 /* Settings > Diagnostics > ACCEPT ALL RATES (default OFF). Bypasses ONLY the measured-performance
  * FLAC_MAX_RATE cutoff above -- deliberately not FLR_CHANS/FLR_DEPTH/FLR_BLOCK, which come from
  * flac_open() itself refusing a shape its decoder does not support at all (2 channels max, specific bit
@@ -4782,7 +4784,9 @@ static uint8_t rate_unsupported;   /* set at load, consumed by the main loop */
  * above; that is the expected, useful result of turning this on, not a bug. Diagnostic-build-only, and off
  * by default even there, so it can never affect a normal listening session by accident. */
 static uint8_t flac_accept_all_rates;
+#endif
 
+#if TAU_FX_CYMO_TOGGLE
 /* Settings > Diagnostics > CYMO RESAMPLER (default OFF). First-ever hardware test of the real 44.1:48
  * polyphase FIR resampler (B-471..B-478) -- hands the live audio path (EQ input) from pcm_fifo's own
  * zero-order hold to the resampler's output via mp3_soc.v's R_CYMO_CTRL bit 2 (sticky LIVE_ENABLE).
@@ -5068,7 +5072,7 @@ COLD_FN3 static void mtr_preview(uint32_t viz, uint32_t x, uint32_t y, uint32_t 
  * "cold calls hot" pattern G4 steps 1-3 and fw/cold.inc's own cold_calls_hot() already prove safe),
  * just relocated and renamed so the thin wrapper below can time it and apply the COLD_READY()
  * fail-safe. */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_METER_TRACE
 static void mt_take(void);          /* fw/suite.inc: meter trace recorder (M3), called once per displayed meter frame */
 #endif
 
@@ -5259,7 +5263,7 @@ COLD_FN3 static void ui_meter_redraw(void)
         viz_bars_tick(&in);
     }
 viz_done: ;
-#if TAU_DIAGNOSTIC
+#if TAU_DX_METER_TRACE
     mt_take();               /* M3 meter trace recorder: the values every meter just drew from (fw/suite.inc) */
 #endif
 }
@@ -6014,7 +6018,7 @@ ui_tail:
             if (fl_idle_pct > 99u) fl_idle_pct = 99u;
             if (fl_io_pct   > 99u) fl_io_pct   = 99u;
             if (!idle && !paused && !UI_OVERLAY_UP) hr_update(&hr, fl_idle_pct, fl_io_pct);   /* B-538: only seconds of plain playback -- a menu or the Info page redrawing is not decode load */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_LOAD_STATS
             if (ld_win_on) {
                 ld_win_secs++; ld_win_idle += fl_idle_pct; ld_win_io += fl_io_pct;
                 if (100u - fl_idle_pct > ld_win_worst) ld_win_worst = (uint8_t)(100u - fl_idle_pct);
@@ -6841,7 +6845,7 @@ static inline void pcm_flush(void)
 #if TAU_TEMPO
     tempo_cfg_key = 0u;           /* B-558: the stretcher starts again from the next decoded frame (a hard reset: what it had staged is dropped) */
 #endif
-#if TAU_DIAGNOSTIC
+#if TAU_DX_UNDERRUN_LOG
     ur_flush(&ur_all);
 #endif
 #if TAU_DX_STRESS
@@ -7753,7 +7757,7 @@ static uint32_t fl_meter_n;
 /* B-633 (parallel plan A4, gapless groundwork): how long is the gap at a NATURAL track end? Stamped when the decoder meets the end of a file and starts the next track (the
  * point from which the FIFO's remaining audio, about 46 ms at most, is all that bridges the load), read back when the first frame of the next track has been decoded and pushed.
  * Diagnostic Build only (Info > GAP LATENCY); other builds compile it to nothing. A deeper FIFO and a no-flush boundary are only worth building if this is longer than the buffer. */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_GAP_TIMING
 /* The bodies are cold code (the diagnostic heap gap is tight); hot code only tests a flag. gap_armed is set by the cold function, which implies the cold image is loaded. */
 COLD_FN2 static void gap_eof_cold(void)
 {
@@ -7784,7 +7788,7 @@ static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_
 {
     pcm_gain_apply(&l, &r, &vol_st, &fade_left, FADE_SAMPLES);
     const uint32_t st = REG(R_PCM_ST);
-#if TAU_DIAGNOSTIC
+#if TAU_DX_UNDERRUN_LOG
     ur_note(&ur_all, PCM_FULL(st), PCM_EMPTY(st));   /* B-546: counts every stall, not just the first per flush */
 #endif
     if (PCM_FULL(st)) {
@@ -7810,7 +7814,7 @@ static inline __attribute__((always_inline)) void     cpb_we(void)  { const uint
 static inline __attribute__((always_inline)) int      cpb_spin(void) { poll_input(); refill_pump(); return reload_pending ? 1 : 0; }
 static inline __attribute__((always_inline)) void     cpb_note(uint32_t no_room, uint32_t empty)
 {
-#if TAU_DIAGNOSTIC
+#if TAU_DX_UNDERRUN_LOG
     ur_note(&ur_all, no_room, empty);   /* B-546: counts every stall, not just the first per flush */
 #else
     (void)no_room; (void)empty;
@@ -8909,7 +8913,7 @@ COLD_SR static int load_track(void)
          * way out matters: leaving the core with no decoder is what once made
          * a single bad file break every load after it. */
         if (fl.rate > FLAC_MAX_RATE
-#if TAU_DIAGNOSTIC
+#if TAU_FX_ACCEPT_ALL_RATES
             && !flac_accept_all_rates
 #endif
         ) {
@@ -10125,12 +10129,18 @@ int main(void)
 #if TAU_DX_CHECK
         chk_tick();
 #endif
-#if MP3_PROFILE || FLAC_PROFILE
+#if TAU_DX_SWEEPS && (MP3_PROFILE || FLAC_PROFILE)
         sw_tick();
 #endif
+#if TAU_DX_BLIT_TEST
         bt_tick();
+#endif
+#if TAU_DX_SWEEPS
         mw_tick();
+#endif
+#if TAU_DX_METER_TRACE
         mt_tick();
+#endif
 #endif
 #if TAU_DX_STRESS
         dg_soak_tick();

@@ -106,6 +106,7 @@ test-host:
 	$(PYTHON) sim/test_tempo_slice.py
 	$(PYTHON) sim/test_overlay_proto.py
 	$(PYTHON) tools/gen_diag_features.py --check
+	$(PYTHON) sim/test_diag_features.py
 	$(PYTHON) sim/test_theme.py
 	$(PYTHON) sim/test_tau_assets.py
 	$(PYTHON) sim/test_flac_lpc_symmetry.py

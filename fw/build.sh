@@ -151,8 +151,9 @@ case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) TEMPO="${TEMPO:-1}" ;; esac
 CFLAGS="$CFLAGS -DTAU_TEMPO=${TEMPO:-0}"
 # Diagnostic-Build features on demand (fw/diag_features.json, docs/features/DIAG_FEATURES.md): DIAG_DROP=a,b removes converted features from a build that has
 # TAU_DIAGNOSTIC; FEATURES_ON=a puts a converted 'fx' feature into any build (graduation). Unknown, unconverted or inconsistent names stop the build.
-if [ -n "${DIAG_DROP:-}" ] || [ -n "${FEATURES_ON:-}" ]; then
-    DIAG_FLAGS="$(python3 "$ROOT/tools/gen_diag_features.py" --cflags "${DIAG_DROP:-}" "${FEATURES_ON:-}")" || exit 1
+# DIAG_PRESET=perf|slim|release-like drops a named set (fw/diag_features.json "presets"); it combines with DIAG_DROP.
+if [ -n "${DIAG_DROP:-}" ] || [ -n "${FEATURES_ON:-}" ] || [ -n "${DIAG_PRESET:-}" ]; then
+    DIAG_FLAGS="$(python3 "$ROOT/tools/gen_diag_features.py" --cflags "${DIAG_DROP:-}" "${FEATURES_ON:-}" "${DIAG_PRESET:-}")" || exit 1
     CFLAGS="$CFLAGS $DIAG_FLAGS"
 fi
 # RAM diet A/B switches for the tempo state (both default off = the build is unchanged): TEMPO_SLICE=1 produces the output hop in 64-sample slices (about 1.75 KB less state),
