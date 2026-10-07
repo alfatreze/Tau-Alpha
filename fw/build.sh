@@ -149,6 +149,12 @@ case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) TEMPO="${TEMPO:-1}" ;; esac
 # ram-diet (owner, 2026-10-07): the tempo stretcher ships in the normal release too (cold code; its 6.2 KB state is the cost, see docs/features/RAM_DIET_PLAN.md). TEMPO=0 builds without it.
 [ "$TARGET" = "release" ] && TEMPO="${TEMPO:-1}"
 CFLAGS="$CFLAGS -DTAU_TEMPO=${TEMPO:-0}"
+# Diagnostic-Build features on demand (fw/diag_features.json, docs/features/DIAG_FEATURES.md): DIAG_DROP=a,b removes converted features from a build that has
+# TAU_DIAGNOSTIC; FEATURES_ON=a puts a converted 'fx' feature into any build (graduation). Unknown, unconverted or inconsistent names stop the build.
+if [ -n "${DIAG_DROP:-}" ] || [ -n "${FEATURES_ON:-}" ]; then
+    DIAG_FLAGS="$(python3 "$ROOT/tools/gen_diag_features.py" --cflags "${DIAG_DROP:-}" "${FEATURES_ON:-}")" || exit 1
+    CFLAGS="$CFLAGS $DIAG_FLAGS"
+fi
 # RAM diet A/B switches for the tempo state (both default off = the build is unchanged): TEMPO_SLICE=1 produces the output hop in 64-sample slices (about 1.75 KB less state),
 # TEMPO_RING=512 halves the stage-2 ring (1 KB less; the largest span the stretcher ever needs is 320 entries, measured over speeds 0.5-3.0x and rates 8-48 kHz).
 [ "${TEMPO_SLICE:-0}" = "1" ] && CFLAGS="$CFLAGS -DTEMPO_SLICE=1"
@@ -279,7 +285,7 @@ if ! "$GCC" $CFLAGS "${INC[@]}" -T "$FW/link.ld" -o "$FW/fw.elf" "${SRCS[@]}" -l
             ts=$("$NM" "$FW/fw_probe.elf" 2>/dev/null | awk '$3=="_tag_start"{print "0x"$1}')
             "$PYTHON" -c "
 hs, ts, hm = int('$hs',16), int('$ts',16), ${HEAP_MIN:-1024}
-ts192 = ts - 65536 + 8192
+ts192 = ts - 65536 + (0x4000 - 0x1800)   # the 192 KB link also shrinks the stack from 16 KB to 6 KB (fw/link.ld); this said 8192 after B-506 moved it from 8 KB to 6 KB
 print('*** 192 KB link: image ends at %d, DMA buffers start at %d, so the image is %+d B over; %d B short of the %d B heap floor ***' % (hs, ts192, hs - ts192, hs + hm - ts192, hm))
 " >&2
         fi

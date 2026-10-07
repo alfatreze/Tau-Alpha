@@ -27,7 +27,17 @@ Rule: tempo is a live feature in both builds (only the 1.75x+ click fix is parke
 
 Conclusion: with the ring excluded, the performance-neutral list is exhausted except the meter scratch overlay (~2 KB). Closing the diagnostic gap (needs ~1.7 KB more for the profile build, and margin for new features) therefore needs either that overlay plus a decision on one trade-off below, or an RTL step.
 
-## Trade-offs left (owner decision)
-- A: spend a few M10K blocks to give the CPU RAM back (about 7 blocks per 8 KB; needs a fit cycle; no CPU cost).
-- B: accept the tempo-to-PSRAM CPU cost (4 KB, est. +8-12 % CPU).
-- C: make the profile build drop a feature (it is a developer build) instead of fitting.
+## Done on this branch (2026-10-07)
+- Guard measures the shipped link. **Correction:** the profile build's shortfall was overstated by 2 KB (a stale stack constant in `fw/build.sh`'s over-limit message); it was about 1 KB over, not 3.4 KB.
+- Tempo is in the normal release (`fw/build.sh` default, `TEMPO=0` removes it): release 8,960 B free (floor 6,144 B).
+- Tempo state diet, behind switches so it can be A/B tested on a Pocket: `TEMPO_SLICE=1` (output hop produced and pushed in 64-sample slices, -1,792 B) and `TEMPO_RING=512` (stage-2 ring, -1,024 B; the largest span ever needed is 320 entries). Release 11,776 B free, Diagnostic 4,416 B, **the profile build links again (1,760 B)**. Host tests: sliced output == whole-hop output for every slice size and rate, 512 ring == 1024 ring, 11 mutants killed (`sim/test_tempo_slice.py`, `sim/test_tempo_funnel.py -DTEMPO_SLICE=1`). Not run on a Pocket.
+- QR encoder archived (`archive/qr_encoder/`, tag `archive/qr-encoder`): about 4.4 KB cold code, 0.2 KB hot RAM.
+- Diagnostic features register and `DIAG_DROP` / `FEATURES_ON` (phase 1, `docs/features/DIAG_FEATURES.md`).
+- Mode-overlay: proposal and host prototype only (`docs/features/MODE_OVERLAY_PROPOSAL.md`); recommended against for 2-3 KB.
+
+## Pocket test of the tempo diet
+Build both from the same tree and compare HEADROOM and UNDERRUNS at 1.00-1.75x on a mono speech MP3 and a stereo MP3: A = default, B = `TEMPO_SLICE=1 TEMPO_RING=512` (`python3 tools/package_dev_build.py --variant tempo --build-flags RAM_192K=1,CLK66=1,SDRAM_BUSY=1[,TEMPO_SLICE=1,TEMPO_RING=512] ...` with the bitstream that matches the firmware; the Halcyon fit is still pending, so no package was made). Expected: identical sound; the sliced path calls the meter hook 8 times per hop instead of once.
+
+## Remaining trade-offs (owner decision)
+- A: the three-region 224 KB RAM is a real RTL project, see the discussion in the log; not proposed.
+- C: convert `stress` (and `check`) to switchable features to shrink the Diagnostic Build further.

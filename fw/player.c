@@ -340,9 +340,7 @@ static const char tau_fw_pair_marker[] __attribute__((used, retain)) = "TAUFWPAI
 #ifndef TAU_TEMPO
 #define TAU_TEMPO 0      /* Cymo C7 T2 (B-558): pitch-preserving tempo for MP3 (fw/tempo_core.h); off by default so every default build is byte-identical */
 #endif
-#ifndef TAU_DIAGNOSTIC
-#define TAU_DIAGNOSTIC 0
-#endif
+#include "diag_features.h"   /* TAU_DIAGNOSTIC (default 0) and the per-feature TAU_DX_/TAU_FX_ switches, fw/diag_features.json */
 
 /* Developer-only: drive the Phase 2 CPU-window (uncached alias 0xA0100000) from
  * the stress pump instead of the Phase 1 MMIO mailbox. Requires an RBF built
