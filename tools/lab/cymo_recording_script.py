@@ -48,8 +48,8 @@ for n, setup, why in (("paused", "play the silence file, then press Pause (the d
 for v in (94, 100):
     add("load (optional)", f"105_load_v{v}", "tone_1k_48000.flac", f"32 ohm resistor across the jack, 15-bit, core volume {v}", "record 15 s", "cymo_loopback.py analyze", "G-LOAD: distortion under load", O)
 for k in ("ladder", "imd", "hot"):
-    for st, note in (("a16on", "16-BIT ON, core volume 100, HW GAIN ON, interface gain lowered about 10 dB (note the knob)"), ("a16off", "16-BIT OFF, core volume 100, HW GAIN ON (the control)")):
-        add("5 inter-sample peaks", f"105_isp_{k}_{st}", f"isp_{k}_48000.flac", note, "start recording, play the file once through (about 60 s for the ladder), stop", f"cymo_isp.py analyze --kind {k}", "G-ISP", O)
+    for st, note in (("a16on", "16-BIT ON, core volume 100, HW GAIN ON. SET THE INTERFACE GAIN FIRST: with the slot on the loudest section (+3 dBFS true peak) reaches about +6.6 dBFS at the gain used for the 15-bit takes, so lower it by about 13 dB (not 10) until the LAST section peaks near -3 dBFS: play just the end of the file, run `cymo_isp.py peak` on the trial, then record all three files at that one setting; never move the knob during a take; a take for which `peak` says INTERFACE CLIPPED is invalid"), ("a16off", "16-BIT OFF, core volume 100, HW GAIN ON (the control)")):
+        add("5 inter-sample peaks", f"105_isp_{k}_{st}", f"isp_{k}_48000.flac", note, "start recording, play the file once through (about 60 s for the ladder), stop", f"cymo_isp.py peak (the take is valid only if it says ok), then cymo_isp.py analyze --kind {k}", "G-ISP", O)
 
 # ---- new sessions ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 for n, f, s, d in (("if_loop_tone", "tone_1k_48000.flac", "play the file from the INTERFACE's own output into its input (no Pocket)", "record 12 s"),
