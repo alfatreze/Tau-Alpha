@@ -92,12 +92,17 @@ module eq_biquad #(
     integer i;
 
     // -------------------------------------------------------- sample tick ---
-    reg [11:0] divctr;
-    wire       tick = (divctr == DIV[11:0] - 12'd1);
+    // B-649: a FRACTIONAL accumulator instead of an integer divider. CLK_HZ / RATE_HZ is exact at 60 MHz (1250) but 1388.89 at 66.667 MHz (TAU_CLK66): the integer divider (1388)
+    // ticked at 48,030.7 Hz, 30.7 Hz fast against the 48 kHz audio, so every ~1,560 samples the filter saw the same input twice: a 30 Hz glitch train on every non-FLAT preset
+    // (found on the Halcyon engine, which had copied this divider, by the first hardware listening test). At 60 MHz the accumulator is within 0.0001% of the old behaviour.
+    localparam [31:0] TICK_INC = (RATE_HZ * 64'd4294967296 + CLK_HZ / 2) / CLK_HZ;
+    reg  [31:0] tacc;
+    wire [32:0] tsum = {1'b0, tacc} + {1'b0, TICK_INC};
+    wire        tick = tsum[32];
 
     always @(posedge clk) begin
-        if (rst)      divctr <= 12'd0;
-        else          divctr <= tick ? 12'd0 : divctr + 12'd1;
+        if (rst)      tacc <= 32'd0;
+        else          tacc <= tsum[31:0];
     end
 
     // ---------------------------------------------------------- sequencer ---
