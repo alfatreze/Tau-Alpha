@@ -5,6 +5,9 @@ the Cymo row — see below). Why things are the way they are is in `docs/AUDIT_T
 `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
 Full detail on this session: `docs/handoffs/SESSION_HANDOFF_2026-10-03_CYMO_TEMPO.md` — **read it first** (the 2026-10-01 resampler handoff is still correct for what it covers).
 
+## Update 2026-10-07 (parallel work): ungated items done while the recordings are pending
+See `docs/features/CYMO_PARALLEL_WORK_PLAN.md` for the live status. Done and host-verified (none on a Pocket): FLAC 24-to-16 rounding (B-619), gain dip around the 16-bit and resampler toggles (B-620), crossfeed model with listening files (B-621; D corrected to 4 samples, overshoot +1.15 dB), true-peak limiter model (B-622), Halcyon spec updates (B-623), LAME delay/padding parser (B-624), Info row HW GAIN (B-625), Halcyon `PRST` format and APO/AutoEQ importer (B-626; finding: the assets read is capped at 1,024 bytes), EQ-to-MLAB analysis (B-627). Running: fit `eq24-b618` (gain bundle + 24-bit EQ coefficients, expected about 10:15-10:20 local). `main` pushed to `7aae7ec`.
+
 ## Update 2026-10-07 (later): TAU_DEV_105 installed, hardware gain stage, headphone plan and measurement gates
 `gain-b615` closed (all corners positive, DSP 21/66) and is installed as `TAU_DEV_105` (not yet run). The recording plan is `docs/features/CYMO_RECORDING_PLAN_DEV105.md`; the headphone analysis is `docs/features/CYMO_HEADPHONE_PLAN.md`; decision D-G01 gates the dependent developments (list in the recording plan, section 5). Existing recordings show an analogue floor of -76.4 dBFS and idle spurs; audit B-615..B-617. **The inter-sample-peak files and the system-volume file are on `TAU_DEV_105`; the recordings (about 42, plan sessions 0-5) are the next input; the Pocket system volume has 31 clicks and no readout, so positions are counted from the maximum end stop.** Skill entries KB-114..KB-117.
 
