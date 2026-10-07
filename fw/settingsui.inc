@@ -84,25 +84,45 @@ static const set_row_t set_play_rows[] = {
 /* Diagnostic Build only: reached from MENU > DIAGNOSTICS. */
 static const set_row_t set_dgn_rows[] = {
 #if TAU_DIAGNOSTIC
+#if TAU_DX_TESTS_PAGE
     { "TESTS", RT_GROUP, SET_TESTS },
+#endif
 #if TAU_DX_STRESS
     { "STRESS", RT_GROUP, SET_STRESS },
 #endif
+#if TAU_FX_ALL_SPEEDS
     { "ALL SPEEDS", RT_TOGGLE, TG_SPEEDS },
+#endif
+#if TAU_FX_ACCEPT_ALL_RATES
     { "ACCEPT ALL RATES", RT_TOGGLE, TG_RATES },
+#endif
+#if TAU_FX_CYMO_TOGGLE
     { "CYMO RESAMPLER", RT_TOGGLE, TG_CYMO },
+#endif
+#if TAU_FX_OUT16_TOGGLE
     { "16-BIT OUTPUT", RT_TOGGLE, TG_OUT16 },
+#endif
+#if TAU_FX_GAIN_TOGGLE
     { "HW GAIN", RT_TOGGLE, TG_GAIN },
+#endif
 #if TAU_DX_CHECK
     { "CHECK", RT_GROUP, SET_CHECK_PG },
 #endif
-#if MP3_PROFILE || FLAC_PROFILE
+#if TAU_DX_SWEEPS && (MP3_PROFILE || FLAC_PROFILE)
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
 #endif
+#if TAU_DX_BLIT_TEST
     { "BLIT TEST", RT_GROUP, SET_BLITTEST_PG },
+#endif
+#if TAU_DX_SWEEPS
     { "METER SWEEP", RT_GROUP, SET_METERSWEEP_PG },
+#endif
+#if TAU_DX_METER_TRACE
     { "METER TRACE", RT_GROUP, SET_METERTRACE_PG },
+#endif
+#if TAU_DX_PIXEL_GRID_TEST
     { "PIXEL GRID TEST", RT_GROUP, SET_PIXGRID_PG },
+#endif
 #else
     { "INFO", RT_GROUP, SET_INFO_PG },          /* unreachable placeholder: the page exists only in the Diagnostic Build */
 #endif
@@ -148,7 +168,7 @@ static const char *const set_speed_nm[SPEED_N] = { "0.85X", "0.95X", "1.00X", "1
     "1.30X", "1.50X", "1.75X", "2.00X", "2.50X" };
 /* Diagnostic Build only: Diagnostics > ALL SPEEDS adds the last table entry (2.50x) to the speed list, as a
  * test bed for the audio work. Not persisted; off at every start; turning it off returns 2.50x to 1.00x. */
-#if TAU_DIAGNOSTIC
+#if TAU_FX_ALL_SPEEDS
 static uint8_t set_speed_all;
 #define SET_SPEED_COUNT() ((uint32_t)(set_speed_all ? SPEED_N : SET_SPEED_SHOWN))
 #else
@@ -482,7 +502,7 @@ COLD_FN static void set_toggle(uint32_t t)
 {
     if (t == TG_ART) {
         art_toggle = 1u;                         /* the main loop applies it, as for the hold */
-#if TAU_DIAGNOSTIC
+#if TAU_FX_ALL_SPEEDS
     } else if (t == TG_SPEEDS) {
         set_speed_all = (uint8_t)!set_speed_all;
         if (!set_speed_all && speed_idx >= SET_SPEED_SHOWN) {
@@ -492,6 +512,8 @@ COLD_FN static void set_toggle(uint32_t t)
             ui_mode_dirty = 1u;
         }
         return;                                  /* not persisted */
+#endif
+#if TAU_FX_ACCEPT_ALL_RATES
     } else if (t == TG_RATES) {
         /* 2026-09-28, B-356: lets a FLAC above FLAC_MAX_RATE (measured, not chosen -- see the comment on
          * that constant) load and run for a real decode-stage Check reading, instead of being refused
@@ -499,6 +521,8 @@ COLD_FN static void set_toggle(uint32_t t)
          * switch, not a listening preference. */
         flac_accept_all_rates = (uint8_t)!flac_accept_all_rates;
         return;                                  /* not persisted */
+#endif
+#if TAU_FX_CYMO_TOGGLE
     } else if (t == TG_CYMO) {
         /* B-471..B-478: first-ever hardware test of the Cymo resampler's live audio path. No-op if the
          * bitstream doesn't have it (the write lands on an unmapped register, same convention as every
@@ -511,6 +535,8 @@ COLD_FN static void set_toggle(uint32_t t)
             gain_dip_end();
         }
         return;                                  /* not persisted */
+#endif
+#if TAU_FX_OUT16_TOGGLE
     } else if (t == TG_OUT16) {
         /* B-602 (Cymo C3, F2): the Pocket's I2S slot carries 16 bits, the core's serializer sends the input shifted right by one (15 bits, 6 dB down).
          * This switch sends the whole word (about +6 dB) for the hardware A/B. Lower the volume before switching it on. No-op on a bitstream without the
@@ -522,6 +548,8 @@ COLD_FN static void set_toggle(uint32_t t)
             gain_dip_end();
         }
         return;                                  /* not persisted */
+#endif
+#if TAU_FX_GAIN_TOGGLE
     } else if (t == TG_GAIN) {
         /* B-615: A/B of the hardware gain stage against the firmware gain. ON is the default whenever the bitstream has the stage; this switch takes the gain back to software
          * (and returns it) without a restart. No-op on a bitstream without the stage. Never persisted. */
@@ -542,7 +570,7 @@ COLD_FN static void set_volume(int dir)
 }
 
 static char *set_str(char *q, const char *s) { while (*s) *q++ = *s++; return q; }
-#if TAU_DIAGNOSTIC
+#if TAU_DX_TESTS_PAGE
 #include "settings_diag.inc"
 #else
 #define dg_base_under 0u
@@ -554,7 +582,7 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     const char *s = "";
     char *q = o;
     if (r->type == RT_GROUP) s = "";
-#if TAU_DIAGNOSTIC
+#if TAU_DX_TESTS_PAGE
     else if (r->type == RT_ACTION) s = dg_res[r->arg];
 #else
     else if (r->type == RT_ACTION) s = "";
@@ -562,10 +590,16 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     else if (r->type == RT_CHOICE) s = set_ch_name(r->arg, set_ch_active(r->arg));
     else if (r->type == RT_VOL) { q = ui_dec(q, volume); s = "%"; }
     else if (r->arg == TG_ART)    s = art_pref ? "ON" : "OFF";
-#if TAU_DIAGNOSTIC
+#if TAU_FX_ACCEPT_ALL_RATES
     else if (r->arg == TG_RATES)  s = flac_accept_all_rates ? "ON" : "OFF";
+#endif
+#if TAU_FX_OUT16_TOGGLE
     else if (r->arg == TG_OUT16)  s = !hw_a16 ? "NO UNIT" : a16_on ? "ON" : "OFF";
+#endif
+#if TAU_FX_GAIN_TOGGLE
     else if (r->arg == TG_GAIN)   s = !hw_gain ? "NO UNIT" : vol_st.hw ? "ON" : "OFF";
+#endif
+#if TAU_FX_CYMO_TOGGLE
     else if (r->arg == TG_CYMO)   s = !cymo_live_toggle ? "OFF" : cymo_live_on ? "ON" : "WAIT";   /* WAIT = on, but this file is not 44.1 kHz at 1.00x (B-530) */
 #endif
     else                          s = set_speed_all ? "ON" : "OFF";   /* TG_SPEEDS, the only remaining toggle */
@@ -766,7 +800,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         else { q = set_str(q, "E"); q = ui_hex2(q, art_bad_code); }
         break;
     case 8: q = ui_dec(q, pcm_under_n - dg_base_under);
-#if TAU_DIAGNOSTIC
+#if TAU_DX_UNDERRUN_LOG
         q = set_str(q, " ALL "); q = ui_dec(q, ur_all.n);   /* B-546: every stall since boot; the first number is at most one per flush */
 #endif
         break;
@@ -966,7 +1000,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         break;
     }
     case 35: {   /* HW GAIN (B-625): who owns the gain (HW = the hardware stage, SW = the firmware path, NO UNIT = bitstream without the stage), the target and the gain in force (Q15, 32768 = unity), and F1 while a fade-in runs */
-#if TAU_DIAGNOSTIC
+#if TAU_FX_GAIN_TOGGLE
         if (!hw_gain) { q = set_str(q, "NO UNIT"); break; }
         q = set_str(q, vol_st.hw ? "HW" : "SW");
         q = set_str(q, " T"); q = ui_dec(q, REG(R_GAIN_TARGET) & 0xFFFFu);
@@ -979,7 +1013,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
     }
     case 36:   /* GAP LATENCY (B-633): the last and the longest time from the decoder meeting the end of a file to the first frame of the next track being pushed, how many track ends were timed, and how
                 * much audio the FIFO still held at the end of the file (all in ms). If LAST is above BUF the listener hears a gap; the FIFO is about 46 ms deep. */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_GAP_TIMING
         if (!gap_n) { q = set_str(q, "NO TRACK END YET"); break; }
         q = set_str(q, "LAST "); q = ui_dec(q, gap_last_ms);
         q = set_str(q, " MAX "); q = ui_dec(q, gap_max_ms);
@@ -999,7 +1033,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
     default: {   /* CYMO RESAMP (B-481): whether the probe found the unit, and -- once the Diagnostics >
                   * CYMO RESAMPLER toggle is on -- its live status (busy/done/pop_req), so the owner can
                   * confirm the probe passed before relying on the toggle having any real effect. */
-#if TAU_DIAGNOSTIC
+#if TAU_FX_CYMO_TOGGLE
         if (!CYMO_RESAMP_READY()) { q = set_str(q, "NO UNIT"); break; }
         uint32_t st = REG(R_CYMO_STATUS), dg = REG(R_CYMO_DIAG);
         q = set_str(q, (st & 0x10u) ? "LIVE " : "READY ");
@@ -1197,7 +1231,7 @@ COLD_FN static void wvcfg_follow(void)
 /* B-218/M2: exports the live values of the meter being edited as a QR code (SR_T_METERCFG), reusing the record/text/QR pipeline
  * fw/suite.inc built for Check/Blit Test (this page and those are never open together, so sharing their SDRAM staging is safe).
  * Diagnostic-Build only, like every QR feature here; outside one the row is present but inert. */
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CONFIG_EXPORT
 #include "wvcfg_export.inc"
 #endif
 #if TAU_INFO_EXPORT
@@ -1221,7 +1255,7 @@ COLD_FN static void wvcfg_value_text(uint32_t row, char *o)
     } else if (row == WVR_METER) {
         q = set_str(q, wvcfg_md ? wvcfg_md->name : "");
     } else if (row == WVR_EXPORT) {
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CONFIG_EXPORT
         q = set_str(q, "PRESS A");
 #else
         q = set_str(q, "DIAG BUILD ONLY");
@@ -1266,7 +1300,7 @@ COLD_FN static void wvcfg_adjust(uint32_t row, int32_t dir)
 
 COLD_FN static void wvcfg_draw(void)
 {
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CONFIG_EXPORT
     if (wvcfg_qr_up) { wvcfg_draw_qr(); return; }
 #endif
     const char *hint = (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) ? "UP DOWN SCROLL   L/R ADJUST   B BACK" : "L/R ADJUST   B BACK";
@@ -1332,7 +1366,7 @@ COLD_FN static void wvcfg_preview_redraw(void)
 
 COLD_FN static void wvcfg_preview_tick(void)
 {
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CONFIG_EXPORT
     if (wvcfg_qr_up) return;
 #endif
     if (wvcfg_region == 0xFFu) wvcfg_region = helios_region_register_rows_cold(wvcfg_preview_redraw, (uint16_t)WVCFG_PY, (uint16_t)(WVCFG_PY + WVCFG_PH));
@@ -1342,7 +1376,7 @@ COLD_FN static void wvcfg_preview_tick(void)
 
 static int wvcfg_input(uint32_t edge)
 {
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CONFIG_EXPORT
     if (wvcfg_qr_up) {                             /* QR screen: X changes the view, anything else closes it */
         if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_START)) { wvcfg_qr_up = 0u; set_dirty = 1u; }
@@ -1361,7 +1395,7 @@ static int wvcfg_input(uint32_t edge)
     if (edge & KEY_DOWN)  { wvcfg_sel = (uint8_t)((wvcfg_sel + 1u) % wvcfg_vis_n); wvcfg_follow(); set_dirty = 1u; }
     if (edge & KEY_LEFT)  { wvcfg_adjust(wvcfg_row(wvcfg_sel), -1); set_dirty = 1u; }
     if (edge & KEY_RIGHT) { wvcfg_adjust(wvcfg_row(wvcfg_sel),  1); set_dirty = 1u; }
-#if TAU_DIAGNOSTIC
+#if TAU_DX_CONFIG_EXPORT
     if ((edge & KEY_A) && wvcfg_row(wvcfg_sel) == WVR_EXPORT) { wvcfg_build_qr(); wvcfg_qr_up = 1u; set_dirty = 1u; }
 #endif
     return 1;
@@ -1389,13 +1423,21 @@ static const set_spg_t set_spg[] = {
 #if TAU_DX_CHECK
     { SET_CHECK_PG, chk_draw, chk_input, chk_open },
 #endif
-#if MP3_PROFILE || FLAC_PROFILE
+#if TAU_DX_SWEEPS && (MP3_PROFILE || FLAC_PROFILE)
     { SET_SWEEP_PG, sw_draw, sw_input, sw_open },
 #endif
+#if TAU_DX_BLIT_TEST
     { SET_BLITTEST_PG, bt_draw, bt_input, bt_open },
+#endif
+#if TAU_DX_SWEEPS
     { SET_METERSWEEP_PG, mw_draw, mw_input, 0 },
+#endif
+#if TAU_DX_METER_TRACE
     { SET_METERTRACE_PG, mt_draw, mt_input, 0 },
+#endif
+#if TAU_DX_PIXEL_GRID_TEST
     { SET_PIXGRID_PG, pg_draw, pg_input, 0 },
+#endif
 #endif
 };
 #define SET_SPG_N SET_COUNT(set_spg)
@@ -1741,7 +1783,7 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
             set_ch_follow(r->arg);
             set_dirty = 1u;
         } else if (r->type == RT_TOGGLE) { set_toggle(r->arg); set_dirty = 1u; }
-#if TAU_DIAGNOSTIC
+#if TAU_DX_TESTS_PAGE
         else if (r->type == RT_ACTION && (edge & KEY_A)) { dg_run(r->arg); set_dirty = 1u; }
 #endif
         else if (r->type == RT_VOL && (edge & KEY_RIGHT)) { set_volume(1); set_dirty = 1u; }

@@ -1,60 +1,72 @@
-# Diagnostic-Build features on demand (ram-diet, phase 1)
+# Diagnostic-Build features, chosen at build time (ram-diet)
 
-Everything that exists only in the Diagnostic Build used to hang off ONE switch, `TAU_DIAGNOSTIC` (about 90 uses), so nothing could be removed on its own and a feature incubating in the Diagnostic Build looked the same as a test. Phase 1 gives that code a register and a build switch.
+Everything that exists only in the Diagnostic Build used to hang off ONE switch, `TAU_DIAGNOSTIC` (about 90 uses), so nothing could be removed on its own and a feature incubating in the Diagnostic Build looked the same as a test. Now every piece has a name in one register, `fw/diag_features.json`, and a macro that defaults to `TAU_DIAGNOSTIC` (so the default Diagnostic Build is byte-identical to before; proved by hashing five configs after every conversion).
 
 ## Two kinds, kept apart
 | Kind | Meaning | Macro | Lifecycle |
 |---|---|---|---|
-| **dx** diagnostic | measurement, test or reporting code with no user-facing function (stress, Check, sweeps, Blit Test, counters, report pages) | `TAU_DX_<ID>` | stays in the Diagnostic Build; can be dropped for a smaller one |
-| **fx** feature | a real capability still incubating behind the flag (experimental meter settings, rate / speed / resampler toggles) | `TAU_FX_<ID>` | **graduates** to the release (`FEATURES_ON=<id>`) or is dropped |
+| **dx** diagnostic | measurement, test or reporting code with no user-facing function | `TAU_DX_<ID>` | stays in the Diagnostic Build, can be dropped for a smaller one |
+| **fx** feature | a real capability still incubating behind the flag | `TAU_FX_<ID>` | **graduates** to the release (`FEATURES_ON=<id>`) or is dropped |
 
-`fw/diag_features.json` is the one register (id, kind, title, depends, converted). `tools/gen_diag_features.py` writes `fw/diag_features.h`; every converted macro defaults to `TAU_DIAGNOSTIC`, so the default Diagnostic Build and the release are byte-identical (proved by hashing five configs before and after, see below). `make test-host` fails if the header is stale.
+Classes (what dropping it does to the remaining measurements): **observer** (reads state only, never changes what is measured), **reporter** (turns readings into a report), **page** (does nothing unless its page is open), **option** (a setting that is off at every start), **load** (adds contention on purpose), **behavior** (changes the audio path by default).
 
-## Using it
+## Choosing at build time
 ```bash
-python3 tools/gen_diag_features.py --list              # the register
-DIAG_DROP=meter_experimental bash fw/build.sh player-library-diagnostic     # a Diagnostic Build without it
-FEATURES_ON=meter_experimental bash fw/build.sh release                      # graduate an fx into the release
+python3 tools/gen_diag_features.py --list                                  # the register
+DIAG_DROP=blit_test,meter_trace bash fw/build.sh player-library-diagnostic  # drop by name (dependents come with it)
+DIAG_PRESET=slim bash fw/build.sh player-library-diagnostic                 # a named set (below)
+FEATURES_ON=meter_experimental bash fw/build.sh release                     # graduate an fx into the release
+python3 tools/diag_cost.py                                                  # re-measure every row below (about 12 minutes)
 ```
-Unknown ids, ids not converted yet, dropping something a kept feature depends on, and turning a `dx` on outside the Diagnostic Build are build errors, not silent no-ops.
+Unknown ids, dropping something a kept feature depends on (`check` needs `load_stats`), turning a `dx` on outside the Diagnostic Build, and unknown presets are build errors, not silent no-ops. `make test-host` checks the register, the generated header, that the firmware only tests registered macros and that every registered macro is used (`sim/test_diag_features.py`).
 
-## Converted so far
-`meter_experimental` (fx): the experimental meter parameters and presets (Layered Wave anti-aliasing, layer blend, EQ bells, CURVE, per-layer gains, [EX] presets). Its sources are the `experimental` flags in `meters/*/meter.json`, emitted by `tools/gen_meters.py`, and `fw/layered_wave.inc`.
-Measured (192 KB link): dropping it from the Diagnostic Build frees about **0.5 KB hot RAM** and 10.5 KB of cold PSRAM code; putting it into the release costs 0.5 KB hot RAM (release 8,960 to 8,464 B free) and the cold code.
-Identity proof: `tau.rom` and `tau-cold.bin` of release, diagnostic and profile (256 KB link) and release and diagnostic (192 KB / CLK66 / SDRAM_BUSY link) hash the same before and after the conversion.
+## Measured cost of each feature
+Diagnostic Build on the shipped 192 KB link, one feature dropped at a time (`tools/diag_cost.py`, stored in `tools/diag_cost.json`). Free hot RAM of the default build: 1,600 B.
 
-### stress (dx) and check (dx), converted 2026-10-07
-`stress` = the SDRAM stress pump, its 1 Hz HUD, levels R1-R3, the timed soak, the Stress group and Stress Status page, and the hooks in the playback loop (`stress_tick`, `stress_note_underrun` x2, the Select+Start HUD refresh, the HUD restore after a chrome repaint, `stress_frames_at_flush`). Without it Select+Start is the normal Start action, and Check reports its stress tests (R1-R3, SOAK) as not applicable instead of failing.
-`check` = the Check runner and its page (`chk_*` region of `fw/suite.inc`, the CHECK row and page-table entry, `chk_tick`, `chk_loads`, the summary persistence in `settings.inc`). Decode Sweep, Meter Sweep, Meter Trace, Blit Test, the pixel grid test and the report plumbing stay (separate features, not converted yet).
-Identity: default builds hash the same before and after both conversions (release, diagnostic and profile at 256 KB; release and diagnostic at the shipped 192 KB link).
+| Feature | Kind / class | Hot RAM freed | Cold code freed | What it influences | Easily dropped? |
+|---|---|---|---|---|---|
+| `stress` | dx / load | +2944 B | 1.6 KB | adds SDRAM and CPU contention beside playback; it IS the test load for R1-R3 and the soak | unless you are testing contention / long-run stability |
+| `load_stats` | dx / observer | +1008 B | 10.0 KB | a few cycle-counter reads per audio frame (negligible, but present): feeds the load fields of the Check report | yes, with Check |
+| `check` | dx / reporter | +720 B | 10.0 KB | plays tracks and reads counters; changes nothing it measures. Its report is how most results leave the device | unless you need the Check report (profile builds report through it) |
+| `blit_test` | dx / page | +720 B | 3.5 KB | drives the draw engine only while its page is open | yes |
+| `meter_experimental` | fx / option | +496 B | 4.7 KB | adds experimental meter settings and presets; defaults unchanged | yes |
+| `sweeps` | dx / page | +416 B | 2.8 KB | runs playback / meter changes only while a sweep is running | yes unless you need the sweep reports |
+| `cymo_toggle` | fx / behavior | +272 B | 0.3 KB | ON BY DEFAULT: the 44.1 kHz hardware resampler is in the audio path, so dropping it changes the sound and the CPU load of 44.1 kHz tracks | NO if you test 44.1 kHz audio; it is the path under test |
+| `pixel_grid_test` | dx / page | +272 B | 0.7 KB | draws a test pattern only while its page is open | yes |
+| `meter_trace` | dx / observer | +240 B | 1.5 KB | records what each meter drew, one cheap hook per displayed frame | yes |
+| `tests_page` | dx / page | +176 B | 1.8 KB | runs memory / cold-code tests only when started | yes |
+| `underrun_log` | dx / observer | +160 B | 0.1 KB | counts FIFO stalls, no effect on playback | yes |
+| `config_export` | dx / observer | +160 B | 0.3 KB | prints the Configure page values as a report | yes |
+| `gap_timing` | dx / observer | +144 B | 0.3 KB | times the gap at a natural track end, no effect on playback | yes |
+| `out16_toggle` | fx / option | +80 B | 0.1 KB | sends the full 16-bit I2S word only while switched on | yes unless you A/B the 16-bit slot |
+| `accept_all_rates` | fx / option | +48 B | 0.0 KB | lets a 96 kHz file load for a decode reading; off at every start | yes unless you test above 48 kHz |
+| `gain_toggle` | fx / option | +48 B | 0.3 KB | A/B of the hardware gain stage, only while switched | yes unless you A/B the gain stage |
+| `all_speeds` | fx / option | +32 B | 0.1 KB | adds the 2.50x speed entry; off at every start | yes |
 
-Measured on the shipped 192 KB link (Diagnostic Build, free RAM before the tempo diet: 1,600 B):
-| Build | Free hot RAM | Cold image |
+Reading it: `stress` is the only large hot cost (2.9 KB). `check` is mostly cold code (10 KB). Everything marked "yes" changes nothing the remaining tests measure. The one that does is `cymo_toggle`: the hardware resampler is ON by default in the Diagnostic Build, so a build without it plays 44.1 kHz tracks through the old path.
+
+## Presets (`fw/diag_features.json` "presets")
+| Build | Hot RAM free | Cold image |
 |---|---|---|
-| default | 1,600 B | 193.7 KB |
-| `DIAG_DROP=stress` | 4,544 B (+2,944) | about the same |
-| `DIAG_DROP=check` | 2,320 B (+720) | 177.7 KB (-16 KB) |
-| `DIAG_DROP=stress,check` | 5,152 B (+3,552) | 176.7 KB |
-| profile, `DIAG_DROP=stress` | 1,872 B (it does not link by default: -1,056 B) | |
-So `stress` is where the hot RAM is; `check` is mostly cold code. Both can be combined with `TEMPO_SLICE=1 TEMPO_RING=512` (+2.8 KB more).
+| default Diagnostic Build | 1,600 B (+0) | 183.5 KB (+0.0) |
+| `DIAG_PRESET=perf` | 4,416 B (+2,816) | 168.0 KB (-15.6) |
+| `DIAG_PRESET=slim` | 7,568 B (+5,968) | 165.7 KB (-17.8) |
+| ALL diagnostics (dx) | 8,048 B (+6,448) | 149.3 KB (-34.3) |
+| ALL features (fx) | 2,512 B (+912) | 178.0 KB (-5.6) |
+| `DIAG_PRESET=release-like` | 8,944 B (+7,344) | 143.7 KB (-39.9) |
 
-## Classified, not converted (the plan)
-| Feature | Kind | Sites | Hot cost (est.) | Note |
-|---|---|---|---|---|
-| ~~`stress`~~ done | dx | `stress.inc`, `stress_defs.inc`, `dg_soak_*`, HUD, 4 hooks in `player.c`, the Stress and Stress Status pages | about 2-3.5 KB incl. hooks | Check's stress profile uses the pump, so `check` depends on it |
-| ~~`check`~~ done | dx | `suite.inc` chk_* | cold mostly | reports its stress tests as N/A when `stress` is dropped |
-| `sweeps`, `blit_test` | dx | `suite.inc` sw_/mw_/mt_/bt_ | cold | pages and their menu rows must disappear together (B-605 row-count bug class) |
-| `tests_page` | dx | `settings_diag.inc`, `cold.inc` (the 12 KB `cold_big` blob) | cold | |
-| `counters` | dx | `ur_note`, `gap_*`, `ld_*`, Info rows | small, spread over hot hooks | |
-| `report_pages` | dx | `report.inc`, exports | cold | |
-| `rate_toggles` | fx | ACCEPT ALL RATES, ALL SPEEDS 2.50x, Cymo and 16-bit toggles | small | candidates to graduate or drop |
+- `perf`: keeps the load (`stress`), the report (`check`, `load_stats`), the counters and the audio-path toggles; drops pages and options.
+- `slim`: keeps only Check, the load numbers, the underrun count and the Cymo path; the smallest build that still reports.
+- `release-like`: everything off. It frees as much as the release has (8,944 B against 8,960 B), so the Diagnostic Build costs 16 B beyond its features.
+With the tempo diet (`TEMPO_SLICE=1 TEMPO_RING=512`, +2.8 KB) every row gains that much on top.
 
-## How to convert a feature (the recipe, in this order)
-1. Set `"converted": true` in the register and run the generator (the macro now exists and equals `TAU_DIAGNOSTIC`).
-2. Replace `#if TAU_DIAGNOSTIC` by `#if TAU_DX_<ID>` / `TAU_FX_<ID>` at that feature's sites only; give any host harness that includes the file `#include "diag_features.h"`.
-3. For menu rows and pages: the row, its handler and its page enum must be inside the same `#if`; run the UI snapshot tests.
-4. Prove the default is unchanged: build release, diagnostic and profile (and the 192 KB variants) before and after and compare `tau.rom` / `tau-cold.bin` hashes.
-5. Measure with `DIAG_DROP=<id>`, record the hot and cold cost here, run `make test-host`.
+## Adding a feature
+1. Add it to `fw/diag_features.json` (id, kind, class, influences, safe_to_drop, depends) and run `python3 tools/gen_diag_features.py`.
+2. Put its code, its menu row, its page-table row, its hooks and its Info-row text under `#if TAU_DX_<ID>` / `TAU_FX_<ID>`, with the release behaviour in the `#else` (a "-" in an Info row, the placeholder row stays so the row positions never move).
+3. Prove the default is unchanged: hash `tau.rom` / `tau-cold.bin` of release, diagnostic and profile (256 KB link) and release and diagnostic (192 KB / CLK66 / SDRAM_BUSY) before and after.
+4. `python3 tools/diag_cost.py`, `make test-host`.
 
-## Open question (not built)
-"On demand" here means selected at build time. A runtime-loaded diagnostics image (the Diagnostic code in a separate PSRAM image fetched when Diagnostics opens, one core for everyone) would remove the second core, but the hot hooks in the playback loop would still be in RAM and the image would be one more thing bound to the ROM layout. Not proposed until the build-time version has proved its worth.
+## What is not covered
+- "On demand" is build time. A diagnostics image loaded at runtime from a data slot would remove the second core, but the hot hooks in the playback loop would stay in RAM and the image would be one more file bound to the ROM layout. Not proposed.
+- Info-page rows of the features stay as placeholders in every build (their text reads "-" or "OFF" when the feature is out), and the page-id enum keeps its numbers, so reports and saved settings never change layout.
+- The decode sweep only exists in profile builds (`MP3_PROFILE || FLAC_PROFILE`) on top of `sweeps`.

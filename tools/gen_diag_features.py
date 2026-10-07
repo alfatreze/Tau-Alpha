@@ -4,7 +4,7 @@
   gen_diag_features.py            write fw/diag_features.h
   gen_diag_features.py --check    exit 1 if the header on disk differs from what the manifest generates (make test-host)
   gen_diag_features.py --list     the register as a table (id, kind, converted, depends)
-  gen_diag_features.py --cflags DROP [ON]
+  gen_diag_features.py --cflags DROP [ON [PRESET]]
                                   -D flags for fw/build.sh: DIAG_DROP (comma list) sets TAU_DX_/TAU_FX_<ID>=0, FEATURES_ON sets an 'fx' to 1.
                                   Unknown ids, ids not yet converted, dropping something another kept feature depends on, and turning on a 'dx' are errors.
 """
@@ -37,8 +37,22 @@ def header(feats):
     o += ["", "#endif", ""]
     return "\n".join(o)
 
-def cflags(feats, drop, on):
+def preset_ids(feats, name):
+    d = json.loads(MAN.read_text()).get("presets", {})
+    if name not in d: sys.exit(f"unknown preset '{name}' (known: {', '.join(d)})")
+    ids = d[name]["drop"]
+    return [i for i, f in feats.items() if f["converted"]] if ids == "ALL" else ids
+
+def closure(feats, ids):
+    out = set(ids)
+    while True:
+        more = {f["id"] for f in feats.values() if set(f["depends"]) & out} - out
+        if not more: return sorted(out)
+        out |= more
+
+def cflags(feats, drop, on, preset=""):
     drop = [x for x in drop.split(",") if x]; on = [x for x in on.split(",") if x]
+    if preset: drop = sorted(set(closure(feats, preset_ids(feats, preset))) | set(drop))   # a preset also takes its dependents with it
     flags = []
     for i in drop + on:
         if i not in feats: sys.exit(f"unknown feature '{i}' (python3 tools/gen_diag_features.py --list)")
@@ -56,10 +70,10 @@ def cflags(feats, drop, on):
 def main():
     feats = load(); a = sys.argv[1:]
     if a[:1] == ["--list"]:
-        for f in feats.values(): print(f"{f['id']:20} {f['kind']}  {'converted' if f['converted'] else 'classified':10} deps={','.join(f['depends']) or '-':8} {f['title'][:90]}")
+        for f in feats.values(): print(f"{f['id']:20} {f['kind']} {f.get('class','-'):9} {'converted' if f['converted'] else 'classified':10} deps={','.join(f['depends']) or '-':10} {f['title'][:70]}")
         return
     if a[:1] == ["--cflags"]:
-        print(" ".join(cflags(feats, a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else ""))); return
+        print(" ".join(cflags(feats, a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else "", a[3] if len(a) > 3 else ""))); return
     h = header(feats)
     if a[:1] == ["--check"]:
         if not OUT.exists() or OUT.read_text() != h: sys.exit("fw/diag_features.h is out of date: run python3 tools/gen_diag_features.py")
