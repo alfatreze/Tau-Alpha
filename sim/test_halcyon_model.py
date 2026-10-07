@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Properties the Sound Shaping model must have before any RTL or firmware exists (docs/features/CYMO_SOUND_SHAPING_SPEC.md)."""
+"""Properties the Sound Shaping model must have before any RTL or firmware exists (docs/features/CYMO_HALCYON_SPEC.md)."""
 import math, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "lab")); sys.path.insert(0, os.path.join(ROOT, "tools"))
-import sound_shaping_model as m
+import halcyon_model as m
 import gen_eq_coeffs as g
 
 fails = 0

@@ -11,7 +11,7 @@ import math, os, sys
 import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0, HERE); sys.path.insert(0, os.path.join(HERE, ".."))
 import gen_eq_coeffs as g
-import sound_shaping_model as m
+import halcyon_model as m
 FS = 48000.0
 fr = np.array(g.FREQS); z = np.exp(-2j * np.pi * fr / FS)
 def bq(b, a): return (b[0] + b[1] * z + b[2] * z * z) / (a[0] + a[1] * z + a[2] * z * z)

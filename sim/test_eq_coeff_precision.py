@@ -6,7 +6,7 @@ import os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools", "lab")); sys.path.insert(0, os.path.join(ROOT, "tools"))
 import eq_coeff_precision as p
-import sound_shaping_model as m
+import halcyon_model as m
 
 fails = 0
 def check(name, ok, info=""):

@@ -556,7 +556,7 @@ prototype** on the Test Album, scored with simple objective measures plus an own
 
 ## 8. The equalizer: keep, extend or replace
 
-> **Update 2026-10-07:** option B (10-band graphic EQ) is superseded as the C5 target by `CYMO_SOUND_SHAPING_SPEC.md`: six perceptual controls over the existing five biquad stages, on top of option D's writable coefficient store (owner request, MSEB-inspired; not an MSEB clone). Option B stays available later as a power-user page.
+> **Update 2026-10-07:** option B (10-band graphic EQ) is superseded as the C5 target by `CYMO_HALCYON_SPEC.md`: six perceptual controls over the existing five biquad stages, on top of option D's writable coefficient store (owner request, MSEB-inspired; not an MSEB clone). Option B stays available later as a power-user page.
 
 Options, evaluated against the existing hardware and this project's constraints (no FPU on the CPU, ALMs tight, EQ must not
 use scarce M10K, everything bit-exact against a Python model):
