@@ -1,0 +1,19 @@
+# Halcyon preset data: the PRST section and the APO/AutoEQ import (B-626, parallel plan A5)
+
+Reference tool and importer: `tools/halcyon_assets.py` (`selftest` in `make test-host` via `sim/test_halcyon_assets.py`). The container is `tau-assets.bin` (`tools/tau_assets.py`, `docs/features/THEME_FILE_FORMAT.md`); its reader parses `PRST` since B-626. Tau Omega's exporter must produce byte-identical files (cross-project interface, never share the file itself). Firmware loader: NOT built.
+
+## PRST section (magic `TPRS`, version 1)
+Header `<4s H B B I>`: magic, version 1, reserved 0, preset count (1..8), CRC32 of everything after the header. Entries follow, each `type u8 | name[16] | flags u8 (0) | payload`:
+| type | payload | meaning |
+|---|---|---|
+| 0 control | 6 x int8: warmth, bass, vocal, punch, sibilance, air | the six Halcyon controls (-5..+5, sibilance 0..5); the engine derives the stage gains (`tools/lab/halcyon_model.py`, `stage_gains`) |
+| 1 raw | `nstages u8 (1..10) | preamp int24 | nstages x 5 x int24` | raw biquads, Q2.22 little endian, order b0 b1 b2 a1 a2, Direct Form I (`y = b0 x + b1 x1 + b2 x2 - a1 y1 - a2 y2`); preamp Q2.22, above 0 and at most 1.0 (attenuate only) |
+Names: 1..15 characters of `A-Z 0-9 space _ -`, unique, and not one of the built-ins (FLAT, WARM, CLEAR, BASS, VOCAL, SPEECH, LOW VOLUME, SMOOTH). The writer refuses (the firmware never relies on clamping): out-of-range controls, preamp above unity, coefficients outside 24 bits, **any stage whose poles are on or outside the unit circle at Q2.22**, more than 10 stages. The reader re-checks the CRC and stability, and refuses on any mismatch (every single-bit flip is tested).
+Size: a control preset is 24 bytes, a raw preset with 10 stages 172 bytes. **The firmware's assets read is capped at 1,024 bytes** (`tau_assets.py pack`), so one file holds the theme/meter data plus a few raw presets; a full correction library needs a larger cap or its own data slot (open decision, below).
+
+## EQCO (coefficient tables for the control presets): open
+The gain-indexed tables (37 gain steps x 6 stages x 5 coefficients x 24 bits) are about 3.3 KB, over the 1 KB cap. Options: (1) generate them into the firmware build as a ROM table (no user data; Tau Omega only edits control positions and raw presets), (2) raise the read cap for a dedicated `EQCO` slot, (3) compute stage coefficients on the CPU from the gains (needs sin/cos or a cordic in cold code). Recommendation: (1) now, because user-editable stage tables have no use case that raw presets do not cover. Decision recorded here, not made.
+
+## Importing an Equalizer APO / AutoEQ profile (what Tau Omega does)
+Input lines: `Preamp: -6.2 dB` and `Filter N: ON PK|LSC|HSC Fc <Hz> Hz Gain <dB> dB Q <q>` (also `PEQ`, `LS`, `HS`; `OFF` filters are dropped). For each filter the importer uses the **Q form of the RBJ cookbook for peaks and shelves** (an APO/AutoEQ shelf Q is a Q, unlike the slope S the Halcyon tone stages use), quantises to Q2.22 and checks the quantised poles. Refused, never silently changed: more than 10 filters (reduce the profile offline by a least-squares fit), Fc outside 10 Hz..20 kHz, Q outside 0.1..20, gain beyond +-24 dB, an unrepresentable or unstable stage. The preamp is the more negative of the file's preamp and the **peak-safe value** (the largest boost of the quantised cascade, evaluated on 401 log-spaced points), attenuate only; the result is shown to the user as headroom. Measurement data from the AutoEQ project is not shipped (licence): the user imports their own file.
+Not done here: the analog-matched refinement for Q-form filters (the cookbook form cramps toward Nyquist; the matched design exists for the tone stages only), the firmware loader and the macro layer, the tuning-lab page.

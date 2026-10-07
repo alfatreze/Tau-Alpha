@@ -45,6 +45,7 @@ test-host:
 	$(PYTHON) sim/test_cymo_crossfeed.py
 	$(PYTHON) sim/test_cymo_tplimit.py
 	$(PYTHON) sim/test_lame_tag.py
+	$(PYTHON) sim/test_halcyon_assets.py
 	$(PYTHON) sim/test_cymo_out_model.py
 	$(PYTHON) sim/test_sound_i2s_full16.py
 	$(PYTHON) sim/test_settings_menu_counts.py

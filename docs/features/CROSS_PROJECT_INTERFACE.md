@@ -94,3 +94,5 @@ section 2's rule exists.
 
 Add a row here whenever a new interface surface is created — this table, not either project's
 memory of the conversation that created it, is what a future session should find first.
+
+| **Halcyon `PRST` section of `tau-assets.bin`** (2026-10-07, B-626) | `tools/halcyon_assets.py`, `docs/features/HALCYON_DATA_FORMAT.md` (format, limits, the APO/AutoEQ import rules), `tools/tau_assets.py` parses it | Tau Omega's exporter must reproduce the bytes (control presets and raw Q2.22 biquad presets, peak-safe preamp, stability checks) and re-check the file with its own reader; the firmware loader does not exist yet. **Settings > Diagnostics > Info now has 36 rows** (new `HW GAIN`, B-625): the Info export header reads `36 ROWS`; the decoder must take the row count from the record, not assume 35. |
