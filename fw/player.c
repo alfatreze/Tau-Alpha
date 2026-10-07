@@ -151,6 +151,11 @@ static uint8_t clut_start_idx_v = 255u;
 #define R_I2S_DIAG_SUM    0x80000148u /* sum of measured intervals since reset (average via delta / delta-count) */
 #define R_I2S_DIAG_ST     0x8000014Cu /* bit 0 = built in (I2S_DIAG_ENABLE) */
 #define R_AUDIO_CFG   0x80000164u /* B-602 (Cymo C3, F2): bit 1 (read) = bitstream has the switch, bit 0 = 16-bit I2S slot (STICKY; 0 = the original 15-bit mapping) */
+#define R_GAIN_CTRL   0x80000168u /* B-615 hardware gain stage: write bit0 ENABLE (sticky), bit1 SNAP (pulse), bit2 FADE_NOW (pulse), [5:4] fade length 256<<n (sticky); read bit31 = present */
+#define R_GAIN_TARGET 0x8000016Cu /* Q15 gain, 32768 = unity (capped there): the stage ramps to it */
+#define R_GAIN_CUR    0x80000170u /* read: the gain in force */
+#define R_GAIN_STEP   0x80000174u /* max gain change per output sample (reset 149 = 5 ms for full scale) */
+#define GAIN_CTRL_BASE (1u | (3u << 4))   /* enabled, fade length 2048 samples (FADE_SAMPLES) */
 #define R_CYMO_CTRL   0x80000150u /* B-471/B-476: write: bit0 clear (pulse), bit1 start (pulse, test-only), bit2 LIVE_ENABLE (STICKY -- hands the real audio path to the resampler) */
 #define R_CYMO_PUSH   0x80000154u /* write: {push_r[31:16],push_l[15:0]} + one push_we pulse (self-test only, the live audio path never uses this) */
 #define R_CYMO_OUT    0x80000158u /* read: {out_r[31:16],out_l[15:0]} -- this read is itself the ack that clears STATUS bit 2 (self-test only) */
@@ -1199,6 +1204,7 @@ static uint8_t  fl_bps_mirror;             /* mirrors fl.bps, declared later -- 
 static uint8_t  fl_io_pct;
 static uint32_t ui_last_prof;              /* UI_SHOW_DECODE_PROFILE latch, Phase F step 1 */
 #include "pcm_push.h"       /* the type below (the include further down stays harmless: it has a guard) */
+static uint8_t  hw_gain;                 /* B-615: the bitstream has the hardware gain stage (probed once at boot; 0 on any other bitstream) */
 static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: current value and the target it ramps to (dB taper, B-598) */
 
 /* ReplayGain (Cymo C6, B-599, fw/replaygain.h): the tags of the track being played, the user's mode (Off / Track / Album) and the resulting Q15 factor, folded into the
@@ -1208,8 +1214,25 @@ static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: curre
 static rg_t     rg_cur;
 static uint8_t  rg_mode;                                   /* RG_OFF (default), RG_TRACK, RG_ALBUM; saved with the theme polarity word */
 static uint32_t rg_factor = RG_UNITY;
-static void vol_apply(void)        { vol_st.target = rg_target(pcm_vol_target(volume), rg_factor); }                 /* a change: ramps */
-static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = rg_target(pcm_vol_target(volume), rg_factor); }    /* boot / settings restore: no ramp from full volume */
+static void vol_apply(void)        { vol_st.target = rg_target(pcm_vol_target(volume), rg_factor); if (vol_st.hw) REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; }   /* a change: ramps (in hardware when the gain stage is on, B-615) */
+static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = rg_target(pcm_vol_target(volume), rg_factor); if (vol_st.hw) { REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u; } }    /* boot / settings restore: no ramp from full volume */
+/* B-615: restart the discontinuity fade (resume after a pause, an underrun). The hardware stage starts its own fade at every flush; the other cases need this pulse. */
+static inline void fade_restart(void) { fade_left = FADE_SAMPLES; if (vol_st.hw) REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 4u; }
+/* B-615: hand the gain (volume, ramp, fade-in) to the hardware stage, or take it back. Exactly one of the two owns it: pcm_gain_apply() returns at once while vol_st.hw is set, so
+ * the gain is never applied twice, and with the stage off the software path is byte-for-byte what it was. A no-op on a bitstream without the stage (hw_gain 0). */
+static void gain_hw_set(uint8_t on)
+{
+    if (!hw_gain) return;
+    if (on) {
+        vol_st.hw = 1u;
+        REG(R_GAIN_TARGET) = (uint32_t)vol_st.target;
+        REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u;          /* enable, and the stage's gain = target now: no ramp from a stale value */
+    } else {
+        vol_st.hw = 0u;
+        vol_st.cur = vol_st.target;                      /* software resumes at the target, not at a stale mid-ramp value */
+        REG(R_GAIN_CTRL) = 0u;
+    }
+}
 /* The ReplayGain parsing lives in COLD code (it ran to about 2 KB of the on-chip RAM): every entry from the hot track-load path is gated on cold_code_ok, and without cold code
  * ReplayGain simply does nothing (the factor stays unity). rg_update() is the one entry the hot code uses. */
 COLD_FN3 static void rg_update_cold(void)  { rg_factor = rg_pick_factor(rg_mode, &rg_cur); vol_apply(); }
@@ -9182,6 +9205,7 @@ int main(void)
     tau_lpc_hw_enable = hw_lpc;
 #endif
     hw_a16  = (uint8_t)((REG(R_AUDIO_CFG) >> 1) & 1u);   /* B-602 */
+    hw_gain = (uint8_t)((REG(R_GAIN_CTRL) >> 31) & 1u);  /* B-615: hardware gain stage present? (0 on any other bitstream) */
     hw_cymo = (uint8_t)(REG(R_CYMO_STATUS) & 1u);  /* B-471/B-476: hardware Cymo resampler present? (0 on any other bitstream) */
 #if FLAC_PROFILE
     /* B-342: one-time boot calibration of __clzdi2's real cost on THIS CPU, so flac.c's unary() call
@@ -9212,6 +9236,7 @@ int main(void)
     fb_rect(0, 0, FB_W, FB_H, UI_BG);
 
     vol_apply_snap();
+    gain_hw_set(1u);   /* B-615: probe-then-adopt: with the hardware stage in the bitstream it owns the gain from the first sample (no-op otherwise) */
 
     /* Phase F step 1 (docs/PHASE_F_SPEC.md section 14): point the decoders'
      * cycle-counting hooks at R_CYCLES. Compiles to nothing unless the
@@ -10071,7 +10096,7 @@ int main(void)
             /* The FIFO drained during the pause and its output has glided to
              * zero, so the resume must ramp up from zero like any other
              * discontinuity -- see FADE_SAMPLES. */
-            fade_left = FADE_SAMPLES;
+            fade_restart();
         }
         ui_was_paused = 0;
 
@@ -10119,7 +10144,7 @@ int main(void)
 #if TAU_DIAGNOSTIC
                 stress_note_underrun();
 #endif
-                fade_left    = FADE_SAMPLES;
+                fade_restart();
                 /* Latch the circumstances of the FIRST one only -- the later
                  * ones are consequences and would overwrite the evidence. */
                 if (und1_sec == 0xFFFFFFFFu) {
@@ -10263,7 +10288,7 @@ int main(void)
 #if TAU_DIAGNOSTIC
             stress_note_underrun();
 #endif
-            fade_left    = FADE_SAMPLES;
+            fade_restart();
         }
 
         int n = fi.outputSamps;                  /* interleaved L,R */

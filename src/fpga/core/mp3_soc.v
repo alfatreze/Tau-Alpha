@@ -93,7 +93,9 @@ module mp3_soc #(
     // out_rd tied off) when 0.
     parameter CYMO_RESAMP_ENABLE = 0,
     // B-602 (Cymo C3, F2): 16-bit I2S slot switch (register 0x164, sound_i2s.v full16). Inert (reads 0, no output) when 0.
-    parameter AUDIO16_ENABLE = 0
+    parameter AUDIO16_ENABLE = 0,
+    // B-615 (Cymo C3 slice 2): hardware gain stage at the pcm_fifo output (tau_gain_stage.sv), registers 0x168-0x174. Inert (reads 0, audio path untouched) when 0.
+    parameter GAIN_ENABLE = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -875,6 +877,16 @@ module mp3_soc #(
     // out_rd comment for why a bare one-cycle pulse would be unsafe for a firmware polling loop). Inert
     // (reads 0, out_rd tied off, EQ unaffected) unless CYMO_RESAMP_ENABLE is built.
     localparam [8:0] R_CYMO_CTRL = 9'h150, R_CYMO_PUSH = 9'h154, R_CYMO_OUT = 9'h158, R_CYMO_STATUS = 9'h15C, R_CYMO_DIAG = 9'h160, R_AUDIO_CFG = 9'h164;
+    // B-615 hardware gain stage (docs/features/CYMO_GAIN_STAGE_DESIGN.md). GAIN_CTRL write: bit 0 ENABLE (STICKY, reset 0), bit 1 SNAP pulse (cur = target), bit 2 FADE_NOW pulse,
+    // bits [5:4] fade length 256 << n samples (STICKY, reset 3 = 2048); read: bit 31 present, bit 0 enable, bit 2 fading, [5:4] shift. TARGET (Q15, 32768 = unity, STICKY, reset 32768),
+    // CUR (read: the gain in force), STEP (max change per sample, STICKY, reset 149). With ENABLE 0 the audio path is exactly what it was before this existed.
+    localparam [8:0] R_GAIN_CTRL = 9'h168, R_GAIN_TARGET = 9'h16C, R_GAIN_CUR = 9'h170, R_GAIN_STEP = 9'h174;
+    reg        gain_en = 1'b0;
+    reg [15:0] gain_target = 16'd32768, gain_ramp = 16'd149;
+    reg [1:0]  gain_shift = 2'd3;
+    reg        gain_snap = 1'b0, gain_fade_we = 1'b0;
+    wire [15:0] gain_cur;
+    wire        gain_fading;
     reg audio16_reg = 1'b0;   // B-602: STICKY, reset to 0 (15-bit mapping) in the if(rst) block
     assign audio_full16 = (AUDIO16_ENABLE != 0) ? audio16_reg : 1'b0;
 
@@ -1001,6 +1013,7 @@ module mp3_soc #(
     wire [11:0] pcm_level;
     wire signed [15:0] fifo_l, fifo_r;
     wire        pcm_sample_tick;
+    wire        pcm_adv;
     reg   [2:0] eq_preset;
 
     pcm_fifo #(.AW(11)) u_pcm (
@@ -1016,8 +1029,25 @@ module mp3_soc #(
         .out_l    (fifo_l),
         .out_r    (fifo_r),
         .underrun (pcm_underrun),
-        .sample_tick (pcm_sample_tick)
+        .sample_tick (pcm_sample_tick),
+        .adv      (pcm_adv)
     );
+
+    // ---- hardware gain stage (B-615), position B: right after the FIFO's output register. The hardware meters (spectrum bank, wave meter) keep tapping fifo_l/fifo_r, so they
+    // see the audio BEFORE the volume (volume-independent), as the software level meters already do. Everything downstream (Cymo feed, EQ) takes gain_l/gain_r.
+    wire signed [15:0] gst_l, gst_r;
+    wire signed [15:0] gain_l = (GAIN_ENABLE != 0 && gain_en) ? gst_l : fifo_l;
+    wire signed [15:0] gain_r = (GAIN_ENABLE != 0 && gain_en) ? gst_r : fifo_r;
+    generate
+        if (GAIN_ENABLE != 0) begin : g_gain
+            tau_gain_stage u_gain (
+                .clk(clk), .rst(rst), .tick(pcm_sample_tick), .adv(pcm_adv), .flush(pcm_flush), .fade_now(gain_fade_we), .snap(gain_snap),
+                .target(gain_target), .ramp(gain_ramp), .shift(gain_shift), .in_l(fifo_l), .in_r(fifo_r),
+                .out_l(gst_l), .out_r(gst_r), .cur_o(gain_cur), .fading(gain_fading));
+        end else begin : g_nogain
+            assign gst_l = 16'sd0; assign gst_r = 16'sd0; assign gain_cur = 16'd0; assign gain_fading = 1'b0;
+        end
+    endgenerate
 
 
     // ---- spectrum filter bank (B-263) --------------------------------------------------------------------------------
@@ -1173,13 +1203,13 @@ module mp3_soc #(
     wire [15:0] cymo_stale_cnt, cymo_drop_cnt;
     wire [2:0]  cymo_feed_level;
     wire        cymo_auto_start = cymo_live_en & cymo_tick;
-    wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out_l : fifo_l;
-    wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out_r : fifo_r;
+    wire signed [15:0] eq_in_l = cymo_live_en ? cymo_out_l : gain_l;
+    wire signed [15:0] eq_in_r = cymo_live_en ? cymo_out_r : gain_r;
     generate
         if (CYMO_RESAMP_ENABLE != 0) begin : g_cymo
             tau_cymo_feed u_cymo_feed (
                 .clk(clk), .rst(rst), .clear(cymo_clear | pcm_flush | cymo_live_rise), .live(cymo_live_en),
-                .tick(pcm_sample_tick), .in_l(fifo_l), .in_r(fifo_r), .pop_req(cymo_pop_req),
+                .tick(pcm_sample_tick), .in_l(gain_l), .in_r(gain_r), .pop_req(cymo_pop_req),
                 .push_we(cymo_auto_we), .push_l(cymo_feed_l), .push_r(cymo_feed_r),
                 .stale_cnt(cymo_stale_cnt), .drop_cnt(cymo_drop_cnt), .level(cymo_feed_level));
             tau_cymo_resamp u_cymo (
@@ -1229,6 +1259,7 @@ module mp3_soc #(
         lpc_cfg_we <= 1'b0; lpc_coef_idx_we <= 1'b0; lpc_coef_data_we <= 1'b0;
         lpc_warm_idx_we <= 1'b0; lpc_warm_data_we <= 1'b0; lpc_residual_we <= 1'b0;
         cymo_clear <= 1'b0; cymo_start <= 1'b0; cymo_push_we <= 1'b0;
+        gain_snap <= 1'b0; gain_fade_we <= 1'b0;
         dt_wren     <= 1'b0;
         set_wr      <= 1'b0;
         sdram_start <= 1'b0;
@@ -1254,6 +1285,7 @@ module mp3_soc #(
 `endif
             eq_preset <= 3'd0;         // FLAT: bypass until asked otherwise
             audio16_reg  <= 1'b0;      // B-602: STICKY, back to the 15-bit mapping on reset
+            gain_en <= 1'b0; gain_target <= 16'd32768; gain_ramp <= 16'd149; gain_shift <= 2'd3;   // B-615: STICKY, back to 'stage off, unity'
             cymo_live_en <= 1'b0;      // STICKY register, not covered by the pulse-reset preamble above -- must be reset here explicitly
             set_idx <= 5'd0; set_wdata <= 32'd0;
             sdram_start <= 1'b0;
@@ -1361,6 +1393,9 @@ module mp3_soc #(
                     cymo_live_en <= dDAT_MOSI[2];   // STICKY (not reset every cycle below, unlike bits 0/1)
                 end
                 R_AUDIO_CFG: audio16_reg <= dDAT_MOSI[0];   // B-602: STICKY (acts only when AUDIO16_ENABLE is built)
+                R_GAIN_CTRL: begin gain_en <= dDAT_MOSI[0]; gain_snap <= dDAT_MOSI[1]; gain_fade_we <= dDAT_MOSI[2]; gain_shift <= dDAT_MOSI[5:4]; end   // B-615
+                R_GAIN_TARGET: gain_target <= dDAT_MOSI[15:0];
+                R_GAIN_STEP:   gain_ramp   <= dDAT_MOSI[15:0];
                 R_CYMO_PUSH: begin
                     cymo_push_l_d <= dDAT_MOSI[15:0];
                     cymo_push_r_d <= dDAT_MOSI[31:16];
@@ -1430,6 +1465,10 @@ module mp3_soc #(
             R_I2S_DIAG_ST:     mmio_rdata = {31'd0, (I2S_DIAG_ENABLE != 0)};
             R_CYMO_OUT:    mmio_rdata = {cymo_out_r, cymo_out_l};                                      // this read is the ack (clears done)
             R_CYMO_STATUS: mmio_rdata = {24'd0, cymo_feed_level, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en, [7:5] feed queue level (B-527)
+            R_GAIN_CTRL:   mmio_rdata = {(GAIN_ENABLE != 0), 25'd0, gain_shift, 1'b0, gain_fading, 1'b0, gain_en};   // B-615
+            R_GAIN_TARGET: mmio_rdata = {16'd0, gain_target};
+            R_GAIN_CUR:    mmio_rdata = {16'd0, gain_cur};
+            R_GAIN_STEP:   mmio_rdata = {16'd0, gain_ramp};
             R_AUDIO_CFG:   mmio_rdata = {30'd0, (AUDIO16_ENABLE != 0), audio_full16};   // B-602: bit 1 present, bit 0 value; 0 when not built
             R_CYMO_DIAG:   mmio_rdata = {cymo_drop_cnt, cymo_stale_cnt}; // B-527: [15:0] consumes that found no pushed sample (repeat), [31:16] ticks dropped because the queue was full; both saturate, both clear on live engage
             default:   mmio_rdata = xm_range ? xm_rdata : 32'h0;

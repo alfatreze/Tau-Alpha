@@ -49,7 +49,8 @@ module pcm_fifo #(
     output reg signed [15:0] out_l,
     output reg signed [15:0] out_r,
     output reg         underrun,
-    output wire        sample_tick     // the fractional-rate sample strobe (one clk pulse per output sample), for the spectrum bank
+    output wire        sample_tick,    // the fractional-rate sample strobe (one clk pulse per output sample), for the spectrum bank
+    output wire        adv             // B-615: this tick delivers a real queued sample (primed, not empty, no flush): the gain stage's fade advances only on these
 );
 
     localparam DEPTH = (1 << AW);
@@ -89,6 +90,7 @@ module pcm_fifo #(
     reg [31:0] acc;
     reg        tick;
     assign sample_tick = tick;
+    assign adv = tick & primed & ~empty & ~flush & ~rst;
     always @(posedge clk) begin
         if (rst) begin
             acc  <= 32'd0;
