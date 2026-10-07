@@ -81,11 +81,20 @@ module tau_halcyon #(
     end
 
     // ---- sample tick ------------------------------------------------------
-    reg [11:0] divctr;
-    wire tick = (divctr == DIV[11:0] - 12'd1);
+    // B-649: a FRACTIONAL accumulator, not an integer divider. CLK_HZ / RATE_HZ is 1388.89 at 66.667 MHz: an integer divider (1388) ticks at 48,030.7 Hz, 30.7 Hz fast against
+    // the 48 kHz audio it filters, so every ~1,560 samples the engine sees the same input twice. That is a 30 Hz glitch train: the "fluttering wings" the first hardware listening
+    // test heard on every non-FLAT Halcyon setting (the same class as the B-484 resampler tick bug). The accumulator gives 47,999.99x Hz, the same train as pcm_fifo's own.
+    localparam [31:0] TICK_INC = (RATE_HZ * 64'd4294967296 + CLK_HZ / 2) / CLK_HZ;
+    reg  [31:0] tacc;
+    wire [32:0] tsum = {1'b0, tacc} + {1'b0, TICK_INC};
+    reg  [11:0] divctr;
+    wire        tick = (BUG == 11) ? (divctr == DIV[11:0] - 12'd1) : tsum[32];      // BUG 11 (mutant): the old integer divider
     always @(posedge clk) begin
-        if (rst) divctr <= 12'd0;
-        else     divctr <= tick ? 12'd0 : divctr + 12'd1;
+        if (rst) begin tacc <= 32'd0; divctr <= 12'd0; end
+        else begin
+            tacc   <= tsum[31:0];
+            divctr <= (divctr == DIV[11:0] - 12'd1) ? 12'd0 : divctr + 12'd1;
+        end
     end
 
     // ---- commit / clear request -------------------------------------------
