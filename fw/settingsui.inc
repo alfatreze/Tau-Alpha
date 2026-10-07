@@ -490,8 +490,10 @@ COLD_FN static void set_toggle(uint32_t t)
          * other inert-when-absent register here). Off at every start, never persisted -- a test switch,
          * not a listening preference, same convention as TG_RATES/TG_SPEEDS. */
         if (CYMO_RESAMP_READY()) {
+            gain_dip_begin();       /* B-620: no step into the listener's ears when the signal path changes */
             cymo_live_toggle = (uint8_t)!cymo_live_toggle;
             cymo_guard_apply(0u);   /* B-530: engages only for a 44.1 kHz file at 1.00x */
+            gain_dip_end();
         }
         return;                                  /* not persisted */
     } else if (t == TG_OUT16) {
@@ -499,8 +501,10 @@ COLD_FN static void set_toggle(uint32_t t)
          * This switch sends the whole word (about +6 dB) for the hardware A/B. Lower the volume before switching it on. No-op on a bitstream without the
          * switch. Off at every start, never persisted. */
         if (hw_a16) {
+            gain_dip_begin();       /* B-620: the slot change is +-6 dB in one sample: dip, change, ramp back */
             a16_on = (uint8_t)!a16_on;
             REG(R_AUDIO_CFG) = a16_on ? 1u : 0u;
+            gain_dip_end();
         }
         return;                                  /* not persisted */
     } else if (t == TG_GAIN) {

@@ -1233,6 +1233,22 @@ static void gain_hw_set(uint8_t on)
         REG(R_GAIN_CTRL) = 0u;
     }
 }
+/* B-620 (parallel plan A2): dip the HARDWARE gain around a change that alters the output abruptly, so the listener never gets a step: the 16-bit slot adds 6 dB in one sample, and the
+ * live resampler swaps the signal. gain_dip_begin() ramps the gain to zero (5 ms by the stage's ramp, 8 ms waited), the caller makes the change, gain_dip_end() ramps back up to the
+ * volume target. Hardware stage only: the firmware gain acts on samples that sit up to 46 ms ahead of the DAC, so it cannot dip in time (the step remains there, documented). A no-op
+ * unless the stage owns the gain. The wait is short against the FIFO's 46 ms, so playback does not underrun. */
+#define GAIN_DIP_WAIT_CYC (CLK_HZ / 1000u * 8u)
+COLD_FN2 static void gain_dip_begin(void)
+{
+    if (!vol_st.hw) return;
+    REG(R_GAIN_TARGET) = 0u;
+    const uint32_t t0 = cycles();
+    while ((uint32_t)(cycles() - t0) < GAIN_DIP_WAIT_CYC) { }
+}
+COLD_FN2 static void gain_dip_end(void)
+{
+    if (vol_st.hw) REG(R_GAIN_TARGET) = (uint32_t)vol_st.target;
+}
 /* The ReplayGain parsing lives in COLD code (it ran to about 2 KB of the on-chip RAM): every entry from the hot track-load path is gated on cold_code_ok, and without cold code
  * ReplayGain simply does nothing (the factor stays unity). rg_update() is the one entry the hot code uses. */
 COLD_FN3 static void rg_update_cold(void)  { rg_factor = rg_pick_factor(rg_mode, &rg_cur); vol_apply(); }
