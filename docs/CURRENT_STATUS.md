@@ -5,6 +5,9 @@ the Cymo row — see below). Why things are the way they are is in `docs/AUDIT_T
 `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
 Full detail on this session: `docs/handoffs/SESSION_HANDOFF_2026-10-03_CYMO_TEMPO.md` — **read it first** (the 2026-10-01 resampler handoff is still correct for what it covers).
 
+## Update 2026-10-07 (end of session, midday): see Addendum 2 of `docs/handoffs/SESSION_HANDOFF_2026-10-07_CYMO_HALCYON.md`
+Parallel work through B-634 is done and pushed; fit `stdfit-b630` (STANDARD FIT vs AUTO FIT, seeds 1 and 2) was running (expected 13:10-14:10 local); the recordings, a crossfeed listening verdict and a Pocket run of `TAU_DEV_105` are the owner's. Next ungated: the Halcyon engine rewrite, then the alpha.4 candidate, then defects. Assets read limit is now 64 KiB (D-A01, to be reviewed after Cymo ships).
+
 ## Update 2026-10-07 (parallel work): ungated items done while the recordings are pending
 See `docs/features/CYMO_PARALLEL_WORK_PLAN.md` for the live status. Done and host-verified (none on a Pocket): FLAC 24-to-16 rounding (B-619), gain dip around the 16-bit and resampler toggles (B-620), crossfeed model with listening files (B-621; D corrected to 4 samples, overshoot +1.15 dB), true-peak limiter model (B-622), Halcyon spec updates (B-623), LAME delay/padding parser (B-624), Info row HW GAIN (B-625), Halcyon `PRST` format and APO/AutoEQ importer (B-626; finding: the assets read is capped at 1,024 bytes), EQ-to-MLAB analysis (B-627). Running: fit `eq24-b618` (gain bundle + 24-bit EQ coefficients, expected about 10:15-10:20 local). `main` pushed to `7aae7ec`.
 
