@@ -22,6 +22,11 @@ NSTAGE = len(STAGES)
 STAGE_MAX = 9.0
 MACROS = ("warmth", "bass", "vocal", "punch", "sibilance", "air")   # warmth is bipolar (+ warm, - clear); sibilance is 0..5
 
+def clamp_slope(S):
+    """Shelf stages use the cookbook's shelf-SLOPE form (the 0.70 in STAGES is S, not Q). That form's square root goes negative, and the design fails, for S > 1 once the
+    gain is large enough, and S <= 1 is exactly the monotonic (no resonant overshoot) range. Any tool that edits a shelf stage (Tau Omega's EQST) must clamp to (0, 1]."""
+    return max(0.1, min(1.0, S))
+
 def stage_gains(m):
     """dB per stage from the six control positions (the stage gain is the clamped sum of what each control contributes)."""
     w, b, v, p, s, a = (m[k] for k in MACROS)
