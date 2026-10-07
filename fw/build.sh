@@ -145,7 +145,9 @@ case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) POLY_FW="${POLY_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && POLY_FW="${POLY_FW:-1}"      # v0.5.0: the release ships the poly bitstream, so the release firmware uses the unit too
 CFLAGS="$CFLAGS -DTAU_POLY_FW=${POLY_FW:-0}"
 # B-558: TEMPO=1 builds in the Cymo C7 tempo funnel (fw/tempo_core.h; MP3 only; the Settings > Playback > TEMPO row). Default 0 = byte-identical to a build without it.
-case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) TEMPO="${TEMPO:-1}" ;; esac   # alpha.4: the tempo row is in the Diagnostic Build (the release default stays 0)
+case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) TEMPO="${TEMPO:-1}" ;; esac
+# ram-diet (owner, 2026-10-07): the tempo stretcher ships in the normal release too (cold code; its 6.2 KB state is the cost, see docs/features/RAM_DIET_PLAN.md). TEMPO=0 builds without it.
+[ "$TARGET" = "release" ] && TEMPO="${TEMPO:-1}"
 CFLAGS="$CFLAGS -DTAU_TEMPO=${TEMPO:-0}"
 if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw/mp3_poly_hw.h (only then, so default builds see no new include path)
 

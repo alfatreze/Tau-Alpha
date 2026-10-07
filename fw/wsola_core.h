@@ -286,7 +286,9 @@ WS_FN uint32_t ws_step(ws_t *s, const int16_t *xl, const int16_t *xr, uint32_t s
  * Contract: feed samples in order (any chunk size, but step between feeds so the ring keeps the span the next step reads: at most 570 entries at 3.0x, so feed less than
  * about 450 entries (3,600 samples) between steps); a step is allowed when ws2_ready() says so; the reader must serve any range ws_need() names, from the start of the
  * stream (absolute sample numbers). */
-#define WS2_RING 1024u
+#ifndef WS2_RING
+#define WS2_RING 1024u      /* entries of the stage-2 mono ring (a power of two); a build may override it, see docs/features/RAM_DIET_PLAN.md */
+#endif
 
 typedef void (*ws2_read_t)(void *ctx, uint32_t ch, uint32_t lo, uint32_t n, int16_t *dst);   /* copy n samples of channel ch starting at absolute sample lo */
 
