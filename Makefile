@@ -49,6 +49,7 @@ test-host:
 	$(PYTHON) sim/test_assets_load.py
 	$(PYTHON) sim/test_halcyon_core.py
 	$(PYTHON) sim/test_halcyon_hw.py
+	$(PYTHON) sim/test_halcyon_prst.py
 	$(PYTHON) sim/test_halcyon_lab.py
 	$(PYTHON) sim/test_cymo_out_model.py
 	$(PYTHON) sim/test_sound_i2s_full16.py

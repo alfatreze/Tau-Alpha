@@ -15,11 +15,11 @@
 #define HAL_PRE_IDX  (HAL_NST * 5u)         /* coefficient index of the preamp */
 #define HAL_CTRL(en, byp, commit, clr, nact) (((uint32_t)(en) << 0) | ((uint32_t)(byp) << 1) | ((uint32_t)(commit) << 2) | ((uint32_t)(clr) << 3) | ((uint32_t)(nact) << 8))
 
-static inline uint32_t hal_hw_present(void) { return (REG(R_HAL_CTRL) >> 31) & 1u; }
+HAL_FN uint32_t hal_hw_present(void) { return (REG(R_HAL_CTRL) >> 31) & 1u; }
 
 /* Writes `nstage` biquads (b0 b1 b2 a1 a2 each, Q2.22) and the preamp (Q2.22) into the shadow bank, commits it, and enables the engine; `bypass` keeps the engine running
  * but passes the input through (FLAT). A clear pulse follows, so the new filter starts from silence (a recall is done inside a gain dip, the caller's job). */
-static inline void hal_hw_commit_bank(const int32_t *coef, uint32_t nstage, int32_t pre, uint32_t bypass)
+HAL_FN void hal_hw_commit_bank(const int32_t *coef, uint32_t nstage, int32_t pre, uint32_t bypass)
 {
     if (nstage > HAL_NST) nstage = HAL_NST;
     HAL_WR(R_HAL_IDX, 0u);
@@ -31,7 +31,7 @@ static inline void hal_hw_commit_bank(const int32_t *coef, uint32_t nstage, int3
 }
 
 /* A control preset: the six tone stages from the tables and the peak-safe preamp. All six controls at zero is FLAT: the engine stays selected but bypassed. */
-static inline void hal_hw_apply_ctl(const hal_ctl_t *c)
+HAL_FN void hal_hw_apply_ctl(const hal_ctl_t *c)
 {
     uint8_t step[HAL_NSTAGE];
     int32_t bank[HAL_NSTAGE * 5];
@@ -45,5 +45,5 @@ static inline void hal_hw_apply_ctl(const hal_ctl_t *c)
 }
 
 /* Takes the engine out of the audio path (eq_biquad drives the output again). */
-static inline void hal_hw_off(void) { HAL_WR(R_HAL_CTRL, HAL_CTRL(0u, 0u, 0u, 0u, 0u)); }
+HAL_FN void hal_hw_off(void) { HAL_WR(R_HAL_CTRL, HAL_CTRL(0u, 0u, 0u, 0u, 0u)); }
 #endif

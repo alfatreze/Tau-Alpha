@@ -10,15 +10,19 @@
 #include <stdint.h>
 #include "halcyon_tab.h"
 
+#ifndef HAL_FN
+#define HAL_FN static inline   /* the firmware defines this as COLD_FN static: every Halcyon function is cold code, so the compiler cannot outline a copy into hot RAM */
+#endif
+
 typedef struct { int8_t warmth, bass, vocal, punch, sibilance, air; } hal_ctl_t;
 
 #define HAL_PRE_MARGIN_EIGHTHS 2     /* 0.25 dB */
 
-static inline int32_t hal_rdiv(int32_t n, int32_t d) { return n >= 0 ? (n + d / 2) / d : -((-n + d / 2) / d); }
-static inline int32_t hal_clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
+HAL_FN int32_t hal_rdiv(int32_t n, int32_t d) { return n >= 0 ? (n + d / 2) / d : -((-n + d / 2) / d); }
+HAL_FN int32_t hal_clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 /* Table row (0..36) of each stage for a control setting. Positions are clamped to their ranges (sibilance 0..5, the rest -5..+5). */
-static inline void hal_steps(const hal_ctl_t *c, uint8_t step[HAL_NSTAGE])
+HAL_FN void hal_steps(const hal_ctl_t *c, uint8_t step[HAL_NSTAGE])
 {
     const int32_t w = hal_clampi(c->warmth, -5, 5), b = hal_clampi(c->bass, -5, 5), v = hal_clampi(c->vocal, -5, 5),
                   p = hal_clampi(c->punch, -5, 5), s = hal_clampi(c->sibilance, 0, 5), a = hal_clampi(c->air, -5, 5);
@@ -34,7 +38,7 @@ static inline void hal_steps(const hal_ctl_t *c, uint8_t step[HAL_NSTAGE])
 }
 
 /* Largest boost of the cascade on the grid, in 1/64 dB (can be negative when everything cuts). */
-static inline int32_t hal_peak_db64(const uint8_t step[HAL_NSTAGE])
+HAL_FN int32_t hal_peak_db64(const uint8_t step[HAL_NSTAGE])
 {
     int32_t best = -32768;
     for (uint32_t k = 0; k < HAL_NGRID; k++) {
@@ -46,12 +50,12 @@ static inline int32_t hal_peak_db64(const uint8_t step[HAL_NSTAGE])
 }
 
 /* Attenuation to apply, in 1/8 dB (0 = unity), and the preamp as a Q2.22 factor. */
-static inline int32_t hal_atten_eighths(const uint8_t step[HAL_NSTAGE])
+HAL_FN int32_t hal_atten_eighths(const uint8_t step[HAL_NSTAGE])
 {
     const int32_t pk = hal_peak_db64(step);
     if (pk <= 0) return 0;
     int32_t n = (pk + 7) / 8 + HAL_PRE_MARGIN_EIGHTHS;       /* ceil(pk / 8): 1/64 dB to 1/8 dB, rounded up */
     return n > 512 ? 512 : n;
 }
-static inline int32_t hal_preamp_q22(int32_t eighths) { return hal_pre[eighths]; }
+HAL_FN int32_t hal_preamp_q22(int32_t eighths) { return hal_pre[eighths]; }
 #endif
