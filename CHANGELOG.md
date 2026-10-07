@@ -2,6 +2,13 @@
 
 What changed in each release, newest first.
 
+## Unreleased (next alpha)
+
+- **Halcyon EQ replaces the old equalizer.** The fixed-preset EQ (eight presets) is removed from the hardware and the firmware. Settings > Audio > HALCYON EQ opens the full page (response
+  curve, six sliders, presets in the header: Up from the first slider selects the preset area, Left/Right change it); **Y** steps the Halcyon preset. Your saved EQ choice is now the Halcyon
+  preset. Needs the matching new bitstream (older ones show NO UNIT and play without an EQ).
+- Fixed a pop when switching the hardware gain stage off after a track start.
+
 ## v0.6.0-alpha.4 — 7 October 2026
 
 - **Simpler menu.** The Settings group is gone: Diagnostics (Diagnostic Build only) and Info are now on the main menu, with Info always last.

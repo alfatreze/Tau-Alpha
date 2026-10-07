@@ -87,7 +87,6 @@
 #define R_SLOT_SZ   0x8000005Cu   /* R: size of the file APF reported at reload */
 #define R_DT_ADDR   0x80000060u   /* W: datatable word address                  */
 #define R_DT_DATA   0x80000064u   /* R/W: datatable word at that address        */
-#define R_EQ        0x80000068u   /* R/W: EQ preset index, 0 = FLAT (bypass)    */
 #define R_SET_IDX   0x8000006Cu   /* W:   persistent settings word index, 0..7  */
 #define R_SET_DAT   0x80000070u   /* R: value APF wrote  W: value we publish    */
 #define R_SDR_ADDR  0x80000074u
@@ -1024,8 +1023,7 @@ static uint32_t ui_arr_t, ui_wave_force, ui_accent_changed;
  * The curve table and the names are GENERATED from the same quantised
  * coefficients the RTL filters with (tools/gen_eq_coeffs.py --curves), so
  * the shape on screen cannot drift from the shape being applied. */
-#include "eq_curve.h"
-static uint8_t  eq_idx;              /* 0 = FLAT = RTL bypass          */
+static uint8_t  hal_sel;             /* the Halcyon EQ selection (fw/halcyon.inc): 0 = off, 1.. = built-in presets then user presets, HAL_SEL_CUSTOM = the page's own controls */
 static uint32_t ui_sec, ui_sec_acc, ui_last_frames, ui_prog_sec;
 static int      ui_was_paused;
 static uint32_t peak_amp;         /* max |sample| in the most recently decoded frame, 0..32767 */
@@ -1230,7 +1228,7 @@ static uint32_t rg_factor = RG_UNITY;
 static void vol_apply(void)        { vol_st.target = rg_target(pcm_vol_target(volume), rg_factor); if (vol_st.hw) REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; }   /* a change: ramps (in hardware when the gain stage is on, B-615) */
 static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = rg_target(pcm_vol_target(volume), rg_factor); if (vol_st.hw) { REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u; } }    /* boot / settings restore: no ramp from full volume */
 /* B-615: restart the discontinuity fade (resume after a pause, an underrun). The hardware stage starts its own fade at every flush; the other cases need this pulse. */
-static inline void fade_restart(void) { fade_left = FADE_SAMPLES; if (vol_st.hw) REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 4u; }
+static inline void fade_restart(void) { fade_left = vol_st.hw ? 0u : FADE_SAMPLES; if (vol_st.hw) REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 4u; }
 /* B-615: hand the gain (volume, ramp, fade-in) to the hardware stage, or take it back. Exactly one of the two owns it: pcm_gain_apply() returns at once while vol_st.hw is set, so
  * the gain is never applied twice, and with the stage off the software path is byte-for-byte what it was. A no-op on a bitstream without the stage (hw_gain 0). */
 static void gain_hw_set(uint8_t on)
@@ -1242,6 +1240,7 @@ static void gain_hw_set(uint8_t on)
         REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u;          /* enable, and the stage's gain = target now: no ramp from a stale value */
     } else {
         vol_st.hw = 0u;
+        fade_left = 0u;                                  /* the hardware fade owned it: no stale software fade-in */
         vol_st.cur = vol_st.target;                      /* software resumes at the target, not at a stale mid-ramp value */
         REG(R_GAIN_CTRL) = 0u;
     }
@@ -1385,7 +1384,9 @@ static uint8_t settings_load_ok;   /* what the BOOT settings_load() returned */
  * to wake the screen before drawing to it directly. */
 static void ui_blank_wake(void);
 
-static uint8_t eq_apply;             /* preset changed: tell the RTL */
+static uint8_t hal_req;              /* Y pressed: step the Halcyon preset (applied in the main loop, where cold code is safe to call) */
+static uint8_t hal_restore;          /* the saved selection was just loaded: apply it once the cold image and the user presets are loaded */
+static const char *eq_label(void);   /* defined after fw/halcyon.inc, which it reads */
 
 static uint32_t seek_req;                /* +1 forward, -1 back (as unsigned) */
 static uint32_t soft_restart_req;  /* probe: reposition only, keeps the known-good tag */
@@ -3088,10 +3089,10 @@ static void ui_eq_pill(void)
     uint16_t pbg = ui_grad_at(UI_GENRE_Y + UI_GENRE_H / 2u);
     fb_round_rect_on(UI_TEXT_X, UI_GENRE_Y, UI_EQ_PILL_W, UI_GENRE_H, UI_GENRE_H / 2u,
                      UI_PILL_BG, pbg);
-    const char *n = eq_name[eq_idx];
+    const char *n = eq_label();
     uint32_t w = fb_text_width(n, TS_1X);
     if (w > UI_EQ_PILL_W - 12u) w = UI_EQ_PILL_W - 12u;
-    fb_set_color(eq_idx ? ui_accent : UI_FAINT, UI_PILL_BG);
+    fb_set_color(hal_sel ? ui_accent : UI_FAINT, UI_PILL_BG);
     fb_text_clipped(UI_TEXT_X + (UI_EQ_PILL_W - w) / 2u, UI_GENRE_Y + (UI_GENRE_H - FB_CELL(TS_1X)) / 2u, n, TS_1X, TS_1X, w);
 }
 
@@ -5886,9 +5887,9 @@ ui_tail:
                                 vl ? ui_accent : UI_FAINT);
             }
 
-            fb_set_color(eq_idx ? ui_accent : UI_FAINT, tbg);
+            fb_set_color(hal_sel ? ui_accent : UI_FAINT, tbg);
             fb_text_clipped(mx + (UI_MODE_W + 10u) * 2u, my - 2u,
-                            eq_name[eq_idx], TS_1X, TS_1X, 110u);
+                            eq_label(), TS_1X, TS_1X, 110u);
 
             /* "4 / 12", right-aligned so the numbers do not shuffle sideways as
              * the track index gains a digit.
@@ -6655,9 +6656,8 @@ static void poll_input(void)
         settings_mark_dirty();
     }
     if (edge & KEY_Y) {
-        /* Forward only, matching X. Y was completely unused before the EQ. */
-        eq_idx = (uint8_t)((eq_idx + 1u) % EQ_COUNT);
-        eq_apply = 1u;
+        /* Forward only, matching X: the next Halcyon EQ preset (after the last, off). */
+        hal_req = 1u;
     }
 #if TAU_DIAGNOSTIC
     /* The normal Start action stops playback. In the developer stress build,
@@ -6841,6 +6841,7 @@ static inline void pcm_flush(void)
 {
     REG(R_PCM_ST) = 1u;
     fade_left    = FADE_SAMPLES;  /* every flush is a discontinuity */
+    if (vol_st.hw) fade_left = 0u;  /* the hardware stage fades itself; a stale software fade would pop when the gain is handed back */
     under_shadow = 0;             /* flush clears the sticky underrun flag */
 #if TAU_TEMPO
     tempo_cfg_key = 0u;           /* B-558: the stretcher starts again from the next decoded frame (a hard reset: what it had staged is dropped) */
@@ -7270,6 +7271,15 @@ static void ui_draw_dynamic(void)
 #pragma GCC optimize ("Os")
 #include "library.inc"
 #include "halcyon.inc"     /* B-640/B-641: the Halcyon selector and the PRST user presets (before assets.inc, whose loader hands it the file) */
+/* The now-playing EQ label: the Halcyon selection's name (OFF, a preset, CUSTOM); a plain OFF when there is no cold code or no engine. */
+static const char *eq_label(void)
+{
+#if TAU_HALCYON_FW
+    if (COLD_READY()) return hal_row_text();
+#endif
+    return "OFF";
+}
+
 #include "assets.inc"     /* theme step 0d: extra themes from tau-assets.bin (data slot 8) */
 #pragma GCC pop_options
 #if TAU_ART_TIMG
@@ -9645,12 +9655,18 @@ int main(void)
             continue;
         }
 
-        /* EQ preset change. The filter is in the RTL and the audio never stops
-         * flowing, so this is seamless in a way a track change can never be --
-         * no flush, no reload, nothing to resynchronise. */
-        if (eq_apply) {
-            eq_apply = 0;
-            REG(R_EQ) = eq_idx;
+        /* Halcyon EQ preset change (Y) or a saved selection to apply. The filter is in the RTL and the audio never stops flowing, so this is
+         * seamless in a way a track change can never be -- no flush, no reload, nothing to resynchronise (the change itself runs inside a gain dip). */
+        if (hal_req || hal_restore) {
+#if TAU_HALCYON_FW
+            if (COLD_READY()) {
+                if (hal_restore) {                           /* a saved value: the user presets are loaded by now, so range-check against them */
+                    if (hal_sel > HAL_NPRESET + hal_user_n || hal_sel >= HAL_SEL_CUSTOM) hal_sel = 0u;
+                    hal_apply_sel();
+                } else hal_cycle();
+            }
+#endif
+            hal_req = 0u; hal_restore = 0u;
             ui_eq_pill();
             ui_mode_dirty = 1u;          /* the mode row NAMES the preset */
             settings_mark_dirty();

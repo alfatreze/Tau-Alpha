@@ -1,7 +1,7 @@
 // tb_cymo_i2s_rate.v -- does the real pcm_fifo -> sound_i2s hand-off reproduce the 44.1 kHz error seen on hardware?
 //
 // Drives the REAL pcm_fifo (44.1 kHz drain) into the REAL sound_i2s, with a behavioural model of the Altera dcfifo
-// megafunction (4 words, showahead off, rdsync_delaypipe 5, underflow ignored). eq_biquad FLAT is a plain mux
+// megafunction (4 words, showahead off, rdsync_delaypipe 5, underflow ignored). With the EQ off the output is a plain mux
 // (audio_l = fifo_l), so it is left out. Records, at every LRCK reload, the 32-bit word that is about to be serialised,
 // and writes one "left right" line per 48 kHz output slot. sim/test_cymo_i2s_rate.py compares that to the ideal hold.
 //

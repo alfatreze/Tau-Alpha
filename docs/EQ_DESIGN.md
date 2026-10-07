@@ -4,7 +4,9 @@ How a preset equalizer would fit this core. Written before any code so the
 decisions that are awkward to reverse — where it sits, what rate it runs at, what
 it is allowed to consume — are settled on paper.
 
-**Status correction, 2026-09-22: this is built and shipped.** `eq_biquad` is instantiated
+**Superseded and removed (2026-10-07): the fixed-preset EQ described here (`eq_biquad.v`, register 0x68, eight presets) was replaced by the Halcyon engine (`docs/features/CYMO_HALCYON_SPEC.md`) and deleted from the tree. This document is kept as the design record; its coefficient math lives on in `tools/gen_eq_coeffs.py`, which Halcyon's generator uses.**
+
+*Earlier status correction, 2026-09-22: this was built and shipped.* `eq_biquad` is instantiated
 in `src/fpga/core/mp3_soc.v`, listed in `src/fpga/ap_core.qsf`, wired to `R_EQ` (0x68), and
 was confirmed on hardware. The rest of this document is kept as the design record - it is
 what was built from, and its resource reasoning still holds. The one line worth carrying

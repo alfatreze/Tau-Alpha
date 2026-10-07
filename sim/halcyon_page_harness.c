@@ -24,6 +24,7 @@
 #define OV_HINT_H 28u
 #define OV_HINT_Y (FB_H - OV_HINT_H)
 #define OV_BODY 0x1111u
+#define OV_CHROME_BG 0x1212u
 #define UI_DIM 0x2222u
 #define UI_FAINT 0x3333u
 #define UI_WHITE 0xFFFFu
@@ -46,7 +47,7 @@ static uint32_t mock_reg[256];
 #define REG(a) (mock_reg[((a) - 0x80000000u) >> 2])
 #define HAL_WR(a, v) do { printf("W %x %x\n", (unsigned)(a), (unsigned)(v)); } while (0)
 static uint16_t ui_accent = 0x5555u;
-static uint8_t hw_hal = 1, set_dirty, set_page;
+static uint8_t hw_hal = 1, set_dirty, set_page, hal_sel;   /* hal_sel lives in player.c in the firmware */
 enum { SET_AUDIO = 2 };
 static uint32_t dip_calls;
 static void gain_dip_begin(void) { dip_calls++; }

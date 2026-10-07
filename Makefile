@@ -1,4 +1,4 @@
-.PHONY: test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-eq24 rtl-vectors24 test-rtl-clut-wr test-rtl-clut-wr-mutation test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-vectors rtl-lint test-rtl-fb test-rtl-tgt test-rtl-eq test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -114,15 +114,7 @@ test-host:
 	$(PYTHON) sim/test_sdram_map_overlap.py
 	$(PYTHON) tools/check_art_load_order.py --check
 
-test-rtl: test-rtl-eq24 test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-eq test-rtl-pcm test-rtl-pcm-prime test-rtl-eq-cycles test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
-
-rtl-vectors:
-	$(PYTHON) tools/gen_eq_vectors.py
-
-# B-608: the 24-bit coefficient variant (TAU_EQ_COEF24): coefficients, model vectors, the same bit-exact testbench and the cycle count
-rtl-vectors24:
-	EQ_COEF_BITS=24 $(PYTHON) tools/gen_eq_coeffs.py --verilog > /dev/null
-	EQ_COEF_BITS=24 $(PYTHON) tools/gen_eq_vectors.py
+test-rtl: test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
@@ -170,12 +162,6 @@ $(RTL_BUILD_DIR)/tb_tgt_cmd.vvp: sim/tb_tgt_cmd.v src/fpga/core/tgt_cmd.v | $(RT
 test-rtl-tgt: $(RTL_BUILD_DIR)/tb_tgt_cmd.vvp
 	$(VVP) $<
 
-$(RTL_BUILD_DIR)/tb_eq_biquad.vvp: sim/tb_eq_biquad.v src/fpga/core/eq_biquad.v | $(RTL_BUILD_DIR)
-	$(IVERILOG) -g2005-sv -I src/fpga/core -o $@ $^
-
-test-rtl-eq: rtl-vectors $(RTL_BUILD_DIR)/tb_eq_biquad.vvp
-	$(VVP) $(RTL_BUILD_DIR)/tb_eq_biquad.vvp
-
 $(RTL_BUILD_DIR)/tb_pcm_decay.vvp: sim/tb_pcm_decay.v src/fpga/core/pcm_fifo.v | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
 
@@ -189,22 +175,6 @@ $(RTL_BUILD_DIR)/tb_pcm_fifo.vvp: sim/tb_pcm_fifo.v src/fpga/core/pcm_fifo.v | $
 
 test-rtl-pcm-prime: $(RTL_BUILD_DIR)/tb_pcm_fifo.vvp
 	$(VVP) $<
-
-$(RTL_BUILD_DIR)/tb_eq_cycles.vvp: sim/tb_eq_cycles.v src/fpga/core/eq_biquad.v | $(RTL_BUILD_DIR)
-	$(IVERILOG) -g2012 -I src/fpga/core -o $@ $^
-
-test-rtl-eq-cycles: rtl-vectors $(RTL_BUILD_DIR)/tb_eq_cycles.vvp
-	$(VVP) $(RTL_BUILD_DIR)/tb_eq_cycles.vvp
-
-$(RTL_BUILD_DIR)/tb_eq_biquad24.vvp: sim/tb_eq_biquad.v src/fpga/core/eq_biquad.v src/fpga/core/eq_coefs24.vh | $(RTL_BUILD_DIR)
-	$(IVERILOG) -g2005-sv -DTAU_EQ_COEF24 -I src/fpga/core -o $@ sim/tb_eq_biquad.v src/fpga/core/eq_biquad.v
-
-$(RTL_BUILD_DIR)/tb_eq_cycles24.vvp: sim/tb_eq_cycles.v src/fpga/core/eq_biquad.v src/fpga/core/eq_coefs24.vh | $(RTL_BUILD_DIR)
-	$(IVERILOG) -g2012 -DTAU_EQ_COEF24 -I src/fpga/core -o $@ sim/tb_eq_cycles.v src/fpga/core/eq_biquad.v
-
-test-rtl-eq24: rtl-vectors24 $(RTL_BUILD_DIR)/tb_eq_biquad24.vvp $(RTL_BUILD_DIR)/tb_eq_cycles24.vvp
-	$(VVP) $(RTL_BUILD_DIR)/tb_eq_biquad24.vvp
-	$(VVP) $(RTL_BUILD_DIR)/tb_eq_cycles24.vvp
 
 $(RTL_BUILD_DIR)/tb_tau_sdram_arbiter.vvp: sim/tb_tau_sdram_arbiter.v src/fpga/core/tau_sdram_arbiter.sv | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
@@ -333,18 +303,18 @@ test-rtl-halcyon: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt $(RTL_
 	  $(VVP) $(RTL_BUILD_DIR)/halcyon$$w.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_halcyon W=$$w"; done
 	@set -e; $(IVERILOG) -g2012 -DHWI=18 -DHWO=16 -DHIFB=0 -DHOFB=0 '-DHVEC="$(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt"' -o $(RTL_BUILD_DIR)/halcyon18.vvp $(HALCYON_SRC); \
 	  $(VVP) $(RTL_BUILD_DIR)/halcyon18.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_halcyon WI=18 (headroom) WO=16"
-	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/halcyon_tick.vvp sim/tb_halcyon_tick.v src/fpga/core/tau_halcyon.sv src/fpga/core/eq_biquad.v; \
+	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/halcyon_tick.vvp sim/tb_halcyon_tick.v src/fpga/core/tau_halcyon.sv; \
 	  $(VVP) $(RTL_BUILD_DIR)/halcyon_tick.vvp | grep -q "^PASS" && echo "PASSED: tb_halcyon_tick (48 kHz tick on the 66.667 MHz clock)"
 test-rtl-halcyon-mutation: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.txt $(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt | $(RTL_BUILD_DIR)
 	@set -e; for b in 1 2 3 4 5 6 7 9; do $(IVERILOG) -g2012 -DHW=16 -DHBUG=$$b -o $(RTL_BUILD_DIR)/halcyon_mut.vvp $(HALCYON_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED: tau_halcyon BUG=$$b"; exit 1; fi; done
-	@set -e; for b in 11 12; do $(IVERILOG) -g2012 -Isrc/fpga/core -DHBUG=$$b -o $(RTL_BUILD_DIR)/halcyon_tick_mut.vvp sim/tb_halcyon_tick.v src/fpga/core/tau_halcyon.sv src/fpga/core/eq_biquad.v; \
+	@set -e; for b in 11 12; do $(IVERILOG) -g2012 -Isrc/fpga/core -DHBUG=$$b -o $(RTL_BUILD_DIR)/halcyon_tick_mut.vvp sim/tb_halcyon_tick.v src/fpga/core/tau_halcyon.sv; \
 	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_tick_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_halcyon BUG=$$b (11 integer tick divider, 12 per-channel output update)"; else echo "MUTANT SURVIVED: tau_halcyon BUG=$$b"; exit 1; fi; done
 	@set -e; for b in 6 10; do $(IVERILOG) -g2012 -DHWI=18 -DHWO=16 -DHIFB=0 -DHOFB=0 -DHBUG=$$b '-DHVEC="$(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt"' -o $(RTL_BUILD_DIR)/halcyon_mut.vvp $(HALCYON_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed (wide input): tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED (wide input): tau_halcyon BUG=$$b"; exit 1; fi; done
 
 # B-639: the Halcyon MMIO glue in mp3_soc.v, with the real CPU driving it (firmware sim/fw_halcyon/main.c, the audio output checked after each step).
-HALCYON_SOC_SRC = sim/tb_halcyon_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv
+HALCYON_SOC_SRC = sim/tb_halcyon_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv
 test-rtl-halcyon-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_halcyon/main.c -o $(RTL_BUILD_DIR)/fw_halcyon.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_halcyon.elf $(RTL_BUILD_DIR)/fw_halcyon.bin
@@ -496,7 +466,7 @@ test-rtl-psram-probe: $(RTL_BUILD_DIR)/tb_tau_psram_probe.vvp
 	$(IVERILOG) -g2012 -Ptb_tau_psram_probe.WD=8 -o $(RTL_BUILD_DIR)/tb_tau_psram_probe_wd8.vvp sim/tb_tau_psram_probe.v src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
 	$(VVP) $(RTL_BUILD_DIR)/tb_tau_psram_probe_wd8.vvp | tail -3 | tee $(RTL_BUILD_DIR)/psram_probe_wd8.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_probe_wd8.log
 
-PSRAM_FW_SRC = sim/tb_psram_fw.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
+PSRAM_FW_SRC = sim/tb_psram_fw.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
 
 $(RTL_BUILD_DIR)/mp3_soc_sim.v: src/fpga/core/mp3_soc.v sim/make_soc_sim.py | $(RTL_BUILD_DIR)
 	$(PYTHON) sim/make_soc_sim.py $< $@
@@ -515,7 +485,7 @@ test-rtl-psram-fw: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 
 # Phase G2: real CPU executing code from PSRAM through the instruction alias, sharing the controller with the data window.
 # Also builds without the feature (the firmware must then report NOFEATURE, proving the netlist is inert).
-PSRAM_IFETCH_SRC = sim/tb_psram_ifetch.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/eq_biquad.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
+PSRAM_IFETCH_SRC = sim/tb_psram_ifetch.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
 test-rtl-psram-ifetch: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_ifetch/main.c -o $(RTL_BUILD_DIR)/fw_ifetch.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_ifetch.elf $(RTL_BUILD_DIR)/fw_ifetch.bin
@@ -533,7 +503,6 @@ test-rtl-sdram-controller-probe:
 rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module mp3_fb src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tgt_cmd src/fpga/core/tgt_cmd.v
-	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module eq_biquad -Isrc/fpga/core src/fpga/core/eq_biquad.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module pcm_fifo src/fpga/core/pcm_fifo.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_arbiter src/fpga/core/tau_sdram_arbiter.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_flac_lpc src/fpga/core/tau_flac_lpc.sv

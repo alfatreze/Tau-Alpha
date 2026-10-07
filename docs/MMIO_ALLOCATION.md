@@ -24,7 +24,7 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x48-0x58 | FB_* | W/R | framebuffer draw engine |
 | 0x5C | SLOT_SZ | R | slot size |
 | 0x60-0x64 | DT_ADDR/DT_DATA | W/R | datatable |
-| 0x68 | EQ | R/W | EQ preset |
+| 0x68 | (retired) | | was the preset EQ's preset index; the register and the EQ were removed, the address is free |
 | 0x6C-0x70 | SET_IDX/SET_DAT | W/R | persisted settings words (interact.json) |
 | 0x74-0x84 | SDR_* | W/R | Phase 1 SDRAM mailbox |
 | **0x88-0xAC** | **expansion window** | | **PSRAM diagnostic mailbox (B-004) and window counter (B-016), routed through the `xm_*` port** |
@@ -114,7 +114,7 @@ for now, the probe module that owns the controller (`TAU_PSRAM_PROBE`). The mail
 
 ## Halcyon EQ engine (`TAU_HALCYON`, B-639): 0x178-0x180
 
-`tau_halcyon.sv` beside `eq_biquad` (both fed from the same input); a sticky enable selects which one drives the audio output. Inert (reads 0, audio path untouched) without the macro.
+`tau_halcyon.sv` is the only EQ (the fixed-preset EQ and its register 0x68 were removed). A sticky enable selects its output; with it off, or without the macro, the audio is the unequalised path. Inert (reads 0) without the macro.
 
 | Offset | Name | R/W | Meaning |
 |---|---|---|---|

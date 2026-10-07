@@ -20,7 +20,6 @@ static uint8_t  hal_user_n;
 static uint16_t hal_user_off[HP_MAX_PRESETS];
 #define HAL_SEL_CUSTOM 200u              /* hal_sel while the controls on the Halcyon page are the user's own (not a preset) */
 static hal_ctl_t hal_c;                 /* the six controls last set on the Halcyon page (fw/halcyon_page.inc) */
-static uint8_t hal_sel;                 /* 0 = engine off (the old EQ drives the output), 1..HAL_NPRESET = built-in preset index + 1, then the user presets */
 
 /* Called by th_assets_load() with the whole file in memory. `staged`: base is the PSRAM staging area already (a large file); otherwise `prove` must say the PSRAM window is usable. */
 COLD_FN static void hal_prst_load(const uint8_t *base, uint32_t total, int staged, int (*prove)(void))

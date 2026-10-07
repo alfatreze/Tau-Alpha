@@ -1,8 +1,7 @@
 // =============================================================================
 // tau_halcyon.sv -- the Halcyon EQ engine (docs/features/CYMO_HALCYON_SPEC.md).
 //
-// Rewrite of eq_biquad.v for the writable-coefficient design. eq_biquad.v is
-// untouched and remains the shipped engine; this module is not wired in yet.
+// The EQ: a writable-coefficient biquad cascade. It replaced the fixed-preset EQ (eq_biquad.v), which has been removed.
 //
 //  * NST biquad stages per channel (parameter, 17 = 10 correction + 6 tone + 1
 //    infrasonic), `nact` of them active at run time, then one preamp multiply.
@@ -11,7 +10,7 @@
 //    boundary, so a coefficient set is never torn. Never write the live bank.
 //  * Filter state lives in a plain RAM with ONE registered read and ONE write
 //    port and NO reset: a clearing sweep (on reset and on `clr`) replaces the
-//    reset loop that kept eq_biquad.v's state in registers (B-627).
+//    reset loop that kept the old preset EQ's state in registers (B-627).
 //  * Wide in/out: WI and WO bits, of which IFB / OFB are fractional bits below the 16-bit LSB and the rest above 16 are headroom at the same LSB; the output rounds to nearest
 //    and clamps (headroom bits at the input let a hot signal through when the preamp has attenuated it by the output).
 //  * One multiplier, pipelined: five MACs issue one per clock, 12 clocks per
