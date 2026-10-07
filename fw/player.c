@@ -155,6 +155,9 @@ static uint8_t clut_start_idx_v = 255u;
 #define R_GAIN_TARGET 0x8000016Cu /* Q15 gain, 32768 = unity (capped there): the stage ramps to it */
 #define R_GAIN_CUR    0x80000170u /* read: the gain in force */
 #define R_GAIN_STEP   0x80000174u /* max gain change per output sample (reset 149 = 5 ms for full scale) */
+#define R_HAL_CTRL    0x80000178u /* B-639/B-640 Halcyon engine: write bit0 ENABLE, bit1 BYPASS, bit2 COMMIT, bit3 CLEAR, [13:8] nact; read bit31 = present */
+#define R_HAL_IDX     0x8000017Cu
+#define R_HAL_DATA    0x80000180u
 #define GAIN_CTRL_BASE (1u | (3u << 4))   /* enabled, fade length 2048 samples (FADE_SAMPLES) */
 #define R_CYMO_CTRL   0x80000150u /* B-471/B-476: write: bit0 clear (pulse), bit1 start (pulse, test-only), bit2 LIVE_ENABLE (STICKY -- hands the real audio path to the resampler) */
 #define R_CYMO_PUSH   0x80000154u /* write: {push_r[31:16],push_l[15:0]} + one push_we pulse (self-test only, the live audio path never uses this) */
@@ -332,6 +335,9 @@ static const char tau_fw_pair_marker[] __attribute__((used, retain)) = "TAUFWPAI
  * Check and its QR report (fw/suite.inc), the Tests and Stress pages, the SDRAM stress pump, soak and
  * HUD, and the diagnostic menus. Off in `release`; on in `player-library-diagnostic` and
  * `player-library-diagnostic-profile` (fw/build.sh). Needs the same RBF features as the release. */
+#ifndef TAU_HALCYON_FW
+#define TAU_HALCYON_FW 0   /* B-640: the Halcyon engine selector (fw/halcyon.inc, Diagnostics > HALCYON); needs a TAU_HALCYON bitstream, reads NO UNIT elsewhere */
+#endif
 #ifndef TAU_TEMPO
 #define TAU_TEMPO 0      /* Cymo C7 T2 (B-558): pitch-preserving tempo for MP3 (fw/tempo_core.h); off by default so every default build is byte-identical */
 #endif
@@ -1207,6 +1213,9 @@ static uint8_t  fl_bps_mirror;             /* mirrors fl.bps, declared later -- 
 static uint8_t  fl_io_pct;
 static uint32_t ui_last_prof;              /* UI_SHOW_DECODE_PROFILE latch, Phase F step 1 */
 #include "pcm_push.h"       /* the type below (the include further down stays harmless: it has a guard) */
+#if TAU_HALCYON_FW
+static uint8_t  hw_hal;                  /* B-640: the bitstream has the Halcyon engine (probed once at boot) */
+#endif
 static uint8_t  hw_gain;                 /* B-615: the bitstream has the hardware gain stage (probed once at boot; 0 on any other bitstream) */
 static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: current value and the target it ramps to (dB taper, B-598) */
 
@@ -7268,6 +7277,7 @@ static void ui_draw_dynamic(void)
 /* Settings is menu code with no timing role; size-optimise it in the library build, where RAM is the constraint. */
 #pragma GCC push_options
 #pragma GCC optimize ("Os")
+#include "halcyon.inc"
 #include "settings.inc"
 #include "settingsui.inc"
 #pragma GCC pop_options
@@ -9251,6 +9261,9 @@ int main(void)
     tau_lpc_hw_enable = hw_lpc;
 #endif
     hw_a16  = (uint8_t)((REG(R_AUDIO_CFG) >> 1) & 1u);   /* B-602 */
+#if TAU_HALCYON_FW
+    hw_hal  = (uint8_t)((REG(R_HAL_CTRL) >> 31) & 1u);   /* B-640 */
+#endif
     hw_gain = (uint8_t)((REG(R_GAIN_CTRL) >> 31) & 1u);  /* B-615: hardware gain stage present? (0 on any other bitstream) */
     hw_cymo = (uint8_t)(REG(R_CYMO_STATUS) & 1u);  /* B-471/B-476: hardware Cymo resampler present? (0 on any other bitstream) */
 #if FLAC_PROFILE

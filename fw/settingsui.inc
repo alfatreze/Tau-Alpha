@@ -44,7 +44,7 @@ static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced
 #define SET_PIXGRID_PG ((uint8_t)(SET_METERTRACE_PG + 1u))    /* Pixel grid fidelity test, barcode study (fw/suite.inc) */
 #endif
 #define SET_COUNT(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
-enum { TG_ART = 0, TG_SPEEDS, TG_RATES, TG_CYMO, TG_OUT16, TG_GAIN };
+enum { TG_ART = 0, TG_SPEEDS, TG_RATES, TG_CYMO, TG_OUT16, TG_GAIN, TG_HAL };
 enum { RT_GROUP = 0, RT_CHOICE, RT_TOGGLE, RT_VOL, RT_ACTION };
 #define SET_PAGE_CH(c) ((uint8_t)(SET_MENUS + (c)))
 
@@ -83,6 +83,9 @@ static const set_row_t set_dgn_rows[] = {
     { "CYMO RESAMPLER", RT_TOGGLE, TG_CYMO },
     { "16-BIT OUTPUT", RT_TOGGLE, TG_OUT16 },
     { "HW GAIN", RT_TOGGLE, TG_GAIN },
+#if TAU_HALCYON_FW
+    { "HALCYON", RT_TOGGLE, TG_HAL },
+#endif
     { "CHECK", RT_GROUP, SET_CHECK_PG },
 #if MP3_PROFILE || FLAC_PROFILE
     { "DECODE SWEEP", RT_GROUP, SET_SWEEP_PG },
@@ -515,6 +518,11 @@ COLD_FN static void set_toggle(uint32_t t)
          * (and returns it) without a restart. No-op on a bitstream without the stage. Never persisted. */
         if (hw_gain) gain_hw_set((uint8_t)!vol_st.hw);
         return;                                  /* not persisted */
+#if TAU_HALCYON_FW
+    } else if (t == TG_HAL) {
+        hal_cycle();                             /* B-640: OFF -> the eight built-in presets -> OFF; never persisted */
+        return;
+#endif
 #endif
     }
     settings_mark_dirty();
@@ -554,6 +562,9 @@ COLD_FN static void set_menu_value(const set_row_t *r, char *o)
     else if (r->arg == TG_RATES)  s = flac_accept_all_rates ? "ON" : "OFF";
     else if (r->arg == TG_OUT16)  s = !hw_a16 ? "NO UNIT" : a16_on ? "ON" : "OFF";
     else if (r->arg == TG_GAIN)   s = !hw_gain ? "NO UNIT" : vol_st.hw ? "ON" : "OFF";
+#if TAU_HALCYON_FW
+    else if (r->arg == TG_HAL)    s = hal_row_text();
+#endif
     else if (r->arg == TG_CYMO)   s = !cymo_live_toggle ? "OFF" : cymo_live_on ? "ON" : "WAIT";   /* WAIT = on, but this file is not 44.1 kHz at 1.00x (B-530) */
 #endif
     else                          s = set_speed_all ? "ON" : "OFF";   /* TG_SPEEDS, the only remaining toggle */

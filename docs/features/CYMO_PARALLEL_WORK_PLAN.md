@@ -37,3 +37,4 @@ A9 **Assets read limit lifted to 64 KiB** (chunked PSRAM read, B-628, D-A01): DO
 ## Added 2026-10-07 (afternoon)
 Halcyon engine rewrite **DONE B-636** (RTL `tau_halcyon.sv`, bit-exact model at W=16/24, 8 mutants killed, 421 clocks for 17 stages; not wired in, not in the qsf). Next on the VM when `stdfit-b630` finishes: the synthesis-only RAM-inference/ALM measurement of this module (the reason for the rewrite), then the MMIO wiring.
 B2 measured **B-638**: the Halcyon engine's state and coefficient store infer as MLAB (altdpram), 567 registers, 3 DSP, no M10K; fit and wiring still to do.
+Halcyon firmware loader **DONE B-640** (control presets to the engine's shadow bank + commit + clear, host-tested bit-exact against the model with 4 mutants, Diagnostics > HALCYON row in the Diagnostic Build, reads NO UNIT on bitstreams without the engine). Not on a Pocket: needs the `halcyon-b639` bitstream.

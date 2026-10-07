@@ -4,7 +4,7 @@
  * 0.8 is a rounded multiple of 0.1 dB, so it is exact in tenths and no rounding tie can occur), each gain selects a row of the generated tables (fw/halcyon_tab.h: Q2.22 coefficients of the
  * analog-matched design), and the peak-safe preamp comes from adding the stages' magnitude rows in dB on a 40-point log grid (cascade magnitudes add in dB exactly): the largest sum is the
  * boost to give back, rounded UP to 1/8 dB plus a 0.25 dB margin for the points between grid frequencies. Attenuate only: with no boost the preamp is unity.
- * Nothing here writes hardware: the writable coefficient store of the Halcyon RTL does not exist yet. */
+ * Nothing here writes hardware: fw/halcyon_hw.h (B-640) does, through the Halcyon engine's MMIO (tau_halcyon.sv, mp3_soc.v registers 0x178-0x180). */
 #ifndef TAU_HALCYON_CORE_H
 #define TAU_HALCYON_CORE_H
 #include <stdint.h>
