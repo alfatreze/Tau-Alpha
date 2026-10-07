@@ -33,3 +33,6 @@ Start with A1 (FLAC rounding), A2 (toggle ramps), A3 (crossfeed model and WAVs),
 
 ## Added 2026-10-07
 A9 **Assets read limit lifted to 64 KiB** (chunked PSRAM read, B-628, D-A01): DONE on the host and in firmware (cold code, release heap gap unchanged); needs a Pocket test with a file over 4 KiB. The owner will review the one-container arrangement after Cymo is fully shipped.
+
+## Added 2026-10-07 (afternoon)
+Halcyon engine rewrite **DONE B-636** (RTL `tau_halcyon.sv`, bit-exact model at W=16/24, 8 mutants killed, 421 clocks for 17 stages; not wired in, not in the qsf). Next on the VM when `stdfit-b630` finishes: the synthesis-only RAM-inference/ALM measurement of this module (the reason for the rewrite), then the MMIO wiring.
