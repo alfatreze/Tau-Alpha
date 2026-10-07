@@ -2,6 +2,21 @@
 
 What changed in each release, newest first.
 
+## v0.6.0-alpha.4 — 7 October 2026
+
+- **Volume is a dB taper with a click-free ramp** (100 positions over 60 dB); hold Up/Down repeats the volume. Saved
+  volumes sound quieter than before (same number, different loudness); the default is higher to compensate.
+- **ReplayGain** (Off / Track / Album) under Settings > Audio, reading ID3 and FLAC tags, attenuate-only. The setting
+  now saves correctly and the row is shown in the menu.
+- **FLAC 24-bit files are rounded, not truncated**, when reduced to 16 bits (removes a small DC offset and distortion).
+- **Cymo resampler** and the 16-bit output switch toggle without a level step (Diagnostic Build); hardware gain stage
+  and 24-bit EQ coefficient groundwork are in the firmware as probes that stay off on this bitstream.
+- **Report codes** (Check, Info) are shown as a pixel grid by default, with the QR code one press away.
+- **Diagnostic Build:** gap-latency and hardware-gain Info rows, MP3 LAME gapless tag parsing, Halcyon EQ data format
+  and tools (not active), more Check measurements. `Track changes` still fails in Check (a test issue).
+- **Audiobook tempo** is built (MP3 only, Settings > Playback) but remains a diagnostic feature.
+- The bitstream is the same as alpha.3 (no hardware changes).
+
 ## v0.6.0-alpha.3 — 4 October 2026
 
 - **MP3 playback uses much less CPU.** On a stereo MP3 at 1.00x the processor was busy 55% of the time; it is now
