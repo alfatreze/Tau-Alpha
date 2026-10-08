@@ -213,15 +213,24 @@ Results go to AUDIT_TRAIL as a new B entry; then the tools change.
 | A core with two `platform_ids` | **Listed under both platforms**, so a dev core sharing `tau` shows up in the TAU list |
 | Unknown file in the core folder | Ignored |
 
+**Probe 2 (B-673):**
+- spaces, dots and hyphens are legal in shortnames and show as written (`TAU 0.7`, `TAU Preview`, `TAU-0.7`);
+- a core cannot open files outside the platforms it declares. A dev core with only its own platform reads a copied index but plays
+  nothing.
+
 **Design consequences** (they revise section 4; owner decisions in section 8):
-- **Shortnames are display text.** Stable `TAU` (rolling), pinned versions `TAU 0.7` would need a space in the folder name.
-  Whether a space or a dot is legal in a shortname is untested; until it is, `TAU_0_7` displays with underscores. Diagnostics:
-  `TAU_DIAGNOSTIC` displays as is.
+- **Shortnames are display text, and may contain spaces and dots (B-673).** Stable `TAU` (rolling), pinned `TAU 0.7`, `TAU 0.7.1`,
+  Diagnostics `TAU Diagnostics`. Renaming the existing `TAU_DIAGNOSTIC` folder would lose its settings, so it stays until a release
+  decides otherwise.
 - **Preview** cores: platform `tau_preview` (own list entry "TAU Preview"), shortnames such as `TAU_PREVIEW`. One rolling folder
   for the current preview keeps the list short, with the exact version shown on the row.
-- **Dev** cores: platform `tau_dev` **only** (never `tau` as a second platform). To avoid copying music, give the dev core a copy
-  of the 9 KB library index (its root already points at `/Assets/tau/common/`; tracks and covers open by absolute path, B-033).
-  This needs one more probe.
+- **Dev** cores: B-673 rules out the index-copy idea, because a core cannot open files outside its declared platforms. Two options
+  remain, an owner decision:
+  - (a) declare `["tau_dev", "tau"]`: no music copied, the dev build also appears in TAU's Select Core list (shortname such as
+    `TAU DEV 385` plus its version);
+  - (b) `tau_dev` only, with a media copy (today's `--carry-from`, slow).
+  - Recommendation: (a) on the owner's own card, where quick access matters more than a tidy TAU list; (b) for anything handed to
+    testers.
 - **Installer safety:** removing or replacing a core on a shared platform must never touch the platform's media or platform files.
   Fixed in `install_dev_core.py` (B-672).
 

@@ -14458,3 +14458,29 @@ library and platform entry. Fixed before the removal:
 - Dev cores should not list `tau` as a second platform. The proposed alternative is a dev core on its own platform with a copy of the
   9 KB index, whose root already points at `/Assets/tau/common/` (tracks and covers open by absolute path, B-033). It is not yet
   tested.
+
+## B-673: release-system card probe 2 (shortname characters; dev core with an index copy only), 2026-10-08
+
+Four probe cores built from TAU alpha.4's bitstream and ROM with the H4 layout, installed with `tools/install_dev_core.py` (dry runs,
+owner's go), run by the owner, then removed with the B-672 scoped removal (`work/card-backups/probe-2-removed`; TAU's media untouched).
+Screenshots kept in `work/diagnostics/probe-2/screens/`.
+
+**Shortnames with a space, a dot and a hyphen** (`alfatreze.TAU Preview`, `alfatreze.TAU 0.7`, `alfatreze.TAU-0.7`, platform `tau`):
+all three are listed under TAU exactly as written (`TAU Preview`, `TAU 0.7`, `TAU-0.7`) with their versions, and all three boot. Their
+build files sit in folders with those characters (`Assets/tau/alfatreze.TAU 0.7/`), so the Pocket also resolves them. **Readable display
+names are possible.**
+
+**Dev core with its own platform and an index copy only** (`alfatreze.TAU_DEVIDX`, platform `tau_dev` alone, TAU's 9 KB
+`tau-library.tdb` copied into `Assets/tau_dev/common/`, its root `/Assets/tau/common/`):
+- not in the TAU list (TAU shows 4); Core Info shows Platforms: TAU Dev;
+- the library loads (Info LIBRARY 114 TRK);
+- **selecting a track plays nothing**: TRACK NONE, TIM1 COVER 0 LOADED. Decoded from the Info export pixel grid (all 37 rows from one
+  screenshot).
+
+Conclusion: the Pocket does not open a file outside the platforms the core declares. B-672's TAU_PRBDEV played TAU's music because it
+also declared `tau`. A dev core can share TAU's music only by declaring `tau`, which lists it under TAU too. Otherwise it needs its own
+media copy (today's `--carry-from`). The "absolute path open" of B-033 holds within the core's platforms. The exact rule is inferred from
+behaviour; no Analogue text read states it.
+
+Also: TAU_DEVIDX's first launch showed **DRAW STALL 0 ms**. B-672's 19,965 ms on TAU_PRBDEV is therefore tied to that two-platform
+core, not to every first launch (still unexplained, low priority).
