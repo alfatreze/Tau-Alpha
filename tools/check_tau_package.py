@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 CORE_DIR = DIST / "Cores/alfatreze.TAU"
-ASSET_DIR = DIST / "Assets/tau/common"
+ASSET_DIR = DIST / "Assets/tau/alfatreze.TAU"   # build-bound files are core-specific (tools/tau_layout.py)
 PLATFORM_JSON = DIST / "Platforms/tau.json"
 PLATFORM_ART = DIST / "Platforms/_images/tau.bin"
 
@@ -39,6 +39,11 @@ def main():
     assert splash["filename"] == "tau-loading.bin"
     assert (ASSET_DIR / firmware["filename"]).is_file()
     assert (ASSET_DIR / splash["filename"]).is_file()
+    for slot in data:                                    # H4: every build-bound slot reads from the core's own folder
+        if slot.get("filename") in ("tau.rom", "tau-cold.bin", "tau-loading.bin"):
+            assert int(str(slot["parameters"]), 16) & 2, f"data slot {slot['id']} ({slot['filename']}) must be core-specific (parameter bit 1)"
+    assert not any((DIST / "Assets/tau/common" / n).exists() for n in ("tau.rom", "tau-cold.bin", "tau-loading.bin")), \
+        "build-bound files must not be in the platform-wide common/ folder"
     assert PLATFORM_ART.stat().st_size == 521 * 165 * 2
     assert (CORE_DIR / "icon.bin").stat().st_size == 36 * 36 * 2
 

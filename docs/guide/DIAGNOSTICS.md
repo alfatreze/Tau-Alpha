@@ -42,9 +42,11 @@ In the Diagnostic Build, **A** on the Info page shows the values as a QR code (s
 
 ## The Diagnostic Build (a separate core, for testers)
 
-A second core, **TAU Diagnostic Build**, is released beside the normal one (`alfatreze.TAU_DIAGNOSTIC_<version>_<date>.zip`). It is
-the same player on the same FPGA design, with the test menus switched on under **Menu > Diagnostics**. It installs next to TAU
-and has its own settings; use TAU for everyday listening, because the stress tests deliberately load the memory system.
+A second core, **TAU Diagnostics**, is released beside the normal one (`alfatreze.TAU_Diagnostics_<version>_<date>.zip`; a Preview
+release ships **TAU Preview Diagnostics**). It is the same player on the same FPGA design, with the test menus switched on under
+**Menu > Diagnostics**. Pick it from TAU's **Select Core** list: it shares TAU's music, library and themes (nothing is copied) and has
+its own settings. Use TAU for everyday listening, because the stress tests deliberately load the memory system. It replaces the older
+`TAU_DIAGNOSTIC` core, which had its own platform and its own copy of the music; remove that one once the new core works.
 
 | Menu | What it is for |
 |---|---|

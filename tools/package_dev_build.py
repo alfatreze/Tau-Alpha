@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tau_data_slots as slots_lib
+import tau_layout
 
 root = Path(__file__).resolve().parent.parent
 src = root / "dist"
@@ -43,7 +44,7 @@ def main():
     ap.add_argument("--semver", help="name the core after the release it works toward, e.g. 0.5.0-alpha.1 "
                                      "(X.Y.Z-tag.N, tag alpha/beta/rc); use for real feature milestones")
     ap.add_argument("--release-diagnostic", action="store_true",
-                    help="the shipped Diagnostic Build (alfatreze.TAU_DIAGNOSTIC, used by make_release.py): "
+                    help="the shipped Diagnostic Build ('TAU Diagnostics' or 'TAU Preview Diagnostics' by --channel, used by make_release.py): "
                          "variant diagnostic, needs --rbf/--rbf-sha256, no --number/--semver")
     ap.add_argument("--cover-slot", action="store_true", help="(kept for old command lines; data slot 7, the TIM1 cover image, is always declared now)")
     ap.add_argument("--note", help="replaces the default text after the build kind in the description")
@@ -66,6 +67,8 @@ def main():
                          "so nothing else can run in between. Omit it to keep using whatever is already "
                          "sitting at that path (the previous behaviour, still fine for make_release.py's "
                          "own --release-diagnostic, which never uses these flags).")
+    ap.add_argument("--channel", choices=("stable", "preview"), default="stable",
+                    help="with --release-diagnostic: the release channel it ships in (make_release.py passes it)")
     args = ap.parse_args()
     if args.release_diagnostic:
         if args.number is not None or args.semver or args.barcode is not None or not args.rbf:
@@ -126,27 +129,41 @@ def main():
         rbf, already_reversed = src / "Cores/alfatreze.TAU/bitstream.rbf_r", True
 
     if args.release_diagnostic:
-        platform, core_id, short, title = "tau_diagnostic", "alfatreze.TAU_DIAGNOSTIC", "TAU_DIAGNOSTIC", "TAU Diagnostic Build"
+        # The release's Diagnostic Build, in its channel (RELEASE_SYSTEM_SPEC section 4): "TAU Diagnostics" beside TAU, or
+        # "TAU Preview Diagnostics" in the Preview channel. It replaces the old alfatreze.TAU_DIAGNOSTIC (own platform, own media copy).
+        ch = tau_layout.CHANNELS[args.channel]
+        platform, short, title = ch["platform"], ch["diag"], ch["name"]
+        core_id, platforms = f"alfatreze.{short}", list(ch["platforms"])
         desc, out = "TAU developer build: settings, Info page and diagnostic tests", root / "work/diagnostics/library-diagnostic/pocket"
     elif args.barcode is not None:
+        # Dev channel (B-673, option a): one TAU Dev platform, TAU's media read in place, listed under TAU too. Shortnames may hold
+        # spaces (B-673), so the Pocket shows "TAU DEV BARCODE 05" as written.
         nn = f"{args.barcode:02d}"
-        platform, core_id = f"tau_devbar{nn}", f"alfatreze.TAU_DEV_BARCODE_{nn}"   # platform id limit: 15 characters
-        short, title, label = f"TAU_DEV_BARCODE_{nn}", f"TAU DEV BARCODE {nn}", f"barcode-study test build {nn}"
+        platform, short, label = tau_layout.DEV_PLATFORM, f"TAU DEV BARCODE {nn}", f"barcode-study test build {nn}"
+        core_id, title, platforms = f"alfatreze.{short}", tau_layout.DEV_PLATFORM_NAME, list(tau_layout.CHANNELS["dev"]["platforms"])
         out = root / f"work/diagnostics/tau-dev-barcode-{nn}/pocket"
     elif args.semver:
-        # Pocket platform ids match [a-z0-9][a-z0-9_]* and are <= 15 chars, so the semver is sanitized there;
-        # the human-facing shortname/title/description keep the real string.
-        if not re.fullmatch(r"\d+\.\d+\.\d+-(alpha|beta|rc)\.\d+", args.semver):
-            sys.exit(f"--semver must look like '0.5.0-alpha.1': got {args.semver!r}")
-        sid = re.sub(r"[.\-]", "_", args.semver).replace("alpha", "a").replace("beta", "b")
-        platform, core_id = f"tau_{sid}", f"alfatreze.TAU_{sid.upper()}"
-        short, title = f"TAU_{sid.upper()}", f"TAU {args.semver}"
-        label, out = args.semver, root / f"work/diagnostics/tau-{sid}/pocket"
+        # Preview channel (RELEASE_SYSTEM_SPEC section 4): one rolling "TAU Preview" core (release-style firmware) or "TAU Preview
+        # Diagnostics" (diagnostic firmware) on the TAU Preview platform, reading TAU's media in place; the exact version is in
+        # core.json and the ROM. Replaces the old one-platform-per-build TAU_0_6_0_A_N scheme.
+        if not re.fullmatch(r"\d+\.\d+\.\d+-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*", args.semver) or tau_layout.channel_of(args.semver) != "preview":
+            sys.exit(f"--semver must be a pre-release version such as 0.6.0-preview.2: got {args.semver!r}")
+        ch = tau_layout.CHANNELS["preview"]
+        platform, title, platforms = ch["platform"], ch["name"], list(ch["platforms"])
+        short = ch["core"] if args.variant == "tempo" else ch["diag"]
+        core_id, label = f"alfatreze.{short}", args.semver
+        out = root / f"work/diagnostics/tau-preview-{args.semver}/pocket"
     else:
         nn = f"{args.number:02d}"
-        platform, core_id = f"tau_dev_{nn}", f"alfatreze.TAU_DEV_{nn}"
-        short, title, label = f"TAU_DEV_{nn}", f"TAU DEV {nn}", f"numbered test build {nn}"
+        platform, short, label = tau_layout.DEV_PLATFORM, f"TAU DEV {nn}", f"numbered test build {nn}"
+        core_id, title, platforms = f"alfatreze.{short}", tau_layout.DEV_PLATFORM_NAME, list(tau_layout.CHANNELS["dev"]["platforms"])
         out = root / f"work/diagnostics/tau-dev-{nn}/pocket"
+    shared_media = len(platforms) > 1                  # reads TAU's library, tau-assets.bin and music in place (B-673 option a)
+    # The full version every view shows (owner, 2026-10-08): Select Core row (core.json), splash and Info (the ROM's TAUVER field).
+    # SemVer numeric identifiers have no leading zeros, so "dev.5", not "dev.05".
+    base_ver = json.loads((src / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["version"].split("-")[0]
+    full_ver = (None if args.release_diagnostic else args.semver if args.semver else
+                f"{base_ver}-dev.barcode.{args.barcode}" if args.barcode is not None else f"{base_ver}-dev.{args.number}")
     if not args.release_diagnostic:
         desc = f"TAU {label}: {kind}, " + (args.note or default_note)
 
@@ -156,7 +173,9 @@ def main():
     if already_reversed: shutil.copy2(rbf, c / "bitstream.rbf_r")
     else: bitrev(rbf, c / "bitstream.rbf_r")
     j = json.loads((c / "core.json").read_text())
-    m = j["core"]["metadata"]; m["shortname"] = short; m["platform_ids"] = [platform]
+    m = j["core"]["metadata"]; m["shortname"] = short
+    if full_ver: m["version"] = full_ver
+    m["platform_ids"] = platforms
     # core.json description is limited to 63 characters (cores vanish from the menu otherwise, B-142);
     # the full text goes to info.txt, the About-screen field that is meant for it.
     if len(desc) > 63:
@@ -173,16 +192,28 @@ def main():
     slots_lib.add_cold_slot(c)                          # data slot 6 = the cold image
     slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
     slots_lib.add_cover_slot(c)                         # data slot 7 = the cover image (TIM1 reader, on by default since B-325)
+    if shared_media:                                    # library index and tau-assets.bin come from TAU's common/ (platform_ids[1])
+        save(c / "data.json", tau_layout.read_shared_media(json.loads((c / "data.json").read_text())))
     a = out / "Assets" / platform
-    (a / "common").mkdir(parents=True); (a / core_id).mkdir()
-    shutil.copy2(rom, a / "common/tau.rom")
-    shutil.copy2(rom.parent / "tau-cold.bin", a / "common/tau-cold.bin")
-    shutil.copy2(src / "Assets/tau/common/tau-loading.bin", a / "common/tau-loading.bin")
-    save(a / core_id / f"{title}.json", {"instance": {"magic": "APF_VER_1", "variant_select": {"id": 0, "select": False},
-         "data_path": "", "data_slots": [{"id": 1, "filename": "tau.rom"}], "memory_writes": []}})
+    cd = a / core_id                                   # H4: build-bound files are core-specific (tools/tau_layout.py)
+    cd.mkdir(parents=True)
+    shutil.copy2(rom, cd / "tau.rom")
+    shutil.copy2(rom.parent / "tau-cold.bin", cd / "tau-cold.bin")
+    shutil.copy2(src / "Assets/tau/alfatreze.TAU/tau-loading.bin", cd / "tau-loading.bin")
+    if full_ver:
+        import tau_version
+        try:
+            print("version", tau_version.stamp_file(cd / "tau.rom", full_ver, root))
+        except tau_version.VersionError as e:
+            sys.exit(f"cannot stamp the version into the ROM: {e} (rebuild the firmware with --build-flags)")
+    # No Assets/<platform>/<core>/<title>.json any more (RELEASE_SYSTEM_SPEC section 11): no data slot has the instance bit, and it used
+    # `variant_select`, a key the instance schema does not have, so the Pocket never read it. Older cards: listed as obsolete in tools/omega_compat.json.
     p = out / "Platforms"; (p / "_images").mkdir(parents=True)
     shutil.copy2(src / "Platforms/_images/tau.bin", p / "_images" / f"{platform}.bin")
-    save(p / f"{platform}.json", {"platform": {"category": "Media Players", "name": title, "year": 2026, "manufacturer": "alfatreze"}})
+    if (src / "Platforms" / f"{platform}.json").is_file():          # TAU's own platform: ship its exact file (shared with TAU)
+        shutil.copy2(src / "Platforms" / f"{platform}.json", p / f"{platform}.json")
+    else:
+        save(p / f"{platform}.json", {"platform": {"category": "Media Players", "name": title, "year": 2026, "manufacturer": "alfatreze"}})
     man = Path(str(rbf) + ".json") if args.rbf else None                    # B-653: what this bitstream was built with (tools/vm_fit.py collect)
     pair_cmd = [sys.executable, "tools/check_fw_bitstream_pair.py", str(out)]
     if man is not None and man.is_file():
@@ -193,7 +224,22 @@ def main():
     r = subprocess.run(pair_cmd, cwd=root)   # B-581
     if r.returncode != 0:
         sys.exit("firmware/bitstream pairing check failed (see above); package left in " + str(out) + " but do not install it")
-    print(core_id, digest(c / "bitstream.rbf_r"), digest(a / "common/tau.rom"))
+    # Review M5: a dev package carries its own release manifest next to it (tau-compat.json + a deterministic zip), so the installer
+    # and Tau Omega's local-package flow get the same layout and pairing facts as a GitHub release. Needs the fit manifest for the
+    # bitstream's CORE_VERSION and features; without one it is skipped with a note (dev builds on dist/'s bitstream).
+    if not args.release_diagnostic:
+        sys.path.insert(0, str(root / "tools"))
+        import tau_compat
+        label = args.semver or (f"barcode.{args.barcode}" if args.barcode is not None else args.number)
+        if man is not None and man.is_file():
+            try:
+                cp = tau_compat.build_dev(out, label, rbf=rbf)
+                print(f"manifest {cp} ({json.loads(cp.read_text())['release']})")
+            except tau_compat.CompatError as e:
+                sys.exit(f"tau-compat.json for this dev package failed: {e}")
+        else:
+            print("note: no fit manifest for this RBF: no tau-compat.json for this dev package (the installer skips its card check)", file=sys.stderr)
+    print(core_id, digest(c / "bitstream.rbf_r"), digest(cd / "tau.rom"))
 
 if __name__ == "__main__":
     main()

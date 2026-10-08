@@ -16,10 +16,10 @@ def add_library_slot(core_dir: Path) -> None:
     itself, since it is built from the user's own music by tools/sync_media.py). Persist words 24-26: what was
     playing (kind/id/position), the index build it refers to, and the Shuffle All seed.
 
-    Id 27 ("Library off (restart)") is RETIRED: the library on/off switch was removed along with legacy
-    playlist mode (the library is now mandatory, since there is no fallback left to switch to). Per this
-    project's own persist-id convention (fw/settings.inc), id 27 is left dead -- never declared again here,
-    never reused for a new variable."""
+    Id 27 ("Library off (restart)") was retired with legacy playlist mode, and is no longer declared here. Correction
+    (2026-10-08): contrary to the rule this docstring stated, id 27 WAS later reused for "(internal) theme" (B-346, at a
+    different persist address). tools/persist_registry.json records that (meaning 2 since v0.6.0-alpha.1), so tools and
+    Tau Omega do not read a v0.5.0-or-older value as a theme. Never reuse an id again: a new meaning gets a new id."""
     dj = json.loads((core_dir / "data.json").read_text())
     slots = dj["data"]["data_slots"]
     existing = next((x for x in slots if x["id"] == 5), None)
@@ -47,18 +47,18 @@ def add_library_slot(core_dir: Path) -> None:
 
 
 def add_cold_slot(core_dir: Path) -> None:
-    """Data slot 6: the cold image (Phase G), shipped with the core -- it is a firmware asset, not user data, so
+    """Data slot 6: the cold image (Phase G), shipped with the core, core-specific (parameter bit 1, H4: Assets/<platform>/<core>/) -- it is a firmware asset, not user data, so
     unlike the library index it is required for the cold-code features to be available (the fail-safe still holds
     if it is ever missing or fails its check)."""
     dj = json.loads((core_dir / "data.json").read_text())
     existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 6), None)
     if existing is not None:
         expect = {"name": "Cold image", "id": 6, "required": False, "deferload": True,
-                  "parameters": "0x0", "filename": "tau-cold.bin"}
+                  "parameters": "0x2", "filename": "tau-cold.bin"}
         assert existing == expect, f"data slot 6 already declared, and differently: {existing}"
         return
     dj["data"]["data_slots"].append({"name": "Cold image", "id": 6, "required": False, "deferload": True,
-                                      "parameters": "0x0", "filename": "tau-cold.bin"})
+                                      "parameters": "0x2", "filename": "tau-cold.bin"})
     save(core_dir / "data.json", dj)
 
 

@@ -71,6 +71,8 @@ test-host:
 	$(PYTHON) sim/test_cold_fw.py
 	$(PYTHON) sim/test_suite.py
 	$(PYTHON) sim/test_install_dev_core.py
+	$(PYTHON) sim/test_tau_compat.py
+	$(PYTHON) sim/test_tau_version.py
 	$(PYTHON) sim/test_tau_image.py
 	$(PYTHON) sim/test_art_source.py
 	$(PYTHON) sim/test_ram192k.py
