@@ -121,8 +121,9 @@ the whole card or a wide `find` when a narrower check will do.
 3. Copy new files + verify by hash.
 4. Rebuild the library index for this core specifically (if media is being reused from elsewhere).
 5. Confirm `core.json`'s field limits are respected.
-6. **Back up + clear the five catalog caches.**
-7. Clean junk, verify, eject.
+6. Release installs: remove the files the release manifest marks obsolete and check the card against it (step 3c below).
+7. **Back up + clear the five catalog caches.**
+8. Clean junk, verify, eject.
 
 ## Stale media on --replace (B-332)
 `--replace` keeps the core's media, so an index that no longer matches its files (folders moved or renamed) used to survive an install: the library then showed albums twice and could not open tracks. `tools/install_dev_core.py` now verifies the existing `tau-library.tdb` against the files at step 3a (when `--carry-from` is not used, which rebuilds it anyway), rebuilds it if anything is missing, and notes album folders without a `tau-art` cover file (slow embedded-JPEG covers; `sync_media.py --art-variants` writes them). `tau-assets.bin` is placed at step 3b (`--assets`, else next to the package, else copied from the carried-from core).
@@ -132,3 +133,16 @@ the whole card or a wide `find` when a narrower check will do.
 `tools/install_dev_core.py` (and `tools/package_dev_build.py`, and `make_release.py`) refuse a package whose firmware the bitstream would not run:
 - **Version** (B-581): the ROM's `TAUFWPAIR` list must contain the bitstream's CORE_VERSION (a ROM built without `RAM_192K=1 CLK66=1` gives a black screen on the 192 KB bitstream).
 - **Features** (B-653): the ROM's `TAUFWNEED` list (HALCYON, LPC, POLY, SDRAM_BUSY) must be among the macros the bitstream was built with. The macros come from `<rbf>.json`, written by `tools/vm_fit.py collect` (for a fit launched earlier: `collect NAME --seed N --append BUNDLE`); the packager copies it into the package as `bitstream-manifest.json`. Without a manifest the feature check is skipped with a note. A deliberate fail-safe pairing: `check_fw_bitstream_pair.py --bitstream-manifest M --allow-missing HALCYON`.
+
+## Release manifest card check (2026-10-08, RELEASE_SYSTEM_SPEC section 11)
+
+When a release manifest `tau-compat.json` (schema 2) describes **exactly** the package being installed, `tools/install_dev_core.py` uses it at step 3c:
+- **Which manifest:** `--compat FILE`, else `<package>/../tau-compat.json`, else `release/tau-compat.json`. "Exactly" means every owned and shared file in the manifest is in the package with the same hash, and the core's own folders hold nothing else. An explicit `--compat` that does not match stops the install **before anything is written**. An auto-found one that does not match is ignored, so dev packages, which have no manifest, install as before with "card check skipped".
+- **Obsolete files:** files the manifest marks `obsolete` for this core are removed. They are already in the backup when the core was replaced. Example: the inert `Assets/tau/alfatreze.TAU/TAU.json` the packagers wrote until 2026-10-08.
+- **Card check** (`tau_compat.check_card`):
+  - owned files must be present with their hashes;
+  - shared files must be present (a different hash is a warning);
+  - the library index, `tau-assets.bin`, TIM1 covers and the settings file must be in a format the release reads;
+  - the core's folders must hold no stray files.
+- **On an error:** the script stops with the core installed but the catalog caches **not** deleted. The Pocket keeps showing the old catalog until the problem is fixed and the script is re-run.
+- **By hand:** `python3 tools/tau_compat.py check-card release/tau-compat.json /Volumes/Pock --core alfatreze.TAU`.

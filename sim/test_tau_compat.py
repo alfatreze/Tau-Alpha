@@ -161,9 +161,28 @@ with tempfile.TemporaryDirectory() as t:
 
     # 2d. layout refusals at build time
     cfg = t / "omega.json"
-    cfg.write_text(json.dumps({"min_omega": "0.3.0", "obsolete": ["Assets/tau/alfatreze.TAU/TAU.json"]}))
+    cfg.write_text(json.dumps({"min_omega": "0.3.0", "obsolete": [{"core_id": "alfatreze.TAU", "path": "Assets/tau/alfatreze.TAU/TAU.json"},
+                                                                {"core_id": "alfatreze.TAU_DIAGNOSTIC", "path": "Assets/tau_diagnostic/x/old.json"}]}))
     lay = tc.build(**dict(kw, omega_cfg=cfg))["packages"][0]["layout"]
     check(any(e["role"] == "obsolete" and e["path"] == "Assets/tau/alfatreze.TAU/TAU.json" for e in lay), "obsolete paths from the config appear in the layout")
+    check(not any(e["path"] == "Assets/tau_diagnostic/x/old.json" for e in lay), "an obsolete path of another core is not in this core's layout")
+    real = json.loads((ROOT / "tools/omega_compat.json").read_text())["obsolete"]
+    check({"core_id": "alfatreze.TAU", "path": "Assets/tau/alfatreze.TAU/TAU.json"} in real, "the retired TAU.json is listed obsolete in tools/omega_compat.json")
+    check(not (ROOT / "dist/Assets/tau/alfatreze.TAU/TAU.json").exists(), "dist/ no longer ships TAU.json")
+
+    # 2e. the installer's match test: a manifest applies only to the exact package it describes
+    pk = t / "pkg"; pk.mkdir()
+    with zipfile.ZipFile(zips[0]) as f:
+        f.extractall(pk)
+    ent, why = tc.package_match(doc, pk, "alfatreze.TAU")
+    check(ent is not None and why == [], "package_match: the unpacked zip matches its manifest entry")
+    (pk / "Assets/tau/common/tau.rom").write_bytes(b"other")
+    check(tc.package_match(doc, pk, "alfatreze.TAU")[0] is None, "package_match: a different ROM does not match")
+    with zipfile.ZipFile(zips[0]) as f:
+        (pk / "Assets/tau/common/tau.rom").write_bytes(f.read("Assets/tau/common/tau.rom"))
+    (pk / "Cores/alfatreze.TAU/extra.txt").write_text("x")
+    check(tc.package_match(doc, pk, "alfatreze.TAU")[0] is None, "package_match: an unlisted file in the core folder does not match")
+    check(tc.package_match(doc, pk, "alfatreze.TAU_X")[0] is None, "package_match: a core the release does not have does not match")
     (card / "Assets/tau/alfatreze.TAU").mkdir(parents=True); (card / "Assets/tau/alfatreze.TAU/TAU.json").write_text("{}")
     check(any(l == "warn" and "obsolete" in m for l, m in tc.check_card(tc.build(**dict(kw, omega_cfg=cfg)), card)), "card: an obsolete file still present is reported")
     zx = make(new, "alfatreze.TAU", "tau", ROM_N, extra={"Assets/tau/alfatreze.TAU/TAU.json": "{}"})

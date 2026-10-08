@@ -257,7 +257,10 @@ def layout(pkg, root=ROOT, obsolete=()):
                 raise CompatError(f"{pkg['zip']}: data slot {sl['id']} has no filename and extensions {sl.get('extensions')} that tau_compat.BY_EXTENSION does not know")
     out.append({"path": f"Settings/{core}/Interact/interact_persist.json", "role": "user", "slot": None, "required": False,
                 "format": {"name": "interact_persist", "version": 1}})
-    for path in obsolete:
+    for ob in obsolete:
+        if ob["core_id"] != core:
+            continue
+        path = ob["path"]
         if any(e["path"] == path for e in out):
             raise CompatError(f"{path} is listed as obsolete but this release still ships or uses it")
         out.append({"path": path, "role": "obsolete", "slot": None, "required": False})
@@ -384,6 +387,33 @@ def check_card(doc, card, core=None, max_pattern_files=2000):
                     if g.is_file() and not g.name.startswith("._") and g.name != ".DS_Store" and rel not in listed:
                         out.append(("warn", f"{p['core_id']}: {rel} is not part of {doc['release']} (stale file)"))
     return out
+
+
+def package_match(doc, pkg_dir, core_id):
+    """The manifest's entry for core_id if it describes exactly the package directory about to be installed (every owned/shared
+    file present with its hash, and no unlisted file in the core's own folders), else (None, reasons)."""
+    pkg_dir = Path(pkg_dir)
+    entry = next((p for p in doc.get("packages", []) if p["core_id"] == core_id), None)
+    if entry is None:
+        return None, [f"{doc.get('release')} has no package for {core_id}"]
+    errs, listed = [], set()
+    for e in entry["layout"]:
+        if e["role"] not in ("owned", "shared"):
+            continue
+        listed.add(e["path"])
+        f = pkg_dir / e["path"]
+        if not f.is_file():
+            errs.append(f"{e['path']} is in the manifest but not in the package")
+        elif sha(f.read_bytes()) != e["sha256"]:
+            errs.append(f"{e['path']} differs from the manifest")
+    owned_dirs = {"/".join(e["path"].split("/")[:3]) for e in entry["layout"] if e["role"] == "owned" and e["path"].startswith("Assets/")
+                  and len(e["path"].split("/")) > 3 and e["path"].split("/")[2] == core_id} | {f"Cores/{core_id}"}
+    for d in owned_dirs:
+        for g in (pkg_dir / d).rglob("*") if (pkg_dir / d).is_dir() else []:
+            rel = str(g.relative_to(pkg_dir))
+            if g.is_file() and not g.name.startswith("._") and g.name != ".DS_Store" and rel not in listed:
+                errs.append(f"{rel} is in the package but not in the manifest")
+    return (entry if not errs else None), errs
 
 
 # ---------------------------------------------------------------- release-level facts

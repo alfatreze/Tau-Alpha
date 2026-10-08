@@ -174,12 +174,12 @@ def main():
     slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
     slots_lib.add_cover_slot(c)                         # data slot 7 = the cover image (TIM1 reader, on by default since B-325)
     a = out / "Assets" / platform
-    (a / "common").mkdir(parents=True); (a / core_id).mkdir()
+    (a / "common").mkdir(parents=True)
     shutil.copy2(rom, a / "common/tau.rom")
     shutil.copy2(rom.parent / "tau-cold.bin", a / "common/tau-cold.bin")
     shutil.copy2(src / "Assets/tau/common/tau-loading.bin", a / "common/tau-loading.bin")
-    save(a / core_id / f"{title}.json", {"instance": {"magic": "APF_VER_1", "variant_select": {"id": 0, "select": False},
-         "data_path": "", "data_slots": [{"id": 1, "filename": "tau.rom"}], "memory_writes": []}})
+    # No Assets/<platform>/<core>/<title>.json any more (RELEASE_SYSTEM_SPEC section 11): no data slot has the instance bit, and it used
+    # `variant_select`, a key the instance schema does not have, so the Pocket never read it. Older cards: listed as obsolete in tools/omega_compat.json.
     p = out / "Platforms"; (p / "_images").mkdir(parents=True)
     shutil.copy2(src / "Platforms/_images/tau.bin", p / "_images" / f"{platform}.bin")
     save(p / f"{platform}.json", {"platform": {"category": "Media Players", "name": title, "year": 2026, "manufacturer": "alfatreze"}})
