@@ -5,6 +5,9 @@ the Cymo row — see below). Why things are the way they are is in `docs/AUDIT_T
 `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
 Full detail on this session: `docs/handoffs/SESSION_HANDOFF_2026-10-03_CYMO_TEMPO.md` — **read it first** (the 2026-10-01 resampler handoff is still correct for what it covers).
 
+## Update 2026-10-08: RAM diet on branch `ram-diet` (pushed, not merged)
+**Read `docs/handoffs/SESSION_HANDOFF_2026-10-08_RAM_DIET.md`.** Audit B-662. Shipped-link RAM now measured correctly; tempo in the normal release; tempo state diet behind `TEMPO_SLICE=1 TEMPO_RING=512` (not on a Pocket yet); QR encoder archived; every Diagnostic-Build piece is a build-time feature (`DIAG_DROP`, `DIAG_PRESET`, `FEATURES_ON`, rules in `CLAUDE.md` section 3b). Diagnostic Build free hot RAM: 1,600 B default, 7,568 B `slim`. Next: Pocket A/B, then merge (conflicts on `CLAUDE.md` and `AUDIT_TRAIL.md` tails).
+
 ## Update 2026-10-07 (evening): Halcyon engine built, alpha.4 on the card, the "fluttering" bug found; fit `halcyon-pair-b650` running
 **Read `docs/handoffs/SESSION_HANDOFF_2026-10-07_HALCYON_ENGINE.md` first.** Audit B-636..B-650; local `main` is ahead of origin from `cc6bc5c`. On the card: `TAU`/`TAU_DIAGNOSTIC` alpha.4 and `TAU_DEV_107` (Halcyon engine bitstream + firmware, menu with Diagnostics and Info on the main menu, Halcyon page). First hardware listening on 107: every non-FLAT Halcyon setting flutters. Cause (simulation only): the engines' integer tick divider (48,030.7 Hz at 66.667 MHz) and per-channel output updates feeding a change-triggered I2S writer (torn stereo pairs); both fixed in RTL (also in the shipped `eq_biquad`), fit `halcyon-pair-b650` due about 22:00 with `TAU_I2S_DIAG` for the hardware check. Nothing else of the session has run on a Pocket; the user test script is `docs/TEST_SCRIPT_DEV107.md`.
 
