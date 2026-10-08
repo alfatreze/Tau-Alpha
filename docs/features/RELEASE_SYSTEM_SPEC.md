@@ -226,7 +226,14 @@ Results go to AUDIT_TRAIL as a new B entry; then the tools change.
 6. Omega side (its repo, its session): read `tau-release.json`, channel = platform, keep `SHA256SUMS.txt` check.
    Recorded in `CROSS_PROJECT_INTERFACE.md` as a new interface surface.
 
-## 10. Tau Omega request: `tau-compat.json` (analysis, 2026-10-08)
+## 10. Tau Omega request: `tau-compat.json` (analysis, 2026-10-08; built the same day)
+
+**Built** on branch `release-system`: `tools/tau_compat.py` (build/verify), `tools/omega_compat.json`, hook in
+`tools/make_release.py` (new required `--release` and `--previous`/`--no-previous`; the pairing gate now gets the
+manifest-derived CORE_VERSION), `sim/test_tau_compat.py` in `make test-host` (four CORE_VERSION contracts, hashes
+recomputed from the zips, nine mutations refused). Smoke run on the published alpha.4 zips: builds and verifies
+(`rom_needs` empty because alpha.4 predates `TAUFWNEED`). Not yet run inside a real `make_release.py` (next release).
+CHANGELOG convention: lines `- Omega: ...` in a release's section become `notes`.
 
 Omega asks for one extra release asset, `tau-compat.json` (schema 1), written by `tools/make_release.py`, listed in
 `SHA256SUMS.txt` and attached to the GitHub release. Zips stay unchanged. Verdict: **accept, with the source

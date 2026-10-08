@@ -5,10 +5,12 @@ Both cores run on the same FPGA bitstream and the same firmware source; the Diag
 menus switched on. Zip names follow Analogue's convention <Author>.<Core>_<Version>_<Date>.zip and contain only
 Pocket base folders (Cores, Platforms, Assets). Version and date come from dist/Cores/alfatreze.TAU/core.json.
 
-  python3 tools/make_release.py --rbf PATH_TO_RAW.rbf --rbf-sha256 HASH [--test]
+  python3 tools/make_release.py --rbf PATH_TO_RAW.rbf --rbf-sha256 HASH --release v0.6.0-alpha.5 \
+      --previous release/alfatreze.TAU_<last>.zip --previous release/alfatreze.TAU_DIAGNOSTIC_<last>.zip [--test]
 
 Steps: build both ROMs, package the normal core (package.py), package the diagnostic core
-(tools/package_dev_build.py --release-diagnostic), check both, write release/<name>.zip x2 and release/SHA256SUMS.txt.
+(tools/package_dev_build.py --release-diagnostic), check both, write release/<name>.zip x2, release/tau-compat.json (Tau Omega's compatibility manifest, tools/tau_compat.py,
+RELEASE_SYSTEM_SPEC section 10) and release/SHA256SUMS.txt listing all three, then print the gh command that publishes them.
 Bump the version first (fw/player.c APP_VER, core.json, README 'Current version', CHANGELOG); build.sh refuses a mismatch.
 """
 import argparse
@@ -22,6 +24,8 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+import tau_compat  # noqa: E402
 DIAG = ROOT / "work/diagnostics/library-diagnostic/pocket"   # B-078: the Diagnostic Build now includes the media library and Check
 OUT = ROOT / "release"
 
@@ -77,6 +81,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--rbf", required=True, type=Path, help="raw (not reversed) RBF for both cores")
     ap.add_argument("--rbf-sha256", required=True, help="expected SHA-256 of --rbf (refuses an unaudited bitstream)")
+    ap.add_argument("--release", required=True, help="the tag, e.g. v0.6.0-alpha.5 (needs a matching CHANGELOG heading)")
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument("--previous", action="append", type=Path, help="the previous release's zip of each core (persist_ids_changed)")
+    g.add_argument("--no-previous", action="store_true", help="no previous zips: persist_ids_changed = []")
+    ap.add_argument("--bitstream-version", help="CORE_VERSION of --rbf when it has no fit manifest (<rbf>.json)")
     ap.add_argument("--test", action="store_true", help="also run make test-host")
     args = ap.parse_args()
     rbf = args.rbf if args.rbf.is_absolute() else ROOT / args.rbf
@@ -86,7 +95,17 @@ def main():
 
     meta = json.loads((ROOT / "dist/Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]
     version, date = meta["version"], meta["date_release"]
-    print(f"release v{version} ({date})")
+    print(f"release {args.release}: core.json v{version} ({date})")
+    # tau-compat.json (Tau Omega): refuse early what would refuse late -- the tag must match core.json and the changelog,
+    # and the bitstream's CORE_VERSION comes from its fit manifest, not from the first literal in mp3_soc.v.
+    try:
+        if not args.release.startswith(f"v{version}") or args.release[len(version) + 1:][:1] not in ("", "-"):
+            raise tau_compat.CompatError(f"--release {args.release} is not core.json version {version}")
+        tau_compat.changelog_section(args.release, ROOT / "CHANGELOG.md")
+        core_version = tau_compat.bitstream_core_version(rbf, args.bitstream_version)
+    except tau_compat.CompatError as e:
+        sys.exit(f"tau-compat: {e}")
+    print(f"bitstream CORE_VERSION {core_version}")
 
     env = dict(os.environ)
     # B-581: the release bitstream is the 192 KB / 66.667 MHz one (CORE_VERSION rev 26), so the firmware must be
@@ -107,7 +126,7 @@ def main():
     sh(["bash", "fw/build.sh", "player-library-diagnostic"], env=env)     # Diagnostic Build: adds Tests/Stress and the Check
     sh([sys.executable, "package.py", "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256, "--release-library"])
     sh([sys.executable, "tools/check_tau_package.py"])
-    sh([sys.executable, "tools/check_fw_bitstream_pair.py", "dist"])   # B-581: the ROM in the zip must be accepted by the bitstream
+    sh([sys.executable, "tools/check_fw_bitstream_pair.py", "dist", "--bitstream-version", core_version])   # B-581: the ROM in the zip must be accepted by the bitstream
     sh([sys.executable, "tools/package_dev_build.py", "--release-diagnostic",
         "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256])
     if args.test:
@@ -124,8 +143,24 @@ def main():
         n = verify(z, core_id, version, raw, rom)
         sums.append(f"{sha(z)}  {z.name}")
         print(f"  {z.name}: {n} files, {z.stat().st_size:,} bytes, checks ok")
+    zips = [OUT / line.split("  ", 1)[1] for line in sums]
+    kw = dict(release=args.release, zips=zips, previous=None if args.no_previous else args.previous,
+              rbf=rbf, bitstream_version=args.bitstream_version)
+    compat = OUT / "tau-compat.json"
+    try:
+        compat.write_text(tau_compat.dumps(tau_compat.build(**kw)))
+        errs = tau_compat.verify(compat, **kw)
+    except tau_compat.CompatError as e:
+        sys.exit(f"tau-compat: {e}")
+    if errs:
+        sys.exit("tau-compat.json does not match the zips:\n  " + "\n  ".join(errs))
+    sums.append(f"{sha(compat)}  {compat.name}")
     (OUT / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n")
     print("\n".join(sums))
+    pre = " --prerelease" if "-" in args.release else ""
+    print("\nPublish (owner approval first):\n  gh release create " + args.release + " --repo alfatreze/Tau-Alpha" + pre
+          + " --title '" + args.release + "' --notes-file <notes> " + " ".join(f"release/{z.name}" for z in zips)
+          + " release/tau-compat.json release/SHA256SUMS.txt")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Changelog
 
-What changed in each release, newest first.
+What changed in each release, newest first. Lines starting `- Omega:` are copied into the release's `tau-compat.json` notes for Tau Omega.
 
 ## Unreleased (next alpha)
 

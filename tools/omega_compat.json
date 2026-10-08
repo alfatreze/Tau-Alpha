@@ -1,0 +1,4 @@
+{
+  "min_omega": "0.3.0",
+  "why": "Lowest Tau Omega release that reads library index v1 and the tau-assets.bin container (TAUA). Reviewed judgement (RELEASE_SYSTEM_SPEC section 10); raise it only when a Tau release needs something an older Omega cannot read."
+}
