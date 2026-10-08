@@ -137,7 +137,7 @@ enum { SW_VOL = 0, SW_PAL, SW_REP, SW_RETIRED_SHUF, SW_RETIRED_RESUME, SW_VIZ, S
         * PERSIST32_READY() here -- every read/write of these five goes through set_rd32()/set_wr32()
         * below instead of the plain set_rd()/set_wr(), which do that gating once, not five times. A
         * hand-tuned CUSTOM meter (every value, not just which preset) still has no persistence path;
-        * that stays the QR-export workaround B-216 already settled on. */
+        * that stays the report-export workaround B-216 already settled on. */
        SW_THEME, SW_POL, SW_MPRE_BARS, SW_MPRE_SCOPE, SW_MPRE_CHLADNI,
        SW_N };
 

@@ -22,7 +22,7 @@ enum { CH_COLOUR = 0, CH_METER, CH_REPEAT, CH_BLANK, CH_SPEED, CH_STRESS, CH_SOA
 #define TAU_INFO_EXPORT 1                /* the Info page's report-code export (A on the Info page): in the normal core too since alpha.4 (INFO_EXPORT=0 in fw/build.sh turns it off) */
 #endif
 #if TAU_INFO_EXPORT
-static uint8_t info_qr_up;   /* fw/info_export.inc: forward-declared, referenced by set_info_tick() below its own include */
+static uint8_t info_rep_up;   /* fw/info_export.inc: forward-declared, referenced by set_info_tick() below its own include */
 #endif
 
 /* Pages after the menus: one per choice list, then the read-only Info page (diagnostics). */
@@ -1136,7 +1136,7 @@ COLD_FN static void set_info_tick(void)
     uint8_t o = ov_draw; ov_draw = 1u;
     if (set_page == SET_INFO_PG) {
 #if TAU_INFO_EXPORT
-        if (!info_qr_up)
+        if (!info_rep_up)
 #endif
             set_draw_ro(0, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
     }
@@ -1147,7 +1147,7 @@ COLD_FN static void set_info_tick(void)
 }
 
 #if TAU_INFO_EXPORT
-#include "report.inc"                    /* shared report plumbing: record builder, QR encoder, report buffers, pixel-grid view */
+#include "report.inc"                    /* shared report plumbing: record builder, report buffers, pixel-grid view */
 #endif
 #if TAU_DIAGNOSTIC
 #include "suite.inc"
@@ -1160,7 +1160,7 @@ COLD_FN static void set_info_tick(void)
  * meter's live values; nothing is persisted (B-216).
  *
  * Rows: PRESET, METER (cycles the meters that have parameters), the meter's parameters that are visible under their `when` clause,
- * EXPORT QR. Placed after suite.inc's own #include because the QR export needs sr_tlv()/qr_encode() (Diagnostic Build only). */
+ * EXPORT CODE. Placed after suite.inc's own #include because the report export needs sr_tlv()/qr_encode() (Diagnostic Build only). */
 #define WVR_PRESET 0u
 #define WVR_METER  1u
 #define WVR_P0     2u              /* parameter i is row WVR_P0 + i */
@@ -1228,9 +1228,9 @@ COLD_FN static void wvcfg_follow(void)
     else if (wvcfg_sel >= wvcfg_top + WVCFG_ROWS_VISIBLE) wvcfg_top = (uint8_t)(wvcfg_sel - WVCFG_ROWS_VISIBLE + 1u);
 }
 
-/* B-218/M2: exports the live values of the meter being edited as a QR code (SR_T_METERCFG), reusing the record/text/QR pipeline
+/* B-218/M2: exports the live values of the meter being edited as a report code (SR_T_METERCFG), reusing the record/text/report pipeline
  * fw/suite.inc built for Check/Blit Test (this page and those are never open together, so sharing their SDRAM staging is safe).
- * Diagnostic-Build only, like every QR feature here; outside one the row is present but inert. */
+ * Diagnostic-Build only, like every report feature here; outside one the row is present but inert. */
 #if TAU_DX_CONFIG_EXPORT
 #include "wvcfg_export.inc"
 #endif
@@ -1301,7 +1301,7 @@ COLD_FN static void wvcfg_adjust(uint32_t row, int32_t dir)
 COLD_FN static void wvcfg_draw(void)
 {
 #if TAU_DX_CONFIG_EXPORT
-    if (wvcfg_qr_up) { wvcfg_draw_qr(); return; }
+    if (wvcfg_rep_up) { wvcfg_draw_rep(); return; }
 #endif
     const char *hint = (wvcfg_vis_n > WVCFG_ROWS_VISIBLE) ? "UP DOWN SCROLL   L/R ADJUST   B BACK" : "L/R ADJUST   B BACK";
     ov_frame("METER CONFIGURE", "", hint);
@@ -1367,7 +1367,7 @@ COLD_FN static void wvcfg_preview_redraw(void)
 COLD_FN static void wvcfg_preview_tick(void)
 {
 #if TAU_DX_CONFIG_EXPORT
-    if (wvcfg_qr_up) return;
+    if (wvcfg_rep_up) return;
 #endif
     if (wvcfg_region == 0xFFu) wvcfg_region = helios_region_register_rows_cold(wvcfg_preview_redraw, (uint16_t)WVCFG_PY, (uint16_t)(WVCFG_PY + WVCFG_PH));
     helios_mark_dirty(wvcfg_region);
@@ -1377,9 +1377,9 @@ COLD_FN static void wvcfg_preview_tick(void)
 static int wvcfg_input(uint32_t edge)
 {
 #if TAU_DX_CONFIG_EXPORT
-    if (wvcfg_qr_up) {                             /* QR screen: X changes the view, anything else closes it */
+    if (wvcfg_rep_up) {                             /* report screen: X changes the view, anything else closes it */
         if (REP_KEY(edge)) return 1;
-        if (edge & (KEY_A | KEY_B | KEY_START)) { wvcfg_qr_up = 0u; set_dirty = 1u; }
+        if (edge & (KEY_A | KEY_B | KEY_START)) { wvcfg_rep_up = 0u; set_dirty = 1u; }
         return 1;
     }
 #endif
@@ -1396,7 +1396,7 @@ static int wvcfg_input(uint32_t edge)
     if (edge & KEY_LEFT)  { wvcfg_adjust(wvcfg_row(wvcfg_sel), -1); set_dirty = 1u; }
     if (edge & KEY_RIGHT) { wvcfg_adjust(wvcfg_row(wvcfg_sel),  1); set_dirty = 1u; }
 #if TAU_DX_CONFIG_EXPORT
-    if ((edge & KEY_A) && wvcfg_row(wvcfg_sel) == WVR_EXPORT) { wvcfg_build_qr(); wvcfg_qr_up = 1u; set_dirty = 1u; }
+    if ((edge & KEY_A) && wvcfg_row(wvcfg_sel) == WVR_EXPORT) { wvcfg_build_rep(); wvcfg_rep_up = 1u; set_dirty = 1u; }
 #endif
     return 1;
 }
@@ -1452,7 +1452,7 @@ static const set_spg_t *set_spg_find(uint8_t page)
  * this: the page is simply redrawn a few times with every role colour (and the accent) mixed toward the body colour by an eased factor, then
  * once more at full strength. Text is drawn with a foreground and a background from the same roles, so its anti-aliasing stays consistent.
  * The role table is faded in place for the duration of one draw and restored straight after, so nothing else ever sees a faded colour.
- * Pages that draw live content, a QR code or thumbnails that are cached from the roles (the meter list) are not faded. */
+ * Pages that draw live content, a report code or thumbnails that are cached from the roles (the meter list) are not faded. */
 #ifndef TAU_MENU_FADE
 #define TAU_MENU_FADE 1
 #endif
@@ -1470,7 +1470,7 @@ static uint32_t set_fade_at;
  * use as scratch render space. Render the NEW page ONCE, normally, into that buffer; then blend it
  * onto the buffer actually being shown, at increasing alpha over the SAME eased curve/cadence
  * set_fade_k[]/SET_FADE_STEPS already defined -- no recolouring, so unlike the fallback below this
- * does not need set_fade_page_ok()'s exclusions (the meter list's cached thumbnails, a live QR) at
+ * does not need set_fade_page_ok()'s exclusions (the meter list's cached thumbnails, a live report code) at
  * all; kept scoped to the SAME eligible pages for this pass regardless, to change one thing at a
  * time. Falls back to the colour-interpolation fade whenever SET_XFADE_READY() is false (any
  * bitstream without both TAU_BLIT_BLEND and TAU_DBUF) -- old behaviour, unchanged.
@@ -1554,7 +1554,7 @@ COLD_FN static int set_fade_page_ok(void)
     if (set_page < SET_MENUS) return 1;
     if (set_page == SET_INFO_PG)
 #if TAU_INFO_EXPORT
-        return info_qr_up ? 0 : 1;
+        return info_rep_up ? 0 : 1;
 #else
         return 1;
 #endif
@@ -1632,7 +1632,7 @@ COLD_FN static void set_draw_now(void)
     else if (spg)                            spg->draw();
     else if (set_page == SET_INFO_PG) {
 #if TAU_INFO_EXPORT
-        if (info_qr_up) { info_draw_qr(); ov_draw = o; return; }
+        if (info_rep_up) { info_draw_rep(); ov_draw = o; return; }
 #endif
         set_draw_ro(1, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
     }
@@ -1736,9 +1736,9 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
 
     if (set_page >= SET_INFO_PG) {                /* read-only value page: Up/Down scroll, B (back) */
 #if TAU_INFO_EXPORT
-        if (set_page == SET_INFO_PG && info_qr_up) {     /* QR screen: X changes the view, anything else closes it */
+        if (set_page == SET_INFO_PG && info_rep_up) {     /* report screen: X changes the view, anything else closes it */
             if (REP_KEY(edge)) return 1;
-            if (edge & (KEY_A | KEY_B | KEY_START)) { info_qr_up = 0u; set_dirty = 1u; }
+            if (edge & (KEY_A | KEY_B | KEY_START)) { info_rep_up = 0u; set_dirty = 1u; }
             return 1;
         }
 #endif
@@ -1748,7 +1748,7 @@ COLD_SR static int set_input(uint32_t edge, uint32_t keys)     /* B-333: cold co
 #endif
         const uint32_t maxtop = (n > SET_RO_VIS) ? n - SET_RO_VIS : 0u;
 #if TAU_INFO_EXPORT
-        if (set_page == SET_INFO_PG && (edge & KEY_A) && !rep) { info_build_qr(); info_qr_up = 1u; set_dirty = 1u; return 1; }
+        if (set_page == SET_INFO_PG && (edge & KEY_A) && !rep) { info_build_rep(); info_rep_up = 1u; set_dirty = 1u; return 1; }
 #endif
         /* Wraps like every other list here (helios_wrap_index(), fw/helios.inc): past the last visible
          * window, Down jumps back to the top; Up from the top jumps to the last window. `maxtop + 1` is
