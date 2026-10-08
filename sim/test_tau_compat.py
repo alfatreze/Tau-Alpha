@@ -2,12 +2,17 @@
 """tau-compat.json (tools/tau_compat.py, RELEASE_SYSTEM_SPEC sections 10-11): build a release-shaped set of zips, write the file,
 read it back, recompute every hash from the zips and check each field; check the schema-2 layout and the expected card state
 (an unpacked install checks clean); then mutate inputs and cards and confirm each is caught."""
-import json, sys, tempfile, zipfile
+import json, subprocess, sys, tempfile, zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import tau_compat as tc  # noqa: E402
+import tau_library  # noqa: E402
+
+HEAD = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+def fitman(macros, rbf_sha, **extra):
+    return json.dumps(dict({"macros": macros, "rbf_sha256": rbf_sha, "commit": HEAD, "rtl_dirty": False}, **extra))
 
 fails = 0
 def check(cond, what):
@@ -37,6 +42,7 @@ def make(d, core, plat, rom, version="0.6.0", date="2026-10-08", bit=REVB, ids=N
     author, short = core.split(".")
     p = d / f"{core}_{version}_{date}.zip"
     with zipfile.ZipFile(p, "w") as z:
+        z.writestr = (lambda w: (lambda name, data: w(zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0)), data)))(z.writestr)   # fixed time: same inputs, same zip hash
         z.writestr(f"Cores/{core}/core.json", json.dumps({"core": {"metadata": {"author": author, "shortname": short,
                    "version": version, "date_release": date, "platform_ids": [plat]}}}))
         z.writestr(f"Cores/{core}/bitstream.rbf_r", bit)
@@ -62,7 +68,7 @@ with tempfile.TemporaryDirectory() as t:
             make(old, "alfatreze.TAU_DIAGNOSTIC", "tau_diagnostic", ROM_D, date="2026-10-07")]
     zips = [make(new, "alfatreze.TAU", "tau", ROM_N), make(new, "alfatreze.TAU_DIAGNOSTIC", "tau_diagnostic", ROM_D)]
     rbf = t / "ap_core.rbf"; rbf.write_bytes(RAW)
-    (t / "ap_core.rbf.json").write_text(json.dumps({"macros": ["TAU_RAM_192K", "TAU_CLK66", "TAU_HALCYON"], "rbf_sha256": tc.sha(RAW)}))
+    (t / "ap_core.rbf.json").write_text(fitman(["TAU_RAM_192K", "TAU_CLK66", "TAU_HALCYON", "TAU_LPC", "TAU_POLY"], tc.sha(RAW)))
     cl = t / "CHANGELOG.md"
     cl.write_text("# Changelog\n\n## v0.6.0-alpha.5 — 8 October 2026\n\n- Halcyon only.\n- Omega: persist id 16 is the Halcyon preset now.\n\n## v0.6.0-alpha.4\n- Omega: older note.\n")
     kw = dict(release="v0.6.0-alpha.5", zips=zips, previous=prev, rbf=rbf, changelog=cl)
@@ -76,7 +82,7 @@ with tempfile.TemporaryDirectory() as t:
     out = t / "tau-compat.json"
     out.write_text(tc.dumps(tc.build(**kw)))
     doc = json.loads(out.read_text())
-    check(list(doc) == ["schema", "release", "date_release", "prerelease", "packages", "requires_omega", "notes"], "top-level keys in schema order")
+    check(list(doc) == ["schema", "release", "date_release", "prerelease", "packages", "requires_omega", "notes", "source"], "top-level keys in schema order")
     check(doc["schema"] == 2 and doc["release"] == "v0.6.0-alpha.5" and doc["prerelease"] is True and doc["date_release"] == "2026-10-08", "release fields")
     check(len(doc["packages"]) == 2, "one packages entry per zip")
     for p, z in zip(doc["packages"], zips):
@@ -101,6 +107,40 @@ with tempfile.TemporaryDirectory() as t:
 
     check(tc.schema_errors(doc) == [], "the file matches the published JSON Schema (docs/schemas/tau-compat.schema.json)")
 
+    # 2a. review fixes (2026-10-08): source, features, root, preserve flag, schema keywords, fixture
+    check(doc["source"] == {"commit": HEAD, "dirty": tc.source_state()["dirty"]}, f"source = this tree's commit {HEAD} and its dirty state")
+    check(all(p["bitstream_features"] == ["HALCYON", "LPC", "POLY"] for p in doc["packages"]), "bitstream_features from the fit manifest macros (H, L, P)")
+    nd = tc.build(**dict(kw, rbf=None, bitstream_version="4D50331A"))
+    check(all(p["bitstream_features"] is None for p in nd["packages"]), "bitstream_features is null when CORE_VERSION is given by hand")
+    taua = next(e for e in doc["packages"][0]["layout"] if e["path"].endswith("tau-assets.bin"))
+    check(taua["format"].get("preserve_unknown_sections") is True, "TAUA format tells writers to carry unknown sections (H1)")
+    tdbe = next(e for e in doc["packages"][0]["layout"] if e["path"].endswith("tau-library.tdb"))
+    check(tdbe["format"].get("root") == "/Assets/tau/common/", "library index format carries its root (M8)")
+    supported = {"$schema", "$id", "title", "description", "type", "required", "properties", "items", "const", "enum", "pattern", "minimum", "additionalProperties"}
+    def kw_used(node):
+        out = set(node)
+        for v in node.get("properties", {}).values(): out |= kw_used(v)
+        if isinstance(node.get("items"), dict): out |= kw_used(node["items"])
+        return out
+    schema = json.loads(tc.SCHEMA_FILE.read_text())
+    check(kw_used(schema) <= supported, f"the published schema uses only keywords tau_compat checks (M7): extra {sorted(kw_used(schema) - supported)}")
+    try:
+        import jsonschema
+        jsonschema.validate(doc, schema)
+        check(True, "a real JSON Schema validator accepts the file (M7)")
+    except ImportError:
+        print("note: jsonschema not installed; real-validator cross-check skipped (M7)")
+    check(subprocess.run([sys.executable, str(ROOT / "tools/make_compat_fixtures.py"), "--check"], capture_output=True).returncode == 0,
+          "docs/schemas/fixtures/tau-assets-roundtrip.bin matches the reference packers (H1)")
+    import tau_assets
+    fx = tau_assets.parse((ROOT / "docs/schemas/fixtures/tau-assets-roundtrip.bin").read_bytes())
+    check(list(fx["sections"]) == ["THEM", "METR", "PRST"], "the round-trip fixture carries THEM, METR and PRST")
+    soc = (ROOT / "src/fpga/core/mp3_soc.v").read_text()
+    check(tc.selecting_macros(soc) == ["TAU_CLK66", "TAU_RAM_192K"], f"CORE_VERSION is selected by {tc.selecting_macros(soc)}")
+    check(tc.zero_defined('set_global_assignment -name VERILOG_MACRO "TAU_CLK66=0"\n', soc) == ["TAU_CLK66"]
+          and tc.zero_defined('set_global_assignment -name VERILOG_MACRO "TAU_CLK66=1"\nset_global_assignment -name VERILOG_MACRO "TAU_SPEC=0"\n', soc) == [],
+          "a CORE_VERSION-selecting macro written as =0 is detected (only those)")
+
     # 2b. schema 2: the layout of each package
     for p, z in zip(doc["packages"], zips):
         lay = {e["path"]: e for e in p["layout"]}
@@ -112,7 +152,7 @@ with tempfile.TemporaryDirectory() as t:
         c = f"Assets/{plat}/common/"
         check(lay[c + "tau.rom"]["role"] == "owned" and lay[c + "tau.rom"]["required"] and lay[c + "tau.rom"]["slot"] == 1, "tau.rom: owned, required, slot 1")
         check(lay[f"Platforms/{plat}.json"]["role"] == "shared", "platform files are shared")
-        check(lay[c + "tau-library.tdb"]["role"] == "generated" and lay[c + "tau-library.tdb"]["format"] == {"name": "tau-library", "version": 1}, "library index: generated, format v1")
+        check(lay[c + "tau-library.tdb"]["role"] == "generated" and lay[c + "tau-library.tdb"]["format"] == {"name": "tau-library", "version": 1, "root": "/" + c}, "library index: generated, format v1")
         check(lay[c + "tau-assets.bin"]["role"] == "user" and lay[c + "tau-assets.bin"]["format"]["name"] == "TAUA", "tau-assets.bin: user data, TAUA")
         cov = [e for e in p["layout"] if e.get("pattern") and e["role"] == "generated"]
         check(len(cov) == 1 and cov[0]["path"].endswith("tau-art/cover_128.pal256.timg"), "covers: generated pattern with the firmware's own file name (fw/timg.inc)")
@@ -142,7 +182,12 @@ with tempfile.TemporaryDirectory() as t:
     tdb.write_bytes((0x42494C54).to_bytes(4, "little") + (2).to_bytes(2, "little") + (2).to_bytes(2, "little") + bytes(120))
     check(any("reader version 2" in m for l, m in tc.check_card(doc, card)), "card: an index needing reader version 2 is refused")
     tdb.write_bytes((0x42494C54).to_bytes(4, "little") + (1).to_bytes(2, "little") + (1).to_bytes(2, "little") + bytes(120))
-    check(tc.check_card(doc, card) == [], "card: a v1 index is accepted")
+    check(any("does not parse" in m for l, m in tc.check_card(doc, card)), "card: a damaged v1 index is reported (root cannot be read)")
+    ent = tau_library.synth(5, 2, 1)
+    tdb.write_bytes(tau_library.build_index(ent, root_prefix="/Assets/tau_other/common/"))
+    check(any("index root is /Assets/tau_other/common/" in m for l, m in tc.check_card(doc, card)), "card: an index built for another platform's root is refused (B-136, review M8)")
+    tdb.write_bytes(tau_library.build_index(ent))
+    check(tc.check_card(doc, card) == [], "card: a real v1 index with this core's root is accepted")
     asb = card / "Assets/tau/common/tau-assets.bin"
     asb.write_bytes(b"TAUA" + (2).to_bytes(2, "little") + bytes(6))
     check(any("TAUA version 2" in m for l, m in tc.check_card(doc, card)), "card: a TAUA v2 file is refused")
@@ -197,6 +242,19 @@ with tempfile.TemporaryDirectory() as t:
     (t / "hand2.json").write_text(json.dumps(hand))
     check(any(e.startswith("schema:") for e in tc.verify(t / "hand2.json", **kw)), "verify reports a schema violation")
 
+    # 2f. review refusals: dirty RTL fit, no commit, missing feature, a shipped user file
+    (t / "ap_core.rbf.json").write_text(fitman(["TAU_RAM_192K", "TAU_CLK66", "TAU_HALCYON", "TAU_LPC"], tc.sha(RAW), rtl_dirty=True))
+    raises(lambda: tc.build(**kw), "a fit built from a dirty RTL tree (H3)", "rtl_dirty")
+    (t / "ap_core.rbf.json").write_text(json.dumps({"macros": ["TAU_RAM_192K", "TAU_CLK66"], "rbf_sha256": tc.sha(RAW)}))
+    raises(lambda: tc.build(**kw), "a fit manifest without a commit (H3)", "no commit")
+    (t / "ap_core.rbf.json").write_text(fitman(["TAU_RAM_192K", "TAU_CLK66", "TAU_HALCYON"], tc.sha(RAW)))
+    raises(lambda: tc.build(**kw), "a ROM needing LPC on a bitstream built without TAU_LPC (M4)", "NO UNIT")
+    (t / "ap_core.rbf.json").write_text(fitman(["TAU_RAM_192K", "TAU_CLK66", "TAU_HALCYON", "TAU_LPC", "TAU_POLY"], tc.sha(RAW)))
+    make(new, "alfatreze.TAU", "tau", ROM_N, extra={"Assets/tau/common/tau-assets.bin": b"TAUA"})
+    raises(lambda: tc.build(**kw), "a zip shipping the user's tau-assets.bin (M6)", "overwrite the user")
+    make(new, "alfatreze.TAU", "tau", ROM_N)
+    check(tc.verify(out, **kw) == [], "after the refusals the original inputs verify again")
+
     # 3. mutations
     mrom = bytearray(ROM_N); mrom[3] ^= 1
     make(new, "alfatreze.TAU", "tau", bytes(mrom))                       # rebuild the normal zip with one ROM byte changed
@@ -210,15 +268,15 @@ with tempfile.TemporaryDirectory() as t:
     make(new, "alfatreze.TAU", "tau", old_rom)
     raises(lambda: tc.build(**kw), "ROM that does not accept the bitstream's CORE_VERSION", "black screen")
     make(new, "alfatreze.TAU", "tau", ROM_N)
-    (t / "ap_core.rbf.json").write_text(json.dumps({"macros": ["TAU_RAM_192K"], "rbf_sha256": tc.sha(RAW)}))
+    (t / "ap_core.rbf.json").write_text(fitman(["TAU_RAM_192K", "TAU_HALCYON", "TAU_LPC"], tc.sha(RAW)))
     raises(lambda: tc.build(**kw), "bitstream rev 24 (192 KB only) against rev-26 ROMs", "4D503318")
-    (t / "ap_core.rbf.json").write_text(json.dumps({"macros": ["TAU_RAM_192K", "TAU_CLK66"], "rbf_sha256": "00" * 32}))
+    (t / "ap_core.rbf.json").write_text(fitman(["TAU_RAM_192K", "TAU_CLK66"], "00" * 32))
     raises(lambda: tc.build(**kw), "fit manifest of a different RBF", "different RBF")
     (t / "ap_core.rbf.json").unlink()
     raises(lambda: tc.build(**kw), "RBF without a fit manifest and no --bitstream-version", "--bitstream-version")
     check(tc.build(**dict(kw, rbf=None, bitstream_version="4D50331A"))["packages"][0]["bitstream_core_version"] == "4D50331A", "--bitstream-version is accepted instead")
     other = t / "other.rbf"; other.write_bytes(RAW[::-1])
-    (t / "other.rbf.json").write_text(json.dumps({"macros": ["TAU_RAM_192K", "TAU_CLK66"], "rbf_sha256": tc.sha(other.read_bytes())}))
+    (t / "other.rbf.json").write_text(fitman(["TAU_RAM_192K", "TAU_CLK66", "TAU_HALCYON", "TAU_LPC"], tc.sha(other.read_bytes())))
     raises(lambda: tc.build(**dict(kw, rbf=other)), "RBF that is not the bitstream in the zips", "not the bitstream")
     raises(lambda: tc.build(**dict(kw, release="v0.6.0-alpha.9", rbf=None, bitstream_version="4D50331A")), "release missing from the changelog", "heading")
     cl7 = t / "CL7.md"; cl7.write_text("## v0.7.0 — later\n- x\n")

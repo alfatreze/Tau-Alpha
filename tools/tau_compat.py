@@ -31,6 +31,7 @@ the tree the release was built from (make_release.py does both in one run).
 """
 import argparse
 import hashlib
+import subprocess
 import json
 import re
 import sys
@@ -40,6 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 from check_fw_bitstream_pair import rom_accepts, rom_needs  # noqa: E402  (the pairing gate's own marker readers)
+import fit_manifest  # noqa: E402  (B-653: FEATURES, macros_of)
 
 SCHEMA = 2
 SCHEMA_FILE = ROOT / "docs/schemas/tau-compat.schema.json"
@@ -56,6 +58,26 @@ def sha(b):
 
 
 # ---------------------------------------------------------------- bitstream CORE_VERSION
+
+def selecting_macros(soc_text=None):
+    """The macros whose `ifdef/`elsif chains enclose a CORE_VERSION localparam (today TAU_CLK66, TAU_RAM_192K)."""
+    text = soc_text if soc_text is not None else (ROOT / "src/fpga/core/mp3_soc.v").read_text()
+    stack, names = [], set()
+    for line in text.splitlines():
+        m = re.match(r"\s*`(ifdef|ifndef|elsif|else|endif)\b\s*(\w*)", line)
+        if m:
+            kw, name = m.groups()
+            if kw in ("ifdef", "ifndef"):
+                stack.append([name])
+            elif kw == "elsif":
+                stack[-1].append(name)
+            elif kw == "endif":
+                stack.pop()
+            continue
+        if re.search(r"localparam\s*\[31:0\]\s*CORE_VERSION\b", line):
+            names |= {n for chain in stack for n in chain}
+    return sorted(names)
+
 
 def core_version_for_macros(macros, soc_text=None):
     """Evaluate the `ifdef/`elsif/`else/`endif around `localparam ... CORE_VERSION` for this set of defined macros."""
@@ -92,20 +114,73 @@ def core_version_for_macros(macros, soc_text=None):
     return found[0]
 
 
-def bitstream_core_version(rbf=None, override=None):
+def git_show(commit, path, root=ROOT):
+    r = subprocess.run(["git", "show", f"{commit}:{path}"], cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise CompatError(f"cannot read {path} at commit {commit} (git show failed: {r.stderr.strip()[:120]})")
+    return r.stdout
+
+
+def fit_manifest_of(rbf):
+    man = Path(str(rbf) + ".json")
+    if not man.is_file():
+        return None
+    j = json.loads(man.read_text())
+    if j.get("rbf_sha256") != sha(Path(rbf).read_bytes()):
+        raise CompatError(f"{man.name} describes a different RBF (rbf_sha256 mismatch)")
+    return j
+
+
+def zero_defined(bundle_text, soc_text):
+    """CORE_VERSION-selecting macros a fit bundle writes as NAME=0."""
+    return [n for n in selecting_macros(soc_text) if re.search(rf'VERILOG_MACRO\s+"?{n}\s*=\s*0\b', bundle_text)]
+
+
+def bitstream_core_version(rbf=None, override=None, root=ROOT):
+    """CORE_VERSION of the bitstream: from its fit manifest (the macros it was built with), evaluated against mp3_soc.v AT THE
+    COMMIT THE FIT WAS BUILT FROM (review H3), never today's tree. Refuses a fit built from a dirty RTL tree (its mp3_soc.v is
+    unknown) and a fit bundle that writes a CORE_VERSION-selecting macro as NAME=0 (Verilog `ifdef sees it as defined, our
+    tooling as off). --bitstream-version overrides all of this for an RBF without a usable manifest."""
     if override:
         if not re.fullmatch(r"[0-9A-Fa-f]{8}", override):
             raise CompatError(f"--bitstream-version must be 8 hex digits: {override!r}")
         return override.upper()
     if rbf is None:
         raise CompatError("need --rbf (with its fit manifest <rbf>.json) or --bitstream-version")
-    man = Path(str(rbf) + ".json")
-    if not man.is_file():
-        raise CompatError(f"{rbf} has no fit manifest {man.name} (fits collected before B-653): pass --bitstream-version explicitly")
-    j = json.loads(man.read_text())
-    if j.get("rbf_sha256") != sha(Path(rbf).read_bytes()):
-        raise CompatError(f"{man.name} describes a different RBF (rbf_sha256 mismatch)")
-    return core_version_for_macros(j["macros"])
+    j = fit_manifest_of(rbf)
+    if j is None:
+        raise CompatError(f"{rbf} has no fit manifest {Path(str(rbf) + '.json').name} (fits collected before B-653): pass --bitstream-version explicitly")
+    if j.get("rtl_dirty"):
+        raise CompatError(f"the fit of {Path(rbf).name} was built from a dirty RTL tree (rtl_dirty): its mp3_soc.v is unknown; pass --bitstream-version explicitly")
+    commit = j.get("commit")
+    if not commit:
+        raise CompatError(f"the fit manifest of {Path(rbf).name} has no commit: pass --bitstream-version explicitly")
+    soc = git_show(commit, "src/fpga/core/mp3_soc.v", root)
+    if j.get("append"):
+        bundle = git_show(commit, j["append"], root)
+        zero = zero_defined(bundle, soc)
+        if zero:
+            raise CompatError(f"{j['append']} defines {zero} as =0: Verilog `ifdef treats that as defined, the fit manifest as off; remove the line")
+    return core_version_for_macros(j["macros"], soc)
+
+
+def bitstream_features(rbf=None):
+    """The firmware-visible features (fit_manifest.FEATURES names) the bitstream was built with, or None without a manifest."""
+    j = fit_manifest_of(rbf) if rbf is not None else None
+    if j is None:
+        return None
+    return sorted(f for f, macro in fit_manifest.FEATURES.items() if macro in set(j["macros"]))
+
+
+def source_state(root=ROOT):
+    """The commit the tree-derived fields come from, and whether the tree differs from it (dist/ and release/ excluded: a release
+    rebuilds dist/ on purpose)."""
+    c = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=root, capture_output=True, text=True)
+    d = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no", "--", ".", ":(exclude)dist", ":(exclude)release"],
+                       cwd=root, capture_output=True, text=True)
+    if c.returncode != 0 or d.returncode != 0:
+        raise CompatError("cannot read the git state of the tree")
+    return {"commit": c.stdout.strip(), "dirty": bool(d.stdout.strip())}
 
 
 # ---------------------------------------------------------------- facts from the firmware tree
@@ -205,7 +280,7 @@ def firmware_formats(root=ROOT):
     t = tree_facts(root)
     return {"tau-library.tdb": {"name": "tau-library", "version": t["library_index_version"]},
             "tau-assets.bin": {"name": "TAUA", "version": int(taua.group(1)), "sections": t["assets_sections"],
-                               "max_bytes": t["assets_read_limit_bytes"]},
+                               "max_bytes": t["assets_read_limit_bytes"], "preserve_unknown_sections": True},
             "cover": {"name": "TIM1", "version": 1, "tail": tail.group(1)}}
 
 
@@ -225,6 +300,8 @@ def layout(pkg, root=ROOT, obsolete=()):
     for path, h in sorted(pkg["files"].items()):
         if path.startswith((f"Cores/{core}/", f"Assets/{plat}/{core}/")):
             role, slot = "owned", None
+        elif path.startswith(common) and path[len(common):] in NOT_SHIPPED:
+            raise CompatError(f"{pkg['zip']}: ships {path}, which is {NOT_SHIPPED[path[len(common):]]} data: installing it would overwrite the user's copy")
         elif path.startswith(common) and path[len(common):] in by_name:
             role, slot = "owned", by_name[path[len(common):]]
         elif path.startswith("Platforms/"):
@@ -242,8 +319,11 @@ def layout(pkg, root=ROOT, obsolete=()):
                 continue
             if fn not in NOT_SHIPPED:
                 raise CompatError(f"{pkg['zip']}: data slot {sl['id']} names {fn}, which is neither shipped nor in tau_compat.NOT_SHIPPED")
+            fmt = dict(fmts[fn])
+            if fmt["name"] == "tau-library":
+                fmt["root"] = "/" + common                       # review M8: the absolute root the index must embed (B-136)
             out.append({"path": common + fn, "role": NOT_SHIPPED[fn], "slot": sl["id"], "required": bool(sl.get("required")),
-                        "format": fmts[fn]})
+                        "format": fmt})
         else:
             kind = BY_EXTENSION.get(tuple(sorted(sl.get("extensions", []))))
             if kind == "media":
@@ -315,6 +395,14 @@ def _format_ok(path, fmt):
             return "not a Tau library index (magic)"
         if int.from_bytes(b[6:8], "little") > fmt["version"]:
             return f"index needs reader version {int.from_bytes(b[6:8], 'little')}, this release reads <= {fmt['version']}"
+        if "root" in fmt:
+            import tau_library
+            try:
+                root = tau_library.parse(b, sample_walk=False).root
+            except Exception as e:                      # tau_library.LibError and any damage the parser trips on
+                return f"index does not parse ({e})"
+            if root != fmt["root"]:
+                return f"index root is {root}, this core's media is under {fmt['root']} (B-136: tracks would not open)"
     elif n == "TAUA":
         if len(b) < 12 or b[:4] != b"TAUA":
             return "not a TAUA container (magic)"
@@ -446,12 +534,16 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
         raise CompatError("the zips disagree on date_release")
     if len({sha(p["bitstream"]) for p in pkgs}) != 1:
         raise CompatError("the zips carry different bitstreams")
-    cv = bitstream_core_version(rbf, bitstream_version)
+    cv = bitstream_core_version(rbf, bitstream_version, root)
+    feats = bitstream_features(rbf) if not bitstream_version else None
     if rbf is not None and Path(rbf).read_bytes().translate(REV) != pkgs[0]["bitstream"]:
         raise CompatError(f"{Path(rbf).name} is not the bitstream in the zips")
     for p in pkgs:
         if cv not in p["rom_accepts"]:
             raise CompatError(f"{p['zip']}: tau.rom accepts {p['rom_accepts']} but the bitstream is {cv} (black screen on the Pocket)")
+        missing = sorted(set(p["rom_needs"]) - set(feats)) if feats is not None else []
+        if missing:
+            raise CompatError(f"{p['zip']}: tau.rom needs {missing} but the bitstream was built without them (the feature reads NO UNIT, B-653)")
     req = dict(tree_facts(root))
     req["persist_ids_changed"] = persist_ids_changed(pkgs, previous) if previous is not None else []
     cfg = json.loads(Path(omega_cfg).read_text())
@@ -462,13 +554,14 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
         "date_release": pkgs[0]["date_release"],
         "prerelease": m.group(2) is not None,
         "packages": [{"zip": p["zip"], "zip_sha256": p["zip_sha256"], "core_id": p["core_id"],
-                      "bitstream_sha256": sha(p["bitstream"]), "bitstream_core_version": cv,
+                      "bitstream_sha256": sha(p["bitstream"]), "bitstream_core_version": cv, "bitstream_features": feats,
                       "rom_sha256": p["rom_sha256"], "cold_sha256": p["cold_sha256"],
                       "rom_accepts": p["rom_accepts"], "rom_needs": p["rom_needs"],
                       "layout": layout(p, root, cfg.get("obsolete", []))} for p in pkgs],
         "requires_omega": {k: req[k] for k in ("library_index_version", "assets_sections", "assets_read_limit_bytes",
                                                "report_tags_max", "persist_ids_changed", "min_omega")},
         "notes": "\n".join(notes),
+        "source": source_state(root),
     }
 
 

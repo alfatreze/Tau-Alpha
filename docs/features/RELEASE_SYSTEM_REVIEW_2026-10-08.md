@@ -145,6 +145,28 @@ uses another platform.
 - The zips are unchanged, so Pocket Sync, Pocket Updater and manual installs are unaffected.
 - Mutation tests on both the release and the card side.
 
+## Status of step 1 (2026-10-08, same day)
+
+Done on `release-system`. The schema stays 2: every change is an additive key. `make test-host` passes.
+
+| Item | What was built | Test |
+|---|---|---|
+| H3 | `bitstream_core_version` evaluates `mp3_soc.v` with `git show <fit commit>`. It refuses `rtl_dirty` and a manifest without a commit. `selecting_macros()` finds the macros that choose CORE_VERSION (TAU_CLK66, TAU_RAM_192K), and `zero_defined()` refuses a fit bundle writing one of them as `=0` | dirty, no-commit and `=0` cases |
+| M1 | Top-level `source {commit, dirty}` (dirty ignores `dist/` and `release/`). `make_release.py` refuses a dirty tree | field checked against git |
+| M4 | `packages[].bitstream_features` from the fit manifest through `fit_manifest.FEATURES` (null when CORE_VERSION is given by hand). `build` refuses `rom_needs` the bitstream lacks | LPC-missing case |
+| M6 | `build` refuses a zip that ships a user or generated file (`tau-assets.bin`, `tau-library.tdb`) | shipped-`tau-assets.bin` case |
+| M8 | The `tau-library` format carries `root`. `check-card` parses the index and compares its root | foreign-root and damaged-index cases |
+| M7 | A test that the schema uses only the keywords our checker implements; it also cross-checks with `jsonschema` when installed (not installed here, skipped with a note) | keyword test |
+| H1 | The TAUA format carries `preserve_unknown_sections: true`. `docs/schemas/fixtures/tau-assets-roundtrip.bin` (THEM+METR+PRST, built by `tools/make_compat_fixtures.py`, `--check` in the test) is the shared fixture Omega's writer must round-trip | fixture check |
+
+Also fixed: the compat test's synthetic zips used the current time, so their hashes changed when a rebuild crossed a
+second boundary (a flaky "restored zip verifies" check). They now use a fixed timestamp.
+
+Consequence: the published alpha.3 and alpha.4 zips still ship the inert `TAU.json`, which is now listed obsolete, so
+`build` refuses them. A backfill of those releases needs that release's own tree and config (expected, not a defect).
+
+Omega side, still open: the H1 round-trip fix in `assets.rs`.
+
 ## Proposed order
 
 1. **Now, small, Tau side (schema stays 2, all additive):** H3 (commit-pinned evaluation, `rtl_dirty`, `=0` guard),
