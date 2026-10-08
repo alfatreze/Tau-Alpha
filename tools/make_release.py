@@ -109,6 +109,9 @@ def main():
         if not args.release.startswith(f"v{version}") or args.release[len(version) + 1:][:1] not in ("", "-"):
             raise tau_compat.CompatError(f"--release {args.release} is not core.json version {version}")
         tau_compat.changelog_section(args.release, ROOT / "CHANGELOG.md")
+        cl_date = tau_compat.changelog_releases(ROOT / "CHANGELOG.md").get(args.release)
+        if cl_date and cl_date != date:      # the rehearsal of 2026-10-08 zipped "2026-10-07" under a heading dated 8 October
+            raise tau_compat.CompatError(f"core.json date_release {date} differs from the CHANGELOG heading's date {cl_date}: set one of them")
         if args.previous and not args.previous_release:
             raise tau_compat.CompatError("--previous needs --previous-release")
         core_version = tau_compat.bitstream_core_version(rbf, args.bitstream_version)
