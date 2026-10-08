@@ -30,7 +30,8 @@ import tau_compat  # noqa: E402  (RELEASE_SYSTEM_SPEC section 11: the card layou
 import tau_layout  # noqa: E402  (H4: build-bound files in the core's own folder)
 CACHES = ["core_viewby_platform.bin", "corelist_cache.bin", "cores_cache.bin",
           "platform_viewby_category.bin", "platforms_cache.bin"]
-RELEASE_CORES = {"alfatreze.TAU", "alfatreze.TAU_DIAGNOSTIC"}
+RELEASE_CORES = {"alfatreze.TAU", "alfatreze.TAU_DIAGNOSTIC", "alfatreze.TAU Diagnostics", "alfatreze.TAU Preview",
+                 "alfatreze.TAU Preview Diagnostics"}   # release channels (RELEASE_SYSTEM_SPEC section 4)
 JUNK = ("._", ".DS_Store")
 # Audio and image files under Assets/<platform>/common/: the bulk of a core's size (about 0.8 GB a core) and always a copy of media that lives somewhere else.
 MEDIA_EXT = {".mp3", ".flac", ".wav", ".ogg", ".m4a", ".jpg", ".jpeg", ".png", ".timg"}
@@ -231,7 +232,7 @@ def main():
     ap.add_argument("--assets", type=Path, metavar="FILE", help="tau-assets.bin (themes/meter presets) to install; default: <package>/../tau-assets.bin, else the --carry-from core's copy")
     ap.add_argument("--remove", action="append", default=[], metavar="CORE_ID", help="core to remove after a verified install (repeatable)")
     ap.add_argument("--replace", action="store_true", help="the new core already exists on the card: back it up and refresh its core files (its media stays)")
-    ap.add_argument("--allow-release", action="store_true", help="permit touching alfatreze.TAU / alfatreze.TAU_DIAGNOSTIC")
+    ap.add_argument("--allow-release", action="store_true", help="permit touching the release cores (TAU, TAU Diagnostics, TAU Preview, TAU Preview Diagnostics, and the old TAU_DIAGNOSTIC)")
     ap.add_argument("--backup-dir", type=Path, help="default: work/card-backups/<timestamp>")
     ap.add_argument("--backup-media", action="store_true", help="include media in the backup of the carried-from or replaced core (default: skipped, it is a duplicate -- B-542)")
     ap.add_argument("--compat", type=Path, metavar="FILE", help="release manifest tau-compat.json for this package (default: <package>/../tau-compat.json, "
