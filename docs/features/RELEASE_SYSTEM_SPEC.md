@@ -267,3 +267,68 @@ Other points:
   added to their existing releases. That is an upload to a public release, so it needs approval.
 - **Future channels:** schema 1 works with section 4 unchanged (one `packages` entry per zip, `core_id` per
   folder). Dev builds are never published, so they get no compat file.
+
+## 11. Card layout contract: `tau-compat.json` schema 2 (2026-10-08, built)
+
+**Problem.** Omega keeps its own copy of the rules for what belongs on a card: which files a core owns, which are shared,
+which it must build, which it must never touch, which formats a release reads. Each Tau change can make that copy wrong
+without anything failing. Schema 2 moves the rules into the release itself, generated from the same files the release
+is built from, and gives both projects a way to test their reading of it.
+
+**What schema 2 adds.** Schema 2 contains every schema 1 field unchanged, plus `packages[].layout`: one entry per file
+the package expects on a card.
+
+| Role | Meaning for an installer | Today's entries (normal core) |
+|---|---|---|
+| `owned` | Install and replace exactly; the hash must match | `Cores/alfatreze.TAU/*`, `tau.rom` (slot 1, required), `tau-cold.bin` (6), `tau-loading.bin` (4), `Assets/tau/alfatreze.TAU/TAU.json` |
+| `shared` | Install if missing; other cores may use it, so a different hash is only a warning | `Platforms/tau.json`, `Platforms/_images/tau.bin` |
+| `generated` | Never in the zip; the companion builds it in `format` | `tau-library.tdb` (tau-library v1), `**/tau-art/cover_128.pal256.timg` (TIM1) |
+| `user` | Never overwrite; check its `format` | `tau-assets.bin` (TAUA v1, sections, 64 KiB), media `**/*.{flac,mp3}`, `Settings/<core>/Interact/interact_persist.json` |
+| `obsolete` | Remove on update | From `tools/omega_compat.json` `obsolete` (empty today) |
+
+Entry fields: `path` (card-relative; `pattern: true` paths use `**` and `*.{a,b}`), `role`, `sha256` (owned/shared),
+`slot` (the data slot it feeds, or null), `required` (the core's `data.json` marks the slot required), `format`
+(`name`, `version`, plus `sections`/`max_bytes` for TAUA).
+
+**How it is generated (no hand-written rules).**
+- Every file in the zip is classified as follows. The core's own folders are `owned`. A file a `data.json` slot names
+  in the platform `common/` folder is `owned`. `Platforms/` is `shared`. **Anything else stops the release**.
+- Every slot filename that is not shipped must be listed in `tau_compat.NOT_SHIPPED` (generated or user), and every
+  slot opened by name (no filename) must match `BY_EXTENSION`. A new slot nobody classified stops the release.
+- Format versions come from the firmware's own checks: the library reader version in `fw/library_core.h`, the TAUA
+  version in `fw/assets_core.h`, sections and the 64 KiB limit from schema 1, and the cover file name from `fw/timg.inc`.
+- An `obsolete` path that the release still ships or uses stops the release.
+
+**How both sides test their reading.**
+1. **Published JSON Schema**: `docs/schemas/tau-compat.schema.json`. `tau_compat.py` validates every file it writes or
+   verifies against it (a small built-in checker, no new dependency). Omega validates before acting.
+2. **Versioning rule**: new keys inside a schema number are additive and must be ignored by readers. A change of
+   meaning bumps `schema`, and a reader refuses a schema it does not know ("refuse, don't guess", as the firmware does
+   for the library index). Schema 2 is a strict superset of 1, so Omega's schema-1 code reads it unchanged once it
+   accepts the number 2.
+3. **Expected card state**: `tau_compat.py check-card tau-compat.json CARD_DIR [--core ID]`. It checks that owned
+   files are present with the right hash, shared files are present (a different hash is a warning), generated and user
+   files are in a format this release reads (index reader version, TAUA version and size, TIM1 magic, settings JSON),
+   obsolete files are gone, and the core's folders have no stray files. Omega implements the same check after install.
+   The shared fixture is the test itself: an unpacked zip must check clean, and every listed mutation must be caught.
+4. **Test** (`sim/test_tau_compat.py`, in `make test-host`):
+   - The owned and shared entries are exactly the zip's files, with their hashes.
+   - Roles and formats are checked per file.
+   - The unpacked install checks clean.
+   - These card mutations are caught: changed or missing ROM, stray file, index needing reader v2, TAUA v2, TAUA
+     over 64 KiB, non-TIM1 cover, corrupt settings, obsolete file still present.
+   - These release mutations are refused: an unclassified zip file, an unclassified data slot, an obsolete path that
+     is still shipped, a schema-invalid file.
+
+**Smoke run on the published alpha.4 zips.** The run builds, verifies, and checks an unpacked install clean, with 0
+errors and 0 warnings.
+
+**Not covered (by design).** The manifest says which format version a file must have; the formats themselves (index,
+TIM1, TAUA) still rely on their reference readers and real card captures (D-I05 and the TAUA freeze note in
+`CROSS_PROJECT_INTERFACE.md`). The in-zip copy (`tau-release.json`, section 5) waits for Omega's agreement because it
+changes the zips.
+
+**Follow-ups.**
+- Stop shipping the inert `TAU.json` and list it as `obsolete`.
+- Teach `tools/install_dev_core.py` to run `check-card` after a release install.
+- Omega: accept schema 2 and implement `check-card`.

@@ -1,4 +1,6 @@
 {
   "min_omega": "0.3.0",
-  "why": "Lowest Tau Omega release that reads library index v1 and the tau-assets.bin container (TAUA). Reviewed judgement (RELEASE_SYSTEM_SPEC section 10); raise it only when a Tau release needs something an older Omega cannot read."
+  "why": "Lowest Tau Omega release that reads library index v1 and the tau-assets.bin container (TAUA). Reviewed judgement (RELEASE_SYSTEM_SPEC section 10); raise it only when a Tau release needs something an older Omega cannot read.",
+  "obsolete": [],
+  "obsolete_why": "Card paths an update must remove (role obsolete in the layout). A path may only be listed once the release no longer ships or uses it."
 }
