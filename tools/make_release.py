@@ -56,6 +56,8 @@ def make_zip(src: Path, name: str):
                 if n.startswith("._") or n == ".DS_Store":
                     continue
                 p = Path(root) / n
+                if p.relative_to(src).parts[0] not in ("Cores", "Assets", "Platforms"):
+                    continue                    # package-root files (bitstream-manifest.json, B-653) never go to the card or the zip
                 zi = zipfile.ZipInfo(str(p.relative_to(src)), (2026, 1, 1, 0, 0, 0))
                 zi.compress_type = zipfile.ZIP_DEFLATED
                 zi.external_attr = 0o644 << 16
