@@ -15,7 +15,7 @@ Pillow. Regenerate only when the source artwork changes:
 
     python3 tools/gen_splash_asset.py \
         assets/ui/tau-loading-source.jpg \
-        dist/Assets/tau/common/tau-loading.bin \
+        dist/Assets/tau/alfatreze.TAU/tau-loading.bin \
         --preview work/previews/tau-loading-device.png
 """
 

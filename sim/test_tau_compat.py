@@ -58,10 +58,10 @@ def make(d, core, plat, rom, version="0.6.0", date="2026-10-08", bit=REVB, ids=N
                    "version": version, "date_release": date, "platform_ids": [plat]}}}))
         z.writestr(f"Cores/{core}/bitstream.rbf_r", bit)
         z.writestr(f"Cores/{core}/interact.json", json.dumps(interact(ids)))
-        z.writestr(f"Assets/{plat}/common/tau.rom", rom)
-        z.writestr(f"Assets/{plat}/common/tau-cold.bin", b"cold" + rom[:8])
+        z.writestr(f"Assets/{plat}/{core}/tau.rom", rom)                    # H4: build-bound files are core-specific
+        z.writestr(f"Assets/{plat}/{core}/tau-cold.bin", b"cold" + rom[:8])
         z.writestr(f"Cores/{core}/data.json", data)
-        z.writestr(f"Assets/{plat}/common/tau-loading.bin", b"splash")
+        z.writestr(f"Assets/{plat}/{core}/tau-loading.bin", b"splash")
         z.writestr(f"Platforms/{plat}.json", "{}")
         z.writestr(f"Platforms/_images/{plat}.bin", b"img")
         for k, v in (extra or {}).items():
@@ -101,10 +101,10 @@ with tempfile.TemporaryDirectory() as t:
     for p, z in zip(doc["packages"], zips):
         with zipfile.ZipFile(z) as f:
             core = p["core_id"]; plat = "tau" if core == "alfatreze.TAU" else "tau_diagnostic"
-            rom = f.read(f"Assets/{plat}/common/tau.rom")
+            rom = f.read(f"Assets/{plat}/{core}/tau.rom")
             ok = (p["zip"] == z.name and p["zip_sha256"] == tc.sha(z.read_bytes())
                   and p["bitstream_sha256"] == tc.sha(f.read(f"Cores/{core}/bitstream.rbf_r"))
-                  and p["rom_sha256"] == tc.sha(rom) and p["cold_sha256"] == tc.sha(f.read(f"Assets/{plat}/common/tau-cold.bin"))
+                  and p["rom_sha256"] == tc.sha(rom) and p["cold_sha256"] == tc.sha(f.read(f"Assets/{plat}/{core}/tau-cold.bin"))
                   and p["rom_accepts"] == ["4D50331A"] and p["rom_needs"] == ["HALCYON", "LPC"]
                   and p["bitstream_core_version"] == "4D50331A" and p["bitstream_core_version"] in p["rom_accepts"])
         check(ok, f"{core}: every hash and marker matches the zip")
@@ -167,7 +167,9 @@ with tempfile.TemporaryDirectory() as t:
         check(shipped == files, f"{p['core_id']}: owned+shared entries are exactly the zip's files with their hashes")
         plat = "tau" if p["core_id"] == "alfatreze.TAU" else "tau_diagnostic"
         c = f"Assets/{plat}/common/"
-        check(lay[c + "tau.rom"]["role"] == "owned" and lay[c + "tau.rom"]["required"] and lay[c + "tau.rom"]["slot"] == 1, "tau.rom: owned, required, slot 1")
+        cs = f"Assets/{plat}/{p['core_id']}/"
+        check(lay[cs + "tau.rom"]["role"] == "owned" and lay[cs + "tau.rom"]["required"] and lay[cs + "tau.rom"]["slot"] == 1
+              and lay[cs + "tau-cold.bin"]["slot"] == 6 and lay[cs + "tau-loading.bin"]["slot"] == 4, "tau.rom, cold image, splash: owned, core-specific, their slots (H4)")
         check(lay[f"Platforms/{plat}.json"]["role"] == "shared", "platform files are shared")
         check(lay[c + "tau-library.tdb"]["role"] == "generated" and lay[c + "tau-library.tdb"]["format"] == {"name": "tau-library", "version": 1, "root": "/" + c}, "library index: generated, format v1")
         check(lay[c + "tau-assets.bin"]["role"] == "user" and lay[c + "tau-assets.bin"]["format"]["name"] == "TAUA", "tau-assets.bin: user data, TAUA")
@@ -179,10 +181,11 @@ with tempfile.TemporaryDirectory() as t:
     card = t / "card"; card.mkdir()
     with zipfile.ZipFile(zips[0]) as f:
         f.extractall(card)
+    (card / "Assets/tau/common").mkdir(parents=True, exist_ok=True)       # a real card always has the shared media folder
     res = tc.check_card(doc, card)
     check(res == [], f"unpacked install of the normal zip checks clean ({res})")
     check(tc.check_card(doc, card, "alfatreze.TAU_DIAGNOSTIC") != [], "the Diagnostic package is reported missing on a normal-only card")
-    rom = card / "Assets/tau/common/tau.rom"; good = rom.read_bytes()
+    rom = card / "Assets/tau/alfatreze.TAU/tau.rom"; good = rom.read_bytes()
     rom.write_bytes(good[:-1] + b"X")
     check(any(l == "error" and "tau.rom differs" in m for l, m in tc.check_card(doc, card)), "card: changed ROM is an error")
     rom.unlink()
@@ -238,14 +241,14 @@ with tempfile.TemporaryDirectory() as t:
         f.extractall(pk)
     ent, why = tc.package_match(doc, pk, "alfatreze.TAU")
     check(ent is not None and why == [], "package_match: the unpacked zip matches its manifest entry")
-    (pk / "Assets/tau/common/tau.rom").write_bytes(b"other")
+    (pk / "Assets/tau/alfatreze.TAU/tau.rom").write_bytes(b"other")
     check(tc.package_match(doc, pk, "alfatreze.TAU")[0] is None, "package_match: a different ROM does not match")
     with zipfile.ZipFile(zips[0]) as f:
-        (pk / "Assets/tau/common/tau.rom").write_bytes(f.read("Assets/tau/common/tau.rom"))
+        (pk / "Assets/tau/alfatreze.TAU/tau.rom").write_bytes(f.read("Assets/tau/alfatreze.TAU/tau.rom"))
     (pk / "Cores/alfatreze.TAU/extra.txt").write_text("x")
     check(tc.package_match(doc, pk, "alfatreze.TAU")[0] is None, "package_match: an unlisted file in the core folder does not match")
     check(tc.package_match(doc, pk, "alfatreze.TAU_X")[0] is None, "package_match: a core the release does not have does not match")
-    (card / "Assets/tau/alfatreze.TAU").mkdir(parents=True); (card / "Assets/tau/alfatreze.TAU/TAU.json").write_text("{}")
+    (card / "Assets/tau/alfatreze.TAU").mkdir(parents=True, exist_ok=True); (card / "Assets/tau/alfatreze.TAU/TAU.json").write_text("{}")
     check(any(l == "warn" and "obsolete" in m for l, m in tc.check_card(tc.build(**dict(kw, omega_cfg=cfg)), card)), "card: an obsolete file still present is reported")
     zx = make(new, "alfatreze.TAU", "tau", ROM_N, extra={"Assets/tau/alfatreze.TAU/TAU.json": "{}"})
     raises(lambda: tc.build(**dict(kw, omega_cfg=cfg)), "a path listed obsolete that the release still ships", "obsolete")
@@ -309,6 +312,27 @@ with tempfile.TemporaryDirectory() as t:
     check(tc.package_match(dd, dev / "pocket", "alfatreze.TAU")[0] is not None, "the installer accepts the dev manifest for its own package")
     check(tc.dev_release_tag("0.6.0", "0.5.0-alpha.1") == "v0.6.0-dev.0.5.0.alpha.1" and tc.tag_key("v0.6.0-dev.412") < tc.tag_key("v0.6.0-preview.1"),
           "dev tags are tag-safe and sort before previews")
+
+    # 2i. H4: build-bound files are core-specific
+    legacy = {"Assets/tau/common/tau.rom": ROM_N}
+    make(new, "alfatreze.TAU", "tau", ROM_N, extra=legacy)
+    raises(lambda: tc.build(**kw), "a zip shipping tau.rom in the platform-wide common/ folder", "common/ folder")
+    dj = json.loads(DATA); [sl.update(parameters="0x108") for sl in dj["data"]["data_slots"] if sl["id"] == 1]
+    make(new, "alfatreze.TAU", "tau", ROM_N, data=json.dumps(dj))
+    raises(lambda: tc.build(**kw), "a build-bound data slot without the core-specific bit", "not core-specific")
+    make(new, "alfatreze.TAU", "tau", ROM_N)
+    lay = {e["path"]: e for e in doc["packages"][0]["layout"]}
+    check(all(lay.get(f"Assets/tau/common/{n}", {}).get("role") == "obsolete" for n in ("tau.rom", "tau-cold.bin", "tau-loading.bin")),
+          "the old common/ copies are listed obsolete for the normal core")
+    c2 = t / "card2"
+    for core, params in (("alfatreze.TAU", "0x10A"), ("alfatreze.TAU_OLD", "0x108")):
+        (c2 / "Cores" / core).mkdir(parents=True)
+        (c2 / "Cores" / core / "core.json").write_text(json.dumps({"core": {"metadata": {"platform_ids": ["tau"]}}}))
+        (c2 / "Cores" / core / "data.json").write_text(json.dumps({"data": {"data_slots": [{"id": 1, "filename": "tau.rom", "parameters": params}]}}))
+    check(tc.still_read_by_other_core(c2, "Assets/tau/common/tau.rom", "alfatreze.TAU"), "an old-layout core on the same platform still reads common/tau.rom")
+    (c2 / "Cores/alfatreze.TAU_OLD/data.json").write_text(json.dumps({"data": {"data_slots": [{"id": 1, "filename": "tau.rom", "parameters": "0x10A"}]}}))
+    check(not tc.still_read_by_other_core(c2, "Assets/tau/common/tau.rom", "alfatreze.TAU"), "nobody else reads it once every core is core-specific")
+    check(tc.verify(out, **kw) == [], "after the H4 refusals the original inputs verify again")
 
     # 3. mutations
     mrom = bytearray(ROM_N); mrom[3] ^= 1

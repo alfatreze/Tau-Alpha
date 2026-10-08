@@ -174,10 +174,11 @@ def main():
     slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
     slots_lib.add_cover_slot(c)                         # data slot 7 = the cover image (TIM1 reader, on by default since B-325)
     a = out / "Assets" / platform
-    (a / "common").mkdir(parents=True)
-    shutil.copy2(rom, a / "common/tau.rom")
-    shutil.copy2(rom.parent / "tau-cold.bin", a / "common/tau-cold.bin")
-    shutil.copy2(src / "Assets/tau/common/tau-loading.bin", a / "common/tau-loading.bin")
+    cd = a / core_id                                   # H4: build-bound files are core-specific (tools/tau_layout.py)
+    cd.mkdir(parents=True)
+    shutil.copy2(rom, cd / "tau.rom")
+    shutil.copy2(rom.parent / "tau-cold.bin", cd / "tau-cold.bin")
+    shutil.copy2(src / "Assets/tau/alfatreze.TAU/tau-loading.bin", cd / "tau-loading.bin")
     # No Assets/<platform>/<core>/<title>.json any more (RELEASE_SYSTEM_SPEC section 11): no data slot has the instance bit, and it used
     # `variant_select`, a key the instance schema does not have, so the Pocket never read it. Older cards: listed as obsolete in tools/omega_compat.json.
     p = out / "Platforms"; (p / "_images").mkdir(parents=True)
@@ -208,7 +209,7 @@ def main():
                 sys.exit(f"tau-compat.json for this dev package failed: {e}")
         else:
             print("note: no fit manifest for this RBF: no tau-compat.json for this dev package (the installer skips its card check)", file=sys.stderr)
-    print(core_id, digest(c / "bitstream.rbf_r"), digest(a / "common/tau.rom"))
+    print(core_id, digest(c / "bitstream.rbf_r"), digest(cd / "tau.rom"))
 
 if __name__ == "__main__":
     main()

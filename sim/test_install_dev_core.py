@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory() as td:
     ver = json.loads((pkg / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["version"]
     cl = td / "CL.md"
     cl.write_text((ROOT / "CHANGELOG.md").read_text().replace("## v0.6.0-alpha.4", f"## v{ver}-preview.1 — 8 October 2026\n- test\n\n## v0.6.0-alpha.4", 1))
-    acc = tc.rom_accepts((pkg / "Assets/tau/common/tau.rom").read_bytes())
+    acc = tc.rom_accepts((pkg / "Assets/tau/alfatreze.TAU/tau.rom").read_bytes())
     cpath = td / "tau-compat.json"
     cpath.write_text(tc.dumps(tc.build(release=f"v{ver}-preview.1", zips=[zp], previous=None, bitstream_version=acc[0], changelog=cl)))
     (card / "Assets/tau/alfatreze.TAU").mkdir(parents=True, exist_ok=True)
@@ -111,6 +111,20 @@ with tempfile.TemporaryDirectory() as td:
           rc == 0 and "removed obsolete Assets/tau/alfatreze.TAU/TAU.json" in out and "card matches" in out
           and not (card / "Assets/tau/alfatreze.TAU/TAU.json").exists())
     check("the obsolete file is in the backup of the replaced core", (td / "bk6/alfatreze.TAU/Assets/tau/alfatreze.TAU/TAU.json").exists())
+    # H4 migration: an old-layout card (build-bound files in common/) is upgraded; the stale common/ copies are removed after the check,
+    # unless another core on the platform still reads them from there.
+    for n in ("tau.rom", "tau-cold.bin", "tau-loading.bin"):
+        (card / "Assets/tau/common" / n).write_bytes(b"old-layout " + n.encode())
+    old = card / "Cores/alfatreze.TAU_OLD"; old.mkdir()
+    (old / "core.json").write_text(json.dumps({"core": {"metadata": {"author": "alfatreze", "shortname": "TAU_OLD", "platform_ids": ["tau"]}}}))
+    (old / "data.json").write_text(json.dumps({"data": {"data_slots": [{"id": 1, "filename": "tau.rom", "parameters": "0x108"}]}}))
+    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk6b", "--replace", "--allow-release", "--compat", cpath, "--no-eject", "--yes")
+    check("H4 upgrade: common/tau.rom is kept while an old-layout core on the platform still reads it; cold image and splash removed",
+          rc == 0 and "kept obsolete Assets/tau/common/tau.rom" in out and (card / "Assets/tau/common/tau.rom").exists()
+          and not (card / "Assets/tau/common/tau-cold.bin").exists() and not (card / "Assets/tau/common/tau-loading.bin").exists())
+    shutil.rmtree(old)
+    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk6c", "--replace", "--allow-release", "--compat", cpath, "--no-eject", "--yes")
+    check("H4 upgrade: with no other reader the stale common/tau.rom is removed too", rc == 0 and not (card / "Assets/tau/common/tau.rom").exists())
     bad = json.loads(cpath.read_text()); bad["packages"][0]["layout"] = [dict(e, sha256="0" * 64) if e["path"].endswith("tau.rom") else e for e in bad["packages"][0]["layout"]]
     (td / "bad.json").write_text(json.dumps(bad))
     (card / "System/corelist_cache.bin").write_text("x")
@@ -127,11 +141,11 @@ with tempfile.TemporaryDirectory() as td:
     import hashlib, os
     def snapshot():
         return {str(f.relative_to(card)): hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted(card.rglob("*")) if f.is_file()}
-    rom = card / "Assets/tau/common/tau.rom"
+    rom = card / "Assets/tau/alfatreze.TAU/tau.rom"
     rom.write_bytes(rom.read_bytes() + b"OLD")                              # a card whose ROM differs from the package (an older build)
     before = snapshot()
     for stage in ("copy", "check"):
-        env = dict(os.environ, TAU_INSTALL_TEST_CORRUPT=f"{stage}:Assets/tau/common/tau.rom")
+        env = dict(os.environ, TAU_INSTALL_TEST_CORRUPT=f"{stage}:Assets/tau/alfatreze.TAU/tau.rom")
         r = subprocess.run(TOOL + [str(pkg), "--card", str(card), "--backup-dir", str(td / f"bk-{stage}"), "--replace", "--allow-release",
                                    "--compat", str(cpath), "--no-eject", "--yes"], capture_output=True, text=True, cwd=ROOT, env=env)
         o = r.stdout + r.stderr

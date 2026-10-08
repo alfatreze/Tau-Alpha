@@ -47,18 +47,18 @@ def add_library_slot(core_dir: Path) -> None:
 
 
 def add_cold_slot(core_dir: Path) -> None:
-    """Data slot 6: the cold image (Phase G), shipped with the core -- it is a firmware asset, not user data, so
+    """Data slot 6: the cold image (Phase G), shipped with the core, core-specific (parameter bit 1, H4: Assets/<platform>/<core>/) -- it is a firmware asset, not user data, so
     unlike the library index it is required for the cold-code features to be available (the fail-safe still holds
     if it is ever missing or fails its check)."""
     dj = json.loads((core_dir / "data.json").read_text())
     existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 6), None)
     if existing is not None:
         expect = {"name": "Cold image", "id": 6, "required": False, "deferload": True,
-                  "parameters": "0x0", "filename": "tau-cold.bin"}
+                  "parameters": "0x2", "filename": "tau-cold.bin"}
         assert existing == expect, f"data slot 6 already declared, and differently: {existing}"
         return
     dj["data"]["data_slots"].append({"name": "Cold image", "id": 6, "required": False, "deferload": True,
-                                      "parameters": "0x0", "filename": "tau-cold.bin"})
+                                      "parameters": "0x2", "filename": "tau-cold.bin"})
     save(core_dir / "data.json", dj)
 
 

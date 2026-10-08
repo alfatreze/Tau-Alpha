@@ -6,7 +6,7 @@
                 "name": "Firmware",
                 "id": 1,
                 "required": true,
-                "parameters": "0x108",
+                "parameters": "0x10A",
                 "filename": "tau.rom",
                 "address": "0x00000000"
             },
@@ -26,7 +26,7 @@
                 "id": 4,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x0",
+                "parameters": "0x2",
                 "filename": "tau-loading.bin"
             },
             {
@@ -42,7 +42,7 @@
                 "id": 6,
                 "required": false,
                 "deferload": true,
-                "parameters": "0x0",
+                "parameters": "0x2",
                 "filename": "tau-cold.bin"
             },
             {

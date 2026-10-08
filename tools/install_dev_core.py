@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import tau_compat  # noqa: E402  (RELEASE_SYSTEM_SPEC section 11: the card layout contract)
+import tau_layout  # noqa: E402  (H4: build-bound files in the core's own folder)
 CACHES = ["core_viewby_platform.bin", "corelist_cache.bin", "cores_cache.bin",
           "platform_viewby_category.bin", "platforms_cache.bin"]
 RELEASE_CORES = {"alfatreze.TAU", "alfatreze.TAU_DIAGNOSTIC"}
@@ -308,7 +309,8 @@ def main():
             restore(f"copy mismatch in {rel}: {bad[:5]}")
     for f in ("Platforms/" + f"{new_plat}.json", "Platforms/_images/" + f"{new_plat}.bin"):
         if sha(pkg / f) != sha(card / f): restore(f"{f} differs after copy")
-    for rel in (f"Cores/{new_id}/bitstream.rbf_r", f"Assets/{new_plat}/common/tau.rom", f"Assets/{new_plat}/common/tau-cold.bin"):
+    for rel in [f"Cores/{new_id}/bitstream.rbf_r"] + [str(f.relative_to(pkg)) for f in (tau_layout.find(pkg, n, new_plat, new_id)
+                                                                                          for n in ("tau.rom", "tau-cold.bin")) if f]:
         if (pkg / rel).exists():
             print(f"   {sha(card / rel)[:16]}  {rel}  identical")
 
@@ -386,6 +388,9 @@ def main():
         for e in compat_entry["layout"]:           # only once the card is known good: obsolete files are then removed
             f = card / e["path"]
             if e["role"] == "obsolete" and f.is_file():
+                if tau_compat.still_read_by_other_core(card, e["path"], new_id):
+                    print(f"   kept obsolete {e['path']}: another core on this platform still reads it from common/")
+                    continue
                 f.unlink()
                 print(f"   removed obsolete {e['path']}")
         print(f"   card matches {compat['release']}: 0 errors, {len(res)} warning(s)")

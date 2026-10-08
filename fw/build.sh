@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build core firmware -> dist/Assets/tau/common/tau.rom
+# Build core firmware -> dist/Assets/tau/alfatreze.TAU/tau.rom (core-specific since 2026-10-08, tools/tau_layout.py)
 #
 #   ./build.sh            # the full product build (same as `release`)  [default]
 #   ./build.sh psram-diag # B-004 PSRAM mailbox diagnostic (needs a TAU_PSRAM_PROBE RBF)
@@ -34,7 +34,7 @@ SIZE="${SIZE_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}size}"
 NM="${NM_RISCV:-${TOOL_BIN:+$TOOL_BIN/}${TOOL_PREFIX}nm}"
 PYTHON="${PYTHON:-python3}"
 HELIX="$ROOT/third_party/libhelix-mp3"
-OUT="$ROOT/dist/Assets/tau/common"
+OUT="$ROOT/dist/Assets/tau/alfatreze.TAU"
 
 for tool in "$GCC" "$OBJCOPY" "$SIZE" "$PYTHON"; do
     if ! command -v "$tool" >/dev/null 2>&1; then
@@ -190,7 +190,7 @@ if [[ "${CLK66:-0}" == "1" ]]; then
 fi
 
 # B-333: a 192 KB (RAM_192K=1) build never writes over the shipped 256 KB release artefacts in dist/: it goes to work/ram192k/<target>/.
-if [[ "${RAM_192K:-0}" == "1" && "$OUT" == "$ROOT/dist/Assets/tau/common" ]]; then OUT="$ROOT/work/ram192k/$TARGET"; fi
+if [[ "${RAM_192K:-0}" == "1" && "$OUT" == "$ROOT/dist/Assets/tau/alfatreze.TAU" ]]; then OUT="$ROOT/work/ram192k/$TARGET"; fi
 
 # B-585: TAU_BUILD_OUT=<dir> sends the ROM and cold image of ANY target to <dir>/<target>/ instead of dist/ or work/diagnostics/. For measurement-only
 # builds (tools/check_heap_gap.py): its unflagged rebuilds used to overwrite dist/ and the flagged work/diagnostics/ ROMs (the B-448 clobber hazard).

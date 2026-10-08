@@ -164,3 +164,11 @@ When a release manifest `tau-compat.json` (schema 2) describes **exactly** the p
   backup when the core was replaced).
 - **Dev packages** built with an RBF that has a fit manifest carry their own `tau-compat.json` next to the package, so
   the card check runs for them too.
+
+### Core-specific build files (H4, 2026-10-08, not yet hardware-confirmed)
+
+`tau.rom`, `tau-cold.bin` and `tau-loading.bin` now go in `Assets/<platform>/<core>/`; data slots 1, 4 and 6 are core-specific.
+`common/` holds only user and generated data (media, library index, `tau-assets.bin`, covers). When a release core replaces an
+old-layout one, the installer removes the stale `common/` copies after the card check passes, unless another core on the platform
+still reads them from `common/`. Confirm on the first install of this layout that the core boots, the splash shows, and Info shows
+the cold image loaded (spec section 7 probe, item 2).

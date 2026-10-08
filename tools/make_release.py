@@ -70,7 +70,7 @@ def verify(z: Path, core_id: str, version: str, raw_rbf: bytes, rom: Path):
         assert f"{core['author']}.{core['shortname']}" == core_id, "core folder does not match author.shortname"
         assert core["version"] == version, f"core.json version {core['version']} != {version}"
         assert f.read(f"Cores/{core_id}/bitstream.rbf_r") == rev, "bitstream is not the bit-reversed RBF"
-        roms = [n for n in names if n.endswith("common/tau.rom")]
+        roms = [n for n in names if n.endswith(f"/{core_id}/tau.rom")]                # H4: core-specific
         assert len(roms) == 1 and f.read(roms[0]) == rom.read_bytes(), "tau.rom is not the freshly built ROM"
         plat = core["platform_ids"][0]
         assert len(plat) <= 15 and f"Platforms/{plat}.json" in names and f"Platforms/_images/{plat}.bin" in names
@@ -123,11 +123,11 @@ def main():
     # B-563: a RAM_192K=1 build never writes dist/ (build.sh, B-333) but goes to work/ram192k/release/. The
     # release ships that build, so put it where package.py and the zip expect it -- and refuse to go on if
     # the ROM in dist/ is not the one just built (the earlier run silently zipped a stale 256 KB ROM).
-    built = ROOT / ("work/ram192k/release" if env.get("RAM_192K") == "1" else "dist/Assets/tau/common")
+    built = ROOT / ("work/ram192k/release" if env.get("RAM_192K") == "1" else "dist/Assets/tau/alfatreze.TAU")
     for name in ("tau.rom", "tau-cold.bin"):
-        if built != ROOT / "dist/Assets/tau/common":
-            shutil.copy2(built / name, ROOT / "dist/Assets/tau/common" / name)
-        assert sha(built / name) == sha(ROOT / "dist/Assets/tau/common" / name), f"dist/{name} is not the freshly built one"
+        if built != ROOT / "dist/Assets/tau/alfatreze.TAU":
+            shutil.copy2(built / name, ROOT / "dist/Assets/tau/alfatreze.TAU" / name)
+        assert sha(built / name) == sha(ROOT / "dist/Assets/tau/alfatreze.TAU" / name), f"dist/{name} is not the freshly built one"
     sh(["bash", "fw/build.sh", "player-library-diagnostic"], env=env)     # Diagnostic Build: adds Tests/Stress and the Check
     sh([sys.executable, "package.py", "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256, "--release-library"])
     sh([sys.executable, "tools/check_tau_package.py"])
@@ -139,8 +139,8 @@ def main():
 
     OUT.mkdir(exist_ok=True)
     jobs = [
-        ("alfatreze.TAU", ROOT / "dist", ROOT / "dist/Assets/tau/common/tau.rom"),
-        ("alfatreze.TAU_DIAGNOSTIC", DIAG, DIAG / "Assets/tau_diagnostic/common/tau.rom"),
+        ("alfatreze.TAU", ROOT / "dist", ROOT / "dist/Assets/tau/alfatreze.TAU/tau.rom"),
+        ("alfatreze.TAU_DIAGNOSTIC", DIAG, DIAG / "Assets/tau_diagnostic/alfatreze.TAU_DIAGNOSTIC/tau.rom"),
     ]
     sums = []
     for core_id, src, rom in jobs:
