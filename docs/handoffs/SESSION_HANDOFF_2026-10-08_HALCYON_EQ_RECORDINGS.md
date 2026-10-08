@@ -1,6 +1,6 @@
 # Session handoff, 2026-10-08 (night to morning): Halcyon EQ is the only EQ, TAU_DEV_108 on hardware, recordings found the capture chain is differential (read this first)
 
-`main` = local `8559f48`; **pushed to origin only up to `cc6bc5c`**, everything since (B-649 to B-670) is local. Audit B-649..B-670 (`docs/AUDIT_TRAIL.md`).
+`main` pushed to origin at `d1143d6` (2026-10-08, the owner asked); later commits, if any, are local. Audit B-649..B-670 (`docs/AUDIT_TRAIL.md`).
 
 ## Where things stand
 - **Card:** `TAU`, `TAU_DIAGNOSTIC` (alpha.4), `TAU_DEV_105` (hardware gain stage, the recordings' core), `TAU_DEV_107` (kept on purpose: still has the old EQ and the flutter, for the control recordings), **`TAU_DEV_108`** (installed 2026-10-08: bitstream `halcyon-pair-b650` seed 2 = the tick and atomic-pair fixes, I2S diag; firmware with Halcyon as the only EQ), the owner's barcode/meter cores (never touch).
