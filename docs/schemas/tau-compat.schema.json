@@ -191,6 +191,13 @@
               "null"
             ],
             "pattern": "^[0-9A-Za-z.+-]+$"
+          },
+          "replaces": {
+            "description": "Older core ids this core supersedes on a card (e.g. alfatreze.TAU_DIAGNOSTIC -> alfatreze.TAU Diagnostics); an installer offers to remove them.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }

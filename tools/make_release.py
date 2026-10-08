@@ -6,7 +6,10 @@ menus switched on. Zip names follow Analogue's convention <Author>.<Core>_<Versi
 Pocket base folders (Cores, Platforms, Assets). Version and date come from dist/Cores/alfatreze.TAU/core.json.
 
   python3 tools/make_release.py --rbf PATH_TO_RAW.rbf --rbf-sha256 HASH --release v0.6.0-alpha.5 \
-      --previous-release v0.6.0-alpha.4 --previous release/alfatreze.TAU_<last>.zip --previous release/alfatreze.TAU_DIAGNOSTIC_<last>.zip [--test]
+      --previous-release v0.6.0-alpha.4 --previous release/<last normal zip> --previous release/<last diagnostic zip> [--test]
+
+Channel from the tag (tools/tau_layout.py): vX.Y.Z = Stable (alfatreze.TAU + 'TAU Diagnostics' on platform tau); any pre-release label =
+Preview ('TAU Preview' + 'TAU Preview Diagnostics' on platform tau_preview, reading TAU's media in place). Zips: <core id, spaces as _>_<version>_<date>.zip
 
 Steps: build both ROMs, package the normal core (package.py), package the diagnostic core
 (tools/package_dev_build.py --release-diagnostic), check both, write release/<name>.zip x2, release/tau-compat.json (Tau Omega's compatibility manifest, tools/tau_compat.py,
@@ -26,6 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import tau_compat  # noqa: E402
+import tau_layout  # noqa: E402  (release channels, RELEASE_SYSTEM_SPEC section 4)
 DIAG = ROOT / "work/diagnostics/library-diagnostic/pocket"   # B-078: the Diagnostic Build now includes the media library and Check
 OUT = ROOT / "release"
 
@@ -111,6 +115,12 @@ def main():
     except tau_compat.CompatError as e:
         sys.exit(f"tau-compat: {e}")
     print(f"bitstream CORE_VERSION {core_version}")
+    channel = tau_layout.channel_of(args.release)
+    if channel == "dev":
+        sys.exit("dev builds are not published: use tools/package_dev_build.py --number")
+    ch = tau_layout.CHANNELS[channel]
+    normal_id, diag_id = f"alfatreze.{ch['core']}", f"alfatreze.{ch['diag']}"
+    print(f"channel {channel}: {normal_id} + {diag_id} on platform {ch['platform']}")
 
     env = dict(os.environ)
     # B-581: the release bitstream is the 192 KB / 66.667 MHz one (CORE_VERSION rev 26), so the firmware must be
@@ -132,8 +142,13 @@ def main():
     sh([sys.executable, "package.py", "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256, "--release-library"])
     sh([sys.executable, "tools/check_tau_package.py"])
     sh([sys.executable, "tools/check_fw_bitstream_pair.py", "dist", "--bitstream-version", core_version])   # B-581: the ROM in the zip must be accepted by the bitstream
-    sh([sys.executable, "tools/package_dev_build.py", "--release-diagnostic",
+    sh([sys.executable, "tools/package_dev_build.py", "--release-diagnostic", "--channel", channel,
         "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256])
+    # The normal core of a Preview release is the release build under the Preview channel's name and platforms (TAU's media in place).
+    normal_src = ROOT / "dist" if channel == "stable" else tau_layout.retarget(
+        ROOT / "dist", ROOT / "work/release-preview/pocket", "alfatreze.TAU", normal_id, channel)
+    if channel != "stable":
+        sh([sys.executable, "tools/check_fw_bitstream_pair.py", normal_src, "--bitstream-version", core_version])
     if args.test:
         sh(["make", "test-host"])
 
@@ -142,20 +157,18 @@ def main():
     # TAUVER field (splash, Info), both from the release tag; the ROM also carries the commit (tools/tau_version.py).
     import tau_version
     full = args.release[1:]
-    for core_dir, rom in ((ROOT / "dist/Cores/alfatreze.TAU", ROOT / "dist/Assets/tau/alfatreze.TAU/tau.rom"),
-                          (DIAG / "Cores/alfatreze.TAU_DIAGNOSTIC", DIAG / "Assets/tau_diagnostic/alfatreze.TAU_DIAGNOSTIC/tau.rom")):
+    jobs = [(core_id, src, tau_layout.core_dir(src, ch["platform"], core_id) / "tau.rom")
+            for core_id, src in ((normal_id, normal_src), (diag_id, DIAG))]
+    for core_id, src, rom in jobs:
+        core_dir = src / "Cores" / core_id
         cj = json.loads((core_dir / "core.json").read_text())
         cj["core"]["metadata"]["version"] = full
         (core_dir / "core.json").write_text(json.dumps(cj, indent=4) + "\n")
         print(f"version {tau_version.stamp_file(rom, full)} -> {rom.relative_to(ROOT)}")
     version = full
-    jobs = [
-        ("alfatreze.TAU", ROOT / "dist", ROOT / "dist/Assets/tau/alfatreze.TAU/tau.rom"),
-        ("alfatreze.TAU_DIAGNOSTIC", DIAG, DIAG / "Assets/tau_diagnostic/alfatreze.TAU_DIAGNOSTIC/tau.rom"),
-    ]
     sums = []
     for core_id, src, rom in jobs:
-        z = make_zip(src, f"{core_id}_{version}_{date}.zip")
+        z = make_zip(src, tau_layout.zip_name(core_id, version, date))
         n = verify(z, core_id, version, raw, rom)
         sums.append(f"{sha(z)}  {z.name}")
         print(f"  {z.name}: {n} files, {z.stat().st_size:,} bytes, checks ok")

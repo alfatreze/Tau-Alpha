@@ -43,7 +43,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from check_fw_bitstream_pair import rom_accepts, rom_needs  # noqa: E402  (the pairing gate's own marker readers)
 import fit_manifest  # noqa: E402  (B-653: FEATURES, macros_of)
 import tau_version  # noqa: E402  (the ROM's stamped full version)
-from tau_layout import BUILD_BOUND, CORE_SPECIFIC, slot_dir  # noqa: E402  (H4, dev channel)
+from tau_layout import BUILD_BOUND, CORE_SPECIFIC, PREDECESSORS, REPLACES, slot_dir  # noqa: E402  (H4, channels)
 
 SCHEMA = 2
 SCHEMA_FILE = ROOT / "docs/schemas/tau-compat.schema.json"
@@ -272,9 +272,10 @@ def persist_ids_changed(pkgs, previous, registry=None, previous_release=None):
         prev[r["core_id"]] = persisted(r["interact"])
     changed = set()
     for p in pkgs:
-        if p["core_id"] not in prev:
+        key = next((k for k in [p["core_id"]] + PREDECESSORS.get(p["core_id"], []) if k in prev), None)
+        if key is None:
             raise CompatError(f"no --previous zip for {p['core_id']} (pass the last release's zip, or --no-previous for the first compat file)")
-        old, new = prev[p["core_id"]], persisted(p["interact"])
+        old, new = prev[key], persisted(p["interact"])
         changed |= {i for i in old if new.get(i) != old[i]}
         if registry is not None and previous_release is not None:
             changed |= {i for i in new if i in registry and tag_key(registry[i]["since"]) > tag_key(previous_release)}
@@ -707,6 +708,7 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
                       "bitstream_sha256": sha(p["bitstream"]), "bitstream_core_version": cv, "bitstream_features": feats,
                       "rom_sha256": p["rom_sha256"], "cold_sha256": p["cold_sha256"],
                       "rom_accepts": p["rom_accepts"], "rom_needs": p["rom_needs"], "rom_version": p["rom_version"],
+                      "replaces": REPLACES.get(p["core_id"], []),
                       "layout": layout(p, root, cfg.get("obsolete", []))} for p in pkgs],
         "requires_omega": {k: req[k] for k in ("library_index_version", "assets_sections", "assets_read_limit_bytes",
                                                "report_tags_max", "persist_ids_changed", "min_omega")},

@@ -341,6 +341,28 @@ with tempfile.TemporaryDirectory() as t:
     make(new, "alfatreze.TAU", "tau", ROM_N)
     check(all(p["rom_version"] is None for p in doc["packages"]), "rom_version is null for a ROM without the field")
 
+    # 2k. release channels (RELEASE_SYSTEM_SPEC section 4): names, predecessors, replaces, retarget
+    import tau_layout as tl
+    check([tl.channel_of(v) for v in ("v0.7.0", "0.7.0-preview.2", "v0.7.0-rc.1", "0.6.0-alpha.5", "0.7.0-dev.385")]
+          == ["stable", "preview", "preview", "preview", "dev"], "channel from the version: stable / preview (preview, rc, old alpha) / dev")
+    check(tl.zip_name("alfatreze.TAU Preview Diagnostics", "0.7.0-preview.2", "2026-11-02") == "alfatreze.TAU_Preview_Diagnostics_0.7.0-preview.2_2026-11-02.zip",
+          "zip names keep Analogue's pattern with spaces as _")
+    chz = t / "chz"; chz.mkdir()
+    dz = make(chz, "alfatreze.TAU Diagnostics", "tau", ROM_D)
+    dd = tc.build(**dict(kw, zips=[zips[0], dz], previous=prev, rbf=None, bitstream_version="4D50331A"))
+    pk = {p["core_id"]: p for p in dd["packages"]}
+    check(pk["alfatreze.TAU Diagnostics"]["replaces"] == ["alfatreze.TAU_DIAGNOSTIC"] and pk["alfatreze.TAU"]["replaces"] == [],
+          "TAU Diagnostics names the old TAU_DIAGNOSTIC as replaced")
+    check(dd["requires_omega"]["persist_ids_changed"] == [12, 16, 18], "a renamed core is compared with its predecessor's previous zip")
+    rt = tl.retarget(ROOT / "dist", t / "rt", "alfatreze.TAU", "alfatreze.TAU Preview", "preview")
+    rcj = json.loads((rt / "Cores/alfatreze.TAU Preview/core.json").read_text())["core"]["metadata"]
+    rdj = {sl["id"]: sl["parameters"] for sl in json.loads((rt / "Cores/alfatreze.TAU Preview/data.json").read_text())["data"]["data_slots"]}
+    check(rcj["shortname"] == "TAU Preview" and rcj["platform_ids"] == ["tau_preview", "tau"]
+          and (rt / "Assets/tau_preview/alfatreze.TAU Preview/tau.rom").read_bytes() == (ROOT / "dist/Assets/tau/alfatreze.TAU/tau.rom").read_bytes()
+          and json.loads((rt / "Platforms/tau_preview.json").read_text())["platform"]["name"] == "TAU Preview"
+          and rdj[5] == "0x1000000" and rdj[8] == "0x1000000" and rdj[1] == "0x10A",
+          "retarget: dist as 'TAU Preview' on tau_preview + tau, build files moved, shared slots read TAU's media")
+
     # 3. mutations
     mrom = bytearray(ROM_N); mrom[3] ^= 1
     make(new, "alfatreze.TAU", "tau", bytes(mrom))                       # rebuild the normal zip with one ROM byte changed

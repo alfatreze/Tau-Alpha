@@ -60,3 +60,57 @@ def slot_dir(base, slot, platforms, core_id):
     params = int(str(slot.get("parameters", "0")), 16)
     plat = platforms[min(slot_platform_index(params), len(platforms) - 1)]
     return Path(base) / "Assets" / plat / (core_id if params & CORE_SPECIFIC else "common")
+
+
+# ---- release channels (RELEASE_SYSTEM_SPEC sections 4, 4a, 7a; owner 2026-10-08: "update all now to the new scheme") ---------------
+# Shortnames are what the Pocket's Select Core list shows (B-672) and may hold spaces (B-673). A channel whose platform list also names
+# `tau` reads TAU's library, tau-assets.bin and music in place and is also listed under TAU (B-673 option a).
+CHANNELS = {
+    "stable":  {"platform": "tau", "name": "TAU", "platforms": ["tau"], "core": "TAU", "diag": "TAU Diagnostics"},
+    "preview": {"platform": "tau_preview", "name": "TAU Preview", "platforms": ["tau_preview", "tau"],
+                "core": "TAU Preview", "diag": "TAU Preview Diagnostics"},
+    "dev":     {"platform": DEV_PLATFORM, "name": DEV_PLATFORM_NAME, "platforms": [DEV_PLATFORM, MEDIA_PLATFORM]},
+}
+# Cores a channel core supersedes on a card (named in tau-compat.json `replaces`, so installers can offer to remove them).
+REPLACES = {"alfatreze.TAU Diagnostics": ["alfatreze.TAU_DIAGNOSTIC"]}
+
+
+def channel_of(version):
+    """stable for X.Y.Z, dev for X.Y.Z-dev.*, preview for any other pre-release label (preview, rc, and the old alpha/beta)."""
+    v = version.lstrip("v")
+    return "dev" if "-dev." in v else ("preview" if "-" in v else "stable")
+
+
+def zip_name(core_id, version, date):
+    """Analogue's <Author>.<Core>_<Version>_<Date>.zip with spaces as '_' (GitHub rewrites spaces in asset names)."""
+    return f"{core_id.replace(' ', '_')}_{version}_{date}.zip"
+
+
+def retarget(src_pkg, out, src_core_id, core_id, channel):
+    """Copy a packaged core under another core id and channel: core folder and core-specific Assets folder renamed, core.json shortname and
+    platform_ids set, platform files named for the channel's platform, shared-media slots pointed at TAU when the channel names `tau`
+    second. Returns `out`."""
+    import json, shutil
+    src_pkg, out, ch = Path(src_pkg), Path(out), CHANNELS[channel]
+    plat, src_plat = ch["platform"], None
+    if out.exists():
+        shutil.rmtree(out)
+    shutil.copytree(src_pkg / "Cores" / src_core_id, out / "Cores" / core_id)
+    cj = json.loads((out / "Cores" / core_id / "core.json").read_text())
+    src_plat = cj["core"]["metadata"]["platform_ids"][0]
+    cj["core"]["metadata"].update(shortname=core_id.split(".", 1)[1], platform_ids=list(ch["platforms"]))
+    (out / "Cores" / core_id / "core.json").write_text(json.dumps(cj, indent=4) + "\n")
+    if len(ch["platforms"]) > 1:
+        dj = json.loads((out / "Cores" / core_id / "data.json").read_text())
+        (out / "Cores" / core_id / "data.json").write_text(json.dumps(read_shared_media(dj), indent=4) + "\n")
+    shutil.copytree(core_dir(src_pkg, src_plat, src_core_id), core_dir(out, plat, core_id))
+    (out / "Platforms/_images").mkdir(parents=True)
+    shutil.copy2(src_pkg / "Platforms/_images" / f"{src_plat}.bin", out / "Platforms/_images" / f"{plat}.bin")
+    pj = json.loads((src_pkg / "Platforms" / f"{src_plat}.json").read_text())
+    pj["platform"]["name"] = ch["name"]
+    (out / "Platforms" / f"{plat}.json").write_text(json.dumps(pj, indent=4) + "\n")
+    return out
+# The core whose previous release a channel core is compared with (persist ids) when it has none of its own yet.
+PREDECESSORS = {"alfatreze.TAU Diagnostics": ["alfatreze.TAU_DIAGNOSTIC"],
+                "alfatreze.TAU Preview": ["alfatreze.TAU"],
+                "alfatreze.TAU Preview Diagnostics": ["alfatreze.TAU Diagnostics", "alfatreze.TAU_DIAGNOSTIC"]}
