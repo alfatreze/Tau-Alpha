@@ -337,3 +337,13 @@ changes the zips.
 - Still open on our side: `tools/package_psram_diagnostic.py` (old P2/P4 probe packager, not a release path) still
   writes an instance file.
 - Omega: accept schema 2 and implement `check-card`.
+
+**Additions after the review (2026-10-08).** These are additive keys, so the schema stays 2; details in
+`RELEASE_SYSTEM_REVIEW_2026-10-08.md`:
+- top-level `source {commit, dirty}`;
+- `packages[].bitstream_features`;
+- `format.root` (tau-library);
+- `format.preserve_unknown_sections` (TAUA).
+
+The CORE_VERSION is now evaluated at the fit's commit. Shipping a user or generated file stops the release. The shared
+TAUA round-trip fixture lives in `docs/schemas/fixtures/`.

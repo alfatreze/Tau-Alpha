@@ -103,6 +103,8 @@ def main():
             raise tau_compat.CompatError(f"--release {args.release} is not core.json version {version}")
         tau_compat.changelog_section(args.release, ROOT / "CHANGELOG.md")
         core_version = tau_compat.bitstream_core_version(rbf, args.bitstream_version)
+        if tau_compat.source_state()["dirty"]:      # review M1: the tree-derived fields must come from a committed tree
+            raise tau_compat.CompatError("the tree has uncommitted changes outside dist/ and release/: commit them before a release")
     except tau_compat.CompatError as e:
         sys.exit(f"tau-compat: {e}")
     print(f"bitstream CORE_VERSION {core_version}")
