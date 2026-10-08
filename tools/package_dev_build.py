@@ -151,6 +151,11 @@ def main():
         core_id, title = f"alfatreze.{short}", tau_layout.DEV_PLATFORM_NAME
         out = root / f"work/diagnostics/tau-dev-{nn}/pocket"
     dev_channel = platform == tau_layout.DEV_PLATFORM
+    # The full version every view shows (owner, 2026-10-08): Select Core row (core.json), splash and Info (the ROM's TAUVER field).
+    # SemVer numeric identifiers have no leading zeros, so "dev.5", not "dev.05".
+    base_ver = json.loads((src / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["version"].split("-")[0]
+    full_ver = (None if args.release_diagnostic else args.semver if args.semver else
+                f"{base_ver}-dev.barcode.{args.barcode}" if args.barcode is not None else f"{base_ver}-dev.{args.number}")
     if not args.release_diagnostic:
         desc = f"TAU {label}: {kind}, " + (args.note or default_note)
 
@@ -161,6 +166,7 @@ def main():
     else: bitrev(rbf, c / "bitstream.rbf_r")
     j = json.loads((c / "core.json").read_text())
     m = j["core"]["metadata"]; m["shortname"] = short
+    if full_ver: m["version"] = full_ver
     m["platform_ids"] = [platform, tau_layout.MEDIA_PLATFORM] if dev_channel else [platform]
     # core.json description is limited to 63 characters (cores vanish from the menu otherwise, B-142);
     # the full text goes to info.txt, the About-screen field that is meant for it.
@@ -186,6 +192,12 @@ def main():
     shutil.copy2(rom, cd / "tau.rom")
     shutil.copy2(rom.parent / "tau-cold.bin", cd / "tau-cold.bin")
     shutil.copy2(src / "Assets/tau/alfatreze.TAU/tau-loading.bin", cd / "tau-loading.bin")
+    if full_ver:
+        import tau_version
+        try:
+            print("version", tau_version.stamp_file(cd / "tau.rom", full_ver, root))
+        except tau_version.VersionError as e:
+            sys.exit(f"cannot stamp the version into the ROM: {e} (rebuild the firmware with --build-flags)")
     # No Assets/<platform>/<core>/<title>.json any more (RELEASE_SYSTEM_SPEC section 11): no data slot has the instance bit, and it used
     # `variant_select`, a key the instance schema does not have, so the Pocket never read it. Older cards: listed as obsolete in tools/omega_compat.json.
     p = out / "Platforms"; (p / "_images").mkdir(parents=True)

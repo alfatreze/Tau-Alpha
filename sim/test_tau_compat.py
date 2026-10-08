@@ -334,6 +334,13 @@ with tempfile.TemporaryDirectory() as t:
     check(not tc.still_read_by_other_core(c2, "Assets/tau/common/tau.rom", "alfatreze.TAU"), "nobody else reads it once every core is core-specific")
     check(tc.verify(out, **kw) == [], "after the H4 refusals the original inputs verify again")
 
+    # 2j. the full version (owner, 2026-10-08): the ROM's TAUVER stamp must agree with core.json
+    tv_field = b"TAUVER:0.6.0-dev.9+abc1234" + b"\0" * (48 - 26)
+    make(new, "alfatreze.TAU", "tau", ROM_N + tv_field)
+    raises(lambda: tc.build(**kw), "a ROM stamped with another version than core.json", "would disagree")
+    make(new, "alfatreze.TAU", "tau", ROM_N)
+    check(all(p["rom_version"] is None for p in doc["packages"]), "rom_version is null for a ROM without the field")
+
     # 3. mutations
     mrom = bytearray(ROM_N); mrom[3] ^= 1
     make(new, "alfatreze.TAU", "tau", bytes(mrom))                       # rebuild the normal zip with one ROM byte changed

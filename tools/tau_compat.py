@@ -42,6 +42,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 from check_fw_bitstream_pair import rom_accepts, rom_needs  # noqa: E402  (the pairing gate's own marker readers)
 import fit_manifest  # noqa: E402  (B-653: FEATURES, macros_of)
+import tau_version  # noqa: E402  (the ROM's stamped full version)
 from tau_layout import BUILD_BOUND, CORE_SPECIFIC, slot_dir  # noqa: E402  (H4, dev channel)
 
 SCHEMA = 2
@@ -247,7 +248,7 @@ def read_zip(path):
         raise CompatError(f"{path.name}: tau.rom has no TAUFWPAIR marker (built before B-582): cannot vouch for it")
     return {"zip": path.name, "zip_sha256": sha(raw), "core_id": folder, "version": meta["version"],
             "date_release": meta["date_release"], "bitstream": bit, "rom_sha256": sha(rom), "cold_sha256": sha(cold),
-            "rom_accepts": acc, "rom_needs": need or [], "interact": inter,
+            "rom_accepts": acc, "rom_needs": need or [], "interact": inter, "rom_version": tau_version.read(rom),
             "data": data, "files": files, "platform": (meta.get("platform_ids") or [""])[0],
             "platforms": meta.get("platform_ids") or [""]}
 
@@ -656,8 +657,11 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
     if len({p["core_id"] for p in pkgs}) != len(pkgs):
         raise CompatError("two zips carry the same core")
     for p in pkgs:
-        if p["version"] != m.group(1):
+        if p["version"] not in (m.group(1), release[1:]):
             raise CompatError(f"{p['zip']}: core.json version {p['version']} is not {m.group(1)} ({release})")
+        if p["rom_version"] is not None and p["rom_version"].split("+")[0] != p["version"]:
+            raise CompatError(f"{p['zip']}: the ROM says {p['rom_version']} but core.json says {p['version']}: the splash, Info and the Pocket's "
+                              "core list would disagree (stamp it with tools/tau_version.py)")
     if len({p["date_release"] for p in pkgs}) != 1:
         raise CompatError("the zips disagree on date_release")
     if len({sha(p["bitstream"]) for p in pkgs}) != 1:
@@ -702,7 +706,7 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
         "packages": [{"zip": p["zip"], "zip_sha256": p["zip_sha256"], "core_id": p["core_id"],
                       "bitstream_sha256": sha(p["bitstream"]), "bitstream_core_version": cv, "bitstream_features": feats,
                       "rom_sha256": p["rom_sha256"], "cold_sha256": p["cold_sha256"],
-                      "rom_accepts": p["rom_accepts"], "rom_needs": p["rom_needs"],
+                      "rom_accepts": p["rom_accepts"], "rom_needs": p["rom_needs"], "rom_version": p["rom_version"],
                       "layout": layout(p, root, cfg.get("obsolete", []))} for p in pkgs],
         "requires_omega": {k: req[k] for k in ("library_index_version", "assets_sections", "assets_read_limit_bytes",
                                                "report_tags_max", "persist_ids_changed", "min_omega")},
@@ -745,7 +749,8 @@ def build_dev(pkg_dir, label, rbf=None, bitstream_version=None, out_dir=None):
         raise CompatError(f"{pkg_dir}/Cores must hold exactly one core")
     ver = json.loads((cores[0] / "core.json").read_text())["core"]["metadata"]["version"]
     z = zip_dir(pkg_dir, out_dir / f"{cores[0].name}_{ver}_dev.zip")
-    doc = build(dev_release_tag(ver, label), [z], None, rbf=rbf, bitstream_version=bitstream_version, require_changelog=False)
+    tag = f"v{ver}" if "-" in ver else dev_release_tag(ver, label)      # packages stamp their full version into core.json since 2026-10-08
+    doc = build(tag, [z], None, rbf=rbf, bitstream_version=bitstream_version, require_changelog=False)
     out = out_dir / "tau-compat.json"
     out.write_text(dumps(doc))
     return out

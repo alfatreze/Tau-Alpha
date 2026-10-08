@@ -95,7 +95,7 @@ def main():
     raw = rbf.read_bytes()
 
     meta = json.loads((ROOT / "dist/Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]
-    version, date = meta["version"], meta["date_release"]
+    version, date = meta["version"].split("-")[0], meta["date_release"]     # X.Y.Z (dist may still carry a previous pre-release label)
     print(f"release {args.release}: core.json v{version} ({date})")
     # tau-compat.json (Tau Omega): refuse early what would refuse late -- the tag must match core.json and the changelog,
     # and the bitstream's CORE_VERSION comes from its fit manifest, not from the first literal in mp3_soc.v.
@@ -138,6 +138,17 @@ def main():
         sh(["make", "test-host"])
 
     OUT.mkdir(exist_ok=True)
+    # The full version every view shows (owner, 2026-10-08): the zipped core.json `version` (Pocket's Select Core row) and the ROM's
+    # TAUVER field (splash, Info), both from the release tag; the ROM also carries the commit (tools/tau_version.py).
+    import tau_version
+    full = args.release[1:]
+    for core_dir, rom in ((ROOT / "dist/Cores/alfatreze.TAU", ROOT / "dist/Assets/tau/alfatreze.TAU/tau.rom"),
+                          (DIAG / "Cores/alfatreze.TAU_DIAGNOSTIC", DIAG / "Assets/tau_diagnostic/alfatreze.TAU_DIAGNOSTIC/tau.rom")):
+        cj = json.loads((core_dir / "core.json").read_text())
+        cj["core"]["metadata"]["version"] = full
+        (core_dir / "core.json").write_text(json.dumps(cj, indent=4) + "\n")
+        print(f"version {tau_version.stamp_file(rom, full)} -> {rom.relative_to(ROOT)}")
+    version = full
     jobs = [
         ("alfatreze.TAU", ROOT / "dist", ROOT / "dist/Assets/tau/alfatreze.TAU/tau.rom"),
         ("alfatreze.TAU_DIAGNOSTIC", DIAG, DIAG / "Assets/tau_diagnostic/alfatreze.TAU_DIAGNOSTIC/tau.rom"),
