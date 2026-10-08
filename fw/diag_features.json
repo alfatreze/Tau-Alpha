@@ -222,5 +222,9 @@
     "option": "adds a setting that is off at every start",
     "load": "adds contention on purpose",
     "behavior": "changes the audio path by default"
+  },
+  "_shell_sites": {
+    "count": 9,
+    "doc": "The only places that may still test TAU_DIAGNOSTIC directly: the Diagnostics menu shell (the group row, the container of its rows, the page-id enum numbering that keeps every page id stable, the container of the page table, the Info hint, the include of suite.inc, the container of the main-loop ticks). New diagnostic code MUST be a registered feature (TAU_DX_/TAU_FX_), never a new bare '#if TAU_DIAGNOSTIC'. sim/test_diag_features.py fails if this number grows; lowering it is fine, update it here."
   }
 }

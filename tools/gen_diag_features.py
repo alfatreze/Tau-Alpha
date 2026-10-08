@@ -4,6 +4,9 @@
   gen_diag_features.py            write fw/diag_features.h
   gen_diag_features.py --check    exit 1 if the header on disk differs from what the manifest generates (make test-host)
   gen_diag_features.py --list     the register as a table (id, kind, converted, depends)
+  gen_diag_features.py --hint [NEEDED_BYTES]
+                                  what to drop to win NEEDED_BYTES of hot RAM, cheapest to lose first, from the stored measurements (tools/diag_cost.json);
+                                  fw/build.sh prints this when a Diagnostic Build falls under its heap floor
   gen_diag_features.py --cflags DROP [ON [PRESET]]
                                   -D flags for fw/build.sh: DIAG_DROP (comma list) sets TAU_DX_/TAU_FX_<ID>=0, FEATURES_ON sets an 'fx' to 1.
                                   Unknown ids, ids not yet converted, dropping something another kept feature depends on, and turning on a 'dx' are errors.
@@ -71,6 +74,20 @@ def main():
     feats = load(); a = sys.argv[1:]
     if a[:1] == ["--list"]:
         for f in feats.values(): print(f"{f['id']:20} {f['kind']} {f.get('class','-'):9} {'converted' if f['converted'] else 'classified':10} deps={','.join(f['depends']) or '-':10} {f['title'][:70]}")
+        return
+    if a[:1] == ["--hint"]:
+        need = int(a[1]) if len(a) > 1 else 0
+        cost = json.loads((ROOT / "tools" / "diag_cost.json").read_text())["rows"] if (ROOT / "tools" / "diag_cost.json").exists() else {}
+        order = {"observer": 0, "page": 1, "option": 2, "reporter": 3, "load": 4, "behavior": 5}      # cheapest to lose first
+        cand = sorted((f for f in feats.values() if f["converted"] and f["id"] in cost and cost[f["id"]]["hot_gain"] > 0 and f["id"] != "check"),
+                      key=lambda f: (order.get(f.get("class"), 9), -cost[f["id"]]["hot_gain"]))
+        got, pick = 0, []
+        for f in cand:
+            if need and got >= need: break
+            pick.append(f); got += cost[f["id"]]["hot_gain"]
+        print("To win %s B of hot RAM drop, in this order (class, B freed each; docs/features/DIAG_FEATURES.md): " % (need or "more") +
+              ", ".join("%s (%s, +%d)" % (f["id"], f["class"], cost[f["id"]]["hot_gain"]) for f in pick) +
+              "  =>  DIAG_DROP=%s   [or DIAG_PRESET=perf|slim]" % ",".join(f["id"] for f in pick))
         return
     if a[:1] == ["--cflags"]:
         print(" ".join(cflags(feats, a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else "", a[3] if len(a) > 3 else ""))); return

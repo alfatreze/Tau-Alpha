@@ -361,6 +361,10 @@ import sys
 s = {l.split()[2]: int(l.split()[0], 16) for l in sys.stdin if len(l.split()) == 3}
 print(s['_heap_end'] - s['_heap_start'])")
     echo "heap gap: $GAP B (minimum for $TARGET: $HEAP_MIN B)"
-    if [ "$GAP" -lt "$HEAP_MIN" ]; then echo "*** heap gap below the $TARGET minimum ***" >&2; exit 1; fi
+    if [ "$GAP" -lt "$HEAP_MIN" ]; then
+        echo "*** heap gap below the $TARGET minimum ***" >&2
+        case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) python3 "$ROOT/tools/gen_diag_features.py" --hint $((HEAP_MIN - GAP)) >&2 || true ;; esac
+        exit 1
+    fi
 fi
 echo "built [$TARGET] -> $OUT/$ROM"
