@@ -201,6 +201,30 @@ Reuse the current alpha.4 bitstream and ROM; only JSON and folders change. Each 
 
 Results go to AUDIT_TRAIL as a new B entry; then the tools change.
 
+### 7a. Probe results (2026-10-08, B-672)
+
+| Question | Answer on hardware |
+|---|---|
+| Two cores on one platform | One platform entry with a count badge; opening it shows **Select Core**, with one core marked **Default** |
+| Text per core | The core's **shortname** (underscores shown); the selected row adds Version and Author. Not the description |
+| SemVer pre-release in `version` | Shown as written (`0.8.0-preview.2`) |
+| Core-specific build files (H4) | **Work**: boot, splash, cold image, covers, library, theme file |
+| Data slot bits [25:24] (read another platform's file) | **Work**: library and theme file read from `tau` |
+| A core with two `platform_ids` | **Listed under both platforms**, so a dev core sharing `tau` shows up in the TAU list |
+| Unknown file in the core folder | Ignored |
+
+**Design consequences** (they revise section 4; owner decisions in section 8):
+- **Shortnames are display text.** Stable `TAU` (rolling), pinned versions `TAU 0.7` would need a space in the folder name.
+  Whether a space or a dot is legal in a shortname is untested; until it is, `TAU_0_7` displays with underscores. Diagnostics:
+  `TAU_DIAGNOSTIC` displays as is.
+- **Preview** cores: platform `tau_preview` (own list entry "TAU Preview"), shortnames such as `TAU_PREVIEW`. One rolling folder
+  for the current preview keeps the list short, with the exact version shown on the row.
+- **Dev** cores: platform `tau_dev` **only** (never `tau` as a second platform). To avoid copying music, give the dev core a copy
+  of the 9 KB library index (its root already points at `/Assets/tau/common/`; tracks and covers open by absolute path, B-033).
+  This needs one more probe.
+- **Installer safety:** removing or replacing a core on a shared platform must never touch the platform's media or platform files.
+  Fixed in `install_dev_core.py` (B-672).
+
 ## 8. Decisions for the owner
 
 1. Mechanism A (core per build, platform per channel) vs B (instance JSON). Recommended: A.

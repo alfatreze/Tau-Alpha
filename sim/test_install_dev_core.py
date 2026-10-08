@@ -89,6 +89,41 @@ with tempfile.TemporaryDirectory() as td:
     rc, out = run(pkg, "--card", card, "--replace", "--yes")
     check("release cores are protected without --allow-release", rc != 0 and "release core" in out)
 
+    # B-672: removing a core that shares its platform with another core removes only that core's own folders (the probe found two
+    # cores under one platform; the old --remove deleted the whole Assets/<platform> and the platform files).
+    def twin(core, plat, platforms):
+        tp = td / f"pkg-{core}" / "pocket"
+        shutil.copytree(pkg / "Cores/alfatreze.TAU", tp / "Cores" / core)
+        cj = json.loads((tp / "Cores" / core / "core.json").read_text())
+        cj["core"]["metadata"].update(shortname=core.split(".")[1], platform_ids=platforms)
+        (tp / "Cores" / core / "core.json").write_text(json.dumps(cj))
+        shutil.copytree(pkg / "Assets/tau/alfatreze.TAU", tp / "Assets" / plat / core)
+        (tp / "Platforms/_images").mkdir(parents=True)
+        shutil.copy2(pkg / "Platforms/tau.json", tp / "Platforms" / f"{plat}.json")
+        shutil.copy2(pkg / "Platforms/_images/tau.bin", tp / "Platforms/_images" / f"{plat}.bin")
+        return tp
+    rc, out = run(twin("alfatreze.TAU_TWIN", "tau", ["tau"]), "--card", card, "--backup-dir", td / "bk-tw", "--no-eject", "--yes")
+    check("a second core installs beside TAU on the same platform", rc == 0 and (card / "Assets/tau/alfatreze.TAU_TWIN/tau.rom").exists())
+    media_before = sorted(str(f.relative_to(card)) for f in (card / "Assets/tau/common").rglob("*") if f.is_file())
+    rc, out = run("--card", card, "--remove", "alfatreze.TAU_TWIN")
+    check("remove-only dry run lists only the core's own folders", rc == 0 and "DRY RUN" in out and "Assets/tau/alfatreze.TAU_TWIN" in out
+          and "Platforms/tau.json" not in out and (card / "Cores/alfatreze.TAU_TWIN").exists())
+    rc, out = run("--card", card, "--remove", "alfatreze.TAU_TWIN", "--backup-dir", td / "bk-rm", "--no-eject", "--yes")
+    media_after = sorted(str(f.relative_to(card)) for f in (card / "Assets/tau/common").rglob("*") if f.is_file())
+    check("removing a core from a shared platform keeps the platform's media, index and platform files (B-672)",
+          rc == 0 and not (card / "Cores/alfatreze.TAU_TWIN").exists() and not (card / "Assets/tau/alfatreze.TAU_TWIN").exists()
+          and media_after == media_before and (card / "Platforms/tau.json").exists() and (card / "Cores/alfatreze.TAU").exists())
+    check("its backup holds only what belonged to it", (td / "bk-rm/alfatreze.TAU_TWIN/Assets/tau/alfatreze.TAU_TWIN/tau.rom").exists()
+          and not (td / "bk-rm/alfatreze.TAU_TWIN/Assets/tau/common").exists())
+    rc, out = run(twin("alfatreze.TAU_SOLO", "tau_solo", ["tau_solo"]), "--card", card, "--backup-dir", td / "bk-so", "--no-eject", "--yes")
+    (card / "Assets/tau_solo/common").mkdir(parents=True, exist_ok=True); (card / "Assets/tau_solo/common/x.mp3").write_bytes(b"m")
+    rc, out = run("--card", card, "--remove", "alfatreze.TAU_SOLO", "--backup-dir", td / "bk-rm2", "--no-eject", "--yes")
+    check("a core with its own platform is still removed with its whole Assets folder and platform files, media backed up",
+          rc == 0 and not (card / "Assets/tau_solo").exists() and not (card / "Platforms/tau_solo.json").exists()
+          and (td / "bk-rm2/alfatreze.TAU_SOLO/Assets/tau_solo/common/x.mp3").exists())
+    rc, out = run("--card", card, "--remove", "alfatreze.TAU", "--yes")
+    check("remove-only also protects the release cores", rc != 0 and "release core" in out)
+
     # Release manifest (tau-compat.json schema 2): obsolete files removed, card checked; a non-matching --compat stops before writing.
     import zipfile
     sys.path.insert(0, str(ROOT / "tools"))

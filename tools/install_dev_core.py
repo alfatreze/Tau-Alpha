@@ -115,6 +115,96 @@ def core_paths(card, core_id):
     return cdir, card / "Assets" / plat, card / "Platforms" / f"{plat}.json", card / "Platforms/_images" / f"{plat}.bin"
 
 
+def platform_shared(card, core_id, plat):
+    """True when another core on the card lists `plat` in its platform_ids (at any position): its Assets/<plat> folder and
+    Platforms/<plat>.* files then belong to the platform, not to `core_id`, and must never be removed with it."""
+    for d in (card / "Cores").iterdir():
+        if d.name == core_id or not (d / "core.json").is_file():
+            continue
+        try:
+            if plat in json.loads((d / "core.json").read_text())["core"]["metadata"].get("platform_ids", []):
+                return True
+        except (OSError, ValueError, KeyError):
+            continue
+    return False
+
+
+def core_scope(card, core_id):
+    """What belongs to `core_id` alone: its core folder, and either the whole Assets/<platform> folder plus the platform files (an
+    exclusive platform, as every TAU DEV build has) or only Assets/<platform>/<core_id> (a platform shared with other cores, e.g.
+    two TAU builds under TAU -- found by the 2026-10-08 probe, B-672). Returns (core dir, [asset dirs], [platform files])."""
+    cdir, adir, pjson, pimg = core_paths(card, core_id)
+    if platform_shared(card, core_id, adir.name):
+        own = adir / core_id
+        return cdir, ([own] if own.is_dir() else []), []
+    return cdir, ([adir] if adir.is_dir() else []), [f for f in (pjson, pimg) if f.exists()]
+
+
+def backup_core(card, c, dst, skip):
+    cdir, dirs, pfiles = core_scope(card, c)
+    copy_tree(cdir, dst / "Cores" / c)
+    for d in dirs:
+        copy_tree(d, dst / d.relative_to(card), skip_media=skip)
+    for f in pfiles:
+        (dst / f.relative_to(card)).parent.mkdir(parents=True, exist_ok=True); shutil.copy2(f, dst / f.relative_to(card))
+    ok = tree(cdir) == tree(dst / "Cores" / c) and all(tree(d, skip) == tree(dst / d.relative_to(card)) for d in dirs)
+    ok = ok and all(sha(f) == sha(dst / f.relative_to(card)) for f in pfiles)
+    if not ok: die(f"backup of {c} does not match the card")
+    return dirs, pfiles
+
+
+def remove_core(card, c):
+    cdir, dirs, pfiles = core_scope(card, c)
+    rmtree_tolerant(cdir)
+    for d in dirs: rmtree_tolerant(d)
+    for f in pfiles: f.unlink()
+    kept = "" if pfiles or not dirs or dirs[0].name != c else " (platform shared with other cores: its media and platform files kept)"
+    print(f"   removed {c}{kept}")
+
+
+def remove_only(a):
+    """--remove without a package: back up and remove cores, clear the catalog caches, eject. Same safety rules as an install."""
+    card, dry = a.card, not a.yes
+    print(f"{'DRY RUN -- nothing will be written' if dry else 'REMOVE'}")
+    if not card.is_dir() or not (card / "Cores").is_dir():
+        die(f"card not mounted at {card}")
+    for c in a.remove:
+        if c in RELEASE_CORES and not a.allow_release:
+            die(f"{c} is a release core; refusing without --allow-release")
+        if not (card / "Cores" / c).is_dir():
+            die(f"--remove {c} is not on the card")
+    bdir = a.backup_dir or ROOT / "work/card-backups" / datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    for c in a.remove:
+        cdir, dirs, pfiles = core_scope(card, c)
+        print(f"remove:  {c}: {cdir.relative_to(card)}, " + ", ".join(str(x.relative_to(card)) for x in dirs + pfiles))
+    print(f"backup:  {bdir} (the cores above + {len(CACHES)} catalog caches); then delete the caches, " + ("(no eject)" if a.no_eject else "eject"))
+    if dry:
+        print("\n(dry run) re-run with --yes to write.")
+        return
+    bdir.mkdir(parents=True, exist_ok=True)
+    for c in a.remove:
+        backup_core(card, c, bdir / c, skip=False)
+        print(f"   {c}: backed up and verified")
+    (bdir / "System").mkdir(exist_ok=True)
+    for f in CACHES:
+        p = card / "System" / f
+        if p.exists():
+            shutil.copy2(p, bdir / "System" / f)
+            if sha(p) != sha(bdir / "System" / f): die(f"backup of {f} does not match")
+    for c in a.remove:
+        remove_core(card, c)
+    n = 0
+    for f in CACHES:
+        p = card / "System" / f
+        if p.exists(): p.unlink(); n += 1
+    print(f"   {n} catalog caches deleted")
+    if not a.no_eject:
+        os.sync()
+        r = subprocess.run(["diskutil", "eject", str(card)], capture_output=True, text=True)
+        print("   " + (r.stdout.strip().splitlines() or r.stderr.strip().splitlines() or ["(no output)"])[-1])
+    print(f"\nDONE: removed {a.remove}. Backup: {bdir}")
+
+
 def package_identity(pkg):
     cores = [d for d in (pkg / "Cores").iterdir() if d.is_dir()]
     if len(cores) != 1:
@@ -135,7 +225,7 @@ def run(cmd, what):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("package", type=Path, help="packaged core directory (has Cores/, Assets/, Platforms/)")
+    ap.add_argument("package", type=Path, nargs="?", help="packaged core directory (has Cores/, Assets/, Platforms/); omit to only --remove cores")
     ap.add_argument("--card", type=Path, default=Path("/Volumes/Pock"))
     ap.add_argument("--carry-from", metavar="CORE_ID", help="copy this core's media to the new core and rebuild the library index")
     ap.add_argument("--assets", type=Path, metavar="FILE", help="tau-assets.bin (themes/meter presets) to install; default: <package>/../tau-assets.bin, else the --carry-from core's copy")
@@ -149,6 +239,10 @@ def main():
     ap.add_argument("--no-eject", action="store_true")
     ap.add_argument("--yes", action="store_true", help="actually write (default is a dry run)")
     a = ap.parse_args()
+    if a.package is None:
+        if not a.remove:
+            die("give a package to install, or --remove CORE_ID to only remove cores")
+        return remove_only(a)
     dry = not a.yes
     pkg, card = a.package.resolve(), a.card
 
@@ -233,16 +327,8 @@ def main():
     print("\n[1/7] backup")
     bdir.mkdir(parents=True, exist_ok=True)
     for c in to_backup:
-        cdir, adir, pjson, pimg = core_paths(card, c)
-        dst = bdir / c
         skip = skip_media_for(c, new_id, a.carry_from, a.backup_media)
-        copy_tree(cdir, dst / "Cores" / c)
-        if adir.is_dir(): copy_tree(adir, dst / "Assets" / adir.name, skip_media=skip)
-        for f, sub in ((pjson, "Platforms"), (pimg, "Platforms/_images")):
-            if f.exists():
-                (dst / sub).mkdir(parents=True, exist_ok=True); shutil.copy2(f, dst / sub / f.name)
-        ok = tree(cdir) == tree(dst / "Cores" / c) and (not adir.is_dir() or tree(adir, skip) == tree(dst / "Assets" / adir.name))
-        if not ok: die(f"backup of {c} does not match the card")
+        backup_core(card, c, bdir / c, skip)          # B-672: only what belongs to the core when its platform is shared
         print(f"   {c}: backed up and verified" + (" (media not backed up: carried to the new core / left in place)" if skip else ""))
     (bdir / "System").mkdir(exist_ok=True)
     for f in CACHES:
@@ -398,12 +484,7 @@ def main():
     # 4. remove
     print("\n[4/7] remove superseded cores")
     for c in a.remove:
-        cdir, adir, pjson, pimg = core_paths(card, c)
-        rmtree_tolerant(cdir)
-        if adir.is_dir(): rmtree_tolerant(adir)
-        for f in (pjson, pimg):
-            if f.exists(): f.unlink()
-        print(f"   removed {c}")
+        remove_core(card, c)                          # B-672: never the media or platform files of a platform other cores use
     if not a.remove: print("   none")
 
     # 5. catalog caches
