@@ -43,5 +43,18 @@ check("an unknown id is refused", gen("--cflags", "nope")[0] != 0)
 check("turning a diagnostic ON is refused", gen("--cflags", "", "stress")[0] != 0)
 check("graduating a feature is allowed", gen("--cflags", "", "meter_experimental")[1] == "-DTAU_FX_METER_EXPERIMENTAL=1")
 check("dropping a feature gives its macro", gen("--cflags", "stress")[1] == "-DTAU_DX_STRESS=0")
+# agents must register new diagnostic code, not add another bare '#if TAU_DIAGNOSTIC'
+bare = []
+for p in list((ROOT / "fw").glob("*.inc")) + list((ROOT / "fw").glob("*.c")) + list((ROOT / "fw").glob("*.h")):
+    if p.name == "diag_features.h": continue
+    for i, line in enumerate(p.read_text().splitlines(), 1):
+        if re.match(r"\s*#\s*(if|elif)\b.*\bTAU_DIAGNOSTIC\b", line) or "defined(TAU_DIAGNOSTIC)" in line: bare.append(f"{p.name}:{i}")
+check(f"no new bare '#if TAU_DIAGNOSTIC' ({d['_shell_sites']['count']} allowed shell sites, found {len(bare)}): register the code as a feature in fw/diag_features.json instead (docs/features/DIAG_FEATURES.md)", len(bare) <= d["_shell_sites"]["count"], str(bare))
+# the stored measurements cover exactly the registered features (a new feature must be measured: python3 tools/diag_cost.py)
+cost = json.loads((ROOT / "tools/diag_cost.json").read_text())["rows"]
+missing = [i for i in feats if i not in cost and not any(k.startswith(i + " ") for k in cost)]
+check("tools/diag_cost.json has a measurement for every registered feature (run python3 tools/diag_cost.py)", not missing, str(missing))
+check("tools/diag_cost.json has a row for every preset", all(("preset " + n) in cost for n in d["presets"]))
+check("--hint names features and a DIAG_DROP line", "DIAG_DROP=" in gen("--hint", "1000")[1])
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
