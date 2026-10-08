@@ -205,3 +205,38 @@ Results go to AUDIT_TRAIL as a new B entry; then the tools change.
    it uses `variant_select`, a key the instance schema does not have **[TAU, DOC]**.
 6. Omega side (its repo, its session): read `tau-release.json`, channel = platform, keep `SHA256SUMS.txt` check.
    Recorded in `CROSS_PROJECT_INTERFACE.md` as a new interface surface.
+
+## 10. Tau Omega request: `tau-compat.json` (analysis, 2026-10-08)
+
+Omega asks for one extra release asset, `tau-compat.json` (schema 1), written by `tools/make_release.py`, listed in
+`SHA256SUMS.txt` and attached to the GitHub release. Zips stay unchanged. Verdict: **accept, with the source
+corrections below.** It fits section 5: it is the external half of the `tau-release.json` idea and needs no Pocket
+change, so it can ship before the section 7 probe. The in-zip manifest is deferred, because the zips must not change.
+
+Where each field comes from, and what needs fixing first:
+
+| Field | Source | Issue |
+|---|---|---|
+| `release`, `prerelease` | Not in the zips (`core.json` says `0.6.0` for every alpha) | New `--release vX.Y.Z[-alpha.N]` argument, refused unless the `CHANGELOG.md` heading and README "Current version" match. `prerelease` = the tag has a suffix |
+| `date_release`, `zip`, `zip_sha256`, `core_id`, hashes | The zips | Straightforward. Assert both packages carry the same bitstream hash |
+| `rom_accepts`, `rom_needs` | `TAUFWPAIR`/`TAUFWNEED` in each zipped `tau.rom` (reuse `check_fw_bitstream_pair.py`) | Straightforward |
+| `bitstream_core_version` | Asked to come from "the source the pairing gate uses" | **Weak source.** `tree_core_version()` takes the first `CORE_VERSION` literal in `mp3_soc.v`, but there are four, selected by `TAU_RAM_192K`/`TAU_CLK66`. The first one happens to be the shipped one. Correct source: the macros in the RBF's fit manifest (`<rbf>.json`, written by `vm_fit.py collect` since B-653) mapped through the same ifdef table. Refuse a release whose RBF has no manifest unless `--bitstream-version` is given explicitly. Fix the pairing gate the same way, so both read one function |
+| `library_index_version` | `tools/tau_library.py VERSION` cross-checked with `fw/library_core.h` | Straightforward |
+| `assets_sections` | Sections the firmware reads (`as_find(..., "THEM"/"METR")` in `fw/assets.inc`, `PRST` via `hal_prst_load`) | Derive by scanning the firmware source, or the ROM strings, not from `tau_assets.py`. That tool's docstring still calls METR "planned" |
+| `assets_read_limit_bytes` | The firmware constant (D-A01, 64 KiB) | Read the constant from the firmware source |
+| `report_tags_max` | Last `SR_T_*` in `fw/suite_core.h` | Parse the enum. Next free is 28, so 27 today |
+| `persist_ids_changed` | Cannot come from one release's files | Diff the zipped `interact.json` variables (id to name and range) against the previous release's zip. Example: id 16 changed from preset EQ to the Halcyon preset. Needs `--previous ZIP` (or the previous tag's asset). Exact definition: ids whose name, range or default changed, plus ids removed |
+| `min_omega` | Judgement | Keep it in a small checked-in file (`tools/omega_compat.json`) so it is reviewed, not typed at release time |
+| `notes` | Judgement | Take it from an `Omega:` subsection of the release's CHANGELOG entry. It is still hand-written, but versioned with the changelog |
+
+Other points:
+- **Test:** building a real release inside `make test-host` is too slow (two full firmware builds). Proposal: the
+  generator is a separate module, `tools/tau_compat.py build|verify`, tested on small synthetic zips with real marker
+  strings. Mutations: one ROM byte, one zip byte, a `CORE_VERSION` missing from `rom_accepts`, a removed persist id.
+  `verify` also runs at the end of every real `make_release.py`. "Done" is then one real release run plus the test.
+- **GitHub step:** `make_release.py` does not publish today. Publishing stays a manual step with the owner's
+  approval: it prints the exact `gh release create ... --repo alfatreze/Tau-Alpha` command including `tau-compat.json`.
+- **Backfill:** `verify`/`build` work from published zips, so v0.6.0-alpha.3 and alpha.4 can get a compat file
+  added to their existing releases. That is an upload to a public release, so it needs approval.
+- **Future channels:** schema 1 works with section 4 unchanged (one `packages` entry per zip, `core_id` per
+  folder). Dev builds are never published, so they get no compat file.
