@@ -392,3 +392,20 @@ changes the zips.
 
 The CORE_VERSION is now evaluated at the fit's commit. Shipping a user or generated file stops the release. The shared
 TAUA round-trip fixture lives in `docs/schemas/fixtures/`.
+
+## 12. One version everywhere (owner, 2026-10-08, built)
+
+The Pocket's Select Core row (`core.json` `version`), the splash and Info > FIRMWARE always show the exact build:
+- **ROM field:** the firmware reserves a 48-byte `TAUVER:` field (`fw/player.c` `tau_ver_field`), built as the plain `APP_VER`.
+  The splash (both version lines) and Info > FIRMWARE read it at run time.
+- **Stamping:** packagers stamp `<SemVer>+<commit>[.dirty]` into the packaged ROM (`tools/tau_version.py`) and write the SemVer into
+  `core.json`:
+  - dev builds: `0.6.0-dev.385+f2d3373`;
+  - releases: the tag (`make_release.py`), from a committed tree;
+  - `--semver` builds: their version.
+- **Check:** `tau_compat` refuses a package whose ROM stamp and `core.json` disagree, and publishes `rom_version`.
+- **Splash text:** it no longer says "TAU ALPHA": that is the repository name, which read like a channel.
+- **Cost:** 32 B in the 192 KB Diagnostic Build. That build has only about 150 B above its heap floor; a two-string splash line
+  (about 190 B) did not fit.
+- **Later:** `APP_VER` digit parsing (`APP_VER[0]`, `[2]`, `[4]` in the Check/Info export) assumes single-digit version parts and
+  breaks at 0.10.

@@ -183,6 +183,14 @@
               "type": "string",
               "pattern": "^[A-Z0-9_]+$"
             }
+          },
+          "rom_version": {
+            "description": "The full version stamped in the ROM (shown on the splash and Info): <SemVer>+<commit>[.dirty]; null for a ROM built before 2026-10-08. Its SemVer part equals core.json's version.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9A-Za-z.+-]+$"
           }
         }
       }

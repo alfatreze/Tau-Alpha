@@ -322,7 +322,9 @@ if [ -z "$APP_VER" ] || [ -z "$JSON_VER" ]; then
   echo "*** VERSION CHECK BROKE: could not read a version from either file ***" >&2
   exit 1
 fi
-if [ "$APP_VER" != "$JSON_VER" ]; then
+# core.json may carry the full pre-release version a release or package stamped (0.6.0-preview.1, tools/tau_version.py); APP_VER is
+# the X.Y.Z it starts with.
+if [ "$APP_VER" != "${JSON_VER%%-*}" ]; then
   echo "*** VERSION MISMATCH: player.c says $APP_VER, core.json says $JSON_VER ***" >&2
   echo "    both must match before release; core.json also carries date_release" >&2
   exit 1

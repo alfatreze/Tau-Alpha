@@ -330,6 +330,19 @@ static const char tau_fw_pair_marker[] __attribute__((used, retain)) = "TAUFWPAI
  * Keep it in step with the status line in README.md; nothing enforces that. */
 #define APP_VER "0.6.0"
 
+/* The FULL version shown on the splash and Info > FIRMWARE (owner, 2026-10-08). Built as the plain APP_VER; the packagers stamp the exact
+ * build into this field after the build (tools/tau_version.py: "0.6.0-preview.1+f2d3373", "0.6.0-dev.385+f2d3373.dirty"), so a ROM always
+ * says which build it is, whatever flags it was built with. Read through a volatile pointer so the compiler cannot fold in APP_VER.
+ * 48 bytes: "TAUVER:" + up to 40 characters + NUL. */
+static const char tau_ver_field[48] __attribute__((used, retain)) = "TAUVER:" APP_VER;
+
+static inline const char *app_version(void)
+{
+    const char *p = tau_ver_field + 7;
+    __asm__ volatile ("" : "+r"(p));        /* hide the address from the optimiser: the bytes are patched after the build */
+    return p;                               /* NUL-terminated: tools/tau_version.py keeps the last byte of the field zero */
+}
+
 /* The Diagnostic Build switch. One macro for everything that must not be in the shipped release: the
  * Check and its QR report (fw/suite.inc), the Tests and Stress pages, the SDRAM stress pump, soak and
  * HUD, and the diagnostic menus. Off in `release`; on in `player-library-diagnostic` and
@@ -3579,13 +3592,14 @@ static int ui_splash_asset(void)
 
 static void ui_splash_version(void)
 {
-    const char *s = "TAU ALPHA " APP_VER;
-    uint32_t w = fb_text_width(s, TS_1X);
+    /* The full version alone (it was "TAU ALPHA 0.6.0": the repository's name, which read like a channel; the splash image already says
+     * TAU). One draw, no buffer: the 192 KB diagnostic build has almost no RAM to spare. */
+    const char *v = app_version();
+    uint32_t w = fb_text_width(v, TS_1X);
     fb_rect(UI_MARGIN - 4u, TAU_SPLASH_VER_Y - 1u, w + 8u,
             FB_CELL(TS_1X) + 2u, TAU_SPLASH_BG);
     fb_set_color(UI_DIM, TAU_SPLASH_BG);
-    fb_text_clipped(UI_MARGIN, TAU_SPLASH_VER_Y, s, TS_1X, TS_1X,
-                    FB_W - 2u * UI_MARGIN);
+    fb_text_clipped(UI_MARGIN, TAU_SPLASH_VER_Y, v, TS_1X, TS_1X, FB_W - 2u * UI_MARGIN);
 }
 
 /* Card, title and version. Shared by the static splash and the animated one so
@@ -3612,8 +3626,7 @@ static void ui_splash_bg(void)
                   UI_INNER_W + 16u, UI_CARD_H, 8u, UI_PANEL);
 
     fb_set_color(UI_DIM, UI_PANEL);
-    fb_text_clipped(UI_MARGIN, UI_SPL_VER_Y, "v" APP_VER, TS_1X, TS_1X,
-                    UI_INNER_W);
+    fb_text_clipped(UI_MARGIN, UI_SPL_VER_Y, app_version(), TS_1X, TS_1X, UI_INNER_W);
 }
 
 static void ui_splash_title(uint32_t f, uint32_t den)
