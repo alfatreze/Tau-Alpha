@@ -249,6 +249,18 @@
           "type": "boolean"
         }
       }
+    },
+    "previous_release": {
+      "description": "The release persist_ids_changed was computed against (null for the first compat file). A reader whose card is older must union persist_ids_changed over every release in between, or use persist_registry: an id changed since release R when its `since` is later than R.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.]+)?$"
+    },
+    "persist_registry": {
+      "description": "Meaning of every persisted id the packages use (tools/persist_registry.json): bump-on-change `meaning` and the release that first shipped it.",
+      "type": "object"
     }
   }
 }

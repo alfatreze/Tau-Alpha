@@ -6,7 +6,7 @@ menus switched on. Zip names follow Analogue's convention <Author>.<Core>_<Versi
 Pocket base folders (Cores, Platforms, Assets). Version and date come from dist/Cores/alfatreze.TAU/core.json.
 
   python3 tools/make_release.py --rbf PATH_TO_RAW.rbf --rbf-sha256 HASH --release v0.6.0-alpha.5 \
-      --previous release/alfatreze.TAU_<last>.zip --previous release/alfatreze.TAU_DIAGNOSTIC_<last>.zip [--test]
+      --previous-release v0.6.0-alpha.4 --previous release/alfatreze.TAU_<last>.zip --previous release/alfatreze.TAU_DIAGNOSTIC_<last>.zip [--test]
 
 Steps: build both ROMs, package the normal core (package.py), package the diagnostic core
 (tools/package_dev_build.py --release-diagnostic), check both, write release/<name>.zip x2, release/tau-compat.json (Tau Omega's compatibility manifest, tools/tau_compat.py,
@@ -85,6 +85,7 @@ def main():
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--previous", action="append", type=Path, help="the previous release's zip of each core (persist_ids_changed)")
     g.add_argument("--no-previous", action="store_true", help="no previous zips: persist_ids_changed = []")
+    ap.add_argument("--previous-release", help="the tag of the --previous zips (checked against their version, date and the CHANGELOG)")
     ap.add_argument("--bitstream-version", help="CORE_VERSION of --rbf when it has no fit manifest (<rbf>.json)")
     ap.add_argument("--test", action="store_true", help="also run make test-host")
     args = ap.parse_args()
@@ -102,6 +103,8 @@ def main():
         if not args.release.startswith(f"v{version}") or args.release[len(version) + 1:][:1] not in ("", "-"):
             raise tau_compat.CompatError(f"--release {args.release} is not core.json version {version}")
         tau_compat.changelog_section(args.release, ROOT / "CHANGELOG.md")
+        if args.previous and not args.previous_release:
+            raise tau_compat.CompatError("--previous needs --previous-release")
         core_version = tau_compat.bitstream_core_version(rbf, args.bitstream_version)
         if tau_compat.source_state()["dirty"]:      # review M1: the tree-derived fields must come from a committed tree
             raise tau_compat.CompatError("the tree has uncommitted changes outside dist/ and release/: commit them before a release")
@@ -147,7 +150,7 @@ def main():
         print(f"  {z.name}: {n} files, {z.stat().st_size:,} bytes, checks ok")
     zips = [OUT / line.split("  ", 1)[1] for line in sums]
     kw = dict(release=args.release, zips=zips, previous=None if args.no_previous else args.previous,
-              rbf=rbf, bitstream_version=args.bitstream_version)
+              rbf=rbf, bitstream_version=args.bitstream_version, previous_release=args.previous_release)
     compat = OUT / "tau-compat.json"
     try:
         compat.write_text(tau_compat.dumps(tau_compat.build(**kw)))

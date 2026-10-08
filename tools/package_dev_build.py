@@ -193,6 +193,21 @@ def main():
     r = subprocess.run(pair_cmd, cwd=root)   # B-581
     if r.returncode != 0:
         sys.exit("firmware/bitstream pairing check failed (see above); package left in " + str(out) + " but do not install it")
+    # Review M5: a dev package carries its own release manifest next to it (tau-compat.json + a deterministic zip), so the installer
+    # and Tau Omega's local-package flow get the same layout and pairing facts as a GitHub release. Needs the fit manifest for the
+    # bitstream's CORE_VERSION and features; without one it is skipped with a note (dev builds on dist/'s bitstream).
+    if not args.release_diagnostic:
+        sys.path.insert(0, str(root / "tools"))
+        import tau_compat
+        label = args.semver or (f"barcode.{args.barcode}" if args.barcode is not None else args.number)
+        if man is not None and man.is_file():
+            try:
+                cp = tau_compat.build_dev(out, label, rbf=rbf)
+                print(f"manifest {cp} ({json.loads(cp.read_text())['release']})")
+            except tau_compat.CompatError as e:
+                sys.exit(f"tau-compat.json for this dev package failed: {e}")
+        else:
+            print("note: no fit manifest for this RBF: no tau-compat.json for this dev package (the installer skips its card check)", file=sys.stderr)
     print(core_id, digest(c / "bitstream.rbf_r"), digest(a / "common/tau.rom"))
 
 if __name__ == "__main__":
