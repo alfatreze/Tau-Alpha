@@ -280,11 +280,11 @@ the package expects on a card.
 
 | Role | Meaning for an installer | Today's entries (normal core) |
 |---|---|---|
-| `owned` | Install and replace exactly; the hash must match | `Cores/alfatreze.TAU/*`, `tau.rom` (slot 1, required), `tau-cold.bin` (6), `tau-loading.bin` (4), `Assets/tau/alfatreze.TAU/TAU.json` |
+| `owned` | Install and replace exactly; the hash must match | `Cores/alfatreze.TAU/*`, `tau.rom` (slot 1, required), `tau-cold.bin` (6), `tau-loading.bin` (4) |
 | `shared` | Install if missing; other cores may use it, so a different hash is only a warning | `Platforms/tau.json`, `Platforms/_images/tau.bin` |
 | `generated` | Never in the zip; the companion builds it in `format` | `tau-library.tdb` (tau-library v1), `**/tau-art/cover_128.pal256.timg` (TIM1) |
 | `user` | Never overwrite; check its `format` | `tau-assets.bin` (TAUA v1, sections, 64 KiB), media `**/*.{flac,mp3}`, `Settings/<core>/Interact/interact_persist.json` |
-| `obsolete` | Remove on update | From `tools/omega_compat.json` `obsolete` (empty today) |
+| `obsolete` | Remove on update | From `tools/omega_compat.json` `obsolete`, per core: `Assets/tau/alfatreze.TAU/TAU.json` (and the Diagnostic Build's copy) |
 
 Entry fields: `path` (card-relative; `pattern: true` paths use `**` and `*.{a,b}`), `role`, `sha256` (owned/shared),
 `slot` (the data slot it feeds, or null), `required` (the core's `data.json` marks the slot required), `format`
@@ -329,6 +329,11 @@ TIM1, TAUA) still rely on their reference readers and real card captures (D-I05 
 changes the zips.
 
 **Follow-ups.**
-- Stop shipping the inert `TAU.json` and list it as `obsolete`.
-- Teach `tools/install_dev_core.py` to run `check-card` after a release install.
+- **Done 2026-10-08:** the inert `TAU.json` is no longer shipped. It was removed from `dist/` and
+  `package_dev_build.py`. Both cores' copies are listed `obsolete` per core in `tools/omega_compat.json`
+  (`{core_id, path}` entries).
+- **Done 2026-10-08:** `tools/install_dev_core.py` uses a matching manifest. It removes obsolete files and runs the card
+  check (step 3c, `docs/CARD_INSTALL_PROCEDURE.md`). A non-matching explicit `--compat` stops before writing.
+- Still open on our side: `tools/package_psram_diagnostic.py` (old P2/P4 probe packager, not a release path) still
+  writes an instance file.
 - Omega: accept schema 2 and implement `check-card`.

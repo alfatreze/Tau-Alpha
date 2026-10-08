@@ -13,7 +13,9 @@ Steps (docs/CARD_INSTALL_PROCEDURE.md): 1 back up everything about to be removed
 2 copy the new core, verify every file by SHA-256; 3 (--carry-from) copy the media and REBUILD the library
 index for the new core's own path (B-136); 4 remove the named cores; 5 delete the five Pocket catalog caches
 (B-143 -- a new core does not appear without this); 6 remove AppleDouble/.DS_Store junk in the touched paths;
-7 eject. A backup leaves out the media (audio/images) of the core whose media is carried over or which is replaced in place -- it is a
+7 eject. With a release manifest (tau-compat.json, --compat, or found next to the package / in release/) that describes exactly this
+package, files it marks obsolete are removed and the card is checked against it (tau_compat check-card) before the caches are deleted;
+a manifest that does not match the package stops the install before anything is written. A backup leaves out the media (audio/images) of the core whose media is carried over or which is replaced in place -- it is a
 duplicate that used to make every backup about 0.8 GB (B-542); --backup-media keeps it. A core removed WITHOUT being carried from keeps a full backup. The release cores (alfatreze.TAU, alfatreze.TAU_DIAGNOSTIC) are never removed or replaced unless
 --allow-release is given.
 
@@ -23,6 +25,8 @@ import argparse, datetime, filecmp, hashlib, json, os, shutil, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+import tau_compat  # noqa: E402  (RELEASE_SYSTEM_SPEC section 11: the card layout contract)
 CACHES = ["core_viewby_platform.bin", "corelist_cache.bin", "cores_cache.bin",
           "platform_viewby_category.bin", "platforms_cache.bin"]
 RELEASE_CORES = {"alfatreze.TAU", "alfatreze.TAU_DIAGNOSTIC"}
@@ -139,6 +143,8 @@ def main():
     ap.add_argument("--allow-release", action="store_true", help="permit touching alfatreze.TAU / alfatreze.TAU_DIAGNOSTIC")
     ap.add_argument("--backup-dir", type=Path, help="default: work/card-backups/<timestamp>")
     ap.add_argument("--backup-media", action="store_true", help="include media in the backup of the carried-from or replaced core (default: skipped, it is a duplicate -- B-542)")
+    ap.add_argument("--compat", type=Path, metavar="FILE", help="release manifest tau-compat.json for this package (default: <package>/../tau-compat.json, "
+                    "else release/tau-compat.json, each used only if it describes exactly this package)")
     ap.add_argument("--no-eject", action="store_true")
     ap.add_argument("--yes", action="store_true", help="actually write (default is a dry run)")
     a = ap.parse_args()
@@ -157,6 +163,27 @@ def main():
     if (Path(pkg) / "bitstream-manifest.json").is_file():
         pair_cmd += ["--bitstream-manifest", str(Path(pkg) / "bitstream-manifest.json")]     # B-653: the features too
     run(pair_cmd, "firmware/bitstream pairing (B-581, B-653)")
+
+    # Release manifest (tau-compat.json, schema 2): applies only when it describes exactly this package. An explicit --compat that does not
+    # match stops here, before anything is written; an auto-found one that does not match is ignored (dev packages have none).
+    compat = compat_entry = None
+    cands = [a.compat] if a.compat else [pkg.parent / "tau-compat.json", ROOT / "release/tau-compat.json"]
+    for cpath in cands:
+        if cpath is None or not cpath.is_file():
+            if a.compat:
+                die(f"--compat {a.compat} not found")
+            continue
+        doc = json.loads(cpath.read_text())
+        errs = tau_compat.schema_errors(doc)
+        ent, why = (None, [f"schema: {e}" for e in errs]) if errs else tau_compat.package_match(doc, pkg, new_id)
+        if ent is not None:
+            compat, compat_entry = doc, ent
+            print(f"compat:  {cpath} ({doc['release']}) describes this package")
+            break
+        if a.compat:
+            die(f"--compat {a.compat} does not describe this package: " + "; ".join(why[:4]))
+    if compat is None:
+        print("compat:  no release manifest for this package (card check skipped)")
 
     for c in a.remove + ([new_id] if a.replace else []):
         if c in RELEASE_CORES and not a.allow_release:
@@ -178,6 +205,9 @@ def main():
     if a.carry_from:
         print(f"media:   carry from {a.carry_from}, rebuild the library index for {new_id}")
     print(f"remove:  {a.remove or 'nothing'}")
+    if compat_entry is not None:
+        obs = [e["path"] for e in compat_entry["layout"] if e["role"] == "obsolete" and (card / e["path"]).exists()]
+        print(f"obsolete: {obs or 'none on the card'}; then check the card against {compat['release']}")
     print("then:    delete catalog caches, clean junk files, " + ("(no eject)" if a.no_eject else "eject"))
     if dry:
         print("\n(dry run) re-run with --yes to write.")
@@ -281,6 +311,23 @@ def main():
         print(f"\n[3b] tau-assets.bin installed ({sha(dst)[:16]}, from {ab})")
     else:
         print("\n[3b] tau-assets.bin: none found (Info shows THEME FILE / METER FILE NONE)")
+
+    # 3c. release manifest: remove obsolete files (already in the backup when the core was replaced), then check the card
+    if compat_entry is not None:
+        print(f"\n[3c] card check against {compat['release']} (tau-compat.json)")
+        for e in compat_entry["layout"]:
+            f = card / e["path"]
+            if e["role"] == "obsolete" and f.is_file():
+                f.unlink()
+                print(f"   removed obsolete {e['path']}")
+        res = tau_compat.check_card(compat, card, new_id)
+        for lvl, msg in res:
+            print(f"   {lvl.upper():5} {msg}")
+        bad = [m for lvl, m in res if lvl == "error"]
+        if bad:
+            die(f"the card does not match {compat['release']} ({len(bad)} error(s), see above); the core is installed, "
+                f"the caches are NOT deleted, backup {bdir}")
+        print(f"   card matches {compat['release']}: 0 errors, {len(res)} warning(s)")
 
     # 4. remove
     print("\n[4/7] remove superseded cores")

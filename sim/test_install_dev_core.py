@@ -2,7 +2,7 @@
 """Host test for tools/install_dev_core.py: installs the real dist/ package onto a scratch 'card' and checks the
 dry run, the install, --replace (media survives), the catalog-cache deletion and the release-core protection.
 Never touches a real card."""
-import subprocess, sys, tempfile
+import json, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -80,6 +80,41 @@ with tempfile.TemporaryDirectory() as td:
 
     rc, out = run(pkg, "--card", card, "--replace", "--yes")
     check("release cores are protected without --allow-release", rc != 0 and "release core" in out)
+
+    # Release manifest (tau-compat.json schema 2): obsolete files removed, card checked; a non-matching --compat stops before writing.
+    import zipfile
+    sys.path.insert(0, str(ROOT / "tools"))
+    import tau_compat as tc
+    zp = td / "alfatreze.TAU_rel.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        for f in sorted(pkg.rglob("*")):
+            if f.is_file() and f.relative_to(pkg).parts[0] in ("Cores", "Assets", "Platforms") and not f.name.startswith("._") and f.name != ".DS_Store":
+                z.write(f, str(f.relative_to(pkg)))
+    ver = json.loads((pkg / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["version"]
+    cl = td / "CL.md"; cl.write_text(f"## v{ver}-alpha.99\n- test\n")
+    acc = tc.rom_accepts((pkg / "Assets/tau/common/tau.rom").read_bytes())
+    cpath = td / "tau-compat.json"
+    cpath.write_text(tc.dumps(tc.build(release=f"v{ver}-alpha.99", zips=[zp], previous=None, bitstream_version=acc[0], changelog=cl)))
+    (card / "Assets/tau/alfatreze.TAU").mkdir(parents=True, exist_ok=True)
+    (card / "Assets/tau/alfatreze.TAU/TAU.json").write_text("{}")
+    (card / "Assets/tau/common/tau-assets.bin").unlink()      # the earlier --assets case placed a fake "TAUA-test" file, not a TAUA v1 container
+    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk6", "--replace", "--allow-release", "--compat", cpath, "--no-eject", "--yes")
+    check("with --compat: the obsolete TAU.json is removed and the card check passes",
+          rc == 0 and "removed obsolete Assets/tau/alfatreze.TAU/TAU.json" in out and "card matches" in out
+          and not (card / "Assets/tau/alfatreze.TAU/TAU.json").exists())
+    check("the obsolete file is in the backup of the replaced core", (td / "bk6/alfatreze.TAU/Assets/tau/alfatreze.TAU/TAU.json").exists())
+    bad = json.loads(cpath.read_text()); bad["packages"][0]["layout"] = [dict(e, sha256="0" * 64) if e["path"].endswith("tau.rom") else e for e in bad["packages"][0]["layout"]]
+    (td / "bad.json").write_text(json.dumps(bad))
+    (card / "System/corelist_cache.bin").write_text("x")
+    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk7", "--replace", "--allow-release", "--compat", td / "bad.json", "--no-eject", "--yes")
+    check("a --compat that does not describe the package stops before writing", rc != 0 and "does not describe this package" in out and not (td / "bk7").exists())
+    (card / "Assets/tau/common/tau-assets.bin").write_bytes(b"TAUA" + (9).to_bytes(2, "little") + bytes(6))
+    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk8", "--replace", "--allow-release", "--compat", cpath, "--no-eject", "--yes")
+    check("a card file in a format the release cannot read fails the card check and keeps the caches",
+          rc != 0 and "TAUA version 9" in out and (card / "System/corelist_cache.bin").exists())
+    (card / "Assets/tau/common/tau-assets.bin").unlink()
+    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk9", "--replace", "--allow-release", "--no-eject", "--yes")
+    check("without a matching manifest the card check is skipped", rc == 0 and "card check skipped" in out)
 
     rc, out = run(pkg, "--card", td / "nocard")
     check("a missing card is a clean stop", rc != 0 and "not mounted" in out)
