@@ -25,7 +25,7 @@ fw/build.log
 # not a game ROM, and the core does not start without it -- a release zip built
 # from a checkout that lacks it is a broken release. The blanket *.rom rule above
 # still covers everything else.
-!dist/Assets/tau/common/tau.rom
+!dist/Assets/tau/alfatreze.TAU/tau.rom
 
 # Simulation outputs
 sim/*.vvp

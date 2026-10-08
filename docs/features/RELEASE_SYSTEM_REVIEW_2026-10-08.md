@@ -191,6 +191,23 @@ Pending:
   `build` refuses until the registry is updated, which is intended.
 - Omega: implement the union rule and read `persist_registry`.
 
+## Status of H4 (2026-10-08, same day)
+
+Built on `release-system`. **It changes the card layout, so it must pass the card probe (spec section 7, item 2)
+before any release ships it.**
+
+| What | Detail |
+|---|---|
+| Layout | `tau.rom`, `tau-cold.bin` and `tau-loading.bin` live in `Assets/<platform>/<core>/`. `data.json` slots 1, 4 and 6 set parameter bit 1 (slot 1 `0x108` -> `0x10A`, 4 and 6 `0x0` -> `0x2`). User and generated data stay in `common/` |
+| One place | `tools/tau_layout.py`: the file list, the bit, and a finder that accepts the old `common/` location (old packages and cards) |
+| Producers | `fw/build.sh` writes `dist/Assets/tau/alfatreze.TAU/` (dist files moved with `git mv`, bytes unchanged); `package.py`, `package_dev_build.py`, `make_release.py`, the release workflow, the splash tools and `.gitignore` follow |
+| Checks | `check_tau_package.py` requires the bit and no build-bound file in `common/`. `tau_compat` refuses a release shipping one there or a build-bound slot without the bit. The pairing check finds the ROM in either place |
+| Migration | The old `common/` copies are `obsolete` per core. The installer removes them after a passing card check, **only if no other core on the platform still reads them from `common/`**, so an older pinned build keeps working |
+| Tests | Layout roles and slots; common-shipped and missing-bit refusals; the other-reader rule; an installer upgrade of an old-layout card (kept while an old core reads the file, removed once none does). A real dev package against `noeq-b670` |
+
+Risk to confirm on hardware: that APF loads the required slot 1 (`tau.rom`) and the deferload slots 4 and 6 from the
+core folder, as Analogue's data.json documentation says.
+
 ## Proposed order
 
 1. **Now, small, Tau side (schema stays 2, all additive):** H3 (commit-pinned evaluation, `rtl_dirty`, `=0` guard),

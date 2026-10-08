@@ -2,7 +2,7 @@
 """B-574: the boot-splash asset formats (TAU1: 16-colour palette, TAU2: 256-colour palette) against the REAL firmware reader.
 
 Extracts ui_splash_asset() and its two helpers from fw/player.c, builds sim/splash_harness.c around them and requires:
-  - the shipped dist/Assets/tau/common/tau-loading.bin to draw exactly the framebuffer tools/capture_splash_frame.py decodes;
+  - the shipped dist/Assets/tau/alfatreze.TAU/tau-loading.bin to draw exactly the framebuffer tools/capture_splash_frame.py decodes;
   - a TAU1 file (the old format, made here from the authored source with 16 colours) to still draw correctly;
   - damaged files (bad magic, wrong size, zero-length run, run past the end, truncated, palette index out of range) to be refused
     (return 0), never to crash."""
@@ -96,7 +96,7 @@ def tau1_from_source():
 
 def main():
     exe = build()
-    shipped = (ROOT / "dist/Assets/tau/common/tau-loading.bin").read_bytes()
+    shipped = (ROOT / "dist/Assets/tau/alfatreze.TAU/tau-loading.bin").read_bytes()
     ok, fb = run(exe, shipped)
     check(ok == 1 and fb == reference(shipped), f"shipped asset ({shipped[:4].decode()}, {len(shipped)} bytes) draws exactly the reference framebuffer")
     t1 = tau1_from_source()

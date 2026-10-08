@@ -9,7 +9,7 @@ bitstream's CORE_VERSION (mp3_soc.v in this tree, or --bitstream-version / env T
 
   python3 tools/check_fw_bitstream_pair.py PACKAGE_DIR [PACKAGE_DIR ...] [--bitstream-version 4D50331A]
 
-A package dir has Assets/<platform>/common/tau.rom (the one under dist/ works too). Exit 1 on any mismatch or a ROM with
+A package dir has Assets/<platform>/<core>/tau.rom (or, before 2026-10-08, Assets/<platform>/common/tau.rom; dist/ works too). Exit 1 on any mismatch or a ROM with
 no marker (an old or unknown build cannot be vouched for).
 """
 import argparse, os, re, sys
@@ -45,7 +45,7 @@ def check_features(pkg, macros, allow=()):
     sys.path.insert(0, str(ROOT / "tools"))
     import fit_manifest
     errs = []
-    for rom in sorted(Path(pkg).glob("Assets/*/common/tau.rom")):
+    for rom in sorted(Path(pkg).glob("Assets/*/*/tau.rom")):
         need = rom_needs(rom.read_bytes())
         if need is None:
             continue                                   # no marker: the version check already reports it
@@ -59,9 +59,9 @@ def check_features(pkg, macros, allow=()):
 
 
 def check(pkg, bitstream_version):
-    roms = sorted(Path(pkg).glob("Assets/*/common/tau.rom"))
+    roms = sorted(Path(pkg).glob("Assets/*/*/tau.rom"))
     if not roms:
-        return [f"{pkg}: no Assets/*/common/tau.rom"]
+        return [f"{pkg}: no Assets/*/*/tau.rom"]
     errs = []
     for rom in roms:
         acc = rom_accepts(rom.read_bytes())

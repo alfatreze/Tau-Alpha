@@ -42,6 +42,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 from check_fw_bitstream_pair import rom_accepts, rom_needs  # noqa: E402  (the pairing gate's own marker readers)
 import fit_manifest  # noqa: E402  (B-653: FEATURES, macros_of)
+from tau_layout import BUILD_BOUND, CORE_SPECIFIC  # noqa: E402  (H4)
 
 SCHEMA = 2
 SCHEMA_FILE = ROOT / "docs/schemas/tau-compat.schema.json"
@@ -229,12 +230,15 @@ def read_zip(path):
 
         def one(pattern, what):
             hits = [n for n in names if re.fullmatch(pattern, n)]
+            if len(hits) > 1:                      # a core-specific copy wins; layout() then refuses the stray common/ one by name
+                hits = [n for n in hits if f"/{folder}/" in n] or hits
             if len(hits) != 1:
                 raise CompatError(f"{path.name}: expected one {what}, found {len(hits)}")
             return z.read(hits[0])
         bit = one(rf"Cores/{re.escape(folder)}/bitstream\.rbf_r", "bitstream.rbf_r")
-        rom = one(r"Assets/[^/]+/common/tau\.rom", "tau.rom")
-        cold = one(r"Assets/[^/]+/common/tau-cold\.bin", "tau-cold.bin")
+        where = rf"Assets/[^/]+/(?:{re.escape(folder)}|common)"            # core-specific (H4), or common/ in packages made before
+        rom = one(where + r"/tau\.rom", "tau.rom")
+        cold = one(where + r"/tau-cold\.bin", "tau-cold.bin")
         inter = json.loads(z.read(f"Cores/{folder}/interact.json"))
         data = json.loads(z.read(f"Cores/{folder}/data.json"))
         files = {n: sha(z.read(n)) for n in names if not n.endswith("/")}
@@ -303,9 +307,18 @@ def layout(pkg, root=ROOT, obsolete=()):
     slots = pkg["data"]["data"]["data_slots"]
     by_name = {sl["filename"]: sl for sl in slots if sl.get("filename")}
     common = f"Assets/{plat}/common/"
+    mine = f"Assets/{plat}/{core}/"
     out = []
+    for sl in slots:                                   # H4: a slot whose file ships in the zip is build-bound: it must be core-specific
+        if sl.get("filename") in BUILD_BOUND and not int(str(sl.get("parameters", "0")), 16) & CORE_SPECIFIC:
+            raise CompatError(f"{pkg['zip']}: data slot {sl['id']} ({sl['filename']}) is build-bound but not core-specific: set parameter bit 1 "
+                              "(two cores on one platform would load each other's firmware)")
     for path, h in sorted(pkg["files"].items()):
-        if path.startswith((f"Cores/{core}/", f"Assets/{plat}/{core}/")):
+        if path.startswith(common) and path[len(common):] in BUILD_BOUND:
+            raise CompatError(f"{pkg['zip']}: ships {path} in the platform-wide common/ folder; build-bound files go in {mine} (tools/tau_layout.py)")
+        if path.startswith(mine) and path[len(mine):] in by_name:
+            role, slot = "owned", by_name[path[len(mine):]]
+        elif path.startswith((f"Cores/{core}/", mine)):
             role, slot = "owned", None
         elif path.startswith(common) and path[len(common):] in NOT_SHIPPED:
             raise CompatError(f"{pkg['zip']}: ships {path}, which is {NOT_SHIPPED[path[len(common):]]} data: installing it would overwrite the user's copy")
@@ -322,7 +335,7 @@ def layout(pkg, root=ROOT, obsolete=()):
     for sl in slots:
         fn = sl.get("filename")
         if fn:
-            if common + fn in shipped:
+            if common + fn in shipped or mine + fn in shipped:
                 continue
             if fn not in NOT_SHIPPED:
                 raise CompatError(f"{pkg['zip']}: data slot {sl['id']} names {fn}, which is neither shipped nor in tau_compat.NOT_SHIPPED")
@@ -454,6 +467,28 @@ def format_errors(layout, card, skip=(), max_pattern_files=2000):
                 if why:
                     out.append(f"{f.relative_to(card)}: {why}")
     return out
+
+
+def still_read_by_other_core(card, path, core_id):
+    """True when another core on the card has the same platform and reads `path` (Assets/<plat>/common/<file>) from common/: a slot
+    naming that file without the core-specific bit. Obsolete common/ files are only removed when this is False (an older pinned
+    build on the same platform may still need them)."""
+    parts = Path(path).parts
+    if len(parts) != 4 or parts[0] != "Assets" or parts[2] != "common":
+        return False
+    plat, name = parts[1], parts[3]
+    for c in (Path(card) / "Cores").iterdir() if (Path(card) / "Cores").is_dir() else []:
+        if c.name == core_id or not (c / "core.json").is_file():
+            continue
+        try:
+            meta = json.loads((c / "core.json").read_text())["core"]["metadata"]
+            slots = json.loads((c / "data.json").read_text())["data"]["data_slots"]
+        except (OSError, ValueError, KeyError):
+            continue
+        if (meta.get("platform_ids") or [None])[0] == plat and any(
+                s.get("filename") == name and not int(str(s.get("parameters", "0")), 16) & CORE_SPECIFIC for s in slots):
+            return True
+    return False
 
 
 def check_card(doc, card, core=None, max_pattern_files=2000):
