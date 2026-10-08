@@ -10,6 +10,7 @@ Every claim below is marked **[DOC]** (Analogue developer docs), **[TAU]** (this
   assets or media. Sketch: `Tau > v0.7, v0.7.1, v0.8, v0.7 Diagnostics`.
 - Alpha/beta releases: separate from the main releases (risk of cold-image incompatibility to be checked).
 - Dev builds: isolation and quick access first. Sketch: `Tau beta > 0.7.3`, `Tau DEV 385`.
+- Channel names decided 2026-10-08: **Stable / Preview / Dev** ("beta" clashes with the project name Tau Alpha; section 4a).
 - Easy download and install by Tau Omega; an easy workflow for development.
 
 ## 2. What the Pocket offers (the two real mechanisms)
@@ -85,7 +86,7 @@ What actually breaks when versions share files today **[TAU]**:
    come from the library index root. So moving builds between platforms is safe as long as media stays under
    `/Assets/tau/common/`.
 
-With 1 fixed, alpha/beta builds can share the media library with stable without risk to stable's ROM. Whether they
+With 1 fixed, Preview and Dev builds can share the media library with stable without risk to stable's ROM. Whether they
 **should** share the platform list is a UX choice (section 4), not a safety one.
 
 ## 4. Proposed scheme
@@ -96,8 +97,8 @@ Three channels = three platforms. Every build is its own core folder. Media live
 |---|---|---|---|---|
 | Stable | `tau` / "TAU" | `alfatreze.TAU` (current stable, rolling) + optional pinned `alfatreze.TAU_0_7`, `alfatreze.TAU_0_7_1` | TAU 0.8 / TAU 0.7.1 / TAU 0.7 | own |
 | Stable diagnostics | `tau` | `alfatreze.TAU_DIAG` (+ pinned `alfatreze.TAU_0_7_DIAG`) | TAU 0.8 Diagnostics | own |
-| Pre-release | `tau_beta` / "TAU Beta" | `alfatreze.TAU_0_8_0_B_2`, `..._A_5`, `..._RC_1` | TAU 0.8.0-beta.2 | from `tau` via bits [25:24] |
-| Dev | `tau_dev` / "TAU DEV" | `alfatreze.TAU_DEV_385` | TAU DEV 385 | from `tau` via bits [25:24] |
+| Preview | `tau_preview` / "TAU Preview" | `alfatreze.TAU_PREVIEW_0_8_0_2`, later `..._RC_1` | TAU Preview 0.8.0-preview.2 | from `tau` via bits [25:24] |
+| Dev | `tau_dev` / "TAU Dev" | `alfatreze.TAU_DEV_385` | TAU Dev 385 | from `tau` via bits [25:24] |
 
 Notes:
 - **Rolling stable folder**: `alfatreze.TAU` always holds the newest stable, so settings and the Pocket's
@@ -105,27 +106,46 @@ Notes:
   (`alfatreze.TAU_0_7`) with its own settings copy. Pinned folders are optional and Omega-managed.
 - **Diagnostics moves onto platform `tau`** (today it is platform `tau_diagnostic` with duplicated media). With
   build-bound slots core-specific it can safely share media.
-- **Pre-release and dev get one platform entry each** instead of one per build (today every DEV/alpha build creates
-  its own platform, `tau_dev_42`, `tau_0_6_0_a_44`, ...). The list under "TAU DEV" is the dev picker; nothing new
+- **Preview and Dev get one platform entry each** instead of one per build (today every DEV/alpha build creates
+  its own platform, `tau_dev_42`, `tau_0_6_0_a_44`, ...). The list under "TAU Dev" is the dev picker; nothing new
   in the main TAU list. Shared media removes the per-install media copy in `install_dev_core.py` (the slowest step).
   Dev builds that change a shared format set `--private-library` and read core-specific copies.
-- **Version strings** follow SemVer 2.0: `0.8.0`, `0.8.0-alpha.5`, `0.8.0-beta.2`, `0.8.0-rc.1`,
-  dev `0.8.0-dev.385`. Written in full in `core.json` `version` (<= 31 chars **[DOC]**; B-142 showed the earlier
+- **Version strings** follow SemVer 2.0: Stable `0.8.0`, Preview `0.8.0-preview.2` (optionally `0.8.0-rc.1` just before a
+  release), Dev `0.8.0-dev.385`. Written in full in `core.json` `version` (<= 31 chars **[DOC]**; B-142 showed the earlier
   disappearing-core problem was the 63-char description, not the version). This gives every build a unique,
   sortable id, removing Omega's "same date, different build" ambiguity **[OMEGA update.rs]**.
 - **Dev numbers** stay monotonic and are never reused; three digits are fine (`TAU_DEV_385`, platform unchanged).
 - **Zip names** keep Analogue's convention `<Author>.<Core>_<Version>_<Date>.zip`
-  (`alfatreze.TAU_0.8.0_2026-11-02.zip`, `alfatreze.TAU_DIAG_0.8.0_...`, `alfatreze.TAU_BETA_0.8.0-beta.2_...`).
-- **Git tags**: `v0.8.0`, `v0.8.0-beta.2`; GitHub `prerelease` true for anything with a suffix. Dev builds are never
+  (`alfatreze.TAU_0.8.0_2026-11-02.zip`, `alfatreze.TAU_DIAG_0.8.0_...`, `alfatreze.TAU_PREVIEW_0.8.0-preview.2_...`).
+- **Git tags**: `v0.8.0`, `v0.8.0-preview.2`; GitHub `prerelease` true for anything with a suffix. Dev builds are never
   published to GitHub.
 
 Owner decisions are listed in section 8.
+
+### 4a. Channel names (decided 2026-10-08)
+
+One word per channel, used identically in the Pocket list, platform id, version label, zip name and GitHub flag.
+
+| Channel | Pocket list | Platform id | Version | Zip | GitHub |
+|---|---|---|---|---|---|
+| Stable | TAU | `tau` | `v0.8.0` | `alfatreze.TAU_0.8.0_<date>.zip` | release |
+| Preview | TAU Preview | `tau_preview` | `v0.8.0-preview.2` | `alfatreze.TAU_PREVIEW_0.8.0-preview.2_<date>.zip` | pre-release |
+| Dev | TAU Dev | `tau_dev` | `0.8.0-dev.385` | not published | none |
+
+- "Beta" was rejected because it clashes with the project name Tau Alpha.
+- "Nightly" implies an automatic daily build, which this project does not have.
+- "Insider" implies a membership programme.
+- "Tester" names a person, not a build. "Testing" (Debian's word) was the second choice.
+- SemVer orders pre-release labels alphabetically, so `dev < preview < rc < release` with no special cases in Omega's
+  comparator. `-rc.N` stays available inside the Preview channel.
+- Existing published tags (`v0.6.0-alpha.N`) are history and are not renamed. The first Preview is the next pre-release.
+- "Tau Alpha" remains the repository name only. Users see TAU, TAU Preview and TAU Dev.
 
 ## 5. What Tau Omega needs from a release (requirements)
 
 From `FIRMWARE_UPDATE_SPEC.md` and `crates/tau-core/src/update.rs` **[OMEGA]**:
 
-1. Find releases on GitHub, filter Stable/Alpha by `prerelease`, pick Normal vs Diagnostic asset by name pattern,
+1. Find releases on GitHub, filter Stable/Preview by `prerelease`, pick Normal vs Diagnostic asset by name pattern,
    verify against `SHA256SUMS.txt`, then install through its existing plan/confirm path.
 2. Compare installed vs offered (it currently has to guess from `core.json` version + date).
 3. Verify firmware/bitstream pairing. Finding: "a package cannot reveal its bitstream's CORE_VERSION", so it keeps
@@ -136,8 +156,8 @@ Proposed answer: a **release manifest** `tau-release.json`, inside each core fol
 
 ```json
 { "tau_release": 1,
-  "channel": "stable|beta|dev", "version": "0.8.0-beta.2", "build": 412, "git": "f2d3373", "date": "2026-11-02",
-  "core": "alfatreze.TAU_0_8_0_B_2", "platform": "tau_beta", "variant": "normal|diagnostic",
+  "channel": "stable|preview|dev", "version": "0.8.0-preview.2", "build": 412, "git": "f2d3373", "date": "2026-11-02",
+  "core": "alfatreze.TAU_PREVIEW_0_8_0_2", "platform": "tau_preview", "variant": "normal|diagnostic",
   "bitstream": {"file": "bitstream.rbf_r", "sha256": "...", "core_version": "0x4D50331A", "fit": "noeq-b670 s1"},
   "firmware": {"rom_sha256": "...", "cold_sha256": "...", "needs": ["HALCYON", "..."]},
   "formats": {"persist_layout": 3, "library_index": 1, "assets": 1, "data_slots": 2},
@@ -154,10 +174,10 @@ uses Omega's own committed spec. Paste the request and it will be folded in here
 
 ## 6. Standard practice it follows
 
-- SemVer 2.0 pre-release ordering (`alpha < beta < rc < release`), build number as a separate monotonic field
+- SemVer 2.0 pre-release ordering, which sorts labels alphabetically: `dev < preview < rc < release`, build number as a separate monotonic field
   rather than SemVer build metadata (`+385`), because Pocket/Omega compare strings and `+` is ignored in precedence.
-- Release channels (stable / beta / dev) as separate install targets, as browsers and OS updaters do, so a tester can
-  run stable and beta side by side.
+- Release channels (Stable / Preview / Dev) as separate install targets, as browsers and OS updaters do, so a tester can
+  run Stable and Preview side by side.
 - One immutable artefact per version with a checksum list and a machine-readable manifest next to it
   (GitHub releases + `SHA256SUMS.txt` already; manifest added).
 - Analogue's own zip naming and folder layout, so manual installs and other updaters (Pocket Sync, Pocket Updater)
@@ -168,7 +188,7 @@ uses Omega's own committed spec. Paste the request and it will be folded in here
 
 Reuse the current alpha.4 bitstream and ROM; only JSON and folders change. Each item is one photo or one boot.
 
-1. Two cores on platform `tau` (`alfatreze.TAU` and a copy `alfatreze.TAU_PROBE` with `version` `0.8.0-beta.2` and a
+1. Two cores on platform `tau` (`alfatreze.TAU` and a copy `alfatreze.TAU_PROBE` with `version` `0.8.0-preview.2` and a
    different description): what does the platform list show, what text identifies each core (shortname, version,
    description)? Does a 0.x semver with suffix in `version` show and sort sanely?
 2. Build-bound slots with bit 1 set (ROM, cold, loading art) on the probe core: boots from
@@ -186,7 +206,7 @@ Results go to AUDIT_TRAIL as a new B entry; then the tools change.
 1. Mechanism A (core per build, platform per channel) vs B (instance JSON). Recommended: A.
 2. Rolling `alfatreze.TAU` for stable with optional pinned folders, vs every version its own folder. Recommended:
    rolling (settings survive updates).
-3. Pre-release sharing the stable media library (via bits [25:24]) vs its own copy. Recommended: share, with the
+3. Preview sharing the stable media library (via bits [25:24]) vs its own copy. Recommended: share, with the
    format-version rule in section 3.2.
 4. Diagnostics on platform `tau` beside normal, vs its own platform as today. Recommended: beside normal.
 5. Core folder rename for diagnostics (`TAU_DIAGNOSTIC` -> `TAU_DIAG`)? Cosmetic; renaming loses existing settings
@@ -217,7 +237,7 @@ Where each field comes from, and what needs fixing first:
 
 | Field | Source | Issue |
 |---|---|---|
-| `release`, `prerelease` | Not in the zips (`core.json` says `0.6.0` for every alpha) | New `--release vX.Y.Z[-alpha.N]` argument, refused unless the `CHANGELOG.md` heading and README "Current version" match. `prerelease` = the tag has a suffix |
+| `release`, `prerelease` | Not in the zips (`core.json` says `0.6.0` for every alpha) | New `--release vX.Y.Z[-preview.N]` argument (published history uses `-alpha.N`), refused unless the `CHANGELOG.md` heading and README "Current version" match. `prerelease` = the tag has a suffix |
 | `date_release`, `zip`, `zip_sha256`, `core_id`, hashes | The zips | Straightforward. Assert both packages carry the same bitstream hash |
 | `rom_accepts`, `rom_needs` | `TAUFWPAIR`/`TAUFWNEED` in each zipped `tau.rom` (reuse `check_fw_bitstream_pair.py`) | Straightforward |
 | `bitstream_core_version` | Asked to come from "the source the pairing gate uses" | **Weak source.** `tree_core_version()` takes the first `CORE_VERSION` literal in `mp3_soc.v`, but there are four, selected by `TAU_RAM_192K`/`TAU_CLK66`. The first one happens to be the shipped one. Correct source: the macros in the RBF's fit manifest (`<rbf>.json`, written by `vm_fit.py collect` since B-653) mapped through the same ifdef table. Refuse a release whose RBF has no manifest unless `--bitstream-version` is given explicitly. Fix the pairing gate the same way, so both read one function |
