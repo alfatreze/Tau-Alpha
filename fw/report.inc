@@ -1,6 +1,6 @@
 /* ================================================================== REPORT PLUMBING (shared by the Check page and every report export)
  * Moved out of fw/suite.inc (2026-10-07) so the normal core can export the Info page as a report code too (TAU_INFO_EXPORT): the record builder
- * (suite_core.h), the QR encoder, the report buffers in PSRAM, the pixel-grid report view (tpg.h) and the one drawing path every report page shares.
+ * (suite_core.h), the report buffers in PSRAM, the pixel-grid report view (tpg.h) and the one drawing path every report page shares.
  * All of it is cold code (COLD_TEXT, run from PSRAM). Included from fw/settingsui.inc when TAU_DIAGNOSTIC or TAU_INFO_EXPORT is set. */
 #define SR_FN COLD_TEXT static
 #include "suite_core.h"

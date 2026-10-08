@@ -331,7 +331,7 @@ static const char tau_fw_pair_marker[] __attribute__((used, retain)) = "TAUFWPAI
 #define APP_VER "0.6.0"
 
 /* The Diagnostic Build switch. One macro for everything that must not be in the shipped release: the
- * Check and its QR report (fw/suite.inc), the Tests and Stress pages, the SDRAM stress pump, soak and
+ * Check and its report (fw/suite.inc), the Tests and Stress pages, the SDRAM stress pump, soak and
  * HUD, and the diagnostic menus. Off in `release`; on in `player-library-diagnostic` and
  * `player-library-diagnostic-profile` (fw/build.sh). Needs the same RBF features as the release. */
 #ifndef TAU_HALCYON_FW

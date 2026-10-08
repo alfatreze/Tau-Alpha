@@ -1,10 +1,10 @@
-/* Info page: QR export of the live diagnostic values (B-301), on demand (Settings > Diagnostics >
- * Info > A = EXPORT QR). Diagnostic Build only, same shape as fw/wvcfg_export.inc's own QR export
+/* Info page: report export of the live diagnostic values (B-301), on demand (Settings > Diagnostics >
+ * Info > A = EXPORT CODE). Diagnostic Build only, same shape as fw/wvcfg_export.inc's own report export
  * (build the SR_T_INFOEXPORT record, encode, show a titled grid until any key closes it). */
-/* info_qr_up itself is forward-declared in settingsui.inc (set_info_tick() needs it before this
+/* info_rep_up itself is forward-declared in settingsui.inc (set_info_tick() needs it before this
  * file's own #include point). */
 
-COLD_FN static void info_build_qr(void)
+COLD_FN static void info_build_rep(void)
 {
     uint32_t fpga_rev = REG(R_VERSION);
     uint32_t free_ram = (uint32_t)(&_heap_end - &_heap_start);
@@ -24,7 +24,7 @@ COLD_FN static void info_build_qr(void)
     sr_t s;
     sr_init(&s, CHK_REC, CHK_REC_CAP, 0u);
     sr_tlv(&s, (uint8_t)SR_T_INFOEXPORT, buf, sizeof(buf));
-    /* SR_T_INFOTEXT: every row of the Info page exactly as it reads on screen (the page is the reason the grid exists: far more than a QR code
+    /* SR_T_INFOTEXT: every row of the Info page exactly as it reads on screen (the page is the reason the grid exists: far more than a report code
      * holds). One entry per row: row index, label, 0, value text. A new Info row needs no change here or in the decoder. */
     for (uint32_t i = 0; i < SET_INFO_ROWS; i++) {
         uint8_t e[72]; char v[40]; uint32_t n = 0;
@@ -41,8 +41,8 @@ COLD_FN static void info_build_qr(void)
     REP_SET(len);
 }
 
-/* Same rendering as wvcfg_draw_qr()/bt_draw_qr(): a plain module grid plus a titled caption. */
-COLD_TEXT static void info_draw_qr(void)
+/* Same rendering as wvcfg_draw_rep()/bt_draw_rep(): a plain module grid plus a titled caption. */
+COLD_TEXT static void info_draw_rep(void)
 {
     { char d[48], *q = d; q = ui_dec(q, SET_INFO_ROWS); q = set_str(q, " ROWS"); *q = 0; rep_draw("INFO EXPORT", d); }
 }

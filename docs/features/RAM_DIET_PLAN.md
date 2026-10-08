@@ -42,3 +42,5 @@ Build both from the same tree and compare HEADROOM and UNDERRUNS at 1.00-1.75x o
 ## Remaining trade-offs (owner decision)
 - A: the three-region 224 KB RAM is a real RTL project, see the discussion in the log; not proposed.
 - Next conversions if more is needed: `counters` (hot hooks), `rate_toggles`, then `sweeps` / `blit_test` / `tests_page` (cold).
+
+Note on identity checks after a rename: the cold-image layout id hashes symbol names, so a pure rename changes exactly those 4 bytes in `tau.rom` and `tau-cold.bin`; compare the files byte by byte and expect 4 differing bytes at the same place in both (done for the QR rename, 2026-10-08).

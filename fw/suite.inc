@@ -1,9 +1,9 @@
 /* ================================================================== CHECK (TAU_DIAGNOSTIC): the user-facing diagnostics
  * Menu > Settings > Check runs one fixed profile (docs/TEST_SUITE_SPEC.md sections 7-8): memory tests, playback counters,
- * startup status. Result: a verdict, one line per test, a QR code with the full report (fw/suite_core.h record, decoded by
+ * startup status. Result: a verdict, one line per test, a report code with the full report (fw/suite_core.h record, decoded by
  * tools/decode_tau_suite.py) and a 36-character short code. The four-word summary is also stored in the persisted
  * settings words 8-11 (saved by the Pocket when the core is quit); the legacy playlist-name resume that used them does not
- * exist in library builds. The tests, the report builder and the QR encoder are COLD CODE (run from PSRAM), so the
+ * exist in library builds. The tests and the report builder are COLD CODE (run from PSRAM), so the
  * resident cost is a few hundred bytes; without the cold image the page says so and nothing else is affected.
  * Never touches the framebuffer, the library index, the queue or the playlist buffers: scratch is SDRAM physical 8 MiB
  * (the Tests page's area), PSRAM 26 MiB (unused) and PSRAM 0x3000 (report buffers). */
@@ -20,7 +20,7 @@
 #endif
 static void set_close(void);
 #if TAU_DX_CHECK
-enum { CK_IDLE = 0, CK_RUN, CK_DONE, CK_QR };
+enum { CK_IDLE = 0, CK_RUN, CK_DONE, CK_CODE };
 enum { CT_SDW = 0, CT_SDC, CT_PSW, CT_COLD, CT_LIB, CT_AUD, CT_START, CT_R1, CT_R2, CT_R3, CT_SOAK, CT_TRK, CT_CX, CT_BLT, CT_COLDFRAME };   /* test ids -- CT_BLT (B-127) is 13; CT_COLDFRAME (B-199) is 14, the LAST id sp_t's 15-bit pass/fail mask (ids 0..14) can ever hold */
 #define CHK_TRK_N    10u                                    /* track changes in the track-change test */
 #define CHK_STRESS_S 30u                                    /* seconds per stress level */
@@ -441,7 +441,7 @@ COLD_TEXT static int chk_do(uint32_t id)
                 return 0;
             }
             /* B-165: a queue of two or more, yet no load finished in 60 s -- stuck. Packs, so the
-             * QR/decoder can say WHY instead of just "it failed": bits[7:0] changes done so far
+             * report/decoder can say WHY instead of just "it failed": bits[7:0] changes done so far
              * (was the whole value before), bits[23:8] the queue length at entry (CKM->tnq),
              * bit 24 lib_src at entry, bit 25 whether skip_req is STILL pending right now -- set
              * means the main loop's own `if (skip_req)` consumer (player.c) never ran/cleared it,
@@ -495,7 +495,7 @@ COLD_TEXT static uint32_t stack_high_water(void)
 extern unsigned int heap_used(void), heap_total(void);   /* fw/sysio.c */
 
 
-/* Build the report: record, QR text, persisted words, short code. */
+/* Build the report: record, report text, persisted words, short code. */
 COLD_TEXT static void chk_finish(void)
 {
     sr_t s;
@@ -560,7 +560,7 @@ COLD_TEXT static void chk_finish(void)
     settings_mark_dirty();
 }
 
-/* ---- drawing (cold): intro / progress, summary, QR ---- */
+/* ---- drawing (cold): intro / progress, summary, report ---- */
 COLD_TEXT static void chk_row(uint32_t i, uint32_t rh, const char *label, const char *val)
 {
     uint32_t y = PL_UI_LIST_Y + i * rh;
@@ -573,7 +573,7 @@ COLD_TEXT static void chk_row(uint32_t i, uint32_t rh, const char *label, const 
 }
 
 
-COLD_TEXT static void chk_draw_qr(void)
+COLD_TEXT static void chk_draw_rep(void)
 {
     { char d[48], *q = d; q = set_str(q, "RUN "); q = ui_dec(q, chk_run); *q = 0; rep_draw(chk_s(CS_PROF + chk_prof), d); }
 }
@@ -595,7 +595,7 @@ COLD_TEXT static void chk_line(uint32_t i)
         q = set_str(q, chk_s(CS_PASS + (chk_res[i] & 3u)));
         /* B-139: a PASS/FAIL on CT_AUD/CT_BLT only means something if audio was actually running
          * the whole window -- mark the row when it wasn't, right where the verdict is, rather than
-         * only in the QR/decoded report (a screenshot alone should be enough to catch this). */
+         * only in the decoded report (a screenshot alone should be enough to catch this). */
         if ((chk_res[i] == SR_PASS || chk_res[i] == SR_FAIL) &&
             ((id == CT_AUD && !chk_aud_full) || (id == CT_BLT && !chk_blt_full)))
             *q++ = '*';
@@ -613,7 +613,7 @@ COLD_TEXT static void chk_line(uint32_t i)
 
 COLD_TEXT static void chk_draw(void)
 {
-    if (chk_state == CK_QR && REP_AVAIL()) { chk_draw_qr(); return; }
+    if (chk_state == CK_CODE && REP_AVAIL()) { chk_draw_rep(); return; }
     uint32_t f = 0, sk = 0;
     char head[32], *hq = head;
     *hq = 0;
@@ -726,7 +726,7 @@ COLD_TEXT static int chk_input(uint32_t edge)
     } else if (chk_state == CK_RUN) {
         if (edge & KEY_B) chk_abort();
     } else if (chk_state == CK_DONE) {
-        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL()) { chk_state = CK_QR; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL()) { chk_state = CK_CODE; set_dirty = 1u; }
         else if (edge & KEY_Y) chk_begin();
         else if (edge & (KEY_B | KEY_LEFT)) { chk_state = CK_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else {
@@ -742,14 +742,14 @@ COLD_TEXT static int chk_input(uint32_t edge)
 /* ============================================================ DECODE PROFILE SWEEP (B-090/B-091)
  * A batch companion to CT_AUD's single sample: sweeps the library's CURRENT
  * QUEUE (whatever album or playlist is open), measuring each track up to
- * SW_WIN_S seconds (capped by the track's own length), and emits ONE QR at
+ * SW_WIN_S seconds (capped by the track's own length), and emits ONE report code at
  * the end covering every track (docs/TEST_SUITE_SPEC.md section 12).
  *
  * Its own page, not a Check profile: a sweep has no pass/fail verdict, so
- * folding it into Check's framing would strain both. It shares CHK_QR/
+ * folding it into Check's framing would strain both. It shares CHK_REC/
  * CHK_REC/CHK_TXT (PSRAM scratch) with Check -- the two pages are never open
  * at once, so there is no real second user of that memory. */
-enum { SW_IDLE = 0, SW_RUN, SW_DONE, SW_QR, SW_REFUSED };
+enum { SW_IDLE = 0, SW_RUN, SW_DONE, SW_CODE, SW_REFUSED };
 /* B-096 (owner: a track_idx alone was not enough to identify which file a
  * reading came from -- confirmed the hard way, reading a real sweep off the
  * card, with no way to tell). Each entry now carries a truncated title
@@ -760,13 +760,13 @@ enum { SW_IDLE = 0, SW_RUN, SW_DONE, SW_QR, SW_REFUSED };
  * Budget (docs/TEST_SUITE_SPEC.md section 12): 666 - 4 (header) - 20 (build)
  * - 4 (CRC) = 638 B / 28 B = 22 tracks worst case; kept at a round 20. */
 #define SW_TITLE_MAX  16u
-#define SW_MAX_TRACKS 48u   /* 48 x 28 B worst case = 1,344 B of the 2,048 B record (the report context takes up to about 300 B more); shown as a pixel grid when it no longer fits a QR code */
+#define SW_MAX_TRACKS 48u   /* 48 x 28 B worst case = 1,344 B of the 2,048 B record (the report context takes up to about 300 B more); shown as a pixel grid when it no longer fits a report code */
 #define SW_WIN_S      15u   /* matches CHK_AUDIO_S */
 static uint8_t  sw_state, sw_started;
 static uint16_t sw_idx, sw_n, sw_done_n, sw_skip_n;
 static uint32_t sw_at, sw_win0, sw_wait0;
 static sr_t     sw_rec;
-static char     sw_album[40];   /* snapshot of track_album at sw_begin(), for the QR page */
+static char     sw_album[40];   /* snapshot of track_album at sw_begin(), for the report page */
 
 /* Latches one track's decode-stage percentages against the ACTUAL elapsed
  * window (not always SW_WIN_S*CLK_HZ -- a track shorter than the cap ends
@@ -836,7 +836,7 @@ COLD_TEXT static void sw_advance(void)
         if (!track_hz || paused || stopped) {
             if ((int32_t)(cycles() - sw_wait0) > (int32_t)(3u * CLK_HZ)) {
                 sw_skip_n++;
-                if (++sw_idx >= sw_n) { sw_finish(); sw_state = REP_AVAIL() ? SW_QR : SW_DONE; }
+                if (++sw_idx >= sw_n) { sw_finish(); sw_state = REP_AVAIL() ? SW_CODE : SW_DONE; }
                 else { lib_skip(+1); sw_wait0 = cycles(); }
                 set_dirty = 1u;
             }
@@ -856,7 +856,7 @@ COLD_TEXT static void sw_advance(void)
     else if ((int32_t)(cycles() - sw_at) < 0) return;                    /* still running */
     else sw_sample(SW_WIN_S * CLK_HZ);                                   /* hit the cap */
     sw_started = 0u;
-    if (++sw_idx >= sw_n) { sw_finish(); sw_state = REP_AVAIL() ? SW_QR : SW_DONE; }
+    if (++sw_idx >= sw_n) { sw_finish(); sw_state = REP_AVAIL() ? SW_CODE : SW_DONE; }
     else { lib_skip(+1); sw_wait0 = cycles(); }
     set_dirty = 1u;
 }
@@ -888,14 +888,14 @@ static void sw_tick(void)
     if (set_open && set_page == SET_SWEEP_PG) sw_advance(); else sw_state = SW_IDLE;
 }
 
-COLD_TEXT static void sw_draw_qr(void)
+COLD_TEXT static void sw_draw_rep(void)
 {
     { char d[48], *q = d; q = ui_dec(q, sw_done_n); q = set_str(q, " TRACKS"); if (sw_skip_n) { q = set_str(q, "  "); q = ui_dec(q, sw_skip_n); q = set_str(q, " SKIPPED"); } *q = 0; rep_draw("DECODE SWEEP", d); }
 }
 
 COLD_TEXT static void sw_draw(void)
 {
-    if (sw_state == SW_QR && REP_AVAIL()) { sw_draw_qr(); return; }
+    if (sw_state == SW_CODE && REP_AVAIL()) { sw_draw_rep(); return; }
     ov_frame("DECODE SWEEP",
              sw_state == SW_RUN ? "RUNNING" : sw_state == SW_REFUSED ? "REFUSED" : sw_state == SW_DONE ? "DONE" : "",
              sw_state == SW_IDLE ? "A START   B BACK" : "B BACK");
@@ -925,7 +925,7 @@ COLD_TEXT static void sw_draw(void)
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 0u * PL_UI_ROW_H, ln, TS_1X, TS_1X, PL_UI_W - 32u);
     /* B-094: which album/queue is actually loaded, not just a bare count --
      * row 2, clear of RUN's row-1 status and DONE's row-3 action hint in
-     * both states. sw_album is the same snapshot the QR page (B-095) uses. */
+     * both states. sw_album is the same snapshot the report page (B-095) uses. */
     fb_set_color(UI_FAINT, OV_BODY);
     fb_text_clipped(PL_UI_TEXT_X, PL_UI_LIST_Y + 2u * PL_UI_ROW_H, sw_album, TS_1X, TS_1X, PL_UI_W - 32u);
     if (sw_state == SW_RUN) {
@@ -955,9 +955,9 @@ COLD_TEXT static int sw_input(uint32_t edge)
     } else if (sw_state == SW_RUN) {
         if (edge & KEY_B) sw_state = SW_IDLE;   /* abort */
     } else if (sw_state == SW_DONE) {
-        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL()) { sw_state = SW_QR; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL()) { sw_state = SW_CODE; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { sw_state = SW_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
-    } else {   /* SW_QR */
+    } else {   /* SW_CODE */
         if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { sw_state = SW_DONE; set_dirty = 1u; }
     }
@@ -982,7 +982,7 @@ COLD_TEXT static int sw_input(uint32_t edge)
  * (the user watches the meters cycle on the real screen) and mw_tick() advances unconditionally
  * every main-loop pass regardless of what page is open, same as stress_tick(). Re-opening this page
  * mid-run shows live progress and allows an abort; it is not required to be open at all. */
-enum { MW_IDLE = 0, MW_RUN, MW_DONE, MW_QR, MW_REFUSED };
+enum { MW_IDLE = 0, MW_RUN, MW_DONE, MW_CODE, MW_REFUSED };
 #define MW_WIN_S 10u   /* docs/METER_MODULE_SPEC.md section 15's own stated window */
 static uint8_t  mw_state, mw_audio_full;
 static uint16_t mw_idx;
@@ -1084,7 +1084,7 @@ COLD_TEXT static void mw_advance(void)
     if (!track_hz || paused || stopped) mw_audio_full = 0u;
     if ((int32_t)(cycles() - mw_at) < 0) return;                 /* still running this meter's window */
     mw_sample();
-    if (++mw_idx >= VIZ_SEL_COUNT) { mw_finish(); mw_state = REP_AVAIL() ? MW_QR : MW_DONE; set_dirty = 1u; return; }
+    if (++mw_idx >= VIZ_SEL_COUNT) { mw_finish(); mw_state = REP_AVAIL() ? MW_CODE : MW_DONE; set_dirty = 1u; return; }
     viz_mode = viz_order[mw_idx]; bars_layout = 0u;
     mw_window_reset();
     set_dirty = 1u;
@@ -1113,15 +1113,15 @@ static void mw_tick(void)
     mw_advance();
 }
 
-COLD_TEXT static void mw_draw_qr(void)
+COLD_TEXT static void mw_draw_rep(void)
 {
     { char d[48], *q = d; q = ui_dec(q, VIZ_SEL_COUNT); q = set_str(q, " METERS"); *q = 0; rep_draw("METER SWEEP", d); }
 }
 
-/* This state's ov_frame() hint: the DONE/QR bar bug (owner: "B BACK" showing instead of the real
- * QR action) was a real regression -- a hardcoded "B BACK" was used for every non-IDLE state after
+/* This state's ov_frame() hint: the DONE/report bar bug (owner: "B BACK" showing instead of the real
+ * report action) was a real regression -- a hardcoded "B BACK" was used for every non-IDLE state after
  * the redundant in-panel hint text was removed, without carrying the DONE state's own dynamic
- * "has a QR or not" logic into the one place that still draws a hint. */
+ * "has a report or not" logic into the one place that still draws a hint. */
 static const char *mw_hint(void)
 {
     if (mw_state == MW_IDLE) return "UP DOWN SELECT   LEFT RIGHT CHANGE   A START   B BACK";
@@ -1132,7 +1132,7 @@ static const char *mw_hint(void)
 
 COLD_TEXT static void mw_draw(void)
 {
-    if (mw_state == MW_QR && REP_AVAIL()) { mw_draw_qr(); return; }
+    if (mw_state == MW_CODE && REP_AVAIL()) { mw_draw_rep(); return; }
     ov_frame("METER SWEEP",
              mw_state == MW_RUN ? "RUNNING" : mw_state == MW_REFUSED ? "REFUSED" : mw_state == MW_DONE ? "DONE" : "",
              mw_hint());
@@ -1188,9 +1188,9 @@ COLD_TEXT static int mw_input(uint32_t edge)
     } else if (mw_state == MW_RUN) {
         if (edge & KEY_B) { mw_restore_screen(); mw_state = MW_IDLE; set_dirty = 1u; }   /* abort */
     } else if (mw_state == MW_DONE) {
-        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL()) { mw_state = MW_QR; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL()) { mw_state = MW_CODE; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { mw_state = MW_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
-    } else {   /* MW_QR */
+    } else {   /* MW_CODE */
         if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { mw_state = MW_DONE; set_dirty = 1u; }
     }
@@ -1202,13 +1202,13 @@ COLD_TEXT static int mw_input(uint32_t edge)
 #if TAU_DX_METER_TRACE
 /* ================================================================== METER TRACE (M3)
  * Records what the meters saw on REAL audio -- spec_lvl[] (after the firmware ballistics) and wav_v[] for 20 consecutive displayed frames
- * with their timing -- and shows it as a QR (SR_T_METERTRACE, fw/suite_core.h). tools/decode_tau_suite.py --trace turns a screenshot's QR
+ * with their timing -- and shows it as a report code (SR_T_METERTRACE, fw/suite_core.h). tools/decode_tau_suite.py --trace turns a screenshot's report code
  * into a trace file the preview lab, the golden-frame tests and the native harnesses all replay (docs/METER_MODULE_SPEC.md section 15).
  * Like the meter sweep it closes the settings menu so the real player screen draws, and mt_take() (called from the meter dispatch at
  * viz_done) captures inside that draw so the values are exactly what the meters used. Needs a playing track and the hardware spectrum
  * bank (the software cascade no longer exists), and records with Winamp Bars selected (a meter that fetches the bank). */
 #define MT_FRAMES 20u
-enum { MT_IDLE = 0, MT_REC, MT_FIN, MT_DONE, MT_QR, MT_REFUSED };
+enum { MT_IDLE = 0, MT_REC, MT_FIN, MT_DONE, MT_CODE, MT_REFUSED };
 static uint8_t  mt_state, mt_n, mt_saved_mode, mt_saved_layout;
 static uint32_t mt_last;
 static sr_t     mt_rec;
@@ -1259,14 +1259,14 @@ COLD_TEXT static void mt_begin(void)
 
 static void mt_open(void) { if (mt_state != MT_REC && mt_state != MT_FIN) mt_state = MT_IDLE; }
 
-COLD_TEXT static void mt_draw_qr(void)
+COLD_TEXT static void mt_draw_rep(void)
 {
     { char d[48], *q = d; q = ui_dec(q, mt_n); q = set_str(q, " FRAMES"); *q = 0; rep_draw("METER TRACE", d); }
 }
 
 COLD_TEXT static void mt_draw(void)
 {
-    if (mt_state == MT_QR && REP_AVAIL()) { mt_draw_qr(); return; }
+    if (mt_state == MT_CODE && REP_AVAIL()) { mt_draw_rep(); return; }
     ov_frame("METER TRACE", mt_state == MT_REC ? "RECORDING" : mt_state == MT_REFUSED ? "REFUSED" : mt_state == MT_DONE ? "DONE" : "",
              mt_state == MT_DONE ? "B CLOSE   A CODE" : mt_state == MT_IDLE ? "A RECORD   B BACK" : "B BACK");
     if (mt_state == MT_IDLE) {
@@ -1294,9 +1294,9 @@ COLD_TEXT static int mt_input(uint32_t edge)
     } else if (mt_state == MT_REFUSED) {
         if (edge & (KEY_A | KEY_B | KEY_LEFT)) { mt_state = MT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
     } else if (mt_state == MT_DONE) {
-        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL()) { mt_state = MT_QR; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL()) { mt_state = MT_CODE; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { mt_state = MT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
-    } else if (mt_state == MT_QR) {
+    } else if (mt_state == MT_CODE) {
         if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { mt_state = MT_DONE; set_dirty = 1u; }
     }
@@ -1382,7 +1382,7 @@ COLD_TEXT static int pg_input(uint32_t edge)
 #define BT_CELL     16u         /* test-cell size, tiled across the full 400x360 visible screen */
 #define BT_COLS     (FB_W / BT_CELL)
 #define BT_ROWS     (FB_H / BT_CELL)
-enum { BT_IDLE = 0, BT_RUN, BT_REFUSED, BT_DONE, BT_QR };
+enum { BT_IDLE = 0, BT_RUN, BT_REFUSED, BT_DONE, BT_CODE };
 static const uint8_t bt_ops_per_tick[BT_LEVELS] = { 1u, 4u, 16u };   /* concurrency: commands issued per bt_advance() call */
 static const char *const bt_op_name[BT_OPS] = { "RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT" };
 static uint8_t  bt_state, bt_op, bt_lvl;
@@ -1539,10 +1539,10 @@ COLD_FN static void bt_advance(void)
             bt_crumb(19);   /* last op/level reached -- about to call bt_finish() */
             bt_finish();
             bt_crumb(20);   /* bt_finish() returned */
-            bt_state = REP_AVAIL() ? BT_QR : BT_DONE;
+            bt_state = REP_AVAIL() ? BT_CODE : BT_DONE;
             /* B-197 root cause: set_draw() (fw/player.c) only redraws `if (set_open && set_dirty)`
-             * -- this finishing return never set it, so the whole test silently completes (QR
-             * encoded, bt_finish() done) and the screen never once redraws to show BT_DONE/BT_QR.
+             * -- this finishing return never set it, so the whole test silently completes (report code
+             * encoded, bt_finish() done) and the screen never once redraws to show BT_DONE/BT_CODE.
              * It isn't hung: it's finished, frozen on the last running HUD frame forever, with zero
              * visual indication, which is exactly what B-194 observed. Every other transition in
              * this function (the plain "advance to next level/op" path just below) already sets
@@ -1604,14 +1604,14 @@ static void bt_tick(void)
     else { bt_crumb(set_open ? 41u : 42u); bt_state = BT_IDLE; }
 }
 
-COLD_TEXT static void bt_draw_qr(void)
+COLD_TEXT static void bt_draw_rep(void)
 {
     { char d[48], *q = d; q = set_str(q, "DRAW ENGINE"); *q = 0; rep_draw("BLIT TEST", d); }
 }
 
 COLD_TEXT static void bt_draw(void)
 {
-    if (bt_state == BT_QR && REP_AVAIL()) { bt_draw_qr(); return; }
+    if (bt_state == BT_CODE && REP_AVAIL()) { bt_draw_rep(); return; }
     if (bt_state == BT_RUN) return;   /* the test itself owns the whole screen; the HUD is its only chrome */
     ov_frame("BLIT TEST",
              bt_state == BT_REFUSED ? "REFUSED" : bt_state == BT_DONE ? "DONE" : "",
@@ -1664,9 +1664,9 @@ COLD_TEXT static int bt_input(uint32_t edge)
     } else if (bt_state == BT_RUN) {
         if (edge & KEY_B) bt_state = BT_IDLE;   /* abort */
     } else if (bt_state == BT_DONE) {
-        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL()) { bt_state = BT_QR; set_dirty = 1u; }
+        if ((edge & (KEY_A | KEY_RIGHT)) && REP_AVAIL()) { bt_state = BT_CODE; set_dirty = 1u; }
         else if (edge & (KEY_B | KEY_LEFT)) { bt_state = BT_IDLE; set_page = CHK_PARENT; set_dirty = 1u; }
-    } else {   /* BT_QR */
+    } else {   /* BT_CODE */
         if (REP_KEY(edge)) return 1;
         if (edge & (KEY_A | KEY_B | KEY_LEFT | KEY_RIGHT)) { bt_state = BT_DONE; set_dirty = 1u; }
     }
