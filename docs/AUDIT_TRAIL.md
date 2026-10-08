@@ -14418,3 +14418,43 @@ Both seeds closed, all corners positive (RAM 256/308, DSP 24/66): seed 1 worst h
 ## B-670: fit `noeq-b670` launched (legacy preset EQ removed from the RTL), 2026-10-08 07:21 local
 
 Seeds 1 and 2, bundle `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_audio16_gain_halcyon_wide_qsf_append.txt` (the b650 bundle: Halcyon, wide EQ input, I2S diag; checked clean by `fit_manifest.py check-bundles`), tree at commit `597caff` (clean). Staged copy checked: no `eq_biquad.v`, no `eq_biquad` in the .qsf, the audio path `audio_l = hal_en ? hal_o_l : eq_in_l` present (correction: B-651 said the wire was renamed `snd_l`; the rename never reached the file, the wire is still called `eq_in_l` although nothing named EQ feeds it any more. Cosmetic, to be renamed with the next RTL change, not worth a refit). Expected: about 1 h 45 min, done around 09:05-09:15 local. Then collect the better seed with `vm_fit.py collect noeq-b670 --seed N` (the manifest is written automatically), package a TAU_DEV with the same firmware flags, dry-run the install and ask before the card write. Hardware gates for this build: audio unchanged against TAU_DEV_108 (the engine off is now the plain path), the Y key and the Halcyon page unchanged.
+
+## B-672: release-system card probe (two cores on one platform, core-specific files, dev core reading TAU's library), 2026-10-08
+
+Release spec section 7. Two probe cores built from the card's own TAU (alpha.4) bitstream and ROM, installed with `tools/install_dev_core.py`
+(dry runs first, owner's go), run by the owner, then removed with a verified backup (`work/card-backups/probe-h4-removed`). Screenshots kept
+in `work/diagnostics/probe-h4/screens/` (card: `Memories/Screenshots/20261008_2028*`, `2030*`).
+
+- `alfatreze.TAU_PROBE`: platform `tau` beside TAU, version `0.8.0-preview.2`, data slots 1/4/6 core-specific (files in
+  `Assets/tau/alfatreze.TAU_PROBE/`), an extra `tau-release.json` in the core folder.
+- `alfatreze.TAU_PRBDEV`: platforms `["tau_dev", "tau"]`, core-specific build files, slots 5 and 8 with bits [25:24] = 1 (read TAU's
+  `tau-library.tdb` and `tau-assets.bin` in place).
+
+**Hardware results (owner photos and in-core screenshots):**
+1. **Platform list:** TAU appears once with a count badge (3), and a separate **TAU Dev** entry appears. Opening TAU shows a
+   **Select Core** list. The core in the list marked **Default** is TAU. Each row shows the core's **shortname** (`TAU_PROBE`,
+   `TAU_PRBDEV`, underscores and all), not its description. The selected row adds **Version** and **Author**. Full pre-release
+   versions display as written (`0.8.0-preview.2`, `0.8.0-dev.1`).
+2. **A core is listed under every platform in its `platform_ids`:** TAU_PRBDEV appears under TAU as well as under TAU Dev. Sharing
+   media through a second platform therefore puts dev builds into the main TAU list.
+3. **Core-specific build files work (H4 confirmed):** TAU_PROBE booted with its splash, cold image loaded (113,684 B, CODE), TIM1 cover
+   loaded, library 114 tracks, theme file loaded, MP3 played. The unknown file in the core folder had no effect.
+4. **Platform-index slots work:** TAU_PRBDEV read TAU's library (114 tracks) and `tau-assets.bin` (theme file loaded and applied)
+   through bits [25:24]. Tracks played (0 underruns), covers loaded.
+5. **TAU_PRBDEV's first launch was slow** (5-10 s of black screen; later launches normal). Its Info showed **DRAW STALL 19,965 ms**,
+   against 32 ms on TAU_PROBE. Not explained; it may be first-launch work inside the firmware. Check DRAW STALL on a later launch.
+
+**Found while removing the probes:** `install_dev_core.py --remove` deleted the removed core's whole `Assets/<platform>` folder and its
+platform files. That was correct while every Tau core had its own platform. With TAU_PROBE beside TAU it would have deleted TAU's music,
+library and platform entry. Fixed before the removal:
+- removal and backup are scoped to `Assets/<platform>/<core>` whenever another core lists the platform;
+- an exclusive platform is still removed whole, with a full backup;
+- new remove-only mode (`--remove` without a package);
+- tests include a mutant of the old behaviour, which is caught.
+
+**Consequences for the release design:**
+- Core shortnames are the display text, so they must read well (`TAU`, not `TAU_0_7_0_B_2`).
+- Versions carry the channel and number.
+- Dev cores should not list `tau` as a second platform. The proposed alternative is a dev core on its own platform with a copy of the
+  9 KB index, whose root already points at `/Assets/tau/common/` (tracks and covers open by absolute path, B-033). It is not yet
+  tested.

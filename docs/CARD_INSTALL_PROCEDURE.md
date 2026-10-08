@@ -172,3 +172,14 @@ When a release manifest `tau-compat.json` (schema 2) describes **exactly** the p
 old-layout one, the installer removes the stale `common/` copies after the card check passes, unless another core on the platform
 still reads them from `common/`. Confirm on the first install of this layout that the core boots, the splash shows, and Info shows
 the cold image loaded (spec section 7 probe, item 2).
+
+### Removing cores, and platforms shared by several cores (B-672, 2026-10-08)
+
+- **Remove only:** `python3 tools/install_dev_core.py --remove CORE_ID [--remove ...]` with no package. It runs a dry run unless
+  `--yes` is given, then makes a verified backup, removes the cores, clears the caches and ejects. Release cores stay protected unless
+  `--allow-release` is given.
+- **Shared platforms:** when another core lists the same platform (several Tau builds under TAU), removing or replacing a core
+  touches only `Cores/<core>` and `Assets/<platform>/<core>`. The platform's `common/` media, library index, `tau-assets.bin` and
+  `Platforms/<platform>.*` are kept.
+- **Exclusive platforms** (every TAU DEV build today) are still removed whole, with a full backup.
+- The old behaviour would have deleted TAU's whole music folder when a second TAU core was removed.
