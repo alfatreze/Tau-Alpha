@@ -236,6 +236,18 @@ Results go to AUDIT_TRAIL as a new B entry; then the tools change.
 
 ## 8. Decisions for the owner
 
+**Decided 2026-10-08:** dev builds use option (a), built the same day:
+- **Naming:** `package_dev_build.py --number NN` and `--barcode NN` make `alfatreze.TAU DEV NN` / `alfatreze.TAU DEV BARCODE NN`.
+- **Platforms:** `["tau_dev", "tau"]`. One **TAU Dev** platform for every dev build, replacing a platform per build.
+- **Slots:** data slots 5 and 8 read TAU's library index and `tau-assets.bin` from `Assets/tau/common/` (parameter bits [25:24] = 1).
+  Music and covers open from there; build files stay in `Assets/tau_dev/<core>/`.
+- **Visible consequence:** each dev build is also listed in TAU's Select Core list.
+- **Installer:** finds `tau-assets.bin` and the library where the core reads them, refuses `--carry-from` (no music copy), and
+  keeps the TAU Dev platform until the last dev build is removed.
+- **Cards today:** existing `TAU_DEV_NN` cores keep working on their own platforms. Remove them as they are superseded (their
+  backups include their media copies).
+- `--semver` builds keep the old scheme until the Preview channel is implemented.
+
 1. Mechanism A (core per build, platform per channel) vs B (instance JSON). Recommended: A.
 2. Rolling `alfatreze.TAU` for stable with optional pinned folders, vs every version its own folder. Recommended:
    rolling (settings survive updates).

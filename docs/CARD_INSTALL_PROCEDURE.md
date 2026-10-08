@@ -183,3 +183,10 @@ the cold image loaded (spec section 7 probe, item 2).
   `Platforms/<platform>.*` are kept.
 - **Exclusive platforms** (every TAU DEV build today) are still removed whole, with a full backup.
 - The old behaviour would have deleted TAU's whole music folder when a second TAU core was removed.
+
+### Dev builds share TAU's media (B-673 option a, 2026-10-08)
+
+New dev builds (`alfatreze.TAU DEV NN`, platforms `tau_dev` + `tau`) read TAU's library index, `tau-assets.bin`, music and covers in
+place: no `--carry-from`, which the installer now refuses for them. They appear under **TAU Dev** and in TAU's Select Core list. The
+`TAU Dev` platform stays until the last dev build is removed. Core ids contain spaces, so quote them:
+`--remove "alfatreze.TAU DEV 110"`.
