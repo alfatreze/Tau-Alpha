@@ -31,3 +31,32 @@ def find(base, name, platform=None, core_id=None):
     hits = sorted(base.glob(f"Assets/*/*/{name}"))
     core = [h for h in hits if h.parent.name != "common"]
     return (core or hits or [None])[0]
+
+
+# ---- dev channel (B-672/B-673, owner decision 2026-10-08: option a) ----------------------------------------------------------------
+# Dev builds live on ONE platform, `tau_dev` ("TAU Dev"), and also declare `tau` so they can read TAU's library, tau-assets.bin and
+# music in place: the Pocket only opens files on the platforms a core declares (B-673). Consequence, accepted: every dev build is also
+# listed in TAU's Select Core list (shortname + version). Build-bound files stay core-specific under Assets/tau_dev/<core>/.
+DEV_PLATFORM, DEV_PLATFORM_NAME, MEDIA_PLATFORM = "tau_dev", "TAU Dev", "tau"
+SHARED_SLOT_FILES = ("tau-library.tdb", "tau-assets.bin")    # user/generated data read from the media platform
+PLATFORM_INDEX_SHIFT = 24                                     # data.json parameter bits [25:24]: index into platform_ids
+
+
+def slot_platform_index(parameters):
+    return (int(str(parameters), 16) >> PLATFORM_INDEX_SHIFT) & 3
+
+
+def read_shared_media(data_json, index=1):
+    """Point the shared-data slots (library index, tau-assets.bin) at platform_ids[index] (TAU's common folder)."""
+    for sl in data_json["data"]["data_slots"]:
+        if sl.get("filename") in SHARED_SLOT_FILES:
+            p = int(str(sl.get("parameters", "0")), 16) & ~(3 << PLATFORM_INDEX_SHIFT)
+            sl["parameters"] = "0x%X" % (p | (index << PLATFORM_INDEX_SHIFT))
+    return data_json
+
+
+def slot_dir(base, slot, platforms, core_id):
+    """The folder the Pocket reads a data slot's file from: Assets/<platform_ids[bits 25:24]>/<core_id or common>."""
+    params = int(str(slot.get("parameters", "0")), 16)
+    plat = platforms[min(slot_platform_index(params), len(platforms) - 1)]
+    return Path(base) / "Assets" / plat / (core_id if params & CORE_SPECIFIC else "common")

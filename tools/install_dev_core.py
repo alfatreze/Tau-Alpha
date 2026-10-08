@@ -253,6 +253,18 @@ def main():
         die(f"card not mounted at {card}")
     new_id, new_plat, ver = package_identity(pkg)
     print(f"package: {new_id}  platform {new_plat}  version {ver}")
+    pkg_meta = json.loads((pkg / "Cores" / new_id / "core.json").read_text())["core"]["metadata"]
+    pkg_platforms = pkg_meta.get("platform_ids") or [new_plat]
+    pkg_slots = json.loads((pkg / "Cores" / new_id / "data.json").read_text())["data"]["data_slots"]
+    shared_media = len(pkg_platforms) > 1                  # dev channel (B-673 option a): reads another platform's library and media
+    if shared_media:
+        lib = next((sl for sl in pkg_slots if sl.get("filename") == "tau-library.tdb"), None)
+        lib_dir = tau_layout.slot_dir(card, lib, pkg_platforms, new_id) if lib else None
+        print(f"media:   read in place from {lib_dir.relative_to(card) if lib_dir else '?'} (platforms {pkg_platforms}; listed under each of them)")
+        if a.carry_from:
+            die("--carry-from is not used for a core that reads another platform's media in place (it would copy music nobody reads)")
+        if lib_dir is not None and not (lib_dir / "tau-library.tdb").is_file():
+            print(f"   note: no tau-library.tdb in {lib_dir.relative_to(card)} yet: the core starts with an empty library")
     run([sys.executable, "tools/check_tau_package.py", pkg], "package check")
     pair_cmd = [sys.executable, "tools/check_fw_bitstream_pair.py", pkg]
     if (Path(pkg) / "bitstream-manifest.json").is_file():
@@ -444,7 +456,8 @@ def main():
     # A file found automatically (the sample next to the package, the carried-from core's copy) is only placed when the card has none:
     # tau-assets.bin is user data (themes, meter presets, Halcyon user EQ presets) and is never overwritten implicitly (review H1).
     # An explicit --assets replaces it; the old copy is in the backup when the core was replaced.
-    dst = card / "Assets" / new_plat / "common" / "tau-assets.bin"
+    s8 = next((sl for sl in pkg_slots if sl.get("filename") == "tau-assets.bin"), None)
+    dst = (tau_layout.slot_dir(card, s8, pkg_platforms, new_id) if s8 else card / "Assets" / new_plat / "common") / "tau-assets.bin"
     ab = a.assets
     if ab is None and (pkg.parent / "tau-assets.bin").is_file():
         ab = pkg.parent / "tau-assets.bin"
@@ -455,6 +468,7 @@ def main():
         print(f"\n[3b] tau-assets.bin: the card's own file is kept (user data); {ab} not placed -- pass --assets to replace it")
         ab = None
     elif ab is not None:
+        dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ab, dst)
         if sha(ab) != sha(dst): die("tau-assets.bin differs after copy")
         print(f"\n[3b] tau-assets.bin installed ({sha(dst)[:16]}, from {ab})")

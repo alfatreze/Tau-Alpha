@@ -55,7 +55,7 @@
           },
           "core_id": {
             "type": "string",
-            "pattern": "^[^./]+\\.[^./]+$"
+            "pattern": "^[^./]+\\.[^/]+$"
           },
           "bitstream_sha256": {
             "type": "string",

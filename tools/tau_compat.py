@@ -42,7 +42,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 from check_fw_bitstream_pair import rom_accepts, rom_needs  # noqa: E402  (the pairing gate's own marker readers)
 import fit_manifest  # noqa: E402  (B-653: FEATURES, macros_of)
-from tau_layout import BUILD_BOUND, CORE_SPECIFIC  # noqa: E402  (H4)
+from tau_layout import BUILD_BOUND, CORE_SPECIFIC, slot_dir  # noqa: E402  (H4, dev channel)
 
 SCHEMA = 2
 SCHEMA_FILE = ROOT / "docs/schemas/tau-compat.schema.json"
@@ -248,7 +248,8 @@ def read_zip(path):
     return {"zip": path.name, "zip_sha256": sha(raw), "core_id": folder, "version": meta["version"],
             "date_release": meta["date_release"], "bitstream": bit, "rom_sha256": sha(rom), "cold_sha256": sha(cold),
             "rom_accepts": acc, "rom_needs": need or [], "interact": inter,
-            "data": data, "files": files, "platform": (meta.get("platform_ids") or [""])[0]}
+            "data": data, "files": files, "platform": (meta.get("platform_ids") or [""])[0],
+            "platforms": meta.get("platform_ids") or [""]}
 
 
 def persisted(interact):
@@ -332,6 +333,12 @@ def layout(pkg, root=ROOT, obsolete=()):
              "required": bool(slot and slot.get("required"))}
         out.append(e)
     shipped = {e["path"] for e in out}
+    # Where each slot's file lives on the card: parameter bit 1 (core folder) and bits [25:24] (which of platform_ids). Dev builds read
+    # the library index and tau-assets.bin from TAU's common/ (B-673 option a), so the media and covers live there as well.
+    platforms = pkg.get("platforms") or [plat]
+    where = {sl["id"]: str(slot_dir("", sl, platforms, core)).lstrip("/").replace("\\", "/") + "/" for sl in slots}
+    lib = next((sl for sl in slots if sl.get("filename") == "tau-library.tdb"), None)
+    media = where[lib["id"]] if lib else common
     for sl in slots:
         fn = sl.get("filename")
         if fn:
@@ -341,17 +348,17 @@ def layout(pkg, root=ROOT, obsolete=()):
                 raise CompatError(f"{pkg['zip']}: data slot {sl['id']} names {fn}, which is neither shipped nor in tau_compat.NOT_SHIPPED")
             fmt = dict(fmts[fn])
             if fmt["name"] == "tau-library":
-                fmt["root"] = "/" + common                       # review M8: the absolute root the index must embed (B-136)
-            out.append({"path": common + fn, "role": NOT_SHIPPED[fn], "slot": sl["id"], "required": bool(sl.get("required")),
+                fmt["root"] = "/" + where[sl["id"]]               # review M8: the absolute root the index must embed (B-136)
+            out.append({"path": where[sl["id"]] + fn, "role": NOT_SHIPPED[fn], "slot": sl["id"], "required": bool(sl.get("required")),
                         "format": fmt})
         else:
             kind = BY_EXTENSION.get(tuple(sorted(sl.get("extensions", []))))
             if kind == "media":
-                out.append({"path": common + "**/*.{" + ",".join(sorted(sl["extensions"])) + "}", "pattern": True, "role": "user",
+                out.append({"path": media + "**/*.{" + ",".join(sorted(sl["extensions"])) + "}", "pattern": True, "role": "user",
                             "slot": sl["id"], "required": False})
             elif kind == "cover":
                 f = dict(fmts["cover"]); tail = f.pop("tail")
-                out.append({"path": common + "**/" + tail, "pattern": True, "role": "generated", "slot": sl["id"],
+                out.append({"path": media + "**/" + tail, "pattern": True, "role": "generated", "slot": sl["id"],
                             "required": False, "format": f})
             else:
                 raise CompatError(f"{pkg['zip']}: data slot {sl['id']} has no filename and extensions {sl.get('extensions')} that tau_compat.BY_EXTENSION does not know")
@@ -526,7 +533,8 @@ def check_card(doc, card, core=None, max_pattern_files=2000):
                         out.append(("error", f"{p['core_id']}: {e['path']}: {why}"))
             elif e["required"]:
                 out.append(("error", f"{p['core_id']}: required {e['path']} is missing"))
-        plat = next((e["path"].split("/")[1] for e in p["layout"] if e["path"].startswith("Assets/")), None)
+        plat = next((e["path"].split("/")[1] for e in p["layout"] if e["path"].startswith("Assets/") and f"/{p['core_id']}/" in e["path"]),
+                    next((e["path"].split("/")[1] for e in p["layout"] if e["path"].startswith("Assets/")), None))
         for d in [card / "Cores" / p["core_id"]] + ([card / "Assets" / plat / p["core_id"]] if plat else []):
             if d.is_dir():
                 for g in d.rglob("*"):

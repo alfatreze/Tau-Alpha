@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tau_data_slots as slots_lib
+import tau_layout
 
 root = Path(__file__).resolve().parent.parent
 src = root / "dist"
@@ -129,9 +130,11 @@ def main():
         platform, core_id, short, title = "tau_diagnostic", "alfatreze.TAU_DIAGNOSTIC", "TAU_DIAGNOSTIC", "TAU Diagnostic Build"
         desc, out = "TAU developer build: settings, Info page and diagnostic tests", root / "work/diagnostics/library-diagnostic/pocket"
     elif args.barcode is not None:
+        # Dev channel (B-673, option a): one TAU Dev platform, TAU's media read in place, listed under TAU too. Shortnames may hold
+        # spaces (B-673), so the Pocket shows "TAU DEV BARCODE 05" as written.
         nn = f"{args.barcode:02d}"
-        platform, core_id = f"tau_devbar{nn}", f"alfatreze.TAU_DEV_BARCODE_{nn}"   # platform id limit: 15 characters
-        short, title, label = f"TAU_DEV_BARCODE_{nn}", f"TAU DEV BARCODE {nn}", f"barcode-study test build {nn}"
+        platform, short, label = tau_layout.DEV_PLATFORM, f"TAU DEV BARCODE {nn}", f"barcode-study test build {nn}"
+        core_id, title = f"alfatreze.{short}", tau_layout.DEV_PLATFORM_NAME
         out = root / f"work/diagnostics/tau-dev-barcode-{nn}/pocket"
     elif args.semver:
         # Pocket platform ids match [a-z0-9][a-z0-9_]* and are <= 15 chars, so the semver is sanitized there;
@@ -144,9 +147,10 @@ def main():
         label, out = args.semver, root / f"work/diagnostics/tau-{sid}/pocket"
     else:
         nn = f"{args.number:02d}"
-        platform, core_id = f"tau_dev_{nn}", f"alfatreze.TAU_DEV_{nn}"
-        short, title, label = f"TAU_DEV_{nn}", f"TAU DEV {nn}", f"numbered test build {nn}"
+        platform, short, label = tau_layout.DEV_PLATFORM, f"TAU DEV {nn}", f"numbered test build {nn}"
+        core_id, title = f"alfatreze.{short}", tau_layout.DEV_PLATFORM_NAME
         out = root / f"work/diagnostics/tau-dev-{nn}/pocket"
+    dev_channel = platform == tau_layout.DEV_PLATFORM
     if not args.release_diagnostic:
         desc = f"TAU {label}: {kind}, " + (args.note or default_note)
 
@@ -156,7 +160,8 @@ def main():
     if already_reversed: shutil.copy2(rbf, c / "bitstream.rbf_r")
     else: bitrev(rbf, c / "bitstream.rbf_r")
     j = json.loads((c / "core.json").read_text())
-    m = j["core"]["metadata"]; m["shortname"] = short; m["platform_ids"] = [platform]
+    m = j["core"]["metadata"]; m["shortname"] = short
+    m["platform_ids"] = [platform, tau_layout.MEDIA_PLATFORM] if dev_channel else [platform]
     # core.json description is limited to 63 characters (cores vanish from the menu otherwise, B-142);
     # the full text goes to info.txt, the About-screen field that is meant for it.
     if len(desc) > 63:
@@ -173,6 +178,8 @@ def main():
     slots_lib.add_cold_slot(c)                          # data slot 6 = the cold image
     slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
     slots_lib.add_cover_slot(c)                         # data slot 7 = the cover image (TIM1 reader, on by default since B-325)
+    if dev_channel:                                     # library index and tau-assets.bin come from TAU's common/ (platform_ids[1])
+        save(c / "data.json", tau_layout.read_shared_media(json.loads((c / "data.json").read_text())))
     a = out / "Assets" / platform
     cd = a / core_id                                   # H4: build-bound files are core-specific (tools/tau_layout.py)
     cd.mkdir(parents=True)

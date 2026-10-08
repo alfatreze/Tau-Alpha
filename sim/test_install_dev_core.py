@@ -124,6 +124,34 @@ with tempfile.TemporaryDirectory() as td:
     rc, out = run("--card", card, "--remove", "alfatreze.TAU", "--yes")
     check("remove-only also protects the release cores", rc != 0 and "release core" in out)
 
+    # Dev channel (B-673 option a): TAU DEV builds share one TAU Dev platform and read TAU's library and tau-assets.bin in place.
+    sys.path.insert(0, str(ROOT / "tools"))
+    import tau_layout
+    def devpkg(n):
+        core = f"alfatreze.TAU DEV {n}"
+        tp = twin(core, "tau_dev", ["tau_dev", "tau"])
+        dj = json.loads((tp / "Cores" / core / "data.json").read_text())
+        (tp / "Cores" / core / "data.json").write_text(json.dumps(tau_layout.read_shared_media(dj)))
+        (tp / "Platforms/tau_dev.json").write_text(json.dumps({"platform": {"name": "TAU Dev"}}))
+        return tp
+    tau_assets_before = (card / "Assets/tau/common/tau-assets.bin").read_bytes()
+    d1 = devpkg(1); shutil.copy2(fixture, d1.parent / "tau-assets.bin")          # a sample next to the package
+    rc, out = run(d1, "--card", card, "--carry-from", "alfatreze.TAU", "--no-eject")
+    check("dev channel: --carry-from is refused (the core reads TAU's media in place)", rc != 0 and "--carry-from is not used" in out)
+    rc, out = run(d1, "--card", card, "--backup-dir", td / "bk-d1", "--no-eject", "--yes")
+    check("dev channel: installs beside TAU, reads TAU's library in place, never touches TAU's own tau-assets.bin",
+          rc == 0 and "read in place from Assets/tau/common" in out and (card / "Assets/tau_dev/alfatreze.TAU DEV 1/tau.rom").exists()
+          and not (card / "Assets/tau_dev/common").exists() and (card / "Assets/tau/common/tau-assets.bin").read_bytes() == tau_assets_before)
+    rc, out = run(devpkg(2), "--card", card, "--backup-dir", td / "bk-d2", "--no-eject", "--yes")
+    rc, out = run("--card", card, "--remove", "alfatreze.TAU DEV 1", "--backup-dir", td / "bk-rd1", "--no-eject", "--yes")
+    check("dev channel: removing one dev build keeps the TAU Dev platform for the others and TAU's media",
+          rc == 0 and not (card / "Cores/alfatreze.TAU DEV 1").exists() and (card / "Platforms/tau_dev.json").exists()
+          and (card / "Assets/tau_dev/alfatreze.TAU DEV 2").exists() and (card / "Assets/tau/common/tau-library.tdb").exists())
+    rc, out = run("--card", card, "--remove", "alfatreze.TAU DEV 2", "--backup-dir", td / "bk-rd2", "--no-eject", "--yes")
+    check("dev channel: removing the last dev build removes the TAU Dev platform and leaves TAU alone",
+          rc == 0 and not (card / "Assets/tau_dev").exists() and not (card / "Platforms/tau_dev.json").exists()
+          and (card / "Platforms/tau.json").exists() and (card / "Assets/tau/common/tau-library.tdb").exists())
+
     # Release manifest (tau-compat.json schema 2): obsolete files removed, card checked; a non-matching --compat stops before writing.
     import zipfile
     sys.path.insert(0, str(ROOT / "tools"))
