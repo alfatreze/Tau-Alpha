@@ -729,7 +729,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
 {
     char *q = o;
     switch (i) {
-    case 0: q = set_str(q, APP_VER); break;
+    case 0: q = set_str(q, app_version()); break;      /* the full stamped version (tools/tau_version.py) */
     case 1: {
         uint32_t v = REG(R_VERSION);
         for (int sh = 24; sh >= 0; sh -= 8) q = ui_hex2(q, (uint8_t)(v >> sh));

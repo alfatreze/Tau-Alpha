@@ -5,7 +5,7 @@ import struct
 from pathlib import Path
 
 
-ASSET = Path(__file__).resolve().parent.parent / "dist/Assets/tau/common/tau-loading.bin"
+ASSET = Path(__file__).resolve().parent.parent / "dist/Assets/tau/alfatreze.TAU/tau-loading.bin"
 
 
 def main():

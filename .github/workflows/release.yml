@@ -23,8 +23,8 @@ jobs:
             dist/Cores/alfatreze.TAU/bitstream.rbf_r \
             dist/Cores/alfatreze.TAU/core.json \
             dist/Cores/alfatreze.TAU/icon.bin \
-            dist/Assets/tau/common/tau.rom \
-            dist/Assets/tau/common/tau-loading.bin \
+            dist/Assets/tau/alfatreze.TAU/tau.rom \
+            dist/Assets/tau/alfatreze.TAU/tau-loading.bin \
             dist/Platforms/tau.json \
             dist/Platforms/_images/tau.bin
           do

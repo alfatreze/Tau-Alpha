@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Capture Tau's *shipped* loading image for visual review.
 
-This decodes ``dist/Assets/tau/common/tau-loading.bin`` exactly as firmware
+This decodes ``dist/Assets/tau/alfatreze.TAU/tau-loading.bin`` exactly as firmware
 does: its 16-entry RGB565 palette plus run-length stream become a 400x360
 framebuffer image.  Open the capture next to the authored source to expose
 changes caused by the palette and codec before a card swap.
@@ -22,7 +22,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-ASSET = ROOT / "dist/Assets/tau/common/tau-loading.bin"
+ASSET = ROOT / "dist/Assets/tau/alfatreze.TAU/tau-loading.bin"
 WIDTH, HEIGHT = 400, 360
 
 

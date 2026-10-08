@@ -29,8 +29,11 @@ optional), **6** the cold image, **7** pre-scaled cover files (opened by name), 
 python3 tools/sync_media.py "My Music" --core alfatreze.TAU
 python3 tools/sync_media.py MUSIC_DIR --all-tau --library                       # every alfatreze.TAU* core, plus the library index
 python3 tools/sync_media.py MUSIC_DIR --all-tau --library --art-variants        # also the fast cover files
-python3 tools/sync_media.py MUSIC_DIR --from-core alfatreze.TAU --core alfatreze.TAU_DIAGNOSTIC   # clone one core's media
+python3 tools/sync_media.py MUSIC_DIR --from-core alfatreze.TAU --core alfatreze.TAU_DEV_109   # clone media into an OLD per-platform dev core
 ```
+
+Cores of the release channels (TAU, TAU Diagnostics, TAU Preview, TAU Preview Diagnostics) and dev builds (TAU DEV NN) all read the
+music in `Assets/tau/common/`: sync it once with `--core alfatreze.TAU`. Only old dev cores with their own platform need a copy.
 
 Rules it follows (from the tool's own docstring):
 

@@ -1,0 +1,33 @@
+{
+  "about": "What each persisted interact.json id MEANS (RELEASE_SYSTEM_REVIEW_2026-10-08 H2). Bump `meaning` and set `since` to the release that first ships the new meaning whenever the firmware changes how a saved value is read or written (packing, units, enum, range), even when interact.json does not change. `since` is a release tag with a CHANGELOG heading, or the upcoming release's tag. Baseline: earlier history is not tracked before the first release listed. tools/tau_compat.py reports an id as changed when its `since` is later than the previous release, and refuses a release whose interact.json persists an id missing here or named differently. Never reuse an id: give a new meaning a new id when the format allows it.",
+  "ids": {
+    "10": {"name": "Volume", "word": "SW_VOL", "meaning": 2, "since": "v0.6.0-alpha.4",
+           "what": "volume position 0-100 on the dB taper (B-598); before alpha.4 the same number was a linear gain, so a saved value now sounds quieter"},
+    "11": {"name": "Color", "word": "SW_PAL", "meaning": 1, "since": "v0.3.0",
+           "what": "accent colour index into the 19-colour Pocket palette"},
+    "12": {"name": "Repeat", "word": "SW_REP", "meaning": 1, "since": "v0.3.0",
+           "what": "repeat mode 0 off, 1 all, 2 one"},
+    "15": {"name": "Meter", "word": "SW_VIZ", "meaning": 2, "since": "v0.5.0",
+           "what": "meter = VIZ_* enum number (append-only); since v0.5.0 numbers 2, 7, 9, 11 are retired (7 also saves Bars in its mirrored layout), list order is not enum order"},
+    "16": {"name": "Halcyon EQ preset", "word": "SW_EQ", "meaning": 2, "since": "v0.6.0-preview.1",
+           "what": "Halcyon EQ preset index 0-30 (B-651); before, the index of one of the eight legacy preset EQs"},
+    "20": {"name": "(internal) list 1", "word": "SW_RETIRED_PLN0", "meaning": 2, "since": "v0.6.0-alpha.1",
+           "what": "word 0 of the saved Check summary (tools/decode_tau_suite.py, TAUD1 CRC is the discriminator); the legacy playlist name it held before v0.6.0 is gone"},
+    "21": {"name": "(internal) list 2", "word": "SW_RETIRED_PLN1", "meaning": 2, "since": "v0.6.0-alpha.1",
+           "what": "word 1 of the saved Check summary (was legacy playlist name)"},
+    "22": {"name": "(internal) list 3", "word": "SW_RETIRED_PLN2", "meaning": 2, "since": "v0.6.0-alpha.1",
+           "what": "word 2 of the saved Check summary (was legacy playlist name)"},
+    "23": {"name": "(internal) list 4", "word": "SW_RETIRED_PLHASH", "meaning": 2, "since": "v0.6.0-alpha.1",
+           "what": "word 3 of the saved Check summary (was the playlist name hash)"},
+    "24": {"name": "(internal) library 1", "word": "SW_LIBH", "meaning": 1, "since": "v0.4.0",
+           "what": "what was playing: kind, id and position"},
+    "25": {"name": "(internal) library 2", "word": "SW_LIBB", "meaning": 1, "since": "v0.4.0",
+           "what": "build id of the library index the position refers to"},
+    "26": {"name": "(internal) library 3", "word": "SW_LIBS", "meaning": 1, "since": "v0.4.0",
+           "what": "Shuffle All seed"},
+    "27": {"name": "(internal) theme", "word": "SW_THEME", "meaning": 2, "since": "v0.6.0-alpha.1",
+           "what": "theme index (B-346). Until v0.5.0 id 27 was 'Library off (restart)' at another address; the id was reused, contrary to tools/tau_data_slots.py's own rule, so a value saved by v0.5.0 or older must not be read as a theme"},
+    "28": {"name": "(internal) theme mode", "word": "SW_POL", "meaning": 2, "since": "v0.6.0-alpha.4",
+           "what": "bit 0 theme polarity (Dark 0, Light 1; since v0.6.0-alpha.1), bits 4-5 ReplayGain mode 0 Off 1 Track 2 Album (B-599, range widened to 255 in B-600)"}
+  }
+}

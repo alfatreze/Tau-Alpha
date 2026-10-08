@@ -14424,3 +14424,69 @@ Seeds 1 and 2, bundle `tools/blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_audio
 Both seeds Successful, every corner positive, 256/308 RAM blocks, 20/66 DSP. Seed 1 selected (worst hold +0.119 ns against +0.081 ns; setup +1.52/+1.72 ns on the slow corners). RBF sha256 `23dc9e77...1910`, manifest written by `vm_fit.py collect`. Packaged `TAU_DEV_109` (diagnostic, `RAM_192K=1,CLK66=1,SDRAM_BUSY=1,LPC_FW=1`, pair check PASS, heap gap 1,200 B). Installed with `tools/install_dev_core.py --carry-from alfatreze.TAU_DEV_108 --yes` (all hashes identical, library index rebuilt, `tau-assets.bin` carried, caches cleared, ejected; 108, 105 and 107 kept; backup `work/card-backups/20261008-195535`). An earlier attempt hit a different volume (`CARDWRITE`, not the Pocket card): nothing was written to it.
 
 **Hardware (owner, aural):** no menu for the legacy EQ any more, sound seems ok against 108. This meets the gate "audio unchanged against 108" by ear only; the recordings (mono TS plug) and a clean Info > I2S JITTER read are still owed. Not pushed.
+
+## B-672: release-system card probe (two cores on one platform, core-specific files, dev core reading TAU's library), 2026-10-08
+
+Release spec section 7. Two probe cores built from the card's own TAU (alpha.4) bitstream and ROM, installed with `tools/install_dev_core.py`
+(dry runs first, owner's go), run by the owner, then removed with a verified backup (`work/card-backups/probe-h4-removed`). Screenshots kept
+in `work/diagnostics/probe-h4/screens/` (card: `Memories/Screenshots/20261008_2028*`, `2030*`).
+
+- `alfatreze.TAU_PROBE`: platform `tau` beside TAU, version `0.8.0-preview.2`, data slots 1/4/6 core-specific (files in
+  `Assets/tau/alfatreze.TAU_PROBE/`), an extra `tau-release.json` in the core folder.
+- `alfatreze.TAU_PRBDEV`: platforms `["tau_dev", "tau"]`, core-specific build files, slots 5 and 8 with bits [25:24] = 1 (read TAU's
+  `tau-library.tdb` and `tau-assets.bin` in place).
+
+**Hardware results (owner photos and in-core screenshots):**
+1. **Platform list:** TAU appears once with a count badge (3), and a separate **TAU Dev** entry appears. Opening TAU shows a
+   **Select Core** list. The core in the list marked **Default** is TAU. Each row shows the core's **shortname** (`TAU_PROBE`,
+   `TAU_PRBDEV`, underscores and all), not its description. The selected row adds **Version** and **Author**. Full pre-release
+   versions display as written (`0.8.0-preview.2`, `0.8.0-dev.1`).
+2. **A core is listed under every platform in its `platform_ids`:** TAU_PRBDEV appears under TAU as well as under TAU Dev. Sharing
+   media through a second platform therefore puts dev builds into the main TAU list.
+3. **Core-specific build files work (H4 confirmed):** TAU_PROBE booted with its splash, cold image loaded (113,684 B, CODE), TIM1 cover
+   loaded, library 114 tracks, theme file loaded, MP3 played. The unknown file in the core folder had no effect.
+4. **Platform-index slots work:** TAU_PRBDEV read TAU's library (114 tracks) and `tau-assets.bin` (theme file loaded and applied)
+   through bits [25:24]. Tracks played (0 underruns), covers loaded.
+5. **TAU_PRBDEV's first launch was slow** (5-10 s of black screen; later launches normal). Its Info showed **DRAW STALL 19,965 ms**,
+   against 32 ms on TAU_PROBE. Not explained; it may be first-launch work inside the firmware. Check DRAW STALL on a later launch.
+
+**Found while removing the probes:** `install_dev_core.py --remove` deleted the removed core's whole `Assets/<platform>` folder and its
+platform files. That was correct while every Tau core had its own platform. With TAU_PROBE beside TAU it would have deleted TAU's music,
+library and platform entry. Fixed before the removal:
+- removal and backup are scoped to `Assets/<platform>/<core>` whenever another core lists the platform;
+- an exclusive platform is still removed whole, with a full backup;
+- new remove-only mode (`--remove` without a package);
+- tests include a mutant of the old behaviour, which is caught.
+
+**Consequences for the release design:**
+- Core shortnames are the display text, so they must read well (`TAU`, not `TAU_0_7_0_B_2`).
+- Versions carry the channel and number.
+- Dev cores should not list `tau` as a second platform. The proposed alternative is a dev core on its own platform with a copy of the
+  9 KB index, whose root already points at `/Assets/tau/common/` (tracks and covers open by absolute path, B-033). It is not yet
+  tested.
+
+## B-673: release-system card probe 2 (shortname characters; dev core with an index copy only), 2026-10-08
+
+Four probe cores built from TAU alpha.4's bitstream and ROM with the H4 layout, installed with `tools/install_dev_core.py` (dry runs,
+owner's go), run by the owner, then removed with the B-672 scoped removal (`work/card-backups/probe-2-removed`; TAU's media untouched).
+Screenshots kept in `work/diagnostics/probe-2/screens/`.
+
+**Shortnames with a space, a dot and a hyphen** (`alfatreze.TAU Preview`, `alfatreze.TAU 0.7`, `alfatreze.TAU-0.7`, platform `tau`):
+all three are listed under TAU exactly as written (`TAU Preview`, `TAU 0.7`, `TAU-0.7`) with their versions, and all three boot. Their
+build files sit in folders with those characters (`Assets/tau/alfatreze.TAU 0.7/`), so the Pocket also resolves them. **Readable display
+names are possible.**
+
+**Dev core with its own platform and an index copy only** (`alfatreze.TAU_DEVIDX`, platform `tau_dev` alone, TAU's 9 KB
+`tau-library.tdb` copied into `Assets/tau_dev/common/`, its root `/Assets/tau/common/`):
+- not in the TAU list (TAU shows 4); Core Info shows Platforms: TAU Dev;
+- the library loads (Info LIBRARY 114 TRK);
+- **selecting a track plays nothing**: TRACK NONE, TIM1 COVER 0 LOADED. Decoded from the Info export pixel grid (all 37 rows from one
+  screenshot).
+
+Conclusion: the Pocket does not open a file outside the platforms the core declares. B-672's TAU_PRBDEV played TAU's music because it
+also declared `tau`. A dev core can share TAU's music only by declaring `tau`, which lists it under TAU too. Otherwise it needs its own
+media copy (today's `--carry-from`). The "absolute path open" of B-033 holds within the core's platforms. The exact rule is inferred from
+behaviour; no Analogue text read states it.
+
+Also: TAU_DEVIDX's first launch showed **DRAW STALL 0 ms**. B-672's 19,965 ms on TAU_PRBDEV is therefore tied to that two-platform
+core, not to every first launch (still unexplained, low priority).

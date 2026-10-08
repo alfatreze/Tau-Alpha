@@ -10,7 +10,7 @@ ordinary feature growth from genuinely new code does not need constant re-baseli
 
 Not wired into `make test-host`: like tools/check_cold_calls.py, this is an informational tool run by
 hand, deliberately -- it rebuilds every tracked target via fw/build.sh, which overwrites
-dist/Assets/tau/common/tau.rom (the real shipped ROM), a side effect a plain host test should not have
+dist/Assets/tau/alfatreze.TAU/tau.rom (the real shipped ROM), a side effect a plain host test should not have
 without the project deciding to accept it.
 
 B-565: the baseline also keeps one RAM snapshot per target (tools/ram_snapshots/<target>.json, written by
