@@ -146,3 +146,21 @@ When a release manifest `tau-compat.json` (schema 2) describes **exactly** the p
   - the core's folders must hold no stray files.
 - **On an error:** the script stops with the core installed but the catalog caches **not** deleted. The Pocket keeps showing the old catalog until the problem is fixed and the script is re-run.
 - **By hand:** `python3 tools/tau_compat.py check-card release/tau-compat.json /Volumes/Pock --core alfatreze.TAU`.
+
+### Before writing, restore on failure, and tau-assets.bin (2026-10-08, review M3/H1)
+
+- **Before anything is written**, the installer checks that the release can read the card's own files and the `--assets` file:
+  - with a matching manifest: `tau-assets.bin` (unless `--assets` replaces it), TIM1 covers, and the settings file;
+  - the library index is skipped here, because steps 3 and 3a rebuild it.
+
+  A problem stops the install with the card untouched (no backup folder is even created).
+- **Restore:** every file the copy will overwrite is snapshotted into `<backup>/_overwritten/`. If the copy does not
+  verify, or the card check fails, the card is put back exactly (core folder from the backup, overwritten files from the
+  snapshot, new files deleted), the restore is verified, and the script stops with the catalog caches untouched. Media
+  carried in step 3 and a rebuilt index stay; both are additive.
+- **Obsolete files** are removed only after the card check passed.
+- **`tau-assets.bin` is user data.** A file found automatically (the sample next to the package, or the carried-from
+  core's copy) is placed only when the card has none. `--assets FILE` replaces the card's file on purpose (it is in the
+  backup when the core was replaced).
+- **Dev packages** built with an RBF that has a fit manifest carry their own `tau-compat.json` next to the package, so
+  the card check runs for them too.

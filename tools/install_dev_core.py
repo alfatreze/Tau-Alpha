@@ -209,6 +209,21 @@ def main():
         obs = [e["path"] for e in compat_entry["layout"] if e["role"] == "obsolete" and (card / e["path"]).exists()]
         print(f"obsolete: {obs or 'none on the card'}; then check the card against {compat['release']}")
     print("then:    delete catalog caches, clean junk files, " + ("(no eject)" if a.no_eject else "eject"))
+
+    # Pre-write checks (review M3): everything that can be judged before writing is judged now, so a card the install could not leave
+    # consistent is refused untouched. The library index is left out: steps 3/3a rebuild it when it does not verify.
+    pre_errs = []
+    if a.assets is not None:
+        why = tau_compat._format_ok(a.assets, tau_compat.firmware_formats()["tau-assets.bin"])
+        if why: pre_errs.append(f"--assets {a.assets}: {why}")
+    if compat_entry is not None:
+        skip = {e["path"] for e in compat_entry["layout"] if e["path"].endswith("/tau-library.tdb")}
+        if a.assets is not None:
+            skip |= {e["path"] for e in compat_entry["layout"] if e["path"].endswith("/tau-assets.bin")}
+        pre_errs += tau_compat.format_errors(compat_entry["layout"], card, skip)
+    if pre_errs:
+        die("refused before writing anything -- " + "; ".join(pre_errs[:5]))
+    print("checks:  card files and --assets readable by this release" + (" (format check of the card's own files)" if compat_entry else ""))
     if dry:
         print("\n(dry run) re-run with --yes to write.")
         return
@@ -236,6 +251,45 @@ def main():
             if sha(p) != sha(bdir / "System" / f): die(f"backup of {f} does not match")
     print(f"   caches: {len(list((bdir / 'System').iterdir()))} backed up and verified")
 
+    # Snapshot of every non-core file the copy will overwrite (review M3), so a failed copy or card check can put the card back. The
+    # core folder itself is in the backup above whenever it existed.
+    pkg_rel = [str(f.relative_to(pkg)) for f in sorted((pkg / "Assets" / new_plat).rglob("*")) if f.is_file()]
+    pkg_rel += [f"Platforms/{new_plat}.json", f"Platforms/_images/{new_plat}.bin"]
+    snap = bdir / "_overwritten"
+    pre = {}
+    for rel in pkg_rel:
+        f = card / rel
+        pre[rel] = f.is_file()
+        if pre[rel]:
+            (snap / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, snap / rel)
+            if sha(f) != sha(snap / rel): die(f"snapshot of {rel} does not match the card")
+
+    def restore(why):
+        """Put the card back as it was before step 2, verify it, then stop. Media carried in step 3 and a rebuilt index stay (additive)."""
+        print(f"\n[restore] {why}")
+        cd = card / "Cores" / new_id
+        if cd.exists(): rmtree_tolerant(cd)
+        if exists:
+            copy_tree(bdir / new_id / "Cores" / new_id, cd)
+        for rel, had in pre.items():
+            f = card / rel
+            if had:
+                f.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(snap / rel, f)
+            elif f.exists():
+                f.unlink()
+        ok = (not exists or tree(bdir / new_id / "Cores" / new_id) == tree(cd)) and (exists or not cd.exists())
+        ok = ok and all((sha(card / r) == sha(snap / r)) if had else not (card / r).exists() for r, had in pre.items())
+        die(f"{why}. The card was restored to its state before the install ({'verified' if ok else 'VERIFICATION FAILED -- restore by hand from ' + str(bdir)}); "
+            f"catalog caches untouched, backup {bdir}")
+
+    def test_fault(stage):
+        """Test hook (sim/test_install_dev_core.py only): TAU_INSTALL_TEST_CORRUPT=<stage>:<card path> flips one byte of that file."""
+        spec = os.environ.get("TAU_INSTALL_TEST_CORRUPT", "")
+        if spec.startswith(stage + ":"):
+            f = card / spec.split(":", 1)[1]
+            b = bytearray(f.read_bytes()); b[0] ^= 1; f.write_bytes(bytes(b))
+
     # 2. copy + verify
     print("\n[2/7] copy and verify")
     if exists:                                   # replace the core files; the media in Assets/<platform>/common stays
@@ -245,14 +299,15 @@ def main():
     (card / "Platforms/_images").mkdir(parents=True, exist_ok=True)
     shutil.copy2(pkg / "Platforms" / f"{new_plat}.json", card / "Platforms" / f"{new_plat}.json")
     shutil.copy2(pkg / "Platforms/_images" / f"{new_plat}.bin", card / "Platforms/_images" / f"{new_plat}.bin")
+    test_fault("copy")
     for rel in (f"Cores/{new_id}", f"Assets/{new_plat}"):
         want, got = tree(pkg / rel), tree(card / rel)
         bad = [k for k in want if want[k] != got.get(k)]           # every package file must be on the card, identical
         if rel.startswith("Cores/"): bad += [k for k in got if k not in want]   # a core dir must match exactly
         if bad:
-            die(f"copy mismatch in {rel}: {bad[:5]}")
+            restore(f"copy mismatch in {rel}: {bad[:5]}")
     for f in ("Platforms/" + f"{new_plat}.json", "Platforms/_images/" + f"{new_plat}.bin"):
-        if sha(pkg / f) != sha(card / f): die(f"{f} differs after copy")
+        if sha(pkg / f) != sha(card / f): restore(f"{f} differs after copy")
     for rel in (f"Cores/{new_id}/bitstream.rbf_r", f"Assets/{new_plat}/common/tau.rom", f"Assets/{new_plat}/common/tau-cold.bin"):
         if (pkg / rel).exists():
             print(f"   {sha(card / rel)[:16]}  {rel}  identical")
@@ -298,35 +353,41 @@ def main():
 
     # 3b. tau-assets.bin (data slot 8: extra themes and meter presets). It is not media, so sync_media skips it, and the packager keeps its
     # sample next to the package instead of inside it -- alpha.35 was installed without it (B-329). Always place it when one is known.
+    # A file found automatically (the sample next to the package, the carried-from core's copy) is only placed when the card has none:
+    # tau-assets.bin is user data (themes, meter presets, Halcyon user EQ presets) and is never overwritten implicitly (review H1).
+    # An explicit --assets replaces it; the old copy is in the backup when the core was replaced.
+    dst = card / "Assets" / new_plat / "common" / "tau-assets.bin"
     ab = a.assets
     if ab is None and (pkg.parent / "tau-assets.bin").is_file():
         ab = pkg.parent / "tau-assets.bin"
     if ab is None and a.carry_from:
         cand = core_paths(card, a.carry_from)[1] / "common" / "tau-assets.bin"
         if cand.is_file(): ab = cand
-    if ab is not None:
-        dst = card / "Assets" / new_plat / "common" / "tau-assets.bin"
+    if ab is not None and a.assets is None and dst.is_file() and sha(dst) != sha(ab):
+        print(f"\n[3b] tau-assets.bin: the card's own file is kept (user data); {ab} not placed -- pass --assets to replace it")
+        ab = None
+    elif ab is not None:
         shutil.copy2(ab, dst)
         if sha(ab) != sha(dst): die("tau-assets.bin differs after copy")
         print(f"\n[3b] tau-assets.bin installed ({sha(dst)[:16]}, from {ab})")
-    else:
+    elif not dst.is_file():
         print("\n[3b] tau-assets.bin: none found (Info shows THEME FILE / METER FILE NONE)")
 
     # 3c. release manifest: remove obsolete files (already in the backup when the core was replaced), then check the card
     if compat_entry is not None:
         print(f"\n[3c] card check against {compat['release']} (tau-compat.json)")
-        for e in compat_entry["layout"]:
-            f = card / e["path"]
-            if e["role"] == "obsolete" and f.is_file():
-                f.unlink()
-                print(f"   removed obsolete {e['path']}")
-        res = tau_compat.check_card(compat, card, new_id)
+        test_fault("check")
+        res = [(l, m) for l, m in tau_compat.check_card(compat, card, new_id) if not (l == "warn" and "is obsolete" in m)]
         for lvl, msg in res:
             print(f"   {lvl.upper():5} {msg}")
         bad = [m for lvl, m in res if lvl == "error"]
         if bad:
-            die(f"the card does not match {compat['release']} ({len(bad)} error(s), see above); the core is installed, "
-                f"the caches are NOT deleted, backup {bdir}")
+            restore(f"the card does not match {compat['release']} ({len(bad)} error(s), see above)")
+        for e in compat_entry["layout"]:           # only once the card is known good: obsolete files are then removed
+            f = card / e["path"]
+            if e["role"] == "obsolete" and f.is_file():
+                f.unlink()
+                print(f"   removed obsolete {e['path']}")
         print(f"   card matches {compat['release']}: 0 errors, {len(res)} warning(s)")
 
     # 4. remove

@@ -167,6 +167,30 @@ Consequence: the published alpha.3 and alpha.4 zips still ship the inert `TAU.js
 
 Omega side, still open: the H1 round-trip fix in `assets.rs`.
 
+## Status of step 3 (2026-10-08, same day)
+
+Done on `release-system`. The schema stays 2 (additive keys only). `make test-host` passes. A real dev package was built
+against fit `noeq-b670`.
+
+| Item | What was built | Test |
+|---|---|---|
+| H2 | `tools/persist_registry.json`: name, firmware word, `meaning`, `since` and a sentence for every persisted id. `build` refuses an `interact.json` id that is missing from it or named differently, and a `since` later than the release or not released. `persist_ids_changed` adds every id whose `since` is later than the previous release. The registry is published as `persist_registry` | the shipped `interact.json` matches; rename, new-id and future-since cases |
+| M2 | `previous_release` (new `--previous-release`, required with `--previous`). The previous zips must carry that release's version and CHANGELOG date. It must be older than the release. Union rule for Omega: an id changed since release R when its `since` is later than R | wrong-date, not-older and missing-tag cases; a card on alpha.3 must treat ids 10, 16, 28 as changed |
+| M3 | Installer: the format of the card's own files and of `--assets` is checked **before** anything is written. Every file the copy overwrites is snapshotted. A copy mismatch or a failed card check restores the card exactly (verified) and leaves the catalog caches alone. Obsolete files are removed only after the card check passes | a bad `--assets` file and a TAUA v9 card file are refused untouched; fault injection after the copy and at the check gives a byte-identical card |
+| H1 (installer side) | A `tau-assets.bin` found automatically (the sample next to the package, the carried-from core's copy) no longer overwrites the card's own file; an explicit `--assets` still does | sample-next-to-package case |
+| M5 | `package_dev_build.py` writes a dev `tau-compat.json` and a deterministic `<core>_<version>_dev.zip` next to the package when the RBF has a fit manifest (release `v<X.Y.Z>-dev.<NN>`, which sorts before every preview). The installer uses it automatically | deterministic zip, package match, tag order |
+
+Found while building the registry:
+- **Persist id 27 was reused.** It was "Library off (restart)" until v0.5.0. It became "(internal) theme" at another
+  address in v0.6.0-alpha.1 (B-346), against the rule in `tools/tau_data_slots.py`. That docstring is now corrected,
+  and the registry records meaning 2.
+- **Ids 20-23 are the Check summary since v0.6.0-alpha.1.** The legacy playlist words they held are gone.
+
+Pending:
+- Id 16's `since` is set to `v0.6.0-preview.1`, the expected next pre-release. If the next release gets another tag,
+  `build` refuses until the registry is updated, which is intended.
+- Omega: implement the union rule and read `persist_registry`.
+
 ## Proposed order
 
 1. **Now, small, Tau side (schema stays 2, all additive):** H3 (commit-pinned evaluation, `rtl_dirty`, `=0` guard),

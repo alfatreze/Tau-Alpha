@@ -2,7 +2,7 @@
 """Host test for tools/install_dev_core.py: installs the real dist/ package onto a scratch 'card' and checks the
 dry run, the install, --replace (media survives), the catalog-cache deletion and the release-core protection.
 Never touches a real card."""
-import json, subprocess, sys, tempfile
+import json, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -52,9 +52,17 @@ with tempfile.TemporaryDirectory() as td:
     rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk2b", "--replace", "--allow-release", "--backup-media", "--no-eject", "--yes")
     check("--backup-media keeps the media in the backup", rc == 0 and (td / "bk2b/alfatreze.TAU/Assets/tau/common/my-track.mp3").read_bytes() == b"media")
 
-    ta = td / "tau-assets.bin"; ta.write_bytes(b"TAUA-test")
-    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk3", "--replace", "--allow-release", "--assets", ta, "--no-eject", "--yes")
-    check("--assets places tau-assets.bin in common/, verified", rc == 0 and (card / "Assets/tau/common/tau-assets.bin").read_bytes() == b"TAUA-test")
+    bad_ta = td / "bad-assets.bin"; bad_ta.write_bytes(b"TAUA-test")
+    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk3x", "--replace", "--allow-release", "--assets", bad_ta, "--no-eject", "--yes")
+    check("an --assets file the release cannot read is refused before writing (review M3)", rc != 0 and "refused before writing" in out and not (td / "bk3x").exists())
+    fixture = ROOT / "docs/schemas/fixtures/tau-assets-roundtrip.bin"
+    rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk3", "--replace", "--allow-release", "--assets", fixture, "--no-eject", "--yes")
+    check("--assets places tau-assets.bin in common/, verified", rc == 0 and (card / "Assets/tau/common/tau-assets.bin").read_bytes() == fixture.read_bytes())
+    other = td / "other" / "tau-assets.bin"; other.parent.mkdir(); other.write_bytes(fixture.read_bytes()[:-1] + b"\x00")
+    pk2 = td / "pk2"; shutil.copytree(pkg, pk2 / "pocket"); shutil.copy2(other, pk2 / "tau-assets.bin")   # a sample next to the package
+    rc, out = run(pk2 / "pocket", "--card", card, "--backup-dir", td / "bk3b", "--replace", "--allow-release", "--no-eject", "--yes")
+    check("a sample found next to the package does not overwrite the card's own tau-assets.bin (review H1)",
+          rc == 0 and "card's own file is kept" in out and (card / "Assets/tau/common/tau-assets.bin").read_bytes() == fixture.read_bytes())
 
     # B-332: --replace keeps the media; a stale index must be detected and rebuilt, a good one left alone.
     gen = td / "flacs"; gen.mkdir()
@@ -91,13 +99,13 @@ with tempfile.TemporaryDirectory() as td:
             if f.is_file() and f.relative_to(pkg).parts[0] in ("Cores", "Assets", "Platforms") and not f.name.startswith("._") and f.name != ".DS_Store":
                 z.write(f, str(f.relative_to(pkg)))
     ver = json.loads((pkg / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["version"]
-    cl = td / "CL.md"; cl.write_text(f"## v{ver}-alpha.99\n- test\n")
+    cl = td / "CL.md"
+    cl.write_text((ROOT / "CHANGELOG.md").read_text().replace("## v0.6.0-alpha.4", f"## v{ver}-preview.1 — 8 October 2026\n- test\n\n## v0.6.0-alpha.4", 1))
     acc = tc.rom_accepts((pkg / "Assets/tau/common/tau.rom").read_bytes())
     cpath = td / "tau-compat.json"
-    cpath.write_text(tc.dumps(tc.build(release=f"v{ver}-alpha.99", zips=[zp], previous=None, bitstream_version=acc[0], changelog=cl)))
+    cpath.write_text(tc.dumps(tc.build(release=f"v{ver}-preview.1", zips=[zp], previous=None, bitstream_version=acc[0], changelog=cl)))
     (card / "Assets/tau/alfatreze.TAU").mkdir(parents=True, exist_ok=True)
     (card / "Assets/tau/alfatreze.TAU/TAU.json").write_text("{}")
-    (card / "Assets/tau/common/tau-assets.bin").unlink()      # the earlier --assets case placed a fake "TAUA-test" file, not a TAUA v1 container
     rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk6", "--replace", "--allow-release", "--compat", cpath, "--no-eject", "--yes")
     check("with --compat: the obsolete TAU.json is removed and the card check passes",
           rc == 0 and "removed obsolete Assets/tau/alfatreze.TAU/TAU.json" in out and "card matches" in out
@@ -108,11 +116,29 @@ with tempfile.TemporaryDirectory() as td:
     (card / "System/corelist_cache.bin").write_text("x")
     rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk7", "--replace", "--allow-release", "--compat", td / "bad.json", "--no-eject", "--yes")
     check("a --compat that does not describe the package stops before writing", rc != 0 and "does not describe this package" in out and not (td / "bk7").exists())
+    good_assets = (card / "Assets/tau/common/tau-assets.bin").read_bytes()
     (card / "Assets/tau/common/tau-assets.bin").write_bytes(b"TAUA" + (9).to_bytes(2, "little") + bytes(6))
     rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk8", "--replace", "--allow-release", "--compat", cpath, "--no-eject", "--yes")
-    check("a card file in a format the release cannot read fails the card check and keeps the caches",
-          rc != 0 and "TAUA version 9" in out and (card / "System/corelist_cache.bin").exists())
-    (card / "Assets/tau/common/tau-assets.bin").unlink()
+    check("a card file in a format the release cannot read is refused BEFORE writing (review M3)",
+          rc != 0 and "refused before writing" in out and "TAUA version 9" in out and not (td / "bk8").exists())
+    (card / "Assets/tau/common/tau-assets.bin").write_bytes(good_assets)
+
+    # Auto-restore (review M3): a fault after the copy, or a failed card check, puts the card back and keeps the caches.
+    import hashlib, os
+    def snapshot():
+        return {str(f.relative_to(card)): hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted(card.rglob("*")) if f.is_file()}
+    rom = card / "Assets/tau/common/tau.rom"
+    rom.write_bytes(rom.read_bytes() + b"OLD")                              # a card whose ROM differs from the package (an older build)
+    before = snapshot()
+    for stage in ("copy", "check"):
+        env = dict(os.environ, TAU_INSTALL_TEST_CORRUPT=f"{stage}:Assets/tau/common/tau.rom")
+        r = subprocess.run(TOOL + [str(pkg), "--card", str(card), "--backup-dir", str(td / f"bk-{stage}"), "--replace", "--allow-release",
+                                   "--compat", str(cpath), "--no-eject", "--yes"], capture_output=True, text=True, cwd=ROOT, env=env)
+        o = r.stdout + r.stderr
+        check(f"a fault at '{stage}' restores the card exactly (verified) and keeps the caches",
+              r.returncode != 0 and "restored to its state before the install (verified)" in o and snapshot() == before
+              and (card / "System/corelist_cache.bin").exists())
+    rom.write_bytes(rom.read_bytes()[:-3])
     rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk9", "--replace", "--allow-release", "--no-eject", "--yes")
     check("without a matching manifest the card check is skipped", rc == 0 and "card check skipped" in out)
 

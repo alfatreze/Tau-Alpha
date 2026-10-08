@@ -31,10 +31,21 @@ def raises(fn, what, needle=""):
 RAW = bytes(range(256)) * 64                                   # stand-in raw RBF
 REVB = RAW.translate(tc.REV)
 
-def interact(ids):
-    return {"interact": {"magic": "APF_VER_1", "variables": [
-        {"name": n, "id": i, "type": "slider_u32", "persist": True, "defaultval": 0, "graphical": {"min": 0, "max": mx}}
-        for i, (n, mx) in ids.items()]}}
+REAL_INTERACT = json.loads((ROOT / "dist/Cores/alfatreze.TAU/interact.json").read_text())   # the shipped persist ids
+
+def interact(ids=None):
+    """The shipped interact.json; `ids` = {id: (name, max) or None} overrides or removes entries (an older release's view)."""
+    j = json.loads(json.dumps(REAL_INTERACT))
+    for i, ov in (ids or {}).items():
+        vs = j["interact"]["variables"]
+        if ov is None:
+            j["interact"]["variables"] = [v for v in vs if v["id"] != i]
+            continue
+        v = next((v for v in vs if v["id"] == i), None)
+        if v is None:
+            v = {"id": i, "type": "slider_u32", "persist": True, "defaultval": 0, "graphical": {"min": 0}}; vs.append(v)
+        v["name"], v["graphical"]["max"] = ov
+    return j
 
 DATA = (ROOT / "dist/Cores/alfatreze.TAU/data.json").read_text()      # the shipped slot map
 
@@ -46,7 +57,7 @@ def make(d, core, plat, rom, version="0.6.0", date="2026-10-08", bit=REVB, ids=N
         z.writestr(f"Cores/{core}/core.json", json.dumps({"core": {"metadata": {"author": author, "shortname": short,
                    "version": version, "date_release": date, "platform_ids": [plat]}}}))
         z.writestr(f"Cores/{core}/bitstream.rbf_r", bit)
-        z.writestr(f"Cores/{core}/interact.json", json.dumps(interact(ids or {16: ("Halcyon EQ preset", 30), 17: ("Theme", 3)})))
+        z.writestr(f"Cores/{core}/interact.json", json.dumps(interact(ids)))
         z.writestr(f"Assets/{plat}/common/tau.rom", rom)
         z.writestr(f"Assets/{plat}/common/tau-cold.bin", b"cold" + rom[:8])
         z.writestr(f"Cores/{core}/data.json", data)
@@ -64,14 +75,16 @@ with tempfile.TemporaryDirectory() as t:
     t = Path(t)
     old, new = t / "old", t / "new"
     old.mkdir(); new.mkdir()
-    prev = [make(old, "alfatreze.TAU", "tau", ROM_N, date="2026-10-07", ids={16: ("EQ preset", 7), 17: ("Theme", 3), 18: ("Gone", 1)}),
+    # alpha.4's view: Repeat had a smaller range, and an id 18 that this release no longer persists
+    prev = [make(old, "alfatreze.TAU", "tau", ROM_N, date="2026-10-07", ids={12: ("Repeat", 1), 18: ("Gone", 1)}),
             make(old, "alfatreze.TAU_DIAGNOSTIC", "tau_diagnostic", ROM_D, date="2026-10-07")]
     zips = [make(new, "alfatreze.TAU", "tau", ROM_N), make(new, "alfatreze.TAU_DIAGNOSTIC", "tau_diagnostic", ROM_D)]
     rbf = t / "ap_core.rbf"; rbf.write_bytes(RAW)
     (t / "ap_core.rbf.json").write_text(fitman(["TAU_RAM_192K", "TAU_CLK66", "TAU_HALCYON", "TAU_LPC", "TAU_POLY"], tc.sha(RAW)))
     cl = t / "CHANGELOG.md"
-    cl.write_text("# Changelog\n\n## v0.6.0-alpha.5 — 8 October 2026\n\n- Halcyon only.\n- Omega: persist id 16 is the Halcyon preset now.\n\n## v0.6.0-alpha.4\n- Omega: older note.\n")
-    kw = dict(release="v0.6.0-alpha.5", zips=zips, previous=prev, rbf=rbf, changelog=cl)
+    real_cl = (ROOT / "CHANGELOG.md").read_text()
+    cl.write_text(real_cl.replace("## v0.6.0-alpha.4", "## v0.6.0-preview.1 — 8 October 2026\n\n- Halcyon only.\n- Omega: persist id 16 is the Halcyon preset now.\n\n## v0.6.0-alpha.4", 1))
+    kw = dict(release="v0.6.0-preview.1", zips=zips, previous=prev, rbf=rbf, changelog=cl, previous_release="v0.6.0-alpha.4")
 
     # 1. the CORE_VERSION ifdef evaluator against the real mp3_soc.v (four contracts, not the first literal)
     for macros, want in (([], "4D503317"), (["TAU_RAM_192K"], "4D503318"), (["TAU_CLK66"], "4D503319"),
@@ -82,8 +95,8 @@ with tempfile.TemporaryDirectory() as t:
     out = t / "tau-compat.json"
     out.write_text(tc.dumps(tc.build(**kw)))
     doc = json.loads(out.read_text())
-    check(list(doc) == ["schema", "release", "date_release", "prerelease", "packages", "requires_omega", "notes", "source"], "top-level keys in schema order")
-    check(doc["schema"] == 2 and doc["release"] == "v0.6.0-alpha.5" and doc["prerelease"] is True and doc["date_release"] == "2026-10-08", "release fields")
+    check(list(doc) == ["schema", "release", "date_release", "prerelease", "packages", "requires_omega", "notes", "source", "previous_release", "persist_registry"], "top-level keys in schema order")
+    check(doc["schema"] == 2 and doc["release"] == "v0.6.0-preview.1" and doc["prerelease"] is True and doc["date_release"] == "2026-10-08", "release fields")
     check(len(doc["packages"]) == 2, "one packages entry per zip")
     for p, z in zip(doc["packages"], zips):
         with zipfile.ZipFile(z) as f:
@@ -100,7 +113,11 @@ with tempfile.TemporaryDirectory() as t:
     check(r["library_index_version"] == 1 and r["assets_read_limit_bytes"] == 65536, "index version 1, assets limit 64 KiB (fw)")
     check(set(r["assets_sections"]) == {"THEM", "METR", "PRST"}, f"assets sections read by the firmware: {r['assets_sections']}")
     check(r["report_tags_max"] == 27, f"last report tag {r['report_tags_max']} (SR_T_NOWPLAYING = 27)")
-    check(r["persist_ids_changed"] == [16, 18], f"persist ids changed/removed vs previous: {r['persist_ids_changed']}")
+    check(r["persist_ids_changed"] == [12, 16, 18], f"persist ids changed (12 range), removed (18) and re-meant per the registry (16) vs alpha.4: {r['persist_ids_changed']}")
+    check(doc["previous_release"] == "v0.6.0-alpha.4", "previous_release recorded")
+    check(doc["persist_registry"]["16"] == {"name": "Halcyon EQ preset", "meaning": 2, "since": "v0.6.0-preview.1"}
+          and set(doc["persist_registry"]) == {str(v["id"]) for v in REAL_INTERACT["interact"]["variables"] if v.get("persist")},
+          "persist_registry lists every persisted id with its meaning and since")
     check(r["min_omega"] == json.loads((ROOT / "tools/omega_compat.json").read_text())["min_omega"], "min_omega from tools/omega_compat.json")
     check(doc["notes"] == "persist id 16 is the Halcyon preset now.", "notes from this release's CHANGELOG 'Omega:' lines only")
     check(tc.verify(out, **kw) == [], "verify: file matches the zips and the tree")
@@ -255,6 +272,44 @@ with tempfile.TemporaryDirectory() as t:
     make(new, "alfatreze.TAU", "tau", ROM_N)
     check(tc.verify(out, **kw) == [], "after the refusals the original inputs verify again")
 
+    # 2g. step 3 of the review: the persist registry (H2) and the previous release (M2)
+    reg = tc.load_registry()
+    rel = tc.changelog_releases()
+    check(tc.registry_errors([{"core_id": "dist", "interact": REAL_INTERACT}], reg, rel) == [], "the shipped interact.json matches tools/persist_registry.json")
+    dj = json.loads(json.dumps(REAL_INTERACT)); next(v for v in dj["interact"]["variables"] if v["id"] == 27)["name"] = "(internal) other"
+    check(any("named" in e for e in tc.registry_errors([{"core_id": "x", "interact": dj}], reg, rel)), "a persisted id renamed without a registry update is refused")
+    dj = interact({29: ("New thing", 3)})
+    check(any("does not describe" in e for e in tc.registry_errors([{"core_id": "x", "interact": dj}], reg, rel)), "a new persisted id missing from the registry is refused")
+    check(tc.tag_key("v0.6.0-alpha.4") < tc.tag_key("v0.6.0-alpha.10") < tc.tag_key("v0.6.0-preview.1") < tc.tag_key("v0.6.0-rc.1")
+          < tc.tag_key("v0.6.0") < tc.tag_key("v0.6.1") and tc.tag_key("v0.6.0-dev.385") < tc.tag_key("v0.6.0-preview.1"),
+          "tag order: alpha.4 < alpha.10 < preview.1 < rc.1 < 0.6.0 < 0.6.1, dev < preview")
+    check(tc.changelog_releases()["v0.6.0-alpha.4"] == "2026-10-07" and "v1.4.0" not in tc.changelog_releases(), "changelog headings parse to dates; inherited HarpMudd v1.x headings are ignored")
+    raises(lambda: tc.build(**dict(kw, release="v0.6.0-alpha.9", changelog=t / "c9.md", rbf=None, bitstream_version="4D50331A"))
+           if (t / "c9.md").write_text(real_cl.replace("## v0.6.0-alpha.4", "## v0.6.0-alpha.9 — 8 October 2026\n- x\n\n## v0.6.0-alpha.4", 1)) else None,
+           "a registry `since` later than the release being built", "later than the release")
+    raises(lambda: tc.build(**dict(kw, previous_release=None)), "--previous without --previous-release", "--previous-release")
+    raises(lambda: tc.build(**dict(kw, previous_release="v0.6.0-alpha.3")), "previous zips that are not that release (date differs)", "wrong previous zip")
+    raises(lambda: tc.build(**dict(kw, previous_release="v0.6.0-preview.1")), "a previous release not older than the release", "not older")
+    # Omega's union rule over a skipped release: changes since alpha.3 include the alpha.4 meanings (10 Volume, 28 theme mode)
+    since3 = sorted(int(i) for i, v in doc["persist_registry"].items() if tc.tag_key(v["since"]) > tc.tag_key("v0.6.0-alpha.3"))
+    check(since3 == [10, 16, 28], f"from persist_registry, a card on alpha.3 must treat ids {since3} as changed (union rule)")
+
+    # 2h. dev packages get their own manifest (review M5)
+    dev = t / "devpkg"; (dev / "pocket").mkdir(parents=True)
+    with zipfile.ZipFile(zips[0]) as f:
+        f.extractall(dev / "pocket")
+    (dev / "pocket/bitstream-manifest.json").write_text("{}")             # package-root files are not part of the card layout
+    cp = tc.build_dev(dev / "pocket", 412, rbf=rbf)
+    dd = json.loads(cp.read_text())
+    check(cp == dev / "tau-compat.json" and dd["release"] == "v0.6.0-dev.412" and dd["prerelease"] is True and dd["previous_release"] is None,
+          f"dev manifest written next to the package as {dd['release']}")
+    z1 = (dev / f"alfatreze.TAU_0.6.0_dev.zip").read_bytes()
+    tc.build_dev(dev / "pocket", 412, rbf=rbf)
+    check(z1 == (dev / "alfatreze.TAU_0.6.0_dev.zip").read_bytes(), "the dev zip is deterministic (same package, same bytes)")
+    check(tc.package_match(dd, dev / "pocket", "alfatreze.TAU")[0] is not None, "the installer accepts the dev manifest for its own package")
+    check(tc.dev_release_tag("0.6.0", "0.5.0-alpha.1") == "v0.6.0-dev.0.5.0.alpha.1" and tc.tag_key("v0.6.0-dev.412") < tc.tag_key("v0.6.0-preview.1"),
+          "dev tags are tag-safe and sort before previews")
+
     # 3. mutations
     mrom = bytearray(ROM_N); mrom[3] ^= 1
     make(new, "alfatreze.TAU", "tau", bytes(mrom))                       # rebuild the normal zip with one ROM byte changed
@@ -278,7 +333,7 @@ with tempfile.TemporaryDirectory() as t:
     other = t / "other.rbf"; other.write_bytes(RAW[::-1])
     (t / "other.rbf.json").write_text(fitman(["TAU_RAM_192K", "TAU_CLK66", "TAU_HALCYON", "TAU_LPC"], tc.sha(other.read_bytes())))
     raises(lambda: tc.build(**dict(kw, rbf=other)), "RBF that is not the bitstream in the zips", "not the bitstream")
-    raises(lambda: tc.build(**dict(kw, release="v0.6.0-alpha.9", rbf=None, bitstream_version="4D50331A")), "release missing from the changelog", "heading")
+    raises(lambda: tc.build(**dict(kw, release="v0.6.0-preview.9", rbf=None, bitstream_version="4D50331A")), "release missing from the changelog", "heading")
     cl7 = t / "CL7.md"; cl7.write_text("## v0.7.0 — later\n- x\n")
     raises(lambda: tc.build(**dict(kw, release="v0.7.0", changelog=cl7, rbf=None, bitstream_version="4D50331A")), "release whose X.Y.Z is not core.json's", "core.json version")
     raises(lambda: tc.build(**dict(kw, previous=prev[:1], rbf=None, bitstream_version="4D50331A")), "missing previous zip for a core", "--previous")

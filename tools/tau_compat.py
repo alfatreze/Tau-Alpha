@@ -45,6 +45,9 @@ import fit_manifest  # noqa: E402  (B-653: FEATURES, macros_of)
 
 SCHEMA = 2
 SCHEMA_FILE = ROOT / "docs/schemas/tau-compat.schema.json"
+REGISTRY_FILE = ROOT / "tools/persist_registry.json"
+MONTHS = {m: i for i, m in enumerate(("January", "February", "March", "April", "May", "June", "July", "August",
+                                       "September", "October", "November", "December"), 1)}
 ROLES = ("owned", "shared", "generated", "user", "obsolete")
 REV = bytes(int(f"{x:08b}"[::-1], 2) for x in range(256))
 
@@ -254,7 +257,9 @@ def persisted(interact):
     return out
 
 
-def persist_ids_changed(pkgs, previous):
+def persist_ids_changed(pkgs, previous, registry=None, previous_release=None):
+    """Ids whose interact.json entry changed or vanished against the previous release's zip of the same core, plus every id the
+    packages persist whose registry meaning is newer than the previous release (H2: meaning changes interact.json cannot show)."""
     prev = {}
     for p in previous:
         r = read_zip(p)
@@ -265,6 +270,8 @@ def persist_ids_changed(pkgs, previous):
             raise CompatError(f"no --previous zip for {p['core_id']} (pass the last release's zip, or --no-previous for the first compat file)")
         old, new = prev[p["core_id"]], persisted(p["interact"])
         changed |= {i for i in old if new.get(i) != old[i]}
+        if registry is not None and previous_release is not None:
+            changed |= {i for i in new if i in registry and tag_key(registry[i]["since"]) > tag_key(previous_release)}
     return sorted(changed)
 
 
@@ -432,6 +439,23 @@ def _glob(card, pattern):
     return [p for p in base.rglob(m.group(3).split("/")[-1]) if p.is_file() and str(p).endswith(m.group(3))]
 
 
+def format_errors(layout, card, skip=(), max_pattern_files=2000):
+    """Format problems of the generated/user files already on a card (no hashes, nothing about owned files): what an installer
+    checks BEFORE it writes, so a card it cannot leave consistent is refused untouched (review M3). `skip`: card paths the
+    installer itself will replace or rebuild."""
+    card, out = Path(card), []
+    for e in layout:
+        if e["role"] not in ("generated", "user") or "format" not in e or e["path"] in skip:
+            continue
+        files = _glob(card, e["path"])[:max_pattern_files] if e.get("pattern") else [card / e["path"]]
+        for f in files:
+            if f.is_file():
+                why = _format_ok(f, e["format"])
+                if why:
+                    out.append(f"{f.relative_to(card)}: {why}")
+    return out
+
+
 def check_card(doc, card, core=None, max_pattern_files=2000):
     """Returns [(level, message)], level 'error' or 'warn'. Checks one installed package (or every package whose core folder
     exists on the card): owned files present with the right hash, shared files present, generated/user files in a format this
@@ -504,6 +528,66 @@ def package_match(doc, pkg_dir, core_id):
     return (entry if not errs else None), errs
 
 
+# ---------------------------------------------------------------- release tags, the changelog, the persist registry
+
+def tag_key(tag):
+    """SemVer precedence for v-tags: v0.6.0-alpha.4 < v0.6.0-alpha.5 < v0.6.0-preview.1 < v0.6.0 < v0.6.1."""
+    m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.]+))?", tag)
+    if not m:
+        raise CompatError(f"not a release tag: {tag!r}")
+    pre = m.group(4)
+    ids = [] if pre is None else [(0, int(x), "") if x.isdigit() else (1, 0, x) for x in pre.split(".")]
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)), 1 if pre is None else 0, ids)
+
+
+def changelog_releases(changelog=ROOT / "CHANGELOG.md"):
+    """{tag: 'YYYY-MM-DD' or None} for every '## vX.Y.Z... — D Month YYYY' heading of Tau's own releases (the inherited HarpMudd v1.x
+    history below the 'inherited upstream history' line is not Tau's release line and is ignored)."""
+    out = {}
+    for line in Path(changelog).read_text().splitlines():
+        if "inherited upstream history" in line:
+            break
+        m = re.match(r"^## (v\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)(?:\s+\S+\s+(\d{1,2}) (\w+) (\d{4}))?", line)
+        if m:
+            d = None
+            if m.group(2) and m.group(3) in MONTHS:
+                d = f"{int(m.group(4)):04d}-{MONTHS[m.group(3)]:02d}-{int(m.group(2)):02d}"
+            out[m.group(1)] = d
+    return out
+
+
+def load_registry(path=REGISTRY_FILE):
+    return {int(k): v for k, v in json.loads(Path(path).read_text())["ids"].items()}
+
+
+def registry_errors(pkgs, registry, releases, release=None):
+    """Every persisted interact id of every package is in the registry under the same name; every `since` is a valid tag that is
+    released (a CHANGELOG heading) or, for a release build, this release; with no release given (tests), a later tag than every
+    heading is accepted as pending."""
+    errs = []
+    newest = max(releases, key=tag_key) if releases else None
+    for k, v in sorted(registry.items()):
+        try:
+            sk = tag_key(v["since"])
+        except CompatError as e:
+            errs.append(f"persist id {k}: {e}")
+            continue
+        if release is not None:
+            if sk > tag_key(release):
+                errs.append(f"persist id {k}: since {v['since']} is later than the release {release} (set it to the tag that ships the change)")
+            elif v["since"] != release and v["since"] not in releases:
+                errs.append(f"persist id {k}: since {v['since']} is not a released tag (no CHANGELOG heading)")
+        elif v["since"] not in releases and newest is not None and sk <= tag_key(newest):
+            errs.append(f"persist id {k}: since {v['since']} is neither a released tag nor a pending later one")
+    for p in pkgs:
+        for i, t in persisted(p["interact"]).items():
+            if i not in registry:
+                errs.append(f"{p['core_id']}: interact.json persists id {i} ({t[0]}) which tools/persist_registry.json does not describe")
+            elif registry[i]["name"] != t[0]:
+                errs.append(f"{p['core_id']}: persist id {i} is named {t[0]!r} in interact.json but {registry[i]['name']!r} in the registry (renamed or reused? bump its meaning)")
+    return errs
+
+
 # ---------------------------------------------------------------- release-level facts
 
 def changelog_section(release, changelog):
@@ -516,12 +600,13 @@ def changelog_section(release, changelog):
 
 
 def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=ROOT / "CHANGELOG.md",
-          omega_cfg=ROOT / "tools/omega_compat.json", root=ROOT):
+          omega_cfg=ROOT / "tools/omega_compat.json", root=ROOT, previous_release=None, registry_file=REGISTRY_FILE,
+          require_changelog=True):
     m = re.fullmatch(r"v(\d+\.\d+\.\d+)(-[0-9A-Za-z.]+)?", release)
     if not m:
         raise CompatError(f"--release must look like v0.6.0 or v0.6.0-alpha.5: {release!r}")
     notes = [re.sub(r"^\s*-\s*Omega:\s*", "", l).strip() for l in changelog_section(release, changelog)
-             if re.match(r"^\s*-\s*Omega:", l)]
+             if re.match(r"^\s*-\s*Omega:", l)] if require_changelog else []
     pkgs = [read_zip(z) for z in zips]
     if not pkgs:
         raise CompatError("no --zip given")
@@ -544,8 +629,26 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
         missing = sorted(set(p["rom_needs"]) - set(feats)) if feats is not None else []
         if missing:
             raise CompatError(f"{p['zip']}: tau.rom needs {missing} but the bitstream was built without them (the feature reads NO UNIT, B-653)")
+    releases = changelog_releases(changelog)
+    registry = load_registry(registry_file)
+    errs = registry_errors(pkgs, registry, releases, release if require_changelog else None)
+    if errs:
+        raise CompatError("persist registry: " + "; ".join(errs[:4]))
+    if previous is not None:
+        if previous_release is None:
+            raise CompatError("--previous needs --previous-release (the tag those zips are)")
+        if tag_key(previous_release) >= tag_key(release):
+            raise CompatError(f"previous release {previous_release} is not older than {release}")
+        if previous_release not in releases:
+            raise CompatError(f"previous release {previous_release} has no CHANGELOG heading")
+        pm = re.fullmatch(r"v(\d+\.\d+\.\d+).*", previous_release).group(1)
+        for z in previous:
+            r = read_zip(z)
+            if r["version"] != pm or (releases[previous_release] and r["date_release"] != releases[previous_release]):
+                raise CompatError(f"{Path(z).name} is {r['version']} of {r['date_release']}, not {previous_release} "
+                                  f"({pm} of {releases[previous_release]}): wrong previous zip")
     req = dict(tree_facts(root))
-    req["persist_ids_changed"] = persist_ids_changed(pkgs, previous) if previous is not None else []
+    req["persist_ids_changed"] = (persist_ids_changed(pkgs, previous, registry, previous_release) if previous is not None else [])
     cfg = json.loads(Path(omega_cfg).read_text())
     req["min_omega"] = cfg["min_omega"]
     return {
@@ -562,7 +665,47 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
                                                "report_tags_max", "persist_ids_changed", "min_omega")},
         "notes": "\n".join(notes),
         "source": source_state(root),
+        "previous_release": previous_release if previous is not None else None,
+        "persist_registry": {str(i): {"name": registry[i]["name"], "meaning": registry[i]["meaning"], "since": registry[i]["since"]}
+                             for i in sorted({i for p in pkgs for i in persisted(p["interact"])})},
     }
+
+
+def zip_dir(pkg_dir, out_zip):
+    """A deterministic zip of a package directory (Cores/, Assets/, Platforms/ only; sorted; fixed timestamps; no ._ or .DS_Store):
+    the same package always gives the same bytes, so its hash in tau-compat.json is reproducible."""
+    pkg_dir = Path(pkg_dir)
+    with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(pkg_dir.rglob("*")):
+            rel = f.relative_to(pkg_dir)
+            if f.is_file() and rel.parts[0] in ("Cores", "Assets", "Platforms") and not f.name.startswith("._") and f.name != ".DS_Store":
+                zi = zipfile.ZipInfo(str(rel), (2026, 1, 1, 0, 0, 0))
+                zi.compress_type, zi.external_attr = zipfile.ZIP_DEFLATED, 0o644 << 16
+                z.writestr(zi, f.read_bytes())
+    return Path(out_zip)
+
+
+def dev_release_tag(core_version, label):
+    """v<X.Y.Z>-dev.<label>: a dev build sorts before every preview/rc/release of the same X.Y.Z. `label` is made tag-safe."""
+    safe = ".".join(x for x in re.split(r"[^0-9A-Za-z]+", str(label)) if x)
+    return f"v{core_version}-dev.{safe}"
+
+
+def build_dev(pkg_dir, label, rbf=None, bitstream_version=None, out_dir=None):
+    """A dev package's own manifest (review M5): writes <out_dir>/<core>_<version>_dev.zip and <out_dir>/tau-compat.json (out_dir
+    defaults to the package's parent, where install_dev_core.py looks). No changelog, no previous release: dev builds are not
+    published. Returns the tau-compat.json path."""
+    pkg_dir = Path(pkg_dir)
+    out_dir = Path(out_dir) if out_dir else pkg_dir.parent
+    cores = [d for d in (pkg_dir / "Cores").iterdir() if d.is_dir()]
+    if len(cores) != 1:
+        raise CompatError(f"{pkg_dir}/Cores must hold exactly one core")
+    ver = json.loads((cores[0] / "core.json").read_text())["core"]["metadata"]["version"]
+    z = zip_dir(pkg_dir, out_dir / f"{cores[0].name}_{ver}_dev.zip")
+    doc = build(dev_release_tag(ver, label), [z], None, rbf=rbf, bitstream_version=bitstream_version, require_changelog=False)
+    out = out_dir / "tau-compat.json"
+    out.write_text(dumps(doc))
+    return out
 
 
 def dumps(doc):
@@ -608,7 +751,8 @@ def main(argv=None):
         p.add_argument("--release", required=True)
         p.add_argument("--zip", action="append", type=Path, required=True)
         g = p.add_mutually_exclusive_group(required=True)
-        g.add_argument("--previous", action="append", type=Path, help="the previous release's zip of each core")
+        g.add_argument("--previous", action="append", type=Path, help="the previous release's zip of each core (with --previous-release)")
+        p.add_argument("--previous-release", help="the tag of the --previous zips, e.g. v0.6.0-alpha.4")
         g.add_argument("--no-previous", action="store_true", help="first compat file: persist_ids_changed = []")
         p.add_argument("--rbf", type=Path, help="raw RBF of the release (its fit manifest gives CORE_VERSION)")
         p.add_argument("--bitstream-version", help="CORE_VERSION when the RBF has no fit manifest")
@@ -626,7 +770,7 @@ def main(argv=None):
         print(("FAIL" if bad else "ok  ") + f" card checked against {doc.get('release')}: {bad} error(s), {len(res) - bad} warning(s)")
         return 1 if bad else 0
     kw = dict(release=a.release, zips=a.zip, previous=None if a.no_previous else a.previous, rbf=a.rbf,
-              bitstream_version=a.bitstream_version, changelog=a.changelog)
+              bitstream_version=a.bitstream_version, changelog=a.changelog, previous_release=a.previous_release)
     try:
         if a.cmd == "build":
             a.out.write_text(dumps(build(**kw)))
