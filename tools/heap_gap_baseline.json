@@ -1,5 +1,10 @@
 {
-  "player-library-diagnostic": 39072,
-  "player-library-diagnostic-profile": 36320,
-  "release": 53792
+  "player-library-diagnostic": 1440,
+  "player-library-diagnostic-perf": 4256,
+  "player-library-diagnostic-profile": 5872,
+  "player-library-diagnostic-profile-slim": 5872,
+  "player-library-diagnostic-slim": 4256,
+  "player-library-diagnostic-slim-preset": 7440,
+  "release": 8832,
+  "release-tempo-slim": 11648
 }

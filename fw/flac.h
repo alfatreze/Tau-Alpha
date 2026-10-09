@@ -130,7 +130,7 @@ extern uint8_t  flac_order, flac_type;   /* type: 1 FIXED, 2 LPC    */
 extern uint32_t flac_unary_calls;
 extern uint32_t flac_unary_calls_total;
 
-/* B-088/B-089: a SECOND, independent pair for the Check/QR record -- same
+/* B-088/B-089: a SECOND, independent pair for the Check report record -- same
  * call sites as the pair above, reset once when a Check audio window starts,
  * read once when it ends, so the screen row's per-second reset never touches
  * these. See third_party/libhelix-mp3/pub/mp3_profile.h for the MP3 side. */

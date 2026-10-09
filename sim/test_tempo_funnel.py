@@ -33,8 +33,11 @@ def voice(n, fs, seed=1):
     return out
 
 
+XFLAGS = sys.argv[1:]          # extra compiler flags, e.g. -DTEMPO_SLICE=1 (the sliced output path, RAM diet): the same checks run against it
+
+
 def build(src_root, exe):
-    r = subprocess.run(["cc", "-O2", "-Wall", "-Wextra", "-Werror", "-o", str(exe), str(src_root / "sim/tempo_funnel_harness.c")], capture_output=True, text=True)
+    r = subprocess.run(["cc", "-O2", "-Wall", "-Wextra", "-Werror", *XFLAGS, "-o", str(exe), str(src_root / "sim/tempo_funnel_harness.c")], capture_output=True, text=True)
     if r.returncode:
         print(r.stderr); raise SystemExit("harness build failed")
 
@@ -90,10 +93,15 @@ with tempfile.TemporaryDirectory() as td:
             ("right ring written with the left samples", "TEMPO_PS_R[wi] = (uint32_t)(uint16_t)tr[i] | ((uint32_t)(uint16_t)tr[i + 1u] << 16);", "TEMPO_PS_R[wi] = (uint32_t)(uint16_t)tl[i] | ((uint32_t)(uint16_t)tl[i + 1u] << 16);"),
             ("a stereo hop pushes the left channel twice", "TEMPO_PUSH(t->out_l[i], st ? t->out_r[i] : t->out_l[i])", "TEMPO_PUSH(t->out_l[i], st ? t->out_l[i] : t->out_l[i])"),
             ("the last pair of every hop is not pushed", "for (uint32_t i = 0; i < h; i++)\n            if (!TEMPO_PUSH", "for (uint32_t i = 0; i + 1u < h; i++)\n            if (!TEMPO_PUSH")]
+    if "-DTEMPO_SLICE=1" in XFLAGS:
+        muts += [("slices: the last pair of every slice is not pushed", "for (uint32_t i = 0; i < n; i++)\n                if (!TEMPO_PUSH", "for (uint32_t i = 0; i + 1u < n; i++)\n                if (!TEMPO_PUSH"),
+                 ("slices: the slice start is not advanced", "for (uint32_t a = 0; a < h; a += TEMPO_SLICE_N)", "for (uint32_t a = 0; a < h; a += h)")]
+    if "-DTEMPO_SLICE=1" in XFLAGS:
+        muts = [m for m in muts if m[0] != "the last pair of every hop is not pushed"]     # that loop is the whole-hop path, compiled out here
     for name, a, b in muts:
         assert a in src, a
         md = td / "mut"; (md / "fw").mkdir(parents=True, exist_ok=True); (md / "sim").mkdir(exist_ok=True)
-        (md / "fw/tempo_core.h").write_text(src.replace(a, b, 1))
+        (md / "fw/tempo_core.h").write_text(src.replace(a, b))   # every occurrence: the hop is pushed by two code paths (whole hop, slices)
         for fn in ("wsola_core.h", "wsola_tables.h"):
             (md / "fw" / fn).write_text((ROOT / "fw" / fn).read_text())
         (md / "sim/tempo_funnel_harness.c").write_text((ROOT / "sim/tempo_funnel_harness.c").read_text())

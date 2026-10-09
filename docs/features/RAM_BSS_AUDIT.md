@@ -48,6 +48,10 @@ a counter or flag), `th_file`, `helios_region`.
 **F5. Outside `.bss`, for context:** the MP3 ring is 24,576 B and the tag buffer about 4 KB, reserved for APF DMA; together 14% of
 the 192 KB. Not part of this audit, but the largest block that is neither code nor decoder state.
 
+> **Update (ram-diet, 2026-10-07): F1 is moot.** B-567 moved the art working set (`art_yslot`, `art_xmap`, `art_rowcnt`, `art_colcnt`, `art_line`) and picojpeg's big buffers
+> to PSRAM (`ART_COLD_BSS`), so the shipped ELFs have no such hot symbols. What is left of the art decode in hot RAM is about 1.3 KB (`gMCUBufR/G/B` 768 B, `gCoeffBuf`
+> 128 B, `pow43*`), not worth an overlay. The ranking below is kept for history; the live plan is `docs/features/RAM_DIET_PLAN.md`.
+
 ## 3. Ranking
 
 | # | Change | Saves (every build) | Risk | Evidence needed |
