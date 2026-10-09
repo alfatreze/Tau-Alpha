@@ -1276,7 +1276,15 @@ static void gain_hw_adopt(void)
  * live resampler swaps the signal. gain_dip_begin() ramps the gain to zero (5 ms by the stage's ramp, 8 ms waited), the caller makes the change, gain_dip_end() ramps back up to the
  * volume target. Hardware stage only: the firmware gain acts on samples that sit up to 46 ms ahead of the DAC, so it cannot dip in time (the step remains there, documented). A no-op
  * unless the stage owns the gain. The wait is short against the FIFO's 46 ms, so playback does not underrun. */
-#define GAIN_DIP_WAIT_CYC (CLK_HZ / 1000u * 8u)
+/* B-681: the dip is a fade, not a switch. The stage's reset ramp (149 per sample, about 5 ms for full scale) was short enough to click on a preset change; the dip now uses
+ * 43 per sample (32768 / 43 = 762 samples, about 16 ms) down and up, and the normal rate is put back once the ramp up has finished (gain_step_poll(), from the main loop: the
+ * volume ramp and every other user of R_GAIN_STEP keep the 5 ms they had). The wait is 17 ms, still well under the FIFO's 46 ms. */
+#define GAIN_STEP_NORMAL 149u
+#define GAIN_STEP_DIP    43u
+#define GAIN_DIP_WAIT_CYC (CLK_HZ / 1000u * 17u)
+#define GAIN_STEP_RESTORE_CYC (CLK_HZ / 1000u * 18u)
+static uint8_t  gain_step_slow;          /* 1 = R_GAIN_STEP holds the dip rate and must go back to normal */
+static uint32_t gain_step_t0;            /* cycles() when the dip's ramp up was started */
 /* B-653: the runtime hand-over of the gain between the firmware and the hardware stage (Diagnostics > HW GAIN): muted at the FIFO output, FIFO flushed, then flipped (fw/gain_handover.h).
  * gain_hw_adopt() above stays the boot-time adoption (no audio is playing then, so nothing is in the FIFO). */
 #include "gain_handover.h"
@@ -1294,13 +1302,21 @@ COLD_FN2 static void gain_handover(uint8_t on)
 COLD_FN2 static void gain_dip_begin(void)
 {
     if (!vol_st.hw) return;
+    REG(R_GAIN_STEP) = GAIN_STEP_DIP;
+    gain_step_slow = 1u;
+    gain_step_t0 = cycles();
     REG(R_GAIN_TARGET) = 0u;
     const uint32_t t0 = cycles();
     while ((uint32_t)(cycles() - t0) < GAIN_DIP_WAIT_CYC) { }
 }
 COLD_FN2 static void gain_dip_end(void)
 {
-    if (vol_st.hw) REG(R_GAIN_TARGET) = (uint32_t)vol_st.target;
+    if (vol_st.hw) { REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; gain_step_t0 = cycles(); }
+}
+/* Puts the normal ramp rate back once a dip's ramp up has finished (see GAIN_STEP_DIP). One compare per main-loop pass while idle. */
+static inline void gain_step_poll(void)
+{
+    if (gain_step_slow && (uint32_t)(cycles() - gain_step_t0) >= GAIN_STEP_RESTORE_CYC) { REG(R_GAIN_STEP) = GAIN_STEP_NORMAL; gain_step_slow = 0u; }
 }
 /* The ReplayGain parsing lives in COLD code (it ran to about 2 KB of the on-chip RAM): every entry from the hot track-load path is gated on cold_code_ok, and without cold code
  * ReplayGain simply does nothing (the factor stays unity). rg_update() is the one entry the hot code uses. */
@@ -9507,6 +9523,7 @@ int main(void)
          * still needs its dirty regions drawn. No region is registered yet (fw/helios.inc's own
          * header explains why), so this call costs one bounded loop over zero entries today. */
         helios_flush();
+        gain_step_poll();                    /* B-681: normal gain ramp rate again after a dip */
 
         /* A reload is NOT acted on the instant it is announced: 008A fires
          * when the user PICKS a file, not when the slot is readable. The old
