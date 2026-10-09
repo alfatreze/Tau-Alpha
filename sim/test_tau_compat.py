@@ -83,6 +83,8 @@ with tempfile.TemporaryDirectory() as t:
     (t / "ap_core.rbf.json").write_text(fitman(["TAU_RAM_192K", "TAU_CLK66", "TAU_HALCYON", "TAU_LPC", "TAU_POLY"], tc.sha(RAW)))
     cl = t / "CHANGELOG.md"
     real_cl = (ROOT / "CHANGELOG.md").read_text()
+    # the test inserts its own v0.6.0-preview.1 section below: once the real changelog has released that tag, its heading must not collide (2026-10-09)
+    real_cl = real_cl.replace("## v0.6.0-preview.1", "## v0.6.0-preview.0", 1) if "## v0.6.0-preview.1" in real_cl else real_cl
     cl.write_text(real_cl.replace("## v0.6.0-alpha.4", "## v0.6.0-preview.1 — 8 October 2026\n\n- Halcyon only.\n- Omega: persist id 16 is the Halcyon preset now.\n\n## v0.6.0-alpha.4", 1))
     kw = dict(release="v0.6.0-preview.1", zips=zips, previous=prev, rbf=rbf, changelog=cl, previous_release="v0.6.0-alpha.4")
 
