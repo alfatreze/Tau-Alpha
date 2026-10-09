@@ -2,42 +2,42 @@
   "link": "192 KB, CLK66, SDRAM_BUSY, player-library-diagnostic",
   "rows": {
     "(nothing dropped)": {
-      "hot_free": 1600,
+      "hot_free": 1440,
       "hot_gain": 0,
-      "cold": 187952,
+      "cold": 188048,
       "cold_gain": 0
     },
     "meter_experimental": {
-      "hot_free": 2096,
+      "hot_free": 1936,
       "hot_gain": 496,
-      "cold": 183140,
+      "cold": 183236,
       "cold_gain": 4812,
       "dropped": [
         "meter_experimental"
       ]
     },
     "stress": {
-      "hot_free": 4544,
-      "hot_gain": 2944,
-      "cold": 186360,
+      "hot_free": 4368,
+      "hot_gain": 2928,
+      "cold": 186456,
       "cold_gain": 1592,
       "dropped": [
         "stress"
       ]
     },
     "check": {
-      "hot_free": 2320,
-      "hot_gain": 720,
-      "cold": 177696,
+      "hot_free": 2144,
+      "hot_gain": 704,
+      "cold": 177792,
       "cold_gain": 10256,
       "dropped": [
         "check"
       ]
     },
     "load_stats (+dependents)": {
-      "hot_free": 2608,
-      "hot_gain": 1008,
-      "cold": 177664,
+      "hot_free": 2432,
+      "hot_gain": 992,
+      "cold": 177760,
       "cold_gain": 10288,
       "dropped": [
         "check",
@@ -45,127 +45,127 @@
       ]
     },
     "underrun_log": {
-      "hot_free": 1760,
-      "hot_gain": 160,
-      "cold": 187892,
+      "hot_free": 1584,
+      "hot_gain": 144,
+      "cold": 187988,
       "cold_gain": 60,
       "dropped": [
         "underrun_log"
       ]
     },
     "gap_timing": {
-      "hot_free": 1744,
+      "hot_free": 1584,
       "hot_gain": 144,
-      "cold": 187628,
+      "cold": 187724,
       "cold_gain": 324,
       "dropped": [
         "gap_timing"
       ]
     },
     "all_speeds": {
-      "hot_free": 1632,
+      "hot_free": 1472,
       "hot_gain": 32,
-      "cold": 187848,
-      "cold_gain": 104,
+      "cold": 187940,
+      "cold_gain": 108,
       "dropped": [
         "all_speeds"
       ]
     },
     "accept_all_rates": {
-      "hot_free": 1648,
+      "hot_free": 1488,
       "hot_gain": 48,
-      "cold": 187904,
-      "cold_gain": 48,
+      "cold": 187996,
+      "cold_gain": 52,
       "dropped": [
         "accept_all_rates"
       ]
     },
     "cymo_toggle": {
-      "hot_free": 1872,
+      "hot_free": 1712,
       "hot_gain": 272,
-      "cold": 187692,
-      "cold_gain": 260,
+      "cold": 187784,
+      "cold_gain": 264,
       "dropped": [
         "cymo_toggle"
       ]
     },
     "out16_toggle": {
-      "hot_free": 1680,
-      "hot_gain": 80,
-      "cold": 187880,
-      "cold_gain": 72,
+      "hot_free": 1504,
+      "hot_gain": 64,
+      "cold": 187972,
+      "cold_gain": 76,
       "dropped": [
         "out16_toggle"
       ]
     },
     "gain_toggle": {
-      "hot_free": 1648,
-      "hot_gain": 48,
-      "cold": 187656,
-      "cold_gain": 296,
+      "hot_free": 1520,
+      "hot_gain": 80,
+      "cold": 187588,
+      "cold_gain": 460,
       "dropped": [
         "gain_toggle"
       ]
     },
     "tests_page": {
-      "hot_free": 1776,
+      "hot_free": 1616,
       "hot_gain": 176,
-      "cold": 186064,
+      "cold": 186160,
       "cold_gain": 1888,
       "dropped": [
         "tests_page"
       ]
     },
     "sweeps": {
-      "hot_free": 2016,
+      "hot_free": 1856,
       "hot_gain": 416,
-      "cold": 185120,
+      "cold": 185216,
       "cold_gain": 2832,
       "dropped": [
         "sweeps"
       ]
     },
     "meter_trace": {
-      "hot_free": 1840,
-      "hot_gain": 240,
-      "cold": 186372,
+      "hot_free": 1664,
+      "hot_gain": 224,
+      "cold": 186468,
       "cold_gain": 1580,
       "dropped": [
         "meter_trace"
       ]
     },
     "blit_test": {
-      "hot_free": 2320,
-      "hot_gain": 720,
-      "cold": 184376,
+      "hot_free": 2144,
+      "hot_gain": 704,
+      "cold": 184472,
       "cold_gain": 3576,
       "dropped": [
         "blit_test"
       ]
     },
     "pixel_grid_test": {
-      "hot_free": 1872,
+      "hot_free": 1712,
       "hot_gain": 272,
-      "cold": 187220,
+      "cold": 187316,
       "cold_gain": 732,
       "dropped": [
         "pixel_grid_test"
       ]
     },
     "config_export": {
-      "hot_free": 1760,
+      "hot_free": 1600,
       "hot_gain": 160,
-      "cold": 187604,
+      "cold": 187700,
       "cold_gain": 348,
       "dropped": [
         "config_export"
       ]
     },
     "preset perf": {
-      "hot_free": 4416,
+      "hot_free": 4256,
       "hot_gain": 2816,
-      "cold": 172020,
-      "cold_gain": 15932,
+      "cold": 172112,
+      "cold_gain": 15936,
       "dropped": [
         "accept_all_rates",
         "all_speeds",
@@ -179,10 +179,10 @@
       ]
     },
     "preset slim": {
-      "hot_free": 7568,
-      "hot_gain": 5968,
-      "cold": 169684,
-      "cold_gain": 18268,
+      "hot_free": 7440,
+      "hot_gain": 6000,
+      "cold": 169616,
+      "cold_gain": 18432,
       "dropped": [
         "accept_all_rates",
         "all_speeds",
@@ -200,10 +200,10 @@
       ]
     },
     "preset release-like": {
-      "hot_free": 8944,
-      "hot_gain": 7344,
-      "cold": 147144,
-      "cold_gain": 40808,
+      "hot_free": 8816,
+      "hot_gain": 7376,
+      "cold": 147076,
+      "cold_gain": 40972,
       "dropped": [
         "accept_all_rates",
         "all_speeds",
@@ -225,9 +225,9 @@
       ]
     },
     "ALL diagnostics (dx)": {
-      "hot_free": 8048,
-      "hot_gain": 6448,
-      "cold": 152836,
+      "hot_free": 7872,
+      "hot_gain": 6432,
+      "cold": 152932,
       "cold_gain": 35116,
       "dropped": [
         "blit_test",
@@ -244,10 +244,10 @@
       ]
     },
     "ALL features (fx)": {
-      "hot_free": 2512,
-      "hot_gain": 912,
-      "cold": 182260,
-      "cold_gain": 5692,
+      "hot_free": 2384,
+      "hot_gain": 944,
+      "cold": 182192,
+      "cold_gain": 5856,
       "dropped": [
         "accept_all_rates",
         "all_speeds",
@@ -258,10 +258,10 @@
       ]
     },
     "EVERYTHING": {
-      "hot_free": 8944,
-      "hot_gain": 7344,
-      "cold": 147144,
-      "cold_gain": 40808,
+      "hot_free": 8816,
+      "hot_gain": 7376,
+      "cold": 147076,
+      "cold_gain": 40972,
       "dropped": [
         "accept_all_rates",
         "all_speeds",
