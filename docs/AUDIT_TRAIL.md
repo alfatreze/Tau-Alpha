@@ -14490,3 +14490,7 @@ behaviour; no Analogue text read states it.
 
 Also: TAU_DEVIDX's first launch showed **DRAW STALL 0 ms**. B-672's 19,965 ms on TAU_PRBDEV is therefore tied to that two-platform
 core, not to every first launch (still unexplained, low priority).
+
+## B-675: Helios chrome region registered cold-aware (closes the check_cold_calls warning), 2026-10-09
+
+`tools/check_cold_calls.py` warned that `ui_draw_chrome` (cold code, `COLD_SR`) was registered with the plain `helios_region_register()`, so `helios_flush()` called it through the stored pointer with no `cold_code_ok` check. It was safe only because its sole marker, `ui_chrome_paint()`, starts with `if (!SR_READY()) return;`; a future caller of `helios_mark_dirty(ui_chrome_region)` would have bypassed that. Now registered with `helios_region_register_rows_cold(ui_draw_chrome, 0u, 0xFFFFu)` (same immediate-draw behaviour, the full-screen extent), so the gate lives in `helios_flush()` itself. Pre-existing since `93ffc84` (2026-09-25), not from ram-diet. Verified: `make test-host` passes; heap gaps on the 256 KB builds identical to the unmodified tree; on the shipped 192 KB link release 15,392 to 15,376 B (-16 B, floor 6,144 B), diagnostic and profile unchanged; the script now lists the region as cold-aware (on a 256 KB build it shows the callback as hot, which makes the gate a harmless no-op there). Not on a Pocket (behaviour unchanged once the cold image is loaded). ram-diet's own audit entry keeps the id B-674 when it is merged (its original B-662 collides with main's).

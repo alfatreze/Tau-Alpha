@@ -3399,7 +3399,8 @@ static uint8_t ui_chrome_region = 0xFFu;
 static void ui_chrome_paint(void)
 {
     if (!SR_READY()) return;          /* B-333: the chrome is cold code; no cold image, no player screen */
-    if (ui_chrome_region == 0xFFu) ui_chrome_region = helios_region_register(ui_draw_chrome);
+    /* cold-aware: ui_draw_chrome is cold code, so helios_flush() itself checks cold_code_ok before calling it */
+    if (ui_chrome_region == 0xFFu) ui_chrome_region = helios_region_register_rows_cold(ui_draw_chrome, 0u, 0xFFFFu);
     helios_mark_dirty(ui_chrome_region);
     helios_flush();
 }
