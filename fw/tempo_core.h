@@ -17,6 +17,17 @@
 #define TEMPO_FN static inline
 #endif
 
+/* TEMPO_SLICE (RAM diet, default 0): produce and push the output hop in slices of TEMPO_SLICE_N samples instead of holding all of it (WS_MAX_HS) in out_l/out_r:
+ * about 1.75 KB less on-chip RAM for the same samples (ws2_step_begin / _emit / _end, fw/wsola_core.h). The CPU work is the same; the meter hook is called once per slice. */
+#ifndef TEMPO_SLICE
+#define TEMPO_SLICE 0
+#endif
+#define TEMPO_SLICE_N 64u
+#if TEMPO_SLICE
+#define TEMPO_OUT TEMPO_SLICE_N
+#else
+#define TEMPO_OUT WS_MAX_HS
+#endif
 #define TEMPO_RING  32768u            /* samples per channel in the staging ring (a power of two): 64 KB a channel */
 #define TEMPO_CHUNK 64u
 
@@ -26,7 +37,7 @@ typedef struct {
     uint8_t  have_odd;                /* one decoded sample per channel is waiting for its partner in the word */
     int16_t  odd_l, odd_r;
     uint32_t written;                 /* samples written to the staging ring and fed to the core */
-    int16_t  out_l[WS_MAX_HS], out_r[WS_MAX_HS];   /* the current hop */
+    int16_t  out_l[TEMPO_OUT], out_r[TEMPO_OUT];   /* the current hop (TEMPO_SLICE: the current slice of it) */
 } tempo_t;
 
 TEMPO_FN void tempo_start(tempo_t *t, uint32_t fs, uint8_t ch, uint32_t speed_q8)
@@ -76,12 +87,28 @@ TEMPO_FN void tempo_feed(tempo_t *t, const int16_t *l, const int16_t *r, uint32_
 TEMPO_FN int tempo_drain(tempo_t *t)
 {
     while (ws2_ready(&t->ws)) {
+#if TEMPO_SLICE
+        uint32_t cg;
+        const uint32_t h = ws2_step_begin(&t->ws, tempo_rd, 0, &cg);
+        const int st = t->ws.core.ch == 2u;
+        for (uint32_t a = 0; a < h; a += TEMPO_SLICE_N) {
+            const uint32_t n = h - a < TEMPO_SLICE_N ? h - a : TEMPO_SLICE_N;
+            ws2_step_emit(&t->ws, tempo_rd, 0, cg, a, n, t->out_l, t->out_r);
+            for (uint32_t i = 0; i < n; i++)
+                if (!TEMPO_PUSH(t->out_l[i], st ? t->out_r[i] : t->out_l[i])) return 0;   /* an abort is a reload: the stretcher restarts from scratch (every flush clears tempo_cfg_key), so the half-emitted hop is simply dropped */
+#ifdef TEMPO_METER
+            TEMPO_METER(t->out_l, st ? t->out_r : (const int16_t *)0, n);
+#endif
+        }
+        ws2_step_end(&t->ws, tempo_rd, 0, cg);
+#else
         const uint32_t h = ws2_step(&t->ws, tempo_rd, 0, t->out_l, t->out_r);
         const int st = t->ws.core.ch == 2u;
         for (uint32_t i = 0; i < h; i++)
             if (!TEMPO_PUSH(t->out_l[i], st ? t->out_r[i] : t->out_l[i])) return 0;
 #ifdef TEMPO_METER
         TEMPO_METER(t->out_l, st ? t->out_r : (const int16_t *)0, h);
+#endif
 #endif
     }
     return 1;

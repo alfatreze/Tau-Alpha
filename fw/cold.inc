@@ -59,7 +59,7 @@ static void coldframe_record(uint32_t dt)
     if (dt > coldframe_cyc_max) coldframe_cyc_max = dt;
 }
 
-#if TAU_DIAGNOSTIC
+#if TAU_DX_TESTS_PAGE || TAU_DX_CHECK
 /* cold_big moved out from under TAU_DIAGNOSTIC alone (B-199): it is also the deliberate worst-case
  * probe for the per-audio-frame cold-code measurement (PHASE_F_SPEC.md section 4.2), which needs it
  * without pulling in the rest of the Diagnostics > Tests > COLD CODE TEST machinery below. */
@@ -70,7 +70,7 @@ __asm__(".pushsection .cold_text,\"ax\",@progbits\n"
 extern uint32_t cold_big(uint32_t x);
 #endif
 
-#if TAU_DIAGNOSTIC
+#if TAU_DX_TESTS_PAGE || TAU_DX_CHECK
 /* Diagnostic Build: functions for Diagnostics > Tests > COLD CODE TEST (same shapes as the simulation firmware sim/fw_ifetch). */
 static uint32_t cold_hot_twice(uint32_t x) { return x * 2u; }        /* BRAM: cold code calls back into hot code */
 COLD_TEXT static uint32_t cold_add(uint32_t a, uint32_t b) { return a + b; }

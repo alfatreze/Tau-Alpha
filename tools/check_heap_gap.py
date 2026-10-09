@@ -35,20 +35,36 @@ ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "tools" / "heap_gap_baseline.json"
 SNAPSHOTS = ROOT / "tools" / "ram_snapshots"
 TOLERANCE_B = 512   # a handful of bytes moving with ordinary code changes is not a regression to chase
-DEFAULT_TARGETS = ["release", "player-library-diagnostic", "player-library-diagnostic-profile"]
+# ram-diet: the guard used to build the 256 KB link with no flags, which is NOT what ships (the shipped bitstream is the 192 KB / 66.667 MHz one). It
+# reported 54 / 39 / 36 KB free while the shipped link had 15.5 / 1.3 KB and a profile build that did not link at all. Every entry now builds with the
+# shipped flags, and release is tracked with tempo on as well, because both builds ship the tempo funnel.
+SHIPPED = {"RAM_192K": "1", "CLK66": "1", "SDRAM_BUSY": "1"}
+CONFIGS = {   # name -> (fw/build.sh target, extra environment)
+    "release": ("release", {}),
+    "release-tempo-slim": ("release", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),   # the RAM-diet A/B build: sliced output hop and a 512-entry stage-2 ring
+    "player-library-diagnostic": ("player-library-diagnostic", {}),
+    "player-library-diagnostic-perf": ("player-library-diagnostic", {"DIAG_PRESET": "perf"}),   # docs/features/DIAG_FEATURES.md
+    "player-library-diagnostic-slim-preset": ("player-library-diagnostic", {"DIAG_PRESET": "slim"}),
+    "player-library-diagnostic-slim": ("player-library-diagnostic", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),
+    "player-library-diagnostic-profile": ("player-library-diagnostic-profile", {}),
+    "player-library-diagnostic-profile-slim": ("player-library-diagnostic-profile", {"TEMPO_SLICE": "1", "TEMPO_RING": "512"}),
+}
+DEFAULT_TARGETS = list(CONFIGS)
 
 
-def build_heap_gap(target):
-    env = dict(os.environ, TAU_BUILD_OUT=str(ROOT / "work/heapcheck"))   # B-585: never write dist/ or the flagged work/diagnostics/ ROMs
+def build_heap_gap(name):
+    target, extra = CONFIGS[name]
+    env = dict(os.environ, TAU_BUILD_OUT=str(ROOT / "work/heapcheck"), **SHIPPED, **extra)   # B-585: never write dist/ or the flagged work/diagnostics/ ROMs
     r = subprocess.run(["bash", "fw/build.sh", target], cwd=ROOT, capture_output=True, text=True, env=env)
-    if r.returncode != 0:
-        print(r.stdout)
-        print(r.stderr, file=sys.stderr)
-        sys.exit(f"fw/build.sh {target} failed")
     m = re.search(r"heap gap: (\d+) B", r.stdout)
     if not m:
+        # A 192 KB link that does not fit is a measurement, not a crash: record how far over it is as a negative gap.
+        o = re.search(r"image is \+(\d+) B over; (\d+) B short of the (\d+) B heap floor", r.stdout + r.stderr)
+        if o:
+            return -int(o.group(1)), None   # no ELF is produced by a failed link (fw.elf would be stale)
         print(r.stdout)
-        sys.exit(f"{target}: no 'heap gap' line in build output -- did fw/build.sh's own message change?")
+        print(r.stderr, file=sys.stderr)
+        sys.exit(f"fw/build.sh {target} failed and printed no 'heap gap' line")
     return int(m.group(1)), ram_report.load(ROOT / "fw" / "fw.elf")   # parse now: the next build overwrites fw.elf
 
 
@@ -70,7 +86,10 @@ def main():
     if update:
         BASELINE.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
         SNAPSHOTS.mkdir(exist_ok=True)
-        for t, (sec, sym) in elfs.items():
+        for t, loaded in elfs.items():
+            if loaded is None:
+                continue
+            sec, sym = loaded
             ram_report.save_snapshot(sec, sym, SNAPSHOTS / f"{t}.json")
         print(f"baseline written to {BASELINE} (snapshots in {SNAPSHOTS})")
         return
@@ -91,7 +110,7 @@ def main():
             print(f"FAIL {t}: heap gap dropped {drop} B (baseline {base} B, now {gap} B) -- "
                   f"check whether something moved out of the cold image (docs/AUDIT_TRAIL.md B-391)")
             snap = SNAPSHOTS / f"{t}.json"
-            if snap.exists():
+            if snap.exists() and elfs[t] is not None:
                 print(f"what changed in {t} since the baseline snapshot:")
                 print(ram_report.diff(ram_report.load(snap), elfs[t]))
             else:

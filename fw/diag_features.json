@@ -1,0 +1,230 @@
+{
+  "_doc": "The single register of everything that is compiled only into the Diagnostic Build (or may graduate out of it). kind 'dx' = a DIAGNOSTIC: measurement, test or reporting code with no user-facing function (stress, Check, sweeps...). kind 'fx' = a FEATURE that is still incubating behind the Diagnostic Build flag and is meant to graduate to the release or be dropped (experimental meter settings, rate/speed toggles...). Each converted feature gets a macro TAU_DX_<NAME> / TAU_FX_<NAME> in the generated fw/diag_features.h that defaults to TAU_DIAGNOSTIC (so the default Diagnostic Build is byte-identical) and can be overridden per build: DIAG_DROP=a,b removes features from a Diagnostic Build, FEATURES_ON=a puts an fx into any build (graduation). 'converted': false entries are classified but their code still hangs off TAU_DIAGNOSTIC directly. Generated header: python3 tools/gen_diag_features.py; checked by make test-host.",
+  "features": [
+    {
+      "id": "meter_experimental",
+      "kind": "fx",
+      "converted": true,
+      "title": "Experimental meter parameters and presets (Layered Wave: anti-aliasing, layer blend, EQ-bell and CURVE spectrum styles, per-layer gains, the [EX] presets)",
+      "depends": [],
+      "owner": "meters/*/meter.json 'experimental' flag via tools/gen_meters.py; fw/layered_wave.inc",
+      "class": "option",
+      "influences": "adds experimental meter settings and presets; defaults unchanged",
+      "safe_to_drop": "yes"
+    },
+    {
+      "id": "stress",
+      "kind": "dx",
+      "converted": true,
+      "title": "Stress pump, HUD, levels R1-R3 and the timed soak (fw/stress.inc, stress_defs.inc, dg_soak_*)",
+      "depends": [],
+      "owner": "fw/stress.inc, stress_defs.inc, dg_soak_*; hooks in player.c; Stress group, level/soak choices and status page in settingsui.inc; Check reports its stress tests as N/A without it",
+      "class": "load",
+      "influences": "adds SDRAM and CPU contention beside playback; it IS the test load for R1-R3 and the soak",
+      "safe_to_drop": "unless you are testing contention / long-run stability"
+    },
+    {
+      "id": "check",
+      "kind": "dx",
+      "converted": true,
+      "title": "Check runner and its test list (fw/suite.inc chk_*)",
+      "depends": [
+        "load_stats"
+      ],
+      "owner": "the Check runner region of fw/suite.inc (chk_*), its page row, chk_tick, chk_loads and the summary persistence in settings.inc",
+      "class": "reporter",
+      "influences": "plays tracks and reads counters; changes nothing it measures. Its report is how most results leave the device",
+      "safe_to_drop": "unless you need the Check report (profile builds report through it)"
+    },
+    {
+      "id": "load_stats",
+      "kind": "dx",
+      "converted": true,
+      "title": "CPU load accounting: the per-stage cycle totals (ld_t_*, LD_MARK) and the Check audio window (ld_win_*) that feed the Check load records",
+      "depends": [],
+      "class": "observer",
+      "influences": "a few cycle-counter reads per audio frame (negligible, but present): feeds the load fields of the Check report",
+      "safe_to_drop": "yes, with Check"
+    },
+    {
+      "id": "underrun_log",
+      "kind": "dx",
+      "converted": true,
+      "title": "Every-FIFO-stall counter (ur_all) behind Info > UNDERRUNS \"ALL n\"",
+      "depends": [],
+      "class": "observer",
+      "influences": "counts FIFO stalls, no effect on playback",
+      "safe_to_drop": "yes"
+    },
+    {
+      "id": "gap_timing",
+      "kind": "dx",
+      "converted": true,
+      "title": "Natural-track-end gap timing (gap_*) behind Info > GAP LATENCY",
+      "depends": [],
+      "class": "observer",
+      "influences": "times the gap at a natural track end, no effect on playback",
+      "safe_to_drop": "yes"
+    },
+    {
+      "id": "all_speeds",
+      "kind": "fx",
+      "converted": true,
+      "title": "ALL SPEEDS: the 2.50x entry of the speed table",
+      "depends": [],
+      "class": "option",
+      "influences": "adds the 2.50x speed entry; off at every start",
+      "safe_to_drop": "yes"
+    },
+    {
+      "id": "accept_all_rates",
+      "kind": "fx",
+      "converted": true,
+      "title": "ACCEPT ALL RATES: bypass the measured FLAC sample-rate cutoff so a 96 kHz file loads for a decode reading",
+      "depends": [],
+      "class": "option",
+      "influences": "lets a 96 kHz file load for a decode reading; off at every start",
+      "safe_to_drop": "yes unless you test above 48 kHz"
+    },
+    {
+      "id": "cymo_toggle",
+      "kind": "fx",
+      "converted": true,
+      "title": "CYMO RESAMPLER: the live 44.1 to 48 kHz hardware resampler (on by default in the Diagnostic Build), its 44.1 kHz-at-1.00x guard and its Info row",
+      "depends": [],
+      "class": "behavior",
+      "influences": "ON BY DEFAULT: the 44.1 kHz hardware resampler is in the audio path, so dropping it changes the sound and the CPU load of 44.1 kHz tracks",
+      "safe_to_drop": "NO if you test 44.1 kHz audio; it is the path under test"
+    },
+    {
+      "id": "out16_toggle",
+      "kind": "fx",
+      "converted": true,
+      "title": "16-BIT OUTPUT: send the full 16-bit I2S word instead of the 15-bit slot",
+      "depends": [],
+      "class": "option",
+      "influences": "sends the full 16-bit I2S word only while switched on",
+      "safe_to_drop": "yes unless you A/B the 16-bit slot"
+    },
+    {
+      "id": "gain_toggle",
+      "kind": "fx",
+      "converted": true,
+      "title": "HW GAIN: switch the gain between the hardware stage and the firmware path, and the HW GAIN Info row",
+      "depends": [],
+      "class": "option",
+      "influences": "A/B of the hardware gain stage, only while switched",
+      "safe_to_drop": "yes unless you A/B the gain stage"
+    },
+    {
+      "id": "tests_page",
+      "kind": "dx",
+      "converted": true,
+      "title": "Diagnostics > Tests: window test, read/write cycles, cold-code test (and the 12 KB cold_big blob), clear counters (settings_diag.inc, cold.inc)",
+      "depends": [],
+      "class": "page",
+      "influences": "runs memory / cold-code tests only when started",
+      "safe_to_drop": "yes"
+    },
+    {
+      "id": "sweeps",
+      "kind": "dx",
+      "converted": true,
+      "title": "Decode Sweep (profile builds) and Meter Sweep pages (sw_*, mw_*)",
+      "depends": [],
+      "class": "page",
+      "influences": "runs playback / meter changes only while a sweep is running",
+      "safe_to_drop": "yes unless you need the sweep reports"
+    },
+    {
+      "id": "meter_trace",
+      "kind": "dx",
+      "converted": true,
+      "title": "Meter Trace page and the per-frame recorder hook (mt_*)",
+      "depends": [],
+      "class": "observer",
+      "influences": "records what each meter drew, one cheap hook per displayed frame",
+      "safe_to_drop": "yes"
+    },
+    {
+      "id": "blit_test",
+      "kind": "dx",
+      "converted": true,
+      "title": "Blit Test page: every Talos opcode drawn on screen (bt_*)",
+      "depends": [],
+      "class": "page",
+      "influences": "drives the draw engine only while its page is open",
+      "safe_to_drop": "yes"
+    },
+    {
+      "id": "pixel_grid_test",
+      "kind": "dx",
+      "converted": true,
+      "title": "Pixel grid fidelity test page (pg_*)",
+      "depends": [],
+      "class": "page",
+      "influences": "draws a test pattern only while its page is open",
+      "safe_to_drop": "yes"
+    },
+    {
+      "id": "config_export",
+      "kind": "dx",
+      "converted": true,
+      "title": "Meter Configure page: the EXPORT row and its report page (wvcfg_export.inc)",
+      "depends": [],
+      "class": "observer",
+      "influences": "prints the Configure page values as a report",
+      "safe_to_drop": "yes"
+    }
+  ],
+  "presets": {
+    "perf": {
+      "doc": "performance / stability testing: keep the load, the reports and the counters; drop pages and options",
+      "drop": [
+        "blit_test",
+        "pixel_grid_test",
+        "meter_trace",
+        "config_export",
+        "tests_page",
+        "sweeps",
+        "meter_experimental",
+        "all_speeds",
+        "accept_all_rates"
+      ]
+    },
+    "slim": {
+      "doc": "smallest build that still reports (Check + load numbers + underrun count) and keeps the default audio path (Cymo)",
+      "drop": [
+        "stress",
+        "gap_timing",
+        "blit_test",
+        "pixel_grid_test",
+        "meter_trace",
+        "config_export",
+        "tests_page",
+        "sweeps",
+        "meter_experimental",
+        "all_speeds",
+        "accept_all_rates",
+        "out16_toggle",
+        "gain_toggle"
+      ]
+    },
+    "release-like": {
+      "doc": "everything off: the Diagnostic Build is then the release plus the Diagnostics menu shell",
+      "drop": "ALL"
+    }
+  },
+  "_classes": {
+    "observer": "reads state only; dropping it loses a reading, never changes what the remaining tests measure",
+    "reporter": "turns readings into a report",
+    "page": "does nothing unless its page is open",
+    "option": "adds a setting that is off at every start",
+    "load": "adds contention on purpose",
+    "behavior": "changes the audio path by default"
+  },
+  "_shell_sites": {
+    "count": 9,
+    "doc": "The only places that may still test TAU_DIAGNOSTIC directly: the Diagnostics menu shell (the group row, the container of its rows, the page-id enum numbering that keeps every page id stable, the container of the page table, the Info hint, the include of suite.inc, the container of the main-loop ticks). New diagnostic code MUST be a registered feature (TAU_DX_/TAU_FX_), never a new bare '#if TAU_DIAGNOSTIC'. sim/test_diag_features.py fails if this number grows; lowering it is fine, update it here."
+  }
+}

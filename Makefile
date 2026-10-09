@@ -1,4 +1,4 @@
-.PHONY: test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-qr test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -104,6 +104,11 @@ test-host:
 	$(PYTHON) sim/test_headroom.py
 	$(PYTHON) sim/test_wsola.py
 	$(PYTHON) sim/test_tempo_funnel.py
+	$(PYTHON) sim/test_tempo_funnel.py -DTEMPO_SLICE=1
+	$(PYTHON) sim/test_tempo_slice.py
+	$(PYTHON) sim/test_overlay_proto.py
+	$(PYTHON) tools/gen_diag_features.py --check
+	$(PYTHON) sim/test_diag_features.py
 	$(PYTHON) sim/test_theme.py
 	$(PYTHON) sim/test_tau_assets.py
 	$(PYTHON) sim/test_flac_lpc_symmetry.py
@@ -552,9 +557,7 @@ card-check:
 visual-review:
 	$(PYTHON) tools/visual_review.py
 
-# QR encoder vs segno (needs work/venv-qr; about 3 min, so not part of test-host)
-test-qr:
-	work/venv-qr/bin/python sim/test_qr.py
+# (test-qr removed: the QR encoder and its test are archived in archive/qr_encoder/)
 
 # B-333: the 192 KB firmware links (release + Diagnostic Build) and the normal release is unchanged. Slow (three firmware builds).
 test-ram192k:

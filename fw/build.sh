@@ -149,8 +149,21 @@ case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) POLY_FW="${POLY_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && POLY_FW="${POLY_FW:-1}"      # v0.5.0: the release ships the poly bitstream, so the release firmware uses the unit too
 CFLAGS="$CFLAGS -DTAU_POLY_FW=${POLY_FW:-0}"
 # B-558: TEMPO=1 builds in the Cymo C7 tempo funnel (fw/tempo_core.h; MP3 only; the Settings > Playback > TEMPO row). Default 0 = byte-identical to a build without it.
-case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) TEMPO="${TEMPO:-1}" ;; esac   # alpha.4: the tempo row is in the Diagnostic Build (the release default stays 0)
+case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) TEMPO="${TEMPO:-1}" ;; esac
+# ram-diet (owner, 2026-10-07): the tempo stretcher ships in the normal release too (cold code; its 6.2 KB state is the cost, see docs/features/RAM_DIET_PLAN.md). TEMPO=0 builds without it.
+[ "$TARGET" = "release" ] && TEMPO="${TEMPO:-1}"
 CFLAGS="$CFLAGS -DTAU_TEMPO=${TEMPO:-0}"
+# Diagnostic-Build features on demand (fw/diag_features.json, docs/features/DIAG_FEATURES.md): DIAG_DROP=a,b removes converted features from a build that has
+# TAU_DIAGNOSTIC; FEATURES_ON=a puts a converted 'fx' feature into any build (graduation). Unknown, unconverted or inconsistent names stop the build.
+# DIAG_PRESET=perf|slim|release-like drops a named set (fw/diag_features.json "presets"); it combines with DIAG_DROP.
+if [ -n "${DIAG_DROP:-}" ] || [ -n "${FEATURES_ON:-}" ] || [ -n "${DIAG_PRESET:-}" ]; then
+    DIAG_FLAGS="$(python3 "$ROOT/tools/gen_diag_features.py" --cflags "${DIAG_DROP:-}" "${FEATURES_ON:-}" "${DIAG_PRESET:-}")" || exit 1
+    CFLAGS="$CFLAGS $DIAG_FLAGS"
+fi
+# RAM diet A/B switches for the tempo state (both default off = the build is unchanged): TEMPO_SLICE=1 produces the output hop in 64-sample slices (about 1.75 KB less state),
+# TEMPO_RING=512 halves the stage-2 ring (1 KB less; the largest span the stretcher ever needs is 320 entries, measured over speeds 0.5-3.0x and rates 8-48 kHz).
+[ "${TEMPO_SLICE:-0}" = "1" ] && CFLAGS="$CFLAGS -DTEMPO_SLICE=1"
+[ -n "${TEMPO_RING:-}" ] && CFLAGS="$CFLAGS -DWS2_RING=${TEMPO_RING}u"
 if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw/mp3_poly_hw.h (only then, so default builds see no new include path)
 
 # B-368/B-369/B-370: LPC_FW=1 redirects FLAC LPC reconstruction (fw/flac.c) to the hardware unit (needs
@@ -165,7 +178,7 @@ if [ "${POLY_FW:-0}" = "1" ]; then INC+=(-I "$FW"); fi   # subband.c includes fw
 # (both live in $FW), so no INC change is needed the way POLY_FW's subband.c one is.
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) LPC_FW="${LPC_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && LPC_FW="${LPC_FW:-1}"
-CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_TPG=${TPG:-1} -DTAU_INFO_EXPORT=${INFO_EXPORT:-1} -DTAU_HALCYON_FW=${HALCYON_FW:-1}"   # the Halcyon EQ is the only EQ (every build; NO UNIT on a bitstream without the engine)   # INFO_EXPORT: the Info page report-code export (A), in the normal core too since alpha.4;   # pixel grid report codes (docs/features/BARCODE_STUDY.md), Diagnostic Build only, ON by default since 2026-10-06 (D-R04 reversed); TPG=0 gives the old QR-only pages
+CFLAGS="$CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DTAU_INFO_EXPORT=${INFO_EXPORT:-1} -DTAU_HALCYON_FW=${HALCYON_FW:-1}"   # the Halcyon EQ is the only EQ (every build; NO UNIT on a bitstream without the engine)   # INFO_EXPORT: the Info page report-code export (A), in the normal core too since alpha.4;   # pixel grid report codes (docs/features/BARCODE_STUDY.md) are the only report view; the QR encoder was archived (archive/qr_encoder/)
 FLAC_O_CFLAGS="$FLAC_O_CFLAGS -DTAU_LPC_FW=${LPC_FW:-0} -DFLAC_RICE_FAST=${FLAC_RICE_FAST:-1}"
 
 # RAM_192K=1 (default 0, every target): links against 192 KB instead of 256 KB (fw/link.ld's
@@ -277,7 +290,7 @@ if ! "$GCC" $CFLAGS "${INC[@]}" -T "$FW/link.ld" -o "$FW/fw.elf" "${SRCS[@]}" -l
             ts=$("$NM" "$FW/fw_probe.elf" 2>/dev/null | awk '$3=="_tag_start"{print "0x"$1}')
             "$PYTHON" -c "
 hs, ts, hm = int('$hs',16), int('$ts',16), ${HEAP_MIN:-1024}
-ts192 = ts - 65536 + 8192
+ts192 = ts - 65536 + (0x4000 - 0x1800)   # the 192 KB link also shrinks the stack from 16 KB to 6 KB (fw/link.ld); this said 8192 after B-506 moved it from 8 KB to 6 KB
 print('*** 192 KB link: image ends at %d, DMA buffers start at %d, so the image is %+d B over; %d B short of the %d B heap floor ***' % (hs, ts192, hs - ts192, hs + hm - ts192, hm))
 " >&2
         fi
@@ -354,6 +367,10 @@ import sys
 s = {l.split()[2]: int(l.split()[0], 16) for l in sys.stdin if len(l.split()) == 3}
 print(s['_heap_end'] - s['_heap_start'])")
     echo "heap gap: $GAP B (minimum for $TARGET: $HEAP_MIN B)"
-    if [ "$GAP" -lt "$HEAP_MIN" ]; then echo "*** heap gap below the $TARGET minimum ***" >&2; exit 1; fi
+    if [ "$GAP" -lt "$HEAP_MIN" ]; then
+        echo "*** heap gap below the $TARGET minimum ***" >&2
+        case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) python3 "$ROOT/tools/gen_diag_features.py" --hint $((HEAP_MIN - GAP)) >&2 || true ;; esac
+        exit 1
+    fi
 fi
 echo "built [$TARGET] -> $OUT/$ROM"

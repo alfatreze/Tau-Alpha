@@ -1,3 +1,4 @@
+#include "diag_features.h"
 /* ==================================================================== LAYERED WAVE meter (VIZ_LAYERED_WAVE)
  * Nested, mirrored envelope layers on a solid background (docs/features/meters/LAYERED_WAVE_METER_SPEC.md). Inputs are hardware only: the 16 band
  * levels from the spectrum bank (in->spec) and, for the DYNAMICS split, the capture's waveform peak (in->wave). Draws with plain fb_rect().
@@ -226,7 +227,7 @@ COLD_FN3 static int32_t lw_half(int32_t a8, int32_t w8, int32_t Hh)             
     return h;
 }
 
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
 COLD_FN3 static void lw_half_aa(int32_t a8, int32_t w8, int32_t Hh, int32_t L, int32_t *h, int32_t *q)   /* half height with sub-pixel coverage, L levels */
 {
     const int32_t v = a8 * w8 * Hh;
@@ -263,7 +264,7 @@ COLD_FN3 static void lw_reinit(const lw_p_t *p, uint32_t W, const int32_t *key, 
 }
 
 /* ---- experimental settings (the Diagnostic Build only; in the main build every one of these is a no-op and the settings do not exist) ----------------- */
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
 static const uint8_t lw_aa_levels[4] = { 0, 2, 4, 8 };
 static const int32_t lw_budgets[3] = { LW_BUDGET, 600, 1000000000 };               /* cost guard ON / RELAXED / OFF */
 static inline int32_t lw_gm(const lw_p_t *p, int32_t k) { return lw_gain_q8[lw_clamp(p->g[k], -18, 18) + 18]; }
@@ -286,7 +287,7 @@ COLD_FN3 static uint16_t lw_blend_px(uint16_t bg, uint16_t fg, int32_t mode, int
 /* per frame: antialiasing level, blend mode/alpha, box, and (Diagnostic Build) the per-column memory of the layer drawn before (ph/pc) and of the layer being
  * drawn (nh/nc) that blending and the antialiasing edge colour need. It is scratch for one lw_tick, so it lives on the stack, not in static RAM. */
 typedef struct { int32_t L, bm, ba, arr, X, Y, H, W, cy; uint16_t bgc;
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
     uint8_t *ph, *nh; uint16_t *pc, *nc;
 #endif
 } lw_lay_t;
@@ -294,7 +295,7 @@ typedef struct { int32_t x0, x1, h, cv; uint16_t c; } lw_run_t;
 
 COLD_FN3 static void lw_cell(const lw_lay_t *l, int32_t k, int32_t xs, int32_t wd, int32_t xc, int32_t *hh, int32_t *cv, uint16_t *c)
 {
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
     if (l->bm) {                                    /* blending: each layer is clamped to the one outside it, so the colour underneath is known */
         if (k > 0) { const int32_t ph = l->ph[xc]; if (*hh > ph) { *hh = ph; *cv = 0; } }
         *c = lw_blend_px(k > 0 ? l->pc[xc] : l->bgc, *c, l->bm - 1, l->ba);
@@ -306,7 +307,7 @@ COLD_FN3 static void lw_cell(const lw_lay_t *l, int32_t k, int32_t xs, int32_t w
 }
 COLD_FN3 static void lw_emit(const lw_lay_t *l, int32_t k, const lw_run_t *r)
 {
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
     if (l->L && r->cv) {                            /* antialiasing: the row just outside each edge, the layer colour mixed over what is there by the coverage */
         const int32_t d = r->h + 1, yt = l->cy - r->h - 1, yb = l->cy + r->h;
         int32_t a = r->x0, cur = (k > 0 && l->ph[r->x0] >= d) ? (int32_t)l->pc[r->x0] : (int32_t)l->bgc;
@@ -327,7 +328,7 @@ COLD_FN3 static void lw_emit(const lw_lay_t *l, int32_t k, const lw_run_t *r)
 }
 COLD_FN3 static void lw_endlayer(const lw_lay_t *l)
 {
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
     if (l->arr) for (int32_t x = 0; x < l->W; x++) { l->ph[x] = l->nh[x]; l->pc[x] = l->nc[x]; }
 #else
     (void)l;
@@ -377,7 +378,7 @@ COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_co
     for (int32_t k = 0; k < n; k++) {
         const int32_t m = (p->split == 3u && n > 1) ? (int32_t)lw_mul_q8[n - 1 - 2 * k + 5] : 256;
         int32_t tk = tg[k];
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
         { const int32_t gk = lw_gm(p, k); if (gk != 256) tk = lw_min(4096, (tk * gk) >> 8); }
 #endif
         lw_s[k] = lw_step(lw_s[k], tk, lw_coef(p->response, m, dt, 1), lw_coef(p->response, m, dt, 0));
@@ -416,7 +417,7 @@ COLD_FN3 static void lw_history(const lw_p_t *p, const mtr_in_t *in, const lw_co
     }
 }
 
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
 /* CURVE style: one continuous outline across the whole axis, coloured by a gradient whose stops are the layer colours at the centres of their frequency
  * ranges, with a smooth gain curve through the per-layer gains (all Q8 integer, the same operations as the JS twin's curveOutline). */
 COLD_FN3 static void lw_curve(const lw_p_t *p, const mtr_in_t *in, const lw_col_t *cl, int32_t cy, int32_t Hh, const lw_lay_t *lay, const uint8_t *bnd, int32_t s)
@@ -468,7 +469,7 @@ COLD_FN3 static void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_c
     uint8_t bnd[LW_MAXL + 1u];
     if (p->split == 2u) lw_learn(in->spec, n);
     if (p->split != 3u) lw_bounds(p->split, n, bnd, p->xo);   /* frequency splits: each layer draws only the part of the axis it listens to */
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
     if (p->hstyle == 2u && p->split != 3u) { lw_curve(p, in, cl, cy, Hh, lay, bnd, s); return; }
 #endif
     for (int32_t k = 0; k < n; k++) {
@@ -484,11 +485,11 @@ COLD_FN3 static void lw_spectrum(const lw_p_t *p, const mtr_in_t *in, const lw_c
             const int32_t v = ((int32_t)in->spec[i] * 4096) / 255;
             lw_band[k][i] = (int16_t)lw_step(lw_band[k][i], v, ca, cr);
             int32_t wt = ((int32_t)i >= lo && (int32_t)i < hi) ? 256 : 0;
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
             if (p->hstyle == 1u && p->split != 3u) wt = ((int32_t)i >= lo && (int32_t)i < hi) ? 256 : ((int32_t)i == lo - 1 || (int32_t)i == hi) ? 128 : ((int32_t)i == lo - 2 || (int32_t)i == hi + 1) ? 40 : 0;
 #endif
             int32_t a = wt == 256 ? (int32_t)((lw_u8(lw_band[k][i]) * (uint32_t)sc) >> 10) : wt == 0 ? 0 : ((((int32_t)((lw_u8(lw_band[k][i]) * (uint32_t)sc) >> 10)) * wt) >> 8);
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
             { const int32_t gk = lw_gm(p, k); if (gk != 256) a = lw_min(255, (a * gk) >> 8); }
 #endif
             bu[i] = (uint8_t)a;
@@ -530,7 +531,7 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
     p.custom_outer = (uint16_t)MV_LAYERED_WAVE(CUSTOM_OUTER); p.custom_inner = (uint16_t)MV_LAYERED_WAVE(CUSTOM_INNER); p.custom_bg = (uint16_t)MV_LAYERED_WAVE(CUSTOM_BG);
     p.hstyle = 0; p.aa = 0; p.bmode = 0; p.balpha = 60; p.guard = 0;
     for (uint32_t i = 0; i < 6u; i++) p.g[i] = 0;
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
     p.hstyle = (uint8_t)lw_min(2, (int32_t)MV_LAYERED_WAVE(HSTYLE)); p.aa = (uint8_t)lw_min(3, (int32_t)MV_LAYERED_WAVE(AA)); p.bmode = (uint8_t)lw_min(5, (int32_t)MV_LAYERED_WAVE(BMODE));
     p.balpha = (uint8_t)lw_clamp((int32_t)MV_LAYERED_WAVE(BALPHA), 5, 100); p.guard = (uint8_t)lw_min(2, (int32_t)MV_LAYERED_WAVE(GUARD));
     p.g[0] = (int8_t)((int32_t)MV_LAYERED_WAVE(G1) - 18); p.g[1] = (int8_t)((int32_t)MV_LAYERED_WAVE(G2) - 18); p.g[2] = (int8_t)((int32_t)MV_LAYERED_WAVE(G3) - 18);
@@ -565,18 +566,18 @@ COLD_FN3 static int lw_tick(const mtr_in_t *in)
     if (!paused) {
         const int32_t cy = (int32_t)in->y + (in->h >> 1), Hh = (in->h >> 1) - 1;
         int32_t bud = LW_BUDGET;
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
         bud = lw_budgets[p.guard];
         if (bud >= 1000000000) lw_stride = 1u;
 #endif
         lw_cnt = 0;
         lw_lay_t lay;
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
         uint8_t sc_ph[400], sc_nh[400]; uint16_t sc_pc[400], sc_nc[400];
         lay.ph = sc_ph; lay.nh = sc_nh; lay.pc = sc_pc; lay.nc = sc_nc;
 #endif
         lay.L = 0; lay.bm = 0; lay.ba = 0; lay.arr = 0; lay.X = in->x; lay.Y = in->y; lay.H = in->h; lay.W = in->w; lay.cy = cy; lay.bgc = cl.bg;
-#if TAU_DIAGNOSTIC
+#if TAU_FX_METER_EXPERIMENTAL
         lay.L = lw_aa_levels[p.aa]; lay.bm = p.bmode; lay.ba = ((int32_t)p.balpha * 255 + 50) / 100; lay.arr = (lay.L || lay.bm) ? 1 : 0;
 #endif
 #ifdef LW_STATS
