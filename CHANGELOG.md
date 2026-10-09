@@ -2,12 +2,25 @@
 
 What changed in each release, newest first. Lines starting `- Omega:` are copied into the release's `tau-compat.json` notes for Tau Omega.
 
-## Unreleased (next alpha)
+## v0.6.0-preview.1 — 9 October 2026
+
+First release on the new channel scheme. **TAU Preview** and **TAU Preview Diagnostics** install beside your existing TAU (they have their own entries in the Select Core list and read the music, covers
+and theme file already on your card, so nothing is copied twice). Each core shows its full version on the splash and under Menu > Info. The next alpha of the 0.6.0 line, `v0.6.0-alpha.4`, was never published: everything in it is in this release too (listed below it).
 
 - **Halcyon EQ replaces the old equalizer.** The fixed-preset EQ (eight presets) is removed from the hardware and the firmware. Settings > Audio > HALCYON EQ opens the full page (response
   curve, six sliders, presets in the header: Up from the first slider selects the preset area, Left/Right change it); **Y** steps the Halcyon preset. Your saved EQ choice is now the Halcyon
   preset. Needs the matching new bitstream (older ones show NO UNIT and play without an EQ).
-- Fixed a pop when switching the hardware gain stage off after a track start.
+- **No more flutter on the EQ, and a softer preset change.** The engine's sample clock is exact now (the 30 Hz flutter on every non-flat setting is gone) and stereo pairs can no longer
+  tear. A preset change fades the sound down and up over about 16 ms (it was about 5 ms and could pop). The same fade is used by the Cymo resampler and 16-bit output switches in the Diagnostic Build.
+- **Audiobook tempo (MP3, Settings > Playback > TEMPO) is in the normal core now**, not only the Diagnostic Build. It keeps the pitch and is clean to about 1.50x; at 1.75x there are still occasional clicks (known, being worked on).
+- **Report codes are the pixel grid only** (Check, Info export): the QR code encoder is removed to free memory; press X on a report to switch between the robust and the lossless grid. Tau Omega
+  reads the grid.
+- **Info page export in the normal core** (A on Menu > Info shows every Info row as a report code).
+- **Smaller:** the hardware gain stage no longer pops when switched off after a track start; ReplayGain, dB volume and the rest of alpha.4 are unchanged.
+- **Diagnostic Build:** Diagnostics are a build-time register now (smaller builds can drop pieces); the Info page's I2S JITTER average wraps after about a minute of playback (cosmetic). `Track changes`
+  still fails in Check (a test issue).
+- **Installing:** use Tau Omega or copy the zips to the card root; the files that belong to a core now live in that core's own folder, so a Preview and a Stable core can never overwrite each other.
+- Omega: the tau-compat.json of this release describes the new per-core file layout; the persisted EQ choice (id 16) now holds the Halcyon preset, and ids 20-23 keep carrying the report as before.
 
 ## v0.6.0-alpha.4 — 7 October 2026
 
