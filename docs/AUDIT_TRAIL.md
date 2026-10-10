@@ -14754,3 +14754,22 @@ Six takes `105_a16_off_v94|on_v85|on_v70|on_v40|on_v94.wav` and `105_sil_a16_on_
 ### B-697 addendum: row 26 re-recorded (21:47)
 
 `105_a16_off_v94` taken again at core volume 94: **-15.98 dBFS left, -15.93 right**, SINAD 56.7 / 56.6 dB, THD -75.5 / -76.2 dB (second harmonic -75.3 dBc, third -94.3), peak -15.9 dBFS, 12.6 s. It matches `105_hw_on_v94` (-15.97, B-696) to 0.01 dB, so the reference is valid, and the 16-bit ON take at the same volume (-9.95) sits 6.03 dB above it. Row 26 is closed; group 3 is complete and the G-A16 reading above stands with this as the 15-bit reference.
+
+## B-698: group 4 re-recorded on the EVO 4 (spur source, rows 32 to 35 closed; G-SPUR read)
+
+Four takes `105_spur_screen_on|screen_blank|menu|charger.wav` (silence file playing, core volume 100, 16-BIT OFF, the gain of B-694; 15.4 to 15.7 s). Broadband RMS over the middle 80 % (left / right) and the three idle spurs (6.18, 12.30, 18.48 kHz) from a Welch average of 21 segments of 32768 samples, each spur as its peak above the median of the surrounding bins (left channel).
+
+| Take | RMS L / R dBFS | 6.18 kHz | 12.30 kHz | 18.48 kHz |
+|---|---|---|---|---|
+| idle (B-694, reference) | -97.43 / -97.26 | +17.8 dB | +19.1 | +14.4 |
+| silence, v100 (B-694) | -97.43 / -97.25 | +17.9 | +19.1 | +18.5 |
+| screen on | -97.39 / -97.21 | +18.3 | +20.0 | +18.4 |
+| screen blank | -97.54 / -97.29 | +14.4 | +16.4 | +16.3 |
+| menu open | -97.51 / -97.28 | +16.9 | +18.6 | +17.6 |
+| charger connected | -97.39 / -97.18 | +11.5 | +17.6 | +14.8 |
+
+**Reading:**
+- **The broadband floor is identical in all four takes and in idle and silence** (-97.4 dBFS, within 0.15 dB): not the display, the menu or the charger, and not playing (B-694): **G-SPUR's source question is answered at the broadband level, as on the old chain (B-658)**.
+- **The spurs are present everywhere and move by a few dB.** Two takes in the same state (idle and silence at v100) already differ by 4.1 dB at 18.48 kHz, so about 4 dB is scatter. Screen blank is 2 to 4 dB lower on all three spurs and the charger 6.8 dB lower at 6.18 kHz but 1.5 and 3.6 dB at the others: nothing outside the scatter except the charger's 6.18 kHz line, a single line in a single take. Claims such as "screen blank reduces the spurs" are not supported; one repeat of screen on / screen blank would be needed to say more. These spurs sit about 17 to 19 dB above the noise bins around them; their absolute level was not computed.
+- **Consequence:** the rows that would explain the old "+9.7 dB when playing" (36 to 39: paused, stopped, HW GAIN OFF, MP3 silence) have no effect left to explain, since B-694 found playing equals idle; they can be dropped. The idle-noise claims in the user documentation can say that the display, the menu and the charger do not change the floor (broadband, within 0.15 dB); they should not say anything about the individual spur lines.
+- Not analysed: the right channel's spurs, a repeat of any take.
