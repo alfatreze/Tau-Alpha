@@ -15,6 +15,7 @@ STD = "std"            # standard settings, see the script's section 1
 
 # (session, name, test file, set-up beyond the standard, what to do, analysis, question / gate, status)
 O, N = "original plan", "NEW (B-654)"
+DONE0 = "CLOSED 2026-10-10: re-recorded on the EVO 4 stereo chain, analysed (B-691)"
 RE = "original plan; RE-RECORD (first take was differential)"   # groups 0-5: the old chain recorded L minus R, which also cancels any click both channels share
 R = []
 # Starting state on the Pocket for each group (shown under the group heading, and in the plan page).
@@ -44,8 +45,8 @@ def add(session, name, tfile, setup, do, analysis, gate, status):
     R.append((session, name, tfile, setup, do, analysis, gate, status))
 
 # ---- the original plan (docs/features/CYMO_RECORDING_PLAN_DEV105.md section 3), names unchanged -------------------------------------------------------------------------------------------
-add("0 floors", "105_if_short", "-", "interface alone: shorted 3.5 mm plug (or the cable with the Pocket off)", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: interface floor", RE)
-add("0 floors", "105_idle", "-", "core loaded, nothing playing", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: Pocket idle floor", RE)
+add("0 floors", "105_if_short", "-", "interface alone: shorted 3.5 mm plug (or the cable with the Pocket off)", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: interface floor", DONE0)
+add("0 floors", "105_idle", "-", "core loaded, nothing playing", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: Pocket idle floor", DONE0)
 for v in (100, 70, 40, 10):
     add("1 volume", f"105_sil_v{v}", "silence_44100.flac", f"core volume {v}, 15-bit", "start recording, wait 3 s, play, record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: floor versus volume", RE)
 for v in (100, 70, 40, 10):
