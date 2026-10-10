@@ -52,7 +52,7 @@ for v in (100, 70, 40, 10):
 for v in (100, 70, 40, 10):
     add("1 volume", f"105_tone_v{v}", "tone_1k_48000.flac", f"core volume {v}, 15-bit", "start recording, wait 3 s, play, record 12 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: SINAD versus volume", DONE0.replace("B-691","B-692"))
 for d in (0, 1, 2, 4, 8, 16, 24, 30, 31):
-    add("1b system volume", f"105_sysvol_d{d:02d}", "sysvol_48000.flac", f"core volume 100, 15-bit; Pocket system volume d{d} (press + to the end stop first, then - exactly {d} times)", "record the whole file, 18 s", "cymo_isp.py sysvol 105_sysvol_d*.wav (all nine together)", "Q1 / G-FLOOR: is the noise before or after the system volume", RE)
+    add("1b system volume", f"105_sysvol_d{d:02d}", "sysvol_48000.flac", f"core volume 100, 15-bit; Pocket system volume d{d} (press + to the end stop first, then - exactly {d} times)", "record the whole file, 18 s", "cymo_isp.py sysvol 105_sysvol_d*.wav (all nine together)", "Q1 / G-FLOOR: is the noise before or after the system volume", DONE0.replace("B-691","B-693"))
 for a, b in (("on", "v94"), ("off", "v94"), ("on", "v70"), ("off", "v70")):
     add("2 HW gain A/B", f"105_hw_{a}_{b}", "tone_1k_48000.flac", f"HW GAIN {a.upper()}, core volume {b[1:]}", "start recording BEFORE pressing play (the 43 ms fade-in must be captured), record 12 s", "cymo_loopback.py analyze / track", "Q2 / G-HWGAIN", RE)
 for a in ("on", "off"):

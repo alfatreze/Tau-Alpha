@@ -14629,3 +14629,26 @@ The owner re-levelled the EVO 4 gain (the earlier takes were recorded with the g
 - **Volume taper is exact:** tone steps 18.04, 18.01, 18.08 dB per 30 positions (0.60 dB/position).
 - **Distortion at core volume 100 is real and specific to it.** The third harmonic is -52.7 dBc at v100 (about -65 dBFS) against -89.7 dBc at v70, in both channels and with the interface not clipping; B-655's -72.9 dB was measured on the differential chain. Rows v40 (-65.4, 5th harmonic -65 dBc) and v10 (-43.2) are limited by the tone sitting close to the noise floor, so their THD says little. SINAD at v100 (51.3 dB) is below v70 (56.9). So the knee is between core volume 70 and 100; group 2 (v94 and v70, HW GAIN ON and OFF) sits at v94, so it will show whether v94 is clean. Not yet known whether the cause is the gain stage, the DAC / headphone amplifier at full drive, or the system volume stage.
 - **Not analysed:** spurs beyond the five largest, band splits, the first/last seconds of each take.
+
+## B-693: group 1b re-recorded on the EVO 4 (system volume, rows 11 to 19 closed)
+
+Nine takes `105_sysvol_d00|01|02|04|08|16|24|30|31.wav` (19:35 to 19:43, `test music/Audio Lab/115 Tests/`), core volume 100, 15-bit, the gain of B-692, `sysvol_48000.flac`. Analysed with `cymo_isp.py sysvol` plus `cymo_loopback.analyze_tone` per channel (left shown; right within 0.1 dB level and 1.5 dB THD).
+
+| Clicks down | Tone dBFS | Noise dBFS | SNR dB | dB per click | THD dB | SINAD dB |
+|---|---|---|---|---|---|---|
+| 0 | -12.17 | -102.69 | 87.5 | | -53.0 | 51.3 |
+| 1 | -15.16 | -104.83 | 86.7 | -2.99 | -63.8 | 55.9 |
+| 2 | -16.54 | -105.70 | 86.2 | -1.38 | -78.2 | 56.8 |
+| 4 | -19.62 | -107.07 | 84.4 | -1.54 | -80.0 | 56.7 |
+| 8 | -26.80 | -108.80 | 79.0 | -1.79 | -81.2 | 56.6 |
+| 16 | -41.58 | -109.33 | 64.7 | -1.85 | -83.8 | 56.1 |
+| 24 | -55.30 | -109.28 | 51.0 | -1.71 | -78.9 | 50.2 |
+| 30, 31 | no tone found | -109.2 / -109.7 (L / R) | | | | |
+
+**Reading:**
+- **Where the noise enters.** Noise falls 6.6 dB over the first 16 clicks (-102.7 to -109.3) while the tone falls 43 dB, then stays at -109.3: part of the noise is generated AFTER the system volume stage, a fixed floor of about -109.3 dBFS, which is within 1.5 dB of the interface alone (-110.7, B-692), so that part is the interface plus almost nothing from the Pocket. The rest, about -103.8 dBFS at maximum volume (what dominates the idle floor), sits BEFORE the stage and is attenuated by it. With B-692 (the same floor at every core volume, so not in the digital data) the Pocket's idle noise is analogue, ahead of the system volume stage and after the core's digital volume: DAC or headphone-amplifier input stage. Maximum system volume is the noisiest setting for the floor; SNR is 87.5 dB at d0 and falls with the volume at 1.4 to 1.9 dB per click above d1.
+- **The first click is 3.0 dB, then 1.4 to 1.9 dB per click** (as B-655 on the old chain, whose figures were relative and held).
+- **The distortion of B-692 is tied to the output level, not to the core volume.** THD at core volume 100 is -53.0 dB at d0, -63.8 at d1, -78.2 at d2 and -80 at d4 or lower: it is gone after two clicks, while the tone level changes only from -12.2 to -16.5 dBFS (interface level). Together with B-692 (core volume 70 at d0, level -30 dBFS, THD -79) the knee is between about -16.5 and -12 dBFS at this interface gain, i.e. the Pocket's output stage overloads near the top of its range at maximum system volume. The test tone is -6 dBFS: a full-scale music peak at volume 100 and d0 would be 6 dB further into it. My reading; the cause (headphone amplifier or DAC output) is not separated, and group 2 at core volume 94 (level about -15.8) should be clean if this holds.
+- **d30 and d31 are silent (muted, or below the floor):** noise -109.2 / -109.7, no tone section; d24 still carries the tone (-55.3 dBFS, SINAD 50.2).
+- **Repeatability:** the d0 tone (-12.17 dBFS) equals `105_tone_v100` (-12.15) taken 10 minutes earlier to 0.02 dB.
+- **Not analysed:** spurs, the right channel in detail, and `d02` is 1.1 s shorter than the others (16.9 s against 18 s); the tone was found and analysed, but whether the whole test file played was not checked.
