@@ -14593,3 +14593,11 @@ Recorded by the owner on the EVO 4 stereo chain (Pocket left to input 1, right t
 - Gain assumed unchanged from the -12 dBFS calibration of `tone_1k_48000` at core volume 94; the knob position was not re-photographed for these two takes.
 - Not analysed: spectrum and spurs of these two files (band split, 12.30 / 18.48 / 6.18 kHz idle spurs). Group 1 onward (rows 3 to 10) is still to be re-recorded.
 - Plan page and CSV: rows 1 and 2 marked closed.
+
+### B-691 addendum: `105_idle` re-recorded at system and core volume maximum
+
+The owner was unsure the first take had the Pocket system volume at the end stop and re-recorded (19:11, replaces the 19:01 file). Same analysis (middle 80 %): **-72.42 dBFS left, -72.22 dBFS right, correlation 0.04**, peaks -57.3 / -57.2. The first take read -78.4 / -78.6, 6 dB lower, which matches the 6.3 dB fall between d0 and d4 measured earlier (B-655), so it was recorded with the volume about 4 clicks down. **The d0 figure replaces the table above for row 2**; the interface floor (-92.0 / -91.7, no Pocket involved) is unchanged.
+
+Consequences, not yet tested:
+- The Pocket's idle floor at d0 is about 19.5 dB above the interface floor, so it is still the Pocket's.
+- It equals the old figure for playing digital silence at d0 (-72.8, Volt 1 chain, B-655). B-655's "playing silence is 9.7 dB noisier than idle" compared that with an idle take of -82.5 whose system volume is unknown; that gap may have been a volume mismatch, not a real effect of playing. To be settled by the playing-silence rows on the EVO 4 (rows 3 to 6 at d0, and the spur rows 36 to 39); until then treat the 9.7 dB claim as unconfirmed.
