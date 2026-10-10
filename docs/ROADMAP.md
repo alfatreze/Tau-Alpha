@@ -1,6 +1,6 @@
 # Roadmap: the one ordered list of what is next
 
-**Status: DRAFT, updated 2026-09-27 for the v0.5.0 release.** Proposed by Claude from the docs of every session; **the order is the owner's to set.** Items marked *(owner)* need a decision
+**Status: DRAFT, updated 2026-10-10 for the v0.6.0-preview.1 release.** Proposed by Claude from the docs of every session; **the order is the owner's to set.** Items marked *(owner)* need a decision
 before work starts. This is the only document that says what comes next. Every other plan or spec is a design reference for one item here
 and must not carry its own "next" list (see section 6).
 
@@ -19,6 +19,8 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 > **2026-10-04 evening status:** alpha.3 is published. Cymo: C1 done (dB volume + ramp, built, not yet heard on DEV 93), ReplayGain built (DEV 93, not yet heard), CPU headroom work done (busy 55% to 44%). DEV 93 tested by the owner: ReplayGain and the dB volume taper fine, smooth transitions (B-598/B-599 cleared). **Now:** cut alpha.4 when wanted. Handoff: `docs/handoffs/SESSION_HANDOFF_2026-10-04_ALPHA3_CPU_VOLUME_RG.md`. Cymo next: gapless, output stage (RTL), EQ; tempo improvements parked.
 
 > **2026-10-04 status:** CLUT start-index fix, meter-preview parity fix and TAU2 splash are merged and hardware-confirmed (B-569..574). CLUT RTL fix (`clut-rtl`, fit `clut-rtl-b576` closed, DEV 86 hardware-confirmed, merged into `main`, B-578). JPEG fallback confirmed on a Pocket (B-579). **Now:** rebuild and smoke-test the release (alpha.2 zips are stale, published alpha.1 normal core is broken). Handoff: `docs/handoffs/SESSION_HANDOFF_2026-10-04_FLAC_RAM_CLUT.md`.
+
+> **2026-10-10 status:** `v0.6.0-preview.1` is published (first Preview-channel release) and smoke-tested on a Pocket (B-684..B-686); `ram-diet` is merged (B-674, B-676); the 0.6.0 alpha releases on GitHub are deleted (tags kept). Done since the last note: Halcyon is the only EQ in RTL and firmware, softer preset change (B-681), `TAU DEV NN` Dev layout on the card, release channels and `tau-compat.json` in use. **Now:** recordings with the mono plug (row 15c), then a Stable `v0.6.0` when the owner calls it; RTL cosmetics for the next fit (I2S diag sum width, the `eq_in_l` wire name). Details and traps: `docs/handoffs/SESSION_HANDOFF_2026-10-10_PREVIEW_RELEASE.md`.
 
 ## 2. Next (needs an owner call first)
 
@@ -41,6 +43,7 @@ Current facts (card, release, open defects): `docs/CURRENT_STATUS.md`. History a
 | 15c | **Recording sessions with a MONO plug (the chain was differential, B-665/B-666)** | `docs/features/CYMO_RECORDING_SCRIPT.md` (+ csv, 122 rows, priorities), groups 0-4 recorded with a TRS plug (L minus R), group 5 invalid | **NEXT:** TS plug; repeat group 0, a level/THD take, the 16-bit tone at volume 100, the ISP ladder (gain set on its first section to about -18 dBFS), the group 4 follow-ups; build the missing test files; issue 023 soaks | `docs/AUDIT_TRAIL.md` B-655..B-666 |
 | 15a | **Work alongside the recordings (approach saved 2026-10-07)** | Ungated headphone/audio items A1-A8, VM fits B1-B4, alpha.4 candidate C1 | see `docs/features/CYMO_PARALLEL_WORK_PLAN.md` for the list and status | `CYMO_PARALLEL_WORK_PLAN.md` |
 | 15b | **DSP review, phase 2 (parked, owner 2026-10-07)** | Non-EQ parts of the reviewed projects: crossfeed and stereo widening, bass boost, multiband compression and limiting as a feature, loudness metering and matching beyond ReplayGain | **PARKED** for a later review for potential improvements; not started | `docs/features/CYMO_DSP_REVIEW.md` section 8, D-H03 |
+| 17 | **Release follow-ups after preview.1 (B-684..B-688)** | Preview layout confirmed on hardware (B-686). Open: Stable `v0.6.0` (same `make_release.py`, tag without a label), edit the preview.1 notes (they still say "not run on a Pocket"), the tempo diet (`TEMPO_SLICE`/`TEMPO_RING`) and a lean diagnostic build on a Pocket, I2S diag sum widened and `eq_in_l` renamed with the next RTL fit | Owner calls the Stable release; the A/B runs need a Dev build (`package_dev_build.py --number NN --build-flags ...`) | `SESSION_HANDOFF_2026-10-10_PREVIEW_RELEASE.md`, `RAM_DIET_PLAN`, KB-135/136 |
 
 ## 3. Later and parked
 

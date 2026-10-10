@@ -1,9 +1,12 @@
 # Current status (one page)
 
-Updated 2026-10-08 (morning). **What is true right now.** What to do next is in `docs/ROADMAP.md` (the only ordered list, not yet updated with
+Updated 2026-10-10. **What is true right now.** What to do next is in `docs/ROADMAP.md` (the only ordered list, not yet updated with
 the Cymo row — see below). Why things are the way they are is in `docs/AUDIT_TRAIL.md`. The old, long version of this file is
 `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
 Full detail on this session: `docs/handoffs/SESSION_HANDOFF_2026-10-03_CYMO_TEMPO.md` — **read it first** (the 2026-10-01 resampler handoff is still correct for what it covers).
+
+## Update 2026-10-10: first Preview release published and smoke-tested; `ram-diet` merged
+**Read `docs/handoffs/SESSION_HANDOFF_2026-10-10_PREVIEW_RELEASE.md` first.** Audit B-671..B-688. **GitHub:** `v0.6.0-preview.1` (pre-release; `TAU Preview` + `TAU Preview Diagnostics`, Halcyon the only EQ, tempo in the normal core, pixel-grid reports only, softer preset change; bitstream `noeq-b670` seed 1) is the newest release; the 0.6.0 alpha.1 to alpha.3 releases were deleted (tags kept); alpha.4 was never published. **Card:** `TAU`/`TAU_DIAGNOSTIC` (alpha.4, old layout), `TAU Preview` and `TAU Preview Diagnostics` (smoke-tested by the owner, everything as expected), `TAU DEV 111`, `TAU_DEV_105`/`107` (recordings), the owner's barcode and meter cores. `ram-diet` is merged (heap gaps on the shipped link: release 8,768 B, Diagnostic Build 1,376 B against a 1,024 B floor). **Open:** mono-plug recordings, a clean I2S JITTER read within 60 s of playback (its average wraps after about 64 s, an RTL cosmetic), HW GAIN toggle below full volume, the tempo diet and lean diagnostic builds on a Pocket, `Track changes` Check failure, tempo clicks at 1.75x. A leftover GitHub workflow had attached a stable-named zip to the Preview release: removed (B-687).
 
 ## Update 2026-10-08 (morning): Halcyon EQ is the only EQ; TAU_DEV_108 on hardware; the capture chain is differential
 **Read `docs/handoffs/SESSION_HANDOFF_2026-10-08_HALCYON_EQ_RECORDINGS.md` first.** Audit B-649..B-670; `main` pushed to origin up to `d1143d6`. On the card: `TAU`/`TAU_DIAGNOSTIC` alpha.4, `TAU_DEV_105`, `TAU_DEV_107` (kept for the control recordings), **`TAU_DEV_108`** (flutter fixed on hardware, Y steps Halcyon, HW GAIN toggle click-free). VM: fit `noeq-b670` (legacy EQ removed from the RTL) due 09:05-09:15 on 2026-10-08. Recordings: groups 0-4 read; the capture (TRS into a balanced input) records LEFT MINUS RIGHT, so absolute numbers so far are suspect: re-record with a mono TS plug. Recording script: `docs/features/CYMO_RECORDING_SCRIPT.md` (+ csv).
