@@ -9,6 +9,7 @@ through data slot 8. Any problem with the file means the built-in themes only; t
 
 Theme JSON is the same shape as themes/*.json (name, dark{...}, light{...}); extra themes are appended after the built-in ones.
 """
+import os
 import argparse, json, re, shutil, struct, sys, zlib
 from pathlib import Path
 
@@ -256,7 +257,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("pack"); p.add_argument("themes", nargs="*"); p.add_argument("--meters", help="meters.json: preset sets per meter");  p.add_argument("-o", "--output", required=True); p.set_defaults(fn=cmd_pack)
     d = sub.add_parser("dump"); d.add_argument("file"); d.set_defaults(fn=cmd_dump)
-    i = sub.add_parser("install"); i.add_argument("file"); i.add_argument("--core", required=True); i.add_argument("--card", default="/Volumes/Pock"); i.set_defaults(fn=cmd_install)
+    i = sub.add_parser("install"); i.add_argument("file"); i.add_argument("--core", required=True); i.add_argument("--card", default=os.environ.get("TAU_CARD", "/Volumes/CARDWRITE")); i.set_defaults(fn=cmd_install)
     a = ap.parse_args()
     try:
         a.fn(a)

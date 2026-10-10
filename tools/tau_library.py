@@ -666,7 +666,7 @@ def main(argv=None):
     b = sub.add_parser("build")
     b.add_argument("common", nargs="?")
     b.add_argument("--core")
-    b.add_argument("--card", default="/Volumes/Pock")
+    b.add_argument("--card", default=os.environ.get("TAU_CARD", "/Volumes/CARDWRITE"))
     b.add_argument("--out")
     b.add_argument("--cache")
     b.add_argument("--playlists", action="store_true")

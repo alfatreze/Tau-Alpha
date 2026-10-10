@@ -330,7 +330,7 @@ def art_variants(folders_parent, info, args, tmp, start):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("sources", nargs="*", help="files or folders to copy")
-    ap.add_argument("--card", default="/Volumes/Pock", help="card root (default /Volumes/Pock)")
+    ap.add_argument("--card", default=os.environ.get("TAU_CARD", "/Volumes/CARDWRITE"), help="card root (default: $TAU_CARD, else /Volumes/CARDWRITE)")
     ap.add_argument("--core", action="append", help="destination core id, e.g. alfatreze.TAU_PSRAM_03 (repeatable)")
     ap.add_argument("--all-tau", action="store_true", help="every alfatreze.TAU* core on the card")
     ap.add_argument("--from-core", help="also use this core's Assets/<platform>/common media as a source")
