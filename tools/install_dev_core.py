@@ -227,7 +227,7 @@ def run(cmd, what):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("package", type=Path, nargs="?", help="packaged core directory (has Cores/, Assets/, Platforms/); omit to only --remove cores")
-    ap.add_argument("--card", type=Path, default=Path("/Volumes/Pock"))
+    ap.add_argument("--card", type=Path, default=Path(os.environ.get("TAU_CARD", "/Volumes/CARDWRITE")), help="card root (default: $TAU_CARD, else /Volumes/CARDWRITE)")
     ap.add_argument("--carry-from", metavar="CORE_ID", help="copy this core's media to the new core and rebuild the library index")
     ap.add_argument("--assets", type=Path, metavar="FILE", help="tau-assets.bin (themes/meter presets) to install; default: <package>/../tau-assets.bin, else the --carry-from core's copy")
     ap.add_argument("--remove", action="append", default=[], metavar="CORE_ID", help="core to remove after a verified install (repeatable)")

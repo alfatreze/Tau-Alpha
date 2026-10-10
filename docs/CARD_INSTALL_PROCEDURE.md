@@ -23,6 +23,15 @@ Still needs explicit approval for the write (section 0). If any step of this doc
 (and `sim/test_install_dev_core.py`, part of `make test-host`) in the same commit; the list below is the spec the
 script implements, kept for reference and for the rare manual case.
 
+## Which card (changed 2026-10-10)
+
+The owner's original `Pock` card is lost. **`CARDWRITE` is now the Pocket card** for every Tau install, sync and read-back; the earlier
+rule "CARDWRITE is the Omega test card, never a Tau install target" no longer holds. The tools default to `$TAU_CARD`, else
+`/Volumes/CARDWRITE` (`install_dev_core.py`, `sync_media.py`, `tau_library.py`, `tau_assets.py`); pass `--card` or set `TAU_CARD` for any other
+volume. `install_dev_core.py` still refuses a volume with no `Cores/` folder. Because CARDWRITE also served the Tau Omega write tests, check
+`ls /Volumes/CARDWRITE/Cores` in the dry run before the first install: leftover Omega test namespaces (`tauomega*`, `alfatreze.TAU_OMEGA_*`) are
+not Tau cores and are left alone unless the owner says otherwise. Older entries in `AUDIT_TRAIL.md` and the handoffs still say `/Volumes/Pock`.
+
 ## 0. Before touching the card
 
 - Get explicit approval for the write (per-action, not assumed from an earlier approval).
@@ -56,7 +65,7 @@ its `tau-library.tdb` has the **destination core's own platform folder baked int
 an old index verbatim silently points every track open at the wrong folder -- browsing still works (names
 come from strings inside the index) but nothing actually plays, with no error shown.
 
-- Always run `tools/sync_media.py --from-core <SOURCE> --core <DEST> --library --card /Volumes/Pock` in one
+- Always run `tools/sync_media.py --from-core <SOURCE> --core <DEST> --library --card /Volumes/CARDWRITE` in one
   step (copies whatever media differs, then rebuilds the index against `<DEST>`'s own path).
 - Optional: add `--art-variants` to the same command to also write the pre-scaled cover sidecars (`<album>/tau-art/cover_128.pal256.timg`; `docs/IMAGE_FORMATS.md`). The firmware ignores them today; they carry across `--from-core` clones unchanged. Needs Pillow and numpy.
 - Verify: `tools/tau_library.py verify <path>/tau-library.tdb --root <path>` must print `OK`, and
