@@ -14725,3 +14725,28 @@ Level equal to 0.00 dB at both volumes (prediction: within 0.05), SINAD within 0
 **Step takes:** both are held-key ramps (94 to 70 over about 1.5 to 1.75 s, back to 94 over about 1.75 to 2 s), not instantaneous steps, and the timing of the gestures differs between the two takes (the down ramp starts at 5.8 s ON and 6.0 s OFF, the return at 10.0 s ON and 10.5 s OFF), so they compare the ramp shape, not the timing: both go -19.0 to -33.4 dB block RMS (14.4 dB for 24 positions), smooth, no discontinuity, the same 17 brief `track` SINAD events during the ramps in both, the same largest 5 ms level jumps (4.2 dB at the onset fade, about 1.8 dB inside a ramp), no frequency events. ON and OFF are indistinguishable.
 
 **G-HWGAIN is met** (the steady state, the fade-in and the ramp shape agree within the predictions): putting `TAU_GAIN` in a release bitstream and making hardware gain the shipped default is no longer held by this plan. The toggle rows of group 7 still test the ON/OFF switching itself and the loudness-neutral hand-over, which this group does not. Not analysed: spurs, the right channel in detail, an instantaneous step.
+
+## B-697: group 3 re-recorded on the EVO 4 (16-bit I2S slot, rows 27 to 31 closed, row 26 open; G-A16 read)
+
+Six takes `105_a16_off_v94|on_v85|on_v70|on_v40|on_v94.wav` and `105_sil_a16_on_v94.wav` (HW GAIN ON, system volume maximum, the interface gain of B-694 unchanged for the whole group: nothing clips, the loudest take peaks at -9.9 dBFS). `analyze_tone` per channel (left shown; right within 0.1 dB level and 2 dB THD).
+
+| Take | Expected | Level L | SINAD | THD | 2nd / 3rd harmonic dBc |
+|---|---|---|---|---|---|
+| `a16_off_v94` (reference) | -15.97 | **-14.17** | 56.7 | -74.0 | -74.0 / -90.1 |
+| `a16_on_v85` (level-matched) | -15.35 | -15.35 | 56.8 | -76.0 | -76.1 / -96.1 |
+| `a16_on_v70` | -24.35 | -24.35 | 56.6 | -83.7 | -85.0 / -90.4 |
+| `a16_on_v40` | -42.35 | -42.36 | 50.4 | -65.8 | -89.8 / -88.1 |
+| `a16_on_v94` (same volume) | -9.95 | -9.95 | 56.4 | -68.9 | -70.4 / -79.8 |
+| `sil_a16_on_v94` | idle -97.4 | floor -97.40 / -97.27 | | | |
+
+**Row 26 is open.** `a16_off_v94` reads -14.17 dBFS, 1.8 dB above the -15.97 of `105_hw_on_v94` (B-696): that is core volume 97, three positions up, not 94 (the volume moves in steps of 3). Its SINAD and THD are normal; it is the wrong reference level. Use `105_hw_on_v94` (same state: volume 94, HW ON, 16-BIT OFF, same gain) as the 15-bit reference, or re-record; the Group 1 takes (v70 -30.37, v40 -48.37) are the references for rows 28 and 29.
+
+**Reading (G-A16):**
+- **The slot gives exactly +6.02 dB** at every volume: v85 against v94 15-bit -15.35 against -15.97 (0.62 dB = 6.02 minus 9 positions), v70 and v40 at -24.35 / -42.36 against Group 1's -30.37 / -48.37 (6.02, 6.01), v94 -9.95 against -15.97 (6.02).
+- **Level-matched, SINAD is the same:** 56.8 (on, v85) against 56.5 (off, v94): the analogue chain dominates, as predicted.
+- **At the same volume (6 dB hotter) SINAD does not rise:** 56.4 against 56.5 at v94, 56.6 against 56.8 at v70. The prediction "+6 dB" is not met above v70, because the limit is a spur pattern at -68 to -72 dBc that scales with the signal (as B-657 found on the old chain).
+- **Where the floor dominates (v40) the slot pays:** SINAD 50.4 against 45.4 in Group 1 (+5.0 dB against a predicted +6), THD -65.8 against -63.2. So the slot helps at low volume and buys only loudness at high volume.
+- **THD with the slot ON is slightly worse at the top** (-68.9 against -74.6 at v94: second harmonic -70.4 dBc) but not clipping at this level. The B-694 overload (THD -53 at v100 and d0) is not re-measured at this gain: there is no ON take at v100 in this plan.
+- **The silence floor is unchanged** by the slot: -97.40 / -97.27 against -97.43 / -97.26 idle (B-694).
+- **Consequence for the decision:** adopting the slot is a loudness and low-volume SNR decision, not a quality gain at high level; it needs the loudness-neutral policy (the volume ramp that compensates 6.02 dB when it is switched) and a ceiling below the v100 overload. An ON take at v100 would size that ceiling: optional.
+- Not analysed: spurs, band splits, the right channel in detail. Takes `a16_on_v70` and `a16_on_v40` are 29.3 s long, longer than the others; the tone was found and analysed.
