@@ -14577,3 +14577,19 @@ Re-recording judged essential: groups 0-5 (39 rows) are marked RE-RECORD, becaus
 ## B-690: CARDWRITE is the Pocket card from now on
 
 Owner: the original `Pock` card is lost; `CARDWRITE` is mounted and is to be used for Tau from now on. This reverses the 2026-10-10 handoff's trap ("`CARDWRITE` is the Omega test card, never a Tau install target"). Changed: `tools/install_dev_core.py`, `tools/sync_media.py`, `tools/tau_library.py` and `tools/tau_assets.py` default `--card` to `$TAU_CARD`, else `/Volumes/CARDWRITE` (was `/Volumes/Pock`); `docs/CARD_INSTALL_PROCEDURE.md` gains a "Which card" section and its example command uses CARDWRITE. `install_dev_core.py` still refuses a volume without `Cores/`; `sim/test_install_dev_core.py` passes (scratch card only). Open: CARDWRITE's contents are unknown here (it held the Tau Omega write-validation namespaces, `tauomegasync` / `tauomegapkg`, which were cleaned up afterwards); the first dry run must list `Cores/` before any install. The five catalog caches, the backup-and-verify steps and the eject rule apply unchanged. No card write was made.
+
+## B-691: group 0 re-recorded on the EVO 4 and closed (rows 1 and 2)
+
+Recorded by the owner on the EVO 4 stereo chain (Pocket left to input 1, right to input 2, gains matched, channels checked isolated by unplugging one lead at a time); files `105_if_short.wav` and `105_idle.wav` in `test music/Audio Lab/115 Tests/` replace the Volt 1 takes of 7 October (which were mono and differential). Read with `cymo_loopback.read_wav`, RMS over the middle 80 % of each file:
+
+| File | Left RMS | Right RMS | Left/right correlation |
+|---|---|---|---|
+| `105_if_short` (interface alone, shorted plug) | -92.01 dBFS | -91.72 dBFS | 0.46 |
+| `105_idle` (core loaded, nothing playing) | -78.41 dBFS | -78.61 dBFS | 0.08 |
+
+- Interface floor about -92 dBFS (peaks about -78); the channels agree within 0.3 dB.
+- Pocket idle is about 13.5 dB above it, so the idle floor is the Pocket's: the interface contributes well under 0.5 dB to it. The old differential -82.5 dBFS is superseded (left minus right cancels shared noise).
+- The shorted take's channels share some noise (correlation 0.46); the cause is not measured and does not change the floor figure.
+- Gain assumed unchanged from the -12 dBFS calibration of `tone_1k_48000` at core volume 94; the knob position was not re-photographed for these two takes.
+- Not analysed: spectrum and spurs of these two files (band split, 12.30 / 18.48 / 6.18 kHz idle spurs). Group 1 onward (rows 3 to 10) is still to be re-recorded.
+- Plan page and CSV: rows 1 and 2 marked closed.
