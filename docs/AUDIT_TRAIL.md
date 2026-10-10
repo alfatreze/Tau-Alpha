@@ -14750,3 +14750,7 @@ Six takes `105_a16_off_v94|on_v85|on_v70|on_v40|on_v94.wav` and `105_sil_a16_on_
 - **The silence floor is unchanged** by the slot: -97.40 / -97.27 against -97.43 / -97.26 idle (B-694).
 - **Consequence for the decision:** adopting the slot is a loudness and low-volume SNR decision, not a quality gain at high level; it needs the loudness-neutral policy (the volume ramp that compensates 6.02 dB when it is switched) and a ceiling below the v100 overload. An ON take at v100 would size that ceiling: optional.
 - Not analysed: spurs, band splits, the right channel in detail. Takes `a16_on_v70` and `a16_on_v40` are 29.3 s long, longer than the others; the tone was found and analysed.
+
+### B-697 addendum: row 26 re-recorded (21:47)
+
+`105_a16_off_v94` taken again at core volume 94: **-15.98 dBFS left, -15.93 right**, SINAD 56.7 / 56.6 dB, THD -75.5 / -76.2 dB (second harmonic -75.3 dBc, third -94.3), peak -15.9 dBFS, 12.6 s. It matches `105_hw_on_v94` (-15.97, B-696) to 0.01 dB, so the reference is valid, and the 16-bit ON take at the same volume (-9.95) sits 6.03 dB above it. Row 26 is closed; group 3 is complete and the G-A16 reading above stands with this as the 15-bit reference.
