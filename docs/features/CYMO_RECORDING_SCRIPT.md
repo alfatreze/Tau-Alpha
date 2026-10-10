@@ -31,12 +31,16 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 
 ### Group 0 floors
 
+**Start with on the Pocket:** Core 105 loaded and idle. EQ FLAT, HW GAIN ON, 16-BIT OUTPUT OFF. Nothing playing. First row: no Pocket at all (shorted plug).
+
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
 | 1 | P1 | `105_if_short.wav` | - | interface alone: shorted 3.5 mm plug (or the cable with the Pocket off) | record 15 s | cymo_loopback.py analyze | Q1 / G-FLOOR: interface floor | original plan; RE-RECORD (first take was differential) |
 | 2 | P1 | `105_idle.wav` | - | core loaded, nothing playing | record 15 s | cymo_loopback.py analyze | Q1 / G-FLOOR: Pocket idle floor | original plan; RE-RECORD (first take was differential) |
 
 ### Group 1 volume
+
+**Start with on the Pocket:** TAU_DEV_105. EQ FLAT, REPLAYGAIN Off, HW GAIN ON, CYMO RESAMPLER OFF, 16-BIT OFF. Play from cymo_loopback; set the core volume per row. Pocket system volume at the end stop (d0), charger unplugged, screen on, default meter, nothing in the jack but the capture cable.
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -50,6 +54,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 | 10 | P1 | `105_tone_v10.wav` | tone_1k_48000.flac | core volume 10, 15-bit | start recording, wait 3 s, play, record 12 s | cymo_loopback.py analyze | Q1 / G-FLOOR: SINAD versus volume | original plan; RE-RECORD (first take was differential) |
 
 ### Group 1b system volume
+
+**Start with on the Pocket:** TAU_DEV_105, standard settings, core volume 100. Change only the Pocket system volume: + to the end stop, then - the stated number of clicks.
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -65,6 +71,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 
 ### Group 2 HW gain A/B
 
+**Start with on the Pocket:** TAU_DEV_105, standard settings. Diagnostics > HW GAIN is the only setting that changes between ON and OFF rows. Step rows use the 60 s tone.
+
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
 | 20 | P1 | `105_hw_on_v94.wav` | tone_1k_48000.flac | HW GAIN ON, core volume 94 | start recording BEFORE pressing play (the 43 ms fade-in must be captured), record 12 s | cymo_loopback.py analyze / track | Q2 / G-HWGAIN | original plan; RE-RECORD (first take was differential) |
@@ -76,6 +84,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 
 ### Group 3 16-bit
 
+**Start with on the Pocket:** TAU_DEV_105, standard settings. Lower the core volume BEFORE switching 16-BIT OUTPUT on, then lower the interface gain as the row says and note the knob.
+
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
 | 26 | P2 | `105_a16_off_v94.wav` | tone_1k_48000.flac | 16-BIT OUTPUT OFF, core volume 94 | record 12 s | cymo_loopback.py analyze | Q3 / G-A16: reference | original plan; RE-RECORD (first take was differential) |
@@ -86,6 +96,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 | 31 | P2 | `105_sil_a16_on_v94.wav` | silence_44100.flac | 16-BIT ON, core volume 94 | record 15 s | cymo_loopback.py analyze | Q3 / G-A16: floor with 16-bit | original plan; RE-RECORD (first take was differential) |
 
 ### Group 4 spur source
+
+**Start with on the Pocket:** TAU_DEV_105, standard settings, silence file playing at core volume 100. Change one thing per row: screen blank, menu open, charger, pause, stop, HW GAIN OFF, MP3 silence.
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -100,12 +112,16 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 
 ### Group load (optional)
 
+**Start with on the Pocket:** TAU_DEV_105, standard settings, 15-bit. Put the 32 ohm resistor across the jack.
+
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
 | 40 | P2 | `105_load_v94.wav` | tone_1k_48000.flac | 32 ohm resistor across the jack, 15-bit, core volume 94 | record 15 s | cymo_loopback.py analyze | G-LOAD: distortion under load | original plan |
 | 41 | P2 | `105_load_v100.wav` | tone_1k_48000.flac | 32 ohm resistor across the jack, 15-bit, core volume 100 | record 15 s | cymo_loopback.py analyze | G-LOAD: distortion under load | original plan |
 
 ### Group 5 inter-sample peaks
+
+**Start with on the Pocket:** TAU_DEV_105, 16-BIT ON (OFF for the control rows), core volume 100, HW GAIN ON, system volume maximum. Set the interface gain on the ladder file first, not on the 1 kHz tone.
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -117,6 +133,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 | 47 | P2 | `105_isp_hot_a16off.wav` | isp_hot_48000.flac | 16-BIT OFF, core volume 100, HW GAIN ON (the control) | start recording, play the file once through (about 60 s for the ladder), stop | cymo_isp.py peak (the take is valid only if it says ok), then cymo_isp.py analyze --kind hot | G-ISP | original plan; RE-RECORD (first take was differential) |
 
 ### Group 6 calibration and repeatability
+
+**Start with on the Pocket:** New build (TAU DEV 111 or TAU Preview), Halcyon OFF, HW GAIN ON, CYMO RESAMPLER OFF, 16-BIT OFF, ACCEPT ALL RATES OFF, REPLAYGAIN Off, core volume 94 unless the row says 100. Pocket system volume at the end stop (d0), charger unplugged, screen on, default meter, nothing in the jack but the capture cable. The first three rows have no Pocket in the chain.
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -135,6 +153,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 
 ### Group 6x chain cross-check (Volt, optional)
 
+**Start with on the Pocket:** New build, Halcyon OFF, core volume 94, standard settings. Only the Volt 1 and its TS cable are connected; cable test first.
+
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
 | 60 | P2 | `{c}_xchk_volt_cable_rinv.wav` | tone_1k_48000_rinv.flac | Volt 1 with the new 6.35 mm TS to 3.5 mm TRS cable; INST off; the same tone with the RIGHT channel inverted. Interface gain to MINIMUM first, raise until the peak is about -12 dBFS, then play tone_1k_48000.flac at the SAME gain | record 12 s each | cymo_isp.py peak on both takes | what the TS cable records: the same level as the plain tone = LEFT only (what you want); near silence = L+R summed; about 6 dB louder = still differential | NEW (B-654) |
@@ -143,6 +163,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 | 63 | P2 | `{c}_xchk_volt_sweep.wav` | sweep_20_20k_48000.flac | Volt 1 and the TS cable, Halcyon OFF, core volume 94 | record the whole file | cymo_loopback.py response; compare with {c}_fr_off_sweep | the chain's response is the same on both interfaces | NEW (B-654) |
 
 ### Group 7 transitions
+
+**Start with on the Pocket:** New build, standard settings (Halcyon OFF, HW GAIN ON, CYMO RESAMPLER OFF, 16-BIT OFF), 60 s tone, Repeat as the row says. Each row changes one setting DURING the tone.
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -160,6 +182,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 | 75 | P1 | `{c}_soak_all_off_60m.wav` | tone_1k_48000_60s.flac | Repeat = one; Halcyon OFF, Cymo OFF, HW GAIN OFF, SCREEN BLANK on | unattended, record 60 min | cymo_loopback.py track | issue 023: the same soak with the new code out of the path | NEW (B-654) |
 
 ### Group 8 Halcyon
+
+**Start with on the Pocket:** New build (the 107 rows run on TAU_DEV_107). Start with Halcyon OFF, core volume 94, HW GAIN ON, CYMO RESAMPLER OFF, 16-BIT OFF; step through the presets one row at a time.
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -189,6 +213,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 
 ### Group 9 stereo
 
+**Start with on the Pocket:** New build, standard settings, Halcyon OFF then FLAT. Both inputs of the EVO 4 at the same gain, one stereo take.
+
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
 | 99 | P2 | `{c}_ch_left_only.wav` | ch_left_only_48000.flac | stereo capture on the EVO 4 (both channels in one take) | record 12 s | cymo_loopback.py analyze, both channels | balance, crosstalk (gain-stage balance targets, crossfeed) | NEW (B-654) |
@@ -197,6 +223,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 | 102 | P2 | `{c}_ch_impulse_r.wav` | ch_impulse_r_48000.flac | as above | record 10 s | impulse position per channel | no one-sample skew | NEW (B-654) |
 
 ### Group 10 levels and quantisation
+
+**Start with on the Pocket:** New build, standard settings. 15-bit rows with 16-BIT OFF; 16-bit rows with 16-BIT ON and the interface gain lowered 6 dB.
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -207,6 +235,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 
 ### Group 11 load and impedance
 
+**Start with on the Pocket:** New build, standard settings, 15-bit, core volume 94. Change only the resistor across the jack (open, 300, 32, 16 ohm).
+
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
 | 107 | P2 | `{c}_load_open_tone.wav` | tone_1k_48000.flac | load: open across the jack, 15-bit, core volume 94 | record 12 s | level versus load gives the output impedance | G-LOAD | NEW (B-654) |
@@ -216,6 +246,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 | 111 | P2 | `{c}_load_iem_sweep.wav` | sweep_20_20k_48000.flac | your IEM or headphone connected, interface across its terminals through a high-impedance tap | record the whole file | cymo_loopback.py response | G-LOAD: the frequency-dependent effect on correction presets | NEW (B-654) |
 
 ### Group 12 44.1 kHz resampler
+
+**Start with on the Pocket:** New build, Halcyon FLAT, core volume 94, 44.1 kHz file at 1.00x. Change only Diagnostics > CYMO RESAMPLER (ON or OFF).
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
@@ -233,6 +265,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 
 ### Group 13 ReplayGain
 
+**Start with on the Pocket:** New build, standard settings, core volume 94. Change only Settings > Audio > REPLAYGAIN (Off, Track, Album) on the tagged tone.
+
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
 | 123 | P3 | `{c}_rg_off.wav` | rg_tone_m6_48000.flac | REPLAYGAIN Off | record 12 s | level | ReplayGain accuracy: the reference | NEW (B-654) |
@@ -240,6 +274,8 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 | 125 | P3 | `{c}_rg_album.wav` | rg_tone_m6_48000.flac | REPLAYGAIN Album (album gain -3.00 dB in the tags) | record 12 s | level should be 3.0 dB below the reference (+-0.1) | ReplayGain accuracy | NEW (B-654) |
 
 ### Group 14 tempo (low priority)
+
+**Start with on the Pocket:** New build, standard settings, an MP3 tone, TEMPO on, speed 1.50x.
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
