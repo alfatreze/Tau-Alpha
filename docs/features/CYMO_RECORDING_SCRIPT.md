@@ -84,15 +84,15 @@ If time is short: P1 only, in the order A (group 6 then 7), then B (groups 0, 1,
 
 ### Group 3 16-bit
 
-**Start with on the Pocket:** TAU_DEV_105, standard settings. Lower the core volume BEFORE switching 16-BIT OUTPUT on, then lower the interface gain as the row says and note the knob.
+**Start with on the Pocket:** TAU_DEV_105, standard settings. Keep the interface gain exactly as it is (no knob changes in this group: with the gain of B-694 a 16-bit-ON tone peaks at about -6 dBFS at volume 100, so nothing clips). Lower the core volume BEFORE switching 16-BIT OUTPUT on.
 
 | # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |
 |---|---|---|---|---|---|---|---|---|
 | 26 | P2 | `105_a16_off_v94.wav` | tone_1k_48000.flac | 16-BIT OUTPUT OFF, core volume 94 | record 12 s | cymo_loopback.py analyze | Q3 / G-A16: reference | original plan; RE-RECORD (first take was differential) |
-| 27 | P2 | `105_a16_on_v85.wav` | tone_1k_48000.flac | 16-BIT OUTPUT ON (lower the volume BEFORE switching it on), core volume 85 (the volume moves in steps of 3, so 84 cannot be selected; 85 is 0.62 dB above level-matched, expect -11.40 dBFS against -12.02 OFF). Recorded as 105_a16_on_v84.wav | record 12 s | cymo_loopback.py analyze / compare | Q3 / G-A16: level-matched | original plan; RE-RECORD (first take was differential) |
-| 28 | P2 | `105_a16_on_v70.wav` | tone_1k_48000.flac | 16-BIT ON, core volume 70, interface gain as for 105_a16_on_v94 (lowered, note the knob); the 15-bit reference is 105_tone_v70 | record the whole tone | cymo_loopback.py analyze / compare with 105_tone_v70 | Q3 / G-A16: does the 6 dB pay where the fixed floor dominates (predicted SINAD +6 dB) | NEW (B-654) |
-| 29 | P2 | `105_a16_on_v40.wav` | tone_1k_48000.flac | 16-BIT ON, core volume 40, interface gain as for 105_a16_on_v94 (lowered, note the knob); the 15-bit reference is 105_tone_v40 | record the whole tone | cymo_loopback.py analyze / compare with 105_tone_v40 | Q3 / G-A16: does the 6 dB pay where the fixed floor dominates (predicted SINAD +6 dB) | NEW (B-654) |
-| 30 | P2 | `105_a16_on_v94.wav` | tone_1k_48000.flac | 16-BIT ON, core volume 94; lower the interface gain by about 6 dB first and note the knob | record 12 s | cymo_loopback.py analyze / compare | Q3 / G-A16: same volume | original plan; RE-RECORD (first take was differential) |
+| 27 | P2 | `105_a16_on_v85.wav` | tone_1k_48000.flac | 16-BIT OUTPUT ON (lower the volume BEFORE switching it on), core volume 85 (the volume moves in steps of 3, so 84 cannot be selected; 85 is 0.62 dB above level-matched, expect about -15.35 dBFS against -15.97 OFF at the gain of B-694). Recorded as 105_a16_on_v84.wav | record 12 s | cymo_loopback.py analyze / compare | Q3 / G-A16: level-matched | original plan; RE-RECORD (first take was differential) |
+| 28 | P2 | `105_a16_on_v70.wav` | tone_1k_48000.flac | 16-BIT ON, core volume 70, interface gain unchanged; the 15-bit reference is 105_tone_v70 | record the whole tone | cymo_loopback.py analyze / compare with 105_tone_v70 | Q3 / G-A16: does the 6 dB pay where the fixed floor dominates (predicted SINAD +6 dB) | NEW (B-654) |
+| 29 | P2 | `105_a16_on_v40.wav` | tone_1k_48000.flac | 16-BIT ON, core volume 40, interface gain unchanged; the 15-bit reference is 105_tone_v40 | record the whole tone | cymo_loopback.py analyze / compare with 105_tone_v40 | Q3 / G-A16: does the 6 dB pay where the fixed floor dominates (predicted SINAD +6 dB) | NEW (B-654) |
+| 30 | P2 | `105_a16_on_v94.wav` | tone_1k_48000.flac | 16-BIT ON, core volume 94, interface gain unchanged (expect about -9.95 dBFS, 6.02 dB above the 15-bit take) | record 12 s | cymo_loopback.py analyze / compare | Q3 / G-A16: same volume | original plan; RE-RECORD (first take was differential) |
 | 31 | P2 | `105_sil_a16_on_v94.wav` | silence_44100.flac | 16-BIT ON, core volume 94 | record 15 s | cymo_loopback.py analyze | Q3 / G-A16: floor with 16-bit | original plan; RE-RECORD (first take was differential) |
 
 ### Group 4 spur source
