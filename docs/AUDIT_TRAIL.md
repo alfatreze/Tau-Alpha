@@ -14810,3 +14810,21 @@ With the slot ON the chain compresses from a true peak of -3 dBFS, and for every
 - **The ceiling is in the analogue chain after the DAC or in the interface input, not in the data:** it sits at about -4.4 to -4.9 dBFS as the interface reads it, in both states. The interface's own peak meter is far from clipping, which points to the Pocket's output stage, and it fits B-662's puzzle (identical level at core volumes 85 and 100) and the THD jump at maximum volume (B-693, B-694). It is not separated from the interface's analogue input stage: one ladder take with the interface gain 6 dB lower would settle it (the ceiling moves with the gain if it is the Pocket's, stays at -4.4 dBFS if it is the interface).
 - IMD is worse with the slot ON at the same interface level (-37 dBc at level -6.7 against -50.6 at level -6.6 with the slot OFF), so it is not only a level ceiling; the cause is open.
 - Not analysed: the right channel; per-section frequency response.
+
+## B-700: the ISP ceiling moves with the interface gain, so it is the Pocket's (extra take `105_isp_ladder_a16on_-6`)
+
+The extra take proposed in B-699: the same state as `105_isp_ladder_a16on` (16-BIT ON, HW GAIN ON, core volume 100, system volume maximum) with the interface gain lowered by about 6 dB (saved 22:25, `105_isp_ladder_a16on_-6.wav`; not a row of the script, so the row numbers are unchanged). `cymo_isp.py peak` says ok (peak -10.2 dBFS), `analyze --kind ladder`:
+
+| True peak | Level, gain as before (B-699) | Level, gain 6 dB lower | Deviation (both) |
+|---|---|---|---|
+| -12 | -12.55 | -18.39 | -0.02 |
+| -6 | -6.52 | -12.35 | +0.02 |
+| -3 | -4.96 | -10.79 | -1.42 |
+| 0 (phase 0) | -4.47 | -10.30 | -3.93 |
+| +1 | -4.46 | -10.29 | -4.92 |
+| +2 | -4.62 | -10.45 | -6.08 |
+| +3 | -4.44 | -10.27 | -6.90 |
+
+The interface gain moved the quiet section by 5.84 dB (-12.55 to -18.39) and the pinned ceiling by 5.8 dB (about -4.4 to -10.3 dBFS), while the deviations are the same to 0.01 dB in every section. **The compression and the ceiling are therefore upstream of the interface's gain stage: the Pocket's output (DAC or headphone amplifier) at core volume 100 and maximum system volume with the 16-bit slot ON, not the interface input.** This settles the open point of B-699: the ceiling is a property of the Pocket's output, and the gate G-ISP reading (a clipper ceiling near -12 dBFS, or a lower maximum system volume, when the slot is ON) stands.
+
+The gain was changed for this take: the owner must restore it and check it by recording `tone_1k_48000.flac` at core volume 100, 16-BIT OFF, system volume maximum, which must read -12.36 dBFS (within about 0.1 dB) as `105_tone_v100` did, before any further recording at the B-694 gain. Not checked in this entry.
