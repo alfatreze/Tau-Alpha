@@ -17,6 +17,29 @@ STD = "std"            # standard settings, see the script's section 1
 O, N = "original plan", "NEW (B-654)"
 RE = "original plan; RE-RECORD (first take was differential)"   # groups 0-5: the old chain recorded L minus R, which also cancels any click both channels share
 R = []
+# Starting state on the Pocket for each group (shown under the group heading, and in the plan page).
+STD_T = "Pocket system volume at the end stop (d0), charger unplugged, screen on, default meter, nothing in the jack but the capture cable"
+GROUP_START = {
+    "0 floors": "Core 105 loaded and idle. EQ FLAT, HW GAIN ON, 16-BIT OUTPUT OFF. Nothing playing. First row: no Pocket at all (shorted plug).",
+    "1 volume": "TAU_DEV_105. EQ FLAT, REPLAYGAIN Off, HW GAIN ON, CYMO RESAMPLER OFF, 16-BIT OFF. Play from cymo_loopback; set the core volume per row. " + STD_T + ".",
+    "1b system volume": "TAU_DEV_105, standard settings, core volume 100. Change only the Pocket system volume: + to the end stop, then - the stated number of clicks.",
+    "2 HW gain A/B": "TAU_DEV_105, standard settings. Diagnostics > HW GAIN is the only setting that changes between ON and OFF rows. Step rows use the 60 s tone.",
+    "3 16-bit": "TAU_DEV_105, standard settings. Lower the core volume BEFORE switching 16-BIT OUTPUT on, then lower the interface gain as the row says and note the knob.",
+    "4 spur source": "TAU_DEV_105, standard settings, silence file playing at core volume 100. Change one thing per row: screen blank, menu open, charger, pause, stop, HW GAIN OFF, MP3 silence.",
+    "load (optional)": "TAU_DEV_105, standard settings, 15-bit. Put the 32 ohm resistor across the jack.",
+    "5 inter-sample peaks": "TAU_DEV_105, 16-BIT ON (OFF for the control rows), core volume 100, HW GAIN ON, system volume maximum. Set the interface gain on the ladder file first, not on the 1 kHz tone.",
+    "6 calibration and repeatability": "New build (TAU DEV 111 or TAU Preview), Halcyon OFF, HW GAIN ON, CYMO RESAMPLER OFF, 16-BIT OFF, ACCEPT ALL RATES OFF, REPLAYGAIN Off, core volume 94 unless the row says 100. " + STD_T + ". The first three rows have no Pocket in the chain.",
+    "6x chain cross-check (Volt, optional)": "New build, Halcyon OFF, core volume 94, standard settings. Only the Volt 1 and its TS cable are connected; cable test first.",
+    "7 transitions": "New build, standard settings (Halcyon OFF, HW GAIN ON, CYMO RESAMPLER OFF, 16-BIT OFF), 60 s tone, Repeat as the row says. Each row changes one setting DURING the tone.",
+    "8 Halcyon": "New build (the 107 rows run on TAU_DEV_107). Start with Halcyon OFF, core volume 94, HW GAIN ON, CYMO RESAMPLER OFF, 16-BIT OFF; step through the presets one row at a time.",
+    "9 stereo": "New build, standard settings, Halcyon OFF then FLAT. Both inputs of the EVO 4 at the same gain, one stereo take.",
+    "10 levels and quantisation": "New build, standard settings. 15-bit rows with 16-BIT OFF; 16-bit rows with 16-BIT ON and the interface gain lowered 6 dB.",
+    "11 load and impedance": "New build, standard settings, 15-bit, core volume 94. Change only the resistor across the jack (open, 300, 32, 16 ohm).",
+    "12 44.1 kHz resampler": "New build, Halcyon FLAT, core volume 94, 44.1 kHz file at 1.00x. Change only Diagnostics > CYMO RESAMPLER (ON or OFF).",
+    "13 ReplayGain": "New build, standard settings, core volume 94. Change only Settings > Audio > REPLAYGAIN (Off, Track, Album) on the tagged tone.",
+    "14 tempo (low priority)": "New build, standard settings, an MP3 tone, TEMPO on, speed 1.50x.",
+}
+
 def add(session, name, tfile, setup, do, analysis, gate, status):
     R.append((session, name, tfile, setup, do, analysis, gate, status))
 
@@ -179,7 +202,7 @@ def md():
     for s, n, f, setup, do, an, gate, st in R:
         if s != cur:
             cur = s
-            L += ["", f"### Group {s}", "", "| # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |", "|---|---|---|---|---|---|---|---|---|"]
+            L += ["", f"### Group {s}", "", f"**Start with on the Pocket:** {GROUP_START.get(s, 'standard settings')}", "", "| # | Pri | Name | Test file | Set-up (beyond STD) | Do | Analysis | Answers | Status |", "|---|---|---|---|---|---|---|---|---|"]
         i = [r[1] for r in R].index(n) + 1
         L.append(f"| {i} | {prio(R[i - 1])} | `{n}.wav` | {f} | {setup} | {do} | {an} | {gate} | {st} |")
     L += ["", "## 3. Test files", "", "All in `test music/cymo_loopback/` (copy to the core's media folder and rescan: a card write, ask first). The generator to extend is `tools/lab/cymo_loopback.py gen`.", "", "| File | Content | Status |", "|---|---|---|"]
