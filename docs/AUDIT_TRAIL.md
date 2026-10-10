@@ -14704,3 +14704,24 @@ Nine takes `105_sysvol_d00|01|02|04|08|16|24|30|31.wav` re-recorded after B-694 
 - **d30 and d31 are silent** (no tone section, noise at the floor).
 - **Repeatability with `105_tone_v100`** (21:02, same state): d0 -12.38 dBFS against -12.36, 0.02 dB.
 - **Not analysed:** spurs, a precise subtraction of the interface share.
+
+## B-696: group 2 re-recorded on the EVO 4 (HW GAIN ON against OFF, rows 20 to 25 closed; G-HWGAIN met)
+
+Six takes `105_hw_on|off_v94|v70|step.wav` (16-BIT OFF, the gain of B-694, `tone_1k_48000.flac`). The two step takes are 18.6 s long instead of the 12 s the script says (the owner's choice, for ease of handling); this changes nothing in the analysis. `analyze_tone` and `track_tone` on the left channel (right within 0.1 dB level, 1.5 dB THD).
+
+**Steady state, ON against OFF:**
+
+| | Level | SINAD | THD | Frequency |
+|---|---|---|---|---|
+| ON, volume 94 | -15.97 dBFS | 56.5 dB | -74.6 dB | 1000.0629 Hz |
+| OFF, volume 94 | -15.97 | 56.5 | -75.1 | 1000.0630 |
+| ON, volume 70 | -30.37 | 55.5 | -75.9 | 1000.0629 |
+| OFF, volume 70 | -30.37 | 55.9 | -77.0 | 1000.0629 |
+
+Level equal to 0.00 dB at both volumes (prediction: within 0.05), SINAD within 0.4 dB, THD within 1.1 dB (predicted about 1 dB), frequency identical to 0.0001 Hz, `track` frequency span 0.001 to 0.002 cents. Level at 94 against 100 (B-694, -12.36) is -3.6 dB, exactly 6 positions of 0.6 dB.
+
+**The start-of-track fade-in is present in both modes with the same shape** (the open point of B-656, which could not see it): in 5 ms blocks, ON v94 rises -41.3, -33.5, -29.3, -26.5, -24.4, -22.6, -21.2, -20.0, -19.1, -19.0 dBFS and OFF -38.5, -32.1, -28.4, -25.8, -23.9, -22.2, -20.9, -19.7, -19.0: a ramp of about 45 ms to full level in both (ON and OFF differ by 1 to 3 dB in the first blocks, which is the 5 ms block alignment). The same holds at volume 70. So the prediction "same fade shape" is met.
+
+**Step takes:** both are held-key ramps (94 to 70 over about 1.5 to 1.75 s, back to 94 over about 1.75 to 2 s), not instantaneous steps, and the timing of the gestures differs between the two takes (the down ramp starts at 5.8 s ON and 6.0 s OFF, the return at 10.0 s ON and 10.5 s OFF), so they compare the ramp shape, not the timing: both go -19.0 to -33.4 dB block RMS (14.4 dB for 24 positions), smooth, no discontinuity, the same 17 brief `track` SINAD events during the ramps in both, the same largest 5 ms level jumps (4.2 dB at the onset fade, about 1.8 dB inside a ramp), no frequency events. ON and OFF are indistinguishable.
+
+**G-HWGAIN is met** (the steady state, the fade-in and the ramp shape agree within the predictions): putting `TAU_GAIN` in a release bitstream and making hardware gain the shipped default is no longer held by this plan. The toggle rows of group 7 still test the ON/OFF switching itself and the loudness-neutral hand-over, which this group does not. Not analysed: spurs, the right channel in detail, an instantaneous step.
