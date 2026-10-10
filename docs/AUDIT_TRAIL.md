@@ -14601,3 +14601,31 @@ The owner was unsure the first take had the Pocket system volume at the end stop
 Consequences, not yet tested:
 - The Pocket's idle floor at d0 is about 19.5 dB above the interface floor, so it is still the Pocket's.
 - It equals the old figure for playing digital silence at d0 (-72.8, Volt 1 chain, B-655). B-655's "playing silence is 9.7 dB noisier than idle" compared that with an idle take of -82.5 whose system volume is unknown; that gap may have been a volume mismatch, not a real effect of playing. To be settled by the playing-silence rows on the EVO 4 (rows 3 to 6 at d0, and the spur rows 36 to 39); until then treat the 9.7 dB claim as unconfirmed.
+
+## B-692: groups 0 and 1 re-recorded on the EVO 4 after re-levelling the gain (rows 1 to 10 closed)
+
+The owner re-levelled the EVO 4 gain (the earlier takes were recorded with the gain too high: `tone_v100` clipped the interface) and re-recorded rows 1 to 10 (`105_if_short`, `105_idle`, `105_sil_v100|70|40|10`, `105_tone_v100|70|40|10`, saved 19:21 to 19:30, `test music/Audio Lab/115 Tests/`). They replace the 19:01 to 19:11 takes of B-691, which were at the earlier gain (their absolute figures, -92 / -72.4 dBFS, are superseded). Stereo, 48 kHz; analysed per channel with `cymo_loopback.read_wav` / `analyze_tone`, RMS over the middle 80 %. **The gain is now set so that `tone_1k_48000` at core volume 100 reads -12.1 dBFS, which is 3.6 dB lower than the script's standard (volume 94 at -12); keep this gain for every later row of the same sessions, or redo the floors.**
+
+| Row | Left RMS | Right RMS | L/R corr |
+|---|---|---|---|
+| interface alone | -110.67 dBFS | -110.61 | 0.04 |
+| idle | -102.74 | -102.54 | 0.04 |
+| silence v100 | -102.71 | -102.56 | 0.04 |
+| silence v70 | -102.74 | -102.59 | 0.04 |
+| silence v40 | -102.75 | -102.59 | 0.04 |
+| silence v10 | -102.73 | -102.57 | 0.04 |
+
+| 1 kHz tone, system volume max | Level L / R | SINAD L / R | THD L / R | Waveform peak |
+|---|---|---|---|---|
+| v100 | -12.15 / -12.10 | 51.3 / 51.5 | -53.0 / -53.3 | -12.1 |
+| v70 | -30.19 / -30.14 | 56.9 / 56.9 | -79.0 / -79.4 | -30.2 |
+| v40 | -48.20 / -48.15 | 50.0 / 50.0 | -65.4 / -65.6 | -48.1 |
+| v10 | -66.28 / -66.23 | 32.6 / 32.5 | -43.2 / -42.9 | -65.6 |
+
+**Reading:**
+- **The chain is sound.** Channels agree within 0.1 dB in level and 0.3 dB in SINAD, are uncorrelated in noise, and nothing clips (tone peak -12.1 dBFS at v100). The interface floor is -110.7 dBFS; the Pocket's idle floor is -102.7, 8 dB above it, so the interface adds under 1 dB to it: the idle floor is the Pocket's.
+- **Playing digital silence is NOT noisier than idle.** Idle -102.74 and silence at every core volume -102.71 to -102.75: identical to 0.05 dB. B-655's "+9.7 dB when playing" and the "decoder/CPU/SD activity" hypotheses came from comparing playing silence at d0 with an idle take at an unknown lower system volume (see B-691 addendum); **it is refuted on the valid chain**. The G-SPUR follow-up rows 36 to 39 lose most of their reason (paused, stopped, HW GAIN OFF, MP3 silence); keep them P3 only if idle spurs matter.
+- **The floor does not depend on core volume** (-102.7 at 100, 70, 40, 10): it is not in the digital data, as B-655 said, so dither at the final quantiser buys nothing at this jack (G-FLOOR holds).
+- **Volume taper is exact:** tone steps 18.04, 18.01, 18.08 dB per 30 positions (0.60 dB/position).
+- **Distortion at core volume 100 is real and specific to it.** The third harmonic is -52.7 dBc at v100 (about -65 dBFS) against -89.7 dBc at v70, in both channels and with the interface not clipping; B-655's -72.9 dB was measured on the differential chain. Rows v40 (-65.4, 5th harmonic -65 dBc) and v10 (-43.2) are limited by the tone sitting close to the noise floor, so their THD says little. SINAD at v100 (51.3 dB) is below v70 (56.9). So the knee is between core volume 70 and 100; group 2 (v94 and v70, HW GAIN ON and OFF) sits at v94, so it will show whether v94 is clean. Not yet known whether the cause is the gain stage, the DAC / headphone amplifier at full drive, or the system volume stage.
+- **Not analysed:** spurs beyond the five largest, band splits, the first/last seconds of each take.

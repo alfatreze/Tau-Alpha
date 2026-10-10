@@ -45,12 +45,12 @@ def add(session, name, tfile, setup, do, analysis, gate, status):
     R.append((session, name, tfile, setup, do, analysis, gate, status))
 
 # ---- the original plan (docs/features/CYMO_RECORDING_PLAN_DEV105.md section 3), names unchanged -------------------------------------------------------------------------------------------
-add("0 floors", "105_if_short", "-", "interface alone: shorted 3.5 mm plug (or the cable with the Pocket off)", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: interface floor", DONE0)
-add("0 floors", "105_idle", "-", "core loaded, nothing playing", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: Pocket idle floor", DONE0)
+add("0 floors", "105_if_short", "-", "interface alone: shorted 3.5 mm plug (or the cable with the Pocket off)", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: interface floor", DONE0.replace("B-691","B-692"))
+add("0 floors", "105_idle", "-", "core loaded, nothing playing", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: Pocket idle floor", DONE0.replace("B-691","B-692"))
 for v in (100, 70, 40, 10):
-    add("1 volume", f"105_sil_v{v}", "silence_44100.flac", f"core volume {v}, 15-bit", "start recording, wait 3 s, play, record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: floor versus volume", RE)
+    add("1 volume", f"105_sil_v{v}", "silence_44100.flac", f"core volume {v}, 15-bit", "start recording, wait 3 s, play, record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: floor versus volume", DONE0.replace("B-691","B-692"))
 for v in (100, 70, 40, 10):
-    add("1 volume", f"105_tone_v{v}", "tone_1k_48000.flac", f"core volume {v}, 15-bit", "start recording, wait 3 s, play, record 12 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: SINAD versus volume", RE)
+    add("1 volume", f"105_tone_v{v}", "tone_1k_48000.flac", f"core volume {v}, 15-bit", "start recording, wait 3 s, play, record 12 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: SINAD versus volume", DONE0.replace("B-691","B-692"))
 for d in (0, 1, 2, 4, 8, 16, 24, 30, 31):
     add("1b system volume", f"105_sysvol_d{d:02d}", "sysvol_48000.flac", f"core volume 100, 15-bit; Pocket system volume d{d} (press + to the end stop first, then - exactly {d} times)", "record the whole file, 18 s", "cymo_isp.py sysvol 105_sysvol_d*.wav (all nine together)", "Q1 / G-FLOOR: is the noise before or after the system volume", RE)
 for a, b in (("on", "v94"), ("off", "v94"), ("on", "v70"), ("off", "v70")):
