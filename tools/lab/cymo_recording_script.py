@@ -55,9 +55,9 @@ for v in (100, 70, 40, 10):
 for d in (0, 1, 2, 4, 8, 16, 24, 30, 31):
     add("1b system volume", f"105_sysvol_d{d:02d}", "sysvol_48000.flac", f"core volume 100, 15-bit; Pocket system volume d{d} (press + to the end stop first, then - exactly {d} times)", "record the whole file, 18 s", "cymo_isp.py sysvol 105_sysvol_d*.wav (all nine together)", "Q1 / G-FLOOR: is the noise before or after the system volume", DONE0.replace("B-691","B-695"))
 for a, b in (("on", "v94"), ("off", "v94"), ("on", "v70"), ("off", "v70")):
-    add("2 HW gain A/B", f"105_hw_{a}_{b}", "tone_1k_48000.flac", f"HW GAIN {a.upper()}, core volume {b[1:]}", "start recording BEFORE pressing play (the 43 ms fade-in must be captured), record 12 s", "cymo_loopback.py analyze / track", "Q2 / G-HWGAIN", RE)
+    add("2 HW gain A/B", f"105_hw_{a}_{b}", "tone_1k_48000.flac", f"HW GAIN {a.upper()}, core volume {b[1:]}", "start recording BEFORE pressing play (the 43 ms fade-in must be captured), record 12 s", "cymo_loopback.py analyze / track", "Q2 / G-HWGAIN", DONE0.replace("B-691","B-696"))
 for a in ("on", "off"):
-    add("2 HW gain A/B", f"105_hw_{a}_step", "tone_1k_48000.flac", f"HW GAIN {a.upper()}; volume 94, then 70, then 94 DURING the tone", "start recording before play; change the volume at about 4 s and 8 s", "cymo_loopback.py track", "Q2 / G-HWGAIN: step shape", RE)
+    add("2 HW gain A/B", f"105_hw_{a}_step", "tone_1k_48000.flac", f"HW GAIN {a.upper()}; volume 94, then 70, then 94 DURING the tone", "start recording before play; change the volume at about 4 s and 8 s", "cymo_loopback.py track", "Q2 / G-HWGAIN: step shape", DONE0.replace("B-691","B-696"))
 add("3 16-bit", "105_a16_off_v94", "tone_1k_48000.flac", "16-BIT OUTPUT OFF, core volume 94", "record 12 s", "cymo_loopback.py analyze", "Q3 / G-A16: reference", RE)
 add("3 16-bit", "105_a16_on_v85", "tone_1k_48000.flac", "16-BIT OUTPUT ON (lower the volume BEFORE switching it on), core volume 85 (the volume moves in steps of 3, so 84 cannot be selected; 85 is 0.62 dB above level-matched, expect -11.40 dBFS against -12.02 OFF). Recorded as 105_a16_on_v84.wav", "record 12 s", "cymo_loopback.py analyze / compare", "Q3 / G-A16: level-matched", RE)
 for v in (70, 40):
