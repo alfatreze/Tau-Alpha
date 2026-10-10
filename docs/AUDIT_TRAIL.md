@@ -14773,3 +14773,40 @@ Four takes `105_spur_screen_on|screen_blank|menu|charger.wav` (silence file play
 - **The spurs are present everywhere and move by a few dB.** Two takes in the same state (idle and silence at v100) already differ by 4.1 dB at 18.48 kHz, so about 4 dB is scatter. Screen blank is 2 to 4 dB lower on all three spurs and the charger 6.8 dB lower at 6.18 kHz but 1.5 and 3.6 dB at the others: nothing outside the scatter except the charger's 6.18 kHz line, a single line in a single take. Claims such as "screen blank reduces the spurs" are not supported; one repeat of screen on / screen blank would be needed to say more. These spurs sit about 17 to 19 dB above the noise bins around them; their absolute level was not computed.
 - **Consequence:** the rows that would explain the old "+9.7 dB when playing" (36 to 39: paused, stopped, HW GAIN OFF, MP3 silence) have no effect left to explain, since B-694 found playing equals idle; they can be dropped. The idle-noise claims in the user documentation can say that the display, the menu and the charger do not change the floor (broadband, within 0.15 dB); they should not say anything about the individual spur lines.
 - Not analysed: the right channel's spurs, a repeat of any take.
+
+## B-699: group 5 re-recorded on the EVO 4 (inter-sample peaks, rows 42 to 47 closed; G-ISP read)
+
+Six takes `105_isp_ladder|imd|hot_a16on|a16off.wav` (core volume 100, HW GAIN ON, system volume maximum, the interface gain of B-694; the script's "lower the interface gain by about 10 dB" appears not to have been applied (inferred from the levels, not confirmed with the owner): the quietest ladder section reads -12.55 dBFS for a file level of -12, a chain gain of -0.55 dB with the slot ON and -6.57 with it OFF, the same as the tone takes of B-694 and B-697, so the interface was not at risk: every take peaks at -4.2 to -5.4 dBFS, `cymo_isp.py peak` says ok for all six). The owner let the imd and hot files play twice (27 and 28 s files, to match the length of the ladder take). `cymo_isp.py analyze` expects one pass and refuses the two-pass files, so I cut each take at its silent gap into two single passes (scratch copies, originals untouched) and analysed both: the two passes agree within 0.3 dB in every figure, so the takes are repeatable.
+
+**Ladder (left channel, level = what the interface reads, dev = deviation from the expected gain):**
+
+| True peak of the file | 16-BIT ON level / dev | 16-BIT OFF level / dev |
+|---|---|---|
+| -12 dBFS | -12.55 / -0.02 ok | -18.57 / 0.00 ok |
+| -6 | -6.52 / +0.02 ok | -12.57 / 0.00 ok |
+| -3 | **-4.96 / -1.42 COMPRESSED** | -9.57 / 0.00 ok |
+| 0 (phase 0) | **-4.47 / -3.93** | -6.54 / +0.04 ok |
+| +1 (phase 45) | -4.46 / -4.92 | -5.72 / -0.15 ok |
+| +2 | -4.62 / -6.09 | **-5.27 / -0.69 COMPRESSED** |
+| +3 | -4.44 / -6.91 | -4.96 / -1.39 |
+
+With the slot ON the chain compresses from a true peak of -3 dBFS, and for everything above the level is pinned at about -4.4 to -4.6 dBFS (a hard ceiling); the phase-0 sections show it is not an inter-sample effect (a sample peak of -3 dBFS already compresses). With the slot OFF the ceiling is the same (about -4.9 dBFS, with a softer knee) but it is reached 6 dB later: clean up to +1 dBFS true peak, compressed from +2.
+
+**Two-tone IMD** (1 kHz at -20 dBFS plus a 12 kHz tone; both passes agree):
+
+| 12 kHz true peak | ON: IMD dBc / verdict | OFF: IMD dBc / verdict |
+|---|---|---|
+| -12 | -70.5 ok | -74.3 ok |
+| -6 | **-37.4 IMD (+33 dB)** | -76.8 ok |
+| 0 | -53.0 IMD | **-50.6 IMD (+24 dB)** |
+| +1 | -35.1 IMD | -45.0 IMD |
+| +2 | -42.7 IMD | -52.2 IMD |
+
+**Hot-master proxy:** NONLINEAR above 0 dBFS true peak in both states: ON gain step 8.0 to 8.4 dB (the signal drops 2 dB more than the 6 dB step), deviation p95 about 8 dB, max 10.5 to 12.9 dB; OFF gain step 6.02 dB, deviation p95 1.4 dB, max 4.8 dB.
+
+**Reading, against the plan's outcome table (G-ISP):**
+- This is the table's third case, "compression already at 0 dBFS in the phase-0 sections: the amp stage clips at full scale, so 16-bit full-scale operation needs a lower ceiling and that feeds G-A16", and it is stronger than that: with the slot ON, compression begins at -3 dBFS and intermodulation at -6 dBFS (12 kHz peak), at core volume 100 and maximum system volume. A final clipper ceiling of about -0.5 dBFS is NOT acceptable in that state; a ceiling near -12 dBFS (IMD under -70 dBc, no compression) would be needed at the top of the range, or a lower maximum system volume (B-693: no distortion once the tone is about 4 dB lower at the output).
+- With the slot OFF (the shipped mapping) the output is clean to about 0 dBFS true peak and compresses from +2: the 15-bit mapping gives the chain 6 dB of free headroom, and full-scale music is only marginally affected (the hot proxy deviates 1.4 dB p95).
+- **The ceiling is in the analogue chain after the DAC or in the interface input, not in the data:** it sits at about -4.4 to -4.9 dBFS as the interface reads it, in both states. The interface's own peak meter is far from clipping, which points to the Pocket's output stage, and it fits B-662's puzzle (identical level at core volumes 85 and 100) and the THD jump at maximum volume (B-693, B-694). It is not separated from the interface's analogue input stage: one ladder take with the interface gain 6 dB lower would settle it (the ceiling moves with the gain if it is the Pocket's, stays at -4.4 dBFS if it is the interface).
+- IMD is worse with the slot ON at the same interface level (-37 dBc at level -6.7 against -50.6 at level -6.6 with the slot OFF), so it is not only a level ceiling; the cause is open.
+- Not analysed: the right channel; per-section frequency response.
