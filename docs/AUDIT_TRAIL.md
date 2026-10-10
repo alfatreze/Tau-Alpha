@@ -14681,3 +14681,26 @@ The owner noticed that 16-BIT OUTPUT had been ON for the takes of B-692 (rows 1 
 - **Gain now:** tone at core volume 100 reads -12.3 dBFS with the slot OFF, so core volume 94 reads about -15.9, 3.9 dB below the script's standard (-12 at volume 94). Keep this gain for the rest of the 105 session and note any change.
 - **Taper:** 18.00, 18.01, 18.09 dB per 30 positions, exact.
 - **Open:** rows 11 to 19 to be re-recorded with the slot OFF; spurs and band splits not analysed.
+
+## B-695: group 1b re-recorded with 16-BIT OUTPUT OFF (system volume, rows 11 to 19 closed)
+
+Nine takes `105_sysvol_d00|01|02|04|08|16|24|30|31.wav` re-recorded after B-694 (core volume 100, 16-BIT OFF, the gain of B-694, `sysvol_48000.flac`). `cymo_isp.py sysvol` and `analyze_tone`, left shown (right within 0.1 dB level, 1.2 dB THD).
+
+| Clicks down | Tone dBFS | Noise dBFS | SNR dB | dB per click | THD dB | SINAD dB |
+|---|---|---|---|---|---|---|
+| 0 | -12.38 | -97.46 | 82.1 | | -74.5 | 57.4 |
+| 1 | -15.34 | -99.91 | 81.6 | -2.96 | -76.3 | 57.3 |
+| 2 | -16.71 | -100.94 | 81.2 | -1.37 | -77.2 | 57.2 |
+| 4 | -19.79 | -102.81 | 80.0 | -1.54 | -80.4 | 57.1 |
+| 8 | -26.98 | -105.54 | 75.6 | -1.80 | -84.2 | 57.0 |
+| 16 | -41.77 | -106.56 | 61.8 | -1.85 | -85.9 | 55.9 |
+| 24 | -55.49 | -106.45 | 48.0 | -1.71 | -77.6 | 47.8 |
+| 30, 31 | no tone found | -106.45 / -107.49 (L / R) | | | | |
+
+**Reading (supersedes B-693):**
+- **Where the noise enters.** The noise falls 9.0 dB over the first 16 clicks (-97.5 to -106.5) while the tone falls 43 dB, then stays at -106.5: a fixed part after the volume stage and a part before it that the stage attenuates. In power terms the fixed part is -106.5 dBFS, of which the interface alone (-109.8) is about half; the Pocket's share after the stage is about -109 dBFS, and the part before the stage at maximum volume is about -98 dBFS and dominates the idle floor. Same conclusion as B-693 at the new gain: the Pocket's idle noise is analogue, ahead of the system volume stage and after the core's digital volume.
+- **No distortion step.** THD is -74.5 dB at d0 and improves smoothly to -86 dB at d16 (it was -53 dB at d0 with 16-BIT ON): confirms that B-693's distortion came from the 16-bit slot (B-694). SINAD is 57.4 to 57.0 dB from d0 to d8.
+- **Steps:** the first click is -2.96 dB, then 1.4 to 1.9 dB per click, as in B-693 and B-655.
+- **d30 and d31 are silent** (no tone section, noise at the floor).
+- **Repeatability with `105_tone_v100`** (21:02, same state): d0 -12.38 dBFS against -12.36, 0.02 dB.
+- **Not analysed:** spurs, a precise subtraction of the interface share.
