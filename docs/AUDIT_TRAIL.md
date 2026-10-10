@@ -14604,6 +14604,8 @@ Consequences, not yet tested:
 
 ## B-692: groups 0 and 1 re-recorded on the EVO 4 after re-levelling the gain (rows 1 to 10 closed)
 
+**SUPERSEDED by B-694: the takes of this entry were recorded with 16-BIT OUTPUT ON (+6.02 dB). Its tone figures and its distortion reading do not describe the normal state.**
+
 The owner re-levelled the EVO 4 gain (the earlier takes were recorded with the gain too high: `tone_v100` clipped the interface) and re-recorded rows 1 to 10 (`105_if_short`, `105_idle`, `105_sil_v100|70|40|10`, `105_tone_v100|70|40|10`, saved 19:21 to 19:30, `test music/Audio Lab/115 Tests/`). They replace the 19:01 to 19:11 takes of B-691, which were at the earlier gain (their absolute figures, -92 / -72.4 dBFS, are superseded). Stereo, 48 kHz; analysed per channel with `cymo_loopback.read_wav` / `analyze_tone`, RMS over the middle 80 %. **The gain is now set so that `tone_1k_48000` at core volume 100 reads -12.1 dBFS, which is 3.6 dB lower than the script's standard (volume 94 at -12); keep this gain for every later row of the same sessions, or redo the floors.**
 
 | Row | Left RMS | Right RMS | L/R corr |
@@ -14632,6 +14634,8 @@ The owner re-levelled the EVO 4 gain (the earlier takes were recorded with the g
 
 ## B-693: group 1b re-recorded on the EVO 4 (system volume, rows 11 to 19 closed)
 
+**SUPERSEDED by B-694: recorded with 16-BIT OUTPUT ON; rows 11 to 19 are open again.**
+
 Nine takes `105_sysvol_d00|01|02|04|08|16|24|30|31.wav` (19:35 to 19:43, `test music/Audio Lab/115 Tests/`), core volume 100, 15-bit, the gain of B-692, `sysvol_48000.flac`. Analysed with `cymo_isp.py sysvol` plus `cymo_loopback.analyze_tone` per channel (left shown; right within 0.1 dB level and 1.5 dB THD).
 
 | Clicks down | Tone dBFS | Noise dBFS | SNR dB | dB per click | THD dB | SINAD dB |
@@ -14652,3 +14656,28 @@ Nine takes `105_sysvol_d00|01|02|04|08|16|24|30|31.wav` (19:35 to 19:43, `test m
 - **d30 and d31 are silent (muted, or below the floor):** noise -109.2 / -109.7, no tone section; d24 still carries the tone (-55.3 dBFS, SINAD 50.2).
 - **Repeatability:** the d0 tone (-12.17 dBFS) equals `105_tone_v100` (-12.15) taken 10 minutes earlier to 0.02 dB.
 - **Not analysed:** spurs, the right channel in detail, and `d02` is 1.1 s shorter than the others (16.9 s against 18 s); the tone was found and analysed, but whether the whole test file played was not checked.
+
+## B-694: 16-BIT OUTPUT was ON in the takes of B-692 and B-693; groups 0 and 1 re-recorded with it OFF
+
+The owner noticed that 16-BIT OUTPUT had been ON for the takes of B-692 (rows 1 to 10, 19:21 to 19:30) and B-693 (rows 11 to 19, 19:35 to 19:43). The slot adds exactly 6.02 dB (B-657), so every tone read 6 dB high and the interface gain had been set against a 16-bit-ON tone. The owner re-levelled again and re-recorded rows 1 to 10 with it OFF (`105_idle`, `105_if_short` 19:55 and 19:56, silence 19:58 to 20:00, tones 21:02 to 21:04); rows 11 to 19 (system volume) are NOT yet re-recorded and are open again. Analysis as in B-692 (middle 80 %, left / right):
+
+| Row | Left RMS | Right RMS |
+|---|---|---|
+| interface alone | -109.82 dBFS | -109.67 |
+| idle | -97.43 | -97.26 |
+| silence v100 / v70 / v40 / v10 | -97.43 / -97.40 / -97.45 / -97.43 | -97.25 / -97.22 / -97.23 / -97.23 |
+
+| Tone, system max | Level L / R | SINAD L / R | THD L / R | 2nd / 3rd harmonic dBc (L) |
+|---|---|---|---|---|
+| v100 | -12.36 / -12.31 | 57.8 / 57.8 | -73.7 / -74.5 | -73.5 / -88.1 |
+| v70 | -30.36 / -30.31 | 56.8 / 56.8 | -77.2 / -76.4 | -86.2 / -88.4 |
+| v40 | -48.37 / -48.32 | 45.4 / 45.1 | -63.2 / -62.8 | -68.6 / -83.4 |
+| v10 | -66.45 / -66.40 | 27.5 / 27.2 | -40.5 / -40.2 | -43.3 / -50.1 |
+
+**Reading:**
+- **The distortion of B-692 and B-693 was the 16-bit slot.** With it OFF, v100 at system maximum has THD -73.7 dB (third harmonic -88 dBc, not -52.7), SINAD 57.8 dB (not 51.3). The 6 dB the slot adds drove the Pocket's output stage into soft clipping at core volume 100 and d0. This is a result for G-A16: with the slot ON the top of the volume range overloads the output at a -6 dBFS tone, so the slot needs the loudness-neutral policy (or a lower ceiling) before it is adopted. The residual at v100 is the second harmonic (-73.5 dBc).
+- **The noise floor does not depend on the slot** and the earlier reading holds: playing silence equals idle at every core volume (-97.4 dBFS, within 0.05 dB), which still refutes B-655's "+9.7 dB when playing" claim on a valid chain; the floor does not move with core volume.
+- **Absolute floors moved with the gain:** interface alone -109.8 (was -110.7), idle -97.4 (was -102.7); the interface gain is about 6 dB higher than for B-692. Idle is 12.4 dB above the interface, so it is the Pocket's (the interface adds about 0.3 dB).
+- **Gain now:** tone at core volume 100 reads -12.3 dBFS with the slot OFF, so core volume 94 reads about -15.9, 3.9 dB below the script's standard (-12 at volume 94). Keep this gain for the rest of the 105 session and note any change.
+- **Taper:** 18.00, 18.01, 18.09 dB per 30 positions, exact.
+- **Open:** rows 11 to 19 to be re-recorded with the slot OFF; spurs and band splits not analysed.

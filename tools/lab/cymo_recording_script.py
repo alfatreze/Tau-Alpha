@@ -16,6 +16,7 @@ STD = "std"            # standard settings, see the script's section 1
 # (session, name, test file, set-up beyond the standard, what to do, analysis, question / gate, status)
 O, N = "original plan", "NEW (B-654)"
 DONE0 = "CLOSED 2026-10-10: re-recorded on the EVO 4 stereo chain, analysed (B-691)"
+RE16 = "RE-RECORD: the first EVO 4 take had 16-BIT OUTPUT ON (+6 dB, B-694); redo with it OFF"
 RE = "original plan; RE-RECORD (first take was differential)"   # groups 0-5: the old chain recorded L minus R, which also cancels any click both channels share
 R = []
 # Starting state on the Pocket for each group (shown under the group heading, and in the plan page).
@@ -23,7 +24,7 @@ STD_T = "Pocket system volume at the end stop (d0), charger unplugged, screen on
 GROUP_START = {
     "0 floors": "Core 105 loaded and idle. EQ FLAT, HW GAIN ON, 16-BIT OUTPUT OFF. Nothing playing. First row: no Pocket at all (shorted plug).",
     "1 volume": "TAU_DEV_105. EQ FLAT, REPLAYGAIN Off, HW GAIN ON, CYMO RESAMPLER OFF, 16-BIT OFF. Play from cymo_loopback; set the core volume per row. " + STD_T + ".",
-    "1b system volume": "TAU_DEV_105, standard settings, core volume 100. Change only the Pocket system volume: + to the end stop, then - the stated number of clicks.",
+    "1b system volume": "TAU_DEV_105, standard settings (16-BIT OUTPUT OFF), core volume 100. Change only the Pocket system volume: + to the end stop, then - the stated number of clicks.",
     "2 HW gain A/B": "TAU_DEV_105, standard settings. Diagnostics > HW GAIN is the only setting that changes between ON and OFF rows. Step rows use the 60 s tone.",
     "3 16-bit": "TAU_DEV_105, standard settings. Lower the core volume BEFORE switching 16-BIT OUTPUT on, then lower the interface gain as the row says and note the knob.",
     "4 spur source": "TAU_DEV_105, standard settings, silence file playing at core volume 100. Change one thing per row: screen blank, menu open, charger, pause, stop, HW GAIN OFF, MP3 silence.",
@@ -45,14 +46,14 @@ def add(session, name, tfile, setup, do, analysis, gate, status):
     R.append((session, name, tfile, setup, do, analysis, gate, status))
 
 # ---- the original plan (docs/features/CYMO_RECORDING_PLAN_DEV105.md section 3), names unchanged -------------------------------------------------------------------------------------------
-add("0 floors", "105_if_short", "-", "interface alone: shorted 3.5 mm plug (or the cable with the Pocket off)", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: interface floor", DONE0.replace("B-691","B-692"))
-add("0 floors", "105_idle", "-", "core loaded, nothing playing", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: Pocket idle floor", DONE0.replace("B-691","B-692"))
+add("0 floors", "105_if_short", "-", "interface alone: shorted 3.5 mm plug (or the cable with the Pocket off)", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: interface floor", DONE0.replace("B-691","B-694"))
+add("0 floors", "105_idle", "-", "core loaded, nothing playing", "record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: Pocket idle floor", DONE0.replace("B-691","B-694"))
 for v in (100, 70, 40, 10):
-    add("1 volume", f"105_sil_v{v}", "silence_44100.flac", f"core volume {v}, 15-bit", "start recording, wait 3 s, play, record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: floor versus volume", DONE0.replace("B-691","B-692"))
+    add("1 volume", f"105_sil_v{v}", "silence_44100.flac", f"core volume {v}, 15-bit", "start recording, wait 3 s, play, record 15 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: floor versus volume", DONE0.replace("B-691","B-694"))
 for v in (100, 70, 40, 10):
-    add("1 volume", f"105_tone_v{v}", "tone_1k_48000.flac", f"core volume {v}, 15-bit", "start recording, wait 3 s, play, record 12 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: SINAD versus volume", DONE0.replace("B-691","B-692"))
+    add("1 volume", f"105_tone_v{v}", "tone_1k_48000.flac", f"core volume {v}, 15-bit", "start recording, wait 3 s, play, record 12 s", "cymo_loopback.py analyze", "Q1 / G-FLOOR: SINAD versus volume", DONE0.replace("B-691","B-694"))
 for d in (0, 1, 2, 4, 8, 16, 24, 30, 31):
-    add("1b system volume", f"105_sysvol_d{d:02d}", "sysvol_48000.flac", f"core volume 100, 15-bit; Pocket system volume d{d} (press + to the end stop first, then - exactly {d} times)", "record the whole file, 18 s", "cymo_isp.py sysvol 105_sysvol_d*.wav (all nine together)", "Q1 / G-FLOOR: is the noise before or after the system volume", DONE0.replace("B-691","B-693"))
+    add("1b system volume", f"105_sysvol_d{d:02d}", "sysvol_48000.flac", f"core volume 100, 15-bit; Pocket system volume d{d} (press + to the end stop first, then - exactly {d} times)", "record the whole file, 18 s", "cymo_isp.py sysvol 105_sysvol_d*.wav (all nine together)", "Q1 / G-FLOOR: is the noise before or after the system volume", RE16)
 for a, b in (("on", "v94"), ("off", "v94"), ("on", "v70"), ("off", "v70")):
     add("2 HW gain A/B", f"105_hw_{a}_{b}", "tone_1k_48000.flac", f"HW GAIN {a.upper()}, core volume {b[1:]}", "start recording BEFORE pressing play (the 43 ms fade-in must be captured), record 12 s", "cymo_loopback.py analyze / track", "Q2 / G-HWGAIN", RE)
 for a in ("on", "off"):
