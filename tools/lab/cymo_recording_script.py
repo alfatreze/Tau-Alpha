@@ -17,6 +17,7 @@ STD = "std"            # standard settings, see the script's section 1
 O, N = "original plan", "NEW (B-654)"
 DONE0 = "CLOSED 2026-10-10: re-recorded on the EVO 4 stereo chain, analysed (B-691)"
 RE16 = "RE-RECORD: the first EVO 4 take had 16-BIT OUTPUT ON (+6 dB, B-694); redo with it OFF"
+RE26 = "OPEN: the B-697 take read -14.17 dBFS (core volume 97, not 94); redo, or use row 20 (105_hw_on_v94) as the reference"
 RE = "original plan; RE-RECORD (first take was differential)"   # groups 0-5: the old chain recorded L minus R, which also cancels any click both channels share
 R = []
 # Starting state on the Pocket for each group (shown under the group heading, and in the plan page).
@@ -58,12 +59,12 @@ for a, b in (("on", "v94"), ("off", "v94"), ("on", "v70"), ("off", "v70")):
     add("2 HW gain A/B", f"105_hw_{a}_{b}", "tone_1k_48000.flac", f"HW GAIN {a.upper()}, core volume {b[1:]}", "start recording BEFORE pressing play (the 43 ms fade-in must be captured), record 12 s", "cymo_loopback.py analyze / track", "Q2 / G-HWGAIN", DONE0.replace("B-691","B-696"))
 for a in ("on", "off"):
     add("2 HW gain A/B", f"105_hw_{a}_step", "tone_1k_48000.flac", f"HW GAIN {a.upper()}; volume 94, then 70, then 94 DURING the tone", "start recording before play; change the volume at about 4 s and 8 s", "cymo_loopback.py track", "Q2 / G-HWGAIN: step shape", DONE0.replace("B-691","B-696"))
-add("3 16-bit", "105_a16_off_v94", "tone_1k_48000.flac", "16-BIT OUTPUT OFF, core volume 94", "record 12 s", "cymo_loopback.py analyze", "Q3 / G-A16: reference", RE)
-add("3 16-bit", "105_a16_on_v85", "tone_1k_48000.flac", "16-BIT OUTPUT ON (lower the volume BEFORE switching it on), core volume 85 (the volume moves in steps of 3, so 84 cannot be selected; 85 is 0.62 dB above level-matched, expect about -15.35 dBFS against -15.97 OFF at the gain of B-694). Recorded as 105_a16_on_v84.wav", "record 12 s", "cymo_loopback.py analyze / compare", "Q3 / G-A16: level-matched", RE)
+add("3 16-bit", "105_a16_off_v94", "tone_1k_48000.flac", "16-BIT OUTPUT OFF, core volume 94", "record 12 s", "cymo_loopback.py analyze", "Q3 / G-A16: reference", RE26)
+add("3 16-bit", "105_a16_on_v85", "tone_1k_48000.flac", "16-BIT OUTPUT ON (lower the volume BEFORE switching it on), core volume 85 (the volume moves in steps of 3, so 84 cannot be selected; 85 is 0.62 dB above level-matched, expect about -15.35 dBFS against -15.97 OFF at the gain of B-694). Recorded as 105_a16_on_v84.wav", "record 12 s", "cymo_loopback.py analyze / compare", "Q3 / G-A16: level-matched", DONE0.replace("B-691","B-697"))
 for v in (70, 40):
-    add("3 16-bit", f"105_a16_on_v{v}", "tone_1k_48000.flac", f"16-BIT ON, core volume {v}, interface gain unchanged; the 15-bit reference is 105_tone_v{v}", "record the whole tone", "cymo_loopback.py analyze / compare with 105_tone_v%d" % v, "Q3 / G-A16: does the 6 dB pay where the fixed floor dominates (predicted SINAD +6 dB)", N)
-add("3 16-bit", "105_a16_on_v94", "tone_1k_48000.flac", "16-BIT ON, core volume 94, interface gain unchanged (expect about -9.95 dBFS, 6.02 dB above the 15-bit take)", "record 12 s", "cymo_loopback.py analyze / compare", "Q3 / G-A16: same volume", RE)
-add("3 16-bit", "105_sil_a16_on_v94", "silence_44100.flac", "16-BIT ON, core volume 94", "record 15 s", "cymo_loopback.py analyze", "Q3 / G-A16: floor with 16-bit", RE)
+    add("3 16-bit", f"105_a16_on_v{v}", "tone_1k_48000.flac", f"16-BIT ON, core volume {v}, interface gain unchanged; the 15-bit reference is 105_tone_v{v}", "record the whole tone", "cymo_loopback.py analyze / compare with 105_tone_v%d" % v, "Q3 / G-A16: does the 6 dB pay where the fixed floor dominates (predicted SINAD +6 dB)", DONE0.replace("B-691","B-697"))
+add("3 16-bit", "105_a16_on_v94", "tone_1k_48000.flac", "16-BIT ON, core volume 94, interface gain unchanged (expect about -9.95 dBFS, 6.02 dB above the 15-bit take)", "record 12 s", "cymo_loopback.py analyze / compare", "Q3 / G-A16: same volume", DONE0.replace("B-691","B-697"))
+add("3 16-bit", "105_sil_a16_on_v94", "silence_44100.flac", "16-BIT ON, core volume 94", "record 15 s", "cymo_loopback.py analyze", "Q3 / G-A16: floor with 16-bit", DONE0.replace("B-691","B-697"))
 for n, s in (("screen_on", "screen on, default meter"), ("screen_blank", "Settings > Appearance > SCREEN BLANK active"), ("menu", "a menu open and static"), ("charger", "charger connected, screen on")):
     add("4 spur source", f"105_spur_{n}", "silence_44100.flac", s, "record 15 s", "cymo_loopback.py analyze (spurs)", "Q4 / G-SPUR", RE)
 for n, setup, why in (("paused", "play the silence file, then press Pause (the decoder stops; the I2S stream keeps clocking)", "if the floor falls back to idle (-82.5) the extra noise comes from decoding/CPU/SD activity; if it stays at -73, it is the DAC / amplifier state"),
