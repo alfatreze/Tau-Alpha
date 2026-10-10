@@ -66,7 +66,7 @@ for v in (70, 40):
 add("3 16-bit", "105_a16_on_v94", "tone_1k_48000.flac", "16-BIT ON, core volume 94, interface gain unchanged (expect about -9.95 dBFS, 6.02 dB above the 15-bit take)", "record 12 s", "cymo_loopback.py analyze / compare", "Q3 / G-A16: same volume", DONE0.replace("B-691","B-697"))
 add("3 16-bit", "105_sil_a16_on_v94", "silence_44100.flac", "16-BIT ON, core volume 94", "record 15 s", "cymo_loopback.py analyze", "Q3 / G-A16: floor with 16-bit", DONE0.replace("B-691","B-697"))
 for n, s in (("screen_on", "screen on, default meter"), ("screen_blank", "Settings > Appearance > SCREEN BLANK active"), ("menu", "a menu open and static"), ("charger", "charger connected, screen on")):
-    add("4 spur source", f"105_spur_{n}", "silence_44100.flac", s, "record 15 s", "cymo_loopback.py analyze (spurs)", "Q4 / G-SPUR", RE)
+    add("4 spur source", f"105_spur_{n}", "silence_44100.flac", s, "record 15 s", "cymo_loopback.py analyze (spurs)", "Q4 / G-SPUR", DONE0.replace("B-691","B-698"))
 for n, setup, why in (("paused", "play the silence file, then press Pause (the decoder stops; the I2S stream keeps clocking)", "if the floor falls back to idle (-82.5) the extra noise comes from decoding/CPU/SD activity; if it stays at -73, it is the DAC / amplifier state"),
                       ("stopped", "play the silence file, then Stop (back to the idle screen of the player)", "the same, with the player fully stopped"),
                       ("hwoff", "silence file playing, HW GAIN OFF", "excludes the gain stage's activity"),
