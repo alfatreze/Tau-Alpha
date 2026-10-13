@@ -14915,3 +14915,15 @@ After the -6 dB take the owner restored the interface gain and recorded `tone_1k
 - `README.md`: Layout now lists the local-only `references/docs-snapshot/cyclone-v/`, the new `scripts/fetch_cyclone_docs.py` (needs `pypdf` for the PDF text) and an optional install step to fetch the Cyclone V documents.
 
 **Not done.** No code, RTL, firmware, card or VM touched; no project design document changed. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+
+### B-708 addendum 6: Codex pointed at the analogue-pocket-dev skill (2026-10-13)
+
+**Evidence label: configuration and documentation only; the Codex behaviour is NOT verified (no Codex session was run).**
+
+**Finding.** The skill already sits in the project as `.claude/skills/analogue-pocket-dev`, a symlink (since 2026-09-20) to `~/.claude/skills/analogue-pocket-dev`. Claude Code finds it there, but Codex looks in `.codex/skills/` or `~/.codex/skills/` and reads `AGENTS.md`, and `AGENTS.md` did not mention the skill. `.claude/` is git-ignored and the link points outside the repository, so a fresh clone, a worktree or a sandboxed Codex run cannot be assumed to have it.
+
+**Change (`744f108` on main, pushed).** `AGENTS.md` gained a section at the top: read `.claude/skills/analogue-pocket-dev/SKILL.md` first, then `references/knowledge-base/INDEX.md` (KB-143 to KB-166 cover Cyclone V); report a missing or unreadable symlink instead of guessing; the Cyclone V vendor text stays in the skill's git-ignored `references/docs-snapshot/cyclone-v/` and is never copied into this repository or the skill's published files; new knowledge goes in through `scripts/kb.py new`, with project names and audit ids kept out of public entries. `.gitignore` gained `/.codex/`. A local symlink `.codex/skills/analogue-pocket-dev` was created in the shared checkout (not committed) for Codex versions that load skills by name, and `.codex/` was added to the local `.git/info/exclude` so it does not show as untracked on branch `mod`.
+
+**Open.** Whether Codex follows the `AGENTS.md` pointer, and whether the installed Codex version loads skills by name from `.codex/skills/`, are untested. Suggested check: start a Codex session in the project and ask which Cyclone V memory block supports true dual-port; the expected answer is M10K only, citing the skill (KB-143). On a fresh clone the `.claude/skills` symlink is also needed.
+
+**Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
