@@ -1,0 +1,44 @@
+# Session handoff 2026-10-14: Cymo headphone recordings on the EVO 4 (B-689..B-717)
+
+Read this first for the Cymo / headphone measurement work. Audit entries B-689 to B-717 in `docs/AUDIT_TRAIL.md` hold every number. Plan, tick-sheet and tooling are listed in section 6.
+
+## 1. State in one paragraph
+The whole recording plan was moved to ONE interface, the Audient EVO 4 as a stereo capture (Pocket left to input 1, right to input 2, a TRS to two TS split, line level, 48 kHz / 24-bit, both gains equal and set by hand). Groups 0 to 7 of `docs/features/CYMO_RECORDING_SCRIPT.md` (rows 1 to 73) are recorded and analysed, except the optional and the unneeded rows (section 4). Groups 8 to 14 (Halcyon sweeps and tones, stereo, levels, load and impedance, the 44.1 kHz resampler tone set, ReplayGain, tempo) and the two 60-minute soaks (rows 74, 75) are NOT recorded. The old Volt 1 recordings were differential (a TRS plug into one balanced input records left minus right) and are void; every result below comes from the EVO 4 chain. Nothing was changed in firmware or RTL this session; it is measurement and documentation only.
+
+## 2. Findings that matter (all on the valid chain)
+| Topic | Result | Audit |
+|---|---|---|
+| Chain | channels isolated, L/R within 0.05 dB (right reads 0.05 dB HIGHER), noise uncorrelated; interface floor -109.8 dBFS; Pocket idle -97.4 dBFS at the chosen gain; repeatability 0.01 dB level, 0.2 dB SINAD, 0.5 dB THD | B-694, B-709 |
+| Floors | idle equals playing silence at every core volume: the floor is analogue (before the system volume stage), not in the data; the old "+9.7 dB when playing" was a volume mismatch; dither buys nothing at this jack | B-694, B-695 |
+| Volume | dB taper exact (0.6 dB per position); system volume first click -2.96 dB then 1.4 to 1.9 dB per click; d30 and d31 mute | B-694, B-695 |
+| HW GAIN | ON equals OFF at volume 94 and 70 (level, SINAD, THD, fade-in 45 ms, ramps); **G-HWGAIN met**. But the **ON to OFF toggle clicks** below full volume (every other toggle: +10 to +17 dB at volume 70, +33 to +35 dB at volume 40, peak near -13 dBFS at any volume; at 94 only +2.4 dB once); OFF to ON is a clean dip. Direction confirmed by the owner (all takes started ON). Cause NOT found (read `fw/gain_handover.h`, candidates in B-711 addendum) | B-696, B-710, B-711 |
+| 16-bit I2S slot | adds exactly 6.02 dB; same SINAD at equal loudness; +5 dB SINAD only at volume 40; the Pocket output compresses from -3 dBFS true peak with it ON (ceiling pinned near -4.4 dBFS at the interface, moves with the interface gain so it is the Pocket's), IMD from -6 dBFS; with it OFF clean to +1 dBFS. **Slot not to become default without a loudness-neutral policy and a clipper ceiling near -12 dBFS (or a lower maximum system volume)**: G-A16 and G-ISP read | B-697, B-699, B-700 |
+| Spurs | display, menu, charger do not change the floor (broadband within 0.15 dB); individual spur lines vary by about 4 dB take to take | B-698 |
+| Transitions (group 7) | 16-bit toggle, Cymo toggle, Halcyon preset change, Halcyon slider, volume steps, loop restart and track change are all click-free; dips 4 to 15 ms (toggles), 0.37 s silence at a loop restart, 1.5 s at a track change | B-712, B-713, B-714, B-716, B-717 |
+| Cymo resampler | ON 58.2 dB, OFF (hold) 27.8 dB SINAD on the real 44.1 kHz file; the hold equals the model (27.7); the old 10.8 dB came from the differential chain | B-713 |
+
+## 3. Gate status (`docs/features/CYMO_RECORDING_PLAN_DEV105.md` section 5)
+G-FLOOR read (met). G-HWGAIN met for steady state, with the ON to OFF click open. G-A16 and G-ISP read (see 16-bit row). G-SPUR answered at broadband level. **G-LOAD still open** (rows 40, 41 and group 11, need a 32 ohm resistor): it still holds headphone correction presets, the maximum-volume cap and how far below -0.5 dBFS the clipper goes. Owner decisions still to take: whether hardware gain becomes the shipped default (needs the ON to OFF click fixed or accepted), what to do about the 16-bit slot, the clipper ceiling.
+
+## 4. Open and optional rows
+- Recorded and analysed: rows 1 to 35, 42 to 47, 51 to 59, 64 to 73. Rows 36 to 39 are marked not needed (recorded anyway, not analysed: `111_spur_*`).
+- Optional by owner decision: rows 48 to 50 (interface loop; the first takes had the Pocket in the chain).
+- Not recorded: groups 8 to 14 (rows 76 to 127 except where noted in the plan), rows 74 and 75 (60-minute soaks, hunt for the rare spike of issue 023), rows 40 and 41 (load, optional), session C (the two `107_ctl_` rows), session D (Volt cross-check, optional).
+- Row 67 was recorded at volume 85 (84 is not selectable), rows named `rep_tone_v100` were recorded at volume 94 (levels prove it): names are wrong, notes in the CSV say so.
+
+## 5. How to carry on
+1. Next recordings in order of value: **group 8 (Halcyon)**, at least the OFF / FLAT / one or two presets tone rows, to confirm the flutter and preset-click fixes on the new build; then group 11 only if the clipper ceiling or correction presets matter. The Pocket, EVO 4 and gain stay as they are: **keep the interface gain of B-694 for everything on this chain** (tone at core volume 100 reads -12.3 dBFS with 16-BIT OFF, 94 reads -15.97; the gain is about 4 dB below the script's standard, deliberate). Restore check: `LevelRestore.wav`-style tone at volume 100, 16-BIT OFF, system volume maximum, must read -12.36 dBFS (B-700).
+2. Settings to check before every take: 16-BIT OUTPUT OFF (it was ON by mistake once, B-694), HW GAIN ON, system volume at the end stop (d0), Halcyon OFF unless the row says otherwise.
+3. Analysis tools: `tools/lab/cymo_loopback.py` (analyze, track, `--sweep`), `tools/lab/cymo_isp.py` (peak, analyze --kind, sysvol). Per-take transient/dip analysis was done with short ad hoc scripts (1 ms peaks, 100 ms RMS, 5 ms peak vs neighbourhood median); the pattern is in B-710 to B-717.
+4. If the ON to OFF click is to be fixed: it is firmware (`fw/gain_handover.h`) or the gain stage RTL; measure the click's length first (one sample or milliseconds), then repeat with Halcyon OFF and Cymo OFF.
+
+## 6. Tooling and files
+- `docs/features/CYMO_RECORDING_SCRIPT.md` / `.csv` are generated by `tools/lab/cymo_recording_script.py` (statuses `DONE0`, per-group `GROUP_START`; edit the script, not the md). The CSV holds done / date / notes per row.
+- `tools/lab/cymo_script_files.py` builds the test files the script lists (all on the Pock card in `Assets/tau/common/cymo_loopback/` and the 105 and 107 copies, including the `ab_change.m3u` playlist added for row 73, B-715).
+- `docs/features/CYMO_RECORDING_PLAN_PAGE.html`: the interactive plan page (rows grouped, green = closed, click to toggle, copy-name button with a build-number box, per-group "start with" line). Published as https://claude.ai/artifact/QSRbomyEoQwRWrNm54fx7y (version 24); to update, edit this file and republish with the Artifact tool using that URL. The browser stores the owner's clicks (storage key `cymo-plan-closed-vNN`); bump the key when you change the preset.
+- Recordings: `test music/Audio Lab/115 Tests/` (outside the repo, git-ignored). Backed up with `work/` to `MONSTER/DEV/Tau Alpha/Local work backup 2026-10-11/` (before the later takes: copy again); the VM leftovers are in `MONSTER/DEV/Tau Alpha/Quartus VM backup 2026-10-11/`.
+
+## 7. Card, VM, branches (state at the end)
+- **Card:** the original `Pock` card was found again and is the Pocket card (CARDWRITE also has TAU, TAU Preview, TAU DEV 111, TAU_DEV_105 and 107 from the stretch when Pock was lost, plus old test cruft). Pock now holds TAU, TAU Preview, TAU Preview Diagnostics, TAU DEV 111, TAU_DEV_105, TAU_DEV_107 and the non-Tau cores. Removed with verified backups (work/card-backups): `TAU_DIAGNOSTIC`, `TAU_DEV_BARCODE_04`, `TAU_DEV_METER_14`, `TAU_DEV_METER_18`.
+- **VM:** 153 old stage directories deleted (about 24 GB), disk 57 % used; kept `noeq-b670-s1/s2` (the shipped Preview fit) and another session's running syntheses.
+- **Branches / sessions (read this):** the shared checkout was left on another session's branch `mod` (tracker / MOD hardware research, audit B-701..B-707) while `main` carries this work and a skill-docs session (B-708). **`main` and `mod` both use audit ids B-701 to B-708: the next free id is B-718; check both with `git show main:docs/AUDIT_TRAIL.md` and the other branch before taking one.** I committed everything from temporary worktrees (`git worktree add ../tau-alpha-x main`, copy files, commit, `git worktree remove`) because switching branches in the shared checkout moves the other session. Local `main` is 11 commits ahead of `origin/main` (`1f4d09a`) and NOT pushed (B-709 to B-717, this handoff).
