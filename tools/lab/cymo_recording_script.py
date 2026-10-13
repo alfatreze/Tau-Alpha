@@ -82,7 +82,7 @@ for k in ("ladder", "imd", "hot"):
 for n, f, s, d in (("if_loop_tone", "tone_1k_48000.flac", "play the file from the INTERFACE's own output into its input (no Pocket)", "record 12 s"),
                    ("if_loop_silence", "silence_44100.flac", "interface output muted into its input", "record 15 s"),
                    ("if_loop_sweep", "sweep_20_20k_48000.flac", "play the sweep from the interface's output into its input", "record the whole file")):
-    add("6 calibration and repeatability", f"{{c}}_cal_{n}", f, s, d, "cymo_loopback.py analyze; response for the sweep", "chain calibration: subtract the interface's own response and distortion from every later result", "OPEN: recorded, but the levels show the Pocket was in the chain (B-709); redo with the Pocket unplugged")
+    add("6 calibration and repeatability", f"{{c}}_cal_{n}", f, s, d, "cymo_loopback.py analyze; response for the sweep", "chain calibration: subtract the interface's own response and distortion from every later result", "OPTIONAL (owner decision 2026-10-13): the first takes had the Pocket in the chain (B-709); the interface floor (row 1) and the Pocket sweep already cover what these rows were for")
 for n in ("a", "b", "c"):
     add("6 calibration and repeatability", f"{{c}}_rep_tone_v100_{n}", "tone_1k_48000.flac", "core volume 100, standard settings; leave everything untouched between a, b, c", "record 12 s", "compare level, SINAD, floor of a/b/c", "repeatability: the size of a real difference", DONE0.replace("B-691","B-709"))
 add("6 calibration and repeatability", "{c}_rep_tone_v100_cold", "tone_1k_48000.flac", "power the Pocket off and on first, then core volume 100", "record 12 s", "compare with a/b/c", "repeatability: cold boot", DONE0.replace("B-691","B-709"))
@@ -100,7 +100,7 @@ for n, f, s_, d, an, g in (("cable_rinv", "tone_1k_48000_rinv.flac", "Volt 1 wit
 
 for v in (94, 70, 40):
     add("7 transitions", f"{{c}}_tog_hw_v{v}", "tone_1k_48000_60s.flac", f"core volume {v}; Diagnostics > HW GAIN", "start recording, play; toggle HW GAIN every 4 s starting at 4 s, 6 times (ON/OFF alternate)", "cymo_loopback.py track (events, steps)", "hand-over click at low volume (the B-653 fix)", N)
-add("7 transitions", "{c}_tog_a16_v84", "tone_1k_48000_60s.flac", "core volume 84; Diagnostics > 16-BIT OUTPUT", "toggle every 4 s, 6 times (lower the interface gain 6 dB first)", "cymo_loopback.py track", "16-bit toggle step (dip)", N)
+add("7 transitions", "{c}_tog_a16_v84", "tone_1k_48000_60s.flac", "core volume 84; Diagnostics > 16-BIT OUTPUT", "toggle every 4 s, 6 times (interface gain unchanged: at the B-694 gain the 16-bit-ON tone at volume 84 reads about -16 dBFS, nothing clips)", "cymo_loopback.py track", "16-bit toggle step (dip)", N)
 add("7 transitions", "{c}_tog_cymo_44k", "tone_1k_44100_60s.flac", "44.1 kHz file, 1.00x; Diagnostics > CYMO RESAMPLER", "toggle every 4 s, 6 times", "cymo_loopback.py track", "resampler toggle step (dip) and settling", N)
 add("7 transitions", "{c}_tog_hal_preset", "tone_1k_48000_60s.flac", "Halcyon engine; press Y every 4 s through every preset and back to OFF", "record 60 s", "cymo_loopback.py track", "preset change click (dip)", N)
 add("7 transitions", "{c}_tog_hal_slider", "tone_1k_48000_60s.flac", "Settings > Audio > HALCYON EQ; move a slider from 0 to +5 and back at 4 s steps", "record 60 s", "cymo_loopback.py track", "live slider moves are click-free", N)
