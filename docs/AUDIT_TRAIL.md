@@ -14906,3 +14906,12 @@ After the -6 dB take the owner restored the interface gain and recorded `tone_1k
 **Coverage of the handbook after this step.** Chapters 1 to 10 have now each been distilled at least in part, as KB-143 to KB-166. Still deliberately skipped as not relevant to the Pocket: termination, LVDS and SERDES, DQS/DLL and UniPHY, the hard memory controller's detail, remote system update, design security, the serial-flash and chain configuration schemes, and the boundary-scan register cell internals. Nothing else from the handbook is open. This closes the sentence in addendum 3 that chapter 1 was not yet distilled.
 
 **Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+
+### B-708 addendum 5: skill changelog and README updated with the session's additions (2026-10-13)
+
+**Evidence label: docs only (edits to the skill's own documentation; nothing measured).** Skill repository commit `8f12828`, pushed; `kb.py validate`: 163 entries, 0 problems.
+
+- `references/changelog.md` (a digest of openFPGA framework versions) gained a section "Skill additions (not framework changes)": the 2026-10-13 weekly refresh results, the eight promoted entries by id (KB-056, 060, 079, 080, 081, 082, 103, 126), the Cyclone V reference work with KB-143 to KB-166 listed by topic, and the three corrections made along the way (the -C8 VCO ceiling of 1300 MHz refining KB-081, the wider MLAB read-during-write modes in KB-144, and the 132 multiplier count for 18 x 18 on the A4 in KB-147).
+- `README.md`: Layout now lists the local-only `references/docs-snapshot/cyclone-v/`, the new `scripts/fetch_cyclone_docs.py` (needs `pypdf` for the PDF text) and an optional install step to fetch the Cyclone V documents.
+
+**Not done.** No code, RTL, firmware, card or VM touched; no project design document changed. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
