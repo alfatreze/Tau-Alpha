@@ -98,6 +98,7 @@ fw/*.o
 # just stops tracking it as unstaged.
 /work/
 /.claude/
+/.codex/
 /UniClaudeProxy/
 /build/
 /release/
