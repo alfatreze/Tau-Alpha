@@ -14961,3 +14961,30 @@ First group 7 take on TAU DEV 111: `111_tog_hw_v94.wav`, 28.5 s, 48 kHz stereo, 
 **One toggle is different:** the one at 12.33 s has a peak of **-13.51 dBFS, 2.4 dB above the steady peak**, a longer SINAD disturbance (200 ms) and a second disturbance at 12.6 s. That is a real transient (a click) at one of six toggles; the other five are clean. It is not known whether it was an ON-to-OFF or OFF-to-ON toggle (the file does not say), so the direction was not separated.
 
 **Reading:** at core volume 94 the HW GAIN hand-over is a clean 50 ms dip in five of six toggles and has one click, which is why rows 65 and 66 (volume 70 and 40, where the B-653 limit was found) still matter, and why the take should be repeated if the 12.33 s event looks like a one-off. Not analysed: the right channel, whether the dip is audible at the owner's listening level.
+
+## B-711: group 7 rows 65 and 66: the HW GAIN hand-over clicks come back below full volume (`111_tog_hw_v70`, `111_tog_hw_v40`)
+
+Two takes on TAU DEV 111, the interface gain of B-694, `tone_1k_48000_60s.flac`, HW GAIN toggled about every 4 s: `111_tog_hw_v70.wav` (32.5 s, **7 toggles** instead of the plan's 6) and `111_tog_hw_v40.wav` (28.7 s, 6 toggles). Left channel, 2.5 ms block RMS and the peak in a window around each toggle against the steady peak (v70 -30.34, v40 -48.27 dBFS; the tone levels match Group 1's volume steps).
+
+| Take | Toggle (time s) | Dip (block RMS) | Peak around it | Over the steady peak |
+|---|---|---|---|---|
+| v70 | 1 (4.42) | -47.8 dBFS | **-16.33 dBFS** | **+14.0 dB** |
+| v70 | 2 (8.20) | -72.8 | -29.63 | +0.7 |
+| v70 | 3 (12.31) | -40.8 | **-13.03** | **+17.3** |
+| v70 | 4 (16.15) | -85.0 | -28.97 | +1.4 |
+| v70 | 5 (20.22) | -48.7 | **-20.18** | **+10.2** |
+| v70 | 6 (24.18) | -64.6 | -29.61 | +0.7 |
+| v70 | 7 (28.09) | -46.8 | **-16.05** | **+14.3** |
+| v40 | 1 (4.44) | -54.1 | **-14.84** | **+33.4** |
+| v40 | 2 (8.40) | -78.3 | -48.28 | 0.0 |
+| v40 | 3 (12.47) | -54.3 | **-12.83** | **+35.4** |
+| v40 | 4 (16.57) | -74.3 | -48.30 | 0.0 |
+| v40 | 5 (20.51) | -53.4 | **-13.37** | **+34.9** |
+| v40 | 6 (24.66) | -84.6 | -48.29 | 0.0 |
+
+**Reading:**
+- **Every other toggle clicks, and the even ones are clean.** The odd toggles (1, 3, 5, 7) produce a transient 10 to 17 dB above the tone at volume 70 and 33 to 35 dB above it at volume 40; the even toggles show a clean dip (a 12 to 13 ms hard silence, peak within 1.4 dB of the tone). At volume 94 (B-710) the same pattern is there but small: toggle 3 had +2.4 dB, toggles 1 and 5 were clean. So the glitch is one direction of the hand-over (ON to OFF if the take began ON, not recorded), and its size grows as the volume falls.
+- **The click has about the same absolute level at every volume:** peaks of -13 to -16 dBFS at volume 70 and 40 (one at -20.2), and -13.5 dBFS at volume 94, close to the tone's level at core volume 100 (-12.3 dBFS, B-694). That fits a few samples emitted at full gain at the instant of the switch, not a gain error that scales with the volume. This is a hypothesis from the numbers; the cause in the firmware or the RTL has not been traced.
+- **This is the open limit B-651 and B-652 recorded** ("HW GAIN hand-over clicks below full volume") and B-653's mute-and-flush did not remove it: it is audible and loud at volume 40 (a pop 35 dB above the music).
+- **The whole-file SINAD of these two takes is not valid** (26.2 dB at volume 70, -13.8 dB at volume 40): the analysis window contains the clicks. Do not compare them with other takes; the tone level in the quiet parts agrees with Group 1 (-30.4 and -48.3).
+- Open: whether the clicking direction is ON to OFF or OFF to ON (the starting state of the toggles was not recorded); whether the same happens with Halcyon ON; the cause. Not analysed: the right channel.

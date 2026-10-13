@@ -99,7 +99,7 @@ for n, f, s_, d, an, g in (("cable_rinv", "tone_1k_48000_rinv.flac", "Volt 1 wit
     add("6x chain cross-check (Volt, optional)", f"{{c}}_xchk_volt_{n}", f, s_, d, an, g, N)
 
 for v in (94, 70, 40):
-    add("7 transitions", f"{{c}}_tog_hw_v{v}", "tone_1k_48000_60s.flac", f"core volume {v}; Diagnostics > HW GAIN", "start recording, play; toggle HW GAIN every 4 s starting at 4 s, 6 times (ON/OFF alternate)", "cymo_loopback.py track (events, steps)", "hand-over click at low volume (the B-653 fix)", (DONE0.replace("B-691","B-710") if v == 94 else N))
+    add("7 transitions", f"{{c}}_tog_hw_v{v}", "tone_1k_48000_60s.flac", f"core volume {v}; Diagnostics > HW GAIN", "start recording, play; toggle HW GAIN every 4 s starting at 4 s, 6 times (ON/OFF alternate)", "cymo_loopback.py track (events, steps)", "hand-over click at low volume (the B-653 fix)", (DONE0.replace("B-691","B-710") if v == 94 else DONE0.replace("B-691","B-711")))
 add("7 transitions", "{c}_tog_a16_v84", "tone_1k_48000_60s.flac", "core volume 84; Diagnostics > 16-BIT OUTPUT", "toggle every 4 s, 6 times (interface gain unchanged: at the B-694 gain the 16-bit-ON tone at volume 84 reads about -16 dBFS, nothing clips)", "cymo_loopback.py track", "16-bit toggle step (dip)", N)
 add("7 transitions", "{c}_tog_cymo_44k", "tone_1k_44100_60s.flac", "44.1 kHz file, 1.00x; Diagnostics > CYMO RESAMPLER", "toggle every 4 s, 6 times", "cymo_loopback.py track", "resampler toggle step (dip) and settling", N)
 add("7 transitions", "{c}_tog_hal_preset", "tone_1k_48000_60s.flac", "Halcyon engine; press Y every 4 s through every preset and back to OFF", "record 60 s", "cymo_loopback.py track", "preset change click (dip)", N)
