@@ -15025,3 +15025,11 @@ The owner found the first take (B-712) had used the 48 kHz file and re-recorded 
 - **The hold path measures 27.8 dB SINAD with the image at 4.9 kHz, which is the model's figure** (27.7 dB, image at 4.9 kHz, B-427/B-430/B-442) to 0.1 dB. The earlier hardware reading of about 10.8 dB for the same path (B-430, B-529) came from the differential Volt chain of the first recordings (B-666), so the "17 dB worse than the model" puzzle of B-430 is explained by the capture chain, not by the RTL or the FIFO; the loopback readings of B-529 were relative to that chain. On the valid chain the resampler path (58.2 dB, the chain's own limit) gains **30.4 dB** over the hold (27.8 dB) at 1 kHz.
 - This closes the group 7 row on the resampler toggle: no click, a 4 to 6 ms dip, and the A/B difference is large and as predicted.
 - Not analysed: the right channel, other tone frequencies (the image strength at 10 and 18 kHz is the open P3 resampler group).
+
+## B-714: group 7 row 70 (Halcyon slider moves) closed: smooth and click-free
+
+`111_tog_hal_slider.wav` (48.7 s, 14 MB), TAU DEV 111, the interface gain of B-694, one Halcyon slider moved from 0 to +5 and back at about 4 s steps (Settings > Audio > HALCYON EQ). Left channel; 100 ms RMS for the level, 1 ms peaks for silences, and 5 ms peaks against the median of their neighbours for clicks.
+
+- **The level changes at ten moments** (8.4, 12.4, 16.4, 20.4, 24.4, 28.3, 32.4, 36.4, 40.5 and 44.5 s): the 1 kHz level goes from -18.99 dBFS (block RMS) down in five steps to about -23.1 dBFS at +5 (-4.1 dB, steps of 0.3 to 1.3 dB) and back up in five steps to -18.99 dBFS, exactly where it started: five moves up, five back, each one audible in the data as a step and nothing else.
+- **No silence and no click:** zero hard silences (nothing under -50 dBFS inside the tone, against the 11 to 15 ms dips of the toggles in rows 64 to 69), and no 5 ms block more than +1.5 dB above its neighbourhood in the whole take (0 events). The live slider writes are therefore click-free, which is what the row asked.
+- Not analysed: the right channel, the slider's frequency effect (this is a 1 kHz tone: the sweep rows 89 to 97 give the response).
