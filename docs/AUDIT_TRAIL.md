@@ -14893,3 +14893,16 @@ After the -6 dB take the owner restored the interface gain and recorded `tone_1k
 **Coverage of the handbook after this step (corrected statement).** Distilled into skill entries so far: chapter 2 (embedded memory), 3 (DSP), 4 (PLLs and clocking), 5 (I/O), 6 (external memory scope), 7 (configuration), 8 (SEU), 9 (JTAG) and 10 (power), as KB-143 to KB-164. **Chapter 1 (logic array blocks and adaptive logic modules) has not been distilled**, and several sub-sections were skipped on purpose as not relevant to the Pocket (termination, LVDS, DQS/DLL and UniPHY, remote system update, design security, the serial-flash and chain configuration schemes). An earlier remark in the session that all ten chapters were finished overstated this and is corrected here.
 
 **Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+
+### B-708 addendum 4: handbook chapter 1 distilled into skill entries KB-165 and KB-166 (2026-10-13)
+
+**Evidence label: docs-verified (manufacturer documentation read; nothing run on hardware).** Entries are paraphrased with section citations; the vendor text stays in the git-ignored local snapshot. Skill repository commit `ec2cd94`, pushed; `kb.py validate`: 163 entries, 0 problems.
+
+- **KB-165** The E-series A4 has 18,480 ALMs and 73,920 registers (four per ALM, from the Device Overview resource table); ten ALMs per LAB, up to a quarter of LABs usable as MLABs; each LAB offers only two clock sources and three clock enables; a LAB reaches 30 ALMs through local and direct-link interconnect; register packing rules.
+- **KB-166** The four ALM modes (normal, extended LUT, arithmetic, shared arithmetic); dedicated adders with up to 50 percent resource saving in arithmetic mode; carry chains start at the first or fifth ALM of a LAB and are linked vertically across LABs beyond 20 ALMs (10 in arithmetic modes); half-LAB chains.
+
+**Limits stated in the entries.** Both are medium confidence because each ends with an engineering inference that is labelled as such and not a handbook statement: that many distinct clocks, enables or resets spread over small register groups pack less densely (KB-165), and that a wide adder feeding other logic is often a timing-critical path (KB-166). The 18,480 ALM figure matches the device total the project's Quartus reports show.
+
+**Coverage of the handbook after this step.** Chapters 1 to 10 have now each been distilled at least in part, as KB-143 to KB-166. Still deliberately skipped as not relevant to the Pocket: termination, LVDS and SERDES, DQS/DLL and UniPHY, the hard memory controller's detail, remote system update, design security, the serial-flash and chain configuration schemes, and the boundary-scan register cell internals. Nothing else from the handbook is open. This closes the sentence in addendum 3 that chapter 1 was not yet distilled.
+
+**Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
