@@ -14927,3 +14927,27 @@ After the -6 dB take the owner restored the interface gain and recorded `tone_1k
 **Open.** Whether Codex follows the `AGENTS.md` pointer, and whether the installed Codex version loads skills by name from `.codex/skills/`, are untested. Suggested check: start a Codex session in the project and ask which Cyclone V memory block supports true dual-port; the expected answer is M10K only, citing the skill (KB-143). On a fresh clone the `.claude/skills` symlink is also needed.
 
 **Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+## B-709: group 6 recorded on the EVO 4 with TAU DEV 111 (rows 51 to 59 closed, rows 48 to 50 open)
+
+Twelve takes `111_*.wav` in `test music/Audio Lab/115 Tests/` (the build is TAU DEV 111, `{c}` = 111), the interface gain of B-694 (restore verified in B-700), 16-BIT OFF, system volume maximum. The owner also recorded `111_spur_paused|stopped|hwoff|mp3sil` (rows 36 to 39, not asked for because B-694 and B-698 made them unnecessary); not analysed. `analyze_tone` per channel (left shown; right within 0.1 dB level, 1 dB THD).
+
+| Take | Level L / R dBFS | SINAD | THD L | Peak |
+|---|---|---|---|---|
+| `rep_tone_v100_a` | -15.97 / -15.92 | 58.6 | -75.0 | -15.9 |
+| `rep_tone_v100_b` | -15.97 / -15.92 | 58.5 | -75.5 | -15.9 |
+| `rep_tone_v100_c` | -15.97 / -15.92 | 58.4 | -75.5 | -15.9 |
+| `rep_tone_v100_cold` (cold boot) | -15.97 / -15.92 | 57.8 | -75.3 | -15.9 |
+| `smoke_tone_v94_hwon` | -15.97 / -15.92 | 57.3 | -75.4 | -15.9 |
+| `smoke_tone_v94_hwoff` | -15.97 / -15.92 | 57.4 | -74.9 | -15.9 |
+| `cal_ch_balance` | -15.97 / -15.92 | 57.5 | -75.2 | -15.9 |
+| `cal_ch_swapped` | -15.90 / -16.00 | 57.5 | -76.2 | -15.9 / -16.0 |
+| `rep_idle_b` (floor) | -97.41 / -97.20 RMS, corr 0.03 | | | |
+
+**Readings:**
+- **The "v100" repeat takes read -15.97 dBFS, which is the level of core volume 94** (`105_hw_on_v94`, B-696), not of volume 100 (-12.36, B-694): they were recorded at core volume 94 (the default), not 100. The repeatability result is still valid, only the file names are wrong for the state; the notes say so.
+- **Repeatability:** level identical to 0.00 dB across the three back-to-back takes and the cold boot; SINAD 58.6 / 58.5 / 58.4 (spread 0.2 dB) and 57.8 after the cold boot (0.8 dB lower, probably the 5 s start effects or the take's length, not measured further); THD within 0.5 dB. **Use 0.2 dB (SINAD), 0.5 dB (THD) and 0.01 dB (level) as the noise of every later comparison.**
+- **Smoke test of the new build: no regression.** `smoke_tone_v94_hwon` level -15.97 / -15.92, THD -75.4, against 105's -15.97 / -15.92 and -74.6; HW GAIN ON equals OFF again on this bitstream (level identical, SINAD 57.3 against 57.4, THD -75.4 against -74.9): G-HWGAIN holds on the build that would ship. The idle floor on 111 (-97.41 / -97.20) equals 105's (-97.43 / -97.26).
+- **Channel balance and the swap:** normal take: left (input 1) -15.97, right (input 2) -15.92; swapped (Pocket left plug into input 2, right plug into input 1): input 1 -15.90, input 2 -16.00. Solving the two takes: the **interface's input 1 is about 0.025 dB hotter than input 2**, and the **Pocket's right output is about 0.075 dB louder than its left**, so most of the 0.05 dB left/right difference belongs to the Pocket. All of it is below 0.1 dB. **Correction to my earlier statement:** the right channel reads 0.05 dB HIGHER (less negative), not lower; the sign was wrong, the size is right.
+- **Rows 48 to 50 (`cal_if_loop_tone|silence|sweep`) are NOT interface-only measurements.** They read exactly like the Pocket: the loop tone is -15.97 / -15.92 dBFS with THD -75.0 and SINAD 58.8 (the same as the Pocket takes to 0.01 dB), the loop silence is -97.45 / -97.20 dBFS (the Pocket's idle floor; the interface alone is -109.8, B-694), and the sweep's reference level is -21.97 dBFS for a -12 dBFS file, i.e. a chain gain of -9.97 dB, the Pocket's chain gain at core volume 94. An output-to-input loop of the EVO 4 cannot show the Pocket's gain and floor, so the Pocket must have been connected and playing (or the loop went through the interface's own mixer with the Pocket still plugged in). These three rows stay open.
+- **A bonus: the Pocket's frequency response through the chain** (from the `cal_if_loop_sweep` take, if it is a Pocket take as the levels indicate): +0.02 dB at 50 Hz, 0.00 at 1 kHz, -0.09 at 10 kHz, -0.29 at 15 kHz, -0.42 at 18 kHz, -0.46 dB at 20 kHz, relative to 1 kHz; flat to 0.5 dB.
+- Not analysed: spurs, the right channel in detail, the four `spur_*` takes.
