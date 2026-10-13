@@ -14850,3 +14850,17 @@ After the -6 dB take the owner restored the interface gain and recorded `tone_1k
 **Process note.** The shared checkout was on branch `mod` with another session's uncommitted files (including this file), so the documentation edits and this entry were committed from a temporary worktree on `main`; the uncommitted copies in the `mod` checkout were dropped. This entry takes id B-708 because `mod` already uses B-701 to B-707; if the `mod` session renumbers, keep the pair distinct.
 
 **Not done.** No code, RTL, firmware, card or VM touched. The I/O, external-memory, configuration and power chapters of the handbook are captured locally but not yet distilled into entries.
+
+### B-708 addendum: handbook chapters 5 and 6 distilled into skill entries KB-151 to KB-155 (2026-10-13)
+
+**Evidence label: docs-verified (manufacturer documentation read; nothing run on hardware).** Skill repository commit `f4efa2b`, pushed; `kb.py validate`: 152 entries, 0 problems. Entries are paraphrased with section citations; the vendor text stays in the git-ignored local snapshot.
+
+- **KB-151** I/O bank rules: one VCCIO per bank, outputs drive VCCIO, a 3.3 V bank accepts 2.5, 3.0 and 3.3 V inputs, VCCPD 2.5 to 3.3 V, clamp diode recommended for 3.0/3.3 V inputs.
+- **KB-152** 3.3 V LVTTL versus LVCMOS DC levels (VIL 0.8 V, VIH 1.7 V; VOL/VOH 0.45 V / 2.4 V at 4 mA versus 0.2 V / VCCIO-0.2 V at 2 mA) and the datasheet footnote that the levels hold only at the matching current-strength setting. Default strengths are not recorded (shown in bold in the source, lost in the text copy).
+- **KB-153** Per-pin controls: slew rate, current strength, output buffer delay (0, 50, 100, 150 ps), open-drain through the OPNDRN primitive, bus-hold versus weak pull-up (mutually exclusive), clamp diode.
+- **KB-154** The I/O element's input, output and output-enable registers (the hardware behind "packing a register into the I/O cell").
+- **KB-155** External-memory scope: only DDR3, DDR2 and LPDDR2 are supported standards; SDR SDRAM and asynchronous PSRAM are plain fabric I/O with no hard controller. The A4 in the F484 package lists 224 GPIO.
+
+**Limits stated in the entries.** KB-152 to KB-155 are medium confidence: the F23 package reading in KB-155 is an inference from the part-number scheme; the statement that the Pocket uses SDR SDRAM and asynchronous PSRAM comes from the project, not the handbook; KB-154's packing conditions come from observed Quartus behaviour, not the chapter. Skipped as not relevant to the Pocket's single-ended interfaces: on-chip termination, LVDS and SERDES, DQS/DLL, UniPHY, the hard memory controller's detail.
+
+**Not done.** No code, RTL, firmware, card or VM touched. No project design document changed in this step (the MLAB and RAM-inference notes were corrected earlier under B-708). Committed from a temporary worktree on `main`, as for B-708, because the shared checkout is on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
