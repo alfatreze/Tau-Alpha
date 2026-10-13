@@ -1,5 +1,22 @@
 # Tau project working agreements
 
+## Analogue Pocket / openFPGA / Cyclone V reference (skill)
+
+For any Analogue Pocket, openFPGA (APF), Quartus or Cyclone V work, read
+`.claude/skills/analogue-pocket-dev/SKILL.md` first (it is a local symlink to
+`~/.claude/skills/analogue-pocket-dev`; `.codex/skills/analogue-pocket-dev`
+points at the same folder for Codex versions that load skills by name). Then use
+`references/knowledge-base/INDEX.md` for evidence-graded entries (KB-143 to
+KB-166 cover Cyclone V memory, DSP, PLL, I/O, configuration, power, JTAG and
+ALMs). If the symlink is missing or unreadable, say so rather than guessing.
+
+- The Cyclone V vendor documents are copyrighted and live only in the skill's
+  git-ignored `references/docs-snapshot/cyclone-v/`. Read them for facts, but
+  never copy their text into this repository or the skill's published files.
+- New project knowledge goes into the skill with `scripts/kb.py new`; keep
+  project names, audit ids and paths out of public entries (`--local` for
+  private ones).
+
 ## UI framebuffer snapshots are required
 
 Every distinct UI state that is added or materially changed must have a named,
