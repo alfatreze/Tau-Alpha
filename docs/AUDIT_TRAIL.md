@@ -15056,3 +15056,26 @@ Two takes on TAU DEV 111, the interface gain of B-694: `111_tog_vol_step.wav` (2
 - **There is no pop at any restart, and the first repeat is identical to the later ones** (silence 376 ms, fade-in 32 ms, no overshoot): the "unexplained first-repeat pop" the row was meant to find did not appear on this build and in this take.
 - **The loop restart is not gapless:** about 0.37 s of silence every time (stop, flush, reopen, prime), with a 32 ms fade-in. That is the cost of a loop or a track change on this player and is the figure to compare with any gapless-playback work. It is a property of the file ending at full level plus the restart, not a click.
 - Not analysed: the right channel, whether the 0.37 s silence is shorter with a library track than with a file opened from the list, track-change timing (row 73).
+
+## B-717: group 7 row 73 closed (track change by Next and Previous): 1.5 s of silence, no click
+
+`111_trk_change_tonesab.wav` (25.3 s), TAU DEV 111, the interface gain of B-694, the two-track playlist `ab_change` of B-715 (A = `tone_1k_48000.flac`, B = `tone_1500_48000.flac`). Left channel; the tones were told apart by zero-crossing rate (1.0 and 1.5 kHz), silences from 1 ms peaks, peaks and fades per gap as in B-716.
+
+- **The sequence is as intended:** A plays from the start, Next was pressed at about 6.9 s, B (1.5 kHz) plays from about 8.4 s, Previous was pressed at about 16.4 s and A (1.0 kHz) plays again from about 17.9 s.
+- **Each change has the same shape:** a silence of **1,480 ms (Next) and 1,459 ms (Previous)**, a fade-in of 44 and 43 ms, and no fade-out (the tone is cut at full level, as in the loop of B-716: the file ends or is stopped at full level). **No pop:** the largest peak around either change equals the steady peak (-15.95 dBFS, 0.00 and +0.02 dB). Levels before and after are the same (-16.0 dBFS).
+- **A track change costs about 1.5 s of silence, four times the 0.37 s of a loop restart** (B-716): opening a different file takes longer than restarting the same one. The silence is the cost to compare with any gapless or audio-first track-load work. The press was at 6.9 s rather than the plan's 6 s; this does not matter for the result.
+- Not analysed: the right channel, how long the silence is for a track with a cover and tags (these test tones have none), the Check test "Track changes" that has failed since B-070 (this take shows the manual change works and is click-free).
+
+**Group 7 summary (rows 64 to 73 recorded and analysed; the two 60-minute soaks, rows 74 and 75, not recorded):**
+
+| Transition | Result |
+|---|---|
+| HW GAIN ON to OFF (rows 64 to 66) | **clicks**, larger as the volume falls (B-711) |
+| HW GAIN OFF to ON | clean 12 to 25 ms dip |
+| 16-BIT toggle (67) | clean 14 to 15 ms dip, exact 6.02 dB step |
+| Cymo resampler toggle (68) | clean 4 to 6 ms dip; ON 58.2 dB, OFF 27.8 dB SINAD |
+| Halcyon preset change (69) | clean 11 to 14 ms dip |
+| Halcyon slider (70) | no dip, no click |
+| Volume steps (71) | no dip, no click |
+| Loop restart (72) | 0.37 s silence, 32 ms fade-in, no pop |
+| Track change (73) | 1.5 s silence, 44 ms fade-in, no pop |
