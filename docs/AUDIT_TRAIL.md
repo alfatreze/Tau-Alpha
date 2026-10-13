@@ -15037,3 +15037,22 @@ The owner found the first take (B-712) had used the 48 kHz file and re-recorded 
 ## B-715: two-track playlist `ab_change.m3u` added to the card for group 7 row 73 (track change by Next and Previous)
 
 Row 73 (`111_trk_change_tonesab`) needs `tone_1k_48000.flac` and `tone_1500_48000.flac` one after the other, and the player's Next follows the queue order, in which the two files are not adjacent. Owner confirmed the card was mounted. `ab_change.m3u` (two bare filenames, in that order) was written to the local `test music/cymo_loopback/` and synced with `tools/sync_media.py --core alfatreze.TAU --library` to `Assets/tau/common/cymo_loopback/` (TAU DEV 111 reads TAU's media): 1 file written, 33 identical, the library index rebuilt and verified OK (134 tracks, playlists 3 to 4, root `/Assets/tau/common/`). The previous `tau-library.tdb` was backed up first (`work/card-backups/20261014-ab-change/`, same SHA-256 as the card's), the `._` files were removed and the card ejected. No core, cache or other media was touched. To use it: open the library, play the `ab_change` playlist's first track and press Next and Previous.
+
+## B-716: group 7 rows 71 and 72 closed (volume steps, loop of ten): no click, and a 0.37 s gap at every loop restart
+
+Two takes on TAU DEV 111, the interface gain of B-694: `111_tog_vol_step.wav` (23.7 s) and `111_loop_tone_x10.wav` (303.9 s). Left channel; 100 ms RMS for levels, 1 ms peaks for silences, and 5 ms peaks against the median of their neighbours for clicks.
+
+**Row 71, volume steps at core volume 94** (five presses Down, then five Up, a press about every 2 s): the level falls from -19.0 dBFS (block RMS) in five equal steps of 1.8 dB (-19.0, -20.8, -22.6, -24.4, -26.2, -28.0: 9.0 dB in total, the size of three taper positions per press) and returns in five steps to exactly -19.0 dBFS. **No silence and no click** (zero silences inside the tone, no 5 ms block more than +1.5 dB over its neighbourhood): the volume ramp is click-free, as the row asked.
+
+**Row 72, loop of ten (Repeat = one):** nine loop boundaries at about 30.35, 60.72, 91.08, 121.44, 151.81, 182.17, 212.52, 242.88 and 273.24 s (a period of 30.37 s), all alike:
+
+| At every boundary | Value |
+|---|---|
+| Fade-out before the gap | none (the tone file ends at full level: 1 to 2 ms from full level to the gap) |
+| Silence | **366 to 376 ms** (mean 371 ms) |
+| Fade-in after the restart | 32 ms to full level |
+| Largest peak around the boundary | -15.95 dBFS, equal to the steady peak (0.00 dB) |
+
+- **There is no pop at any restart, and the first repeat is identical to the later ones** (silence 376 ms, fade-in 32 ms, no overshoot): the "unexplained first-repeat pop" the row was meant to find did not appear on this build and in this take.
+- **The loop restart is not gapless:** about 0.37 s of silence every time (stop, flush, reopen, prime), with a 32 ms fade-in. That is the cost of a loop or a track change on this player and is the figure to compare with any gapless-playback work. It is a property of the file ending at full level plus the restart, not a click.
+- Not analysed: the right channel, whether the 0.37 s silence is shorter with a library track than with a file opened from the list, track-change timing (row 73).
