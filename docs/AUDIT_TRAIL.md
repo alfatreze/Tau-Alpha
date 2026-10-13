@@ -15006,3 +15006,22 @@ Three takes on TAU DEV 111, the interface gain of B-694, saved 14 October: `111_
 **Row 68, Cymo resampler toggle on the 44.1 kHz file: the take cannot show a change.** 5 toggles at 4.59, 8.24, 12.32, 16.28 and 20.38 s, each a clean 11 to 12 ms silence with no overshoot, but **the SINAD is 58.3 to 58.4 dB and the THD -74.5 to -74.7 dB in every one of the six segments**, and the tone level is -15.97 dBFS throughout, with the same 19.48 / 17.48 kHz spurs as the 48 kHz takes. Without the resampler a 44.1 kHz tone reads about 10.8 dB SINAD (B-529); with it about 54.5 dB. The segments cannot differ that little if the toggle switched between the two paths. So either the played file was not at 44.1 kHz, or the hardware resampler stayed engaged (or stayed off, which would not give 58 dB) the whole time, for example because of the 44.1 kHz guard (B-530: the hardware is engaged only for a 44.1 kHz file at 1.00x, and the toggle shows OFF / ON / WAIT). Which file played and what the Info CYMO RESAMP row said is not known. The row stays open.
 
 **Totals for group 7 so far** (rows 64 to 67, 69 recorded; 68 open): the HW GAIN hand-over clicks on the ON to OFF direction (B-711); the 16-bit toggle, the Halcyon preset changes and the Cymo toggle (as far as it can be read) produce clean 11 to 15 ms dips without clicks. Not analysed: the right channel, how the dips sound at the owner's listening level.
+
+## B-713: group 7 row 68 re-recorded with the real 44.1 kHz file (Cymo resampler toggle, closed)
+
+The owner found the first take (B-712) had used the 48 kHz file and re-recorded `111_tog_cymo_44k.wav` (25.0 s, 7.2 MB) with `tone_1k_44100_60s.flac`. Left channel; segments between the toggles (0.4 s after and 0.2 s before each), `analyze_tone`; per toggle the 1 ms peak profile and the steady peak either side.
+
+| Segment (s) | State | Level dBFS | SINAD dB | THD dB | Largest spurs |
+|---|---|---|---|---|---|
+| 1.1 to 4.4 | ON | -15.97 | 58.2 | -75.8 | 17.5, 13.3, 19.5 kHz at -70.5 dBc (the chain's fixed pattern) |
+| 5.0 to 8.4 | OFF | -15.98 | **27.8** | **-61.2** | **4.9 and 2.9 kHz at -36 dBc**, 8.8 kHz at -42 dBc |
+| 9.0 to 12.5 | ON | -15.97 | 58.2 | -75.4 | as ON |
+| 13.1 to 16.5 | OFF | -15.98 | 27.8 | -60.6 | as OFF |
+| 17.1 to 20.5 | ON | -15.97 | 58.2 | -75.7 | as ON |
+| 21.1 to 24.5 | OFF | -15.98 | 27.8 | -61.0 | as OFF |
+
+**Reading:**
+- **The toggle works and is clean.** 5 toggles (4.60, 8.58, 12.73, 16.68, 20.71 s; the take started with the resampler ON, as the Diagnostic Build's default), the state alternates exactly, each toggle has a hard silence of only 4 to 6 ms (the shortest of any toggle in group 7) and **no overshoot** (the window peak equals the steady level, -15.93 to -15.95 dBFS), the level does not change (-15.97 against -15.98 dBFS).
+- **The hold path measures 27.8 dB SINAD with the image at 4.9 kHz, which is the model's figure** (27.7 dB, image at 4.9 kHz, B-427/B-430/B-442) to 0.1 dB. The earlier hardware reading of about 10.8 dB for the same path (B-430, B-529) came from the differential Volt chain of the first recordings (B-666), so the "17 dB worse than the model" puzzle of B-430 is explained by the capture chain, not by the RTL or the FIFO; the loopback readings of B-529 were relative to that chain. On the valid chain the resampler path (58.2 dB, the chain's own limit) gains **30.4 dB** over the hold (27.8 dB) at 1 kHz.
+- This closes the group 7 row on the resampler toggle: no click, a 4 to 6 ms dip, and the A/B difference is large and as predicted.
+- Not analysed: the right channel, other tone frequencies (the image strength at 10 and 18 kHz is the open P3 resampler group).
