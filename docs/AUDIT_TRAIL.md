@@ -14878,3 +14878,18 @@ After the -6 dB take the owner restored the interface gain and recorded `tone_1k
 **Limits stated in the entries.** KB-156 and KB-158 to KB-160 are medium confidence because how the Pocket wires and drives its configuration pins and rails is not covered by the handbook (the Pocket's own system side performs configuration). Skipped as not relevant to a core loaded by the Pocket's system FPGA: remote system update, design security, the serial-flash and multi-device chain schemes. Chapters 8 (SEU mitigation) and 9 (JTAG boundary scan) were not distilled.
 
 **Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
+
+### B-708 addendum 3: handbook chapters 8 and 9 distilled into skill entries KB-161 to KB-164 (2026-10-13)
+
+**Evidence label: docs-verified (manufacturer documentation read; nothing run on hardware).** Entries are paraphrased with section citations; the vendor text stays in the git-ignored local snapshot. Skill repository commit `6cc8dd7`, pushed; `kb.py validate`: 161 entries, 0 problems.
+
+- **KB-161** Error detection basics: a 16-bit CRC per frame during configuration (mismatch pulls nSTATUS low) and an optional 32-bit per-frame CRC scan of the configuration RAM in user mode (CRC_ERROR pin, 32-bit syndrome register, 67-bit error message register); internal scrubbing only on SC-suffix parts; no effect on fitting or performance.
+- **KB-162** Numbers for the E-series A4: full-device CRC pass between 9 ms (fastest) and 2.76 s (slowest), scan clock the internal oscillator divided by 2^n (n 0 to 8), error-message register update interval 1.47 microseconds at best.
+- **KB-163** The E A4 JTAG IDCODE is 0x02B050DD (derived by hand from the handbook's bit fields; it matches what a chain scan of the Pocket's FPGA reports in this project's JTAG sessions, B-186 onward), plus the fixed ten-bit instruction codes (SAMPLE/PRELOAD 0x005 used by SignalTap, IDCODE 0x006, BYPASS 0x3FF, CONFIG_IO 0x00D, others).
+- **KB-164** JTAG operating rules: which instructions work during configuration, CONFIG_IO and nCONFIG usage, JTAG pins powered from the bank 3A VCCPD supply, all user I/O tri-stated during JTAG configuration, JTAG disabled only by pin ties.
+
+**Limits stated in the entries.** KB-161, KB-162 and KB-164 are medium confidence because whether the Pocket exposes the CRC_ERROR pin or drives the JTAG pins as the handbook assumes is not covered by the handbook. The boundary-scan register cell internals (section 9.6) were not distilled.
+
+**Coverage of the handbook after this step (corrected statement).** Distilled into skill entries so far: chapter 2 (embedded memory), 3 (DSP), 4 (PLLs and clocking), 5 (I/O), 6 (external memory scope), 7 (configuration), 8 (SEU), 9 (JTAG) and 10 (power), as KB-143 to KB-164. **Chapter 1 (logic array blocks and adaptive logic modules) has not been distilled**, and several sub-sections were skipped on purpose as not relevant to the Pocket (termination, LVDS, DQS/DLL and UniPHY, remote system update, design security, the serial-flash and chain configuration schemes). An earlier remark in the session that all ten chapters were finished overstated this and is corrected here.
+
+**Not done.** No code, RTL, firmware, card or VM touched. Committed from a temporary worktree on `main` because the shared checkout is still on branch `mod` with another session's uncommitted `AUDIT_TRAIL.md`.
