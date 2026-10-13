@@ -14832,3 +14832,21 @@ The gain was changed for this take: the owner must restore it and check it by re
 ### B-700 addendum: gain restore verified (`LevelRestore.wav`, 22:29)
 
 After the -6 dB take the owner restored the interface gain and recorded `tone_1k_48000.flac` at core volume 100, 16-BIT OFF, system volume maximum. Result: **-12.39 dBFS left / -12.34 right**, SINAD 56.9 / 57.0 dB, THD -73.5 / -74.3 dB, peak -12.36 / -12.31, against `105_tone_v100` (B-694) at -12.36 / -12.31, SINAD 57.8 / 57.8, THD -73.7 / -74.5. The level differs by 0.03 dB in both channels (the prediction allowed about 0.1 dB); SINAD is 0.9 dB lower, which is within the take-to-take scatter seen elsewhere (for example 56.4 to 57.8 dB across the tone takes at similar levels). **The gain is restored: the 47 rows of groups 0 to 5 remain valid at it, and the same gain can be used for session A.**
+
+## B-708: Cyclone V reference docs captured locally, skill knowledge extended, MLAB and RAM-inference notes corrected (2026-10-13)
+
+**Evidence label: docs-verified (manufacturer documentation read; nothing run on hardware).**
+
+**Skill (`analogue-pocket-dev`, separate repository, public).** Weekly refresh run and pushed (`f5103c2`): Analogue developer docs unchanged, Cyclone V edition chart unchanged (Lite and Standard yes, Pro no), three watched community repos recorded, Codeberg tutorials still unreachable. Eight generic local entries promoted to the public set after removing project names, audit ids and "owner" wording (KB-056, 060, 079, 080, 081, 082, 103, 126; KB-103 and KB-126 lowered from low to medium confidence). New `scripts/fetch_cyclone_docs.py` (`cdbf048`) fetches the Cyclone V Device Handbook Volume 1 (379 topics), Device Datasheet, Device Overview and GX/GT/E errata through the docs.altera.com public API, plus the two Cornell-hosted PDFs (older full handbook and the DSP white paper) converted to text. All of that text stays in the git-ignored `references/docs-snapshot/cyclone-v/`; the repository holds only the script, a SKILL.md row and a resources line. Eight new paraphrased entries KB-143 to KB-150 (`0963e58`): M10K versus MLAB capabilities, read-during-write modes by block, MLAB register structure, power-up values, DSP block modes and the 66-block count, PLL counters and VCO range, the fractional-PLL and JTAG errata, clock-network gating. `kb.py validate`: 147 entries, 0 problems.
+
+**Findings that change earlier project statements.**
+- MLAB read-during-write: the project note "MLAB only supports old-data" was too narrow. Same-port on an MLAB is "don't care" only; mixed-port offers old data, new data (registered output only), "don't care" and "constrained don't care". M10K mixed-port offers only old data or "don't care".
+- PLL VCO range: the datasheet range is 600 to 1600 MHz for -C6, -C7 and -I7 but 600 to 1300 MHz for -C8 and -A7. The Pocket FPGA is a 5CEBA4F23C8 (-C8), so the ceiling that applies is 1300 MHz. The earlier PLL entry (KB-081) quoted the faster-grade range.
+- DSP counts for the A4: 66 blocks give 66 27x27, 132 18x18 or 198 9x9 independent multipliers (a first draft of KB-147 said 66 for 18x18 and was corrected before publishing).
+- Errata: the fractional-PLL phase alignment error lists fixed die revisions for 5CEA4 and similar; the Pocket's exact 5CEBA4 part is not named, so whether it is affected is not established.
+
+**Project docs changed (`0d6ac6f` on main).** `docs/features/PHASE_F_SPEC.md` section 2 (read-during-write correction, block limits, MLAB register structure, 308 M10K / 303 MLAB for the 5CEBA4) and `docs/DEVELOPERS.md` (block-capability bullet, -C8 VCO ceiling). Historical audit entries and the Talos review documents were left as written; their MLAB statements are consistent with the handbook.
+
+**Process note.** The shared checkout was on branch `mod` with another session's uncommitted files (including this file), so the documentation edits and this entry were committed from a temporary worktree on `main`; the uncommitted copies in the `mod` checkout were dropped. This entry takes id B-708 because `mod` already uses B-701 to B-707; if the `mod` session renumbers, keep the pair distinct.
+
+**Not done.** No code, RTL, firmware, card or VM touched. The I/O, external-memory, configuration and power chapters of the handbook are captured locally but not yet distilled into entries.
