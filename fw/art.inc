@@ -430,8 +430,21 @@ COLD_FN2 static uint32_t art_sig_of(uint32_t tag_len)
     return h ? h : 1u;
 }
 
-COLD_FN2 static int art_decode(uint32_t tag_len)
+/* B-735 (gapless G1b): the decode is split into begin / run. art_decode_begin() finds the picture, initialises picojpeg and primes the job; art_decode_run() decodes MCUs until a
+ * budget is spent and can be called again later (the state lives in art_job, in PSRAM); art_decode() is begin plus one unlimited run, so the blocking path and the stepped path are
+ * the SAME code and sim/test_art_decode.py requires identical stashes for every budget. The caller guarantees the slot still serves the same file between steps (the player compares
+ * the 0190 file identity before each step) and that nothing else needs tagbuf's window: it is dropped after every step and the unread part re-read next time. */
+typedef struct {
+    uint8_t  reduce, mono, running;
+    uint16_t my, mx, mcus_row, mcus_col;
+    uint32_t next_ay, aw, ah, sw, sh, mcu_w, mcu_h, bxn, byn;
+    unsigned char *pr, *pg, *pb;      /* picojpeg's MCU buffers (static in picojpeg) */
+} art_job_t;
+static art_job_t art_job ART_COLD_BSS;
+
+COLD_FN2 static int art_decode_begin(uint32_t tag_len)
 {
+    art_job.running = 0u;
     /* Same decoder, different finder. */
     art_fail_code = 0;
     int found = (track_fmt == FMT_FLAC)
@@ -514,13 +527,39 @@ COLD_FN2 static int art_decode(uint32_t tag_len)
             art_acc[s][dx][0] = art_acc[s][dx][1] = art_acc[s][dx][2] = 0u;
     art_line[0] = 0u;
 
-    uint32_t next_ay = 0;
-    for (uint32_t my = 0; my < (uint32_t)info.m_MCUSPerCol; my++) {
-        for (uint32_t mx = 0; mx < (uint32_t)info.m_MCUSPerRow; mx++) {
-            {
-                unsigned char st = pjpeg_decode_mcu();
-                if (st) { art_fail_code = st; return 0; }
-            }
+    art_job.reduce = (uint8_t)reduce; art_job.mono = (uint8_t)(info.m_comps == 1);
+    art_job.my = 0; art_job.mx = 0;
+    art_job.mcus_row = (uint16_t)info.m_MCUSPerRow; art_job.mcus_col = (uint16_t)info.m_MCUSPerCol;
+    art_job.next_ay = 0; art_job.aw = aw; art_job.ah = ah; art_job.sw = sw; art_job.sh = sh;
+    art_job.mcu_w = mcu_w; art_job.mcu_h = mcu_h; art_job.bxn = bxn; art_job.byn = byn;
+    art_job.pr = info.m_pMCUBufR; art_job.pg = info.m_pMCUBufG; art_job.pb = info.m_pMCUBufB;
+    art_job.running = 1u;
+    return 1;
+}
+
+/* Decode MCUs until max_mcus (0 = no limit) or budget_cycles (0 = no limit) is spent, at least one per call. Returns 0 = more to do, 1 = finished (the stash holds the cover),
+ * -1 = failed (art_fail_code says why). Between calls the window of tagbuf is given back (the unread part is re-read next time). */
+COLD_FN2 static int art_decode_run(uint32_t max_mcus, uint32_t budget_cycles)
+{
+    if (!art_job.running) return -1;
+    const art_job_t j = art_job;                 /* one PSRAM read; the loop works on the copy */
+    const uint32_t reduce = j.reduce, bxn = j.bxn, byn = j.byn, mcu_w = j.mcu_w, mcu_h = j.mcu_h;
+    const uint32_t sw = j.sw, sh = j.sh, aw = j.aw, ah = j.ah;
+    const int mono = j.mono;
+    unsigned char *const pr = j.pr, *const pg = j.pg, *const pb = j.pb;
+    uint32_t next_ay = j.next_ay, n = 0;
+    const uint32_t t0 = budget_cycles ? cycles() : 0u;
+    uint32_t my = j.my, mx = j.mx;
+    while (my < j.mcus_col) {
+        if (n && ((max_mcus && n >= max_mcus) || (budget_cycles && (uint32_t)(cycles() - t0) >= budget_cycles))) {
+            art_job.my = (uint16_t)my; art_job.mx = (uint16_t)mx; art_job.next_ay = next_ay;
+            art_jpg_pos -= art_win_len - art_win_pos; art_win_len = 0; art_win_pos = 0;   /* give the window back */
+            return 0;
+        }
+        {
+            unsigned char st = pjpeg_decode_mcu();
+            if (st) { art_fail_code = st; art_job.running = 0u; return -1; }
+        }
             for (uint32_t by = 0; by < byn; by++) {
                 for (uint32_t bx = 0; bx < bxn; bx++) {
                     /* Blocks sit in a fixed 2x2 grid of 64-byte slots, so a
@@ -547,14 +586,13 @@ COLD_FN2 static int art_decode(uint32_t tag_len)
                         uint32_t obase = blk + (reduce ? 0u : j * 8u);
                         uint32_t sxbase = reduce ? (mx * bxn + bx)
                                                  : (mx * mcu_w + bx * 8u);
-                        int mono = (info.m_comps == 1);
                         for (uint32_t i = 0; i < pn; i++) {
                             uint32_t sx = sxbase + (reduce ? 0u : i);
                             if (sx >= sw) break;
                             uint32_t o = obase + (reduce ? 0u : i);
-                            uint8_t r = info.m_pMCUBufR[o];
-                            uint8_t g = mono ? r : info.m_pMCUBufG[o];
-                            uint8_t b = mono ? r : info.m_pMCUBufB[o];
+                            uint8_t r = pr[o];
+                            uint8_t g = mono ? r : pg[o];
+                            uint8_t b = mono ? r : pb[o];
                             uint16_t *cell = arow[art_xmap[sx]];
                             cell[0] += r;
                             cell[1] += g;
@@ -563,17 +601,29 @@ COLD_FN2 static int art_decode(uint32_t tag_len)
                     }
                 }
             }
+        n++;
+        if (++mx == (uint32_t)j.mcus_row) {
+            mx = 0;
+            /* Emit every accumulator row whose last source row has now arrived. */
+            uint32_t sy_done = (my + 1u) * mcu_h;
+            if (sy_done > sh) sy_done = sh;
+            while (next_ay < ah && art_last_sy(next_ay, sh, ah) < sy_done)
+                art_flush_row(next_ay++, aw, ah);
+            my++;
         }
-        /* Emit every accumulator row whose last source row has now arrived. */
-        uint32_t sy_done = (my + 1u) * mcu_h;
-        if (sy_done > sh) sy_done = sh;
-        while (next_ay < ah && art_last_sy(next_ay, sh, ah) < sy_done)
-            art_flush_row(next_ay++, aw, ah);
     }
     while (next_ay < ah) art_flush_row(next_ay++, aw, ah);
+    art_job.running = 0u;
 
     /* Deliberately does NOT derive an accent from the cover. That was tried:
      * the accent then changed on every track, which read as inconsistency
      * rather than as a feature. One fixed accent everywhere. */
     return 1;
+}
+
+/* The blocking decode: begin, then everything in one run. */
+COLD_FN2 static int art_decode(uint32_t tag_len)
+{
+    if (!art_decode_begin(tag_len)) return 0;
+    return art_decode_run(0u, 0u) == 1;
 }

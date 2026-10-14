@@ -20,6 +20,7 @@
 #define FMT_MP3   1
 
 static int track_fmt;
+static uint32_t cycles(void) { return 0u; }   /* B-735: the stepped runs are limited by MCU count here, not by time */
 static uint8_t tagbuf[TAG_SIZE];
 static uint16_t stash[ART_IMG][ART_IMG];
 
@@ -49,6 +50,7 @@ static void poison(void)
     memset(art_rowcnt, 0xA5, sizeof art_rowcnt);
     memset(art_colcnt, 0xA5, sizeof art_colcnt);
     memset(art_line,   0xA5, sizeof art_line);
+    memset(&art_job,   0xA5, sizeof art_job);
     memset(art_xmap,   0xA5, sizeof art_xmap);
     memset(art_yslot,  0xA5, sizeof art_yslot);
     memset(gInBuf,     0xA5, sizeof gInBuf);
@@ -80,6 +82,25 @@ int main(void)
     uint32_t hsh = 2166136261u;
     for (uint32_t y = 0; y < ART_IMG; y++)
         for (uint32_t x = 0; x < ART_IMG; x++) { hsh ^= stash[y][x]; hsh *= 16777619u; }
+    /* B-735: the stepped decode must give the SAME stash as the blocking one for any step size, with the tag buffer's window clobbered between steps (as the player's other
+     * users of tagbuf would) and the stash wiped first. */
+    uint32_t steps_ok = 0, steps_n = 0;
+    if (rc) {
+        static const uint32_t K[] = { 1u, 5u };
+        for (unsigned ki = 0; ki < sizeof K / sizeof K[0]; ki++) {
+            for (uint32_t y = 0; y < ART_IMG; y++) for (uint32_t x = 0; x < ART_IMG; x++) stash[y][x] = 0u;
+            poison();
+            int r = art_decode_begin(tag_len) ? 0 : -1;
+            while (r == 0) {
+                r = art_decode_run(K[ki], 0u);
+                if (r == 0) memset(tagbuf, 0xEE, sizeof tagbuf);   /* another user of tagbuf */
+            }
+            uint32_t h2 = 2166136261u;
+            for (uint32_t y = 0; y < ART_IMG; y++) for (uint32_t x = 0; x < ART_IMG; x++) { h2 ^= stash[y][x]; h2 *= 16777619u; }
+            steps_n++; steps_ok += (r == 1 && h2 == hsh);
+        }
+    }
+    hputs("steps="); hputu(steps_ok); hputs("/"); hputu(steps_n); hputc(' ');
     hputs("rc="); hputu((uint32_t)rc);
     hputs(" fail="); hputu(art_fail_code);
     hputs(" hash="); hputx(hsh);
