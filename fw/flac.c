@@ -138,6 +138,14 @@ static int key_is(const char *buf, uint32_t n, const char *key)
     return i < n && buf[i] == '=';
 }
 
+/* The index (0 TRACK_GAIN, 1 ALBUM_GAIN, 2 TRACK_PEAK, 3 ALBUM_PEAK; matches rg_txt[]) of a ReplayGain entry, or -1. */
+static int rg_key(const char *e, uint32_t keep)
+{
+    static const char *const k[4] = { "REPLAYGAIN_TRACK_GAIN", "REPLAYGAIN_ALBUM_GAIN", "REPLAYGAIN_TRACK_PEAK", "REPLAYGAIN_ALBUM_PEAK" };
+    for (int i = 0; i < 4; i++) if (key_is(e, keep, k[i])) return i;
+    return -1;
+}
+
 static void tag_copy(char *dst, uint32_t cap, const char *src, uint32_t n)
 {
     if (!dst || !cap) return;
@@ -172,8 +180,9 @@ static void vorbis_comments(flac_t *f, uint32_t length)
 
         const char *v = e;
         uint32_t    vn = keep;
-        if (key_is(e, keep, "REPLAYGAIN_TRACK_GAIN") || key_is(e, keep, "REPLAYGAIN_ALBUM_GAIN") || key_is(e, keep, "REPLAYGAIN_TRACK_PEAK") || key_is(e, keep, "REPLAYGAIN_ALBUM_PEAK")) {   /* B-599, B-720: kept as text; parsed later in cold code */
-            const uint32_t which = ((e[11] == 'A' || e[11] == 'a') ? 1u : 0u) + ((e[17] == 'P' || e[17] == 'p') ? 2u : 0u);   /* 12th char A = ALBUM (T = TRACK); 18th char P = PEAK (G = GAIN) */
+        int rgk = rg_key(e, keep);                                  /* B-599, B-720: REPLAYGAIN_{TRACK,ALBUM}_{GAIN,PEAK}: kept as text; parsed later in cold code */
+        if (rgk >= 0) {
+            const uint32_t which = (uint32_t)rgk;
             tag_copy(f->rg_txt[which], 16u, e + 22, keep - 22u);
             f->rg_have |= (uint8_t)(1u << which);
         }
