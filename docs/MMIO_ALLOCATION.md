@@ -77,7 +77,13 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x16C | GAIN_TARGET | R/W | Q15 wanted gain, 32768 = unity (values above are capped: the stage only attenuates); sticky, reset 32768. |
 | 0x170 | GAIN_CUR | R | The gain in force (ramping toward the target). |
 | 0x174 | GAIN_STEP | R/W | Maximum gain change per output sample; sticky, reset 149 (5 ms for full scale). |
-| 0x178-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x184 | RING_BASE | R/W | B-741 hardware PCM ring reader (`tau_pcm_ring.sv`, `TAU_PCM_RING`; needs `TAU_PSRAM_IFETCH`, docs/features/PCM_RING_HW_DESIGN.md). PSRAM word address (CPU window word offset: byte address = 0xA400_0000 + 4 x word) of ring[0]. Reads 0 on a bitstream without the unit. |
+| 0x188 | RING_SIZE | R/W | Pairs in the ring (2 .. 2^23); one word (`{right, left}`) per pair. |
+| 0x18C | RING_WPTR | R/W | The CPU's write index in [0, SIZE): write it AFTER the pair is stored. Empty when equal to RIDX; the CPU never fills the ring completely (capacity SIZE - 1). |
+| 0x190 | RING_RIDX | R | The reader's index (the CPU uses it for the full test and the heard position). |
+| 0x194 | RING_CTRL | R/W | Write bit 0 ENABLE (sticky, reset 0): while 1 the CPU's `R_AUDIO` write is ignored and the pcm_fifo is fed from the ring (one PSRAM read per pair while the FIFO holds fewer than 1,536 pairs); while 0 RIDX follows WPTR. Read: bit 31 present, bit 2 reading, bit 1 empty, bit 0 enable. A write to `R_PCM_ST` (pcm_flush) also drops the unread pairs (RIDX = WPTR; a read in flight is discarded when it completes). |
+| 0x198 | RING_CNT | R | Pairs pushed into the FIFO since reset (free-running; for the heard-position arithmetic). |
+| 0x19C-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
