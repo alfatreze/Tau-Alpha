@@ -67,7 +67,7 @@ come from strings inside the index) but nothing actually plays, with no error sh
 
 - Always run `tools/sync_media.py --from-core <SOURCE> --core <DEST> --library --card /Volumes/CARDWRITE` in one
   step (copies whatever media differs, then rebuilds the index against `<DEST>`'s own path).
-- Optional: add `--art-variants` to the same command to also write the pre-scaled cover sidecars (`<album>/tau-art/cover_128.pal256.timg`; `docs/IMAGE_FORMATS.md`). The firmware ignores them today; they carry across `--from-core` clones unchanged. Needs Pillow and numpy.
+- Cover sidecars (`<album>/tau-art/cover_128.pal256.timg`; `docs/IMAGE_FORMATS.md`) are written BY DEFAULT since B-736 (`--no-art-variants` turns them off). The firmware reads them and prefers them to decoding the embedded JPEG; they carry across `--from-core` clones unchanged. Needs Pillow and numpy (without them the run only warns).
 - Verify: `tools/tau_library.py verify <path>/tau-library.tdb --root <path>` must print `OK`, and
   `tools/tau_library.py report` should show `root /Assets/<DEST platform>/common/`, not some other core's.
 

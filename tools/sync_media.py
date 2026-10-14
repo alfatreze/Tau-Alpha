@@ -31,12 +31,14 @@ Rules:
     files, and every playlist line is rewritten to match. The player cannot open paths with accented characters
     (docs/issues/001; macOS also stores them in decomposed form, which makes them differ from the playlist).
     --keep-names turns this off. A collision after conversion stops the run.
-  * --art-variants [LIST] also writes pre-scaled cover files in the study formats of tools/tau_image.py (default
+  * Cover sidecars are written BY DEFAULT (B-736): with no flag the run behaves as --art-variants (pal256, 128 px); --no-art-variants turns it off. The firmware reads
+    them (fw/timg.inc) and uses them in preference to decoding the embedded JPEG, which is slow and may be removed. Missing Pillow/numpy only warns when the default is
+    in force. --art-variants [LIST] writes pre-scaled cover files in the study formats of tools/tau_image.py (default
     pal256 at 128 px on the long side, scaled proportionally, never cropped or padded; 'auto' picks per cover; see
     docs/IMAGE_FORMATS.md) to <album>/tau-art/cover_<size>.<variant>.timg,
     from the cover: --cover, else a named cover image in the folder (cover.jpg, folder.jpg, front.jpg, cover-*), else art embedded in the first track that has
-    any (MP3 APIC or FLAC PICTURE), else any image in the folder or one level below (a front/cover name first, then the largest). The firmware does not read them yet;
-    they are sidecars, copied unchanged on later --from-core clones. Needs Pillow and numpy.
+    any (MP3 APIC or FLAC PICTURE), else any image in the folder or one level below (a front/cover name first, then the largest). They are
+    sidecars, copied unchanged on later --from-core clones. Needs Pillow and numpy.
   * Files that are not media are skipped (listed); ._* and .DS_Store are never copied.
 Exit status 1 if any verification fails or a requested core is not found.
 """
@@ -280,6 +282,11 @@ def art_variants(folders_parent, info, args, tmp, start):
         import tau_image as ti
         from PIL import Image
     except ImportError as e:
+        if getattr(args, "art_implicit", False):
+            if not getattr(args, "art_warned", False):
+                args.art_warned = True
+                print(f"WARNING: cover sidecars skipped (Pillow/numpy missing: {e}); pip3 install pillow numpy, or pass --no-art-variants to silence this")
+            return []
         sys.exit(f"--art-variants needs Pillow and numpy ({e}); pip3 install pillow numpy")
     import io
     names = ti.DEFAULT_VARIANTS if args.art_variants == "default" else args.art_variants
@@ -349,10 +356,16 @@ def main():
     ap.add_argument("--art-variants", nargs="?", const="default", metavar="LIST",
                     help="also write pre-scaled cover variants (comma list of pal256,pal64,pal16,bc1,jpg60,jpg75,jpg85,rgb565,auto; "
                          "no value = pal256) into <album>/tau-art/")
+    ap.add_argument("--no-art-variants", action="store_true", help="do not write cover sidecars (they are written by default)")
     ap.add_argument("--art-size", type=int, action="append", help="long-side size in px for --art-variants (repeatable, default 128; aspect ratio kept)")
     ap.add_argument("--manifest", help="write a JSON record of the run to this file")
     ap.add_argument("--library", action="store_true", help="after copying, build and verify tau-library.tdb in each destination (tools/tau_library.py)")
     args = ap.parse_args()
+    args.art_implicit = False
+    if args.no_art_variants:
+        args.art_variants = None
+    elif args.art_variants is None:
+        args.art_variants = "default"; args.art_implicit = True      # B-736: sidecars are the default
 
     card = Path(args.card)
     if not (card / "Cores").is_dir():
