@@ -16,6 +16,7 @@ STD = "std"            # standard settings, see the script's section 1
 # (session, name, test file, set-up beyond the standard, what to do, analysis, question / gate, status)
 O, N = "original plan", "NEW (B-654)"
 DONE0 = "CLOSED 2026-10-10: re-recorded on the EVO 4 stereo chain, analysed (B-691)"
+DONE8 = "CLOSED 2026-10-14: recorded on TAU DEV 111 (107 rows on TAU_DEV_107), EVO 4 stereo chain, analysed (B-718)"
 RE16 = "RE-RECORD: the first EVO 4 take had 16-BIT OUTPUT ON (+6 dB, B-694); redo with it OFF"
 RE26 = "OPEN: the B-697 take read -14.17 dBFS (core volume 97, not 94); redo, or use row 20 (105_hw_on_v94) as the reference"
 RE = "original plan; RE-RECORD (first take was differential)"   # groups 0-5: the old chain recorded L minus R, which also cancels any click both channels share
@@ -112,15 +113,15 @@ add("7 transitions", "{c}_soak_all_off_60m", "tone_1k_48000_60s.flac", "Repeat =
 
 hp = ["off", "flat", "warm", "clear", "bass", "vocal", "speech", "lowvol", "smooth"]
 for p in hp:
-    add("8 Halcyon", f"{{c}}_hal_{p}_tone", "tone_1k_48000.flac", f"Halcyon {'OFF' if p == 'off' else p.upper()}, core volume 94", "record 12 s", "cymo_loopback.py analyze + track (look for sidebands at +-30 Hz: the flutter)", "the flutter fix; FLAT/OFF transparency; loudness match", N)
-add("8 Halcyon", "{c}_hal_off_silence", "silence_44100.flac", "Halcyon OFF", "record 15 s", "cymo_loopback.py analyze", "floor with the engine out", N)
-add("8 Halcyon", "{c}_hal_flat_silence", "silence_44100.flac", "Halcyon FLAT (engine on, bypass inside)", "record 15 s", "cymo_loopback.py analyze", "the engine adds no noise", N)
-add("8 Halcyon", "107_ctl_oldeq_pop_tone", "tone_1k_48000.flac", "ON TAU_DEV_107 (still has the old EQ): old EQ preset POP (press Y three times), Halcyon OFF, core volume 94", "record 12 s", "cymo_loopback.py track", "control: the flutter exists on the old build (proves the measurement sees it)", N)
-add("8 Halcyon", "107_ctl_oldeq_flat_tone", "tone_1k_48000.flac", "ON TAU_DEV_107: old EQ FLAT, core volume 94", "record 12 s", "cymo_loopback.py track", "control: FLAT has none", N)
-add("8 Halcyon", "{c}_fr_off_sweep", "sweep_20_20k_48000.flac", "Halcyon OFF, core volume 94", "record the whole file (about 30 s)", "cymo_loopback.py response", "the chain's own response (DAC, amp, interface)", N)
+    add("8 Halcyon", f"{{c}}_hal_{p}_tone", "tone_1k_48000.flac", f"Halcyon {'OFF' if p == 'off' else p.upper()}, core volume 94", "record 12 s", "cymo_loopback.py analyze + track (look for sidebands at +-30 Hz: the flutter)", "the flutter fix; FLAT/OFF transparency; loudness match", DONE8)
+add("8 Halcyon", "{c}_hal_off_silence", "silence_44100.flac", "Halcyon OFF", "record 15 s", "cymo_loopback.py analyze", "floor with the engine out", DONE8)
+add("8 Halcyon", "{c}_hal_flat_silence", "silence_44100.flac", "Halcyon FLAT (engine on, bypass inside)", "record 15 s", "cymo_loopback.py analyze", "the engine adds no noise", DONE8)
+add("8 Halcyon", "107_ctl_oldeq_pop_tone", "tone_1k_48000.flac", "ON TAU_DEV_107 (still has the old EQ): old EQ preset POP (press Y three times), Halcyon OFF, core volume 94", "record 12 s", "cymo_loopback.py track", "control: the flutter exists on the old build (proves the measurement sees it)", DONE8)
+add("8 Halcyon", "107_ctl_oldeq_flat_tone", "tone_1k_48000.flac", "ON TAU_DEV_107: old EQ FLAT, core volume 94", "record 12 s", "cymo_loopback.py track", "control: FLAT has none", DONE8)
+add("8 Halcyon", "{c}_fr_off_sweep", "sweep_20_20k_48000.flac", "Halcyon OFF, core volume 94", "record the whole file (about 30 s)", "cymo_loopback.py response", "the chain's own response (DAC, amp, interface)", DONE8)
 for p in hp[1:]:
-    add("8 Halcyon", f"{{c}}_fr_hal_{p}_sweep", "sweep_20_20k_48000.flac", f"Halcyon {p.upper()}, core volume 94", "record the whole file", "cymo_loopback.py response, divided by the OFF sweep; compare with the page's curve", "the displayed curve and the loudness match are true", N)
-add("8 Halcyon", "{c}_fr_lf_tones", "lf_tones_48000.flac", "Halcyon FLAT (infrasonic stage on), core volume 94", "play the file (10, 17, 20, 30, 50 Hz in steps)", "cymo_loopback.py analyze per step", "what the 17 Hz high-pass does", N)
+    add("8 Halcyon", f"{{c}}_fr_hal_{p}_sweep", "sweep_20_20k_48000.flac", f"Halcyon {p.upper()}, core volume 94", "record the whole file", "cymo_loopback.py response, divided by the OFF sweep; compare with the page's curve", "the displayed curve and the loudness match are true", DONE8)
+add("8 Halcyon", "{c}_fr_lf_tones", "lf_tones_48000.flac", "Halcyon FLAT (a true bypass, so the infrasonic stage is NOT on; measured B-718), core volume 94", "play the file (10, 17, 20, 30, 50 Hz in steps)", "cymo_loopback.py analyze per step", "what the 17 Hz high-pass does", DONE8)
 
 add("9 stereo", "{c}_ch_left_only", "ch_left_only_48000.flac", "stereo capture on the EVO 4 (both channels in one take)", "record 12 s", "cymo_loopback.py analyze, both channels", "balance, crosstalk (gain-stage balance targets, crossfeed)", N)
 add("9 stereo", "{c}_ch_right_only", "ch_right_only_48000.flac", "stereo capture on the EVO 4 (both channels in one take)", "record 12 s", "cymo_loopback.py analyze, both channels", "balance, crosstalk", N)
