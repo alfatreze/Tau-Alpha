@@ -172,8 +172,8 @@ static void vorbis_comments(flac_t *f, uint32_t length)
 
         const char *v = e;
         uint32_t    vn = keep;
-        if (key_is(e, keep, "REPLAYGAIN_TRACK_GAIN") || key_is(e, keep, "REPLAYGAIN_ALBUM_GAIN")) {   /* B-599: kept as text; parsed later in cold code */
-            const uint32_t which = (e[11] == 'A' || e[11] == 'a') ? 1u : 0u;   /* "REPLAYGAIN_ALBUM_GAIN": the 12th character is the A of ALBUM (T of TRACK) */
+        if (key_is(e, keep, "REPLAYGAIN_TRACK_GAIN") || key_is(e, keep, "REPLAYGAIN_ALBUM_GAIN") || key_is(e, keep, "REPLAYGAIN_TRACK_PEAK") || key_is(e, keep, "REPLAYGAIN_ALBUM_PEAK")) {   /* B-599, B-720: kept as text; parsed later in cold code */
+            const uint32_t which = ((e[11] == 'A' || e[11] == 'a') ? 1u : 0u) + ((e[17] == 'P' || e[17] == 'p') ? 2u : 0u);   /* 12th char A = ALBUM (T = TRACK); 18th char P = PEAK (G = GAIN) */
             tag_copy(f->rg_txt[which], 16u, e + 22, keep - 22u);
             f->rg_have |= (uint8_t)(1u << which);
         }

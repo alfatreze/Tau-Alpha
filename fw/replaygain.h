@@ -3,7 +3,7 @@
  * What it does: read the ReplayGain gain tags a file already carries (ID3v2 TXXX "REPLAYGAIN_TRACK_GAIN" / "REPLAYGAIN_ALBUM_GAIN", FLAC Vorbis comments of the same names,
  * values like "-6.48 dB"), turn the one the setting asks for into a Q15 factor, and fold it into the volume target. The result is ATTENUATE-ONLY: the target never exceeds
  * unity (0 dB), so a positive ReplayGain can only bring a quiet volume setting back toward full volume and can never clip; at volume position 100 only negative gains
- * act. No peak or limiter logic is needed for that reason. Values are kept in centi-dB (hundredths of a dB) as int32: "-6.48 dB" is -648.
+ * act. B-720: ABOVE unity (up to +6 dB, hardware stage only) the target is capped by the file's own PEAK tag, so a boost can never clip by construction; no peak tag, no boost. Values are kept in centi-dB (hundredths of a dB) as int32: "-6.48 dB" is -648.
  * Not read: iTunNORM, ID3 RVA2, APE tags, R128 tags (a later step if the library needs them). */
 #ifndef REPLAYGAIN_H
 #define REPLAYGAIN_H
@@ -18,8 +18,33 @@
 #define RG_CDB_MAX ( 1800)       /* +18 dB */
 enum { RG_OFF = 0, RG_TRACK, RG_ALBUM, RG_MODES };
 
-typedef struct { int32_t track_cdb, album_cdb; uint8_t have; } rg_t;   /* have: bit 0 track gain found, bit 1 album gain found */
-static inline void rg_clear(rg_t *r) { r->track_cdb = r->album_cdb = 0; r->have = 0; }
+/* B-720: have bit 2 / 3 = REPLAYGAIN_TRACK_PEAK / ALBUM_PEAK found; the peaks are linear sample peaks in Q15 (1.0 = 32768), rounded UP (conservative). A positive total gain is only allowed against a peak. */
+typedef struct { int32_t track_cdb, album_cdb; uint8_t have; uint32_t track_peak, album_peak; } rg_t;   /* have: bit 0 track gain found, bit 1 album gain found, bit 2 track peak, bit 3 album peak */
+static inline void rg_clear(rg_t *r) { r->track_cdb = r->album_cdb = 0; r->have = 0; r->track_peak = r->album_peak = 0; }
+#define RG_PEAK_NUM   1013608448u   /* 30934 * 32768: the headroom ceiling is 30934/32768 = 0.944 = -0.5 dB of full scale (inter-sample peaks the sample-peak tag cannot show) */
+#define RG_BOOST_MAX  65535u        /* the hardware stage's target register is 16 bits: +6.02 dB at most (owner's ceiling, B-720) */
+
+/* "0.988553", "1", "0.5": a linear sample peak (ReplayGain PEAK tags) to Q15, ROUNDED UP, using up to four fraction digits (more are ignored); whole part clamped to 7. Returns 1 and the value, or 0 if there is no number. */
+static RG_COLD int rg_parse_peak_q15(const char *s, uint32_t n, uint32_t *out)
+{
+    uint32_t i = 0;
+    while (i < n && s[i] == ' ') i++;
+    uint32_t whole = 0, digits = 0;
+    while (i < n && s[i] >= '0' && s[i] <= '9') { if (whole < 10u) whole = whole * 10u + (uint32_t)(s[i] - '0'); digits++; i++; }
+    uint32_t frac = 0, fd = 0, dropped = 0;
+    if (i < n && s[i] == '.') {
+        i++;
+        while (i < n && s[i] >= '0' && s[i] <= '9') { if (fd < 4u) { frac = frac * 10u + (uint32_t)(s[i] - '0'); fd++; } else if (s[i] != '0') dropped = 1u; digits++; i++; }
+    }
+    if (!digits) return 0;
+    while (fd < 4u) { frac *= 10u; fd++; }
+    frac += dropped;                                        /* a digit beyond the fourth that is not zero: round the decimal UP too, so the result is never below the true peak */
+    if (whole > 7u) { whole = 7u; frac = 9999u; }          /* saturate (a peak above 8.0 is not a real tag) */
+    if (frac > 9999u) { frac = 0u; whole++; }
+    if (whole > 7u) { whole = 7u; frac = 9999u; }
+    *out = (uint32_t)((((whole * 10000u + frac) * 32768u) + 9999u) / 10000u);   /* (7 * 10000 + 9999) * 32768 < 2^32 */
+    return 1;
+}
 
 /* "-6.48 dB", "+3.2 dB", "-0.5", " 1.00 dB": optional spaces and sign, digits, optional '.' and up to two (more are ignored) fraction digits, then anything (" dB").
  * Returns 1 and the value in centi-dB, or 0 if there is no number. */
@@ -69,12 +94,31 @@ static RG_COLD uint32_t rg_pick_factor(uint32_t mode, const rg_t *r)
     return RG_UNITY;
 }
 
-/* The volume target with ReplayGain folded in: the volume's Q15 gain times the factor, never above unity. */
-static inline int32_t rg_target(int32_t vol_q15, uint32_t factor)
+/* The peak matching the gain rg_pick_factor() chose (0 = none: no boost above unity for this track). */
+static RG_COLD uint32_t rg_pick_peak(uint32_t mode, const rg_t *r)
+{
+    if (mode == RG_ALBUM && (r->have & 2u)) return (r->have & 8u) ? r->album_peak : 0u;
+    if (mode != RG_OFF && (r->have & 1u))   return (r->have & 4u) ? r->track_peak : 0u;
+    if (mode != RG_OFF && (r->have & 2u))   return (r->have & 8u) ? r->album_peak : 0u;
+    return 0u;
+}
+
+/* B-720: the largest total gain (Q15, 32768 = unity) this track may have: unity unless boosting is possible (the hardware stage owns the gain and has the boost range, `boost_ok`)
+ * AND the file carries the peak that matches the chosen gain; then 0.944 / peak, never below unity, never above the stage's +6.02 dB. */
+static RG_COLD uint32_t rg_cap_q15(uint32_t peak_q15, uint32_t boost_ok)
+{
+    if (!boost_ok || peak_q15 == 0u) return RG_UNITY;
+    uint32_t lim = RG_PEAK_NUM / peak_q15;
+    if (lim < RG_UNITY) lim = RG_UNITY;
+    return lim > RG_BOOST_MAX ? RG_BOOST_MAX : lim;
+}
+
+/* The volume target with ReplayGain folded in: the volume's Q15 gain times the factor, never above `cap` (unity, or the peak-derived cap of rg_cap_q15()). */
+static inline int32_t rg_target(int32_t vol_q15, uint32_t factor, uint32_t cap)
 {
     if (factor > (1u << 18)) factor = 1u << 18;                    /* +18 dB is the most a tag can ask for */
     const uint32_t g = ((uint32_t)vol_q15 * (factor >> 2)) >> 13;  /* vol <= 2^15 and factor >> 2 <= 2^16: the product stays below 2^32; costs 0.4% of resolution at -30 dB */
-    return g > RG_UNITY ? (int32_t)RG_UNITY : (int32_t)g;
+    return g > cap ? (int32_t)cap : (int32_t)g;
 }
 
 /* ---- tag readers ------------------------------------------------------------------------------------------------------------------------------------------- */
@@ -92,6 +136,8 @@ static RG_COLD void rg_note(rg_t *r, const char *name, uint32_t nn, const char *
     int32_t c;
     if (rg_key_eq(name, nn, "REPLAYGAIN_TRACK_GAIN")) { if (rg_parse_cdb(val, vn, &c)) { r->track_cdb = c; r->have |= 1u; } }
     else if (rg_key_eq(name, nn, "REPLAYGAIN_ALBUM_GAIN")) { if (rg_parse_cdb(val, vn, &c)) { r->album_cdb = c; r->have |= 2u; } }
+    else if (rg_key_eq(name, nn, "REPLAYGAIN_TRACK_PEAK")) { uint32_t p; if (rg_parse_peak_q15(val, vn, &p)) { r->track_peak = p; r->have |= 4u; } }
+    else if (rg_key_eq(name, nn, "REPLAYGAIN_ALBUM_PEAK")) { uint32_t p; if (rg_parse_peak_q15(val, vn, &p)) { r->album_peak = p; r->have |= 8u; } }
 }
 
 /* One ID3v2 TXXX frame BODY (encoding byte, description, NUL, value). Encodings 0 (Latin-1) and 3 (UTF-8) are read as ASCII; 1 and 2 (UTF-16, with or without BOM) are

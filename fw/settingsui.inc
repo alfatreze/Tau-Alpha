@@ -996,6 +996,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
             q = ui_dec(q, (uint32_t)c / 100u); q = set_str(q, "."); q = ui_dec(q, ((uint32_t)c % 100u) / 10u);
         }
         q = set_str(q, " H"); q = ui_dec(q, rg_cur.have);
+        q = set_str(q, " C"); q = ui_dec(q, rg_cap_hw / 328u);   /* B-720: C = the largest total gain this track may have, in percent of unity (100 = no boost possible, 200 = +6 dB) */
         q = set_str(q, " W"); q = ui_dec(q, set_rd32(SW_POL));
         break;
     }

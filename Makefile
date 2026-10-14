@@ -1,4 +1,4 @@
-.PHONY: test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -125,7 +125,7 @@ test-host:
 	$(PYTHON) tools/fit_manifest.py check-bundles
 	$(PYTHON) sim/test_fit_manifest.py
 
-test-rtl: test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
@@ -302,6 +302,18 @@ test-rtl-gain-stage: $(RTL_BUILD_DIR)/tb_gain_stage.vvp $(RTL_BUILD_DIR)/gain_ve
 test-rtl-gain-stage-mutation: $(GAIN_SRC) $(RTL_BUILD_DIR)/gain_vectors.txt | $(RTL_BUILD_DIR)
 	@set -e; for b in 1 2 3 4 5 6 7 8 9; do $(IVERILOG) -g2012 -DBUGV=$$b -o $(RTL_BUILD_DIR)/gain_mut.vvp $(GAIN_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/gain_mut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_gain_stage BUG=$$b"; else echo "MUTANT SURVIVED: tau_gain_stage BUG=$$b"; exit 1; fi; done
+
+# B-720: the gain stage with BOOST=1 (target up to 65535, saturating product), replayed against the model with boost, plus two boost-only mutants and the unity regression on BOOST=1.
+$(RTL_BUILD_DIR)/gain_boost_vectors.txt: sim/test_cymo_gain_model.py tools/lab/cymo_gain_model.py | $(RTL_BUILD_DIR)
+	$(PYTHON) sim/test_cymo_gain_model.py --boost-vectors $@ >/dev/null
+test-rtl-gain-boost: $(GAIN_SRC) $(RTL_BUILD_DIR)/gain_boost_vectors.txt $(RTL_BUILD_DIR)/gain_vectors.txt | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -DBUGV=0 -DBOOSTV=1 -DVECF='"$(RTL_BUILD_DIR)/gain_boost_vectors.txt"' -o $(RTL_BUILD_DIR)/gain_boost.vvp $(GAIN_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/gain_boost.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_gain_stage BOOST=1 (boost vectors)"
+	$(IVERILOG) -g2012 -DBUGV=0 -DBOOSTV=1 -o $(RTL_BUILD_DIR)/gain_boost_u.vvp $(GAIN_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/gain_boost_u.vvp | grep -q "^PASS" && echo "PASSED: tb_tau_gain_stage BOOST=1 equals the shipped stage below unity (the shipped vectors)"
+test-rtl-gain-boost-mutation: $(GAIN_SRC) $(RTL_BUILD_DIR)/gain_boost_vectors.txt | $(RTL_BUILD_DIR)
+	@set -e; for b in 10 11; do $(IVERILOG) -g2012 -DBUGV=$$b -DBOOSTV=1 -DVECF='"$(RTL_BUILD_DIR)/gain_boost_vectors.txt"' -o $(RTL_BUILD_DIR)/gain_bmut.vvp $(GAIN_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/gain_bmut.vvp | grep -q "^FAIL"; then echo "mutant killed: tau_gain_stage BOOST=1 BUG=$$b"; else echo "MUTANT SURVIVED: tau_gain_stage BOOST=1 BUG=$$b"; exit 1; fi; done
 
 # B-635: the Halcyon engine (tau_halcyon.sv), replayed against tools/lab/halcyon_engine_model.py at 16 and 24 bits, plus eight mutants.
 HALCYON_SRC = sim/tb_tau_halcyon.v src/fpga/core/tau_halcyon.sv

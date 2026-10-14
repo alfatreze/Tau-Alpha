@@ -1250,6 +1250,7 @@ static uint32_t ui_last_prof;              /* UI_SHOW_DECODE_PROFILE latch, Phas
 #if TAU_HALCYON_FW
 static uint8_t  hw_hal;                  /* B-640: the bitstream has the Halcyon engine (probed once at boot) */
 #endif
+static uint8_t  hw_gain_boost;           /* B-720: ...and its target register reaches above unity (+6 dB, R_GAIN_CTRL bit 30), so ReplayGain may boost against a peak tag */
 static uint8_t  hw_gain;                 /* B-615: the bitstream has the hardware gain stage (probed once at boot; 0 on any other bitstream) */
 static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: current value and the target it ramps to (dB taper, B-598) */
 
@@ -1261,8 +1262,10 @@ static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: curre
 static rg_t     rg_cur;
 static uint8_t  rg_mode;                                   /* RG_OFF (default), RG_TRACK, RG_ALBUM; saved with the theme polarity word */
 static uint32_t rg_factor = RG_UNITY;
-static void vol_apply(void)        { vol_st.target = rg_target(pcm_vol_target(volume), rg_factor); if (vol_st.hw) REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; }   /* a change: ramps (in hardware when the gain stage is on, B-615) */
-static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = rg_target(pcm_vol_target(volume), rg_factor); if (vol_st.hw) { REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u; } }    /* boot / settings restore: no ramp from full volume */
+static uint32_t rg_cap_hw = RG_UNITY;                      /* B-720: the largest total gain this track may have while the hardware stage owns the gain (unity unless a peak tag allows a boost) */
+#define RG_CAP() (vol_st.hw ? rg_cap_hw : RG_UNITY)         /* the firmware path can never exceed unity (its 32-bit product would overflow above 2.0) */
+static void vol_apply(void)        { vol_st.target = rg_target(pcm_vol_target(volume), rg_factor, RG_CAP()); if (vol_st.hw) REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; }   /* a change: ramps (in hardware when the gain stage is on, B-615) */
+static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = rg_target(pcm_vol_target(volume), rg_factor, RG_CAP()); if (vol_st.hw) { REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u; } }    /* boot / settings restore: no ramp from full volume */
 /* B-615: restart the discontinuity fade (resume after a pause, an underrun). The hardware stage starts its own fade at every flush; the other cases need this pulse. */
 static inline void fade_restart(void) { fade_left = vol_st.hw ? 0u : FADE_SAMPLES; if (vol_st.hw) REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 4u; }
 /* B-615: at boot, hand the gain (volume, ramp, fade-in) to the hardware stage. Exactly one of the two owns it: pcm_gain_apply() returns at once while vol_st.hw is set, so the gain is never
@@ -1300,6 +1303,8 @@ COLD_FN2 static void gain_handover(uint8_t on)
     if (!hw_gain) return;
     static const gh_ops_t ops = { gh_ctrl, gh_target, gh_wait_ms, gh_flush };
     gh_handover(&ops, &vol_st, &fade_left, FADE_SAMPLES, GAIN_CTRL_BASE, on, pcm_tick_hz);
+    vol_apply();   /* B-720: the cap depends on the owner (a boost only exists in the hardware stage): software gets unity again, hardware may ramp up to its cap */
+    if (!vol_st.hw) vol_st.cur = vol_st.target;
 }
 COLD_FN2 static void gain_dip_begin(void)
 {
@@ -1322,13 +1327,15 @@ static inline void gain_step_poll(void)
 }
 /* The ReplayGain parsing lives in COLD code (it ran to about 2 KB of the on-chip RAM): every entry from the hot track-load path is gated on cold_code_ok, and without cold code
  * ReplayGain simply does nothing (the factor stays unity). rg_update() is the one entry the hot code uses. */
-COLD_FN3 static void rg_update_cold(void)  { rg_factor = rg_pick_factor(rg_mode, &rg_cur); vol_apply(); }
+COLD_FN3 static void rg_update_cold(void)  { rg_factor = rg_pick_factor(rg_mode, &rg_cur); rg_cap_hw = rg_cap_q15(rg_pick_peak(rg_mode, &rg_cur), hw_gain_boost); vol_apply(); }
 COLD_FN3 static void rg_scan_cold(const uint8_t *tag, uint32_t avail, uint32_t len) { rg_id3_scan(&rg_cur, tag, avail, len); }
 COLD_FN3 static void rg_txxx_cold(const uint8_t *b, uint32_t n)                       { rg_txxx_body(&rg_cur, b, n); }
-COLD_FN3 static void rg_flac_cold(const char txt[2][16], uint8_t have)
+COLD_FN3 static void rg_flac_cold(const char txt[4][16], uint8_t have)
 {
     if (have & 1u) rg_note(&rg_cur, "REPLAYGAIN_TRACK_GAIN", 21u, txt[0], 15u);
     if (have & 2u) rg_note(&rg_cur, "REPLAYGAIN_ALBUM_GAIN", 21u, txt[1], 15u);
+    if (have & 4u) rg_note(&rg_cur, "REPLAYGAIN_TRACK_PEAK", 21u, txt[2], 15u);
+    if (have & 8u) rg_note(&rg_cur, "REPLAYGAIN_ALBUM_PEAK", 21u, txt[3], 15u);
 }
 static void rg_update(void) { if (cold_code_ok) rg_update_cold(); }
 /* ------------------------------------------------------------- playlist ----
@@ -9338,6 +9345,7 @@ int main(void)
 #if TAU_HALCYON_FW
     hw_hal  = (uint8_t)((REG(R_HAL_CTRL) >> 31) & 1u);   /* B-640 */
 #endif
+    hw_gain_boost = (uint8_t)((REG(R_GAIN_CTRL) >> 30) & 1u);   /* B-720: bit 30 = the stage can exceed unity (read together with bit 31) */
     hw_gain = (uint8_t)((REG(R_GAIN_CTRL) >> 31) & 1u);  /* B-615: hardware gain stage present? (0 on any other bitstream) */
     hw_cymo = (uint8_t)(REG(R_CYMO_STATUS) & 1u);  /* B-471/B-476: hardware Cymo resampler present? (0 on any other bitstream) */
 #if FLAC_PROFILE
