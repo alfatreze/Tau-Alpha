@@ -75,17 +75,20 @@ module tb_psram_ifetch;
     // console
     reg [8*80-1:0] line;
     reg seen_end = 0, seen_nofeature = 0;
+    integer ng_on = -1, ng_off = -1, ng = 0;
     always @(posedge clk) if (u_soc.con_wr) begin
         if (u_soc.con_char == 8'd10) begin
             $display("fw: %0s", line);
             if (line[8*8-1:0] == "RING END")     seen_end = 1;
+            if (line[8*12-1:0] == "RING HOLD ON")  ng_on = ng;
+            if (line[8*13-1:0] == "RING HOLD OFF") ng_off = ng;
             if (line[8*13-1:0] == "RING NOFEATURE") seen_nofeature = 1;
             line = 0;
         end else line = {line[8*79-1:0], u_soc.con_char};
     end
     // the stream the FIFO receives
     reg [31:0] got [0:4095];
-    integer ng = 0, overflow = 0, over_thr = 0, max_level = 0;
+    integer overflow = 0, over_thr = 0, max_level = 0;
     always @(posedge clk) if (!rst) begin
         if (u_soc.u_pcm.push) begin
             if (ng < 4096) got[ng] = u_soc.u_pcm.pdata;
@@ -114,9 +117,13 @@ module tb_psram_ifetch;
         if (RING == 0) begin
             if (!seen_nofeature) begin $display("FAIL: expected RING NOFEATURE"); errors = errors + 1; end
         end else begin
-            if (ng != 2505) begin $display("FAIL: %0d pairs reached the FIFO, expected 2505", ng); errors = errors + 1; end
+            // expected: 2500 pairs, 20 marked pairs delivered only after HOLD is released, the first 1536 of the next 1540 (the rest dropped by the flush), 5 after the flush
+            if (ng != 4061) begin $display("FAIL: %0d pairs reached the FIFO, expected 4061", ng); errors = errors + 1; end
             for (k = 0; k < 2500 && k < ng; k = k + 1) if (got[k] !== word(k)) begin bad = bad + 1; if (bad < 4) $display("MISMATCH at %0d: got %h want %h", k, got[k], word(k)); end
-            for (k = 0; k < 5 && 2500 + k < ng; k = k + 1) if (got[2500 + k] !== (32'hC0DE0000 | k)) begin bad = bad + 1; $display("post-flush pair %0d: got %h", k, got[2500 + k]); end
+            for (k = 0; k < 20 && 2500 + k < ng; k = k + 1) if (got[2500 + k] !== (32'hA0170000 | k)) begin bad = bad + 1; $display("held pair %0d: got %h", k, got[2500 + k]); end
+            for (k = 0; k < 1536 && 2520 + k < ng; k = k + 1) if (got[2520 + k] !== (32'hB0000000 | k)) begin bad = bad + 1; if (bad < 8) $display("block pair %0d: got %h", k, got[2520 + k]); end
+            for (k = 0; k < 5 && 4056 + k < ng; k = k + 1) if (got[4056 + k] !== (32'hC0DE0000 | k)) begin bad = bad + 1; $display("post-flush pair %0d: got %h", k, got[4056 + k]); end
+            if (ng_on < 0 || ng_off < 0 || ng_off != ng_on) begin errors = errors + 1; $display("FAIL: pairs reached the FIFO while HOLD was on (%0d at hold on, %0d at hold off)", ng_on, ng_off); end
             for (k = 0; k < ng && k < 4096; k = k + 1) if (got[k][31:16] === 16'hF1A5 || got[k] === 32'hDEADBEEF) markers = markers + 1;
             if (bad != 0) begin $display("FAIL: %0d wrong pairs", bad); errors = errors + 1; end
             if (markers != 0) begin $display("FAIL: %0d poison/flushed pairs reached the FIFO", markers); errors = errors + 1; end
