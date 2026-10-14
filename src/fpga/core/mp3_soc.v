@@ -96,6 +96,9 @@ module mp3_soc #(
     parameter AUDIO16_ENABLE = 0,
     // B-615 (Cymo C3 slice 2): hardware gain stage at the pcm_fifo output (tau_gain_stage.sv), registers 0x168-0x174. Inert (reads 0, audio path untouched) when 0.
     parameter GAIN_ENABLE = 0,
+    // B-741 (gapless): the hardware PCM ring reader (tau_pcm_ring.sv, docs/features/PCM_RING_HW_DESIGN.md), registers 0x184-0x198. A third client of the PSRAM port next to the data window and the instruction
+    // fetch: needs PSRAM_IFETCH_ENABLE (the arbiter). With 0 the unit does not exist, reads 0 and the audio path is untouched.
+    parameter PCM_RING_ENABLE = 0,
     parameter GAIN_BOOST = 0,           // B-720: the gain stage may exceed unity (target up to 65535, saturating product); read back in R_GAIN_CTRL bit 30
     // B-639 (Halcyon): the Halcyon EQ engine (tau_halcyon.sv), registers 0x178-0x180; it is the only EQ (the preset EQ and its register 0x68 were removed). With 0 the audio is the unequalised path.
     parameter HALCYON_ENABLE = 0,
@@ -892,6 +895,17 @@ module mp3_soc #(
     // stage count, sampled by COMMIT). IDX (STICKY): coefficient index, auto-increments on every DATA write. DATA write: bits [23:0] signed Q2.22 coefficient into the SHADOW bank at IDX
     // (index NST*5 = 85 is the preamp). Read HAL_CTRL: bit 31 present, bit 2 busy, [13:8] nact, bit 1 bypass, bit 0 enable. Inert (reads 0) unless HALCYON_ENABLE.
     localparam [8:0] R_HAL_CTRL = 9'h178, R_HAL_IDX = 9'h17C, R_HAL_DATA = 9'h180;
+    // B-741 PCM ring reader. BASE (RW): PSRAM word address of ring[0] (the CPU window is 0xA400_0000 + 4*word); SIZE (RW): pairs in the ring; WPTR (RW): the CPU's write index in [0, SIZE) (write it after the
+    // data is stored); RIDX (R): the reader's index; CNT (R): pairs pushed since reset; CTRL: write bit 0 ENABLE (STICKY, reset 0: the CPU's R_AUDIO write is then ignored and the FIFO is fed from the ring),
+    // read bit 31 present, bit 2 reading, bit 1 empty, bit 0 enable. A write to R_PCM_ST (the firmware's pcm_flush) also drops the unread pairs (RIDX = WPTR). Inert (reads 0) unless PCM_RING_ENABLE.
+    localparam [8:0] R_RING_BASE = 9'h184, R_RING_SIZE = 9'h188, R_RING_WPTR = 9'h18C, R_RING_RIDX = 9'h190, R_RING_CTRL = 9'h194, R_RING_CNT = 9'h198;
+    reg         ring_en = 1'b0;
+    reg  [22:0] ring_base = 23'd0, ring_size = 23'd2, ring_wptr = 23'd0;
+    wire        ring_push, rctl_req, rctl_we, rctl_busy;
+    wire [31:0] ring_pdata, rctl_wdata, ring_cnt;
+    wire [22:0] rctl_word, ring_ridx;
+    wire [3:0]  rctl_be;
+    wire        rctl_done;
     reg        hal_en = 1'b0, hal_bypass = 1'b0, hal_commit = 1'b0, hal_clr = 1'b0, hal_we = 1'b0;
     reg  [5:0] hal_nact = 6'd0;
     reg  [7:0] hal_idx = 8'd0, hal_widx = 8'd0;   // hal_widx: the index of the word being written (hal_idx has already stepped on by the time hal_we is seen)
@@ -1019,7 +1033,8 @@ module mp3_soc #(
     end
 
     // ------------------------------------------------------------ PCM FIFO ---
-    wire        pcm_push  = d_req & d_is_mmio & dWE & (mmio_reg == R_AUDIO);
+    wire        ring_on   = (PCM_RING_ENABLE != 0) && ring_en;     // B-741: the FIFO is fed by the ring reader, the CPU's R_AUDIO write is ignored
+    wire        pcm_push  = (d_req & d_is_mmio & dWE & (mmio_reg == R_AUDIO) & ~ring_on) | (ring_on & ring_push);
     // Any write to R_PCM_ST (previously read-only) flushes the FIFO. Used on a
     // track change or a seek, where samples already queued from BEFORE the
     // jump must not keep draining out the DAC over the new position's audio.
@@ -1036,7 +1051,7 @@ module mp3_soc #(
         .rst      (rst),
         .flush    (pcm_flush),
         .push     (pcm_push),
-        .pdata    (dDAT_MOSI),
+        .pdata    (ring_on ? ring_pdata : dDAT_MOSI),
         .full     (pcm_full),
         .empty    (pcm_empty),
         .level    (pcm_level),
@@ -1310,6 +1325,7 @@ module mp3_soc #(
 `endif
             audio16_reg  <= 1'b0;      // B-602: STICKY, back to the 15-bit mapping on reset
             hal_en <= 1'b0; hal_bypass <= 1'b0; hal_nact <= 6'd0; hal_idx <= 8'd0; hal_data <= 24'sd0;   // B-639: STICKY, back to 'Halcyon off'
+            ring_en <= 1'b0; ring_base <= 23'd0; ring_size <= 23'd2; ring_wptr <= 23'd0;   // B-741
             gain_en <= 1'b0; gain_target <= 16'd32768; gain_ramp <= 16'd149; gain_shift <= 2'd3;   // B-615: STICKY, back to 'stage off, unity'
             cymo_live_en <= 1'b0;      // STICKY register, not covered by the pulse-reset preamble above -- must be reset here explicitly
             set_idx <= 5'd0; set_wdata <= 32'd0;
@@ -1423,6 +1439,10 @@ module mp3_soc #(
                 end
                 R_HAL_IDX:  hal_idx <= dDAT_MOSI[7:0];
                 R_HAL_DATA: begin hal_data <= dDAT_MOSI[23:0]; hal_widx <= hal_idx; hal_we <= 1'b1; hal_idx <= hal_idx + 8'd1; end
+                R_RING_BASE:   ring_base <= dDAT_MOSI[22:0];   // B-741
+                R_RING_SIZE:   ring_size <= dDAT_MOSI[22:0];
+                R_RING_WPTR:   ring_wptr <= dDAT_MOSI[22:0];
+                R_RING_CTRL:   ring_en   <= dDAT_MOSI[0];
                 R_GAIN_TARGET: gain_target <= dDAT_MOSI[15:0];
                 R_GAIN_STEP:   gain_ramp   <= dDAT_MOSI[15:0];
                 R_CYMO_PUSH: begin
@@ -1497,6 +1517,12 @@ module mp3_soc #(
             R_HAL_CTRL:    mmio_rdata = {(HALCYON_ENABLE != 0), 17'd0, hal_nact, 5'd0, hal_busy, hal_bypass, hal_en};   // B-639
             R_HAL_IDX:     mmio_rdata = {24'd0, hal_idx};
             R_GAIN_TARGET: mmio_rdata = {16'd0, gain_target};
+            R_RING_BASE:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_base} : 32'd0;   // B-741
+            R_RING_SIZE:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_size} : 32'd0;
+            R_RING_WPTR:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_wptr} : 32'd0;
+            R_RING_RIDX:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_ridx} : 32'd0;
+            R_RING_CTRL:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {1'b1, 28'd0, rctl_busy, (ring_ridx == ring_wptr), ring_en} : 32'd0;
+            R_RING_CNT:    mmio_rdata = (PCM_RING_ENABLE != 0) ? ring_cnt : 32'd0;
             R_GAIN_CUR:    mmio_rdata = {16'd0, gain_cur};
             R_GAIN_STEP:   mmio_rdata = {16'd0, gain_ramp};
             R_AUDIO_CFG:   mmio_rdata = {30'd0, (AUDIO16_ENABLE != 0), audio_full16};   // B-602: bit 1 present, bit 0 value; 0 when not built
@@ -1553,24 +1579,39 @@ module mp3_soc #(
                 .ctl_wdata(ictl_wdata), .ctl_be(ictl_be),
                 .ctl_done(ictl_done), .ctl_rdata(psram_rdata), .ctl_guard(psram_guard)
             );
-            reg       busy, gi;
+            reg       busy, gi, gr;
             reg [1:0] gap;
-            wire      sel_i = busy ? gi : (~dctl_req & ictl_req);
-            wire      any_req = busy ? (gi ? ictl_req : dctl_req) : (dctl_req | ictl_req);
+            // B-741: the PCM ring reader is a third client. It wins a tie (it needs one read per audio pair, about every 1,500 cycles, and each is 32 cycles: it cannot starve anyone), a granted transaction is
+            // never interrupted. With PCM_RING_ENABLE 0, rctl_req is a constant 0 and this reduces to the two-client arbiter exactly.
+            wire      sel_r = busy ? gr : rctl_req;
+            wire      sel_i = busy ? gi : (~rctl_req & ~dctl_req & ictl_req);
+            wire      any_req = busy ? (gr ? rctl_req : (gi ? ictl_req : dctl_req)) : (rctl_req | dctl_req | ictl_req);
             assign psram_req   = any_req & (gap == 2'd0);
-            assign psram_we    = sel_i ? ictl_we    : dctl_we;
-            assign psram_word  = sel_i ? ictl_word  : dctl_word;
-            assign psram_wdata = sel_i ? ictl_wdata : dctl_wdata;
-            assign psram_be    = sel_i ? ictl_be    : dctl_be;
-            assign dctl_done   = psram_done & busy & ~gi;
+            assign psram_we    = sel_r ? rctl_we    : (sel_i ? ictl_we    : dctl_we);
+            assign psram_word  = sel_r ? rctl_word  : (sel_i ? ictl_word  : dctl_word);
+            assign psram_wdata = sel_r ? rctl_wdata : (sel_i ? ictl_wdata : dctl_wdata);
+            assign psram_be    = sel_r ? rctl_be    : (sel_i ? ictl_be    : dctl_be);
+            assign dctl_done   = psram_done & busy & ~gi & ~gr;
             assign ictl_done   = psram_done & busy &  gi;
+            assign rctl_done   = psram_done & busy &  gr;
             always @(posedge clk) begin
-                if (rst) begin busy <= 1'b0; gi <= 1'b0; gap <= 2'd0; end
+                if (rst) begin busy <= 1'b0; gi <= 1'b0; gr <= 1'b0; gap <= 2'd0; end
                 else begin
                     if (gap != 2'd0) gap <= gap - 2'd1;
-                    if (!busy && psram_req) begin busy <= 1'b1; gi <= sel_i; end
+                    if (!busy && psram_req) begin busy <= 1'b1; gi <= sel_i; gr <= sel_r; end
                     else if (busy && psram_done) begin busy <= 1'b0; gap <= IFETCH_GAP[1:0]; end
                 end
+            end
+            if (PCM_RING_ENABLE != 0) begin : g_ring
+                tau_pcm_ring #(.THR(1536)) u_ring (
+                    .clk(clk), .rst(rst), .en(ring_en), .flush(pcm_flush), .base(ring_base), .size(ring_size), .wptr(ring_wptr), .fifo_level(pcm_level),
+                    .ridx(ring_ridx), .cnt(ring_cnt), .push(ring_push), .pdata(ring_pdata), .busy(rctl_busy),
+                    .ctl_req(rctl_req), .ctl_we(rctl_we), .ctl_word(rctl_word), .ctl_wdata(rctl_wdata), .ctl_be(rctl_be),
+                    .ctl_done(rctl_done), .ctl_rdata(psram_rdata), .ctl_guard(psram_guard)
+                );
+            end else begin : g_no_ring
+                assign ring_push = 1'b0; assign ring_pdata = 32'd0; assign rctl_busy = 1'b0; assign ring_ridx = 23'd0; assign ring_cnt = 32'd0;
+                assign rctl_req = 1'b0; assign rctl_we = 1'b0; assign rctl_word = 23'd0; assign rctl_wdata = 32'd0; assign rctl_be = 4'd0;
             end
             // Counters: instruction beats served from PSRAM, and cycles the fetch stage held a PSRAM request.
             reg [31:0] n_r, cyc_r;
@@ -1613,6 +1654,8 @@ module mp3_soc #(
             );
 `endif
         end else begin : g_no_ifetch
+            assign ring_push = 1'b0; assign ring_pdata = 32'd0; assign rctl_busy = 1'b0; assign ring_ridx = 23'd0; assign ring_cnt = 32'd0;   // B-741: the ring needs the ifetch arbiter
+            assign rctl_req = 1'b0; assign rctl_we = 1'b0; assign rctl_word = 23'd0; assign rctl_wdata = 32'd0; assign rctl_be = 4'd0; assign rctl_done = 1'b0;
             assign psram_req = dctl_req;   assign psram_we = dctl_we;
             assign psram_word = dctl_word; assign psram_wdata = dctl_wdata;
             assign psram_be = dctl_be;     assign dctl_done = psram_done;

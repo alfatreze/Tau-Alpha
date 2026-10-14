@@ -352,7 +352,7 @@ test-rtl-halcyon-mutation: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.t
 	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed (wide input): tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED (wide input): tau_halcyon BUG=$$b"; exit 1; fi; done
 
 # B-639: the Halcyon MMIO glue in mp3_soc.v, with the real CPU driving it (firmware sim/fw_halcyon/main.c, the audio output checked after each step).
-HALCYON_SOC_SRC = sim/tb_halcyon_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv
+HALCYON_SOC_SRC = sim/tb_halcyon_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_pcm_ring.sv
 test-rtl-halcyon-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_halcyon/main.c -o $(RTL_BUILD_DIR)/fw_halcyon.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_halcyon.elf $(RTL_BUILD_DIR)/fw_halcyon.bin
@@ -361,7 +361,7 @@ test-rtl-halcyon-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 
 # B-653: the stereo pair invariant through the real mp3_soc audio path and the real sound_i2s writer (sim/tb_audio_pair.v, firmware sim/fw_audiopair/main.c), in six configurations; the
 # bench's own mutant (-DTORN=1, the right channel a clock late) must FAIL.
-AUDIO_PAIR_SRC = sim/tb_audio_pair.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_gain_stage.sv $(RTL_BUILD_DIR)/sound_i2s_sim.v src/fpga/core/sync_fifo.v
+AUDIO_PAIR_SRC = sim/tb_audio_pair.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_pcm_ring.sv src/fpga/core/tau_gain_stage.sv $(RTL_BUILD_DIR)/sound_i2s_sim.v src/fpga/core/sync_fifo.v
 # Icarus rejects sound_i2s.v's unused negative-repeat branch ({(15 - CHANNEL_WIDTH){1'b0}} with a 16-bit channel); the copy changes nothing for CHANNEL_WIDTH 16 (as sim/test_cymo_i2s_rate.py).
 $(RTL_BUILD_DIR)/sound_i2s_sim.v: src/fpga/core/sound_i2s.v | $(RTL_BUILD_DIR)
 	$(PYTHON) -c "import sys;s=open(sys.argv[1]).read();open(sys.argv[2],'w').write(s.replace(\"{(15 - CHANNEL_WIDTH){1'b0}}\",\"{((CHANNEL_WIDTH < 15) ? (15 - CHANNEL_WIDTH) : 1){1'b0}}\"))" $< $@
