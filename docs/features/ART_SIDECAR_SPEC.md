@@ -3,7 +3,7 @@
 **Status: DESIGN. Nothing built.** Owner points (2026-10-14): the embedded-JPEG cover decode blocks the loop for seconds (A-120, B-027) and makes gapless meaningless (`GAPLESS_SPEC.md` section 2c); covers should **always come from a sidecar**, with optimised sizes for different uses; the sizes themselves are to be settled later and changing them must be a minimal change.
 
 ## 1. What exists today [READ]
-- **Format:** TIM1 `.timg` (`docs/IMAGE_FORMATS.md`, `tools/tau_image.py`, firmware reader `fw/timg.inc`): pal256 is a 16-byte header, a 256-entry RGB565 palette (512 B) and one byte per pixel, so a W x H file is **W x H + 528 B**; the hardware CLUT blit draws it, no CPU decode. Load measured about 90 ms for 128 px (B-325, B-330).
+- **Format:** TIM1 `.timg` (`docs/features/IMAGE_FORMATS.md`, `tools/tau_image.py`, firmware reader `fw/timg.inc`): pal256 is a 16-byte header, a 256-entry RGB565 palette (512 B) and one byte per pixel, so a W x H file is **W x H + 528 B**; the hardware CLUT blit draws it, no CPU decode. Load measured about 90 ms for 128 px (B-325, B-330).
 - **Placement:** one sidecar per **album folder**: `<album>/tau-art/cover_128.pal256.timg`, found by the fixed name `fw/timg.inc:149`. Every track of the folder shows it.
 - **Creation:** `tools/sync_media.py --art-variants` only (opt-in, Pillow); the source is the folder image, else the first track with embedded art, else any image under the folder; non-square covers are scaled by the long side (`fit_long_side`, no crop). Default variant `pal256`, default size 128 (`tau_image.DEFAULT_VARIANTS`, `DEFAULT_SIZE`).
 - **Fallback:** no sidecar means the embedded JPEG is decoded in `load_track()` (2.6 s at 707 px, 5.3 s at 455, 15.8 s at 1400), synchronously.
