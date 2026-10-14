@@ -77,3 +77,21 @@ At a natural track end the next track's first sample must reach the DAC before t
 - PSRAM contention with instruction fetch for cold code and the art decode (the ring adds about 350 KB/s: small, but the Check soak must run with it).
 - Hot RAM: the drain and the marker handling must live in cold code or fit the 1,120 B Diagnostic gap (it is tight, B-720 trim note); budget the first G1 build against `check_heap_gap.py` and a `DIAG_DROP` if needed.
 - A wrong trim is audible as a click at every boundary; the six-file exact match (section 2) is the guard, the host stream test the gate.
+
+## 8. G1 integration sites in `fw/player.c` (B-730, read from the source; nothing wired yet)
+The ring core (`fw/pcm_ring.h`, host-tested) replaces the FIFO as the thing the decoders write to. Every site below must change together, which is why G1 ships alone behind `TAU_PCM_RING` (default 0) and is heard before G2.
+| Site | Today | With the ring |
+|---|---|---|
+| MP3 push (`pcm_push_pairs`, ~10501) | gain, burst write to FIFO, waits on FIFO room | `pcm_ring_put` raw pairs; waits on ring room; `spin` = poll_input + refill_pump + **drain** |
+| FLAC and tempo push (`cymo_push`, 7866) | per-pair gain + FIFO write | per-pair put into the ring (a block put from `flac_emit` is cheaper), no gain |
+| Drain | n/a | `pcm_ring_drain` called from the main loop top, from every producer wait, and from `poll_input` callers that wait; **not while paused** (a paused ring keeps its content; the FIFO runs dry in 46 ms as today) |
+| `pcm_flush()` (6916) | `R_PCM_ST = 1`, arm fade | also `pcm_ring_flush`; the fade-in now applies at the drain, so the first pairs HEARD fade in |
+| Meters (`meters_feed`, 10497 MP3, 8004 FLAC, tempo_meter) | fed at decode time | **2 s early with a ring.** Move the feed to the drain: gather raw pairs into the 1152-pair capture buffer and call `meters_feed` per 1152 pairs, so the software peak/scope/wave data line up with the hardware spectrum and wave taps (which already read the FIFO output). Remove the decode-time calls under the macro |
+| Clock and progress (`frames`, `ui_sec`) | decode position | heard position = decode position - (ring fill + FIFO level) in pairs; `ui_sec` advances from drained pairs |
+| End of file (`gap_mark_eof`, 10307, 10352) | `lib_advance_auto()` loads the next track at once, which flushes | **G1 alone:** wait for the ring and the FIFO to play out, then continue exactly as today (otherwise the last 2 s of every track would be cut). G2 replaces this wait with the boundary marker |
+| Underrun checks (`pcm_underrun`, `pcm_level`) | FIFO flags | unchanged (they read the FIFO); `min_level` and the stress counters keep their meaning; add the ring fill to Info (RING row) |
+| HW GAIN hand-over (`fw/gain_handover.h`) | mutes, flushes through `gh_flush` = `pcm_flush` | works unchanged because `pcm_flush` empties the ring too; re-check the 16 ms wait |
+| Pause resume (`fade_restart`) | fade on the next pushed pair | fade at the next drained pair (same function, applied at the drain) |
+| Seek, Next, Previous, stop | flush | same flush, now also dropping up to 2 s of decoded audio (as intended) |
+**Memory:** the ring is a PSRAM region (2 s of pairs at 4 bytes = 345 KiB at 44.1 kHz, 375 KiB at 48 kHz); the region must be added to the PSRAM map (`CYMO_TEMPO_INTEGRATION.md` section 4: tempo staging is at +6 MiB, library image, queue and Check scratch elsewhere) and proven at boot like the tempo ring. Drain and put are small; keep the producer's put inlined in the hot loop only if the heap gap allows, otherwise cold with a hot trampoline.
+**Test plan:** the stream-equality host test exists for the core; add a host model of the sites above (pause, flush, EOF wait, heard position, meter alignment) before the firmware edit; Pocket: the usual Check, a loopback of a tone through a track change and a pause, and Info RING and GAP rows.
