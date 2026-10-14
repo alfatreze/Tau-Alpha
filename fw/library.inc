@@ -263,9 +263,9 @@ COLD_FN static const char *lib_det_s(uint32_t i)              /* the i-th string
     while (i--) { while (*p++) { } }
     return p;
 }
-#define LIB_DET_ROW_H 28u
-#define LIB_DET_ROWS  9u
-#define LIB_DET_CH    25u                       /* characters of a value per row */
+#define LIB_DET_ROW_H 25u                       /* B-730: stacked fields: a dim label row, then the value rows under it */
+#define LIB_DET_ROWS  10u
+#define LIB_DET_CH    36u                       /* characters of a value per row (the value now has the full width) */
 static uint8_t  lib_det_open;
 static uint16_t lib_det_id, lib_det_top;
 enum { DF_TITLE, DF_ARTIST, DF_ALBUM, DF_TRACKNO, DF_YEAR, DF_LENGTH, DF_FILE, DF_FOLDER, DF_FORMAT, DF_AUDIO, DF_BITRATE, DF_SIZE, DF_ENCODER, DF_GAPLESS, DF_RGT, DF_RGA, DF_COVER,
@@ -317,7 +317,7 @@ COLD_FN static uint32_t lib_det_rows(void)
         if (f >= DF_LIVE_DEC && !lib_det_playing()) break;
         lib_det_text(f, b, sizeof b);
         uint32_t len = 0; while (b[len]) len++;
-        n += len > LIB_DET_CH ? (len + LIB_DET_CH - 1u) / LIB_DET_CH : 1u;
+        n += 1u + (len > LIB_DET_CH ? (len + LIB_DET_CH - 1u) / LIB_DET_CH : 1u);
     }
     return n;
 }
@@ -328,7 +328,7 @@ COLD_FN static int lib_det_row_at(uint32_t r, uint32_t *field, uint32_t *chunk, 
         if (f >= DF_LIVE_DEC && !lib_det_playing()) break;
         lib_det_text(f, b, cap);
         uint32_t len = 0; while (b[len]) len++;
-        uint32_t c = len > LIB_DET_CH ? (len + LIB_DET_CH - 1u) / LIB_DET_CH : 1u;
+        uint32_t c = 1u + (len > LIB_DET_CH ? (len + LIB_DET_CH - 1u) / LIB_DET_CH : 1u);   /* label row + value rows */
         if (r < n + c) { *field = f; *chunk = r - n; return 1; }
         n += c;
     }
@@ -342,19 +342,20 @@ COLD_FN static void lib_det_draw(void)
     char right[16], *q = right;
     q = tdet_dec(q, (uint32_t)lib_det_top + 1u); q = tdet_cat(q, lib_det_s(TDS_SLASH)); q = tdet_dec(q, total); *q = 0;
     ov_frame(lib_det_s(lib_det_playing() ? TDS_TRACK_DETAILS_PLAYING : TDS_TRACK_DETAILS), right, lib_det_s(TDS_SCROLL_HINT));
-    const uint32_t lx = PL_UI_TEXT_X, vx = PL_UI_TEXT_X + 132u, vw = PL_UI_X + PL_UI_W - 16u - vx;
+    const uint32_t lx = PL_UI_TEXT_X, vx = PL_UI_TEXT_X + 8u, vw = PL_UI_X + PL_UI_W - 16u - vx;
     for (uint32_t i = 0; i < LIB_DET_ROWS; i++) {
         const uint32_t y = PL_UI_LIST_Y + i * LIB_DET_ROW_H;
         fb_rect(PL_UI_X + 4u, y, PL_UI_W - 8u, LIB_DET_ROW_H, OV_BODY);
         char b[96]; uint32_t f, c;
         if (!lib_det_row_at((uint32_t)lib_det_top + i, &f, &c, b, sizeof b)) continue;
-        if (c == 0u) { fb_set_color(UI_DIM, OV_BODY); fb_text_clipped(lx, y + 6u, lib_det_s(f), TS_1X, TS_1X, 128u); }
+        if (c == 0u) { fb_set_color(UI_DIM, OV_BODY); fb_text_clipped(lx, y + 5u, lib_det_s(f), TS_1X, TS_1X, vw); continue; }
+        c--;
         char v[LIB_DET_CH + 1u]; uint32_t len = 0; while (b[len]) len++;
         uint32_t from = c * LIB_DET_CH, k = 0;
         for (; k < LIB_DET_CH && from + k < len; k++) v[k] = b[from + k];
         v[k] = 0;
         fb_set_color(len ? UI_WHITE : UI_DIM, OV_BODY);
-        fb_text_clipped(vx, y + 6u, len ? v : lib_det_s(TDS_DASH), TS_1X, TS_1X, vw);
+        fb_text_clipped(vx, y + 5u, len ? v : lib_det_s(TDS_DASH), TS_1X, TS_1X, vw);
     }
     if (total > LIB_DET_ROWS) {
         const uint32_t track_x = PL_UI_X + PL_UI_W - 11u, track_y = PL_UI_LIST_Y, track_h = LIB_DET_ROWS * LIB_DET_ROW_H - 4u;
@@ -423,7 +424,7 @@ COLD_FN static void lib_ui_draw(void)
 COLD_FN static void lib_ui_marquee(void)
 {
     lib_lv_t *v = &LIB_CUR;
-    if (!v->count) return;
+    if (!v->count || lib_det_open) return;   /* B-730: the details page owns the screen; the list row must not repaint over it */
     if (lib_mq_sel != v->sel) { lib_mq_sel = v->sel; lib_mq_off = 0; lib_mq_next = cycles() + CLK_HZ; return; }
     if ((int32_t)(cycles() - lib_mq_next) < 0) return;
     char nm[64]; int32_t tile; uint32_t year;
