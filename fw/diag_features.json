@@ -170,6 +170,8 @@
       "id": "config_export",
       "kind": "dx",
       "converted": true,
+      "default_off": true,
+      "note_default_off": "B-737: off in the default Diagnostic Build to pay for the gapless trim (96 B hot short of the heap floor); the configurator is parked. Remove default_off to restore.",
       "title": "Meter Configure page: the EXPORT row and its report page (wvcfg_export.inc)",
       "depends": [],
       "class": "observer",

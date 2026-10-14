@@ -101,6 +101,7 @@ test-host:
 	$(PYTHON) sim/test_tpg_fw.py
 	$(PYTHON) sim/test_pcm_burst.py
 	$(PYTHON) sim/test_pcm_ring.py
+	$(PYTHON) sim/test_mp3_trim.py
 	$(PYTHON) sim/test_replaygain.py
 	$(PYTHON) sim/test_persist_ranges.py
 	$(PYTHON) sim/test_key_repeat.py
