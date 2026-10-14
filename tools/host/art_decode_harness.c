@@ -8,6 +8,7 @@
 #include "hostio.h"
 
 #define TAU_ART_PSRAM 0
+#define ART_NO_JOB 1
 #define ART_PSRAM
 #define COLD_FN2
 #define ART_IMG   128u

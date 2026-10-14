@@ -72,6 +72,7 @@ static uint8_t pl_cmd_timedout;
  * asserted from the previous command until the next one is picked up. */
 static int pl_cmd(uint32_t sel, uint32_t slot, uint32_t timeout_cycles)
 {
+    if (sel == TGT_OPENFILE) art_job_on = 0;   /* B-735: opening another file switches the slot under a running cover decode */
     refill_drain();                       /* one command in flight, ever */
     pl_cmd_timedout = 0;
     uint32_t seq0 = (REG(R_TGT_GO) >> 8) & 0xFFu;

@@ -439,6 +439,7 @@ typedef struct {
     uint16_t my, mx, mcus_row, mcus_col;
     uint32_t next_ay, aw, ah, sw, sh, mcu_w, mcu_h, bxn, byn;
     unsigned char *pr, *pg, *pb;      /* picojpeg's MCU buffers (static in picojpeg) */
+    uint32_t t0, sig;                 /* when the job began (cycles), and the cover's signature for the cache */
 } art_job_t;
 static art_job_t art_job ART_COLD_BSS;
 
@@ -627,3 +628,44 @@ COLD_FN2 static int art_decode(uint32_t tag_len)
     if (!art_decode_begin(tag_len)) return 0;
     return art_decode_run(0u, 0u) == 1;
 }
+
+#ifndef ART_NO_JOB          /* the host harness (tools/host/art_decode_harness.c) has no player around it: it tests begin/run only */
+/* ---- B-735 (gapless G1b): the cover decodes in the background -------------------------------------------------------------------------------------------------------
+ * art_job_launch() is what load_track() calls instead of the blocking decode: it finds the picture and primes the job (begin), then returns at once. art_job_tick() runs from
+ * ui_draw_dynamic_cold(), once per decoded frame (MP3) or UI period (FLAC), and decodes MCUs for a few ms when it is safe: the audio FIFO holds at least ART_JOB_MIN_PAIRS,
+ * no load or reload is in progress, no overlay holds the draw engine (the stash rows are written with engine commands, which an overlay drops), and no asynchronous audio read is
+ * pending (the job's own reads are synchronous and drain it first, but there is no reason to queue behind it). Anything that can switch the slot's file clears art_job_on
+ * (load_track, the 0192 open in pl_cmd); a reload request is also checked here. A step costs at most the budget, one MCU and one 4 KB window read (about 13 ms worst), against a FIFO
+ * of at least 23 ms. When the job ends the stash holds the cover: it is rounded, drawn and cached under its signature exactly as the blocking path did. */
+#define ART_JOB_MIN_PAIRS  1024u
+#define ART_JOB_BUDGET     (CLK_HZ / 250u)           /* 4 ms of decoding per step */
+COLD_FN2 static int art_job_launch(uint32_t tag_len, uint32_t sig)
+{
+    if (!art_decode_begin(tag_len)) return 0;
+    art_job.t0 = cycles(); art_job.sig = sig;
+    art_job_on = 1u;
+    return 1;
+}
+COLD_FN2 static void art_job_tick(void)
+{
+    if (reload_pending || reload_armed || ui_loader_on || FB_HELD() || rd_pending) return;
+    if (pcm_level() < ART_JOB_MIN_PAIRS) return;
+    const int r = art_decode_run(0u, ART_JOB_BUDGET);
+    if (r == 0) return;
+    art_job_on = 0u;
+    ld_art = LD_MS(cycles() - art_job.t0);           /* LOAD MS' cover field now shows the whole background decode */
+    if (r == 1) {
+        art_sig = art_job.sig;
+        ui_art_round();
+        art_ready = 1;
+        if (art_shown) ui_art_draw();
+    } else {                                          /* present and unreadable (the blocking path's `art_bad` branch) */
+        art_bad = 1; art_bad_code = art_fail_code; art_bad_sig = art_job.sig; art_have = 0;
+        ui_art_mount();
+        ui_art_reason(art_bad_code == PJPG_UNSUPPORTED_MODE);
+        ui_art_round();
+        ui_toast_msg(art_bad_code == PJPG_UNSUPPORTED_MODE ? "COVER: PROGRESSIVE JPEG" : "COVER: CANNOT BE READ");
+        if (art_shown) ui_art_draw();
+    }
+}
+#endif /* ART_NO_JOB */
