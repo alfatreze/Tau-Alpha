@@ -72,6 +72,77 @@ MUTANTS = [("room ignores the unused slot", "r->size - 1u - r->margin - f;", "r-
            ("the tail of a put is never published", "    if (pending) h->wr_wptr(r->w);\n    return 1u;", "    return 1u;"),
            ("mono not duplicated", "const int32_t rr = stereo ? pcm[2u * done + 1u] : l;", "const int32_t rr = stereo ? pcm[2u * done + 1u] : 0;"),
            ("no wrap of the write index", "if (++r->w == r->size) r->w = 0u;\n        room--;", "++r->w;\n        room--;")]
+
+HARNESS_B = r"""
+#include <stdio.h>
+#include <stdlib.h>
+#include "%s"
+#define SZ 211u
+#define DEPTH 30u            /* the FIFO model's depth: pairs it can hold */
+#define MAXN 8u              /* the meter window */
+#define MARGIN 41u           /* DEPTH + MAXN + slack, as RG_MARGIN = 2048 + 1152 + 128 */
+static uint32_t rs = 99u; static uint32_t rnd(void) { rs = rs * 1664525u + 1013904223u; return rs >> 8; }
+static uint32_t slot[SZ];                    /* the id (a running number) stored in each slot */
+static uint32_t pushed[1 << 20];             /* pushed[p] = the id of the p-th pair pushed (RING_CNT = p + 1 after it) */
+static uint32_t cnt, ridx, wid, fed, level;  /* wid = the next id to store */
+static prh_t r;
+int main(void)
+{
+    long bad = 0, feeds = 0, flushes = 0;
+    prh_init(&r, SZ, MARGIN, 0); ridx = 0; cnt = 0; fed = 0; level = 0; wid = 0;
+    for (int it = 0; it < 400000; it++) {
+        const uint32_t a = rnd() %% 1000;
+        if (a < 400) {                                          /* the CPU puts one pair if there is room (margin included) */
+            if (prh_room(&r, ridx)) { slot[r.w] = wid++; if (++r.w == SZ) r.w = 0u; }
+        } else if (a < 780) {                                   /* the reader pushes one pair into the FIFO if there is data and room */
+            if (ridx != r.w && level < DEPTH) { pushed[cnt] = slot[ridx]; cnt++; level++; if (++ridx == SZ) ridx = 0u; }
+        } else if (a < 920) {                                   /* the DAC releases a pair */
+            if (level) level--;
+        } else if (a < 921) {                                   /* a flush (rare, so the ring also runs full): unread pairs dropped, FIFO emptied; the firmware moves fed to cnt */
+            ridx = r.w; level = 0; fed = cnt; flushes++;
+        } else {                                                /* a meter feed */
+            uint32_t pos, nf; const uint32_t n = prh_meter_span(cnt, level, fed, ridx, SZ, MAXN, &pos, &nf);
+            const uint32_t heard = cnt - level;
+            if (n > MAXN) { bad++; printf("FAIL n %%u > max\n", n); }
+            if (n && nf != heard && (heard - fed) <= MAXN) { bad++; printf("FAIL new_fed %%u != heard %%u\n", nf, heard); }
+            const uint32_t first = nf - n;                      /* the number of the first pair fed */
+            for (uint32_t i = 0; i < n; i++) {
+                const uint32_t want = pushed[first + i], got = slot[(pos + i) %% SZ];
+                if (got != want) { bad++; if (bad < 6) printf("FAIL feed pair %%u: slot holds %%u, wanted %%u (it %%d)\n", first + i, got, want, it); break; }
+            }
+            if (nf != fed) fed = nf;
+            feeds++;
+        }
+    }
+    /* the clock helper */
+    if (prh_heard_pos(100u, 30u) != 70u || prh_heard_pos(30u, 30u) != 0u || prh_heard_pos(10u, 30u) != 0u || prh_heard_pos(0u, 0u) != 0u) { bad++; printf("FAIL heard_pos\n"); }
+    /* the natural-end wait: reload leaves; paused waits; done only when both empty; timeout leaves */
+    for (uint32_t m = 0; m < 32u; m++) {
+        const uint32_t rl = m & 1, pa = (m >> 1) & 1, re = (m >> 2) & 1, fe = (m >> 3) & 1, to = (m >> 4) & 1;
+        const uint32_t got = prh_playout_step(rl, pa, re, fe, to ? 100u : 1u, 50u);
+        const uint32_t want = rl ? 2u : pa ? 0u : (re && fe) ? 1u : to ? 2u : 0u;
+        if (got != want) { bad++; printf("FAIL playout_step mask %%u: %%u vs %%u\n", m, got, want); }
+    }
+    printf("%%s: %%ld meter feeds, %%ld flushes, %%d failures\n", bad ? "FAIL" : "ok", feeds, flushes, (int)bad);
+    return bad != 0;
+}
+"""
+MUTANTS_B = [("meter read-back ignores the heard offset (level)", "const uint32_t heard = cnt - level;", "const uint32_t heard = cnt;"),
+             ("slots behind the read index may be overwritten (margin 0)", "return f + r->margin + 1u >= r->size ? 0u : r->size - 1u - r->margin - f;", "return f + 1u >= r->size ? 0u : r->size - 1u - f;"),
+             ("window not clamped to max_n", "if ((uint32_t)n > max_n) { fed = heard - max_n; n = (int32_t)max_n; }", ""),
+             ("slot position counted from the wrong side", "*pos = ridx >= back ? ridx - back : ridx + size - back;", "*pos = ridx + back < size ? ridx + back : ridx + back - size;"),
+             ("the clock may go negative", "return decoded_pairs > lead ? decoded_pairs - lead : 0u;", "return decoded_pairs - lead;"),
+             ("a pause does not hold the natural-end wait", "if (paused) return 0u;", ""),
+             ("a reload request does not leave the wait", "if (reload_pending) return 2u;", "")]
+def run_b(hdr_text, tmp):
+    (tmp / "pcm_ring_hw.h").write_text(hdr_text); (tmp / "tb.c").write_text(HARNESS_B % str(tmp / "pcm_ring_hw.h"))
+    r = subprocess.run(["cc", "-O1", "-w", "-o", str(tmp / "tb"), str(tmp / "tb.c")], capture_output=True, text=True)
+    if r.returncode: print(r.stderr); sys.exit(1)
+    try: return subprocess.run([str(tmp / "tb")], capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        from types import SimpleNamespace
+        return SimpleNamespace(returncode=1, stdout="timeout\n")
+
 def run(hdr_text, tmp):
     (tmp / "pcm_ring_hw.h").write_text(hdr_text); (tmp / "t.c").write_text(HARNESS % str(tmp / "pcm_ring_hw.h"))
     r = subprocess.run(["cc", "-O1", "-w", "-o", str(tmp / "t"), str(tmp / "t.c")], capture_output=True, text=True)
@@ -84,6 +155,12 @@ def main():
     base = (ROOT / "fw/pcm_ring_hw.h").read_text(); fails = 0
     with tempfile.TemporaryDirectory() as d:
         d = Path(d); r = run(base, d); sys.stdout.write(r.stdout); fails += r.returncode != 0
+        r = run_b(base, d); sys.stdout.write(r.stdout); fails += r.returncode != 0
+        for name, a, b in MUTANTS_B:
+            assert a in base, name
+            m = d / "mb"; m.mkdir(exist_ok=True)
+            caught = run_b(base.replace(a, b, 1), m).returncode != 0
+            print(("ok   mutant caught: " if caught else "FAIL mutant NOT caught: ") + name); fails += not caught
         for name, a, b in MUTANTS:
             assert a in base, name
             m = d / "m"; m.mkdir(exist_ok=True)
