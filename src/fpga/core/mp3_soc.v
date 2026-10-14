@@ -96,6 +96,7 @@ module mp3_soc #(
     parameter AUDIO16_ENABLE = 0,
     // B-615 (Cymo C3 slice 2): hardware gain stage at the pcm_fifo output (tau_gain_stage.sv), registers 0x168-0x174. Inert (reads 0, audio path untouched) when 0.
     parameter GAIN_ENABLE = 0,
+    parameter GAIN_BOOST = 0,           // B-720: the gain stage may exceed unity (target up to 65535, saturating product); read back in R_GAIN_CTRL bit 30
     // B-639 (Halcyon): the Halcyon EQ engine (tau_halcyon.sv), registers 0x178-0x180; it is the only EQ (the preset EQ and its register 0x68 were removed). With 0 the audio is the unequalised path.
     parameter HALCYON_ENABLE = 0,
     // B-646 (wide EQ input): the Cymo resampler's output is 18 bits (the same LSB, two headroom bits: its +1 dB overshoot is no longer hard-clipped at +-32767) and the Halcyon engine takes
@@ -1054,7 +1055,7 @@ module mp3_soc #(
     wire signed [15:0] gain_r = (GAIN_ENABLE != 0 && gain_en) ? gst_r : fifo_r;
     generate
         if (GAIN_ENABLE != 0) begin : g_gain
-            tau_gain_stage u_gain (
+            tau_gain_stage #(.BOOST(GAIN_BOOST)) u_gain (
                 .clk(clk), .rst(rst), .tick(pcm_sample_tick), .adv(pcm_adv), .flush(pcm_flush), .fade_now(gain_fade_we), .snap(gain_snap),
                 .target(gain_target), .ramp(gain_ramp), .shift(gain_shift), .in_l(fifo_l), .in_r(fifo_r),
                 .out_l(gst_l), .out_r(gst_r), .cur_o(gain_cur), .fading(gain_fading));
@@ -1492,7 +1493,7 @@ module mp3_soc #(
             R_I2S_DIAG_ST:     mmio_rdata = {31'd0, (I2S_DIAG_ENABLE != 0)};
             R_CYMO_OUT:    mmio_rdata = {cymo_out16_r, cymo_out16_l};                                      // this read is the ack (clears done)
             R_CYMO_STATUS: mmio_rdata = {24'd0, cymo_feed_level, cymo_live_en, cymo_pop_req, cymo_done, cymo_busy, (CYMO_RESAMP_ENABLE != 0)}; // bit 0 present, 1 busy, 2 done, 3 pop_req, 4 live_en, [7:5] feed queue level (B-527)
-            R_GAIN_CTRL:   mmio_rdata = {(GAIN_ENABLE != 0), 25'd0, gain_shift, 1'b0, gain_fading, 1'b0, gain_en};   // B-615
+            R_GAIN_CTRL:   mmio_rdata = {(GAIN_ENABLE != 0), (GAIN_ENABLE != 0 && GAIN_BOOST != 0), 24'd0, gain_shift, 1'b0, gain_fading, 1'b0, gain_en};   // B-615
             R_HAL_CTRL:    mmio_rdata = {(HALCYON_ENABLE != 0), 17'd0, hal_nact, 5'd0, hal_busy, hal_bypass, hal_en};   // B-639
             R_HAL_IDX:     mmio_rdata = {24'd0, hal_idx};
             R_GAIN_TARGET: mmio_rdata = {16'd0, gain_target};

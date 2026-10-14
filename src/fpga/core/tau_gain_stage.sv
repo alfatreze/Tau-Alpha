@@ -17,10 +17,16 @@
 // The fade length is 256 << shift samples (shift 3 = 2048, the firmware's FADE_SAMPLES); change it only while no fade runs (g would otherwise jump).
 //
 // BUG selects a deliberate mutation (sim/tb_tau_gain_stage.v must FAIL each one): 1 no ramp (cur jumps), 2 volume rounding floors, 3 fade counts ticks without a sample,
-// 4 fade never applied, 5 target floor of 1 (mute not exact), 6 snap ignored, 7 shift ignored (fixed 3), 8 R published a clock after L (torn pair), 9 fade rounding floors.
+// 4 fade never applied, 5 target floor of 1 (mute not exact), 6 snap ignored, 7 shift ignored (fixed 3), 8 R published a clock after L (torn pair), 9 fade rounding floors,
+// 10 boost without the saturation (a hot sample wraps), 11 boost with the unity cap left in (a target above unity is ignored).
+//
+// B-720 BOOST (positive ReplayGain, owner ceiling +6 dB): with BOOST = 1 the target cap is 65535 (just under 2.0, +6.02 dB) instead of unity, and the volume product is saturated to
+// the 16-bit range before the fade. Below unity the result is bit-identical to BOOST = 0 (the saturation can only act above 1.0). The firmware peak-limits the target, so the saturation
+// is a safety net, not a limiter. BOOST = 0 (the default) is the stage as shipped.
 // =============================================================================
 module tau_gain_stage #(
-    parameter integer BUG = 0
+    parameter integer BUG = 0,
+    parameter integer BOOST = 0
 )(
     input  wire        clk,
     input  wire        rst,
@@ -39,7 +45,8 @@ module tau_gain_stage #(
     output wire [15:0] cur_o,
     output wire        fading
 );
-    wire [15:0] tgt_raw = (target > 16'd32768) ? 16'd32768 : target;
+    wire [15:0] cap = (BOOST != 0 && BUG != 11) ? 16'd65535 : 16'd32768;
+    wire [15:0] tgt_raw = (target > cap) ? cap : target;
     wire [15:0] tgt = (BUG == 5 && tgt_raw == 16'd0) ? 16'd1 : tgt_raw;
     wire [1:0]  shf = (BUG == 7) ? 2'd3 : shift;
     wire [11:0] total = 12'd256 << shf;      // 256..2048
@@ -82,7 +89,9 @@ module tau_gain_stage #(
     reg [8:0]  g_h;
     wire signed [35:0] rv = mp + 36'sd16384;
     wire signed [35:0] rf = mp + 36'sd128;
-    wire signed [15:0] vol_y = (BUG == 2) ? mp[30:15] : rv[30:15];     // product of 16 x <=32768 stays inside 31 bits; the round-to-nearest constant is the only difference
+    wire signed [35:0] rvb = rv >>> 15;                                      // BOOST: the product can reach 2.0 x full scale (17 bits)
+    wire signed [15:0] vol_sat = (BUG == 10) ? rvb[15:0] : (rvb > 36'sd32767) ? 16'sh7FFF : (rvb < -36'sd32768) ? 16'sh8000 : rvb[15:0];
+    wire signed [15:0] vol_y = (BOOST != 0) ? vol_sat : (BUG == 2) ? mp[30:15] : rv[30:15];     // product of 16 x <=32768 stays inside 31 bits; the round-to-nearest constant is the only difference
     wire signed [15:0] fad_y = (BUG == 9) ? mp[23:8]  : rf[23:8];
     always @(posedge clk) begin
         tick_d <= rst ? 1'b0 : tick;

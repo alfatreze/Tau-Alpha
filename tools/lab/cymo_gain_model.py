@@ -10,6 +10,7 @@ Per output sample pair (one `tick` of pcm_fifo's fractional-rate strobe), in thi
   Both channels are produced together and published in the same clock (no torn pair).
 """
 UNITY = 32768
+BOOST_MAX = 65535        # B-720: with boost the target cap is 65535 (+6.02 dB) and the volume product saturates to 16 bits
 RAMP_DEFAULT = 149
 SHIFT_DEFAULT = 3
 
@@ -19,7 +20,8 @@ def rnd(v, n):
 
 
 class GainStage:
-    def __init__(self, ramp=RAMP_DEFAULT, shift=SHIFT_DEFAULT):
+    def __init__(self, ramp=RAMP_DEFAULT, shift=SHIFT_DEFAULT, boost=False):
+        self.boost = boost
         self.ramp = ramp
         self.shift = shift
         self.cur = UNITY
@@ -32,7 +34,7 @@ class GainStage:
         return 256 << self.shift
 
     def set_target(self, t):
-        self.target = min(t, UNITY)
+        self.target = min(t, BOOST_MAX if self.boost else UNITY)
 
     def snap(self):
         self.cur = self.target
@@ -47,6 +49,8 @@ class GainStage:
             d = max(-self.ramp, min(self.ramp, d))
             self.cur += d
         yl, yr = rnd(xl * self.cur, 15), rnd(xr * self.cur, 15)
+        if self.boost:
+            yl, yr = max(-32768, min(32767, yl)), max(-32768, min(32767, yr))
         if self.fade_left:
             g = (self.fade_total - self.fade_left) >> self.shift
             yl, yr = rnd(yl * g, 8), rnd(yr * g, 8)

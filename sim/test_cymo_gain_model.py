@@ -82,6 +82,45 @@ check("fade-in starts at silence, never falls, and ends at the settled level", l
 s = m.GainStage(); s.fade_now(); a = [s.tick(30000, 0, 0) for _ in range(500)]; left = s.fade_left
 check("ticks without a real sample (priming, underrun gap) do not consume the fade", left == 2048, "(fade_left %d)" % left)
 
+# B-720 boost: below unity it is the same stage; above unity the gain is exact and the product saturates
+rb = random.Random(5); same = True; sa = m.GainStage(); sb = m.GainStage(boost=True)
+for _ in range(40000):
+    r = rb.random()
+    if r < 0.01: t = rb.choice([0, 35, 4125, 24857, 32768]); sa.set_target(t); sb.set_target(t)
+    elif r < 0.015: sa.fade_now(); sb.fade_now()
+    else:
+        x = rb.choice([0, 1, -1, 32767, -32768, rb.randint(-32768, 32767)]); y = rb.randint(-32768, 32767); same &= sa.tick(x, y, 1) == sb.tick(x, y, 1)
+check("with boost, targets up to unity give exactly the same stage (the saturation never acts below 1.0)", same)
+s = m.GainStage(boost=True); s.set_target(65535); s.snap()
+check("boost: target 65535 is held (not capped to unity) and the gain is +6.02 dB", s.cur == 65535 and s.tick(10000, -10000, 1) == (m.rnd(10000 * 65535, 15), m.rnd(-10000 * 65535, 15)))
+check("boost: a hot sample saturates at +32767 / -32768 (never wraps)", s.tick(30000, -30000, 1) == (32767, -32768) and s.tick(32767, -32768, 1) == (32767, -32768))
+s = m.GainStage(); s.set_target(65535)
+check("without boost the target stays capped at unity (the stage as shipped)", s.target == 32768)
+s = m.GainStage(boost=True); s.set_target(49152); s.snap()
+check("boost: a 1.5x target gives 1.5 x the sample (round to nearest)", s.tick(10000, 0, 1)[0] == 15000)
+
+if "--boost-vectors" in sys.argv:
+    path = sys.argv[sys.argv.index("--boost-vectors") + 1]
+    rnd = random.Random(11)
+    s = m.GainStage(boost=True); lines = []
+    tab = [0, 4125, 24857, 32768, 36000, 49152, 58000, 65535]
+    for i in range(60000):
+        r = rnd.random()
+        if r < 0.004:
+            t = rnd.choice(tab); s.set_target(t); lines.append("T %d" % t)
+        elif r < 0.0046:
+            s.fade_now(); lines.append("F")
+        elif r < 0.0056:
+            s.snap(); lines.append("N")
+        else:
+            x = rnd.choice([0, 1, -1, 32767, -32768, 20000, -20000, rnd.randint(-32768, 32767)])
+            y = rnd.choice([x, rnd.randint(-32768, 32767)])
+            adv = 0 if rnd.random() < 0.1 else 1
+            o = s.tick(x, y, adv)
+            lines.append("S %d %d %d %d %d" % (x, y, adv, o[0], o[1]))
+    Path(path).write_text("\n".join(lines) + "\n")
+    print("wrote %s (%d lines)" % (path, len(lines)))
+
 if "--vectors" in sys.argv:
     path = sys.argv[sys.argv.index("--vectors") + 1]
     rnd = random.Random(7)
