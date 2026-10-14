@@ -1282,7 +1282,7 @@ static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: curre
 #if TAU_PCM_RING_FW
 /* B-746 (gapless G1, fw/pcm_ring_fw.inc): the hardware PCM ring is the decoders' output while rg_on. */
 static prh_t    rg;
-static uint8_t  rg_on, rg_tried, rg_held;
+static uint8_t  rg_on, rg_held;
 static uint32_t rg_fed, rg_n1;
 static uint8_t  rg_put_frame(const int16_t *pcm_, uint32_t pairs, uint32_t stereo);
 static uint8_t  rg_put1(int32_t l, int32_t r, uint8_t abortable);
@@ -8979,7 +8979,11 @@ COLD_SR static int load_track(void)
 {
     art_job_on = 0;      /* B-735: a new load owns the slot */
 #if TAU_PCM_RING_FW
-    if (!rg_tried && cold_code_ok) rg_probe();
+#if TAU_TEMPO
+    if (cold_code_ok && !rg_on && !tempo_idx) rg_probe();   /* B-746: re-evaluated at every load while the ring is off: it comes back after a tempo or HW GAIN excursion */
+#else
+    if (cold_code_ok && !rg_on) rg_probe();
+#endif
 #endif
     /* Release the FLAC buffer FIRST. This runs before the format is known --
      * detection needs the file's head, which read_track_head() has not fetched

@@ -63,10 +63,9 @@ COLD_FN2 static void rg_off(void)
     REG(R_RING_CTRL) = 0u;
     pcm_flush();
 }
-/* Once, at the first track load after the cold image is up. */
+/* At a track load while the ring is off (the first one after the cold image is up, and again after a tempo or hardware-gain excursion). */
 COLD_FN2 static void rg_probe(void)
 {
-    rg_tried = 1u;
     if (!(REG(R_RING_CTRL) >> 31) || !vol_st.hw) return;
     volatile uint32_t *a = RG_WIN, *b = RG_WIN + (RG_SIZE - 1u);          /* the window must answer before the hardware is trusted with it */
     a[0] = 0x5A5AC3C3u; b[0] = 0xA5A53C3Cu; a[1] = 0x12345678u;
