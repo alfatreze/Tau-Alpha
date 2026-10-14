@@ -8987,6 +8987,128 @@ COLD_FN2 static uint32_t mt_start_pair(uint32_t spf)
     return mp3_trim_cfg(&c, track_frames, spf, track_enc_delay, track_enc_padding) ? c.S : 0u;
 }
 
+/* G2a (B-749, a pure refactor of load_track(): no behaviour change). The part of a track load that is only about the SCREEN: the library title/artist/album from the index, the loader frame,
+ * the cover (sidecar, cache, background JPEG job, bad-cover frame), the panel state and the chrome paint. It reads audio_start and the track's tags (already read), and writes the art_*
+ * state and ld_art. The gapless boundary (G2b, docs/features/GAPLESS_SPEC.md section 11) runs it at the marker instead of at load time. *tphase is load_track()'s phase timer. */
+COLD_SR static void load_ui_tail(uint32_t *tphase)
+{
+    /* Library track: show the title, artist and album at once (taken from the index), and let the cover art and the
+     * rest of the details follow once the file has fully loaded. The panel is parked so the early frame has no stale cover. */
+    if (lib_src) {
+        lib_meta_apply();
+        ui_loader_begin_ex(1);      /* full frame with the index's title/artist/album; the loader turns in the empty art plate until the cover arrives */
+    }
+    /* Cover art BEFORE the chrome, because whether it exists decides the
+     * layout: no art means no panel and a full-width waveform. Also before
+     * prefill, so its blocking reads cannot starve playback. */
+    /* Skip the art entirely when the file has not changed.
+     *
+     * This is the long pole in a restart. pcm_flush() has already emptied the
+     * FIFO, and everything between it and prefill() runs with the DAC holding a
+     * DC level -- the head read, the size probe, and a full JPEG decode with
+     * its own SD reads. Re-decoding artwork that is already in the SDRAM stash
+     * bought nothing and dominated that gap, which is what the hiccup on B
+     * actually was. Same file, same picture: reuse it.
+     *
+     * Keyed on the 0190 file identity, so a genuine track change still decodes
+     * and only a restart of the same file skips. */
+    art_ready = 0;
+    int has_art;
+    if (cur_file_id && cur_file_id == art_file_id) {
+        /* Same file. Free, and the common case on a restart. */
+        has_art = art_have;
+    } else {
+        /* Different file, but very often the same PICTURE: every track of an
+         * album embeds one cover. Measured on this hardware, that decode is
+         * 2801 ms of a 3731 ms load, so asking first is worth a few reads.
+         *
+         * Must happen BEFORE ui_art_mount(), which fills the stash with the
+         * panel colour -- checking afterwards would compare against an image
+         * it had already destroyed. */
+#if TAU_G4 >= 2
+        uint32_t sig = COLD_READY() ? art_sig_of(audio_start) : 0u;     /* cold code */
+#else
+        uint32_t sig = art_sig_of(audio_start);
+#endif
+        art_bad = 0;
+#if TAU_ART_TIMG
+        /* Library track with a pre-converted cover beside it: no JPEG decode at all (docs/COVER_TIMG_READER.md). */
+        char timg_path[LIB_MAX_PATH + 40u];
+        const uint32_t timg_sig = COLD_READY() ? timg_cover_path(timg_path, sizeof(timg_path)) : 0u;
+        if (timg_sig && art_have && timg_sig == art_sig) {
+            has_art = 1;                     /* same album: the stash already holds this cover */
+        } else if (timg_sig && timg_cover(timg_sig, timg_path)) {
+            ui_art_round();
+            art_sig = timg_sig;
+            has_art = 1;
+        } else
+#endif
+        if (art_have && sig && sig == art_sig) {
+            has_art = 1;                 /* the stash already holds this cover */
+        } else if (sig && sig == art_bad_sig) {
+            /* Known bad. The frame and its reason are still drawn -- that is a
+             * standing fact about the file, not an event -- but nothing is
+             * decoded again and nothing is announced again. Repeating either
+             * on all thirteen tracks of an album helps nobody. */
+            ui_art_mount();
+            ui_art_reason(art_bad_code == PJPG_UNSUPPORTED_MODE);
+            ui_art_round();
+            has_art = 0;
+            art_bad = 1;
+        } else {
+            ui_art_mount();
+            /* B-735 (gapless G1b): the embedded-JPEG decode takes 2 to 16 s and used to stop everything, audio included. Now it is started here and finished in the
+             * background by art_job_tick() (a few ms between decoded frames, only while the FIFO is comfortable); the panel shows the empty plate meanwhile and the cover
+             * arrives when the job ends. art_sig stays 0 until then, so a next track never reuses a half-finished stash. */
+            int started = 0;
+#if TAU_G4 >= 2
+            if (COLD_READY()) started = art_job_launch(audio_start, sig);
+            has_art = started;
+#else
+            has_art = art_decode(audio_start);
+#endif
+            if (started) ui_art_placeholder();
+            if (!has_art) {
+                if (art_fail_code) {     /* present, and unreadable */
+                    art_bad      = 1;
+                    art_bad_code = art_fail_code;
+                    art_bad_sig  = sig;
+                    ui_art_reason(art_bad_code == PJPG_UNSUPPORTED_MODE);
+                } else {
+                    ui_art_placeholder();   /* simply no artwork */
+                }
+            }
+            ui_art_round();
+            art_sig = (has_art && !started) ? sig : 0u;
+
+            /* A cover that IS there and cannot be read is worth a word. An
+             * empty frame with no reason for it reads as the core being
+             * broken, and the reason was already in hand -- picojpeg says
+             * exactly why and it was being thrown away.
+             *
+             * Only when a picture was actually found: art_fail_code stays 0
+             * when a file simply has no artwork, which is not a fault and
+             * needs no announcement. */
+            if (art_bad)
+                ui_toast_msg(art_bad_code == PJPG_UNSUPPORTED_MODE
+                             ? "COVER: PROGRESSIVE JPEG"
+                             : "COVER: CANNOT BE READ");
+        }
+        art_file_id = cur_file_id;
+    }
+    art_ready = 1;
+    ld_art = LD_MS(cycles() - *tphase); *tphase = cycles();
+
+    /* Panel state follows the TRACK, not the session. art_x is set directly
+     * rather than animated -- a track change should not look like a slide. */
+    art_have  = (uint8_t)has_art;
+    art_shown = (uint32_t)(ART_PANEL_WANTED && art_pref);
+    art_x     = art_shown ? ART_X : FB_W;
+
+    ui_chrome_paint();   /* title/artist are populated now -- draw the UI */
+    ui_boot_cancel();   /* the loader is over: prefill()'s reads tick ui_boot_tick(), which would otherwise keep painting the spinner and its caption over the cover */
+}
+
 COLD_SR static int load_track(void)
 {
     art_job_on = 0;      /* B-735: a new load owns the slot */
@@ -9219,121 +9341,7 @@ COLD_SR static int load_track(void)
     }
     ld_size = LD_MS(cycles() - tphase); tphase = cycles();
 
-    /* Library track: show the title, artist and album at once (taken from the index), and let the cover art and the
-     * rest of the details follow once the file has fully loaded. The panel is parked so the early frame has no stale cover. */
-    if (lib_src) {
-        lib_meta_apply();
-        ui_loader_begin_ex(1);      /* full frame with the index's title/artist/album; the loader turns in the empty art plate until the cover arrives */
-    }
-    /* Cover art BEFORE the chrome, because whether it exists decides the
-     * layout: no art means no panel and a full-width waveform. Also before
-     * prefill, so its blocking reads cannot starve playback. */
-    /* Skip the art entirely when the file has not changed.
-     *
-     * This is the long pole in a restart. pcm_flush() has already emptied the
-     * FIFO, and everything between it and prefill() runs with the DAC holding a
-     * DC level -- the head read, the size probe, and a full JPEG decode with
-     * its own SD reads. Re-decoding artwork that is already in the SDRAM stash
-     * bought nothing and dominated that gap, which is what the hiccup on B
-     * actually was. Same file, same picture: reuse it.
-     *
-     * Keyed on the 0190 file identity, so a genuine track change still decodes
-     * and only a restart of the same file skips. */
-    art_ready = 0;
-    int has_art;
-    if (cur_file_id && cur_file_id == art_file_id) {
-        /* Same file. Free, and the common case on a restart. */
-        has_art = art_have;
-    } else {
-        /* Different file, but very often the same PICTURE: every track of an
-         * album embeds one cover. Measured on this hardware, that decode is
-         * 2801 ms of a 3731 ms load, so asking first is worth a few reads.
-         *
-         * Must happen BEFORE ui_art_mount(), which fills the stash with the
-         * panel colour -- checking afterwards would compare against an image
-         * it had already destroyed. */
-#if TAU_G4 >= 2
-        uint32_t sig = COLD_READY() ? art_sig_of(audio_start) : 0u;     /* cold code */
-#else
-        uint32_t sig = art_sig_of(audio_start);
-#endif
-        art_bad = 0;
-#if TAU_ART_TIMG
-        /* Library track with a pre-converted cover beside it: no JPEG decode at all (docs/COVER_TIMG_READER.md). */
-        char timg_path[LIB_MAX_PATH + 40u];
-        const uint32_t timg_sig = COLD_READY() ? timg_cover_path(timg_path, sizeof(timg_path)) : 0u;
-        if (timg_sig && art_have && timg_sig == art_sig) {
-            has_art = 1;                     /* same album: the stash already holds this cover */
-        } else if (timg_sig && timg_cover(timg_sig, timg_path)) {
-            ui_art_round();
-            art_sig = timg_sig;
-            has_art = 1;
-        } else
-#endif
-        if (art_have && sig && sig == art_sig) {
-            has_art = 1;                 /* the stash already holds this cover */
-        } else if (sig && sig == art_bad_sig) {
-            /* Known bad. The frame and its reason are still drawn -- that is a
-             * standing fact about the file, not an event -- but nothing is
-             * decoded again and nothing is announced again. Repeating either
-             * on all thirteen tracks of an album helps nobody. */
-            ui_art_mount();
-            ui_art_reason(art_bad_code == PJPG_UNSUPPORTED_MODE);
-            ui_art_round();
-            has_art = 0;
-            art_bad = 1;
-        } else {
-            ui_art_mount();
-            /* B-735 (gapless G1b): the embedded-JPEG decode takes 2 to 16 s and used to stop everything, audio included. Now it is started here and finished in the
-             * background by art_job_tick() (a few ms between decoded frames, only while the FIFO is comfortable); the panel shows the empty plate meanwhile and the cover
-             * arrives when the job ends. art_sig stays 0 until then, so a next track never reuses a half-finished stash. */
-            int started = 0;
-#if TAU_G4 >= 2
-            if (COLD_READY()) started = art_job_launch(audio_start, sig);
-            has_art = started;
-#else
-            has_art = art_decode(audio_start);
-#endif
-            if (started) ui_art_placeholder();
-            if (!has_art) {
-                if (art_fail_code) {     /* present, and unreadable */
-                    art_bad      = 1;
-                    art_bad_code = art_fail_code;
-                    art_bad_sig  = sig;
-                    ui_art_reason(art_bad_code == PJPG_UNSUPPORTED_MODE);
-                } else {
-                    ui_art_placeholder();   /* simply no artwork */
-                }
-            }
-            ui_art_round();
-            art_sig = (has_art && !started) ? sig : 0u;
-
-            /* A cover that IS there and cannot be read is worth a word. An
-             * empty frame with no reason for it reads as the core being
-             * broken, and the reason was already in hand -- picojpeg says
-             * exactly why and it was being thrown away.
-             *
-             * Only when a picture was actually found: art_fail_code stays 0
-             * when a file simply has no artwork, which is not a fault and
-             * needs no announcement. */
-            if (art_bad)
-                ui_toast_msg(art_bad_code == PJPG_UNSUPPORTED_MODE
-                             ? "COVER: PROGRESSIVE JPEG"
-                             : "COVER: CANNOT BE READ");
-        }
-        art_file_id = cur_file_id;
-    }
-    art_ready = 1;
-    ld_art = LD_MS(cycles() - tphase); tphase = cycles();
-
-    /* Panel state follows the TRACK, not the session. art_x is set directly
-     * rather than animated -- a track change should not look like a slide. */
-    art_have  = (uint8_t)has_art;
-    art_shown = (uint32_t)(ART_PANEL_WANTED && art_pref);
-    art_x     = art_shown ? ART_X : FB_W;
-
-    ui_chrome_paint();   /* title/artist are populated now -- draw the UI */
-    ui_boot_cancel();   /* the loader is over: prefill()'s reads tick ui_boot_tick(), which would otherwise keep painting the spinner and its caption over the cover */
+    load_ui_tail(&tphase);   /* G2a: lib_meta_apply, loader frame, cover, panel state, chrome paint (screen only) */
 
     if (!prefill()) { REG(R_STAT2) = 0xD0000000u; return 0; }
 
