@@ -1,6 +1,6 @@
 # Cymo C3: the output stage (spec, 2026-10-06)
 
-**Status: DESIGN + HOST MODEL. Nothing in RTL or firmware yet.** Parent plan: `CYMO_AUDIO_ENGINE.md` section 6.2 and phase C3. Model: `tools/lab/cymo_out_model.py`, properties proven by `sim/test_cymo_out_model.py` (in `make test-host`).
+**Status 2026-10-14: the first slice (post-EQ soft clipper and dither) is DEFERRED by decisions D-G02 and D-G03 (`docs/DECISIONS.md`): the recordings show the 16-bit slot is not adopted, the analogue floor already dithers, Halcyon gives back its own boost, and positive ReplayGain is peak-limited (D-G04, B-720) so nothing needs a clipper yet. Read sections 1 to 6 as the design if it is reopened; the clipper's reach and ceiling in section 6 H and the final plan in B-720..B-722 are the current view.** Original status: DESIGN + HOST MODEL. Nothing in RTL or firmware. Parent plan: `CYMO_AUDIO_ENGINE.md` section 6.2 and phase C3. Model: `tools/lab/cymo_out_model.py`, properties proven by `sim/test_cymo_out_model.py` (in `make test-host`).
 
 ## 1. The chain today (read from the RTL and firmware)
 
