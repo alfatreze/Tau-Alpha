@@ -1163,6 +1163,7 @@ static uint16_t gap_hist[6];
  * exactly where a ring would NOT help. pg_b = stalls of 20-46, 46-300, 300-1000 and 1000+ ms; pg_max_ms the worst. */
 static uint8_t  pg_b[4];            /* saturating at 255 */
 static uint16_t pg_max_ms;
+static uint32_t pg_ra, pg_ra_max, pg_rb_max;   /* poll_input() return address before / after the worst stall */   /* B-738: the return address of the poll_input() call BEFORE the stall (where the CPU went after it) and of the worst one: resolve with nm */
 static uint32_t pg_t;
 static uint16_t gset_last, gset_max, gset_n, gset_tries_max;
 static uint32_t gap_sum, gset_sum;
@@ -6616,12 +6617,12 @@ static void ui_blank_pump(void)
  * backlight stays on regardless; see the note on blank_min. */
 __attribute__((optimize("Os")))       /* button handling: no timing role; RAM is the constraint in the library build */
 #if TAU_DX_GAP_TIMING
-COLD_FN2 static void pg_note_cold(uint32_t d)
+COLD_FN2 static void pg_note_cold(uint32_t d, uint32_t ra, uint32_t rb)
 {
     const uint32_t ms = d / (CLK_HZ / 1000u);
     uint8_t *c = &pg_b[ms < 46u ? 0u : ms < 300u ? 1u : ms < 1000u ? 2u : 3u];
     if (*c < 255u) (*c)++;
-    if (ms > pg_max_ms) pg_max_ms = (uint16_t)(ms > 65535u ? 65535u : ms);
+    if (ms > pg_max_ms) { pg_max_ms = (uint16_t)(ms > 65535u ? 65535u : ms); pg_ra_max = ra; pg_rb_max = rb; }
 }
 #endif
 static void poll_input(void)
@@ -6639,7 +6640,8 @@ static void poll_input(void)
     {   /* B-731: time since the previous call; a long one is bucketed in cold code (the hot path is a read, a subtract and a compare) */
         const uint32_t t = cycles(), d = t - pg_t;
         pg_t = t;
-        if (d >= CLK_HZ / 50u && cold_code_ok) pg_note_cold(d);
+        const uint32_t ra = pg_ra, rb = (uint32_t)(uintptr_t)__builtin_return_address(0); pg_ra = rb;
+        if (d >= CLK_HZ / 50u && cold_code_ok) pg_note_cold(d, ra, rb);
     }
 #endif
     uint32_t in   = REG(R_INPUT);
