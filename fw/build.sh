@@ -148,6 +148,8 @@ CFLAGS="$CFLAGS $STRESS_CFLAGS"
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) POLY_FW="${POLY_FW:-1}" ;; esac
 [ "$TARGET" = "release" ] && POLY_FW="${POLY_FW:-1}"      # v0.5.0: the release ships the poly bitstream, so the release firmware uses the unit too
 CFLAGS="$CFLAGS -DTAU_POLY_FW=${POLY_FW:-0}"
+# B-746 (gapless G1): PCM_RING_FW=1 builds the CPU side of the hardware PCM ring (fw/pcm_ring_fw.inc); inert unless the bitstream has the unit (TAU_PCM_RING) and the gain stage. Default 0 until proven on a Pocket.
+CFLAGS="$CFLAGS -DTAU_PCM_RING_FW=${PCM_RING_FW:-0}"
 # B-558: TEMPO=1 builds in the Cymo C7 tempo funnel (fw/tempo_core.h; MP3 only; the Settings > Playback > TEMPO row). Default 0 = byte-identical to a build without it.
 case "$STRESS_CFLAGS" in *-DTAU_DIAGNOSTIC=1*) TEMPO="${TEMPO:-1}" ;; esac
 # ram-diet (owner, 2026-10-07): the tempo stretcher ships in the normal release too (cold code; its 6.2 KB state is the cost, see docs/features/RAM_DIET_PLAN.md). TEMPO=0 builds without it.
