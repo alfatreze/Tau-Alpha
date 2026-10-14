@@ -2,7 +2,7 @@
  * strict chip model. It (1) enables the ring, then puts 2500 distinct pairs into a 64-pair ring through the uncached PSRAM window (data first, then the write index), waiting while the
  * ring is full, and also writes a poison value to R_AUDIO every iteration (ignored while the ring is on); (2) stops the FIFO drain (rate 0) so the FIFO stays at the reader's threshold
  * and the ring keeps unread pairs, puts 10 marked pairs and flushes at once (the unread ones must never reach the FIFO); (3) puts 5 more pairs that must be delivered. The testbench
- * checks the stream the FIFO received. */
+ * checks the stream the FIFO received. The hold test (after part 1 and a fast drain): HOLD on (RING_CTRL bit 1), 20 marked pairs put, none may be pushed until released, then all 20 in order. */
 #include <stdint.h>
 #define REG(a)    (*(volatile uint32_t *)(a))
 #define CONSOLE   0x80000000u
@@ -41,10 +41,21 @@ int main(void)
         REG(R_AUDIO) = 0xDEADBEEFu;                          /* must be ignored: the FIFO is fed by the ring */
     }
     puts_("RING PUT1 DONE\n");
-    REG(R_PCM_RATE) = 0u;                                    /* the FIFO stops draining: it fills to the reader's threshold and the ring keeps unread pairs */
+    REG(R_PCM_RATE) = 0x10000000u;                           /* fast drain: the FIFO empties (so the reader is never gated by its threshold in the hold test) */
+    for (volatile uint32_t d = 0; d < 120000u; d++) { }
+    puts_("RING HOLD ON\n");                                /* (3) HOLD (the player's pause): put 20 pairs; none may reach the FIFO until released */
+    REG(R_RING_CTRL) = 3u;
+    for (uint32_t k = 0; k < 20u; k++) put(0xA0170000u | k);
+    for (volatile uint32_t d = 0; d < 60000u; d++) { }
+    puts_("RING HOLD OFF\n");
+    REG(R_RING_CTRL) = 1u;                                   /* released: the 20 pairs are delivered, in order */
+    for (volatile uint32_t d = 0; d < 60000u; d++) { }
+    REG(R_PCM_RATE) = 0u;                                    /* (2) the FIFO stops draining: it fills to the reader's threshold and the ring keeps unread pairs */
     for (volatile uint32_t d = 0; d < 20000u; d++) { }
+    for (uint32_t k = 0; k < 1540u; k++) put(0xB0000000u | k);   /* the first 1536 reach the FIFO (threshold), the last 4 stay unread */
+    for (volatile uint32_t d = 0; d < 150000u; d++) { }
     for (uint32_t k = 0; k < 10u; k++) put(0xF1A50000u | k); /* never to be delivered ... */
-    REG(R_PCM_ST) = 1u;                                      /* ... the flush drops them (and the FIFO) */
+    REG(R_PCM_ST) = 1u;                                      /* ... the flush drops them, and the 4 unread pairs of the block above (and the FIFO) */
     for (volatile uint32_t d = 0; d < 20000u; d++) { }
     REG(R_PCM_RATE) = 3435974u;
     for (uint32_t k = 0; k < 5u; k++) put(0xC0DE0000u | k);  /* delivered */
