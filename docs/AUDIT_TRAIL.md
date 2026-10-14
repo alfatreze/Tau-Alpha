@@ -15079,3 +15079,16 @@ Two takes on TAU DEV 111, the interface gain of B-694: `111_tog_vol_step.wav` (2
 | Volume steps (71) | no dip, no click |
 | Loop restart (72) | 0.37 s silence, 32 ms fade-in, no pop |
 | Track change (73) | 1.5 s silence, 44 ms fade-in, no pop |
+
+## B-718: group 8 (Halcyon) recorded on TAU DEV 111 and analysed: flutter fix and bypass transparency confirmed
+
+Rows 76 to 98 of `docs/features/CYMO_RECORDING_SCRIPT.md`, EVO 4 stereo chain, interface gain of B-694, 16-BIT OFF, HW GAIN ON, core volume 94. Rows 76 to 86 and 89 to 98 on TAU DEV 111; rows 87 and 88 (controls) on TAU_DEV_107. Hardware measurement and documentation only; no firmware or RTL changed. Recordings are in `test music/Audio Lab/115 Tests/` (git-ignored).
+
+- **Flutter fix confirmed.** The 1 kHz track of OFF, FLAT, WARM, BASS and SMOOTH (`cymo_loopback.py track`): frequency 1000.062 Hz, standard deviation 0.0001 Hz (0.00 cents), no flagged events, block SINAD within 0.3 dB; no spur at ±30 Hz in any take. The other four tone takes (CLEAR, VOCAL, SPEECH, LOWVOL) were analysed one-shot only (SINAD 57.06 to 57.20 dB), not tracked.
+- **The measurement sees the flutter (row 87/88 controls on TAU_DEV_107).** Old EQ POP: frequency std 0.152 Hz (span 0.81 cents), SINAD 24.4 dB. Old EQ FLAT: std 0.0001 Hz, SINAD 57.2 dB. So the clean Halcyon takes are not clean because the method is blind.
+- **Transparency.** SINAD 57.0 to 57.4 dB on every Halcyon take (OFF 57.33, FLAT 57.02); level OFF = FLAT = -15.98 dBFS. Silence floor -97.4 / -97.2 dBFS RMS (L/R) with OFF and -97.3 / -97.2 with FLAT, equal to the idle floor of B-694: the engine adds no noise.
+- **Loudness match (1 kHz level against OFF):** FLAT 0.0, SMOOTH -0.15, VOCAL -1.5, SPEECH -1.8, CLEAR -2.6, WARM -2.9, BASS -4.6, LOWVOL -5.7 dB (the auto-preamp: presets are quieter, not louder).
+- **Response of each preset (sweep, dB against the OFF sweep, relative to 1 kHz) at 50 / 200 / 2k / 5k / 18k Hz:** WARM +2.1 / +2.6 / -0.1 / -0.3 / -1.3; CLEAR -1.4 / -2.5 / +0.4 / +1.0 / +2.2; BASS +3.8 / +1.4 / +0.2 / +0.4 / -0.5; VOCAL -2.2 / -1.4 / +1.1 / -1.3 / -1.3; SPEECH -4.4 / -2.6 / +1.4 / -1.3 / -0.9; LOWVOL +4.7 / +1.6 / -0.1 / -0.5 / +1.1; SMOOTH 0.0 / +0.1 / -0.7 / -2.5 / -1.7. FLAT is 0.0 everywhere. The OFF sweep itself is flat to -0.45 dB at 20 kHz (the chain's own response). **Not done:** comparison with the curves the Halcyon page displays (needs the per-preset curve values from firmware).
+- **Row 98 (low-frequency tones, FLAT):** 10, 17, 20, 30, 50 Hz read -22.06, -21.99, -21.97, -21.95, -21.94 dBFS, flat to 0.12 dB. FLAT is a true bypass (`fw/halcyon_hw.h`: no infrasonic stage when all controls are zero), so this measures the chain, and the plan wording "infrasonic stage on" was wrong (corrected in the script). **Not done:** the same file with a non-FLAT preset to see the 17 Hz high-pass; optional.
+- **Halcyon OFF is reachable** by Y on the player screen or A on the Settings > Audio row (the Halcyon page's L/R and L1/R1 skip OFF). Rows 76, 85 were delayed because of this.
+- **Status:** group 8 closed (script, CSV statuses). Open: displayed-curve comparison, non-FLAT low-frequency take, and the open items of the handoff (HW GAIN ON-to-OFF click, G-LOAD, groups 9 to 14, soaks 74 and 75). The plan page (`CYMO_RECORDING_PLAN_PAGE.html`) was not updated.
