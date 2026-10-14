@@ -439,7 +439,7 @@ typedef struct {
     uint16_t my, mx, mcus_row, mcus_col;
     uint32_t next_ay, aw, ah, sw, sh, mcu_w, mcu_h, bxn, byn;
     unsigned char *pr, *pg, *pb;      /* picojpeg's MCU buffers (static in picojpeg) */
-    uint32_t t0, sig;                 /* when the job began (cycles), and the cover's signature for the cache */
+    uint32_t t0, sig, last;           /* when the job began (cycles), the cover's signature for the cache, and the cycles the last step took */
 } art_job_t;
 static art_job_t art_job ART_COLD_BSS;
 
@@ -637,20 +637,28 @@ COLD_FN2 static int art_decode(uint32_t tag_len)
  * pending (the job's own reads are synchronous and drain it first, but there is no reason to queue behind it). Anything that can switch the slot's file clears art_job_on
  * (load_track, the 0192 open in pl_cmd); a reload request is also checked here. A step costs at most the budget, one MCU and one 4 KB window read (about 13 ms worst), against a FIFO
  * of at least 23 ms. When the job ends the stash holds the cover: it is rounded, drawn and cached under its signature exactly as the blocking path did. */
-#define ART_JOB_MIN_PAIRS  1024u
-#define ART_JOB_BUDGET     (CLK_HZ / 250u)           /* 4 ms of decoding per step */
+#define ART_JOB_MIN_PAIRS  1000u                       /* a frame's decode and UI (about 17 ms) plus margin must still fit after a step */
+#define ART_JOB_MAX_NEED   1900u                       /* never ask for more than the FIFO normally holds, or a slow step would stop the job for good */
+#define ART_JOB_BUDGET     (CLK_HZ / 333u)             /* 3 ms of decoding per step (plus one MCU and the 4 KB window read the step must repeat) */
 COLD_FN2 static int art_job_launch(uint32_t tag_len, uint32_t sig)
 {
     if (!art_decode_begin(tag_len)) return 0;
-    art_job.t0 = cycles(); art_job.sig = sig;
+    art_job.t0 = cycles(); art_job.sig = sig; art_job.last = 0u;
     art_job_on = 1u;
     return 1;
 }
 COLD_FN2 static void art_job_tick(void)
 {
     if (reload_pending || reload_armed || ui_loader_on || FB_HELD() || rd_pending) return;
-    if (pcm_level() < ART_JOB_MIN_PAIRS) return;
+    /* B-735 (DEV 119 hardware): a fixed 1,024-pair floor let a step end with 6 ms of audio left and the next frame's decode underrun it (24 FIFO stalls in a 5 s cover job).
+     * The floor is now the frame time plus what the LAST step actually cost (its window re-read varies from 5 to 13 ms), so a slow step makes the next one wait for a fuller FIFO. */
+    const uint32_t hz = track_hz ? track_hz : 44100u;
+    uint32_t need = ART_JOB_MIN_PAIRS + (art_job.last / (CLK_HZ / 1000u)) * hz / 1000u;
+    if (need > ART_JOB_MAX_NEED) need = ART_JOB_MAX_NEED;
+    if (pcm_level() < need) return;
+    const uint32_t t_step = cycles();
     const int r = art_decode_run(0u, ART_JOB_BUDGET);
+    art_job.last = cycles() - t_step;
     if (r == 0) return;
     art_job_on = 0u;
     ld_art = LD_MS(cycles() - art_job.t0);           /* LOAD MS' cover field now shows the whole background decode */
