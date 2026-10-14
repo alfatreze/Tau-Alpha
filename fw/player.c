@@ -1262,8 +1262,8 @@ static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: curre
 static rg_t     rg_cur;
 static uint8_t  rg_mode;                                   /* RG_OFF (default), RG_TRACK, RG_ALBUM; saved with the theme polarity word */
 static uint32_t rg_factor = RG_UNITY;
-static uint32_t rg_cap_hw = RG_UNITY;                      /* B-720: the largest total gain this track may have while the hardware stage owns the gain (unity unless a peak tag allows a boost) */
-#define RG_CAP() (vol_st.hw ? rg_cap_hw : RG_UNITY)         /* the firmware path can never exceed unity (its 32-bit product would overflow above 2.0) */
+static uint32_t rg_cap_hw;                                 /* B-720: the largest total gain this track may have while the hardware stage owns the gain; 0 = unity (kept zero so it lives in .bss, not .data) */
+#define RG_CAP() ((vol_st.hw && rg_cap_hw) ? rg_cap_hw : RG_UNITY)         /* the firmware path can never exceed unity (its 32-bit product would overflow above 2.0) */
 static void vol_apply(void)        { vol_st.target = rg_target(pcm_vol_target(volume), rg_factor, RG_CAP()); if (vol_st.hw) REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; }   /* a change: ramps (in hardware when the gain stage is on, B-615) */
 static void vol_apply_snap(void)   { vol_st.target = vol_st.cur = rg_target(pcm_vol_target(volume), rg_factor, RG_CAP()); if (vol_st.hw) { REG(R_GAIN_TARGET) = (uint32_t)vol_st.target; REG(R_GAIN_CTRL) = GAIN_CTRL_BASE | 2u; } }    /* boot / settings restore: no ramp from full volume */
 /* B-615: restart the discontinuity fade (resume after a pause, an underrun). The hardware stage starts its own fade at every flush; the other cases need this pulse. */
@@ -1327,7 +1327,7 @@ static inline void gain_step_poll(void)
 }
 /* The ReplayGain parsing lives in COLD code (it ran to about 2 KB of the on-chip RAM): every entry from the hot track-load path is gated on cold_code_ok, and without cold code
  * ReplayGain simply does nothing (the factor stays unity). rg_update() is the one entry the hot code uses. */
-COLD_FN3 static void rg_update_cold(void)  { rg_factor = rg_pick_factor(rg_mode, &rg_cur); rg_cap_hw = rg_cap_q15(rg_pick_peak(rg_mode, &rg_cur), hw_gain_boost); vol_apply(); }
+COLD_FN3 static void rg_update_cold(void)  { rg_factor = rg_pick_factor(rg_mode, &rg_cur); { const uint32_t cap = rg_cap_q15(rg_pick_peak(rg_mode, &rg_cur), hw_gain_boost); rg_cap_hw = cap > RG_UNITY ? cap : 0u; } vol_apply(); }
 COLD_FN3 static void rg_scan_cold(const uint8_t *tag, uint32_t avail, uint32_t len) { rg_id3_scan(&rg_cur, tag, avail, len); }
 COLD_FN3 static void rg_txxx_cold(const uint8_t *b, uint32_t n)                       { rg_txxx_body(&rg_cur, b, n); }
 COLD_FN3 static void rg_flac_cold(const char txt[4][16], uint8_t have)
