@@ -897,9 +897,9 @@ module mp3_soc #(
     localparam [8:0] R_HAL_CTRL = 9'h178, R_HAL_IDX = 9'h17C, R_HAL_DATA = 9'h180;
     // B-741 PCM ring reader. BASE (RW): PSRAM word address of ring[0] (the CPU window is 0xA400_0000 + 4*word); SIZE (RW): pairs in the ring; WPTR (RW): the CPU's write index in [0, SIZE) (write it after the
     // data is stored); RIDX (R): the reader's index; CNT (R): pairs pushed since reset; CTRL: write bit 0 ENABLE (STICKY, reset 0: the CPU's R_AUDIO write is then ignored and the FIFO is fed from the ring),
-    // read bit 31 present, bit 2 reading, bit 1 empty, bit 0 enable. A write to R_PCM_ST (the firmware's pcm_flush) also drops the unread pairs (RIDX = WPTR). Inert (reads 0) unless PCM_RING_ENABLE.
+    // read bit 31 present, bit 3 hold, bit 2 reading, bit 1 empty, bit 0 enable (write bit 1 = HOLD, sticky: no new read starts, the unread pairs are kept: the player's pause). A write to R_PCM_ST (the firmware's pcm_flush) also drops the unread pairs (RIDX = WPTR). Inert (reads 0) unless PCM_RING_ENABLE.
     localparam [8:0] R_RING_BASE = 9'h184, R_RING_SIZE = 9'h188, R_RING_WPTR = 9'h18C, R_RING_RIDX = 9'h190, R_RING_CTRL = 9'h194, R_RING_CNT = 9'h198;
-    reg         ring_en = 1'b0;
+    reg         ring_en = 1'b0, ring_hold = 1'b0;
     reg  [22:0] ring_base = 23'd0, ring_size = 23'd2, ring_wptr = 23'd0;
     wire        ring_push, rctl_req, rctl_we, rctl_busy;
     wire [31:0] ring_pdata, rctl_wdata, ring_cnt;
@@ -1325,7 +1325,7 @@ module mp3_soc #(
 `endif
             audio16_reg  <= 1'b0;      // B-602: STICKY, back to the 15-bit mapping on reset
             hal_en <= 1'b0; hal_bypass <= 1'b0; hal_nact <= 6'd0; hal_idx <= 8'd0; hal_data <= 24'sd0;   // B-639: STICKY, back to 'Halcyon off'
-            ring_en <= 1'b0; ring_base <= 23'd0; ring_size <= 23'd2; ring_wptr <= 23'd0;   // B-741
+            ring_en <= 1'b0; ring_hold <= 1'b0; ring_base <= 23'd0; ring_size <= 23'd2; ring_wptr <= 23'd0;   // B-741
             gain_en <= 1'b0; gain_target <= 16'd32768; gain_ramp <= 16'd149; gain_shift <= 2'd3;   // B-615: STICKY, back to 'stage off, unity'
             cymo_live_en <= 1'b0;      // STICKY register, not covered by the pulse-reset preamble above -- must be reset here explicitly
             set_idx <= 5'd0; set_wdata <= 32'd0;
@@ -1442,7 +1442,7 @@ module mp3_soc #(
                 R_RING_BASE:   ring_base <= dDAT_MOSI[22:0];   // B-741
                 R_RING_SIZE:   ring_size <= dDAT_MOSI[22:0];
                 R_RING_WPTR:   ring_wptr <= dDAT_MOSI[22:0];
-                R_RING_CTRL:   ring_en   <= dDAT_MOSI[0];
+                R_RING_CTRL:   begin ring_en <= dDAT_MOSI[0]; ring_hold <= dDAT_MOSI[1]; end
                 R_GAIN_TARGET: gain_target <= dDAT_MOSI[15:0];
                 R_GAIN_STEP:   gain_ramp   <= dDAT_MOSI[15:0];
                 R_CYMO_PUSH: begin
@@ -1521,7 +1521,7 @@ module mp3_soc #(
             R_RING_SIZE:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_size} : 32'd0;
             R_RING_WPTR:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_wptr} : 32'd0;
             R_RING_RIDX:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_ridx} : 32'd0;
-            R_RING_CTRL:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {1'b1, 28'd0, rctl_busy, (ring_ridx == ring_wptr), ring_en} : 32'd0;
+            R_RING_CTRL:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {1'b1, 27'd0, ring_hold, rctl_busy, (ring_ridx == ring_wptr), ring_en} : 32'd0;
             R_RING_CNT:    mmio_rdata = (PCM_RING_ENABLE != 0) ? ring_cnt : 32'd0;
             R_GAIN_CUR:    mmio_rdata = {16'd0, gain_cur};
             R_GAIN_STEP:   mmio_rdata = {16'd0, gain_ramp};
@@ -1604,7 +1604,7 @@ module mp3_soc #(
             end
             if (PCM_RING_ENABLE != 0) begin : g_ring
                 tau_pcm_ring #(.THR(1536)) u_ring (
-                    .clk(clk), .rst(rst), .en(ring_en), .flush(pcm_flush), .base(ring_base), .size(ring_size), .wptr(ring_wptr), .fifo_level(pcm_level),
+                    .clk(clk), .rst(rst), .en(ring_en), .flush(pcm_flush), .hold(ring_hold), .base(ring_base), .size(ring_size), .wptr(ring_wptr), .fifo_level(pcm_level),
                     .ridx(ring_ridx), .cnt(ring_cnt), .push(ring_push), .pdata(ring_pdata), .busy(rctl_busy),
                     .ctl_req(rctl_req), .ctl_we(rctl_we), .ctl_word(rctl_word), .ctl_wdata(rctl_wdata), .ctl_be(rctl_be),
                     .ctl_done(rctl_done), .ctl_rdata(psram_rdata), .ctl_guard(psram_guard)

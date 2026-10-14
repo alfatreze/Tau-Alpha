@@ -297,7 +297,7 @@ $(RTL_BUILD_DIR)/tb_pcm_ring.vvp: $(PCM_RING_SRC) | $(RTL_BUILD_DIR)
 test-rtl-pcm-ring: $(RTL_BUILD_DIR)/tb_pcm_ring.vvp
 	$(VVP) $< | tee $(RTL_BUILD_DIR)/pcm_ring.out; grep -q "^PASSED" $(RTL_BUILD_DIR)/pcm_ring.out
 test-rtl-pcm-ring-mutation: $(PCM_RING_SRC) | $(RTL_BUILD_DIR)
-	@set -e; for b in 1 2 3 4 5; do \
+	@set -e; for b in 1 2 3 4 5 6; do \
 	  $(IVERILOG) -g2012 -Ptb_tau_pcm_ring.BUG=$$b -o $(RTL_BUILD_DIR)/pcm_ring_mut.vvp $(PCM_RING_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/pcm_ring_mut.vvp | grep -q "^FAILED\|^the FIFO never\|MISMATCH"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
 

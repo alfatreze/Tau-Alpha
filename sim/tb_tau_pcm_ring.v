@@ -8,12 +8,12 @@ module tb_tau_pcm_ring #(parameter BUG = 0);
     localparam THR = 1536; localparam [22:0] SIZE = 23'd37, BASE = 23'd100;
     reg clk = 0, rst = 1;
     always #5 clk = ~clk;
-    reg en = 0, flush = 0;
+    reg en = 0, flush = 0, hold = 0;
     reg [22:0] wptr = 0;
     reg [11:0] level = 0;
     wire [22:0] ridx; wire [31:0] cnt, pdata; wire push, busy, ctl_req, ctl_we; wire [22:0] ctl_word; wire [31:0] ctl_wdata; wire [3:0] ctl_be;
     reg ctl_done = 0; reg [31:0] ctl_rdata = 0;
-    tau_pcm_ring #(.THR(THR), .BUG(BUG)) dut (.clk(clk), .rst(rst), .en(en), .flush(flush), .base(BASE), .size(SIZE), .wptr(wptr), .fifo_level(level),
+    tau_pcm_ring #(.THR(THR), .BUG(BUG)) dut (.clk(clk), .rst(rst), .en(en), .flush(flush), .hold(hold), .base(BASE), .size(SIZE), .wptr(wptr), .fifo_level(level),
         .ridx(ridx), .cnt(cnt), .push(push), .pdata(pdata), .busy(busy), .ctl_req(ctl_req), .ctl_we(ctl_we), .ctl_word(ctl_word), .ctl_wdata(ctl_wdata), .ctl_be(ctl_be),
         .ctl_done(ctl_done), .ctl_rdata(ctl_rdata), .ctl_guard(1'b0));
 
@@ -91,6 +91,10 @@ module tb_tau_pcm_ring #(parameter BUG = 0);
         // phase 2: flushes while reads are in flight and the ring is busy
         for (i = 0; i < 40; i = i + 1) begin run(37 + (i * 53) % 200); do_flush; end
         run(20000);
+        // phase 2b: hold (the player's pause): after a read in flight lands, nothing is pushed while held, nothing is lost or stale when released
+        drain_pct = 95; hold <= 1; run(200); c0 = pushes; run(4000);
+        if (pushes != c0) begin bad = bad + 1; $display("pushed %0d pairs while held", pushes - c0); end
+        hold <= 0; run(8000);
         // phase 3: disabled: words are written, none may be pushed, none stale afterwards
         c0 = pushes; en <= 0; run(3000);
         if (pushes - c0 > 2) begin bad = bad + 1; $display("pushed while disabled"); end
