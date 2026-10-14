@@ -8,13 +8,13 @@ static void w(uint32_t ms) { printf("WAIT %u\n", ms); }
 static void f(void) { printf("FLUSH\n"); }
 int main(void)
 {
-    unsigned on, hw, target;
-    while (scanf("%u %u %u", &on, &hw, &target) == 3) {
+    unsigned on, hw, target, hz;
+    while (scanf("%u %u %u %u", &on, &hw, &target, &hz) == 4) {
         pcm_vol_t v = { (int32_t)target, (int32_t)target, (uint8_t)hw };
         uint32_t fade_left = 777u;
         const gh_ops_t ops = { c, t, w, f };
         printf("BEGIN\n");
-        gh_handover(&ops, &v, &fade_left, 2048u, 0x31u, on);
+        gh_handover(&ops, &v, &fade_left, 2048u, 0x31u, on, hz);
         printf("STATE hw=%u cur=%d target=%d fade=%u\n", v.hw, v.cur, v.target, fade_left);
         printf("END\n");
     }

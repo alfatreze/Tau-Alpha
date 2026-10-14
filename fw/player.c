@@ -1002,6 +1002,7 @@ static inline const char *speed_marker(void)
 static void cymo_guard_apply(uint32_t hz);   /* B-530: defined with the Cymo toggle below */
 #endif
 static hr_t hr;   /* B-538: worst idle second since the track or speed last changed (Info > HEADROOM) */
+static uint32_t pcm_tick_hz;   /* B-719: the output tick rate now (file rate x speed): how long the FIFO output register's glide to zero takes (fw/gain_handover.h) */
 static void pcm_rate_apply(uint32_t hz)
 {
     if (!hz) return;
@@ -1012,6 +1013,7 @@ static void pcm_rate_apply(uint32_t hz)
     uint64_t inc = DIV64((uint64_t)hz << 32, CLK_HZ);
     if (speed_eff() != SPEED_1X) inc = DIV64(inc * speed_num[speed_eff()], speed_den[speed_eff()]);
     REG(R_PCM_RATE) = (uint32_t)inc;
+    pcm_tick_hz = speed_eff() != SPEED_1X ? (uint32_t)((uint64_t)hz * speed_num[speed_eff()] / speed_den[speed_eff()]) : hz;
 }
 static uint32_t track_bytes;      /* audio length the FILE declares (Xing/VBRI) */
 static uint32_t fl_first_frame;   /* absolute offset of the first audio frame */
@@ -1297,7 +1299,7 @@ COLD_FN2 static void gain_handover(uint8_t on)
 {
     if (!hw_gain) return;
     static const gh_ops_t ops = { gh_ctrl, gh_target, gh_wait_ms, gh_flush };
-    gh_handover(&ops, &vol_st, &fade_left, FADE_SAMPLES, GAIN_CTRL_BASE, on);
+    gh_handover(&ops, &vol_st, &fade_left, FADE_SAMPLES, GAIN_CTRL_BASE, on, pcm_tick_hz);
 }
 COLD_FN2 static void gain_dip_begin(void)
 {
