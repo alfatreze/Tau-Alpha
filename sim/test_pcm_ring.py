@@ -74,7 +74,7 @@ def run(header_text, tmp):
     src.write_text(HARNESS % str(hdr))
     r = subprocess.run(["cc", "-O1", "-Wall", "-o", str(exe), str(src)], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
-    return subprocess.run([str(exe)], capture_output=True, text=True, timeout=120)
+    return subprocess.run([str(exe)], capture_output=True, text=True, timeout=20)
 def main():
     base = (ROOT / "fw/pcm_ring.h").read_text()
     with tempfile.TemporaryDirectory() as d:
