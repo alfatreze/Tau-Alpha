@@ -129,7 +129,7 @@ test-host:
 	$(PYTHON) tools/fit_manifest.py check-bundles
 	$(PYTHON) sim/test_fit_manifest.py
 
-test-rtl: test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
@@ -287,6 +287,17 @@ test-rtl-cymo-resamp-mutation: $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt
 CYMO_FEED_SRC = sim/tb_tau_cymo_feed.v src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_resamp_rom.svh
 $(RTL_BUILD_DIR)/tb_cymo_feed.vvp: $(CYMO_FEED_SRC) | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -I src/fpga/core -o $@ sim/tb_tau_cymo_feed.v src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_cymo_resamp.sv
+
+# B-741: the hardware PCM ring reader (gapless): behavioural PSRAM and FIFO, five mutants.
+PCM_RING_SRC = sim/tb_tau_pcm_ring.v src/fpga/core/tau_pcm_ring.sv
+$(RTL_BUILD_DIR)/tb_pcm_ring.vvp: $(PCM_RING_SRC) | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ $(PCM_RING_SRC)
+test-rtl-pcm-ring: $(RTL_BUILD_DIR)/tb_pcm_ring.vvp
+	$(VVP) $< | tee $(RTL_BUILD_DIR)/pcm_ring.out; grep -q "^PASSED" $(RTL_BUILD_DIR)/pcm_ring.out
+test-rtl-pcm-ring-mutation: $(PCM_RING_SRC) | $(RTL_BUILD_DIR)
+	@set -e; for b in 1 2 3 4 5; do \
+	  $(IVERILOG) -g2012 -Ptb_tau_pcm_ring.BUG=$$b -o $(RTL_BUILD_DIR)/pcm_ring_mut.vvp $(PCM_RING_SRC); \
+	  if $(VVP) $(RTL_BUILD_DIR)/pcm_ring_mut.vvp | grep -q "^FAILED\|^the FIFO never\|MISMATCH"; then echo "mutant killed: BUG=$$b"; else echo "MUTANT SURVIVED: BUG=$$b"; exit 1; fi; done
 
 test-rtl-cymo-feed: $(RTL_BUILD_DIR)/tb_cymo_feed.vvp
 	$(VVP) $<
@@ -549,6 +560,7 @@ rtl-lint:
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_flac_lpc src/fpga/core/tau_flac_lpc.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cymo_resamp -Isrc/fpga/core src/fpga/core/tau_cymo_resamp.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_cymo_feed src/fpga/core/tau_cymo_feed.sv
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_pcm_ring src/fpga/core/tau_pcm_ring.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_gain_stage src/fpga/core/tau_gain_stage.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_halcyon src/fpga/core/tau_halcyon.sv
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_cpu_bridge src/fpga/core/tau_sdram_cpu_bridge.sv
