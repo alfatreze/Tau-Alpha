@@ -43,6 +43,7 @@ typedef struct {
     uint32_t size, build_id, flags;
     uint32_t off[LIB_S_COUNT], len[LIB_S_COUNT];
     uint32_t root;                      /* string offset of the path root */
+    uint32_t det_off;                   /* B-727: offset of the first 32-byte track details record (0 = the index has none, or it is malformed: details are optional) */
     uint16_t n_artists, n_albums, n_tracks, n_lists;
 } lib_t;
 
@@ -144,6 +145,16 @@ static int lib_load(lib_t *l, lib_read_fn rd, void *ctx, uint8_t *win, volatile 
         l->len[LIB_S_LETTERS] != 162u) return LIB_E_RANGE;
     if (l->len[LIB_S_STRINGS] > LIB_MAX_STRINGS) return LIB_E_COUNT;
 
+    /* B-727: the optional track details section, a ninth section entry in header bytes 112..119 that a version 1 loader never read: 'TDET', version, record size 32, count = n_tracks.
+     * Anything unexpected simply means "no details" (they are not worth refusing a library for). */
+    l->det_off = 0;
+    {
+        const uint32_t dof = lib_ld32(h + 112), dln = lib_ld32(h + 116);
+        if (dln == 16u + 32u * (uint32_t)l->n_tracks && !(dof & 15u) && dof >= LIB_HDR && dof <= fsz && dln <= fsz - dof &&
+            lib_ld32(h + dof) == 0x54454454u && lib_ld16(h + dof + 6u) == 32u && lib_ld32(h + dof + 8u) == (uint32_t)l->n_tracks)
+            l->det_off = dof + 16u;
+    }
+
     uint32_t sl = l->len[LIB_S_STRINGS];
     if (l->root >= sl) return LIB_E_WALK;
     const volatile uint8_t *t = h + l->off[LIB_S_TRACKS], *a = h + l->off[LIB_S_ALBUMS];
@@ -180,6 +191,22 @@ static void lib_track(const lib_t *l, uint32_t id, lib_track_t *o)
     o->title = lib_ld32(r); o->file = lib_ld32(r + 4);
     o->secs = (uint16_t)lib_ld16(r + 8); o->tno = (uint16_t)lib_ld16(r + 10); o->album = (uint16_t)lib_ld16(r + 12);
     o->fmt = r[14]; o->flags = r[15];
+}
+
+/* B-727: the technical details of a track (tools/tau_details.py documents the record). Returns 0 when the index has no details. */
+typedef struct { uint8_t codec, ch, bits, flags; uint32_t rate, size; uint16_t kbps, cover_kib; int16_t tg, ag; uint16_t tp, ap, delay, pad; uint32_t enc; } lib_det_t;
+static int lib_details(const lib_t *l, uint32_t id, lib_det_t *o)
+{
+    if (!l->det_off || id >= l->n_tracks) return 0;
+    const volatile uint8_t *r = l->img + l->det_off + 32u * id;
+    o->codec = r[0]; o->ch = r[1]; o->bits = r[2]; o->flags = r[3];
+    o->rate = lib_ld32(r + 4); o->size = lib_ld32(r + 8);
+    o->kbps = (uint16_t)lib_ld16(r + 12); o->cover_kib = (uint16_t)lib_ld16(r + 14);
+    o->tg = (int16_t)lib_ld16(r + 16); o->ag = (int16_t)lib_ld16(r + 18);
+    o->tp = (uint16_t)lib_ld16(r + 20); o->ap = (uint16_t)lib_ld16(r + 22);
+    o->delay = (uint16_t)lib_ld16(r + 24); o->pad = (uint16_t)lib_ld16(r + 26);
+    o->enc = lib_ld32(r + 28);
+    return 1;
 }
 
 static void lib_album(const lib_t *l, uint32_t id, lib_album_t *o)

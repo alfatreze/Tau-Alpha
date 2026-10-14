@@ -89,3 +89,7 @@ section 2's rule exists.
 
 Add a row here whenever a new interface surface is created — this table, not either project's
 memory of the conversation that created it, is what a future session should find first.
+
+## Addendum 2026-10-14 (B-727): the index's optional track details section
+`tau-library.tdb` may carry a ninth, optional section of 32-byte per-track technical records (codec, rate, channels, bit depth, bitrate, file size, ReplayGain gains and peaks, LAME delay/padding, encoder string, embedded cover size, sidecar present) that the player's track details page shows. Format: `docs/MEDIA_LIBRARY_0.4_SPEC.md` section 16 and `tools/tau_details.py` (reference extractor). Tau Omega's index writer should add it when it can read those fields; an index without it still works (the page then shows the tags only). Older firmware loads an index that has it.
+

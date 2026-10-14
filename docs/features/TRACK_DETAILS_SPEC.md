@@ -1,4 +1,4 @@
-# Track details page (owner request 2026-10-14): design notes, nothing built
+# Track details page (owner request 2026-10-14): BUILT on the host (B-727), not yet run on a Pocket
 
 **Ask.** In the library/playlist track list, selecting a track (a dedicated key, not play) opens a subpage with everything we know about it: all metadata plus the technical facts. Trigger: three test tracks with the same title could not be told apart, and a file name or a technical line would have answered it.
 
@@ -11,3 +11,11 @@
 
 **Recommended:** 1 now (file name and path, the immediate need), 2 as the real feature (Tau Omega writes the same fields), 3 for the playing track. Trigger key: Y is free in the library list (B back, A play, X favourite, Start close).
 **Decisions to take:** the key; whether index version 2 is acceptable; which technical fields matter most; whether the page is reachable from the now-playing screen too.
+
+
+## Built (B-727, 2026-10-14)
+Options 1, 2 and 3 together:
+- **Index (tools):** `tools/tau_details.py` extracts, per track, codec, channels, bit depth, sample rate, file size, average bitrate (MP3: from the Xing byte and frame counts; FLAC: size over duration), VBR/CBR, the encoder or vendor string, LAME delay and padding, ReplayGain track and album gain and peak, the embedded cover size and whether a `tau-art` sidecar sits next to the file. One 32-byte record per track, written by `tau_library.py` as an OPTIONAL ninth section of the index (section entry in header bytes 112..119, which a version 1 loader never read; the version stays 1). **The loader from before this change loads the new index unchanged and reads back identical tracks, albums, artists, order and queues** (proved in `sim/test_library_fw.py` by building the committed old header into the harness). A malformed or missing details section means "no details", never a refused library. Cost: 32 B per track (139 tracks: 4.4 KB; 16,384 tracks: 512 KB, inside the 4 MiB cap).
+- **Firmware:** `fw/library_core.h` (`lib_details`), `fw/track_details.h` (all formatting and all text, pure C, tested against an independent Python formatter on 13,500 random fields, one overflow bug found and fixed near 4 GiB), `fw/library.inc` (the page). **Y on a track row** (all tracks, an album's tracks, a playlist's tracks) opens it; Up/Down scroll (hold repeats), B, Left or Y go back, Start closes the library. Rows: title, artist, album, track number, year, length, file name, folder, format, sample rate and channels, bitrate, file size, encoder, gapless trim (LAME delay/padding, or "exact" for FLAC), ReplayGain track and album (gain and peak), cover (sidecar, embedded size); for the track that is playing also the decoder's rate and bitrate, the ReplayGain mode and cap in force, and the last load times. Long values wrap onto continuation rows (25 characters per row).
+- **Heap:** all code and text are cold (one cold-data string blob generated from the string list); about 80 B of hot read-only data remain (a jump table), release gap 8,656 B, Diagnostic Build 1,136 B.
+- **Not done:** the page from the now-playing screen (only from the library lists), genre, composer and comment (not in the index yet), Tau Omega writing the section (the format is documented in `tools/tau_details.py`; `docs/CROSS_PROJECT_INTERFACE.md`), a hardware check of the layout (25 characters per row is a guess from the font width), and the live rows for the playing track are only reached when the page is opened from the library while that track plays.
