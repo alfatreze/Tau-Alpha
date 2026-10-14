@@ -1053,6 +1053,10 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
 #if TAU_DX_GAP_TIMING
         for (uint32_t b = 0; b < 4u; b++) { if (b) *q++ = '/'; q = ui_dec(q, pg_b[b]); }
         q = set_str(q, " X"); q = ui_dec(q, pg_max_ms);
+        q = set_str(q, " @");   /* B-738: where the CPU left poll_input() before the worst stall > where it came back: the address bits 27..4 (hot code is 0002xx, cold code 24xxxx); nm the ELF */
+        q = ui_hex2(q, (uint8_t)(pg_ra_max >> 20)); q = ui_hex2(q, (uint8_t)(pg_ra_max >> 12)); q = ui_hex2(q, (uint8_t)(pg_ra_max >> 4));
+        q = set_str(q, ">");
+        q = ui_hex2(q, (uint8_t)(pg_rb_max >> 20)); q = ui_hex2(q, (uint8_t)(pg_rb_max >> 12)); q = ui_hex2(q, (uint8_t)(pg_rb_max >> 4));
 #else
         q = set_str(q, "-");
 #endif
