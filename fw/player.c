@@ -8612,7 +8612,7 @@ COLD_SR static int read_track_head(void)
 {
     refill_drain();     /* settle anything in flight before touching the ring */
 
-    int attempt = 0, have_prev = 0;
+    int attempt = 0, have_prev = 0, proven = 0;   /* B-733: proven = the slot-open check below saw the new file's head differ and then agree twice */
     uint32_t skip = 0, prev_skip = 0;
     char prev_try[TITLE_MAX];
     /* PROVE THE SLOT HAS SETTLED before reading anything we will act on.
@@ -8676,6 +8676,7 @@ COLD_SR static int read_track_head(void)
             gset_sum += ms; gset_n++;
         }
 #endif
+        proven = (differs && agree >= 2u);
         sw_have_prev = 0;         /* one switch, one use */
     }
 
@@ -8834,7 +8835,9 @@ COLD_SR static int read_track_head(void)
             if (!track_title[i]) break;
         }
         if (same) break;                 /* two reads agree -> settled */
-        if (attempt >= 1) break;         /* 0190 gates the load; belt and braces */
+        /* B-733: the second pass (a 250 ms sleep and a second 64 KB head read) was the belt and braces from before the slot-open check existed; when that check
+         * proved the switch (the head hash differs from the song left, then two reads agree) the first pass is trusted. A check that timed out still takes the second pass. */
+        if (attempt >= 1 || proven) break;         /* 0190 gates the load; belt and braces */
     }
 
     for (uint32_t i = 0; i < sizeof(track_title); i++) prev_try[i] = track_title[i];
