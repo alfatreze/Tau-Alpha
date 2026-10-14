@@ -27,19 +27,22 @@ def build(hdr_text=None, tag="real"):
     if r.returncode: print(r.stdout, r.stderr); sys.exit(1)
     return exe
 
-def run_c(exe, on, hw, target):
-    out = subprocess.run([str(exe)], input=f"{on} {hw} {target}\n", capture_output=True, text=True, check=True).stdout.splitlines()
+FS_TICK = 48000
+REFILL = 2          # decoder speed after a flush, in samples per output tick (MP3 decodes at roughly 2x real time or better)
+def run_c(exe, on, hw, target, hz=FS_TICK):
+    out = subprocess.run([str(exe)], input=f"{on} {hw} {target} {hz}\n", capture_output=True, text=True, check=True).stdout.splitlines()
     ev = [l for l in out if l[:4] in ("CTRL", "TARG", "WAIT", "FLUS")]
     st = re.search(r"STATE hw=(\d+) cur=(-?\d+) target=(-?\d+) fade=(\d+)", "\n".join(out))
     return ev, tuple(map(int, st.groups()))
 
 FS, AMP, F0, DEPTH, PRIME = 48000, 12000, 1000, 2048, 1024
+FS_TICK = 48000
 class Pipe:
     """decoder -> software gain -> FIFO -> stage. One call of tick() is one output sample."""
     def __init__(s, hw, vol):
         s.hw, s.cur, s.target, s.fade_left, s.fade_n = hw, vol, vol, 0, 2048
         s.en, s.gcur, s.gt = (1 if hw else 0), (vol if hw else 32768), (vol if hw else 32768)
-        s.fifo, s.phase, s.out, s.primed = [], 0, [], True
+        s.fifo, s.phase, s.out, s.primed, s.raw, s.hfade, s.hz = [], 0, [], True, 0, 0, FS_TICK   # hfade = the stage's discontinuity fade_left     # raw = the FIFO's output register (pcm_fifo.v out_l)
         s.fill()
     def sample(s):
         v = int(AMP * math.sin(2 * math.pi * F0 * s.phase / FS)); s.phase += 1; return v
@@ -52,19 +55,22 @@ class Pipe:
     def fill(s):
         while len(s.fifo) < DEPTH: s.fifo.append(s.soft(s.sample()))
     def tick(s, decode=True):
+        # pcm_fifo.v: while primed and not empty the output register takes the next sample; otherwise it GLIDES to zero (x - (x >> 7), snapped to 0 inside +-128).
+        # A flush does NOT touch the register (B-719: the hand-over to software exposed that held, unscaled value when it switched the stage off).
         if not s.primed:
-            y = 0
-            if decode and len(s.fifo) < PRIME: s.fill_to(PRIME)
+            if decode and len(s.fifo) < PRIME: s.fill_to(min(PRIME, len(s.fifo) + REFILL))   # the decoder refills a flushed FIFO at a finite rate (REFILL samples per output tick)
             if len(s.fifo) >= PRIME: s.primed = True
-        if s.primed and s.fifo:
-            x = s.fifo.pop(0)
-            if s.en:
-                d = s.gt - s.gcur; d = max(-149, min(149, d)); s.gcur += d
-                x = (x * s.gcur + 16384) >> 15
-            y = x
-        else:
-            y = 0
-        s.out.append(y)
+        adv = s.primed and bool(s.fifo)
+        if adv: s.raw = s.fifo.pop(0)
+        else: s.raw = 0 if -128 < s.raw < 128 else s.raw - (s.raw >> 7)
+        x = s.raw
+        if s.en:
+            d = s.gt - s.gcur; d = max(-149, min(149, d)); s.gcur += d
+            x = (x * s.gcur + 16384) >> 15
+            if s.hfade:                                  # tau_gain_stage.sv: g = (total - fade_left) >> 3, counts down only on a delivered sample
+                x = (x * ((2048 - s.hfade) >> 3) + 128) >> 8
+        if s.hfade and adv: s.hfade -= 1
+        s.out.append(x)
         if decode and s.primed: s.fill()
     def fill_to(s, n):
         while len(s.fifo) < n: s.fifo.append(s.soft(s.sample()))
@@ -74,14 +80,15 @@ class Pipe:
         elif k == "CTRL":
             s.en = v & 1
             if v & 2: s.gcur = s.gt
+            if v & 4: s.hfade = 2048
         elif k == "WAIT":
-            for _ in range(v * FS // 1000): s.tick(decode=False)
-        elif k == "FLUSH": s.fifo = []; s.primed = False
+            for _ in range(v * s.hz // 1000): s.tick(decode=False)
+        elif k == "FLUSH": s.fifo = []; s.primed = False; s.hfade = 2048
 
-def scenario(exe, on, hw, vol):
-    ev, st = run_c(exe, on, hw, vol)
-    p = Pipe(hw, vol)
-    for _ in range(3000): p.tick()
+def scenario(exe, on, hw, vol, off=0, hz=FS_TICK):
+    ev, st = run_c(exe, on, hw, vol, hz)
+    p = Pipe(hw, vol); p.hz = hz
+    for _ in range(3000 + off): p.tick()
     p.out.clear()
     # the owner flip happens at the end of the events: the C changed vol_st.hw/fade_left itself, mirror them into the model after the event list
     for e in ev: p.event(e)
@@ -96,14 +103,21 @@ nat = AMP * 2 * math.pi * F0 / FS          # the sine's own steepest slope, per 
 exe = build()
 for on, name in ((0, "to software"), (1, "to hardware")):
     for vol in (32768, 9830, 1000):
-        ev, st, steps, peak = scenario(exe, on, 1 - on, vol)
+        res = [scenario(exe, on, 1 - on, vol, off) for off in range(0, 48, 4)]       # the held FIFO value at the flush depends on the sine's phase: try twelve
+        ev, st = res[0][0], res[0][1]; steps = max(r[2] for r in res); peak = res[0][3]
         want = AMP * vol / 32768
         ok(steps <= nat * 1.25 + 4, f"{name}, volume {vol / 32768:.2f}: largest output step {steps} <= the sine's own {nat:.0f}")
         ok(abs(peak - want) <= max(40, want * 0.04), f"{name}, volume {vol / 32768:.2f}: steady peak {peak} equals {want:.0f} (not scaled twice, not unscaled)")
         ok(st == (on, vol, vol, 0 if on else 2048), f"{name}, volume {vol / 32768:.2f}: final state hw/cur/target/fade = {st}")
+for hz in (44100, 22050):
+    res = [scenario(exe, 0, 1, 1000, off, hz) for off in range(0, 48, 4)]
+    ok(max(r[2] for r in res) <= nat * 1.25 + 4, f"to software at an output tick rate of {hz} Hz, volume 0.03: largest output step {max(r[2] for r in res)} <= the sine's own {nat:.0f}")
 ev, st = run_c(exe, 1, 1, 9830); ok(ev == [] and st[0] == 1, "a hand-over to the owner already in charge writes nothing")
 ev, _ = run_c(exe, 0, 1, 9830)
-ok([e.split()[0] for e in ev] == ["TARGET", "WAIT", "FLUSH", "CTRL"], f"hardware to software: mute, wait, flush, disable: {ev}")
+ok([e.split()[0] for e in ev] == ["TARGET", "WAIT", "FLUSH", "WAIT", "CTRL"], f"hardware to software: mute, wait, flush, wait out the register's glide, disable: {ev}")
+for hz, want in ((48000, 16), (44100, 18), (22050, 35), (8000, 95), (1000, 200), (0, 16)):
+    gl = [e for e in run_c(exe, 0, 1, 9830, hz)[0] if e.startswith("WAIT")][1]
+    ok(int(gl.split()[1]) == want, f"glide wait at an output tick rate of {hz} Hz is {want} ms (760 ticks, capped at 200): {gl}")
 ev, _ = run_c(exe, 1, 0, 9830)
 ok([e.split()[0] for e in ev] == ["TARGET", "CTRL", "TARGET", "WAIT", "FLUSH", "TARGET", "CTRL"] and ev[0] == "TARGET 32768" and ev[2] == "TARGET 0", f"software to hardware: unity snap, mute, wait, flush, volume, fade: {ev}")
 ok(any(e.startswith("WAIT") and int(e.split()[1]) >= 5 for e in run_c(exe, 0, 1, 9830)[0]), "the mute waits at least the stage's 5 ms ramp")
@@ -121,17 +135,21 @@ ok(old_step > nat * 3, f"baseline: the old hand-over (owner flipped, FIFO untouc
 hdr = (ROOT / "fw/gain_handover.h").read_text()
 for name, a, b in (("no flush", "    o->flush();\n", ""), ("no mute", "    o->target(0u);\n", ""),
                    ("no unity snap for a software owner", "if (!v->hw) { o->target(GH_UNITY); o->ctrl(ctrl_base | GH_CTRL_SNAP); }", ""),
-                   ("software fade not armed", "*fade_left = fade_samples;", "*fade_left = 0u;")):
+                   ("software fade not armed", "*fade_left = fade_samples;", "*fade_left = 0u;"),
+                   ("no wait for the glide", "o->wait_ms(ms > GH_GLIDE_MAX_MS ? GH_GLIDE_MAX_MS : ms);", ""),
+                   ("glide wait ignores the rate", "uint32_t hz = tick_hz ? tick_hz : 48000u;", "uint32_t hz = 48000u;")):
     assert a in hdr, name
     m = build(hdr.replace(a, b, 1), name.replace(" ", "_"))
     dead = False
     for on in (0, 1):
         for vol in (9830, 1000):
-            try:
-                ev, st, steps, peak = scenario(m, on, 1 - on, vol)
-            except Exception:
-                dead = True; continue
-            want = AMP * vol / 32768
-            if steps > nat * 1.25 + 4 or abs(peak - want) > max(40, want * 0.04) or st != (on, vol, vol, 0 if on else 2048): dead = True
+            for hz in (48000, 22050):
+                try:
+                    rr = [scenario(m, on, 1 - on, vol, off, hz) for off in range(0, 48, 8)]
+                    ev, st, peak = rr[0][0], rr[0][1], rr[0][3]; steps = max(r[2] for r in rr)
+                except Exception:
+                    dead = True; continue
+                want = AMP * vol / 32768
+                if ev != run_c(exe, on, 1 - on, vol, hz)[0] or steps > nat * 1.25 + 4 or abs(peak - want) > max(40, want * 0.04) or st != (on, vol, vol, 0 if on else 2048): dead = True
     ok(dead, f"mutant caught: {name}")
 sys.exit(1 if fails else 0)
