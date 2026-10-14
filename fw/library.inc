@@ -301,7 +301,7 @@ COLD_FN static void lib_det_text(uint32_t f, char *o, uint32_t cap)
     case DF_LIVE_DEC: q = tdet_dec(q, track_hz); q = tdet_cat(q, lib_det_s(TDS_HZ)); q = tdet_dec(q, track_kbps); q = tdet_cat(q, lib_det_s(TDS_KBPS)); break;
     case DF_LIVE_RG:
         q = tdet_cat(q, lib_det_s(rg_mode == RG_OFF ? TDS_OFF : rg_mode == RG_TRACK ? TDS_TRACKW : TDS_ALBUM));
-        q = tdet_cat(q, lib_det_s(TDS_CAP)); q = tdet_dec(q, (rg_cap_hw ? rg_cap_hw : RG_UNITY) / 328u); q = tdet_cat(q, lib_det_s(TDS_PCT));
+        q = tdet_cat(q, lib_det_s(TDS_CAP)); q = tdet_dec(q, ((rg_cap_hw ? rg_cap_hw : RG_UNITY) * 100u + 16384u) >> 15); q = tdet_cat(q, lib_det_s(TDS_PCT));
         break;
     case DF_LIVE_LOAD: q = tdet_dec(q, ld_head); *q++ = '/'; q = tdet_dec(q, ld_size); *q++ = '/'; q = tdet_dec(q, ld_art); *q++ = '/'; q = tdet_dec(q, ld_total); break;
     default: break;
