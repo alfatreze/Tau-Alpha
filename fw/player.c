@@ -1123,6 +1123,9 @@ static char track_trk[8];
  * and every file with a bare Xing header. */
 static char    track_encoder[12];
 static uint8_t track_vbr_method;      /* 0 = unknown / absent */
+/* B-737 (gapless trim): decoded frames that were discarded in the load-time warm-up (so the decoded-stream index of the first frame of the main loop), 0xFF = no trim
+ * (a seek happened, or the cold image is not loaded). The decode counter `frames` plus this is the frame index mt_range() needs. */
+static uint8_t  mt_wu = 0xFFu;
 static uint16_t track_enc_delay, track_enc_padding;   /* B-624 gapless groundwork: the LAME tag's encoder delay and end padding in samples (0 = absent); read by nothing yet */
 
 /* Transport state. Declared up here with the other UI-visible globals rather
@@ -1271,6 +1274,7 @@ static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: curre
 #define RG_COLD COLD_FN3
 #include "replaygain.h"
 #include "lame_tag.h"
+#include "mp3_trim.h"
 static rg_t     rg_cur;
 static uint8_t  rg_mode;                                   /* RG_OFF (default), RG_TRACK, RG_ALBUM; saved with the theme polarity word */
 static uint32_t rg_factor = RG_UNITY;
@@ -8906,6 +8910,21 @@ COLD_SR static int read_track_head(void)
 /* Everything needed to start a track from the beginning, shared by boot and by
  * a reload. ONE function deliberately -- two copies of this drift apart. */
 __attribute__((optimize("Os")))       /* runs between tracks (audio silent), dominated by SD reads: size matters more than speed here */
+/* B-737: the part of decoded frame fi (stream index, the Info frame counted) to play. Whole frame when the file cannot be trimmed (no LAME numbers, no frame count). */
+COLD_FN2 static uint32_t mt_range(uint32_t fi, uint32_t spf)    /* (first << 16) | count, both at most one frame */
+{
+    mp3_trim_cfg_t c;
+    uint32_t first = 0, count = spf;
+    if (mp3_trim_cfg(&c, track_frames, spf, track_enc_delay, track_enc_padding)) mp3_trim_range(&c, fi, &first, &count);
+    return (first << 16) | count;
+}
+/* 1 when the file will be trimmed at its start (the warm-up must then stop after the frame that contains the first kept pair, so it never discards music). */
+COLD_FN2 static uint32_t mt_start_pair(uint32_t spf)
+{
+    mp3_trim_cfg_t c;
+    return mp3_trim_cfg(&c, track_frames, spf, track_enc_delay, track_enc_padding) ? c.S : 0u;
+}
+
 COLD_SR static int load_track(void)
 {
     art_job_on = 0;      /* B-735: a new load owns the slot */
@@ -8930,6 +8949,7 @@ COLD_SR static int load_track(void)
     pcm_flush();
 
     frames = 0; errs = 0; rate_set = 0; min_level = 0xFFFFFFFFu;
+    mt_wu = 0xFFu;   /* B-737: set when the warm-up has told how many frames it discarded */
     /* A NEW track starts at 0:00, and this is the one place that knows one
      * started. ui_draw_chrome used to do it, which caught every repaint too. */
     ui_sec = 0; ui_sec_acc = 0; ui_last_frames = 0xFFFFFFFFu;
@@ -9283,7 +9303,9 @@ COLD_SR static int load_track(void)
          * fixed count, and 26-78 ms of a track's very start. */
         int guard = 12;                      /* never loop on a broken stream */
         uint32_t warmed = 0;                 /* bytes of DECODED frames so far */
-        while (guard-- && warmed < 512u) {
+        uint32_t mt_n = 0, mt_s = 0, mt_spf = 0;   /* B-737: frames decoded here, the first kept pair of a trimmable file (0 = no trim), samples per frame */
+        int mt_last_ok = 0;                  /* the last warm-up decode succeeded, so pcm[] still holds that frame */
+        while (guard-- && warmed < 512u && !(mt_s && mt_n * mt_spf > mt_s)) {   /* a trimmed file: never warm up past the frame holding the first kept pair, or music is discarded */
             int bl = (int)(ring_fill - ring_rd);
             if (bl < 512) break;
             int off = MP3FindSyncWord(&ring[ring_rd], bl);
@@ -9294,8 +9316,10 @@ COLD_SR static int load_track(void)
             int e = MP3Decode(dec, &ib, &bl, pcm, 0);
             uint32_t used = (uint32_t)(before - bl);
             ring_rd += used;
+            mt_last_ok = (e == 0);
             if (e == 0) {
                 warmed += used;              /* only real frames count */
+                mt_n++;
 
                 /* Establish the stream's real rate HERE, off the warm-up
                  * frame, not on the first frame that plays.
@@ -9330,8 +9354,20 @@ COLD_SR static int load_track(void)
                         rate_set = 1;
                     }
                 }
+                if (!mt_spf && cold_code_ok && samp_per_frame) { mt_spf = samp_per_frame; mt_s = mt_start_pair(mt_spf); }   /* B-737: known once the first frame has told us its size */
             }
             else if (!used) ring_rd++;       /* no progress: step past it */
+        }
+        /* B-737: the first frames are discarded by the warm-up, and the stream index of the first frame the main loop decodes is mt_n. If the last one held kept pairs (the file is
+         * trimmed and the warm-up stopped on the frame containing the first kept pair), play that part now, from the buffer it is still in. */
+        mt_wu = cold_code_ok ? (uint8_t)(mt_n > 200u ? 200u : mt_n) : 0xFFu;
+        if (mt_s && mt_last_ok && mt_n) {
+            const uint32_t r = mt_range(mt_n - 1u, mt_spf), tf = r >> 16, tc = r & 0xFFFFu;
+            if (tc) {
+                MP3FrameInfo lfi; MP3GetLastFrameInfo(dec, &lfi);
+                const uint32_t st = (lfi.nChans == 2) ? 1u : 0u;
+                pcm_push_pairs(&cymo_hooks, pcm + tf * (st ? 2u : 1u), tc, st, &vol_st, &fade_left, FADE_SAMPLES);
+            }
         }
     }
 
@@ -9879,6 +9915,7 @@ int main(void)
             pcm_flush();
             refill_drain();
             frames = 0; errs = 0; rate_set = 0; min_level = 0xFFFFFFFFu;
+            mt_wu = 0;       /* B-737: a soft restart decodes from the Info frame again */
             track_kbps = 0; track_hz = 0;
             file_pos  = audio_start;
             ring_fill = 0; ring_rd = 0;
@@ -9915,6 +9952,7 @@ int main(void)
             file_pos  = audio_start;
             ring_fill = 0; ring_rd = 0;
             frames = 0; min_level = 0xFFFFFFFFu;
+            mt_wu = 0;       /* B-737: restart from the start of the file */
             ui_sec = 0; ui_sec_acc = 0;
             ui_last_sec = 0xFFFFFFFFu; ui_prog_sec = 0xFFFFFFFFu;
             ui_last_pause = 0xFFFFFFFFu;      /* repaint the transport label */
@@ -10151,6 +10189,7 @@ int main(void)
                 meas_sec0 = ui_sec;
 
                 pcm_flush();
+                mt_wu = 0xFFu;   /* B-737: a seek lands mid-file: the decoded-frame count no longer says where in the stream we are, so no trim until the next start */
                 refill_drain();
                 ring_fill = 0; ring_rd = 0;
 
@@ -10523,20 +10562,24 @@ int main(void)
 
         int n = fi.outputSamps;                  /* interleaved L,R */
         int stereo = (fi.nChans == 2);
+        /* B-737 (gapless trim): play only pairs [tf, tf + tc) of this frame when the file is a LAME file with a frame count and no seek has happened (mt_wu != 0xFF). */
+        uint32_t tc = (uint32_t)(stereo ? n / 2 : n), tf = 0;
+        if (mt_wu != 0xFFu && cold_code_ok) { const uint32_t r = mt_range((uint32_t)mt_wu + frames, tc); tf = r >> 16; tc = r & 0xFFFFu; }
+        const short *tp = pcm + (stereo ? tf * 2u : tf);
 
 #if TAU_TEMPO
         if (tempo_use(fi.samprate, (uint32_t)fi.nChans)) {
             /* B-558: through the stretcher; it feeds the meters itself, from its output */
-            if (!tempo_frame(&tempo_st, (const int16_t *)pcm, (uint32_t)n, stereo)) goto next_outer;
+            if (tc && !tempo_frame(&tempo_st, (const int16_t *)tp, stereo ? tc * 2u : tc, stereo)) goto next_outer;   /* B-737: trimmed like the plain path */
         } else
 #endif
         {
         LD_MARK(ld1);
-        meters_feed(pcm, n, stereo);
+        meters_feed(tp, (int)(stereo ? tc * 2u : tc), stereo);
         LD_ACC(ld1, ld_t_feed);
 
         LD_MARK(ld2);
-        if (!pcm_push_pairs(&cymo_hooks, pcm, (uint32_t)(stereo ? n / 2 : n), (uint32_t)stereo, &vol_st, &fade_left, FADE_SAMPLES))
+        if (tc && !pcm_push_pairs(&cymo_hooks, tp, tc, (uint32_t)stereo, &vol_st, &fade_left, FADE_SAMPLES))
             goto next_outer;                         /* volume, fade, FIFO wait, write (C1, burst form B-592); aborts on a pending reload */
         LD_ACC(ld2, ld_t_push);
         }

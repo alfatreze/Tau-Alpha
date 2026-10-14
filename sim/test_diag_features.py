@@ -22,7 +22,7 @@ check("every feature is converted (nothing left hanging off TAU_DIAGNOSTIC alone
 check("dependencies name real features", all(x in feats for f in feats.values() for x in f["depends"]))
 check("generated header is up to date", gen("--check")[0] == 0)
 hdr = (ROOT / "fw/diag_features.h").read_text()
-check("every converted feature has its macro defaulting to TAU_DIAGNOSTIC", all(re.search(r"#define TAU_%s_%s TAU_DIAGNOSTIC" % (f["kind"].upper(), i.upper()), hdr) for i, f in feats.items()))
+check("every converted feature has its macro defaulting to TAU_DIAGNOSTIC (or 0 when the register says default_off)", all(re.search(r"#define TAU_%s_%s %s\b" % (f["kind"].upper(), i.upper(), "0" if f.get("default_off") else "TAU_DIAGNOSTIC"), hdr) for i, f in feats.items()))
 # every macro the firmware tests is a registered one (a typo would silently compile the code out)
 used = set()
 for p in list((ROOT / "fw").glob("*.inc")) + list((ROOT / "fw").glob("*.c")) + list((ROOT / "fw").glob("*.h")):
