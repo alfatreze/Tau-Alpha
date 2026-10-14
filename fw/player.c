@@ -1281,9 +1281,19 @@ static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: curre
 #endif
 #if TAU_PCM_RING_FW
 /* B-746 (gapless G1, fw/pcm_ring_fw.inc): the hardware PCM ring is the decoders' output while rg_on. */
+#define RG_SIZE    52000u          /* pairs (208 KB) */
+#define RG_MARGIN  3328u           /* slots behind the read index kept readable: FIFO depth 2048 + the 1152-pair meter window + slack */
+#define RG_BASE_W  0x1C0000u       /* PSRAM word address of ring[0] = byte +0x700000 of the window (map: docs/features/CYMO_TEMPO_INTEGRATION.md: image +0x10000 (4 MiB), queue +0x510000, tempo staging +0x600000..+0x640000, cold image 8 MiB) */
+#define R_RING_BASE 0x80000184u
+#define R_RING_SIZE 0x80000188u
+#define R_RING_WPTR 0x8000018Cu
+#define R_RING_RIDX 0x80000190u
+#define R_RING_CTRL 0x80000194u
+#define R_RING_CNT  0x80000198u
 static prh_t    rg;
 static uint8_t  rg_on, rg_held;
-static uint32_t rg_fed, rg_n1;
+static uint32_t rg_fed, rg_n1, rg_min;
+static uint16_t rg_und;                     /* Info > RING: FIFO empty while the ring held pairs (the reader fell behind), saturating */
 static uint8_t  rg_put_frame(const int16_t *pcm_, uint32_t pairs, uint32_t stereo);
 static uint8_t  rg_put1(int32_t l, int32_t r, uint8_t abortable);
 static void     rg_publish(void);
@@ -5599,9 +5609,8 @@ ui_tail:
     uint32_t sec = ui_sec;
 #if TAU_PCM_RING_FW
     if (rg_on && samprate) {                         /* B-746: the heard position: the decoded one minus what the ring and the FIFO still hold */
-        uint32_t pp = ui_sec * samprate + ui_sec_acc, lead = rg_lead();
-        pp = pp > lead ? pp - lead : 0u;
-        sec = pp / samprate;
+        const uint32_t pp = ui_sec * samprate + ui_sec_acc, lead = rg_lead();
+        sec = prh_heard_pos(pp, lead) / samprate;
     }
 #endif
 
@@ -6979,6 +6988,9 @@ static inline void pcm_flush(void)
     fade_left    = FADE_SAMPLES;  /* every flush is a discontinuity */
     if (vol_st.hw) fade_left = 0u;  /* the hardware stage fades itself; a stale software fade would pop when the gain is handed back */
     under_shadow = 0;             /* flush clears the sticky underrun flag */
+#if TAU_PCM_RING_FW
+    if (rg_on) rg_fed = REG(R_RING_CNT);   /* B-746: the hardware drops the unread pairs: the meter read-back starts again from here */
+#endif
 #if TAU_TEMPO
     tempo_cfg_key = 0u;           /* B-558: the stretcher starts again from the next decoded frame (a hard reset: what it had staged is dropped) */
 #endif

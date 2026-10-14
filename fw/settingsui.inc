@@ -690,7 +690,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 40u   /* B-731: +1 for POLL GAP (longest CPU stalls between poll_input calls). B-725 earlier:   /* B-725: +2 for GAP HIST and SLOT SETTLE (gapless G0). B-633: +1 for GAP LATENCY (time from a natural track end to the first frame of the next track). B-625: +1 for HW GAIN (the hardware gain stage: owner, target, current gain, fading). B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS 41u   /* B-747: +1 for RING (the hardware PCM ring: fill, lowest fill, pushed pairs, hold, FIFO-ran-dry count). */ /* before: 40u:   /* B-731: +1 for POLL GAP (longest CPU stalls between poll_input calls). B-725 earlier:   /* B-725: +2 for GAP HIST and SLOT SETTLE (gapless G0). B-633: +1 for GAP LATENCY (time from a natural track end to the first frame of the next track). B-625: +1 for HW GAIN (the hardware gain stage: owner, target, current gain, fading). B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -764,6 +764,7 @@ static const char *const set_info_label[SET_INFO_ROWS] COLD_DATA = {
     , "GAP HIST"
     , "SLOT SETTLE"
     , "POLL GAP"
+    , "RING"
     };
 static uint32_t set_info_at;
 
@@ -1057,6 +1058,21 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = ui_hex2(q, (uint8_t)(pg_ra_max >> 20)); q = ui_hex2(q, (uint8_t)(pg_ra_max >> 12)); q = ui_hex2(q, (uint8_t)(pg_ra_max >> 4));
         q = set_str(q, ">");
         q = ui_hex2(q, (uint8_t)(pg_rb_max >> 20)); q = ui_hex2(q, (uint8_t)(pg_rb_max >> 12)); q = ui_hex2(q, (uint8_t)(pg_rb_max >> 4));
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 40:   /* RING (B-747, the hardware PCM ring, fw/pcm_ring_fw.inc): "-" in a build without TAU_PCM_RING_FW, NO UNIT / OFF when the bitstream has no ring or it is not in use, otherwise
+                * F = pairs in the ring now, M = the lowest fill since it was armed (a low M means the reader or the decoder ran close to dry), C = pairs pushed into the FIFO, H = 1 while the
+                * reader is held (paused), U = times the FIFO ran dry while the ring still held pairs (the reader fell behind: it must stay 0). */
+#if TAU_PCM_RING_FW
+        if (!rg_on) { q = set_str(q, (REG(R_RING_CTRL) >> 31) ? "OFF" : "NO UNIT"); break; }
+        { const uint32_t ridx = REG(R_RING_RIDX);
+          q = set_str(q, "F"); q = ui_dec(q, prh_fill(&rg, ridx));
+          q = set_str(q, " M"); q = ui_dec(q, rg_min == RG_SIZE ? 0u : rg_min);
+          q = set_str(q, " C"); q = ui_dec(q, REG(R_RING_CNT));
+          q = set_str(q, " H"); q = ui_dec(q, rg_held);
+          q = set_str(q, " U"); q = ui_dec(q, rg_und); }
 #else
         q = set_str(q, "-");
 #endif

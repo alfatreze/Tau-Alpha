@@ -5,15 +5,7 @@
  * fill underruns. The clock and the software meters follow the HEARD position (what the FIFO has released), not the decoded one. Pause HOLDS the reader; a natural end plays the ring out
  * before the next track loads (G2 will replace that wait with a boundary marker). Anything that flushes (track change, seek) drops the unread pairs in hardware. */
 #if TAU_PCM_RING_FW
-#define RG_SIZE    52000u          /* pairs (208 KB) */
-#define RG_MARGIN  3328u           /* slots behind the read index kept readable: FIFO depth 2048 + the 1152-pair meter window + slack */
-#define RG_BASE_W  0x1C0000u       /* PSRAM word address of ring[0] = byte +0x700000 of the window (map: docs/features/CYMO_TEMPO_INTEGRATION.md: image +0x10000 (4 MiB), queue +0x510000, tempo staging +0x600000..+0x640000, cold image 8 MiB) */
-#define R_RING_BASE 0x80000184u
-#define R_RING_SIZE 0x80000188u
-#define R_RING_WPTR 0x8000018Cu
-#define R_RING_RIDX 0x80000190u
-#define R_RING_CTRL 0x80000194u
-#define R_RING_CNT  0x80000198u
+/* RG_SIZE, RG_MARGIN, RG_BASE_W and the R_RING_* registers are defined at the top of player.c (pcm_flush, the clock and Info > RING need them before this file). */
 #define RG_WIN ((volatile uint32_t *)(uintptr_t)(0xA4000000u + 4u * RG_BASE_W))
 static uint32_t rg_rd_ridx(void) { return REG(R_RING_RIDX); }
 static void     rg_wr_word(uint32_t i, uint32_t w) { RG_WIN[i] = w; }
@@ -50,7 +42,7 @@ COLD_FN2 static void rg_arm(void)
     REG(R_RING_BASE) = RG_BASE_W; REG(R_RING_SIZE) = RG_SIZE; REG(R_RING_WPTR) = 0u;
     for (uint32_t n = 0; n < 1000u && REG(R_RING_RIDX) != 0u; n++) { }
     prh_init(&rg, RG_SIZE, RG_MARGIN, 0u);
-    rg_held = 0u; rg_n1 = 0u;
+    rg_held = 0u; rg_n1 = 0u; rg_min = RG_SIZE; rg_und = 0u;
     REG(R_RING_CTRL) = 1u;
     rg_fed = REG(R_RING_CNT);
     rg_on = 1u;
@@ -78,32 +70,32 @@ COLD_FN2 static void rg_playout(void)
     if (!rg_on) return;
     rg_publish();
     const uint32_t t0 = cycles();
-    while (!reload_pending) {
+    for (;;) {
         poll_input();
         rg_hold(paused ? 1u : 0u);
-        if (!paused) {
-            if (REG(R_RING_RIDX) == rg.w && PCM_EMPTY(REG(R_PCM_ST))) break;
-            if ((uint32_t)(cycles() - t0) > CLK_HZ * 5u) break;           /* never wait for ever */
-        }
+        if (prh_playout_step(reload_pending, paused ? 1u : 0u, REG(R_RING_RIDX) == rg.w, PCM_EMPTY(REG(R_PCM_ST)), cycles() - t0, CLK_HZ * 5u)) break;
     }
     rg_hold(0u);
 }
 /* The software meters at the heard position: the pairs the FIFO has released since the last call, read back from the ring (they are within the margin, so never overwritten). */
 COLD_FN2 static void rg_meter_feed(void)
 {
-    const uint32_t cnt = REG(R_RING_CNT), heard = cnt - PCM_LEVEL(REG(R_PCM_ST));
-    int32_t n = (int32_t)(heard - rg_fed);
-    if (n <= 0) return;
-    if (n > 1152) { rg_fed = heard - 1152u; n = 1152; }
-    const uint32_t ridx = REG(R_RING_RIDX), back = cnt - rg_fed;
-    uint32_t pos = ridx >= back ? ridx - back : ridx + RG_SIZE - back;
-    for (int32_t i = 0; i < n; i++) {
+    const uint32_t cnt = REG(R_RING_CNT), st = REG(R_PCM_ST);
+    uint32_t pos, nf;
+    const uint32_t n = prh_meter_span(cnt, PCM_LEVEL(st), rg_fed, REG(R_RING_RIDX), RG_SIZE, 1152u, &pos, &nf);
+    {   /* Info > RING: the lowest the ring has been since it was armed, and the FIFO running dry while the ring still held pairs (the reader fell behind: it must stay 0) */
+        const uint32_t fill = prh_fill(&rg, REG(R_RING_RIDX));
+        if (fill < rg_min) rg_min = fill;
+        if (PCM_EMPTY(st) && fill && rg_und < 65535u) rg_und++;
+    }
+    if (!n) return;
+    for (uint32_t i = 0; i < n; i++) {
         const uint32_t w = RG_WIN[pos];
         pcm[2 * i] = (short)(w & 0xFFFFu); pcm[2 * i + 1] = (short)(w >> 16);
         if (++pos == RG_SIZE) pos = 0u;
     }
-    rg_fed += (uint32_t)n;
-    meters_feed(pcm, 2 * n, 1);
+    rg_fed = nf;
+    meters_feed(pcm, (int)(2u * n), 1);
 }
 /* Pairs decoded but not yet heard, for the clock. */
 COLD_FN2 static uint32_t rg_lead(void) { return prh_lead(&rg, REG(R_RING_RIDX), PCM_LEVEL(REG(R_PCM_ST))); }

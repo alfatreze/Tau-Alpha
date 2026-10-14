@@ -58,4 +58,31 @@ static inline uint8_t prh_put1(prh_t *r, const prh_hooks_t *h, int32_t l, int32_
 
 /* Pairs decoded but not yet heard: the unread ring plus what the FIFO still holds. The clock and progress bar subtract this from the decoded position. */
 static inline uint32_t prh_lead(const prh_t *r, uint32_t ridx, uint32_t fifo_level) { return prh_fill(r, ridx) + fifo_level; }
+
+/* ---- the heard position (clock, meters) ----------------------------------------------------------------------------------------------------------------------------
+ * The reader pushes pair number p (0, 1, 2, ... = RING_CNT) from ring slot ridx_at_that_time, and the FIFO holds the last `level` of them, so the pairs HEARD so far are
+ * cnt - level. A meter feed takes the pairs heard since `fed` (at most max_n of them: older ones are skipped), whose slots lie `cnt - first` behind the read index. The caller must
+ * set fed = cnt when the ring is flushed (the dropped pairs are never pushed, so cnt does not move, but ridx jumps and the relation to `fed` is gone). */
+static inline uint32_t prh_meter_span(uint32_t cnt, uint32_t level, uint32_t fed, uint32_t ridx, uint32_t size, uint32_t max_n, uint32_t *pos, uint32_t *new_fed)
+{
+    const uint32_t heard = cnt - level;
+    int32_t n = (int32_t)(heard - fed);
+    if (n <= 0) { *new_fed = fed; *pos = 0u; return 0u; }
+    if ((uint32_t)n > max_n) { fed = heard - max_n; n = (int32_t)max_n; }
+    const uint32_t back = cnt - fed;                        /* slots behind ridx of the first pair to feed */
+    *pos = ridx >= back ? ridx - back : ridx + size - back;
+    *new_fed = fed + (uint32_t)n;
+    return (uint32_t)n;
+}
+/* The decoded position (in pairs) minus the lead, never below zero: what the clock shows. */
+static inline uint32_t prh_heard_pos(uint32_t decoded_pairs, uint32_t lead) { return decoded_pairs > lead ? decoded_pairs - lead : 0u; }
+/* The natural-end wait: what to do now. 0 = keep waiting, 1 = everything has played out, 2 = give up (a reload request, or too long without a pause). */
+static inline uint32_t prh_playout_step(uint32_t reload_pending, uint32_t paused, uint32_t ring_empty, uint32_t fifo_empty, uint32_t elapsed_cyc, uint32_t limit_cyc)
+{
+    if (reload_pending) return 2u;
+    if (paused) return 0u;                                  /* held: wait for the resume, the clock does not run */
+    if (ring_empty && fifo_empty) return 1u;
+    if (elapsed_cyc > limit_cyc) return 2u;
+    return 0u;
+}
 #endif
