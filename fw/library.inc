@@ -450,10 +450,7 @@ COLD_FN static int lib_play_span(uint32_t pos, int dir, uint32_t span)
     uint32_t leaving_id = cur_file_id;
 
     sw_have_prev = 0;
-    if (target_read_slot(MP3_SLOT_ID, 0, TAG_OFF, 16u)) {
-        for (uint32_t i = 0; i < sizeof(sw_prev_head); i++) sw_prev_head[i] = tagbuf[i];
-        sw_have_prev = 1;
-    }
+    if (target_read_slot(MP3_SLOT_ID, 0, TAG_OFF, SW_HEAD)) { sw_prev_hash = sw_head_hash(tagbuf); sw_have_prev = 1; }   /* B-732: 48 bytes hashed, not 16 raw (see sw_head_hash) */
     uint32_t at = pos % lib_qn, nmiss = 0, nfail = 0;
     char path[LIB_MAX_PATH + 8u];
     for (uint32_t n = 0; n < span; n++) {
