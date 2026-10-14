@@ -10,7 +10,8 @@
 //
 // One PSRAM read per pair (32 cycles measured, KB-040) while the FIFO holds fewer than THR pairs: the FIFO is topped up, never overfilled (a push into a full pcm_fifo is silently
 // dropped, so the level check is the safety property, tested). The read data is captured the cycle `ctl_done` pulses, pushed to the FIFO the next cycle.
-// BUG (test hook, 0 = correct): 1 no wrap of ridx, 2 flush ignored, 3 ignores the FIFO level, 4 drops a pair (advances twice), 5 ignores `en`.
+// `hold` (B-745): the player's pause. Without it the hardware would keep draining the ring into the FIFO and the DAC after the CPU stopped decoding, so a paused track would play on for the ring's depth.
+// BUG (test hook, 0 = correct): 1 no wrap of ridx, 2 flush ignored, 3 ignores the FIFO level, 4 drops a pair (advances twice), 5 ignores `en`, 6 ignores `hold`.
 // =============================================================================
 `default_nettype none
 module tau_pcm_ring #(
@@ -21,6 +22,7 @@ module tau_pcm_ring #(
     input  wire        rst,
     input  wire        en,                 // sticky enable (MMIO); while 0 the unit is idle and ridx follows wptr
     input  wire        flush,              // one-cycle pulse: drop the unread pairs
+    input  wire        hold,               // sticky (MMIO): no new read starts while 1 (pause): the unread pairs are kept, a read in flight completes and is pushed
     input  wire [22:0] base,               // PSRAM word address of ring[0]
     input  wire [22:0] size,               // pairs in the ring (2 .. 2^23)
     input  wire [22:0] wptr,               // CPU write index
@@ -45,7 +47,7 @@ module tau_pcm_ring #(
     reg [1:0] state;
     reg       guard_seen;
     wire      nonempty = (ridx != wptr);
-    wire      room     = (BUG == 3) ? 1'b1 : (fifo_level < THR);
+    wire      room     = ((BUG == 3) ? 1'b1 : (fifo_level < THR)) && ((BUG == 6) ? 1'b1 : !hold);
     wire      active   = (BUG == 5) ? 1'b1 : en;
     wire [22:0] nxt    = (ridx + 23'd1 == size) ? 23'd0 : ridx + 23'd1;
     wire [22:0] nxt2   = (nxt  + 23'd1 == size) ? 23'd0 : nxt  + 23'd1;
