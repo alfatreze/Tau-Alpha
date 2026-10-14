@@ -690,7 +690,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 39u   /* B-725: +2 for GAP HIST and SLOT SETTLE (gapless G0). B-633: +1 for GAP LATENCY (time from a natural track end to the first frame of the next track). B-625: +1 for HW GAIN (the hardware gain stage: owner, target, current gain, fading). B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS 40u   /* B-731: +1 for POLL GAP (longest CPU stalls between poll_input calls). B-725 earlier:   /* B-725: +2 for GAP HIST and SLOT SETTLE (gapless G0). B-633: +1 for GAP LATENCY (time from a natural track end to the first frame of the next track). B-625: +1 for HW GAIN (the hardware gain stage: owner, target, current gain, fading). B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -763,6 +763,7 @@ static const char *const set_info_label[SET_INFO_ROWS] COLD_DATA = {
     , "GAP LATENCY"
     , "GAP HIST"
     , "SLOT SETTLE"
+    , "POLL GAP"
     };
 static uint32_t set_info_at;
 
@@ -1043,6 +1044,15 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, " X"); q = ui_dec(q, gset_max);
         q = set_str(q, " N"); q = ui_dec(q, gset_n);
         q = set_str(q, " T"); q = ui_dec(q, gset_tries_max);
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 39:   /* POLL GAP (B-731): how long the CPU stayed away from poll_input(): counts of stalls 20-46 / 46-300 / 300-1000 / 1000+ ms, then the worst (ms).
+                * Stalls above 46 ms are where a firmware ring drain could not run (the FIFO holds 46 ms), so they are what the gapless ring has to be fed from. */
+#if TAU_DX_GAP_TIMING
+        for (uint32_t b = 0; b < 4u; b++) { if (b) *q++ = '/'; q = ui_dec(q, pg_b[b]); }
+        q = set_str(q, " X"); q = ui_dec(q, pg_max_ms);
 #else
         q = set_str(q, "-");
 #endif

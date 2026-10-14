@@ -1156,6 +1156,11 @@ static uint32_t gap_t0, gap_last_ms, gap_max_ms, gap_n, gap_buf_ms;   /* B-633: 
 /* B-725 (gapless G0, docs/features/GAPLESS_SPEC.md): the DISTRIBUTION behind the ring size. gap_hist = natural-end gaps in buckets (<150, <300, <600, <1000, <2000 ms, longer); gset_* = the slot-open
  * settle loop of read_track_head() (time, tries), the suspected source of the 1.1 s outlier. */
 static uint16_t gap_hist[6];
+/* B-731 (gapless G0b): the longest the CPU stays away from poll_input(). A firmware ring drain can only run where the code runs, so a stall longer than the FIFO (46 ms) is
+ * exactly where a ring would NOT help. pg_b = stalls of 20-46, 46-300, 300-1000 and 1000+ ms; pg_max_ms the worst. */
+static uint8_t  pg_b[4];            /* saturating at 255 */
+static uint16_t pg_max_ms;
+static uint32_t pg_t;
 static uint16_t gset_last, gset_max, gset_n, gset_tries_max;
 static uint32_t gap_sum, gset_sum;
 #endif
@@ -6602,6 +6607,15 @@ static void ui_blank_pump(void)
  * panel itself off from a core, so "blank" means every pixel black. The
  * backlight stays on regardless; see the note on blank_min. */
 __attribute__((optimize("Os")))       /* button handling: no timing role; RAM is the constraint in the library build */
+#if TAU_DX_GAP_TIMING
+COLD_FN2 static void pg_note_cold(uint32_t d)
+{
+    const uint32_t ms = d / (CLK_HZ / 1000u);
+    uint8_t *c = &pg_b[ms < 46u ? 0u : ms < 300u ? 1u : ms < 1000u ? 2u : 3u];
+    if (*c < 255u) (*c)++;
+    if (ms > pg_max_ms) pg_max_ms = (uint16_t)(ms > 65535u ? 65535u : ms);
+}
+#endif
 static void poll_input(void)
 {
     static uint32_t prev;
@@ -6612,6 +6626,13 @@ static void poll_input(void)
     static uint8_t  sel_held;            /* the hold action already ran        */
 #if TAU_DX_STRESS
     stress_tick();
+#endif
+#if TAU_DX_GAP_TIMING
+    {   /* B-731: time since the previous call; a long one is bucketed in cold code (the hot path is a read, a subtract and a compare) */
+        const uint32_t t = cycles(), d = t - pg_t;
+        pg_t = t;
+        if (d >= CLK_HZ / 50u && cold_code_ok) pg_note_cold(d);
+    }
 #endif
     uint32_t in   = REG(R_INPUT);
     uint32_t keys = in & 0xFFFFu;
