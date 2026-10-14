@@ -1,10 +1,10 @@
 {
-  "player-library-diagnostic": 1120,
-  "player-library-diagnostic-perf": 3936,
-  "player-library-diagnostic-profile": 5552,
-  "player-library-diagnostic-profile-slim": 5552,
-  "player-library-diagnostic-slim": 3936,
-  "player-library-diagnostic-slim-preset": 7216,
-  "release": 8608,
-  "release-tempo-slim": 11424
+  "player-library-diagnostic": 1216,
+  "player-library-diagnostic-perf": 4032,
+  "player-library-diagnostic-profile": 5632,
+  "player-library-diagnostic-profile-slim": 5632,
+  "player-library-diagnostic-slim": 4032,
+  "player-library-diagnostic-slim-preset": 7344,
+  "release": 8736,
+  "release-tempo-slim": 11552
 }

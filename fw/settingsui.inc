@@ -690,7 +690,7 @@ COLD_FN static void set_draw_choice(uint32_t c)
 
 /* ---- Diagnostics / Info: read-only live values, refreshed once a second (rows only). ---- */
 extern char _heap_start, _heap_end;
-#define SET_INFO_ROWS 37u   /* B-633: +1 for GAP LATENCY (time from a natural track end to the first frame of the next track). B-625: +1 for HW GAIN (the hardware gain stage: owner, target, current gain, fading). B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
+#define SET_INFO_ROWS 39u   /* B-725: +2 for GAP HIST and SLOT SETTLE (gapless G0). B-633: +1 for GAP LATENCY (time from a natural track end to the first frame of the next track). B-625: +1 for HW GAIN (the hardware gain stage: owner, target, current gain, fading). B-599: +1 for REPLAYGAIN (mode and the gain applied to this track). B-481: +1 for CYMO RESAMP. B-467: +1 for I2S JITTER -- the clk_audio->clk_mclk CDC's real min/max/average
                               * update interval (clk_sys cycles) since reset, measured via a single-bit
                               * toggle synchronised with tau_cdc_sync1 then timed against cycle_ctr entirely
                               * in clk_sys -- no further CDC risk. Part of the Cymo 44.1 kHz investigation
@@ -739,7 +739,8 @@ extern char _heap_start, _heap_end;
                                               * opportunistic poll), so this instead logs one fixed
                                               * on-screen pixel's actual content across the last 4
                                               * blend attempts; see dbg_pixel_log() in fw/player.c. */
-static const char *const set_info_label[SET_INFO_ROWS] = {
+/* B-725: the pointer table lives in the cold image (only the Info page, which is cold code, reads it): 4 bytes per row less hot RAM; the label strings themselves stay in the ROM. */
+static const char *const set_info_label[SET_INFO_ROWS] COLD_DATA = {
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM",
     "COLD IMAGE",
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
@@ -760,6 +761,8 @@ static const char *const set_info_label[SET_INFO_ROWS] = {
     , "REPLAYGAIN"
     , "HW GAIN"
     , "GAP LATENCY"
+    , "GAP HIST"
+    , "SLOT SETTLE"
     };
 static uint32_t set_info_at;
 

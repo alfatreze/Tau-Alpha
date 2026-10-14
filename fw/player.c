@@ -1152,6 +1152,13 @@ static uint32_t fade_left;
 static uint8_t  under_shadow;   /* underrun already faded this flush epoch */
 #if TAU_DX_GAP_TIMING
 static uint32_t gap_t0, gap_last_ms, gap_max_ms, gap_n, gap_buf_ms;   /* B-633: natural-track-end gap timing (functions below, next to cymo_push) */
+#if TAU_DX_GAP_TIMING
+/* B-725 (gapless G0, docs/features/GAPLESS_SPEC.md): the DISTRIBUTION behind the ring size. gap_hist = natural-end gaps in buckets (<150, <300, <600, <1000, <2000 ms, longer); gset_* = the slot-open
+ * settle loop of read_track_head() (time, tries), the suspected source of the 1.1 s outlier. */
+static uint16_t gap_hist[6];
+static uint16_t gset_last, gset_max, gset_n, gset_tries_max;
+static uint32_t gap_sum, gset_sum;
+#endif
 static uint8_t  gap_armed;
 #endif
 #if TAU_DX_UNDERRUN_LOG
@@ -7841,6 +7848,8 @@ COLD_FN2 static void gap_frame_cold(void)
     gap_last_ms = (cycles() - gap_t0) / (CLK_HZ / 1000u);
     if (gap_last_ms > gap_max_ms) gap_max_ms = gap_last_ms;
     gap_n++;
+    gap_sum += gap_last_ms;
+    gap_hist[gap_last_ms < 150u ? 0u : gap_last_ms < 300u ? 1u : gap_last_ms < 600u ? 2u : gap_last_ms < 1000u ? 3u : gap_last_ms < 2000u ? 4u : 5u]++;
 }
 #define gap_mark_eof()   do { if (COLD_READY()) gap_eof_cold(); } while (0)
 #define gap_mark_frame() do { if (gap_armed) gap_frame_cold(); } while (0)
@@ -8612,6 +8621,9 @@ COLD_SR static int read_track_head(void)
          * Then two agreeing reads, so a half-switched slot is not trusted
          * either. ~1 s cap, after which the existing retry loop takes over. */
         uint8_t prev[16];
+#if TAU_DX_GAP_TIMING
+        const uint32_t gset_t0 = cycles();
+#endif
         uint32_t tries = 0, agree = 0, differs = !sw_have_prev;
         for (uint32_t i = 0; i < sizeof(prev); i++) prev[i] = 0u;
         while (tries++ < 32u && !(differs && agree >= 2u)) {
@@ -8631,6 +8643,15 @@ COLD_SR static int read_track_head(void)
                 while ((int32_t)(cycles() - wait) < 0) { }
             }
         }
+#if TAU_DX_GAP_TIMING
+        {   /* B-725: how long the slot-open settle took (ms) and how many reads it needed (tries is one past the last read) */
+            const uint32_t ms = (cycles() - gset_t0) / (CLK_HZ / 1000u);
+            gset_last = (uint16_t)(ms > 65535u ? 65535u : ms);
+            if (gset_last > gset_max) gset_max = gset_last;
+            if (tries > gset_tries_max) gset_tries_max = (uint16_t)tries;
+            gset_sum += ms; gset_n++;
+        }
+#endif
         sw_have_prev = 0;         /* one switch, one use */
     }
 

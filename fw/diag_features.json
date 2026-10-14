@@ -60,10 +60,10 @@
       "id": "gap_timing",
       "kind": "dx",
       "converted": true,
-      "title": "Natural-track-end gap timing (gap_*) behind Info > GAP LATENCY",
+      "title": "Natural-track-end gap timing (gap_*, gapless G0) behind Info > GAP LATENCY, GAP HIST and SLOT SETTLE",
       "depends": [],
       "class": "observer",
-      "influences": "times the gap at a natural track end, no effect on playback",
+      "influences": "times the gap at a natural track end and the slot-open settle of a track load (B-725), no effect on playback",
       "safe_to_drop": "yes"
     },
     {
