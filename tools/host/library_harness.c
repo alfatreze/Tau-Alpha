@@ -58,6 +58,23 @@ int main(void)
     }
     out("TRACKS");
 
+    if (l.det_off) {                                 /* B-727: every details record, field by field, and the encoder string it points at */
+        h_reset();
+        for (uint32_t i = 0; i < l.n_tracks; i++) {
+            lib_det_t d;
+            if (!lib_details(&l, i, &d)) { h_byte(0xEE); continue; }
+            h_byte(d.codec); h_byte(d.ch); h_byte(d.bits); h_byte(d.flags);
+            for (uint32_t k = 0; k < 4; k++) h_byte((uint8_t)(d.rate >> (8 * k)));
+            for (uint32_t k = 0; k < 4; k++) h_byte((uint8_t)(d.size >> (8 * k)));
+            h_byte((uint8_t)d.kbps); h_byte((uint8_t)(d.kbps >> 8)); h_byte((uint8_t)d.cover_kib); h_byte((uint8_t)(d.cover_kib >> 8));
+            h_byte((uint8_t)d.tg); h_byte((uint8_t)((uint16_t)d.tg >> 8)); h_byte((uint8_t)d.ag); h_byte((uint8_t)((uint16_t)d.ag >> 8));
+            h_byte((uint8_t)d.tp); h_byte((uint8_t)(d.tp >> 8)); h_byte((uint8_t)d.ap); h_byte((uint8_t)(d.ap >> 8));
+            h_byte((uint8_t)d.delay); h_byte((uint8_t)(d.delay >> 8)); h_byte((uint8_t)d.pad); h_byte((uint8_t)(d.pad >> 8));
+            if (d.enc) { lib_str(&l, d.enc, buf, sizeof(buf)); h_str(buf); } else h_byte('-');
+        }
+        out("DETAILS");
+    }
+
     h_reset();
     for (uint32_t i = 0; i < l.n_albums; i++) {
         lib_album_t a; lib_album(&l, i, &a);

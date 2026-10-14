@@ -32,7 +32,7 @@
 #define TAU_DX_UNDERRUN_LOG TAU_DIAGNOSTIC
 #endif
 
-/* dx: Natural-track-end gap timing (gap_*) behind Info > GAP LATENCY */
+/* dx: Natural-track-end gap timing (gap_*, gapless G0) behind Info > GAP LATENCY, GAP HIST and SLOT SETTLE */
 #ifndef TAU_DX_GAP_TIMING
 #define TAU_DX_GAP_TIMING TAU_DIAGNOSTIC
 #endif

@@ -68,6 +68,8 @@ test-host:
 	$(PYTHON) sim/test_psram_decode.py
 	$(PYTHON) sim/test_library_index.py
 	$(PYTHON) sim/test_library_fw.py
+	$(PYTHON) sim/test_track_details.py
+	$(PYTHON) sim/test_track_details_fw.py
 	$(PYTHON) sim/test_cold_fw.py
 	$(PYTHON) sim/test_suite.py
 	$(PYTHON) sim/test_install_dev_core.py
