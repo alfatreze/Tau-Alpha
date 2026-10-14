@@ -33,6 +33,8 @@ test-host:
 	$(PYTHON) tools/check_splash_asset.py
 	$(PYTHON) tools/check_tau_package.py
 	$(PYTHON) tools/check_ui_snapshot_renderer.py
+	$(PYTHON) tools/check_claude_md.py
+	$(PYTHON) sim/test_check_claude_md.py
 	$(PYTHON) tools/check_audit_trail.py
 	$(PYTHON) tools/gen_meters.py --check
 	$(PYTHON) tools/gen_layered_wave_tables.py --check
@@ -538,6 +540,15 @@ test-rtl-psram-fw: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 # Phase G2: real CPU executing code from PSRAM through the instruction alias, sharing the controller with the data window.
 # Also builds without the feature (the firmware must then report NOFEATURE, proving the netlist is inert).
 PSRAM_IFETCH_SRC = sim/tb_psram_ifetch.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
+# B-741: the PCM ring reader end to end (real CPU, mp3_soc, arbiter, PSRAM controller and chip model).
+PCM_RING_SOC_SRC = sim/tb_pcm_ring_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_pcm_ring.sv $(PSRAM_SRC)
+test-rtl-pcm-ring-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_pcmring/main.c -o $(RTL_BUILD_DIR)/fw_pcmring.elf
+	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_pcmring.elf $(RTL_BUILD_DIR)/fw_pcmring.bin
+	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_pcm_ring_soc.vvp $(PCM_RING_SOC_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_pcm_ring_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_pcmring.bin | tee $(RTL_BUILD_DIR)/pcm_ring_soc.log | tail -12; grep -q "^PASSED" $(RTL_BUILD_DIR)/pcm_ring_soc.log
+	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_pcm_ring_soc.RING=0 -o $(RTL_BUILD_DIR)/tb_pcm_ring_soc_off.vvp $(PCM_RING_SOC_SRC)
+	$(VVP) $(RTL_BUILD_DIR)/tb_pcm_ring_soc_off.vvp +ROM=$(RTL_BUILD_DIR)/fw_pcmring.bin | tail -4 | tee $(RTL_BUILD_DIR)/pcm_ring_soc_off.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/pcm_ring_soc_off.log
 test-rtl-psram-ifetch: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_ifetch/main.c -o $(RTL_BUILD_DIR)/fw_ifetch.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_ifetch.elf $(RTL_BUILD_DIR)/fw_ifetch.bin
