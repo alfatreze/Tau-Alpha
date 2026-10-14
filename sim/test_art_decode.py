@@ -64,9 +64,11 @@ def run(elf, blob):
     f.write_bytes(blob)
     r = subprocess.run([sys.executable, str(ROOT / "tools/rv32sim.py"), str(elf), str(f)], capture_output=True, text=True)
     m = re.search(r"rc=(\d+) fail=(\d+) hash=0x([0-9A-Fa-f]+) sig=0x([0-9A-Fa-f]+)", r.stdout)
+    st = re.search(r"steps=(\d+)/(\d+)", r.stdout)
     if not m:
         print(r.stdout, r.stderr)
         sys.exit("harness produced no result")
+    run.last_steps = (int(st[1]), int(st[2])) if st else (0, 0)
     return {"rc": int(m[1]), "fail": int(m[2]), "hash": m[3].lower(), "sig": m[4].lower()}
 
 
@@ -88,6 +90,9 @@ def main():
     for j in jpgs:
         data = j.read_bytes()
         res = {"mp3": run(elf, wrap_id3(data))}
+        so, sn = run.last_steps
+        if res["mp3"]["rc"]:
+            check(sn > 0 and so == sn, f"{j.stem}: stepped decode (1 and 5 MCUs per step, tag window clobbered between steps) equals the blocking one ({so}/{sn})")
         poisoned = {"mp3": run(elf_p, wrap_id3(data))}
         got[j.stem] = res["mp3"]
         if j is jpgs[0]:                         # the FLAC finder differs, the decode behind it does not: once is enough
