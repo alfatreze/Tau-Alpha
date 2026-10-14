@@ -1276,6 +1276,25 @@ static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: curre
 #include "replaygain.h"
 #include "lame_tag.h"
 #include "mp3_trim.h"
+#if TAU_PCM_RING_FW
+#include "pcm_ring_hw.h"
+#endif
+#if TAU_PCM_RING_FW
+/* B-746 (gapless G1, fw/pcm_ring_fw.inc): the hardware PCM ring is the decoders' output while rg_on. */
+static prh_t    rg;
+static uint8_t  rg_on, rg_tried, rg_held;
+static uint32_t rg_fed, rg_n1;
+static uint8_t  rg_put_frame(const int16_t *pcm_, uint32_t pairs, uint32_t stereo);
+static uint8_t  rg_put1(int32_t l, int32_t r, uint8_t abortable);
+static void     rg_publish(void);
+static void     rg_hold(uint8_t h);
+static void     rg_off(void);
+static void     rg_probe(void);
+static void     rg_playout(void);
+static void     rg_meter_feed(void);
+static uint32_t rg_lead(void);
+#endif
+
 static rg_t     rg_cur;
 static uint8_t  rg_mode;                                   /* RG_OFF (default), RG_TRACK, RG_ALBUM; saved with the theme polarity word */
 static uint32_t rg_factor = RG_UNITY;
@@ -1320,6 +1339,9 @@ COLD_FN2 static void gain_handover(uint8_t on)
     if (!hw_gain) return;
     static const gh_ops_t ops = { gh_ctrl, gh_target, gh_wait_ms, gh_flush };
     gh_handover(&ops, &vol_st, &fade_left, FADE_SAMPLES, GAIN_CTRL_BASE, on, pcm_tick_hz);
+#if TAU_PCM_RING_FW
+    if (!vol_st.hw) rg_off();   /* B-746: the ring carries raw samples, so it needs the hardware gain stage */
+#endif
     vol_apply();   /* B-720: the cap depends on the owner (a boost only exists in the hardware stage): software gets unity again, hardware may ramp up to its cap */
     if (!vol_st.hw) vol_st.cur = vol_st.target;
 }
@@ -5575,6 +5597,13 @@ ui_tail:
         while (ui_sec_acc >= samprate) { ui_sec_acc -= samprate; ui_sec++; }
     }
     uint32_t sec = ui_sec;
+#if TAU_PCM_RING_FW
+    if (rg_on && samprate) {                         /* B-746: the heard position: the decoded one minus what the ring and the FIFO still hold */
+        uint32_t pp = ui_sec * samprate + ui_sec_acc, lead = rg_lead();
+        pp = pp > lead ? pp - lead : 0u;
+        sec = pp / samprate;
+    }
+#endif
 
     /* Measured average: bytes actually consumed divided by elapsed time. Only
      * after a few seconds, so a partly-filled ring cannot skew it. */
@@ -7906,6 +7935,9 @@ COLD_FN2 static void gap_frame_cold(void)
  * has no such exit and never aborts. Always inlined, so the generated code per call site is what the hand-written copies produced. */
 static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_t r, uint8_t abortable)
 {
+#if TAU_PCM_RING_FW
+    if (rg_on) return rg_put1(l, r, abortable);   /* B-746: raw pair into the ring (the gain stage is at the FIFO output) */
+#endif
     pcm_gain_apply(&l, &r, &vol_st, &fade_left, FADE_SAMPLES);
     const uint32_t st = REG(R_PCM_ST);
 #if TAU_DX_UNDERRUN_LOG
@@ -7941,6 +7973,7 @@ static inline __attribute__((always_inline)) void     cpb_note(uint32_t no_room,
 #endif
 }
 static const pcm_hooks_t cymo_hooks = { cpb_rd, cpb_wr, cpb_wb, cpb_we, cpb_spin, cpb_note };
+#include "pcm_ring_fw.inc"
 
 #if TAU_TEMPO
 /* Cymo C7 T2 (B-558): the tempo funnel (fw/tempo_core.h) wired to the player. The staging ring is the PSRAM window at +6 MiB (planar, 64 KB a channel; the map is in
@@ -7990,7 +8023,12 @@ static int tempo_use(uint32_t rate, uint32_t nch)
     if (rate < 22050u || rate > 48000u || (nch != 1u && nch != 2u)) return 0;
     if (!tempo_psram_ok()) return 0;
     const uint32_t key = ((rate << 8) ^ (nch << 4) ^ (uint32_t)tempo_idx) | 0x80000000u;
-    if (key != tempo_cfg_key) { tempo_start(&tempo_st, rate, (uint8_t)nch, tempo_q8[tempo_idx]); tempo_cfg_key = key; }
+    if (key != tempo_cfg_key) {
+#if TAU_PCM_RING_FW
+        rg_off();                       /* B-746: the stretcher works in output time: it keeps the direct FIFO path (the ring is armed again at the next track only if tempo is off) */
+#endif
+        tempo_start(&tempo_st, rate, (uint8_t)nch, tempo_q8[tempo_idx]); tempo_cfg_key = key;
+    }
     return 1;
 }
 #endif
@@ -8039,14 +8077,24 @@ HOT_O2 static void flac_emit(void *ctx, const int16_t *src, uint32_t frames)
             clk_prev = xl;
         }
 #endif
+#if TAU_PCM_RING_FW
+        if (rg_on) {                                         /* B-746: the meters follow the heard position, read back from the ring */
+            if (++fl_meter_n == FL_METER_PAIRS) { fl_meter_n = 0; rg_meter_feed(); }
+        } else
+#endif
+        {
         pcm[fl_meter_n * 2u]      = src[i * 2];
         pcm[fl_meter_n * 2u + 1u] = src[i * 2 + 1];
         if (++fl_meter_n == FL_METER_PAIRS) {
             meters_feed(pcm, (int)(FL_METER_PAIRS * 2u), 1);
             fl_meter_n = 0;
         }
+        }
         cymo_push(src[i * 2], src[i * 2 + 1], 0u);   /* volume, fade, FIFO wait, write: the one shared path (C1) */
     }
+#if TAU_PCM_RING_FW
+    if (rg_on) rg_publish();                                 /* B-746: whatever the 64-pair publishing left behind */
+#endif
 }
 
 /* Issue a read, then go back to decoding and collect it later.
@@ -8930,6 +8978,9 @@ COLD_FN2 static uint32_t mt_start_pair(uint32_t spf)
 COLD_SR static int load_track(void)
 {
     art_job_on = 0;      /* B-735: a new load owns the slot */
+#if TAU_PCM_RING_FW
+    if (!rg_tried && cold_code_ok) rg_probe();
+#endif
     /* Release the FLAC buffer FIRST. This runs before the format is known --
      * detection needs the file's head, which read_track_head() has not fetched
      * yet -- so Helix is rebuilt on every load and handed back below if the
@@ -9368,6 +9419,9 @@ COLD_SR static int load_track(void)
             if (tc) {
                 MP3FrameInfo lfi; MP3GetLastFrameInfo(dec, &lfi);
                 const uint32_t st = (lfi.nChans == 2) ? 1u : 0u;
+#if TAU_PCM_RING_FW
+                if (rg_on) rg_put_frame(pcm + tf * (st ? 2u : 1u), tc, st); else
+#endif
                 pcm_push_pairs(&cymo_hooks, pcm + tf * (st ? 2u : 1u), tc, st, &vol_st, &fade_left, FADE_SAMPLES);
             }
         }
@@ -10333,6 +10387,9 @@ int main(void)
         if (idle) continue;
 
         if (paused) {
+#if TAU_PCM_RING_FW
+            rg_hold(1u);                    /* B-746: the reader keeps the unread pairs while paused */
+#endif
             st0 |= (1u << 7); REG(R_STAT0) = st0;
             /* Keep drawing. The UI update lives at the BOTTOM of this loop, so
              * simply continuing here meant PAUSED could only ever be drawn on
@@ -10355,6 +10412,9 @@ int main(void)
             continue;
         }
         st0 &= ~(1u << 7); REG(R_STAT0) = st0;
+#if TAU_PCM_RING_FW
+        rg_hold(0u);
+#endif
         if (ui_was_paused) {
             ui_wave_force = 1;              /* recolour back to full on resume */
             for (uint32_t i = 0; i < UI_WAVE_N; i++) {
@@ -10383,6 +10443,9 @@ int main(void)
                  * when it deliberately did not (repeat-one, or the end of a
                  * non-repeating list), and the old replay-this-track behaviour
                  * is the fallback -- so a single file still loops as before. */
+#if TAU_PCM_RING_FW
+                rg_playout();              /* B-746: let the ring play out before the next load flushes */
+#endif
                 gap_mark_eof();
                 if (lib_advance_auto()) { ui_mode_dirty = 1; continue; }
                 if (list_ended()) {
@@ -10428,6 +10491,9 @@ int main(void)
             /* Meters are fed from flac_emit on a fixed 1152-pair interval,
              * not here: once per frame is 9.6 Hz and looks delayed. */
             if (fe == FLAC_END || fe == FLAC_ERR_SHORT) {
+#if TAU_PCM_RING_FW
+                rg_playout();
+#endif
                 gap_mark_eof();
                 if (lib_advance_auto()) { ui_mode_dirty = 1; continue; }
                 if (list_ended()) {
@@ -10577,10 +10643,19 @@ int main(void)
 #endif
         {
         LD_MARK(ld1);
+#if TAU_PCM_RING_FW
+        if (!rg_on)
+#endif
         meters_feed(tp, (int)(stereo ? tc * 2u : tc), stereo);
         LD_ACC(ld1, ld_t_feed);
 
         LD_MARK(ld2);
+#if TAU_PCM_RING_FW
+        if (rg_on) {
+            if (tc && !rg_put_frame(tp, tc, (uint32_t)stereo)) goto next_outer;      /* B-746: into the hardware ring; aborts on a pending reload like the FIFO path */
+            rg_meter_feed();                                                          /* the meters follow what has been HEARD */
+        } else
+#endif
         if (tc && !pcm_push_pairs(&cymo_hooks, tp, tc, (uint32_t)stereo, &vol_st, &fade_left, FADE_SAMPLES))
             goto next_outer;                         /* volume, fade, FIFO wait, write (C1, burst form B-592); aborts on a pending reload */
         LD_ACC(ld2, ld_t_push);
