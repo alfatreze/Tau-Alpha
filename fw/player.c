@@ -2176,6 +2176,7 @@ static uint32_t art_x = ART_X, art_shown = 1, art_ready, ui_text_w;
  * track with no artwork hides the panel without forgetting that the panel
  * is wanted, so the next track that has some brings it back. */
 static uint8_t  art_pref = 1, art_have;
+static uint8_t  art_job_on;       /* B-735 (gapless G1b): the embedded cover is decoding in the background (fw/art.inc art_job_tick). Cleared by anything that can change the slot's file. */
 static uint32_t art_file_id;      /* 0190 identity the stash was decoded for */
 static uint32_t art_sig;          /* fingerprint of the IMAGE the stash holds  */
 /* An image already known to be undecodable. Without this, a cover the core
@@ -2879,6 +2880,8 @@ static char *ui_hex2(char *p, uint8_t v)
  * off-screen rows -- so the panel, the slide and the clipping are all exercised
  * now and the decoder simply replaces the contents later. */
 static int  art_decode(uint32_t tag_len);
+static int  art_job_launch(uint32_t tag_len, uint32_t sig);   /* B-735: begin the background decode; 1 = a job is running */
+static void art_job_tick(void);
 
 /* Round the art's corners by masking the STASH rather than the blit: baked in
  * once, so every slide step then draws an already-rounded image for free. The
@@ -5455,6 +5458,7 @@ COLD_FN3 static void meters_publish(void)
 
 COLD_FN3 static void ui_draw_dynamic_cold(void)
 {
+    if (art_job_on) art_job_tick();   /* B-735: a few ms of the background cover decode when the audio is comfortable */
     if (screen_blank) return;
     /* The overlay covers the meters, the card and the transport row. Letting
      * the player keep drawing underneath would punch holes straight through
@@ -8904,6 +8908,7 @@ COLD_SR static int read_track_head(void)
 __attribute__((optimize("Os")))       /* runs between tracks (audio silent), dominated by SD reads: size matters more than speed here */
 COLD_SR static int load_track(void)
 {
+    art_job_on = 0;      /* B-735: a new load owns the slot */
     /* Release the FLAC buffer FIRST. This runs before the format is known --
      * detection needs the file's head, which read_track_head() has not fetched
      * yet -- so Helix is rebuilt on every load and handed back below if the
@@ -9190,11 +9195,17 @@ COLD_SR static int load_track(void)
             art_bad = 1;
         } else {
             ui_art_mount();
+            /* B-735 (gapless G1b): the embedded-JPEG decode takes 2 to 16 s and used to stop everything, audio included. Now it is started here and finished in the
+             * background by art_job_tick() (a few ms between decoded frames, only while the FIFO is comfortable); the panel shows the empty plate meanwhile and the cover
+             * arrives when the job ends. art_sig stays 0 until then, so a next track never reuses a half-finished stash. */
+            int started = 0;
 #if TAU_G4 >= 2
-            has_art = COLD_READY() ? art_decode(audio_start) : 0;     /* cold code: no cover without it */
+            if (COLD_READY()) started = art_job_launch(audio_start, sig);
+            has_art = started;
 #else
             has_art = art_decode(audio_start);
 #endif
+            if (started) ui_art_placeholder();
             if (!has_art) {
                 if (art_fail_code) {     /* present, and unreadable */
                     art_bad      = 1;
@@ -9206,7 +9217,7 @@ COLD_SR static int load_track(void)
                 }
             }
             ui_art_round();
-            art_sig = has_art ? sig : 0u;
+            art_sig = (has_art && !started) ? sig : 0u;
 
             /* A cover that IS there and cannot be read is worth a word. An
              * empty frame with no reason for it reads as the core being
