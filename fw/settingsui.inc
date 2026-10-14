@@ -1027,6 +1027,26 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         q = set_str(q, "-");
 #endif
         break;
+    case 37:   /* GAP HIST (B-730; B-725 added the row and its label but no case, so it read as CYMO RESAMP): natural-end gaps in buckets <150 <300 <600 <1000 <2000 >=2000 ms, then the mean */
+#if TAU_DX_GAP_TIMING
+        if (!gap_n) { q = set_str(q, "NO TRACK END YET"); break; }
+        for (uint32_t b = 0; b < 6u; b++) { if (b) *q++ = '/'; q = ui_dec(q, gap_hist[b]); }
+        q = set_str(q, " A"); q = ui_dec(q, gap_sum / gap_n);
+#else
+        q = set_str(q, "-");
+#endif
+        break;
+    case 38:   /* SLOT SETTLE (B-730): the slot-open settle loop of read_track_head(): last and longest time (ms), loads timed, most reads one load needed */
+#if TAU_DX_GAP_TIMING
+        if (!gset_n) { q = set_str(q, "NO LOAD YET"); break; }
+        q = set_str(q, "L"); q = ui_dec(q, gset_last);
+        q = set_str(q, " X"); q = ui_dec(q, gset_max);
+        q = set_str(q, " N"); q = ui_dec(q, gset_n);
+        q = set_str(q, " T"); q = ui_dec(q, gset_tries_max);
+#else
+        q = set_str(q, "-");
+#endif
+        break;
     case 32:   /* LW COST (B-519): commands in the last draw, CPU time to issue it, and how much of that was reading the PSRAM history (lw_unwrap) */
         q = set_str(q, "C"); q = ui_dec(q, lw_cmd_last);
         q = set_str(q, " CPU "); q = ui_dec(q, lw_t_cpu / (CLK_HZ / 1000000u));
