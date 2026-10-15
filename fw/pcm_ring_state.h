@@ -8,6 +8,9 @@
 #define RG_SIZE    52000u          /* pairs (208 KB) */
 #define RG_MARGIN  3328u           /* slots behind the read index kept readable: FIFO depth 2048 + the 1152-pair meter window + slack */
 #define RG_BASE_W  0x1C0000u       /* PSRAM word address of ring[0] = byte +0x700000 of the window (map: docs/features/CYMO_TEMPO_INTEGRATION.md: image +0x10000 (4 MiB), queue +0x510000, tempo staging +0x600000..+0x640000, cold image 8 MiB) */
+#ifndef RG_WIN
+#define RG_WIN ((volatile uint32_t *)(uintptr_t)(0xA4000000u + 4u * RG_BASE_W))
+#endif
 #define R_RING_BASE 0x80000184u
 #define R_RING_SIZE 0x80000188u
 #define R_RING_WPTR 0x8000018Cu
@@ -16,7 +19,7 @@
 #define R_RING_CNT  0x80000198u
 static prh_t    rg;
 static uint8_t  rg_on, rg_held;
-static uint32_t rg_fed, rg_n1, rg_min;
+static uint32_t rg_fed, rg_n1, rg_min, rg_room1;   /* rg_room1: free slots known to the one-pair fast path (the reader only frees space, so a cached count is conservative) */
 static uint16_t rg_und;                     /* Info > RING: FIFO empty while the ring held pairs (the reader fell behind), saturating */
 static uint8_t  rg_put_frame(const int16_t *pcm_, uint32_t pairs, uint32_t stereo);
 static uint8_t  rg_put1(int32_t l, int32_t r, uint8_t abortable);

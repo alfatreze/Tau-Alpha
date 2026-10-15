@@ -25,11 +25,19 @@ COLD_FN2 static int rg_spin_na(void) { return rg_spin_common(0); }
 static const prh_hooks_t rg_hk_ab = { rg_rd_ridx, rg_wr_word, rg_wr_wptr, rg_spin_ab };
 static const prh_hooks_t rg_hk_na = { rg_rd_ridx, rg_wr_word, rg_wr_wptr, rg_spin_na };
 
-COLD_FN2 static uint8_t rg_put_frame(const int16_t *pcm_, uint32_t pairs, uint32_t stereo) { rg_put_total += pairs; return prh_put(&rg, &rg_hk_ab, pcm_, pairs, stereo); }
+COLD_FN2 static uint8_t rg_put_frame(const int16_t *pcm_, uint32_t pairs, uint32_t stereo) { rg_room1 = 0u; rg_put_total += pairs; return prh_put(&rg, &rg_hk_ab, pcm_, pairs, stereo); }
+/* Slow path of the one-pair put (the cached room ran out): waits for room like prh_put1, then caches what is free so the next pairs take the inline fast path in cymo_push(). */
 COLD_FN2 static uint8_t rg_put1(int32_t l, int32_t r, uint8_t abortable)
 {
+    const prh_hooks_t *h = abortable ? &rg_hk_ab : &rg_hk_na;
+    uint32_t room;
+    while ((room = prh_room(&rg, h->rd_ridx())) == 0u) { h->wr_wptr(rg.w); if (h->spin()) return 0u; }
+    h->wr_word(rg.w, ((uint32_t)(uint16_t)(int16_t)r << 16) | (uint32_t)(uint16_t)(int16_t)l);
+    if (++rg.w == rg.size) rg.w = 0u;
     rg_n1++; rg_put_total++;
-    return prh_put1(&rg, abortable ? &rg_hk_ab : &rg_hk_na, l, r, (rg_n1 & 63u) == 0u);
+    rg_room1 = room - 1u;
+    if ((rg_n1 & 63u) == 0u) h->wr_wptr(rg.w);
+    return 1u;
 }
 COLD_FN2 static void rg_publish(void) { REG(R_RING_WPTR) = rg.w; }
 COLD_FN2 static void rg_hold(uint8_t h)
@@ -43,7 +51,7 @@ COLD_FN2 static void rg_arm(void)
     REG(R_RING_CTRL) = 0u;                        /* disabled: the reader follows the write index */
     REG(R_RING_BASE) = RG_BASE_W; REG(R_RING_SIZE) = RG_SIZE; REG(R_RING_WPTR) = 0u;
     for (uint32_t n = 0; n < 1000u && REG(R_RING_RIDX) != 0u; n++) { }
-    prh_init(&rg, RG_SIZE, RG_MARGIN, 0u);
+    prh_init(&rg, RG_SIZE, RG_MARGIN, 0u); rg_room1 = 0u;
     rg_held = 0u; rg_n1 = 0u; rg_min = RG_SIZE; rg_und = 0u;
     REG(R_RING_CTRL) = 1u;
     rg_fed = REG(R_RING_CNT); rg_put_total = rg_fed;
