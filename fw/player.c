@@ -7936,7 +7936,16 @@ COLD_FN2 static void gap_frame_cold(void)
 static inline __attribute__((always_inline)) uint8_t cymo_push(int32_t l, int32_t r, uint8_t abortable)
 {
 #if TAU_PCM_RING_FW
-    if (rg_on) return rg_put1(l, r, abortable);   /* B-746: raw pair into the ring (the gain stage is at the FIFO output) */
+    if (rg_on) {
+        if (rg_room1) {   /* fast path (hot, no calls): the cold hooks cost about 300 cycles a pair from the PSRAM instruction fetch and left FLAC no idle time (DEV 123) */
+            RG_WIN[rg.w] = ((uint32_t)(uint16_t)(int16_t)r << 16) | (uint32_t)(uint16_t)(int16_t)l;
+            if (++rg.w == rg.size) rg.w = 0u;
+            rg_room1--; rg_put_total++;
+            if ((++rg_n1 & 63u) == 0u) REG(R_RING_WPTR) = rg.w;
+            return 1u;
+        }
+        return rg_put1(l, r, abortable);
+    }   /* B-746: raw pair into the ring (the gain stage is at the FIFO output) */
 #endif
     pcm_gain_apply(&l, &r, &vol_st, &fade_left, FADE_SAMPLES);
     const uint32_t st = REG(R_PCM_ST);
