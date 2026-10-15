@@ -5589,7 +5589,7 @@ ui_tail:
      * RV32 -- and it ran EVERY frame inside the same budget that keeps the PCM
      * FIFO fed. Adds and compares give the identical answer. */
     if (samprate && frames != ui_last_frames) {
-        const uint32_t df = (ui_last_frames == 0xFFFFFFFFu) ? 1u : (uint32_t)(frames - ui_last_frames);   /* every frame decoded since the last call: in ring mode the decoder runs several frames per UI tick and one frame's worth was all that was counted (the clock ran 1-2 s slow) */
+        const uint32_t df = (ui_last_frames == 0xFFFFFFFFu || frames < ui_last_frames || frames - ui_last_frames > 512u) ? 1u : (uint32_t)(frames - ui_last_frames);   /* a reset or a seek moves `frames` backwards (or far): count one frame, as before */   /* every frame decoded since the last call: in ring mode the decoder runs several frames per UI tick and one frame's worth was all that was counted (the clock ran 1-2 s slow) */
         ui_last_frames = frames;
         ui_sec_acc += samp_per_frame * (df ? df : 1u);
         while (ui_sec_acc >= samprate) { ui_sec_acc -= samprate; ui_sec++; }
