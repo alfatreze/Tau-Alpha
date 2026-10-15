@@ -1281,6 +1281,8 @@ static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: curre
 #endif
 #if TAU_PCM_RING_FW
 #include "pcm_ring_state.h"
+#else
+#define rg_und_note() ((void)0)
 #endif
 
 static rg_t     rg_cur;
@@ -10536,7 +10538,7 @@ int main(void)
 #endif
             if (!under_shadow && pcm_underrun()) {
                 under_shadow = 1u;
-                pcm_under_n++;
+                pcm_under_n++; rg_und_note();
 #if TAU_DX_STRESS
                 stress_note_underrun();
 #endif
@@ -10688,7 +10690,7 @@ int main(void)
 #endif
         if (!under_shadow && pcm_underrun()) {
             under_shadow = 1u;
-            pcm_under_n++;
+            pcm_under_n++; rg_und_note();
 #if TAU_DX_STRESS
             stress_note_underrun();
 #endif

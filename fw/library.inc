@@ -266,6 +266,7 @@ COLD_FN static const char *lib_det_s(uint32_t i)              /* the i-th string
 #define LIB_DET_ROW_H 25u                       /* B-730: stacked fields: a dim label row, then the value rows under it */
 #define LIB_DET_ROWS  10u
 #define LIB_DET_CH    36u                       /* characters of a value per row (the value now has the full width) */
+static uint16_t lib_cur_id = 0xFFFFu, lib_prev_id = 0xFFFFu;   /* the library track playing and the one played before it (track-info report) */
 static uint8_t  lib_det_open;
 static uint16_t lib_det_id, lib_det_top;
 enum { DF_TITLE, DF_ARTIST, DF_ALBUM, DF_TRACKNO, DF_YEAR, DF_LENGTH, DF_FILE, DF_FOLDER, DF_FORMAT, DF_AUDIO, DF_BITRATE, DF_SIZE, DF_ENCODER, DF_GAPLESS, DF_RGT, DF_RGA, DF_COVER,
@@ -462,6 +463,7 @@ COLD_FN static int lib_play_span(uint32_t pos, int dir, uint32_t span)
         } else {
             lib_qpos = (uint16_t)at; lib_src = 1u;
             if (pl_open_name(path)) {
+                if (lib_cur_id != (uint16_t)id) { lib_prev_id = lib_cur_id; lib_cur_id = (uint16_t)id; }
                 if (lib_h) { lib_h = (lib_h & 0x3FFFu) | ((uint32_t)lib_qpos << 14); settings_mark_dirty(); }   /* remember the position */
                 pl_arm_load(leaving_id);
                 if (nmiss)      ui_toast_set("SKIPPED", nmiss, " MISSING");

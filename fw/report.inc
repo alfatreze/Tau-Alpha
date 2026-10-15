@@ -5,8 +5,8 @@
 #define SR_FN COLD_TEXT static
 #include "suite_core.h"
 /* The QR encoder was archived (archive/qr_encoder/, tag archive/qr-encoder): the pixel grid is the only report view. */
-#define CHK_REC     ((uint8_t *)(uintptr_t)0xA4007000u)     /* record, 2,048 B */
-#define CHK_REC_CAP 2048u
+#define CHK_REC     ((uint8_t *)(uintptr_t)0xA4004000u)     /* record, 16 KiB (0xA4004000..0xA4007FFF: the retired QR/text scratch; CKM starts at 0xA4008400) */
+#define CHK_REC_CAP 16384u
 /* Report view shared by every page that shows a report code (Check, Decode Sweep, Meter Sweep, Meter Trace, Blit Test, Info and Meter Config exports):
  * rep_len = byte length of the record in CHK_REC, rep_view = 0 robust pixel grid (the default; the lossless grid takes over by itself when the report is too
  * big for it), 1 lossless pixel grid. X cycles. */
@@ -15,6 +15,30 @@ static uint8_t rep_view;
 #define REP_SET(l) (rep_len = (l))
 #define REP_AVAIL() (rep_len)
 #define REP_KEY(edge) (((edge) & KEY_X) ? (rep_view = (uint8_t)((rep_view + 1u) % 2u), set_dirty = 1u, 1) : 0)
+
+/* The details of the track that is playing and of the one played before it (library tracks): every non-empty field of the track-details page, as text. */
+COLD_TEXT static void rep_tracks(sr_t *s)
+{
+    if (lib_state != LIB_ST_OK) return;
+    const uint16_t keep = lib_det_id;
+    for (uint32_t which = 0; which < 2u; which++) {
+        uint32_t id;
+        if (which == 0u) { if (!lib_qn || lib_qpos >= lib_qn) continue; id = LIB_Q[lib_qpos]; }
+        else { if (lib_prev_id == 0xFFFFu) continue; id = lib_prev_id; }
+        lib_det_id = (uint16_t)id;
+        for (uint32_t f = 0; f < (which == 0u ? (uint32_t)DF_N : (uint32_t)DF_LIVE_DEC); f++) {
+            uint8_t e[128]; char b[96]; uint32_t n = 0;
+            lib_det_text(f, b, sizeof b);
+            if (!b[0]) continue;
+            e[n++] = (uint8_t)which; e[n++] = (uint8_t)f;
+            for (const char *p = lib_det_s(f); *p && n < 22u; p++) e[n++] = (uint8_t)*p;
+            e[n++] = 0u;
+            for (const char *p = b; *p && n < 100u + 24u; p++) e[n++] = (uint8_t)*p;
+            sr_tlv(s, (uint8_t)SR_T_TRACKINFO, e, n);
+        }
+    }
+    lib_det_id = keep;
+}
 
 /* What every report carries so a bare screenshot says what it was taken on and while playing what (the Info page's identity rows, as the page
  * shows them, plus the now-playing entry). `info_rows` = 0 for the Info export, which already dumps every row. About 150-280 bytes. */
@@ -46,6 +70,7 @@ COLD_TEXT static void rep_context(sr_t *s, int info_rows)
         if (k < 2u) e[n++] = 0u;
     }
     sr_tlv(s, (uint8_t)SR_T_NOWPLAYING, e, n);
+    rep_tracks(s);
 }
 #define REP_CONTEXT(s, rows) rep_context((s), (rows))
 

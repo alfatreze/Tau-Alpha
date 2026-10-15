@@ -30,7 +30,7 @@ TESTS = {0: "SDRAM window test", 1: "SDRAM read/write cost", 2: "PSRAM window te
                                      # called once per ui_draw_dynamic() (~38 Hz); diagnostic-only, TAU_COLD_FRAME_PROBE builds
 TAGS = {1: "build", 2: "memory", 3: "test", 4: "sdram", 5: "psram", 6: "cold", 7: "time", 8: "audio", 9: "library",
         10: "settings", 11: "errors", 12: "notes", 13: "decprof", 14: "decsweep", 15: "blittest", 16: "stack",
-        22: "decprof2", 23: "heap", 24: "load", 25: "load2", 26: "infotext", 27: "nowplaying"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
+        22: "decprof2", 23: "heap", 24: "load", 25: "load2", 26: "infotext", 27: "nowplaying", 28: "trackinfo"}   # SR_T_DECPROF2 (2026-09-28): the finer decode-stage split, see fw/suite_core.h
 BLIT_OPS = ["RUN", "RECT", "CHAR", "COPY", "BLIT", "BAR", "SBLIT", "CBLIT"]
 # meters/*/meter.json (meter module M0, tools/gen_meters.py) index order -- the VIZ_* enum.
 VIZ_NAMES = ["BARS", "WATERFALL", "-", "PHASE SCOPE", "OSCILLOSCOPE", "VU", "WAVEFORM", "-", "PEAK DOTS", "-",
@@ -148,6 +148,11 @@ def parse_record(rec: bytes) -> dict:
             out["entries"]["nowplaying"] = {"state": ["nothing loaded", "stopped", "paused", "playing"][min(v[0], 3)],
                                             "queue_pos": v[1] | v[2] << 8, "queue_len": v[3] | v[4] << 8,
                                             "title": txt[0], "artist": txt[1], "album": txt[2]}
+        elif tag == 28 and n >= 4 and 0 in v[2:]:  # SR_T_TRACKINFO: one field of the track-details page (which: 0 playing, 1 previous; field; label, 0, value)
+            z = v.index(0, 2)
+            out["entries"].setdefault("trackinfo", []).append({"which": "playing" if v[0] == 0 else "previous", "field": v[1],
+                                                               "label": v[2:z].decode("ascii", "replace"),
+                                                               "value": v[z + 1:].decode("utf-8", "replace")})
         elif tag == 20 and n >= 4:                # SR_T_METERCFG (M2): meter id, schema, preset, nparams, values (widths from the registry)
             meter_id, schema, preset, np_ = v[0], v[1], v[2], v[3]
             entry = {"meter_id": meter_id, "schema": schema, "preset": None if preset == 0xFF else preset}
@@ -366,6 +371,14 @@ def main(argv=None) -> int:
         w = max(len(r["label"]) for r in rows)
         for r in sorted(rows, key=lambda r: r["row"]):
             print(f"{r['label']:<{w}}  {r['value']}")
+        ti = res.get("entries", {}).get("trackinfo", [])
+        for which in ("playing", "previous"):
+            fs = [t for t in ti if t["which"] == which]
+            if fs:
+                print(f"\n-- {which} track --")
+                w2 = max(len(t["label"]) for t in fs)
+                for t in fs:
+                    print(f"{t['label']:<{w2}}  {t['value']}")
         return 0
     print(show(res))
     return 0

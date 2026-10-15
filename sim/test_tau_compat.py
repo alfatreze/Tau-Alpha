@@ -114,7 +114,7 @@ with tempfile.TemporaryDirectory() as t:
     check(list(r) == ["library_index_version", "assets_sections", "assets_read_limit_bytes", "report_tags_max", "persist_ids_changed", "min_omega"], "requires_omega keys in schema order")
     check(r["library_index_version"] == 1 and r["assets_read_limit_bytes"] == 65536, "index version 1, assets limit 64 KiB (fw)")
     check(set(r["assets_sections"]) == {"THEM", "METR", "PRST"}, f"assets sections read by the firmware: {r['assets_sections']}")
-    check(r["report_tags_max"] == 27, f"last report tag {r['report_tags_max']} (SR_T_NOWPLAYING = 27)")
+    check(r["report_tags_max"] == 28, f"last report tag {r['report_tags_max']} (SR_T_TRACKINFO = 28)")
     check(r["persist_ids_changed"] == [12, 16, 18], f"persist ids changed (12 range), removed (18) and re-meant per the registry (16) vs alpha.4: {r['persist_ids_changed']}")
     check(doc["previous_release"] == "v0.6.0-alpha.4", "previous_release recorded")
     check(doc["persist_registry"]["16"] == {"name": "Halcyon EQ preset", "meaning": 2, "since": "v0.6.0-preview.1"}
@@ -372,7 +372,7 @@ with tempfile.TemporaryDirectory() as t:
     check(any("rom_sha256" in e for e in errs) and any("zip_sha256" in e for e in errs), f"one ROM byte changed is caught ({len(errs)} differences)")
     make(new, "alfatreze.TAU", "tau", ROM_N)                             # restore
     check(tc.verify(out, **kw) == [], "restored zip verifies again")
-    bad = dict(doc); bad["requires_omega"] = dict(r, report_tags_max=28); (t / "hand.json").write_text(tc.dumps(bad))
+    bad = dict(doc); bad["requires_omega"] = dict(r, report_tags_max=29); (t / "hand.json").write_text(tc.dumps(bad))
     check(any("report_tags_max" in e for e in tc.verify(t / "hand.json", **kw)), "a hand-edited field is caught")
     old_rom = ROM_N.replace(b"4D50331A", b"4D503317")
     make(new, "alfatreze.TAU", "tau", old_rom)
