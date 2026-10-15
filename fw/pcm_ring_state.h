@@ -20,6 +20,7 @@
 static prh_t    rg;
 static uint8_t  rg_on, rg_held;
 static uint32_t rg_fed, rg_n1, rg_min, rg_room1;   /* rg_room1: free slots known to the one-pair fast path (the reader only frees space, so a cached count is conservative) */
+static uint32_t gp_au_base, gp_au_put, gp_au_exp, gp_au_n;   /* Info > GP AUDIT: pairs put for the track that just ended against the pairs it should hold */
 static uint32_t gp_sw_sec, gp_sw_len, gp_sw_fill, gp_sw_n; static int32_t gp_sw_d; static uint16_t gp_sw_fl;   /* Info > GP SWAP: what the firmware saw at the last display swap */
 static uint32_t rg_ux_n, rg_ux_w, rg_ux_r, rg_ux_t, rg_ux_ho, rg_ho_t;   /* Info > UND CTX: state at the last FIFO-dry edge, and when the last gapless hand-off ran */
 static void rg_und_note_cold(void);
@@ -59,7 +60,7 @@ COLD_SR static void load_ui_tail(uint32_t *tphase);
 static inline void rg_on_flush(void)
 {
     if (!rg_on) return;
-    rg_fed = REG(R_RING_CNT); rg_put_total = rg_fed;
+    rg_fed = REG(R_RING_CNT); rg_put_total = rg_fed; gp_au_base = rg_put_total;
     if (gp_pend) { gp_marker = rg_fed; gp_sw_fl++; }
 }
 #endif
