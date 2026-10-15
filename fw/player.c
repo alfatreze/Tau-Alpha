@@ -5589,8 +5589,9 @@ ui_tail:
      * RV32 -- and it ran EVERY frame inside the same budget that keeps the PCM
      * FIFO fed. Adds and compares give the identical answer. */
     if (samprate && frames != ui_last_frames) {
+        const uint32_t df = (ui_last_frames == 0xFFFFFFFFu) ? 1u : (uint32_t)(frames - ui_last_frames);   /* every frame decoded since the last call: in ring mode the decoder runs several frames per UI tick and one frame's worth was all that was counted (the clock ran 1-2 s slow) */
         ui_last_frames = frames;
-        ui_sec_acc += samp_per_frame;
+        ui_sec_acc += samp_per_frame * (df ? df : 1u);
         while (ui_sec_acc >= samprate) { ui_sec_acc -= samprate; ui_sec++; }
     }
     uint32_t sec = ui_sec;
@@ -10507,6 +10508,7 @@ int main(void)
                  * non-repeating list), and the old replay-this-track behaviour
                  * is the fallback -- so a single file still loops as before. */
 #if TAU_PCM_RING_FW
+                { mp3_trim_cfg_t tc_; gp_au_exp = (samp_per_frame && mp3_trim_cfg(&tc_, track_frames, samp_per_frame, track_enc_delay, track_enc_padding)) ? track_frames * samp_per_frame - track_enc_delay - track_enc_padding : 0u; }
                 gp_eof_begin();            /* G2b: mark the boundary: the next track is opened behind the old one's tail */
 #endif
                 gap_mark_eof();
@@ -10558,6 +10560,7 @@ int main(void)
              * not here: once per frame is 9.6 Hz and looks delayed. */
             if (fe == FLAC_END || fe == FLAC_ERR_SHORT) {
 #if TAU_PCM_RING_FW
+                gp_au_exp = (uint32_t)fl.total_samples;
                 gp_eof_begin();
 #endif
                 gap_mark_eof();

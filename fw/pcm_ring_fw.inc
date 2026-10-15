@@ -153,6 +153,7 @@ COLD_FN2 static void gp_load(const gp_disp_t *d)
 COLD_FN2 static void rg_und_note_cold(void) { rg_ux_n++; rg_ux_w = rg.w; rg_ux_r = REG(R_RING_RIDX); rg_ux_t = cycles(); rg_ux_ho = gp_applied; }
 COLD_FN2 static void gp_eof_begin(void)
 {
+    gp_au_put = rg_put_total - gp_au_base; gp_au_n++;
     gp_sw_fl = 0u;
     gp_want = 0u;
     if (!rg_on || !lib_src) return;
@@ -199,6 +200,7 @@ COLD_FN2 static int gp_end_load(int opened)
 /* The restart body (stop_req) without its flush and without touching the screen: rewind to the start of the file, refill, decode from the first frame (the trim removes the priming). */
 COLD_FN2 static void gp_handoff(void)
 {
+    gp_au_base = rg_put_total;   /* the new track's own pairs start here */
     rg_ho_t = cycles() | 1u;   /* Info > UND CTX (|1: zero means none yet) */
     refill_drain();
     if (track_fmt == FMT_FLAC) {
