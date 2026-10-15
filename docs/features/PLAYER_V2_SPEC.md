@@ -159,6 +159,8 @@ typedef struct seg {
 * *Swap event* = `heard` crossing `ring_start` of the next segment. The event applies that track's ReplayGain target to the gain stage (its ramp is 5 ms, so two gains meet without a step), re-bases the meters, and tells the UI to render the new track.
 * *Underrun* = `FIFO_level == 0` while `ring_fill > 0` (the reader fell behind: must stay 0), or `ring_fill == 0` (the producer fell behind: counted, with the segment id).
 
+A segment that closes with no pair is dropped from the queue (it is never heard, so there is no swap to it and back) and still counts against the accounting (`tl_close`, host-proven: without the rule a zero-length track produced a phantom swap).
+
 `heard` is exact only if the push count and the FIFO level are sampled together; the reader pushes one pair per request, so the sample is taken twice and retried until equal (a three-line loop in `aout_heard()`).
 
 ## 6. Transport
@@ -303,7 +305,7 @@ There is **no other loop and no wait that calls `poll_input()`**. Anything that 
 | 10 to 25% (4,867, 110 ms) | `AUDIO_ONLY` | continuous | none except input | off | decode alone until back above 25% |
 | below 10% | `PANIC` | continuous, input ignored except STOP | none | off | two FIFOs from dry; counted as `panic` |
 
-Decode stops at HI (95%) so the producer does not hold the CPU when the ring is full: `NORMAL` with a full ring is the steady state at 1.00x and leaves the CPU to the UI. The thresholds are constants in `governor.h`, host-tested against a model that replays recorded decode and UI step times; the model is the same one used to size the ring (`tools/lab/gapless_model.py`).
+Decode stops at HI (95%) so the producer does not hold the CPU when the ring is full: `NORMAL` with a full ring is the steady state at 1.00x and leaves the CPU to the UI. The thresholds are constants in `governor_core.h`, host-tested against an independent twin and a scheduling simulation (`sim/test_p2_governor.py`). **What the simulation says (2026-10-15, with the spec's own numbers):** an MP3 (11.5 ms per 1152-pair frame, 2 ms of UI per pass) stays in `NORMAL` 99.7% of the passes and never underruns; a hard FLAC (4,096 pairs per 85 ms of CPU, sliced into 8 ms steps) **underruns constantly without the governor and not at all with it, but the governor keeps the lead near the `AUDIO_ONLY` threshold and the UI receives only about 3.5% of the time** (the decoder makes 48.2 pairs per ms of CPU against the 44.1 the output consumes, a 9% margin that the loop's own 0.4 ms per pass and any UI work eat). Two consequences: the governor is necessary, not decorative; and the FLAC decoder's speed is the lever for the UI on hard files, which is why section 8.2 gates the new decoder on idle time, not elegance. A decoder slower than real time cannot be saved by scheduling (the model underruns, as it should); a stall from a full ring survives 900 ms and not 1,300 ms (the 1.1 s lead).
 
 ### 9.3 I/O (`stream`) and the slot
 
@@ -424,10 +426,10 @@ Provenance is read from the 2026-10-13 report [READ]; the rule is the one alread
 
 | Stage | Work | Exit gate | Size |
 |---|---|---|---|
-| **S0 spec and baselines** | this document accepted; pin the shipped ROM, cold image, bitstream, corpus and framebuffer snapshots; the global ownership map (R0); decide section 17 | owner decisions recorded in `DECISIONS.md` | S |
+| **S0 spec and baselines** | this document accepted; pin the shipped ROM, cold image, bitstream, corpus and framebuffer snapshots; the global ownership map (R0); decide section 17 | owner decisions recorded in `DECISIONS.md` | S. **DONE 2026-10-15**: decisions D-P2-01..10 recorded; `tools/player2/baseline.py` + `docs/research/player2/BASELINE.json`; `tools/player2/globals_map.py` + `docs/research/PLAYER2_GLOBALS_MAP.md` (736 file-scope variables, 601 functions, **163 variables written by more than one cluster**, 74 touched by more than three) |
 | **S1 platform probes** | `0x008A` probe core; the optional `CAPS` register decision; free-running underrun counter spec (RTL, separate fit); measure the read-size experiment | numbers written, decisions made | S |
 | **S2 platform + counters** | `fw2/platform` (start, arena, link from `memmap.json`, mmio, caps, cold, timers), the counter registry, `check_deps.py`, `check_blocking.py`; boots and shows an Info page on hardware | boots on a Pocket; counters on the Info page and in a report | M |
-| **S3 aout + timeline** | `aout`, the timeline arithmetic, the governor (host-tested against recorded traces); a "tone player" that plays a built-in test pattern through the real ring | host gates 1, 2, 4; a Pocket plays a tone gapless across two segments with P3 exact | M |
+| **S3 aout + timeline** (host cores done 2026-10-15: `timeline_core.h`, `governor_core.h`, `counters_core.h` and `tools/check_deps.py`, all with mutants, in `make test-host`; the Pocket part is not started) | `aout`, the timeline arithmetic, the governor (host-tested against recorded traces); a "tone player" that plays a built-in test pattern through the real ring | host gates 1, 2, 4; a Pocket plays a tone gapless across two segments with P3 exact | M |
 | **S4 stream + queue** | `stream` (one request, generations, read-ahead), `queue` (library, shuffle, repeat, history) | host gate 2 with card timing replay; a Pocket plays a list from the library with no decoder | M |
 | **S5 settings** | typed table, persist generator, migration test | upgrade gate; menu parity with a snapshot | M |
 | **S6 MP3 transport** | MP3 adapter on Helix, trim, hardware polyphase, ReplayGain, seek rebuilt (Xing TOC/CBR then exact discard), gapless MP3, tempo plugged | differential gate 3, hardware gapless-tone MP3 pair, CPU gate | L |
