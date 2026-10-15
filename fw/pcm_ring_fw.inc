@@ -150,6 +150,7 @@ COLD_FN2 static void gp_load(const gp_disp_t *d)
     art_have = d->art_have; art_bad = d->art_bad; art_bad_code = d->art_bad_code;
 }
 /* The end of the old track's file was reached (called just before lib_advance_auto()): everything it decoded is in the ring, none of the next. */
+COLD_FN2 static void rg_und_note_cold(void) { rg_ux_n++; rg_ux_w = rg.w; rg_ux_r = REG(R_RING_RIDX); rg_ux_t = cycles(); rg_ux_ho = gp_applied; }
 COLD_FN2 static void gp_eof_begin(void)
 {
     gp_sw_fl = 0u;

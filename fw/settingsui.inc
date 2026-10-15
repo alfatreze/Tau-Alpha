@@ -740,7 +740,7 @@ extern char _heap_start, _heap_end;
                                               * on-screen pixel's actual content across the last 4
                                               * blend attempts; see dbg_pixel_log() in fw/player.c. */
 /* B-725: the pointer table lives in the cold image (only the Info page, which is cold code, reads it): 4 bytes per row less hot RAM; the label strings themselves stay in the ROM. */
-static const char *const set_info_label[SET_INFO_ROWS] COLD_DATA = {
+static const char set_info_label[SET_INFO_ROWS][16] COLD_DATA = {   /* fixed-width rows in the cold image: the label strings are no longer hot ROM (about 500 B) */
     "FIRMWARE", "FPGA REV", "SDRAM WINDOW", "WINDOW READ", "FREE RAM",
     "COLD IMAGE",
     "TRACK", "COVER", "UNDERRUNS", "DRAW STALL", "LOAD MS"
@@ -1142,7 +1142,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
 #define SET_RO_VIS 12u
 static uint8_t set_ro_top;                       /* first visible row; reset to 0 when the page is left */
 
-COLD_FN static void set_draw_ro(int full, const char *title, const char *const *labels, uint32_t n,
+COLD_FN static void set_draw_ro(int full, const char *title, const void *labels, uint32_t stride, uint32_t n,
                         void (*value)(uint32_t, char *))
 {
     const uint32_t vis = (n < SET_RO_VIS) ? n : SET_RO_VIS;
@@ -1165,7 +1165,7 @@ COLD_FN static void set_draw_ro(int full, const char *title, const char *const *
         value(i, v);
         fb_rect(PL_UI_X + 4u, y - 2u, PL_UI_W - 16u, PL_UI_ROW_H, OV_BODY);
         fb_set_color(UI_DIM, OV_BODY);
-        fb_text_clipped(PL_UI_TEXT_X, y, labels[i], TS_1X, TS_1X, 170u);
+        fb_text_clipped(PL_UI_TEXT_X, y, stride ? (const char *)labels + i * stride : ((const char *const *)labels)[i], TS_1X, TS_1X, 170u);
         uint32_t w = fb_text_width(v, TS_1X);
         fb_set_color(UI_WHITE, OV_BODY);
         fb_text_clipped(PL_UI_X + PL_UI_W - 20u - w, y, v, TS_1X, TS_1X, w + 2u);
@@ -1219,10 +1219,10 @@ COLD_FN static void set_info_tick(void)
 #if TAU_INFO_EXPORT
         if (!info_rep_up)
 #endif
-            set_draw_ro(0, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
+            set_draw_ro(0, "INFO", set_info_label, 16u, SET_INFO_ROWS, set_info_value);
     }
 #if TAU_DX_STRESS
-    else if (set_page == SET_STAT_PG) set_draw_ro(0, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
+    else if (set_page == SET_STAT_PG) set_draw_ro(0, "STRESS STATUS", set_stat_label, 0u, SET_STAT_ROWS, set_stat_value);
 #endif
     ov_draw = o;
 }
@@ -1715,11 +1715,11 @@ COLD_FN static void set_draw_now(void)
 #if TAU_INFO_EXPORT
         if (info_rep_up) { info_draw_rep(); ov_draw = o; return; }
 #endif
-        set_draw_ro(1, "INFO", set_info_label, SET_INFO_ROWS, set_info_value);
+        set_draw_ro(1, "INFO", set_info_label, 16u, SET_INFO_ROWS, set_info_value);
     }
 #if TAU_DX_STRESS
     else if (set_page == SET_STAT_PG)
-        set_draw_ro(1, "STRESS STATUS", set_stat_label, SET_STAT_ROWS, set_stat_value);
+        set_draw_ro(1, "STRESS STATUS", set_stat_label, 0u, SET_STAT_ROWS, set_stat_value);
 #endif
     else                                     set_draw_choice(set_page - SET_MENUS);
     ov_draw = o;
