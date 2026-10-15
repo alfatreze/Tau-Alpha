@@ -110,6 +110,7 @@ test-host:
 	$(PYTHON) sim/test_p2_counters.py
 	$(PYTHON) sim/test_p2_aout.py
 	$(PYTHON) sim/test_p2_monoclock.py
+	$(PYTHON) sim/test_p2_report.py
 	$(PYTHON) tools/player2/gen_sine.py --check
 	$(PYTHON) sim/test_check_deps.py
 	$(PYTHON) tools/check_deps.py

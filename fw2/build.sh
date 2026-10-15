@@ -7,7 +7,7 @@ BIN="$ROOT/toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin"
 GCC="${CC_RISCV:-$BIN/riscv-none-elf-gcc}"; OBJCOPY="${OBJCOPY_RISCV:-$BIN/riscv-none-elf-objcopy}"; SIZE="${SIZE_RISCV:-$BIN/riscv-none-elf-size}"
 OUT="${TAU_BUILD_OUT:-$ROOT/work/diagnostics}/player2"; mkdir -p "$OUT"
 rm -f "$OUT/fw2.elf" "$OUT/tau.rom"
-SRCS=("$FW2/platform/start.S" "$FW2/platform/platform.c" "$FW2/gfx/gfx.c" "$FW2/aout/aout.c" "$FW2/transport/tone.c" "$FW2/diagnostics/info_counters.c" "$FW2/diagnostics/info_page.c" "$FW2/app/main.c")
+SRCS=("$FW2/platform/start.S" "$FW2/platform/platform.c" "$FW2/gfx/gfx.c" "$FW2/aout/aout.c" "$FW2/transport/tone.c" "$FW2/diagnostics/info_counters.c" "$FW2/diagnostics/info_page.c" "$FW2/diagnostics/report_record.c" "$FW2/diagnostics/report_page.c" "$FW2/app/main.c")
 "$GCC" -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostartfiles -nostdlib -ffunction-sections -fdata-sections -Wall -Wextra -Wno-unused-parameter \
     -Wl,--gc-sections -T "$FW2/platform/link.ld" -o "$OUT/fw2.elf" "${SRCS[@]}" -lgcc 2> "$OUT/build.log" || { grep -v "LOAD segment with RWX" "$OUT/build.log" >&2; echo "*** Player 2 COMPILE FAILED ***" >&2; exit 1; }
 grep -v "LOAD segment with RWX" "$OUT/build.log" >&2 || true
