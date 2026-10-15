@@ -104,6 +104,7 @@ test-host:
 	$(PYTHON) sim/test_pcm_burst.py
 	$(PYTHON) sim/test_pcm_ring.py
 	$(PYTHON) sim/test_pcm_ring_hw.py
+	$(PYTHON) sim/test_pcm_ring_gp.py
 	$(PYTHON) sim/test_mp3_trim.py
 	$(PYTHON) sim/test_replaygain.py
 	$(PYTHON) sim/test_persist_ranges.py

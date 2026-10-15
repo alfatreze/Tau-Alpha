@@ -85,11 +85,16 @@ def check(verbose=True):
     ls, le = extract_function(src, "load_track")
     body = strip_comments(src[ls:le])
     flush_m = re.search(r"\bpcm_flush\s*\(\s*\)", body)
-    art_m = re.search(r"\bart_decode\s*\(\s*audio_start\s*\)", body)
+    # G2a (B-749): the cover/chrome part of load_track() is now load_ui_tail(); the ordering invariant is about its CALL, and the art decode must still be inside it.
+    art_m = re.search(r"\bload_ui_tail\s*\(", body)
     prefill_m = re.search(r"\bprefill\s*\(\s*\)", body)
+    ts, te = extract_function(src, "load_ui_tail")
+    tail_body = strip_comments(src[ts:te])
+    if not re.search(r"\bart_decode\s*\(\s*audio_start\s*\)", tail_body):
+        problems.append("load_ui_tail() no longer contains art_decode(audio_start): the cover block moved again; update the check by hand.")
     if not (flush_m and art_m and prefill_m):
         problems.append(
-            "load_track() is missing one of pcm_flush()/art_decode(audio_start)/prefill() -- "
+            "load_track() is missing one of pcm_flush()/load_ui_tail()/prefill() -- "
             "the function this check expects has changed shape; update the check by hand."
         )
     else:

@@ -17,8 +17,8 @@ typedef struct {
 typedef struct { uint32_t size, w, margin; } prh_t;      /* w = the write index (what RING_WPTR holds or is about to); margin = slots kept untouched behind the read index (>= the FIFO depth plus the meters' read-back window, so every pair still in the FIFO or just heard stays readable) */
 
 static inline void prh_init(prh_t *r, uint32_t size, uint32_t margin, uint32_t w) { r->size = size; r->margin = margin; r->w = w; }
-static inline uint32_t prh_fill(const prh_t *r, uint32_t ridx) { return r->w >= ridx ? r->w - ridx : r->w + r->size - ridx; }
-static inline uint32_t prh_room(const prh_t *r, uint32_t ridx) { const uint32_t f = prh_fill(r, ridx); return f + r->margin + 1u >= r->size ? 0u : r->size - 1u - r->margin - f; }
+static inline __attribute__((always_inline)) uint32_t prh_fill(const prh_t *r, uint32_t ridx) { return r->w >= ridx ? r->w - ridx : r->w + r->size - ridx; }
+static inline __attribute__((always_inline)) uint32_t prh_room(const prh_t *r, uint32_t ridx) { const uint32_t f = prh_fill(r, ridx); return f + r->margin + 1u >= r->size ? 0u : r->size - 1u - r->margin - f; }
 
 #define PRH_PUBLISH 64u      /* pairs between index publications while a long block is put (the reader can start on the first 64 while the rest is still being written) */
 
@@ -84,5 +84,18 @@ static inline uint32_t prh_playout_step(uint32_t reload_pending, uint32_t paused
     if (ring_empty && fifo_empty) return 1u;
     if (elapsed_cyc > limit_cyc) return 2u;
     return 0u;
+}
+
+/* ---- the gapless boundary (G2b, docs/features/GAPLESS_SPEC.md section 11) ---------------------------------------------------------------------------------------------
+ * `put_total` counts the pairs the CPU has put (the firmware sets it to RING_CNT at every flush: the unread pairs are dropped, the FIFO emptied, and what was put and dropped is not
+ * pushed). At the end of a track the marker is the put_total at that moment: every pair of the old track is in the ring, none of the next. The old track is HEARD to its end when the pairs
+ * released by the FIFO (RING_CNT - level) reach the marker (a signed compare: the counters wrap). While it is pending the old track's clock is its frozen decoded position minus what is
+ * still unheard. */
+static inline int prh_marker_reached(uint32_t heard, uint32_t marker) { return (int32_t)(heard - marker) >= 0; }
+static inline uint32_t prh_old_clock_pairs(uint32_t pre_pp, uint32_t marker, uint32_t heard)
+{
+    const int32_t d = (int32_t)(marker - heard);
+    const uint32_t unheard = d > 0 ? (uint32_t)d : 0u;
+    return pre_pp > unheard ? pre_pp - unheard : 0u;
 }
 #endif
