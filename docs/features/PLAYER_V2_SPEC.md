@@ -449,7 +449,7 @@ Each stage is one or a few reversible commits on a branch in its own **worktree*
 | D6 | Tempo with the ring on | **yes** (timeline carries the ratio) | one less mode switch; the position bug class disappears for tempo |
 | D7 | Optional `CAPS` register and free-running underrun counter (one small fit) | **yes, schedule before S3**, but do not block on it | cleaner probes and exact underrun counts |
 | D8 | UI scope of the first release | functional parity with today's screens; the Figma redesign follows as views | decouples the audio rebuild from design work |
-| D9 | Cross-file optimisation (LTO) | **no**, keep hot paths in one translation unit by convention and measure | keeps debugging simple; revisit with numbers |
+| D9 | Cross-file optimisation (LTO) | **DECIDED (owner, 2026-10-15): no LTO now; revisit with measurements at S6** (hot functions `static inline` and `HOT`) | keeps debugging and the cold-call check simple |
 | D10 | Manual change keeps flush plus fade-in | **yes** | the clicks at manual changes are a separate, open item (HW GAIN/track-change recordings) |
 
 ## 18. Risks
