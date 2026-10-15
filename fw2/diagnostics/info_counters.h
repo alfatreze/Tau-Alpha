@@ -6,6 +6,6 @@
 extern const cnt_t counters_table[];
 extern const uint32_t counters_count;
 void counters_init(void);
-extern uint32_t counters_loops, counters_loop_max_cyc, counters_keys;   /* the main loop publishes its own measurements here (the only writer) */
+extern uint32_t counters_loops, counters_loop_max_cyc, counters_keys, counters_aout_init;   /* the main loop publishes its own measurements here (the only writer) */
 void counters_refresh(void);           /* updates the shadow values derived from cycles and status words (called a few times a second) */
 #endif
