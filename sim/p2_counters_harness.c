@@ -9,6 +9,7 @@ static volatile int32_t  c_i32 = -2147483647 - 1;
 static volatile uint32_t c_long = 4294967295u;
 static volatile uint32_t c_pairs = 48672;
 static volatile uint32_t c_last = 7;
+static volatile uint32_t c_hex = 0x4D50331Au;
 static const char c_text[] = "0.6.0-dev.126+b31f522.dirty FLAC 44.1K";   /* 38 characters */
 static const cnt_t T[] = {
     { "RING FILL",     CK_U32, CU_PAIRS,   &c_pairs },
@@ -19,6 +20,7 @@ static const cnt_t T[] = {
     { "LONG VALUE",    CK_U32, CU_PERMILLE, &c_long },
     { "LAST",          CK_U32, CU_MS,      &c_last },
     { "TEXT",          CK_STR, CU_NONE,    c_text },
+    { "CORE VERSION",  CK_HEX32, CU_NONE,  &c_hex },
 };
 static void emit(void *ctx, const uint8_t *e, uint32_t n)
 {
@@ -28,6 +30,6 @@ static void emit(void *ctx, const uint8_t *e, uint32_t n)
 int main(void)
 {
     printf("N %u\n", cnt_export(T, sizeof T / sizeof T[0], emit, 0));
-    printf("F %d %d %d\n", cnt_find(T, 8, "LAST"), cnt_find(T, 8, "LA"), cnt_find(T, 8, "NOPE"));
+    printf("F %d %d %d\n", cnt_find(T, 9, "LAST"), cnt_find(T, 9, "LA"), cnt_find(T, 9, "NOPE"));
     return 0;
 }

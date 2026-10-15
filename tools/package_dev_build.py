@@ -25,6 +25,8 @@ VARIANTS = {   # fw/build.sh target -> (ROM dir, kind text, default note)
     "diagnostic": ("library-diagnostic", "diagnostic build with the media library", "Check, Tests and Stress pages"),
     # B-558: the release-style firmware (settings menu, Info page, no Check) built for the 192 KB link with the Cymo tempo funnel (TEMPO=1): fw/build.sh release
     # writes to work/ram192k/release when RAM_192K=1, so dist/ is never touched. Needs --build-flags with RAM_192K=1.
+    # Player 2 (docs/features/PLAYER_V2_SPEC.md): built by fw2/build.sh, not fw/build.sh. Needs --build-flags (any KEY=VAL, e.g. PLAYER2=1) so the package is always built right here.
+    "player2":    ("player2", "Player 2 build (new player, docs/features/PLAYER_V2_SPEC.md)", "new player, S2 platform page"),
     "tempo":      ("release", "release-style build with Cymo tempo for MP3 (Settings > Playback > TEMPO)", "pitch-preserving MP3 speed, release-style",
                    "release", "work/ram192k"),
 }
@@ -96,7 +98,7 @@ def main():
         if args.variant == "tempo":
             env.setdefault("TEMPO", "1")
         print(f"building {target} ({args.build_flags}) ...", file=sys.stderr)
-        r = subprocess.run(["bash", "fw/build.sh", target], cwd=root, env=env)
+        r = subprocess.run(["bash", "fw2/build.sh"] if args.variant == "player2" else ["bash", "fw/build.sh", target], cwd=root, env=env)
         if r.returncode != 0:
             sys.exit(f"build failed ({target}, {args.build_flags})")
     if not rom.exists():

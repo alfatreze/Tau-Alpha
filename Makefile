@@ -110,6 +110,7 @@ test-host:
 	$(PYTHON) sim/test_p2_counters.py
 	$(PYTHON) sim/test_check_deps.py
 	$(PYTHON) tools/check_deps.py
+	TAU_BUILD_OUT=work/heapcheck bash fw2/build.sh
 	$(PYTHON) tools/player2/baseline.py --check docs/research/player2/BASELINE.json
 	$(PYTHON) sim/test_mp3_trim.py
 	$(PYTHON) sim/test_replaygain.py
