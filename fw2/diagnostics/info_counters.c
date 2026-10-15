@@ -1,15 +1,47 @@
 #include "info_counters.h"
 #include "../platform/platform.h"
+#include "../aout/aout.h"
+#include "../transport/tone.h"
 
 /* Shadow values: written only here (one writer, P2), read through the table. */
-static struct { uint32_t uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, gain_cur, cymo_st, keys, stack_peak, image_b, free_b; } v;
-uint32_t counters_loops, counters_loop_max_cyc, counters_keys;            /* the loop's own measurements (app writes, this file publishes) */
+static struct { uint32_t aout_init, tone_state, tone_rate, heard_seg, heard_pos_ms, heard_valid, put_seg, swaps, acct_err, acct_bad, tl_overflow, tl_empty, tl_flushes, ring_fill, ring_min, ring_max,
+                under_ring, dry, put_stalls, put_max_cyc, put_pairs, put_blocks, gov_mode, gov_n1, gov_n2, gov_n3, tone_stalls; int32_t last_delta;
+                uint32_t uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, gain_cur, cymo_st, keys, stack_peak, image_b, free_b; } v;
+uint32_t counters_loops, counters_loop_max_cyc, counters_keys, counters_aout_init;            /* the loop's own measurements (app writes, this file publishes) */
 static uint32_t boot_cycles0;
 
 #define U32(nm, unit, p) { nm, CK_U32, unit, (const volatile void *)(p) }
 const cnt_t counters_table[] = {
     { "FIRMWARE",     CK_STR,   CU_NONE,  p2_ver_field + 7 },       /* read through a volatile pointer at run time: the packagers patch these bytes after the build */
     { "CORE VERSION", CK_HEX32, CU_NONE,  &caps.core_version },
+    U32("AOUT INIT",    CU_NONE,   &v.aout_init),
+    U32("TONE STATE",   CU_NONE,   &v.tone_state),          /* 0 stopped, 1 playing, 2 held */
+    U32("TONE RATE",    CU_NONE,   &v.tone_rate),
+    U32("HEARD SEG",    CU_NONE,   &v.heard_seg),
+    U32("HEARD POS",    CU_MS,     &v.heard_pos_ms),
+    U32("HEARD VALID",  CU_NONE,   &v.heard_valid),
+    U32("PUT SEG",      CU_NONE,   &v.put_seg),
+    U32("SWAPS",        CU_NONE,   &v.swaps),
+    U32("ACCT ERR",     CU_NONE,   &v.acct_err),
+    { "LAST DELTA",   CK_I32,   CU_PAIRS, &v.last_delta },
+    U32("ACCT BAD",     CU_NONE,   &v.acct_bad),
+    U32("RING FILL",    CU_PAIRS,  &v.ring_fill),
+    U32("RING MIN",     CU_PAIRS,  &v.ring_min),
+    U32("RING MAX",     CU_PAIRS,  &v.ring_max),
+    U32("UNDER RING",   CU_NONE,   &v.under_ring),          /* the reader fell behind: must stay 0 */
+    U32("DRY",          CU_NONE,   &v.dry),                 /* the producer fell behind */
+    U32("PUT STALLS",   CU_NONE,   &v.put_stalls),
+    U32("PUT MAX",      CU_CYC,    &v.put_max_cyc),
+    U32("PUT PAIRS",    CU_NONE,   &v.put_pairs),
+    U32("PUT BLOCKS",   CU_NONE,   &v.put_blocks),
+    U32("TL OVERFLOW",  CU_NONE,   &v.tl_overflow),
+    U32("TL EMPTY",     CU_NONE,   &v.tl_empty),
+    U32("TL FLUSHES",   CU_NONE,   &v.tl_flushes),
+    U32("GOV MODE",     CU_NONE,   &v.gov_mode),
+    U32("GOV SHED",     CU_NONE,   &v.gov_n1),
+    U32("GOV AUDIO",    CU_NONE,   &v.gov_n2),
+    U32("GOV PANIC",    CU_NONE,   &v.gov_n3),
+    U32("TONE STALLS",  CU_NONE,   &v.tone_stalls),
     { "CAP RING",     CK_U8,    CU_NONE,  &caps.ring },
     { "CAP GAIN",     CK_U8,    CU_NONE,  &caps.gain },
     { "CAP CYMO",     CK_U8,    CU_NONE,  &caps.cymo },
@@ -41,6 +73,19 @@ void counters_init(void) { boot_cycles0 = cycles(); }
 
 void counters_refresh(void)
 {
+    {   /* the audio side: one writer here, read through the table */
+        extern uint32_t counters_aout_init;
+        aout_snap_t s = aout_snap(); const aout_stats_t *a = &aout_stats;
+        v.aout_init = counters_aout_init;
+        v.tone_state = !tone.playing ? 0u : tone.held ? 2u : 1u; v.tone_rate = tone.rate;
+        v.heard_seg = tone.cur_valid ? tone.cur_gen : 0u; v.heard_valid = tone.cur_valid;
+        v.heard_pos_ms = tone.cur_valid && tone.rate ? (uint32_t)(((uint64_t)tone.cur_pos * 1000u) / tone.rate) : 0u;
+        v.put_seg = tone.gen; v.swaps = tone_tl.swaps; v.acct_err = tone_tl.acct_err; v.acct_bad = tone.acct_bad; v.last_delta = tone_tl.last_delta;
+        v.tl_overflow = tone_tl.overflow; v.tl_empty = tone_tl.empty; v.tl_flushes = tone_tl.flushes;
+        v.ring_fill = aout_fill(&s); v.ring_min = a->ring_min == 0xFFFFFFFFu ? 0u : a->ring_min; v.ring_max = a->ring_max;
+        v.under_ring = a->under_ring; v.dry = a->dry; v.put_stalls = a->put_stalls; v.put_max_cyc = a->put_max_cyc; v.put_pairs = a->put_pairs; v.put_blocks = a->put_blocks;
+        v.gov_mode = tone.gov_mode; v.gov_n1 = tone_gov.entered[1]; v.gov_n2 = tone_gov.entered[2]; v.gov_n3 = tone_gov.entered[3]; v.tone_stalls = tone.stalls;
+    }
     v.uptime_s = (cycles() - boot_cycles0) / CLK_HZ;
     v.loops = counters_loops; v.loop_max_cyc = counters_loop_max_cyc; v.keys = counters_keys;
     uint32_t st = REG(R_PCM_ST);

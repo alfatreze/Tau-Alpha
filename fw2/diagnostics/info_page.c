@@ -16,8 +16,8 @@ static uint32_t top;                       /* first visible row */
 void info_page_init(void)
 {
     gfx_rect(0, 0, GFX_W, GFX_H, BG);
-    gfx_text(10, 6, "PLAYER 2  S2 PLATFORM", ACC, BG);
-    gfx_text(10, GFX_H - 20, "UP/DOWN SCROLL", DIM, BG);
+    gfx_text(10, 6, "PLAYER 2  S3 AUDIO", ACC, BG);
+    gfx_text(10, GFX_H - 20, "A PLAY  B HOLD  X FLUSH  Y RATE", DIM, BG);
 }
 
 void info_page_key(uint32_t edge)

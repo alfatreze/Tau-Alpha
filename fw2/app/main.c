@@ -3,6 +3,8 @@
 #include "../diagnostics/info_counters.h"
 #include "../gfx/gfx.h"
 #include "../diagnostics/info_page.h"
+#include "../aout/aout.h"
+#include "../transport/tone.h"
 
 int main(void)
 {
@@ -10,13 +12,16 @@ int main(void)
     gfx_rect(0, 0, GFX_W, GFX_H, 0);                      /* clear first: SDRAM powers up with garbage and scanout shows it the moment video is alive */
     platform_probe();
     counters_init();
+    counters_aout_init = (uint32_t)aout_init();            /* 0 = the ring is armed; the tone transport only runs then */
+    if (!counters_aout_init) tone_init(caps.cymo);
     info_page_init();
     uint32_t prev = 0, last_draw = 0, t_prev = cycles(), loops = 0, loop_max = 0;
     counters_refresh(); info_page_draw();
     for (;;) {
         uint32_t t0 = cycles();
         uint32_t keys = REG(R_INPUT) & 0xFFFFu, edge = keys & ~prev; prev = keys;
-        if (edge) info_page_key(edge);
+        if (edge) { info_page_key(edge); if (!counters_aout_init) tone_key(edge); }
+        if (!counters_aout_init) { tone_pump(); tone_heard(); aout_poll(tone.playing); }
         loops++;
         counters_loops = loops; counters_keys = keys;
         if (edge || (uint32_t)(t0 - last_draw) >= CLK_HZ / 4u) {

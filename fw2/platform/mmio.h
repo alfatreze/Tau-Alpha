@@ -2,7 +2,12 @@
 #ifndef P2_MMIO_H
 #define P2_MMIO_H
 #include <stdint.h>
+/* Register access. The host tests build modules with P2_HOST and supply REG_RD/REG_WR themselves (a model of the hardware); on the Pocket they are plain volatile accesses. */
+#ifndef P2_HOST
 #define REG(a) (*(volatile uint32_t *)(uintptr_t)(a))
+#define REG_RD(a) REG(a)
+#define REG_WR(a, v) (REG(a) = (v))
+#endif
 #define CLK_HZ 66666667u                 /* Player 2 requires the CLK66 bitstream */
 
 #define R_CYCLES     0x8000000Cu         /* free-running clk_sys cycle counter */
@@ -10,6 +15,7 @@
 #define R_STAT1      0x80000014u
 #define R_STAT2      0x80000018u
 #define R_STAT3      0x8000001Cu
+#define R_PCM_RATE   0x80000038u         /* output tick increment: hz * 2^32 / CLK_HZ */
 #define R_PCM_ST     0x80000034u         /* [11:0] FIFO level, bit 16 empty, 17 full, 18 underrun (sticky) */
 #define R_INPUT      0x8000003Cu         /* [15:0] buttons, active high */
 #define R_VERSION    0x80000040u         /* CORE_VERSION */
@@ -23,7 +29,9 @@
 #define R_DBUF_DISP  0x8000011Cu
 #define R_LPC_STATUS 0x8000013Cu
 #define R_CYMO_STATUS 0x8000015Cu
+#define R_CYMO_CTRL  0x80000150u         /* bit 2 = LIVE_ENABLE (sticky): hands the real audio path to the resampler */
 #define R_GAIN_CTRL  0x80000168u
+#define R_GAIN_TARGET 0x8000016Cu        /* Q15, 32768 = unity */
 #define R_GAIN_CUR   0x80000170u
 #define R_HAL_CTRL   0x80000178u
 #define R_RING_BASE  0x80000184u
@@ -44,5 +52,7 @@
 #define KEY_START  (1u << 15)
 
 #define PCM_LEVEL(s) ((s) & 0xFFFu)
-static inline uint32_t cycles(void) { return REG(R_CYCLES); }
+/* output tick increment for a rate, evaluated by the compiler (no runtime 64-bit divide on the target) */
+#define RATE_INC(hz) ((uint32_t)(((uint64_t)(hz) << 32) / CLK_HZ))
+static inline uint32_t cycles(void) { return REG_RD(R_CYCLES); }
 #endif
