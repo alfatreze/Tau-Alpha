@@ -105,6 +105,12 @@ test-host:
 	$(PYTHON) sim/test_pcm_ring.py
 	$(PYTHON) sim/test_pcm_ring_hw.py
 	$(PYTHON) sim/test_pcm_ring_gp.py
+	$(PYTHON) sim/test_p2_timeline.py
+	$(PYTHON) sim/test_p2_governor.py
+	$(PYTHON) sim/test_p2_counters.py
+	$(PYTHON) sim/test_check_deps.py
+	$(PYTHON) tools/check_deps.py
+	$(PYTHON) tools/player2/baseline.py --check docs/research/player2/BASELINE.json
 	$(PYTHON) sim/test_mp3_trim.py
 	$(PYTHON) sim/test_replaygain.py
 	$(PYTHON) sim/test_persist_ranges.py
