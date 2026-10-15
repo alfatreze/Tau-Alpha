@@ -197,6 +197,7 @@ COLD_FN2 static int gp_end_load(int opened)
 /* The restart body (stop_req) without its flush and without touching the screen: rewind to the start of the file, refill, decode from the first frame (the trim removes the priming). */
 COLD_FN2 static void gp_handoff(void)
 {
+    rg_ho_t = cycles() | 1u;   /* Info > UND CTX (|1: zero means none yet) */
     refill_drain();
     if (track_fmt == FMT_FLAC) {
         if (!flac_restart()) { st0 |= (1u << 4); REG(R_STAT0) = st0; }

@@ -33,7 +33,7 @@ COLD_FN static void info_build_rep(void)
         for (const char *p = set_info_label[i]; *p && n < 28u; p++) e[n++] = (uint8_t)*p;
         e[n++] = 0u;
         const uint32_t vs = n;
-        for (const char *p = v; *p && n < vs + 28u; p++) e[n++] = (uint8_t)*p;   /* values cut at 28 characters: keeps the 34 rows inside the record */
+        for (const char *p = v; *p && n < vs + 39u; p++) e[n++] = (uint8_t)*p;   /* the whole value (the row buffer is 40): the record holds 16 KiB, nothing is cut to save space */
         sr_tlv(&s, (uint8_t)SR_T_INFOTEXT, e, n);
     }
     REP_CONTEXT(&s, 0);                      /* the rows are all in already */

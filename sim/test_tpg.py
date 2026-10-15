@@ -118,5 +118,8 @@ check("context row decodes", rep["entries"]["infotext"] == [{"row": 1, "label": 
 nothing = d.parse_record(d.build_record(1, [(27, bytes([0, 0, 0, 0, 0]) + b"\0\0")]))
 check("nothing loaded decodes", nothing["entries"]["nowplaying"]["state"] == "nothing loaded" and nothing["entries"]["nowplaying"]["title"] == "")
 
+ti = d.parse_record(d.build_record(1, [(28, bytes([0, 8]) + b"Format\0" + b"FLAC 16-bit"), (28, bytes([1, 0]) + "Title\0Aqua Måne".encode())]))["entries"]["trackinfo"]
+check("track info decodes (playing and previous)", ti == [{"which": "playing", "field": 8, "label": "Format", "value": "FLAC 16-bit"}, {"which": "previous", "field": 0, "label": "Title", "value": "Aqua Måne"}])
+
 print("PASSED" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)
