@@ -2,13 +2,14 @@
 #include "../platform/platform.h"
 #include "../aout/aout.h"
 #include "../transport/tone.h"
+#include "../cores/monoclock_core.h"
 
 /* Shadow values: written only here (one writer, P2), read through the table. */
 static struct { uint32_t aout_init, tone_state, tone_rate, heard_seg, heard_pos_ms, heard_valid, put_seg, swaps, acct_err, acct_bad, tl_overflow, tl_empty, tl_flushes, ring_fill, ring_min, ring_max,
                 under_ring, dry, put_stalls, put_max_cyc, put_pairs, put_blocks, gov_mode, gov_n1, gov_n2, gov_n3, tone_stalls; int32_t last_delta;
-                uint32_t uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, gain_cur, cymo_st, keys, stack_peak, image_b, free_b; } v;
+                uint32_t uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, ring_hold, ring_empty, gain_cur, cymo_st, keys, stack_peak, image_b, free_b; } v;
 uint32_t counters_loops, counters_loop_max_cyc, counters_keys, counters_aout_init;            /* the loop's own measurements (app writes, this file publishes) */
-static uint32_t boot_cycles0;
+static mc_t uptime_clk;                  /* monotone seconds from the 32-bit cycle counter (it wraps every 64.4 s) */
 
 #define U32(nm, unit, p) { nm, CK_U32, unit, (const volatile void *)(p) }
 const cnt_t counters_table[] = {
@@ -61,6 +62,8 @@ const cnt_t counters_table[] = {
     U32("RING RIDX",   CU_NONE,   &v.ring_ridx),
     U32("RING WPTR",   CU_NONE,   &v.ring_wptr),
     { "RING CTRL",    CK_HEX32, CU_NONE,  &v.ring_ctrl },
+    U32("RING HOLD",    CU_NONE,   &v.ring_hold),            /* RING_CTRL read: bit 31 present, 3 hold, 2 busy, 1 empty (read index == write index), 0 enable */
+    U32("RING EMPTY",   CU_NONE,   &v.ring_empty),
     U32("GAIN CUR",    CU_NONE,   &v.gain_cur),
     { "CYMO STATUS",  CK_HEX32, CU_NONE,  &v.cymo_st },
     U32("STACK PEAK",  CU_BYTES,  &v.stack_peak),
@@ -69,7 +72,7 @@ const cnt_t counters_table[] = {
 };
 const uint32_t counters_count = sizeof counters_table / sizeof counters_table[0];
 
-void counters_init(void) { boot_cycles0 = cycles(); }
+void counters_init(void) { mc_update(&uptime_clk, cycles(), CLK_HZ); }
 
 void counters_refresh(void)
 {
@@ -86,11 +89,11 @@ void counters_refresh(void)
         v.under_ring = a->under_ring; v.dry = a->dry; v.put_stalls = a->put_stalls; v.put_max_cyc = a->put_max_cyc; v.put_pairs = a->put_pairs; v.put_blocks = a->put_blocks;
         v.gov_mode = tone.gov_mode; v.gov_n1 = tone_gov.entered[1]; v.gov_n2 = tone_gov.entered[2]; v.gov_n3 = tone_gov.entered[3]; v.tone_stalls = tone.stalls;
     }
-    v.uptime_s = (cycles() - boot_cycles0) / CLK_HZ;
+    v.uptime_s = mc_update(&uptime_clk, cycles(), CLK_HZ);
     v.loops = counters_loops; v.loop_max_cyc = counters_loop_max_cyc; v.keys = counters_keys;
     uint32_t st = REG(R_PCM_ST);
     v.pcm_level = PCM_LEVEL(st); v.pcm_flags = (st >> 16) & 7u;
-    v.ring_cnt = REG(R_RING_CNT); v.ring_ridx = REG(R_RING_RIDX); v.ring_wptr = REG(R_RING_WPTR); v.ring_ctrl = REG(R_RING_CTRL);
+    v.ring_cnt = REG(R_RING_CNT); v.ring_ridx = REG(R_RING_RIDX); v.ring_wptr = REG(R_RING_WPTR); v.ring_ctrl = REG(R_RING_CTRL); v.ring_hold = (v.ring_ctrl >> 3) & 1u; v.ring_empty = (v.ring_ctrl >> 1) & 1u;
     v.gain_cur = REG(R_GAIN_CUR); v.cymo_st = REG(R_CYMO_STATUS);
     v.stack_peak = platform_stack_peak(); v.image_b = platform_image_bytes(); v.free_b = platform_free_bytes();
 }
