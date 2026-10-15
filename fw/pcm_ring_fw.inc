@@ -152,6 +152,7 @@ COLD_FN2 static void gp_load(const gp_disp_t *d)
 /* The end of the old track's file was reached (called just before lib_advance_auto()): everything it decoded is in the ring, none of the next. */
 COLD_FN2 static void gp_eof_begin(void)
 {
+    gp_sw_fl = 0u;
     gp_want = 0u;
     if (!rg_on || !lib_src) return;
     rg_publish();
@@ -218,6 +219,7 @@ COLD_FN2 static void gp_tick(void)
     if (FB_HELD()) return;
     const uint32_t heard = REG(R_RING_CNT) - PCM_LEVEL(REG(R_PCM_ST));
     if (!prh_marker_reached(heard, gp_marker)) return;
+    gp_sw_sec = ui_sec; gp_sw_len = track_secs; gp_sw_d = (int32_t)(heard - gp_marker); gp_sw_fill = prh_fill(&rg, REG(R_RING_RIDX)); gp_sw_n++;
     gp_pend = 0u;
     gp_load(&gp_new);
     vol_apply();                                     /* the new track's ReplayGain: the stage ramps over 5 ms, so two gains meet without a step */

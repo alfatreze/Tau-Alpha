@@ -7,10 +7,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 MUTANTS = [
     ("fw/pcm_ring_fw.inc", "    gp_save(&gp_new);\n    gp_load(&gp_old);\n    gp_pend = 1u;", "    gp_save(&gp_new);\n    gp_pend = 1u;", "the old display is not put back after a gapless load"),
-    ("fw/pcm_ring_fw.inc", "    if (!prh_marker_reached(heard, gp_marker)) return;\n    gp_pend = 0u;", "    gp_pend = 0u;", "the boundary applies without waiting for the marker"),
+    ("fw/pcm_ring_fw.inc", "    if (!prh_marker_reached(heard, gp_marker)) return;\n", "", "the boundary applies without waiting for the marker"),
     ("fw/pcm_ring_fw.inc", "    rg_playout();\n    pcm_flush();\n    paused = 0;", "    rg_playout();\n    paused = 0;", "the fallback does not flush"),
     ("fw/pcm_ring_fw.inc", "    refill_drain();\n    if (track_fmt == FMT_FLAC) {\n        if (!flac_restart())", "    pcm_flush(); refill_drain();\n    if (track_fmt == FMT_FLAC) {\n        if (!flac_restart())", "the gapless hand-off flushes"),
-    ("fw/pcm_ring_state.h", "    if (gp_pend) gp_marker = rg_fed;", "", "a flush does not bring the marker forward"),
+    ("fw/pcm_ring_state.h", "    if (gp_pend) { gp_marker = rg_fed; gp_sw_fl++; }", "", "a flush does not bring the marker forward"),
     ("fw/pcm_ring_fw.inc", "    gp_marker = rg_put_total;", "    gp_marker = 0u;", "the marker is not the put count"),
     ("fw/pcm_ring_fw.inc", "    if (FB_HELD()) return;\n    const uint32_t heard", "    const uint32_t heard", "the boundary applies under an overlay"),
     ("fw/pcm_ring_fw.inc", "    if (!opened) { gp_load(&gp_old); return 0; }", "    if (!opened) { return 0; }", "a failed gapless open leaves the new display"),
