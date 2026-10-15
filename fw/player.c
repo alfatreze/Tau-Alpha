@@ -1280,29 +1280,7 @@ static pcm_vol_t vol_st = { PCM_VOL_UNITY, PCM_VOL_UNITY };   /* Q15 gain: curre
 #include "pcm_ring_hw.h"
 #endif
 #if TAU_PCM_RING_FW
-/* B-746 (gapless G1, fw/pcm_ring_fw.inc): the hardware PCM ring is the decoders' output while rg_on. */
-#define RG_SIZE    52000u          /* pairs (208 KB) */
-#define RG_MARGIN  3328u           /* slots behind the read index kept readable: FIFO depth 2048 + the 1152-pair meter window + slack */
-#define RG_BASE_W  0x1C0000u       /* PSRAM word address of ring[0] = byte +0x700000 of the window (map: docs/features/CYMO_TEMPO_INTEGRATION.md: image +0x10000 (4 MiB), queue +0x510000, tempo staging +0x600000..+0x640000, cold image 8 MiB) */
-#define R_RING_BASE 0x80000184u
-#define R_RING_SIZE 0x80000188u
-#define R_RING_WPTR 0x8000018Cu
-#define R_RING_RIDX 0x80000190u
-#define R_RING_CTRL 0x80000194u
-#define R_RING_CNT  0x80000198u
-static prh_t    rg;
-static uint8_t  rg_on, rg_held;
-static uint32_t rg_fed, rg_n1, rg_min;
-static uint16_t rg_und;                     /* Info > RING: FIFO empty while the ring held pairs (the reader fell behind), saturating */
-static uint8_t  rg_put_frame(const int16_t *pcm_, uint32_t pairs, uint32_t stereo);
-static uint8_t  rg_put1(int32_t l, int32_t r, uint8_t abortable);
-static void     rg_publish(void);
-static void     rg_hold(uint8_t h);
-static void     rg_off(void);
-static void     rg_probe(void);
-static void     rg_playout(void);
-static void     rg_meter_feed(void);
-static uint32_t rg_lead(void);
+#include "pcm_ring_state.h"
 #endif
 
 static rg_t     rg_cur;
@@ -1376,7 +1354,11 @@ static inline void gain_step_poll(void)
 }
 /* The ReplayGain parsing lives in COLD code (it ran to about 2 KB of the on-chip RAM): every entry from the hot track-load path is gated on cold_code_ok, and without cold code
  * ReplayGain simply does nothing (the factor stays unity). rg_update() is the one entry the hot code uses. */
-COLD_FN3 static void rg_update_cold(void)  { rg_factor = rg_pick_factor(rg_mode, &rg_cur); { const uint32_t cap = rg_cap_q15(rg_pick_peak(rg_mode, &rg_cur), hw_gain_boost); rg_cap_hw = cap > RG_UNITY ? cap : 0u; } vol_apply(); }
+COLD_FN3 static void rg_update_cold(void)  { rg_factor = rg_pick_factor(rg_mode, &rg_cur); { const uint32_t cap = rg_cap_q15(rg_pick_peak(rg_mode, &rg_cur), hw_gain_boost); rg_cap_hw = cap > RG_UNITY ? cap : 0u; }
+#if TAU_PCM_RING_FW
+    if (!gp_mode)
+#endif
+    vol_apply(); }
 COLD_FN3 static void rg_scan_cold(const uint8_t *tag, uint32_t avail, uint32_t len) { rg_id3_scan(&rg_cur, tag, avail, len); }
 COLD_FN3 static void rg_txxx_cold(const uint8_t *b, uint32_t n)                       { rg_txxx_body(&rg_cur, b, n); }
 COLD_FN3 static void rg_flac_cold(const char txt[4][16], uint8_t have)
@@ -5496,6 +5478,9 @@ COLD_FN3 static void meters_publish(void)
 COLD_FN3 static void ui_draw_dynamic_cold(void)
 {
     if (art_job_on) art_job_tick();   /* B-735: a few ms of the background cover decode when the audio is comfortable */
+#if TAU_PCM_RING_FW
+    if (gp_pend) gp_tick();           /* G2b: the old track has been heard to its end: the new one's display takes over */
+#endif
     if (screen_blank) return;
     /* The overlay covers the meters, the card and the transport row. Letting
      * the player keep drawing underneath would punch holes straight through
@@ -5609,8 +5594,11 @@ ui_tail:
     uint32_t sec = ui_sec;
 #if TAU_PCM_RING_FW
     if (rg_on && samprate) {                         /* B-746: the heard position: the decoded one minus what the ring and the FIFO still hold */
+        if (gp_pend) sec = prh_old_clock_pairs(gp_pre_pp, gp_marker, REG(R_RING_CNT) - PCM_LEVEL(REG(R_PCM_ST))) / samprate;   /* G2b: the OLD track's tail */
+        else {
         const uint32_t pp = ui_sec * samprate + ui_sec_acc, lead = rg_lead();
         sec = prh_heard_pos(pp, lead) / samprate;
+        }
     }
 #endif
 
@@ -6989,7 +6977,7 @@ static inline void pcm_flush(void)
     if (vol_st.hw) fade_left = 0u;  /* the hardware stage fades itself; a stale software fade would pop when the gain is handed back */
     under_shadow = 0;             /* flush clears the sticky underrun flag */
 #if TAU_PCM_RING_FW
-    if (rg_on) rg_fed = REG(R_RING_CNT);   /* B-746: the hardware drops the unread pairs: the meter read-back starts again from here */
+    rg_on_flush();   /* B-746/G2b: the hardware drops the unread pairs: the meter read-back and the put count restart here; a pending gapless marker is reached at once */
 #endif
 #if TAU_TEMPO
     tempo_cfg_key = 0u;           /* B-558: the stretcher starts again from the next decoded frame (a hard reset: what it had staged is dropped) */
@@ -9113,6 +9101,7 @@ COLD_SR static int load_track(void)
 {
     art_job_on = 0;      /* B-735: a new load owns the slot */
 #if TAU_PCM_RING_FW
+    if (!gp_mode) gp_pend = 0u;   /* G2b: an ordinary load overwrites everything the pending boundary would have shown */
 #if TAU_TEMPO
     if (cold_code_ok && !rg_on && !tempo_idx) rg_probe();   /* B-746: re-evaluated at every load while the ring is off: it comes back after a tempo or HW GAIN excursion */
 #else
@@ -9137,6 +9126,9 @@ COLD_SR static int load_track(void)
     if (!dec) { REG(R_STAT2) = 0xF0000000u; return 0; }
 
     /* Silence the old track's tail before anything else touches the ring. */
+#if TAU_PCM_RING_FW
+    if (!gp_mode)        /* G2b: a gapless load leaves the old track playing out of the ring */
+#endif
     pcm_flush();
 
     frames = 0; errs = 0; rate_set = 0; min_level = 0xFFFFFFFFu;
@@ -9152,6 +9144,9 @@ COLD_SR static int load_track(void)
      * from 16 seconds out to 56, which on a short track means never. */
     fl_first_frame = 0;
     bytes_per_sec = 16000u;
+#if TAU_PCM_RING_FW
+    if (!gp_mode)
+#endif
     paused = 0;
     /* Arm the free-running-counter deadlines from NOW.
      *
@@ -9189,6 +9184,9 @@ COLD_SR static int load_track(void)
 
     uint32_t t0 = cycles(), tphase = t0;
     if (!read_track_head()) { REG(R_STAT2) = 0xE0000000u; return 0; }
+#if TAU_PCM_RING_FW
+    if (gp_mode && (uint8_t)track_fmt != gp_old_fmt) gp_abort();       /* G2b: another codec: the ordinary path (play-out, flush) */
+#endif
     ld_head = LD_MS(cycles() - tphase); tphase = cycles();
 
     if (track_fmt == FMT_FLAC) {
@@ -9293,6 +9291,9 @@ COLD_SR static int load_track(void)
         samp_per_frame = fl.max_blocksize;
         track_secs     = fl.rate ? (uint32_t)DIV64(fl.total_samples, fl.rate) : 0;
         rate_set       = 1;
+#if TAU_PCM_RING_FW
+        if (gp_mode && fl.rate != gp_old_rate) gp_abort();                 /* G2b: another sample rate: the ordinary path */
+#endif
         pcm_rate_apply(fl.rate);
         flac_stall     = 0;
         flac_scan_metadata();      /* seek table + where audio starts */
@@ -9341,6 +9342,9 @@ COLD_SR static int load_track(void)
     }
     ld_size = LD_MS(cycles() - tphase); tphase = cycles();
 
+#if TAU_PCM_RING_FW
+    if (!gp_mode)            /* G2b: a gapless load keeps the old screen; load_ui_tail() runs at the marker (gp_tick) */
+#endif
     load_ui_tail(&tphase);   /* G2a: lib_meta_apply, loader frame, cover, panel state, chrome paint (screen only) */
 
     if (!prefill()) { REG(R_STAT2) = 0xD0000000u; return 0; }
@@ -9414,6 +9418,9 @@ COLD_SR static int load_track(void)
                 if (!rate_set) {
                     MP3FrameInfo wfi;
                     MP3GetLastFrameInfo(dec, &wfi);
+#if TAU_PCM_RING_FW
+                    if (gp_mode && wfi.samprate && wfi.samprate != gp_old_rate) gp_abort();   /* G2b: another sample rate */
+#endif
                     if (wfi.samprate) {
                         pcm_rate_apply(wfi.samprate);
                         if (wfi.bitrate) bytes_per_sec = wfi.bitrate / 8u;
@@ -9438,7 +9445,11 @@ COLD_SR static int load_track(void)
         /* B-737: the first frames are discarded by the warm-up, and the stream index of the first frame the main loop decodes is mt_n. If the last one held kept pairs (the file is
          * trimmed and the warm-up stopped on the frame containing the first kept pair), play that part now, from the buffer it is still in. */
         mt_wu = cold_code_ok ? (uint8_t)(mt_n > 200u ? 200u : mt_n) : 0xFFu;
-        if (mt_s && mt_last_ok && mt_n) {
+        if (mt_s && mt_last_ok && mt_n
+#if TAU_PCM_RING_FW
+            && !gp_mode          /* G2b: the restart body decodes from the first frame again, so this tail would be heard twice */
+#endif
+            ) {
             const uint32_t r = mt_range(mt_n - 1u, mt_spf), tf = r >> 16, tc = r & 0xFFFFu;
             if (tc) {
                 MP3FrameInfo lfi; MP3GetLastFrameInfo(dec, &lfi);
@@ -9801,9 +9812,19 @@ int main(void)
                 /* The indicator went up when the pick was detected, not here.
                  * was_idle only decides what to restore if the open fails. */
                 int was_idle = idle;
-                if (!was_idle)
+#if TAU_PCM_RING_FW
+                gp_begin_load();                 /* G2b: gapless mode if the end-of-file branch asked for it */
+#endif
+                if (!was_idle
+#if TAU_PCM_RING_FW
+                    && !gp_mode
+#endif
+                    )
                     ui_boot_note("LOADING TRACK");
                 int opened   = SR_READY() ? load_track() : 0;
+#if TAU_PCM_RING_FW
+                const int gp_go = gp_end_load(opened);   /* G2b: 1 = keep the old screen, take the gapless hand-off below */
+#endif
                 {   /* FNV over the filename APF reports for the slot. */
                     uint32_t h = 2166136261u;
                     for (uint32_t i = 0; i < sizeof(track_file)
@@ -9847,8 +9868,15 @@ int main(void)
                      * Costs one extra prefill inside a gap that is already
                      * silent. Buys the guarantee that every route into playback
                      * is the same route. */
+#if TAU_PCM_RING_FW
+                    if (gp_go) gp_handoff();                 /* G2b: the restart body without its flush */
+                    else {
+#endif
                     stop_req = 1u;
                     if (hold_paused) { hold_paused = 0; paused |= 1u; stopped = 1u; }
+#if TAU_PCM_RING_FW
+                    }
+#endif
                     /* Nothing queues the first track any more. Picking a
                       * file is an explicit request to hear it, and the old
                       * behaviour -- the first track after launch loading
@@ -10468,10 +10496,13 @@ int main(void)
                  * non-repeating list), and the old replay-this-track behaviour
                  * is the fallback -- so a single file still loops as before. */
 #if TAU_PCM_RING_FW
-                rg_playout();              /* B-746: let the ring play out before the next load flushes */
+                gp_eof_begin();            /* G2b: mark the boundary: the next track is opened behind the old one's tail */
 #endif
                 gap_mark_eof();
                 if (lib_advance_auto()) { ui_mode_dirty = 1; continue; }
+#if TAU_PCM_RING_FW
+                gp_want = 0u; rg_playout();   /* no next track (end of list, repeat one): let the ring play out as before */
+#endif
                 if (list_ended()) {
                     paused |= 1u;              /* end of the list: stop here */
                     ui_toast_msg("END OF LIST");
@@ -10516,10 +10547,13 @@ int main(void)
              * not here: once per frame is 9.6 Hz and looks delayed. */
             if (fe == FLAC_END || fe == FLAC_ERR_SHORT) {
 #if TAU_PCM_RING_FW
-                rg_playout();
+                gp_eof_begin();
 #endif
                 gap_mark_eof();
                 if (lib_advance_auto()) { ui_mode_dirty = 1; continue; }
+#if TAU_PCM_RING_FW
+                gp_want = 0u; rg_playout();
+#endif
                 if (list_ended()) {
                     paused |= 1u;
                     ui_toast_msg("END OF LIST");
@@ -10691,7 +10725,13 @@ int main(void)
         REG(R_STAT0) = st0;
 
         LD_MARK(ld3);
+#if TAU_PCM_RING_FW
+        /* G2c: with the ring the decoder runs flat out while the ring fills (about 1 s after a start or a seek, at 2-3 times real time); the meters and the clock expect one call per frame
+         * at real time, so a call that comes less than 20 ms after the last one is skipped (a frame at real time is 26 ms apart, so steady playback is untouched). */
+        if (!ui_dump_mode && (!rg_on || rg_ui_due())) ui_draw_dynamic();
+#else
         if (!ui_dump_mode) ui_draw_dynamic();
+#endif
         LD_ACC(ld3, ld_t_ui);
 
 next_outer: ;

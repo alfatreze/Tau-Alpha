@@ -123,6 +123,29 @@ int main(void)
         const uint32_t want = rl ? 2u : pa ? 0u : (re && fe) ? 1u : to ? 2u : 0u;
         if (got != want) { bad++; printf("FAIL playout_step mask %%u: %%u vs %%u\n", m, got, want); }
     }
+    /* the gapless boundary: counters that wrap, a flush while a marker is pending, and the old track's clock */
+    {
+        const uint32_t bases[] = { 0u, 1000u, 0xFFFFFF00u, 0xFFFFFFFFu - 5u };
+        for (unsigned bi = 0; bi < 4; bi++) {
+            const uint32_t base = bases[bi], N = 5000u, pre_pp = 123456u;
+            const uint32_t marker = base + N;                                  /* put_total at the end of the old track */
+            uint32_t prev = 0u; int reached = 0;
+            for (uint32_t h = 0; h <= N + 200u; h += 7u) {                     /* heard advances through the old track and past the marker */
+                const uint32_t heard = base + h;
+                const uint32_t pp = prh_old_clock_pairs(pre_pp, marker, heard);
+                if (pp < prev) { bad++; printf("FAIL old clock went backwards at %%u\n", h); }
+                prev = pp;
+                const int rr = prh_marker_reached(heard, marker);
+                if (rr != (h >= N)) { bad++; printf("FAIL marker_reached at h=%%u base %%u\n", h, base); }
+                if (h >= N && pp != pre_pp) { bad++; printf("FAIL clock at the marker is %%u, not the end %%u\n", pp, pre_pp); }
+                if (rr) reached = 1;
+            }
+            if (!reached) { bad++; printf("FAIL marker never reached\n"); }
+            if (prh_old_clock_pairs(10u, marker, base) != 0u) { bad++; printf("FAIL old clock below zero\n"); }     /* more unheard than decoded: clamps at 0 */
+        }
+        /* a flush: the firmware sets the marker to RING_CNT, so the marker is reached at once */
+        { const uint32_t cnt = 777u; if (!prh_marker_reached(cnt - 0u, cnt)) { bad++; printf("FAIL flush marker not reached\n"); } }
+    }
     printf("%%s: %%ld meter feeds, %%ld flushes, %%d failures\n", bad ? "FAIL" : "ok", feeds, flushes, (int)bad);
     return bad != 0;
 }
@@ -133,7 +156,10 @@ MUTANTS_B = [("meter read-back ignores the heard offset (level)", "const uint32_
              ("slot position counted from the wrong side", "*pos = ridx >= back ? ridx - back : ridx + size - back;", "*pos = ridx + back < size ? ridx + back : ridx + back - size;"),
              ("the clock may go negative", "return decoded_pairs > lead ? decoded_pairs - lead : 0u;", "return decoded_pairs - lead;"),
              ("a pause does not hold the natural-end wait", "if (paused) return 0u;", ""),
-             ("a reload request does not leave the wait", "if (reload_pending) return 2u;", "")]
+             ("a reload request does not leave the wait", "if (reload_pending) return 2u;", ""),
+             ("marker compare is unsigned (breaks on wrap)", "return (int32_t)(heard - marker) >= 0;", "return heard >= marker;"),
+             ("old clock ignores the unheard tail", "return pre_pp > unheard ? pre_pp - unheard : 0u;", "return pre_pp;"),
+             ("old clock unclamped", "return pre_pp > unheard ? pre_pp - unheard : 0u;", "return pre_pp - unheard;")]
 def run_b(hdr_text, tmp):
     (tmp / "pcm_ring_hw.h").write_text(hdr_text); (tmp / "tb.c").write_text(HARNESS_B % str(tmp / "pcm_ring_hw.h"))
     r = subprocess.run(["cc", "-O1", "-w", "-o", str(tmp / "tb"), str(tmp / "tb.c")], capture_output=True, text=True)

@@ -1064,7 +1064,7 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
         break;
     case 40:   /* RING (B-747, the hardware PCM ring, fw/pcm_ring_fw.inc): "-" in a build without TAU_PCM_RING_FW, NO UNIT / OFF when the bitstream has no ring or it is not in use, otherwise
                 * F = pairs in the ring now, M = the lowest fill since it was armed (a low M means the reader or the decoder ran close to dry), C = pairs pushed into the FIFO, H = 1 while the
-                * reader is held (paused), U = times the FIFO ran dry while the ring still held pairs (the reader fell behind: it must stay 0). */
+                * reader is held (paused), U = times the FIFO ran dry while the ring still held pairs (the reader fell behind: it must stay 0), G = gapless boundaries applied / abandoned (another rate or codec), P = a boundary is pending. */
 #if TAU_PCM_RING_FW
         if (!rg_on) { q = set_str(q, (REG(R_RING_CTRL) >> 31) ? "OFF" : "NO UNIT"); break; }
         { const uint32_t ridx = REG(R_RING_RIDX);
@@ -1072,7 +1072,8 @@ COLD_FN static void set_info_value(uint32_t i, char *o)
           q = set_str(q, " M"); q = ui_dec(q, rg_min == RG_SIZE ? 0u : rg_min);
           q = set_str(q, " C"); q = ui_dec(q, REG(R_RING_CNT));
           q = set_str(q, " H"); q = ui_dec(q, rg_held);
-          q = set_str(q, " U"); q = ui_dec(q, rg_und); }
+          q = set_str(q, " U"); q = ui_dec(q, rg_und);
+          q = set_str(q, " G"); q = ui_dec(q, gp_applied); *q++ = '/'; q = ui_dec(q, gp_aborted); if (gp_pend) q = set_str(q, " P"); }   /* G2b: gapless boundaries applied / abandoned for another rate or codec, P = one is pending */
 #else
         q = set_str(q, "-");
 #endif
