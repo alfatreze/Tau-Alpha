@@ -9,13 +9,13 @@ def check(name, ok):
     global fails
     print(("ok   " if ok else "FAIL ") + name)
     if not ok: fails += 1
-WANT = ["E 0 RING FILL|48672 PAIRS", "E 1 A8|200", "E 2 B16|65535", "E 3 BIG U32|3000000000", "E 4 NEG I32|-2147483648", "E 5 LONG VALUE|4294967295 PERMILLE", "E 6 LAST|7 MS", "E 7 TEXT|0.6.0-dev.126+b31f522.dirty FLAC 44.1K"]
+WANT = ["E 0 RING FILL|48672 PAIRS", "E 1 A8|200", "E 2 B16|65535", "E 3 BIG U32|3000000000", "E 4 NEG I32|-2147483648", "E 5 LONG VALUE|4294967295 PERMILLE", "E 6 LAST|7 MS", "E 7 TEXT|0.6.0-dev.126+b31f522.dirty FLAC 44.1K", "E 8 CORE VERSION|4D50331A"]
 def run(d, bug):
     exe = d / f"c{bug}"
     r = subprocess.run(["cc", "-O1", "-Wall", "-Werror", f"-DBUG={bug}", "-I", str(ROOT / "fw2/cores"), "-o", str(exe), str(ROOT / "sim/p2_counters_harness.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return subprocess.run([str(exe)], capture_output=True, text=True).stdout.splitlines()
-def good(out): return out[:8] == WANT and out[8] == "N 8" and out[9] == "F 6 -1 -1"
+def good(out): return out[:9] == WANT and out[9] == "N 9" and out[10] == "F 6 -1 -1"
 with tempfile.TemporaryDirectory() as td:
     d = Path(td)
     check("every registered counter is exported with its full value and unit; lookups are exact", good(run(d, 0)))

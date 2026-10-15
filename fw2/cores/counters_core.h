@@ -10,7 +10,7 @@
 #define BUG 0
 #endif
 
-enum { CK_U8 = 1, CK_U16, CK_U32, CK_I32, CK_STR };      /* CK_STR: src is a NUL-terminated text of at most 39 characters (version stamp, track description) */
+enum { CK_U8 = 1, CK_U16, CK_U32, CK_I32, CK_STR, CK_HEX32 };   /* CK_HEX32: eight uppercase hex digits (versions, status words) */      /* CK_STR: src is a NUL-terminated text of at most 39 characters (version stamp, track description) */
 enum { CU_NONE = 0, CU_PAIRS, CU_MS, CU_PCT, CU_CYC, CU_BYTES, CU_PERMILLE };
 
 #define CNT_NAME_MAX 16u                 /* including the terminator */
@@ -55,6 +55,11 @@ static inline const char *cnt_unit_str(uint8_t u)
 /* The value text of one counter: digits and unit, no terminator. Returns the end. */
 static inline char *cnt_fmt(const cnt_t *c, char *o)
 {
+    if (c->kind == CK_HEX32) {
+        uint32_t v = *(const volatile uint32_t *)c->src;
+        for (int i = 28; i >= 0; i -= 4) { uint32_t d = (v >> i) & 15u; *o++ = (char)(d < 10 ? '0' + d : 'A' + d - 10); }
+        return o;
+    }
     if (c->kind == CK_STR) {
         const volatile char *s = (const volatile char *)c->src;
         for (uint32_t i = 0; s[i] && i < CNT_VALUE_MAX - 1u; i++) *o++ = s[i];
