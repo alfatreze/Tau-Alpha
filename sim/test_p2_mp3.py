@@ -51,8 +51,8 @@ def reference(d):
     if r.returncode: print(r.stderr); sys.exit(1)
     return exe
 
-def run(exe, path, out, cap=24576, seed=1, lat=5000, jit=2000):
-    r = subprocess.run([str(exe), str(path), str(out), str(cap), str(seed), str(lat), str(jit)], capture_output=True, text=True)
+def run(exe, path, out, cap=24576, seed=1, lat=5000, jit=2000, seek=0, nout=0):
+    r = subprocess.run([str(exe), str(path), str(out), str(cap), str(seed), str(lat), str(jit), str(seek), str(nout)], capture_output=True, text=True)
     return {k: int(v) for k, v in (l.split("=") for l in r.stdout.split())}
 
 def expected(ref, path, d, data=None):
@@ -94,16 +94,47 @@ def scenarios(exe, ref, d):
     res["truncated"] = (rt["status"] == 1 and rt["pairs_out"] > 0, rt, 0, 0)
     return res
 
+
+def seek_tests(exe, ref, d):
+    """Seek to arbitrary source pairs: the output must equal the whole-file decode from that pair (bit-exact), because the restart is 3 frames early and the warm-up is dropped."""
+    import random
+    out = {}
+    for f in files:
+        pcm, fr, de, pa = expected(ref, f, d)
+        r0 = run(exe, f, d / "o.pcm"); ch, spf = r0["ch"], r0["spf"]
+        trimmed = bool(fr and (de or pa) and pa >= 529)
+        S, P = (spf + de + 529, fr * spf - de - pa) if trimmed else (0, len(pcm) // (2 * ch))
+        want = pcm[S * ch * 2:(S + P) * ch * 2] if trimmed else pcm
+        rnd = random.Random(7); N = 12000
+        targets = [1, 700, spf, spf * 3 + 5, spf * 50 + 600, P // 2, P // 3 + 11, (P * 9) // 10, max(P - N - 3, 1)] + [rnd.randrange(1, max(P - N, 2)) for _ in range(4)]
+        res = []
+        for T in targets:
+            rr = run(exe, f, d / "s.pcm", seek=T, nout=N); got = (d / "s.pcm").read_bytes()
+            shift = None
+            for k in (0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5):          # the landing frame is estimated (TOC/CBR): a whole number of frames off at most
+                a = T + k * spf
+                if a >= 0 and len(got) > 0 and got == want[a * ch * 2:(a + N) * ch * 2][:len(got)]: shift = k; break
+            res.append((T, rr["plan_ok"], rr["status"], shift is not None and len(got) >= N * ch * 2 * 0.9, shift))
+        out[f.name] = res
+    return out
+
 with tempfile.TemporaryDirectory() as td:
     d = Path(td); ref = reference(d)
-    good = scenarios(build_all(d, 0), ref, d)
+    exe0 = build_all(d, 0)
+    good = scenarios(exe0, ref, d)
     for k, (ok, r, g, w) in good.items():
         check(f"{k}: trimmed PCM equals the whole-file decode" if k.endswith("mp3") else k, ok, (g, w))
     for k, (ok, r, g, w) in good.items():
         if k.endswith("mp3"): check(f"{k}: pairs_total (the P3 expectation) == pairs delivered", r["pairs_total"] in (0, r["pairs_out"]) and (r["pairs_total"] or not r["xing"]), (r["pairs_total"], r["pairs_out"]))
+    sk = seek_tests(exe0, ref, d)
+    for k, res in sk.items():
+        bad = [x for x in res if not (x[1] and x[3])]
+        check(f"{k}: {len(res)} seeks play correct, continuous audio from the target (landing within 3 frames; shifts {sorted(set(x[4] for x in res if x[4] is not None))})", not bad and all(abs(x[4]) <= 3 for x in res), bad)
     r = good[files[0].name][1]; check("ID3v2 tag skipped by a seek", r["tag"] > 0 and r["errors"] <= 2, r)
-    for bug, name in ((1, "tag not skipped"), (2, "trim ignored"), (3, "frame window too small")):
-        bad = scenarios(build_all(d, bug), ref, d)
-        check(f"mutant {bug} ({name}) is caught", any(not v[0] for v in bad.values()))
+    for bug, name in ((1, "tag not skipped"), (2, "trim ignored"), (3, "frame window too small"), (4, "seek without warm-up"), (5, "seek landing not dropped")):
+        eb = build_all(d, bug)
+        caught = any(not v[0] for v in scenarios(eb, ref, d).values())
+        if not caught: caught = any(not (x[1] and x[3]) or abs(x[4] or 0) > 3 for res in seek_tests(eb, ref, d).values() for x in res)
+        check(f"mutant {bug} ({name}) is caught", caught)
 print("FAILED" if fails else "all ok", fails)
 sys.exit(1 if fails else 0)
