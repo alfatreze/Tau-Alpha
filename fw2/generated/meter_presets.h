@@ -42,7 +42,7 @@ static const uint16_t mpp_scope[MPP_SCOPE_PRESETS][MPP_SCOPE_N] = {
 };
 static const mpd_t mpd_scope[2] = {
     { "SCOPE SMOOTH", 0, 0, 0, 90, 5, 0, 0, 255, 0 },
-    { "SCOPE TRAIL", 0, 1, 0, 80, 5, 0, 0, 255, 0 },
+    { "SCOPE TRAIL", 0, 0, 0, 80, 5, 0, 0, 255, 0 },
 };
 #define MPD_SCOPE_N 2u
 enum { MPP_CHL_LAYOUT, MPP_CHL_LINE_WIDTH, MPP_CHL_MODES, MPP_CHL_RISE, MPP_CHL_FALL, MPP_CHL_MORPH, MPP_CHL_MORPH_GAIN, MPP_CHL_TRIGGER, MPP_CHL_REFRACTORY, MPP_CHL_TONAL, MPP_CHL_PAINT, MPP_CHL_N };

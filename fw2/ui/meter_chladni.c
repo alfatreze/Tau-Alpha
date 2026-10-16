@@ -59,7 +59,7 @@ static void probe(void)
     uint32_t r = 0;
     ok = 2u;
     if (gfx_mb_write(src, 0xF80007E0u)) return;
-    gfx_blit(0u, CHL_PROBE_ROW, CHL_PROBE_DX, CHL_PROBE_DY, 1u, 1u);
+    gfx_blit_abs(0u, CHL_PROBE_ROW, CHL_PROBE_DX, CHL_PROBE_DY, 1u, 1u);
     gfx_fence();
     if (gfx_mb_read(dst, &r)) return;
     if ((r & 0xFFFFu) == 0x07E0u)  { swap = 0u; ok = 1u; }

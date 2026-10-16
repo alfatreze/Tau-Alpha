@@ -24,7 +24,8 @@ typedef struct { const char *label; uint8_t type, hidden; uint16_t min, max, ste
 typedef struct {
     const char *name; void (*tick)(const mtr_in_t *in);
     uint8_t npre; void (*set_pre)(uint32_t); const char *(*pre_name)(uint32_t);
-    uint16_t *mv; const mpd_t *pd; uint8_t np; void (*apply)(void);         /* the live parameters, their descriptors (the manifest's order) and the call that makes the module re-read them */
+    uint16_t *mv; const mpd_t *pd; uint8_t np; void (*apply)(void);
+    uint8_t compose;                          /* 1: the meter repaints its whole box each tick, so it is drawn into the idle buffer and copied onto the shown one (no wipe is ever seen) */         /* the live parameters, their descriptors (the manifest's order) and the call that makes the module re-read them */
 } meter_def_t;
 extern const meter_def_t meter_table[];
 extern const uint32_t meter_count;

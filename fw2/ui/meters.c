@@ -20,13 +20,13 @@ extern void meter_chladni_tick(const mtr_in_t *in);
 extern void meter_layered_wave_tick(const mtr_in_t *in);
 #define PRESET_API(m) extern void meter_##m##_preset(uint32_t); extern const char *meter_##m##_preset_name(uint32_t); extern uint16_t meter_##m##_mv[]; extern void meter_##m##_apply(void)
 PRESET_API(winamp_bars); PRESET_API(winamp_scope); PRESET_API(chladni); PRESET_API(layered_wave); PRESET_API(vu_master);
-#define P(m, n, d, np) n, meter_##m##_preset, meter_##m##_preset_name, meter_##m##_mv, d, np, meter_##m##_apply
+#define P(m, n, d, np, c) n, meter_##m##_preset, meter_##m##_preset_name, meter_##m##_mv, d, np, meter_##m##_apply, c
 const meter_def_t meter_table[] = {
-    { "WINAMP BARS", meter_winamp_bars_tick, P(winamp_bars, 5, mpd_bars, MPD_BARS_N) },
-    { "WINAMP SCOPE", meter_winamp_scope_tick, P(winamp_scope, 5, mpd_scope, MPD_SCOPE_N) },
-    { "CHLADNI", meter_chladni_tick, P(chladni, 4, mpd_chl, MPD_CHL_N) },
-    { "LAYERED WAVE", meter_layered_wave_tick, P(layered_wave, 8, mpd_lw, MPD_LW_N) },
-    { "VU MASTER", meter_vu_master_tick, P(vu_master, 3, mpd_vu, MPD_VU_N) },
+    { "WINAMP BARS", meter_winamp_bars_tick, P(winamp_bars, 5, mpd_bars, MPD_BARS_N, 0) },
+    { "WINAMP SCOPE", meter_winamp_scope_tick, P(winamp_scope, 5, mpd_scope, MPD_SCOPE_N, 0) },
+    { "CHLADNI", meter_chladni_tick, P(chladni, 4, mpd_chl, MPD_CHL_N, 1) },
+    { "LAYERED WAVE", meter_layered_wave_tick, P(layered_wave, 8, mpd_lw, MPD_LW_N, 1) },
+    { "VU MASTER", meter_vu_master_tick, P(vu_master, 3, mpd_vu, MPD_VU_N, 0) },
 };
 const uint32_t meter_count = sizeof meter_table / sizeof meter_table[0];
 
@@ -129,5 +129,7 @@ void meters_tick(int allowed)
     if (caps.wave) { const uint32_t pk = REG_RD(R_WAVE_PK); pl = ((pk & 0xFFFFu) * 3u) / 4u; pr = ((pk >> 16) * 3u) / 4u; REG_WR(R_WAVE_CTL, 1u); }      /* peaks since the last tick, then cleared */
     mtr_in_t in = { lvl, frame++, (uint16_t)(dt > 200u ? 200u : dt), (uint16_t)bx, (uint16_t)by, (uint16_t)bw, (uint16_t)bh, th_role[TR_BG_BOTTOM], (uint8_t)force_next, (uint8_t)mp3play_paused_now(), pl, pr };
     force_next = 0;
+    const int comp = meter_table[cur].compose && gfx_compose_begin(bx, by, bw, bh);
     meter_table[cur].tick(&in);
+    if (comp) gfx_compose_present(bx, by, bw, bh);
 }

@@ -48,6 +48,8 @@ with tempfile.TemporaryDirectory() as td:
     check("without a beam counter everything is safe", set(ask(good, "".join(f"N {a} {b} {vc}\n" for a, b in spans for vc in range(0, 400, 7)))[:-1]) == {"1"})
     w = ask(good, "W 0 5 1\nW 4 5 0\nW 2 5 1\nW 2 5 0\nW 0 1 1\nW 0 1 0\nW 0 0 1\n")[:-1]
     check("wrap: Up on the first row goes to the last, Down on the last to the first, one row stays", w == ["4", "0", "1", "3", "0", "0", "0"], w)
+    t0 = ask(good, "A\n")
+    check("a whole-screen region in the pass is found; an all-safe flush draws every dirty region whatever the beam is doing", t0 == ["partial_only=0 with_whole=1 n=3 deferred=0 after=0", ""], t0)
     t = ask(good, "R\n")
     check("regions: ids, nothing drawn when clean", t[0] == "ids 0 1 2" and t[1].startswith("clean n=0 []"), t[:2])
     check("regions: the one the beam is inside waits, the others draw (whole-screen at once)", t[2].startswith("beam in region 1 (row 250) n=2 [0,2]") and "deferred=1" in t[2], t[2])

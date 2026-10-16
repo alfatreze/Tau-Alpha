@@ -13,6 +13,8 @@ STUB(winamp_bars) STUB(winamp_scope) STUB(chladni) STUB(layered_wave) STUB(vu_ma
 uint16_t meter_winamp_bars_mv[8], meter_winamp_scope_mv[2], meter_chladni_mv[11], meter_layered_wave_mv[34], meter_vu_master_mv[5];
 #define PS(m, k) void meter_##m##_apply(void) { } void meter_##m##_preset(uint32_t p) { last[k] = p; } const char *meter_##m##_preset_name(uint32_t p) { (void)p; return #m; }
 PS(winamp_bars, 0) PS(winamp_scope, 1) PS(chladni, 2) PS(layered_wave, 3) PS(vu_master, 4)
+int gfx_compose_begin(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; return 0; }
+void gfx_compose_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; }
 void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
 static uint8_t fbuf[8192];
 int main(int argc, char **argv)

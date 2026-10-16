@@ -12,6 +12,7 @@
 #include "meter.h"
 #include "../platform/platform.h"
 #include "helios.h"
+#include "xfade.h"
 
 #define BG   UI_BG_SCREEN
 #define FG   UI_WHITE
@@ -55,14 +56,20 @@ static void value_text(const mg_row_t *r, char *o)
     o[n] = 0;
 }
 
+/* A change of page (opening a group, going back, opening or leaving an option list) is shown as a crossfade; moving the selection or changing a value inside a page is instant. */
+static uint32_t shown_sig = 0xFFFFFFFFu;
+static uint32_t page_sig(void) { const uint32_t d = menu.depth, pg = menu.page[d]; return d * 1024u + pg * 32u + (pg == PG_CHOICE && d ? menu.sel[d - 1u] : 0u); }
+void settings_view_exit(void) { xfade_finish(); }
 void settings_view_enter(void)
 {
+    xfade_finish(); shown_sig = 0xFFFFFFFFu;
     if (!resume) mg_open(&menu);
     resume = 0; pull(); dirty = 1;
     gfx_rect(0, 0, GFX_W, GFX_H, BG);
 }
 int settings_view_input(uint32_t edge)
 {
+    xfade_finish();                                   /* a key while a fade runs: the fade is completed first, then the key acts on the finished page */
     pull();
     mg_effect_t e = mg_input(&menu, edge, vals);
     dirty = 1;
@@ -84,11 +91,12 @@ int settings_view_input(uint32_t edge)
     }
     return VW_STAY;
 }
-void settings_view_mark(void) { pull(); if (dirty) helios_dirty(R_MENU); }      /* a value changed elsewhere (a button, the Core Settings menu) shows at once */
+void settings_view_mark(void) { pull(); if (dirty) helios_dirty(R_MENU); xfade_tick(); }      /* a value changed elsewhere (a button, the Core Settings menu) shows at once */
 void settings_view_draw(void)
 {
     if (!dirty) return;
     dirty = 0;
+    { const uint32_t sg = page_sig(); if (sg != shown_sig) { if (shown_sig != 0xFFFFFFFFu) xfade_request(); shown_sig = sg; } }
     const uint32_t d = menu.depth, pg = menu.page[d], n = mg_rows(&menu), top = menu.top[d];
     gfx_rect(0, 0, GFX_W, TOP_Y, BG);
     const char *title = pg == PG_CHOICE ? mg_pages[menu.page[d - 1u]].rows[menu.sel[d - 1u]].label : mg_pages[pg].title;
@@ -124,4 +132,4 @@ void settings_view_init_choices(void)
     mg_set_choice(V_METER, meter_names, m);
 }
 void settings_view_keep(void) { resume = 1u; }
-void settings_view_redraw(void) { gfx_rect(0, 0, GFX_W, GFX_H, BG); dirty = 1; pull(); }
+void settings_view_redraw(void) { xfade_finish(); gfx_rect(0, 0, GFX_W, GFX_H, BG); dirty = 1; pull(); }

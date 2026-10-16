@@ -19,11 +19,15 @@ typedef struct {
     uint32_t invalidates;                /* Helios regions repainted when this view is entered */
     void (*redraw)(void);                /* repaint everything WITHOUT changing the view's state (the colours changed); 0 = enter() */
 } view_t;
-typedef struct { const view_t *tab; uint8_t n, cur, prev, busy, pending; uint32_t switches; } vw_t;
+typedef struct {
+    const view_t *tab; uint8_t n, cur, prev, busy, pending; uint32_t switches;
+    void (*frame_begin)(void);           /* optional: a view change is drawn inside this frame (a double-buffered redraw) ... */
+    void (*frame_end)(void);             /* ... which ends here, after the new view's regions were marked (may be 0) */
+} vw_t;
 
 static inline void vw_init(vw_t *v, const view_t *tab, uint32_t n, uint32_t first)
 {
-    v->tab = tab; v->n = (uint8_t)n; v->cur = (uint8_t)first; v->prev = (uint8_t)first; v->busy = 0; v->pending = 0xFFu; v->switches = 0;
+    v->tab = tab; v->n = (uint8_t)n; v->cur = (uint8_t)first; v->prev = (uint8_t)first; v->busy = 0; v->pending = 0xFFu; v->switches = 0; v->frame_begin = 0; v->frame_end = 0;
 }
 /* Enters the first view (nothing to leave). */
 static inline void vw_start(vw_t *v, hl_t *h)
@@ -38,6 +42,7 @@ static inline void vw_switch(vw_t *v, hl_t *h, int to)
     if (v->busy) { v->pending = (uint8_t)to; return; }                             /* asked from inside an enter/exit: applied right after, never nested */
     if (to == (int)v->cur) return;
     v->busy = 1;
+    if (v->frame_begin) v->frame_begin();
 #if BUG != 1
     if (v->tab[v->cur].exit) v->tab[v->cur].exit();
 #endif
@@ -46,10 +51,16 @@ static inline void vw_switch(vw_t *v, hl_t *h, int to)
     hl_clear(h);                                                                    /* regions the old view still had pending (deferred by the beam) must not draw over the new view */
 #endif
     if (v->tab[to].enter) v->tab[to].enter();
+#if BUG == 5
+    if (v->frame_end) v->frame_end();                                                /* mutant: the frame ends before the new view's regions are marked */
+#endif
 #if BUG != 2
     hl_dirty_mask(h, v->tab[to].invalidates);
 #endif
     v->switches++;
+#if BUG != 5
+    if (v->frame_end) v->frame_end();
+#endif
     v->busy = 0;
     if (v->pending != 0xFFu) { uint8_t p = v->pending; v->pending = 0xFFu; vw_switch(v, h, p); }
 }
@@ -57,9 +68,11 @@ static inline void vw_switch(vw_t *v, hl_t *h, int to)
 static inline void vw_refresh(vw_t *v, hl_t *h)
 {
     const view_t *w = &v->tab[v->cur];
+    if (v->frame_begin) v->frame_begin();
     hl_clear(h);
     if (w->redraw) w->redraw(); else if (w->enter) w->enter();
     hl_dirty_mask(h, w->invalidates);
+    if (v->frame_end) v->frame_end();
 }
 /* A key edge to the current view; a switch it asks for is made here. */
 static inline void vw_input(vw_t *v, hl_t *h, uint32_t edge)

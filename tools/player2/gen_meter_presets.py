@@ -5,7 +5,7 @@ import json, sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 METERS = [("winamp_bars", "BARS"), ("winamp_scope", "SCOPE"), ("chladni", "CHL"), ("vu_master", "VU")]
-HIDE_EXACT = {"scope_trail", "info"}                                   # not drawn in Player 2 (the trail needs the blend; the VU info overlay is not ported)
+HIDE_EXACT = {"info"}                                                    # not drawn in Player 2 (the VU info overlay is not ported)
 def hidden(k, p):
     if p.get("experimental"): return 1
     if k in HIDE_EXACT: return 1

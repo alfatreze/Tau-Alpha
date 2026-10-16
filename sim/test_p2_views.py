@@ -39,6 +39,14 @@ with tempfile.TemporaryDirectory() as td:
     check("a refresh repaints the current view in place (its redraw, else its enter) and marks its regions, without exit/enter", o == "10 10 | cur=0 prev=0 switches=0 dirty=100", o)
     o = run(g, "S 1\nF\nR\n")
     check("a view with its own redraw uses it", o == "10 11 20 24 | cur=1 prev=0 switches=1 dirty=011", o)
+    o = run(g, "H\nS 1\n")
+    check("with frame hooks a switch is drawn inside the frame: begin, exit, enter, (regions marked), end", o == "10 90 11 20 92 | cur=1 prev=0 switches=1 dirty=011", o)
+    o = run(g, "H\nR\n")
+    check("a refresh is inside a frame too", o == "10 90 10 92 | cur=0 prev=0 switches=0 dirty=100", o)
+    o = run(g, "H\nS 2\n")
+    check("a switch asked from inside an enter makes its own frame after the first", o == "10 90 11 30 91 90 31 10 92 | cur=0 prev=2 switches=2 dirty=100", o)
+    o = run(build(td, 5), "H\nS 1\n")
+    check("mutant 5 (the frame ends before the regions are marked) is caught", o != "10 90 11 20 92 | cur=1 prev=0 switches=1 dirty=011", o)
     for bug, what in ((1, "the old view's exit is never called"), (2, "the new view's regions are not marked dirty"), (3, "the old view's pending regions survive the switch")):
         m = build(td, bug)
         caught = run(m, "S 1\n") != "10 11 20 | cur=1 prev=0 switches=1 dirty=011"

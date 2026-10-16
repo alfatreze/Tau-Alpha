@@ -18,6 +18,10 @@ uint32_t host_rd(uint32_t a)
 void host_wr(uint32_t a, uint32_t v) { if (a == 0x800000F0u) idx_sel = v; else if (a == 0x800000ECu && (v & 2u)) arms++; }
 void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) if (x + i < W && y + j < H) fb[(y + j) * W + x + i] = c; }
 static void rect_to(uint16_t *e, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) if (x + i < W && y + j < H) e[(y + j) * W + x + i] = c; }
+int gfx_blend_ready(void) { return 0; }           /* the wipe path: the trail itself is checked against the engine model (test_p2_scope_trail.py) */
+void gfx_blend_on(uint32_t a) { (void)a; } void gfx_blend_off(void) { }
+void gfx_blend_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { (void)sx; (void)sy; (void)dx; (void)dy; (void)w; (void)h; }
+void gfx_rect_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
 static uint32_t rng;
 static uint32_t rnd(void) { rng = rng * 1664525u + 1013904223u; return rng >> 8; }
 int main(int argc, char **argv)

@@ -27,7 +27,7 @@ static int probe(void)
     if (gfx_mb_write(src, (5u << 16) | 7u) || gfx_mb_write(dst, sentinel)) return TIMG_E_MAILBOX;
     gfx_clut_begin(0u);
     for (uint32_t i = 0; i < 256u; i++) gfx_clut_put((uint16_t)(0x1000u + i));
-    gfx_cblit(GFX_CELL_X, PROBE_ROW, GFX_CELL_X, PROBE_ROW - 1u, 1u, 1u);
+    gfx_cblit_abs(GFX_CELL_X, PROBE_ROW, GFX_CELL_X, PROBE_ROW - 1u, 1u, 1u);
     /* The copy is queued behind whatever the screen drew just before (a track change): reading the destination at a fixed time read it BEFORE the copy landed (the old player's B-325, the
      * Info row ART ERR 8 on every track here). Poll until the destination differs from the sentinel, about 50 ms at most, and only then judge it. */
     const uint32_t t0 = cycles();
