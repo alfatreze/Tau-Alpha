@@ -673,8 +673,11 @@ typedef struct {
     uint64_t owed;                                                      /* silent pairs still to deliver */
     uint32_t frame_errors, resyncs; uint64_t silent_pairs;
     uint8_t in_frame;                                                   /* a frame's header has been accepted and its pairs are staged by the caller */
+    uint8_t tl_pending;                                                 /* the timeline is unknown and this frame's start is on trial: only a verified frame may establish it */
     uint64_t frame_start_s; uint32_t frame_bs; uint8_t frame_known;     /* the accepted frame's start sample and size, for the timeline */
 } f2_rec_t;
+/* The stream starts at a known sample (0 at the start of a track): lost audio from there on is owed as silence. After a seek the start is NOT known and the timeline is left to the first verified frame. */
+static inline void f2_rec_set_timeline(f2_rec_t *r, uint64_t first_sample) { r->tl.have = 1; r->tl.next = first_sample; }
 static inline void f2_rec_init(f2_rec_t *r, const f2_info_t *si, int32_t *buf, uint32_t cap, uint32_t flags)
 {
     uint8_t *z = (uint8_t *)r; for (uint32_t i = 0; i < sizeof *r; i++) z[i] = 0;
@@ -715,7 +718,7 @@ static inline int f2_rec_step(f2_rec_t *r, const uint8_t *in, uint32_t avail, in
         if (r->want_var == 0xFFu) r->want_var = h.variable;
         else if (r->want_var != h.variable) { r->frame_errors++; r->fails++; r->mode = F2_RM_SCAN; r->skip_first = 1; return F2_OK; }
         if (r->frame_known) {
-            if (!r->tl.have) { r->tl.have = 1; r->tl.next = smp; }
+            if (!r->tl.have) { r->tl_pending = 1; }
 #if BUG == 19
             else if (smp > r->tl.next) { r->owed = smp - r->tl.next; r->tl.next = smp; return F2_OK; }
 #else
@@ -734,22 +737,138 @@ static inline int f2_rec_step(f2_rec_t *r, const uint8_t *in, uint32_t avail, in
 #else
         *ev = F2_EV_FRAME_OK; r->in_frame = 0; r->fails = 0; if (r->frame_known)
 #endif
-         r->tl.next = r->frame_start_s + r->frame_bs;
+        { r->tl.have = 1; r->tl_pending = 0; r->tl.next = r->frame_start_s + r->frame_bs; }
         return F2_OK;
     }
     if (st == F2_ERR) {                                                 /* the frame failed: its pairs so far are void, its duration is owed as silence, and we look for the next frame */
         *ev = F2_EV_FRAME_BAD; r->frame_errors++; r->fails++;
 #if BUG == 18
-        if (r->in_frame) { if (r->frame_known) r->tl.next = r->frame_start_s + r->frame_bs; }       /* the damaged frame's duration is never owed */
+        if (r->in_frame && r->tl.have) { if (r->frame_known) r->tl.next = r->frame_start_s + r->frame_bs; }       /* the damaged frame's duration is never owed */
 #else
-        if (r->in_frame) { r->owed += r->frame_bs; if (r->frame_known) r->tl.next = r->frame_start_s + r->frame_bs; }
+        if (r->in_frame && r->tl.have) { r->owed += r->frame_bs; if (r->frame_known) r->tl.next = r->frame_start_s + r->frame_bs; }
 #endif
+        r->tl_pending = 0;
         r->in_frame = 0; f2_dec_abort(d);
         if (r->fails > F2_MAX_FAILS) { r->mode = F2_RM_DEAD; *ev |= F2_EV_GIVEUP; return F2_ERR; }
         r->mode = F2_RM_SCAN; r->skip_first = 0;
         return F2_OK;
     }
     return st;
+}
+
+
+/* ---- opening a file: ID3v2 prefix, "fLaC", the metadata blocks (RFC 9639 section 8) ---- */
+enum { F2_OP_START = 0, F2_OP_ID3, F2_OP_MAGIC, F2_OP_BHDR, F2_OP_BODY, F2_OP_SKIP, F2_OP_DONE };
+typedef struct {
+    uint8_t state, last, btype, hn, have_si, have_seek, have_vc, seek_trunc, vc_trunc, err;
+    uint8_t hdr[10]; uint32_t blen, left; uint64_t pos;                  /* pos: file offset of the next byte to be consumed */
+    uint8_t si_raw[34]; f2_info_t si;
+    uint8_t *seek_buf; uint32_t seek_cap, seek_len, seek_total; uint64_t seek_off;     /* SEEKTABLE: the first seek_cap bytes, its total size, its file offset */
+    uint8_t *vc_buf;   uint32_t vc_cap, vc_len, vc_total; uint64_t vc_off;             /* VORBIS_COMMENT, same (ReplayGain tags live here) */
+    uint64_t audio_off;                                                  /* the file offset of the first frame, once state == F2_OP_DONE */
+} f2_open_t;
+static inline void f2_open_init(f2_open_t *o, uint8_t *seek_buf, uint32_t seek_cap, uint8_t *vc_buf, uint32_t vc_cap)
+{
+    uint8_t *z = (uint8_t *)o; for (uint32_t i = 0; i < sizeof *o; i++) z[i] = 0;
+    o->seek_buf = seek_buf; o->seek_cap = seek_cap; o->vc_buf = vc_buf; o->vc_cap = vc_cap;
+}
+/* Bytes the walker would only skip (a PICTURE, padding, an unwanted block): a caller that can move its stream cheaply may skip them without reading and then call f2_open_skipped(). */
+static inline uint32_t f2_open_skippable(const f2_open_t *o) { return o->state == F2_OP_SKIP ? o->left : 0u; }
+static inline int f2_open_finish_block(f2_open_t *o);
+static inline int f2_open_skipped(f2_open_t *o, uint32_t n) { if (n > o->left) n = o->left; o->left -= n; o->pos += n; return o->left == 0u ? f2_open_finish_block(o) : F2_OK; }
+static inline int f2_open_finish_block(f2_open_t *o)
+{
+    if (o->last) {
+        if (!o->have_si || f2_streaminfo(o->si_raw, &o->si) != F2_OK) { o->err = 1; return F2_ERR; }
+#if BUG == 25
+        o->audio_off = o->pos - 1u; o->state = F2_OP_DONE;
+#else
+        o->audio_off = o->pos; o->state = F2_OP_DONE;
+#endif
+    } else { o->state = F2_OP_BHDR; o->hn = 0; }
+    return F2_OK;
+}
+/* Consumes bytes from in[0..avail). F2_OK: done (o->state == F2_OP_DONE, o->audio_off valid) or progress made with more to come (call again with the following bytes); F2_NEED: needs more bytes (all of `in`
+ * has been consumed); F2_ERR: not a FLAC file / malformed metadata (o->err). *used = bytes consumed. */
+static inline int f2_open_step(f2_open_t *o, const uint8_t *in, uint32_t avail, uint32_t *used)
+{
+    uint32_t i = 0; *used = 0;
+    while (i < avail && o->state != F2_OP_DONE) {
+        uint8_t c = in[i];
+        switch (o->state) {
+        case F2_OP_START:
+            o->hdr[o->hn++] = c; i++; o->pos++;
+            if (o->hn >= 3u && o->hdr[0] == 'I' && o->hdr[1] == 'D' && o->hdr[2] == '3') { if (o->hn == 10u) {
+                    if ((o->hdr[6] | o->hdr[7] | o->hdr[8] | o->hdr[9]) & 0x80u) { o->err = 2; *used = i; return F2_ERR; }
+                    o->left = ((uint32_t)o->hdr[6] << 21) | ((uint32_t)o->hdr[7] << 14) | ((uint32_t)o->hdr[8] << 7) | o->hdr[9];
+#if BUG != 23
+                    if (o->hdr[5] & 0x10u) o->left += 10u;                                  /* a footer */
+#endif
+                    o->state = F2_OP_ID3; o->hn = 0; } }
+            else if (o->hn == 4u) { if (o->hdr[0] == 'f' && o->hdr[1] == 'L' && o->hdr[2] == 'a' && o->hdr[3] == 'C') { o->state = F2_OP_BHDR; o->hn = 0; } else { o->err = 3; *used = i; return F2_ERR; } }
+            break;
+        case F2_OP_ID3: {                                                    /* skip the tag body, then expect the magic */
+            uint32_t n = o->left < avail - i ? o->left : avail - i; i += n; o->left -= n; o->pos += n;
+            if (o->left == 0u) { o->state = F2_OP_MAGIC; o->hn = 0; }
+            break; }
+        case F2_OP_MAGIC:
+            o->hdr[o->hn++] = c; i++; o->pos++;
+            if (o->hn == 4u) { if (o->hdr[0] == 'f' && o->hdr[1] == 'L' && o->hdr[2] == 'a' && o->hdr[3] == 'C') { o->state = F2_OP_BHDR; o->hn = 0; } else { o->err = 3; *used = i; return F2_ERR; } }
+            break;
+        case F2_OP_BHDR:
+            o->hdr[o->hn++] = c; i++; o->pos++;
+            if (o->hn == 4u) {
+                o->last = o->hdr[0] >> 7; o->btype = o->hdr[0] & 0x7Fu; 
+#if BUG == 22
+                o->blen = ((uint32_t)o->hdr[2] << 8) | o->hdr[3];                       /* the top length byte ignored */
+#else
+                o->blen = ((uint32_t)o->hdr[1] << 16) | ((uint32_t)o->hdr[2] << 8) | o->hdr[3];
+#endif
+                o->hn = 0;
+                if (o->btype == 127u || (!o->have_si && (o->btype != 0u || o->blen != 34u)) || (o->btype == 0u && (o->have_si || o->blen != 34u))) { o->err = 4; *used = i; return F2_ERR; }
+                if (o->btype == 3u && o->blen % 18u) { o->err = 5; *used = i; return F2_ERR; }
+                o->left = o->blen;
+                if (o->btype == 3u) { o->have_seek = 1; o->seek_off = o->pos; o->seek_total = o->blen; o->seek_len = 0; }
+                if (o->btype == 4u) { o->have_vc = 1; o->vc_off = o->pos; o->vc_total = o->blen; o->vc_len = 0; }
+                if (o->blen == 0u) { if (f2_open_finish_block(o) != F2_OK) { *used = i; return F2_ERR; } }
+                else o->state = (o->btype == 0u || o->btype == 3u || o->btype == 4u) ? F2_OP_BODY : F2_OP_SKIP;
+            }
+            break;
+        case F2_OP_BODY: {
+            uint32_t n = o->left < avail - i ? o->left : avail - i; const uint8_t *src = in + i;
+            if (o->btype == 0u) { for (uint32_t k = 0; k < n; k++) o->si_raw[34u - o->left + k] = src[k]; if (o->left == n) o->have_si = 1; }
+            else if (o->btype == 3u) { for (uint32_t k = 0; k < n; k++) { if (o->seek_len < o->seek_cap) o->seek_buf[o->seek_len++] = src[k];
+#if BUG != 24
+                    else o->seek_trunc = 1;
+#endif
+                     } }
+            else { for (uint32_t k = 0; k < n; k++) { if (o->vc_len < o->vc_cap) o->vc_buf[o->vc_len++] = src[k]; else o->vc_trunc = 1; } }
+            i += n; o->left -= n; o->pos += n;
+            if (o->left == 0u && f2_open_finish_block(o) != F2_OK) { *used = i; return F2_ERR; }
+            break; }
+        default: {                                                           /* F2_OP_SKIP */
+            uint32_t n = o->left < avail - i ? o->left : avail - i; i += n; o->left -= n; o->pos += n;
+            if (o->left == 0u && f2_open_finish_block(o) != F2_OK) { *used = i; return F2_ERR; }
+            break; }
+        }
+    }
+    *used = i;
+    return o->state == F2_OP_DONE ? F2_OK : F2_NEED;
+}
+
+/* ---- the SEEKTABLE (RFC 9639 section 8.5): 18-byte points { u64 first sample, u64 byte offset from the first frame, u16 samples in the frame }, placeholders (sample all ones) last ---- */
+/* The last real point whose first sample is <= target. Returns 1 and fills the outputs, or 0 when there is none (no table, or the target precedes the first point's sample: use the first frame). */
+static inline int f2_seekpoint(const uint8_t *tab, uint32_t points, uint64_t target, uint64_t *sample, uint64_t *offset, uint32_t *samples)
+{
+    int found = 0; uint32_t lo = 0, hi = points;                                   /* binary search over the real (non-placeholder) prefix */
+    while (lo < hi) {
+        uint32_t mid = (lo + hi) / 2u; const uint8_t *e = tab + 18u * mid; uint64_t smp = 0;
+        for (int k = 0; k < 8; k++) smp = (smp << 8) | e[k];
+        if (smp == 0xFFFFFFFFFFFFFFFFull) { hi = mid; continue; }                   /* a placeholder: everything real is below */
+        if (smp <= target) { lo = mid + 1u; found = 1; *sample = smp; uint64_t off = 0; for (int k = 8; k < 16; k++) off = (off << 8) | e[k]; *offset = off; *samples = ((uint32_t)e[16] << 8) | e[17]; }
+        else hi = mid;
+    }
+    return found;
 }
 
 #endif
