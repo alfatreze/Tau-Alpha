@@ -15,18 +15,15 @@
 #define GAP   2u
 #define X0    24u
 static uint32_t box_y, box_h, win_seen = 0xFFFFFFFFu;
-static uint8_t settle;
 static uint8_t  lvl[SPEC_BANDS], px[SPEC_BANDS], cap_px[SPEC_BANDS], cap_hold[SPEC_BANDS], drawn_px[SPEC_BANDS], drawn_cap[SPEC_BANDS];
 
 void meter_enter(uint32_t y, uint32_t h)
 {
-    box_y = y; box_h = h; settle = 2;
+    box_y = y; box_h = h;
     win_seen = caps.spec ? (REG_RD(R_SPEC_ST) >> 16) & 0xFFFFu : 0xFFFFFFFFu;      /* the window in progress is skipped: its mean mixes in what played before the meter was shown (a full bar that then collapsed) */
     gfx_rect(0, y, GFX_W, h, BG);
     for (uint32_t b = 0; b < SPEC_BANDS; b++) { lvl[b] = px[b] = cap_px[b] = cap_hold[b] = drawn_px[b] = drawn_cap[b] = 0; }
 }
-
-void meter_settle(uint32_t n) { settle = (uint8_t)n; }
 
 static int fetch(uint32_t *m)                    /* a new window, read coherently (the counter must not move while the 16 means are read) */
 {
@@ -43,7 +40,6 @@ void meter_draw(int allowed)
     if (!caps.spec || !allowed) return;
     uint32_t m[SPEC_BANDS];
     if (!fetch(m)) return;
-    if (settle) { settle--; return; }                                       /* the first windows after a start mix in the flush and the fade-in: not drawn */
     for (uint32_t b = 0; b < SPEC_BANDS; b++) {
         lvl[b] = (uint8_t)spec_ballistics(lvl[b], spec_level(m[b], b));
         uint32_t h = (uint32_t)lvl[b] * (box_h - 4u) / 255u;

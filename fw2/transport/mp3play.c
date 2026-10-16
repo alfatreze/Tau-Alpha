@@ -75,6 +75,7 @@ enum { MPS_IDLE = 0, MPS_DEC = 1, MPS_ENDDRAIN = 2, MPS_WAITRATE = 3 };
 
 mp_t mp; tl_t mp_tl; gov_t mp_gov;
 lp_t lp; stream_t lp_stream;
+uint8_t mp3play_accept_all;                                      /* Settings > Diagnostics > Accept all rates: FLAC above 48 kHz is decoded (plays at 48 kHz speed: a measurement aid, not a feature) */
 static queue_t q;
 #if !P2_FLAC2
 static mp3d_t dec;
@@ -364,7 +365,7 @@ SMALL static int flac_pass(stream_t *s)
         if (r == F2T_NEED) { mp.need_data++; break; }
         if (r == F2T_OPENED) {
             const f2_info_t *si = &ft.op.si;
-            if (si->rate > 48000u || si->channels > 2u || si->bps > 24u || si->max_bs > FLAC_CH0_WORDS) { mp.flac_refused++; bad_run++; track_ended(); break; }
+            if ((si->rate > 48000u && !mp3play_accept_all) || si->channels > 2u || si->bps > 24u || si->max_bs > FLAC_CH0_WORDS) { mp.flac_refused++; bad_run++; track_ended(); break; }
             ft_total = (uint32_t)si->total; ft_rate = si->rate; mp.ch = si->channels; mp.pairs_total = ft_total;
             continue;
         }

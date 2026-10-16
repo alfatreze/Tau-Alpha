@@ -54,6 +54,6 @@ void report_page_draw(void)
             if (mb_write(y * GFX_STRIDE + x, ((uint32_t)tpg_pixel(&t, x + 1u, y) << 16) | tpg_pixel(&t, x, y))) return;
     caption(8, y0, px, ACC, "PLAYER 2 REPORT");
     caption(22, y0, px, DIM, mode == TPG_MODE_R ? "ROBUST GRID" : "LOSSLESS GRID");
-    caption(GFX_H - 36, y0, px, DIM, "START REFRESH   B BACK");
+    caption(GFX_H - 36, y0, px, DIM, "SELECT+START REFRESH   B BACK");
     caption(GFX_H - 22, y0, px, DIM, "MENU+START FOR A SCREENSHOT");
 }
