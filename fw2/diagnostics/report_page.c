@@ -32,10 +32,14 @@ static void caption(uint32_t y, uint32_t y0, uint32_t px, uint16_t fg, const cha
     gfx_text(10, y, s, fg, BG);
 }
 
+static uint8_t cfg_buf[96]; static uint32_t cfg_len;                  /* a meter config waiting to be shown (the Configure page export), shown once */
+void report_page_set_payload(const uint8_t *p, uint32_t n) { if (n > sizeof cfg_buf) n = sizeof cfg_buf; for (uint32_t i = 0; i < n; i++) cfg_buf[i] = p[i]; cfg_len = n; }
 void report_page_draw(void)
 {
-    counters_refresh();
-    uint32_t len = report_record_build(rec, REC_CAP, counters_table, counters_count);
+    const uint32_t cfg = cfg_len; cfg_len = 0;
+    uint32_t len;
+    if (cfg) len = report_record_build_meter(rec, REC_CAP, cfg_buf, cfg);
+    else { counters_refresh(); len = report_record_build(rec, REC_CAP, counters_table, counters_count); }
     gfx_rect(0, 0, GFX_W, GFX_H, BG);
     tpg_t t;
     uint32_t mode = TPG_MODE_R;
@@ -52,7 +56,7 @@ void report_page_draw(void)
     for (uint32_t y = y0; y < y0 + px; y++)
         for (uint32_t x = x0; x < x0 + px; x += 2u)
             if (mb_write(y * GFX_STRIDE + x, ((uint32_t)tpg_pixel(&t, x + 1u, y) << 16) | tpg_pixel(&t, x, y))) return;
-    caption(8, y0, px, ACC, "PLAYER 2 REPORT");
+    caption(8, y0, px, ACC, cfg ? "METER CONFIG" : "PLAYER 2 REPORT");
     caption(22, y0, px, DIM, mode == TPG_MODE_R ? "ROBUST GRID" : "LOSSLESS GRID");
     caption(GFX_H - 36, y0, px, DIM, "SELECT+START REFRESH   B BACK");
     caption(GFX_H - 22, y0, px, DIM, "MENU+START FOR A SCREENSHOT");

@@ -28,10 +28,10 @@ static void hand_out_assets(void)
     if (!base) return;
     theme_file_load(base, total);                       /* THEM: extra themes (a bad section leaves the built-ins and a code for Info) */
     if (assets_section("PRST", &p, &n)) halcyon_prst_load(p, n, assets_in_psram(), assets_psram_ok);
-    if (!assets_in_psram() && assets_section("METR", &p, &n)) meters_metr_load(p, n);                              /* user presets replace the built-in ones of the meters the file carries */
+    if (assets_section("METR", &p, &n) && (!assets_in_psram() || assets_psram_ok())) meters_metr_load(p, n);       /* a file over 4 KiB sits in the PSRAM staging area: proven first, as for PRST */                              /* user presets replace the built-in ones of the meters the file carries */
 }
 static void info_draw_all(void) { counters_refresh(); info_page_draw(); }
-static const views_diag_t diag_pages = { info_page_init, info_page_key, info_draw_all, report_page_draw, check_page_enter, check_page_key, check_page_tick, check_page_draw, check_page_dirty, check_page_exit, check_page_repaint };
+static const views_diag_t diag_pages = { info_page_init, info_page_key, info_draw_all, report_page_draw, check_page_enter, check_page_key, check_page_tick, check_page_draw, check_page_dirty, check_page_exit, check_page_repaint, report_page_set_payload };
 
 int main(void)
 {
@@ -41,7 +41,7 @@ int main(void)
     { int ce = cold_boot();                                    /* the UI, library and settings run from the cold image: without it nothing can be shown, so say why and stop */
       if (ce) {
           char m[24] = "COLD IMAGE FAILED E00"; m[19] = (char)('0' + (ce / 10) % 10); m[20] = (char)('0' + ce % 10);
-          gfx_text(10, 10, m, RGB565(255, 160, 40), 0); gfx_text(10, 40, "TAU-COLD.BIN MISSING OR NOT FOR THIS BUILD", RGB565(160, 160, 160), 0);
+          gfx_text(10, 10, m, RGB565(255, 160, 40), 0); gfx_text(10, 40, "TAU-COLD.BIN MISSING OR WRONG BUILD", RGB565(160, 160, 160), 0);
           for (;;) { }
       } }
     counters_init();

@@ -14,6 +14,8 @@ uint32_t meters_cur(void) { return 0; } uint32_t meters_preset_of(uint32_t m) { 
 void meters_preset_select(uint32_t m, uint32_t p) { (void)m; cur_pre = p; custom = 0; mv[0] = 16; mv[1] = 0; mv[2] = 1; mv[3] = 200; }
 uint32_t meters_npre(uint32_t m) { (void)m; return 3; }
 void meters_params_changed(uint32_t m) { (void)m; custom = 1; }
+uint32_t meters_payload(uint32_t m, uint8_t *out) { (void)m; out[0] = 12; return 1; }
+void views_report_payload(const uint8_t *p, uint32_t n) { (void)p; (void)n; }
 const char *meters_preset_name(void) { return custom ? "CUSTOM" : cur_pre == 0 ? "FLUID" : cur_pre == 1 ? "CLASSIC" : "BOUNCY"; }
 void meters_enter(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; }
 void meters_tick(int a) { (void)a; }

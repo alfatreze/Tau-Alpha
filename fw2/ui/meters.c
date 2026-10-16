@@ -8,6 +8,7 @@
 #include "../generated/meter_presets.h"
 #include "../generated/lw_presets.h"
 #include "../cores/metr_core.h"
+#include "../cores/tune_core.h"
 
 #define R_SPEC_IDX  0x800000DCu
 #define R_SPEC_DATA 0x800000E0u
@@ -25,7 +26,7 @@ const meter_def_t meter_table[] = {
     { "WINAMP BARS", meter_winamp_bars_tick, P(winamp_bars, 5, mpd_bars, MPD_BARS_N, 0) },
     { "WINAMP SCOPE", meter_winamp_scope_tick, P(winamp_scope, 5, mpd_scope, MPD_SCOPE_N, 0) },
     { "CHLADNI", meter_chladni_tick, P(chladni, 4, mpd_chl, MPD_CHL_N, 1) },
-    { "LAYERED WAVE", meter_layered_wave_tick, P(layered_wave, 8, mpd_lw, MPD_LW_N, 1) },
+    { "LAYERED WAVE", meter_layered_wave_tick, P(layered_wave, 16, mpd_lw, MPD_LW_N, 1) },
     { "VU MASTER", meter_vu_master_tick, P(vu_master, 3, mpd_vu, MPD_VU_N, 0) },
 };
 const uint32_t meter_count = sizeof meter_table / sizeof meter_table[0];
@@ -40,11 +41,13 @@ static uint8_t pre[8], custom[8];                                  /* the select
 #ifndef METR_PSRAM
 #define METR_PSRAM ((volatile uint32_t *)(uintptr_t)0xA4550000u)
 #endif
-#define METR_MAX_BYTES 8192u
+#define METR_MAX_BYTES 0xF000u                                      /* the PSRAM region 0xA4550000..0xA4560000 less a margin (the Layered Wave ring starts at 0xA4560000) */
 static metr_e_t ue[8]; static uint8_t user_n[8];
 static metr_p_t mp[8][40];                                         /* the parameter shapes of each meter, from the descriptors */
-static uint8_t is_wide(const mpd_t *p) { return p->type == 0u && p->max > 255u; }
+static uint8_t is_wide(const mpd_t *p) { return p->type == 3u || (p->type == 0u && p->max > 255u); }
 static void shapes(uint32_t m) { const meter_def_t *d = &meter_table[m]; for (uint32_t i = 0; i < d->np && i < 40u; i++) { mp[m][i].min = d->pd[i].min; mp[m][i].max = d->pd[i].max; mp[m][i].kind = d->pd[i].type; mp[m][i].enum_n = d->pd[i].nval; mp[m][i].wide = is_wide(&d->pd[i]); } }
+static uint32_t tune_cache[TUNE_WORDS], tune_meter = 0xFFu;
+static void tune_clear(void) { for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[k] = 0; tune_meter = 0xFFu; }
 uint32_t meters_npre(uint32_t m) { return m >= meter_count ? 1u : user_n[m] ? user_n[m] : meter_table[m].npre; }
 static void user_preset(uint32_t m, uint32_t p, uint16_t *vals, char *name)       /* reads preset p of meter m from the PSRAM copy */
 {
@@ -75,7 +78,7 @@ void meters_preset_select(uint32_t m, uint32_t p)
 {
     if (m >= meter_count) return;
     if (p >= meters_npre(m)) p = 0u;
-    pre[m] = (uint8_t)p; custom[m] = 0u;
+    pre[m] = (uint8_t)p; custom[m] = 0u; if (tune_meter == m) tune_clear();
     if (user_n[m]) { uint16_t v[40]; user_preset(m, p, v, 0); const meter_def_t *d = &meter_table[m]; for (uint32_t i = 0; i < d->np; i++) d->mv[i] = v[i]; d->apply(); }
     else meter_table[m].set_pre(p);
     if (m == cur) force_next = 1;
@@ -88,7 +91,54 @@ const char *meters_preset_name(void)
     if (user_n[cur]) { user_preset(cur, pre[cur], 0, nm); return nm; }
     return meter_table[cur].pre_name(pre[cur]);
 }
-void meters_params_changed(uint32_t m) { if (m >= meter_count) return; custom[m] = 1u; meter_table[m].apply(); if (m == cur) force_next = 1; }
+/* ---- saving a tuning (cores/tune_core.h): the parameters of ONE meter that differ from its preset, in four persisted words ---- */
+static uint16_t tm_max[40];
+static const uint16_t *tune_max_of(uint32_t m, uint32_t *np)
+{
+    if (m >= meter_count) return 0;
+    const meter_def_t *d = &meter_table[m]; *np = d->np;
+    for (uint32_t i = 0; i < d->np && i < 40u; i++) tm_max[i] = d->pd[i].type == 3u ? 65535u : d->pd[i].type == 2u ? 1u : d->pd[i].type == 1u ? (uint16_t)(d->pd[i].nval ? d->pd[i].nval - 1u : 0u) : d->pd[i].max;
+    return tm_max;
+}
+void meters_tune_save(uint32_t m)            /* the parameters of meter m were edited (or reset): store what differs from its preset, replacing any tuning of another meter */
+{
+    if (m >= meter_count) return;
+    const meter_def_t *d = &meter_table[m];
+    if (!custom[m]) { if (tune_meter == m) tune_clear(); return; }
+    uint16_t keep[40], base[40];
+    for (uint32_t i = 0; i < d->np && i < 40u; i++) keep[i] = d->mv[i];
+    if (user_n[m]) user_preset(m, pre[m], base, 0); else { d->set_pre(pre[m]); for (uint32_t i = 0; i < d->np && i < 40u; i++) base[i] = d->mv[i]; }
+    for (uint32_t i = 0; i < d->np && i < 40u; i++) d->mv[i] = keep[i];
+    d->apply();
+    uint32_t np = 0; const uint16_t *mx = tune_max_of(m, &np);
+    uint32_t w[TUNE_WORDS];
+    if (tune_pack(m, pre[m], keep, base, mx, np, w)) { for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[k] = w[k]; tune_meter = m; }
+    else if (tune_meter == m) tune_clear();
+}
+uint32_t meters_payload(uint32_t m, uint8_t *out)                  /* the SR_T_METERCFG entry: manifest meter id, schema 1, preset (0xFF = tuned), nparams, then the values (two bytes for a wide one) */
+{
+    static const uint8_t mids[8] = { 12, 13, 14, 16, 15, 0, 0, 0 };
+    if (m >= meter_count) return 0;
+    const meter_def_t *d = &meter_table[m]; uint32_t n = 0;
+    out[n++] = mids[m]; out[n++] = 1u; out[n++] = custom[m] ? 0xFFu : pre[m]; out[n++] = d->np;
+    for (uint32_t i = 0; i < d->np; i++) { out[n++] = (uint8_t)d->mv[i]; if (is_wide(&d->pd[i])) out[n++] = (uint8_t)(d->mv[i] >> 8); }
+    return n;
+}
+void meters_tune_words(uint32_t *w) { for (uint32_t k = 0; k < TUNE_WORDS; k++) w[k] = tune_cache[k]; }
+void meters_tune_apply(const uint32_t *w)    /* the persisted words changed (boot, or Core Settings): apply the tuning when it belongs to the preset now selected */
+{
+    int same = 1; for (uint32_t k = 0; k < TUNE_WORDS; k++) if (w[k] != tune_cache[k]) same = 0;
+    if (same) return;
+    uint32_t mt = 0, pr = 0; uint8_t ix[TUNE_MAX]; uint16_t vl[TUNE_MAX];
+    const uint32_t n = tune_unpack(w, tune_max_of, &mt, &pr, ix, vl);
+    if (!n || mt >= meter_count || pr != pre[mt]) return;
+    const meter_def_t *d = &meter_table[mt];
+    for (uint32_t k = 0; k < n; k++) { uint32_t v = vl[k]; const mpd_t *p = &d->pd[ix[k]]; if (p->type == 0u && v < p->min) v = p->min; d->mv[ix[k]] = (uint16_t)v; }
+    custom[mt] = 1u; d->apply(); if (mt == cur) force_next = 1;
+    for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[k] = w[k];
+    tune_meter = mt;
+}
+void meters_params_changed(uint32_t m) { if (m >= meter_count) return; custom[m] = 1u; meter_table[m].apply(); if (m == cur) force_next = 1; meters_tune_save(m); }
 uint32_t meters_custom(uint32_t m) { return m < meter_count ? custom[m] : 0u; }
 uint32_t meters_cur(void) { return cur; }
 const char *meters_name(void) { return meter_table[cur].name; }

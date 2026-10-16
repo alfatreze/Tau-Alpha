@@ -8,7 +8,7 @@
 /* Layered Wave (docs/features/meters/LAYERED_WAVE_METER_SPEC.md): nested, mirrored envelope layers on a solid background, driven by the 16 spectrum bands (or, for the DYNAMICS split, the loudest sample).
  * The module body is the old player's, unchanged (fw/layered_wave.inc: integer-only, the C twin of tools/meters/preview/meters/layered_wave.js, compared command for command by
  * sim/test_layered_wave_golden.py); this file supplies what that body expects: plain gfx_rect, the parameters of the selected preset, the colour roles, and a proven PSRAM window for the history ring.
- * The whole object is cold code. Experimental parameters (anti-aliasing, blend modes, per-layer gains) are the Diagnostic Build's in the old player and are not part of Player 2. */
+ * The whole object is cold code. Experimental parameters (anti-aliasing, blend modes, per-layer gains) are on in Player 2 (the old player had them in the Diagnostic Build only). */
 #define COLD_FN3
 #define COLD_DATA
 #define fb_rect gfx_rect
@@ -22,7 +22,7 @@
 #endif
 #define MV_LAYERED_WAVE(n) ((int32_t)lw_mv[MP_LAYERED_WAVE_##n])
 #define paused (in->paused)
-#define TAU_FX_METER_EXPERIMENTAL 0
+#define TAU_FX_METER_EXPERIMENTAL 1                       /* the experimental group (anti-aliasing, blend modes, EQ bells, curve, per-layer gains, cost guard) and the 8 [EX] presets are part of Player 2 */
 #ifndef TAU_DIAGNOSTIC
 #define TAU_DIAGNOSTIC 0
 #endif

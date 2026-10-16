@@ -4,7 +4,7 @@
 #include <stdint.h>
 #ifndef P2_MPD_T
 #define P2_MPD_T
-/* a parameter the Configure page can edit: type 0 number, 1 choice, 2 on/off; shown only when the parameter `when_idx` has the value `when_val` (255 = always) */
+/* a parameter the Configure page can edit: type 0 number, 1 choice, 2 on/off, 3 colour (a raw RGB565 value, edited by the picker); shown only when the parameter `when_idx` has the value `when_val` (255 = always) */
 typedef struct { const char *label; uint8_t type, hidden; uint16_t min, max, step; uint8_t nval; const char *const *vals; uint8_t when_idx; uint16_t when_val; } mpd_t;
 #endif
 enum { MPP_BARS_BANDS, MPP_BARS_EASE, MPP_BARS_ATTACK, MPP_BARS_RELEASE, MPP_BARS_PEAK_ON, MPP_BARS_PEAK_GRAVITY, MPP_BARS_PEAK_HOLD_MS, MPP_BARS_PEAK_FALL, MPP_BARS_N };
@@ -82,9 +82,9 @@ static const char *const mpl_vu_color_mode[] = { "THEME", "CUSTOM" };
 static const mpd_t mpd_vu[5] = {
     { "TECH INFO", 2, 1, 0, 1, 1, 0, 0, 255, 0 },
     { "SEGMENT COLOUR", 1, 0, 0, 1, 1, 2, mpl_vu_color_mode, 255, 0 },
-    { "GREEN", 0, 1, 0, 65535, 1, 0, 0, 1, 1 },
-    { "YELLOW", 0, 1, 0, 65535, 1, 0, 0, 1, 1 },
-    { "RED", 0, 1, 0, 65535, 1, 0, 0, 1, 1 },
+    { "GREEN", 3, 0, 0, 65535, 1, 0, 0, 1, 1 },
+    { "YELLOW", 3, 0, 0, 65535, 1, 0, 0, 1, 1 },
+    { "RED", 3, 0, 0, 65535, 1, 0, 0, 1, 1 },
 };
 #define MPD_VU_N 5u
 static const char *const mpl_lw_view[] = { "HISTORY", "SPECTRUM" };
@@ -122,20 +122,20 @@ static const mpd_t mpd_lw[34] = {
     { "OUTER COLOUR", 1, 0, 0, 11, 1, 12, mpl_lw_color_outer, 15, 1 },
     { "INNER COLOUR", 1, 0, 0, 11, 1, 12, mpl_lw_color_inner, 15, 1 },
     { "BACKGROUND", 1, 0, 0, 11, 1, 12, mpl_lw_color_bg, 15, 1 },
-    { "CUSTOM OUTER", 0, 1, 0, 65535, 1, 0, 0, 15, 2 },
-    { "CUSTOM INNER", 0, 1, 0, 65535, 1, 0, 0, 15, 2 },
-    { "CUSTOM BACKGROUND", 0, 1, 0, 65535, 1, 0, 0, 15, 2 },
-    { "SPECTRUM STYLE", 1, 1, 0, 2, 1, 3, mpl_lw_hstyle, 0, 1 },
-    { "ANTIALIASING", 1, 1, 0, 3, 1, 4, mpl_lw_aa, 255, 0 },
-    { "LAYER BLENDING", 1, 1, 0, 5, 1, 6, mpl_lw_bmode, 255, 0 },
-    { "BLEND ALPHA", 0, 1, 5, 100, 5, 0, 0, 25, 1 },
-    { "COST GUARD", 1, 1, 0, 2, 1, 3, mpl_lw_guard, 255, 0 },
-    { "GAIN, LAYER 1", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
-    { "GAIN, LAYER 2", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
-    { "GAIN, LAYER 3", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
-    { "GAIN, LAYER 4", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
-    { "GAIN, LAYER 5", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
-    { "GAIN, LAYER 6", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
+    { "CUSTOM OUTER", 3, 0, 0, 65535, 1, 0, 0, 15, 2 },
+    { "CUSTOM INNER", 3, 0, 0, 65535, 1, 0, 0, 15, 2 },
+    { "CUSTOM BACKGROUND", 3, 0, 0, 65535, 1, 0, 0, 15, 2 },
+    { "SPECTRUM STYLE", 1, 0, 0, 2, 1, 3, mpl_lw_hstyle, 0, 1 },
+    { "ANTIALIASING", 1, 0, 0, 3, 1, 4, mpl_lw_aa, 255, 0 },
+    { "LAYER BLENDING", 1, 0, 0, 5, 1, 6, mpl_lw_bmode, 255, 0 },
+    { "BLEND ALPHA", 0, 0, 5, 100, 5, 0, 0, 25, 1 },
+    { "COST GUARD", 1, 0, 0, 2, 1, 3, mpl_lw_guard, 255, 0 },
+    { "GAIN, LAYER 1", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
+    { "GAIN, LAYER 2", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
+    { "GAIN, LAYER 3", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
+    { "GAIN, LAYER 4", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
+    { "GAIN, LAYER 5", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
+    { "GAIN, LAYER 6", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
 };
 #define MPD_LW_N 34u
 #endif

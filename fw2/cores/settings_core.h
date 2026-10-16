@@ -11,7 +11,7 @@
 #define BUG 0
 #endif
 typedef struct { uint8_t word, shift, width; uint32_t min, max, def; } sf_field_t;
-enum { SF_VOLUME = 0, SF_REPEAT, SF_RGMODE, SF_HALCYON, SF_COLOUR, SF_THEME, SF_POLARITY, SF_METER, SF_MPRE0, SF_MPRE1, SF_MPRE2, SF_MPRE3, SF_MPRE4, SF_COUNT };
+enum { SF_VOLUME = 0, SF_REPEAT, SF_RGMODE, SF_HALCYON, SF_COLOUR, SF_THEME, SF_POLARITY, SF_METER, SF_MPRE0, SF_MPRE1, SF_MPRE2, SF_MPRE3, SF_MPRE4, SF_TUNE0, SF_TUNE1, SF_TUNE2, SF_TUNE3, SF_COUNT };
 #define SF_WORDS 32u                   /* the register file: 32 words (the wide file; an older 16-word bitstream cannot hold word 17) */
 static const sf_field_t sf_table[SF_COUNT] = {
     { 0u,  0u, 32u, 0u, 100u, 94u },   /* volume 0..100 (the dB taper position), default 94 */
@@ -23,7 +23,9 @@ static const sf_field_t sf_table[SF_COUNT] = {
     { 17u, 0u, 1u,  0u, 1u,   0u  },   /* mode: 0 dark, 1 light (bit 0 of word 17; bits 5:4 are the ReplayGain mode) */
     { 5u,  0u, 32u, 0u, 14u,  0u  },   /* the meter (word 5 = id 15 Meter): the index in the meter table */
     /* the selected preset of each meter in the table order (Winamp Bars 5, Winamp Scope 5, Chladni 4, Layered Wave 8, Master VU 3; a METR file may bring up to 8 for any of them), four bits each in word 18 (persist id 29) */
-    { 18u, 0u,  4u, 0u, 7u,   0u  }, { 18u, 4u, 4u, 0u, 7u, 0u }, { 18u, 8u, 4u, 0u, 7u, 0u }, { 18u, 12u, 4u, 0u, 7u, 0u }, { 18u, 16u, 4u, 0u, 7u, 0u },
+    { 18u, 0u,  4u, 0u, 7u,   0u  }, { 18u, 4u, 4u, 0u, 7u, 0u }, { 18u, 8u, 4u, 0u, 7u, 0u }, { 18u, 12u, 4u, 0u, 15u, 0u }, { 18u, 16u, 4u, 0u, 7u, 0u },
+    /* the tuning of one meter (cores/tune_core.h): words 8..11 = persist ids 20..23, 31 bits each (the old Check summary lived here; a stale one fails the check byte and is ignored) */
+    { 8u, 0u, 31u, 0u, 0x7FFFFFFFu, 0u }, { 9u, 0u, 31u, 0u, 0x7FFFFFFFu, 0u }, { 10u, 0u, 31u, 0u, 0x7FFFFFFFu, 0u }, { 11u, 0u, 31u, 0u, 0x7FFFFFFFu, 0u },
 };
 static inline uint32_t sf_mask(const sf_field_t *f) { return f->width >= 32u ? 0xFFFFFFFFu : ((1u << f->width) - 1u); }
 static inline uint32_t sf_unpack1(const uint32_t *words, uint32_t i)

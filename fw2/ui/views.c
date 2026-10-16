@@ -86,5 +86,6 @@ void views_input(uint32_t edge) { vw_input(&vw, &helios, edge); }
 void views_mark(void) { vw_draw(&vw); }
 void views_flush(void) { helios_flush(); }
 uint32_t views_cur(void) { return vw.cur; }
+void views_report_payload(const uint8_t *p, uint32_t n) { if (dg) dg->report_payload(p, n); }
 void views_report_refresh(void) { if (dg) dg->report_draw(); }
 void views_set_diag(const views_diag_t *d) { dg = d; }

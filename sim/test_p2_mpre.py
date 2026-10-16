@@ -19,7 +19,7 @@ def build(td, mutant):
     if mutant == "norange": a = "if (p >= meters_npre(m)) p = 0u;"; assert a in src; src = src.replace(a, "")
     if mutant == "offbyone": a = "const uint32_t at = e.off + p * e.psize"; assert a in src; src = src.replace(a, "const uint32_t at = e.off + 1u + p * e.psize")
     (d / "ui/meters.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "generated/meter_presets.h", "generated/lw_presets.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
+    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "generated/meter_presets.h", "generated/lw_presets.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_mpre_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../ui/meters.c"'))
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)

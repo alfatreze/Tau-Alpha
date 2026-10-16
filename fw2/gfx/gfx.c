@@ -33,10 +33,18 @@ void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
 void gfx_rect_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color) { if (w && h) rect_raw(x, y, w, h, color); }      /* the off-screen stash (rows 360.., columns 400..): not clipped to the screen */
 
 
+/* Text is Latin-1, one byte per character (docs/features/FONT_SPEC.md 3.6). The font memory holds 0x20..0x7E only until the Latin-1 font lands, so 0xA0..0xFF draw as the plain ASCII letter or sign they
+ * look like (an accented letter loses its mark, never turns into a hole); 0x00..0x1F and 0x7F..0x9F draw as a space. One byte in, one glyph out, so widths stay the sum of the advances. */
+static const char fold_a0[96] =
+    " !cL*Y|S\"ca<--R-o+23'uP.,1o>113?"   /* 0xA0..0xBF */
+    "AAAAAAACEEEEIIIIDNOOOOOxOUUUUYPs"   /* 0xC0..0xDF */
+    "aaaaaaaceeeeiiiidnooooo/ouuuuypy";  /* 0xE0..0xFF */
 static uint32_t glyph_of(char ch)
 {
-    uint32_t c = (unsigned char)ch;
-    return (c < FONT_FIRST || c > FONT_LAST) ? (uint32_t)' ' : c;      /* the atlas holds 0x20..0x7E and nothing else */
+    const uint32_t c = (unsigned char)ch;
+    if (c >= FONT_FIRST && c <= FONT_LAST) return c;
+    if (c >= 0xA0u) return (unsigned char)fold_a0[c - 0xA0u];
+    return (uint32_t)' ';
 }
 
 uint32_t gfx_text_width(const char *s)
