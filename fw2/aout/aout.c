@@ -14,6 +14,7 @@ static uint32_t w;                       /* the write index: the one writer of t
 static uint32_t w_pub, staged;           /* the published write index (what the reader sees) and the pairs staged behind it */
 static uint32_t ctrl_hold;
 static uint32_t cymo_on = 0xFFu, rate_hz, spd_num = 1u, spd_den = 1u;
+static uint8_t cymo_user_off, cymo_pres;                   /* the Diagnostics override: the resampler forced off (session only) */
 static int dry_prev, under_on, startup = 1;
 static uint32_t under_t0;
 
@@ -37,11 +38,14 @@ static void rate_apply(int cymo_present)
     uint64_t inc = ((uint64_t)(rate_hz == 44100u ? 44100u : 48000u) << 32) / CLK_HZ;
     if (spd_num != spd_den) inc = inc * spd_num / spd_den;                  /* varispeed: the output tick runs faster or slower (the pitch follows) */
     REG_WR(R_PCM_RATE, (uint32_t)inc);
-    if (cymo_present) {
-        uint32_t want = (rate_hz == 44100u && spd_num == spd_den) ? 4u : 0u;   /* the resampler is live only for 44.1 kHz at 1.00x */
+    if (cymo_present) cymo_pres = 1u;
+    if (cymo_present || cymo_pres) {
+        uint32_t want = (rate_hz == 44100u && spd_num == spd_den && !cymo_user_off) ? 4u : 0u;   /* the resampler is live only for 44.1 kHz at 1.00x */
         if (want != cymo_on) { cymo_on = want; REG_WR(R_CYMO_CTRL, want); }
     }
 }
+void aout_cymo_user_off(int off) { cymo_user_off = off ? 1u : 0u; if (rate_hz) rate_apply(0); }
+int  aout_cymo_user_is_off(void) { return cymo_user_off; }
 void aout_set_rate(uint32_t hz, int cymo_present) { rate_hz = hz; rate_apply(cymo_present); }
 void aout_set_speed(uint32_t num, uint32_t den, int cymo_present) { spd_num = num ? num : 1u; spd_den = den ? den : 1u; if (rate_hz) rate_apply(cymo_present); }
 

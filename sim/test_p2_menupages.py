@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Settings pages (fw2/cores/menupages_core.h): the previous player's menu structure as data and the navigation as logic.
-Pages: 0 Home, 1 Appearance, 2 Audio, 3 Playback, 4 Diagnostics, 5 option list. Effects: 0 none, 1 set value, 2 action, 3 close. Value ids: 0 volume 1 replaygain 2 tempo 3 repeat 4 shuffle 5 seek step 6 skip silence 7 speed 8 album art 9 accept all rates."""
+Pages: 0 Home, 1 Appearance, 2 Audio, 3 Playback, 4 Diagnostics, 5 option list. Effects: 0 none, 1 set value, 2 action, 3 close. Value ids: 0 volume 1 replaygain 2 time stretch 3 repeat 4 shuffle 5 seek step 6 skip silence 7 speed 8 album art 9 accept all rates."""
 import re, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,11 +38,11 @@ with tempfile.TemporaryDirectory() as td:
     _, r = run(g, "D R D A D B")
     check("B in an option list backs out without a change", r[5][5] == 0 and r[5][1:4] == (1, 2, 1), r)
     _, r = run(g, "D D R D D A D D A")
-    check("TEMPO (Playback, third row) lists six options (OFF first) and sets the chosen one", r[5][1:4] == (2, 5, 0) and r[8][5:] == (1, 2, 2), r)
-    _, r = run(g, "D D R D D D A D D D A")
-    check("SPEED (Playback, fourth row) lists nine options and sets the chosen one", r[6][1:4] == (2, 5, 0) and r[10][5:] == (1, 7, 3), r)
-    _, r = run(g, "D D D R A D A")
-    check("Diagnostics: ACCEPT ALL RATES toggles; REPORT is an action", r[3][1:3] == (1, 4) and r[4][5:] == (1, 9, 1) and r[6][5:] == (2, 2, 0), r)
+    check("TIME STRETCH (Playback, third row) lists three modes and sets the chosen one", r[5][1:4] == (2, 5, 0) and r[8][5:] == (1, 2, 2), r)
+    _, r = run(g, "D D R D D D A")
+    check("SPEED (Playback, fourth row) cannot be opened while the mode is Normal (one option)", r[6][1:4] == (1, 3, 3) and r[6][5] == 0, r)
+    _, r = run(g, "D D D R A D A D D A D A")
+    check("Diagnostics: CHECK is an action (5), CYMO RESAMPLER (15) toggles, ACCEPT ALL RATES (9) toggles, REPORT is an action (2)", r[4][5:] == (2, 5, 0) and r[6][5:] == (1, 15, 1) and r[9][5:] == (1, 9, 1) and r[11][5:] == (2, 2, 0), r)
     _, r = run(g, "U A")
     check("INFO (last row of Home) is an action", r[1][5:] == (2, 1, 0), r)
     _, r = run(g, "D D R D A D D D D D D D D D D A")

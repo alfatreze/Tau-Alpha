@@ -41,6 +41,14 @@ static void info_redraw(void) { if (dg) dg->info_draw(); }
 static void report_enter(void) { if (dg) dg->report_draw(); }
 static int  report_input(uint32_t edge) { return (edge & (KEY_A | KEY_B | KEY_X | KEY_Y | KEY_UP | KEY_DOWN)) ? VW_BACK : VW_STAY; }
 
+/* Check: the audio tests of Settings > Diagnostics > CHECK */
+static void check_enter(void) { if (dg) dg->check_enter(); }
+static void check_repaint(void) { if (dg) dg->check_repaint(); }
+static void check_exit(void) { if (dg) dg->check_exit(); }
+static int  check_input(uint32_t edge) { return (dg && dg->check_key(edge)) ? VW_BACK : VW_STAY; }
+static void check_mark(void) { if (!dg) return; dg->check_tick(); if (dg->check_dirty()) helios_dirty(R_CHECK); }
+static void check_redraw(void) { if (dg) dg->check_draw(); }
+
 static const view_t tab[VIEW_COUNT] = {
     [V_NOWPLAYING] = { nowplaying_enter, 0, nowplaying_input, nowplaying_mark, NP_REGIONS, nowplaying_enter },
     [V_LIBRARY]    = { lib_enter, 0, lib_input, lib_mark, RM(R_LIST), browser_view_enter },
@@ -49,6 +57,7 @@ static const view_t tab[VIEW_COUNT] = {
     [V_REPORT]     = { report_enter, 0, report_input, 0, 0, 0 },
     [V_HALCYON]    = { halcyon_view_enter, 0, halcyon_view_input, halcyon_view_mark, RM(R_HAL), halcyon_view_redraw },
     [V_CONFIGURE]  = { configure_view_enter, 0, configure_view_input, configure_view_mark, RM(R_CONF_PREV) | RM(R_CONF_LIST), configure_view_redraw },
+    [V_CHECK]      = { check_enter, check_exit, check_input, check_mark, RM(R_CHECK), check_repaint },
     [V_FULLSCREEN] = { fullscreen_view_enter, 0, nowplaying_input, fullscreen_view_mark, RM(R_FS_FIG) | RM(R_FS_FOOT), fullscreen_view_enter },
 };
 
@@ -66,6 +75,7 @@ void views_init(void)
     helios_region(fullscreen_draw_foot, 323, 360);                      /* R_FS_FOOT */
     helios_region(configure_view_draw_preview, 26, 126);                /* R_CONF_PREV */
     helios_region(configure_view_draw_list, 134, 360);                  /* R_CONF_LIST */
+    helios_region(check_redraw, 0, HL_WHOLE);                           /* R_CHECK */
     vw_init(&vw, tab, VIEW_COUNT, V_NOWPLAYING);
     vw.frame_begin = view_frame_begin; vw.frame_end = view_frame_end;
     vw_start(&vw, &helios);

@@ -10,7 +10,7 @@ rm -f "$OUT/fw2.elf" "$OUT/tau.rom"
 # One configuration: the player. (The S2-S4 bring-up firmwares -- tone generator, card list walker -- are archived in archive/player2_bringup/; fw2/transport/tone.c stays only as the aout test
 # generator of sim/test_p2_aout.py.) Options: FLAC=0 builds without FLAC (the inherited decoder fw/flac.c is retired from Player 2, S9), LPC=0 leaves the FLAC LPC unit off, POLY=0 builds the software MP3 window (A/B only).
 SRCS=("$FW2/platform/start.S" "$FW2/platform/platform.c" "$FW2/stream/cold.c" "$FW2/platform/libc_min.c" "$FW2/gfx/gfx.c" "$FW2/aout/aout.c"
-      "$FW2/diagnostics/info_counters.c" "$FW2/diagnostics/info_page.c" "$FW2/diagnostics/report_record.c" "$FW2/diagnostics/report_page.c"
+      "$FW2/diagnostics/info_counters.c" "$FW2/diagnostics/info_page.c" "$FW2/diagnostics/report_record.c" "$FW2/diagnostics/report_page.c" "$FW2/diagnostics/check_page.c"
       "$FW2/ui/nowplaying.c" "$FW2/ui/browser_view.c" "$FW2/ui/meters.c" "$FW2/ui/meter_winamp_bars.c" "$FW2/ui/meter_winamp_scope.c" "$FW2/ui/meter_vu_master.c" "$FW2/ui/meter_chladni.c" "$FW2/ui/meter_layered_wave.c" "$FW2/ui/fullscreen_view.c" "$FW2/ui/configure_view.c" "$FW2/ui/xfade.c" "$FW2/ui/theme.c" "$FW2/ui/theme_file.c" "$FW2/ui/appearance.c" "$FW2/ui/settings_view.c" "$FW2/ui/views.c" "$FW2/ui/helios.c" "$FW2/art/art.c" "$FW2/transport/browser.c"
       "$FW2/aout/halcyon.c" "$FW2/ui/halcyon_view.c" "$FW2/stream/assets.c" "$FW2/stream/slot.c" "$FW2/stream/library.c" "$FW2/stream/skiplist.c" "$FW2/settings/settings.c" "$FW2/transport/mp3play.c" "$FW2/app/main_player.c")
 MAINC=""

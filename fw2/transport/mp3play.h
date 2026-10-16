@@ -10,7 +10,7 @@
 typedef struct {
     uint32_t gen, rate, playing, held, cur_valid, cur_gen, cur_pos, acct_bad, stalls, gov_mode;
     uint32_t state, frames, errors, resyncs, pairs_out, pairs_total, seg_put, gapless_next, drain_next, rate_changes, ended;
-    uint32_t dec_max_cyc, dec_steps, need_data, ch, init_fail, non_mp3, seeks, seek_fail, seek_ign, seek_to, volume, rg_mode, gain_tgt, rg_factor, rg_cap, dec_us, dec_blocks, dec_avg_us, poly_on, poly_slots, poly_mismatch, poly_timeout, tempo_idx, speed_idx, seek_idx, skip_on, skip_lead, skip_tail, skip_applied, skip_ign, tempo_out, flac_waits, flac_refused, flac_err, lpc_slots, lpc_timeout, seg_put_track,
+    uint32_t dec_max_cyc, dec_steps, need_data, ch, init_fail, non_mp3, seeks, seek_fail, seek_ign, seek_to, volume, rg_mode, gain_tgt, rg_factor, rg_cap, dec_us, dec_blocks, dec_avg_us, poly_on, poly_slots, poly_mismatch, poly_timeout, tempo_idx, speed_idx, rate_mode, sel_pitch, sel_stretch, seek_idx, skip_on, skip_lead, skip_tail, skip_applied, skip_ign, tempo_out, flac_waits, flac_refused, flac_err, lpc_slots, lpc_timeout, seg_put_track,
              poly_fail, poly_silent, f2_ferr, f2_resync, f2_silent, f2_wraps, f2_probes, f2_repos, f2_staged_max, f2_rollbacks;          /* the new FLAC decoder (P2_FLAC2): damaged frames, resyncs, silent pairs, bridge uses, seek probes, bytes skipped by repositioning */
 } mp_t;
 extern mp_t mp;
@@ -38,8 +38,11 @@ void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t 
 /* The persisted values (cores/settings_core.h order: volume, repeat, ReplayGain mode). */
 void mp3play_settings_get(uint32_t *vals);
 void mp3play_settings_set(const uint32_t *vals);
-/* The preferences the Settings menu edits (the first three of cores/settings_core.h are also persisted). Values: volume 0..100, ReplayGain 0..2, tempo 0..5 (OFF, 1.10, 1.25, 1.50, 1.75, 2.00x), speed index 0..8 (0.85 .. 2.00x, 2 = 1.00x), repeat 0..2, shuffle 0..1, seek step index 0..3 (10/30/60/120 s). */
-enum { PREF_VOLUME = 0, PREF_RG, PREF_TEMPO, PREF_REPEAT, PREF_SHUFFLE, PREF_SEEKSTEP, PREF_SKIPSIL, PREF_SPEED, PREF_COUNT };
+/* The preferences the Settings menu edits (the first three of cores/settings_core.h are also persisted). Values: volume 0..100, ReplayGain 0..2, time stretch mode 0..2 (Normal, Pitch, Stretch), speed 0..7 (Pitch: 0.85 .. 2.00x) or 0..4 (Stretch: 1.10 .. 2.00x) in the mode's own list, repeat 0..2, shuffle 0..1, seek step index 0..3 (10/30/60/120 s). */
+enum { PREF_VOLUME = 0, PREF_RG, PREF_STRETCH, PREF_REPEAT, PREF_SHUFFLE, PREF_SEEKSTEP, PREF_SKIPSIL, PREF_SPEED, PREF_COUNT };
+void     mp3play_a16_set(uint32_t on);        /* Diagnostics: the 16-bit I2S slot (gain dips around the change) */
+uint32_t mp3play_a16_get(void);
+uint32_t mp3play_is_flac(void);
 uint32_t mp3play_pref_get(uint32_t id);
 void     mp3play_pref_set(uint32_t id, uint32_t v);
 #endif
