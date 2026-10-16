@@ -119,6 +119,7 @@ test-host:
 	$(PYTHON) sim/test_p2_views.py
 	$(PYTHON) sim/test_p2_menupages.py
 	$(PYTHON) sim/test_p2_halcyon_sel.py
+	$(PYTHON) sim/test_p2_theme.py
 	$(PYTHON) sim/test_p2_queue.py
 	$(PYTHON) sim/test_p2_mp3.py
 	$(PYTHON) sim/test_p2_gain.py

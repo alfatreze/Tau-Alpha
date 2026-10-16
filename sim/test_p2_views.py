@@ -35,6 +35,10 @@ with tempfile.TemporaryDirectory() as td:
     check("an unknown view is ignored", o == "10 | cur=0 prev=0 switches=0 dirty=100", o)
     o = run(g, "D\nS 1\nD\n")
     check("draw goes to the current view only (view 1 has none)", o == "10 13 11 20 | cur=1 prev=0 switches=1 dirty=011", o)
+    o = run(g, "F\nR\n")
+    check("a refresh repaints the current view in place (its redraw, else its enter) and marks its regions, without exit/enter", o == "10 10 | cur=0 prev=0 switches=0 dirty=100", o)
+    o = run(g, "S 1\nF\nR\n")
+    check("a view with its own redraw uses it", o == "10 11 20 24 | cur=1 prev=0 switches=1 dirty=011", o)
     for bug, what in ((1, "the old view's exit is never called"), (2, "the new view's regions are not marked dirty"), (3, "the old view's pending regions survive the switch")):
         m = build(td, bug)
         caught = run(m, "S 1\n") != "10 11 20 | cur=1 prev=0 switches=1 dirty=011"

@@ -20,6 +20,7 @@ extern const uint32_t meter_count;
 void        meters_init(void);
 void        meters_enter(uint32_t x, uint32_t y, uint32_t w, uint32_t h);   /* a new rectangle (or a new meter): clear it, drop every cache, skip the window in progress */
 void        meters_tick(int allowed);          /* once per loop pass: draws when a new spectrum window is complete (allowed = 0 while the governor has shed the UI) */
+void        meters_select(uint32_t idx);       /* a saved or menu choice (an index outside the table means the first meter) */
 void        meters_next(int dir);              /* X: the next / previous meter */
 uint32_t    meters_cur(void);
 const char *meters_name(void);

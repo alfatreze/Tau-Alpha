@@ -2,11 +2,12 @@
 #include "browser_view.h"
 #include "../gfx/gfx.h"
 #include "../transport/browser.h"
-#define BG   RGB565(0, 0, 0)
-#define FG   RGB565(255, 255, 255)
-#define DIM  RGB565(140, 146, 160)
-#define ACC  RGB565(255, 160, 40)
-#define SELBG RGB565(255, 160, 40)
+#include "theme.h"
+#define BG   UI_BG_SCREEN
+#define FG   UI_WHITE
+#define DIM  UI_DIM
+#define ACC  UI_ACCENT
+#define SELBG UI_ACCENT
 #define ROW_H 30u
 #define TOP_Y 34u
 static uint32_t drawn_gen = 0xFFFFFFFFu;
@@ -38,6 +39,6 @@ void browser_view_draw(void)
         if (i >= v->n) continue;
         char buf[44]; uint32_t m = 0; for (; v->rows[i][m] && m + 1u < sizeof buf; m++) buf[m] = v->rows[i][m]; buf[m] = 0;
         while (m && gfx_text_width(buf) > GFX_W - 60u) buf[--m] = 0;
-        gfx_text(20, y + 7, buf, on ? BG : FG, on ? SELBG : BG);
+        gfx_text(20, y + 7, buf, on ? UI_ON_ACCENT : FG, on ? SELBG : BG);
     }
 }

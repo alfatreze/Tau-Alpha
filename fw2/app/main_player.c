@@ -11,6 +11,8 @@
 #include "../transport/mp3play.h"
 #include "../ui/views.h"
 #include "../ui/theme.h"
+#include "../ui/appearance.h"
+#include "../ui/settings_view.h"
 #include "../aout/halcyon.h"
 #include "../stream/assets.h"
 #include "../cores/view_core.h"
@@ -30,7 +32,7 @@ int main(void)
     counters_init();
     counters_aout_init = (uint32_t)aout_init();
     halcyon_init();
-    if (!counters_aout_init) { mp3play_init(caps.cymo); assets_load(); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); }       /* the assets (user Halcyon presets) are read before the saved preset is applied */
+    if (!counters_aout_init) { mp3play_init(caps.cymo); assets_load(); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); appearance_set(sv); settings_view_init_choices(); }       /* the assets (user Halcyon presets) are read before the saved preset is applied */
     theme_init();
     views_init();
     kr_t kr_pad = { 0 }, kr_vol = { 0 };
@@ -83,10 +85,11 @@ int main(void)
         else if (edge) views_input(edge);
         if (!counters_aout_init) {
             mp3play_pump(); mp3play_heard();
-            uint32_t sv[SF_COUNT]; mp3play_settings_get(sv); if (settings_service(sv, mp.playing && !mp.held)) mp3play_settings_set(sv);
+            uint32_t sv[SF_COUNT]; mp3play_settings_get(sv); appearance_get(sv); if (settings_service(sv, mp.playing && !mp.held)) { mp3play_settings_set(sv); appearance_set(sv); }
             aout_poll((int)mp.playing);
         }
         loops++; counters_loops = loops; counters_keys = keys;
+        if (th_changed) { th_changed = 0; views_refresh(); }                             /* a colour, theme or mode change repaints the view in place */
         views_mark(); views_flush();                                                       /* the view marks what changed; the dirty regions the beam is not in are drawn */
         uint32_t d = cycles() - t_prev; t_prev = cycles();
         if (d > loop_max) { loop_max = d; counters_loop_max_cyc = d; }

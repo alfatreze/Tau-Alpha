@@ -17,6 +17,7 @@ typedef struct {
     int  (*input)(uint32_t edge);        /* a key edge: VW_STAY, VW_BACK or the view to switch to */
     void (*draw)(void);                  /* once per loop pass: mark its regions dirty when something changed (may be 0) */
     uint32_t invalidates;                /* Helios regions repainted when this view is entered */
+    void (*redraw)(void);                /* repaint everything WITHOUT changing the view's state (the colours changed); 0 = enter() */
 } view_t;
 typedef struct { const view_t *tab; uint8_t n, cur, prev, busy, pending; uint32_t switches; } vw_t;
 
@@ -51,6 +52,14 @@ static inline void vw_switch(vw_t *v, hl_t *h, int to)
     v->switches++;
     v->busy = 0;
     if (v->pending != 0xFFu) { uint8_t p = v->pending; v->pending = 0xFFu; vw_switch(v, h, p); }
+}
+/* The colours changed (or anything else that makes the whole picture stale): the current view repaints itself in place. */
+static inline void vw_refresh(vw_t *v, hl_t *h)
+{
+    const view_t *w = &v->tab[v->cur];
+    hl_clear(h);
+    if (w->redraw) w->redraw(); else if (w->enter) w->enter();
+    hl_dirty_mask(h, w->invalidates);
 }
 /* A key edge to the current view; a switch it asks for is made here. */
 static inline void vw_input(vw_t *v, hl_t *h, uint32_t edge)
