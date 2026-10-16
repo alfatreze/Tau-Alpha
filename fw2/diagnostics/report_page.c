@@ -1,3 +1,4 @@
+#pragma GCC optimize ("Os")   /* not on a hot path: smaller code is what the 192 KB link needs */
 #include "report_page.h"
 #include "report_record.h"
 #include "info_counters.h"

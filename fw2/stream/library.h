@@ -18,6 +18,14 @@ int      library_rg(uint32_t id, uint32_t *flags, int32_t *tg, int32_t *ag, uint
 /* Text of a track for the screen: title, artist and album (empty strings when unknown), and its stream facts. */
 void     library_meta(uint32_t id, char *title, uint32_t tcap, char *artist, uint32_t acap, char *album, uint32_t bcap);
 int      library_facts(uint32_t id, uint32_t *codec, uint32_t *ch, uint32_t *kbps, uint32_t *rate);
+/* Browser access (cores/browse_core.h kinds). Counts and ids per level, the text of a row, and the queue a Play on a track row builds. */
+uint32_t library_br_count(uint8_t kind, uint32_t parent);
+uint32_t library_br_child(uint8_t kind, uint32_t parent, uint32_t pos);
+void     library_br_text(uint8_t kind, uint32_t parent, uint32_t pos, char *out, uint32_t cap);
+#define LQ_ALL_NATURAL 0xFEu                                                /* every track in id order (the natural order of Shuffle All) */
+#define LQ_ALL_SHUFFLED 0xFFu
+/* Fills q (u16 track ids) with the queue for Play on row `pos` of a level; *start is where playback begins in it. Returns the length. */
+uint32_t library_build_queue(uint8_t kind, uint32_t parent, uint32_t pos, uint16_t *q, uint32_t cap, uint32_t *start, uint32_t seed);
 uint32_t library_title(uint32_t id, char *out, uint32_t cap);
 uint16_t *library_queue_buf(void);
 uint16_t *library_orig_buf(void);                                   /* the natural order, kept to undo a shuffle */                                  /* PSRAM array of LIB_MAX_TRACKS u16 */

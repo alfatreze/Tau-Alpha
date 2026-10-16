@@ -50,6 +50,7 @@ mp_t mp; tl_t mp_tl; gov_t mp_gov;
 lp_t lp; stream_t lp_stream;
 static queue_t q; static mp3d_t dec; static int cymo_present_; static uint32_t cur_rate;
 static int seg_open_; static uint8_t fade_pending;
+static uint32_t qsrc_kind = LQ_ALL_NATURAL, qsrc_parent;      /* how the current queue was made (to rebuild its natural order)*/
 static np_info_t np; static void np_refresh(const tl_seg_t *g, uint32_t id);
 /* The gain of each segment (volume x ReplayGain) is applied when the segment is HEARD; the table is keyed by the segment's generation. */
 static struct { uint32_t gen; gain_trk_t g; uint32_t id; } seg_gain[4]; static gain_trk_t dec_g, heard_g = { 32768u, 32768u }; static uint32_t heard_gain_gen;
@@ -227,7 +228,8 @@ void mp3play_key(uint32_t edge)
     if (edge & KEY_R1) { mp.volume = mp.volume + 3u > 100u ? 100u : mp.volume + 3u; gain_apply_heard(); }
 
     if (edge & KEY_X) {
-        if (lp.shuffle) queue_restore(&q, library_orig_buf(), lib_n_tracks); else queue_shuffle(&q, cycles() | 1u, 1);
+        if (lp.shuffle) { uint32_t st = 0, n = library_build_queue((uint8_t)qsrc_kind, qsrc_parent, 0, library_orig_buf(), 16384u, &st, 0); if (n) queue_restore(&q, library_orig_buf(), n); }
+        else queue_shuffle(&q, cycles() | 1u, 1);
         lp.shuffle ^= 1u;
     }
 }
@@ -371,4 +373,12 @@ const np_info_t *mp3play_np(void)
 {
     np.playing = mp.playing; np.held = mp.held; np.volume = mp.volume; np.rg_mode = mp.rg_mode; np.repeat = q.repeat; np.shuffle = lp.shuffle; np.tempo_q8 = tempo_q8[mp.tempo_idx];
     return &np;
+}
+
+void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t src_parent, int shuffled, uint32_t seed)
+{
+    if (!n) return;
+    qsrc_kind = src_kind == LQ_ALL_SHUFFLED ? LQ_ALL_NATURAL : src_kind; qsrc_parent = src_parent;
+    queue_set(&q, library_queue_buf(), n); q.pos = start < n ? start : 0u; q.seed = seed; q.shuffled = shuffled ? 1u : 0u; lp.shuffle = shuffled ? 1u : 0u;
+    flush_and_start(queue_cur(&q));
 }

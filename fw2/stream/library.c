@@ -1,3 +1,4 @@
+#pragma GCC optimize ("Os")   /* not on a hot path: smaller code is what the 192 KB link needs */
 #include "library.h"
 #include "../platform/mmio.h"
 #include "slot.h"
@@ -71,4 +72,59 @@ int library_facts(uint32_t id, uint32_t *codec, uint32_t *ch, uint32_t *kbps, ui
 {
     lib_det_t d; if (lib_state != 1 || !lib_details(&lib, id, &d)) return 0;
     *codec = d.codec; *ch = d.ch; *kbps = d.kbps; *rate = d.rate; return 1;
+}
+
+#include "../cores/browse_core.h"
+uint32_t library_br_count(uint8_t kind, uint32_t parent)
+{
+    if (lib_state != 1) return 0;
+    switch (kind) {
+    case BK_HOME: return 4u + (lib.n_lists ? 1u : 0u);
+    case BK_ARTISTS: return lib.n_artists;
+    case BK_ALBUMS: return lib.n_albums;
+    case BK_ALBUMS_OF: { lib_artist_t r; lib_artist(&lib, parent, &r); return r.n_albums; }
+    case BK_TRACKS_OF: { lib_album_t a; lib_album(&lib, parent, &a); return a.n_tracks; }
+    case BK_TRACKS: return lib.n_tracks;
+    case BK_LISTS: return lib.n_lists;
+    case BK_TRACKS_LIST: { lib_list_t l; lib_list(&lib, parent, &l); return l.n; }
+    }
+    return 0;
+}
+uint32_t library_br_child(uint8_t kind, uint32_t parent, uint32_t pos)
+{
+    switch (kind) {
+    case BK_ARTISTS: case BK_LISTS: return pos;
+    case BK_ALBUMS: return lib_album_by_title(&lib, pos);
+    case BK_ALBUMS_OF: { lib_artist_t r; lib_artist(&lib, parent, &r); return (uint32_t)r.first_album + pos; }
+    case BK_TRACKS_OF: { lib_album_t a; lib_album(&lib, parent, &a); return (uint32_t)a.first_track + pos; }
+    case BK_TRACKS: return lib_track_by_title(&lib, pos);
+    case BK_TRACKS_LIST: return lib_list_item(&lib, parent, pos);
+    }
+    return 0;
+}
+void library_br_text(uint8_t kind, uint32_t parent, uint32_t pos, char *out, uint32_t cap)
+{
+    static const char *const home[5] = { "ARTISTS", "ALBUMS", "ALL TRACKS", "SHUFFLE ALL", "PLAYLISTS" };
+    out[0] = 0;
+    if (lib_state != 1) return;
+    switch (kind) {
+    case BK_HOME: { const char *s = home[pos < 5u ? pos : 4u]; uint32_t i = 0; for (; s[i] && i + 1u < cap; i++) out[i] = s[i]; out[i] = 0; break; }
+    case BK_ARTISTS: { lib_artist_t r; lib_artist(&lib, pos, &r); lib_str(&lib, r.name, out, cap); break; }
+    case BK_ALBUMS: case BK_ALBUMS_OF: { lib_album_t a; lib_album(&lib, library_br_child(kind, parent, pos), &a); lib_str(&lib, a.title, out, cap); break; }
+    case BK_LISTS: { lib_list_t l; lib_list(&lib, pos, &l); lib_str(&lib, l.name, out, cap); break; }
+    default: { lib_track_t t; lib_track(&lib, library_br_child(kind, parent, pos), &t); lib_str(&lib, t.title, out, cap); break; }
+    }
+}
+uint32_t library_build_queue(uint8_t kind, uint32_t parent, uint32_t pos, uint16_t *q, uint32_t cap, uint32_t *start, uint32_t seed)
+{
+    uint32_t n = 0; *start = 0;
+    if (lib_state != 1) return 0;
+    switch (kind) {
+    case BK_TRACKS_OF: { lib_album_t a; lib_album(&lib, parent, &a); n = a.n_tracks; if (n > cap) n = cap; for (uint32_t i = 0; i < n; i++) q[i] = (uint16_t)(a.first_track + i); *start = pos; break; }
+    case BK_TRACKS: n = lib.n_tracks < cap ? lib.n_tracks : cap; for (uint32_t i = 0; i < n; i++) q[i] = (uint16_t)lib_track_by_title(&lib, i); *start = pos; break;
+    case BK_TRACKS_LIST: { lib_list_t l; lib_list(&lib, parent, &l); n = l.n < cap ? l.n : cap; for (uint32_t i = 0; i < n; i++) q[i] = (uint16_t)lib_list_item(&lib, parent, i); *start = pos; break; }
+    case LQ_ALL_NATURAL: n = lib.n_tracks < cap ? lib.n_tracks : cap; for (uint32_t i = 0; i < n; i++) q[i] = (uint16_t)i; break;
+    case LQ_ALL_SHUFFLED: n = lib_queue_shuffle_all(&lib, q, seed); break;
+    }
+    return n;
 }

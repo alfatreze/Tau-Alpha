@@ -16,6 +16,7 @@ void *memmove(void *d, const void *s, size_t n)
     else { dp += n; sp += n; while (n--) *--dp = *--sp; }
     return d;
 }
+size_t strlen(const char *s) { size_t n = 0; while (s[n]) n++; return n; }
 void *memset(void *d, int c, size_t n) { uint8_t *p = d; while (n--) *p++ = (uint8_t)c; return d; }
 
 /* A bump allocator with a live count: Helix allocates its eight blocks together and frees them together, so when the count returns to zero the whole arena is free again.
