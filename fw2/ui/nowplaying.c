@@ -98,7 +98,7 @@ void nowplaying_draw_foot(void)
     line(s, &n, "VOL "); num(s, &n, p->volume); line(s, &n, "   RG "); line(s, &n, p->rg_mode == 0 ? "OFF" : p->rg_mode == 1 ? "TRACK" : "ALBUM");
     put(7, 298, s, FG, BAR_W, 0);
     n = 0; s[0] = 0; char sp[8]; np_speed(sp, p->tempo_q8);
-    line(s, &n, "TEMPO "); line(s, &n, sp); line(s, &n, p->repeat == 0 ? "  REP OFF" : p->repeat == 1 ? "  REP ALL" : "  REP ONE"); line(s, &n, p->shuffle ? "  SHUF ON" : "  SHUF OFF");
+    line(s, &n, p->varispeed ? "SPEED " : "TEMPO "); line(s, &n, sp); line(s, &n, p->repeat == 0 ? "  REP OFF" : p->repeat == 1 ? "  REP ALL" : "  REP ONE"); line(s, &n, p->shuffle ? "  SHUF ON" : "  SHUF OFF");
     put(8, 318, s, FG, BAR_W, 0);
 }
 

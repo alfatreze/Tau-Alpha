@@ -181,13 +181,16 @@ void gfx_compose_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 
 /* ---- alpha blend (Talos B5): dst = (src * a + dst * (256 - a)) >> 8 per channel, for OP_BLIT only -------------------------------------------------------------------------------
  * The blend state is sticky and is read when a command EXECUTES: it is switched on, the blends are issued, a fence waits for them, and only then is it switched off. No other OP_BLIT may run in between. */
-static uint8_t blend_state;                   /* 0 not probed, 1 ready, 2 not in this bitstream */
+uint32_t gfx_blend_state;                     /* 0 not probed, 1 ready, 2 not in this bitstream (a wrong answer), 3 the mailbox did not answer (retried) */
+uint32_t gfx_blend_tries;
 void gfx_blend_on(uint32_t a) { wait_fifo(); REG_WR(R_BLT_IDX, 5u); REG_WR(R_BLT_DATA, ((a & 0xFFu) << 8) | 1u); }
 void gfx_blend_off(void) { gfx_fence(); REG_WR(R_BLT_IDX, 5u); REG_WR(R_BLT_DATA, 0u); }
 int gfx_blend_ready(void)
 {
-    if (blend_state) return blend_state == 1u;
-    blend_state = 2u;
+    if (gfx_blend_state == 1u || gfx_blend_state == 2u) return gfx_blend_state == 1u;
+    if (gfx_blend_tries >= 8u) return 0;                 /* a mailbox that never answers: stop asking */
+    gfx_blend_tries++;
+    gfx_blend_state = 3u;                                /* a failure of the mailbox is not an answer: the next call asks again */
     const uint32_t src = 1019u * GFX_STRIDE + 508u, dst = 1020u * GFX_STRIDE + 508u;     /* stash cells: white over black at a = 128 gives 0x7BEF where the blend exists, 0xFFFF (a plain copy) where it does not */
     uint32_t r = 0;
     if (gfx_mb_write(src, 0xFFFFFFFFu) || gfx_mb_write(dst, 0u)) return 0;
@@ -195,8 +198,8 @@ int gfx_blend_ready(void)
     blit_op(508u, 1019u, 508u, 1020u, 1u, 1u, OP_BLIT, 0u, 0u);
     gfx_blend_off();
     if (gfx_mb_read(dst, &r)) return 0;
-    if ((r & 0xFFFFu) == 0x7BEFu || (r >> 16) == 0x7BEFu) blend_state = 1u;
-    return blend_state == 1u;
+    gfx_blend_state = ((r & 0xFFFFu) == 0x7BEFu || (r >> 16) == 0x7BEFu) ? 1u : 2u;
+    return gfx_blend_state == 1u;
 }
 /* Blend the w x h box at (sx, sy) (stash rows, shared) over the box at (dx, dy) of the buffer being drawn into, source weight a, in chunks of at most 112 columns; the caller has turned blend on. */
 void gfx_blend_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h)

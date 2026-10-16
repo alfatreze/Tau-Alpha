@@ -24,6 +24,7 @@ extern aout_stats_t aout_stats;
 /* 0 = armed; 1 = the bitstream has no ring; 2 = the PSRAM window failed its proof. Clears the hold bit: the reader runs as soon as a pair is published. */
 int      aout_init(void);
 void     aout_set_rate(uint32_t hz, int cymo_present);   /* the output tick, and the Cymo resampler guard (live only for 44.1 kHz) */
+void     aout_set_speed(uint32_t num, uint32_t den, int cymo_present);   /* varispeed: the output tick times num/den (1/1 = normal); applies at once and to every later rate */
 void     aout_gain_unity(void);                          /* hardware gain stage on, target unity, no ramp from a stale value */
 uint32_t aout_room(void);                                /* pairs that can be put now */
 uint32_t aout_put(const int16_t *pcm, uint32_t pairs, int stereo);   /* returns the pairs accepted (fewer than offered when the ring is full) */

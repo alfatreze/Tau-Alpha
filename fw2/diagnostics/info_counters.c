@@ -3,6 +3,7 @@
 #include "../platform/platform.h"
 #include "../aout/aout.h"
 #include "../ui/helios.h"
+extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../stream/cold.h"
 #include "../aout/halcyon.h"
 #include "../stream/assets.h"
@@ -59,7 +60,9 @@ const cnt_t counters_table[] = {
     { "MP POLY BAD",  CK_U32, CU_NONE,   &mp.poly_mismatch },     /* self-check mismatches against the software window (must stay 0) */
     { "MP POLY TMO",  CK_U32, CU_NONE,   &mp.poly_timeout },
     { "MP POLY SILENT", CK_U32, CU_NONE, &mp.poly_silent },     /* stereo slots output as silence because the required unit failed (must stay 0) */
-    { "MP TEMPO IDX", CK_U32, CU_NONE,   &mp.tempo_idx },         /* 0.75 0.85 1.00 1.10 1.25 1.50 1.75 2.00 (Select+L1/R1) */
+    { "MP SPEED IDX", CK_U32, CU_NONE,   &mp.speed_idx },         /* 0.85 0.95 1.00 1.10 1.20 1.30 1.50 1.75 2.00 (2 = normal) */
+    { "MP SPEED IDX", CK_U32, CU_NONE,   &mp.speed_idx },         /* 0.85 0.95 1.00 1.10 1.20 1.30 1.50 1.75 2.00 (2 = normal) */
+    { "MP TEMPO IDX", CK_U32, CU_NONE,   &mp.tempo_idx },         /* table index: 0.75 0.85 1.00 1.10 1.25 1.50 1.75 2.00, 2 = off */
     { "MP TEMPO OUT", CK_U32, CU_PAIRS,  &mp.tempo_out },
     { "FLAC REFUSED", CK_U32, CU_NONE,   &mp.flac_refused },      /* rate over 48 kHz, more than 2 channels, blocks too large or a bad header */
     { "FLAC ERR",     CK_U32, CU_NONE,   &mp.flac_err },
@@ -192,6 +195,8 @@ const cnt_t counters_table[] = {
     U32("STACK PEAK",  CU_BYTES,  &v.stack_peak),
     U32("IMAGE",       CU_BYTES,  &v.image_b),
     U32("FREE",        CU_BYTES,  &v.free_b),
+    U32("BLEND PROBE", CU_NONE,   &gfx_blend_state),     /* 0 not asked yet, 1 the hardware blend works, 2 it answered wrongly (no blend), 3 the mailbox did not answer (asks again) */
+    U32("BLEND TRIES", CU_NONE,   &gfx_blend_tries),
 };
 const uint32_t counters_count = sizeof counters_table / sizeof counters_table[0];
 
