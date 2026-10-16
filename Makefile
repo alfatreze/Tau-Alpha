@@ -113,7 +113,7 @@ test-host:
 	$(PYTHON) sim/test_p2_report.py
 	$(PYTHON) sim/test_p2_stream.py
 	$(PYTHON) sim/test_p2_stream_idle.py
-	$(PYTHON) sim/test_p2_meter.py
+	$(PYTHON) sim/test_p2_winamp.py
 	$(PYTHON) sim/test_p2_art_probe.py
 	$(PYTHON) sim/test_p2_helios.py
 	$(PYTHON) sim/test_p2_views.py

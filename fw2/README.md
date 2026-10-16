@@ -22,10 +22,11 @@ The module directories of spec section 4 (`app platform stream decode aout trans
 | Select tap | Library (back a level inside it) |
 | Start tap | Settings (closes Settings or the library) |
 | Select + L | Repeat off / all / one |
-| X | Shuffle (until the meters return: then X cycles the meter and shuffle is in Settings) |
+| X | Next meter (shuffle is in Settings > Playback) |
 | Y | Halcyon EQ preset: next, after the last OFF |
 | L / R shoulders | Tempo slower / faster |
 | Select + Up / Down | Previous / next album |
+| Select + Y | Fullscreen meter (again to leave) |
 | Select + B | Info page |
 | Select + Start | Pixel-grid report (any of A/B/X/Y/Up/Down returns) |
 Select and Start act on release, and not at all if another key was pressed while they were down.
