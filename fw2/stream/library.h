@@ -26,6 +26,8 @@ void     library_br_text(uint8_t kind, uint32_t parent, uint32_t pos, char *out,
 #define LQ_ALL_SHUFFLED 0xFFu
 /* Fills q (u16 track ids) with the queue for Play on row `pos` of a level; *start is where playback begins in it. Returns the length. */
 uint32_t library_build_queue(uint8_t kind, uint32_t parent, uint32_t pos, uint16_t *q, uint32_t cap, uint32_t *start, uint32_t seed);
+/* The track's pre-converted cover file (album folder + tau-art/cover_128.pal256.timg), 0 when the index says the album has no such sidecar. */
+uint32_t library_cover_path(uint32_t id, char *out, uint32_t cap);
 uint32_t library_title(uint32_t id, char *out, uint32_t cap);
 uint16_t *library_queue_buf(void);
 uint16_t *library_orig_buf(void);                                   /* the natural order, kept to undo a shuffle */                                  /* PSRAM array of LIB_MAX_TRACKS u16 */

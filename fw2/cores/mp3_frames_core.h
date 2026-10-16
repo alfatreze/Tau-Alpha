@@ -18,7 +18,7 @@
 #if BUG == 3
 #define MP3D_WIN 1200u
 #else
-#define MP3D_WIN 2304u
+#define MP3D_WIN 1536u               /* a frame is at most 1441 bytes: the rest is look-ahead for the sync search */
 #endif
 #define MP3D_WIN_UNUSED 0                 /* a frame is at most 1441 bytes; the rest is look-ahead for sync search and the Xing parse */
 typedef enum { MS_BLOCK = 0, MS_NEED_DATA, MS_EOF, MS_ERROR } mp3d_step_t;

@@ -128,3 +128,16 @@ uint32_t library_build_queue(uint8_t kind, uint32_t parent, uint32_t pos, uint16
     }
     return n;
 }
+uint32_t library_cover_path(uint32_t id, char *out, uint32_t cap)
+{
+    lib_det_t d; char p[LIBP_MAX_PATH];
+    if (lib_state != 1 || !lib_details(&lib, id, &d) || !(d.flags & 4u)) return 0;          /* flag bit 2: a tau-art sidecar exists */
+    uint32_t n = lib_path(&lib, id, p, sizeof p), last = 0;
+    if (!n) return 0;
+    for (uint32_t i = 0; i < n; i++) if (p[i] == '/') last = i + 1u;
+    static const char tail[] = "tau-art/cover_128.pal256.timg";
+    if (!last || last + sizeof tail > cap) return 0;
+    for (uint32_t i = 0; i < last; i++) out[i] = p[i];
+    for (uint32_t i = 0; i < sizeof tail; i++) out[last + i] = tail[i];
+    return last + (uint32_t)sizeof tail - 1u;
+}

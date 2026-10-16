@@ -22,8 +22,8 @@ static flac_t fl; static int32_t *flac_ch0; static uint8_t is_flac;
 #define TEMPO_PS_R ((volatile uint32_t *)(uintptr_t)0xA4610000u)
 #define TEMPO_OUT_CAP 2100u                               /* output pairs one decoded block can yield: 1152 / 0.75 = 1536 at the slowest offered speed, plus a hop (512) */
 #define TEMPO_SLICE 1                                     /* the RAM diet's slice mode (host-equivalent, B-674): about 1.75 KB less on-chip RAM */
-/* The stretched output goes to the ring in blocks of 256 pairs as it is produced; the room for the whole output of a decoded block is checked BEFORE decoding it, so no block is ever refused. */
-#define TEMPO_BLK 256u
+/* The stretched output goes to the ring in blocks of 128 pairs as it is produced; the room for the whole output of a decoded block is checked BEFORE decoding it, so no block is ever refused. */
+#define TEMPO_BLK 128u
 static int16_t tempo_buf[2u * TEMPO_BLK]; static uint32_t tempo_n, tempo_total, tempo_acc, tempo_over;
 static void tempo_flush(void);
 #define TEMPO_PUSH(l, r) tempo_push((l), (r))
@@ -367,6 +367,7 @@ static void np_refresh(const tl_seg_t *g, uint32_t id)
         q[n] = 0;
     }
     np_copy(np.quality, q, sizeof np.quality);
+    np.cover[0] = 0; if (!library_cover_path(id, np.cover, sizeof np.cover)) np.cover[0] = 0;
     np.id = id; np.gen++; (void)g;
 }
 const np_info_t *mp3play_np(void)
@@ -381,4 +382,13 @@ void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t 
     qsrc_kind = src_kind == LQ_ALL_SHUFFLED ? LQ_ALL_NATURAL : src_kind; qsrc_parent = src_parent;
     queue_set(&q, library_queue_buf(), n); q.pos = start < n ? start : 0u; q.seed = seed; q.shuffled = shuffled ? 1u : 0u; lp.shuffle = shuffled ? 1u : 0u;
     flush_and_start(queue_cur(&q));
+}
+
+void mp3play_io_quiesce(void)
+{
+    uint32_t t0 = cycles();
+    while (lp_stream.fl.active) {
+        io_result_t r = slot_read_poll(); io_req_t rq; stream_pump(&lp_stream, cycles(), r, &rq);
+        if ((uint32_t)(cycles() - t0) > 4u * CLK_HZ) break;
+    }
 }
