@@ -628,4 +628,128 @@ leave:
     return st;
 }
 
+
+/* ---- finding a frame, the sample timeline, and recovery (spec 5.6, 5.7) ---- */
+/* The first sample a frame carries: its coded number for a variable-block-size stream, number x block size for a fixed one. Returns 0 when it cannot be known (a fixed stream whose STREAMINFO
+ * block sizes differ), in which case *s is left alone and the timeline is not tracked. */
+static inline int f2_frame_sample(const f2_info_t *si, const f2_fh_t *h, uint64_t *s)
+{
+    if (h->variable) { *s = h->number; return 1; }
+    if (si->min_bs != si->max_bs) return 0;
+    *s = h->number * (uint64_t)si->min_bs; return 1;
+}
+typedef struct { uint64_t next; uint8_t have; } f2_tl_t;                  /* next = the first sample the next frame must carry */
+#define F2_MAXGAP_SAMPLES 1048576u                                      /* a header claiming a start further ahead than this (about 22 s at 48 kHz) is taken for a false sync */
+
+/* Scans in[from..avail) for a frame header that passes CRC-8 and matches STREAMINFO, has the expected blocking strategy (want_var: -1 any, 0 fixed, 1 variable) and, when the timeline is known,
+ * starts at or soon after the expected sample. F2_OK: *off is its offset. F2_NEED: no candidate yet; *off = how many bytes can be thrown away (a header might straddle the window end). */
+static inline int f2_find_frame(const uint8_t *in, uint32_t avail, uint32_t from, const f2_info_t *si, int want_var, const f2_tl_t *tl, uint32_t *off)
+{
+    for (uint32_t i = from; i + 1u < avail; i++) {
+        if (in[i] != 0xFFu || (in[i + 1] & 0xFEu) != 0xF8u) continue;
+        f2_fh_t h; int r = f2_frame_header(in + i, avail - i, si, &h);
+        if (r == F2_NEED) { *off = i; return F2_NEED; }                   /* a valid prefix at the end of the window: keep it */
+        if (r != F2_OK) continue;
+        if (want_var >= 0 && (int)h.variable != want_var) continue;     /* the 0xFFF8 / 0xFFF9 sync codes must not mix within a stream */
+        uint64_t smp;
+#if BUG == 19
+        (void)smp; (void)tl;                                             /* no timeline check: any valid header is taken */
+#else
+        if (tl && tl->have && f2_frame_sample(si, &h, &smp)) { if (smp < tl->next || smp - tl->next > F2_MAXGAP_SAMPLES) continue; }
+#endif
+        *off = i; return F2_OK;
+    }
+    *off = avail > 16u ? avail - 16u : 0u;                              /* the last 15 bytes could start a header */
+    if (*off < from) *off = from;
+    return F2_NEED;
+}
+
+enum { F2_EV_NONE = 0, F2_EV_FRAME_OK = 1, F2_EV_FRAME_BAD = 2, F2_EV_SILENCE = 4, F2_EV_GIVEUP = 8 };
+enum { F2_RM_NORMAL = 0, F2_RM_SCAN = 1, F2_RM_DEAD = 2 };
+#define F2_MAX_FAILS 8u                                                 /* consecutive failures before the segment is given up */
+typedef struct {
+    f2_dec_t d; f2_tl_t tl;
+    uint8_t mode, want_var; uint32_t fails, skip_first, scanned;
+    uint64_t owed;                                                      /* silent pairs still to deliver */
+    uint32_t frame_errors, resyncs; uint64_t silent_pairs;
+    uint8_t in_frame;                                                   /* a frame's header has been accepted and its pairs are staged by the caller */
+    uint64_t frame_start_s; uint32_t frame_bs; uint8_t frame_known;     /* the accepted frame's start sample and size, for the timeline */
+} f2_rec_t;
+static inline void f2_rec_init(f2_rec_t *r, const f2_info_t *si, int32_t *buf, uint32_t cap, uint32_t flags)
+{
+    uint8_t *z = (uint8_t *)r; for (uint32_t i = 0; i < sizeof *r; i++) z[i] = 0;
+    f2_dec_init(&r->d, si, buf, cap, flags); r->want_var = 0xFFu;
+}
+/* A recovery-aware step. Returns F2_OK, F2_NEED or F2_ERR (only for a give-up). *ev says what happened:
+ *   F2_EV_NONE        pairs (np may be 0) belong to the frame in progress: STAGE them;
+ *   F2_EV_FRAME_OK    the frame finished and verified: COMMIT the staged pairs (those of this call included);
+ *   F2_EV_FRAME_BAD   the frame failed: DISCARD everything staged for it; its duration will arrive as silence;
+ *   F2_EV_SILENCE     np zero pairs, to be committed at once (lost or damaged audio, keeps `put == timeline`);
+ *   F2_EV_GIVEUP      too many consecutive failures or nothing found: end the segment.
+ * `start_known` tells the first frame of a stream or after a seek: the timeline adopts its start sample instead of measuring a gap. */
+static inline int f2_rec_step(f2_rec_t *r, const uint8_t *in, uint32_t avail, int32_t *out, uint32_t outcap, uint32_t maxres, uint32_t *used, uint32_t *np, int *ev)
+{
+    f2_dec_t *d = &r->d; *used = 0; *np = 0; *ev = F2_EV_NONE;
+    if (r->mode == F2_RM_DEAD) { *ev = F2_EV_GIVEUP; return F2_ERR; }
+    if (r->owed && !r->in_frame) {                                      /* silence first: it belongs before whatever comes next */
+        uint32_t n = r->owed < outcap ? (uint32_t)r->owed : outcap;
+        for (uint32_t i = 0; i < 2u * n; i++) out[i] = 0;
+        r->owed -= n; r->silent_pairs += n; *np = n; *ev = F2_EV_SILENCE; return F2_OK;
+    }
+    if (r->mode == F2_RM_SCAN) {
+        uint32_t off = 0, from = r->skip_first; r->skip_first = 0;
+        int rc = f2_find_frame(in, avail, from, &d->si, r->want_var == 0xFFu ? -1 : (int)r->want_var, &r->tl, &off);
+        *used = off; r->scanned += off;
+        if (rc == F2_OK) { r->mode = F2_RM_NORMAL; r->resyncs++; r->scanned = 0; f2_dec_abort(d); return F2_OK; }
+        if (r->scanned > 262144u) { r->mode = F2_RM_DEAD; *ev = F2_EV_GIVEUP; return F2_ERR; }
+        return F2_NEED;
+    }
+    if (d->phase == F2_PH_HDR && !r->in_frame) {                        /* a frame is about to start: look at its header first for the timeline */
+        f2_fh_t h; int rc = f2_frame_header(in, avail, &d->si, &h);
+        if (rc == F2_NEED) return F2_NEED;
+        if (rc == F2_ERR || h.chans > 2u || h.bs > d->cap) {            /* not a frame: scan from the next byte */
+            r->frame_errors++; r->fails++; if (r->fails > F2_MAX_FAILS) { r->mode = F2_RM_DEAD; *ev = F2_EV_GIVEUP; return F2_ERR; }
+            r->mode = F2_RM_SCAN; r->skip_first = 1; return F2_OK;
+        }
+        uint64_t smp; r->frame_known = (uint8_t)f2_frame_sample(&d->si, &h, &smp);
+        if (r->want_var == 0xFFu) r->want_var = h.variable;
+        else if (r->want_var != h.variable) { r->frame_errors++; r->fails++; r->mode = F2_RM_SCAN; r->skip_first = 1; return F2_OK; }
+        if (r->frame_known) {
+            if (!r->tl.have) { r->tl.have = 1; r->tl.next = smp; }
+#if BUG == 19
+            else if (smp > r->tl.next) { r->owed = smp - r->tl.next; r->tl.next = smp; return F2_OK; }
+#else
+            else if (smp > r->tl.next + F2_MAXGAP_SAMPLES) { r->frame_errors++; r->fails++; if (r->fails > F2_MAX_FAILS) { r->mode = F2_RM_DEAD; *ev = F2_EV_GIVEUP; return F2_ERR; } r->mode = F2_RM_SCAN; r->skip_first = 1; return F2_OK; }   /* a start that far ahead is a false sync, not 22 seconds of lost audio */
+            else if (smp > r->tl.next) { r->owed = smp - r->tl.next; r->tl.next = smp; return F2_OK; }          /* the lost audio goes out first */
+#endif
+            else if (smp < r->tl.next) { r->frame_errors++; r->fails++; r->mode = F2_RM_SCAN; r->skip_first = 1; return F2_OK; }   /* behind the timeline: not ours */
+            r->frame_start_s = smp;
+        }
+        r->frame_bs = h.bs; r->in_frame = 1;
+    }
+    int st = f2_dec_step(d, in, avail, out, outcap, maxres, used, np);
+    if (d->frame_done && d->frame_ok) {
+#if BUG == 21
+        *ev = F2_EV_FRAME_OK; r->in_frame = 0; if (r->frame_known)       /* the failure counter is never cleared */
+#else
+        *ev = F2_EV_FRAME_OK; r->in_frame = 0; r->fails = 0; if (r->frame_known)
+#endif
+         r->tl.next = r->frame_start_s + r->frame_bs;
+        return F2_OK;
+    }
+    if (st == F2_ERR) {                                                 /* the frame failed: its pairs so far are void, its duration is owed as silence, and we look for the next frame */
+        *ev = F2_EV_FRAME_BAD; r->frame_errors++; r->fails++;
+#if BUG == 18
+        if (r->in_frame) { if (r->frame_known) r->tl.next = r->frame_start_s + r->frame_bs; }       /* the damaged frame's duration is never owed */
+#else
+        if (r->in_frame) { r->owed += r->frame_bs; if (r->frame_known) r->tl.next = r->frame_start_s + r->frame_bs; }
+#endif
+        r->in_frame = 0; f2_dec_abort(d);
+        if (r->fails > F2_MAX_FAILS) { r->mode = F2_RM_DEAD; *ev |= F2_EV_GIVEUP; return F2_ERR; }
+        r->mode = F2_RM_SCAN; r->skip_first = 0;
+        return F2_OK;
+    }
+    return st;
+}
+
 #endif
