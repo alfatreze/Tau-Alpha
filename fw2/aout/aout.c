@@ -53,9 +53,10 @@ void aout_mute_wait(void)
     uint32_t t0 = cycles();
     while ((uint32_t)(cycles() - t0) < CLK_HZ / 125u) { }          /* 8 ms: the ramp from full scale takes 5 */
 }
-void aout_fade_in(void)
+void aout_gain_set(uint32_t target) { REG_WR(R_GAIN_TARGET, target > 65535u ? 65535u : target); }
+void aout_fade_in(uint32_t target)
 {
-    REG_WR(R_GAIN_TARGET, 32768u);
+    REG_WR(R_GAIN_TARGET, target > 65535u ? 65535u : target);
     REG_WR(R_GAIN_CTRL, 1u | (3u << 4) | 4u);                      /* enabled, fade length kept, FADE_NOW: ramp to the target */
 }
 

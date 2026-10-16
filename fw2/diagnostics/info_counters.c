@@ -48,6 +48,11 @@ const cnt_t counters_table[] = {
     { "MP SEEK FAIL", CK_U32, CU_NONE,   &mp.seek_fail },
     { "MP SEEK IGN",  CK_U32, CU_NONE,   &mp.seek_ign },
     { "MP SEEK TO",   CK_U32, CU_PAIRS,  &mp.seek_to },
+    { "MP VOLUME",    CK_U32, CU_NONE,   &mp.volume },
+    { "MP RG MODE",   CK_U32, CU_NONE,   &mp.rg_mode },          /* 0 off, 1 track, 2 album (Select cycles) */
+    { "MP RG FACTOR", CK_U32, CU_NONE,   &mp.rg_factor },        /* Q15, 32768 = 0 dB */
+    { "MP RG CAP",    CK_U32, CU_NONE,   &mp.rg_cap },
+    { "MP GAIN TGT",  CK_U32, CU_NONE,   &mp.gain_tgt },
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
 #endif
 #ifdef P2_LISTPLAY

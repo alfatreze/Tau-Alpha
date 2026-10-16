@@ -114,6 +114,7 @@ test-host:
 	$(PYTHON) sim/test_p2_stream.py
 	$(PYTHON) sim/test_p2_queue.py
 	$(PYTHON) sim/test_p2_mp3.py
+	$(PYTHON) sim/test_p2_gain.py
 	$(PYTHON) tools/player2/gen_sine.py --check
 	$(PYTHON) sim/test_check_deps.py
 	$(PYTHON) tools/check_deps.py

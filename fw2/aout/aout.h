@@ -31,7 +31,8 @@ static inline uint32_t aout_fill(const aout_snap_t *s) { return s->wptr >= s->ri
 static inline uint32_t aout_heard(const aout_snap_t *s) { return s->cnt - s->fifo; }   /* pairs the output side has consumed, in push-count units */
 void     aout_flush(void);                               /* drops the unread ring and the FIFO; the next put pair gets the push count aout_snap().cnt */
 void     aout_mute_wait(void);                           /* gain target to silence and wait out the stage's 5 ms ramp (the FIFO still holds 23+ ms): flush or hold after this is inaudible */
-void     aout_fade_in(void);                             /* gain target back to unity; the stage ramps up from where it is (silence after aout_mute_wait) */
+void     aout_fade_in(uint32_t target_q15);              /* gain target to `target`; the stage ramps up from where it is (silence after aout_mute_wait) */
+void     aout_gain_set(uint32_t target_q15);              /* a new target: the stage ramps (5 ms for full scale), no click */
 void     aout_hold(int on);                              /* pause: the reader stops */
 void     aout_poll(int playing);                         /* once per loop: updates the stats from one snapshot */
 #endif
