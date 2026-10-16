@@ -62,6 +62,9 @@
 #define KEY_B      (1u << 5)
 #define KEY_X      (1u << 6)
 #define KEY_Y      (1u << 7)
+#define KEY_L1     (1u << 8)
+#define KEY_R1     (1u << 9)
+#define KEY_SELECT (1u << 14)
 #define KEY_START  (1u << 15)
 
 #define PCM_LEVEL(s) ((s) & 0xFFFu)

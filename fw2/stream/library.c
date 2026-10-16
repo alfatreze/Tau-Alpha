@@ -57,3 +57,4 @@ uint32_t library_album_jump(uint32_t id, int dir)
     if (!a.first_track) return 0xFFFFFFFFu;
     lib_track(&lib, a.first_track - 1u, &t); lib_album(&lib, t.album, &a); return a.first_track;
 }
+int library_rg(uint32_t id, uint32_t *flags, int32_t *tg, int32_t *ag, uint32_t *tp, uint32_t *ap) { lib_det_t d; if (lib_state != 1 || !lib_details(&lib, id, &d)) return 0; *flags = d.flags; *tg = d.tg; *ag = d.ag; *tp = d.tp; *ap = d.ap; return 1; }

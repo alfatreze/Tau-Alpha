@@ -5,6 +5,7 @@
 #include "../stream/slot.h"
 #include "../stream/library.h"
 #include "../cores/mp3_frames_core.h"
+#include "../cores/gain_core.h"
 
 extern char _ring_start;
 #define RING_PTR ((const uint8_t *)(uintptr_t)(0xC0000000u + (uint32_t)(uintptr_t)&_ring_start))
@@ -16,6 +17,15 @@ mp_t mp; tl_t mp_tl; gov_t mp_gov;
 lp_t lp; stream_t lp_stream;
 static queue_t q; static mp3d_t dec; static int cymo_present_; static uint32_t cur_rate;
 static int seg_open_; static uint8_t fade_pending;
+/* The gain of each segment (volume x ReplayGain) is applied when the segment is HEARD; the table is keyed by the segment's generation. */
+static struct { uint32_t gen; gain_trk_t g; } seg_gain[4]; static gain_trk_t dec_g, heard_g = { 32768u, 32768u }; static uint32_t heard_gain_gen;
+static void gain_apply_heard(void) { mp.gain_tgt = gain_target(mp.volume, &heard_g); mp.rg_factor = heard_g.factor; mp.rg_cap = heard_g.cap; aout_gain_set(mp.gain_tgt); }
+static void rg_for_track(uint32_t id)
+{
+    uint32_t fl = 0, tp = 0, ap = 0; int32_t tg = 0, ag = 0;
+    if (!library_rg(id, &fl, &tg, &ag, &tp, &ap)) fl = 0;
+    dec_g = gain_track(mp.rg_mode, fl, tg, ag, tp, ap, (REG_RD(R_GAIN_CTRL) >> 30) & 1u);
+}
 
 void mp3play_init(int cymo_present)
 {
@@ -23,6 +33,8 @@ void mp3play_init(int cymo_present)
     stream_init(&lp_stream, RING_SZ, 5u * CLK_HZ);
     library_load();
     aout_gain_unity();
+    mp.volume = 94u; mp.rg_mode = RG_TRACK;                              /* the old player's default volume; ReplayGain on Track for the first hardware listening */
+    gain_apply_heard(); REG_WR(R_GAIN_CTRL, 1u | (3u << 4) | 2u);       /* snap to the volume target: no ramp from a stale value */
     aout_snap_t s = aout_snap(); tl_init(&mp_tl, s.cnt); gov_init(&mp_gov, AOUT_USABLE);
     if (lib_state != 1) return;
     uint16_t *ids = library_queue_buf(), *orig = library_orig_buf();
@@ -32,7 +44,7 @@ void mp3play_init(int cymo_present)
 
 static int begin_track(void)
 {
-    lp.cur_id = queue_cur(&q); lp.expect = library_size(lp.cur_id);
+    lp.cur_id = queue_cur(&q); lp.expect = library_size(lp.cur_id); rg_for_track(lp.cur_id);
     char path[LIBP_MAX_PATH]; uint32_t n = library_path(lp.cur_id, path, sizeof path);
     stream_close(&lp_stream);
     uint32_t t0 = cycles();
@@ -87,7 +99,7 @@ void mp3play_key(uint32_t edge)
     if (edge & KEY_A) flush_and_start(queue_cur(&q));
     if (edge & KEY_B) {
         if (!mp.held) { aout_mute_wait(); mp.held = 1; aout_hold(1); }
-        else { mp.held = 0; aout_hold(0); aout_fade_in(); }
+        else { mp.held = 0; aout_hold(0); aout_fade_in(mp.gain_tgt); }
     }
     if (edge & KEY_RIGHT) flush_and_start(queue_next(&q, 0));
     if (edge & KEY_LEFT)  flush_and_start(queue_prev(&q));
@@ -96,6 +108,9 @@ void mp3play_key(uint32_t edge)
         if (first != 0xFFFFFFFFu && queue_goto(&q, (uint16_t)first)) flush_and_start((uint16_t)first);
     }
     if (edge & KEY_Y) do_seek(30);
+    if (edge & KEY_L1) { mp.volume = mp.volume >= 3u ? mp.volume - 3u : 0u; gain_apply_heard(); }
+    if (edge & KEY_R1) { mp.volume = mp.volume + 3u > 100u ? 100u : mp.volume + 3u; gain_apply_heard(); }
+    if (edge & KEY_SELECT) { mp.rg_mode = (mp.rg_mode + 1u) % 3u; rg_for_track(lp.cur_id); heard_g = dec_g; gain_apply_heard(); }      /* applies to the playing track now; later tracks use the mode when opened */
     if (edge & KEY_X) {
         if (lp.shuffle) queue_restore(&q, library_orig_buf(), lib_n_tracks); else queue_shuffle(&q, cycles() | 1u, 1);
         lp.shuffle ^= 1u;
@@ -146,9 +161,9 @@ void mp3play_pump(void)
                 }
                 tl_seg_t *g = tl_open(&mp_tl, mp.gen, b.src_pos, dec.pairs_total > b.src_pos ? dec.pairs_total - b.src_pos : 0u, 0u, 1u, 1u, 0u);      /* a seek lands mid-track: the track holds the rest from there */
                 if (!g) break;
-                seg_open_ = 1;
+                seg_open_ = 1; seg_gain[g->gen & 3u].gen = g->gen; seg_gain[g->gen & 3u].g = dec_g;
             }
-            if (fade_pending) { fade_pending = 0; aout_fade_in(); }
+            if (fade_pending) { fade_pending = 0; heard_g = dec_g; heard_gain_gen = mp.gen; gain_apply_heard(); aout_fade_in(mp.gain_tgt); }
             uint32_t acc = aout_put(b.pcm, b.pairs, b.ch == 2u);
             tl_put(&mp_tl, acc); mp.seg_put += acc;
             if (acc < b.pairs) mp.stalls++;
@@ -164,5 +179,10 @@ void mp3play_heard(void)
     tl_advance(&mp_tl, h);
     const tl_seg_t *g = tl_current(&mp_tl, h);
     mp.cur_valid = g != 0;
-    if (g) { mp.cur_gen = g->gen; mp.cur_pos = tl_pos(g, h); }
+    if (g) {
+        mp.cur_gen = g->gen; mp.cur_pos = tl_pos(g, h);
+        if (g->gen != heard_gain_gen && seg_gain[g->gen & 3u].gen == g->gen) {      /* SEG_ENTER: the track now heard brings its own ReplayGain; the stage ramps over 5 ms */
+            heard_gain_gen = g->gen; heard_g = seg_gain[g->gen & 3u].g; gain_apply_heard();
+        }
+    }
 }
