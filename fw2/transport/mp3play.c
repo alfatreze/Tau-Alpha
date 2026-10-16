@@ -7,6 +7,7 @@
 #include "../cores/mp3_frames_core.h"
 #include "../cores/gain_core.h"
 #include "../cores/nowplaying_core.h"
+#include "../stream/skiplist.h"
 #if P2_FLAC
 #include "../../fw/flac.h"
 #include <stdlib.h>
@@ -51,6 +52,7 @@ mp_t mp; tl_t mp_tl; gov_t mp_gov;
 lp_t lp; stream_t lp_stream;
 static queue_t q; static mp3d_t dec; static int cymo_present_; static uint32_t cur_rate;
 static int seg_open_; static uint8_t fade_pending;
+static uint32_t skip_lead_p, skip_tail_p; static uint8_t skip_pending;       /* skip silence: the numbers for the track being opened, applied at its first decoded block */
 static uint32_t qsrc_kind = LQ_ALL_NATURAL, qsrc_parent;      /* how the current queue was made (to rebuild its natural order)*/
 static np_info_t np; static void np_refresh(const tl_seg_t *g, uint32_t id);
 /* The gain of each segment (volume x ReplayGain) is applied when the segment is HEARD; the table is keyed by the segment's generation. */
@@ -146,6 +148,8 @@ SMALL static int begin_track(void)
         io_result_t r = slot_read_poll(); io_req_t rq; stream_pump(&lp_stream, cycles(), r, &rq);
         if ((uint32_t)(cycles() - t0) > 6u * CLK_HZ) break;
     }
+    skip_pending = 0; skip_lead_p = skip_tail_p = 0;
+    if (mp.skip_on && n) { uint32_t a = 0, b2 = 0; if (skiplist_lookup(path, &a, &b2)) { skip_lead_p = a; skip_tail_p = b2; skip_pending = 1; } }      /* the card channel is free here */
     if (!n || !slot_open_path(SLOT_MEDIA, path)) { lp.open_err++; lp.skipped++; return 0; }
     stream_open(&lp_stream, 0, lp.expect, 0);
     if (dec.dec) { MP3FreeDecoder(dec.dec); dec.dec = 0; }              /* the 24 KB arena holds exactly one decoder: a skip must free the old one first */
@@ -303,6 +307,13 @@ void mp3play_pump(void)
         uint32_t dt = cycles() - t0; if (dt > mp.dec_max_cyc) mp.dec_max_cyc = dt; mp.dec_steps++;
         if (st == MS_BLOCK) { mp.dec_us += dt / (CLK_HZ / 1000000u); mp.dec_blocks++; mp.dec_avg_us = mp.dec_us / mp.dec_blocks; }
         mp.frames = dec.frame_idx; mp.errors = dec.errors; mp.resyncs = dec.resyncs; mp.pairs_out = dec.pairs_out; mp.pairs_total = dec.pairs_total; mp.ch = dec.ch;
+        if (st == MS_BLOCK && skip_pending) {                    /* skip silence: the tail now (it needs the length), the lead as a seek, dropping this first block */
+            skip_pending = 0; mp.skip_lead = skip_lead_p; mp.skip_tail = skip_tail_p;
+            int ok = 0;
+            if (skip_tail_p && mp3d_set_tail(&dec, skip_tail_p)) ok = 1;
+            if (skip_lead_p) { mp3_seek_t pl; if (mp3d_plan_seek(&dec, skip_lead_p, &pl) && mp3d_seek(&dec, s, &pl)) { ok = 1; mp.skip_applied++; continue; } else mp.skip_ign++; }
+            if (ok) mp.skip_applied++;
+        }
         if (st == MS_BLOCK) {
             const uint32_t q8 = tempo_q8[mp.tempo_idx], neutral = q8 == 256u;
             if (!neutral && !tempo_active) { tempo_start(&tempo_st, dec.rate, (uint8_t)b.ch, q8); tempo_active = 1; }      /* (re)start the stretcher at the first block of a segment */
@@ -407,7 +418,7 @@ SMALL void mp3play_io_quiesce(void)
 SMALL uint32_t mp3play_pref_get(uint32_t id)
 {
     switch (id) { case PREF_VOLUME: return mp.volume; case PREF_RG: return mp.rg_mode; case PREF_TEMPO: return mp.tempo_idx; case PREF_REPEAT: return q.repeat;
-                  case PREF_SHUFFLE: return lp.shuffle ? 1u : 0u; case PREF_SEEKSTEP: return mp.seek_idx; }
+                  case PREF_SHUFFLE: return lp.shuffle ? 1u : 0u; case PREF_SEEKSTEP: return mp.seek_idx; case PREF_SKIPSIL: return mp.skip_on; }
     return 0;
 }
 SMALL void mp3play_pref_set(uint32_t id, uint32_t v)
@@ -419,5 +430,6 @@ SMALL void mp3play_pref_set(uint32_t id, uint32_t v)
     case PREF_REPEAT: if (v < 3u) { q.repeat = (uint8_t)v; lp.repeat = v; } break;
     case PREF_SHUFFLE: shuffle_set(v); break;
     case PREF_SEEKSTEP: if (v < 4u) mp.seek_idx = v; break;
+    case PREF_SKIPSIL: mp.skip_on = v ? 1u : 0u; break;                 /* takes effect at the next track opened */
     }
 }

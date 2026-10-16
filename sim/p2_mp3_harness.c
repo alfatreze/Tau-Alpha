@@ -12,7 +12,7 @@ int main(int argc, char **argv)
     fseek(f, 0, SEEK_END); uint32_t fsz = (uint32_t)ftell(f); fseek(f, 0, SEEK_SET);
     uint8_t *file = malloc(fsz + 8); if (fread(file, 1, fsz, f) != fsz) return 2; fclose(f);
     FILE *o = fopen(argv[2], "wb");
-    uint32_t seek_to = argc > 7 ? (uint32_t)atoi(argv[7]) : 0u, nout = argc > 8 ? (uint32_t)atoi(argv[8]) : 0u; int seeked = 0, plan_ok = 0; mp3_seek_t pl = {0, 0, 0}; uint32_t got = 0;
+    uint32_t tail_skip = argc > 9 ? (uint32_t)atoi(argv[9]) : 0u; uint32_t seek_to = argc > 7 ? (uint32_t)atoi(argv[7]) : 0u, nout = argc > 8 ? (uint32_t)atoi(argv[8]) : 0u; int seeked = 0, seeked_tail = 0, plan_ok = 0; mp3_seek_t pl = {0, 0, 0}; uint32_t got = 0;
     uint32_t cap = (uint32_t)atoi(argv[3]), seed = (uint32_t)atoi(argv[4]), lat = (uint32_t)atoi(argv[5]), jit = (uint32_t)atoi(argv[6]);
     static uint8_t ring[65536]; static stream_t s; static mp3d_t d; uint32_t rng = seed * 2654435761u + 1u;
     stream_init(&s, cap, 0x7FFFFFFFu); stream_open(&s, 0, fsz, 0);
@@ -30,6 +30,7 @@ int main(int argc, char **argv)
         if (stream_pump(&s, (uint32_t)t, res, &rq)) { card.busy = 1; card.r = rq; card.done_at = t + lat + (jit ? lcg(&rng) % jit : 0); }
         pcm_blk_t b;
         mp3d_step_t st = mp3d_step(&d, &s, ring, &b);
+        if (st == MS_BLOCK && tail_skip && !seeked_tail) { seeked_tail = 1; mp3d_set_tail(&d, tail_skip); }
         if (st == MS_BLOCK && seek_to && !seeked) {                      /* the header is known now: plan, restart, and output from the seek point on */
             seeked = 1; plan_ok = mp3d_plan_seek(&d, seek_to, &pl);
             if (!plan_ok || !mp3d_seek(&d, &s, &pl)) { status = 3; break; }

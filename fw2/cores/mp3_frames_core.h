@@ -44,6 +44,7 @@ typedef struct {
     uint32_t file_size;                /* set by the caller (the library knows it) */
     uint32_t skip_before;              /* decoded-stream pair index below which nothing is output (a seek's exact landing) */
     uint32_t seeks;
+    uint32_t end_at;                   /* decoded-stream pair index at which the track ends early (skip silence at the end); 0 = the normal end */
     int16_t  pcm[1152 * 2];
 } mp3d_t;
 
@@ -86,6 +87,23 @@ static inline void mp3d_parse_info(mp3d_t *d, const uint8_t *f, uint32_t avail)
     }
 }
 
+/* A sync word is real only if the next frame's header sits where this header says the frame ends (same version, layer and sample rate). A false 0xFFE... inside the audio data (common after a seek
+ * into the middle of a frame) fails this and is skipped. Returns 1 real, 0 false, -1 not enough bytes to tell (and the stream is not over). */
+static inline int mp3d_confirm(mp3d_t *d, const uint8_t *f, uint32_t left, int at_end)
+{
+    MP3FrameInfo fi;
+    if (MP3GetNextFrameInfo(d->dec, &fi, (unsigned char *)f) != 0 || !fi.bitrate || !fi.samprate) return 0;
+    uint32_t len = (uint32_t)(((fi.version == 0 ? 144u : 72u) * (uint32_t)fi.bitrate) / (uint32_t)fi.samprate) + ((f[2] >> 1) & 1u);
+    if (left < len + 4u) return at_end ? 1 : -1;                         /* the last frame of the file has nothing after it */
+    const uint8_t *n = f + len;
+#if BUG == 7
+    return 1;                                                            /* no confirmation: a false sync is trusted */
+#else
+    if (n[0] == 0xFFu && (n[1] & 0xFEu) == (f[1] & 0xFEu) && (n[2] & 0x0Cu) == (f[2] & 0x0Cu)) return 1;
+    return at_end && left - len < 400u;                                  /* the last frame followed by a tag (ID3v1 is 128 bytes) or padding: nothing can follow it */
+#endif
+}
+
 /* One step. `ring` is the stream's byte buffer (uncached on the device). */
 static inline mp3d_step_t mp3d_step(mp3d_t *d, stream_t *s, const uint8_t *ring, pcm_blk_t *out)
 {
@@ -121,7 +139,8 @@ static inline mp3d_step_t mp3d_step(mp3d_t *d, stream_t *s, const uint8_t *ring,
         }
         if (off) { d->wp += (uint32_t)off; d->skipped_bytes += (uint32_t)off; d->resyncs++; left -= (uint32_t)off; }
         /* a frame needs up to 1441 bytes: unless the stream is over, wait until the window holds that much */
-        if (left < 1441u && !(s->eof && !stream_avail(s))) return MS_NEED_DATA;
+        if (left < 1445u && !(s->eof && !stream_avail(s))) return MS_NEED_DATA;
+        { int cf = mp3d_confirm(d, d->win + d->wp, left, s->eof && !stream_avail(s)); if (cf < 0) return MS_NEED_DATA; if (!cf) { d->wp++; d->skipped_bytes++; d->resyncs++; continue; } }
 
         if (!d->hdr_done) { d->hdr_done = 1; d->first_off = (s->pos - stream_avail(s)) - d->wn + d->wp; mp3d_parse_info(d, d->win + d->wp, left); }
         unsigned char *in = d->win + d->wp; int bl = (int)left;
@@ -156,6 +175,11 @@ static inline mp3d_step_t mp3d_step(mp3d_t *d, stream_t *s, const uint8_t *ring,
             if (a0 + count <= d->skip_before) count = 0;
             else if (a0 < d->skip_before) { uint32_t dl = d->skip_before - a0; first += dl; count -= dl; }
         }
+        if (count && d->end_at) {                                       /* skip silence at the end: nothing at or past end_at is output, and the track ends there */
+            uint32_t a1 = fidx * d->spf + first;
+            if (a1 >= d->end_at) { d->state = D_DONE; return MS_EOF; }
+            if (a1 + count > d->end_at) count = d->end_at - a1;
+        }
         if (!count) continue;                                           /* the Info frame, or a frame entirely trimmed or skipped */
         out->pcm = d->pcm + first * d->ch; out->pairs = count; out->ch = d->ch;
         out->src_pos = d->trimmed ? fidx * d->spf + first - d->trim.S : fidx * d->spf + first;
@@ -170,7 +194,7 @@ static inline mp3d_step_t mp3d_step(mp3d_t *d, stream_t *s, const uint8_t *ring,
 #if BUG == 4
 #define MP3D_WARM 0u                    /* no warm-up: the bit reservoir and overlap are empty at the target */
 #else
-#define MP3D_WARM 3u
+#define MP3D_WARM 5u                    /* frames decoded and dropped before the target: the bit reservoir (up to 511 bytes back) and the overlap need two, and the landing can be a frame or two late (a false sync skipped), so five */
 #endif
 static inline int mp3d_plan_seek(const mp3d_t *d, uint32_t target, mp3_seek_t *o)
 {
@@ -188,11 +212,26 @@ static inline int mp3d_plan_seek(const mp3d_t *d, uint32_t target, mp3_seek_t *o
     } else if (d->xing_frames) {                                        /* CBR (a LAME 'Info' tag): constant frame size from the frame count; exact to a frame or two */
         o->frame_idx = fw;
         o->byte_off = d->first_off + (uint32_t)(((uint64_t)fw * span) / (d->xing_frames + 1u));
+        { uint32_t half = span / (d->xing_frames + 1u) / 2u; o->byte_off = o->byte_off > d->first_off + half ? o->byte_off - half : d->first_off; }      /* aim half a frame EARLY: the sync search then lands on frame fw even when the estimate is a byte or two past its start (a frame boundary can sit anywhere within the padding bytes' error) */
     } else if (d->kbps && d->rate) {                                    /* no tag at all: assume CBR from the first frame's bitrate */
         o->frame_idx = fw;
         o->byte_off = d->first_off + (uint32_t)(((uint64_t)fw * d->spf * d->kbps * 125u) / d->rate);      /* exact fraction: a truncated average drifts a byte per frame */
+        { uint32_t half = (d->spf * d->kbps * 125u / d->rate) / 2u; o->byte_off = o->byte_off > d->first_off + half ? o->byte_off - half : d->first_off; }      /* half a frame early, as above */
     } else return 0;
     o->skip_before = abs;
+    return 1;
+}
+
+/* Skip silence at the end: the track ends `tail` pairs early. Needs the length (a tag with a frame count); returns 0 when it cannot apply. Call once the first frame has been decoded. */
+static inline int mp3d_set_tail(mp3d_t *d, uint32_t tail)
+{
+    if (!tail || !d->spf || !d->pairs_total || tail >= d->pairs_total) return 0;
+#if BUG == 6
+    d->end_at = (d->trimmed ? d->trim.S : 0u) + d->pairs_total;                    /* forgets the tail */
+#else
+    d->end_at = (d->trimmed ? d->trim.S : 0u) + d->pairs_total - tail;
+#endif
+    d->pairs_total -= tail;                                                        /* the P3 expectation follows */
     return 1;
 }
 
