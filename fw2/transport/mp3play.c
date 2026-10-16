@@ -6,10 +6,21 @@
 #include "../stream/library.h"
 #include "../cores/mp3_frames_core.h"
 #include "../cores/gain_core.h"
+#if P2_FLAC
+#include "../../fw/flac.h"
+#include <stdlib.h>
+#if TAU_LPC_FW
+#include "../../fw/flac_lpc_hw.h"
+#endif
+#define FLAC_CH0_WORDS 5120u                              /* 20 KB from the decoder arena (shared with Helix: one codec is live at a time); a file with larger blocks is refused */
+#define FLAC_NEED 19500u                                  /* compressed bytes that must be buffered before a frame is decoded (a worst-case 4608 x 2 x 16-bit frame is 18.5 KB): decode never waits on the card */
+static flac_t fl; static int32_t *flac_ch0; static uint8_t is_flac;
+#endif
 /* Tempo (spec 8.3): the Tau-written stretcher and funnel are reused unchanged. Staging ring: the PSRAM window at +6 MiB, planar (the library image, queue and dead-track bitmap are below it). */
 #define TEMPO_PS_L ((volatile uint32_t *)(uintptr_t)0xA4600000u)
 #define TEMPO_PS_R ((volatile uint32_t *)(uintptr_t)0xA4610000u)
-#define TEMPO_OUT_CAP 2800u                               /* output pairs one decoded block can yield: 1152 / 0.5 = 2304 at the slowest speed, plus the hop held back */
+#define TEMPO_OUT_CAP 2100u                               /* output pairs one decoded block can yield: 1152 / 0.75 = 1536 at the slowest offered speed, plus a hop (512) */
+#define TEMPO_SLICE 1                                     /* the RAM diet's slice mode (host-equivalent, B-674): about 1.75 KB less on-chip RAM */
 static int16_t tempo_buf[2u * TEMPO_OUT_CAP]; static uint32_t tempo_n, tempo_over;
 #define TEMPO_PUSH(l, r) tempo_push((l), (r))
 static inline int tempo_push(int16_t l, int16_t r) { if (tempo_n < TEMPO_OUT_CAP) { tempo_buf[2u * tempo_n] = l; tempo_buf[2u * tempo_n + 1u] = r; tempo_n++; } else tempo_over++; return 1; }
@@ -44,7 +55,10 @@ static void rg_for_track(uint32_t id)
 void mp3play_init(int cymo_present)
 {
 #if TAU_POLY_FW
-    tau_poly_hw_enable = caps.poly ? 1 : 0;                            /* the window unit is used when the bitstream has it; any anomaly turns it off for the session */
+    tau_poly_hw_enable = caps.poly ? 1 : 0;
+#endif
+#if P2_FLAC && TAU_LPC_FW
+    tau_lpc_hw_enable = caps.lpc ? 1 : 0;                            /* the window unit is used when the bitstream has it; any anomaly turns it off for the session */
 #endif
     cymo_present_ = cymo_present;
     stream_init(&lp_stream, RING_SZ, 5u * CLK_HZ);
@@ -59,6 +73,55 @@ void mp3play_init(int cymo_present)
     queue_set(&q, ids, lib_n_tracks); lp.qn = q.n;
 }
 
+static void io_service(void)
+{
+    stream_t *s = &lp_stream; io_req_t rq; io_result_t r = s->fl.active ? slot_read_poll() : IO_PENDING;
+    if (stream_pump(s, cycles(), r, &rq)) slot_read_start(SLOT_MEDIA, rq.off, RING_OFF + rq.dst, rq.len);
+}
+
+#if P2_FLAC
+/* flac.c pulls bytes: the decode path checks FLAC_NEED first so this never waits there; during the open it may (the open reads the header and the metadata), and then it services the card. */
+static int flac_pull(void *ctx, uint8_t *dst, int n)
+{
+    (void)ctx; int got = 0; uint32_t t0 = cycles();
+    while (got < n) {
+        uint32_t a = stream_avail(&lp_stream);
+        if (a) { uint32_t m = a < (uint32_t)(n - got) ? a : (uint32_t)(n - got); stream_take(&lp_stream, RING_PTR, dst + got, m); got += (int)m; continue; }
+        if (lp_stream.eof) break;
+        mp.flac_waits++;
+        io_service();
+        if ((uint32_t)(cycles() - t0) > 6u * CLK_HZ) break;
+    }
+    return got;
+}
+static int flac_skip(void *ctx, uint32_t n)                    /* forward without reading: a cover picture can be hundreds of KB */
+{
+    (void)ctx; uint32_t a = stream_avail(&lp_stream);
+    if (n <= a) { stream_skip(&lp_stream, n); return 1; }
+    stream_seek(&lp_stream, lp_stream.pos - a + n);
+    return 1;
+}
+static void flac_sink(void *ctx, const int16_t *pcm, uint32_t frames)
+{
+    (void)ctx;
+    uint32_t acc = aout_put(pcm, frames, fl.channels == 2u);
+    tl_put(&mp_tl, acc); mp.seg_put += acc;
+    if (acc < frames) mp.stalls++;
+}
+static void flac_release(void) { if (flac_ch0) { free(flac_ch0); flac_ch0 = 0; } }
+static int flac_begin(void)
+{
+    flac_release();
+    flac_ch0 = (int32_t *)malloc(FLAC_CH0_WORDS * 4u);
+    if (!flac_ch0) { mp.init_fail++; return 0; }
+    fl.skip = flac_skip;                                        /* set before the open: it survives the zeroing */
+    flac_err e = flac_open(&fl, flac_pull, 0, flac_ch0, FLAC_CH0_WORDS);
+    if (e != FLAC_OK || fl.rate > 48000u || fl.channels > 2u || fl.max_blocksize > FLAC_CH0_WORDS) { mp.flac_refused++; flac_release(); return 0; }
+    dec.pairs_total = (uint32_t)fl.total_samples; dec.rate = fl.rate; dec.ch = fl.channels;
+    return 1;
+}
+#endif
+
 static int begin_track(void)
 {
     lp.cur_id = queue_cur(&q); lp.expect = library_size(lp.cur_id); rg_for_track(lp.cur_id);
@@ -72,8 +135,16 @@ static int begin_track(void)
     if (!n || !slot_open_path(SLOT_MEDIA, path)) { lp.open_err++; lp.skipped++; return 0; }
     stream_open(&lp_stream, 0, lp.expect, 0);
     if (dec.dec) { MP3FreeDecoder(dec.dec); dec.dec = 0; }              /* the 24 KB arena holds exactly one decoder: a skip must free the old one first */
+#if P2_FLAC
+    flac_release();
+    is_flac = library_codec(lp.cur_id) == 2u;
+    if (is_flac) { uint32_t pt = 0; mp3d_open(&dec, 0); if (!flac_begin()) return 0; pt = dec.pairs_total; (void)pt; }
+    else
+#endif
+    {
     if (!mp3d_open(&dec, MP3InitDecoder())) { mp.init_fail++; return 0; }
     dec.file_size = lp.expect;                                          /* for the seek plan (the library knows the size) */
+    }
     seg_open_ = 0; tempo_active = 0; mp.gen++; mp.state = MPS_DEC; mp.playing = 1; lp.state = 1;
     return 1;
 }
@@ -81,7 +152,7 @@ static int begin_track(void)
 static void start_from(uint16_t id)
 {
     for (uint32_t guard = 0; id != Q_NONE && guard < 8u; guard++) {
-        if (library_codec(id) != 1u) { mp.non_mp3++; id = queue_next(&q, 1); continue; }      /* FLAC waits for S8 */
+        if (library_codec(id) != 1u && !(P2_FLAC && library_codec(id) == 2u)) { mp.non_mp3++; id = queue_next(&q, 1); continue; }
         if (begin_track()) return;
         id = queue_next(&q, 1);
     }
@@ -99,7 +170,7 @@ static void flush_and_start(uint16_t id)
 /* +secs from where it is heard (wrapping to the start past the end). Only while the heard track is the one being decoded; across a gapless boundary the request is ignored and counted. */
 static void do_seek(uint32_t secs)
 {
-    if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !dec.dec || !mp.rate) { mp.seek_ign++; return; }
+    if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !dec.dec || !mp.rate) { mp.seek_ign++; return; }      /* (FLAC: no seek yet, dec.dec is null) */
     uint32_t target = mp.cur_pos + secs * mp.rate;
     if (dec.pairs_total && target + mp.rate >= dec.pairs_total) target = 0;
     mp3_seek_t pl;
@@ -152,7 +223,10 @@ static void track_ended(void)
 {
     if (seg_open_) { if (tl_close(&mp_tl)) mp.acct_bad++; seg_open_ = 0; }
     mp.ended++;
-    MP3FreeDecoder(dec.dec); dec.dec = 0;
+    if (dec.dec) { MP3FreeDecoder(dec.dec); dec.dec = 0; }
+#if P2_FLAC
+    flac_release();
+#endif
     uint16_t nx = queue_next(&q, 1);
     if (nx == Q_NONE) { mp.state = MPS_ENDDRAIN; return; }
     /* the next track's rate comes from the index details (no card access): the same rate continues without a flush; anything else drains first */
@@ -164,8 +238,7 @@ static void track_ended(void)
 void mp3play_pump(void)
 {
     stream_t *s = &lp_stream;
-    io_req_t rq; io_result_t r = s->fl.active ? slot_read_poll() : IO_PENDING;
-    if (stream_pump(s, cycles(), r, &rq)) slot_read_start(SLOT_MEDIA, rq.off, RING_OFF + rq.dst, rq.len);
+    io_service();
     lp.qn = q.n; lp.cur_pos = q.pos;
     if (mp.state == MPS_WAITRATE || mp.state == MPS_ENDDRAIN) {           /* everything put must be heard before the rate may change or the list may end */
         aout_snap_t sn = aout_snap();
@@ -180,6 +253,24 @@ void mp3play_pump(void)
         aout_snap_t sn = aout_snap(); uint32_t fill = aout_fill(&sn);
         mp.gov_mode = (uint32_t)gov_update(&mp_gov, fill);
         if (!gov_decode_wanted(&mp_gov, fill)) break;
+#if P2_FLAC
+        if (is_flac) {
+            if (stream_avail(s) < FLAC_NEED && !s->eof) { mp.need_data++; break; }
+            if (aout_room() < fl.max_blocksize) { mp.stalls++; break; }
+            if (!seg_open_) {
+                if (!cur_rate || fl.rate != cur_rate) { aout_set_rate(fl.rate, cymo_present_); cur_rate = fl.rate; mp.rate = fl.rate; mp.rate_changes++; }
+                tl_seg_t *g = tl_open(&mp_tl, mp.gen, 0u, dec.pairs_total, 0u, 1u, 1u, 0u);
+                if (!g) break;
+                seg_open_ = 1; seg_gain[g->gen & 3u].gen = g->gen; seg_gain[g->gen & 3u].g = dec_g;
+                if (fade_pending) { fade_pending = 0; heard_g = dec_g; heard_gain_gen = mp.gen; gain_apply_heard(); aout_fade_in(mp.gain_tgt); }
+            }
+            uint32_t t0f = cycles(); flac_err fe = flac_decode_frame(&fl, flac_sink, 0); uint32_t dtf = cycles() - t0f;
+            if (dtf > mp.dec_max_cyc) mp.dec_max_cyc = dtf; mp.dec_steps++;
+            if (fe == FLAC_OK) { mp.dec_us += dtf / (CLK_HZ / 1000000u); mp.dec_blocks++; mp.dec_avg_us = mp.dec_us / mp.dec_blocks; mp.frames++; mp.ch = fl.channels; mp.pairs_total = dec.pairs_total; mp.pairs_out = mp.seg_put; }
+            else { if (fe != FLAC_END) { mp.errors++; mp.flac_err = (uint32_t)fe; } track_ended(); break; }
+            continue;
+        }
+#endif
         if (aout_room() < (tempo_q8[mp.tempo_idx] == 256u ? 1152u : TEMPO_OUT_CAP)) { mp.stalls++; break; }      /* the whole output of one decoded block must fit before it is decoded */
         pcm_blk_t b; uint32_t t0 = cycles();
         mp3d_step_t st = mp3d_step(&dec, s, RING_PTR, &b);
@@ -216,6 +307,9 @@ void mp3play_pump(void)
 
 void mp3play_heard(void)
 {
+#if P2_FLAC && TAU_LPC_FW
+    mp.lpc_slots = tau_lpc_stat_samples; mp.lpc_timeout = tau_lpc_stat_timeout;
+#endif
 #if TAU_POLY_FW
     mp.poly_on = (uint32_t)tau_poly_hw_enable; mp.poly_slots = tau_poly_stat_slots; mp.poly_mismatch = tau_poly_stat_mismatch; mp.poly_timeout = tau_poly_stat_timeout;
 #endif

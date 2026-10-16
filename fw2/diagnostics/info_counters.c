@@ -60,6 +60,11 @@ const cnt_t counters_table[] = {
     { "MP POLY TMO",  CK_U32, CU_NONE,   &mp.poly_timeout },
     { "MP TEMPO IDX", CK_U32, CU_NONE,   &mp.tempo_idx },         /* 0.75 0.85 1.00 1.10 1.25 1.50 1.75 2.00 (Select+L1/R1) */
     { "MP TEMPO OUT", CK_U32, CU_PAIRS,  &mp.tempo_out },
+    { "FLAC REFUSED", CK_U32, CU_NONE,   &mp.flac_refused },      /* rate over 48 kHz, more than 2 channels, blocks too large or a bad header */
+    { "FLAC ERR",     CK_U32, CU_NONE,   &mp.flac_err },
+    { "FLAC WAITS",   CK_U32, CU_NONE,   &mp.flac_waits },        /* times the decoder had to wait for the card (open only; must not grow while playing) */
+    { "LPC SAMPLES",  CK_U32, CU_NONE,   &mp.lpc_slots },
+    { "LPC TMO",      CK_U32, CU_NONE,   &mp.lpc_timeout },
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
 #endif
 #ifdef P2_LISTPLAY
