@@ -8,5 +8,6 @@
 #define ART_SLOT 7u
 int  art_load(const char *path);                  /* TIMG_OK or a TIMG_E_* code; nothing is drawn on an error */
 void art_draw(uint32_t dx, uint32_t dy);          /* the loaded cover at (dx,dy), centred in a 128 x 128 box */
+extern uint32_t art_probe_raw;                      /* what the probe read back (diagnostics) */
 extern uint32_t art_loaded, art_failed, art_last_err, art_ms, art_probe_state, art_clut_start;
 #endif
