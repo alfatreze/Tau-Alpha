@@ -53,6 +53,13 @@ const cnt_t counters_table[] = {
     { "MP RG FACTOR", CK_U32, CU_NONE,   &mp.rg_factor },        /* Q15, 32768 = 0 dB */
     { "MP RG CAP",    CK_U32, CU_NONE,   &mp.rg_cap },
     { "MP GAIN TGT",  CK_U32, CU_NONE,   &mp.gain_tgt },
+    { "MP DEC AVG",   CK_U32, CU_NONE,   &mp.dec_avg_us },        /* microseconds of CPU per decoded block (a 1152-pair block lasts 26,122 us at 44.1 kHz) */
+    { "MP POLY ON",   CK_U32, CU_NONE,   &mp.poly_on },           /* the window unit is in use */
+    { "MP POLY SLOTS",CK_U32, CU_NONE,   &mp.poly_slots },
+    { "MP POLY BAD",  CK_U32, CU_NONE,   &mp.poly_mismatch },     /* self-check mismatches against the software window (must stay 0) */
+    { "MP POLY TMO",  CK_U32, CU_NONE,   &mp.poly_timeout },
+    { "MP TEMPO IDX", CK_U32, CU_NONE,   &mp.tempo_idx },         /* 0.75 0.85 1.00 1.10 1.25 1.50 1.75 2.00 (Select+L1/R1) */
+    { "MP TEMPO OUT", CK_U32, CU_PAIRS,  &mp.tempo_out },
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
 #endif
 #ifdef P2_LISTPLAY
