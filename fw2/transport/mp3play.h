@@ -10,7 +10,8 @@
 typedef struct {
     uint32_t gen, rate, playing, held, cur_valid, cur_gen, cur_pos, acct_bad, stalls, gov_mode;
     uint32_t state, frames, errors, resyncs, pairs_out, pairs_total, seg_put, gapless_next, drain_next, rate_changes, ended;
-    uint32_t dec_max_cyc, dec_steps, need_data, ch, init_fail, non_mp3, seeks, seek_fail, seek_ign, seek_to, volume, rg_mode, gain_tgt, rg_factor, rg_cap, dec_us, dec_blocks, dec_avg_us, poly_on, poly_slots, poly_mismatch, poly_timeout, tempo_idx, seek_idx, skip_on, skip_lead, skip_tail, skip_applied, skip_ign, tempo_out, flac_waits, flac_refused, flac_err, lpc_slots, lpc_timeout, seg_put_track;
+    uint32_t dec_max_cyc, dec_steps, need_data, ch, init_fail, non_mp3, seeks, seek_fail, seek_ign, seek_to, volume, rg_mode, gain_tgt, rg_factor, rg_cap, dec_us, dec_blocks, dec_avg_us, poly_on, poly_slots, poly_mismatch, poly_timeout, tempo_idx, seek_idx, skip_on, skip_lead, skip_tail, skip_applied, skip_ign, tempo_out, flac_waits, flac_refused, flac_err, lpc_slots, lpc_timeout, seg_put_track,
+             f2_ferr, f2_resync, f2_silent, f2_wraps, f2_probes, f2_repos, f2_staged_max, f2_rollbacks;          /* the new FLAC decoder (P2_FLAC2): damaged frames, resyncs, silent pairs, bridge uses, seek probes, bytes skipped by repositioning */
 } mp_t;
 extern mp_t mp;
 extern tl_t mp_tl;

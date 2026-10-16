@@ -20,12 +20,14 @@ typedef struct {
     f2_open_t op; f2_rec_t rec; f2_seek_t sk;
     uint8_t phase, why, discard_known, dropping;
     uint8_t bridge[F2T_BRIDGE];
-    uint64_t audio_off;                                   /* file offset of the first frame */
-    uint64_t base;                                        /* the sample the delivered stretch starts at (0, or the seek target; later if the frame holding the target was lost) */
-    uint64_t target, skip_left;                           /* after a seek: the target and the pairs still to drop at the front of the frame in progress */
-    uint64_t put, staged;                                 /* pairs committed since `base` (silence included); pairs staged by the frame in progress */
+    uint32_t audio_off;                                   /* file offset of the first frame */
+    uint32_t base;                                        /* the sample the delivered stretch starts at (0, or the seek target; later if the frame holding the target was lost) */
+    uint32_t target, skip_left;                           /* after a seek: the target and the pairs still to drop at the front of the frame in progress */
+    uint32_t put, staged;                                 /* pairs committed since `base` (silence included); pairs staged by the frame in progress */
     uint32_t file_size, wraps, repositioned, seeks, seek_probes;
+    const f2_hw_t *hw;                                    /* the LPC unit offered to the decoder (survives re-initialisations; cleared for the session on a fault) */
 } f2t_t;
+static inline void f2t_set_hw(f2t_t *t, const f2_hw_t *hw) { t->hw = hw; t->rec.d.hw = hw; }
 
 static inline void f2t_init(f2t_t *t, uint8_t *seek_buf, uint32_t seek_cap, uint8_t *vc_buf, uint32_t vc_cap, int32_t *frame_buf, uint32_t frame_cap, uint32_t flags)
 {
@@ -57,9 +59,9 @@ static inline int f2t_open_step(f2t_t *t, stream_t *s, const uint8_t *ring)
     f2_open_t *o = &t->op;
     uint32_t sk = f2_open_skippable(o);
     if (sk > 8192u) {                                      /* a big body (a picture): reposition the stream instead of reading it */
-        uint64_t to = o->pos + sk;
-        if (to > t->file_size) { f2t_fail(t, F2T_WHY_NOTFLAC); return F2T_FAIL; }
-        stream_seek(s, (uint32_t)to); t->repositioned += sk;
+        uint32_t to = o->pos + sk;
+        if (to < o->pos || to > t->file_size) { f2t_fail(t, F2T_WHY_NOTFLAC); return F2T_FAIL; }
+        stream_seek(s, to); t->repositioned += sk;
         if (f2_open_skipped(o, sk) != F2_OK) { f2t_fail(t, F2T_WHY_NOTFLAC); return F2T_FAIL; }
         return F2T_WORK;
     }
@@ -71,7 +73,7 @@ static inline int f2t_open_step(f2t_t *t, stream_t *s, const uint8_t *ring)
     if (o->state == F2_OP_DONE) {
         t->audio_off = o->audio_off;
         if (o->si.channels > 2u || o->si.bps > 24u) { f2t_fail(t, F2T_WHY_UNSUPPORTED); return F2T_FAIL; }
-        int32_t *fb = t->rec.d.buf; uint32_t fc = t->rec.d.cap, fl = t->rec.d.flags; f2_rec_init(&t->rec, &o->si, fb, fc, fl); f2_rec_set_timeline(&t->rec, 0);
+        int32_t *fb = t->rec.d.buf; uint32_t fc = t->rec.d.cap, fl = t->rec.d.flags; f2_rec_init(&t->rec, &o->si, fb, fc, fl); f2_rec_set_timeline(&t->rec, 0); t->rec.d.hw = t->hw;
         t->phase = F2T_PH_PLAY; return F2T_OPENED;
     }
     return F2T_WORK;
@@ -100,6 +102,8 @@ static inline int f2t_play_step(f2t_t *t, stream_t *s, const uint8_t *ring, int3
 #endif
     }
     if (e & F2_EV_GIVEUP) { f2t_fail(t, F2T_WHY_GIVEUP); return F2T_FAIL; }
+    if (t->hw && !r->d.hw) t->hw = 0;                       /* the unit faulted: off for the rest of the session
+    */
     if (n || e) {
         if (t->dropping) {                                 /* after a seek: drop the pairs before the target, relative to the frame's presumed start; a failed frame is recomputed against the next one */
             if (e & F2_EV_FRAME_BAD) t->discard_known = 0;
@@ -110,7 +114,7 @@ static inline int f2t_play_step(f2t_t *t, stream_t *s, const uint8_t *ring, int3
             } else {
                 if (r->in_frame || (e & F2_EV_FRAME_OK)) {
                     if (!t->discard_known) {
-                        uint64_t S = r->frame_start_s;
+                        uint32_t S = r->frame_start_s;
                         if (!r->frame_known) { t->skip_left = 0; t->base = t->target; }
                         else if (S <= t->target) { t->skip_left = t->target - S; t->base = t->target; }
                         else { t->skip_left = 0; t->base = S; }                                   /* landed after the target (the frame holding it was lost) */
@@ -140,7 +144,7 @@ static inline int f2t_play_step(f2t_t *t, stream_t *s, const uint8_t *ring, int3
         if (s->eof && (avail == 0u || (c == avail && seen == 0u))) {
             if (r->in_frame) { r->in_frame = 0; f2_dec_abort(&r->d); t->staged = 0; *ev = F2_EV_FRAME_BAD; r->owed += 0u; return F2T_PAIRS; }       /* the last frame is cut off: it is lost */
             if (s->err) { f2t_fail(t, F2T_WHY_IO); return F2T_FAIL; }                      /* the stream ended because the card failed, not because the file did: the track is cut short */
-            uint64_t total = r->d.si.total, got = t->base + t->put; (void)total; (void)got;
+            uint32_t total = r->d.si.total, got = t->base + t->put; (void)total; (void)got;
 #if BUG != 42
             if (total && got < total && r->owed == 0u) { r->owed = total - got; return F2T_WORK; }
 #endif
@@ -154,38 +158,38 @@ static inline int f2t_play_step(f2t_t *t, stream_t *s, const uint8_t *ring, int3
 
 /* ---- seek ---- */
 /* Starts a seek to `target` (a sample number). Valid once the track is open. Returns 0 if not possible now. */
-static inline int f2t_seek(f2t_t *t, stream_t *s, uint64_t target)
+static inline int f2t_seek(f2t_t *t, stream_t *s, uint32_t target)
 {
     if (t->phase != F2T_PH_PLAY && t->phase != F2T_PH_END) return 0;
-    const f2_info_t *si = &t->op.si; uint64_t total = si->total, lo_off = 0, lo_s = 0, ps, po; uint32_t pn;
+    const f2_info_t *si = &t->op.si; uint32_t total = si->total, lo_off = 0, lo_s = 0, ps, po, pn;
     if (!total) return 0;
     if (target >= total) target = total - 1u;
     if (t->op.have_seek && f2_seekpoint(t->op.seek_buf, t->op.seek_len / 18u, target, &ps, &po, &pn)) { lo_off = po; lo_s = ps; }
     int wv = t->rec.want_var == 0xFFu ? -1 : (int)t->rec.want_var;
     t->target = target; t->seeks++;
-    int r = f2_seek_begin(&t->sk, si, target, total, (uint64_t)t->file_size - t->audio_off, lo_off, lo_s, wv);
+    int r = f2_seek_begin(&t->sk, si, target, total, t->file_size - t->audio_off, lo_off, lo_s, wv);
     t->phase = F2T_PH_SEEK;
     if (r == F2_SEEK_FAIL) { f2t_fail(t, F2T_WHY_SEEKFAIL); return 0; }
-    stream_seek(s, (uint32_t)(t->audio_off + (r == F2_SEEK_CONT ? t->sk.probe : t->sk.found_off)));
+    stream_seek(s, t->audio_off + (r == F2_SEEK_CONT ? t->sk.probe : t->sk.found_off));
     return 1;
 }
 static inline void f2t_seek_land(f2t_t *t, stream_t *s)
 {
-    stream_seek(s, (uint32_t)(t->audio_off + t->sk.found_off));
-    int32_t *fb = t->rec.d.buf; uint32_t fc = t->rec.d.cap, fl = t->rec.d.flags; f2_rec_init(&t->rec, &t->op.si, fb, fc, fl);       /* timeline unknown: the first verified frame sets it */
+    stream_seek(s, t->audio_off + t->sk.found_off);
+    int32_t *fb = t->rec.d.buf; uint32_t fc = t->rec.d.cap, fl = t->rec.d.flags; f2_rec_init(&t->rec, &t->op.si, fb, fc, fl); t->rec.d.hw = t->hw;       /* timeline unknown: the first verified frame sets it */
     t->base = t->target; t->put = 0; t->staged = 0; t->skip_left = 1; t->discard_known = 0; t->dropping = 1; t->phase = F2T_PH_PLAY;
 }
 static inline int f2t_seek_step(f2t_t *t, stream_t *s, const uint8_t *ring)
 {
     if (t->sk.state != F2_SEEK_CONT) { f2t_seek_land(t, s); return F2T_WORK; }
-    uint64_t want = (uint64_t)t->file_size - t->audio_off - t->sk.probe; if (want > F2_SEEK_WIN) want = F2_SEEK_WIN;
+    uint32_t want = t->file_size - t->audio_off - t->sk.probe; if (want > F2_SEEK_WIN) want = F2_SEEK_WIN;
     if (s->err) { f2t_fail(t, F2T_WHY_IO); return F2T_FAIL; }
     if (stream_avail(s) < want && !s->eof) return F2T_NEED;
     uint32_t n = stream_avail(s) < want ? stream_avail(s) : (uint32_t)want, c = f2t_contig(s);
     if (c < n) n = c;                                      /* (after stream_seek the data starts at ring[0]: contiguous for a window of 4,096) */
     t->seek_probes++;
     int st = f2_seek_feed(&t->sk, &t->op.si, ring + s->rd, n);
-    if (st == F2_SEEK_CONT) stream_seek(s, (uint32_t)(t->audio_off + t->sk.probe));
+    if (st == F2_SEEK_CONT) stream_seek(s, t->audio_off + t->sk.probe);
     else f2t_seek_land(t, s);
     return F2T_WORK;
 }

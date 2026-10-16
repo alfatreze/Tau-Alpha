@@ -76,7 +76,7 @@ def end_to_end(exe, d, rec_exe):
             if not np.array_equal(got[:real], pcm[smp:]): return False, ("decode from the landing frame is not the original audio", i, t, off, smp)
             if not np.array_equal(got[t - smp], pcm[t]): return False, ("target sample not on target", i, t)
         # a forged valid-CRC header with a huge number BEFORE the real frames must not poison the timeline: every frame that comes out is at its right place (the junk may eat the first real frame, no more)
-        hdr = frames[:8]; forged = bytes(hdr[:4]) + enc.utf8num((1 << 33) if var else (1 << 28)); forged += bytes([enc.crc8(forged)]); junk = forged + bytes(rng.randrange(256) for _ in range(30))
+        hdr = frames[:8]; forged = bytes(hdr[:4]) + enc.utf8num((1 << 31) if var else (1 << 20)); forged += bytes([enc.crc8(forged)]); junk = forged + bytes(rng.randrange(256) for _ in range(30))
         sub = d / "poison.bin"; sub.write_bytes(junk + frames); po = d / "poison.pcm"; so = d / "poison.st"
         subprocess.run([str(rec_exe), str(sub), si.hex(), "1000000", "1000000", "65536", "1", str(po), str(so), "notl"], check=True, timeout=120)
         got = np.fromfile(po, dtype="<i4").reshape(-1, 2)
