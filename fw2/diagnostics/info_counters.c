@@ -2,6 +2,8 @@
 #include "info_counters.h"
 #include "../platform/platform.h"
 #include "../aout/aout.h"
+#include "../ui/helios.h"
+#include "../platform/cold.h"
 #include "../cores/monoclock_core.h"
 #include "../settings/settings.h"
 #include "../art/art.h"
@@ -61,6 +63,7 @@ const cnt_t counters_table[] = {
     { "FLAC WAITS",   CK_U32, CU_NONE,   &mp.flac_waits },        /* times the decoder had to wait for the card (open only; must not grow while playing) */
     { "LPC SAMPLES",  CK_U32, CU_NONE,   &mp.lpc_slots },
     { "LPC TMO",      CK_U32, CU_NONE,   &mp.lpc_timeout },
+    { "SET WIDE",     CK_U32, CU_NONE,   &settings_stats.wide },       /* the 32-word register file is present (word 17 is usable) */
     { "F2 BAD FRAME ", CK_U32, CU_NONE,   &mp.f2_ferr },
     { "F2 RESYNC    ", CK_U32, CU_NONE,   &mp.f2_resync },
     { "F2 SILENT    ", CK_U32, CU_NONE,   &mp.f2_silent },
@@ -70,13 +73,25 @@ const cnt_t counters_table[] = {
     { "F2 REPOS", CK_U32, CU_NONE,   &mp.f2_repos },
     { "F2 STAGEMAX", CK_U32, CU_NONE,   &mp.f2_staged_max },
     { "SET STORES",   CK_U32, CU_NONE,   &settings_stats.stores },
+    { "SET MENU",     CK_U32, CU_NONE,   &settings_stats.menu_changes },
+    { "SET DIRTY",    CK_U32, CU_NONE,   &settings_stats.dirty },
     { "ART LOADED",   CK_U32, CU_NONE,   &art_loaded },
     { "ART FAILED",   CK_U32, CU_NONE,   &art_failed },
     { "ART ERR",      CK_U32, CU_NONE,   &art_last_err },           /* TIMG_E_*: 1 magic 2 format 3 size 4 open 5 read 7 mailbox 8 probe */
     { "ART MS",       CK_U32, CU_MS,     &art_ms },
     { "ART PROBE RAW", CK_HEX32, CU_NONE, &art_probe_raw },    /* what the palette probe read back: 1004..1007 (low or high half) means it worked */
     { "ART CLUT",     CK_U32, CU_NONE,   &art_clut_start },         /* palette load start index the probe chose: 0 registered, 255 legacy */
+    { "HELIOS BEAM",     CK_U32, CU_NONE,  &helios_beam },        /* 1: the bitstream has the video line counter, regions wait for the beam to leave their rows */
+    { "HELIOS DRAWN",    CK_U32, CU_NONE,  &helios.drawn },       /* beam-checked region draws that went ahead */
+    { "HELIOS DEFERRED", CK_U32, CU_NONE,  &helios.deferred },    /* ... and those that waited a pass because the beam was in their rows */
+    { "COLD MS",         CK_U32, CU_MS,    &cold_ms },            /* boot time to load and verify the cold image */
+    { "COLD BYTES",      CK_U32, CU_BYTES, &cold_bytes },
+    { "COLD ERR",        CK_U32, CU_NONE,  &cold_err },           /* 0 = ok (a failure stops the boot with the code on screen) */
+    { "ACCEPT RATES",    CK_U8,  CU_NONE,  &mp3play_accept_all },  /* Settings > Diagnostics: FLAC above 48 kHz is decoded */
     { "SKIP ON",      CK_U32, CU_NONE,   &mp.skip_on },
+    { "SKIP LEAD",    CK_U32, CU_PAIRS,  &mp.skip_lead },
+    { "SKIP TAIL",    CK_U32, CU_PAIRS,  &mp.skip_tail },
+    { "SKIP APPLIED", CK_U32, CU_NONE,   &mp.skip_applied },
     { "SKIP HITS",    CK_U32, CU_NONE,   &skiplist_hits },
     { "SKIP MISSES",  CK_U32, CU_NONE,   &skiplist_misses },
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
@@ -84,13 +99,18 @@ const cnt_t counters_table[] = {
     { "LIB STATE",    CK_U8,  CU_NONE,   &lib_state },            /* 1 loaded, 2 failed */
     { "LIB ERR",      CK_U8,  CU_NONE,   &lib_err },
     { "LIB TRACKS",   CK_U32, CU_NONE,   &lib_n_tracks },
+    { "LIB LOAD",     CK_U32, CU_MS,     &lib_ms },
     { "LP QUEUE",     CK_U32, CU_NONE,   &lp.qn },
+    { "LP POS",       CK_U32, CU_NONE,   &lp.cur_pos },
     { "LP TRACK ID",  CK_U32, CU_NONE,   &lp.cur_id },
     { "LP OPEN ERR",  CK_U32, CU_NONE,   &lp.open_err },
+    { "LP SKIPPED",   CK_U32, CU_NONE,   &lp.skipped },
     { "SLOT ERR",     CK_U8,  CU_NONE,   &slot_err },
+    { "SLOT ERRCODE", CK_U8,  CU_NONE,   &slot_errcode },
     { "SLOT OPENS",   CK_U32, CU_NONE,   &slot_opens },
     { "SLOT OPEN FAIL", CK_U32, CU_NONE, &slot_open_fails },
     { "OPEN LAST",    CK_U32, CU_MS,     &slot_open_ms_last },
+    { "OPEN MAX",     CK_U32, CU_MS,     &slot_open_ms_max },
     { "ST READS",     CK_U32, CU_NONE,   &lp_stream.reads },
     { "ST BYTES",     CK_U32, CU_NONE,   &lp_stream.bytes },
     { "ST TO OFF",    CK_U32, CU_NONE,   &lp_stream.to_off },
@@ -103,9 +123,13 @@ const cnt_t counters_table[] = {
     { "ST AVAIL",     CK_U32, CU_BYTES,  &lp_stream.avail },
     { "ST MIN AVAIL", CK_U32, CU_BYTES,  &lp_stream.min_avail },
     { "ST MAX LAT",   CK_U32, CU_CYC,    &lp_stream.max_lat },    /* cycles: /66,667 = ms */
+    { "ST SEEKS",     CK_U32, CU_NONE,   &lp_stream.seeks },
+    { "ST OPENS",     CK_U32, CU_NONE,   &lp_stream.opens },
     U32("AOUT INIT",    CU_NONE,   &v.aout_init),
+    U32("HEARD SEG",    CU_NONE,   &v.heard_seg),
     U32("HEARD POS",    CU_MS,     &v.heard_pos_ms),
     U32("HEARD VALID",  CU_NONE,   &v.heard_valid),
+    U32("PUT SEG",      CU_NONE,   &v.put_seg),
     U32("SWAPS",        CU_NONE,   &v.swaps),
     U32("ACCT ERR",     CU_NONE,   &v.acct_err),
     { "LAST DELTA",   CK_I32,   CU_PAIRS, &v.last_delta },
@@ -117,7 +141,11 @@ const cnt_t counters_table[] = {
     U32("DRY",          CU_NONE,   &v.dry),                 /* the producer fell behind */
     U32("PUT STALLS",   CU_NONE,   &v.put_stalls),
     U32("PUT MAX",      CU_CYC,    &v.put_max_cyc),
+    U32("PUT PAIRS",    CU_NONE,   &v.put_pairs),
+    U32("PUT BLOCKS",   CU_NONE,   &v.put_blocks),
     U32("TL OVERFLOW",  CU_NONE,   &v.tl_overflow),
+    U32("TL EMPTY",     CU_NONE,   &v.tl_empty),
+    U32("TL FLUSHES",   CU_NONE,   &v.tl_flushes),
     U32("GOV MODE",     CU_NONE,   &v.gov_mode),
     U32("GOV SHED",     CU_NONE,   &v.gov_n1),
     U32("GOV AUDIO",    CU_NONE,   &v.gov_n2),
@@ -138,10 +166,14 @@ const cnt_t counters_table[] = {
     U32("LOOPS",       CU_NONE,   &v.loops),
     U32("LOOP MAX",    CU_CYC,    &v.loop_max_cyc),
     U32("KEYS",        CU_NONE,   &v.keys),
+    U32("PCM LEVEL",   CU_PAIRS,  &v.pcm_level),
+    U32("PCM FLAGS",   CU_NONE,   &v.pcm_flags),
     U32("RING CNT",    CU_PAIRS,  &v.ring_cnt),
+    U32("RING RIDX",   CU_NONE,   &v.ring_ridx),
     U32("RING WPTR",   CU_NONE,   &v.ring_wptr),
     { "RING CTRL",    CK_HEX32, CU_NONE,  &v.ring_ctrl },
     U32("RING HOLD",    CU_NONE,   &v.ring_hold),            /* RING_CTRL read: bit 31 present, 3 hold, 2 busy, 1 empty (read index == write index), 0 enable */
+    U32("RING EMPTY",   CU_NONE,   &v.ring_empty),
     U32("GAIN CUR",    CU_NONE,   &v.gain_cur),
     { "CYMO STATUS",  CK_HEX32, CU_NONE,  &v.cymo_st },
     U32("STACK PEAK",  CU_BYTES,  &v.stack_peak),

@@ -6,6 +6,9 @@
 #include "../cores/nowplaying_core.h"
 #include "meter.h"
 #include "../art/art.h"
+#include "helios.h"
+#include "regions.h"
+#include "../transport/mp3play.h"
 
 #define BG   RGB565(0, 0, 0)
 #define FG   RGB565(255, 255, 255)
@@ -21,6 +24,7 @@
 #define COV_Y 40u
 
 typedef struct { char s[40]; } field_t;
+uint8_t np_art_on = 1;                       /* Settings > Appearance > Album art (not persisted) */
 static field_t cache[10]; static uint32_t bar_px = 0xFFFFFFFFu, last_gen = 0xFFFFFFFFu, art_gen = 0xFFFFFFFFu;
 
 /* Draw `s` on the row at y if it differs from what the row holds (the row is cleared first; cells draw their own background). `max_w` trims a long string to the pixel width. */
@@ -55,14 +59,14 @@ static void num(char *o, uint32_t *n, uint32_t v)
     while (k && *n < 46u) o[(*n)++] = t[--k]; o[*n] = 0;
 }
 
-void nowplaying_draw(void)
+void nowplaying_draw_head(void)
 {
     const np_info_t *p = mp3play_np();
     put(0, 6, p->playing ? (p->held ? "PAUSED" : "PLAYING") : "STOPPED", p->playing && !p->held ? ACC : DIM, 120, 1);
     if (p->valid) {
         if (p->gen != art_gen && p->gov < 1u) {                    /* a new track: its cover (the governor must be NORMAL: the load blocks for about 150 ms) */
-            art_gen = p->gen; meter_settle(2); gfx_rect(COV_X, COV_Y, 128, 128, TRK);
-            if (p->cover[0]) { mp3play_io_quiesce(); if (art_load(p->cover) == TIMG_OK) art_draw(COV_X, COV_Y); else gfx_text(COV_X + 20, COV_Y + 56, "NO COVER", DIM, TRK); }
+            art_gen = p->gen; gfx_rect(COV_X, COV_Y, 128, 128, TRK);
+            if (p->cover[0] && np_art_on) { mp3play_io_quiesce(); if (art_load(p->cover) == TIMG_OK) art_draw(COV_X, COV_Y); else gfx_text(COV_X + 20, COV_Y + 56, "NO COVER", DIM, TRK); }
             else gfx_text(COV_X + 20, COV_Y + 56, "NO COVER", DIM, TRK);
         }
         put_x = TX;
@@ -83,11 +87,37 @@ void nowplaying_draw(void)
             bar_px = px; last_gen = p->gen;
         }
     }
+}
+
+void nowplaying_draw_foot(void)
+{
+    const np_info_t *p = mp3play_np();
     char s[48]; uint32_t n = 0; s[0] = 0;
     line(s, &n, "VOL "); num(s, &n, p->volume); line(s, &n, "   RG "); line(s, &n, p->rg_mode == 0 ? "OFF" : p->rg_mode == 1 ? "TRACK" : "ALBUM");
     put(7, 298, s, FG, BAR_W, 0);
     n = 0; s[0] = 0; char sp[8]; np_speed(sp, p->tempo_q8);
     line(s, &n, "TEMPO "); line(s, &n, sp); line(s, &n, p->repeat == 0 ? "  REP OFF" : p->repeat == 1 ? "  REP ALL" : "  REP ONE"); line(s, &n, p->shuffle ? "  SHUF ON" : "  SHUF OFF");
     put(8, 318, s, FG, BAR_W, 0);
+}
+
+void nowplaying_draw_meter(void)
+{
+    const np_info_t *p = mp3play_np();
     meter_draw(p->gov < 1u);                                    /* the governor sheds the UI first: no bars while the ring is below half */
 }
+
+/* The keys of Now Playing that are plain edges (the timed ones -- Left/Right tap and hold, the Select combinations -- are gestures, app/gestures in main_player.c). */
+int nowplaying_input(uint32_t edge)
+{
+    if (edge & KEY_A) mp3play_act(MPA_PLAYPAUSE, 0);
+    if (edge & KEY_B) mp3play_act(MPA_RESTART, 0);
+    if (edge & KEY_UP) mp3play_act(MPA_VOL, 3);
+    if (edge & KEY_DOWN) mp3play_act(MPA_VOL, -3);
+    if (edge & KEY_X) mp3play_act(MPA_SHUFFLE, 0);
+    if (edge & KEY_Y) mp3play_act(MPA_RG, 0);
+    if (edge & KEY_L1) mp3play_act(MPA_TEMPO, -1);
+    if (edge & KEY_R1) mp3play_act(MPA_TEMPO, 1);
+    return -1;                                                   /* VW_STAY */
+}
+/* Marks the three regions for this pass: each redraw is a cheap compare against what the screen holds, and the flush waits for the beam to leave the rows. */
+void nowplaying_mark(void) { helios_dirty_mask(NP_REGIONS); }

@@ -18,6 +18,7 @@ extern tl_t mp_tl;
 extern gov_t mp_gov;
 void mp3play_init(int cymo_present);
 enum { MPA_PLAYPAUSE = 1, MPA_RESTART, MPA_NEXT, MPA_PREV, MPA_SEEK, MPA_VOL, MPA_ALBUM, MPA_REPEAT, MPA_SHUFFLE, MPA_RG, MPA_TEMPO };
+extern uint8_t mp3play_accept_all;
 void mp3play_act(uint32_t act, int32_t arg);      /* arg: seconds (seek), steps (volume, tempo), +1/-1 (album) */
 void mp3play_pump(void);
 void mp3play_heard(void);
