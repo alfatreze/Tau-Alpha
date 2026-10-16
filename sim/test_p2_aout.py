@@ -32,7 +32,14 @@ with tempfile.TemporaryDirectory() as td:
     check(f"keys, flushes, a hold, a rate change and {r0['STALLS_INJECTED']} stalls of up to 500 ms: data, heard segment and position, sine, accounting and conservation all exact ({r0['HEARD_CHECKED']} heard checks)", good0(r0))
     check(f"80 s of plain play: {r2['SWAPS']} gapless swaps (one per 12 s), {r2['CONSUMED']} pairs heard (80 s x 44,100), no underrun, no dry spell, {r2['STALLS_INJECTED']} stalls absorbed", good2(r2))
     check(f"filling the ring to its limit never overwrites the margin behind the read index ({r1['STALLS']} refused puts)", good1(r1))
+    r3 = run(g, 3)
+    def good3(r):
+        return (r["S1_ACCEPTED"] == 500 and r["S1_VISIBLE"] == 0 and r["S1_ROOM_DROP"] == 500 and r["S1_SNAP_MOVED"] == 0 and r["S1_CONSUMED_EARLY"] == 0 and r["S1_STAGED"] == 500
+                and r["S2_VISIBLE"] == 500 and r["S2_CONSUMED"] == 500 and r["S2_STAGED"] == 0 and r["S3_ROOM_RESTORED"] == 1 and r["S3_STAGED"] == 0 and r["S3_VISIBLE"] == 0
+                and r["S4_CONSUMED"] == 700 and r["S4_DATA_MISMATCH"] == 0 and r["S5_MARGIN_MISMATCH"] == 0 and r["S5_ROOM_FULL"] == 0 and r["S5_ROOM_AFTER"] > 40000 and r["S5_ROLLED"] == r["S5_STAGED_TOTAL"] + 300)
+    check("staged puts: invisible and unheard until committed (the published index does not move, the room is used), 500 committed pairs heard exactly, a rolled-back frame vanishes and its room returns, the next frame overwrites it, filling the ring by staging and rolling back keeps the margin", good3(r3))
     muts = [(["AOUT_BUG=2"], "the write index wraps one slot late", 0, good0), (["AOUT_BUG=3"], "no margin behind the read index", 1, good1), (["AOUT_BUG=4"], "the write index is never published", 0, good0),
+            (["AOUT_BUG=5"], "commit never publishes", 3, good3), (["AOUT_BUG=6"], "rollback leaves the working index where it was", 3, good3), (["AOUT_BUG=7"], "staging publishes at once", 3, good3),
             (["TONE_BUG=5"], "a restart does not restart the timeline", 0, good0), (["TONE_BUG=6"], "the sine's phase restarts at every segment", 0, good0),
             (["TONE_BUG=7"], "the heard side never pops finished segments", 2, good2), (["TONE_BUG=8"], "every segment is one pair short (the accounting must say so)", 2, good2)]
     for defs, nm, sc, ok in muts:

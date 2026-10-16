@@ -161,6 +161,31 @@ int main(int argc, char **argv)
         printf("MARGIN_MISMATCH %llu\nSTALLS %u\nPUT %u\nDATA_MISMATCH %llu\n", mism, aout_stats.put_stalls, put_n, mismatch_data);
         return 0;
     }
+    if (scenario == 3) {                                          /* staged puts: invisible until committed, gone after a rollback, never overwriting the margin */
+        static int16_t A[500], B[300], C[200]; for (int i = 0; i < 500; i++) A[i] = (int16_t)(1000 + i); for (int i = 0; i < 300; i++) B[i] = (int16_t)(-2000 - i); for (int i = 0; i < 200; i++) C[i] = (int16_t)(7000 + i * 3);
+        tone.rate = 44100; aout_set_rate(44100, 1);
+        #define PK(v) (((uint32_t)(uint16_t)(int16_t)(v) << 16) | (uint32_t)(uint16_t)(int16_t)(v))
+        uint32_t room0 = aout_room(), wp0 = m_wptr;
+        uint32_t n = aout_put_staged(A, 500, 0);
+        printf("S1_ACCEPTED %u\nS1_VISIBLE %u\nS1_ROOM_DROP %u\nS1_SNAP_MOVED %u\n", n, m_wptr - wp0, room0 - aout_room(), aout_snap().wptr != wp0);
+        advance(66000 * 5);
+        printf("S1_CONSUMED_EARLY %llu\nS1_STAGED %u\n", consumed_total, aout_staged());
+        aout_commit(); for (int i = 0; i < 500; i++) { lab_t l = { PK(A[i]), 0, 0 }; ringq[rq_t & (RQN - 1)] = l; rq_t++; }
+        advance(66000 * 20);
+        printf("S2_VISIBLE %u\nS2_CONSUMED %llu\nS2_STAGED %u\n", m_wptr - wp0, consumed_total, aout_staged());
+        uint32_t room1 = aout_room(); n = aout_put_staged(B, 300, 0); aout_rollback();
+        printf("S3_ROOM_RESTORED %d\nS3_STAGED %u\nS3_VISIBLE %u\n", aout_room() == room1, aout_staged(), m_wptr - wp0 - 500);
+        n = aout_put_staged(C, 200, 0); aout_commit(); for (int i = 0; i < 200; i++) { lab_t l = { PK(C[i]), 0, 0 }; ringq[rq_t & (RQN - 1)] = l; rq_t++; }
+        advance(66000 * 20);
+        printf("S4_CONSUMED %llu\nS4_DATA_MISMATCH %llu\n", consumed_total, mismatch_data);
+        /* overfill by staging, then roll back: the room comes back and the margin behind the read index is intact */
+        static int16_t big[700]; for (int i = 0; i < 700; i++) big[i] = (int16_t)(i * 5 + 1);
+        uint32_t tot = 0, got; do { got = aout_put_staged(big, 700, 0); tot += got; } while (got == 700);
+        uint32_t room_full = aout_room(); aout_rollback();
+        uint64_t mism = 0; for (uint32_t k = 1; k <= AOUT_RING_MARGIN && k <= m_cnt; k++) { uint32_t idx = (m_ridx + AOUT_RING_PAIRS - k) % AOUT_RING_PAIRS; if (label_ok[(m_cnt - k) & (LBN - 1)] && hw_ring[idx] != label_at[(m_cnt - k) & (LBN - 1)].val) mism++; }
+        printf("S5_STAGED_TOTAL %u\nS5_ROOM_FULL %u\nS5_ROOM_AFTER %u\nS5_MARGIN_MISMATCH %llu\nS5_ROLLED %u\n", tot, room_full, aout_room(), mism, aout_stats.rolled_back);
+        return 0;
+    }
     /* scenario 0: the tone transport for 45 s of simulated time with keys, stalls and flushes */
     u64 end = (u64)CLK_HZ * 45;
     int hold_until_set = 0; u64 hold_until = 0;

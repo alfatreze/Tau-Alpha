@@ -16,6 +16,7 @@ typedef struct {
     uint32_t flushes;
     uint32_t ring_min, ring_max;                   /* ring fill extremes since the ring was armed (sampled by aout_poll) */
     uint32_t under_ring;                           /* FIFO empty while the ring still held pairs: the reader fell behind (must stay 0) */
+    uint32_t staged_committed, rolled_back;        /* pairs published by aout_commit, pairs thrown away by aout_rollback */
     uint32_t dry;                                  /* FIFO and ring both empty while playing: the producer fell behind */
 } aout_stats_t;
 extern aout_stats_t aout_stats;
@@ -26,6 +27,10 @@ void     aout_set_rate(uint32_t hz, int cymo_present);   /* the output tick, and
 void     aout_gain_unity(void);                          /* hardware gain stage on, target unity, no ramp from a stale value */
 uint32_t aout_room(void);                                /* pairs that can be put now */
 uint32_t aout_put(const int16_t *pcm, uint32_t pairs, int stereo);   /* returns the pairs accepted (fewer than offered when the ring is full) */
+uint32_t aout_put_staged(const int16_t *pcm, uint32_t pairs, int stereo);   /* writes behind the published index: not audible, counted in aout_room */
+void     aout_commit(void);                              /* publishes everything staged (one write of the index) */
+void     aout_rollback(void);                            /* forgets everything staged */
+uint32_t aout_staged(void);
 aout_snap_t aout_snap(void);
 static inline uint32_t aout_fill(const aout_snap_t *s) { return s->wptr >= s->ridx ? s->wptr - s->ridx : s->wptr + AOUT_RING_PAIRS - s->ridx; }
 static inline uint32_t aout_heard(const aout_snap_t *s) { return s->cnt - s->fifo; }   /* pairs the output side has consumed, in push-count units */
