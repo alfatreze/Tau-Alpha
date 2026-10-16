@@ -118,6 +118,7 @@ test-host:
 	$(PYTHON) sim/test_p2_flac2.py
 	$(PYTHON) sim/test_p2_flac2_pred.py
 	$(PYTHON) sim/test_p2_flac2_hdr.py
+	FLAC2_DEC_N=10 FLAC2_DEC_REAL=0 $(PYTHON) sim/test_p2_flac2_dec.py
 	$(PYTHON) sim/test_p2_nowplaying.py
 	$(PYTHON) sim/test_p2_browse.py
 	$(PYTHON) sim/test_p2_spectrum.py
