@@ -12,7 +12,7 @@ extern int tau_poly_hw_enable;
  * arms the counter; a mismatch permanently disables the unit (software result used for that slot) and is counted. Info > MP3 WINDOW shows both counters. */
 #define TAU_POLY_VERIFY_SLOTS 8
 extern int tau_poly_verify_left;
-extern unsigned tau_poly_stat_slots, tau_poly_stat_mismatch, tau_poly_stat_timeout;
+extern unsigned tau_poly_stat_slots, tau_poly_stat_mismatch, tau_poly_stat_timeout, tau_poly_stat_silent;   /* silent: slots output as silence because the unit was missing or failed (TAU_POLY_REQUIRED) */
 
 /* Pulses R_POLY_CTL's clear bit and polls busy (bounded). Call once per decoder instance, before its first hardware slot -- subband.c does
  * this itself via SubbandInfo's own hwPolyReady flag, so nothing else needs to call this. */

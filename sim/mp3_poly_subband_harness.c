@@ -19,7 +19,7 @@
 int tau_poly_hw_enable = 1;
 int tau_poly_wlog[33], tau_poly_wn;
 int tau_poly_verify_left;
-unsigned tau_poly_stat_slots, tau_poly_stat_mismatch, tau_poly_stat_timeout;
+unsigned tau_poly_stat_slots, tau_poly_stat_mismatch, tau_poly_stat_timeout, tau_poly_stat_silent;
 static int hw_slots, fail_slot = -1, slot_no, corrupt_slot = -1, finish_fail_slot = -1;
 static short staged[64]; static int staged_slot = -1, pending;
 void tau_poly_hw_clear(void) { memset(ring, 0, sizeof ring); head[0] = head[1] = 0; tau_poly_verify_left = 8; }
@@ -71,6 +71,7 @@ int main(int argc, char **argv)
 {
     int fail = argc > 1 ? atoi(argv[1]) : -1;
 #if TAU_POLY_FW
+    if (argc > 4 && atoi(argv[4])) tau_poly_hw_enable = 0;                  /* the unit is absent from the start */
     fail_slot = fail;
     corrupt_slot = argc > 2 ? atoi(argv[2]) : -1;
     finish_fail_slot = argc > 3 ? atoi(argv[3]) : -1;
@@ -104,6 +105,7 @@ int main(int argc, char **argv)
     }
 #if TAU_POLY_FW
     printf("HWSLOTS %d MISMATCH %u\n", hw_slots, tau_poly_stat_mismatch);
+    fprintf(stderr, "SILENT %u\n", tau_poly_stat_silent);
 #else
     printf("HWSLOTS 0 MISMATCH 0\n");
 #endif
