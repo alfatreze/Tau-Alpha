@@ -179,3 +179,50 @@ All five accepted as recommended: (1) gate = no regression against C1; (2) CRC-1
 ## 10. Honest limits of this review
 
 I did not run anything on a Pocket and did not profile the C1 decoder; every [EST] number is a pre-measurement guess and S8-0 exists to replace them. Facts about dr_flac internals marked [MEM] come from memory and must be confirmed in the spike. The IETF test suite licence and file list must be checked before it is used. I did not read all 1,030 lines of `fw/flac.c`; findings D2, D3 and the CRC-8-only observation come from the specific functions quoted above.
+
+## 11. S8-0 report (2026-10-16): measurements, and what they change in this spec
+
+Harness: `tools/lab/flacperf` (README there). Real `fw/flac.c` at the firmware's `-Os` flags on `tools/rv32sim.py`-class simulator; **instruction counts are exact, cycle counts are an ESTIMATE** of a VexRiscv-style penalty model (not yet calibrated: the calibration is the Pocket's `MP DEC AVG` for the same file, DEV 150). Workloads: 12 consecutive frames (about 49,000 to 55,000 pairs, 1.1 to 1.3 s of audio) from real music. Sink = Player 2's `aout_put` model (packed word per pair into the PSRAM ring window at +24 cycles a store, one pointer write per block). LPC unit latency in the model corrected from `2*order+4` to `2*order+5` clocks (the testbench measures 67 clocks for order 31).
+
+### 11.1 Where the cycles go in the current decoder (C1 + hardware LPC), per channel-sample
+
+| Workload | cycles / channel-sample | decode share of the CPU (2 samples per pair) |
+|---|---|---|
+| Aphex Twin 44.1 kHz 16-bit | 189 | 25% |
+| MacCunn 44.1 kHz | 191 | 25% |
+| Clementi 48 kHz | 194 | 28% |
+| Rite of Spring 48 kHz **24-bit** | 201 | 29% |
+
+Typical split (Aphex): ring sink 19 (per pair 38: one PSRAM store 26 plus the loop), **`to16` 23**, channel-1 streaming loop (decorrelation, emit, history shift) 44, **Rice decode 49** (`rice_one` 23, `clz32` 10, `rice_run` 6, `zigzag` 5, chunk bookkeeping 5), **LPC handshake with the unit 36 to 49** (a store, one or two status polls, a read), channel-0 pass 13.
+
+Variants on the same files (identical audio hashes on all 16-bit files, so they are cross-checked as bit-exact): software LPC instead of the unit **244 to 286** (the unit saves 22 to 32%); the old Rice path **343 to 345** (the fast path saves 45%, reproducing B-560/B-562). Verbatim and 24-bit-verbatim synthetic files cost 200 to 217 and are dominated by the 64-bit bit reader (`__lshrdi3`), which is irrelevant for real music but shows the bit reader is not tuned for that path.
+
+### 11.2 Consequences for the spec
+
+1. **The governor is not the story for FLAC any more.** Rerunning the scheduling model of `sim/test_p2_governor.py` with 8 ms steps and 2 ms UI passes: pre-C1 numbers (48 pairs/ms of CPU) give 5,706 underruns ungoverned and 3.5% UI governed (the spec's claim); with C1 the decoder makes **166 to 176 pairs/ms** and the UI keeps **61 to 62%**, with no underrun with or without the governor; even a file 2.5x costlier than the hardest tested (70 pairs/ms) keeps 30% UI. Section 11 of PLAYER_V2_SPEC (the "3.5%" paragraph) must be rewritten with these numbers; the governor stays as a safety net, it no longer carries the FLAC case.
+2. **The atomic step of the current decoder is a frame of about 27 ms** (4,608 pairs at 172 pairs/ms), up to about 40 ms on a file 1.5x costlier, not the 85 ms of the spec (a pre-C1 number). The new decoder's target (budget at most 8 ms) is still right for UI smoothness, but its urgency is lower; it must not cost cycles to get it: **yield granularity may not add more than 2% to the decode cost** (new gate, measured on the host twin).
+3. **The hardware LPC unit is worth much less than assumed once software is done properly.** dr_flac, with no hardware at all, spends **36 to 47 cycles/sample in its 32-bit prediction path** (and 13 to 16 in the 64-bit path for the cases that need it), which equals our unit handshake (36 to 49). Our software fallback is slow (244 to 286) only because it always uses 64-bit multiplies. A 32-bit predictor is exact whenever `bps(+1 for a side channel) + coefficient precision + ceil(log2 order) <= 33`, which holds for most 16-bit music; 24-bit audio needs 64-bit (or the unit). **New tiering for the LPC step:** sw32 when provably exact, the unit otherwise (24-bit and long high-precision predictors), sw64 only as the fault fallback. The bound must be derived and tested the way B-365 did for the unit (exhaustive corners plus 20,000 random legal cases plus the real-file capture), not copied.
+4. **`to16` is the cheapest big win:** 23 cycles per sample (12% of the decode) for a function call whose clamp is never needed on a conformant 16-bit stream. For `bps == 16` and a valid stream (every output is already in range for L/R, mid/side and left/side reconstruction) emit directly; keep the clamp as a branchless guard only where the stream cannot guarantee range (wasted bits, side-channel overflow in a corrupt file, 24 to 16). Estimated 12 to 17 cycles per sample saved, [EST] until measured on the twin.
+5. **Software pipelining of the unit (spec 5.4) is not justified by this measurement:** the unit finishes before the CPU polls the second time; the wasted time is about one poll (about 9 cycles, 5%), below the 8% gate. Keep it as an option, re-evaluate only with real MMIO latency (the model charges 5 cycles per MMIO read, a guess).
+6. **Rice decode is now the largest single item (49)** and the place a new core can still win: dr_flac spends 27 + 14 + 14 (rice parts, residual loop, clz) = 55 in total including its own prediction loop bookkeeping, so there is no obvious headroom beyond about 10 cycles; do not promise more than that.
+7. **Expected result of a careful new core on the hard files: about 135 to 150 cycles per channel-sample (a 20 to 30% reduction), from `to16` (about -15), a 32-bit predictor (about -10 where it applies), channel-0 and channel-1 passes sharing the loop (about -5), and the rest unchanged.** That would meet the old "20% fewer" bar without any new RTL. It is an estimate and S8-1 must prove it on the twin before any claim.
+
+### 11.3 The dr_flac spike: gate result
+
+dr_flac (public domain / MIT-0, fetched from `mackron/dr_libs`, sha256 111144e7...; built with `NO_STDIO NO_OGG NO_SIMD`, memory from a bump allocator, `-O2`, CRC on and off) over the same files; audio hashes **identical to `fw/flac.c` on every 16-bit file**, 24-bit differs as expected (truncation instead of the player's rounding).
+
+| Workload | C1 + unit (cycles/ch-sample, instr) | dr_flac `-O2` (CRC on) | dr_flac `-O2` CRC off | dr_flac `-Os` |
+|---|---|---|---|---|
+| Aphex 44.1k | 189 (114.7) | **145 (103.9)** | 136 (96.7) | 162 |
+| Clementi 48k | 194 (112.2) | 151 (106.6) | 146 (103.0) | 168 |
+| MacCunn 44.1k | 191 (113.1) | 152 (108.7) | 142 (100.7) | 169 |
+| Rite 48k 24-bit | 201 (124.9) | 187 (150.3) | 170 (131.5) | 216 |
+
+Pre-registered gate (7.3): at least 20% fewer **instructions** than C1 and at most +6 KB code and +20 KB RAM. **Result: instructions -9% (CRC on) to -16% (CRC off) on 16-bit, +20% on 24-bit: not met. Code about 40 KB larger than flac.o (9.6 KB): not met. Heap 41 KB for the two channel buffers plus state, against our 20 KB: +21 KB, not met.** Cycles are 23 to 28% lower on 16-bit music (an estimate), which is the reason the gate was worth running: the speed comes from the 32-bit predictor and straight-line code, not from anything that needs the library. **Decision: reuse closed as product code (whole-frame, malloc, 41 KB, no hooks), recorded in `docs/DECISIONS.md`; the ideas (32-bit predictor with a proven bound, fewer function calls in the sample loop) go into the new core, with the derivation and tests ours. dr_flac stays a host oracle and speed yardstick.** Its CRC-16 costs about 6 to 8 cycles/sample (6 to 10% of the decode, 2 to 4% of the CPU): within the "3 points on the hard file" limit of decision 2, so CRC-16 stays on by default, measured again on the twin.
+
+### 11.4 Open points and the checks that remain before S8-1
+
+* **Calibrate the model against the Pocket.** DEV 150 `MP DEC AVG` (us per block) for a known file against the simulator's estimate for the same file; if the model is off by more than 25%, every number above is rescaled, the ranking stands.
+* **Memcpy in the harness is a byte loop** (it sits in `hostio.h`); it affects the dr_flac figures slightly (dr_flac copies frame data), not the decoder-core ranking; re-measure with a word-copy memcpy before quoting dr_flac's cycles externally.
+* Mono and 8-bit are not covered by the Python slicer; S8-1's corpus covers them.
+* A second independent look: see section 12.
