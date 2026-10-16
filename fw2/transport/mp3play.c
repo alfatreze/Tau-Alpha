@@ -44,6 +44,7 @@ static int begin_track(void)
     stream_open(&lp_stream, 0, lp.expect, 0);
     if (dec.dec) { MP3FreeDecoder(dec.dec); dec.dec = 0; }              /* the 24 KB arena holds exactly one decoder: a skip must free the old one first */
     if (!mp3d_open(&dec, MP3InitDecoder())) { mp.init_fail++; return 0; }
+    dec.file_size = lp.expect;                                          /* for the seek plan (the library knows the size) */
     seg_open_ = 0; mp.gen++; mp.state = MPS_DEC; mp.playing = 1; lp.state = 1;
     return 1;
 }
@@ -66,6 +67,20 @@ static void flush_and_start(uint16_t id)
     start_from(id);
 }
 
+/* +secs from where it is heard (wrapping to the start past the end). Only while the heard track is the one being decoded; across a gapless boundary the request is ignored and counted. */
+static void do_seek(uint32_t secs)
+{
+    if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !dec.dec || !mp.rate) { mp.seek_ign++; return; }
+    uint32_t target = mp.cur_pos + secs * mp.rate;
+    if (dec.pairs_total && target + mp.rate >= dec.pairs_total) target = 0;
+    mp3_seek_t pl;
+    if (!mp3d_plan_seek(&dec, target, &pl)) { mp.seek_fail++; return; }
+    if (!mp.held) aout_mute_wait();
+    aout_flush(); aout_snap_t s = aout_snap(); tl_flush(&mp_tl, s.cnt); seg_open_ = 0;
+    if (!mp3d_seek(&dec, &lp_stream, &pl)) { mp.seek_fail++; mp.state = MPS_IDLE; return; }
+    mp.held = 0; aout_hold(0); fade_pending = 1; mp.seeks++; mp.seek_to = target;
+}
+
 void mp3play_key(uint32_t edge)
 {
     if (lib_state != 1) return;
@@ -80,6 +95,7 @@ void mp3play_key(uint32_t edge)
         uint32_t first = library_album_jump(queue_cur(&q), (edge & KEY_DOWN) ? 1 : -1);
         if (first != 0xFFFFFFFFu && queue_goto(&q, (uint16_t)first)) flush_and_start((uint16_t)first);
     }
+    if (edge & KEY_Y) do_seek(30);
     if (edge & KEY_X) {
         if (lp.shuffle) queue_restore(&q, library_orig_buf(), lib_n_tracks); else queue_shuffle(&q, cycles() | 1u, 1);
         lp.shuffle ^= 1u;
@@ -128,7 +144,7 @@ void mp3play_pump(void)
                 if (!cur_rate || dec.rate != cur_rate) {                 /* a rate we are not at: only legal on an empty ring (flushed or drained) */
                     aout_set_rate(dec.rate, cymo_present_); cur_rate = dec.rate; mp.rate = dec.rate; mp.rate_changes++;
                 }
-                tl_seg_t *g = tl_open(&mp_tl, mp.gen, b.src_pos, dec.pairs_total, 0u, 1u, 1u, 0u);
+                tl_seg_t *g = tl_open(&mp_tl, mp.gen, b.src_pos, dec.pairs_total > b.src_pos ? dec.pairs_total - b.src_pos : 0u, 0u, 1u, 1u, 0u);      /* a seek lands mid-track: the track holds the rest from there */
                 if (!g) break;
                 seg_open_ = 1;
             }

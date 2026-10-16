@@ -44,6 +44,10 @@ const cnt_t counters_table[] = {
     { "MP DEC STEPS", CK_U32, CU_NONE,   &mp.dec_steps },
     { "MP INIT FAIL", CK_U32, CU_NONE,   &mp.init_fail },
     { "MP NON-MP3",   CK_U32, CU_NONE,   &mp.non_mp3 },
+    { "MP SEEKS",     CK_U32, CU_NONE,   &mp.seeks },
+    { "MP SEEK FAIL", CK_U32, CU_NONE,   &mp.seek_fail },
+    { "MP SEEK IGN",  CK_U32, CU_NONE,   &mp.seek_ign },
+    { "MP SEEK TO",   CK_U32, CU_PAIRS,  &mp.seek_to },
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
 #endif
 #ifdef P2_LISTPLAY

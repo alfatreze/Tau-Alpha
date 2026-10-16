@@ -37,8 +37,17 @@ typedef struct {
     uint32_t pairs_total;              /* the P3 expectation: pairs the track holds after trim (0 = unknown) */
     uint32_t pairs_out;
     uint32_t errors, resyncs, skipped_bytes, tag_bytes;
+    /* seek support */
+    uint8_t  toc[100], has_toc, vbr;   /* vbr: the tag says 'Xing' (a CBR file's LAME tag says 'Info') */        /* the Xing table of contents (percent -> byte offset in 1/256 of the stream size) */
+    uint32_t xing_bytes;               /* the Xing 'bytes' field: stream size without the tag (0 = absent) */
+    uint32_t first_off;                /* file offset of the first frame (the Info frame when there is one) */
+    uint32_t file_size;                /* set by the caller (the library knows it) */
+    uint32_t skip_before;              /* decoded-stream pair index below which nothing is output (a seek's exact landing) */
+    uint32_t seeks;
     int16_t  pcm[1152 * 2];
 } mp3d_t;
+
+typedef struct { uint32_t byte_off, frame_idx, skip_before; } mp3_seek_t;
 
 static inline int mp3d_open(mp3d_t *d, HMP3Decoder dec)
 {
@@ -66,9 +75,10 @@ static inline void mp3d_parse_info(mp3d_t *d, const uint8_t *f, uint32_t avail)
         int info = f[i] == 'I' && f[i + 1] == 'n' && f[i + 2] == 'f' && f[i + 3] == 'o';
         if (!xing && !info) continue;
         uint32_t flags = mp3d_be32(f + i + 4), e = i + 8u;
+        d->vbr = (uint8_t)xing;
         if (flags & 1u) { d->xing_frames = mp3d_be32(f + e); e += 4u; }
-        if (flags & 2u) e += 4u;
-        if (flags & 4u) e += 100u;
+        if (flags & 2u) { d->xing_bytes = mp3d_be32(f + e); e += 4u; }
+        if (flags & 4u) { if (e + 100u <= avail) { for (uint32_t k = 0; k < 100u; k++) d->toc[k] = f[e + k]; d->has_toc = 1; } e += 100u; }
         if (flags & 8u) e += 4u;
         uint16_t de = 0, pa = 0;
         if (e + 24u <= avail && lame_ext_gapless(f + e, avail - e, &de, &pa)) { d->delay = de; d->pad = pa; }
@@ -113,7 +123,7 @@ static inline mp3d_step_t mp3d_step(mp3d_t *d, stream_t *s, const uint8_t *ring,
         /* a frame needs up to 1441 bytes: unless the stream is over, wait until the window holds that much */
         if (left < 1441u && !(s->eof && !stream_avail(s))) return MS_NEED_DATA;
 
-        if (!d->hdr_done) { d->hdr_done = 1; mp3d_parse_info(d, d->win + d->wp, left); }
+        if (!d->hdr_done) { d->hdr_done = 1; d->first_off = (s->pos - stream_avail(s)) - d->wn + d->wp; mp3d_parse_info(d, d->win + d->wp, left); }
         unsigned char *in = d->win + d->wp; int bl = (int)left;
         int e = MP3Decode(d->dec, &in, &bl, d->pcm, 0);
         uint32_t used = (uint32_t)((int)left - bl);
@@ -121,7 +131,8 @@ static inline mp3d_step_t mp3d_step(mp3d_t *d, stream_t *s, const uint8_t *ring,
             d->errors++;
             if (e == ERR_MP3_INDATA_UNDERFLOW && !(s->eof && !stream_avail(s))) return MS_NEED_DATA;
             if (e == ERR_MP3_INDATA_UNDERFLOW) { d->state = D_DONE; return MS_EOF; }
-            d->wp += used ? used : 1u; d->skipped_bytes += used ? used : 1u;      /* a bad frame (or bit-reservoir warm-up): skip it and carry on */
+            if (used) d->frame_idx++;                                   /* a frame that existed but did not decode (bit-reservoir warm-up after a seek, corruption) still occupies its place in the stream */
+            d->wp += used ? used : 1u; d->skipped_bytes += used ? used : 1u;      /* skip it and carry on */
             continue;
         }
         d->wp += used;
@@ -140,11 +151,59 @@ static inline mp3d_step_t mp3d_step(mp3d_t *d, stream_t *s, const uint8_t *ring,
             mp3_trim_range(&d->trim, fidx, &first, &count);
             if ((fidx * d->spf) >= d->trim.S + d->trim.P) { d->state = D_DONE; return MS_EOF; }      /* the padding frames are never decoded to the end */
         }
-        if (!count) continue;                                           /* the Info frame, or a frame entirely trimmed */
+        if (count && d->skip_before && BUG != 5) {                                  /* a seek's exact landing: drop the warm-up pairs */
+            uint32_t a0 = fidx * d->spf + first;
+            if (a0 + count <= d->skip_before) count = 0;
+            else if (a0 < d->skip_before) { uint32_t dl = d->skip_before - a0; first += dl; count -= dl; }
+        }
+        if (!count) continue;                                           /* the Info frame, or a frame entirely trimmed or skipped */
         out->pcm = d->pcm + first * d->ch; out->pairs = count; out->ch = d->ch;
         out->src_pos = d->trimmed ? fidx * d->spf + first - d->trim.S : fidx * d->spf + first;
         d->pairs_out += count;
         return MS_BLOCK;
     }
+}
+
+/* Where to restart to hear source pair `target` (the track's own coordinates: after the gapless trim) exactly. The restart is a few frames BEFORE the target so Helix's bit reservoir
+ * and overlap state are rebuilt from real data; those frames are decoded and dropped (skip_before). The landing frame comes from the Xing TOC when there is one (a TOC entry is
+ * the encoder's own position of a frame, so the frame index is exact), else from the constant frame size of a CBR file. Returns 0 when the file gives nothing to seek with. */
+#if BUG == 4
+#define MP3D_WARM 0u                    /* no warm-up: the bit reservoir and overlap are empty at the target */
+#else
+#define MP3D_WARM 3u
+#endif
+static inline int mp3d_plan_seek(const mp3d_t *d, uint32_t target, mp3_seek_t *o)
+{
+    if (!d->spf || !d->ch) return 0;
+    uint32_t abs = target + (d->trimmed ? d->trim.S : 0u);
+    uint32_t f = abs / d->spf, fw = f > MP3D_WARM ? f - MP3D_WARM : 0u;
+    uint32_t span = d->xing_bytes ? d->xing_bytes : (d->file_size > d->first_off ? d->file_size - d->first_off : 0u);
+    if (!span) return 0;
+    if (d->vbr && d->has_toc && d->xing_frames > 100u) {                /* true VBR: the TOC entry at or below fw. Its entries are 8-bit (span/256 apart, about 0.4% of the file), so the landing is only that accurate */
+        uint32_t nfr = d->xing_frames + 1u;
+        uint32_t i = (uint32_t)(((uint64_t)fw * 100u) / nfr);
+        if (i > 99u) i = 99u;
+        o->frame_idx = (uint32_t)(((uint64_t)i * nfr) / 100u);
+        o->byte_off = d->first_off + (uint32_t)(((uint64_t)d->toc[i] * span) >> 8);
+    } else if (d->xing_frames) {                                        /* CBR (a LAME 'Info' tag): constant frame size from the frame count; exact to a frame or two */
+        o->frame_idx = fw;
+        o->byte_off = d->first_off + (uint32_t)(((uint64_t)fw * span) / (d->xing_frames + 1u));
+    } else if (d->kbps && d->rate) {                                    /* no tag at all: assume CBR from the first frame's bitrate */
+        o->frame_idx = fw;
+        o->byte_off = d->first_off + (uint32_t)(((uint64_t)fw * d->spf * d->kbps * 125u) / d->rate);      /* exact fraction: a truncated average drifts a byte per frame */
+    } else return 0;
+    o->skip_before = abs;
+    return 1;
+}
+
+/* Restart decoding at a plan: seek the stream, rebuild the decoder, count frames from the landing index. */
+static inline int mp3d_seek(mp3d_t *d, stream_t *s, const mp3_seek_t *p)
+{
+    stream_seek(s, p->byte_off);
+    d->wn = d->wp = 0;
+    MP3FreeDecoder(d->dec); d->dec = MP3InitDecoder();
+    d->frame_idx = p->frame_idx; d->skip_before = p->skip_before; d->pairs_out = 0;
+    d->state = D_RUN; d->hdr_done = 1; d->seeks++;
+    return d->dec != 0;
 }
 #endif
