@@ -12,6 +12,7 @@
 #include "../ui/views.h"
 #include "../ui/theme.h"
 #include "../ui/meter.h"
+#include "../cores/blank_core.h"
 #include "../ui/appearance.h"
 #include "../ui/settings_view.h"
 #include "../aout/halcyon.h"
@@ -26,6 +27,7 @@ static void hand_out_assets(void)
     if (!base) return;
     theme_file_load(base, total);                       /* THEM: extra themes (a bad section leaves the built-ins and a code for Info) */
     if (assets_section("PRST", &p, &n)) halcyon_prst_load(p, n, assets_in_psram(), assets_psram_ok);
+    if (!assets_in_psram() && assets_section("METR", &p, &n)) meters_metr_load(p, n);                              /* user presets replace the built-in ones of the meters the file carries */
 }
 static void info_draw_all(void) { counters_refresh(); info_page_draw(); }
 static const views_diag_t diag_pages = { info_page_init, info_page_key, info_draw_all, report_page_draw };
@@ -45,20 +47,27 @@ int main(void)
     counters_aout_init = (uint32_t)aout_init();
     halcyon_init();
     halcyon_set_dip(mp3play_dip_begin, mp3play_dip_end);
+    meters_init();                                                                          /* before the assets and the saved settings: both set meter presets */
     if (!counters_aout_init) { mp3play_init(caps.cymo); assets_load(); hand_out_assets(); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); appearance_set(sv); settings_view_init_choices(); }       /* the assets (user Halcyon presets) are read before the saved preset is applied */
     theme_init();
     views_set_diag(&diag_pages);
     views_init();
     kr_t kr_pad = { 0 }, kr_vol = { 0 };
     uint32_t sel_used = 0, st_used = 0, lr_key = 0, lr_t0 = 0, lr_next = 0, lr_seeked = 0;
+    bl_t blank = { 0 };
     uint32_t prev = 0, t_prev = cycles(), loops = 0, loop_max = 0;
     for (;;) {
         uint32_t t0 = cycles();
         uint32_t keys = REG(R_INPUT) & 0xFFFFu, edge = keys & ~prev, rel = prev & ~keys; prev = keys;
         uint32_t now = cycles();
+        blank.sel = blank_sel;
+        { const int bs = bl_step(&blank, now, CLK_HZ, edge | rel);
+          if (bs == BL_SLEEP) gfx_rect(0, 0, GFX_W, GFX_H, 0);                              /* black: playback goes on, nothing is drawn */
+          if (bs == BL_WAKE) views_refresh();                                               /* the first press wakes the screen and is swallowed */
+          if (bs == BL_WAKE || blank.blanked) { edge = 0; rel = 0; keys = 0; } }
         const uint32_t cur = views_cur(), np_like = (cur == V_NOWPLAYING || cur == V_FULLSCREEN);
         { uint32_t rep = 0;
-          if (cur == V_LIBRARY || cur == V_SETTINGS || cur == V_INFO) edge = kr_step(&kr_pad, edge, keys, KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT, now, CLK_HZ * 2u / 5u, CLK_HZ / 14u, &rep);      /* hold a direction to repeat */
+          if (cur == V_LIBRARY || cur == V_SETTINGS || cur == V_INFO || cur == V_CONFIGURE) edge = kr_step(&kr_pad, edge, keys, KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT, now, CLK_HZ * 2u / 5u, CLK_HZ / 14u, &rep);      /* hold a direction to repeat */
           else if (np_like && !(keys & KEY_SELECT)) edge = kr_step(&kr_vol, edge, keys, KEY_UP | KEY_DOWN, now, CLK_HZ * 2u / 5u, CLK_HZ / 14u, &rep);                                  /* hold Up/Down for volume */
         }
         /* Select and Start are taps (acted on at release, and not at all if another key was pressed while they were down) or modifiers. */
@@ -78,7 +87,7 @@ int main(void)
         else if (lr_key && !(keys & lr_key)) lr_key = 0;
         if (((edge & KEY_START) && (keys & KEY_SELECT)) || ((edge & KEY_SELECT) && (keys & KEY_START))) { if (cur == V_REPORT) views_report_refresh(); else views_switch(V_REPORT); }      /* Select+Start: one screenshot decodes every counter; again refreshes */
         else if (cur == V_REPORT) { if (edge) views_input(edge); }
-        else if ((rel & KEY_START) && !st_used) views_switch(cur == V_SETTINGS || cur == V_LIBRARY || cur == V_HALCYON ? V_NOWPLAYING : V_SETTINGS);     /* Start: Settings (closes Settings or the library) */
+        else if ((rel & KEY_START) && !st_used) views_switch(cur == V_SETTINGS || cur == V_LIBRARY || cur == V_HALCYON || cur == V_CONFIGURE ? V_NOWPLAYING : V_SETTINGS);     /* Start: Settings (closes Settings or the library) */
         else if ((rel & KEY_SELECT) && !sel_used) {                                           /* Select: the library (back a level inside it) */
             if (cur == V_LIBRARY) views_input(KEY_B); else views_switch(np_like ? V_LIBRARY : V_NOWPLAYING);
         }
@@ -105,7 +114,7 @@ int main(void)
         }
         loops++; counters_loops = loops; counters_keys = keys;
         if (th_changed) { th_changed = 0; views_refresh(); }                             /* a colour, theme or mode change repaints the view in place */
-        views_mark(); views_flush();                                                       /* the view marks what changed; the dirty regions the beam is not in are drawn */
+        if (!blank.blanked) { views_mark(); views_flush(); }                                                       /* the view marks what changed; the dirty regions the beam is not in are drawn */
         uint32_t d = cycles() - t_prev; t_prev = cycles();
         if (d > loop_max) { loop_max = d; counters_loop_max_cyc = d; }
     }

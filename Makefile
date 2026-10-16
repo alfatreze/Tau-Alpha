@@ -119,6 +119,12 @@ test-host:
 	$(PYTHON) sim/test_p2_chladni.py
 	$(PYTHON) sim/test_p2_lw.py
 	$(PYTHON) tools/player2/gen_lw_presets.py --check
+	$(PYTHON) tools/player2/gen_meter_presets.py --check
+	$(PYTHON) sim/test_p2_mpre.py
+	$(PYTHON) sim/test_p2_configure.py
+	$(PYTHON) sim/test_p2_configure_view.py
+	$(PYTHON) sim/test_p2_metr.py
+	$(PYTHON) sim/test_p2_blank.py
 	$(PYTHON) sim/test_p2_art_probe.py
 	$(PYTHON) sim/test_p2_helios.py
 	$(PYTHON) sim/test_p2_views.py

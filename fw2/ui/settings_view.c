@@ -23,6 +23,7 @@
 /* The menu's value ids 0..6 are the transport's preferences. */
 _Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_TEMPO == PREF_TEMPO && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL, "menu value ids must mirror PREF_*");
 
+uint8_t blank_sel;                       /* Settings > Appearance > Screen blank: an index into bl_minutes (not persisted, as in the old player) */
 static mg_t menu; static uint32_t vals[V_COUNT], dirty; static uint8_t resume;      /* 1: coming back from Info, Report or the Halcyon page: keep the page you were on */
 
 static void pull(void)
@@ -31,6 +32,7 @@ static void pull(void)
     for (uint32_t k = 0; k < 4u; k++) if (vals[V_COLOUR + k] != cur_vals[k]) { vals[V_COLOUR + k] = cur_vals[k]; dirty = 1; }
     for (uint32_t i = 0; i < PREF_COUNT; i++) { uint32_t v = mp3play_pref_get(i); if (v != vals[i]) { vals[i] = v; dirty = 1; } }
     if (vals[V_ART] != np_art_on) { vals[V_ART] = np_art_on; dirty = 1; }
+    if (vals[V_BLANK] != blank_sel) { vals[V_BLANK] = blank_sel; dirty = 1; }
     if (vals[V_ACCEPT_ALL] != mp3play_accept_all) { vals[V_ACCEPT_ALL] = mp3play_accept_all; dirty = 1; }
 }
 static void put_num(char *o, uint32_t v)
@@ -73,9 +75,10 @@ int settings_view_input(uint32_t edge)
         else if (e.id == V_THEME) theme_set(e.value, th_pol, th_pal);
         else if (e.id == V_MODE) theme_set(th_theme, e.value, th_pal);
         else if (e.id == V_METER) meters_select(e.value);
+        else if (e.id == V_BLANK) blank_sel = (uint8_t)e.value;
         pull();
         break;
-    case EF_ACTION: resume = 1; return e.id == ACT_INFO ? V_INFO : e.id == ACT_HALCYON ? V_HALCYON : V_REPORT;
+    case EF_ACTION: resume = 1; return e.id == ACT_INFO ? V_INFO : e.id == ACT_HALCYON ? V_HALCYON : e.id == ACT_CONFIGURE ? V_CONFIGURE : V_REPORT;
     case EF_CLOSE: return V_NOWPLAYING;
     default: break;
     }
