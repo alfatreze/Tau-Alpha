@@ -718,7 +718,11 @@ static inline int f2_rec_step(f2_rec_t *r, const uint8_t *in, uint32_t avail, in
         if (r->want_var == 0xFFu) r->want_var = h.variable;
         else if (r->want_var != h.variable) { r->frame_errors++; r->fails++; r->mode = F2_RM_SCAN; r->skip_first = 1; return F2_OK; }
         if (r->frame_known) {
+#if BUG == 31
+            if (!r->tl.have) { r->tl.have = 1; r->tl.next = smp; }                 /* an unverified header sets the timeline */
+#else
             if (!r->tl.have) { r->tl_pending = 1; }
+#endif
 #if BUG == 19
             else if (smp > r->tl.next) { r->owed = smp - r->tl.next; r->tl.next = smp; return F2_OK; }
 #else
@@ -870,5 +874,92 @@ static inline int f2_seekpoint(const uint8_t *tab, uint32_t points, uint64_t tar
     }
     return found;
 }
+
+
+/* ---- seeking without (or between) seek-table points: interpolate, probe, bracket (spec 5.7) ----
+ * Offsets are bytes from the first frame. The bracket [lo, hi): lo is a frame start whose first sample is <= target (offset 0 / sample 0 to begin with, or a seek-table point), hi a frame start (or the
+ * end of the audio) beyond the target. Each probe reads a window at the guess, takes the first plausible frame header in it (CRC-8, STREAMINFO match, the stream's blocking strategy, a start sample
+ * strictly inside the bracket -- a false sync word carries a random number and fails that), and either lands (the frame holds the target) or shrinks the bracket. The caller then decodes from the found
+ * frame with a recovery decoder whose timeline is unknown (f2_rec_*, no f2_rec_set_timeline): the first VERIFIED frame sets the timeline, and the pairs before the target are discarded. */
+enum { F2_SEEK_CONT = 0, F2_SEEK_DONE = 1, F2_SEEK_FAIL = 2 };
+#define F2_SEEK_WIN 4096u                                               /* bytes the caller reads per probe */
+#define F2_SEEK_MAXPROBES 64u
+typedef struct {
+    uint64_t target, lo_off, lo_s, hi_off, hi_s, ceil, probe, run_start, found_off, found_s;
+    uint32_t probes, avg_frame; uint8_t state; int8_t want_var;
+} f2_seek_t;
+static inline uint64_t f2_muldiv_approx(uint64_t a, uint64_t b, uint64_t c)       /* a*b/c without a 128-bit product: a is reduced until the product fits 64 bits (a probe guess needs no more) */
+{
+    while ((a >> 31) || (b >> 32)) { a >>= 1; b >>= 1; c >>= 1; }
+    if (c == 0) return 0;
+    return a * b / c;
+}
+/* Chooses the next probe offset p with lo_off < p < ceil (ceil <= hi_off bounds where an undiscovered frame start can still be). Returns 0 when there is no room left. */
+static inline int f2_seek_aim(f2_seek_t *k)
+{
+    if (k->ceil <= k->lo_off + 1u) return 0;
+    uint64_t p;
+    if (k->hi_off - k->lo_off <= F2_SEEK_WIN) p = k->lo_off + 1u;                  /* a bracket the size of a window: read right after the frame we know and walk forward through its successors */
+    else {
+        uint64_t d = k->target - k->lo_s, span_s = k->hi_s - k->lo_s, span_o = k->hi_off - k->lo_off;
+        p = k->lo_off + f2_muldiv_approx(d, span_o, span_s ? span_s : 1u);
+        uint64_t back = span_s ? f2_muldiv_approx(k->avg_frame, span_o, span_s) : 0u;   /* aim one average frame early, so the first header found is the frame BEFORE or AT the target */
+        p = p > back ? p - back : 0u;
+        if (k->probes >= 4u && k->probes % 3u == 0u) p = k->lo_off + (k->ceil - k->lo_off) / 2u;   /* every third probe a plain bisection: the range at least halves, whatever the bitrate does */
+    }
+    if (p <= k->lo_off) p = k->lo_off + 1u;
+    if (p >= k->ceil) p = k->ceil - 1u;
+    k->probe = p; return 1;
+}
+/* total_samples: STREAMINFO's count (0 = unknown: the seek fails and the caller plays from the start). (lo_off, lo_s): a known frame start at or before the target, (0, 0) if none. audio_bytes: bytes from
+ * the first frame to the end of the file. */
+static inline int f2_seek_begin(f2_seek_t *k, const f2_info_t *si, uint64_t target, uint64_t total_samples, uint64_t audio_bytes, uint64_t lo_off, uint64_t lo_s, int want_var)
+{
+    uint8_t *z = (uint8_t *)k; for (uint32_t i = 0; i < sizeof *k; i++) z[i] = 0;
+    k->want_var = (int8_t)want_var; k->avg_frame = si->max_bs ? si->max_bs : 4096u;
+    if (total_samples == 0u || audio_bytes < 2u) { k->state = F2_SEEK_FAIL; return F2_SEEK_FAIL; }
+    if (target >= total_samples) target = total_samples - 1u;
+    k->target = target; k->lo_off = lo_off; k->lo_s = lo_s; k->hi_off = audio_bytes; k->hi_s = total_samples; k->ceil = audio_bytes;
+    k->found_off = lo_off; k->found_s = lo_s;
+    if (lo_s > target || !f2_seek_aim(k)) { k->state = F2_SEEK_DONE; return F2_SEEK_DONE; }
+    return F2_SEEK_CONT;
+}
+/* Feed the window read at the probe offset (k->probe), `avail` bytes (up to F2_SEEK_WIN; fewer at the end of the file). One window is walked as far as it goes: every plausible header in it is classified
+ * -- wholly before the target moves the lower bound up and the walk continues, the frame holding the target ends the search, wholly after ends the window. */
+static inline int f2_seek_feed(f2_seek_t *k, const f2_info_t *si, const uint8_t *win, uint32_t avail)
+{
+    if (k->state != F2_SEEK_CONT) return (int)k->state;
+    uint32_t from = 0; int progressed = 0; k->probes++;
+    for (;;) {
+        uint32_t off = 0; f2_fh_t h; uint64_t smp;
+        if (f2_find_frame(win, avail, from, si, k->want_var, 0, &off) != F2_OK) break;
+        if (f2_frame_header(win + off, avail - off, si, &h) != F2_OK || !f2_frame_sample(si, &h, &smp)) { from = off + 1u; continue; }
+        uint64_t aoff = k->probe + off;
+#if BUG != 27
+        if (smp < k->lo_s || smp >= k->hi_s || aoff <= k->lo_off || aoff >= k->hi_off) { from = off + 1u; continue; }         /* implausible: a false sync */
+#endif
+        if (smp <= k->target && k->target < smp + h.bs) { k->found_off = aoff; k->found_s = smp; k->state = F2_SEEK_DONE; return F2_SEEK_DONE; }
+#if BUG == 29
+        if (smp + h.bs > k->target) { k->lo_off = aoff; k->lo_s = smp; k->found_off = aoff; k->found_s = smp; progressed = 1; from = off + 1u; continue; }
+        k->hi_off = aoff; k->hi_s = smp; progressed = 1; break;                                                               /* the sides swapped */
+#elif BUG == 30
+        if (smp + h.bs <= k->target) { k->lo_off = aoff; k->lo_s = smp; progressed = 1; from = off + 1u; continue; }       /* the fallback frame is not remembered */
+        k->hi_off = aoff; k->hi_s = smp; progressed = 1; break;
+#else
+        if (smp + h.bs <= k->target) { k->lo_off = aoff; k->lo_s = smp; k->found_off = aoff; k->found_s = smp; progressed = 1; from = off + 1u; continue; }   /* wholly before the target */
+        k->hi_off = aoff; k->hi_s = smp; progressed = 1; break;                                                               /* wholly after */
+#endif
+    }
+    if (k->ceil > k->hi_off) k->ceil = k->hi_off;
+    if (!progressed) {                                                  /* nothing usable in this window: step on, or, at the end of the range, look EARLIER (the frame starts before where this run began) */
+        if (k->run_start == 0u) k->run_start = k->probe;
+        uint64_t nxt = k->probe + (avail > 32u ? avail - 16u : 1u);
+        if (nxt < k->ceil) { k->probe = nxt; return F2_SEEK_CONT; }
+        k->ceil = k->run_start; k->run_start = 0u;
+    } else k->run_start = 0u;
+    if (k->probes >= F2_SEEK_MAXPROBES || !f2_seek_aim(k)) { k->state = F2_SEEK_DONE; return F2_SEEK_DONE; }    /* decode forward from the last frame known to precede the target */
+    return F2_SEEK_CONT;
+}
+
 
 #endif
