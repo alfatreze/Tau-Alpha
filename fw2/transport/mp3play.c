@@ -522,6 +522,7 @@ SMALL void mp3play_heard(void)
     mp.lpc_slots = tau_lpc_stat_samples; mp.lpc_timeout = tau_lpc_stat_timeout;
 #endif
 #if TAU_POLY_FW
+    mp.poly_silent = tau_poly_stat_silent; mp.poly_fail = (tau_poly_stat_silent || !caps.poly) ? 1u : 0u;
     mp.poly_on = (uint32_t)tau_poly_hw_enable; mp.poly_slots = tau_poly_stat_slots; mp.poly_mismatch = tau_poly_stat_mismatch; mp.poly_timeout = tau_poly_stat_timeout;
 #endif
     aout_snap_t s = aout_snap(); uint32_t h = aout_heard(&s);
@@ -569,6 +570,7 @@ SMALL static void np_refresh(const tl_seg_t *g, uint32_t id)
 }
 SMALL const np_info_t *mp3play_np(void)
 {
+    np.fault = (uint32_t)(mp.poly_fail ? 1u : 0u);
     np.playing = mp.playing; np.held = mp.held; np.volume = mp.volume; np.rg_mode = mp.rg_mode; np.repeat = q.repeat; np.shuffle = lp.shuffle; np.tempo_q8 = tempo_q8[mp.tempo_idx]; np.gov = mp.gov_mode;
     return &np;
 }

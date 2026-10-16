@@ -70,6 +70,7 @@ void nowplaying_draw(void)
         put(2, 72, p->artist, DIM, TW, 0);
         put(3, 96, p->album, DIM, TW, 0);
         put(4, 130, p->quality, DIM, TW, 0);
+        put(9, 152, p->fault ? "MP3 UNIT FAILED" : "", ACC, TW, 0);
         put_x = X0;
         char t[16];
         np_time(t, p->pos, p->rate); put(5, BAR_Y + 14u, t, FG, 100, 0);

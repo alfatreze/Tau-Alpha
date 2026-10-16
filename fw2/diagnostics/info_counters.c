@@ -62,6 +62,7 @@ const cnt_t counters_table[] = {
     { "MP POLY SLOTS",CK_U32, CU_NONE,   &mp.poly_slots },
     { "MP POLY BAD",  CK_U32, CU_NONE,   &mp.poly_mismatch },     /* self-check mismatches against the software window (must stay 0) */
     { "MP POLY TMO",  CK_U32, CU_NONE,   &mp.poly_timeout },
+    { "MP POLY SILENT", CK_U32, CU_NONE, &mp.poly_silent },     /* stereo slots output as silence because the required unit failed (must stay 0) */
     { "MP TEMPO IDX", CK_U32, CU_NONE,   &mp.tempo_idx },         /* 0.75 0.85 1.00 1.10 1.25 1.50 1.75 2.00 (Select+L1/R1) */
     { "MP TEMPO OUT", CK_U32, CU_PAIRS,  &mp.tempo_out },
     { "FLAC REFUSED", CK_U32, CU_NONE,   &mp.flac_refused },      /* rate over 48 kHz, more than 2 channels, blocks too large or a bad header */

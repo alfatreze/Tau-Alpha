@@ -11,7 +11,7 @@
 
 int tau_poly_hw_enable = 0;
 int tau_poly_verify_left;
-unsigned tau_poly_stat_slots, tau_poly_stat_mismatch, tau_poly_stat_timeout;
+unsigned tau_poly_stat_slots, tau_poly_stat_mismatch, tau_poly_stat_timeout, tau_poly_stat_silent;
 int tau_poly_wlog[33];
 int tau_poly_wn;
 

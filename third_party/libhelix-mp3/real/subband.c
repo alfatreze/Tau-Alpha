@@ -53,6 +53,9 @@
 #ifndef TAU_POLY_FW
 #define TAU_POLY_FW 0
 #endif
+#ifndef TAU_POLY_REQUIRED
+#define TAU_POLY_REQUIRED 0
+#endif
 #include "mp3_profile.h"   /* Cymo C0: MPROF_MARK/MPROF_ACC1 (no-ops unless MP3_PROFILE) */
 #if TAU_POLY_FW
 #include "mp3_poly_hw.h"
@@ -89,6 +92,30 @@ int Subband(MP3DecInfo *mp3DecInfo, short *pcmBuf)
 
 	if (mp3DecInfo->nChans == 2) {
 		/* stereo */
+#if TAU_POLY_REQUIRED
+		/* Player 2: the window unit is REQUIRED (no software window is built in). Same pipelining as below: a slot's PCM is collected after the next slot's FDCT32. If the unit is absent,
+		 * times out or was disabled the slots are output as SILENCE and counted (tau_poly_stat_silent), which the player shows on screen: a missing unit is never a quiet failure. */
+		int hw = tau_poly_hw_enable;
+		if (hw && !sbi->hwPolyReady) { tau_poly_hw_clear(); hw = tau_poly_hw_enable; sbi->hwPolyReady = 1; }
+		short *hw_pend = 0;
+		for (b = 0; b < BLOCK_SIZE; b++) {
+			if (hw) {
+				int w0[32], w1[32];
+				tau_poly_wn = 0;
+				FDCT32(mi->outBuf[0][b], sbi->vbuf + 0*32, sbi->vindex, (b & 0x01), mi->gb[0]);
+				for (int k = 0, j = 0; k < 33; k++) if (k != 17) w0[j++] = tau_poly_wlog[k];
+				tau_poly_wn = 0;
+				FDCT32(mi->outBuf[1][b], sbi->vbuf + 1*32, sbi->vindex, (b & 0x01), mi->gb[1]);
+				for (int k = 0, j = 0; k < 33; k++) if (k != 17) w1[j++] = tau_poly_wlog[k];
+				if (hw_pend) { if (!tau_poly_hw_finish(hw_pend)) { for (int j = 0; j < 2 * NBANDS; j++) hw_pend[j] = 0; tau_poly_stat_silent++; hw = 0; } hw_pend = 0; }
+				if (hw) { if (tau_poly_hw_start(w0, w1)) hw_pend = pcmBuf; else { hw = 0; } }
+			}
+			if (!hw && !hw_pend) { for (int j = 0; j < 2 * NBANDS; j++) pcmBuf[j] = 0; tau_poly_stat_silent++; }
+			sbi->vindex = (sbi->vindex - (b & 0x01)) & 7;
+			pcmBuf += (2 * NBANDS);
+		}
+		if (hw_pend) { if (!tau_poly_hw_finish(hw_pend)) { for (int j = 0; j < 2 * NBANDS; j++) hw_pend[j] = 0; tau_poly_stat_silent++; } }
+#else
 #if TAU_POLY_FW
 		int hw_this_track = tau_poly_hw_enable;
 		if (hw_this_track && !sbi->hwPolyReady) {
@@ -167,6 +194,7 @@ int Subband(MP3DecInfo *mp3DecInfo, short *pcmBuf)
 			if (!tau_poly_hw_finish(hw_pend)) for (int j = 0; j < 2 * NBANDS; j++) hw_pend[j] = 0;
 			MPROF_ACC1(pm2, mp3_sub_hw_total_cyc);
 		}
+#endif
 #endif
 	} else {
 		/* mono */
