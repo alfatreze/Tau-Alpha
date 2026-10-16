@@ -6,7 +6,9 @@
 #include "../diagnostics/report_page.h"
 #include "../aout/aout.h"
 #include "../transport/tone.h"
-#ifdef P2_LISTPLAY
+#ifdef P2_MP3PLAY
+#include "../transport/mp3play.h"
+#elif defined(P2_LISTPLAY)
 #include "../transport/listplay.h"
 #endif
 
@@ -17,7 +19,9 @@ int main(void)
     platform_probe();
     counters_init();
     counters_aout_init = (uint32_t)aout_init();            /* 0 = the ring is armed; the tone transport only runs then */
-#ifdef P2_LISTPLAY
+#ifdef P2_MP3PLAY
+    if (!counters_aout_init) mp3play_init(caps.cymo);
+#elif defined(P2_LISTPLAY)
     listplay_init();                                           /* S4: no audio, the card path only */
 #else
     if (!counters_aout_init) tone_init(caps.cymo);
@@ -32,13 +36,17 @@ int main(void)
         if (edge & KEY_START) { report = 1; report_page_draw(); }                          /* START: snapshot every counter as a pixel grid (one screenshot decodes them all); START again refreshes */
         else if (report && (edge & (KEY_B | KEY_A | KEY_X | KEY_Y | KEY_UP | KEY_DOWN))) { report = 0; info_page_init(); last_draw = 0; }   /* any other key returns to the page */
         else if (!report && edge) { info_page_key(edge);
-#ifdef P2_LISTPLAY
+#ifdef P2_MP3PLAY
+            if (!counters_aout_init) mp3play_key(edge & ~(KEY_UP | KEY_DOWN));
+#elif defined(P2_LISTPLAY)
             listplay_key(edge & ~(KEY_UP | KEY_DOWN));
 #else
             if (!counters_aout_init) tone_key(edge);
 #endif
             }
-#ifdef P2_LISTPLAY
+#ifdef P2_MP3PLAY
+        if (!counters_aout_init) { mp3play_pump(); mp3play_heard(); aout_poll((int)mp.playing); }
+#elif defined(P2_LISTPLAY)
         listplay_pump();
 #else
         if (!counters_aout_init) { tone_pump(); tone_heard(); aout_poll(tone.playing); }

@@ -3,6 +3,12 @@
 #include "../aout/aout.h"
 #include "../transport/tone.h"
 #include "../cores/monoclock_core.h"
+#ifdef P2_MP3PLAY
+#include "../transport/mp3play.h"
+#define tone mp
+#define tone_tl mp_tl
+#define tone_gov mp_gov
+#endif
 #ifdef P2_LISTPLAY
 #include "../transport/listplay.h"
 #include "../stream/slot.h"
@@ -20,6 +26,24 @@ static mc_t uptime_clk;                  /* monotone seconds from the 32-bit cyc
 const cnt_t counters_table[] = {
     { "FIRMWARE",     CK_STR,   CU_NONE,  p2_ver_field + 7 },       /* read through a volatile pointer at run time: the packagers patch these bytes after the build */
     { "CORE VERSION", CK_HEX32, CU_NONE,  &caps.core_version },
+#ifdef P2_MP3PLAY
+    { "MP STATE",     CK_U32, CU_NONE,   &mp.state },             /* 0 idle, 1 decoding, 2 ending, 3 waiting to change rate */
+    { "MP RATE",      CK_U32, CU_NONE,   &mp.rate },
+    { "MP CH",        CK_U32, CU_NONE,   &mp.ch },
+    { "MP FRAMES",    CK_U32, CU_NONE,   &mp.frames },
+    { "MP ERRORS",    CK_U32, CU_NONE,   &mp.errors },
+    { "MP RESYNCS",   CK_U32, CU_NONE,   &mp.resyncs },
+    { "MP PAIRS OUT", CK_U32, CU_PAIRS,  &mp.pairs_out },
+    { "MP PAIRS TOT", CK_U32, CU_PAIRS,  &mp.pairs_total },       /* the P3 expectation of the track being decoded (0 = unknown) */
+    { "MP ENDED",     CK_U32, CU_NONE,   &mp.ended },
+    { "MP GAPLESS",   CK_U32, CU_NONE,   &mp.gapless_next },      /* natural ends continued with no flush */
+    { "MP DRAINED",   CK_U32, CU_NONE,   &mp.drain_next },        /* natural ends that waited for a rate change */
+    { "MP RATE CHG",  CK_U32, CU_NONE,   &mp.rate_changes },
+    { "MP NEED DATA", CK_U32, CU_NONE,   &mp.need_data },
+    { "MP DEC MAX",   CK_U32, CU_CYC,    &mp.dec_max_cyc },       /* the longest atomic decode step */
+    { "MP DEC STEPS", CK_U32, CU_NONE,   &mp.dec_steps },
+    { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
+#endif
 #ifdef P2_LISTPLAY
     { "LP STATE",     CK_U32, CU_NONE,   &lp.state },             /* 0 idle, 1 streaming, 2 opening */
     { "LIB STATE",    CK_U8,  CU_NONE,   &lib_state },            /* 1 loaded, 2 failed */
