@@ -10,6 +10,9 @@
 #include "../stream/skiplist.h"
 #if P2_FLAC2
 #include "../decode/flac2_unit.h"
+#if TAU_LPC_FW
+#include "../../fw/flac_lpc_hw.h"
+#endif
 #include <stdlib.h>
 #define FLAC_CH0_WORDS 5120u                              /* 20 KB from the decoder arena (shared with Helix: one codec is live at a time); a file with larger blocks is refused */
 #define F2_OUT_PAIRS 64u                                  /* pairs per decoder call (512 B of int32) */
