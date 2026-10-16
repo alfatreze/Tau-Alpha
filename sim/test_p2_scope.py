@@ -11,7 +11,7 @@ def check(name, ok):
     if not ok: fails += 1
 def build(td, mutant):
     d = Path(td)
-    for sub in ("ui", "gfx", "platform", "sim"): (d / sub).mkdir()
+    for sub in ("ui", "gfx", "platform", "generated", "sim"): (d / sub).mkdir()
     src = (ROOT / "fw2/ui/meter_winamp_scope.c").read_text()
     if mutant:
         a = "        if (lo < -ey) lo = -ey; else if (lo > ey) lo = ey;"
@@ -20,7 +20,7 @@ def build(td, mutant):
         src = src.replace(a, "").replace(b, "")
         src = src.replace("        if (lo > hi) lo = hi;", "")
     (d / "ui/meter_winamp_scope.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
+    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "generated/meter_presets.h", "platform/mmio.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_scope_harness.c").read_text().replace('"../fw2/ui/meter_winamp_scope.c"', '"../ui/meter_winamp_scope.c"'))
     exe = d / "h"
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(exe), str(d / "sim/h.c")], capture_output=True, text=True)

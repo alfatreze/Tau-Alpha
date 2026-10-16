@@ -3,6 +3,7 @@
 #include "theme.h"
 #include "../gfx/gfx.h"
 #include "../platform/mmio.h"
+#include "../generated/meter_presets.h"
 #define CHL_DATA
 #include "../../fw/chladni_core.h"
 
@@ -29,7 +30,14 @@ static uint8_t shed;
 static uint32_t now_ms, last_draw, drawn_n, skipped_n;
 uint32_t chladni_drawn(void) { return drawn_n; }
 uint32_t chladni_unavailable(void) { return ok == 2u; }
-void chladni_set(uint32_t layout, uint32_t paint) { layout_want = (uint8_t)(layout < CHL_PRESET_N ? layout : 0u); paint_want = (uint8_t)(paint < 3u ? paint : 0u); }
+static const uint16_t *pv = mpp_chl[0];                          /* the selected preset's values */
+const char *meter_chladni_preset_name(uint32_t i) { return mpp_chl_name[i < MPP_CHL_PRESETS ? i : 0u]; }
+void meter_chladni_preset(uint32_t i)
+{
+    pv = mpp_chl[i < MPP_CHL_PRESETS ? i : 0u];
+    layout_want = (uint8_t)(pv[MPP_CHL_LAYOUT] < CHL_PRESET_N ? pv[MPP_CHL_LAYOUT] : 0u); paint_want = (uint8_t)(pv[MPP_CHL_PAINT] < 3u ? pv[MPP_CHL_PAINT] : 0u);
+    layout_cur = 0xFFu;                                            /* re-initialise with the preset's tunables */
+}
 
 static uint16_t mix(uint16_t a, uint16_t b, uint32_t t, uint32_t n)
 {
@@ -94,6 +102,8 @@ static void sync(void)
         pre = &chl_presets[layout_want];
         layout_cur = layout_want;
         cfg = pre->c;
+        cfg.eps0 = pv[MPP_CHL_LINE_WIDTH]; cfg.topk = (uint8_t)pv[MPP_CHL_MODES]; cfg.up_q12_s = pv[MPP_CHL_RISE]; cfg.dn_q12_s = pv[MPP_CHL_FALL];
+        cfg.morph_base = pv[MPP_CHL_MORPH]; cfg.morph_gain = pv[MPP_CHL_MORPH_GAIN]; cfg.sens_q4 = (uint8_t)pv[MPP_CHL_TRIGGER]; cfg.refr_ms = pv[MPP_CHL_REFRACTORY]; cfg.tonal = (uint8_t)pv[MPP_CHL_TONAL];
         chl_init(&st, &cfg);
         last_draw = now_ms;
     }

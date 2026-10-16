@@ -28,6 +28,8 @@
     "27": {"name": "(internal) theme", "word": "SW_THEME", "meaning": 2, "since": "v0.6.0-alpha.1",
            "what": "theme index (B-346). Until v0.5.0 id 27 was 'Library off (restart)' at another address; the id was reused, contrary to tools/tau_data_slots.py's own rule, so a value saved by v0.5.0 or older must not be read as a theme"},
     "28": {"name": "(internal) theme mode", "word": "SW_POL", "meaning": 2, "since": "v0.6.0-alpha.4",
-           "what": "bit 0 theme polarity (Dark 0, Light 1; since v0.6.0-alpha.1), bits 4-5 ReplayGain mode 0 Off 1 Track 2 Album (B-599, range widened to 255 in B-600)"}
+           "what": "bit 0 theme polarity (Dark 0, Light 1; since v0.6.0-alpha.1), bits 4-5 ReplayGain mode 0 Off 1 Track 2 Album (B-599, range widened to 255 in B-600)"},
+    "29": {"name": "(internal) meter presets", "word": "SW_MPRE", "meaning": 1, "since": "v0.6.0-preview.1",
+           "what": "NOT YET RELEASED (Player 2, first ships after v0.6.0-preview.1: set `since` to that release tag when it is cut). The selected preset of each meter, four bits each in the meter table order: Winamp Bars (bits 3-0, 5 presets), Winamp Scope (7-4, 5), Chladni (11-8, 4), Layered Wave (15-12, 8), Master VU (19-16, 3); Player 2 (Select+X cycles); a value out of range reads as the first preset"}
   }
 }

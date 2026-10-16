@@ -11,7 +11,7 @@ def check(name, ok):
     if not ok: fails += 1
 def build(td, mutant):
     d = Path(td)
-    for sub in ("ui", "gfx", "platform", "sim"): (d / sub).mkdir()
+    for sub in ("ui", "gfx", "platform", "generated", "sim"): (d / sub).mkdir()
     src = (ROOT / "fw2/ui/meter_chladni.c").read_text().replace('"../../fw/chladni_core.h"', f'"{ROOT}/fw/chladni_core.h"')
     if mutant == "norepeat":
         a = "    have = rows;\n    while (have < h) {"
@@ -20,7 +20,7 @@ def build(td, mutant):
         a = "uint32_t d = swap ? ((p0 << 16) | p1) : ((p1 << 16) | p0);"
         assert a in src; src = src.replace(a, "uint32_t d = (p1 << 16) | p0;")
     (d / "ui/meter_chladni.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
+    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "generated/meter_presets.h", "platform/mmio.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_chladni_harness.c").read_text().replace('"../fw2/ui/meter_chladni.c"', '"../ui/meter_chladni.c"'))
     exe = d / "h"
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(exe), str(d / "sim/h.c")], capture_output=True, text=True)

@@ -2,6 +2,7 @@
 #include "meter.h"
 #include "theme.h"
 #include "../gfx/gfx.h"
+#include "../generated/meter_presets.h"
 #include "../../fw/meter_core.h"
 #include "../../fw/vu_master_core.h"
 #include "../../fw/vu_segment_table.h"
@@ -24,7 +25,14 @@ static uint32_t seg_x(uint32_t lx, uint32_t lw, uint32_t seg, uint32_t *seg_w_ou
     if (seg_w_out) *seg_w_out = seg_w;
     return lx + seg * (seg_w + SEG_GAP);
 }
-static uint16_t zone_color(uint32_t zone) { return zone == 0u ? th_role[TR_OK] : zone == 1u ? th_role[TR_WARN] : th_role[TR_DANGER]; }
+static uint8_t fixed; static uint16_t fixed_c[3];                      /* a preset with its own zone colours (STANDARD, CUSTOM EXAMPLE) instead of the theme's roles */
+const char *meter_vu_master_preset_name(uint32_t i) { return mpp_vu_name[i < MPP_VU_PRESETS ? i : 0u]; }
+void meter_vu_master_preset(uint32_t i)
+{
+    const uint16_t *v = mpp_vu[i < MPP_VU_PRESETS ? i : 0u];
+    fixed = (uint8_t)(v[MPP_VU_COLOR_MODE] == 1u); fixed_c[0] = v[MPP_VU_COLOR_GREEN]; fixed_c[1] = v[MPP_VU_COLOR_YELLOW]; fixed_c[2] = v[MPP_VU_COLOR_RED];
+}
+static uint16_t zone_color(uint32_t zone) { if (fixed) return fixed_c[zone > 2u ? 2u : zone]; return zone == 0u ? th_role[TR_OK] : zone == 1u ? th_role[TR_WARN] : th_role[TR_DANGER]; }
 
 static void ladder(uint32_t ch, uint32_t lx, uint32_t ly, uint32_t lw, uint16_t bg, uint32_t peak, uint32_t force, uint32_t dt)
 {

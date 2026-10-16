@@ -15,12 +15,15 @@ extern void meter_winamp_scope_tick(const mtr_in_t *in);
 extern void meter_vu_master_tick(const mtr_in_t *in);
 extern void meter_chladni_tick(const mtr_in_t *in);
 extern void meter_layered_wave_tick(const mtr_in_t *in);
+#define PRESET_API(m) extern void meter_##m##_preset(uint32_t); extern const char *meter_##m##_preset_name(uint32_t)
+PRESET_API(winamp_bars); PRESET_API(winamp_scope); PRESET_API(chladni); PRESET_API(layered_wave); PRESET_API(vu_master);
+#define P(m, n) n, meter_##m##_preset, meter_##m##_preset_name
 const meter_def_t meter_table[] = {
-    { "WINAMP BARS", meter_winamp_bars_tick },
-    { "WINAMP SCOPE", meter_winamp_scope_tick },
-    { "CHLADNI", meter_chladni_tick },
-    { "LAYERED WAVE", meter_layered_wave_tick },
-    { "VU MASTER", meter_vu_master_tick },
+    { "WINAMP BARS", meter_winamp_bars_tick, P(winamp_bars, 5) },
+    { "WINAMP SCOPE", meter_winamp_scope_tick, P(winamp_scope, 5) },
+    { "CHLADNI", meter_chladni_tick, P(chladni, 4) },
+    { "LAYERED WAVE", meter_layered_wave_tick, P(layered_wave, 8) },
+    { "VU MASTER", meter_vu_master_tick, P(vu_master, 3) },
 };
 const uint32_t meter_count = sizeof meter_table / sizeof meter_table[0];
 
@@ -28,7 +31,18 @@ static uint32_t cur, bx, by, bw, bh, win_seen = 0xFFFFFFFFu, frame, last_t, forc
 static uint8_t lvl[MTR_BANDS];
 extern uint32_t mp3play_paused_now(void);          /* mp3play.c: 1 when nothing is being heard */
 
-void meters_init(void) { cur = 0; }
+static uint8_t pre[8];                                  /* the selected preset of each meter */
+void meters_init(void) { cur = 0; for (uint32_t i = 0; i < meter_count; i++) { pre[i] = 0; meter_table[i].set_pre(0u); } }
+uint32_t meters_preset_of(uint32_t m) { return m < meter_count ? pre[m] : 0u; }
+void meters_preset_select(uint32_t m, uint32_t p)
+{
+    if (m >= meter_count) return;
+    if (p >= meter_table[m].npre) p = 0u;
+    pre[m] = (uint8_t)p; meter_table[m].set_pre(p);
+    if (m == cur) force_next = 1;
+}
+void meters_preset_next(void) { meters_preset_select(cur, (pre[cur] + 1u) % meter_table[cur].npre); }
+const char *meters_preset_name(void) { return meter_table[cur].pre_name(pre[cur]); }
 uint32_t meters_cur(void) { return cur; }
 const char *meters_name(void) { return meter_table[cur].name; }
 
