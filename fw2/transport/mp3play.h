@@ -23,7 +23,7 @@ void mp3play_heard(void);
 typedef struct {
     char title[48], artist[40], album[40], quality[32];
     uint32_t gen, id, pos, total, rate;          /* pos/total in source pairs of the HEARD track; total 0 = unknown; gen changes with the track */
-    uint32_t playing, held, volume, rg_mode, repeat, shuffle, tempo_q8, valid;
+    uint32_t playing, held, volume, rg_mode, repeat, shuffle, tempo_q8, valid, gov;
 } np_info_t;
 const np_info_t *mp3play_np(void);
 /* Play a queue the library just built (u16 ids in library_queue_buf()): n tracks, starting at `start`. `src_kind`/`src_parent` remember how to rebuild its natural order (X shuffle off). */

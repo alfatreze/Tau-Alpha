@@ -4,6 +4,7 @@
 #include "../platform/mmio.h"
 #include "../transport/mp3play.h"
 #include "../cores/nowplaying_core.h"
+#include "meter.h"
 
 #define BG   RGB565(0, 0, 0)
 #define FG   RGB565(255, 255, 255)
@@ -37,9 +38,8 @@ void nowplaying_enter(void)
     for (uint32_t i = 0; i < 10u; i++) cache[i].s[0] = 0;
     bar_px = 0xFFFFFFFFu; last_gen = 0xFFFFFFFFu;
     gfx_text(X0, 6, "NOW PLAYING", ACC, BG);
-    gfx_text(X0, 304, "A PLAY  B PAUSE  Y +30S  X SHUFFLE", DIM, BG);
-    gfx_text(X0, 322, "L1 R1 VOL  SEL+L1 R1 TEMPO", DIM, BG);
-    gfx_text(X0, 340, "SEL+B INFO  START REPORT", DIM, BG);
+    meter_enter(196, 96);
+    gfx_text(X0, 340, "A PLAY B PAUSE Y SEEK  SEL+A LIB SEL+B INFO", DIM, BG);
 }
 
 static void line(char *o, uint32_t *n, const char *s) { while (*s && *n < 46u) o[(*n)++] = *s++; o[*n] = 0; }
@@ -71,9 +71,9 @@ void nowplaying_draw(void)
     }
     char s[48]; uint32_t n = 0; s[0] = 0;
     line(s, &n, "VOL "); num(s, &n, p->volume); line(s, &n, "   RG "); line(s, &n, p->rg_mode == 0 ? "OFF" : p->rg_mode == 1 ? "TRACK" : "ALBUM");
-    put(7, 230, s, FG, BAR_W, 0);
+    put(7, 296, s, FG, BAR_W, 0);
     n = 0; s[0] = 0; char sp[8]; np_speed(sp, p->tempo_q8);
-    line(s, &n, "TEMPO "); line(s, &n, sp); line(s, &n, p->repeat == 0 ? "   REPEAT OFF" : p->repeat == 1 ? "   REPEAT ALL" : "   REPEAT ONE");
-    put(8, 252, s, FG, BAR_W, 0);
-    put(9, 274, p->shuffle ? "SHUFFLE ON" : "SHUFFLE OFF", DIM, BAR_W, 0);
+    line(s, &n, "TEMPO "); line(s, &n, sp); line(s, &n, p->repeat == 0 ? "  REP OFF" : p->repeat == 1 ? "  REP ALL" : "  REP ONE"); line(s, &n, p->shuffle ? "  SHUF ON" : "  SHUF OFF");
+    put(8, 316, s, FG, BAR_W, 0);
+    meter_draw(p->gov < 1u);                                    /* the governor sheds the UI first: no bars while the ring is below half */
 }

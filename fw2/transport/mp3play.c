@@ -371,7 +371,7 @@ static void np_refresh(const tl_seg_t *g, uint32_t id)
 }
 const np_info_t *mp3play_np(void)
 {
-    np.playing = mp.playing; np.held = mp.held; np.volume = mp.volume; np.rg_mode = mp.rg_mode; np.repeat = q.repeat; np.shuffle = lp.shuffle; np.tempo_q8 = tempo_q8[mp.tempo_idx];
+    np.playing = mp.playing; np.held = mp.held; np.volume = mp.volume; np.rg_mode = mp.rg_mode; np.repeat = q.repeat; np.shuffle = lp.shuffle; np.tempo_q8 = tempo_q8[mp.tempo_idx]; np.gov = mp.gov_mode;
     return &np;
 }
 
