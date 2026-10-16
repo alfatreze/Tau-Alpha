@@ -104,6 +104,9 @@ def gen_signal(rng, bits, n, amp=1.0):
 def encode_stream(rng, bits=16, chans=2, rate=44100, blocks=None, variable=False, assigns=(1, 8, 9, 10)):
     """blocks: list of block sizes (each >= 16). Returns (frames bytes, streaminfo body, pcm list of (L, R), per-frame start offsets, block sizes)."""
     blocks = blocks or [rng.choice([16, 17, 192, 576, 1152, 4096, 4608]) for _ in range(rng.randrange(1, 5))]
+    if not variable and len(blocks) > 1:                                   # a fixed-block-size stream: one size, the last frame may be shorter (RFC 9639 section 8.2)
+        blocks = [blocks[0]] * (len(blocks) - 1) + [max(16, min(blocks[0], blocks[-1]))]
+    fixed_bs = blocks[0] if not variable else None
     out = b""; pcm = []; starts = []; sample = 0
     for fi, bs in enumerate(blocks):
         starts.append(len(out))
@@ -129,5 +132,6 @@ def encode_stream(rng, bits=16, chans=2, rate=44100, blocks=None, variable=False
         w.align(); body = h + w.bytes(); out += body + crc16(body).to_bytes(2, "big"); sample += bs
     md5 = hashlib.md5(b"".join(((l & ((1 << bits) - 1)).to_bytes(4, "little")[:(bits + 7) // 8]) + (((r & ((1 << bits) - 1)).to_bytes(4, "little")[:(bits + 7) // 8]) if chans == 2 else b"") for l, r in [(p[0], p[1]) for p in pcm])).digest()
     v = (rate << 44) | ((chans - 1) << 41) | ((bits - 1) << 36) | len(pcm)
-    si = min(blocks).to_bytes(2, "big") + max(blocks).to_bytes(2, "big") + b"\0\0\0\0\0\0" + v.to_bytes(8, "big") + md5
+    lo_bs, hi_bs = (fixed_bs, fixed_bs) if fixed_bs else (min(blocks), max(blocks))
+    si = lo_bs.to_bytes(2, "big") + hi_bs.to_bytes(2, "big") + b"\0\0\0\0\0\0" + v.to_bytes(8, "big") + md5
     return out, si, pcm, starts, blocks
