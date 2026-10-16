@@ -320,6 +320,7 @@ SMALL void mp3play_key(uint32_t edge)
     if (edge & KEY_X) shuffle_set(!lp.shuffle);
 }
 
+static uint8_t bad_run;                                   /* consecutive tracks that produced no verified frame (refused or failed): the list stops after 8 instead of cycling forever */
 SMALL static void track_ended(void)
 {
     if (seg_open_) { if (tl_close(&mp_tl)) mp.acct_bad++; seg_open_ = 0; }
@@ -331,6 +332,7 @@ SMALL static void track_ended(void)
 #if P2_FLAC
     flac_release();
 #endif
+    if (bad_run >= 8u) { bad_run = 0; mp.state = MPS_IDLE; return; }
     uint16_t nx = queue_next(&q, 1);
     if (nx == Q_NONE) { mp.state = MPS_ENDDRAIN; return; }
     /* the next track's rate comes from the index details (no card access): the same rate continues without a flush; anything else drains first */
@@ -353,12 +355,12 @@ SMALL static int flac_pass(stream_t *s)
         if (r == F2T_NEED) { mp.need_data++; break; }
         if (r == F2T_OPENED) {
             const f2_info_t *si = &ft.op.si;
-            if (si->rate > 48000u || si->channels > 2u || si->bps > 24u || si->max_bs > FLAC_CH0_WORDS) { mp.flac_refused++; track_ended(); break; }
+            if (si->rate > 48000u || si->channels > 2u || si->bps > 24u || si->max_bs > FLAC_CH0_WORDS) { mp.flac_refused++; bad_run++; track_ended(); break; }
             ft_total = (uint32_t)si->total; ft_rate = si->rate; mp.ch = si->channels; mp.pairs_total = ft_total;
             continue;
         }
         if (r == F2T_END) { track_ended(); break; }
-        if (r == F2T_FAIL) { mp.errors++; mp.flac_err = ft.why; if (ft.why == F2T_WHY_NOTFLAC || ft.why == F2T_WHY_UNSUPPORTED) mp.flac_refused++; aout_rollback(); track_ended(); break; }
+        if (r == F2T_FAIL) { mp.errors++; mp.flac_err = ft.why; if (ft.why == F2T_WHY_NOTFLAC || ft.why == F2T_WHY_UNSUPPORTED) mp.flac_refused++; bad_run++; aout_rollback(); track_ended(); break; }
         if (r != F2T_PAIRS) continue;                                              /* F2T_WORK: metadata, scanning, a seek probe */
         const uint32_t bps = ft.op.si.bps;
         if (!seg_open_ && np) {                                                    /* the first pairs of a stretch: its source position and length are known now (after a seek, `base` is the target) */
@@ -368,6 +370,10 @@ SMALL static int flac_pass(stream_t *s)
             if (!g) { aout_rollback(); ft.staged = 0; break; }
             seg_open_ = 1; seg_gain[g->gen & 3u].gen = g->gen; seg_gain[g->gen & 3u].g = dec_g; seg_gain[g->gen & 3u].id = lp.cur_id;
             if (fade_pending) { fade_pending = 0; heard_g = dec_g; heard_gain_gen = mp.gen; gain_apply_heard(); aout_fade_in(mp.gain_tgt); }
+        }
+        if (seg_open_ && mp_tl.n) {                                                 /* a seek whose first frame was damaged: the core recomputed the base against the next one; correct the still-empty segment */
+            tl_seg_t *g0 = tl_at(&mp_tl, (uint8_t)(mp_tl.n - 1u)); uint32_t b1 = (uint32_t)ft.base;
+            if (!g0->put && g0->src_start != b1) { g0->src_start = b1; g0->expect = ft_total > b1 ? ft_total - b1 : 0u; }
         }
         if (ev & F2_EV_FRAME_BAD) { aout_rollback(); mp.f2_rollbacks++; mp.errors++; continue; }
         if (np) {
@@ -385,7 +391,7 @@ SMALL static int flac_pass(stream_t *s)
         if (ev & F2_EV_FRAME_OK) {
             uint32_t n2 = aout_staged(); if (n2 > mp.f2_staged_max) mp.f2_staged_max = n2;
             aout_commit(); tl_put(&mp_tl, n2); mp.seg_put += n2;
-            mp.frames++; mp.dec_us += ft_cyc / (CLK_HZ / 1000000u); mp.dec_blocks++; mp.dec_avg_us = mp.dec_us / mp.dec_blocks; ft_cyc = 0; mp.pairs_out = mp.seg_put;
+            bad_run = 0; mp.frames++; mp.dec_us += ft_cyc / (CLK_HZ / 1000000u); mp.dec_blocks++; mp.dec_avg_us = mp.dec_us / mp.dec_blocks; ft_cyc = 0; mp.pairs_out = mp.seg_put;
         }
     }
     return 0;
