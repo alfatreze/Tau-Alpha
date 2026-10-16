@@ -19,6 +19,13 @@ void mp3play_init(int cymo_present);
 void mp3play_key(uint32_t edge);
 void mp3play_pump(void);
 void mp3play_heard(void);
+/* What the Now Playing view shows, refreshed by mp3play_heard() (text only when the heard track changes). */
+typedef struct {
+    char title[48], artist[40], album[40], quality[32];
+    uint32_t gen, id, pos, total, rate;          /* pos/total in source pairs of the HEARD track; total 0 = unknown; gen changes with the track */
+    uint32_t playing, held, volume, rg_mode, repeat, shuffle, tempo_q8, valid;
+} np_info_t;
+const np_info_t *mp3play_np(void);
 /* The persisted values (cores/settings_core.h order: volume, repeat, ReplayGain mode). */
 void mp3play_settings_get(uint32_t *vals);
 void mp3play_settings_set(const uint32_t *vals);

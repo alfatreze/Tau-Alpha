@@ -58,3 +58,17 @@ uint32_t library_album_jump(uint32_t id, int dir)
     lib_track(&lib, a.first_track - 1u, &t); lib_album(&lib, t.album, &a); return a.first_track;
 }
 int library_rg(uint32_t id, uint32_t *flags, int32_t *tg, int32_t *ag, uint32_t *tp, uint32_t *ap) { lib_det_t d; if (lib_state != 1 || !lib_details(&lib, id, &d)) return 0; *flags = d.flags; *tg = d.tg; *ag = d.ag; *tp = d.tp; *ap = d.ap; return 1; }
+void library_meta(uint32_t id, char *title, uint32_t tcap, char *artist, uint32_t acap, char *album, uint32_t bcap)
+{
+    title[0] = artist[0] = album[0] = 0;
+    if (lib_state != 1 || id >= lib.n_tracks) return;
+    lib_track_t t; lib_album_t a; lib_artist_t r;
+    lib_track(&lib, id, &t); title[lib_str(&lib, t.title, title, tcap - 1u)] = 0;
+    lib_album(&lib, t.album, &a); album[lib_str(&lib, a.title, album, bcap - 1u)] = 0;
+    lib_artist(&lib, a.artist, &r); artist[lib_str(&lib, r.name, artist, acap - 1u)] = 0;
+}
+int library_facts(uint32_t id, uint32_t *codec, uint32_t *ch, uint32_t *kbps, uint32_t *rate)
+{
+    lib_det_t d; if (lib_state != 1 || !lib_details(&lib, id, &d)) return 0;
+    *codec = d.codec; *ch = d.ch; *kbps = d.kbps; *rate = d.rate; return 1;
+}
