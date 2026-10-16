@@ -6,16 +6,17 @@ import re, sys
 from pathlib import Path
 
 ALLOWED = {
-    "app":         {"transport", "queue", "ui", "settings", "decode", "stream", "aout", "gfx", "diagnostics", "platform", "counters", "cores"},
+    "app":         {"transport", "queue", "ui", "settings", "decode", "stream", "aout", "gfx", "art", "diagnostics", "platform", "counters", "cores"},
     "transport":   {"decode", "stream", "aout", "queue", "platform", "counters", "cores"},
     "queue":       {"platform", "counters", "cores"},
-    "ui":          {"transport", "settings", "gfx", "queue", "platform", "counters", "cores"},
+    "ui":          {"transport", "settings", "gfx", "art", "queue", "platform", "counters", "cores"},
     "settings":    {"platform", "counters", "cores"},
     "decode":      {"stream", "platform", "counters", "cores"},
     "stream":      {"platform", "counters", "cores"},
     "aout":        {"platform", "counters", "cores"},
     "gfx":         {"platform", "counters", "cores"},
-    "diagnostics": {"transport", "queue", "ui", "settings", "decode", "stream", "aout", "gfx", "platform", "counters", "cores"},
+    "art":         {"gfx", "stream", "platform", "counters", "cores"},
+    "diagnostics": {"transport", "queue", "ui", "settings", "decode", "stream", "aout", "gfx", "art", "platform", "counters", "cores"},
     "platform":    {"cores"},
     "counters":    {"cores"},
     "cores":       {"cores"},

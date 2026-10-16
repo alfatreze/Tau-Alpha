@@ -21,11 +21,13 @@ void mp3play_pump(void);
 void mp3play_heard(void);
 /* What the Now Playing view shows, refreshed by mp3play_heard() (text only when the heard track changes). */
 typedef struct {
-    char title[48], artist[40], album[40], quality[32];
+    char title[48], artist[40], album[40], quality[32], cover[120];
     uint32_t gen, id, pos, total, rate;          /* pos/total in source pairs of the HEARD track; total 0 = unknown; gen changes with the track */
     uint32_t playing, held, volume, rg_mode, repeat, shuffle, tempo_q8, valid, gov;
 } np_info_t;
 const np_info_t *mp3play_np(void);
+/* Let the media stream's command in flight finish and issue nothing new until the next pump: the one card command channel is then free for a blocking job (the cover load). */
+void mp3play_io_quiesce(void);
 /* Play a queue the library just built (u16 ids in library_queue_buf()): n tracks, starting at `start`. `src_kind`/`src_parent` remember how to rebuild its natural order (X shuffle off). */
 void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t src_parent, int shuffled, uint32_t seed);
 /* The persisted values (cores/settings_core.h order: volume, repeat, ReplayGain mode). */

@@ -6,6 +6,7 @@
 #include "../cores/monoclock_core.h"
 #ifdef P2_MP3PLAY
 #include "../settings/settings.h"
+#include "../art/art.h"
 #include "../transport/mp3play.h"
 #define tone mp
 #define tone_tl mp_tl
@@ -71,6 +72,11 @@ const cnt_t counters_table[] = {
     { "SET STORES",   CK_U32, CU_NONE,   &settings_stats.stores },
     { "SET MENU",     CK_U32, CU_NONE,   &settings_stats.menu_changes },
     { "SET DIRTY",    CK_U32, CU_NONE,   &settings_stats.dirty },
+    { "ART LOADED",   CK_U32, CU_NONE,   &art_loaded },
+    { "ART FAILED",   CK_U32, CU_NONE,   &art_failed },
+    { "ART ERR",      CK_U32, CU_NONE,   &art_last_err },           /* TIMG_E_*: 1 magic 2 format 3 size 4 open 5 read 7 mailbox 8 probe */
+    { "ART MS",       CK_U32, CU_MS,     &art_ms },
+    { "ART CLUT",     CK_U32, CU_NONE,   &art_clut_start },         /* palette load start index the probe chose: 0 registered, 255 legacy */
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
 #endif
 #ifdef P2_LISTPLAY

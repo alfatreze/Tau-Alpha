@@ -52,3 +52,38 @@ uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t fg, uint16_t b
     }
     return x;
 }
+
+#define R_CLUT_IDX_A  0x800000C8u
+#define R_CLUT_DATA_A 0x800000CCu
+#define R_SDR_RDATA_A 0x80000080u
+#define OP_CBLIT 7u
+static int mb_wait(uint32_t t)
+{
+    while ((uint32_t)(cycles() - t) < 128u) { }
+    while (REG_RD(R_SDR_STATUS) & 1u) if ((uint32_t)(cycles() - t) > CLK_HZ / 4u) return -1;
+    return 0;
+}
+int gfx_mb_write(uint32_t a, uint32_t d) { REG_WR(R_SDR_ADDR, a); REG_WR(R_SDR_DATA, d); REG_WR(R_SDR_CTRL, 0x3Fu); return mb_wait(cycles()); }
+int gfx_mb_read(uint32_t a, uint32_t *o) { REG_WR(R_SDR_ADDR, a); REG_WR(R_SDR_CTRL, 0x3Du); if (mb_wait(cycles())) return -1; *o = REG_RD(R_SDR_RDATA_A); return 0; }
+void gfx_fence(void)
+{
+    const uint32_t a = 1021u * GFX_STRIDE + GFX_CELL_X;
+    uint32_t r = 0;
+    if (gfx_mb_write(a, 0xDEADBEEFu)) return;
+    gfx_rect(GFX_CELL_X, 1021u, 1u, 1u, 0x0001u);        /* the engine runs in order: when this lands, everything before it has */
+    const uint32_t t0 = cycles();
+    do { uint32_t t = cycles(); while ((uint32_t)(cycles() - t) < 256u) { } if (gfx_mb_read(a, &r)) return; } while (r == 0xDEADBEEFu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
+}
+void gfx_clut_begin(uint32_t start) { wait_fifo(); gfx_fence(); REG_WR(R_CLUT_IDX_A, start); }
+void gfx_clut_put(uint16_t v) { REG_WR(R_CLUT_DATA_A, v); }
+void gfx_cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h)
+{
+    if (!w || !h) return;
+    uint32_t src = sy * GFX_STRIDE + sx;
+    wait_fifo();
+    REG_WR(R_FB_ADDR, dy * GFX_STRIDE + dx);
+    REG_WR(R_FB_SIZE, (h << 9) | w);
+    REG_WR(R_FB_COLOR, ((src >> 16) & 0x7u) | ((src & 0xFFFFu) << 16));      /* the source address rides in the colour register */
+    color_shadow = 0xFFFFFFFFu;
+    REG_WR(R_FB_GO, OP_CBLIT);
+}
