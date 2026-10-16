@@ -77,9 +77,7 @@ const cnt_t counters_table[] = {
     { "F2 SEEKPROBE", CK_U32, CU_NONE,   &mp.f2_probes },
     { "F2 REPOS", CK_U32, CU_NONE,   &mp.f2_repos },
     { "F2 STAGEMAX", CK_U32, CU_NONE,   &mp.f2_staged_max },
-    { "SET WIDE",     CK_U32, CU_NONE,   &settings_stats.wide },       /* the 32-word register file is present (word 17 is usable) */
     { "SET STORES",   CK_U32, CU_NONE,   &settings_stats.stores },
-    { "SET MENU",     CK_U32, CU_NONE,   &settings_stats.menu_changes },
     { "ART LOADED",   CK_U32, CU_NONE,   &art_loaded },
     { "ART FAILED",   CK_U32, CU_NONE,   &art_failed },
     { "ART ERR",      CK_U32, CU_NONE,   &art_last_err },           /* TIMG_E_*: 1 magic 2 format 3 size 4 open 5 read 7 mailbox 8 probe */
@@ -203,13 +201,10 @@ const cnt_t counters_table[] = {
     U32("LOOPS",       CU_NONE,   &v.loops),
     U32("LOOP MAX",    CU_CYC,    &v.loop_max_cyc),
     U32("KEYS",        CU_NONE,   &v.keys),
-    U32("PCM LEVEL",   CU_PAIRS,  &v.pcm_level),
     U32("RING CNT",    CU_PAIRS,  &v.ring_cnt),
-    U32("RING RIDX",   CU_NONE,   &v.ring_ridx),
     U32("RING WPTR",   CU_NONE,   &v.ring_wptr),
     { "RING CTRL",    CK_HEX32, CU_NONE,  &v.ring_ctrl },
     U32("RING HOLD",    CU_NONE,   &v.ring_hold),            /* RING_CTRL read: bit 31 present, 3 hold, 2 busy, 1 empty (read index == write index), 0 enable */
-    U32("RING EMPTY",   CU_NONE,   &v.ring_empty),
     U32("GAIN CUR",    CU_NONE,   &v.gain_cur),
     { "CYMO STATUS",  CK_HEX32, CU_NONE,  &v.cymo_st },
     U32("STACK PEAK",  CU_BYTES,  &v.stack_peak),

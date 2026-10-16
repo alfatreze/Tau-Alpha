@@ -242,13 +242,20 @@ SMALL static void flush_and_start(uint16_t id)
 }
 
 /* +secs from where it is heard (wrapping to the start past the end). Only while the heard track is the one being decoded; across a gapless boundary the request is ignored and counted. */
-SMALL static void do_seek(uint32_t secs)
+/* Where a relative seek lands: forward past the end wraps to the start, backward past the start stops at 0. */
+static uint32_t seek_target(int32_t secs, uint32_t total)
+{
+    uint32_t t;
+    if (secs >= 0) { t = mp.cur_pos + (uint32_t)secs * mp.rate; if (total && t + mp.rate >= total) t = 0; }
+    else { uint32_t d = (uint32_t)(-secs) * mp.rate; t = d > mp.cur_pos ? 0u : mp.cur_pos - d; }
+    return t;
+}
+SMALL static void do_seek(int32_t secs)
 {
 #if P2_FLAC2
     if (is_flac && ft_active) {
         if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !mp.rate || ft.phase != F2T_PH_PLAY || !ft_total) { mp.seek_ign++; return; }
-        uint32_t target = mp.cur_pos + secs * mp.rate;
-        if (ft_total && target + mp.rate >= ft_total) target = 0;
+        uint32_t target = seek_target(secs, ft_total);
         if (!mp.held) aout_mute_wait();
         aout_rollback(); aout_flush(); aout_snap_t s = aout_snap(); tl_flush(&mp_tl, s.cnt); seg_open_ = 0; ft_cyc = 0;
         if (!flac2_seek(&ft, &lp_stream, target)) { mp.seek_fail++; mp.state = MPS_IDLE; return; }
@@ -257,8 +264,7 @@ SMALL static void do_seek(uint32_t secs)
     }
 #endif
     if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !dec_live || !DEC.dec || !mp.rate) { mp.seek_ign++; return; }
-    uint32_t target = mp.cur_pos + secs * mp.rate;
-    if (DEC.pairs_total && target + mp.rate >= DEC.pairs_total) target = 0;
+    uint32_t target = seek_target(secs, DEC.pairs_total);
     mp3_seek_t pl;
     if (!mp3d_plan_seek(&DEC, target, &pl)) { mp.seek_fail++; return; }
     if (!mp.held) aout_mute_wait();
@@ -290,6 +296,33 @@ SMALL static void tempo_step(int dir)
 {
     int i = (int)mp.tempo_idx + dir; if (i < 0 || i > 7) return;
     tempo_set((uint32_t)i);
+}
+
+
+/* The player's commands, called by the input layer (fw2/app/main_player.c) once it has turned presses, taps and holds into intents. */
+SMALL void mp3play_act(uint32_t act, int32_t arg)
+{
+    if (lib_state != 1) return;
+    switch (act) {
+    case MPA_PLAYPAUSE:
+        if (mp.state == MPS_IDLE) { flush_and_start(queue_cur(&q)); break; }
+        if (!mp.held) { aout_mute_wait(); mp.held = 1; aout_hold(1); }
+        else { mp.held = 0; aout_hold(0); aout_fade_in(mp.gain_tgt); }
+        break;
+    case MPA_RESTART: flush_and_start(queue_cur(&q)); break;
+    case MPA_NEXT: flush_and_start(queue_next(&q, 0)); break;
+    case MPA_PREV: flush_and_start(queue_prev(&q)); break;
+    case MPA_SEEK: do_seek(arg); break;
+    case MPA_VOL: { int v = (int)mp.volume + arg; mp.volume = (uint32_t)(v < 0 ? 0 : v > 100 ? 100 : v); gain_apply_heard(); break; }
+    case MPA_ALBUM: {                                                      /* previous / next album */
+        uint32_t first = library_album_jump(queue_cur(&q), arg > 0 ? 1 : -1);
+        if (first != 0xFFFFFFFFu && queue_goto(&q, (uint16_t)first)) flush_and_start((uint16_t)first);
+        break; }
+    case MPA_REPEAT: q.repeat = (uint8_t)((q.repeat + 1u) % 3u); lp.repeat = q.repeat; break;
+    case MPA_SHUFFLE: shuffle_set(!lp.shuffle); break;
+    case MPA_RG: mp.rg_mode = (mp.rg_mode + 1u) % 3u; rg_for_track(lp.cur_id); heard_g = dec_g; gain_apply_heard(); break;
+    case MPA_TEMPO: tempo_step(arg); break;
+    }
 }
 
 SMALL void mp3play_key(uint32_t edge)
