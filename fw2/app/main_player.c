@@ -5,6 +5,7 @@
 #include "../diagnostics/info_counters.h"
 #include "../gfx/gfx.h"
 #include "../diagnostics/info_page.h"
+#include "../diagnostics/check_page.h"
 #include "../diagnostics/report_page.h"
 #include "../aout/aout.h"
 #include "../settings/settings.h"
@@ -30,7 +31,7 @@ static void hand_out_assets(void)
     if (!assets_in_psram() && assets_section("METR", &p, &n)) meters_metr_load(p, n);                              /* user presets replace the built-in ones of the meters the file carries */
 }
 static void info_draw_all(void) { counters_refresh(); info_page_draw(); }
-static const views_diag_t diag_pages = { info_page_init, info_page_key, info_draw_all, report_page_draw };
+static const views_diag_t diag_pages = { info_page_init, info_page_key, info_draw_all, report_page_draw, check_page_enter, check_page_key, check_page_tick, check_page_draw, check_page_dirty, check_page_exit, check_page_repaint };
 
 int main(void)
 {

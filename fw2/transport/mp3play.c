@@ -108,7 +108,7 @@ SMALL void mp3play_init(int cymo_present)
     stream_init(&lp_stream, RING_SZ, 5u * CLK_HZ);
     library_load();
     aout_gain_unity();
-    mp.volume = 94u; mp.rg_mode = RG_TRACK; mp.tempo_idx = 2u; mp.speed_idx = 2u; mp.seek_idx = 1u;                              /* the old player's default volume; ReplayGain on Track for the first hardware listening */
+    mp.volume = 94u; mp.rg_mode = RG_TRACK; mp.tempo_idx = 2u; mp.speed_idx = 2u; mp.sel_pitch = 2u; mp.sel_stretch = 0u; mp.seek_idx = 1u;                              /* the old player's default volume; ReplayGain on Track for the first hardware listening */
     gain_apply_heard(); REG_WR(R_GAIN_CTRL, 1u | (3u << 4) | 2u);       /* snap to the volume target: no ramp from a stale value */
     aout_snap_t s = aout_snap(); tl_init(&mp_tl, s.cnt); gov_init(&mp_gov, AOUT_USABLE);
     if (lib_state != 1) return;
@@ -253,11 +253,15 @@ SMALL static void tempo_set(uint32_t i)
 #endif
     tempo_pend = 1u; tempo_tries = 0u;                                    /* the stretcher restarts from where it is heard: a seek to the same pair, retried by the pump until the seek is accepted */
 }
-SMALL static void speed_set(uint32_t i)
+/* Time Stretch: 0 Normal (1.00x), 1 Pitch (varispeed: speed table index through pitch_map), 2 Stretch (pitch-preserving: tempo table index 3 + sel). The two modes exclude each other by construction. */
+static const uint8_t pitch_map[8] = { 0u, 1u, 3u, 4u, 5u, 6u, 7u, 8u };      /* 0.85 0.95 1.10 1.20 1.30 1.50 1.75 2.00 */
+SMALL static void rate_apply_mode(void)
 {
-    if (i > 8u || i == mp.speed_idx) return;
-    mp.speed_idx = i; speed_apply();
-    if (i != 2u && mp.tempo_idx != 2u) tempo_set(2u);                     /* speed and tempo exclude each other */
+    uint32_t sp = 2u, tp = 2u;
+    if (mp.rate_mode == 1u) sp = pitch_map[mp.sel_pitch > 7u ? 0u : mp.sel_pitch];
+    else if (mp.rate_mode == 2u) tp = 3u + (mp.sel_stretch > 4u ? 0u : mp.sel_stretch);
+    if (sp != mp.speed_idx) { mp.speed_idx = sp; speed_apply(); }
+    tempo_set(tp);
 }
 /* A new speed: restart from where it is heard (a seek to the same pair rebuilds the stretcher; later tracks start at the new speed). */
 static void tempo_set(uint32_t i);
@@ -534,9 +538,25 @@ SMALL void mp3play_io_quiesce(void)
     }
 }
 
+/* Diagnostics: the 16-bit I2S slot adds 6 dB in one sample, so the gain dips (muted, switched, faded back) around the change. */
+SMALL void mp3play_a16_set(uint32_t on)
+{
+    if (!(REG_RD(R_AUDIO_CFG) & 2u)) return;                              /* a bitstream without the switch */
+    aout_mute_wait(); REG_WR(R_AUDIO_CFG, on ? 1u : 0u); gain_apply_heard();
+}
+SMALL uint32_t mp3play_a16_get(void) { return REG_RD(R_AUDIO_CFG) & 1u; }
+SMALL uint32_t mp3play_is_flac(void)
+{
+#if P2_FLAC
+    return is_flac;
+#else
+    return 0;
+#endif
+}
+
 SMALL uint32_t mp3play_pref_get(uint32_t id)
 {
-    switch (id) { case PREF_VOLUME: return mp.volume; case PREF_RG: return mp.rg_mode; case PREF_TEMPO: return mp.tempo_idx > 2u ? mp.tempo_idx - 2u : 0u; case PREF_SPEED: return mp.speed_idx; case PREF_REPEAT: return q.repeat;
+    switch (id) { case PREF_VOLUME: return mp.volume; case PREF_RG: return mp.rg_mode; case PREF_STRETCH: return mp.rate_mode; case PREF_SPEED: return mp.rate_mode == 1u ? mp.sel_pitch : mp.rate_mode == 2u ? mp.sel_stretch : 0u; case PREF_REPEAT: return q.repeat;
                   case PREF_SHUFFLE: return lp.shuffle ? 1u : 0u; case PREF_SEEKSTEP: return mp.seek_idx; case PREF_SKIPSIL: return mp.skip_on; }
     return 0;
 }
@@ -545,8 +565,8 @@ SMALL void mp3play_pref_set(uint32_t id, uint32_t v)
     switch (id) {
     case PREF_VOLUME: mp.volume = v > 100u ? 100u : v; gain_apply_heard(); break;
     case PREF_RG: if (v < 3u && v != mp.rg_mode) { mp.rg_mode = v; rg_for_track(lp.cur_id); heard_g = dec_g; gain_apply_heard(); } break;
-    case PREF_TEMPO: if (v < 6u) { tempo_set(v ? v + 2u : 2u); if (v && mp.speed_idx != 2u) { mp.speed_idx = 2u; speed_apply(); } } break;
-    case PREF_SPEED: speed_set(v); break;
+    case PREF_STRETCH: if (v < 3u && v != mp.rate_mode) { mp.rate_mode = v; rate_apply_mode(); } break;
+    case PREF_SPEED: if (mp.rate_mode == 1u && v < 8u) { mp.sel_pitch = v; rate_apply_mode(); } else if (mp.rate_mode == 2u && v < 5u) { mp.sel_stretch = v; rate_apply_mode(); } break;
     case PREF_REPEAT: if (v < 3u) { q.repeat = (uint8_t)v; lp.repeat = v; } break;
     case PREF_SHUFFLE: shuffle_set(v); break;
     case PREF_SEEKSTEP: if (v < 4u) mp.seek_idx = v; break;

@@ -3,6 +3,7 @@
 #include "../gfx/gfx.h"
 #include "../platform/mmio.h"
 #include "../transport/mp3play.h"
+#include "../aout/aout.h"
 #include "../cores/menupages_core.h"
 #include "../cores/view_core.h"
 #include "nowplaying.h"
@@ -22,7 +23,7 @@
 #define ROW_H 34u
 #define TOP_Y 34u
 /* The menu's value ids 0..6 are the transport's preferences. */
-_Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_TEMPO == PREF_TEMPO && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL && V_SPEED == PREF_SPEED, "menu value ids must mirror PREF_*");
+_Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_STRETCH == PREF_STRETCH && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL && V_SPEED == PREF_SPEED, "menu value ids must mirror PREF_*");
 
 uint8_t blank_sel;                       /* Settings > Appearance > Screen blank: an index into bl_minutes (not persisted, as in the old player) */
 static mg_t menu; static uint32_t vals[V_COUNT], dirty; static uint8_t resume;      /* 1: coming back from Info, Report or the Halcyon page: keep the page you were on */
@@ -32,7 +33,9 @@ static void pull(void)
     const uint32_t cur_vals[4] = { th_pal, th_theme, th_pol, meters_cur() };
     for (uint32_t k = 0; k < 4u; k++) if (vals[V_COLOUR + k] != cur_vals[k]) { vals[V_COLOUR + k] = cur_vals[k]; dirty = 1; }
     for (uint32_t i = 0; i < PREF_COUNT; i++) { uint32_t v = mp3play_pref_get(i); if (v != vals[i]) { vals[i] = v; dirty = 1; } }
+    mg_speed_for_mode(vals[V_STRETCH]);                           /* the speed list follows the mode */
     if (vals[V_ART] != np_art_on) { vals[V_ART] = np_art_on; dirty = 1; }
+    { const uint32_t cy = aout_cymo_user_is_off() ? 0u : 1u, a16 = mp3play_a16_get(); if (vals[V_CYMO] != cy) { vals[V_CYMO] = cy; dirty = 1; } if (vals[V_A16] != a16) { vals[V_A16] = a16; dirty = 1; } }
     if (vals[V_BLANK] != blank_sel) { vals[V_BLANK] = blank_sel; dirty = 1; }
     if (vals[V_ACCEPT_ALL] != mp3play_accept_all) { vals[V_ACCEPT_ALL] = mp3play_accept_all; dirty = 1; }
 }
@@ -83,9 +86,11 @@ int settings_view_input(uint32_t edge)
         else if (e.id == V_MODE) theme_set(th_theme, e.value, th_pal);
         else if (e.id == V_METER) meters_select(e.value);
         else if (e.id == V_BLANK) blank_sel = (uint8_t)e.value;
+        else if (e.id == V_CYMO) aout_cymo_user_off(e.value ? 0 : 1);
+        else if (e.id == V_A16) mp3play_a16_set(e.value);
         pull();
         break;
-    case EF_ACTION: resume = 1; return e.id == ACT_INFO ? V_INFO : e.id == ACT_HALCYON ? V_HALCYON : e.id == ACT_CONFIGURE ? V_CONFIGURE : V_REPORT;
+    case EF_ACTION: resume = 1; return e.id == ACT_INFO ? V_INFO : e.id == ACT_HALCYON ? V_HALCYON : e.id == ACT_CONFIGURE ? V_CONFIGURE : e.id == ACT_CHECK ? V_CHECK : V_REPORT;
     case EF_CLOSE: return V_NOWPLAYING;
     default: break;
     }
