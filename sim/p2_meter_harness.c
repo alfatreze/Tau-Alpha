@@ -34,7 +34,9 @@ static void expected(uint16_t *e)
     for (uint32_t i = 0; i < W * H; i++) e[i] = BG;
     for (uint32_t b = 0; b < SPEC_BANDS; b++) {
         uint32_t x = X0 + b * (BAR_W + GAP), base = box_y + box_h - 2u;
-        if (px[b]) gfx_rect_to(e, x, base - px[b], BAR_W, px[b], px[b] > (box_h * 3u) / 4u ? HOT : BAR);
+        { uint32_t thr = (box_h * 3u) / 4u, low = px[b] < thr ? px[b] : thr;       /* the ideal: orange up to the threshold, red-orange only above it */
+          if (low) gfx_rect_to(e, x, base - low, BAR_W, low, BAR);
+          if (px[b] > thr) gfx_rect_to(e, x, base - px[b], BAR_W, px[b] - thr, HOT); }
         if (cap_px[b] > px[b] + 1u) gfx_rect_to(e, x, base - cap_px[b] - 2u, BAR_W, 2u, CAP);
     }
 }
