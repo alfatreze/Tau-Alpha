@@ -122,6 +122,7 @@ test-host:
 	FLAC2_REC_N=12 $(PYTHON) sim/test_p2_flac2_rec.py
 	$(PYTHON) sim/test_p2_flac2_open.py
 	FLAC2_SEEK_REAL=0 $(PYTHON) sim/test_p2_flac2_seek.py
+	FLAC2_TRACK_QUICK=1 $(PYTHON) sim/test_p2_flac2_track.py
 	$(PYTHON) sim/test_p2_nowplaying.py
 	$(PYTHON) sim/test_p2_browse.py
 	$(PYTHON) sim/test_p2_spectrum.py
