@@ -10,7 +10,7 @@
 typedef struct {
     uint32_t gen, rate, playing, held, cur_valid, cur_gen, cur_pos, acct_bad, stalls, gov_mode;
     uint32_t state, frames, errors, resyncs, pairs_out, pairs_total, seg_put, gapless_next, drain_next, rate_changes, ended;
-    uint32_t dec_max_cyc, dec_steps, need_data, ch;
+    uint32_t dec_max_cyc, dec_steps, need_data, ch, init_fail, non_mp3;
 } mp_t;
 extern mp_t mp;
 extern tl_t mp_tl;

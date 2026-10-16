@@ -42,14 +42,16 @@ static int begin_track(void)
     }
     if (!n || !slot_open_path(SLOT_MEDIA, path)) { lp.open_err++; lp.skipped++; return 0; }
     stream_open(&lp_stream, 0, lp.expect, 0);
-    mp3d_open(&dec, MP3InitDecoder());
+    if (dec.dec) { MP3FreeDecoder(dec.dec); dec.dec = 0; }              /* the 24 KB arena holds exactly one decoder: a skip must free the old one first */
+    if (!mp3d_open(&dec, MP3InitDecoder())) { mp.init_fail++; return 0; }
     seg_open_ = 0; mp.gen++; mp.state = MPS_DEC; mp.playing = 1; lp.state = 1;
     return 1;
 }
 
 static void start_from(uint16_t id)
 {
-    for (uint32_t guard = 0; id != Q_NONE && guard < 4u; guard++) {
+    for (uint32_t guard = 0; id != Q_NONE && guard < 8u; guard++) {
+        if (library_codec(id) != 1u) { mp.non_mp3++; id = queue_next(&q, 1); continue; }      /* FLAC waits for S8 */
         if (begin_track()) return;
         id = queue_next(&q, 1);
     }
@@ -70,6 +72,10 @@ void mp3play_key(uint32_t edge)
     if (edge & KEY_B) { mp.held = !mp.held; aout_hold((int)mp.held); }
     if (edge & KEY_RIGHT) flush_and_start(queue_next(&q, 0));
     if (edge & KEY_LEFT)  flush_and_start(queue_prev(&q));
+    if ((edge & KEY_UP) || (edge & KEY_DOWN)) {                          /* previous / next album */
+        uint32_t first = library_album_jump(queue_cur(&q), (edge & KEY_DOWN) ? 1 : -1);
+        if (first != 0xFFFFFFFFu && queue_goto(&q, (uint16_t)first)) flush_and_start((uint16_t)first);
+    }
     if (edge & KEY_X) {
         if (lp.shuffle) queue_restore(&q, library_orig_buf(), lib_n_tracks); else queue_shuffle(&q, cycles() | 1u, 1);
         lp.shuffle ^= 1u;
@@ -80,7 +86,7 @@ static void track_ended(void)
 {
     if (seg_open_) { if (tl_close(&mp_tl)) mp.acct_bad++; seg_open_ = 0; }
     mp.ended++;
-    MP3FreeDecoder(dec.dec);
+    MP3FreeDecoder(dec.dec); dec.dec = 0;
     uint16_t nx = queue_next(&q, 1);
     if (nx == Q_NONE) { mp.state = MPS_ENDDRAIN; return; }
     /* the next track's rate comes from the index details (no card access): the same rate continues without a flush; anything else drains first */
