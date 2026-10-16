@@ -135,6 +135,19 @@ issue:
     return 1;
 }
 
+/* Waits an in-flight read out WITHOUT starting another (the caller needs the one command channel for itself). Call it with the platform's answer for the request in flight until it returns 1.
+ * stream_pump() marks a NEW request as in flight the moment it returns 1; a caller that does not start it must cancel it, or the stream waits for a read that was never issued (it
+ * times out after 5 s and nothing is ever read again: the Rite of Spring lock, DEV 152-155). */
+static inline int stream_wait_idle(stream_t *s, uint32_t now, io_result_t res)
+{
+    io_req_t rq;
+#if BUG == 60
+    stream_pump(s, now, res, &rq);                                /* the old quiesce: the returned request is dropped but stays marked in flight */
+#else
+    if (stream_pump(s, now, res, &rq)) s->fl.active = 0;          /* nothing was started: cancel the request just marked */
+#endif
+    return !s->fl.active;
+}
 static inline uint32_t stream_avail(const stream_t *s) { return s->avail; }
 /* The decoder needs n contiguous-in-time bytes. Counts a starvation event (once per need) when they are not there and more are expected. */
 static inline int stream_ready(stream_t *s, uint32_t n)
