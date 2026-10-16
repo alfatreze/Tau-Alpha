@@ -14,7 +14,7 @@ def check(name, ok):
     if not ok: fails += 1
 with tempfile.TemporaryDirectory() as td:
     exe = Path(td) / "r"
-    r = subprocess.run(["cc", "-O1", "-Wall", "-Werror", "-Wno-unused-function", "-I", str(ROOT / "fw2/cores"), "-o", str(exe), str(ROOT / "sim/p2_report_harness.c"), str(ROOT / "fw2/diagnostics/report_record.c")], capture_output=True, text=True)
+    r = subprocess.run(["cc", "-O1", "-Wall", "-Werror", "-Wno-unused-function", "-Wno-unknown-pragmas", "-I", str(ROOT / "fw2/cores"), "-o", str(exe), str(ROOT / "sim/p2_report_harness.c"), str(ROOT / "fw2/diagnostics/report_record.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     out = subprocess.run([str(exe)], capture_output=True, text=True).stdout.split()
     n, rec = int(out[0]), bytes.fromhex(out[1])
