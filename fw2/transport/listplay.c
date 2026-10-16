@@ -17,7 +17,7 @@ void listplay_init(void)
 {
     stream_init(&lp_stream, RING_SZ, 5u * CLK_HZ);
     library_load();
-    lp.rate_sel = 1; lp.rate_bps = rates[1];
+    lp.rate_sel = 0; lp.rate_bps = rates[0];
     if (lib_state != 1) return;
     uint16_t *ids = library_queue_buf();
     uint16_t *orig = library_orig_buf();
@@ -65,9 +65,7 @@ void listplay_key(uint32_t edge)
         else queue_shuffle(&q, cycles() | 1u, 1);
         lp.shuffle ^= 1u;
     }
-    if (edge & KEY_Y) { q.repeat = (uint8_t)((q.repeat + 1u) % 3u); lp.repeat = q.repeat; }
-    if (edge & KEY_UP)   { lp.rate_sel = (lp.rate_sel + 1u) & 3u; lp.rate_bps = rates[lp.rate_sel]; }
-    if (edge & KEY_DOWN) { lp.rate_sel = (lp.rate_sel + 3u) & 3u; lp.rate_bps = rates[lp.rate_sel]; }
+    if (edge & KEY_Y) { lp.rate_sel = (lp.rate_sel + 1u) & 3u; lp.rate_bps = rates[lp.rate_sel]; }      /* flat out, 40, 176, 440 KB/s */
 }
 
 void listplay_pump(void)
