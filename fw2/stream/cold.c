@@ -1,8 +1,8 @@
 #pragma GCC optimize ("Os")
 #include "cold.h"
-#include "mmio.h"
-#include "platform.h"
-#include "../stream/slot.h"
+#include "../platform/mmio.h"
+#include "../platform/platform.h"
+#include "slot.h"
 #include "../../fw/cold_core.h"
 
 #define COLD_SLOT_ID 6u

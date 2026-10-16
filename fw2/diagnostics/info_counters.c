@@ -3,7 +3,7 @@
 #include "../platform/platform.h"
 #include "../aout/aout.h"
 #include "../ui/helios.h"
-#include "../platform/cold.h"
+#include "../stream/cold.h"
 #include "../aout/halcyon.h"
 #include "../stream/assets.h"
 #include "../ui/theme.h"

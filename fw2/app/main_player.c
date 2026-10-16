@@ -1,7 +1,7 @@
 #pragma GCC optimize ("Os")   /* the loop body is light; smaller code is what the 192 KB link needs */
 /* Player 2 (the MP3 + FLAC player build): boots, then runs the one loop of spec section 9: input, transport (decode into the ring), settings, and the view on screen. */
 #include "../platform/platform.h"
-#include "../platform/cold.h"
+#include "../stream/cold.h"
 #include "../diagnostics/info_counters.h"
 #include "../gfx/gfx.h"
 #include "../diagnostics/info_page.h"
@@ -18,6 +18,17 @@
 #include "../cores/view_core.h"
 #include "../../fw/key_repeat.h"
 
+/* Layers that must not include each other meet here (tools/check_deps.py): the app hands each section of tau-assets.bin to its owner, and the diagnostics pages to the views. */
+static void hand_out_assets(void)
+{
+    uint32_t total; const uint8_t *base = assets_file(&total); const uint8_t *p; uint32_t n;
+    if (!base) return;
+    theme_file_load(base, total);                       /* THEM: extra themes (a bad section leaves the built-ins and a code for Info) */
+    if (assets_section("PRST", &p, &n)) halcyon_prst_load(p, n, assets_in_psram(), assets_psram_ok);
+}
+static void info_draw_all(void) { counters_refresh(); info_page_draw(); }
+static const views_diag_t diag_pages = { info_page_init, info_page_key, info_draw_all, report_page_draw };
+
 int main(void)
 {
     if (!platform_version_ok()) platform_halt_pattern();
@@ -32,8 +43,10 @@ int main(void)
     counters_init();
     counters_aout_init = (uint32_t)aout_init();
     halcyon_init();
-    if (!counters_aout_init) { mp3play_init(caps.cymo); assets_load(); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); appearance_set(sv); settings_view_init_choices(); }       /* the assets (user Halcyon presets) are read before the saved preset is applied */
+    halcyon_set_dip(mp3play_dip_begin, mp3play_dip_end);
+    if (!counters_aout_init) { mp3play_init(caps.cymo); assets_load(); hand_out_assets(); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); appearance_set(sv); settings_view_init_choices(); }       /* the assets (user Halcyon presets) are read before the saved preset is applied */
     theme_init();
+    views_set_diag(&diag_pages);
     views_init();
     kr_t kr_pad = { 0 }, kr_vol = { 0 };
     uint32_t sel_used = 0, st_used = 0, lr_key = 0, lr_t0 = 0, lr_next = 0, lr_seeked = 0;

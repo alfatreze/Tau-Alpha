@@ -87,3 +87,22 @@ void gfx_cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, u
     color_shadow = 0xFFFFFFFFu;
     REG_WR(R_FB_GO, OP_CBLIT);
 }
+#define OP_BLIT 4u
+#define OP_SBLIT 6u
+static void blit_op(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t go)
+{
+    if (!w || !h) return;
+    uint32_t src = sy * GFX_STRIDE + sx;
+    wait_fifo();
+    REG_WR(R_FB_ADDR, dy * GFX_STRIDE + dx);
+    REG_WR(R_FB_SIZE, (h << 9) | w);
+    REG_WR(R_FB_COLOR, ((src >> 16) & 0x7u) | ((src & 0xFFFFu) << 16));      /* the source address rides in the colour register */
+    color_shadow = 0xFFFFFFFFu;
+    REG_WR(R_FB_GO, go);
+}
+void gfx_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { blit_op(sx, sy, dx, dy, w, h, OP_BLIT); }
+void gfx_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t scale)
+{
+    const uint32_t s = scale == 3u ? 3u : scale == 2u ? 2u : 0u;                                  /* the engine's scale field: 0 = 1x, 2 = 2x, 3 = 3x */
+    blit_op(sx, sy, dx, dy, w, h, OP_SBLIT | (s << 10) | (s << 12));
+}

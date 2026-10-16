@@ -2,7 +2,6 @@
 #include "halcyon.h"
 #include "../platform/mmio.h"
 #include "../platform/platform.h"
-#include "../transport/mp3play.h"
 #include "../cores/halcyon_sel_core.h"
 #define HAL_FN static
 #include "../../fw/halcyon_hw.h"
@@ -49,7 +48,9 @@ static void apply_sel(void)
     c.warmth = p[0]; c.bass = p[1]; c.vocal = p[2]; c.punch = p[3]; c.sibilance = p[4]; c.air = p[5];
     hal_hw_apply_ctl(&c);
 }
-static void apply_dipped(void) { if (!halcyon_present) return; mp3play_dip_begin(); apply_sel(); mp3play_dip_end(); }
+static void (*dip_begin)(void), (*dip_end)(void);
+void halcyon_set_dip(void (*begin)(void), void (*end)(void)) { dip_begin = begin; dip_end = end; }
+static void apply_dipped(void) { if (!halcyon_present) return; if (dip_begin) dip_begin(); apply_sel(); if (dip_end) dip_end(); }
 static void note_saved(void) { halcyon_saved = (uint8_t)hs_saved(halcyon_sel, halcyon_saved); }
 
 const char *halcyon_name(void)
