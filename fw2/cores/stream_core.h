@@ -41,6 +41,8 @@ typedef struct {
     uint32_t timeout;              /* cycles */
     /* counters */
     uint32_t reads, bytes, fails_total, retries, timeouts, stale, starved, opens, seeks, min_avail, max_lat;
+    uint32_t chunk;                /* bytes per read (0 = ST_CHUNK); kept across open/seek, set by the transport per codec */
+    uint32_t to_off, to_len;       /* the request that last timed out */
 } stream_t;
 
 static inline void stream_init(stream_t *s, uint32_t cap, uint32_t timeout_cycles)
@@ -78,7 +80,7 @@ static inline int stream_pump(stream_t *s, uint32_t now, io_result_t res, io_req
 #endif
         }
         if (timed_out) {                                              /* give up waiting, but the command is still owned by the platform */
-            if (!s->fl.orphan) { s->timeouts++; s->err = SE_TIMEOUT; s->fl.orphan = 1; }
+            if (!s->fl.orphan) { s->timeouts++; s->err = SE_TIMEOUT; s->fl.orphan = 1; s->to_off = s->fl.r.off; s->to_len = s->fl.r.len; }
             return 0;
         }
         if (lat > s->max_lat) s->max_lat = lat;
@@ -114,11 +116,11 @@ issue:
 #if BUG == 3
     if (s->avail) return 0;                                       /* reads only once the ring is dry */
 #endif
-    uint32_t free_b = s->cap - s->avail;
+    uint32_t ch = s->chunk ? s->chunk : ST_CHUNK, free_b = s->cap - s->avail;
     #if BUG == 2
-    uint32_t len = st_min(ST_CHUNK, free_b);
+    uint32_t len = st_min(ch, free_b);
 #else
-    uint32_t len = st_min(ST_CHUNK, st_min(s->cap - s->wr, free_b));
+    uint32_t len = st_min(ch, st_min(s->cap - s->wr, free_b));
 #endif
     if (s->fail_len) len = st_min(len, s->fail_len);
     uint32_t left = s->size ? s->size - s->pos : 0xFFFFFFFFu;
@@ -126,7 +128,7 @@ issue:
     if (to_end) len = left;
     if (!len) return 0;
     /* only whole chunks, the run up to the buffer end, the file's tail, or a deliberate shortening after a failure: never a sliver for want of space */
-    if (!(len == ST_CHUNK || len >= s->cap - s->wr || to_end || s->fail_len)) return 0;
+    if (!(len == ch || len >= s->cap - s->wr || to_end || s->fail_len)) return 0;
     s->fail_len = 0;
     req->off = s->pos; req->dst = s->wr; req->len = len; req->gen = s->gen;
     s->fl.active = 1; s->fl.orphan = 0; s->fl.r = *req; s->fl.t0 = now;

@@ -14,6 +14,9 @@
 #include "../../fw/flac_lpc_hw.h"
 #endif
 #include <stdlib.h>
+#ifndef FLAC_CHUNK
+#define FLAC_CHUNK 8192u
+#endif
 #define FLAC_CH0_WORDS 5120u                              /* 20 KB from the decoder arena (shared with Helix: one codec is live at a time); a file with larger blocks is refused */
 #define F2_OUT_PAIRS 64u                                  /* pairs per decoder call (512 B of int32) */
 #define F2_PASS_PAIRS 1024u                               /* pairs decoded per pump pass: about 6 ms of decode, inside the 8 ms atomic-step budget (spec 8) */
@@ -131,6 +134,7 @@ SMALL static int flac_begin(void)
     flac_ch0 = (int32_t *)malloc(FLAC_CH0_WORDS * 4u);
     if (!flac_ch0) { mp.init_fail++; return 0; }
     flac2_init(&ft, ft_seek_buf, sizeof ft_seek_buf, flac_ch0, FLAC_CH0_WORDS);
+    lp_stream.chunk = FLAC_CHUNK;                                    /* a 24-bit stream needs about 200 KB/s: fewer, larger card reads */
     flac2_begin(&ft, &lp_stream, lp.expect);                         /* (re)opens the stream at byte 0; the metadata is read by the pump */
     ft_active = 1; ft_cyc = 0; ft_total = 0; ft_rate = 0;
     return 1;
@@ -203,7 +207,7 @@ SMALL static int begin_track(void)
     is_flac = library_codec(lp.cur_id) == 2u;
 #if P2_FLAC2
     if (is_flac) { if (!flac_begin()) return 0; }
-    else { stream_open(&lp_stream, 0, lp.expect, 0);
+    else { lp_stream.chunk = 0; stream_open(&lp_stream, 0, lp.expect, 0);
 #else
     if (is_flac) { uint32_t pt = 0; mp3d_open(&DEC, 0); if (!flac_begin()) return 0; pt = DEC.pairs_total; (void)pt; }
     else
