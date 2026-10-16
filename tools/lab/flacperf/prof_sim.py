@@ -114,11 +114,7 @@ class Machine:
         elif 0x100 <= off < 0x120:
             self.lpc_store(off - 0x100, val)
         elif off == 0x124:
-            self.audio_n += 1
-            h = self.audio_h
-            for k in range(4):
-                h = ((h ^ ((val >> (8 * k)) & 0xFF)) * 0x01000193) & M32
-            self.audio_h = h
+            self.ptr_writes = getattr(self, 'ptr_writes', 0) + 1     # ring write-pointer publishes: counted, not hashed (the hash then depends only on the PCM, not on how it was chunked)
         elif off == 0x10:
             self.dma_dst = val
         elif off == 0x14:
