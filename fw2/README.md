@@ -22,8 +22,8 @@ The module directories of spec section 4 (`app platform stream decode aout trans
 | Select tap | Library (back a level inside it) |
 | Start tap | Settings (closes Settings or the library) |
 | Select + L | Repeat off / all / one |
-| X | Shuffle |
-| Y | ReplayGain off / track / album |
+| X | Shuffle (until the meters return: then X cycles the meter and shuffle is in Settings) |
+| Y | Halcyon EQ preset: next, after the last OFF |
 | L / R shoulders | Tempo slower / faster |
 | Select + Up / Down | Previous / next album |
 | Select + B | Info page |

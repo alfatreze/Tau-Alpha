@@ -10,6 +10,7 @@
 #include "nowplaying.h"
 #include "browser_view.h"
 #include "settings_view.h"
+#include "halcyon_view.h"
 
 static vw_t vw;
 
@@ -39,6 +40,7 @@ static const view_t tab[VIEW_COUNT] = {
     [V_SETTINGS]   = { settings_view_enter, 0, settings_view_input, settings_view_mark, RM(R_MENU) },
     [V_INFO]       = { info_enter, 0, info_input, info_mark, RM(R_INFO) },
     [V_REPORT]     = { report_enter, 0, report_input, 0, 0 },
+    [V_HALCYON]    = { halcyon_view_enter, 0, halcyon_view_input, halcyon_view_mark, RM(R_HAL) },
 };
 
 void views_init(void)
@@ -50,6 +52,7 @@ void views_init(void)
     helios_region(browser_view_draw, 0, HL_WHOLE);                      /* R_LIST */
     helios_region(settings_view_draw, 0, HL_WHOLE);                     /* R_MENU */
     helios_region(info_redraw, 0, HL_WHOLE);                            /* R_INFO */
+    helios_region(halcyon_view_draw, 0, HL_WHOLE);                      /* R_HAL */
     vw_init(&vw, tab, VIEW_COUNT, V_NOWPLAYING);
     vw_start(&vw, &helios);
 }

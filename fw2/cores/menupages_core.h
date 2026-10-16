@@ -14,7 +14,7 @@
 enum { V_VOLUME = 0, V_RG, V_TEMPO, V_REPEAT, V_SHUFFLE, V_SEEKSTEP, V_SKIPSIL, V_ART, V_ACCEPT_ALL, V_COUNT };
 enum { RK_GROUP = 0, RK_CHOICE, RK_TOGGLE, RK_VOL, RK_ACTION, RK_SOON };
 enum { PG_HOME = 0, PG_APPEAR, PG_AUDIO, PG_PLAY, PG_DIAG, PG_CHOICE, PG_COUNT };   /* PG_CHOICE is the option list of the choice row that opened it */
-enum { ACT_INFO = 1, ACT_REPORT = 2 };
+enum { ACT_INFO = 1, ACT_REPORT = 2, ACT_HALCYON = 3 };
 typedef struct { const char *label; uint8_t kind, arg; } mg_row_t;      /* arg: the page (GROUP), the value id (CHOICE/TOGGLE/VOL), the action (ACTION) */
 typedef struct { const char *title; const mg_row_t *rows; uint8_t n; } mg_page_t;
 typedef struct { const char *const *opt; uint8_t n; } mg_choice_t;       /* the options of a choice value, indexed by value */
@@ -23,7 +23,7 @@ static const mg_row_t mg_home_rows[] = { { "APPEARANCE", RK_GROUP, PG_APPEAR }, 
                                          { "INFO", RK_ACTION, ACT_INFO } };      /* always the last row, as before */
 static const mg_row_t mg_appear_rows[] = { { "COLOUR", RK_SOON, 0 }, { "THEME", RK_SOON, 0 }, { "MODE", RK_SOON, 0 }, { "METER", RK_SOON, 0 }, { "METER: CONFIGURE", RK_SOON, 0 },
                                            { "ALBUM ART", RK_TOGGLE, V_ART }, { "SCREEN BLANK", RK_SOON, 0 } };
-static const mg_row_t mg_audio_rows[] = { { "VOLUME", RK_VOL, V_VOLUME }, { "REPLAYGAIN", RK_CHOICE, V_RG }, { "HALCYON EQ", RK_SOON, 0 } };
+static const mg_row_t mg_audio_rows[] = { { "VOLUME", RK_VOL, V_VOLUME }, { "REPLAYGAIN", RK_CHOICE, V_RG }, { "HALCYON EQ", RK_ACTION, ACT_HALCYON } };
 static const mg_row_t mg_play_rows[] = { { "REPEAT", RK_CHOICE, V_REPEAT }, { "SHUFFLE", RK_TOGGLE, V_SHUFFLE }, { "TEMPO", RK_CHOICE, V_TEMPO }, { "SEEK STEP", RK_CHOICE, V_SEEKSTEP },
                                          { "SKIP SILENCE", RK_TOGGLE, V_SKIPSIL } };
 static const mg_row_t mg_diag_rows[] = { { "ACCEPT ALL RATES", RK_TOGGLE, V_ACCEPT_ALL }, { "REPORT", RK_ACTION, ACT_REPORT } };

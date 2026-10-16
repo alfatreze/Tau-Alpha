@@ -10,6 +10,8 @@
 #include "../settings/settings.h"
 #include "../transport/mp3play.h"
 #include "../ui/views.h"
+#include "../aout/halcyon.h"
+#include "../stream/assets.h"
 #include "../cores/view_core.h"
 #include "../../fw/key_repeat.h"
 
@@ -26,7 +28,8 @@ int main(void)
       } }
     counters_init();
     counters_aout_init = (uint32_t)aout_init();
-    if (!counters_aout_init) { mp3play_init(caps.cymo); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); }
+    halcyon_init();
+    if (!counters_aout_init) { mp3play_init(caps.cymo); assets_load(); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); }       /* the assets (user Halcyon presets) are read before the saved preset is applied */
     views_init();
     kr_t kr_pad = { 0 }, kr_vol = { 0 };
     uint32_t sel_used = 0, st_used = 0, lr_key = 0, lr_t0 = 0, lr_next = 0, lr_seeked = 0;

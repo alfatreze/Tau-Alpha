@@ -4,6 +4,8 @@
 #include "../aout/aout.h"
 #include "../ui/helios.h"
 #include "../platform/cold.h"
+#include "../aout/halcyon.h"
+#include "../stream/assets.h"
 #include "../cores/monoclock_core.h"
 #include "../settings/settings.h"
 #include "../art/art.h"
@@ -88,6 +90,11 @@ const cnt_t counters_table[] = {
     { "COLD BYTES",      CK_U32, CU_BYTES, &cold_bytes },
     { "COLD ERR",        CK_U32, CU_NONE,  &cold_err },           /* 0 = ok (a failure stops the boot with the code on screen) */
     { "ACCEPT RATES",    CK_U8,  CU_NONE,  &mp3play_accept_all },  /* Settings > Diagnostics: FLAC above 48 kHz is decoded */
+    { "HAL PRESENT",     CK_U8,  CU_NONE,  &halcyon_present },     /* the bitstream has the Halcyon engine */
+    { "HAL SEL",         CK_U8,  CU_NONE,  &halcyon_sel },         /* 0 off, 1..8 built-in, 9.. user, 200 custom */
+    { "HAL USER",        CK_U8,  CU_NONE,  &halcyon_user_n },      /* user presets loaded from tau-assets.bin */
+    { "ASSETS STATE",    CK_U8,  CU_NONE,  &assets_state },        /* 0 not tried, 1 no file, 2 loaded, 3 error */
+    { "ASSETS ERR",      CK_U32, CU_NONE,  &assets_err },
     { "SKIP ON",      CK_U32, CU_NONE,   &mp.skip_on },
     { "SKIP LEAD",    CK_U32, CU_PAIRS,  &mp.skip_lead },
     { "SKIP TAIL",    CK_U32, CU_PAIRS,  &mp.skip_tail },
