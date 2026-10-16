@@ -10,13 +10,6 @@ static const char p2_pair_marker[] __attribute__((used, retain)) = "TAUFWPAIR:4D
 static const char p2_need_marker[] __attribute__((used, retain)) = "TAUFWNEED:;";
 const char p2_ver_field[48] __attribute__((used, retain)) = "TAUVER:0.6.0";
 
-const char *platform_version_string(void)
-{
-    const char *p = p2_ver_field + 7;
-    __asm__ volatile ("" : "+r"(p));          /* the bytes are patched after the build: hide the address from the optimiser */
-    return p;
-}
-
 void platform_probe(void)
 {
     caps.core_version = REG(R_VERSION);

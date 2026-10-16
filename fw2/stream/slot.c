@@ -14,7 +14,6 @@ uint32_t slot_opens, slot_open_fails, slot_open_ms_last, slot_open_ms_max;
 static uint8_t  pending;
 static uint32_t seq0;
 
-int slot_busy(void) { return pending; }
 
 void slot_read_start(uint32_t slot, uint32_t off, uint32_t dst_off, uint32_t len)
 {
