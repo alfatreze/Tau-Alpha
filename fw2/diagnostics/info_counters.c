@@ -3,6 +3,11 @@
 #include "../aout/aout.h"
 #include "../transport/tone.h"
 #include "../cores/monoclock_core.h"
+#ifdef P2_LISTPLAY
+#include "../transport/listplay.h"
+#include "../stream/slot.h"
+#include "../stream/library.h"
+#endif
 
 /* Shadow values: written only here (one writer, P2), read through the table. */
 static struct { uint32_t aout_init, tone_state, tone_rate, heard_seg, heard_pos_ms, heard_valid, put_seg, swaps, acct_err, acct_bad, tl_overflow, tl_empty, tl_flushes, ring_fill, ring_min, ring_max,
@@ -15,6 +20,46 @@ static mc_t uptime_clk;                  /* monotone seconds from the 32-bit cyc
 const cnt_t counters_table[] = {
     { "FIRMWARE",     CK_STR,   CU_NONE,  p2_ver_field + 7 },       /* read through a volatile pointer at run time: the packagers patch these bytes after the build */
     { "CORE VERSION", CK_HEX32, CU_NONE,  &caps.core_version },
+#ifdef P2_LISTPLAY
+    { "LP STATE",     CK_U32, CU_NONE,   &lp.state },             /* 0 idle, 1 streaming, 2 opening */
+    { "LIB STATE",    CK_U8,  CU_NONE,   &lib_state },            /* 1 loaded, 2 failed */
+    { "LIB ERR",      CK_U8,  CU_NONE,   &lib_err },
+    { "LIB TRACKS",   CK_U32, CU_NONE,   &lib_n_tracks },
+    { "LIB LOAD",     CK_U32, CU_MS,     &lib_ms },
+    { "LP QUEUE",     CK_U32, CU_NONE,   &lp.qn },
+    { "LP POS",       CK_U32, CU_NONE,   &lp.cur_pos },
+    { "LP TRACK ID",  CK_U32, CU_NONE,   &lp.cur_id },
+    { "LP SHUFFLE",   CK_U32, CU_NONE,   &lp.shuffle },
+    { "LP REPEAT",    CK_U32, CU_NONE,   &lp.repeat },
+    { "LP RATE",      CK_U32, CU_BYTES,  &lp.rate_bps },          /* bytes per second the consumer takes, 0 = flat out */
+    { "LP DONE",      CK_U32, CU_NONE,   &lp.tracks_done },
+    { "LP OK",        CK_U32, CU_NONE,   &lp.tracks_ok },         /* ended with exactly the library's size */
+    { "LP SIZE BAD",  CK_U32, CU_NONE,   &lp.size_bad },
+    { "LP HASH SAME", CK_U32, CU_NONE,   &lp.hash_seen },         /* a track replayed with the identical content hash */
+    { "LP HASH BAD",  CK_U32, CU_NONE,   &lp.hash_bad },
+    { "LP HASH LAST", CK_HEX32, CU_NONE, &lp.hash_last },
+    { "LP OPEN ERR",  CK_U32, CU_NONE,   &lp.open_err },
+    { "LP SKIPPED",   CK_U32, CU_NONE,   &lp.skipped },
+    { "SLOT ERR",     CK_U8,  CU_NONE,   &slot_err },
+    { "SLOT ERRCODE", CK_U8,  CU_NONE,   &slot_errcode },
+    { "SLOT OPENS",   CK_U32, CU_NONE,   &slot_opens },
+    { "SLOT OPEN FAIL", CK_U32, CU_NONE, &slot_open_fails },
+    { "OPEN LAST",    CK_U32, CU_MS,     &slot_open_ms_last },
+    { "OPEN MAX",     CK_U32, CU_MS,     &slot_open_ms_max },
+    { "ST READS",     CK_U32, CU_NONE,   &lp_stream.reads },
+    { "ST BYTES",     CK_U32, CU_BYTES,  &lp_stream.bytes },
+    { "ST FAILS",     CK_U32, CU_NONE,   &lp_stream.fails_total },
+    { "ST RETRIES",   CK_U32, CU_NONE,   &lp_stream.retries },
+    { "ST STALE",     CK_U32, CU_NONE,   &lp_stream.stale },
+    { "ST TIMEOUTS",  CK_U32, CU_NONE,   &lp_stream.timeouts },
+    { "ST STARVED",   CK_U32, CU_NONE,   &lp_stream.starved },
+    { "ST AVAIL",     CK_U32, CU_BYTES,  &lp_stream.avail },
+    { "ST MIN AVAIL", CK_U32, CU_BYTES,  &lp_stream.min_avail },
+    { "ST MAX LAT",   CK_U32, CU_CYC,    &lp_stream.max_lat },    /* cycles: /66,667 = ms */
+    { "ST SEEKS",     CK_U32, CU_NONE,   &lp_stream.seeks },
+    { "ST OPENS",     CK_U32, CU_NONE,   &lp_stream.opens },
+    { "LP KB/S",      CK_U32, CU_NONE,   &lp.kbps },
+#endif
     U32("AOUT INIT",    CU_NONE,   &v.aout_init),
     U32("TONE STATE",   CU_NONE,   &v.tone_state),          /* 0 stopped, 1 playing, 2 held */
     U32("TONE RATE",    CU_NONE,   &v.tone_rate),

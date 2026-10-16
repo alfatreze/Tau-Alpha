@@ -15,6 +15,15 @@
 #define R_STAT1      0x80000014u
 #define R_STAT2      0x80000018u
 #define R_STAT3      0x8000001Cu
+#define R_TGT_ID     0x80000020u         /* target (card) command channel: slot id, offset, destination, length, go/status. One command in flight (APF) */
+#define R_TGT_OFF    0x80000024u
+#define R_TGT_ADR    0x80000028u         /* destination byte offset in core RAM */
+#define R_TGT_LEN    0x8000002Cu
+#define R_TGT_GO     0x80000030u         /* write: 0 read(0180), 1 open file(0192), 2 get file(0190); read: [15:8] sequence counter, [4:2] result (0 = ok) */
+#define R_DT_ADDR    0x80000060u         /* bridge datatable: word address, then data */
+#define R_DT_DATA    0x80000064u
+#define R_PS_ID      0x80000088u         /* 0x50535231 when the PSRAM expansion window is built in */
+#define R_PS_CFG     0x800000A0u         /* bit 16: the CPU window to PSRAM is present */
 #define R_PCM_RATE   0x80000038u         /* output tick increment: hz * 2^32 / CLK_HZ */
 #define R_PCM_ST     0x80000034u         /* [11:0] FIFO level, bit 16 empty, 17 full, 18 underrun (sticky) */
 #define R_INPUT      0x8000003Cu         /* [15:0] buttons, active high */
