@@ -11,8 +11,12 @@
 _Static_assert(MTR_BANDS == SPEC_BANDS, "the meter inputs carry one value per hardware band");
 
 extern void meter_winamp_bars_tick(const mtr_in_t *in);
+extern void meter_winamp_scope_tick(const mtr_in_t *in);
+extern void meter_vu_master_tick(const mtr_in_t *in);
 const meter_def_t meter_table[] = {
     { "WINAMP BARS", meter_winamp_bars_tick },
+    { "WINAMP SCOPE", meter_winamp_scope_tick },
+    { "VU MASTER", meter_vu_master_tick },
 };
 const uint32_t meter_count = sizeof meter_table / sizeof meter_table[0];
 
@@ -56,7 +60,9 @@ void meters_tick(int allowed)
     if (!fetch(m)) return;
     for (uint32_t b = 0; b < MTR_BANDS; b++) lvl[b] = (uint8_t)spec_ballistics(lvl[b], spec_level(m[b], b));
     const uint32_t t = cycles(), dt = (t - last_t) / (CLK_HZ / 1000u); last_t = t;
-    mtr_in_t in = { lvl, frame++, (uint16_t)(dt > 200u ? 200u : dt), (uint16_t)bx, (uint16_t)by, (uint16_t)bw, (uint16_t)bh, th_role[TR_BG_BOTTOM], (uint8_t)force_next, (uint8_t)mp3play_paused_now() };
+    uint32_t pl = 0, pr = 0;
+    if (caps.wave) { const uint32_t pk = REG_RD(R_WAVE_PK); pl = ((pk & 0xFFFFu) * 3u) / 4u; pr = ((pk >> 16) * 3u) / 4u; REG_WR(R_WAVE_CTL, 1u); }      /* peaks since the last tick, then cleared */
+    mtr_in_t in = { lvl, frame++, (uint16_t)(dt > 200u ? 200u : dt), (uint16_t)bx, (uint16_t)by, (uint16_t)bw, (uint16_t)bh, th_role[TR_BG_BOTTOM], (uint8_t)force_next, (uint8_t)mp3play_paused_now(), pl, pr };
     force_next = 0;
     meter_table[cur].tick(&in);
 }

@@ -37,6 +37,10 @@
 #define R_SDR_CTRL   0x8000007Cu         /* write 0x3F = a full-word write */
 #define R_SDR_STATUS 0x80000084u         /* bit 0 = busy */
 #define R_SPEC_ST    0x800000E4u
+#define R_WAVE_CTL   0x800000ECu        /* write: bit 0 clear peaks, bit 1 arm a scope capture, [11:8] = samples per column - 1 */
+#define R_WAVE_IDX   0x800000F0u        /* write: scope column 0..255 to present at R_WAVE_DATA */
+#define R_WAVE_DATA  0x800000F4u        /* read: {min[31:16], max[15:0]} (signed 16-bit each) of the selected column of the last capture */
+#define R_WAVE_PK    0x800000F8u        /* read: {max |R| [31:16], max |L| [15:0]} since the last clear */
 #define R_WAVE_ST    0x800000FCu
 #define R_POLY_ST    0x80000110u
 #define R_DBUF_DISP  0x8000011Cu

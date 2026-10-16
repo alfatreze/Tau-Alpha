@@ -21,7 +21,7 @@ int main(int argc, char **argv)
     for (int n = 0; n < steps; n++) {
         if (n % 30 == 0) loud = (int)(rnd() % 3);
         for (uint32_t b = 0; b < MTR_BANDS; b++) spec[b] = (uint8_t)(loud == 2 ? 180 + rnd() % 76 : loud == 1 ? rnd() % 120 : rnd() % 12);
-        mtr_in_t in = { spec, (uint32_t)n, 26, 20, 212, 360, 80, BGC, (uint8_t)(n == 0 || n % 211 == 0), (uint8_t)(n % 307 > 290) };
+        mtr_in_t in = { spec, (uint32_t)n, 26, 20, 212, 360, 80, BGC, (uint8_t)(n == 0 || n % 211 == 0), (uint8_t)(n % 307 > 290), 0, 0 };
         if (in.force) for (uint32_t i = 0; i < W * H; i++) fb[i] = (rnd() & 1) ? BGC : 0x1234;      /* stale pixels the forced wipe must clear */
         meter_winamp_bars_tick(&in);
         for (uint32_t i = 0; i < W * H; i++) ex[i] = BGC;
