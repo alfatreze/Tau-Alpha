@@ -4,6 +4,7 @@
 #include "../transport/tone.h"
 #include "../cores/monoclock_core.h"
 #ifdef P2_MP3PLAY
+#include "../settings/settings.h"
 #include "../transport/mp3play.h"
 #define tone mp
 #define tone_tl mp_tl
@@ -16,7 +17,7 @@
 #endif
 
 /* Shadow values: written only here (one writer, P2), read through the table. */
-static struct { uint32_t aout_init, tone_state, tone_rate, heard_seg, heard_pos_ms, heard_valid, put_seg, swaps, acct_err, acct_bad, tl_overflow, tl_empty, tl_flushes, ring_fill, ring_min, ring_max,
+static struct { uint32_t hw_under_ev, hw_under_tk, aout_init, tone_state, tone_rate, heard_seg, heard_pos_ms, heard_valid, put_seg, swaps, acct_err, acct_bad, tl_overflow, tl_empty, tl_flushes, ring_fill, ring_min, ring_max,
                 under_ring, dry, put_stalls, put_max_cyc, put_pairs, put_blocks, gov_mode, gov_n1, gov_n2, gov_n3, tone_stalls; int32_t last_delta;
                 uint32_t uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, ring_hold, ring_empty, gain_cur, cymo_st, keys, stack_peak, image_b, free_b; } v;
 uint32_t counters_loops, counters_loop_max_cyc, counters_keys, counters_aout_init;            /* the loop's own measurements (app writes, this file publishes) */
@@ -65,6 +66,10 @@ const cnt_t counters_table[] = {
     { "FLAC WAITS",   CK_U32, CU_NONE,   &mp.flac_waits },        /* times the decoder had to wait for the card (open only; must not grow while playing) */
     { "LPC SAMPLES",  CK_U32, CU_NONE,   &mp.lpc_slots },
     { "LPC TMO",      CK_U32, CU_NONE,   &mp.lpc_timeout },
+    { "SET WIDE",     CK_U32, CU_NONE,   &settings_stats.wide },       /* the 32-word register file is present (word 17 is usable) */
+    { "SET STORES",   CK_U32, CU_NONE,   &settings_stats.stores },
+    { "SET MENU",     CK_U32, CU_NONE,   &settings_stats.menu_changes },
+    { "SET DIRTY",    CK_U32, CU_NONE,   &settings_stats.dirty },
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
 #endif
 #ifdef P2_LISTPLAY
@@ -144,6 +149,9 @@ const cnt_t counters_table[] = {
     { "CAP WAVE",     CK_U8,    CU_NONE,  &caps.wave },
     { "CAP SPEC",     CK_U8,    CU_NONE,  &caps.spec },
     { "CAP DBUF",     CK_U8,    CU_NONE,  &caps.dbuf },
+    { "CAP UNDER",    CK_U8,    CU_NONE,  &caps.under },
+    U32("HW UNDER EV",  CU_NONE,   &v.hw_under_ev),          /* P6: runs of output ticks that found the FIFO empty (free-running since reset; the polling counters UNDER RING / DRY cannot see a short one) */
+    U32("HW UNDER TK",  CU_NONE,   &v.hw_under_tk),          /* each is one lost sample pair */
     U32("UPTIME",      CU_NONE,   &v.uptime_s),
     U32("LOOPS",       CU_NONE,   &v.loops),
     U32("LOOP MAX",    CU_CYC,    &v.loop_max_cyc),
@@ -186,6 +194,7 @@ void counters_refresh(void)
     uint32_t st = REG(R_PCM_ST);
     v.pcm_level = PCM_LEVEL(st); v.pcm_flags = (st >> 16) & 7u;
     v.ring_cnt = REG(R_RING_CNT); v.ring_ridx = REG(R_RING_RIDX); v.ring_wptr = REG(R_RING_WPTR); v.ring_ctrl = REG(R_RING_CTRL); v.ring_hold = (v.ring_ctrl >> 3) & 1u; v.ring_empty = (v.ring_ctrl >> 1) & 1u;
+    { uint32_t u = REG(R_UNDER); v.hw_under_ev = (u >> 16) & 0x7FFFu; v.hw_under_tk = u & 0xFFFFu; }
     v.gain_cur = REG(R_GAIN_CUR); v.cymo_st = REG(R_CYMO_STATUS);
     v.stack_peak = platform_stack_peak(); v.image_b = platform_image_bytes(); v.free_b = platform_free_bytes();
 }

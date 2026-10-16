@@ -206,6 +206,7 @@ void mp3play_key(uint32_t edge)
     if (REG_RD(R_INPUT) & KEY_SELECT) {                                  /* Select is a modifier: +L1/R1 tempo slower/faster, +Y ReplayGain mode */
         if (edge & KEY_R1) tempo_step(1);
         if (edge & KEY_L1) tempo_step(-1);
+        if (edge & KEY_X) { q.repeat = (uint8_t)((q.repeat + 1u) % 3u); lp.repeat = q.repeat; }                     /* Select+X: repeat off / all / one */
         if (edge & KEY_Y) { mp.rg_mode = (mp.rg_mode + 1u) % 3u; rg_for_track(lp.cur_id); heard_g = dec_g; gain_apply_heard(); }
         return;
     }
@@ -323,4 +324,12 @@ void mp3play_heard(void)
             heard_gain_gen = g->gen; heard_g = seg_gain[g->gen & 3u].g; gain_apply_heard();
         }
     }
+}
+
+void mp3play_settings_get(uint32_t *v) { v[0] = mp.volume; v[1] = q.repeat; v[2] = mp.rg_mode; }
+void mp3play_settings_set(const uint32_t *v)
+{
+    mp.volume = v[0]; q.repeat = (uint8_t)v[1]; lp.repeat = v[1];
+    if (mp.rg_mode != v[2]) { mp.rg_mode = v[2]; rg_for_track(lp.cur_id); heard_g = dec_g; }
+    gain_apply_heard();
 }

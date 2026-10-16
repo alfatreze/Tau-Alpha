@@ -19,4 +19,7 @@ void mp3play_init(int cymo_present);
 void mp3play_key(uint32_t edge);
 void mp3play_pump(void);
 void mp3play_heard(void);
+/* The persisted values (cores/settings_core.h order: volume, repeat, ReplayGain mode). */
+void mp3play_settings_get(uint32_t *vals);
+void mp3play_settings_set(const uint32_t *vals);
 #endif

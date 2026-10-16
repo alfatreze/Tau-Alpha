@@ -11,7 +11,9 @@
 #define ACC  RGB565(255, 160, 40)
 #define FRAME RGB565(90, 96, 110)
 
-static uint8_t rec[4096];
+extern char _tag_start;                      /* the 4 KB tag landing zone: used only by the library load at boot, idle afterwards, so the report record lives there instead of in its own 4 KB of RAM */
+#define rec ((uint8_t *)&_tag_start)
+#define REC_CAP 4096u
 
 static int mb_write(uint32_t pixel_addr, uint32_t two_pixels)
 {
@@ -32,7 +34,7 @@ static void caption(uint32_t y, uint32_t y0, uint32_t px, uint16_t fg, const cha
 void report_page_draw(void)
 {
     counters_refresh();
-    uint32_t len = report_record_build(rec, sizeof rec, counters_table, counters_count);
+    uint32_t len = report_record_build(rec, REC_CAP, counters_table, counters_count);
     gfx_rect(0, 0, GFX_W, GFX_H, BG);
     tpg_t t;
     uint32_t mode = TPG_MODE_R;

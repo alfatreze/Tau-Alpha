@@ -52,7 +52,9 @@
 #define R_RING_WPTR  0x8000018Cu
 #define R_RING_RIDX  0x80000190u
 #define R_RING_CTRL  0x80000194u         /* read bit 31 = the reader is built in */
-#define R_RING_CNT   0x80000198u         /* pairs pushed into the FIFO by the reader */
+#define R_RING_CNT   0x80000198u
+#define R_UNDER      0x8000019Cu         /* P6: [31] present, [30:16] underrun events, [15:0] underrun ticks (free-running, reset-only; reads 0 on an older bitstream) */
+#define R_RELOAD     0x80000044u         /* the 008A data-slot-update notification (hardware-proven in the old player): bit 0 pending, 1 ready, 2 allcomplete now, 3 allcomplete fell; write 1 = ack */         /* pairs pushed into the FIFO by the reader */
 
 #define KEY_UP     (1u << 0)
 #define KEY_DOWN   (1u << 1)

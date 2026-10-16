@@ -115,6 +115,7 @@ test-host:
 	$(PYTHON) sim/test_p2_queue.py
 	$(PYTHON) sim/test_p2_mp3.py
 	$(PYTHON) sim/test_p2_gain.py
+	$(PYTHON) sim/test_p2_settings.py
 	$(PYTHON) tools/player2/gen_sine.py --check
 	$(PYTHON) sim/test_check_deps.py
 	$(PYTHON) tools/check_deps.py
@@ -148,7 +149,7 @@ test-host:
 	$(PYTHON) tools/fit_manifest.py check-bundles
 	$(PYTHON) sim/test_fit_manifest.py
 
-test-rtl: test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
@@ -209,6 +210,16 @@ $(RTL_BUILD_DIR)/tb_pcm_fifo.vvp: sim/tb_pcm_fifo.v src/fpga/core/pcm_fifo.v | $
 
 test-rtl-pcm-prime: $(RTL_BUILD_DIR)/tb_pcm_fifo.vvp
 	$(VVP) $<
+
+$(RTL_BUILD_DIR)/tb_pcm_under.vvp: sim/tb_pcm_under.v src/fpga/core/pcm_fifo.v | $(RTL_BUILD_DIR)
+	$(IVERILOG) -g2012 -o $@ $^
+
+test-rtl-pcm-under: $(RTL_BUILD_DIR)/tb_pcm_under.vvp
+	$(VVP) $< | tee /dev/stderr | grep -q PASSED
+
+# Mutation check: each mutant of the underrun statistics must fail the bench.
+test-rtl-pcm-under-mutation: sim/tb_pcm_under.v src/fpga/core/pcm_fifo.v | $(RTL_BUILD_DIR)
+	@for u in 1 2 3; do $(IVERILOG) -g2012 -Ptb_pcm_under.UB=$$u -o $(RTL_BUILD_DIR)/tb_pcm_under_m$$u.vvp sim/tb_pcm_under.v src/fpga/core/pcm_fifo.v && if $(VVP) $(RTL_BUILD_DIR)/tb_pcm_under_m$$u.vvp | grep -q PASSED; then echo "mutant $$u NOT caught"; exit 1; else echo "mutant $$u caught"; fi; done
 
 $(RTL_BUILD_DIR)/tb_tau_sdram_arbiter.vvp: sim/tb_tau_sdram_arbiter.v src/fpga/core/tau_sdram_arbiter.sv | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^

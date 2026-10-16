@@ -83,7 +83,8 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x190 | RING_RIDX | R | The reader's index (the CPU uses it for the full test and the heard position). |
 | 0x194 | RING_CTRL | R/W | Write bit 0 ENABLE (sticky, reset 0): while 1 the CPU's `R_AUDIO` write is ignored and the pcm_fifo is fed from the ring (one PSRAM read per pair while the FIFO holds fewer than 1,536 pairs); while 0 RIDX follows WPTR. Read: bit 31 present, bit 2 reading, bit 1 empty, bit 0 enable. A write to `R_PCM_ST` (pcm_flush) also drops the unread pairs (RIDX = WPTR; a read in flight is discarded when it completes). |
 | 0x198 | RING_CNT | R | Pairs pushed into the FIFO since reset (free-running; for the heard-position arithmetic). |
-| 0x19C-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x19C | UNDER | R | Player 2 S1 (P6): free-running underrun record of the PCM FIFO, cleared only by reset (a flush keeps it). [31] present (the ring bitstreams), [30:16] underrun EVENTS (runs of output ticks that found the FIFO empty while primed), [15:0] underrun TICKS (each is one lost sample pair), both saturating. Reads 0 without the ring. |
+| 0x1A0-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
