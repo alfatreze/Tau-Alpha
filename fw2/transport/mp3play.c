@@ -15,7 +15,7 @@ enum { MPS_IDLE = 0, MPS_DEC = 1, MPS_ENDDRAIN = 2, MPS_WAITRATE = 3 };
 mp_t mp; tl_t mp_tl; gov_t mp_gov;
 lp_t lp; stream_t lp_stream;
 static queue_t q; static mp3d_t dec; static int cymo_present_; static uint32_t cur_rate;
-static int seg_open_;
+static int seg_open_; static uint8_t fade_pending;
 
 void mp3play_init(int cymo_present)
 {
@@ -60,8 +60,9 @@ static void start_from(uint16_t id)
 
 static void flush_and_start(uint16_t id)
 {
+    if (mp.playing && !mp.held) aout_mute_wait();                       /* the old tail fades out through the gain stage, then is dropped unheard */
     aout_flush(); aout_snap_t s = aout_snap(); tl_flush(&mp_tl, s.cnt); seg_open_ = 0;
-    mp.held = 0; aout_hold(0);
+    mp.held = 0; aout_hold(0); fade_pending = 1;                         /* the new audio fades in from silence at its first put */
     start_from(id);
 }
 
@@ -69,7 +70,10 @@ void mp3play_key(uint32_t edge)
 {
     if (lib_state != 1) return;
     if (edge & KEY_A) flush_and_start(queue_cur(&q));
-    if (edge & KEY_B) { mp.held = !mp.held; aout_hold((int)mp.held); }
+    if (edge & KEY_B) {
+        if (!mp.held) { aout_mute_wait(); mp.held = 1; aout_hold(1); }
+        else { mp.held = 0; aout_hold(0); aout_fade_in(); }
+    }
     if (edge & KEY_RIGHT) flush_and_start(queue_next(&q, 0));
     if (edge & KEY_LEFT)  flush_and_start(queue_prev(&q));
     if ((edge & KEY_UP) || (edge & KEY_DOWN)) {                          /* previous / next album */
@@ -128,6 +132,7 @@ void mp3play_pump(void)
                 if (!g) break;
                 seg_open_ = 1;
             }
+            if (fade_pending) { fade_pending = 0; aout_fade_in(); }
             uint32_t acc = aout_put(b.pcm, b.pairs, b.ch == 2u);
             tl_put(&mp_tl, acc); mp.seg_put += acc;
             if (acc < b.pairs) mp.stalls++;

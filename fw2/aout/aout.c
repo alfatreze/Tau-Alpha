@@ -47,6 +47,18 @@ void aout_gain_unity(void)
     REG_WR(R_GAIN_CTRL, 1u | (3u << 4) | 2u);                   /* enabled, fade length 2048 samples, SNAP: gain = target now */
 }
 
+void aout_mute_wait(void)
+{
+    REG_WR(R_GAIN_TARGET, 0u);
+    uint32_t t0 = cycles();
+    while ((uint32_t)(cycles() - t0) < CLK_HZ / 125u) { }          /* 8 ms: the ramp from full scale takes 5 */
+}
+void aout_fade_in(void)
+{
+    REG_WR(R_GAIN_TARGET, 32768u);
+    REG_WR(R_GAIN_CTRL, 1u | (3u << 4) | 4u);                      /* enabled, fade length kept, FADE_NOW: ramp to the target */
+}
+
 aout_snap_t aout_snap(void)
 {
     aout_snap_t s;
