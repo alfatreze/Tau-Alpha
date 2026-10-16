@@ -94,6 +94,6 @@ void settings_view_draw(void)
         if (v[0]) gfx_text(GFX_W - 24 - gfx_text_width(v), y + 9, v, on ? BG : (soon ? OFFC : DIM), bg);
     }
     gfx_rect(0, 322, GFX_W, 38, BG);
-    gfx_text(20, 322, pg == PG_CHOICE ? "UP DOWN SELECT  A PICK  B BACK" : "UP DOWN SELECT  A OPEN  LEFT RIGHT CHANGE", DIM, BG);
+    gfx_text(20, 322, pg == PG_CHOICE ? "UP DOWN  A PICK  B BACK" : "UP DOWN  A OPEN  LEFT RIGHT CHANGE", DIM, BG);
     gfx_text(20, 340, d ? "B BACK  START CLOSE" : "B OR START CLOSE", DIM, BG);
 }

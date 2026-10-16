@@ -41,6 +41,9 @@ static inline void vw_switch(vw_t *v, hl_t *h, int to)
     if (v->tab[v->cur].exit) v->tab[v->cur].exit();
 #endif
     v->prev = v->cur; v->cur = (uint8_t)to;
+#if BUG != 3
+    hl_clear(h);                                                                    /* regions the old view still had pending (deferred by the beam) must not draw over the new view */
+#endif
     if (v->tab[to].enter) v->tab[to].enter();
 #if BUG != 2
     hl_dirty_mask(h, v->tab[to].invalidates);

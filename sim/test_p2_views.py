@@ -20,11 +20,13 @@ with tempfile.TemporaryDirectory() as td:
     o = run(g, "F\nS 1\n")
     check("a switch leaves the old view, enters the new one, then marks the new view's regions dirty", o == "10 11 20 | cur=1 prev=0 switches=1 dirty=011", o)
     o = run(g, "S 1\nS 1\n")
-    check("switching to the view that is already current does nothing", o == "10 11 20 | cur=1 prev=0 switches=1 dirty=111", o)
+    check("switching to the view that is already current does nothing", o == "10 11 20 | cur=1 prev=0 switches=1 dirty=011", o)
+    o = run(g, "S 1\n")
+    check("what the old view still had pending is forgotten on a switch (it would draw over the new view)", o == "10 11 20 | cur=1 prev=0 switches=1 dirty=011", o)
     o = run(g, "K 1\n")
-    check("a view's input can ask for another view", o == "10 12 11 20 | cur=1 prev=0 switches=1 dirty=111", o)
+    check("a view's input can ask for another view", o == "10 12 11 20 | cur=1 prev=0 switches=1 dirty=011", o)
     o = run(g, "S 1\nK 2\n")
-    check("VW_BACK returns to the view before", o == "10 11 20 22 21 10 | cur=0 prev=1 switches=2 dirty=111", o)
+    check("VW_BACK returns to the view before", o == "10 11 20 22 21 10 | cur=0 prev=1 switches=2 dirty=100", o)
     o = run(g, "K 7\n")
     check("an input that asks for nothing changes nothing", o == "10 12 | cur=0 prev=0 switches=0 dirty=100", o)
     o = run(g, "S 2\n")
@@ -32,10 +34,10 @@ with tempfile.TemporaryDirectory() as td:
     o = run(g, "S 5\nS 200\n")
     check("an unknown view is ignored", o == "10 | cur=0 prev=0 switches=0 dirty=100", o)
     o = run(g, "D\nS 1\nD\n")
-    check("draw goes to the current view only (view 1 has none)", o == "10 13 11 20 | cur=1 prev=0 switches=1 dirty=111", o)
-    for bug, what in ((1, "the old view's exit is never called"), (2, "the new view's regions are not marked dirty")):
+    check("draw goes to the current view only (view 1 has none)", o == "10 13 11 20 | cur=1 prev=0 switches=1 dirty=011", o)
+    for bug, what in ((1, "the old view's exit is never called"), (2, "the new view's regions are not marked dirty"), (3, "the old view's pending regions survive the switch")):
         m = build(td, bug)
-        caught = run(m, "F\nS 1\n") != "10 11 20 | cur=1 prev=0 switches=1 dirty=011"
+        caught = run(m, "S 1\n") != "10 11 20 | cur=1 prev=0 switches=1 dirty=011"
         check(f"mutant {bug} ({what}) is caught", caught)
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)
