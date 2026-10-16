@@ -4,7 +4,14 @@
 #define F2_HOT __attribute__((optimize("O2")))
 #include "../cores/flac2_track_core.h"
 #include "flac2_unit.h"
-void flac2_init(f2t_t *t, uint8_t *seek_buf, uint32_t seek_cap, int32_t *frame_buf, uint32_t frame_cap) { f2t_init(t, seek_buf, seek_cap, 0, 0, frame_buf, frame_cap, F2_FLAG_CRC16); }
+#ifdef TAU_LPC_FW
+#include "../../fw/flac_lpc_hw.h"
+static const f2_hw_t f2_lpc_hw = { tau_lpc_hw_begin, tau_lpc_hw_sample };   /* the unit's own fault handling (timeout -> tau_lpc_hw_enable = 0) backs the core's fallback */
+#define F2_HW (&f2_lpc_hw)
+#else
+#define F2_HW 0
+#endif
+void flac2_init(f2t_t *t, uint8_t *seek_buf, uint32_t seek_cap, int32_t *frame_buf, uint32_t frame_cap) { f2t_init(t, seek_buf, seek_cap, 0, 0, frame_buf, frame_cap, F2_FLAG_CRC16); f2t_set_hw(t, F2_HW); }
 void flac2_begin(f2t_t *t, stream_t *s, uint32_t file_size) { f2t_begin(t, s, file_size); }
 int  flac2_step(f2t_t *t, stream_t *s, const uint8_t *ring, int32_t *out, uint32_t outcap, uint32_t maxres, uint32_t *np, int *ev) { return f2t_step(t, s, ring, out, outcap, maxres, np, ev); }
 int  flac2_seek(f2t_t *t, stream_t *s, uint64_t target) { return f2t_seek(t, s, target); }
