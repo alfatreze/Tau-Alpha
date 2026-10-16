@@ -6,6 +6,7 @@
 #include "../platform/cold.h"
 #include "../aout/halcyon.h"
 #include "../stream/assets.h"
+#include "../ui/theme.h"
 #include "../cores/monoclock_core.h"
 #include "../settings/settings.h"
 #include "../art/art.h"
@@ -95,6 +96,11 @@ const cnt_t counters_table[] = {
     { "HAL USER",        CK_U8,  CU_NONE,  &halcyon_user_n },      /* user presets loaded from tau-assets.bin */
     { "ASSETS STATE",    CK_U8,  CU_NONE,  &assets_state },        /* 0 not tried, 1 no file, 2 loaded, 3 error */
     { "ASSETS ERR",      CK_U32, CU_NONE,  &assets_err },
+    { "THEME",           CK_U8,  CU_NONE,  &th_theme },            /* the selected theme: built-in ones first, then the file themes */
+    { "MODE",            CK_U8,  CU_NONE,  &th_pol },              /* 0 dark, 1 light */
+    { "COLOUR",          CK_U8,  CU_NONE,  &th_pal },              /* the accent colour index (0..18) */
+    { "THEME FILES",     CK_U8,  CU_NONE,  &th_file_n },           /* themes read from tau-assets.bin */
+    { "THEME ERR",       CK_U8,  CU_NONE,  &th_file_err },         /* 0 none, else an AS_E_* code */
     { "SKIP ON",      CK_U32, CU_NONE,   &mp.skip_on },
     { "SKIP LEAD",    CK_U32, CU_PAIRS,  &mp.skip_lead },
     { "SKIP TAIL",    CK_U32, CU_PAIRS,  &mp.skip_tail },

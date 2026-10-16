@@ -32,6 +32,7 @@ void meters_enter(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
     gfx_rect(x, y, w, h, th_role[TR_BG_BOTTOM]);
     last_t = cycles();
 }
+void meters_select(uint32_t idx) { cur = idx < meter_count ? idx : 0u; force_next = 1; }
 void meters_next(int dir)
 {
     cur = dir > 0 ? (cur + 1u) % meter_count : (cur + meter_count - 1u) % meter_count;

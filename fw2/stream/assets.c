@@ -3,6 +3,7 @@
 #include "slot.h"
 #include "../platform/mmio.h"
 #include "../aout/halcyon.h"
+#include "../ui/theme.h"
 #define AS_FN static
 #include "../../fw/assets_core.h"
 
@@ -34,6 +35,7 @@ void assets_load(void)
     if (e == AS_NOFILE) { assets_state = 1; return; }
     if (e) { assets_state = 3; assets_err = (uint32_t)e; return; }
     assets_state = 2; assets_bytes = total;
+    theme_file_load(base, total);                       /* THEM: extra themes (a bad section leaves the built-ins and a code for Info) */
     uint32_t off, n;
     if (as_find(base, total, "PRST", &off, &n) == AS_OK)
         halcyon_prst_load(base + off, n, base == (const uint8_t *)(uintptr_t)ASSETS_PSRAM_BASE, assets_psram_ok);

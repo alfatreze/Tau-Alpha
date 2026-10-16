@@ -37,13 +37,13 @@ static void report_enter(void) { report_page_draw(); }
 static int  report_input(uint32_t edge) { return (edge & (KEY_A | KEY_B | KEY_X | KEY_Y | KEY_UP | KEY_DOWN)) ? VW_BACK : VW_STAY; }
 
 static const view_t tab[VIEW_COUNT] = {
-    [V_NOWPLAYING] = { nowplaying_enter, 0, nowplaying_input, nowplaying_mark, NP_REGIONS },
-    [V_LIBRARY]    = { lib_enter, 0, lib_input, lib_mark, RM(R_LIST) },
-    [V_SETTINGS]   = { settings_view_enter, 0, settings_view_input, settings_view_mark, RM(R_MENU) },
-    [V_INFO]       = { info_enter, 0, info_input, info_mark, RM(R_INFO) },
-    [V_REPORT]     = { report_enter, 0, report_input, 0, 0 },
-    [V_HALCYON]    = { halcyon_view_enter, 0, halcyon_view_input, halcyon_view_mark, RM(R_HAL) },
-    [V_FULLSCREEN] = { fullscreen_view_enter, 0, nowplaying_input, fullscreen_view_mark, RM(R_FS_FIG) | RM(R_FS_FOOT) },
+    [V_NOWPLAYING] = { nowplaying_enter, 0, nowplaying_input, nowplaying_mark, NP_REGIONS, nowplaying_enter },
+    [V_LIBRARY]    = { lib_enter, 0, lib_input, lib_mark, RM(R_LIST), browser_view_enter },
+    [V_SETTINGS]   = { settings_view_enter, 0, settings_view_input, settings_view_mark, RM(R_MENU), settings_view_redraw },
+    [V_INFO]       = { info_enter, 0, info_input, info_mark, RM(R_INFO), info_page_init },
+    [V_REPORT]     = { report_enter, 0, report_input, 0, 0, 0 },
+    [V_HALCYON]    = { halcyon_view_enter, 0, halcyon_view_input, halcyon_view_mark, RM(R_HAL), halcyon_view_redraw },
+    [V_FULLSCREEN] = { fullscreen_view_enter, 0, nowplaying_input, fullscreen_view_mark, RM(R_FS_FIG) | RM(R_FS_FOOT), fullscreen_view_enter },
 };
 
 void views_init(void)
@@ -61,6 +61,7 @@ void views_init(void)
     vw_init(&vw, tab, VIEW_COUNT, V_NOWPLAYING);
     vw_start(&vw, &helios);
 }
+void views_refresh(void) { vw_refresh(&vw, &helios); }
 void views_switch(int to) { vw_switch(&vw, &helios, to); }
 void views_input(uint32_t edge) { vw_input(&vw, &helios, edge); }
 void views_mark(void) { vw_draw(&vw); }

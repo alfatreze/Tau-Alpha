@@ -8,7 +8,8 @@ static void e0(void) { lg[ln++] = 10; } static void x0(void) { lg[ln++] = 11; } 
 static void e1(void) { lg[ln++] = 20; } static void x1(void) { lg[ln++] = 21; } static int i1(uint32_t e) { lg[ln++] = 22; return e == 1 ? 2 : e == 2 ? VW_BACK : VW_STAY; }
 static void e2(void) { lg[ln++] = 30; vw_switch(vp, hp, 0); }            /* a view that immediately asks to go to view 0 from inside its enter */
 static void x2(void) { lg[ln++] = 31; }
-static const view_t tab[3] = { { e0, x0, i0, d0, 0x1u }, { e1, x1, i1, 0, 0x6u }, { e2, x2, 0, 0, 0x0u } };
+static void r1f(void) { lg[ln++] = 24; }
+static const view_t tab[3] = { { e0, x0, i0, d0, 0x1u, 0 }, { e1, x1, i1, 0, 0x6u, r1f }, { e2, x2, 0, 0, 0x0u, 0 } };
 int main(void)
 {
     char c; unsigned a;
@@ -19,6 +20,7 @@ int main(void)
         else if (c == 'K') { if (scanf("%u", &a) == 1) vw_input(&vw, &hl, a); }
         else if (c == 'D') vw_draw(&vw);
         else if (c == 'F') { ln += 0; hl_flush(&hl, 0, 0); }
+        else if (c == 'R') vw_refresh(&vw, &hl);
     }
     for (int i = 0; i < ln; i++) printf("%d ", lg[i]);
     printf("| cur=%d prev=%d switches=%u dirty=%d%d%d\n", vw.cur, vw.prev, vw.switches, hl.r[0].dirty, hl.r[1].dirty, hl.r[2].dirty);

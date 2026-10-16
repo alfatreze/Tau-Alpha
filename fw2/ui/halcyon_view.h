@@ -5,6 +5,7 @@
 #define P2_HALCYON_VIEW_H
 #include <stdint.h>
 void halcyon_view_enter(void);
+void halcyon_view_redraw(void);              /* repaint in place */
 int  halcyon_view_input(uint32_t edge);      /* VW_STAY or VW_BACK */
 void halcyon_view_mark(void);                /* once per loop pass */
 void halcyon_view_draw(void);                /* the region's redraw */

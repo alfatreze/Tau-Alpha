@@ -35,6 +35,7 @@ SECTIONS {
 		*/halcyon.o(.rodata .rodata.* .srodata .srodata.*)
 		*/halcyon_view.o(.rodata .rodata.* .srodata .srodata.*)
 		*/assets.o(.rodata .rodata.* .srodata .srodata.*)
+		*/theme_file.o(.rodata .rodata.* .srodata .srodata.*)
 		*(.cold_data .cold_data.*)
 		. = ALIGN(4);
 		_cold_end = .;
@@ -58,6 +59,7 @@ SECTIONS {
 		*/halcyon.o(.text .text.*)
 		*/halcyon_view.o(.text .text.*)
 		*/assets.o(.text .text.*)
+		*/theme_file.o(.text .text.*)
 		*(.cold_text .cold_text.*)
 		. = ALIGN(4);
 		_cold_text_end = .;

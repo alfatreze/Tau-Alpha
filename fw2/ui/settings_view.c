@@ -8,13 +8,16 @@
 #include "nowplaying.h"
 #include "views.h"
 #include "regions.h"
+#include "theme.h"
+#include "meter.h"
+#include "../platform/platform.h"
 #include "helios.h"
 
-#define BG   RGB565(0, 0, 0)
-#define FG   RGB565(255, 255, 255)
-#define DIM  RGB565(140, 146, 160)
-#define OFFC RGB565(90, 94, 104)
-#define ACC  RGB565(255, 160, 40)
+#define BG   UI_BG_SCREEN
+#define FG   UI_WHITE
+#define DIM  UI_DIM
+#define OFFC UI_FAINT
+#define ACC  UI_ACCENT
 #define ROW_H 34u
 #define TOP_Y 34u
 /* The menu's value ids 0..6 are the transport's preferences. */
@@ -24,6 +27,8 @@ static mg_t menu; static uint32_t vals[V_COUNT], dirty; static uint8_t resume;  
 
 static void pull(void)
 {
+    const uint32_t cur_vals[4] = { th_pal, th_theme, th_pol, meters_cur() };
+    for (uint32_t k = 0; k < 4u; k++) if (vals[V_COLOUR + k] != cur_vals[k]) { vals[V_COLOUR + k] = cur_vals[k]; dirty = 1; }
     for (uint32_t i = 0; i < PREF_COUNT; i++) { uint32_t v = mp3play_pref_get(i); if (v != vals[i]) { vals[i] = v; dirty = 1; } }
     if (vals[V_ART] != np_art_on) { vals[V_ART] = np_art_on; dirty = 1; }
     if (vals[V_ACCEPT_ALL] != mp3play_accept_all) { vals[V_ACCEPT_ALL] = mp3play_accept_all; dirty = 1; }
@@ -64,6 +69,10 @@ int settings_view_input(uint32_t edge)
         if (e.id < PREF_COUNT) mp3play_pref_set(e.id, e.value);
         else if (e.id == V_ART) np_art_on = (uint8_t)e.value;
         else if (e.id == V_ACCEPT_ALL) mp3play_accept_all = (uint8_t)e.value;
+        else if (e.id == V_COLOUR) theme_set(th_theme, th_pol, e.value);
+        else if (e.id == V_THEME) theme_set(e.value, th_pol, th_pal);
+        else if (e.id == V_MODE) theme_set(th_theme, e.value, th_pal);
+        else if (e.id == V_METER) meters_select(e.value);
         pull();
         break;
     case EF_ACTION: resume = 1; return e.id == ACT_INFO ? V_INFO : e.id == ACT_HALCYON ? V_HALCYON : V_REPORT;
@@ -91,10 +100,25 @@ void settings_view_draw(void)
         else { const mg_row_t *r = &mg_pages[pg].rows[i]; label = r->label; value_text(r, v); }
         const int soon = pg != PG_CHOICE && mg_pages[pg].rows[i].kind == RK_SOON;
         gfx_rect(0, y, GFX_W, ROW_H, bg);
-        gfx_text(24, y + 9, label, on ? BG : (soon ? OFFC : FG), bg);
-        if (v[0]) gfx_text(GFX_W - 24 - gfx_text_width(v), y + 9, v, on ? BG : (soon ? OFFC : DIM), bg);
+        gfx_text(24, y + 9, label, on ? UI_ON_ACCENT : (soon ? OFFC : FG), bg);
+        if (v[0]) gfx_text(GFX_W - 24 - gfx_text_width(v), y + 9, v, on ? UI_ON_ACCENT : (soon ? OFFC : DIM), bg);
     }
     gfx_rect(0, 322, GFX_W, 38, BG);
     gfx_text(20, 322, pg == PG_CHOICE ? "UP DOWN  A PICK  B BACK" : "UP DOWN  A OPEN  LEFT RIGHT CHANGE", DIM, BG);
     gfx_text(20, 340, d ? "B BACK  START CLOSE" : "B OR START CLOSE", DIM, BG);
 }
+
+/* The option lists that depend on the build and on tau-assets.bin: the colours, the themes (built-in then file themes) and the meters. Called once at boot after the assets are read. */
+void settings_view_init_choices(void)
+{
+    static const char *theme_names[8], *meter_names[8];
+    uint32_t n = theme_count(); if (n > 8u) n = 8u;
+    for (uint32_t i = 0; i < n; i++) theme_names[i] = theme_name(i);
+    uint32_t m = meter_count > 8u ? 8u : meter_count;
+    for (uint32_t i = 0; i < m; i++) meter_names[i] = meter_table[i].name;
+    mg_set_choice(V_COLOUR, th_palette_name, 19u);
+    mg_set_choice(V_THEME, theme_names, n);
+    mg_set_choice(V_METER, meter_names, m);
+}
+void settings_view_keep(void) { resume = 1u; }
+void settings_view_redraw(void) { gfx_rect(0, 0, GFX_W, GFX_H, BG); dirty = 1; pull(); }

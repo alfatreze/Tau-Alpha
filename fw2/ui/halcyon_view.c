@@ -7,16 +7,17 @@
 #include "../cores/view_core.h"
 #include "helios.h"
 #include "regions.h"
+#include "theme.h"
 
-#define BG    RGB565(0, 0, 0)
-#define FG    RGB565(255, 255, 255)
-#define DIM   RGB565(140, 146, 160)
-#define FAINT RGB565(96, 100, 112)
-#define ACC   RGB565(255, 160, 40)
-#define GRID  RGB565(36, 40, 48)
-#define AXIS  RGB565(72, 76, 88)
-#define BAND  RGB565(54, 38, 14)
-#define TRACK RGB565(50, 54, 64)
+#define BG    UI_BG_SCREEN
+#define FG    UI_WHITE
+#define DIM   UI_DIM
+#define FAINT UI_FAINT
+#define ACC   UI_ACCENT
+#define GRID  UI_TRACK
+#define AXIS  UI_FAINT
+#define BAND  UI_PANEL
+#define TRACK UI_TRACK
 #define HP_X 20u
 #define HP_W 360u
 #define HP_Y 38u
@@ -35,6 +36,7 @@ void halcyon_view_enter(void)
     sel = 1u; halcyon_page_open(); dirty = 1;
     gfx_rect(0, 0, GFX_W, GFX_H, BG);
 }
+void halcyon_view_redraw(void) { gfx_rect(0, 0, GFX_W, GFX_H, BG); dirty = 1; }
 int halcyon_view_input(uint32_t edge)
 {
     enum { UP = 1u << 0, DOWN = 1u << 1, LEFT = 1u << 2, RIGHT = 1u << 3, A = 1u << 4, B = 1u << 5, X = 1u << 6, Y = 1u << 7, L1 = 1u << 8, R1 = 1u << 9 };
@@ -96,11 +98,11 @@ static void row(uint32_t i, int on)
 {
     const uint32_t y = ROWS_Y + i * ROW_H; const uint16_t bg = on ? ACC : BG;
     gfx_rect(0, y, GFX_W, ROW_H, bg);
-    gfx_text(HP_X, y + 1u, ctl_name[i], on ? BG : DIM, bg);
+    gfx_text(HP_X, y + 1u, ctl_name[i], on ? UI_ON_ACCENT : DIM, bg);
     const int32_t v = halcyon_ctl(i);
     const uint32_t bx = HP_X + 112u, bw = 200u, by = y + 7u;
-    gfx_rect(bx, by, bw, 6u, on ? RGB565(120, 80, 20) : TRACK);
-    const uint16_t fill = on ? BG : DIM;
+    gfx_rect(bx, by, bw, 6u, on ? UI_TRACK : UI_PANEL);
+    const uint16_t fill = on ? UI_ON_ACCENT : DIM;
     if (i == 4u) { if (v > 0) gfx_rect(bx, by, (uint32_t)v * 40u, 6u, fill); }                       /* sibilance 0..5: a dip depth from the left */
     else {
         gfx_rect(bx + bw / 2u, by - 2u, 1u, 10u, fill);
@@ -109,7 +111,7 @@ static void row(uint32_t i, int on)
     }
     char t[8], *q = t;
     if (v < 0) { *q++ = '-'; dec(q, (uint32_t)(-v)); } else { if (v) *q++ = '+'; dec(q, (uint32_t)v); }
-    gfx_text(GFX_W - 20u - gfx_text_width(t), y + 1u, t, on ? BG : FG, bg);
+    gfx_text(GFX_W - 20u - gfx_text_width(t), y + 1u, t, on ? UI_ON_ACCENT : FG, bg);
 }
 
 void halcyon_view_draw(void)
@@ -119,7 +121,7 @@ void halcyon_view_draw(void)
     gfx_rect(0, 0, GFX_W, HP_Y - 4u, BG);
     gfx_text(20, 6, "HALCYON EQ", ACC, BG);
     const char *nm = halcyon_name(); const uint32_t w = gfx_text_width(nm);
-    if (sel == 0u && halcyon_present) { gfx_rect(GFX_W - 28u - w, 3u, w + 16u, 22u, ACC); gfx_text(GFX_W - 20u - w, 6, nm, BG, ACC); }
+    if (sel == 0u && halcyon_present) { gfx_rect(GFX_W - 28u - w, 3u, w + 16u, 22u, ACC); gfx_text(GFX_W - 20u - w, 6, nm, UI_ON_ACCENT, ACC); }
     else gfx_text(GFX_W - 20u - w, 6, nm, DIM, BG);
     gfx_rect(0, 306, GFX_W, 54, BG);
     if (!halcyon_present) {

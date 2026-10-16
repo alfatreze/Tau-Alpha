@@ -7,15 +7,16 @@
 #include "meter.h"
 #include "../art/art.h"
 #include "helios.h"
+#include "theme.h"
 #include "../aout/halcyon.h"
 #include "regions.h"
 #include "../transport/mp3play.h"
 
-#define BG   RGB565(0, 0, 0)
-#define FG   RGB565(255, 255, 255)
-#define DIM  RGB565(140, 146, 160)
-#define ACC  RGB565(255, 160, 40)
-#define TRK  RGB565(50, 54, 64)
+#define BG   UI_BG_SCREEN
+#define FG   UI_WHITE
+#define DIM  UI_DIM
+#define ACC  UI_ACCENT
+#define TRK  UI_TRACK
 #define X0   20u
 #define BAR_W 360u
 #define BAR_Y 178u
@@ -116,8 +117,8 @@ int nowplaying_input(uint32_t edge)
     if (edge & KEY_DOWN) mp3play_act(MPA_VOL, -3);
     if (edge & KEY_X) meters_next(1);                           /* the next meter (shuffle is in Settings > Playback) */
     if (edge & KEY_Y) halcyon_cycle();                          /* the Halcyon EQ preset, as before */
-    if (edge & KEY_L1) mp3play_act(MPA_TEMPO, -1);
-    if (edge & KEY_R1) mp3play_act(MPA_TEMPO, 1);
+    if (edge & KEY_L1) theme_pick_step(-1);                     /* the accent colour, as before (the tempo is in Settings > Playback) */
+    if (edge & KEY_R1) theme_pick_step(1);
     return -1;                                                   /* VW_STAY */
 }
 /* Marks the three regions for this pass: each redraw is a cheap compare against what the screen holds, and the flush waits for the beam to leave the rows. */

@@ -7,4 +7,6 @@ void settings_view_enter(void);
 int  settings_view_input(uint32_t edge);    /* VW_STAY, or the view to switch to (Now Playing on close, Info, Report) */
 void settings_view_mark(void);              /* once per loop pass: marks the region when a value changed elsewhere */
 void settings_view_draw(void);              /* the region's redraw */
+void settings_view_init_choices(void);      /* the colour, theme and meter option lists (once, after tau-assets.bin is read) */
+void settings_view_redraw(void);            /* repaint in place (the colours changed): the page you are on stays */
 #endif

@@ -3,12 +3,13 @@
 #include "info_counters.h"
 #include "../gfx/gfx.h"
 #include "../platform/mmio.h"
+#include "../ui/theme.h"
 #include "../cores/helios_core.h"
 
-#define BG   RGB565(0, 0, 0)
-#define DIM  RGB565(140, 146, 160)
-#define FG   RGB565(255, 255, 255)
-#define ACC  RGB565(255, 160, 40)
+#define BG   UI_BG_SCREEN
+#define DIM  UI_DIM
+#define FG   UI_WHITE
+#define ACC  UI_ACCENT
 #define ROW_H 19u
 #define TOP_Y 30u
 #define VIS 16u
