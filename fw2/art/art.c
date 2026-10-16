@@ -17,17 +17,30 @@ static uint8_t probed, swap, clut_start; static uint16_t img_w, img_h;
 /* One known-answer probe settles both unknowns of this bitstream: (1) which half of a mailbox word is the lower-address pixel, (2) whether a palette load starting at index 0 lands entry n in slot n
  * (the registered address) or in slot n + 1 (older bitstreams). The palette entry i holds 0x1000 + i; the source word carries index 5 in its high half and 7 in its low half; one palette blit of one
  * pixel reads the lower-address one: entry 7 = low half first, no skew; 5 = high half first, no skew; 6 = low first with skew; 4 = high first with skew. */
+static uint8_t probe_fails;
+uint32_t art_probe_raw;
 static int probe(void)
 {
     const uint32_t src = PROBE_ROW * GFX_STRIDE + GFX_CELL_X, dst = (PROBE_ROW - 1u) * GFX_STRIDE + GFX_CELL_X;
-    uint32_t r = 0;
-    if (gfx_mb_write(src, (5u << 16) | 7u) || gfx_mb_write(dst, 0u)) return TIMG_E_MAILBOX;
+    const uint32_t sentinel = 0xA5C33C5Au;                    /* neither half can be a palette answer (0x1004..0x1007) */
+    uint32_t r = sentinel;
+    if (gfx_mb_write(src, (5u << 16) | 7u) || gfx_mb_write(dst, sentinel)) return TIMG_E_MAILBOX;
     gfx_clut_begin(0u);
     for (uint32_t i = 0; i < 256u; i++) gfx_clut_put((uint16_t)(0x1000u + i));
     gfx_cblit(GFX_CELL_X, PROBE_ROW, GFX_CELL_X, PROBE_ROW - 1u, 1u, 1u);
-    gfx_fence();
-    if (gfx_mb_read(dst, &r)) return TIMG_E_MAILBOX;
-    uint32_t px = (r & 0xFFFFu) | (r >> 16);                  /* one half holds the pixel, the other is the zero we wrote */
+    /* The copy is queued behind whatever the screen drew just before (a track change): reading the destination at a fixed time read it BEFORE the copy landed (the old player's B-325, the
+     * Info row ART ERR 8 on every track here). Poll until the destination differs from the sentinel, about 50 ms at most, and only then judge it. */
+    const uint32_t t0 = cycles();
+    do {
+        const uint32_t t = cycles(); while ((uint32_t)(cycles() - t) < 512u) { }
+        if (gfx_mb_read(dst, &r)) return TIMG_E_MAILBOX;
+        if (r != sentinel) break;
+    } while ((uint32_t)(cycles() - t0) < CLK_HZ / 20u);
+    art_probe_raw = r;
+    uint32_t px;                                               /* the half that changed holds the pixel, the other keeps the sentinel */
+    if ((r & 0xFFFFu) != (sentinel & 0xFFFFu)) px = r & 0xFFFFu;
+    else if ((r >> 16) != (sentinel >> 16)) px = r >> 16;
+    else return TIMG_E_PROBE;
     if (px == 0x1007u) { swap = 0; clut_start = 0; }
     else if (px == 0x1005u) { swap = 1; clut_start = 0; }
     else if (px == 0x1006u) { swap = 0; clut_start = 255; }
@@ -41,7 +54,11 @@ int art_load(const char *path)
 {
     const uint32_t t0 = cycles();
     int e = 0;
-    if (!probed) { e = probe(); if (e) goto fail; probed = 1; art_probe_state = 1; }
+    if (!probed) {
+        if (probe_fails >= 3u) { e = TIMG_E_ENGINE; goto fail; }      /* a bitstream that cannot do it costs three probes, not one per track */
+        e = probe(); if (e) { probe_fails++; goto fail; }
+        probed = 1; probe_fails = 0; art_probe_state = 1;
+    }
     if (!slot_open_path(ART_SLOT, path)) { e = TIMG_E_OPEN; goto fail; }
     timg_hdr_t h;
     if (!slot_read_blocking(ART_SLOT, 0u, TAG_OFF, TIMG_HDR_BYTES, CLK_HZ * 2u)) { e = TIMG_E_READ; goto fail; }

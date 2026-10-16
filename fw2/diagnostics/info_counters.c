@@ -83,6 +83,7 @@ const cnt_t counters_table[] = {
     { "ART FAILED",   CK_U32, CU_NONE,   &art_failed },
     { "ART ERR",      CK_U32, CU_NONE,   &art_last_err },           /* TIMG_E_*: 1 magic 2 format 3 size 4 open 5 read 7 mailbox 8 probe */
     { "ART MS",       CK_U32, CU_MS,     &art_ms },
+    { "ART PROBE RAW", CK_HEX32, CU_NONE, &art_probe_raw },    /* what the palette probe read back: 1004..1007 (low or high half) means it worked */
     { "ART CLUT",     CK_U32, CU_NONE,   &art_clut_start },         /* palette load start index the probe chose: 0 registered, 255 legacy */
     { "SKIP ON",      CK_U32, CU_NONE,   &mp.skip_on },
     { "SKIP HITS",    CK_U32, CU_NONE,   &skiplist_hits },
