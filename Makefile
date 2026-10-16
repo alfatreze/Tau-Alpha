@@ -117,6 +117,8 @@ test-host:
 	$(PYTHON) sim/test_p2_scope.py
 	$(PYTHON) sim/test_p2_vu.py
 	$(PYTHON) sim/test_p2_chladni.py
+	$(PYTHON) sim/test_p2_lw.py
+	$(PYTHON) tools/player2/gen_lw_presets.py --check
 	$(PYTHON) sim/test_p2_art_probe.py
 	$(PYTHON) sim/test_p2_helios.py
 	$(PYTHON) sim/test_p2_views.py

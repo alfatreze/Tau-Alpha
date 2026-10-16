@@ -14,6 +14,7 @@ typedef struct {
     uint8_t force;                /* 1 = repaint the whole rectangle and drop every redraw cache (the context changed) */
     uint8_t paused;               /* playback is paused or stopped: levels fall to zero */
     uint32_t peak_l, peak_r;      /* the loudest sample of each channel since the previous tick, scaled by 3/4 of headroom (0..24575) */
+    const int8_t *wave;           /* optional: signed waveform columns (a meter that needs one builds it from peak_l/peak_r otherwise); null in the host */
 } mtr_in_t;
 typedef struct { const char *name; void (*tick)(const mtr_in_t *in); } meter_def_t;
 extern const meter_def_t meter_table[];

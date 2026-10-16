@@ -14,10 +14,12 @@ extern void meter_winamp_bars_tick(const mtr_in_t *in);
 extern void meter_winamp_scope_tick(const mtr_in_t *in);
 extern void meter_vu_master_tick(const mtr_in_t *in);
 extern void meter_chladni_tick(const mtr_in_t *in);
+extern void meter_layered_wave_tick(const mtr_in_t *in);
 const meter_def_t meter_table[] = {
     { "WINAMP BARS", meter_winamp_bars_tick },
     { "WINAMP SCOPE", meter_winamp_scope_tick },
     { "CHLADNI", meter_chladni_tick },
+    { "LAYERED WAVE", meter_layered_wave_tick },
     { "VU MASTER", meter_vu_master_tick },
 };
 const uint32_t meter_count = sizeof meter_table / sizeof meter_table[0];
