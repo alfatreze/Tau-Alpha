@@ -26,6 +26,13 @@ done
 "$GCC" "${CFLAGS[@]}" -Wl,--gc-sections -T "$FW2/platform/link.ld" -o "$OUT/fw2.elf" "${OBJS[@]}" -lgcc 2>> "$OUT/build.log" || { grep -v "LOAD segment with RWX" "$OUT/build.log" >&2; echo "*** Player 2 COMPILE FAILED ***" >&2; exit 1; }
 grep -v "LOAD segment with RWX" "$OUT/build.log" >&2 || true
 "$SIZE" "$OUT/fw2.elf"
+# the entry point and the hot loop must be in hot RAM: a link.ld pattern that is too greedy (it once took start.o) would otherwise only show as a black screen
+NM="${BIN}/riscv-none-elf-nm"
+for sym in _start main; do
+    ad="$("$NM" "$OUT/fw2.elf" | awk -v s="$sym" '$3 == s { print $1 }')"
+    case "$ad" in 000*) ;; *) echo "*** $sym is at 0x$ad, not in hot RAM: check the cold object patterns in fw2/platform/link.ld ***" >&2; exit 1 ;; esac
+done
+[ "$("$NM" "$OUT/fw2.elf" | awk '$3 == "_start" { print $1 }')" = "00000000" ] || { echo "*** _start is not at address 0 ***" >&2; exit 1; }
 "$OBJCOPY" -O binary -R .cold_data -R .cold_text "$OUT/fw2.elf" "$OUT/tau.rom"; chmod 0644 "$OUT/tau.rom"      # the cold sections are not part of the ROM image
 if [ "${M3:-0}" = "1" ]; then python3 "$ROOT/tools/pack_cold.py" pack "$OUT/fw2.elf" "$OUT" --rom "$OUT/tau.rom"; else cp "$ROOT/dist/Assets/tau/alfatreze.TAU/tau-cold.bin" "$OUT/tau-cold.bin" 2>/dev/null || cp "$ROOT/dist/Assets/tau/common/tau-cold.bin" "$OUT/tau-cold.bin" 2>/dev/null || : > "$OUT/tau-cold.bin"; fi
 python3 - <<PY
