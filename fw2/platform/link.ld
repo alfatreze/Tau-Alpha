@@ -8,6 +8,8 @@ MEMORY {
 	 * (PSRAM byte offset = address - 0x2400_0000). One 1 MiB region carries both, data first. Same addresses as the old player and the bitstream's instruction fetch. */
 	pcold : ORIGIN = 0xA4800000, LENGTH = 0x00100000
 	pcode : ORIGIN = 0x24800000, LENGTH = 0x00100000
+	/* Mutable meter state that does not fit on-chip (Layered Wave's history ring), in free PSRAM between the PRST copy (0xA4540000) and the tempo staging (0xA4600000); never initialised by the image, proven at first use (meter_layered_wave.c). */
+	psram_state : ORIGIN = 0xA4560000, LENGTH = 0x00002000
 }
 ENTRY(_start)
 _stack_size = 0x1400;      /* 5 KB (was 6; the measured peaks are 0.9 to 1.1 KB and platform_stack_peak() keeps checking, so this still leaves 4x); the shipped measurement of the worst peak is 1,672 B (B-230) and platform_stack_peak() keeps checking */
@@ -25,6 +27,7 @@ SECTIONS {
 		*/meter_winamp_scope.o(.rodata .rodata.* .srodata .srodata.*)
 		*/meter_vu_master.o(.rodata .rodata.* .srodata .srodata.*)
 		*/meter_chladni.o(.rodata .rodata.* .srodata .srodata.*)
+		*/meter_layered_wave.o(.rodata .rodata.* .srodata .srodata.*)
 		*/fullscreen_view.o(.rodata .rodata.* .srodata .srodata.*)
 		*/settings_view.o(.rodata .rodata.* .srodata .srodata.*)
 		*/info_counters.o(.rodata .rodata.* .srodata .srodata.*)
@@ -52,6 +55,7 @@ SECTIONS {
 		*/meter_winamp_scope.o(.text .text.*)
 		*/meter_vu_master.o(.text .text.*)
 		*/meter_chladni.o(.text .text.*)
+		*/meter_layered_wave.o(.text .text.*)
 		*/fullscreen_view.o(.text .text.*)
 		*/settings_view.o(.text .text.*)
 		*/info_counters.o(.text .text.*)
@@ -72,6 +76,7 @@ SECTIONS {
 	} > pcode
 	_cold_img_size = ALIGN(SIZEOF(.cold_data), 32) + SIZEOF(.cold_text);
 	ASSERT(_cold_img_size <= 0x100000, "the cold image does not fit its 1 MiB region")
+	.psram_state (NOLOAD) : { __psram_state_start = .; *(.psram_state .psram_state.*) . = ALIGN(4); __psram_state_end = .; } > psram_state
 	.text   : { KEEP(*(.text._start)) *(.text .text.*) } > ram
 	.rodata : { *(.rodata .rodata.*) *(.srodata .srodata.*) } > ram
 	.data   : { *(.data .data.*) *(.sdata .sdata.*) } > ram
