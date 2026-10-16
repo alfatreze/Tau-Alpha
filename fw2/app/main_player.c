@@ -1,6 +1,7 @@
 #pragma GCC optimize ("Os")   /* the loop body is light; smaller code is what the 192 KB link needs */
 /* Player 2 (the MP3 + FLAC player build): boots, then runs the one loop of spec section 9: input, transport (decode into the ring), settings, and the view on screen. */
 #include "../platform/platform.h"
+#include "../platform/cold.h"
 #include "../diagnostics/info_counters.h"
 #include "../gfx/gfx.h"
 #include "../diagnostics/info_page.h"
@@ -22,6 +23,12 @@ int main(void)
     if (!platform_version_ok()) platform_halt_pattern();
     gfx_rect(0, 0, GFX_W, GFX_H, 0);
     platform_probe();
+    { int ce = cold_boot();                                    /* the UI, library and settings run from the cold image: without it nothing can be shown, so say why and stop */
+      if (ce) {
+          char m[24] = "COLD IMAGE FAILED E00"; m[19] = (char)('0' + (ce / 10) % 10); m[20] = (char)('0' + ce % 10);
+          gfx_text(10, 10, m, RGB565(255, 160, 40), 0); gfx_text(10, 40, "TAU-COLD.BIN MISSING OR NOT FOR THIS BUILD", RGB565(160, 160, 160), 0);
+          for (;;) { }
+      } }
     counters_init();
     counters_aout_init = (uint32_t)aout_init();
     if (!counters_aout_init) { mp3play_init(caps.cymo); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); }
