@@ -51,8 +51,8 @@ def reference(d):
     if r.returncode: print(r.stderr); sys.exit(1)
     return exe
 
-def run(exe, path, out, cap=24576, seed=1, lat=5000, jit=2000, seek=0, nout=0):
-    r = subprocess.run([str(exe), str(path), str(out), str(cap), str(seed), str(lat), str(jit), str(seek), str(nout)], capture_output=True, text=True)
+def run(exe, path, out, cap=24576, seed=1, lat=5000, jit=2000, seek=0, nout=0, tail=0):
+    r = subprocess.run([str(exe), str(path), str(out), str(cap), str(seed), str(lat), str(jit), str(seek), str(nout), str(tail)], capture_output=True, text=True)
     return {k: int(v) for k, v in (l.split("=") for l in r.stdout.split())}
 
 def expected(ref, path, d, data=None):
@@ -88,6 +88,16 @@ def scenarios(exe, ref, d):
     pcmj, _, _, _ = expected(ref, d / "junk.mp3", d)
     rj = run(exe, d / "junk.mp3", d / "oj.pcm"); gotj = (d / "oj.pcm").read_bytes()
     res["junk"] = (rj["resyncs"] >= 1 and rj["status"] == 1 and len(gotj) > 0.9 * len(want), rj, len(gotj), len(want))
+    # a fake frame header in the middle (valid-looking 128 kbps 44.1 kHz header, but only 100 bytes of junk after it): the real frames around it must all survive, so the output equals the clean decode
+    f2 = [x for x in files if "MacCunn MP3 128" in x.name]
+    if f2:
+        b = f2[0].read_bytes(); o = 10 + ((b[6] << 21) | (b[7] << 14) | (b[8] << 7) | b[9]); n = 0
+        while n < 2000 and o + 4 < len(b):
+            assert b[o] == 0xFF; o += 144 * 128000 // 44100 + ((b[o + 2] >> 1) & 1); n += 1
+        (d / "fake.mp3").write_bytes(b[:o] + b"\xFF\xFB\x90\x00" + bytes((i * 91 + 5) & 0x7F for i in range(96)) + b[o:])
+        pcmc, fr, de, pa = expected(ref, f2[0], d); r2 = run(exe, f2[0], d / "oc.pcm"); S, P = r2["spf"] + de + 529, fr * r2["spf"] - de - pa
+        run(exe, d / "fake.mp3", d / "of.pcm")
+        res["fake header survives"] = ((d / "of.pcm").read_bytes() == (d / "oc.pcm").read_bytes() and len((d / "oc.pcm").read_bytes()) > 0, r2, 0, 0)
     # truncated file: ends cleanly (EOF, no error state), delivers the frames that are whole
     (d / "trunc.mp3").write_bytes(f.read_bytes()[: len(f.read_bytes()) // 3 + 5])
     rt = run(exe, d / "trunc.mp3", d / "ot.pcm")
@@ -106,7 +116,7 @@ def seek_tests(exe, ref, d):
         S, P = (spf + de + 529, fr * spf - de - pa) if trimmed else (0, len(pcm) // (2 * ch))
         want = pcm[S * ch * 2:(S + P) * ch * 2] if trimmed else pcm
         rnd = random.Random(7); N = 12000
-        targets = [1, 700, spf, spf * 3 + 5, spf * 50 + 600, P // 2, P // 3 + 11, (P * 9) // 10, max(P - N - 3, 1)] + [rnd.randrange(1, max(P - N, 2)) for _ in range(4)]
+        targets = [1, 700, spf, spf * 3 + 5, spf * 50 + 600, 3000, 4000, 5000, 7000, 9000, 20000, 60000, 150000, P // 2, P // 3 + 11, (P * 9) // 10, max(P - N - 3, 1)] + [rnd.randrange(1, max(P - N, 2)) for _ in range(4)]
         res = []
         for T in targets:
             rr = run(exe, f, d / "s.pcm", seek=T, nout=N); got = (d / "s.pcm").read_bytes()
@@ -115,6 +125,31 @@ def seek_tests(exe, ref, d):
                 a = T + k * spf
                 if a >= 0 and len(got) > 0 and got == want[a * ch * 2:(a + N) * ch * 2][:len(got)]: shift = k; break
             res.append((T, rr["plan_ok"], rr["status"], shift is not None and len(got) >= N * ch * 2 * 0.9, shift))
+        out[f.name] = res
+    return out
+
+def skip_tests(exe, ref, d):
+    """Skip silence: lead = a seek to `lead` pairs, tail = the track ends `tail` pairs early. The output must equal the whole-file decode from the landed lead to P - tail (the tail is exact; the lead lands within the seek's frames)."""
+    out = {}
+    for f in files:
+        pcm, fr, de, pa = expected(ref, f, d)
+        r0 = run(exe, f, d / "o.pcm"); ch, spf = r0["ch"], r0["spf"]
+        if not (fr and (de or pa) and pa >= 529): continue                        # the tail needs the length: tagged files only
+        S, P = spf + de + 529, fr * spf - de - pa; want = pcm[S * ch * 2:(S + P) * ch * 2]
+        res = []
+        for lead, tail in ((0, 4000), (0, 90000), (5000, 3000), (120000, 80000), (300000, 0)):
+            if lead + tail + 20000 >= P: continue
+            rr = run(exe, f, d / "k.pcm", seek=lead, tail=tail); got = (d / "k.pcm").read_bytes()
+            shift = None
+            for k in (0, 1, -1, 2, -2, 3, -3):
+                a = lead + k * spf if lead else 0
+                e = (P - tail + k * spf) if lead else (P - tail)               # a landing that is k frames off moves the whole window, both ends, by k frames (the label drives the end too)
+                if a >= 0 and got == want[a * ch * 2:e * ch * 2] and len(got) > 0: shift = k; break
+            if shift is None and b"Xing" in f.read_bytes()[:2000] and lead:          # a true VBR file lands by its 8-bit TOC: the window moves by the landing error and the label-driven end moves with it, so the end is only within a few frames
+                for k in (0, 1, -1, 2, -2, 3, -3):
+                    a = lead + k * spf
+                    if a >= 0 and len(got) > 0 and got == want[a * ch * 2:a * ch * 2 + len(got)] and abs(len(got) // (ch * 2) - (P - tail - lead)) <= 4 * spf: shift = k; break
+            res.append((lead, tail, shift is not None, shift, rr["pairs_total"] == P - tail))
         out[f.name] = res
     return out
 
@@ -130,11 +165,15 @@ with tempfile.TemporaryDirectory() as td:
     for k, res in sk.items():
         bad = [x for x in res if not (x[1] and x[3])]
         check(f"{k}: {len(res)} seeks play correct, continuous audio from the target (landing within 3 frames; shifts {sorted(set(x[4] for x in res if x[4] is not None))})", not bad and all(abs(x[4]) <= 3 for x in res), bad)
+    sk2 = skip_tests(exe0, ref, d)
+    for k, res in sk2.items():
+        check(f"{k}: skip silence (lead {[x[0] for x in res]}, tail {[x[1] for x in res]}) plays exactly the window, P3 expectation follows", bool(res) and all(x[2] and x[4] for x in res), res)
     r = good[files[0].name][1]; check("ID3v2 tag skipped by a seek", r["tag"] > 0 and r["errors"] <= 2, r)
-    for bug, name in ((1, "tag not skipped"), (2, "trim ignored"), (3, "frame window too small"), (4, "seek without warm-up"), (5, "seek landing not dropped")):
+    for bug, name in ((1, "tag not skipped"), (2, "trim ignored"), (3, "frame window too small"), (4, "seek without warm-up"), (5, "seek landing not dropped"), (6, "tail forgotten"), (7, "sync word trusted without the next header")):
         eb = build_all(d, bug)
         caught = any(not v[0] for v in scenarios(eb, ref, d).values())
         if not caught: caught = any(not (x[1] and x[3]) or abs(x[4] or 0) > 3 for res in seek_tests(eb, ref, d).values() for x in res)
+        if not caught: caught = any(not (x[2] and x[4]) for res in skip_tests(eb, ref, d).values() for x in res)
         check(f"mutant {bug} ({name}) is caught", caught)
 print("FAILED" if fails else "all ok", fails)
 sys.exit(1 if fails else 0)

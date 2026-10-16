@@ -10,7 +10,7 @@
 typedef struct {
     uint32_t gen, rate, playing, held, cur_valid, cur_gen, cur_pos, acct_bad, stalls, gov_mode;
     uint32_t state, frames, errors, resyncs, pairs_out, pairs_total, seg_put, gapless_next, drain_next, rate_changes, ended;
-    uint32_t dec_max_cyc, dec_steps, need_data, ch, init_fail, non_mp3, seeks, seek_fail, seek_ign, seek_to, volume, rg_mode, gain_tgt, rg_factor, rg_cap, dec_us, dec_blocks, dec_avg_us, poly_on, poly_slots, poly_mismatch, poly_timeout, tempo_idx, seek_idx, tempo_out, flac_waits, flac_refused, flac_err, lpc_slots, lpc_timeout, seg_put_track;
+    uint32_t dec_max_cyc, dec_steps, need_data, ch, init_fail, non_mp3, seeks, seek_fail, seek_ign, seek_to, volume, rg_mode, gain_tgt, rg_factor, rg_cap, dec_us, dec_blocks, dec_avg_us, poly_on, poly_slots, poly_mismatch, poly_timeout, tempo_idx, seek_idx, skip_on, skip_lead, skip_tail, skip_applied, skip_ign, tempo_out, flac_waits, flac_refused, flac_err, lpc_slots, lpc_timeout, seg_put_track;
 } mp_t;
 extern mp_t mp;
 extern tl_t mp_tl;
@@ -34,7 +34,7 @@ void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t 
 void mp3play_settings_get(uint32_t *vals);
 void mp3play_settings_set(const uint32_t *vals);
 /* The preferences the Settings menu edits (the first three of cores/settings_core.h are also persisted). Values: volume 0..100, ReplayGain 0..2, tempo index 0..7, repeat 0..2, shuffle 0..1, seek step index 0..3 (10/30/60/120 s). */
-enum { PREF_VOLUME = 0, PREF_RG, PREF_TEMPO, PREF_REPEAT, PREF_SHUFFLE, PREF_SEEKSTEP, PREF_COUNT };
+enum { PREF_VOLUME = 0, PREF_RG, PREF_TEMPO, PREF_REPEAT, PREF_SHUFFLE, PREF_SEEKSTEP, PREF_SKIPSIL, PREF_COUNT };
 uint32_t mp3play_pref_get(uint32_t id);
 void     mp3play_pref_set(uint32_t id, uint32_t v);
 #endif

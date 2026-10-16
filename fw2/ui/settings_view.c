@@ -11,8 +11,8 @@
 #define ACC  RGB565(255, 160, 40)
 #define ROW_H 34u
 #define TOP_Y 40u
-static const mi_t items[PREF_COUNT] = { {0, 0, 100, 1}, {1, 0, 2, 1}, {1, 0, 7, 1}, {1, 0, 2, 1}, {1, 0, 1, 1}, {1, 0, 3, 1} };
-static const char *const names[PREF_COUNT] = { "VOLUME", "REPLAYGAIN", "TEMPO", "REPEAT", "SHUFFLE", "SEEK STEP" };
+static const mi_t items[PREF_COUNT] = { {0, 0, 100, 1}, {1, 0, 2, 1}, {1, 0, 7, 1}, {1, 0, 2, 1}, {1, 0, 1, 1}, {1, 0, 3, 1}, {1, 0, 1, 1} };
+static const char *const names[PREF_COUNT] = { "VOLUME", "REPLAYGAIN", "TEMPO", "REPEAT", "SHUFFLE", "SEEK STEP", "SKIP SILENCE" };
 static menu_t menu; static uint32_t vals[PREF_COUNT], shown[PREF_COUNT], shown_sel = 0xFFFFFFFFu, dirty;
 
 static void value_text(uint32_t i, char *o)
@@ -20,7 +20,7 @@ static void value_text(uint32_t i, char *o)
     static const char *const rg[3] = { "OFF", "TRACK", "ALBUM" }, *const sp[8] = { "0.75X", "0.85X", "1.00X", "1.10X", "1.25X", "1.50X", "1.75X", "2.00X" },
                       *const rp[3] = { "OFF", "ALL", "ONE" }, *const sk[4] = { "10 S", "30 S", "60 S", "120 S" };
     const char *s = 0; uint32_t v = vals[i], n = 0;
-    switch (i) { case PREF_RG: s = rg[v % 3u]; break; case PREF_TEMPO: s = sp[v & 7u]; break; case PREF_REPEAT: s = rp[v % 3u]; break; case PREF_SHUFFLE: s = v ? "ON" : "OFF"; break; case PREF_SEEKSTEP: s = sk[v & 3u]; break; }
+    switch (i) { case PREF_RG: s = rg[v % 3u]; break; case PREF_TEMPO: s = sp[v & 7u]; break; case PREF_REPEAT: s = rp[v % 3u]; break; case PREF_SHUFFLE: case PREF_SKIPSIL: s = v ? "ON" : "OFF"; break; case PREF_SEEKSTEP: s = sk[v & 3u]; break; }
     if (s) { while (*s && n < 15u) o[n++] = *s++; o[n] = 0; return; }
     char t[8]; uint32_t k = 0; do { t[k++] = (char)('0' + v % 10u); v /= 10u; } while (v);
     while (k) o[n++] = t[--k]; o[n] = 0;
