@@ -46,3 +46,14 @@ uint32_t library_title(uint32_t id, char *out, uint32_t cap) { lib_track_t t; if
 uint16_t *library_queue_buf(void) { return LIB_Q; }
 uint16_t *library_orig_buf(void) { return (uint16_t *)(uintptr_t)(PS_BASE + 0x518000u); }
 uint32_t library_rate(uint32_t id) { lib_det_t d; return lib_state == 1 && lib_details(&lib, id, &d) ? d.rate : 0; }
+uint32_t library_codec(uint32_t id) { lib_det_t d; if (lib_state != 1) return 0; if (lib_details(&lib, id, &d)) return d.codec; lib_track_t t; if (id >= lib.n_tracks) return 0; lib_track(&lib, id, &t); return t.fmt; }
+uint32_t library_album_jump(uint32_t id, int dir)
+{
+    lib_track_t t; lib_album_t a;
+    if (lib_state != 1 || id >= lib.n_tracks) return 0xFFFFFFFFu;
+    lib_track(&lib, id, &t); lib_album(&lib, t.album, &a);
+    if (dir > 0) { uint32_t n = (uint32_t)a.first_track + a.n_tracks; return n < lib.n_tracks ? n : 0xFFFFFFFFu; }
+    if (id > a.first_track) return a.first_track;                       /* inside an album: back to its first track */
+    if (!a.first_track) return 0xFFFFFFFFu;
+    lib_track(&lib, a.first_track - 1u, &t); lib_album(&lib, t.album, &a); return a.first_track;
+}

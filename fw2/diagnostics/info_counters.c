@@ -42,6 +42,8 @@ const cnt_t counters_table[] = {
     { "MP NEED DATA", CK_U32, CU_NONE,   &mp.need_data },
     { "MP DEC MAX",   CK_U32, CU_CYC,    &mp.dec_max_cyc },       /* the longest atomic decode step */
     { "MP DEC STEPS", CK_U32, CU_NONE,   &mp.dec_steps },
+    { "MP INIT FAIL", CK_U32, CU_NONE,   &mp.init_fail },
+    { "MP NON-MP3",   CK_U32, CU_NONE,   &mp.non_mp3 },
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
 #endif
 #ifdef P2_LISTPLAY
