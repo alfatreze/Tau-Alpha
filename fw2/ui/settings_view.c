@@ -22,7 +22,7 @@
 #define ROW_H 34u
 #define TOP_Y 34u
 /* The menu's value ids 0..6 are the transport's preferences. */
-_Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_TEMPO == PREF_TEMPO && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL, "menu value ids must mirror PREF_*");
+_Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_TEMPO == PREF_TEMPO && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL && V_SPEED == PREF_SPEED, "menu value ids must mirror PREF_*");
 
 uint8_t blank_sel;                       /* Settings > Appearance > Screen blank: an index into bl_minutes (not persisted, as in the old player) */
 static mg_t menu; static uint32_t vals[V_COUNT], dirty; static uint8_t resume;      /* 1: coming back from Info, Report or the Halcyon page: keep the page you were on */

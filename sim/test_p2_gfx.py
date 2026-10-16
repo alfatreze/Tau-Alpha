@@ -25,7 +25,7 @@ def build(td, mutant):
     if mutant == "nofence": m("    if (!active) return;\n    gfx_fence();\n", "    if (!active) return;\n")
     if mutant == "blendfence": m("void gfx_blend_off(void) { gfx_fence();", "void gfx_blend_off(void) {")
     if mutant == "present": m("buf_base(back), buf_base(front)); }", "buf_base(front), buf_base(back)); }")
-    if mutant == "probe": m("    return blend_state == 1u;\n}\n/* Blend the w x h box", "    blend_state = 1u; return 1;\n}\n/* Blend the w x h box")
+    if mutant == "probe": m("    return gfx_blend_state == 1u;\n}\n/* Blend the w x h box", "    gfx_blend_state = 1u; return 1;\n}\n/* Blend the w x h box")
     (d / "fw2/gfx/gfx.c").write_text(src)
     for f in ("gfx/gfx.h", "platform/mmio.h", "platform/platform.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "fw").mkdir(exist_ok=True)

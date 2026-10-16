@@ -27,15 +27,6 @@
 static union { mp3d_t m; struct { f2t_t t; uint8_t seek[1024]; int32_t out[2u * F2_OUT_PAIRS]; int16_t pcm[2u * F2_OUT_PAIRS]; } f; } dv;
 static int32_t *flac_ch0; static uint8_t is_flac, ft_active, dec_live; static uint32_t ft_total, ft_rate;
 static uint32_t ft_cyc;                                   /* decode cycles since the last verified frame (for the per-frame average) */
-#elif P2_FLAC
-#include "../../fw/flac.h"
-#include <stdlib.h>
-#if TAU_LPC_FW
-#include "../../fw/flac_lpc_hw.h"
-#endif
-#define FLAC_CH0_WORDS 5120u                              /* 20 KB from the decoder arena (shared with Helix: one codec is live at a time); a file with larger blocks is refused */
-#define FLAC_NEED 19500u                                  /* compressed bytes that must be buffered before a frame is decoded (a worst-case 4608 x 2 x 16-bit frame is 18.5 KB): decode never waits on the card */
-static flac_t fl; static int32_t *flac_ch0; static uint8_t is_flac;
 #endif
 /* Tempo (spec 8.3): the Tau-written stretcher and funnel are reused unchanged. Staging ring: the PSRAM window at +6 MiB, planar (the library image, queue and dead-track bitmap are below it). */
 #define TEMPO_PS_L ((volatile uint32_t *)(uintptr_t)0xA4600000u)
@@ -65,7 +56,11 @@ static void tempo_flush(void)
     if (acc < tempo_n) { mp.stalls++; tempo_over += tempo_n - acc; }
     tempo_n = 0;
 }
-static const uint16_t tempo_q8[8] = { 192u, 218u, 256u, 282u, 320u, 384u, 448u, 512u };      /* 0.75 0.85 1.00 1.10 1.25 1.50 1.75 2.00 */
+static const uint16_t tempo_q8[8] = { 192u, 218u, 256u, 282u, 320u, 384u, 448u, 512u };      /* 0.75 0.85 1.00 1.10 1.25 1.50 1.75 2.00 (the menu offers index 2 = OFF and 3..7) */
+/* Speed (varispeed, the pitch follows): the output tick times num/den. The menu list is 0.85 0.95 1.00 1.10 1.20 1.30 1.50 1.75 2.00 (index 2 = normal). MP3 only: a FLAC track always plays at 1.00x. */
+static const uint8_t speed_num[9] = { 17u, 19u, 1u, 11u, 6u, 13u, 3u, 7u, 2u }, speed_den[9] = { 20u, 20u, 1u, 10u, 5u, 10u, 2u, 4u, 1u };
+static void speed_apply(void);
+static uint8_t tempo_pend, tempo_tries;
 
 #define SMALL __attribute__((optimize("Os")))      /* not on the decode path: smaller code is what the 192 KB link needs */
 extern char _ring_start;
@@ -113,7 +108,7 @@ SMALL void mp3play_init(int cymo_present)
     stream_init(&lp_stream, RING_SZ, 5u * CLK_HZ);
     library_load();
     aout_gain_unity();
-    mp.volume = 94u; mp.rg_mode = RG_TRACK; mp.tempo_idx = 2u; mp.seek_idx = 1u;                              /* the old player's default volume; ReplayGain on Track for the first hardware listening */
+    mp.volume = 94u; mp.rg_mode = RG_TRACK; mp.tempo_idx = 2u; mp.speed_idx = 2u; mp.seek_idx = 1u;                              /* the old player's default volume; ReplayGain on Track for the first hardware listening */
     gain_apply_heard(); REG_WR(R_GAIN_CTRL, 1u | (3u << 4) | 2u);       /* snap to the volume target: no ramp from a stale value */
     aout_snap_t s = aout_snap(); tl_init(&mp_tl, s.cnt); gov_init(&mp_gov, AOUT_USABLE);
     if (lib_state != 1) return;
@@ -141,47 +136,6 @@ SMALL static int flac_begin(void)
     ft_active = 1; ft_cyc = 0; ft_total = 0; ft_rate = 0;
     return 1;
 }
-#elif P2_FLAC
-/* flac.c pulls bytes: the decode path checks FLAC_NEED first so this never waits there; during the open it may (the open reads the header and the metadata), and then it services the card. */
-static int flac_pull(void *ctx, uint8_t *dst, int n)
-{
-    (void)ctx; int got = 0; uint32_t t0 = cycles();
-    while (got < n) {
-        uint32_t a = stream_avail(&lp_stream);
-        if (a) { uint32_t m = a < (uint32_t)(n - got) ? a : (uint32_t)(n - got); stream_take(&lp_stream, RING_PTR, dst + got, m); got += (int)m; continue; }
-        if (lp_stream.eof) break;
-        mp.flac_waits++;
-        io_service();
-        if ((uint32_t)(cycles() - t0) > 6u * CLK_HZ) break;
-    }
-    return got;
-}
-static int flac_skip(void *ctx, uint32_t n)                    /* forward without reading: a cover picture can be hundreds of KB */
-{
-    (void)ctx; uint32_t a = stream_avail(&lp_stream);
-    if (n <= a) { stream_skip(&lp_stream, n); return 1; }
-    stream_seek(&lp_stream, lp_stream.pos - a + n);
-    return 1;
-}
-static void flac_sink(void *ctx, const int16_t *pcm, uint32_t frames)
-{
-    (void)ctx;
-    uint32_t acc = aout_put(pcm, frames, fl.channels == 2u);
-    tl_put(&mp_tl, acc); mp.seg_put += acc;
-    if (acc < frames) mp.stalls++;
-}
-static void flac_release(void) { if (flac_ch0) { free(flac_ch0); flac_ch0 = 0; } }
-static int flac_begin(void)
-{
-    flac_release();
-    flac_ch0 = (int32_t *)malloc(FLAC_CH0_WORDS * 4u);
-    if (!flac_ch0) { mp.init_fail++; return 0; }
-    fl.skip = flac_skip;                                        /* set before the open: it survives the zeroing */
-    flac_err e = flac_open(&fl, flac_pull, 0, flac_ch0, FLAC_CH0_WORDS);
-    if (e != FLAC_OK || fl.rate > 48000u || fl.channels > 2u || fl.max_blocksize > FLAC_CH0_WORDS) { mp.flac_refused++; flac_release(); return 0; }
-    DEC.pairs_total = (uint32_t)fl.total_samples; DEC.rate = fl.rate; DEC.ch = fl.channels;
-    return 1;
-}
 #endif
 
 SMALL static int begin_track(void)
@@ -207,13 +161,9 @@ SMALL static int begin_track(void)
 #if P2_FLAC
     flac_release();
     is_flac = library_codec(lp.cur_id) == 2u;
-#if P2_FLAC2
+    speed_apply();
     if (is_flac) { if (!flac_begin()) return 0; }
     else { lp_stream.chunk = 0; stream_open(&lp_stream, 0, lp.expect, 0);
-#else
-    if (is_flac) { uint32_t pt = 0; mp3d_open(&DEC, 0); if (!flac_begin()) return 0; pt = DEC.pairs_total; (void)pt; }
-    else
-#endif
 #endif
     {
     if (!mp3d_open(&DEC, MP3InitDecoder())) { mp.init_fail++; return 0; }
@@ -286,6 +236,14 @@ SMALL static void shuffle_set(uint32_t on)
     else queue_shuffle(&q, cycles() | 1u, 1);
     lp.shuffle = on ? 1u : 0u;
 }
+SMALL static void speed_apply(void)
+{
+    uint32_t i = mp.speed_idx > 8u ? 2u : mp.speed_idx;
+#if P2_FLAC
+    if (is_flac) i = 2u;
+#endif
+    aout_set_speed(speed_num[i], speed_den[i], cymo_present_);
+}
 SMALL static void tempo_set(uint32_t i)
 {
     if (i > 7u || i == mp.tempo_idx) return;
@@ -293,7 +251,13 @@ SMALL static void tempo_set(uint32_t i)
 #if P2_FLAC2
     if (is_flac) return;                                                  /* no tempo for FLAC: a restart would only cost a gap */
 #endif
-    if (mp.state == MPS_DEC && mp.cur_valid && mp.cur_gen == mp.gen) do_seek(0);
+    tempo_pend = 1u; tempo_tries = 0u;                                    /* the stretcher restarts from where it is heard: a seek to the same pair, retried by the pump until the seek is accepted */
+}
+SMALL static void speed_set(uint32_t i)
+{
+    if (i > 8u || i == mp.speed_idx) return;
+    mp.speed_idx = i; speed_apply();
+    if (i != 2u && mp.tempo_idx != 2u) tempo_set(2u);                     /* speed and tempo exclude each other */
 }
 /* A new speed: restart from where it is heard (a seek to the same pair rebuilds the stretcher; later tracks start at the new speed). */
 static void tempo_set(uint32_t i);
@@ -423,6 +387,10 @@ void mp3play_pump(void)
         }
         return;
     }
+    if (tempo_pend && mp.state == MPS_DEC && mp.cur_valid && mp.cur_gen == mp.gen) {
+        const uint32_t s0 = mp.seeks; do_seek(0);
+        if (mp.seeks != s0 || ++tempo_tries > 20u) tempo_pend = 0u;
+    }
     if (mp.state != MPS_DEC) return;
     for (uint32_t k = 0; k < 2u; k++) {
         aout_snap_t sn = aout_snap(); uint32_t fill = aout_fill(&sn);
@@ -430,23 +398,6 @@ void mp3play_pump(void)
         if (!gov_decode_wanted(&mp_gov, fill)) break;
 #if P2_FLAC2
         if (is_flac) { if (flac_pass(s)) break; continue; }
-#elif P2_FLAC
-        if (is_flac) {
-            if (stream_avail(s) < FLAC_NEED && !s->eof) { mp.need_data++; break; }
-            if (aout_room() < fl.max_blocksize) { mp.stalls++; break; }
-            if (!seg_open_) {
-                if (!cur_rate || fl.rate != cur_rate) { aout_set_rate(fl.rate, cymo_present_); cur_rate = fl.rate; mp.rate = fl.rate; mp.rate_changes++; }
-                tl_seg_t *g = tl_open(&mp_tl, mp.gen, 0u, DEC.pairs_total, 0u, 1u, 1u, 0u);
-                if (!g) break;
-                seg_open_ = 1; seg_gain[g->gen & 3u].gen = g->gen; seg_gain[g->gen & 3u].g = dec_g; seg_gain[g->gen & 3u].id = lp.cur_id;
-                if (fade_pending) { fade_pending = 0; heard_g = dec_g; heard_gain_gen = mp.gen; gain_apply_heard(); aout_fade_in(mp.gain_tgt); }
-            }
-            uint32_t t0f = cycles(); flac_err fe = flac_decode_frame(&fl, flac_sink, 0); uint32_t dtf = cycles() - t0f;
-            if (dtf > mp.dec_max_cyc) mp.dec_max_cyc = dtf; mp.dec_steps++;
-            if (fe == FLAC_OK) { mp.dec_us += dtf / (CLK_HZ / 1000000u); mp.dec_blocks++; mp.dec_avg_us = mp.dec_us / mp.dec_blocks; mp.frames++; mp.ch = fl.channels; mp.pairs_total = DEC.pairs_total; mp.pairs_out = mp.seg_put; }
-            else { if (fe != FLAC_END) { mp.errors++; mp.flac_err = (uint32_t)fe; } track_ended(); break; }
-            continue;
-        }
 #endif
         if (aout_room() < (tempo_q8[mp.tempo_idx] == 256u ? 1152u : TEMPO_OUT_CAP)) { mp.stalls++; break; }      /* the whole output of one decoded block must fit before it is decoded */
         pcm_blk_t b; uint32_t t0 = cycles();
@@ -562,7 +513,7 @@ uint32_t mp3play_paused_now(void) { return (!mp.playing || mp.held) ? 1u : 0u; }
 SMALL const np_info_t *mp3play_np(void)
 {
     np.fault = (uint32_t)(mp.poly_fail ? 1u : 0u);
-    np.playing = mp.playing; np.held = mp.held; np.volume = mp.volume; np.rg_mode = mp.rg_mode; np.repeat = q.repeat; np.shuffle = lp.shuffle; np.tempo_q8 = tempo_q8[mp.tempo_idx]; np.gov = mp.gov_mode;
+    np.playing = mp.playing; np.held = mp.held; np.volume = mp.volume; np.rg_mode = mp.rg_mode; np.repeat = q.repeat; np.shuffle = lp.shuffle; np.varispeed = mp.speed_idx != 2u; np.tempo_q8 = np.varispeed ? (uint32_t)speed_num[mp.speed_idx] * 256u / speed_den[mp.speed_idx] : tempo_q8[mp.tempo_idx]; np.gov = mp.gov_mode;
     return &np;
 }
 
@@ -585,7 +536,7 @@ SMALL void mp3play_io_quiesce(void)
 
 SMALL uint32_t mp3play_pref_get(uint32_t id)
 {
-    switch (id) { case PREF_VOLUME: return mp.volume; case PREF_RG: return mp.rg_mode; case PREF_TEMPO: return mp.tempo_idx; case PREF_REPEAT: return q.repeat;
+    switch (id) { case PREF_VOLUME: return mp.volume; case PREF_RG: return mp.rg_mode; case PREF_TEMPO: return mp.tempo_idx > 2u ? mp.tempo_idx - 2u : 0u; case PREF_SPEED: return mp.speed_idx; case PREF_REPEAT: return q.repeat;
                   case PREF_SHUFFLE: return lp.shuffle ? 1u : 0u; case PREF_SEEKSTEP: return mp.seek_idx; case PREF_SKIPSIL: return mp.skip_on; }
     return 0;
 }
@@ -594,7 +545,8 @@ SMALL void mp3play_pref_set(uint32_t id, uint32_t v)
     switch (id) {
     case PREF_VOLUME: mp.volume = v > 100u ? 100u : v; gain_apply_heard(); break;
     case PREF_RG: if (v < 3u && v != mp.rg_mode) { mp.rg_mode = v; rg_for_track(lp.cur_id); heard_g = dec_g; gain_apply_heard(); } break;
-    case PREF_TEMPO: tempo_set(v); break;
+    case PREF_TEMPO: if (v < 6u) { tempo_set(v ? v + 2u : 2u); if (v && mp.speed_idx != 2u) { mp.speed_idx = 2u; speed_apply(); } } break;
+    case PREF_SPEED: speed_set(v); break;
     case PREF_REPEAT: if (v < 3u) { q.repeat = (uint8_t)v; lp.repeat = v; } break;
     case PREF_SHUFFLE: shuffle_set(v); break;
     case PREF_SEEKSTEP: if (v < 4u) mp.seek_idx = v; break;

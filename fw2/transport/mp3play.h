@@ -10,7 +10,7 @@
 typedef struct {
     uint32_t gen, rate, playing, held, cur_valid, cur_gen, cur_pos, acct_bad, stalls, gov_mode;
     uint32_t state, frames, errors, resyncs, pairs_out, pairs_total, seg_put, gapless_next, drain_next, rate_changes, ended;
-    uint32_t dec_max_cyc, dec_steps, need_data, ch, init_fail, non_mp3, seeks, seek_fail, seek_ign, seek_to, volume, rg_mode, gain_tgt, rg_factor, rg_cap, dec_us, dec_blocks, dec_avg_us, poly_on, poly_slots, poly_mismatch, poly_timeout, tempo_idx, seek_idx, skip_on, skip_lead, skip_tail, skip_applied, skip_ign, tempo_out, flac_waits, flac_refused, flac_err, lpc_slots, lpc_timeout, seg_put_track,
+    uint32_t dec_max_cyc, dec_steps, need_data, ch, init_fail, non_mp3, seeks, seek_fail, seek_ign, seek_to, volume, rg_mode, gain_tgt, rg_factor, rg_cap, dec_us, dec_blocks, dec_avg_us, poly_on, poly_slots, poly_mismatch, poly_timeout, tempo_idx, speed_idx, seek_idx, skip_on, skip_lead, skip_tail, skip_applied, skip_ign, tempo_out, flac_waits, flac_refused, flac_err, lpc_slots, lpc_timeout, seg_put_track,
              poly_fail, poly_silent, f2_ferr, f2_resync, f2_silent, f2_wraps, f2_probes, f2_repos, f2_staged_max, f2_rollbacks;          /* the new FLAC decoder (P2_FLAC2): damaged frames, resyncs, silent pairs, bridge uses, seek probes, bytes skipped by repositioning */
 } mp_t;
 extern mp_t mp;
@@ -28,7 +28,7 @@ void mp3play_heard(void);
 typedef struct {
     char title[48], artist[40], album[40], quality[32], cover[120];
     uint32_t gen, id, pos, total, rate;          /* pos/total in source pairs of the HEARD track; total 0 = unknown; gen changes with the track */
-    uint32_t playing, held, volume, rg_mode, repeat, shuffle, tempo_q8, valid, gov, fault;       /* fault: the required MP3 window unit is missing or failed (stereo MP3 would be silent) */
+    uint32_t playing, held, volume, rg_mode, repeat, shuffle, tempo_q8, varispeed, valid, gov, fault;       /* fault: the required MP3 window unit is missing or failed (stereo MP3 would be silent) */
 } np_info_t;
 const np_info_t *mp3play_np(void);
 /* Let the media stream's command in flight finish and issue nothing new until the next pump: the one card command channel is then free for a blocking job (the cover load). */
@@ -38,8 +38,8 @@ void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t 
 /* The persisted values (cores/settings_core.h order: volume, repeat, ReplayGain mode). */
 void mp3play_settings_get(uint32_t *vals);
 void mp3play_settings_set(const uint32_t *vals);
-/* The preferences the Settings menu edits (the first three of cores/settings_core.h are also persisted). Values: volume 0..100, ReplayGain 0..2, tempo index 0..7, repeat 0..2, shuffle 0..1, seek step index 0..3 (10/30/60/120 s). */
-enum { PREF_VOLUME = 0, PREF_RG, PREF_TEMPO, PREF_REPEAT, PREF_SHUFFLE, PREF_SEEKSTEP, PREF_SKIPSIL, PREF_COUNT };
+/* The preferences the Settings menu edits (the first three of cores/settings_core.h are also persisted). Values: volume 0..100, ReplayGain 0..2, tempo 0..5 (OFF, 1.10, 1.25, 1.50, 1.75, 2.00x), speed index 0..8 (0.85 .. 2.00x, 2 = 1.00x), repeat 0..2, shuffle 0..1, seek step index 0..3 (10/30/60/120 s). */
+enum { PREF_VOLUME = 0, PREF_RG, PREF_TEMPO, PREF_REPEAT, PREF_SHUFFLE, PREF_SEEKSTEP, PREF_SKIPSIL, PREF_SPEED, PREF_COUNT };
 uint32_t mp3play_pref_get(uint32_t id);
 void     mp3play_pref_set(uint32_t id, uint32_t v);
 #endif
