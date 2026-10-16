@@ -63,6 +63,8 @@ static inline uint8_t hl_add(hl_t *h, hl_redraw_fn fn, uint16_t y0, uint16_t y1)
     return id;
 }
 static inline void hl_dirty(hl_t *h, uint8_t id) { if (id < h->n) h->r[id].dirty = 1u; }
+/* Forgets every pending redraw (a view change: what the old view still wanted drawn must not land on the new view). */
+static inline void hl_clear(hl_t *h) { for (uint32_t i = 0; i < h->n; i++) h->r[i].dirty = 0u; }
 static inline void hl_dirty_mask(hl_t *h, uint32_t mask) { for (uint32_t i = 0; i < h->n; i++) if (mask & (1u << i)) h->r[i].dirty = 1u; }
 /* One pass: every dirty region whose rows are safe is drawn (and cleared before its callback runs, so the callback may mark itself dirty again); the rest stay dirty. `safe` answers for a row span. */
 static inline uint32_t hl_flush(hl_t *h, int (*safe)(void *ctx, uint32_t y0, uint32_t y1), void *ctx)
