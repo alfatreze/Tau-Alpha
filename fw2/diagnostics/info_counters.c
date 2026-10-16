@@ -73,9 +73,6 @@ const cnt_t counters_table[] = {
     { "F2 RESYNC    ", CK_U32, CU_NONE,   &mp.f2_resync },
     { "F2 SILENT    ", CK_U32, CU_NONE,   &mp.f2_silent },
     { "F2 WRAPS     ", CK_U32, CU_NONE,   &mp.f2_wraps },
-    { "F2 SEEKPROBE ", CK_U32, CU_NONE,   &mp.f2_probes },
-    { "F2 REPOS     ", CK_U32, CU_NONE,   &mp.f2_repos },
-    { "F2 STAGEMAX  ", CK_U32, CU_NONE,   &mp.f2_staged_max },
     { "F2 ROLLBACK  ", CK_U32, CU_NONE,   &mp.f2_rollbacks },
     { "SET WIDE",     CK_U32, CU_NONE,   &settings_stats.wide },       /* the 32-word register file is present (word 17 is usable) */
     { "SET STORES",   CK_U32, CU_NONE,   &settings_stats.stores },
