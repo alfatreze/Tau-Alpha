@@ -246,7 +246,7 @@ SMALL static void do_seek(uint32_t secs)
 {
 #if P2_FLAC2
     if (is_flac && ft_active) {
-        if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !mp.rate || ft.phase != F2T_PH_PLAY) { mp.seek_ign++; return; }
+        if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !mp.rate || ft.phase != F2T_PH_PLAY || !ft_total) { mp.seek_ign++; return; }
         uint32_t target = mp.cur_pos + secs * mp.rate;
         if (ft_total && target + mp.rate >= ft_total) target = 0;
         if (!mp.held) aout_mute_wait();
@@ -279,6 +279,9 @@ SMALL static void tempo_set(uint32_t i)
 {
     if (i > 7u || i == mp.tempo_idx) return;
     mp.tempo_idx = i;
+#if P2_FLAC2
+    if (is_flac) return;                                                  /* no tempo for FLAC: a restart would only cost a gap */
+#endif
     if (mp.state == MPS_DEC && mp.cur_valid && mp.cur_gen == mp.gen) do_seek(0);
 }
 /* A new speed: restart from where it is heard (a seek to the same pair rebuilds the stretcher; later tracks start at the new speed). */
@@ -343,6 +346,7 @@ SMALL static int flac_pass(stream_t *s)
     if (!ft_active) return 1;
     for (uint32_t done = 0; done < F2_PASS_PAIRS; ) {
         if (ft.phase == F2T_PH_PLAY && aout_room() < ft.op.si.max_bs + F2_OUT_PAIRS) { mp.stalls++; break; }      /* a frame in progress holds its staged pairs in the ring: room for the rest of it and one more call */
+        if (!seg_open_ && mp_tl.n >= TL_MAX) { mp.stalls++; break; }          /* no free timeline slot for the pairs of a new stretch: wait for the heard side to pop one */
         uint32_t np = 0, t0f = cycles(); int ev = 0;
         int r = flac2_step(&ft, s, RING_PTR, fl_out, F2_OUT_PAIRS, F2_RES_BUDGET, &np, &ev);
         uint32_t dtf = cycles() - t0f; ft_cyc += dtf; if (dtf > mp.dec_max_cyc) mp.dec_max_cyc = dtf; mp.dec_steps++;
@@ -354,7 +358,7 @@ SMALL static int flac_pass(stream_t *s)
             continue;
         }
         if (r == F2T_END) { track_ended(); break; }
-        if (r == F2T_FAIL) { mp.errors++; mp.flac_err = ft.why; if (ft.why == F2T_WHY_NOTFLAC || ft.why == F2T_WHY_UNSUPPORTED) mp.flac_refused++; track_ended(); break; }
+        if (r == F2T_FAIL) { mp.errors++; mp.flac_err = ft.why; if (ft.why == F2T_WHY_NOTFLAC || ft.why == F2T_WHY_UNSUPPORTED) mp.flac_refused++; aout_rollback(); track_ended(); break; }
         if (r != F2T_PAIRS) continue;                                              /* F2T_WORK: metadata, scanning, a seek probe */
         const uint32_t bps = ft.op.si.bps;
         if (!seg_open_ && np) {                                                    /* the first pairs of a stretch: its source position and length are known now (after a seek, `base` is the target) */
