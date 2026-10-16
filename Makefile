@@ -115,6 +115,7 @@ test-host:
 	$(PYTHON) sim/test_p2_queue.py
 	$(PYTHON) sim/test_p2_mp3.py
 	$(PYTHON) sim/test_p2_gain.py
+	$(PYTHON) sim/test_p2_flac2.py
 	$(PYTHON) sim/test_p2_nowplaying.py
 	$(PYTHON) sim/test_p2_browse.py
 	$(PYTHON) sim/test_p2_spectrum.py
