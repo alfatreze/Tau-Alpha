@@ -117,6 +117,7 @@ test-host:
 	$(PYTHON) sim/test_p2_gain.py
 	$(PYTHON) sim/test_p2_flac2.py
 	$(PYTHON) sim/test_p2_flac2_pred.py
+	$(PYTHON) sim/test_p2_flac2_hdr.py
 	$(PYTHON) sim/test_p2_nowplaying.py
 	$(PYTHON) sim/test_p2_browse.py
 	$(PYTHON) sim/test_p2_spectrum.py

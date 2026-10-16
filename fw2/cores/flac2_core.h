@@ -230,4 +230,116 @@ static inline void f2_pred_run(const f2_pred_t *p, int32_t *x, uint32_t from, ui
     }
 }
 
+
+/* ---- CRCs (RFC 9639 sections 9.1.8 and 9.3.2) ---- */
+/* CRC-8, polynomial 0x07, initial value 0: the frame header. */
+static inline uint8_t f2_crc8(const uint8_t *p, uint32_t n)
+{
+    uint8_t c = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        c ^= p[i];
+        for (int k = 0; k < 8; k++) c = (uint8_t)((c & 0x80u) ? ((c << 1) ^ 0x07u) : (c << 1));
+    }
+    return c;
+}
+/* CRC-16, polynomial 0x8005, initial value 0, not reflected: the whole frame (sync code to the last padding bit). Two 16-entry steps per byte (32 bytes of table instead of 512). */
+#if BUG == 10
+static const uint16_t f2_crc16_nib[16] = { 0x0000, 0x8005, 0x800F, 0x000A, 0x801B, 0x001E, 0x0014, 0x8011, 0x8033, 0x0036, 0x003C, 0x8039, 0x0028, 0x802D, 0x8027, 0x0023 };   /* one wrong entry */
+#else
+static const uint16_t f2_crc16_nib[16] = { 0x0000, 0x8005, 0x800F, 0x000A, 0x801B, 0x001E, 0x0014, 0x8011, 0x8033, 0x0036, 0x003C, 0x8039, 0x0028, 0x802D, 0x8027, 0x0022 };
+#endif
+static inline uint16_t f2_crc16(uint16_t c, const uint8_t *p, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; i++) {
+        c = (uint16_t)(c ^ ((uint16_t)p[i] << 8));
+        c = (uint16_t)((c << 4) ^ f2_crc16_nib[c >> 12]);
+        c = (uint16_t)((c << 4) ^ f2_crc16_nib[c >> 12]);
+    }
+    return c;
+}
+
+/* ---- STREAMINFO (RFC 9639 section 8.2): the 34-byte body ---- */
+typedef struct { uint32_t min_bs, max_bs, rate; uint8_t channels, bps; uint64_t total; } f2_info_t;
+static inline int f2_streaminfo(const uint8_t *p, f2_info_t *si)
+{
+    si->min_bs = ((uint32_t)p[0] << 8) | p[1];
+    si->max_bs = ((uint32_t)p[2] << 8) | p[3];
+    si->rate = ((uint32_t)p[10] << 12) | ((uint32_t)p[11] << 4) | (p[12] >> 4);
+    si->channels = (uint8_t)(((p[12] >> 1) & 7u) + 1u);
+    si->bps = (uint8_t)((((p[12] & 1u) << 4) | (p[13] >> 4)) + 1u);
+    si->total = ((uint64_t)(p[13] & 15u) << 32) | ((uint64_t)p[14] << 24) | ((uint64_t)p[15] << 16) | ((uint64_t)p[16] << 8) | p[17];
+    if (si->min_bs < 16u || si->max_bs < si->min_bs || si->rate == 0u) return F2_ERR;     /* block sizes under 16 and a zero rate are invalid */
+    return F2_OK;
+}
+
+/* ---- frame header (RFC 9639 section 9.1) ---- */
+enum { F2E_NONE = 0, F2E_SYNC, F2E_RESERVED, F2E_CRC8, F2E_MISMATCH, F2E_BLOCKSIZE, F2E_NUMBER };
+enum { F2_CH_INDEP = 0, F2_CH_LEFT_SIDE = 8, F2_CH_SIDE_RIGHT = 9, F2_CH_MID_SIDE = 10 };
+typedef struct {
+    uint32_t bs, rate, hdr_len;       /* block size, sample rate, header length in bytes (CRC-8 included) */
+    uint64_t number;                  /* frame number (fixed block size) or the first sample number (variable block size) */
+    uint8_t  variable, assign, chans, bps, err;
+} f2_fh_t;
+
+/* Decodes the UTF-8-style coded number at p (up to 7 bytes, up to 36 bits). Returns the byte count, 0 for need-more, -1 for invalid. */
+static inline int f2_coded_number(const uint8_t *p, uint32_t avail, uint64_t *v)
+{
+    if (avail == 0) return 0;
+    uint8_t b0 = p[0]; uint32_t len; uint64_t x;
+    if (b0 < 0x80u) { *v = b0; return 1; }
+    if ((b0 & 0xE0u) == 0xC0u) { len = 2; x = b0 & 0x1Fu; }
+    else if ((b0 & 0xF0u) == 0xE0u) { len = 3; x = b0 & 0x0Fu; }
+    else if ((b0 & 0xF8u) == 0xF0u) { len = 4; x = b0 & 0x07u; }
+    else if ((b0 & 0xFCu) == 0xF8u) { len = 5; x = b0 & 0x03u; }
+    else if ((b0 & 0xFEu) == 0xFCu) { len = 6; x = b0 & 0x01u; }
+    else if (b0 == 0xFEu) { len = 7; x = 0; }
+    else return -1;                                                 /* 10xxxxxx (a continuation byte) or 0xFF */
+#if BUG == 11
+    if (len > 6) return -1;                                         /* the 7-byte form (36 bits) refused */
+#endif
+    for (uint32_t i = 1; i < len; i++) {
+        if (i >= avail) return 0;
+        if ((p[i] & 0xC0u) != 0x80u) return -1;
+        x = (x << 6) | (p[i] & 0x3Fu);
+    }
+    *v = x; return (int)len;
+}
+
+/* Parses a frame header at p[0..avail) against STREAMINFO. Returns F2_OK (h filled, h->hdr_len bytes), F2_NEED (a valid prefix: more bytes wanted; nothing is wrong yet) or F2_ERR with h->err.
+ * Anything detectable from the bytes present is reported at once, so a prefix of a VALID header never returns ERR. */
+static inline int f2_frame_header(const uint8_t *p, uint32_t avail, const f2_info_t *si, f2_fh_t *h)
+{
+    static const uint16_t bsfix[16] = { 0, 192, 576, 1152, 2304, 4608, 0, 0, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768 };
+    static const uint32_t ratefix[16] = { 0, 88200, 176400, 192000, 8000, 16000, 22050, 24000, 32000, 44100, 48000, 96000, 0, 0, 0, 0 };
+    static const uint8_t bpsfix[8] = { 0, 8, 12, 0, 16, 20, 24, 32 };
+    h->err = F2E_NONE;
+    if (avail >= 1 && p[0] != 0xFFu) { h->err = F2E_SYNC; return F2_ERR; }
+    if (avail >= 2 && (p[1] & 0xFEu) != 0xF8u) { h->err = F2E_SYNC; return F2_ERR; }
+    if (avail < 4) return F2_NEED;
+    uint32_t bsc = p[2] >> 4, rc = p[2] & 15u, ac = p[3] >> 4, sc = (p[3] >> 1) & 7u;
+    if (p[3] & 1u) { h->err = F2E_RESERVED; return F2_ERR; }
+    if (bsc == 0 || rc == 15u || ac > 10u || sc == 3u) { h->err = F2E_RESERVED; return F2_ERR; }
+    h->variable = p[1] & 1u; h->assign = (uint8_t)ac;
+    h->chans = ac < 8u ? (uint8_t)(ac + 1u) : 2u;
+    uint32_t n = 4; int k = f2_coded_number(p + n, avail - n, &h->number);
+    if (k < 0) { h->err = F2E_NUMBER; return F2_ERR; }
+    if (k == 0) return F2_NEED;
+    if (h->variable ? (h->number >> 36) != 0 : (h->number >> 31) != 0) { h->err = F2E_NUMBER; return F2_ERR; }
+    n += (uint32_t)k;
+    if (bsc == 6u) { if (avail < n + 1u) return F2_NEED; h->bs = (uint32_t)p[n] + 1u; n += 1u; }
+    else if (bsc == 7u) { if (avail < n + 2u) return F2_NEED; h->bs = (((uint32_t)p[n] << 8) | p[n + 1u]) + 1u; n += 2u; }
+    else h->bs = bsfix[bsc];
+    if (rc == 12u) { if (avail < n + 1u) return F2_NEED; h->rate = (uint32_t)p[n] * 1000u; n += 1u; }
+    else if (rc == 13u) { if (avail < n + 2u) return F2_NEED; h->rate = ((uint32_t)p[n] << 8) | p[n + 1u]; n += 2u; }
+    else if (rc == 14u) { if (avail < n + 2u) return F2_NEED; h->rate = (((uint32_t)p[n] << 8) | p[n + 1u]) * 10u; n += 2u; }
+    else h->rate = rc ? ratefix[rc] : si->rate;
+    if (avail < n + 1u) return F2_NEED;
+    h->hdr_len = n + 1u;
+    if (f2_crc8(p, n) != p[n]) { h->err = F2E_CRC8; return F2_ERR; }
+    h->bps = sc ? bpsfix[sc] : si->bps;
+    if (h->chans != si->channels || h->rate != si->rate || h->bps != si->bps || h->rate == 0u) { h->err = F2E_MISMATCH; return F2_ERR; }
+    if (h->bs > si->max_bs || h->bs == 0u) { h->err = F2E_BLOCKSIZE; return F2_ERR; }
+    return F2_OK;
+}
+
 #endif
