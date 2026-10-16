@@ -43,7 +43,10 @@
 #define R_WAVE_PK    0x800000F8u        /* read: {max |R| [31:16], max |L| [15:0]} since the last clear */
 #define R_WAVE_ST    0x800000FCu
 #define R_POLY_ST    0x80000110u
-#define R_DBUF_DISP  0x8000011Cu
+#define R_DBUF_CPU   0x80000118u        /* Helios H2: bit 0 = the buffer plain RECT/CHAR/COPY commands target (rows of the visible frame only; the off-screen stash rows are shared); read bit 31 = built in */
+#define R_DBUF_DISP  0x8000011Cu        /* write bit 0 = 1: flip at the next vblank; read: bit 31 built in, bit 1 flip pending, bit 0 the displayed buffer */
+#define R_BLT_IDX    0x800000C0u        /* sticky blit state: field select (0 SRC_BASE, 2 DST_BASE, 5 BLEND: bit 0 on, [15:8] source weight 0..255) */
+#define R_BLT_DATA   0x800000C4u
 #define R_LPC_STATUS 0x8000013Cu
 #define R_CYMO_STATUS 0x8000015Cu
 #define R_CYMO_CTRL  0x80000150u         /* bit 2 = LIVE_ENABLE (sticky): hands the real audio path to the resampler */

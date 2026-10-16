@@ -66,6 +66,13 @@ static inline void hl_dirty(hl_t *h, uint8_t id) { if (id < h->n) h->r[id].dirty
 /* Forgets every pending redraw (a view change: what the old view still wanted drawn must not land on the new view). */
 static inline void hl_clear(hl_t *h) { for (uint32_t i = 0; i < h->n; i++) h->r[i].dirty = 0u; }
 static inline void hl_dirty_mask(hl_t *h, uint32_t mask) { for (uint32_t i = 0; i < h->n; i++) if (mask & (1u << i)) h->r[i].dirty = 1u; }
+/* True when a dirty region repaints the whole screen (it cannot be kept off the beam): such a pass is drawn into the idle buffer and flipped. */
+static inline int hl_any_whole_dirty(const hl_t *h)
+{
+    for (uint32_t i = 0; i < h->n; i++) if (h->r[i].dirty && h->r[i].y1 == HL_WHOLE) return 1;
+    return 0;
+}
+static inline int hl_all_safe(void *ctx, uint32_t y0, uint32_t y1) { (void)ctx; (void)y0; (void)y1; return 1; }       /* drawing into a buffer nobody sees: every span is safe */
 /* One pass: every dirty region whose rows are safe is drawn (and cleared before its callback runs, so the callback may mark itself dirty again); the rest stay dirty. `safe` answers for a row span. */
 static inline uint32_t hl_flush(hl_t *h, int (*safe)(void *ctx, uint32_t y0, uint32_t y1), void *ctx)
 {

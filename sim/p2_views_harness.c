@@ -10,6 +10,8 @@ static void e2(void) { lg[ln++] = 30; vw_switch(vp, hp, 0); }            /* a vi
 static void x2(void) { lg[ln++] = 31; }
 static void r1f(void) { lg[ln++] = 24; }
 static const view_t tab[3] = { { e0, x0, i0, d0, 0x1u, 0 }, { e1, x1, i1, 0, 0x6u, r1f }, { e2, x2, 0, 0, 0x0u, 0 } };
+static void fb(void) { lg[ln++] = 90; }
+static void fe(void) { lg[ln++] = hl.r[1].dirty || hl.r[0].dirty ? 92 : 91; }       /* 92: the new view's regions were already marked when the frame ended */
 int main(void)
 {
     char c; unsigned a;
@@ -21,6 +23,7 @@ int main(void)
         else if (c == 'D') vw_draw(&vw);
         else if (c == 'F') { ln += 0; hl_flush(&hl, 0, 0); }
         else if (c == 'R') vw_refresh(&vw, &hl);
+        else if (c == 'H') { vw.frame_begin = fb; vw.frame_end = fe; }
     }
     for (int i = 0; i < ln; i++) printf("%d ", lg[i]);
     printf("| cur=%d prev=%d switches=%u dirty=%d%d%d\n", vw.cur, vw.prev, vw.switches, hl.r[0].dirty, hl.r[1].dirty, hl.r[2].dirty);

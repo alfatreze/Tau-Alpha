@@ -11,10 +11,16 @@
  * running the last picture stays. */
 #define COLS 64u
 #define HW_COLS 256u
-static uint8_t smooth = 35u;                                      /* temporal smoothing 0..90 (the FLUID preset). The preset's trail needs the alpha blend and double buffer of the old player and is not drawn here. */
+static uint8_t smooth = 35u, trail = 30u;                         /* temporal smoothing 0..90, and the percent of the old trace kept each frame 0..80 (the FLUID preset) */
+/* The trail: instead of wiping the box each frame, the box is blended toward the background by (100 - trail) percent (a source weight of that many 256ths) and the new trace is drawn on top, so an old trace fades
+ * over a few frames. The background is a strip of the box's rows in the stash (columns 0..111, rows 600..), blended in chunks as wide as the strip. Without the blend in the bitstream, or at trail 0, the box is wiped. */
+#define STRIP_X 0u
+#define STRIP_Y 600u
+#define STRIP_W 112u
+static uint16_t strip_bg; static uint16_t strip_h;
 const char *meter_winamp_scope_preset_name(uint32_t i) { return mpp_scope_name[i < MPP_SCOPE_PRESETS ? i : 0u]; }
 uint16_t meter_winamp_scope_mv[MPP_SCOPE_N];
-void meter_winamp_scope_apply(void) { smooth = (uint8_t)meter_winamp_scope_mv[MPP_SCOPE_SCOPE_SMOOTH]; }
+void meter_winamp_scope_apply(void) { smooth = (uint8_t)meter_winamp_scope_mv[MPP_SCOPE_SCOPE_SMOOTH]; trail = (uint8_t)meter_winamp_scope_mv[MPP_SCOPE_SCOPE_TRAIL]; }
 void meter_winamp_scope_preset(uint32_t i)
 {
     for (uint32_t k = 0; k < MPP_SCOPE_N; k++) meter_winamp_scope_mv[k] = mpp_scope[i < MPP_SCOPE_PRESETS ? i : 0u][k];
@@ -28,11 +34,15 @@ void meter_winamp_scope_tick(const mtr_in_t *in)
     const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h;
     const int32_t ey = (int32_t)(h / 2u) - 1;
     const uint32_t cy = y + h / 2u;
-    if (in->force) { init = 0; armed = 0; gfx_rect(x0, y, w, h, in->bg); }
+    if (in->force) { init = 0; armed = 0; gfx_rect(x0, y, w, h, in->bg); strip_h = 0; }
     if (!armed) { REG_WR(R_WAVE_CTL, 2u | (1u << 8)); armed = 1u; return; }          /* nothing captured yet */
     if (in->paused) { init = 0; return; }
     if (REG_RD(R_WAVE_ST) & 2u) return;                                              /* still capturing: the last picture stays */
-    gfx_rect(x0, y, w, h, in->bg);
+    if (trail && gfx_blend_ready()) {
+        if (strip_h != h || strip_bg != in->bg) { gfx_rect_stash(STRIP_X, STRIP_Y, STRIP_W, h, in->bg); strip_h = (uint16_t)h; strip_bg = in->bg; }
+        uint32_t a = (100u - trail) * 256u / 100u; if (a < 1u) a = 1u; if (a > 255u) a = 255u;
+        gfx_blend_on(a); gfx_blend_blit(STRIP_X, STRIP_Y, x0, y, w, h); gfx_blend_off();
+    } else gfx_rect(x0, y, w, h, in->bg);
     gfx_rect(x0, cy, w, 1u, UI_TRACK);
     uint32_t npk = 1u;
     for (uint32_t c = 0; c < COLS; c++) {

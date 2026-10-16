@@ -2,6 +2,7 @@
 #include "regions.h"
 #include "helios.h"
 #include "../cores/view_core.h"
+#include "../gfx/gfx.h"
 #include "../platform/mmio.h"
 #include "../transport/browser.h"
 #include "nowplaying.h"
@@ -13,6 +14,11 @@
 #include "meter.h"
 
 static vw_t vw;
+/* A view change draws inside one frame: begin (the idle buffer, a copy of what is shown), the new view's enter(), its regions marked, all drawn at once, then the flip. The nesting count keeps a switch asked from inside a
+ * switch (applied right after, never nested) in the same frame discipline. */
+static int frame_active;
+static void view_frame_begin(void) { frame_active = gfx_frame_begin(); }
+static void view_frame_end(void) { if (frame_active) { helios_flush_now(); gfx_frame_end(frame_active); frame_active = 0; } }
 
 /* Library */
 static void lib_enter(void) { browser_enter(); browser_view_enter(); }
@@ -38,7 +44,7 @@ static int  report_input(uint32_t edge) { return (edge & (KEY_A | KEY_B | KEY_X 
 static const view_t tab[VIEW_COUNT] = {
     [V_NOWPLAYING] = { nowplaying_enter, 0, nowplaying_input, nowplaying_mark, NP_REGIONS, nowplaying_enter },
     [V_LIBRARY]    = { lib_enter, 0, lib_input, lib_mark, RM(R_LIST), browser_view_enter },
-    [V_SETTINGS]   = { settings_view_enter, 0, settings_view_input, settings_view_mark, RM(R_MENU), settings_view_redraw },
+    [V_SETTINGS]   = { settings_view_enter, settings_view_exit, settings_view_input, settings_view_mark, RM(R_MENU), settings_view_redraw },
     [V_INFO]       = { info_enter, 0, info_input, info_mark, RM(R_INFO), info_enter },
     [V_REPORT]     = { report_enter, 0, report_input, 0, 0, 0 },
     [V_HALCYON]    = { halcyon_view_enter, 0, halcyon_view_input, halcyon_view_mark, RM(R_HAL), halcyon_view_redraw },
@@ -61,6 +67,7 @@ void views_init(void)
     helios_region(configure_view_draw_preview, 26, 126);                /* R_CONF_PREV */
     helios_region(configure_view_draw_list, 134, 360);                  /* R_CONF_LIST */
     vw_init(&vw, tab, VIEW_COUNT, V_NOWPLAYING);
+    vw.frame_begin = view_frame_begin; vw.frame_end = view_frame_end;
     vw_start(&vw, &helios);
 }
 void views_refresh(void) { vw_refresh(&vw, &helios); }

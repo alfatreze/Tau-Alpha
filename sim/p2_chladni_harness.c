@@ -33,6 +33,7 @@ void gfx_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, ui
     if (w > 127u) { fprintf(stderr, "blit too wide %u\n", w); exit(2); }
     for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) fb[(dy + j) * FW + dx + i] = fb[(sy + j) * FW + sx + i];
 }
+void gfx_blit_abs(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { gfx_blit(sx, sy, dx, dy, w, h); }          /* one flat memory here: the drawing target is not modelled (see test_p2_gfx.py) */
 void gfx_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t s)
 {
     uint32_t ow = w * s, oh = h * s; if (ow > 127u) ow = 127u;

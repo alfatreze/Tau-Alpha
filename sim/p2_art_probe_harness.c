@@ -28,7 +28,7 @@ int gfx_mb_read(uint32_t a, uint32_t *o)
 void gfx_fence(void) { }
 void gfx_clut_begin(uint32_t s) { (void)s; }
 void gfx_clut_put(uint16_t v) { (void)v; }
-void gfx_cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { (void)sx; (void)sy; (void)dx; (void)dy; (void)w; (void)h; queued = 1; land_at = now_c + land_cycles_arg; }
+void gfx_cblit_abs(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { (void)sx; (void)sy; (void)dx; (void)dy; (void)w; (void)h; queued = 1; land_at = now_c + land_cycles_arg; }
 
 int main(int argc, char **argv)
 {

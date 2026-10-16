@@ -125,6 +125,10 @@ test-host:
 	$(PYTHON) sim/test_p2_configure_view.py
 	$(PYTHON) sim/test_p2_metr.py
 	$(PYTHON) sim/test_p2_blank.py
+	$(PYTHON) sim/test_p2_gfx.py
+	$(PYTHON) sim/test_p2_scope_trail.py
+	$(PYTHON) sim/test_p2_chladni_dbuf.py
+	$(PYTHON) sim/test_p2_xfade.py
 	$(PYTHON) sim/test_p2_art_probe.py
 	$(PYTHON) sim/test_p2_helios.py
 	$(PYTHON) sim/test_p2_views.py

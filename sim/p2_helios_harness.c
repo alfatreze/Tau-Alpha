@@ -26,6 +26,14 @@ int main(void)
         if (c == 'S') { if (scanf("%u %u %u", &a, &b, &d) == 3) printf("%d\n", hl_rows_safe(1, a, b, d)); }
         else if (c == 'N') { if (scanf("%u %u %u", &a, &b, &d) == 3) printf("%d\n", hl_rows_safe(0, d, a, b)); }
         else if (c == 'W') { if (scanf("%u %u %u", &a, &b, &d) == 3) printf("%u\n", hl_wrap(a, b, (int)d)); }
+        else if (c == 'A') {
+            hl_t z = {0}; h = z;
+            uint8_t i0 = hl_add(&h, r0, 0, 100), i1 = hl_add(&h, r1, 200, 300), i2 = hl_add(&h, r2, 0, HL_WHOLE);
+            hl_dirty(&h, i0); hl_dirty(&h, i1); printf("partial_only=%d ", hl_any_whole_dirty(&h));
+            hl_dirty(&h, i2); printf("with_whole=%d ", hl_any_whole_dirty(&h));
+            cur_vc = HL_VOFF + 250; log_n = 0; uint32_t n = hl_flush(&h, hl_all_safe, 0);
+            printf("n=%u deferred=%u after=%d\n", n, h.deferred, hl_any_whole_dirty(&h));
+        }
         else if (c == 'R') {
             hl_t z = {0}; h = z;
             uint8_t i0 = hl_add(&h, r0, 0, 100), i1 = hl_add(&h, r1, 200, 300), i2 = hl_add(&h, r2, 0, HL_WHOLE);
