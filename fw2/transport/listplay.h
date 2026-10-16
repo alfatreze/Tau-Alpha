@@ -1,6 +1,6 @@
 /* Player 2 S4 list-play transport: walks the library queue and streams every file through the real stream reader with no decoder, at a chosen consumption rate, so
  * the card path, the open-by-path, the read-ahead and the queue are exercised on a Pocket before any audio depends on them. Keys: A play/restart, B stop,
- * Left/Right previous/next, X shuffle, Y repeat (off/all/one), Up/Down consumption rate (flat out, 40 KB/s, 176 KB/s, 440 KB/s). */
+ * Left/Right previous/next, X shuffle, Y consumption rate (flat out, 40, 176, 440 KB/s). Repeat stays off (the queue core supports it; no key yet). */
 #ifndef P2_LISTPLAY_H
 #define P2_LISTPLAY_H
 #include <stdint.h>
