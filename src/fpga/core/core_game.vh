@@ -335,6 +335,15 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_DBUF_EN 0
 `endif
+// Writable Latin-1 font memory (docs/features/FONT_SPEC.md): the engine's glyph RAM, loaded by the CPU through mp3_soc.v's FONT_* registers.
+`ifdef TAU_FONT_RAM
+`define TAU_FONT_RAM_EN 1
+`else
+`define TAU_FONT_RAM_EN 0
+`endif
+wire        soc_font_we;
+wire [12:0] soc_font_waddr;
+wire [31:0] soc_font_wdata;
 wire soc_dbuf_cpu_buf, fb_dbuf_cpu_buf, soc_dbuf_flip_req_tgl, soc_dbuf_disp_buf, soc_dbuf_flip_pending;   // Helios H2 (B-340)
 wire        soc_psram_req, soc_psram_we;
 wire [22:0] soc_psram_word;
@@ -399,9 +408,9 @@ assign soc_vblank_rd = 17'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN)) u_soc (
+mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN)) u_soc (
 `else
-mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN)) u_soc (
+mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -464,6 +473,9 @@ mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBL
     .fb_cmd_sx    (soc_fb_cmd_sx),
     .fb_cmd_sy    (soc_fb_cmd_sy),
     .fb_cmd_glyph_hi (soc_fb_cmd_glyph_hi),
+    .fb_font_we   (soc_font_we),
+    .fb_font_waddr(soc_font_waddr),
+    .fb_font_wdata(soc_font_wdata),
     .fb_cmd_full  (soc_fb_cmd_full),
 
     .dt_addr  (soc_dt_addr),
@@ -887,7 +899,7 @@ wire sdram_probe_bar = vid_de_w && (sdram_probe_y < 9'd8) &&
 tau_cdc_sync1 #(.STAGES(3)) u_text_light_sync (.clk_dst(clk_sdram), .d_src(soc_text_light), .q_dst(fb_text_light));
 tau_cdc_sync1 #(.STAGES(3)) u_dbuf_cpu_buf_sync (.clk_dst(clk_sdram), .d_src(soc_dbuf_cpu_buf), .q_dst(fb_dbuf_cpu_buf));   // Helios H2 (B-340), same treatment as text_light
 
-mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN)) u_fb (
+mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN)) u_fb (
     .reset    (~pll_locked),
     .clk_sys  (clk_sys),
     .clk_sdram(clk_sdram),
@@ -904,6 +916,9 @@ mp3_fb #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN)) u_f
     .cmd_sx    (soc_fb_cmd_sx),
     .cmd_sy    (soc_fb_cmd_sy),
     .cmd_glyph_hi (soc_fb_cmd_glyph_hi),
+    .font_we      (soc_font_we),
+    .font_waddr   (soc_font_waddr),
+    .font_wdata   (soc_font_wdata),
     .cmd_full  (soc_fb_cmd_full),
     .text_light(fb_text_light),
 

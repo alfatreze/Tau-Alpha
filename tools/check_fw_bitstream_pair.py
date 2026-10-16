@@ -22,10 +22,11 @@ NEED = re.compile(rb"TAUFWNEED:([A-Z_,]*);")
 
 
 def tree_core_version():
-    m = re.search(r"CORE_VERSION\s*=\s*32'h([0-9A-Fa-f]{8})", (ROOT / "src/fpga/core/mp3_soc.v").read_text())
-    if not m:
-        sys.exit("cannot find CORE_VERSION in src/fpga/core/mp3_soc.v")
-    return m.group(1).upper()
+    """The CORE_VERSION of the bitstream this tree builds with the shipped macros (TAU_CLK66 + TAU_RAM_192K, no TAU_FONT_RAM): the `ifdef chain around the localparam is evaluated, not read as the first literal in the file
+    (a first-literal read broke when the font memory added a revision in front of rev 26)."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import tau_compat
+    return tau_compat.core_version_for_macros(("TAU_CLK66", "TAU_RAM_192K")).upper()
 
 
 def rom_accepts(rom_bytes):

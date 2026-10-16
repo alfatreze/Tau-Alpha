@@ -84,7 +84,12 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x194 | RING_CTRL | R/W | Write bit 0 ENABLE (sticky, reset 0): while 1 the CPU's `R_AUDIO` write is ignored and the pcm_fifo is fed from the ring (one PSRAM read per pair while the FIFO holds fewer than 1,536 pairs); while 0 RIDX follows WPTR. Read: bit 31 present, bit 2 reading, bit 1 empty, bit 0 enable. A write to `R_PCM_ST` (pcm_flush) also drops the unread pairs (RIDX = WPTR; a read in flight is discarded when it completes). |
 | 0x198 | RING_CNT | R | Pairs pushed into the FIFO since reset (free-running; for the heard-position arithmetic). |
 | 0x19C | UNDER | R | Player 2 S1 (P6): free-running underrun record of the PCM FIFO, cleared only by reset (a flush keeps it). [31] present (the ring bitstreams), [30:16] underrun EVENTS (runs of output ticks that found the FIFO empty while primed), [15:0] underrun TICKS (each is one lost sample pair), both saturating. Reads 0 without the ring. |
-| 0x1A0-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x1A0 | FONT_CTRL | R/W | Writable Latin-1 font memory (`TAU_FONT_RAM`, `docs/features/FONT_SPEC.md`, CORE_VERSION rev 27). Read: [31] present, [27:16] loads completed (the write index passed the last word), [15:0] words (6,112). Write: bit 0 = restart the write index at 0. Reads 0 on a bitstream without the memory. |
+| 0x1A4 | FONT_IDX | R/W | Write index (word, 0..6111; a larger value goes to 0), sticky. |
+| 0x1A8 | FONT_DATA | W | Writes the 32-bit word at FONT_IDX into the glyph RAM (8 pixels of 4-bit coverage), then FONT_IDX + 1; after word 6111 the index wraps to 0 and the load counter steps. The firmware fences the draw engine first (the engine reads this memory while drawing text). |
+| 0x1AC-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+
+`OP_CHAR` with the font memory: the glyph code is 8 bits, bit 7 is `R_FB_GO` bit 15 (`cmd_glyph_hi[0]`), bits 6:0 are bits 9:3 as before; glyph index 0..94 = U+0020..U+007E, 95..190 = U+00A0..U+00FF, any other code is the blank glyph 0. A command with bit 15 clear is exactly the old one.
 
 ## Expansion window 0x88-0xAC (`TAU_PSRAM_PROBE`)
 
