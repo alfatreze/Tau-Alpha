@@ -15,7 +15,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < 34; i++) { unsigned x; sscanf(argv[2] + 2 * i, "%2x", &x); si_b[i] = (uint8_t)x; }
     f2_info_t si; if (f2_streaminfo(si_b, &si) != F2_OK) return 4;
     static int32_t buf[65536], pend[2 * 70000], tmp[2 * 70000]; f2_rec_t *r = calloc(1, sizeof *r);
-    f2_rec_init(r, &si, buf, 65536, flags);
+    f2_rec_init(r, &si, buf, 65536, flags); if (argc < 10 || strcmp(argv[9], "notl")) f2_rec_set_timeline(r, 0);
     FILE *po = fopen(argv[7], "wb"); uint32_t off = 0, ci = 0, si_i = 0, oi = 0, grow = 0, npend = 0, okf = 0, badf = 0, giveup = 0, spins = 0; uint64_t committed = 0; int fin = 0, status = 0;
     while (!fin && ++spins < 20000000u) {
         uint32_t len = ch[ci % nc] + grow; if (off + len > n) len = n - off; uint32_t cap = oc[oi % no], used = 0, np = 0; int ev = 0;
