@@ -112,6 +112,8 @@ test-host:
 	$(PYTHON) sim/test_p2_monoclock.py
 	$(PYTHON) sim/test_p2_report.py
 	$(PYTHON) sim/test_p2_stream.py
+	$(PYTHON) sim/test_p2_stream_idle.py
+	$(PYTHON) sim/test_p2_meter.py
 	$(PYTHON) sim/test_p2_queue.py
 	$(PYTHON) sim/test_p2_mp3.py
 	$(PYTHON) sim/test_p2_gain.py

@@ -587,7 +587,7 @@ SMALL void mp3play_io_quiesce(void)
 {
     uint32_t t0 = cycles();
     while (lp_stream.fl.active) {
-        io_result_t r = slot_read_poll(); io_req_t rq; stream_pump(&lp_stream, cycles(), r, &rq);
+        if (stream_wait_idle(&lp_stream, cycles(), slot_read_poll())) break;
         if ((uint32_t)(cycles() - t0) > 4u * CLK_HZ) break;
     }
 }

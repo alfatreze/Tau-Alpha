@@ -55,8 +55,8 @@ void meter_draw(int allowed)
     for (uint32_t b = 0; b < SPEC_BANDS; b++) {
         if (px[b] == drawn_px[b] && cap_px[b] == drawn_cap[b]) continue;
         uint32_t x = X0 + b * (BAR_W + GAP), base = box_y + box_h - 2u;            /* bars grow up from the base line */
-        uint32_t old_top = drawn_px[b] > drawn_cap[b] ? drawn_px[b] : drawn_cap[b], new_top = px[b] > cap_px[b] ? px[b] : cap_px[b];
-        if (old_top > new_top) gfx_rect(x, base - old_top - 2u, BAR_W, old_top - new_top + 3u, BG);     /* erase what is no longer covered (the cap is 2 px thick) */
+        uint32_t old_top = drawn_px[b] > drawn_cap[b] ? drawn_px[b] : drawn_cap[b];
+        if (old_top + 2u > px[b]) gfx_rect(x, base - old_top - 2u, BAR_W, old_top + 2u - px[b], BG);    /* everything above the new bar top: the old bar's stale part, the gap and the old cap (2 px) */
         if (px[b]) gfx_rect(x, base - px[b], BAR_W, px[b], px[b] > (box_h * 3u) / 4u ? HOT : BAR);
         if (cap_px[b] > px[b] + 1u) gfx_rect(x, base - cap_px[b] - 2u, BAR_W, 2u, CAP);
         drawn_px[b] = px[b]; drawn_cap[b] = cap_px[b];
