@@ -21,8 +21,11 @@ typedef struct { const uint8_t *p, *end; uint32_t w; uint32_t nb; } f2_br_t;
 
 static inline uint32_t f2_shl(uint32_t v, uint32_t n) { return n >= 32u ? 0u : v << n; }
 static inline void f2_refill(f2_br_t *b) { while (b->nb <= 24u && b->p < b->end) { b->w |= (uint32_t)(*b->p++) << (24u - b->nb); b->nb += 8u; } }
-static inline uint32_t f2_clz(uint32_t x)            /* x != 0 */
+static inline __attribute__((always_inline)) uint32_t f2_clz(uint32_t x)            /* x != 0; the quotient is 0, 1 or 2 for most values with a well-chosen k, so those are tested first */
 {
+    if (x & 0x80000000u) return 0;
+    if (x & 0x40000000u) return 1;
+    if (x & 0x20000000u) return 2;
     uint32_t n = 0;
     if (!(x & 0xFFFF0000u)) { n += 16; x <<= 16; }
     if (!(x & 0xFF000000u)) { n += 8;  x <<= 8; }
@@ -120,6 +123,30 @@ static inline int f2_rice_one(f2_br_t *b, uint32_t k, int32_t *out)
     }
 }
 
+/* The hot loop: up to m values of parameter k from a left-aligned window kept in locals (refilled 16 bits at a time). It only ever consumes COMPLETE values that are fully inside the window, so it
+ * needs no rollback; it stops (returning how many it did) at the first value that is not ordinary -- a unary run past the window, a value wider than the window, no 2 bytes left to refill --
+ * and the caller hands that one value to f2_rice_one. */
+static inline uint32_t f2_rice_fast(f2_br_t *b, uint32_t k, int32_t *out, uint32_t m)
+{
+    uint32_t w = b->w, nb = b->nb, i = 0; const uint8_t *p = b->p, *end = b->end;
+    for (; i < m; i++) {
+        if (nb <= 16u && p + 2 <= end) { w |= (((uint32_t)p[0] << 8) | p[1]) << (16u - nb); p += 2; nb += 16u; }
+        if (w == 0u) break;
+        uint32_t q = f2_clz(w), used = q + 1u + k;
+        if (used > nb) break;
+        uint32_t t = (w << q) << 1;                                   /* the zeros and the stop bit dropped */
+#if BUG == 2
+        uint32_t u = (q << k) | ((w << q) >> 1 >> (31u - k));         /* forgets the stop bit */
+#else
+        uint32_t u = (q << k) | ((t >> 1) >> (31u - k));              /* k = 0 gives 0 */
+#endif
+        w = t << k; nb -= used;                                       /* used <= nb <= 32 keeps both shifts below 32 */
+        out[i] = f2_unzig(u);
+    }
+    b->w = w; b->nb = nb; b->p = p;
+    return i;
+}
+
 /* Decodes up to `n` residuals into out[0..], crossing partition boundaries; *done = how many were produced. Returns F2_OK when n were produced or the block is finished, F2_NEED when the
  * window ran dry (the residuals already produced stay produced; the failed one consumed nothing) or F2_ERR. */
 static inline int f2_res_run(f2_br_t *b, f2_res_t *r, int32_t *out, uint32_t n, uint32_t *done)
@@ -155,9 +182,13 @@ static inline int f2_res_run(f2_br_t *b, f2_res_t *r, int32_t *out, uint32_t n, 
             out[d++] = (int32_t)f2_sext(v, r->raw); r->left--;
 #endif
         } else {
-            int32_t v; int e = f2_rice_one(b, r->k, &v);
-            if (e != F2_OK) { rc = e; break; }
-            out[d++] = v; r->left--;
+            uint32_t m = r->left < n - d ? r->left : n - d, got = f2_rice_fast(b, r->k, out + d, m);
+            d += got; r->left -= got;
+            if (got < m) {                                                      /* one value off the fast path */
+                int32_t v; int e = f2_rice_one(b, r->k, &v);
+                if (e != F2_OK) { rc = e; break; }
+                out[d++] = v; r->left--;
+            }
         }
     }
     *done = d;
@@ -212,10 +243,13 @@ static inline void f2_pred_run(const f2_pred_t *p, int32_t *x, uint32_t from, ui
         return;
     }
     if (p->tier == F2_TIER_32) {
+        const int32_t *c = p->coef; uint32_t sh = p->shift;
         for (uint32_t i = from; i < to; i++) {
-            uint32_t acc = 0;
-            for (uint32_t j = 0; j < order; j++) acc += (uint32_t)p->coef[j] * (uint32_t)x[i - 1u - j];
-            x[i] = (int32_t)((uint32_t)x[i] + (uint32_t)((int32_t)acc >> p->shift));
+            const int32_t *xp = x + i - 1; uint32_t acc = 0, j = 0;
+            for (; j + 4u <= order; j += 4u)                                 /* four taps a trip: the loop overhead is as dear as a tap */
+                acc += (uint32_t)c[j] * (uint32_t)xp[-(int)j] + (uint32_t)c[j + 1u] * (uint32_t)xp[-(int)j - 1] + (uint32_t)c[j + 2u] * (uint32_t)xp[-(int)j - 2] + (uint32_t)c[j + 3u] * (uint32_t)xp[-(int)j - 3];
+            for (; j < order; j++) acc += (uint32_t)c[j] * (uint32_t)xp[-(int)j];
+            x[i] = (int32_t)((uint32_t)x[i] + (uint32_t)((int32_t)acc >> sh));
         }
     } else {
         for (uint32_t i = from; i < to; i++) {
@@ -242,18 +276,50 @@ static inline uint8_t f2_crc8(const uint8_t *p, uint32_t n)
     }
     return c;
 }
-/* CRC-16, polynomial 0x8005, initial value 0, not reflected: the whole frame (sync code to the last padding bit). Two 16-entry steps per byte (32 bytes of table instead of 512). */
-#if BUG == 10
-static const uint16_t f2_crc16_nib[16] = { 0x0000, 0x8005, 0x800F, 0x000A, 0x801B, 0x001E, 0x0014, 0x8011, 0x8033, 0x0036, 0x003C, 0x8039, 0x0028, 0x802D, 0x8027, 0x0023 };   /* one wrong entry */
-#else
-static const uint16_t f2_crc16_nib[16] = { 0x0000, 0x8005, 0x800F, 0x000A, 0x801B, 0x001E, 0x0014, 0x8011, 0x8033, 0x0036, 0x003C, 0x8039, 0x0028, 0x802D, 0x8027, 0x0022 };
-#endif
+/* CRC-16, polynomial 0x8005, initial value 0, not reflected: the whole frame (sync code to the last padding bit). A 256-entry table (512 bytes of rodata): about 7 cycles a byte on rv32im, where two
+ * 16-entry nibble steps cost 24 (measured, S8-1c). */
+static const uint16_t f2_crc16_tab[256] = {
+    0x0000, 0x8005, 0x800F, 0x000A, 0x801B, 0x001E, 0x0014, 0x8011,
+    0x8033, 0x0036, 0x003C, 0x8039, 0x0028, 0x802D, 0x8027, 0x0022,
+    0x8063, 0x0066, 0x006C, 0x8069, 0x0078, 0x807D, 0x8077, 0x0072,
+    0x0050, 0x8055, 0x805F, 0x005A, 0x804B, 0x004E, 0x0044, 0x8041,
+    0x80C3, 0x00C6, 0x00CC, 0x80C9, 0x00D8, 0x80DD, 0x80D7, 0x00D2,
+    0x00F0, 0x80F5, 0x80FF, 0x00FA, 0x80EB, 0x00EE, 0x00E4, 0x80E1,
+    0x00A0, 0x80A5, 0x80AF, 0x00AA, 0x80BB, 0x00BE, 0x00B4, 0x80B1,
+    0x8093, 0x0096, 0x009C, 0x8099, 0x0088, 0x808D, 0x8087, 0x0082,
+    0x8183, 0x0186, 0x018C, 0x8189, 0x0198, 0x819D, 0x8197, 0x0192,
+    0x01B0, 0x81B5, 0x81BF, 0x01BA, 0x81AB, 0x01AE, 0x01A4, 0x81A1,
+    0x01E0, 0x81E5, 0x81EF, 0x01EA, 0x81FB, 0x01FE, 0x01F4, 0x81F1,
+    0x81D3, 0x01D6, 0x01DC, 0x81D9, 0x01C8, 0x81CD, 0x81C7, 0x01C2,
+    0x0140, 0x8145, 0x814F, 0x014A, 0x815B, 0x015E, 0x0154, 0x8151,
+    0x8173, 0x0176, 0x017C, 0x8179, 0x0168, 0x816D, 0x8167, 0x0162,
+    0x8123, 0x0126, 0x012C, 0x8129, 0x0138, 0x813D, 0x8137, 0x0132,
+    0x0110, 0x8115, 0x811F, 0x011A, 0x810B, 0x010E, 0x0104, 0x8101,
+    0x8303, 0x0306, 0x030C, 0x8309, 0x0318, 0x831D, 0x8317, 0x0312,
+    0x0330, 0x8335, 0x833F, 0x033A, 0x832B, 0x032E, 0x0324, 0x8321,
+    0x0360, 0x8365, 0x836F, 0x036A, 0x837B, 0x037E, 0x0374, 0x8371,
+    0x8353, 0x0356, 0x035C, 0x8359, 0x0348, 0x834D, 0x8347, 0x0342,
+    0x03C0, 0x83C5, 0x83CF, 0x03CA, 0x83DB, 0x03DE, 0x03D4, 0x83D1,
+    0x83F3, 0x03F6, 0x03FC, 0x83F9, 0x03E8, 0x83ED, 0x83E7, 0x03E2,
+    0x83A3, 0x03A6, 0x03AC, 0x83A9, 0x03B8, 0x83BD, 0x83B7, 0x03B2,
+    0x0390, 0x8395, 0x839F, 0x039A, 0x838B, 0x038E, 0x0384, 0x8381,
+    0x0280, 0x8285, 0x828F, 0x028A, 0x829B, 0x029E, 0x0294, 0x8291,
+    0x82B3, 0x02B6, 0x02BC, 0x82B9, 0x02A8, 0x82AD, 0x82A7, 0x02A2,
+    0x82E3, 0x02E6, 0x02EC, 0x82E9, 0x02F8, 0x82FD, 0x82F7, 0x02F2,
+    0x02D0, 0x82D5, 0x82DF, 0x02DA, 0x82CB, 0x02CE, 0x02C4, 0x82C1,
+    0x8243, 0x0246, 0x024C, 0x8249, 0x0258, 0x825D, 0x8257, 0x0252,
+    0x0270, 0x8275, 0x827F, 0x027A, 0x826B, 0x026E, 0x0264, 0x8261,
+    0x0220, 0x8225, 0x822F, 0x022A, 0x823B, 0x023E, 0x0234, 0x8231,
+    0x8213, 0x0216, 0x021C, 0x8219, 0x0208, 0x820D, 0x8207, 0x0202
+};
 static inline uint16_t f2_crc16(uint16_t c, const uint8_t *p, uint32_t n)
 {
     for (uint32_t i = 0; i < n; i++) {
-        c = (uint16_t)(c ^ ((uint16_t)p[i] << 8));
-        c = (uint16_t)((c << 4) ^ f2_crc16_nib[c >> 12]);
-        c = (uint16_t)((c << 4) ^ f2_crc16_nib[c >> 12]);
+#if BUG == 10
+        c = (uint16_t)((c << 8) ^ f2_crc16_tab[((c >> 8) ^ p[i] ^ (i == 3)) & 0xFFu]);          /* a corrupted lookup */
+#else
+        c = (uint16_t)((c << 8) ^ f2_crc16_tab[((c >> 8) ^ p[i]) & 0xFFu]);
+#endif
     }
     return c;
 }
@@ -352,8 +418,12 @@ static inline uint32_t f2_pred_at(const f2_pred_t *p, const int32_t *x, uint32_t
         switch (order) { case 0: return 0u; case 1: return a; case 2: return 2u * a - b; case 3: return 3u * a - 3u * b + c; default: return 4u * a - 6u * b + 4u * c - d; }
     }
     if (p->tier == F2_TIER_32) {
-        uint32_t acc = 0;
-        for (uint32_t j = 0; j < order; j++) acc += (uint32_t)p->coef[j] * (uint32_t)(x[i - 1u - j] >> ws);
+        const int32_t *c = p->coef, *xp = x + i - 1; uint32_t acc = 0, j = 0;
+        if (ws == 0u) {
+            for (; j + 4u <= order; j += 4u)
+                acc += (uint32_t)c[j] * (uint32_t)xp[-(int)j] + (uint32_t)c[j + 1u] * (uint32_t)xp[-(int)j - 1] + (uint32_t)c[j + 2u] * (uint32_t)xp[-(int)j - 2] + (uint32_t)c[j + 3u] * (uint32_t)xp[-(int)j - 3];
+            for (; j < order; j++) acc += (uint32_t)c[j] * (uint32_t)xp[-(int)j];
+        } else for (; j < order; j++) acc += (uint32_t)c[j] * (uint32_t)(xp[-(int)j] >> ws);
         return (uint32_t)((int32_t)acc >> p->shift);
     }
     int64_t acc = 0;

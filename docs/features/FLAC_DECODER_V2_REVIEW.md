@@ -261,3 +261,19 @@ Audio hashes identical to the earlier runs. Reading, at **equal optimisation**: 
 ### 12.2 Corrected expectation for the new core (replaces 11.2.7)
 
 Starting from the shipped 189 to 194 (`-Os`): `to16` bypass on valid 16-bit streams about -15; sw32 predictor about 0 to -10 (equal to the handshake on average; wins only at low orders); shared loop about -5; giving **about 160 to 170 at `-Os` (-13% to -17%)**, and **about 140 to 150 at `-O2` (-22% to -26%) for +4.4 KB of hot RAM**. All estimates until S8-1 measures them on the twin; none is a Pocket prediction. Consequence for the plan: the new decoder is justified by bounded steps, error policy, seek and accounting, **not by speed**; the speed gate stays "no regression vs C1 (45% idle)", and an `-O2` build of the current decoder is a cheap, separate experiment (one flag, one RAM check, one Pocket run) that should be done on DEV 151 regardless of S8.
+
+## 13. S8-1c: cycle measurement of the new core against the current decoder (2026-10-16)
+
+Same simulator, same Player 2 output-ring sink model, same real-music slices (12 frames), CRC-16 verification ON in the new core. **Audio hashes of the old and new decoder are identical on every workload** (the new core is bit-exact against the shipped one, not only against MD5s). Cycles per channel-sample, ESTIMATE model (instruction counts exact). The new-core harness clears a 400 KB buffer at start (about 5 cycles per sample of harness artefact, not subtracted below).
+
+| Workload | current decoder (C1 + hardware LPC unit), `-Os` | new core `-Os`, software only | + 16-bit bypass | current `-O2` | new `-O2` | + 16-bit bypass |
+|---|---|---|---|---|---|---|
+| Aphex 44.1k 16-bit | 189 | 299 first draft, **201** after the Rice/CRC/predictor round | **173** | 167 | 161 | **152** |
+| Clementi 48k 16-bit | 194 | 316 first draft, **214** | **187** | 170 | 172 | **163** |
+| Rite of Spring 48k **24-bit** | 201 | 449 first draft | **345** | n/a | | |
+
+What the optimisation rounds were (each re-verified by all four test suites and identical audio): the Rice hot loop keeps its window in locals and refills 16 bits at a time (the old design paid a function call and a byte loop per value); the `clz` ladder tests quotients 0, 1, 2 first; CRC-16 moved from two nibble steps (24 cycles a byte) to a 256-entry table (512 bytes of rodata); the 32-bit predictor is unrolled four taps a trip. The 16-bit bypass skips the rounding and clamp that only a 24-bit or 8/12-bit source needs (a valid 16-bit stream cannot leave the range).
+
+**Gate result.** For 16-bit music the new core, **in pure software**, is 2 to 10% cheaper than the current decoder *with its hardware LPC unit* at `-Os` (173 vs 189, 187 vs 194, about 5 cycles less after removing the harness artefact), and 9% / 4% cheaper at `-O2`: **the "no regression" gate is met**, with the unit still available as a further tier (it would take the prediction from about 60 to about 40 cycles). For **24-bit** the software path is 345 vs 201: the 64-bit predictor (an `int64` multiply-accumulate and a libgcc 64-bit shift per tap) is what the unit exists for, so **24-bit and every predictor that fails the 32-bit bound must use the unit** (S8-2, with the existing fault fallback); software 64-bit stays the fault fallback only. Not met without the unit, as expected.
+
+Remaining profile (16-bit, `-Os`): prediction about 63, Rice about 38, output sink 31 plus conversion, CRC-16 about 15, state machine 13.5, decorrelation 6.6. Known further savings, not yet taken: a fused channel-1 loop with the stereo case chosen outside it (about -10), a two-byte CRC step (about -7, +512 bytes), and a fused int16 output (about -5). Taking them is optional: the gate is met.
