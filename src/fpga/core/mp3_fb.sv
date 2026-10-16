@@ -116,7 +116,14 @@ module mp3_fb #(
     parameter BUG_IGNORE_BAR_HI = 0,
     // Helios H2 (docs/HELIOS_SPEC.md section 5, B-340): double buffering via base-pointer swap.
     // Inert (dbuf_addr() is a no-op, byte-identical to today) when 0.
-    parameter DBUF_ENABLE = 0
+    parameter DBUF_ENABLE = 0,
+    // Writable font memory (docs/features/FONT_SPEC.md, TAU_FONT_RAM): the glyph atlas is a RAM the CPU
+    // loads (Latin-1, 6,112 words, 13-bit address) instead of the 3,040-word ASCII ROM. Inert (the old ROM,
+    // byte-identical behaviour) when 0. FONT_BUG_* are mutation hooks for sim/tb_font_ram.v.
+    parameter FONT_RAM_ENABLE = 0,
+    parameter BUG_FONT_NO_HI = 0,        // 1: glyph bit 7 (cmd_glyph_hi[0]) ignored -> 0x80.. codes read the ASCII range
+    parameter BUG_FONT_RANGE = 0,        // 1: the 0xA0.. range starts one glyph too high
+    parameter BUG_FONT_NO_WRITE = 0      // 1: the CPU write port is ignored
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -144,6 +151,10 @@ module mp3_fb #(
     // has nowhere to land; BAR_WIDE_READY() (fw/blit_probe.inc) is the runtime test that tells firmware
     // which behaviour it is actually talking to, so old and new bitstreams both behave safely.
     input  wire [1:0]  cmd_glyph_hi,
+    // Writable font memory, clk_sys domain (mp3_soc.v registers FONT_IDX/FONT_DATA); ignored when FONT_RAM_ENABLE = 0.
+    input  wire        font_we,
+    input  wire [12:0] font_waddr,
+    input  wire [31:0] font_wdata,
     output wire        cmd_full,
     // Theme step 0b/gamma (docs/THEME_SPEC.md, tools/gen_text_gamma.py): 0 = the text weight table
     // fitted for light text on a dark ramp (cov_weight), 1 = the table fitted for dark text on a
@@ -537,11 +548,25 @@ module mp3_fb #(
     // cmd_q/q_glyph, chained into char_base in the dispatch cycle. Computed off
     // cmd_mem_rd on cmd_q's own clock edge instead.
     wire [6:0] pre_glyph = cmd_mem_rd[14:8];
-    reg [11:0] q_char_base;
-    always @(posedge clk_sdram)
-        q_char_base <= ((pre_glyph >= 7'h20) && (pre_glyph <= 7'h7E))
-                     ? {1'b0, (pre_glyph - 7'h20), 5'd0}
-                     : 12'd0;
+    reg [12:0] q_char_base;
+    generate if (FONT_RAM_ENABLE != 0) begin : g_char_base
+        // Latin-1: the glyph code is 8 bits, bit 7 is cmd_glyph_hi[0] (R_FB_GO bit 15, packed at cmd_mem_rd[2]).
+        // Atlas order: 0x20..0x7E are glyphs 0..94, 0xA0..0xFF are glyphs 95..190 (0x7F..0x9F: the blank glyph 0).
+        // A glyph below 0x80 is sent exactly as before, so the old firmware's CHAR commands (bit 15 = 0) are unchanged.
+        wire        hi    = (BUG_FONT_NO_HI != 0) ? 1'b0 : cmd_mem_rd[2];
+        wire [7:0]  g8    = {hi, pre_glyph};
+        wire [7:0]  gidx_lo = g8 - 8'h20;                                  // 0..94 for 0x20..0x7E
+        wire [7:0]  gidx_hi = g8 - 8'hA0 + 8'd95 + ((BUG_FONT_RANGE != 0) ? 8'd1 : 8'd0);   // 95..190 for 0xA0..0xFF
+        always @(posedge clk_sdram)
+            q_char_base <= ((g8 >= 8'h20) && (g8 <= 8'h7E)) ? {gidx_lo, 5'd0}
+                         : (g8 >= 8'hA0)                    ? {gidx_hi, 5'd0}
+                         : 13'd0;
+    end else begin : g_char_base_rom
+        always @(posedge clk_sdram)
+            q_char_base <= ((pre_glyph >= 7'h20) && (pre_glyph <= 7'h7E))
+                         ? {2'b00, (pre_glyph - 7'h20), 5'd0}
+                         : 13'd0;
+    end endgenerate
 
     // B11: radius from cmd_glyph (the same field BAR reuses for its own lit-row count), clamped
     // to 15 -- the 16-entry cut(dy) LUT's own range, comfortably above every radius this project's
@@ -606,9 +631,14 @@ module mp3_fb #(
     assign wsrc_q = glyph_q;
 
     // ---- Font ROM (generated; see tools/gen_font_rom.py) -------------------
-    reg  [11:0] font_addr;
+    reg  [12:0] font_addr;
     wire [31:0] font_q;
-    font_rom u_font (.clk(clk_sdram), .addr(font_addr), .q(font_q));
+    generate if (FONT_RAM_ENABLE != 0) begin : g_font_ram
+        font_ram u_font (.clk_r(clk_sdram), .raddr(font_addr), .q(font_q),
+                         .clk_w(clk_sys), .we(font_we && (BUG_FONT_NO_WRITE == 0)), .waddr(font_waddr), .wdata(font_wdata));
+    end else begin : g_font_rom
+        font_rom u_font (.clk(clk_sdram), .addr(font_addr[11:0]), .q(font_q));
+    end endgenerate
 
     // ---- Phase F B8: 256-entry CLUT (one M10K, per PHASE_F_SPEC.md's budget) --
     // Independent write (clk_sys) / read (clk_sdram) ports -- a standard
@@ -715,7 +745,7 @@ module mp3_fb #(
     reg [2:0]  char_numy, char_deny;    // Y: same, latched at command pop
     reg [1:0]  rowf_cnt;                // row-fetch sequencer
     reg [31:0] rowlo, rowhi;            // one source row, 16 px x 4bpp
-    reg [11:0] char_base;               // (glyph - 0x20) * 32
+    reg [12:0] char_base;               // glyph index * 32 (ASCII: (glyph - 0x20) * 32)
 
     // Which unit of work the in-flight burst belongs to
     reg        wr_is_char;

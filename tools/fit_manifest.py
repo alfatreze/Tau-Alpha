@@ -12,7 +12,7 @@ import json, re, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FEATURES = {"HALCYON": "TAU_HALCYON", "LPC": "TAU_LPC", "POLY": "TAU_POLY", "SDRAM_BUSY": "TAU_SDRAM_BUSY"}
+FEATURES = {"HALCYON": "TAU_HALCYON", "LPC": "TAU_LPC", "POLY": "TAU_POLY", "SDRAM_BUSY": "TAU_SDRAM_BUSY", "FONT": "TAU_FONT_RAM"}
 
 
 def macros_of(text):

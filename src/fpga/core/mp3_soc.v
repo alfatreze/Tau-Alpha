@@ -104,7 +104,11 @@ module mp3_soc #(
     parameter HALCYON_ENABLE = 0,
     // B-646 (wide EQ input): the Cymo resampler's output is 18 bits (the same LSB, two headroom bits: its +1 dB overshoot is no longer hard-clipped at +-32767) and the Halcyon engine takes
     // all 18 bits; the MMIO read still sees the 16-bit clamp. Inert (0) = every path exactly as before.
-    parameter WIDE_EQ_ENABLE = 0
+    parameter WIDE_EQ_ENABLE = 0,
+    // Writable font memory (docs/features/FONT_SPEC.md, TAU_FONT_RAM): registers 0x1A0-0x1A8 load the drawing engine's glyph RAM (Latin-1, 6,112 words). With 0 the registers read 0 (no unit) and the engine keeps its ROM font.
+    parameter FONT_RAM_ENABLE = 0,
+    parameter BUG_FONT_NO_INC = 0,      // mutation hooks for sim/tb_font_soc.v (1 must make it fail): the index does not step after a data write / the completed-load counter never counts
+    parameter BUG_FONT_NO_GEN = 0
 ) (
     input  wire        clk,
     input  wire        rst,                // active high, hold until firmware loaded
@@ -182,7 +186,10 @@ module mp3_soc #(
     output reg  [6:0]   fb_cmd_glyph,
     output reg  [1:0]   fb_cmd_sx,
     output reg  [1:0]   fb_cmd_sy,
-    output reg  [1:0]   fb_cmd_glyph_hi,   // B12 (B-454): BAR lit-count high bits, R_FB_GO bits 16:15
+    output reg  [1:0]   fb_cmd_glyph_hi,   // B12 (B-454): BAR lit-count high bits, R_FB_GO bits 16:15 (CHAR: bit 15 is glyph bit 7 when FONT_RAM_ENABLE)
+    output reg          fb_font_we,        // FONT_RAM (clk_sys): one word write into the glyph RAM
+    output reg  [12:0]  fb_font_waddr,
+    output reg  [31:0]  fb_font_wdata,
     input  wire         fb_cmd_full,
 
     // core_bridge_cmd's datatable: a dual-port BRAM whose OTHER port APF can
@@ -898,6 +905,11 @@ module mp3_soc #(
     // B-741 PCM ring reader. BASE (RW): PSRAM word address of ring[0] (the CPU window is 0xA400_0000 + 4*word); SIZE (RW): pairs in the ring; WPTR (RW): the CPU's write index in [0, SIZE) (write it after the
     // data is stored); RIDX (R): the reader's index; CNT (R): pairs pushed since reset; CTRL: write bit 0 ENABLE (STICKY, reset 0: the CPU's R_AUDIO write is then ignored and the FIFO is fed from the ring),
     // read bit 31 present, bit 3 hold, bit 2 reading, bit 1 empty, bit 0 enable (write bit 1 = HOLD, sticky: no new read starts, the unread pairs are kept: the player's pause). A write to R_PCM_ST (the firmware's pcm_flush) also drops the unread pairs (RIDX = WPTR). Inert (reads 0) unless PCM_RING_ENABLE.
+    // Writable font memory (FONT_RAM_ENABLE). CTRL: write bit 0 = restart the write index at 0; read [31] present, [27:16] loads completed (counts wraps of the write index through the last word), [15:0] words.
+    // IDX (write index, sticky) and DATA (write a word at IDX, then IDX+1; after the last word IDX wraps to 0 and the load counter steps). Same convention as R_CLUT_IDX/DATA and R_HAL_IDX/DATA.
+    localparam [8:0] R_FONT_CTRL = 9'h1A0, R_FONT_IDX = 9'h1A4, R_FONT_DATA = 9'h1A8;
+    localparam [12:0] FONT_LAST = 13'd6111;
+    reg [12:0] font_idx = 13'd0; reg [11:0] font_gen = 12'd0;
     localparam [8:0] R_RING_BASE = 9'h184, R_RING_SIZE = 9'h188, R_RING_WPTR = 9'h18C, R_RING_RIDX = 9'h190, R_RING_CTRL = 9'h194, R_RING_CNT = 9'h198, R_UNDER = 9'h19C;
     reg         ring_en = 1'b0, ring_hold = 1'b0;
     reg  [22:0] ring_base = 23'd0, ring_size = 23'd2, ring_wptr = 23'd0;
@@ -936,7 +948,13 @@ module mp3_soc #(
     // checked before the standalone `elsif TAU_RAM_192K` and the baseline `else` below so a build with BOTH macros defined lands here, not on
     // rev 24 or rev 23 -- firmware built assuming only one of the two contracts must be refused by a combined bitstream, and vice versa
     // (enforced in fw/player.c's own interlock, which checks the combined case first and strictest).
+ `ifdef TAU_FONT_RAM
+    // The writable Latin-1 font memory changes the glyph atlas (Space Grotesk, 191 glyphs) and the per-glyph advances the firmware must use: firmware written for the ROM font would draw
+    // overlapping or gapped text on it, so it is a different contract and a firmware that does not know it must stop at the interlock (CORE_VERSION, not a runtime probe).
+    localparam [31:0] CORE_VERSION = 32'h4D50331B;   // "MP3" + rev 27 (rev 26 + the writable Latin-1 font memory)
+ `else
     localparam [31:0] CORE_VERSION = 32'h4D50331A;   // "MP3" + rev 26 (192 KB main RAM + clk_sys 66.667 MHz, combined)
+ `endif
  `else
     localparam [31:0] CORE_VERSION = 32'h4D503319;   // "MP3" + rev 25 (clk_sys 66.667 MHz)
  `endif
@@ -1303,7 +1321,7 @@ module mp3_soc #(
         lpc_warm_idx_we <= 1'b0; lpc_warm_data_we <= 1'b0; lpc_residual_we <= 1'b0;
         cymo_clear <= 1'b0; cymo_start <= 1'b0; cymo_push_we <= 1'b0;
         gain_snap <= 1'b0; gain_fade_we <= 1'b0;
-        hal_commit <= 1'b0; hal_clr <= 1'b0; hal_we <= 1'b0;
+        hal_commit <= 1'b0; hal_clr <= 1'b0; hal_we <= 1'b0; fb_font_we <= 1'b0;
         dt_wren     <= 1'b0;
         set_wr      <= 1'b0;
         sdram_start <= 1'b0;
@@ -1441,6 +1459,12 @@ module mp3_soc #(
                 R_HAL_CTRL: begin   // B-639
                     hal_en <= dDAT_MOSI[0]; hal_bypass <= dDAT_MOSI[1]; hal_commit <= dDAT_MOSI[2]; hal_clr <= dDAT_MOSI[3]; hal_nact <= dDAT_MOSI[13:8];
                 end
+                R_FONT_CTRL: if (FONT_RAM_ENABLE != 0 && dDAT_MOSI[0]) font_idx <= 13'd0;
+                R_FONT_IDX:  if (FONT_RAM_ENABLE != 0) font_idx <= (dDAT_MOSI[12:0] > FONT_LAST) ? 13'd0 : dDAT_MOSI[12:0];
+                R_FONT_DATA: if (FONT_RAM_ENABLE != 0) begin
+                    fb_font_wdata <= dDAT_MOSI; fb_font_waddr <= font_idx; fb_font_we <= 1'b1;
+                    if (font_idx == FONT_LAST) begin font_idx <= 13'd0; if (BUG_FONT_NO_GEN == 0) font_gen <= font_gen + 12'd1; end else if (BUG_FONT_NO_INC == 0) font_idx <= font_idx + 13'd1;
+                end
                 R_HAL_IDX:  hal_idx <= dDAT_MOSI[7:0];
                 R_HAL_DATA: begin hal_data <= dDAT_MOSI[23:0]; hal_widx <= hal_idx; hal_we <= 1'b1; hal_idx <= hal_idx + 8'd1; end
                 R_RING_BASE:   ring_base <= dDAT_MOSI[22:0];   // B-741
@@ -1520,6 +1544,8 @@ module mp3_soc #(
             R_GAIN_CTRL:   mmio_rdata = {(GAIN_ENABLE != 0), (GAIN_ENABLE != 0 && GAIN_BOOST != 0), 24'd0, gain_shift, 1'b0, gain_fading, 1'b0, gain_en};   // B-615
             R_HAL_CTRL:    mmio_rdata = {(HALCYON_ENABLE != 0), 17'd0, hal_nact, 5'd0, hal_busy, hal_bypass, hal_en};   // B-639
             R_HAL_IDX:     mmio_rdata = {24'd0, hal_idx};
+            R_FONT_CTRL:   mmio_rdata = (FONT_RAM_ENABLE != 0) ? {1'b1, 3'd0, font_gen, 16'd6112} : 32'd0;
+            R_FONT_IDX:    mmio_rdata = (FONT_RAM_ENABLE != 0) ? {19'd0, font_idx} : 32'd0;
             R_GAIN_TARGET: mmio_rdata = {16'd0, gain_target};
             R_RING_BASE:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_base} : 32'd0;   // B-741
             R_RING_SIZE:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_size} : 32'd0;

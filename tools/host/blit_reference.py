@@ -86,7 +86,7 @@ def load_font_words(path: Path = FONT_ROM) -> list[int]:
     the actual committed ROM content, with no extra dependency and no risk
     of a fresh render disagreeing with what shipped."""
     text = path.read_text()
-    else_part = text.split("`else", 1)[1]
+    else_part = text.split("`else", 1)[1] if "`else" in text else text         # font_ram.v (TAU_FONT_RAM) has a single array and no `else
     words: dict[int, int] = {}
     for m in re.finditer(r"mem\[\s*(\d+)\]\s*=\s*32'h([0-9A-Fa-f]+);", else_part):
         words[int(m.group(1))] = int(m.group(2), 16)
@@ -229,12 +229,15 @@ class Renderer:
                 acc_y -= den_y
                 ey += 1
 
-    def char(self, addr: int, glyph: int, fg: int, bg: int, sx: int, sy: int, light: bool = False) -> None:
+    def char(self, addr: int, glyph: int, fg: int, bg: int, sx: int, sy: int, light: bool = False, latin1: bool = False) -> None:
         """OP_CHAR: 4bpp coverage atlas lookup + gamma-fitted anti-aliasing
         blend (cov_weight), then the same EPX-scale Bresenham stepper SBLIT
         reuses. Address = (glyph-0x20)*32 + row*2 + half, per font_rom.v's
         own header comment."""
-        char_base = (glyph - 0x20) * 32 if 0x20 <= glyph <= 0x7E else 0
+        if latin1:        # TAU_FONT_RAM: glyph 0..94 = 0x20..0x7E, 95..190 = 0xA0..0xFF, every other code the blank glyph 0
+            char_base = (glyph - 0x20) * 32 if 0x20 <= glyph <= 0x7E else (glyph - 0xA0 + 95) * 32 if glyph >= 0xA0 else 0
+        else:
+            char_base = (glyph - 0x20) * 32 if 0x20 <= glyph <= 0x7E else 0
         ext_w = SCALE_EXT[sx]
         ext_h = SCALE_EXT[sy]
         num_x, den_x = SCALE_ND[sx]

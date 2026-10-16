@@ -155,7 +155,7 @@ with tempfile.TemporaryDirectory() as t:
     fx = tau_assets.parse((ROOT / "docs/schemas/fixtures/tau-assets-roundtrip.bin").read_bytes())
     check(list(fx["sections"]) == ["THEM", "METR", "PRST"], "the round-trip fixture carries THEM, METR and PRST")
     soc = (ROOT / "src/fpga/core/mp3_soc.v").read_text()
-    check(tc.selecting_macros(soc) == ["TAU_CLK66", "TAU_RAM_192K"], f"CORE_VERSION is selected by {tc.selecting_macros(soc)}")
+    check(tc.selecting_macros(soc) == ["TAU_CLK66", "TAU_FONT_RAM", "TAU_RAM_192K"], f"CORE_VERSION is selected by {tc.selecting_macros(soc)}")
     check(tc.zero_defined('set_global_assignment -name VERILOG_MACRO "TAU_CLK66=0"\n', soc) == ["TAU_CLK66"]
           and tc.zero_defined('set_global_assignment -name VERILOG_MACRO "TAU_CLK66=1"\nset_global_assignment -name VERILOG_MACRO "TAU_SPEC=0"\n', soc) == [],
           "a CORE_VERSION-selecting macro written as =0 is detected (only those)")
