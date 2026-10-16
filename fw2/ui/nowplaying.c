@@ -61,7 +61,7 @@ void nowplaying_draw(void)
     put(0, 6, p->playing ? (p->held ? "PAUSED" : "PLAYING") : "STOPPED", p->playing && !p->held ? ACC : DIM, 120, 1);
     if (p->valid) {
         if (p->gen != art_gen && p->gov < 1u) {                    /* a new track: its cover (the governor must be NORMAL: the load blocks for about 150 ms) */
-            art_gen = p->gen; gfx_rect(COV_X, COV_Y, 128, 128, TRK);
+            art_gen = p->gen; meter_settle(2); gfx_rect(COV_X, COV_Y, 128, 128, TRK);
             if (p->cover[0]) { mp3play_io_quiesce(); if (art_load(p->cover) == TIMG_OK) art_draw(COV_X, COV_Y); else gfx_text(COV_X + 20, COV_Y + 56, "NO COVER", DIM, TRK); }
             else gfx_text(COV_X + 20, COV_Y + 56, "NO COVER", DIM, TRK);
         }

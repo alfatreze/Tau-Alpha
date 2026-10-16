@@ -3,5 +3,6 @@
 #define P2_METER_H
 #include <stdint.h>
 void meter_enter(uint32_t y, uint32_t h);       /* the box: clear it, forget the bars */
+void meter_settle(uint32_t n);                  /* a new track: skip the next n spectrum windows */
 void meter_draw(int allowed);                   /* allowed = 0 while the governor has shed the UI: the bars are left as they are */
 #endif

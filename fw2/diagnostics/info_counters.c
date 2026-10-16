@@ -84,9 +84,6 @@ const cnt_t counters_table[] = {
     { "ART MS",       CK_U32, CU_MS,     &art_ms },
     { "ART CLUT",     CK_U32, CU_NONE,   &art_clut_start },         /* palette load start index the probe chose: 0 registered, 255 legacy */
     { "SKIP ON",      CK_U32, CU_NONE,   &mp.skip_on },
-    { "SKIP LEAD",    CK_U32, CU_PAIRS,  &mp.skip_lead },
-    { "SKIP TAIL",    CK_U32, CU_PAIRS,  &mp.skip_tail },
-    { "SKIP APPLIED", CK_U32, CU_NONE,   &mp.skip_applied },
     { "SKIP HITS",    CK_U32, CU_NONE,   &skiplist_hits },
     { "SKIP MISSES",  CK_U32, CU_NONE,   &skiplist_misses },
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
@@ -96,9 +93,7 @@ const cnt_t counters_table[] = {
     { "LIB STATE",    CK_U8,  CU_NONE,   &lib_state },            /* 1 loaded, 2 failed */
     { "LIB ERR",      CK_U8,  CU_NONE,   &lib_err },
     { "LIB TRACKS",   CK_U32, CU_NONE,   &lib_n_tracks },
-    { "LIB LOAD",     CK_U32, CU_MS,     &lib_ms },
     { "LP QUEUE",     CK_U32, CU_NONE,   &lp.qn },
-    { "LP POS",       CK_U32, CU_NONE,   &lp.cur_pos },
     { "LP TRACK ID",  CK_U32, CU_NONE,   &lp.cur_id },
 #ifndef P2_MP3PLAY
     { "LP SHUFFLE",   CK_U32, CU_NONE,   &lp.shuffle },
@@ -132,11 +127,13 @@ const cnt_t counters_table[] = {
     { "LP SKIPPED",   CK_U32, CU_NONE,   &lp.skipped },
 #endif
     { "SLOT ERR",     CK_U8,  CU_NONE,   &slot_err },
-    { "SLOT ERRCODE", CK_U8,  CU_NONE,   &slot_errcode },
     { "SLOT OPENS",   CK_U32, CU_NONE,   &slot_opens },
     { "SLOT OPEN FAIL", CK_U32, CU_NONE, &slot_open_fails },
     { "OPEN LAST",    CK_U32, CU_MS,     &slot_open_ms_last },
-    { "OPEN MAX",     CK_U32, CU_MS,     &slot_open_ms_max },
+    { "ST READS",     CK_U32, CU_NONE,   &lp_stream.reads },
+    { "ST BYTES",     CK_U32, CU_NONE,   &lp_stream.bytes },
+    { "ST TO OFF",    CK_U32, CU_NONE,   &lp_stream.to_off },
+    { "ST TO LEN",    CK_U32, CU_NONE,   &lp_stream.to_len },
     { "ST FAILS",     CK_U32, CU_NONE,   &lp_stream.fails_total },
     { "ST RETRIES",   CK_U32, CU_NONE,   &lp_stream.retries },
     { "ST STALE",     CK_U32, CU_NONE,   &lp_stream.stale },
@@ -162,10 +159,8 @@ const cnt_t counters_table[] = {
 #ifndef P2_MP3PLAY
     U32("TONE RATE",    CU_NONE,   &v.tone_rate),
 #endif
-    U32("HEARD SEG",    CU_NONE,   &v.heard_seg),
     U32("HEARD POS",    CU_MS,     &v.heard_pos_ms),
     U32("HEARD VALID",  CU_NONE,   &v.heard_valid),
-    U32("PUT SEG",      CU_NONE,   &v.put_seg),
     U32("SWAPS",        CU_NONE,   &v.swaps),
     U32("ACCT ERR",     CU_NONE,   &v.acct_err),
     { "LAST DELTA",   CK_I32,   CU_PAIRS, &v.last_delta },
