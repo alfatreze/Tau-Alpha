@@ -10,7 +10,8 @@
 #endif
 
 aout_stats_t aout_stats;
-static uint32_t w;                       /* the write index: the one writer of this quantity */
+static uint32_t w;                       /* the write index: the one writer of this quantity (includes pairs staged but not yet published) */
+static uint32_t w_pub, staged;           /* the published write index (what the reader sees) and the pairs staged behind it */
 static uint32_t ctrl_hold;
 static uint32_t cymo_on = 0xFFu, rate_hz;
 static int dry_prev, under_on, startup = 1;
@@ -25,7 +26,7 @@ int aout_init(void)
     REG_WR(R_RING_CTRL, 0u);                                    /* disabled: the reader follows the write index */
     REG_WR(R_RING_BASE, RING_BASE_W); REG_WR(R_RING_SIZE, AOUT_RING_PAIRS); REG_WR(R_RING_WPTR, 0u);
     for (uint32_t n = 0; n < 1000u && REG_RD(R_RING_RIDX) != 0u; n++) { }
-    w = 0; ctrl_hold = 0;
+    w = 0; w_pub = 0; staged = 0; ctrl_hold = 0;
     aout_stats.ring_min = 0xFFFFFFFFu; aout_stats.ring_max = 0;
     REG_WR(R_RING_CTRL, 1u);                                    /* enable, hold clear */
     return 0;
@@ -70,7 +71,7 @@ aout_snap_t aout_snap(void)
         s.ridx = REG_RD(R_RING_RIDX);
         c2 = REG_RD(R_RING_CNT);
     } while (c1 != c2);
-    s.cnt = c1; s.wptr = w;
+    s.cnt = c1; s.wptr = w_pub;                                 /* the published index: staged pairs are not part of the ring the reader sees */
     return s;
 }
 
@@ -104,6 +105,7 @@ uint32_t aout_put(const int16_t *pcm, uint32_t pairs, int stereo)
 #else
     REG_WR(R_RING_WPTR, w);                                     /* once per block, after the data */
 #endif
+    w_pub = w; staged = 0;                                      /* (publishes pairs staged earlier too) */
     aout_stats.put_blocks++; aout_stats.put_pairs += n;
     if (n < pairs) aout_stats.put_stalls++;
     uint32_t d = cycles() - t0; if (d > aout_stats.put_max_cyc) aout_stats.put_max_cyc = d;
@@ -113,8 +115,43 @@ uint32_t aout_put(const int16_t *pcm, uint32_t pairs, int stereo)
     return n;
 }
 
+/* ---- staged puts (docs/features/FLAC_DECODER_V2_REVIEW.md 5.6): a decoder whose frame is verified only at its end writes the pairs now, publishes them at the end (aout_commit) or throws them away
+ * (aout_rollback). The reader only ever sees the published index, so staged pairs are never heard; they occupy ring space (aout_room counts them). Do not mix with aout_put inside one frame. ---- */
+uint32_t aout_put_staged(const int16_t *pcm, uint32_t pairs, int stereo)
+{
+    volatile uint32_t *win = P2_RING_WINDOW;
+    uint32_t room = aout_room(), n = pairs < room ? pairs : room;
+    for (uint32_t i = 0; i < n; i++) {
+        int32_t l = pcm[stereo ? 2u * i : i], r = stereo ? pcm[2u * i + 1u] : l;
+        win[w] = ((uint32_t)(uint16_t)(int16_t)r << 16) | (uint32_t)(uint16_t)(int16_t)l;
+        if (++w == AOUT_RING_PAIRS) w = 0u;
+    }
+    staged += n;
+#if AOUT_BUG == 7
+    REG_WR(R_RING_WPTR, w); w_pub = w;                          /* published at once: the reader would play pairs of a frame that may still fail */
+#endif
+    if (n < pairs) aout_stats.put_stalls++;
+    return n;
+}
+void aout_commit(void)
+{
+#if AOUT_BUG != 5
+    REG_WR(R_RING_WPTR, w);                                     /* one publish for the whole verified frame */
+#endif
+    w_pub = w; aout_stats.put_blocks++; aout_stats.put_pairs += staged; aout_stats.staged_committed += staged; staged = 0;
+}
+void aout_rollback(void)
+{
+#if AOUT_BUG != 6
+    w = w_pub;                                                  /* the working index back to the published one: the next put overwrites the failed frame's pairs */
+#endif
+    aout_stats.rolled_back += staged; staged = 0;
+}
+uint32_t aout_staged(void) { return staged; }
+
 void aout_flush(void)
 {
+    w = w_pub; staged = 0;                                      /* a frame in progress is void after a flush */
     REG_WR(R_PCM_ST, 1u);                                       /* the hardware drops the unread pairs and the FIFO (one write) */
     aout_stats.flushes++;
     startup = 1;                                                /* the FIFO is empty until the reader has refilled it: not an underrun, and not the producer being late */
