@@ -118,6 +118,7 @@ test-host:
 	$(PYTHON) sim/test_p2_nowplaying.py
 	$(PYTHON) sim/test_p2_browse.py
 	$(PYTHON) sim/test_p2_spectrum.py
+	$(PYTHON) sim/test_p2_menu.py
 	$(PYTHON) sim/test_p2_settings.py
 	$(PYTHON) tools/player2/gen_sine.py --check
 	$(PYTHON) sim/test_check_deps.py

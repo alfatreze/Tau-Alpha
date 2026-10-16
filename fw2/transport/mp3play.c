@@ -40,6 +40,7 @@ static void tempo_flush(void)
 }
 static const uint16_t tempo_q8[8] = { 192u, 218u, 256u, 282u, 320u, 384u, 448u, 512u };      /* 0.75 0.85 1.00 1.10 1.25 1.50 1.75 2.00 */
 
+#define SMALL __attribute__((optimize("Os")))      /* not on the decode path: smaller code is what the 192 KB link needs */
 extern char _ring_start;
 #define RING_PTR ((const uint8_t *)(uintptr_t)(0xC0000000u + (uint32_t)(uintptr_t)&_ring_start))
 #define RING_OFF ((uint32_t)(uintptr_t)&_ring_start)
@@ -65,7 +66,7 @@ static void rg_for_track(uint32_t id)
 #if TAU_POLY_FW
 #include "../../fw/mp3_poly_hw.h"
 #endif
-void mp3play_init(int cymo_present)
+SMALL void mp3play_init(int cymo_present)
 {
 #if TAU_POLY_FW
     tau_poly_hw_enable = caps.poly ? 1 : 0;
@@ -77,7 +78,7 @@ void mp3play_init(int cymo_present)
     stream_init(&lp_stream, RING_SZ, 5u * CLK_HZ);
     library_load();
     aout_gain_unity();
-    mp.volume = 94u; mp.rg_mode = RG_TRACK; mp.tempo_idx = 2u;                              /* the old player's default volume; ReplayGain on Track for the first hardware listening */
+    mp.volume = 94u; mp.rg_mode = RG_TRACK; mp.tempo_idx = 2u; mp.seek_idx = 1u;                              /* the old player's default volume; ReplayGain on Track for the first hardware listening */
     gain_apply_heard(); REG_WR(R_GAIN_CTRL, 1u | (3u << 4) | 2u);       /* snap to the volume target: no ramp from a stale value */
     aout_snap_t s = aout_snap(); tl_init(&mp_tl, s.cnt); gov_init(&mp_gov, AOUT_USABLE);
     if (lib_state != 1) return;
@@ -135,7 +136,7 @@ static int flac_begin(void)
 }
 #endif
 
-static int begin_track(void)
+SMALL static int begin_track(void)
 {
     lp.cur_id = queue_cur(&q); lp.expect = library_size(lp.cur_id); rg_for_track(lp.cur_id);
     char path[LIBP_MAX_PATH]; uint32_t n = library_path(lp.cur_id, path, sizeof path);
@@ -162,7 +163,7 @@ static int begin_track(void)
     return 1;
 }
 
-static void start_from(uint16_t id)
+SMALL static void start_from(uint16_t id)
 {
     for (uint32_t guard = 0; id != Q_NONE && guard < 8u; guard++) {
         if (library_codec(id) != 1u && !(P2_FLAC && library_codec(id) == 2u)) { mp.non_mp3++; id = queue_next(&q, 1); continue; }
@@ -172,7 +173,7 @@ static void start_from(uint16_t id)
     mp.state = MPS_IDLE; mp.playing = 0; lp.state = 0;
 }
 
-static void flush_and_start(uint16_t id)
+SMALL static void flush_and_start(uint16_t id)
 {
     if (mp.playing && !mp.held) aout_mute_wait();                       /* the old tail fades out through the gain stage, then is dropped unheard */
     aout_flush(); aout_snap_t s = aout_snap(); tl_flush(&mp_tl, s.cnt); seg_open_ = 0;
@@ -181,7 +182,7 @@ static void flush_and_start(uint16_t id)
 }
 
 /* +secs from where it is heard (wrapping to the start past the end). Only while the heard track is the one being decoded; across a gapless boundary the request is ignored and counted. */
-static void do_seek(uint32_t secs)
+SMALL static void do_seek(uint32_t secs)
 {
     if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !dec.dec || !mp.rate) { mp.seek_ign++; return; }      /* (FLAC: no seek yet, dec.dec is null) */
     uint32_t target = mp.cur_pos + secs * mp.rate;
@@ -194,15 +195,29 @@ static void do_seek(uint32_t secs)
     mp.held = 0; aout_hold(0); fade_pending = 1; mp.seeks++; mp.seek_to = target;
 }
 
-/* A new speed: restart from where it is heard (a seek to the same pair rebuilds the stretcher; later tracks start at the new speed). */
-static void tempo_step(int dir)
+static const uint8_t seek_steps[4] = { 10u, 30u, 60u, 120u };
+SMALL static void shuffle_set(uint32_t on)
 {
-    int i = (int)mp.tempo_idx + dir; if (i < 0 || i > 7) return;
-    mp.tempo_idx = (uint32_t)i;
+    if ((on ? 1u : 0u) == (lp.shuffle ? 1u : 0u) || lib_state != 1) return;
+    if (!on) { uint32_t st = 0, n = library_build_queue((uint8_t)qsrc_kind, qsrc_parent, 0, library_orig_buf(), 16384u, &st, 0); if (n) queue_restore(&q, library_orig_buf(), n); }
+    else queue_shuffle(&q, cycles() | 1u, 1);
+    lp.shuffle = on ? 1u : 0u;
+}
+SMALL static void tempo_set(uint32_t i)
+{
+    if (i > 7u || i == mp.tempo_idx) return;
+    mp.tempo_idx = i;
     if (mp.state == MPS_DEC && mp.cur_valid && mp.cur_gen == mp.gen) do_seek(0);
 }
+/* A new speed: restart from where it is heard (a seek to the same pair rebuilds the stretcher; later tracks start at the new speed). */
+static void tempo_set(uint32_t i);
+SMALL static void tempo_step(int dir)
+{
+    int i = (int)mp.tempo_idx + dir; if (i < 0 || i > 7) return;
+    tempo_set((uint32_t)i);
+}
 
-void mp3play_key(uint32_t edge)
+SMALL void mp3play_key(uint32_t edge)
 {
     if (lib_state != 1) return;
     if (edge & KEY_A) flush_and_start(queue_cur(&q));
@@ -223,18 +238,14 @@ void mp3play_key(uint32_t edge)
         if (edge & KEY_Y) { mp.rg_mode = (mp.rg_mode + 1u) % 3u; rg_for_track(lp.cur_id); heard_g = dec_g; gain_apply_heard(); }
         return;
     }
-    if (edge & KEY_Y) do_seek(30);
+    if (edge & KEY_Y) do_seek(seek_steps[mp.seek_idx]);
     if (edge & KEY_L1) { mp.volume = mp.volume >= 3u ? mp.volume - 3u : 0u; gain_apply_heard(); }
     if (edge & KEY_R1) { mp.volume = mp.volume + 3u > 100u ? 100u : mp.volume + 3u; gain_apply_heard(); }
 
-    if (edge & KEY_X) {
-        if (lp.shuffle) { uint32_t st = 0, n = library_build_queue((uint8_t)qsrc_kind, qsrc_parent, 0, library_orig_buf(), 16384u, &st, 0); if (n) queue_restore(&q, library_orig_buf(), n); }
-        else queue_shuffle(&q, cycles() | 1u, 1);
-        lp.shuffle ^= 1u;
-    }
+    if (edge & KEY_X) shuffle_set(!lp.shuffle);
 }
 
-static void track_ended(void)
+SMALL static void track_ended(void)
 {
     if (seg_open_) { if (tl_close(&mp_tl)) mp.acct_bad++; seg_open_ = 0; }
     mp.ended++;
@@ -319,7 +330,7 @@ void mp3play_pump(void)
     }
 }
 
-void mp3play_heard(void)
+SMALL void mp3play_heard(void)
 {
 #if P2_FLAC && TAU_LPC_FW
     mp.lpc_slots = tau_lpc_stat_samples; mp.lpc_timeout = tau_lpc_stat_timeout;
@@ -344,7 +355,7 @@ void mp3play_heard(void)
 }
 
 void mp3play_settings_get(uint32_t *v) { v[0] = mp.volume; v[1] = q.repeat; v[2] = mp.rg_mode; }
-void mp3play_settings_set(const uint32_t *v)
+SMALL void mp3play_settings_set(const uint32_t *v)
 {
     mp.volume = v[0]; q.repeat = (uint8_t)v[1]; lp.repeat = v[1];
     if (mp.rg_mode != v[2]) { mp.rg_mode = v[2]; rg_for_track(lp.cur_id); heard_g = dec_g; }
@@ -353,7 +364,7 @@ void mp3play_settings_set(const uint32_t *v)
 
 /* ---- Now Playing data ---- */
 static void np_copy(char *d, const char *s, uint32_t cap) { uint32_t i = 0; for (; s[i] && i + 1u < cap; i++) d[i] = s[i]; d[i] = 0; }
-static void np_refresh(const tl_seg_t *g, uint32_t id)
+SMALL static void np_refresh(const tl_seg_t *g, uint32_t id)
 {
     char t[48], a[40], b[40], q[32]; uint32_t cod = 0, ch = 0, kb = 0, hz = 0;
     library_meta(id, t, sizeof t, a, sizeof a, b, sizeof b);
@@ -370,13 +381,13 @@ static void np_refresh(const tl_seg_t *g, uint32_t id)
     np.cover[0] = 0; if (!library_cover_path(id, np.cover, sizeof np.cover)) np.cover[0] = 0;
     np.id = id; np.gen++; (void)g;
 }
-const np_info_t *mp3play_np(void)
+SMALL const np_info_t *mp3play_np(void)
 {
     np.playing = mp.playing; np.held = mp.held; np.volume = mp.volume; np.rg_mode = mp.rg_mode; np.repeat = q.repeat; np.shuffle = lp.shuffle; np.tempo_q8 = tempo_q8[mp.tempo_idx]; np.gov = mp.gov_mode;
     return &np;
 }
 
-void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t src_parent, int shuffled, uint32_t seed)
+SMALL void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t src_parent, int shuffled, uint32_t seed)
 {
     if (!n) return;
     qsrc_kind = src_kind == LQ_ALL_SHUFFLED ? LQ_ALL_NATURAL : src_kind; qsrc_parent = src_parent;
@@ -384,11 +395,29 @@ void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t 
     flush_and_start(queue_cur(&q));
 }
 
-void mp3play_io_quiesce(void)
+SMALL void mp3play_io_quiesce(void)
 {
     uint32_t t0 = cycles();
     while (lp_stream.fl.active) {
         io_result_t r = slot_read_poll(); io_req_t rq; stream_pump(&lp_stream, cycles(), r, &rq);
         if ((uint32_t)(cycles() - t0) > 4u * CLK_HZ) break;
+    }
+}
+
+SMALL uint32_t mp3play_pref_get(uint32_t id)
+{
+    switch (id) { case PREF_VOLUME: return mp.volume; case PREF_RG: return mp.rg_mode; case PREF_TEMPO: return mp.tempo_idx; case PREF_REPEAT: return q.repeat;
+                  case PREF_SHUFFLE: return lp.shuffle ? 1u : 0u; case PREF_SEEKSTEP: return mp.seek_idx; }
+    return 0;
+}
+SMALL void mp3play_pref_set(uint32_t id, uint32_t v)
+{
+    switch (id) {
+    case PREF_VOLUME: mp.volume = v > 100u ? 100u : v; gain_apply_heard(); break;
+    case PREF_RG: if (v < 3u && v != mp.rg_mode) { mp.rg_mode = v; rg_for_track(lp.cur_id); heard_g = dec_g; gain_apply_heard(); } break;
+    case PREF_TEMPO: tempo_set(v); break;
+    case PREF_REPEAT: if (v < 3u) { q.repeat = (uint8_t)v; lp.repeat = v; } break;
+    case PREF_SHUFFLE: shuffle_set(v); break;
+    case PREF_SEEKSTEP: if (v < 4u) mp.seek_idx = v; break;
     }
 }

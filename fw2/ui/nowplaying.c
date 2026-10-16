@@ -45,7 +45,7 @@ void nowplaying_enter(void)
     bar_px = 0xFFFFFFFFu; last_gen = 0xFFFFFFFFu; art_gen = 0xFFFFFFFFu;
     gfx_text(X0, 6, "NOW PLAYING", ACC, BG);
     meter_enter(212, 80);
-    gfx_text(X0, 340, "A PLAY B PAUSE Y SEEK  SEL+A LIB SEL+B INFO", DIM, BG);
+    gfx_text(X0, 340, "A PLAY B PAUSE Y SEEK  SEL+A LIB  SEL+UP SET", DIM, BG);
 }
 
 static void line(char *o, uint32_t *n, const char *s) { while (*s && *n < 46u) o[(*n)++] = *s++; o[*n] = 0; }
