@@ -5,7 +5,7 @@
 #include "mmio.h"
 
 typedef struct {
-    uint8_t ring, gain, cymo, halcyon, poly, lpc, wave, spec, dbuf;   /* 1 = the unit is built into this bitstream */
+    uint8_t ring, gain, cymo, halcyon, poly, lpc, wave, spec, dbuf, under;   /* 1 = the unit is built into this bitstream */
     uint32_t core_version;
 } caps_t;
 

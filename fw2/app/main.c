@@ -7,6 +7,7 @@
 #include "../aout/aout.h"
 #include "../transport/tone.h"
 #ifdef P2_MP3PLAY
+#include "../settings/settings.h"
 #include "../stream/library.h"
 #include "../transport/mp3play.h"
 #elif defined(P2_LISTPLAY)
@@ -21,7 +22,7 @@ int main(void)
     counters_init();
     counters_aout_init = (uint32_t)aout_init();            /* 0 = the ring is armed; the tone transport only runs then */
 #ifdef P2_MP3PLAY
-    if (!counters_aout_init) mp3play_init(caps.cymo);
+    if (!counters_aout_init) { mp3play_init(caps.cymo); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); }       /* what APF saved last time: volume, repeat, ReplayGain mode */
 #elif defined(P2_LISTPLAY)
     listplay_init();                                           /* S4: no audio, the card path only */
 #else
@@ -51,7 +52,8 @@ int main(void)
 #endif
             }
 #ifdef P2_MP3PLAY
-        if (!counters_aout_init) { mp3play_pump(); mp3play_heard(); aout_poll((int)mp.playing); }
+        if (!counters_aout_init) { mp3play_pump(); mp3play_heard();
+            { uint32_t sv[SF_COUNT]; mp3play_settings_get(sv); if (settings_service(sv, mp.playing && !mp.held)) mp3play_settings_set(sv); } aout_poll((int)mp.playing); }
 #elif defined(P2_LISTPLAY)
         listplay_pump();
 #else

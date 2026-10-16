@@ -21,6 +21,7 @@ void platform_probe(void)
 {
     caps.core_version = REG(R_VERSION);
     caps.ring    = (uint8_t)(REG(R_RING_CTRL) >> 31);
+    caps.under   = (uint8_t)(REG(R_UNDER) >> 31);                 /* the hardware underrun record (P6) */
     caps.gain    = (uint8_t)(REG(R_GAIN_CTRL) >> 31);
     caps.cymo    = (uint8_t)(REG(R_CYMO_STATUS) & 1u);
     caps.halcyon = (uint8_t)(REG(R_HAL_CTRL) >> 31);

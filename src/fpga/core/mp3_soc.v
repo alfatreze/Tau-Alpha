@@ -898,7 +898,7 @@ module mp3_soc #(
     // B-741 PCM ring reader. BASE (RW): PSRAM word address of ring[0] (the CPU window is 0xA400_0000 + 4*word); SIZE (RW): pairs in the ring; WPTR (RW): the CPU's write index in [0, SIZE) (write it after the
     // data is stored); RIDX (R): the reader's index; CNT (R): pairs pushed since reset; CTRL: write bit 0 ENABLE (STICKY, reset 0: the CPU's R_AUDIO write is then ignored and the FIFO is fed from the ring),
     // read bit 31 present, bit 3 hold, bit 2 reading, bit 1 empty, bit 0 enable (write bit 1 = HOLD, sticky: no new read starts, the unread pairs are kept: the player's pause). A write to R_PCM_ST (the firmware's pcm_flush) also drops the unread pairs (RIDX = WPTR). Inert (reads 0) unless PCM_RING_ENABLE.
-    localparam [8:0] R_RING_BASE = 9'h184, R_RING_SIZE = 9'h188, R_RING_WPTR = 9'h18C, R_RING_RIDX = 9'h190, R_RING_CTRL = 9'h194, R_RING_CNT = 9'h198;
+    localparam [8:0] R_RING_BASE = 9'h184, R_RING_SIZE = 9'h188, R_RING_WPTR = 9'h18C, R_RING_RIDX = 9'h190, R_RING_CTRL = 9'h194, R_RING_CNT = 9'h198, R_UNDER = 9'h19C;
     reg         ring_en = 1'b0, ring_hold = 1'b0;
     reg  [22:0] ring_base = 23'd0, ring_size = 23'd2, ring_wptr = 23'd0;
     wire        ring_push, rctl_req, rctl_we, rctl_busy;
@@ -1045,6 +1045,8 @@ module mp3_soc #(
     wire signed [15:0] fifo_l, fifo_r;
     wire        pcm_sample_tick;
     wire        pcm_adv;
+    wire [14:0] pcm_under_events;
+    wire [15:0] pcm_under_ticks;
 
     pcm_fifo #(.AW(11)) u_pcm (
         .clk      (clk),
@@ -1060,7 +1062,9 @@ module mp3_soc #(
         .out_r    (fifo_r),
         .underrun (pcm_underrun),
         .sample_tick (pcm_sample_tick),
-        .adv      (pcm_adv)
+        .adv      (pcm_adv),
+        .under_events (pcm_under_events),
+        .under_ticks  (pcm_under_ticks)
     );
 
     // ---- hardware gain stage (B-615), position B: right after the FIFO's output register. The hardware meters (spectrum bank, wave meter) keep tapping fifo_l/fifo_r, so they
@@ -1523,6 +1527,7 @@ module mp3_soc #(
             R_RING_RIDX:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_ridx} : 32'd0;
             R_RING_CTRL:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {1'b1, 27'd0, ring_hold, rctl_busy, (ring_ridx == ring_wptr), ring_en} : 32'd0;
             R_RING_CNT:    mmio_rdata = (PCM_RING_ENABLE != 0) ? ring_cnt : 32'd0;
+            R_UNDER:       mmio_rdata = (PCM_RING_ENABLE != 0) ? {1'b1, pcm_under_events, pcm_under_ticks} : 32'd0;   // P6: [31] present, [30:16] runs of empty ticks, [15:0] empty ticks (saturating, reset-only)
             R_GAIN_CUR:    mmio_rdata = {16'd0, gain_cur};
             R_GAIN_STEP:   mmio_rdata = {16'd0, gain_ramp};
             R_AUDIO_CFG:   mmio_rdata = {30'd0, (AUDIO16_ENABLE != 0), audio_full16};   // B-602: bit 1 present, bit 0 value; 0 when not built
