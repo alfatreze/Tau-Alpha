@@ -8,7 +8,19 @@
 #include "../cores/gain_core.h"
 #include "../cores/nowplaying_core.h"
 #include "../stream/skiplist.h"
-#if P2_FLAC
+#if P2_FLAC2
+#include "../decode/flac2_unit.h"
+#include <stdlib.h>
+#define FLAC_CH0_WORDS 5120u                              /* 20 KB from the decoder arena (shared with Helix: one codec is live at a time); a file with larger blocks is refused */
+#define F2_OUT_PAIRS 64u                                  /* pairs per decoder call (512 B of int32) */
+#define F2_PASS_PAIRS 1024u                               /* pairs decoded per pump pass: about 6 ms of decode, inside the 8 ms atomic-step budget (spec 8) */
+#define F2_RES_BUDGET 512u                                /* residuals per call */
+/* The FLAC decoder's state lives ON TOP OF the MP3 decoder's (`DEC`, 6.3 KB): only one codec is live at a time, and the 192 KB link has no room for both (spec 4 of the review). dec_live says whether `DEC` holds a
+ * live MP3 decoder; a FLAC track overwrites it, an MP3 track re-initialises it. */
+static union { mp3d_t m; struct { f2t_t t; uint8_t seek[1024]; int32_t out[2u * F2_OUT_PAIRS]; int16_t pcm[2u * F2_OUT_PAIRS]; } f; } dv;
+static int32_t *flac_ch0; static uint8_t is_flac, ft_active, dec_live; static uint32_t ft_total, ft_rate;
+static uint32_t ft_cyc;                                   /* decode cycles since the last verified frame (for the per-frame average) */
+#elif P2_FLAC
 #include "../../fw/flac.h"
 #include <stdlib.h>
 #if TAU_LPC_FW
@@ -32,6 +44,13 @@ static inline int tempo_push(int16_t l, int16_t r) { tempo_buf[2u * tempo_n] = l
 #define WS_DATA
 #include "../../fw/tempo_core.h"
 static tempo_t tempo_st; static uint8_t tempo_active;
+#if P2_FLAC2
+#define DEC (dv.m)
+#define ft (dv.f.t)
+#define ft_seek_buf (dv.f.seek)
+#define fl_out (dv.f.out)
+#define fl_pcm (dv.f.pcm)
+#endif
 static void tempo_flush(void)
 {
     if (!tempo_n) return;
@@ -50,7 +69,13 @@ enum { MPS_IDLE = 0, MPS_DEC = 1, MPS_ENDDRAIN = 2, MPS_WAITRATE = 3 };
 
 mp_t mp; tl_t mp_tl; gov_t mp_gov;
 lp_t lp; stream_t lp_stream;
-static queue_t q; static mp3d_t dec; static int cymo_present_; static uint32_t cur_rate;
+static queue_t q;
+#if !P2_FLAC2
+static mp3d_t dec;
+#define DEC dec
+#define dec_live 1
+#endif
+static int cymo_present_; static uint32_t cur_rate;
 static int seg_open_; static uint8_t fade_pending;
 static uint32_t skip_lead_p, skip_tail_p; static uint8_t skip_pending;       /* skip silence: the numbers for the track being opened, applied at its first decoded block */
 static uint32_t qsrc_kind = LQ_ALL_NATURAL, qsrc_parent;      /* how the current queue was made (to rebuild its natural order)*/
@@ -95,7 +120,19 @@ static void io_service(void)
     if (stream_pump(s, cycles(), r, &rq)) slot_read_start(SLOT_MEDIA, rq.off, RING_OFF + rq.dst, rq.len);
 }
 
-#if P2_FLAC
+#if P2_FLAC2
+static void flac_release(void) { if (flac_ch0) { free(flac_ch0); flac_ch0 = 0; } ft_active = 0; }
+SMALL static int flac_begin(void)
+{
+    flac_release();
+    flac_ch0 = (int32_t *)malloc(FLAC_CH0_WORDS * 4u);
+    if (!flac_ch0) { mp.init_fail++; return 0; }
+    flac2_init(&ft, ft_seek_buf, sizeof ft_seek_buf, flac_ch0, FLAC_CH0_WORDS);
+    flac2_begin(&ft, &lp_stream, lp.expect);                         /* (re)opens the stream at byte 0; the metadata is read by the pump */
+    ft_active = 1; ft_cyc = 0; ft_total = 0; ft_rate = 0;
+    return 1;
+}
+#elif P2_FLAC
 /* flac.c pulls bytes: the decode path checks FLAC_NEED first so this never waits there; during the open it may (the open reads the header and the metadata), and then it services the card. */
 static int flac_pull(void *ctx, uint8_t *dst, int n)
 {
@@ -133,7 +170,7 @@ static int flac_begin(void)
     fl.skip = flac_skip;                                        /* set before the open: it survives the zeroing */
     flac_err e = flac_open(&fl, flac_pull, 0, flac_ch0, FLAC_CH0_WORDS);
     if (e != FLAC_OK || fl.rate > 48000u || fl.channels > 2u || fl.max_blocksize > FLAC_CH0_WORDS) { mp.flac_refused++; flac_release(); return 0; }
-    dec.pairs_total = (uint32_t)fl.total_samples; dec.rate = fl.rate; dec.ch = fl.channels;
+    DEC.pairs_total = (uint32_t)fl.total_samples; DEC.rate = fl.rate; DEC.ch = fl.channels;
     return 1;
 }
 #endif
@@ -151,18 +188,34 @@ SMALL static int begin_track(void)
     skip_pending = 0; skip_lead_p = skip_tail_p = 0;
     if (mp.skip_on && n) { uint32_t a = 0, b2 = 0; if (skiplist_lookup(path, &a, &b2)) { skip_lead_p = a; skip_tail_p = b2; skip_pending = 1; } }      /* the card channel is free here */
     if (!n || !slot_open_path(SLOT_MEDIA, path)) { lp.open_err++; lp.skipped++; return 0; }
+#if !P2_FLAC2
     stream_open(&lp_stream, 0, lp.expect, 0);
-    if (dec.dec) { MP3FreeDecoder(dec.dec); dec.dec = 0; }              /* the 24 KB arena holds exactly one decoder: a skip must free the old one first */
+#endif
+    if (dec_live && DEC.dec) { MP3FreeDecoder(DEC.dec); DEC.dec = 0; }  /* the 24 KB arena holds exactly one decoder: a skip must free the old one first */
+#if P2_FLAC2
+    dec_live = 0;
+#endif
 #if P2_FLAC
     flac_release();
     is_flac = library_codec(lp.cur_id) == 2u;
-    if (is_flac) { uint32_t pt = 0; mp3d_open(&dec, 0); if (!flac_begin()) return 0; pt = dec.pairs_total; (void)pt; }
+#if P2_FLAC2
+    if (is_flac) { if (!flac_begin()) return 0; }
+    else { stream_open(&lp_stream, 0, lp.expect, 0);
+#else
+    if (is_flac) { uint32_t pt = 0; mp3d_open(&DEC, 0); if (!flac_begin()) return 0; pt = DEC.pairs_total; (void)pt; }
     else
 #endif
+#endif
     {
-    if (!mp3d_open(&dec, MP3InitDecoder())) { mp.init_fail++; return 0; }
-    dec.file_size = lp.expect;                                          /* for the seek plan (the library knows the size) */
+    if (!mp3d_open(&DEC, MP3InitDecoder())) { mp.init_fail++; return 0; }
+#if P2_FLAC2
+    dec_live = 1;
+#endif
+    DEC.file_size = lp.expect;                                          /* for the seek plan (the library knows the size) */
     }
+#if P2_FLAC2
+    }
+#endif
     seg_open_ = 0; tempo_active = 0; mp.gen++; mp.state = MPS_DEC; mp.playing = 1; lp.state = 1;
     return 1;
 }
@@ -188,14 +241,26 @@ SMALL static void flush_and_start(uint16_t id)
 /* +secs from where it is heard (wrapping to the start past the end). Only while the heard track is the one being decoded; across a gapless boundary the request is ignored and counted. */
 SMALL static void do_seek(uint32_t secs)
 {
-    if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !dec.dec || !mp.rate) { mp.seek_ign++; return; }      /* (FLAC: no seek yet, dec.dec is null) */
+#if P2_FLAC2
+    if (is_flac && ft_active) {
+        if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !mp.rate || ft.phase != F2T_PH_PLAY) { mp.seek_ign++; return; }
+        uint32_t target = mp.cur_pos + secs * mp.rate;
+        if (ft_total && target + mp.rate >= ft_total) target = 0;
+        if (!mp.held) aout_mute_wait();
+        aout_rollback(); aout_flush(); aout_snap_t s = aout_snap(); tl_flush(&mp_tl, s.cnt); seg_open_ = 0; ft_cyc = 0;
+        if (!flac2_seek(&ft, &lp_stream, target)) { mp.seek_fail++; mp.state = MPS_IDLE; return; }
+        mp.held = 0; aout_hold(0); fade_pending = 1; mp.seeks++; mp.seek_to = target;
+        return;
+    }
+#endif
+    if (mp.state != MPS_DEC || !mp.cur_valid || mp.cur_gen != mp.gen || !dec_live || !DEC.dec || !mp.rate) { mp.seek_ign++; return; }
     uint32_t target = mp.cur_pos + secs * mp.rate;
-    if (dec.pairs_total && target + mp.rate >= dec.pairs_total) target = 0;
+    if (DEC.pairs_total && target + mp.rate >= DEC.pairs_total) target = 0;
     mp3_seek_t pl;
-    if (!mp3d_plan_seek(&dec, target, &pl)) { mp.seek_fail++; return; }
+    if (!mp3d_plan_seek(&DEC, target, &pl)) { mp.seek_fail++; return; }
     if (!mp.held) aout_mute_wait();
     aout_flush(); aout_snap_t s = aout_snap(); tl_flush(&mp_tl, s.cnt); seg_open_ = 0; tempo_active = 0;
-    if (!mp3d_seek(&dec, &lp_stream, &pl)) { mp.seek_fail++; mp.state = MPS_IDLE; return; }
+    if (!mp3d_seek(&DEC, &lp_stream, &pl)) { mp.seek_fail++; mp.state = MPS_IDLE; return; }
     mp.held = 0; aout_hold(0); fade_pending = 1; mp.seeks++; mp.seek_to = target;
 }
 
@@ -253,7 +318,10 @@ SMALL static void track_ended(void)
 {
     if (seg_open_) { if (tl_close(&mp_tl)) mp.acct_bad++; seg_open_ = 0; }
     mp.ended++;
-    if (dec.dec) { MP3FreeDecoder(dec.dec); dec.dec = 0; }
+    if (dec_live && DEC.dec) { MP3FreeDecoder(DEC.dec); DEC.dec = 0; }
+#if P2_FLAC2
+    dec_live = 0;
+#endif
 #if P2_FLAC
     flac_release();
 #endif
@@ -264,6 +332,58 @@ SMALL static void track_ended(void)
     if (nrate && nrate == cur_rate) { mp.gapless_next++; start_from(nx); }
     else { mp.drain_next++; mp.state = MPS_WAITRATE; }
 }
+
+#if P2_FLAC2
+/* One pump pass of the FLAC decoder (about 1,024 pairs, 6 ms): off the hot path and compiled for size. Returns 1 when the caller's loop should end (no track open). */
+SMALL static int flac_pass(stream_t *s)
+{
+    if (!ft_active) return 1;
+    for (uint32_t done = 0; done < F2_PASS_PAIRS; ) {
+        if (ft.phase == F2T_PH_PLAY && aout_room() < ft.op.si.max_bs + F2_OUT_PAIRS) { mp.stalls++; break; }      /* a frame in progress holds its staged pairs in the ring: room for the rest of it and one more call */
+        uint32_t np = 0, t0f = cycles(); int ev = 0;
+        int r = flac2_step(&ft, s, RING_PTR, fl_out, F2_OUT_PAIRS, F2_RES_BUDGET, &np, &ev);
+        uint32_t dtf = cycles() - t0f; ft_cyc += dtf; if (dtf > mp.dec_max_cyc) mp.dec_max_cyc = dtf; mp.dec_steps++;
+        if (r == F2T_NEED) { mp.need_data++; break; }
+        if (r == F2T_OPENED) {
+            const f2_info_t *si = &ft.op.si;
+            if (si->rate > 48000u || si->channels > 2u || si->bps > 24u || si->max_bs > FLAC_CH0_WORDS) { mp.flac_refused++; track_ended(); break; }
+            ft_total = (uint32_t)si->total; ft_rate = si->rate; mp.ch = si->channels; mp.pairs_total = ft_total;
+            continue;
+        }
+        if (r == F2T_END) { track_ended(); break; }
+        if (r == F2T_FAIL) { mp.errors++; mp.flac_err = ft.why; if (ft.why == F2T_WHY_NOTFLAC || ft.why == F2T_WHY_UNSUPPORTED) mp.flac_refused++; track_ended(); break; }
+        if (r != F2T_PAIRS) continue;                                              /* F2T_WORK: metadata, scanning, a seek probe */
+        const uint32_t bps = ft.op.si.bps;
+        if (!seg_open_ && np) {                                                    /* the first pairs of a stretch: its source position and length are known now (after a seek, `base` is the target) */
+            if (!cur_rate || ft.op.si.rate != cur_rate) { aout_set_rate(ft.op.si.rate, cymo_present_); cur_rate = ft.op.si.rate; mp.rate = ft.op.si.rate; mp.rate_changes++; }
+            uint32_t b0 = (uint32_t)ft.base, rest = ft_total > b0 ? ft_total - b0 : 0u;
+            tl_seg_t *g = tl_open(&mp_tl, mp.gen, b0, rest, 0u, 1u, 1u, 0u);
+            if (!g) { aout_rollback(); ft.staged = 0; break; }
+            seg_open_ = 1; seg_gain[g->gen & 3u].gen = g->gen; seg_gain[g->gen & 3u].g = dec_g; seg_gain[g->gen & 3u].id = lp.cur_id;
+            if (fade_pending) { fade_pending = 0; heard_g = dec_g; heard_gain_gen = mp.gen; gain_apply_heard(); aout_fade_in(mp.gain_tgt); }
+        }
+        if (ev & F2_EV_FRAME_BAD) { aout_rollback(); mp.f2_rollbacks++; mp.errors++; continue; }
+        if (np) {
+            for (uint32_t i = 0; i < 2u * np; i++) {                              /* int32 -> the 16-bit ring (the rounding of the 24-bit path; a valid 16-bit stream needs none) */
+                int32_t v = fl_out[i];
+                if (bps > 16u) { const int sh = (int)(bps - 16u); v = (v + (1 << (sh - 1))) >> sh; } else if (bps < 16u) v <<= (int)(16u - bps);
+                if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
+                fl_pcm[i] = (int16_t)v;
+            }
+            uint32_t acc = (ev & F2_EV_SILENCE) ? aout_put(fl_pcm, np, 1) : aout_put_staged(fl_pcm, np, 1);
+            if (acc < np) { mp.stalls++; mp.acct_bad++; }
+            if (ev & F2_EV_SILENCE) { tl_put(&mp_tl, acc); mp.seg_put += acc; }
+            done += np;
+        }
+        if (ev & F2_EV_FRAME_OK) {
+            uint32_t n2 = aout_staged(); if (n2 > mp.f2_staged_max) mp.f2_staged_max = n2;
+            aout_commit(); tl_put(&mp_tl, n2); mp.seg_put += n2;
+            mp.frames++; mp.dec_us += ft_cyc / (CLK_HZ / 1000000u); mp.dec_blocks++; mp.dec_avg_us = mp.dec_us / mp.dec_blocks; ft_cyc = 0; mp.pairs_out = mp.seg_put;
+        }
+    }
+    return 0;
+}
+#endif
 
 void mp3play_pump(void)
 {
@@ -283,45 +403,47 @@ void mp3play_pump(void)
         aout_snap_t sn = aout_snap(); uint32_t fill = aout_fill(&sn);
         mp.gov_mode = (uint32_t)gov_update(&mp_gov, fill);
         if (!gov_decode_wanted(&mp_gov, fill)) break;
-#if P2_FLAC
+#if P2_FLAC2
+        if (is_flac) { if (flac_pass(s)) break; continue; }
+#elif P2_FLAC
         if (is_flac) {
             if (stream_avail(s) < FLAC_NEED && !s->eof) { mp.need_data++; break; }
             if (aout_room() < fl.max_blocksize) { mp.stalls++; break; }
             if (!seg_open_) {
                 if (!cur_rate || fl.rate != cur_rate) { aout_set_rate(fl.rate, cymo_present_); cur_rate = fl.rate; mp.rate = fl.rate; mp.rate_changes++; }
-                tl_seg_t *g = tl_open(&mp_tl, mp.gen, 0u, dec.pairs_total, 0u, 1u, 1u, 0u);
+                tl_seg_t *g = tl_open(&mp_tl, mp.gen, 0u, DEC.pairs_total, 0u, 1u, 1u, 0u);
                 if (!g) break;
                 seg_open_ = 1; seg_gain[g->gen & 3u].gen = g->gen; seg_gain[g->gen & 3u].g = dec_g; seg_gain[g->gen & 3u].id = lp.cur_id;
                 if (fade_pending) { fade_pending = 0; heard_g = dec_g; heard_gain_gen = mp.gen; gain_apply_heard(); aout_fade_in(mp.gain_tgt); }
             }
             uint32_t t0f = cycles(); flac_err fe = flac_decode_frame(&fl, flac_sink, 0); uint32_t dtf = cycles() - t0f;
             if (dtf > mp.dec_max_cyc) mp.dec_max_cyc = dtf; mp.dec_steps++;
-            if (fe == FLAC_OK) { mp.dec_us += dtf / (CLK_HZ / 1000000u); mp.dec_blocks++; mp.dec_avg_us = mp.dec_us / mp.dec_blocks; mp.frames++; mp.ch = fl.channels; mp.pairs_total = dec.pairs_total; mp.pairs_out = mp.seg_put; }
+            if (fe == FLAC_OK) { mp.dec_us += dtf / (CLK_HZ / 1000000u); mp.dec_blocks++; mp.dec_avg_us = mp.dec_us / mp.dec_blocks; mp.frames++; mp.ch = fl.channels; mp.pairs_total = DEC.pairs_total; mp.pairs_out = mp.seg_put; }
             else { if (fe != FLAC_END) { mp.errors++; mp.flac_err = (uint32_t)fe; } track_ended(); break; }
             continue;
         }
 #endif
         if (aout_room() < (tempo_q8[mp.tempo_idx] == 256u ? 1152u : TEMPO_OUT_CAP)) { mp.stalls++; break; }      /* the whole output of one decoded block must fit before it is decoded */
         pcm_blk_t b; uint32_t t0 = cycles();
-        mp3d_step_t st = mp3d_step(&dec, s, RING_PTR, &b);
+        mp3d_step_t st = mp3d_step(&DEC, s, RING_PTR, &b);
         uint32_t dt = cycles() - t0; if (dt > mp.dec_max_cyc) mp.dec_max_cyc = dt; mp.dec_steps++;
         if (st == MS_BLOCK) { mp.dec_us += dt / (CLK_HZ / 1000000u); mp.dec_blocks++; mp.dec_avg_us = mp.dec_us / mp.dec_blocks; }
-        mp.frames = dec.frame_idx; mp.errors = dec.errors; mp.resyncs = dec.resyncs; mp.pairs_out = dec.pairs_out; mp.pairs_total = dec.pairs_total; mp.ch = dec.ch;
+        mp.frames = DEC.frame_idx; mp.errors = DEC.errors; mp.resyncs = DEC.resyncs; mp.pairs_out = DEC.pairs_out; mp.pairs_total = DEC.pairs_total; mp.ch = DEC.ch;
         if (st == MS_BLOCK && skip_pending) {                    /* skip silence: the tail now (it needs the length), the lead as a seek, dropping this first block */
             skip_pending = 0; mp.skip_lead = skip_lead_p; mp.skip_tail = skip_tail_p;
             int ok = 0;
-            if (skip_tail_p && mp3d_set_tail(&dec, skip_tail_p)) ok = 1;
-            if (skip_lead_p) { mp3_seek_t pl; if (mp3d_plan_seek(&dec, skip_lead_p, &pl) && mp3d_seek(&dec, s, &pl)) { ok = 1; mp.skip_applied++; continue; } else mp.skip_ign++; }
+            if (skip_tail_p && mp3d_set_tail(&DEC, skip_tail_p)) ok = 1;
+            if (skip_lead_p) { mp3_seek_t pl; if (mp3d_plan_seek(&DEC, skip_lead_p, &pl) && mp3d_seek(&DEC, s, &pl)) { ok = 1; mp.skip_applied++; continue; } else mp.skip_ign++; }
             if (ok) mp.skip_applied++;
         }
         if (st == MS_BLOCK) {
             const uint32_t q8 = tempo_q8[mp.tempo_idx], neutral = q8 == 256u;
-            if (!neutral && !tempo_active) { tempo_start(&tempo_st, dec.rate, (uint8_t)b.ch, q8); tempo_active = 1; }      /* (re)start the stretcher at the first block of a segment */
+            if (!neutral && !tempo_active) { tempo_start(&tempo_st, DEC.rate, (uint8_t)b.ch, q8); tempo_active = 1; }      /* (re)start the stretcher at the first block of a segment */
             if (!seg_open_) {
-                if (!cur_rate || dec.rate != cur_rate) {                 /* a rate we are not at: only legal on an empty ring (flushed or drained) */
-                    aout_set_rate(dec.rate, cymo_present_); cur_rate = dec.rate; mp.rate = dec.rate; mp.rate_changes++;
+                if (!cur_rate || DEC.rate != cur_rate) {                 /* a rate we are not at: only legal on an empty ring (flushed or drained) */
+                    aout_set_rate(DEC.rate, cymo_present_); cur_rate = DEC.rate; mp.rate = DEC.rate; mp.rate_changes++;
                 }
-                uint32_t rest = dec.pairs_total > b.src_pos ? dec.pairs_total - b.src_pos : 0u;
+                uint32_t rest = DEC.pairs_total > b.src_pos ? DEC.pairs_total - b.src_pos : 0u;
                 tl_seg_t *g = tl_open(&mp_tl, mp.gen, b.src_pos, neutral ? rest : (uint32_t)(((uint64_t)rest * 256u) / q8), neutral ? 0u : 4096u, neutral ? 1u : 256u, neutral ? 1u : (uint16_t)q8, neutral ? 0u : TLF_TEMPO);
                 if (!g) break;
                 seg_open_ = 1; seg_gain[g->gen & 3u].gen = g->gen; seg_gain[g->gen & 3u].g = dec_g; seg_gain[g->gen & 3u].id = lp.cur_id;
@@ -343,6 +465,9 @@ void mp3play_pump(void)
 
 SMALL void mp3play_heard(void)
 {
+#if P2_FLAC2
+    if (ft_active) { mp.f2_ferr = ft.rec.frame_errors; mp.f2_resync = ft.rec.resyncs; mp.f2_silent = (uint32_t)ft.rec.silent_pairs; mp.f2_wraps = ft.wraps; mp.f2_probes = ft.seek_probes; mp.f2_repos = ft.repositioned; }
+#endif
 #if P2_FLAC && TAU_LPC_FW
     mp.lpc_slots = tau_lpc_stat_samples; mp.lpc_timeout = tau_lpc_stat_timeout;
 #endif

@@ -224,45 +224,6 @@ static inline void f2_pred_lpc_set(f2_pred_t *p, uint32_t order, uint32_t shift,
     for (uint32_t j = 0; j < order; j++) p->coef[j] = coef[j];
     p->tier = force == 1 ? F2_TIER_64 : force == 2 ? F2_TIER_32 : f2_lpc_fits32(coef, order, b) ? F2_TIER_32 : F2_TIER_64;
 }
-/* Predicts samples from..to-1 (from >= order). */
-static inline void f2_pred_run(const f2_pred_t *p, int32_t *x, uint32_t from, uint32_t to)
-{
-    uint32_t order = p->order;
-    if (p->type == 1) {                                             /* FIXED: the polynomial predictors, written out */
-        for (uint32_t i = from; i < to; i++) {
-            uint32_t a = order > 0 ? (uint32_t)x[i - 1] : 0u, b = order > 1 ? (uint32_t)x[i - 2] : 0u, c = order > 2 ? (uint32_t)x[i - 3] : 0u, d = order > 3 ? (uint32_t)x[i - 4] : 0u, pr;
-            switch (order) {
-            case 0: pr = 0u; break;
-            case 1: pr = a; break;
-            case 2: pr = 2u * a - b; break;
-            case 3: pr = 3u * a - 3u * b + c; break;
-            default: pr = 4u * a - 6u * b + 4u * c - d; break;
-            }
-            x[i] = (int32_t)((uint32_t)x[i] + pr);
-        }
-        return;
-    }
-    if (p->tier == F2_TIER_32) {
-        const int32_t *c = p->coef; uint32_t sh = p->shift;
-        for (uint32_t i = from; i < to; i++) {
-            const int32_t *xp = x + i - 1; uint32_t acc = 0, j = 0;
-            for (; j + 4u <= order; j += 4u)                                 /* four taps a trip: the loop overhead is as dear as a tap */
-                acc += (uint32_t)c[j] * (uint32_t)xp[-(int)j] + (uint32_t)c[j + 1u] * (uint32_t)xp[-(int)j - 1] + (uint32_t)c[j + 2u] * (uint32_t)xp[-(int)j - 2] + (uint32_t)c[j + 3u] * (uint32_t)xp[-(int)j - 3];
-            for (; j < order; j++) acc += (uint32_t)c[j] * (uint32_t)xp[-(int)j];
-            x[i] = (int32_t)((uint32_t)x[i] + (uint32_t)((int32_t)acc >> sh));
-        }
-    } else {
-        for (uint32_t i = from; i < to; i++) {
-            int64_t acc = 0;
-            for (uint32_t j = 0; j < order; j++) acc += (int64_t)p->coef[j] * (int64_t)x[i - 1u - j];
-#if BUG == 9
-            x[i] = (int32_t)((uint32_t)x[i] + (uint32_t)(int32_t)(acc >> (p->shift + 1u)));      /* shift off by one */
-#else
-            x[i] = (int32_t)((uint32_t)x[i] + (uint32_t)(int32_t)(acc >> p->shift));
-#endif
-        }
-    }
-}
 
 
 /* ---- CRCs (RFC 9639 sections 9.1.8 and 9.3.2) ---- */
@@ -325,7 +286,7 @@ static inline uint16_t f2_crc16(uint16_t c, const uint8_t *p, uint32_t n)
 }
 
 /* ---- STREAMINFO (RFC 9639 section 8.2): the 34-byte body ---- */
-typedef struct { uint32_t min_bs, max_bs, rate; uint8_t channels, bps; uint64_t total; } f2_info_t;
+typedef struct { uint32_t min_bs, max_bs, rate; uint8_t channels, bps; uint32_t total; } f2_info_t;      /* total: samples per channel; 0 = unknown, and anything past 2^32 (this player counts positions in 32 bits) */
 static inline int f2_streaminfo(const uint8_t *p, f2_info_t *si)
 {
     si->min_bs = ((uint32_t)p[0] << 8) | p[1];
@@ -333,7 +294,7 @@ static inline int f2_streaminfo(const uint8_t *p, f2_info_t *si)
     si->rate = ((uint32_t)p[10] << 12) | ((uint32_t)p[11] << 4) | (p[12] >> 4);
     si->channels = (uint8_t)(((p[12] >> 1) & 7u) + 1u);
     si->bps = (uint8_t)((((p[12] & 1u) << 4) | (p[13] >> 4)) + 1u);
-    si->total = ((uint64_t)(p[13] & 15u) << 32) | ((uint64_t)p[14] << 24) | ((uint64_t)p[15] << 16) | ((uint64_t)p[16] << 8) | p[17];
+    si->total = (p[13] & 15u) ? 0u : (((uint32_t)p[14] << 24) | ((uint32_t)p[15] << 16) | ((uint32_t)p[16] << 8) | p[17]);
     if (si->min_bs < 16u || si->max_bs < si->min_bs || si->rate == 0u) return F2_ERR;     /* block sizes under 16 and a zero rate are invalid */
     return F2_OK;
 }
@@ -428,15 +389,29 @@ static inline uint32_t f2_pred_at(const f2_pred_t *p, const int32_t *x, uint32_t
     }
     int64_t acc = 0;
     for (uint32_t j = 0; j < order; j++) acc += (int64_t)p->coef[j] * (int64_t)(x[i - 1u - j] >> ws);
+#if BUG == 9
+    return (uint32_t)(int32_t)(acc >> (p->shift + 1u));                         /* shift off by one */
+#else
     return (uint32_t)(int32_t)(acc >> p->shift);
+#endif
+}
+/* Predicts samples from..to-1 in place (from >= order): residuals in x[], the prediction added. One implementation serves both channels (the 192 KB link cannot afford two copies of the tap loops). */
+static inline void f2_pred_run(const f2_pred_t *p, int32_t *x, uint32_t from, uint32_t to)
+{
+    for (uint32_t i = from; i < to; i++) x[i] = (int32_t)((uint32_t)x[i] + f2_pred_at(p, x, i, 0u));
 }
 
 /* ---- the frame decoder: a resumable state machine (spec 5.1 to 5.6) ---- */
 enum { F2_PH_HDR = 0, F2_PH_SUB, F2_PH_SETUP, F2_PH_BODY, F2_PH_EMIT, F2_PH_TRAILER };
 #define F2_RS 64u                                       /* residuals handled per inner slice */
 #define F2_FLAG_CRC16 1u
+/* The hardware LPC unit (tau_flac_lpc.sv), seen through two calls so the core stays pure. It takes over the prediction when the 32-bit software tier cannot be exact (24-bit audio, long high-precision predictors).
+ * begin: order, shift, coefficients, warm-up samples (oldest first); returns 0 if the unit is not usable. sample: the residual in, the reconstructed sample out; *ok = 0 on a fault, after which the unit is
+ * never used again this session and the sample is finished in software from the same history. */
+typedef struct { int (*begin)(uint32_t order, int32_t shift, const int32_t *coef, const int32_t *warm); int32_t (*sample)(int32_t residual, int *ok); } f2_hw_t;
 typedef struct {
     f2_info_t si; f2_fh_t fh;
+    const f2_hw_t *hw; uint8_t hw_on; uint32_t hw_samples, hw_fails;          /* hw: the unit (0 = software only); hw_on: it is running the subframe in progress */
     int32_t *buf; uint32_t cap;                         /* channel-0 buffer: cap >= the largest block size accepted */
     uint32_t flags;
     f2_br_t br; f2_res_t rs; f2_pred_t pr;
@@ -451,6 +426,22 @@ static inline void f2_dec_init(f2_dec_t *d, const f2_info_t *si, int32_t *buf, u
 {
     uint8_t *z = (uint8_t *)d; for (uint32_t i = 0; i < sizeof *d; i++) z[i] = 0;
     d->si = *si; d->buf = buf; d->cap = cap; d->flags = flags; d->phase = F2_PH_HDR;
+}
+/* Predicts samples from..to-1 of the buffered channel: the unit when it is running the subframe, else software. A fault finishes THIS sample in software (buf[i] still holds its residual) and turns the unit off. */
+static inline void f2_pred_block(f2_dec_t *d, uint32_t from, uint32_t to)
+{
+    if (d->hw_on) {
+        for (uint32_t i = from; i < to; i++) {
+            int ok = 0; int32_t sm = d->hw->sample(d->buf[i], &ok);
+            if (!ok) { d->hw_on = 0; d->hw = 0; d->hw_fails++; f2_pred_run(&d->pr, d->buf, i, to); return; }
+#if BUG == 51
+            d->buf[i] = sm + (int32_t)(i & 1u);                                       /* a corrupted unit answer */
+#else
+            d->buf[i] = sm;
+#endif
+            d->hw_samples++;
+        }
+    } else f2_pred_run(&d->pr, d->buf, from, to);
 }
 /* The stereo decorrelation of RFC 9639 section 4.2 / 9.2.2. a = channel 0, s = channel 1. */
 static inline void f2_pair(uint32_t assign, int32_t a, int32_t s, int32_t *l, int32_t *r)
@@ -521,7 +512,7 @@ static inline int f2_dec_step(f2_dec_t *d, const uint8_t *in, uint32_t avail, in
             else { d->err = F2E_SUBFRAME; st = F2_ERR; break; }             /* reserved types 2..7 and 13..31 */
             d->phase = F2_PH_SETUP;
         } else if (d->phase == F2_PH_SETUP) {
-            f2_br_t sv = *b; uint32_t v, k, bp = d->bps_sub, order = d->order, ty = d->sub_type; int ok = 1;
+            f2_br_t sv = *b; uint32_t v, k, bp = d->bps_sub, order = d->order, ty = d->sub_type; int ok = 1; d->hw_on = 0;
             if (ty == 0u) { ok = f2_get(b, bp, &v); d->cval = (int32_t)f2_sext(v, bp); }
             else if (ty >= 8u) {
                 for (k = 0; k < order && ok; k++) { ok = f2_get(b, bp, &v); d->warm[k] = (int32_t)f2_sext(v, bp); }
@@ -533,7 +524,14 @@ static inline int f2_dec_step(f2_dec_t *d, const uint8_t *in, uint32_t avail, in
                         prec += 1u;
                         if (prec == 16u || (sh & 16u)) { d->err = F2E_SUBFRAME; st = F2_ERR; break; }     /* precision 16 is invalid; a negative shift too */
                         for (k = 0; k < order && ok; k++) { ok = f2_get(b, prec, &v); coef[k] = (int32_t)f2_sext(v, prec); }
-                        if (ok) f2_pred_lpc_set(&d->pr, order, sh, coef, bp, 0);
+                        if (ok) {
+                            f2_pred_lpc_set(&d->pr, order, sh, coef, bp, 0);
+#if BUG == 52
+                            d->hw_on = d->hw ? (uint8_t)(d->hw->begin(order, (int32_t)sh, coef, d->warm) ? 1 : 0) : 0;                   /* the unit also takes the 32-bit tier */
+#else
+                            d->hw_on = (d->hw && d->pr.tier == F2_TIER_64) ? (uint8_t)(d->hw->begin(order, (int32_t)sh, coef, d->warm) ? 1 : 0) : 0u;
+#endif
+                        }
                     }
                 }
                 if (ok) {
@@ -554,7 +552,7 @@ static inline int f2_dec_step(f2_dec_t *d, const uint8_t *in, uint32_t avail, in
                     uint32_t m = bs - d->i; if (m > budget) m = budget; uint32_t done = 0; int r = F2_OK, i0 = (int)d->i;
                     if (ty == 0u) { for (uint32_t k = 0; k < m; k++) d->buf[d->i + k] = d->cval; done = m; }
                     else if (ty == 1u) { for (; done < m; done++) { uint32_t v; if (!f2_get(b, bp, &v)) { r = F2_NEED; break; } d->buf[d->i + done] = (int32_t)f2_sext(v, bp); } }
-                    else { r = f2_res_run(b, &d->rs, d->buf + d->i, m, &done); if (done) f2_pred_run(&d->pr, d->buf, d->i, d->i + done); }
+                    else { r = f2_res_run(b, &d->rs, d->buf + d->i, m, &done); if (done) f2_pred_block(d, d->i, d->i + done); }
                     (void)i0; d->i += done; budget -= done;
                     if (r == F2_ERR) { d->err = F2E_RESIDUAL; st = F2_ERR; goto leave; }
                     if (r == F2_NEED) { st = F2_NEED; goto leave; }
@@ -583,7 +581,13 @@ static inline int f2_dec_step(f2_dec_t *d, const uint8_t *in, uint32_t avail, in
                     }
                     for (uint32_t k = 0; k < done; k++) {
                         uint32_t idx = d->i + k; int32_t u = d->tmp[k];
-                        if (ty >= 8u && idx >= order) u = (int32_t)((uint32_t)u + f2_pred_at(&d->pr, d->buf, idx, ws));
+                        if (ty >= 8u && idx >= order) {
+                            if (d->hw_on) {
+                                int ok = 0; int32_t sm = d->hw->sample(u, &ok);
+                                if (ok) { u = sm; d->hw_samples++; }
+                                else { d->hw_on = 0; d->hw = 0; d->hw_fails++; u = (int32_t)((uint32_t)u + f2_pred_at(&d->pr, d->buf, idx, ws)); }
+                            } else u = (int32_t)((uint32_t)u + f2_pred_at(&d->pr, d->buf, idx, ws));
+                        }
 #if BUG == 15
                         int32_t sv2 = u, L, R;                                      /* wasted bits of the streaming channel ignored */
 #else
@@ -630,15 +634,18 @@ leave:
 
 
 /* ---- finding a frame, the sample timeline, and recovery (spec 5.6, 5.7) ---- */
-/* The first sample a frame carries: its coded number for a variable-block-size stream, number x block size for a fixed one. Returns 0 when it cannot be known (a fixed stream whose STREAMINFO
- * block sizes differ), in which case *s is left alone and the timeline is not tracked. */
-static inline int f2_frame_sample(const f2_info_t *si, const f2_fh_t *h, uint64_t *s)
+/* The first sample a frame carries: its coded number for a variable-block-size stream, number x block size for a fixed one. Returns 1 and *s; 0 when it cannot be known (a fixed stream whose STREAMINFO
+ * block sizes differ: the timeline is not tracked); -1 when it lies past this player's 32-bit sample counts, which no real frame does: a false sync. */
+static inline int f2_frame_sample(const f2_info_t *si, const f2_fh_t *h, uint32_t *s)
 {
-    if (h->variable) { *s = h->number; return 1; }
+    if ((uint32_t)(h->number >> 32)) return -1;
+    uint32_t n = (uint32_t)h->number;
+    if (h->variable) { *s = n; return 1; }
     if (si->min_bs != si->max_bs) return 0;
-    *s = h->number * (uint64_t)si->min_bs; return 1;
+    if (n > 0xFFFFFFFFu / si->min_bs) return -1;
+    *s = n * si->min_bs; return 1;
 }
-typedef struct { uint64_t next; uint8_t have; } f2_tl_t;                  /* next = the first sample the next frame must carry */
+typedef struct { uint32_t next; uint8_t have; } f2_tl_t;                  /* next = the first sample the next frame must carry */
 #define F2_MAXGAP_SAMPLES 1048576u                                      /* a header claiming a start further ahead than this (about 22 s at 48 kHz) is taken for a false sync */
 
 /* Scans in[from..avail) for a frame header that passes CRC-8 and matches STREAMINFO, has the expected blocking strategy (want_var: -1 any, 0 fixed, 1 variable) and, when the timeline is known,
@@ -651,11 +658,11 @@ static inline int f2_find_frame(const uint8_t *in, uint32_t avail, uint32_t from
         if (r == F2_NEED) { *off = i; return F2_NEED; }                   /* a valid prefix at the end of the window: keep it */
         if (r != F2_OK) continue;
         if (want_var >= 0 && (int)h.variable != want_var) continue;     /* the 0xFFF8 / 0xFFF9 sync codes must not mix within a stream */
-        uint64_t smp;
+        uint32_t smp;
 #if BUG == 19
         (void)smp; (void)tl;                                             /* no timeline check: any valid header is taken */
 #else
-        if (tl && tl->have && f2_frame_sample(si, &h, &smp)) { if (smp < tl->next || smp - tl->next > F2_MAXGAP_SAMPLES) continue; }
+        { int fs = f2_frame_sample(si, &h, &smp); if (fs < 0) continue; if (tl && tl->have && fs > 0) { if (smp < tl->next || smp - tl->next > F2_MAXGAP_SAMPLES) continue; } }
 #endif
         *off = i; return F2_OK;
     }
@@ -670,14 +677,14 @@ enum { F2_RM_NORMAL = 0, F2_RM_SCAN = 1, F2_RM_DEAD = 2 };
 typedef struct {
     f2_dec_t d; f2_tl_t tl;
     uint8_t mode, want_var; uint32_t fails, skip_first, scanned;
-    uint64_t owed;                                                      /* silent pairs still to deliver */
-    uint32_t frame_errors, resyncs; uint64_t silent_pairs;
+    uint32_t owed;                                                      /* silent pairs still to deliver */
+    uint32_t frame_errors, resyncs, silent_pairs;
     uint8_t in_frame;                                                   /* a frame's header has been accepted and its pairs are staged by the caller */
     uint8_t tl_pending;                                                 /* the timeline is unknown and this frame's start is on trial: only a verified frame may establish it */
-    uint64_t frame_start_s; uint32_t frame_bs; uint8_t frame_known;     /* the accepted frame's start sample and size, for the timeline */
+    uint32_t frame_start_s, frame_bs; uint8_t frame_known;     /* the accepted frame's start sample and size, for the timeline */
 } f2_rec_t;
 /* The stream starts at a known sample (0 at the start of a track): lost audio from there on is owed as silence. After a seek the start is NOT known and the timeline is left to the first verified frame. */
-static inline void f2_rec_set_timeline(f2_rec_t *r, uint64_t first_sample) { r->tl.have = 1; r->tl.next = first_sample; }
+static inline void f2_rec_set_timeline(f2_rec_t *r, uint32_t first_sample) { r->tl.have = 1; r->tl.next = first_sample; }
 static inline void f2_rec_init(f2_rec_t *r, const f2_info_t *si, int32_t *buf, uint32_t cap, uint32_t flags)
 {
     uint8_t *z = (uint8_t *)r; for (uint32_t i = 0; i < sizeof *r; i++) z[i] = 0;
@@ -714,7 +721,8 @@ static inline int f2_rec_step(f2_rec_t *r, const uint8_t *in, uint32_t avail, in
             r->frame_errors++; r->fails++; if (r->fails > F2_MAX_FAILS) { r->mode = F2_RM_DEAD; *ev = F2_EV_GIVEUP; return F2_ERR; }
             r->mode = F2_RM_SCAN; r->skip_first = 1; return F2_OK;
         }
-        uint64_t smp; r->frame_known = (uint8_t)f2_frame_sample(&d->si, &h, &smp);
+        uint32_t smp; int fs = f2_frame_sample(&d->si, &h, &smp); r->frame_known = fs > 0;
+        if (fs < 0) { r->frame_errors++; r->fails++; if (r->fails > F2_MAX_FAILS) { r->mode = F2_RM_DEAD; *ev = F2_EV_GIVEUP; return F2_ERR; } r->mode = F2_RM_SCAN; r->skip_first = 1; return F2_OK; }       /* a start past 32 bits: a false sync */
         if (r->want_var == 0xFFu) r->want_var = h.variable;
         else if (r->want_var != h.variable) { r->frame_errors++; r->fails++; r->mode = F2_RM_SCAN; r->skip_first = 1; return F2_OK; }
         if (r->frame_known) {
@@ -765,11 +773,11 @@ static inline int f2_rec_step(f2_rec_t *r, const uint8_t *in, uint32_t avail, in
 enum { F2_OP_START = 0, F2_OP_ID3, F2_OP_MAGIC, F2_OP_BHDR, F2_OP_BODY, F2_OP_SKIP, F2_OP_DONE };
 typedef struct {
     uint8_t state, last, btype, hn, have_si, have_seek, have_vc, seek_trunc, vc_trunc, err;
-    uint8_t hdr[10]; uint32_t blen, left; uint64_t pos;                  /* pos: file offset of the next byte to be consumed */
+    uint8_t hdr[10]; uint32_t blen, left, pos;                  /* pos: file offset of the next byte to be consumed */
     uint8_t si_raw[34]; f2_info_t si;
-    uint8_t *seek_buf; uint32_t seek_cap, seek_len, seek_total; uint64_t seek_off;     /* SEEKTABLE: the first seek_cap bytes, its total size, its file offset */
-    uint8_t *vc_buf;   uint32_t vc_cap, vc_len, vc_total; uint64_t vc_off;             /* VORBIS_COMMENT, same (ReplayGain tags live here) */
-    uint64_t audio_off;                                                  /* the file offset of the first frame, once state == F2_OP_DONE */
+    uint8_t *seek_buf; uint32_t seek_cap, seek_len, seek_total, seek_off;     /* SEEKTABLE: the first seek_cap bytes, its total size, its file offset */
+    uint8_t *vc_buf;   uint32_t vc_cap, vc_len, vc_total, vc_off;             /* VORBIS_COMMENT, same (ReplayGain tags live here) */
+    uint32_t audio_off;                                                  /* the file offset of the first frame, once state == F2_OP_DONE */
 } f2_open_t;
 static inline void f2_open_init(f2_open_t *o, uint8_t *seek_buf, uint32_t seek_cap, uint8_t *vc_buf, uint32_t vc_cap)
 {
@@ -862,14 +870,15 @@ static inline int f2_open_step(f2_open_t *o, const uint8_t *in, uint32_t avail, 
 
 /* ---- the SEEKTABLE (RFC 9639 section 8.5): 18-byte points { u64 first sample, u64 byte offset from the first frame, u16 samples in the frame }, placeholders (sample all ones) last ---- */
 /* The last real point whose first sample is <= target. Returns 1 and fills the outputs, or 0 when there is none (no table, or the target precedes the first point's sample: use the first frame). */
-static inline int f2_seekpoint(const uint8_t *tab, uint32_t points, uint64_t target, uint64_t *sample, uint64_t *offset, uint32_t *samples)
+static inline uint32_t f2_be32(const uint8_t *e) { return ((uint32_t)e[0] << 24) | ((uint32_t)e[1] << 16) | ((uint32_t)e[2] << 8) | e[3]; }
+static inline int f2_seekpoint(const uint8_t *tab, uint32_t points, uint32_t target, uint32_t *sample, uint32_t *offset, uint32_t *samples)
 {
-    int found = 0; uint32_t lo = 0, hi = points;                                   /* binary search over the real (non-placeholder) prefix */
+    int found = 0; uint32_t lo = 0, hi = points;                                   /* binary search over the real (non-placeholder) prefix; entries past 32 bits count as "after the target" */
     while (lo < hi) {
-        uint32_t mid = (lo + hi) / 2u; const uint8_t *e = tab + 18u * mid; uint64_t smp = 0;
-        for (int k = 0; k < 8; k++) smp = (smp << 8) | e[k];
-        if (smp == 0xFFFFFFFFFFFFFFFFull) { hi = mid; continue; }                   /* a placeholder: everything real is below */
-        if (smp <= target) { lo = mid + 1u; found = 1; *sample = smp; uint64_t off = 0; for (int k = 8; k < 16; k++) off = (off << 8) | e[k]; *offset = off; *samples = ((uint32_t)e[16] << 8) | e[17]; }
+        uint32_t mid = (lo + hi) / 2u; const uint8_t *e = tab + 18u * mid;
+        if (f2_be32(e) != 0u) { hi = mid; continue; }                                 /* a sample number of 2^32 or more, or a placeholder (all ones) */
+        uint32_t smp = f2_be32(e + 4);
+        if (smp <= target && f2_be32(e + 8) == 0u) { lo = mid + 1u; found = 1; *sample = smp; *offset = f2_be32(e + 12); *samples = ((uint32_t)e[16] << 8) | e[17]; }
         else hi = mid;
     }
     return found;
@@ -885,25 +894,26 @@ enum { F2_SEEK_CONT = 0, F2_SEEK_DONE = 1, F2_SEEK_FAIL = 2 };
 #define F2_SEEK_WIN 4096u                                               /* bytes the caller reads per probe */
 #define F2_SEEK_MAXPROBES 64u
 typedef struct {
-    uint64_t target, lo_off, lo_s, hi_off, hi_s, ceil, probe, run_start, found_off, found_s;
+    uint32_t target, lo_off, lo_s, hi_off, hi_s, ceil, probe, run_start, found_off, found_s;
     uint32_t probes, avg_frame; uint8_t state; int8_t want_var;
 } f2_seek_t;
-static inline uint64_t f2_muldiv_approx(uint64_t a, uint64_t b, uint64_t c)       /* a*b/c without a 128-bit product: a is reduced until the product fits 64 bits (a probe guess needs no more) */
+static inline uint32_t f2_muldiv_approx(uint32_t a, uint32_t b, uint32_t c)       /* a*b/c in 32-bit arithmetic (a probe guess needs no more precision): c is brought under 2^16, then the product is built from 16-bit halves of b */
 {
-    while ((a >> 31) || (b >> 32)) { a >>= 1; b >>= 1; c >>= 1; }
-    if (c == 0) return 0;
-    return a * b / c;
-}
-/* Chooses the next probe offset p with lo_off < p < ceil (ceil <= hi_off bounds where an undiscovered frame start can still be). Returns 0 when there is no room left. */
+    while (c >> 16) { a >>= 1; c >>= 1; }
+    if (c == 0u) return 0u;
+    if (a > c) a = c;                                                           /* (a <= c in every use: a fraction of the span) */
+    uint32_t q = (a << 16) / c;                                                 /* the fraction a/c in 16.16 */
+    return (b >> 16) * q + (((b & 0xFFFFu) * q) >> 16);
+}/* Chooses the next probe offset p with lo_off < p < ceil (ceil <= hi_off bounds where an undiscovered frame start can still be). Returns 0 when there is no room left. */
 static inline int f2_seek_aim(f2_seek_t *k)
 {
     if (k->ceil <= k->lo_off + 1u) return 0;
-    uint64_t p;
+    uint32_t p;
     if (k->hi_off - k->lo_off <= F2_SEEK_WIN) p = k->lo_off + 1u;                  /* a bracket the size of a window: read right after the frame we know and walk forward through its successors */
     else {
-        uint64_t d = k->target - k->lo_s, span_s = k->hi_s - k->lo_s, span_o = k->hi_off - k->lo_off;
+        uint32_t d = k->target - k->lo_s, span_s = k->hi_s - k->lo_s, span_o = k->hi_off - k->lo_off;
         p = k->lo_off + f2_muldiv_approx(d, span_o, span_s ? span_s : 1u);
-        uint64_t back = span_s ? f2_muldiv_approx(k->avg_frame, span_o, span_s) : 0u;   /* aim one average frame early, so the first header found is the frame BEFORE or AT the target */
+        uint32_t back = span_s ? f2_muldiv_approx(k->avg_frame, span_o, span_s) : 0u;   /* aim one average frame early, so the first header found is the frame BEFORE or AT the target */
         p = p > back ? p - back : 0u;
         if (k->probes >= 4u && k->probes % 3u == 0u) p = k->lo_off + (k->ceil - k->lo_off) / 2u;   /* every third probe a plain bisection: the range at least halves, whatever the bitrate does */
     }
@@ -913,7 +923,7 @@ static inline int f2_seek_aim(f2_seek_t *k)
 }
 /* total_samples: STREAMINFO's count (0 = unknown: the seek fails and the caller plays from the start). (lo_off, lo_s): a known frame start at or before the target, (0, 0) if none. audio_bytes: bytes from
  * the first frame to the end of the file. */
-static inline int f2_seek_begin(f2_seek_t *k, const f2_info_t *si, uint64_t target, uint64_t total_samples, uint64_t audio_bytes, uint64_t lo_off, uint64_t lo_s, int want_var)
+static inline int f2_seek_begin(f2_seek_t *k, const f2_info_t *si, uint32_t target, uint32_t total_samples, uint32_t audio_bytes, uint32_t lo_off, uint32_t lo_s, int want_var)
 {
     uint8_t *z = (uint8_t *)k; for (uint32_t i = 0; i < sizeof *k; i++) z[i] = 0;
     k->want_var = (int8_t)want_var; k->avg_frame = si->max_bs ? si->max_bs : 4096u;
@@ -931,10 +941,10 @@ static inline int f2_seek_feed(f2_seek_t *k, const f2_info_t *si, const uint8_t 
     if (k->state != F2_SEEK_CONT) return (int)k->state;
     uint32_t from = 0; int progressed = 0; k->probes++;
     for (;;) {
-        uint32_t off = 0; f2_fh_t h; uint64_t smp;
+        uint32_t off = 0; f2_fh_t h; uint32_t smp;
         if (f2_find_frame(win, avail, from, si, k->want_var, 0, &off) != F2_OK) break;
-        if (f2_frame_header(win + off, avail - off, si, &h) != F2_OK || !f2_frame_sample(si, &h, &smp)) { from = off + 1u; continue; }
-        uint64_t aoff = k->probe + off;
+        if (f2_frame_header(win + off, avail - off, si, &h) != F2_OK || f2_frame_sample(si, &h, &smp) <= 0) { from = off + 1u; continue; }
+        uint32_t aoff = k->probe + off;
 #if BUG != 27
         if (smp < k->lo_s || smp >= k->hi_s || aoff <= k->lo_off || aoff >= k->hi_off) { from = off + 1u; continue; }         /* implausible: a false sync */
 #endif
@@ -953,7 +963,7 @@ static inline int f2_seek_feed(f2_seek_t *k, const f2_info_t *si, const uint8_t 
     if (k->ceil > k->hi_off) k->ceil = k->hi_off;
     if (!progressed) {                                                  /* nothing usable in this window: step on, or, at the end of the range, look EARLIER (the frame starts before where this run began) */
         if (k->run_start == 0u) k->run_start = k->probe;
-        uint64_t nxt = k->probe + (avail > 32u ? avail - 16u : 1u);
+        uint32_t nxt = k->probe + (avail > 32u ? avail - 16u : 1u);
         if (nxt < k->ceil) { k->probe = nxt; return F2_SEEK_CONT; }
         k->ceil = k->run_start; k->run_start = 0u;
     } else k->run_start = 0u;

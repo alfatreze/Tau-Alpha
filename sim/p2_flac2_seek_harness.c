@@ -14,7 +14,7 @@ int main(int argc, char **argv)
     if (!strcmp(argv[6], "index")) {                                       /* ground truth: every frame's offset, first sample and size, by decoding the whole stream */
         static int32_t buf[65536], out[2 * 8192]; f2_dec_t *d = calloc(1, sizeof *d); f2_dec_init(d, &si, buf, 65536, F2_FLAG_CRC16); uint32_t off = 0;
         while (off + 8 < (uint32_t)n) {
-            f2_fh_t hh; uint64_t smp = 0; if (f2_frame_header(data + off, (uint32_t)n - off, &si, &hh) != F2_OK) break; f2_frame_sample(&si, &hh, &smp);
+            f2_fh_t hh; uint32_t smp = 0; if (f2_frame_header(data + off, (uint32_t)n - off, &si, &hh) != F2_OK) break; f2_frame_sample(&si, &hh, &smp);
             printf("%u %llu %u\n", off, (unsigned long long)smp, hh.bs);
             uint32_t used = 0, np = 0; do { int st = f2_dec_step(d, data + off, (uint32_t)n - off, out, 8192, 1u << 20, &used, &np); off += used; if (st == F2_ERR || st == F2_NEED) { if (!d->frame_done) { off = (uint32_t)n; } break; } } while (!d->frame_done);
         }

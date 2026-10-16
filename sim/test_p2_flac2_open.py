@@ -111,7 +111,7 @@ def seekpoints():
     r = random.Random(6); src = '''#include <stdio.h>
 #include <stdlib.h>
 #include "flac2_core.h"
-int main(void){ unsigned n; static uint8_t t[18*400]; while (scanf("%u", &n)==1) { for (unsigned i=0;i<18*n;i++){ unsigned x; scanf("%x",&x); t[i]=(uint8_t)x; } unsigned long long tg; scanf("%llu",&tg); uint64_t s=0,o=0; uint32_t k=0; int f=f2_seekpoint(t,n,tg,&s,&o,&k); printf("%d %llu %llu %u\\n",f,(unsigned long long)s,(unsigned long long)o,k);} return 0; }'''
+int main(void){ unsigned n; static uint8_t t[18*400]; while (scanf("%u", &n)==1) { for (unsigned i=0;i<18*n;i++){ unsigned x; scanf("%x",&x); t[i]=(uint8_t)x; } unsigned long long tg; scanf("%llu",&tg); uint32_t s=0,o=0,k=0; int f=f2_seekpoint(t,n,(uint32_t)tg,&s,&o,&k); printf("%d %llu %llu %u\\n",f,(unsigned long long)s,(unsigned long long)o,k);} return 0; }'''
     return src
 with tempfile.TemporaryDirectory() as td:
     d = Path(td); good = build(d, 0)

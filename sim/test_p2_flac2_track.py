@@ -121,7 +121,7 @@ def damaged(exe, d, count=None, seed=3):
         elif kind == "insert": k = rng.randrange(1, len(starts)); bad = frames[:starts[k]] + bytes(rng.randrange(256) for _ in range(rng.randrange(1, 120))) + frames[starts[k]:]; dm = set()
         elif kind == "replay": k = rng.randrange(2, len(starts)); j = rng.randrange(0, k - 1); ends = starts[1:] + [n]; bad = frames[:starts[k]] + frames[starts[j]:ends[j]] + frames[starts[k]:]; dm = set()
         else:
-            k = rng.randrange(1, len(starts)); hdr = bytearray(frames[starts[0]:starts[0] + 12]); var = hdr[1] & 1; fg = bytes(hdr[:4]) + enc.utf8num((1 << 33) if var else (1 << 28)); hl = 4 + len(enc.utf8num(0)); extra = 0
+            k = rng.randrange(1, len(starts)); hdr = bytearray(frames[starts[0]:starts[0] + 12]); var = hdr[1] & 1; fg = bytes(hdr[:4]) + enc.utf8num((1 << 31) if var else (1 << 20)); hl = 4 + len(enc.utf8num(0)); extra = 0
             bsc = hdr[2] >> 4; rcc = hdr[2] & 15; extra += 1 if bsc == 6 else 2 if bsc == 7 else 0; extra += 1 if rcc == 12 else 2 if rcc in (13, 14) else 0
             fg += bytes(hdr[hl:hl + extra]); fg += bytes([enc.crc8(fg)]); bad = frames[:starts[k]] + fg + bytes(rng.randrange(256) for _ in range(20)) + frames[starts[k]:]; dm = set()
         res, segs, out = run(exe, d, meta[:off] + bad, cap=rng.choice([8192, 12289, 24576]), seed=i, plan="res@" + str(rng.choice([16, 100, 512])))

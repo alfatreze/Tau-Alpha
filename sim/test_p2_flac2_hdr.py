@@ -70,7 +70,7 @@ def suite(exe):
     si_list = [(rng.choice([16, 192, 1152, 4096]), 0, rng.choice([8000, 44100, 48000, 96000, 192000, 655350]), rng.randrange(1, 9), rng.randrange(4, 33), rng.randrange(0, 1 << 36)) for _ in range(200)]
     si_list = [(a, max(a, rng.choice([a, 4608, 32768])), c, d_, e, f) for a, _, c, d_, e, f in si_list]
     rs = run(exe, [f"SI {streaminfo(*s).hex()}" for s in si_list])
-    ok["streaminfo"] = all(r == (0, s[2], s[3], s[4], s[5], s[0], s[1]) for r, s in zip(rs, si_list))
+    ok["streaminfo"] = all(r == (0, s[2], s[3], s[4], (s[5] if s[5] < (1 << 32) else 0), s[0], s[1]) for r, s in zip(rs, si_list))        # a total past 32 bits reads as unknown (0): this player counts samples in 32 bits
     bad_si = [streaminfo(8, 4096, 44100, 2, 16, 0), streaminfo(4096, 2048, 44100, 2, 16, 0), streaminfo(1152, 1152, 0, 2, 16, 0)]
     ok["streaminfo_refusals"] = [r[0] for r in run(exe, [f"SI {b.hex()}" for b in bad_si])] == [2, 2, 2]
     # headers

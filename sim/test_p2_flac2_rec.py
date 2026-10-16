@@ -73,7 +73,7 @@ def damage(rng, kind, frames, starts):
         cut = rng.randrange(1, n); return frames[:cut], {k for k in range(len(starts)) if (starts[k + 1] if k + 1 < len(starts) else n) > cut}, 0
     if kind == "forged":                                                           # a valid-looking header (good CRC-8) claiming a start far in the future, followed by junk
         k = rng.randrange(1, len(starts)); hdr = bytearray(frames[starts[0]:starts[0] + 12]); var = hdr[1] & 1
-        old_len = len(enc.utf8num(0)); newnum = enc.utf8num((1 << 33) if var else (1 << 28))
+        old_len = len(enc.utf8num(0)); newnum = enc.utf8num((1 << 31) if var else (1 << 20))
         body = bytes(hdr[:4]) + newnum + bytes(hdr[4 + old_len:]); 
         # the header ends with its CRC-8 right after the optional size/rate bytes: rebuild from the original header length
         hl = 4 + old_len; extra = 0
