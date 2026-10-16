@@ -164,4 +164,70 @@ static inline int f2_res_run(f2_br_t *b, f2_res_t *r, int32_t *out, uint32_t n, 
     return rc;
 }
 
+
+/* ---- predictors (RFC 9639 sections 9.2.5 and 9.2.6): in place on x[], residuals already stored at x[order..], warm-up samples at x[0..order-1] ----
+ * All sums use unsigned (wrapping) arithmetic, so a corrupt stream can never trigger signed-overflow undefined behaviour; a VALID stream never wraps. Three tiers for LPC:
+ *   32-bit  exact when the worst case fits: with |x| <= 2^(b-1) (b = bits of the samples being predicted, +1 for a side channel, less the wasted bits) and S = sum |c_j|, the sum is below
+ *           2^31 when S * 2^(b-1) < 2^31, i.e. S < 2^(32-b). Almost every 16-bit predictor passes (measured on real files, review doc 11.5); 24-bit mostly does not.
+ *   64-bit  always exact (|c| < 2^15, |x| < 2^32, order <= 32 keep the sum below 2^52).
+ *   the hardware unit (not in this file) for the cases the 32-bit tier cannot take. */
+typedef struct { uint8_t type, order, shift, tier; int32_t coef[32]; } f2_pred_t;      /* type 1 FIXED, 2 LPC; tier chosen by f2_pred_lpc_set */
+enum { F2_TIER_NONE = 0, F2_TIER_32 = 1, F2_TIER_64 = 2 };
+
+static inline int f2_lpc_fits32(const int32_t *coef, uint32_t order, uint32_t b)
+{
+    uint32_t S = 0;
+    if (b >= 32u) return 0;
+    for (uint32_t j = 0; j < order; j++) { uint32_t a = coef[j] < 0 ? 0u - (uint32_t)coef[j] : (uint32_t)coef[j]; S += a; }
+#if BUG == 8
+    return S <= (1u << (32u - b));                                  /* off by one: the extreme operands can reach +2^31 */
+#else
+    return S < (1u << (32u - b));
+#endif
+}
+static inline void f2_pred_fixed_set(f2_pred_t *p, uint32_t order) { p->type = 1; p->order = (uint8_t)order; p->shift = 0; p->tier = F2_TIER_32; }
+/* force: 0 = choose by the bound, 1 = 64-bit, 2 = 32-bit (tests only: forcing 32 on a predictor that does not fit must be wrong, which is what the bound prevents) */
+static inline void f2_pred_lpc_set(f2_pred_t *p, uint32_t order, uint32_t shift, const int32_t *coef, uint32_t b, int force)
+{
+    p->type = 2; p->order = (uint8_t)order; p->shift = (uint8_t)shift;
+    for (uint32_t j = 0; j < order; j++) p->coef[j] = coef[j];
+    p->tier = force == 1 ? F2_TIER_64 : force == 2 ? F2_TIER_32 : f2_lpc_fits32(coef, order, b) ? F2_TIER_32 : F2_TIER_64;
+}
+/* Predicts samples from..to-1 (from >= order). */
+static inline void f2_pred_run(const f2_pred_t *p, int32_t *x, uint32_t from, uint32_t to)
+{
+    uint32_t order = p->order;
+    if (p->type == 1) {                                             /* FIXED: the polynomial predictors, written out */
+        for (uint32_t i = from; i < to; i++) {
+            uint32_t a = order > 0 ? (uint32_t)x[i - 1] : 0u, b = order > 1 ? (uint32_t)x[i - 2] : 0u, c = order > 2 ? (uint32_t)x[i - 3] : 0u, d = order > 3 ? (uint32_t)x[i - 4] : 0u, pr;
+            switch (order) {
+            case 0: pr = 0u; break;
+            case 1: pr = a; break;
+            case 2: pr = 2u * a - b; break;
+            case 3: pr = 3u * a - 3u * b + c; break;
+            default: pr = 4u * a - 6u * b + 4u * c - d; break;
+            }
+            x[i] = (int32_t)((uint32_t)x[i] + pr);
+        }
+        return;
+    }
+    if (p->tier == F2_TIER_32) {
+        for (uint32_t i = from; i < to; i++) {
+            uint32_t acc = 0;
+            for (uint32_t j = 0; j < order; j++) acc += (uint32_t)p->coef[j] * (uint32_t)x[i - 1u - j];
+            x[i] = (int32_t)((uint32_t)x[i] + (uint32_t)((int32_t)acc >> p->shift));
+        }
+    } else {
+        for (uint32_t i = from; i < to; i++) {
+            int64_t acc = 0;
+            for (uint32_t j = 0; j < order; j++) acc += (int64_t)p->coef[j] * (int64_t)x[i - 1u - j];
+#if BUG == 9
+            x[i] = (int32_t)((uint32_t)x[i] + (uint32_t)(int32_t)(acc >> (p->shift + 1u)));      /* shift off by one */
+#else
+            x[i] = (int32_t)((uint32_t)x[i] + (uint32_t)(int32_t)(acc >> p->shift));
+#endif
+        }
+    }
+}
+
 #endif
