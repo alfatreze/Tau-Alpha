@@ -11,6 +11,7 @@
 #include "../transport/mp3play.h"
 #include "../ui/views.h"
 #include "../ui/theme.h"
+#include "../ui/meter.h"
 #include "../ui/appearance.h"
 #include "../ui/settings_view.h"
 #include "../aout/halcyon.h"
@@ -90,6 +91,7 @@ int main(void)
                 if (edge & KEY_RIGHT) mp3play_act(MPA_SEEK, 1);
                 if (edge & KEY_L1) mp3play_act(MPA_REPEAT, 0);
                 if (edge & KEY_Y) views_switch(cur == V_FULLSCREEN ? V_NOWPLAYING : V_FULLSCREEN);       /* Select+Y: the fullscreen meter */
+                if (edge & KEY_X) meters_preset_next();                                                    /* Select+X: the next preset of this meter */
             } else {
                 if (lr_dir) mp3play_act(lr_dir & KEY_RIGHT ? MPA_NEXT : MPA_PREV, 0);
                 if (edge) views_input(edge);

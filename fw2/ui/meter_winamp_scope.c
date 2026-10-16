@@ -3,6 +3,7 @@
 #include "theme.h"
 #include "../gfx/gfx.h"
 #include "../platform/mmio.h"
+#include "../generated/meter_presets.h"
 
 /* Winamp scope (meters/winamp_scope/meter.json): the hardware capture block (tau_wave_meter.sv) records the mono mix as 256 columns, each the min..max envelope over two samples, started at a rising zero
  * crossing. The module draws 64 columns (four hardware columns each, so one frame is at most 64 x 2 = 128 rectangles plus the clear and the centre line: the 256-column draw measured 21 times the cost of the
@@ -10,7 +11,9 @@
  * running the last picture stays. */
 #define COLS 64u
 #define HW_COLS 256u
-static const uint8_t smooth = 35u;                                /* the FLUID preset (0..90) */
+static uint8_t smooth = 35u;                                      /* temporal smoothing 0..90 (the FLUID preset). The preset's trail needs the alpha blend and double buffer of the old player and is not drawn here. */
+const char *meter_winamp_scope_preset_name(uint32_t i) { return mpp_scope_name[i < MPP_SCOPE_PRESETS ? i : 0u]; }
+void meter_winamp_scope_preset(uint32_t i) { smooth = (uint8_t)mpp_scope[i < MPP_SCOPE_PRESETS ? i : 0u][MPP_SCOPE_SCOPE_SMOOTH]; }
 static uint32_t sc_pk = 1u; static uint8_t armed, init;
 static int16_t sc_mid[COLS], sc_half[COLS];                       /* the picture's own state: the smoothed centre and half height of each column */
 

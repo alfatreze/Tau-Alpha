@@ -11,7 +11,7 @@ def check(name, ok):
     if not ok: fails += 1
 def build(td, mutant):
     d = Path(td)
-    for sub in ("ui", "gfx", "sim"): (d / sub).mkdir()
+    for sub in ("ui", "gfx", "generated", "sim"): (d / sub).mkdir()
     src = (ROOT / "fw2/ui/meter_vu_master.c").read_text()
     for f in ("meter_core", "vu_master_core", "vu_segment_table"): src = src.replace(f'#include "../../fw/{f}.h"', f'#include "{ROOT}/fw/{f}.h"')
     if mutant:
@@ -19,7 +19,7 @@ def build(td, mutant):
         assert a in src
         src = src.replace(a, "    uint32_t zone[3]")
     (d / "ui/meter_vu_master.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
+    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "generated/meter_presets.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_vu_harness.c").read_text().replace('"../fw2/ui/meter_vu_master.c"', '"../ui/meter_vu_master.c"'))
     exe = d / "h"
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-o", str(exe), str(d / "sim/h.c")], capture_output=True, text=True)

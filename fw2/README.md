@@ -24,9 +24,10 @@ The module directories of spec section 4 (`app platform stream decode aout trans
 | Select + L | Repeat off / all / one |
 | X | Next meter (shuffle is in Settings > Playback) |
 | Y | Halcyon EQ preset: next, after the last OFF |
-| L / R shoulders | Tempo slower / faster |
+| L / R shoulders | Accent colour previous / next (the 19 Pocket colours; tempo is in Settings > Playback) |
 | Select + Up / Down | Previous / next album |
 | Select + Y | Fullscreen meter (again to leave) |
+| Select + X | Next preset of the current meter (saved per meter) |
 | Select + B | Info page |
 | Select + Start | Pixel-grid report (any of A/B/X/Y/Up/Down returns) |
 Select and Start act on release, and not at all if another key was pressed while they were down.

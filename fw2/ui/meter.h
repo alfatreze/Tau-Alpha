@@ -16,7 +16,7 @@ typedef struct {
     uint32_t peak_l, peak_r;      /* the loudest sample of each channel since the previous tick, scaled by 3/4 of headroom (0..24575) */
     const int8_t *wave;           /* optional: signed waveform columns (a meter that needs one builds it from peak_l/peak_r otherwise); null in the host */
 } mtr_in_t;
-typedef struct { const char *name; void (*tick)(const mtr_in_t *in); } meter_def_t;
+typedef struct { const char *name; void (*tick)(const mtr_in_t *in); uint8_t npre; void (*set_pre)(uint32_t); const char *(*pre_name)(uint32_t); } meter_def_t;
 extern const meter_def_t meter_table[];
 extern const uint32_t meter_count;
 void        meters_init(void);
@@ -25,5 +25,9 @@ void        meters_tick(int allowed);          /* once per loop pass: draws when
 void        meters_select(uint32_t idx);       /* a saved or menu choice (an index outside the table means the first meter) */
 void        meters_next(int dir);              /* X: the next / previous meter */
 uint32_t    meters_cur(void);
+uint32_t    meters_preset_of(uint32_t meter);          /* the selected preset of a meter */
+void        meters_preset_select(uint32_t meter, uint32_t p);   /* a saved or menu choice (out of range = the first); repaints when it is the meter on screen */
+void        meters_preset_next(void);                  /* Select+X: the next preset of the current meter */
+const char *meters_preset_name(void);                  /* the current meter's current preset */
 const char *meters_name(void);
 #endif

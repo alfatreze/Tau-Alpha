@@ -2,13 +2,21 @@
 #include "meter.h"
 #include "theme.h"
 #include "../gfx/gfx.h"
+#include "../generated/meter_presets.h"
 #include "../../fw/meter_core.h"             /* the shared ballistics, peak cap, band mapping and redraw cache (host-tested against the original arithmetic) */
 
 /* Winamp bars (meters/winamp_bars/meter.json): solid per-band bars with an eased level and a falling peak cap. Defaults = the FLUID preset. */
 #define BANDS_MIN 4u
 #define BANDS_MAX 16u
 typedef struct { uint8_t bands, ease, attack, release, peak_on, peak_gravity, peak_fall; uint16_t peak_hold_ms; } wb_cfg_t;
-static const wb_cfg_t cfg = { 16u, 2u, 55u, 22u, 1u, 1u, 35u, 200u };
+static wb_cfg_t cfg = { 16u, 2u, 55u, 22u, 1u, 1u, 35u, 200u };
+const char *meter_winamp_bars_preset_name(uint32_t i) { return mpp_bars_name[i < MPP_BARS_PRESETS ? i : 0u]; }
+void meter_winamp_bars_preset(uint32_t i)
+{
+    const uint16_t *v = mpp_bars[i < MPP_BARS_PRESETS ? i : 0u];
+    cfg.bands = (uint8_t)v[MPP_BARS_BANDS]; cfg.ease = (uint8_t)v[MPP_BARS_EASE]; cfg.attack = (uint8_t)v[MPP_BARS_ATTACK]; cfg.release = (uint8_t)v[MPP_BARS_RELEASE];
+    cfg.peak_on = (uint8_t)v[MPP_BARS_PEAK_ON]; cfg.peak_gravity = (uint8_t)v[MPP_BARS_PEAK_GRAVITY]; cfg.peak_hold_ms = v[MPP_BARS_PEAK_HOLD_MS]; cfg.peak_fall = (uint8_t)v[MPP_BARS_PEAK_FALL];
+}
 
 static uint8_t disp[BANDS_MAX], drawn[BANDS_MAX], peak_drawn[BANDS_MAX]; static int16_t vel[BANDS_MAX]; static mtr_peak_t pk[BANDS_MAX];
 

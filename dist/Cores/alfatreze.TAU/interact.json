@@ -225,6 +225,22 @@
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
+            },
+            {
+                "name": "(internal) meter presets",
+                "id": 29,
+                "type": "slider_u32",
+                "enabled": true,
+                "persist": true,
+                "address": "0x20000048",
+                "defaultval": 0,
+                "graphical": {
+                    "signed": false,
+                    "min": 0,
+                    "max": 2147483647,
+                    "adjust_small": 1,
+                    "adjust_large": 1
+                }
             }
         ],
         "messages": []
