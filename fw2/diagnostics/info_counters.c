@@ -88,17 +88,37 @@ const cnt_t counters_table[] = {
     { "LP QUEUE",     CK_U32, CU_NONE,   &lp.qn },
     { "LP POS",       CK_U32, CU_NONE,   &lp.cur_pos },
     { "LP TRACK ID",  CK_U32, CU_NONE,   &lp.cur_id },
+#ifndef P2_MP3PLAY
     { "LP SHUFFLE",   CK_U32, CU_NONE,   &lp.shuffle },
+#endif
+#ifndef P2_MP3PLAY
     { "LP REPEAT",    CK_U32, CU_NONE,   &lp.repeat },
+#endif
+#ifndef P2_MP3PLAY
     { "LP RATE",      CK_U32, CU_BYTES,  &lp.rate_bps },          /* bytes per second the consumer takes, 0 = flat out */
+#endif
+#ifndef P2_MP3PLAY
     { "LP DONE",      CK_U32, CU_NONE,   &lp.tracks_done },
+#endif
+#ifndef P2_MP3PLAY
     { "LP OK",        CK_U32, CU_NONE,   &lp.tracks_ok },         /* ended with exactly the library's size */
+#endif
+#ifndef P2_MP3PLAY
     { "LP SIZE BAD",  CK_U32, CU_NONE,   &lp.size_bad },
+#endif
+#ifndef P2_MP3PLAY
     { "LP HASH SAME", CK_U32, CU_NONE,   &lp.hash_seen },         /* a track replayed with the identical content hash */
+#endif
+#ifndef P2_MP3PLAY
     { "LP HASH BAD",  CK_U32, CU_NONE,   &lp.hash_bad },
+#endif
+#ifndef P2_MP3PLAY
     { "LP HASH LAST", CK_HEX32, CU_NONE, &lp.hash_last },
+#endif
     { "LP OPEN ERR",  CK_U32, CU_NONE,   &lp.open_err },
+#ifndef P2_MP3PLAY
     { "LP SKIPPED",   CK_U32, CU_NONE,   &lp.skipped },
+#endif
     { "SLOT ERR",     CK_U8,  CU_NONE,   &slot_err },
     { "SLOT ERRCODE", CK_U8,  CU_NONE,   &slot_errcode },
     { "SLOT OPENS",   CK_U32, CU_NONE,   &slot_opens },
@@ -115,13 +135,23 @@ const cnt_t counters_table[] = {
     { "ST AVAIL",     CK_U32, CU_BYTES,  &lp_stream.avail },
     { "ST MIN AVAIL", CK_U32, CU_BYTES,  &lp_stream.min_avail },
     { "ST MAX LAT",   CK_U32, CU_CYC,    &lp_stream.max_lat },    /* cycles: /66,667 = ms */
+#ifndef P2_MP3PLAY
     { "ST SEEKS",     CK_U32, CU_NONE,   &lp_stream.seeks },
+#endif
+#ifndef P2_MP3PLAY
     { "ST OPENS",     CK_U32, CU_NONE,   &lp_stream.opens },
+#endif
+#ifndef P2_MP3PLAY
     { "LP KB/S",      CK_U32, CU_NONE,   &lp.kbps },
 #endif
+#endif
     U32("AOUT INIT",    CU_NONE,   &v.aout_init),
+#ifndef P2_MP3PLAY
     U32("TONE STATE",   CU_NONE,   &v.tone_state),          /* 0 stopped, 1 playing, 2 held */
+#endif
+#ifndef P2_MP3PLAY
     U32("TONE RATE",    CU_NONE,   &v.tone_rate),
+#endif
     U32("HEARD SEG",    CU_NONE,   &v.heard_seg),
     U32("HEARD POS",    CU_MS,     &v.heard_pos_ms),
     U32("HEARD VALID",  CU_NONE,   &v.heard_valid),
@@ -146,7 +176,9 @@ const cnt_t counters_table[] = {
     U32("GOV SHED",     CU_NONE,   &v.gov_n1),
     U32("GOV AUDIO",    CU_NONE,   &v.gov_n2),
     U32("GOV PANIC",    CU_NONE,   &v.gov_n3),
+#ifndef P2_MP3PLAY
     U32("TONE STALLS",  CU_NONE,   &v.tone_stalls),
+#endif
     { "CAP RING",     CK_U8,    CU_NONE,  &caps.ring },
     { "CAP GAIN",     CK_U8,    CU_NONE,  &caps.gain },
     { "CAP CYMO",     CK_U8,    CU_NONE,  &caps.cymo },
