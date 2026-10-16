@@ -10,7 +10,7 @@ def check(name, ok, extra=""):
     global fails
     print(("ok   " if ok else "FAIL ") + name + ((" " + str(extra)) if (extra and not ok) else ""))
     if not ok: fails += 1
-TABLE = [(0, 0, 32, 0, 100, 94), (2, 0, 32, 0, 2, 0), (17, 4, 2, 0, 2, 0), (16, 0, 32, 0, 30, 0)]
+TABLE = [(0, 0, 32, 0, 100, 94), (2, 0, 32, 0, 2, 0), (17, 4, 2, 0, 2, 0), (6, 0, 32, 0, 30, 0)]
 def m_unpack(w):
     out = []
     for word, sh, wd, lo, hi, df in TABLE:
@@ -31,9 +31,9 @@ def build(d, bug):
 def run(exe, text): return subprocess.run([str(exe)], input=text, capture_output=True, text=True).stdout.strip().split("\n")
 def words(r):
     w = [0] * 32
-    for i in (0, 2, 16, 17): w[i] = r.choice([0, 1, 2, 3, 94, 100, 101, r.getrandbits(32), r.getrandbits(8)])
+    for i in (0, 2, 6, 17): w[i] = r.choice([0, 1, 2, 3, 94, 100, 101, r.getrandbits(32), r.getrandbits(8)])
     for i in range(32):
-        if i not in (0, 2, 16, 17) and r.random() < 0.3: w[i] = r.getrandbits(32)
+        if i not in (0, 2, 6, 17) and r.random() < 0.3: w[i] = r.getrandbits(32)
     return w
 def agrees(exe):
     r = random.Random(11); cases = [words(r) for _ in range(800)]
@@ -44,12 +44,12 @@ def agrees(exe):
     return all(list(map(int, g.split())) == m_pack(w, v) for g, w, v in zip(got, cases, vs))
 def props(exe):
     ok = {}
-    legacy = [0] * 32; legacy[0] = 80; legacy[2] = 1; legacy[16] = 5; legacy[17] = 0x21                # volume 80, repeat all, polarity 1, RG mode 2 (album)
+    legacy = [0] * 32; legacy[0] = 80; legacy[2] = 1; legacy[6] = 5; legacy[17] = 0x21                # volume 80, repeat all, polarity 1, RG mode 2 (album)
     ok["legacy words read back exactly"] = run(exe, "u " + " ".join(map(str, legacy)) + "\n")[0].split() == ["80", "1", "2", "5"]
-    junk = [0] * 32; junk[0] = 4000; junk[2] = 7; junk[16] = 31; junk[17] = 0x30                      # volume out of range, repeat 7, RG mode 3
+    junk = [0] * 32; junk[0] = 4000; junk[2] = 7; junk[6] = 31; junk[17] = 0x30                      # volume out of range, repeat 7, RG mode 3
     ok["out-of-range values fall back to defaults"] = run(exe, "u " + " ".join(map(str, junk)) + "\n")[0].split() == ["94", "0", "0", "0"]
     p = run(exe, "p " + " ".join(map(str, legacy)) + " 55 2 1 7\n")[0].split()
-    ok["pack keeps the theme polarity bit and every foreign word"] = int(p[17]) & 1 == 1 and int(p[17]) == (0x21 & ~0x30 & 0xFFFFFFFF | (1 << 4)) and all(p[i] == "0" for i in range(32) if i not in (0, 2, 16, 17))
+    ok["pack keeps the theme polarity bit and every foreign word"] = int(p[17]) & 1 == 1 and int(p[17]) == (0x21 & ~0x30 & 0xFFFFFFFF | (1 << 4)) and all(p[i] == "0" for i in range(32) if i not in (0, 2, 6, 17))
     ok["pack then unpack is the identity"] = run(exe, "u " + " ".join(p) + "\n")[0].split() == ["55", "2", "1", "7"]
     return ok
 with tempfile.TemporaryDirectory() as td:
