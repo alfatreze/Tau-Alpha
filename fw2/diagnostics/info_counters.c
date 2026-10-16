@@ -2,22 +2,14 @@
 #include "info_counters.h"
 #include "../platform/platform.h"
 #include "../aout/aout.h"
-#include "../transport/tone.h"
 #include "../cores/monoclock_core.h"
-#ifdef P2_MP3PLAY
 #include "../settings/settings.h"
 #include "../art/art.h"
 #include "../stream/skiplist.h"
 #include "../transport/mp3play.h"
-#define tone mp
-#define tone_tl mp_tl
-#define tone_gov mp_gov
-#endif
-#ifdef P2_LISTPLAY
-#include "../transport/listplay.h"
+#include "../transport/player_state.h"
 #include "../stream/slot.h"
 #include "../stream/library.h"
-#endif
 
 /* Shadow values: written only here (one writer, P2), read through the table. */
 static struct { uint32_t hw_under_ev, hw_under_tk, aout_init, tone_state, tone_rate, heard_seg, heard_pos_ms, heard_valid, put_seg, swaps, acct_err, acct_bad, tl_overflow, tl_empty, tl_flushes, ring_fill, ring_min, ring_max,
@@ -30,7 +22,6 @@ static mc_t uptime_clk;                  /* monotone seconds from the 32-bit cyc
 const cnt_t counters_table[] = {
     { "FIRMWARE",     CK_STR,   CU_NONE,  p2_ver_field + 7 },       /* read through a volatile pointer at run time: the packagers patch these bytes after the build */
     { "CORE VERSION", CK_HEX32, CU_NONE,  &caps.core_version },
-#ifdef P2_MP3PLAY
     { "MP STATE",     CK_U32, CU_NONE,   &mp.state },             /* 0 idle, 1 decoding, 2 ending, 3 waiting to change rate */
     { "MP RATE",      CK_U32, CU_NONE,   &mp.rate },
     { "MP CH",        CK_U32, CU_NONE,   &mp.ch },
@@ -89,45 +80,13 @@ const cnt_t counters_table[] = {
     { "SKIP HITS",    CK_U32, CU_NONE,   &skiplist_hits },
     { "SKIP MISSES",  CK_U32, CU_NONE,   &skiplist_misses },
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
-#endif
-#ifdef P2_LISTPLAY
     { "LP STATE",     CK_U32, CU_NONE,   &lp.state },             /* 0 idle, 1 streaming, 2 opening */
     { "LIB STATE",    CK_U8,  CU_NONE,   &lib_state },            /* 1 loaded, 2 failed */
     { "LIB ERR",      CK_U8,  CU_NONE,   &lib_err },
     { "LIB TRACKS",   CK_U32, CU_NONE,   &lib_n_tracks },
     { "LP QUEUE",     CK_U32, CU_NONE,   &lp.qn },
     { "LP TRACK ID",  CK_U32, CU_NONE,   &lp.cur_id },
-#ifndef P2_MP3PLAY
-    { "LP SHUFFLE",   CK_U32, CU_NONE,   &lp.shuffle },
-#endif
-#ifndef P2_MP3PLAY
-    { "LP REPEAT",    CK_U32, CU_NONE,   &lp.repeat },
-#endif
-#ifndef P2_MP3PLAY
-    { "LP RATE",      CK_U32, CU_BYTES,  &lp.rate_bps },          /* bytes per second the consumer takes, 0 = flat out */
-#endif
-#ifndef P2_MP3PLAY
-    { "LP DONE",      CK_U32, CU_NONE,   &lp.tracks_done },
-#endif
-#ifndef P2_MP3PLAY
-    { "LP OK",        CK_U32, CU_NONE,   &lp.tracks_ok },         /* ended with exactly the library's size */
-#endif
-#ifndef P2_MP3PLAY
-    { "LP SIZE BAD",  CK_U32, CU_NONE,   &lp.size_bad },
-#endif
-#ifndef P2_MP3PLAY
-    { "LP HASH SAME", CK_U32, CU_NONE,   &lp.hash_seen },         /* a track replayed with the identical content hash */
-#endif
-#ifndef P2_MP3PLAY
-    { "LP HASH BAD",  CK_U32, CU_NONE,   &lp.hash_bad },
-#endif
-#ifndef P2_MP3PLAY
-    { "LP HASH LAST", CK_HEX32, CU_NONE, &lp.hash_last },
-#endif
     { "LP OPEN ERR",  CK_U32, CU_NONE,   &lp.open_err },
-#ifndef P2_MP3PLAY
-    { "LP SKIPPED",   CK_U32, CU_NONE,   &lp.skipped },
-#endif
     { "SLOT ERR",     CK_U8,  CU_NONE,   &slot_err },
     { "SLOT OPENS",   CK_U32, CU_NONE,   &slot_opens },
     { "SLOT OPEN FAIL", CK_U32, CU_NONE, &slot_open_fails },
@@ -144,23 +103,7 @@ const cnt_t counters_table[] = {
     { "ST AVAIL",     CK_U32, CU_BYTES,  &lp_stream.avail },
     { "ST MIN AVAIL", CK_U32, CU_BYTES,  &lp_stream.min_avail },
     { "ST MAX LAT",   CK_U32, CU_CYC,    &lp_stream.max_lat },    /* cycles: /66,667 = ms */
-#ifndef P2_MP3PLAY
-    { "ST SEEKS",     CK_U32, CU_NONE,   &lp_stream.seeks },
-#endif
-#ifndef P2_MP3PLAY
-    { "ST OPENS",     CK_U32, CU_NONE,   &lp_stream.opens },
-#endif
-#ifndef P2_MP3PLAY
-    { "LP KB/S",      CK_U32, CU_NONE,   &lp.kbps },
-#endif
-#endif
     U32("AOUT INIT",    CU_NONE,   &v.aout_init),
-#ifndef P2_MP3PLAY
-    U32("TONE STATE",   CU_NONE,   &v.tone_state),          /* 0 stopped, 1 playing, 2 held */
-#endif
-#ifndef P2_MP3PLAY
-    U32("TONE RATE",    CU_NONE,   &v.tone_rate),
-#endif
     U32("HEARD POS",    CU_MS,     &v.heard_pos_ms),
     U32("HEARD VALID",  CU_NONE,   &v.heard_valid),
     U32("SWAPS",        CU_NONE,   &v.swaps),
@@ -179,9 +122,6 @@ const cnt_t counters_table[] = {
     U32("GOV SHED",     CU_NONE,   &v.gov_n1),
     U32("GOV AUDIO",    CU_NONE,   &v.gov_n2),
     U32("GOV PANIC",    CU_NONE,   &v.gov_n3),
-#ifndef P2_MP3PLAY
-    U32("TONE STALLS",  CU_NONE,   &v.tone_stalls),
-#endif
     { "CAP RING",     CK_U8,    CU_NONE,  &caps.ring },
     { "CAP GAIN",     CK_U8,    CU_NONE,  &caps.gain },
     { "CAP CYMO",     CK_U8,    CU_NONE,  &caps.cymo },
@@ -218,14 +158,14 @@ void counters_refresh(void)
         extern uint32_t counters_aout_init;
         aout_snap_t s = aout_snap(); const aout_stats_t *a = &aout_stats;
         v.aout_init = counters_aout_init;
-        v.tone_state = !tone.playing ? 0u : tone.held ? 2u : 1u; v.tone_rate = tone.rate;
-        v.heard_seg = tone.cur_valid ? tone.cur_gen : 0u; v.heard_valid = tone.cur_valid;
-        v.heard_pos_ms = tone.cur_valid && tone.rate ? (uint32_t)(((uint64_t)tone.cur_pos * 1000u) / tone.rate) : 0u;
-        v.put_seg = tone.gen; v.swaps = tone_tl.swaps; v.acct_err = tone_tl.acct_err; v.acct_bad = tone.acct_bad; v.last_delta = tone_tl.last_delta;
-        v.tl_overflow = tone_tl.overflow; v.tl_empty = tone_tl.empty; v.tl_flushes = tone_tl.flushes;
+        v.tone_state = !mp.playing ? 0u : mp.held ? 2u : 1u; v.tone_rate = mp.rate;
+        v.heard_seg = mp.cur_valid ? mp.cur_gen : 0u; v.heard_valid = mp.cur_valid;
+        v.heard_pos_ms = mp.cur_valid && mp.rate ? (uint32_t)(((uint64_t)mp.cur_pos * 1000u) / mp.rate) : 0u;
+        v.put_seg = mp.gen; v.swaps = mp_tl.swaps; v.acct_err = mp_tl.acct_err; v.acct_bad = mp.acct_bad; v.last_delta = mp_tl.last_delta;
+        v.tl_overflow = mp_tl.overflow; v.tl_empty = mp_tl.empty; v.tl_flushes = mp_tl.flushes;
         v.ring_fill = aout_fill(&s); v.ring_min = a->ring_min == 0xFFFFFFFFu ? 0u : a->ring_min; v.ring_max = a->ring_max;
         v.under_ring = a->under_ring; v.dry = a->dry; v.put_stalls = a->put_stalls; v.put_max_cyc = a->put_max_cyc; v.put_pairs = a->put_pairs; v.put_blocks = a->put_blocks;
-        v.gov_mode = tone.gov_mode; v.gov_n1 = tone_gov.entered[1]; v.gov_n2 = tone_gov.entered[2]; v.gov_n3 = tone_gov.entered[3]; v.tone_stalls = tone.stalls;
+        v.gov_mode = mp.gov_mode; v.gov_n1 = mp_gov.entered[1]; v.gov_n2 = mp_gov.entered[2]; v.gov_n3 = mp_gov.entered[3]; v.tone_stalls = mp.stalls;
     }
     v.uptime_s = mc_update(&uptime_clk, cycles(), CLK_HZ);
     v.loops = counters_loops; v.loop_max_cyc = counters_loop_max_cyc; v.keys = counters_keys;

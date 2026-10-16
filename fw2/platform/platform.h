@@ -18,7 +18,6 @@ void platform_probe(void);                       /* fills caps */
 int  platform_version_ok(void);
 void platform_halt_pattern(void) __attribute__((noreturn));   /* the unmistakable interlock failure */
 extern const char p2_ver_field[48];              /* "TAUVER:" + the stamped build version (the packagers patch it into the ROM); the version text starts at +7 */
-const char *platform_version_string(void);
 uint32_t platform_stack_peak(void);              /* bytes of the stack ever used */
 uint32_t platform_image_bytes(void);
 uint32_t platform_free_bytes(void);              /* between the image and the DMA buffers */

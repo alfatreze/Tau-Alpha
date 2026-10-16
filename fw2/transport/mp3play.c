@@ -277,7 +277,6 @@ SMALL static void do_seek(int32_t secs)
     mp.held = 0; aout_hold(0); fade_pending = 1; mp.seeks++; mp.seek_to = target;
 }
 
-static const uint8_t seek_steps[4] = { 10u, 30u, 60u, 120u };
 SMALL static void shuffle_set(uint32_t on)
 {
     if ((on ? 1u : 0u) == (lp.shuffle ? 1u : 0u) || lib_state != 1) return;
@@ -329,33 +328,6 @@ SMALL void mp3play_act(uint32_t act, int32_t arg)
     }
 }
 
-SMALL void mp3play_key(uint32_t edge)
-{
-    if (lib_state != 1) return;
-    if (edge & KEY_A) flush_and_start(queue_cur(&q));
-    if (edge & KEY_B) {
-        if (!mp.held) { aout_mute_wait(); mp.held = 1; aout_hold(1); }
-        else { mp.held = 0; aout_hold(0); aout_fade_in(mp.gain_tgt); }
-    }
-    if (edge & KEY_RIGHT) flush_and_start(queue_next(&q, 0));
-    if (edge & KEY_LEFT)  flush_and_start(queue_prev(&q));
-    if ((edge & KEY_UP) || (edge & KEY_DOWN)) {                          /* previous / next album */
-        uint32_t first = library_album_jump(queue_cur(&q), (edge & KEY_DOWN) ? 1 : -1);
-        if (first != 0xFFFFFFFFu && queue_goto(&q, (uint16_t)first)) flush_and_start((uint16_t)first);
-    }
-    if (REG_RD(R_INPUT) & KEY_SELECT) {                                  /* Select is a modifier: +L1/R1 tempo slower/faster, +Y ReplayGain mode */
-        if (edge & KEY_R1) tempo_step(1);
-        if (edge & KEY_L1) tempo_step(-1);
-        if (edge & KEY_X) { q.repeat = (uint8_t)((q.repeat + 1u) % 3u); lp.repeat = q.repeat; }                     /* Select+X: repeat off / all / one */
-        if (edge & KEY_Y) { mp.rg_mode = (mp.rg_mode + 1u) % 3u; rg_for_track(lp.cur_id); heard_g = dec_g; gain_apply_heard(); }
-        return;
-    }
-    if (edge & KEY_Y) do_seek(seek_steps[mp.seek_idx]);
-    if (edge & KEY_L1) { mp.volume = mp.volume >= 3u ? mp.volume - 3u : 0u; gain_apply_heard(); }
-    if (edge & KEY_R1) { mp.volume = mp.volume + 3u > 100u ? 100u : mp.volume + 3u; gain_apply_heard(); }
-
-    if (edge & KEY_X) shuffle_set(!lp.shuffle);
-}
 
 static uint8_t bad_run;                                   /* consecutive tracks that produced no verified frame (refused or failed): the list stops after 8 instead of cycling forever */
 SMALL static void track_ended(void)

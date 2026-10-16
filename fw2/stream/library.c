@@ -43,7 +43,6 @@ void library_load(void)
 }
 uint32_t library_path(uint32_t id, char *out, uint32_t cap) { return lib_state == 1 && id < lib.n_tracks ? lib_path(&lib, id, out, cap) : 0; }
 uint32_t library_size(uint32_t id) { lib_det_t d; return lib_state == 1 && lib_details(&lib, id, &d) ? d.size : 0; }
-uint32_t library_title(uint32_t id, char *out, uint32_t cap) { lib_track_t t; if (lib_state != 1 || id >= lib.n_tracks) return 0; lib_track(&lib, id, &t); return lib_str(&lib, t.title, out, cap); }
 uint16_t *library_queue_buf(void) { return LIB_Q; }
 uint16_t *library_orig_buf(void) { return (uint16_t *)(uintptr_t)(PS_BASE + 0x518000u); }
 uint32_t library_rate(uint32_t id) { lib_det_t d; return lib_state == 1 && lib_details(&lib, id, &d) ? d.rate : 0; }

@@ -4,7 +4,7 @@
 #ifndef P2_MP3PLAY_H
 #define P2_MP3PLAY_H
 #include <stdint.h>
-#include "listplay.h"
+#include "player_state.h"
 #include "../cores/timeline_core.h"
 #include "../cores/governor_core.h"
 typedef struct {
@@ -17,7 +17,6 @@ extern mp_t mp;
 extern tl_t mp_tl;
 extern gov_t mp_gov;
 void mp3play_init(int cymo_present);
-void mp3play_key(uint32_t edge);
 enum { MPA_PLAYPAUSE = 1, MPA_RESTART, MPA_NEXT, MPA_PREV, MPA_SEEK, MPA_VOL, MPA_ALBUM, MPA_REPEAT, MPA_SHUFFLE, MPA_RG, MPA_TEMPO };
 void mp3play_act(uint32_t act, int32_t arg);      /* arg: seconds (seek), steps (volume, tempo), +1/-1 (album) */
 void mp3play_pump(void);

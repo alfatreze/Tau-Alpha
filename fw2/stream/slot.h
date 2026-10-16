@@ -9,7 +9,6 @@
 #define SLOT_LIB   5u            /* the library index (also the path template of record) */
 void        slot_read_start(uint32_t slot, uint32_t off, uint32_t dst_off, uint32_t len);
 io_result_t slot_read_poll(void);                /* IO_PENDING while the command runs; IO_OK / IO_FAIL once, then idle */
-int         slot_busy(void);
 int         slot_read_blocking(uint32_t slot, uint32_t off, uint32_t dst_off, uint32_t len, uint32_t timeout_cycles);
 /* Opens `path` (absolute, as the library names it) into `slot`, using the library slot's path as the template. Returns 1 on success; slot_err then is 0. */
 int         slot_open_path(uint32_t slot, const char *path);
