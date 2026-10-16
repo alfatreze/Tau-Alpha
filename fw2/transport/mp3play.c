@@ -2,6 +2,7 @@
 #include "../platform/mmio.h"
 #include "../platform/platform.h"
 #include "../aout/aout.h"
+#include "../aout/halcyon.h"
 #include "../stream/slot.h"
 #include "../stream/library.h"
 #include "../cores/mp3_frames_core.h"
@@ -324,7 +325,6 @@ SMALL void mp3play_act(uint32_t act, int32_t arg)
         break; }
     case MPA_REPEAT: q.repeat = (uint8_t)((q.repeat + 1u) % 3u); lp.repeat = q.repeat; break;
     case MPA_SHUFFLE: shuffle_set(!lp.shuffle); break;
-    case MPA_RG: mp.rg_mode = (mp.rg_mode + 1u) % 3u; rg_for_track(lp.cur_id); heard_g = dec_g; gain_apply_heard(); break;
     case MPA_TEMPO: tempo_step(arg); break;
     }
 }
@@ -408,9 +408,11 @@ SMALL static int flac_pass(stream_t *s)
 }
 #endif
 
+static void dip_poll(void);
 void mp3play_pump(void)
 {
     stream_t *s = &lp_stream;
+    dip_poll();
     io_service();
     lp.qn = q.n; lp.cur_pos = q.pos;
     if (mp.state == MPS_WAITRATE || mp.state == MPS_ENDDRAIN) {           /* everything put must be heard before the rate may change or the list may end */
@@ -514,13 +516,28 @@ SMALL void mp3play_heard(void)
     }
 }
 
-void mp3play_settings_get(uint32_t *v) { v[0] = mp.volume; v[1] = q.repeat; v[2] = mp.rg_mode; }
+void mp3play_settings_get(uint32_t *v) { v[0] = mp.volume; v[1] = q.repeat; v[2] = mp.rg_mode; v[3] = halcyon_saved; }
 SMALL void mp3play_settings_set(const uint32_t *v)
 {
     mp.volume = v[0]; q.repeat = (uint8_t)v[1]; lp.repeat = v[1];
     if (mp.rg_mode != v[2]) { mp.rg_mode = v[2]; rg_for_track(lp.cur_id); heard_g = dec_g; }
     gain_apply_heard();
+    halcyon_restore(v[3]);                                       /* the saved preset (or one chosen in Core Settings) */
 }
+
+/* A gain dip around a change that would otherwise be heard as a step (a Halcyon recall): the stage ramps to zero in about 16 ms (a slower step), the caller changes, and the ramp back up follows at the same slow
+ * step; the normal step is put back once the ramp up has finished (dip_poll, once per loop pass). */
+#define GAIN_STEP_NORMAL 149u
+#define GAIN_STEP_DIP 43u
+static uint8_t dip_slow; static uint32_t dip_t0;
+SMALL void mp3play_dip_begin(void)
+{
+    REG_WR(R_GAIN_STEP, GAIN_STEP_DIP); dip_slow = 1; dip_t0 = cycles();
+    aout_gain_set(0u);
+    const uint32_t t = cycles(); while ((uint32_t)(cycles() - t) < CLK_HZ / 1000u * 17u) { }
+}
+SMALL void mp3play_dip_end(void) { aout_gain_set(mp.gain_tgt); dip_t0 = cycles(); }
+static void dip_poll(void) { if (dip_slow && (uint32_t)(cycles() - dip_t0) > CLK_HZ / 1000u * 40u) { REG_WR(R_GAIN_STEP, GAIN_STEP_NORMAL); dip_slow = 0; } }
 
 /* ---- Now Playing data ---- */
 static void np_copy(char *d, const char *s, uint32_t cap) { uint32_t i = 0; for (; s[i] && i + 1u < cap; i++) d[i] = s[i]; d[i] = 0; }

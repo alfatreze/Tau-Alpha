@@ -20,7 +20,7 @@
 /* The menu's value ids 0..6 are the transport's preferences. */
 _Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_TEMPO == PREF_TEMPO && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL, "menu value ids must mirror PREF_*");
 
-static mg_t menu; static uint32_t vals[V_COUNT], dirty;
+static mg_t menu; static uint32_t vals[V_COUNT], dirty; static uint8_t resume;      /* 1: coming back from Info, Report or the Halcyon page: keep the page you were on */
 
 static void pull(void)
 {
@@ -50,7 +50,8 @@ static void value_text(const mg_row_t *r, char *o)
 
 void settings_view_enter(void)
 {
-    mg_open(&menu); pull(); dirty = 1;
+    if (!resume) mg_open(&menu);
+    resume = 0; pull(); dirty = 1;
     gfx_rect(0, 0, GFX_W, GFX_H, BG);
 }
 int settings_view_input(uint32_t edge)
@@ -65,7 +66,7 @@ int settings_view_input(uint32_t edge)
         else if (e.id == V_ACCEPT_ALL) mp3play_accept_all = (uint8_t)e.value;
         pull();
         break;
-    case EF_ACTION: return e.id == ACT_INFO ? V_INFO : V_REPORT;
+    case EF_ACTION: resume = 1; return e.id == ACT_INFO ? V_INFO : e.id == ACT_HALCYON ? V_HALCYON : V_REPORT;
     case EF_CLOSE: return V_NOWPLAYING;
     default: break;
     }

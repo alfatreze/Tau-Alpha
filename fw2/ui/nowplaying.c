@@ -7,6 +7,7 @@
 #include "meter.h"
 #include "../art/art.h"
 #include "helios.h"
+#include "../aout/halcyon.h"
 #include "regions.h"
 #include "../transport/mp3play.h"
 
@@ -114,7 +115,7 @@ int nowplaying_input(uint32_t edge)
     if (edge & KEY_UP) mp3play_act(MPA_VOL, 3);
     if (edge & KEY_DOWN) mp3play_act(MPA_VOL, -3);
     if (edge & KEY_X) mp3play_act(MPA_SHUFFLE, 0);
-    if (edge & KEY_Y) mp3play_act(MPA_RG, 0);
+    if (edge & KEY_Y) halcyon_cycle();                          /* the Halcyon EQ preset, as before */
     if (edge & KEY_L1) mp3play_act(MPA_TEMPO, -1);
     if (edge & KEY_R1) mp3play_act(MPA_TEMPO, 1);
     return -1;                                                   /* VW_STAY */

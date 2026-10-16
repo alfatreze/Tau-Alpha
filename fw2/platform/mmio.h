@@ -46,7 +46,10 @@
 #define R_GAIN_CTRL  0x80000168u
 #define R_GAIN_TARGET 0x8000016Cu        /* Q15, 32768 = unity */
 #define R_GAIN_CUR   0x80000170u
+#define R_GAIN_STEP  0x80000174u        /* the largest gain change per output sample (reset 149: full scale in 5 ms) */
 #define R_HAL_CTRL   0x80000178u
+#define R_HAL_IDX    0x8000017Cu
+#define R_HAL_DATA   0x80000180u
 #define R_RING_BASE  0x80000184u
 #define R_RING_SIZE  0x80000188u
 #define R_RING_WPTR  0x8000018Cu

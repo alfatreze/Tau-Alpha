@@ -1,4 +1,4 @@
-/* stdin: "u w0 .. w31" -> unpack: prints the SF_COUNT values; "p w0 .. w31 v0 v1 v2" -> pack: prints the 32 words */
+/* stdin: "u w0 .. w31" -> unpack: prints the SF_COUNT values; "p w0 .. w31 v0 .. v(SF_COUNT-1)" -> pack: prints the 32 words */
 #include <stdio.h>
 #include "settings_core.h"
 int main(void)

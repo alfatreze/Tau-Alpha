@@ -30,6 +30,9 @@ SECTIONS {
 		*/browser.o(.rodata .rodata.* .srodata .srodata.*)
 		*/settings.o(.rodata .rodata.* .srodata .srodata.*)
 		*/library.o(.rodata .rodata.* .srodata .srodata.*)
+		*/halcyon.o(.rodata .rodata.* .srodata .srodata.*)
+		*/halcyon_view.o(.rodata .rodata.* .srodata .srodata.*)
+		*/assets.o(.rodata .rodata.* .srodata .srodata.*)
 		*(.cold_data .cold_data.*)
 		. = ALIGN(4);
 		_cold_end = .;
@@ -48,6 +51,9 @@ SECTIONS {
 		*/browser.o(.text .text.*)
 		*/settings.o(.text .text.*)
 		*/library.o(.text .text.*)
+		*/halcyon.o(.text .text.*)
+		*/halcyon_view.o(.text .text.*)
+		*/assets.o(.text .text.*)
 		*(.cold_text .cold_text.*)
 		. = ALIGN(4);
 		_cold_text_end = .;
