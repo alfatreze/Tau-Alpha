@@ -8,6 +8,7 @@ extern uint8_t halcyon_sel;          /* 0 off, 1.. presets, 200 custom */
 extern uint8_t halcyon_saved;        /* the value for persist id 16 (never custom) */
 extern uint8_t halcyon_user_n;       /* user presets loaded from tau-assets.bin */
 extern uint8_t halcyon_present;      /* the bitstream has the engine */
+void        halcyon_set_dip(void (*begin)(void), void (*end)(void));   /* the app supplies the output gain dip around a preset change (aout does not call transport) */
 void        halcyon_init(void);                          /* boot probe */
 const char *halcyon_name(void);                          /* what the selection is called ("OFF", a preset, a user preset, "CUSTOM", "NO UNIT") */
 void        halcyon_cycle(void);                         /* Y: the next preset, after the last OFF */

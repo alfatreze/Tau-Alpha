@@ -6,5 +6,9 @@
 extern uint8_t assets_state;      /* 0 not tried, 1 no file, 2 loaded, 3 error */
 extern uint32_t assets_err;       /* AS_E_* of the load (0 none) */
 extern uint32_t assets_bytes;     /* size of the file when loaded */
-void assets_load(void);           /* at boot, after the cold image and the library */
+void assets_load(void);           /* at boot, after the cold image and the library; the app then hands each section to its owner (the stream layer knows none of them) */
+const uint8_t *assets_file(uint32_t *total);                          /* the validated file (0 when there is none) */
+int  assets_section(const char *tag, const uint8_t **p, uint32_t *n);  /* 1 and the section's bytes when the file carries it */
+int  assets_in_psram(void);       /* the file sits in the PSRAM staging area (a larger file), not in the 4 KiB window */
+int  assets_psram_ok(void);       /* the PSRAM staging area works in this bitstream */
 #endif

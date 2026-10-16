@@ -9,7 +9,7 @@ ALLOWED = {
     "app":         {"transport", "queue", "ui", "settings", "decode", "stream", "aout", "gfx", "art", "diagnostics", "platform", "counters", "cores"},
     "transport":   {"decode", "stream", "aout", "queue", "platform", "counters", "cores"},
     "queue":       {"platform", "counters", "cores"},
-    "ui":          {"transport", "settings", "gfx", "art", "queue", "platform", "counters", "cores"},
+    "ui":          {"transport", "settings", "aout", "gfx", "art", "queue", "platform", "counters", "cores"},
     "settings":    {"platform", "counters", "cores"},
     "decode":      {"stream", "platform", "counters", "cores"},
     "stream":      {"platform", "counters", "cores"},

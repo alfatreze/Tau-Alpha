@@ -3,9 +3,6 @@
 #include "helios.h"
 #include "../cores/view_core.h"
 #include "../platform/mmio.h"
-#include "../diagnostics/info_counters.h"
-#include "../diagnostics/info_page.h"
-#include "../diagnostics/report_page.h"
 #include "../transport/browser.h"
 #include "nowplaying.h"
 #include "browser_view.h"
@@ -21,26 +18,27 @@ static void lib_enter(void) { browser_enter(); browser_view_enter(); }
 static int  lib_input(uint32_t edge) { return browser_key(edge) ? V_NOWPLAYING : VW_STAY; }
 static void lib_mark(void) { helios_dirty(R_LIST); }
 /* Info: the page redraws every quarter second */
+static const views_diag_t *dg;                               /* the diagnostics pages, registered by the app (ui does not include diagnostics) */
 static uint32_t info_last;
-static void info_enter(void) { info_page_init(); info_last = 0; }
+static void info_enter(void) { if (dg) dg->info_init(); info_last = 0; }
 static int  info_input(uint32_t edge)
 {
     if (edge & (KEY_B | KEY_LEFT)) return VW_BACK;
-    info_page_key(edge & (KEY_UP | KEY_DOWN));
+    if (dg) dg->info_key(edge & (KEY_UP | KEY_DOWN));
     helios_dirty(R_INFO);
     return VW_STAY;
 }
 static void info_mark(void) { uint32_t t = cycles(); if ((uint32_t)(t - info_last) >= CLK_HZ / 4u) { info_last = t; helios_dirty(R_INFO); } }
-static void info_redraw(void) { counters_refresh(); info_page_draw(); }
+static void info_redraw(void) { if (dg) dg->info_draw(); }
 /* Report: a snapshot of every counter as a pixel grid; any of these keys returns */
-static void report_enter(void) { report_page_draw(); }
+static void report_enter(void) { if (dg) dg->report_draw(); }
 static int  report_input(uint32_t edge) { return (edge & (KEY_A | KEY_B | KEY_X | KEY_Y | KEY_UP | KEY_DOWN)) ? VW_BACK : VW_STAY; }
 
 static const view_t tab[VIEW_COUNT] = {
     [V_NOWPLAYING] = { nowplaying_enter, 0, nowplaying_input, nowplaying_mark, NP_REGIONS, nowplaying_enter },
     [V_LIBRARY]    = { lib_enter, 0, lib_input, lib_mark, RM(R_LIST), browser_view_enter },
     [V_SETTINGS]   = { settings_view_enter, 0, settings_view_input, settings_view_mark, RM(R_MENU), settings_view_redraw },
-    [V_INFO]       = { info_enter, 0, info_input, info_mark, RM(R_INFO), info_page_init },
+    [V_INFO]       = { info_enter, 0, info_input, info_mark, RM(R_INFO), info_enter },
     [V_REPORT]     = { report_enter, 0, report_input, 0, 0, 0 },
     [V_HALCYON]    = { halcyon_view_enter, 0, halcyon_view_input, halcyon_view_mark, RM(R_HAL), halcyon_view_redraw },
     [V_FULLSCREEN] = { fullscreen_view_enter, 0, nowplaying_input, fullscreen_view_mark, RM(R_FS_FIG) | RM(R_FS_FOOT), fullscreen_view_enter },
@@ -67,4 +65,5 @@ void views_input(uint32_t edge) { vw_input(&vw, &helios, edge); }
 void views_mark(void) { vw_draw(&vw); }
 void views_flush(void) { helios_flush(); }
 uint32_t views_cur(void) { return vw.cur; }
-void views_report_refresh(void) { report_page_draw(); }
+void views_report_refresh(void) { if (dg) dg->report_draw(); }
+void views_set_diag(const views_diag_t *d) { dg = d; }

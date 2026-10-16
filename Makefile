@@ -114,6 +114,9 @@ test-host:
 	$(PYTHON) sim/test_p2_stream.py
 	$(PYTHON) sim/test_p2_stream_idle.py
 	$(PYTHON) sim/test_p2_winamp.py
+	$(PYTHON) sim/test_p2_scope.py
+	$(PYTHON) sim/test_p2_vu.py
+	$(PYTHON) sim/test_p2_chladni.py
 	$(PYTHON) sim/test_p2_art_probe.py
 	$(PYTHON) sim/test_p2_helios.py
 	$(PYTHON) sim/test_p2_views.py

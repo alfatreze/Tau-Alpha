@@ -20,4 +20,6 @@ void gfx_fence(void);                                                /* every qu
 void gfx_clut_begin(uint32_t start_index);                           /* waits for the engine to drain, then points the palette at `start_index` */
 void gfx_clut_put(uint16_t rgb565);                                  /* next palette entry (auto-increments) */
 void gfx_cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);   /* indices at (sx,sy) through the palette to (dx,dy); w <= 127 */
+void gfx_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);    /* copy a block of pixels inside the framebuffer; w <= 127 words, source and destination must not overlap */
+void gfx_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t scale);   /* copy w x h SOURCE pixels scaled by 1, 2 or 3 (the engine clamps the output at 127) */
 #endif
