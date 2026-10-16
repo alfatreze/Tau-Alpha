@@ -87,7 +87,7 @@ void check_page_draw(void)
         gfx_text(GFX_W - 10 - gfx_text_width(v), y + 4, v, res[i] == 2u ? ACC : FG, BG);
     }
     gfx_rect(0, GFX_H - 44, GFX_W, 44, BG);
-    gfx_text(10, GFX_H - 40, "TEST: FIFO STALLS OVER A WINDOW; RATES ARE MP3", DIM, BG);
+    gfx_text(10, GFX_H - 40, "FIFO STALLS PER TEST; RATES MP3 ONLY", DIM, BG);
     gfx_text(10, GFX_H - 20, state == 1u ? "B STOP" : "A RUN  B BACK", DIM, BG);
     dirty = 0;
 }

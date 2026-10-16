@@ -20,7 +20,7 @@ void info_page_init(void)
 {
     gfx_rect(0, 0, GFX_W, GFX_H, BG);
     gfx_text(10, 6, "INFO", ACC, BG);
-    gfx_text(10, GFX_H - 20, "UP DOWN SCROLL  B BACK  SELECT+START REPORT", DIM, BG);
+    gfx_text(10, GFX_H - 20, "UP DOWN  B BACK  SEL+START REPORT", DIM, BG);
 }
 
 void info_page_key(uint32_t edge)

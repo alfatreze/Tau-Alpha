@@ -6,7 +6,7 @@
 #include "../fw2/generated/lw_presets.h"
 #include "metr_core.h"
 static uint8_t buf[16384];
-static void conv(const mpd_t *pd, uint32_t np, metr_p_t *o) { for (uint32_t i = 0; i < np; i++) { o[i].min = pd[i].min; o[i].max = pd[i].max; o[i].kind = pd[i].type; o[i].enum_n = pd[i].nval; o[i].wide = (pd[i].type == 0u && pd[i].max > 255u); } }
+static void conv(const mpd_t *pd, uint32_t np, metr_p_t *o) { for (uint32_t i = 0; i < np; i++) { o[i].min = pd[i].min; o[i].max = pd[i].max; o[i].kind = pd[i].type; o[i].enum_n = pd[i].nval; o[i].wide = (pd[i].type == 3u || (pd[i].type == 0u && pd[i].max > 255u)); } }
 int main(int argc, char **argv)
 {
     FILE *f = fopen(argv[1], "rb"); uint32_t n = (uint32_t)fread(buf, 1, sizeof buf, f); fclose(f);

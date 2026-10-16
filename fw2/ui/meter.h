@@ -18,7 +18,7 @@ typedef struct {
 } mtr_in_t;
 #ifndef P2_MPD_T
 #define P2_MPD_T
-/* a parameter the Configure page can edit: type 0 number, 1 choice, 2 on/off; shown only when the parameter `when_idx` has the value `when_val` (255 = always) */
+/* a parameter the Configure page can edit: type 0 number, 1 choice, 2 on/off, 3 colour (a raw RGB565 value); shown only when the parameter `when_idx` has the value `when_val` (255 = always) */
 typedef struct { const char *label; uint8_t type, hidden; uint16_t min, max, step; uint8_t nval; const char *const *vals; uint8_t when_idx; uint16_t when_val; } mpd_t;
 #endif
 typedef struct {
@@ -44,4 +44,8 @@ const char *meters_preset_name(void);
 void        meters_params_changed(uint32_t meter);   /* the Configure page edited meter `meter`: re-read, repaint, call the preset CUSTOM */
 uint32_t    meters_custom(uint32_t meter);           /* 1 when the parameters were edited since the preset was chosen */                  /* the current meter's current preset */
 const char *meters_name(void);
+void        meters_tune_save(uint32_t meter);       /* the parameters of `meter` were edited: store what differs from its preset (one meter at a time) */
+void        meters_tune_words(uint32_t *w);         /* the four persisted words of the stored tuning */
+void        meters_tune_apply(const uint32_t *w);   /* persisted words changed (boot, Core Settings): apply the tuning when it belongs to the preset now selected */
+uint32_t    meters_payload(uint32_t meter, uint8_t *out);   /* the SR_T_METERCFG entry of the meter as it is now (see report export) */
 #endif

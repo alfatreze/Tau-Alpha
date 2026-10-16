@@ -5,5 +5,6 @@
 #include <stdint.h>
 #include "../cores/counters_core.h"
 /* Returns the record length (CRC included), or 0 if it did not fit in cap. */
+uint32_t report_record_build_meter(uint8_t *buf, uint32_t cap, const uint8_t *payload, uint32_t n);      /* one SR_T_METERCFG entry (the Configure page export) */
 uint32_t report_record_build(uint8_t *buf, uint32_t cap, const cnt_t *table, uint32_t n);
 #endif

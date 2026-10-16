@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Layered Wave wrapper (fw2/ui/meter_layered_wave.c): all 8 presets draw inside the box and fill the history ring when the PSRAM window is proven; without the window the meter says so, draws no figure and stores nothing.
+"""Layered Wave wrapper (fw2/ui/meter_layered_wave.c): all 16 presets (8 standard, 8 experimental) draw inside the box and fill the history ring when the PSRAM window is proven; without the window the meter says so, draws no figure and stores nothing.
 Mutants: the window proof is skipped (stores into an unproven window), the preset is ignored (every preset draws the first)."""
 import subprocess, sys, tempfile
 from pathlib import Path
@@ -31,7 +31,7 @@ def run(exe, seed, psram=1):
 with tempfile.TemporaryDirectory() as td:
     g = build(td, None)
     for s in (1, 7):
-        r = run(g, s); check(f"seed {s}: all 8 presets draw, inside the box, the ring fills", r["OUTSIDE"] == 0 and r["PRESETS"] == 8 and r["RING"] > 0 and r["TEXT"] == 0)
+        r = run(g, s); check(f"seed {s}: all 16 presets draw, inside the box, the ring fills", r["OUTSIDE"] == 0 and r["PRESETS"] == 16 and r["RING"] > 0 and r["TEXT"] == 0)
     r = run(g, 1, 0); check("no PSRAM window: a message, no store into the ring", r["RING"] == 0 and r["TEXT"] > 0)
 with tempfile.TemporaryDirectory() as td:
     b = build(td, "noproof"); r = run(b, 1, 0)

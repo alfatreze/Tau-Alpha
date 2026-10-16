@@ -50,6 +50,26 @@ def ascii_text(s, limit=63):
     return " ".join(d.split())[:limit].strip()
 
 
+_TYPO = {0x2018: "'", 0x2019: "'", 0x201A: "'", 0x201B: "'", 0x201C: '"', 0x201D: '"', 0x201E: '"', 0x2013: "-", 0x2014: "-", 0x2212: "-", 0x2026: "...", 0x00A0: " ", 0x2022: "*", 0x2122: "TM", 0x20AC: "EUR"}
+
+
+def latin1_text(s, limit=63):
+    """Display text for the index (docs/features/FONT_SPEC.md 3.6): Latin-1, one byte per character. Code points up to U+00FF stay (the firmware draws the accented letters as their plain letter until the font memory
+    carries them), the common typographic ones are folded (curly quotes, dashes, the ellipsis), a letter that decomposes to a Latin-1 letter loses only its mark, anything else becomes '?'. A text with no real
+    character left (only '?' and spaces) is empty, so the caller falls back to the file name. Never splits a character; the limit counts characters."""
+    out = []
+    for c in unicodedata.normalize("NFC", s):
+        o = ord(c)
+        if o in _TYPO: out.append(_TYPO[o])
+        elif 0x20 <= o <= 0x7E or 0xA1 <= o <= 0xFF and o != 0xAD: out.append(c)
+        elif unicodedata.combining(c) or o == 0xAD or o < 0x20 or 0x7F <= o <= 0xA0: out.append(" " if o in (0x09, 0x0A, 0x0D, 0xA0) else "")
+        else:
+            base = "".join(x for x in unicodedata.normalize("NFKD", c) if not unicodedata.combining(x))
+            out.append(base if base and all(0x20 <= ord(x) <= 0x7E or 0xA1 <= ord(x) <= 0xFF for x in base) else "?")
+    r = " ".join("".join(out).split())[:limit].strip()
+    return r if r.replace("?", "").strip() else ""
+
+
 def ascii_name(s):
     """Same conversion as sync_media.ascii_part (names already converted on the card pass through unchanged)."""
     d = unicodedata.normalize("NFKD", s)
@@ -67,6 +87,7 @@ def sort_key(s):
         if t.startswith(art) and len(t) > len(art):
             t = t[len(art):]
             break
+    t = "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c))     # a letter with a mark sorts as its plain letter
     cls = ord(t[0]) - 96 if t and "a" <= t[0] <= "z" else 0
     toks = tuple((0, int(x), "") if x.isdigit() else (1, 0, x) for x in re.split(r"(\d+)", t) if x)
     return (cls, toks)
@@ -80,7 +101,11 @@ def nat(s):
 def _dec(enc, b):
     try:
         if enc == 0:
-            return b.decode("latin-1")
+            if all(x < 0x80 for x in b): return b.decode("latin-1")
+            try: return b.decode("utf-8")                        # many taggers write UTF-8 under encoding 0: a strict decode that succeeds is the right reading (v1.5.0 of the upstream player does the same)
+            except UnicodeDecodeError: pass
+            try: return b.decode("cp1252")                       # else Windows-1252, the usual Latin-1 superset
+            except UnicodeDecodeError: return b.decode("latin-1")
         if enc == 1:
             return b.decode("utf-16")
         if enc == 2:
@@ -318,7 +343,7 @@ class Pool:
     def add(self, s):
         if s not in self.idx:
             self.idx[s] = len(self.buf)
-            self.buf += s.encode("ascii") + b"\x00"
+            self.buf += s.encode("latin-1") + b"\x00"
         return self.idx[s]
 
 
@@ -332,7 +357,7 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
     albums = {}
     for i, e in enumerate(entries):
         t = e["tags"]
-        title = ascii_text(t.get("TIT2", "")) or ascii_text(re.sub(r"^[\d\s._-]+", "", Path(e["file"]).stem)) or "Track"
+        title = latin1_text(t.get("TIT2", "")) or ascii_text(re.sub(r"^[\d\s._-]+", "", Path(e["file"]).stem)) or "Track"
         disc = _num(t.get("TPOS"), 63)
         trk = _num(t.get("TRCK"), 1023)
         e["_title"], e["_tno"] = title, (disc << 10) | trk
@@ -347,11 +372,11 @@ def build_index(entries, pls=(), warns=None, root_prefix=ROOT_PREFIX):
         first = entries[ids[0]]["tags"]
         artist = "Unknown Artist"
         for i in ids:
-            a = ascii_text(entries[i]["tags"].get("TPE2", "")) or ascii_text(entries[i]["tags"].get("TPE1", ""))
+            a = latin1_text(entries[i]["tags"].get("TPE2", "")) or latin1_text(entries[i]["tags"].get("TPE1", ""))
             if a:
                 artist = a
                 break
-        title = ascii_text(first.get("TALB", "")) or ascii_text(d.rpartition("/")[2]) or "Unknown Album"
+        title = latin1_text(first.get("TALB", "")) or ascii_text(d.rpartition("/")[2]) or "Unknown Album"
         year = next((y for y in (_year(entries[i]["tags"]) for i in ids) if y), 0)
         alb.append(dict(dir=d, ids=ids, artist=artist, title=title, year=year))
     art_names = sorted({a["artist"] for a in alb}, key=lambda s: (sort_key(s), s))
@@ -516,7 +541,7 @@ def _str(ix, off):
     if off >= len(ix.strings):
         raise LibError(17, f"string offset {off}")
     end = ix.strings.index(b"\x00", off)
-    return ix.strings[off:end].decode("ascii")
+    return ix.strings[off:end].decode("latin-1")
 
 
 Index.str = _str
