@@ -1,3 +1,4 @@
+#pragma GCC optimize ("Os")   /* not on a hot path: smaller code is what the 192 KB link needs */
 #include "nowplaying.h"
 #include "../gfx/gfx.h"
 #include "../platform/mmio.h"

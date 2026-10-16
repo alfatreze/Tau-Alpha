@@ -1,3 +1,4 @@
+#pragma GCC optimize ("Os")   /* not on a hot path: smaller code is what the 192 KB link needs */
 #include "info_counters.h"
 #include "../platform/platform.h"
 #include "../aout/aout.h"

@@ -1,3 +1,4 @@
+#pragma GCC optimize ("Os")   /* not on a hot path: smaller code is what the 192 KB link needs */
 #include "report_record.h"
 #define SR_FN static
 #include "../../fw/suite_core.h"       /* the TAUD record builder: Tau-written pure core shared with the old player and the decoder tools (moves to fw2/cores at S7) */

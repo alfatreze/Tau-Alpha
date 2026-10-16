@@ -26,6 +26,8 @@ typedef struct {
     uint32_t playing, held, volume, rg_mode, repeat, shuffle, tempo_q8, valid;
 } np_info_t;
 const np_info_t *mp3play_np(void);
+/* Play a queue the library just built (u16 ids in library_queue_buf()): n tracks, starting at `start`. `src_kind`/`src_parent` remember how to rebuild its natural order (X shuffle off). */
+void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t src_parent, int shuffled, uint32_t seed);
 /* The persisted values (cores/settings_core.h order: volume, repeat, ReplayGain mode). */
 void mp3play_settings_get(uint32_t *vals);
 void mp3play_settings_set(const uint32_t *vals);
