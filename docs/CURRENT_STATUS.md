@@ -5,6 +5,9 @@ the Cymo row — see below). Why things are the way they are is in `docs/AUDIT_T
 `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
 Full detail on this session: `docs/handoffs/SESSION_HANDOFF_2026-10-03_CYMO_TEMPO.md` — **read it first** (the 2026-10-01 resampler handoff is still correct for what it covers).
 
+## Update 2026-10-16 (late): Player 2 meters, themes, presets, Configure page, screen blank, double buffering
+**Read `docs/handoffs/SESSION_HANDOFF_2026-10-16_PLAYER2_METERS_H2.md` first.** Audit B-782..B-784; worktree `../tau-alpha-player2`, branch `player2`. `TAU DEV 165` is installed (everything except double buffering); B-784 (double-buffered redraws, off-screen compose for Chladni and Layered Wave, Scope trail, Settings crossfade) is committed and host-proven but not packaged or run on a Pocket.
+
 ## Update 2026-10-16 (night): the new FLAC decoder (S8) is built and host-proven; wired as `P2_FLAC2`, never run on a Pocket
 **Read `docs/handoffs/SESSION_HANDOFF_2026-10-16_PLAYER2_S8_FLAC2.md` first.** Audit B-775..B-779; worktree `../tau-alpha-player2`, branch `player2`, **not pushed**. `docs/features/FLAC_DECODER_V2_REVIEW.md` holds the audit of the spec, S8-0 measurements and the reuse decision (rejected). Built and host-proven (8 mutation-tested suites, real music bit-exact): `fw2/cores/flac2_core.h` + `flac2_track_core.h` (decoder, recovery, open, seek, LPC-unit tier), staged audio puts in `aout`. `P2_FLAC2` in `mp3play.c` fits the 192 KB link (1,120 B spare) and is off by default. `undercnt-b768` closed; **`TAU DEV 150` packaged, not installed** (the card still has DEV 137): approve the install and send one START screenshot. Open: wire the real LPC unit, Info rows, review of the transport glue, hardware A/B (DEV 151 with `FLAC2=1`), S9.
 
