@@ -558,6 +558,7 @@ SMALL static void np_refresh(const tl_seg_t *g, uint32_t id)
     np.cover[0] = 0; if (!library_cover_path(id, np.cover, sizeof np.cover)) np.cover[0] = 0;
     np.id = id; np.gen++; (void)g;
 }
+uint32_t mp3play_paused_now(void) { return (!mp.playing || mp.held) ? 1u : 0u; }
 SMALL const np_info_t *mp3play_np(void)
 {
     np.fault = (uint32_t)(mp.poly_fail ? 1u : 0u);

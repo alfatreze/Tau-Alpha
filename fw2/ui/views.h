@@ -3,7 +3,7 @@
 #ifndef P2_VIEWS_H
 #define P2_VIEWS_H
 #include <stdint.h>
-enum { V_NOWPLAYING = 0, V_LIBRARY, V_SETTINGS, V_INFO, V_REPORT, V_HALCYON, VIEW_COUNT };
+enum { V_NOWPLAYING = 0, V_LIBRARY, V_SETTINGS, V_INFO, V_REPORT, V_HALCYON, V_FULLSCREEN, VIEW_COUNT };
 void     views_init(void);                  /* registers the regions, enters Now Playing */
 void     views_switch(int to);              /* a view id, or VW_BACK */
 void     views_input(uint32_t edge);        /* a key edge to the current view */

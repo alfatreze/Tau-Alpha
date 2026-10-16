@@ -49,7 +49,7 @@ void nowplaying_enter(void)
     for (uint32_t i = 0; i < 10u; i++) cache[i].s[0] = 0;
     bar_px = 0xFFFFFFFFu; last_gen = 0xFFFFFFFFu; art_gen = 0xFFFFFFFFu;
     gfx_text(X0, 6, "NOW PLAYING", ACC, BG);
-    meter_enter(212, 80);
+    meters_enter(NP_METER_X, NP_METER_Y0, NP_METER_W, NP_METER_Y1 - NP_METER_Y0);
     gfx_text(X0, 340, "A PLAY B RESTART  HOLD L/R SEEK  START SET", DIM, BG);
 }
 
@@ -104,7 +104,7 @@ void nowplaying_draw_foot(void)
 void nowplaying_draw_meter(void)
 {
     const np_info_t *p = mp3play_np();
-    meter_draw(p->gov < 1u);                                    /* the governor sheds the UI first: no bars while the ring is below half */
+    meters_tick(p->gov < 1u);                                   /* the governor sheds the UI first: no bars while the ring is below half */
 }
 
 /* The keys of Now Playing that are plain edges (the timed ones -- Left/Right tap and hold, the Select combinations -- are gestures, app/gestures in main_player.c). */
@@ -114,7 +114,7 @@ int nowplaying_input(uint32_t edge)
     if (edge & KEY_B) mp3play_act(MPA_RESTART, 0);
     if (edge & KEY_UP) mp3play_act(MPA_VOL, 3);
     if (edge & KEY_DOWN) mp3play_act(MPA_VOL, -3);
-    if (edge & KEY_X) mp3play_act(MPA_SHUFFLE, 0);
+    if (edge & KEY_X) meters_next(1);                           /* the next meter (shuffle is in Settings > Playback) */
     if (edge & KEY_Y) halcyon_cycle();                          /* the Halcyon EQ preset, as before */
     if (edge & KEY_L1) mp3play_act(MPA_TEMPO, -1);
     if (edge & KEY_R1) mp3play_act(MPA_TEMPO, 1);

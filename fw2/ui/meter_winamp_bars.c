@@ -1,0 +1,38 @@
+#pragma GCC optimize ("Os")
+#include "meter.h"
+#include "theme.h"
+#include "../gfx/gfx.h"
+#include "../../fw/meter_core.h"             /* the shared ballistics, peak cap, band mapping and redraw cache (host-tested against the original arithmetic) */
+
+/* Winamp bars (meters/winamp_bars/meter.json): solid per-band bars with an eased level and a falling peak cap. Defaults = the FLUID preset. */
+#define BANDS_MIN 4u
+#define BANDS_MAX 16u
+typedef struct { uint8_t bands, ease, attack, release, peak_on, peak_gravity, peak_fall; uint16_t peak_hold_ms; } wb_cfg_t;
+static const wb_cfg_t cfg = { 16u, 2u, 55u, 22u, 1u, 1u, 35u, 200u };
+
+static uint8_t disp[BANDS_MAX], drawn[BANDS_MAX], peak_drawn[BANDS_MAX]; static int16_t vel[BANDS_MAX]; static mtr_peak_t pk[BANDS_MAX];
+
+void meter_winamp_bars_tick(const mtr_in_t *in)
+{
+    const uint32_t x0 = in->x, y = in->y, w = in->w, h = in->h, bands = cfg.bands < BANDS_MIN ? BANDS_MIN : cfg.bands > BANDS_MAX ? BANDS_MAX : cfg.bands, gap = 2u;
+    const uint32_t colw = (w > gap * (bands - 1u)) ? (w - gap * (bands - 1u)) / bands : 1u;
+    if (in->force) gfx_rect(x0, y, w, h, in->bg);                      /* the context changed: wipe the box once, then every band repaints */
+    const mtr_peak_cfg_t pcfg = { cfg.peak_on, cfg.peak_gravity, cfg.peak_hold_ms, cfg.peak_fall };
+    for (uint32_t b = 0; b < bands; b++) {
+        uint32_t target = mtr_band_target(in->spec, MTR_BANDS, bands, b);
+        if (in->paused) target = 0u;
+        const uint32_t rate = (target >= disp[b]) ? cfg.attack : cfg.release;
+        disp[b] = mtr_ease(disp[b], (uint8_t)target, cfg.ease, rate, &vel[b]);
+        mtr_peak_step(&pk[b], disp[b], &pcfg, in->dt_ms);
+        if (!mtr_delta(&drawn[b], &peak_drawn[b], disp[b], pk[b].peak, in->force)) continue;
+        const uint32_t x = x0 + b * (colw + gap);
+        uint32_t bh = (disp[b] * h) / 255u;
+        if (bh < 2u) bh = 2u;
+        if (h > bh) gfx_rect(x, y, colw, h - bh, in->bg);               /* everything above the bar (the old bar top and the old cap) */
+        gfx_rect(x, y + h - bh, colw, bh, UI_ACCENT);
+        if (cfg.peak_on) {
+            const uint32_t ph = (pk[b].peak * h) / 255u;
+            if (ph > bh + 1u && ph < h) gfx_rect(x, y + h - ph, colw, 1u, UI_WHITE);
+        }
+    }
+}

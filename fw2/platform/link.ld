@@ -20,7 +20,9 @@ SECTIONS {
 		_cold_start = .;
 		*/nowplaying.o(.rodata .rodata.* .srodata .srodata.*)
 		*/browser_view.o(.rodata .rodata.* .srodata .srodata.*)
-		*/meter.o(.rodata .rodata.* .srodata .srodata.*)
+		*/meters.o(.rodata .rodata.* .srodata .srodata.*)
+		*/meter_winamp_bars.o(.rodata .rodata.* .srodata .srodata.*)
+		*/fullscreen_view.o(.rodata .rodata.* .srodata .srodata.*)
 		*/settings_view.o(.rodata .rodata.* .srodata .srodata.*)
 		*/info_counters.o(.rodata .rodata.* .srodata .srodata.*)
 		*/info_page.o(.rodata .rodata.* .srodata .srodata.*)
@@ -41,7 +43,9 @@ SECTIONS {
 		_cold_text_start = .;
 		*/nowplaying.o(.text .text.*)
 		*/browser_view.o(.text .text.*)
-		*/meter.o(.text .text.*)
+		*/meters.o(.text .text.*)
+		*/meter_winamp_bars.o(.text .text.*)
+		*/fullscreen_view.o(.text .text.*)
 		*/settings_view.o(.text .text.*)
 		*/info_counters.o(.text .text.*)
 		*/info_page.o(.text .text.*)
