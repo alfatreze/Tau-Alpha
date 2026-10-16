@@ -26,7 +26,8 @@
 #ifndef TAU_DIAGNOSTIC
 #define TAU_DIAGNOSTIC 0
 #endif
-static uint16_t lw_mv[MP_LAYERED_WAVE_N];
+uint16_t meter_layered_wave_mv[MP_LAYERED_WAVE_N];       /* the live parameters, in the manifest's order (the Configure page edits these) */
+#define lw_mv meter_layered_wave_mv
 static uint8_t wviz_force;
 static uint8_t lw_ps;                 /* the PSRAM window: 0 untested, 1 proven, 2 failed */
 #ifndef P2_HOST
@@ -47,14 +48,14 @@ static int mtr_psram_ready(void)
 }
 #include "../../fw/layered_wave.inc"
 
-static uint32_t preset_cur = 0xFFu, want;
+static uint32_t want;
 uint32_t lw_unavailable(void) { return lw_ps == 2u; }
-void meter_layered_wave_preset(uint32_t i) { want = i < LW_PRESET_N ? i : 0u; }
+void meter_layered_wave_apply(void) { }                           /* the parameters are read at every tick */
+void meter_layered_wave_preset(uint32_t i) { want = i < LW_PRESET_N ? i : 0u; for (uint32_t k = 0; k < MP_LAYERED_WAVE_N; k++) lw_mv[k] = lw_preset[want][k]; }
 const char *meter_layered_wave_preset_name(uint32_t i) { return lw_preset_name[i < LW_PRESET_N ? i : 0u]; }
 
 void meter_layered_wave_tick(const mtr_in_t *in0)
 {
-    if (preset_cur != want) { for (uint32_t i = 0; i < MP_LAYERED_WAVE_N; i++) lw_mv[i] = lw_preset[want][i]; preset_cur = want; }
     static int8_t wv[WAVE_COLS];                                   /* the loudest sample of either channel as a flat envelope: the DYNAMICS split only takes the peak */
     const uint32_t pk = (in0->peak_l > in0->peak_r ? in0->peak_l : in0->peak_r) * 127u / 24575u;
     wv[0] = (int8_t)(pk > 127u ? 127u : pk);

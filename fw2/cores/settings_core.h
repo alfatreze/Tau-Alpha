@@ -22,8 +22,8 @@ static const sf_field_t sf_table[SF_COUNT] = {
     { 16u, 0u, 32u, 0u, 31u,  0u  },   /* theme (word 16 = id 26... the (internal) theme slot): built-in themes then the file themes */
     { 17u, 0u, 1u,  0u, 1u,   0u  },   /* mode: 0 dark, 1 light (bit 0 of word 17; bits 5:4 are the ReplayGain mode) */
     { 5u,  0u, 32u, 0u, 14u,  0u  },   /* the meter (word 5 = id 15 Meter): the index in the meter table */
-    /* the selected preset of each meter in the table order (Winamp Bars 5, Winamp Scope 5, Chladni 4, Layered Wave 8, Master VU 3), four bits each in word 18 (persist id 29) */
-    { 18u, 0u,  4u, 0u, 4u,   0u  }, { 18u, 4u, 4u, 0u, 4u, 0u }, { 18u, 8u, 4u, 0u, 3u, 0u }, { 18u, 12u, 4u, 0u, 7u, 0u }, { 18u, 16u, 4u, 0u, 2u, 0u },
+    /* the selected preset of each meter in the table order (Winamp Bars 5, Winamp Scope 5, Chladni 4, Layered Wave 8, Master VU 3; a METR file may bring up to 8 for any of them), four bits each in word 18 (persist id 29) */
+    { 18u, 0u,  4u, 0u, 7u,   0u  }, { 18u, 4u, 4u, 0u, 7u, 0u }, { 18u, 8u, 4u, 0u, 7u, 0u }, { 18u, 12u, 4u, 0u, 7u, 0u }, { 18u, 16u, 4u, 0u, 7u, 0u },
 };
 static inline uint32_t sf_mask(const sf_field_t *f) { return f->width >= 32u ? 0xFFFFFFFFu : ((1u << f->width) - 1u); }
 static inline uint32_t sf_unpack1(const uint32_t *words, uint32_t i)

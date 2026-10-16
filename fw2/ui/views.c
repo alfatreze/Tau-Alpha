@@ -9,6 +9,7 @@
 #include "settings_view.h"
 #include "halcyon_view.h"
 #include "fullscreen_view.h"
+#include "configure_view.h"
 #include "meter.h"
 
 static vw_t vw;
@@ -41,12 +42,13 @@ static const view_t tab[VIEW_COUNT] = {
     [V_INFO]       = { info_enter, 0, info_input, info_mark, RM(R_INFO), info_enter },
     [V_REPORT]     = { report_enter, 0, report_input, 0, 0, 0 },
     [V_HALCYON]    = { halcyon_view_enter, 0, halcyon_view_input, halcyon_view_mark, RM(R_HAL), halcyon_view_redraw },
+    [V_CONFIGURE]  = { configure_view_enter, 0, configure_view_input, configure_view_mark, RM(R_CONF_PREV) | RM(R_CONF_LIST), configure_view_redraw },
     [V_FULLSCREEN] = { fullscreen_view_enter, 0, nowplaying_input, fullscreen_view_mark, RM(R_FS_FIG) | RM(R_FS_FOOT), fullscreen_view_enter },
 };
 
 void views_init(void)
 {
-    helios_init(); meters_init();
+    helios_init();
     helios_region(nowplaying_draw_head, NP_HEAD_Y0, NP_HEAD_Y1);        /* R_NP_HEAD */
     helios_region(nowplaying_draw_meter, NP_METER_Y0, NP_METER_Y1);     /* R_NP_METER */
     helios_region(nowplaying_draw_foot, NP_FOOT_Y0, NP_FOOT_Y1);        /* R_NP_FOOT */
@@ -56,6 +58,8 @@ void views_init(void)
     helios_region(halcyon_view_draw, 0, HL_WHOLE);                      /* R_HAL */
     helios_region(fullscreen_draw_fig, 0, 323);                         /* R_FS_FIG */
     helios_region(fullscreen_draw_foot, 323, 360);                      /* R_FS_FOOT */
+    helios_region(configure_view_draw_preview, 26, 126);                /* R_CONF_PREV */
+    helios_region(configure_view_draw_list, 134, 360);                  /* R_CONF_LIST */
     vw_init(&vw, tab, VIEW_COUNT, V_NOWPLAYING);
     vw_start(&vw, &helios);
 }

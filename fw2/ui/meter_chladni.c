@@ -30,13 +30,17 @@ static uint8_t shed;
 static uint32_t now_ms, last_draw, drawn_n, skipped_n;
 uint32_t chladni_drawn(void) { return drawn_n; }
 uint32_t chladni_unavailable(void) { return ok == 2u; }
-static const uint16_t *pv = mpp_chl[0];                          /* the selected preset's values */
+uint16_t meter_chladni_mv[MPP_CHL_N];                           /* the live parameters, in the manifest's order (the Configure page edits these) */
 const char *meter_chladni_preset_name(uint32_t i) { return mpp_chl_name[i < MPP_CHL_PRESETS ? i : 0u]; }
+void meter_chladni_apply(void)
+{
+    const uint16_t *v = meter_chladni_mv;
+    layout_want = (uint8_t)(v[MPP_CHL_LAYOUT] < CHL_PRESET_N ? v[MPP_CHL_LAYOUT] : 0u); paint_want = (uint8_t)(v[MPP_CHL_PAINT] < 3u ? v[MPP_CHL_PAINT] : 0u);   /* a new layout restarts the figure at the next tick */
+}
 void meter_chladni_preset(uint32_t i)
 {
-    pv = mpp_chl[i < MPP_CHL_PRESETS ? i : 0u];
-    layout_want = (uint8_t)(pv[MPP_CHL_LAYOUT] < CHL_PRESET_N ? pv[MPP_CHL_LAYOUT] : 0u); paint_want = (uint8_t)(pv[MPP_CHL_PAINT] < 3u ? pv[MPP_CHL_PAINT] : 0u);
-    layout_cur = 0xFFu;                                            /* re-initialise with the preset's tunables */
+    for (uint32_t k = 0; k < MPP_CHL_N; k++) meter_chladni_mv[k] = mpp_chl[i < MPP_CHL_PRESETS ? i : 0u][k];
+    meter_chladni_apply();
 }
 
 static uint16_t mix(uint16_t a, uint16_t b, uint32_t t, uint32_t n)
@@ -96,17 +100,22 @@ static void replicate(uint32_t x0, uint32_t y0, uint32_t tw, uint32_t th, uint32
     }
 }
 
+static void tunables(void)
+{
+    const uint16_t *pv = meter_chladni_mv;
+    cfg.eps0 = pv[MPP_CHL_LINE_WIDTH]; cfg.topk = (uint8_t)pv[MPP_CHL_MODES]; cfg.up_q12_s = pv[MPP_CHL_RISE]; cfg.dn_q12_s = pv[MPP_CHL_FALL];
+    cfg.morph_base = pv[MPP_CHL_MORPH]; cfg.morph_gain = pv[MPP_CHL_MORPH_GAIN]; cfg.sens_q4 = (uint8_t)pv[MPP_CHL_TRIGGER]; cfg.refr_ms = pv[MPP_CHL_REFRACTORY]; cfg.tonal = (uint8_t)pv[MPP_CHL_TONAL];
+}
 static void sync(void)
 {
     if (layout_want != layout_cur || !pre) {                       /* a new layout is a new tile size, so a new plane: restart the state */
         pre = &chl_presets[layout_want];
         layout_cur = layout_want;
-        cfg = pre->c;
-        cfg.eps0 = pv[MPP_CHL_LINE_WIDTH]; cfg.topk = (uint8_t)pv[MPP_CHL_MODES]; cfg.up_q12_s = pv[MPP_CHL_RISE]; cfg.dn_q12_s = pv[MPP_CHL_FALL];
-        cfg.morph_base = pv[MPP_CHL_MORPH]; cfg.morph_gain = pv[MPP_CHL_MORPH_GAIN]; cfg.sens_q4 = (uint8_t)pv[MPP_CHL_TRIGGER]; cfg.refr_ms = pv[MPP_CHL_REFRACTORY]; cfg.tonal = (uint8_t)pv[MPP_CHL_TONAL];
+        cfg = pre->c;                                              /* the geometry-bound fields (mode limit, fold) */
+        tunables();
         chl_init(&st, &cfg);
         last_draw = now_ms;
-    }
+    } else tunables();                                             /* an edit shows at once */
 }
 
 void meter_chladni_tick(const mtr_in_t *in)

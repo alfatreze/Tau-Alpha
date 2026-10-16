@@ -115,7 +115,7 @@ with tempfile.TemporaryDirectory() as t:
     check(r["library_index_version"] == 1 and r["assets_read_limit_bytes"] == 65536, "index version 1, assets limit 64 KiB (fw)")
     check(set(r["assets_sections"]) == {"THEM", "METR", "PRST"}, f"assets sections read by the firmware: {r['assets_sections']}")
     check(r["report_tags_max"] == 28, f"last report tag {r['report_tags_max']} (SR_T_TRACKINFO = 28)")
-    check(r["persist_ids_changed"] == [12, 16, 18], f"persist ids changed (12 range), removed (18) and re-meant per the registry (16) vs alpha.4: {r['persist_ids_changed']}")
+    check(r["persist_ids_changed"] == [12, 16, 18, 29], f"persist ids changed (12 range), removed (18), re-meant per the registry (16), new (29 meter presets, Player 2) vs alpha.4: {r['persist_ids_changed']}")
     check(doc["previous_release"] == "v0.6.0-alpha.4", "previous_release recorded")
     check(doc["persist_registry"]["16"] == {"name": "Halcyon EQ preset", "meaning": 2, "since": "v0.6.0-preview.1"}
           and set(doc["persist_registry"]) == {str(v["id"]) for v in REAL_INTERACT["interact"]["variables"] if v.get("persist")},
@@ -283,7 +283,7 @@ with tempfile.TemporaryDirectory() as t:
     check(tc.registry_errors([{"core_id": "dist", "interact": REAL_INTERACT}], reg, rel) == [], "the shipped interact.json matches tools/persist_registry.json")
     dj = json.loads(json.dumps(REAL_INTERACT)); next(v for v in dj["interact"]["variables"] if v["id"] == 27)["name"] = "(internal) other"
     check(any("named" in e for e in tc.registry_errors([{"core_id": "x", "interact": dj}], reg, rel)), "a persisted id renamed without a registry update is refused")
-    dj = interact({29: ("New thing", 3)})
+    dj = interact({30: ("New thing", 3)})
     check(any("does not describe" in e for e in tc.registry_errors([{"core_id": "x", "interact": dj}], reg, rel)), "a new persisted id missing from the registry is refused")
     check(tc.tag_key("v0.6.0-alpha.4") < tc.tag_key("v0.6.0-alpha.10") < tc.tag_key("v0.6.0-preview.1") < tc.tag_key("v0.6.0-rc.1")
           < tc.tag_key("v0.6.0") < tc.tag_key("v0.6.1") and tc.tag_key("v0.6.0-dev.385") < tc.tag_key("v0.6.0-preview.1"),
@@ -297,7 +297,7 @@ with tempfile.TemporaryDirectory() as t:
     raises(lambda: tc.build(**dict(kw, previous_release="v0.6.0-preview.1")), "a previous release not older than the release", "not older")
     # Omega's union rule over a skipped release: changes since alpha.3 include the alpha.4 meanings (10 Volume, 28 theme mode)
     since3 = sorted(int(i) for i, v in doc["persist_registry"].items() if tc.tag_key(v["since"]) > tc.tag_key("v0.6.0-alpha.3"))
-    check(since3 == [10, 16, 28], f"from persist_registry, a card on alpha.3 must treat ids {since3} as changed (union rule)")
+    check(since3 == [10, 16, 28, 29], f"from persist_registry, a card on alpha.3 must treat ids {since3} as changed (union rule)")
 
     # 2h. dev packages get their own manifest (review M5)
     dev = t / "devpkg"; (dev / "pocket").mkdir(parents=True)
@@ -355,7 +355,7 @@ with tempfile.TemporaryDirectory() as t:
     pk = {p["core_id"]: p for p in dd["packages"]}
     check(pk["alfatreze.TAU Diagnostics"]["replaces"] == ["alfatreze.TAU_DIAGNOSTIC"] and pk["alfatreze.TAU"]["replaces"] == [],
           "TAU Diagnostics names the old TAU_DIAGNOSTIC as replaced")
-    check(dd["requires_omega"]["persist_ids_changed"] == [12, 16, 18], "a renamed core is compared with its predecessor's previous zip")
+    check(dd["requires_omega"]["persist_ids_changed"] == [12, 16, 18, 29], "a renamed core is compared with its predecessor's previous zip")
     rt = tl.retarget(ROOT / "dist", t / "rt", "alfatreze.TAU", "alfatreze.TAU Preview", "preview")
     rcj = json.loads((rt / "Cores/alfatreze.TAU Preview/core.json").read_text())["core"]["metadata"]
     rdj = {sl["id"]: sl["parameters"] for sl in json.loads((rt / "Cores/alfatreze.TAU Preview/data.json").read_text())["data"]["data_slots"]}

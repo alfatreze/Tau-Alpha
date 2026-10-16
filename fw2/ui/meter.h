@@ -16,7 +16,16 @@ typedef struct {
     uint32_t peak_l, peak_r;      /* the loudest sample of each channel since the previous tick, scaled by 3/4 of headroom (0..24575) */
     const int8_t *wave;           /* optional: signed waveform columns (a meter that needs one builds it from peak_l/peak_r otherwise); null in the host */
 } mtr_in_t;
-typedef struct { const char *name; void (*tick)(const mtr_in_t *in); uint8_t npre; void (*set_pre)(uint32_t); const char *(*pre_name)(uint32_t); } meter_def_t;
+#ifndef P2_MPD_T
+#define P2_MPD_T
+/* a parameter the Configure page can edit: type 0 number, 1 choice, 2 on/off; shown only when the parameter `when_idx` has the value `when_val` (255 = always) */
+typedef struct { const char *label; uint8_t type, hidden; uint16_t min, max, step; uint8_t nval; const char *const *vals; uint8_t when_idx; uint16_t when_val; } mpd_t;
+#endif
+typedef struct {
+    const char *name; void (*tick)(const mtr_in_t *in);
+    uint8_t npre; void (*set_pre)(uint32_t); const char *(*pre_name)(uint32_t);
+    uint16_t *mv; const mpd_t *pd; uint8_t np; void (*apply)(void);         /* the live parameters, their descriptors (the manifest's order) and the call that makes the module re-read them */
+} meter_def_t;
 extern const meter_def_t meter_table[];
 extern const uint32_t meter_count;
 void        meters_init(void);
@@ -27,7 +36,11 @@ void        meters_next(int dir);              /* X: the next / previous meter *
 uint32_t    meters_cur(void);
 uint32_t    meters_preset_of(uint32_t meter);          /* the selected preset of a meter */
 void        meters_preset_select(uint32_t meter, uint32_t p);   /* a saved or menu choice (out of range = the first); repaints when it is the meter on screen */
-void        meters_preset_next(void);                  /* Select+X: the next preset of the current meter */
-const char *meters_preset_name(void);                  /* the current meter's current preset */
+void        meters_preset_next(void);
+uint32_t    meters_npre(uint32_t meter);               /* presets of a meter: the built-in ones, or the METR file's */
+uint32_t    meters_metr_load(const uint8_t *src, uint32_t n);   /* the METR section of tau-assets.bin: replaces the presets of the meters it carries (returns how many); applies each boot preset */                  /* Select+X: the next preset of the current meter */
+const char *meters_preset_name(void);
+void        meters_params_changed(uint32_t meter);   /* the Configure page edited meter `meter`: re-read, repaint, call the preset CUSTOM */
+uint32_t    meters_custom(uint32_t meter);           /* 1 when the parameters were edited since the preset was chosen */                  /* the current meter's current preset */
 const char *meters_name(void);
 #endif

@@ -2,6 +2,11 @@
 #ifndef P2_METER_PRESETS_H
 #define P2_METER_PRESETS_H
 #include <stdint.h>
+#ifndef P2_MPD_T
+#define P2_MPD_T
+/* a parameter the Configure page can edit: type 0 number, 1 choice, 2 on/off; shown only when the parameter `when_idx` has the value `when_val` (255 = always) */
+typedef struct { const char *label; uint8_t type, hidden; uint16_t min, max, step; uint8_t nval; const char *const *vals; uint8_t when_idx; uint16_t when_val; } mpd_t;
+#endif
 enum { MPP_BARS_BANDS, MPP_BARS_EASE, MPP_BARS_ATTACK, MPP_BARS_RELEASE, MPP_BARS_PEAK_ON, MPP_BARS_PEAK_GRAVITY, MPP_BARS_PEAK_HOLD_MS, MPP_BARS_PEAK_FALL, MPP_BARS_N };
 #define MPP_BARS_PRESETS 5u
 static const char *const mpp_bars_name[MPP_BARS_PRESETS] = { "FLUID", "CLASSIC", "BOUNCY", "SLOW FADE", "SNAPPY" };
@@ -12,6 +17,19 @@ static const uint16_t mpp_bars[MPP_BARS_PRESETS][MPP_BARS_N] = {
     { 8, 2, 30, 12, 1, 0, 500, 15 },   /* SLOW FADE */
     { 16, 1, 90, 90, 1, 1, 100, 70 },   /* SNAPPY */
 };
+static const char *const mpl_bars_ease[] = { "INSTANT", "LINEAR", "EXPONENTIAL", "SPRING" };
+static const char *const mpl_bars_peak_gravity[] = { "LINEAR", "GRAVITY" };
+static const mpd_t mpd_bars[8] = {
+    { "BANDS", 0, 0, 4, 16, 1, 0, 0, 255, 0 },
+    { "EASING", 1, 0, 0, 3, 1, 4, mpl_bars_ease, 255, 0 },
+    { "ATTACK", 0, 0, 1, 100, 5, 0, 0, 255, 0 },
+    { "RELEASE", 0, 0, 1, 100, 5, 0, 0, 255, 0 },
+    { "PEAK CAP", 2, 0, 0, 1, 1, 0, 0, 255, 0 },
+    { "PEAK FALL STYLE", 1, 0, 0, 1, 1, 2, mpl_bars_peak_gravity, 4, 1 },
+    { "PEAK HOLD", 0, 0, 0, 800, 20, 0, 0, 4, 1 },
+    { "PEAK FALL SPEED", 0, 0, 1, 100, 5, 0, 0, 4, 1 },
+};
+#define MPD_BARS_N 8u
 enum { MPP_SCOPE_SCOPE_SMOOTH, MPP_SCOPE_SCOPE_TRAIL, MPP_SCOPE_N };
 #define MPP_SCOPE_PRESETS 5u
 static const char *const mpp_scope_name[MPP_SCOPE_PRESETS] = { "FLUID", "CLASSIC", "BOUNCY", "SLOW FADE", "SNAPPY" };
@@ -22,6 +40,11 @@ static const uint16_t mpp_scope[MPP_SCOPE_PRESETS][MPP_SCOPE_N] = {
     { 55, 40 },   /* SLOW FADE */
     { 15, 5 },   /* SNAPPY */
 };
+static const mpd_t mpd_scope[2] = {
+    { "SCOPE SMOOTH", 0, 0, 0, 90, 5, 0, 0, 255, 0 },
+    { "SCOPE TRAIL", 0, 1, 0, 80, 5, 0, 0, 255, 0 },
+};
+#define MPD_SCOPE_N 2u
 enum { MPP_CHL_LAYOUT, MPP_CHL_LINE_WIDTH, MPP_CHL_MODES, MPP_CHL_RISE, MPP_CHL_FALL, MPP_CHL_MORPH, MPP_CHL_MORPH_GAIN, MPP_CHL_TRIGGER, MPP_CHL_REFRACTORY, MPP_CHL_TONAL, MPP_CHL_PAINT, MPP_CHL_N };
 #define MPP_CHL_PRESETS 4u
 static const char *const mpp_chl_name[MPP_CHL_PRESETS] = { "LATTICE", "SHIMMER", "EMBER", "OCEAN" };
@@ -31,6 +54,22 @@ static const uint16_t mpp_chl[MPP_CHL_PRESETS][MPP_CHL_N] = {
     { 0, 1245, 3, 668, 401, 63, 391, 26, 600, 0, 1 },   /* EMBER */
     { 0, 1245, 3, 668, 401, 63, 391, 26, 600, 0, 2 },   /* OCEAN */
 };
+static const char *const mpl_chl_layout[] = { "LATTICE", "SHIMMER" };
+static const char *const mpl_chl_paint[] = { "LINE", "EMBER", "OCEAN" };
+static const mpd_t mpd_chl[11] = {
+    { "LAYOUT", 1, 0, 0, 1, 1, 2, mpl_chl_layout, 255, 0 },
+    { "LINE WIDTH", 0, 0, 200, 6000, 25, 0, 0, 255, 0 },
+    { "MODES", 0, 0, 1, 4, 1, 0, 0, 255, 0 },
+    { "RISE", 0, 0, 50, 6000, 50, 0, 0, 255, 0 },
+    { "FALL", 0, 0, 50, 6000, 50, 0, 0, 255, 0 },
+    { "MORPH SPEED", 0, 0, 0, 1024, 8, 0, 0, 255, 0 },
+    { "MORPH GAIN", 0, 0, 0, 2048, 16, 0, 0, 255, 0 },
+    { "TRIGGER GAIN", 0, 0, 4, 100, 1, 0, 0, 255, 0 },
+    { "REFRACTORY", 0, 0, 50, 2000, 25, 0, 0, 255, 0 },
+    { "TONAL TRIGGER", 2, 0, 0, 1, 1, 0, 0, 255, 0 },
+    { "PAINT", 1, 0, 0, 2, 1, 3, mpl_chl_paint, 255, 0 },
+};
+#define MPD_CHL_N 11u
 enum { MPP_VU_INFO, MPP_VU_COLOR_MODE, MPP_VU_COLOR_GREEN, MPP_VU_COLOR_YELLOW, MPP_VU_COLOR_RED, MPP_VU_N };
 #define MPP_VU_PRESETS 3u
 static const char *const mpp_vu_name[MPP_VU_PRESETS] = { "THEME", "STANDARD", "CUSTOM EXAMPLE" };
@@ -39,4 +78,64 @@ static const uint16_t mpp_vu[MPP_VU_PRESETS][MPP_VU_N] = {
     { 1, 1, 2016, 64992, 63488 },   /* STANDARD */
     { 1, 1, 1622, 43835, 61775 },   /* CUSTOM EXAMPLE */
 };
+static const char *const mpl_vu_color_mode[] = { "THEME", "CUSTOM" };
+static const mpd_t mpd_vu[5] = {
+    { "TECH INFO", 2, 1, 0, 1, 1, 0, 0, 255, 0 },
+    { "SEGMENT COLOUR", 1, 0, 0, 1, 1, 2, mpl_vu_color_mode, 255, 0 },
+    { "GREEN", 0, 1, 0, 65535, 1, 0, 0, 1, 1 },
+    { "YELLOW", 0, 1, 0, 65535, 1, 0, 0, 1, 1 },
+    { "RED", 0, 1, 0, 65535, 1, 0, 0, 1, 1 },
+};
+#define MPD_VU_N 5u
+static const char *const mpl_lw_view[] = { "HISTORY", "SPECTRUM" };
+static const char *const mpl_lw_split[] = { "OCTAVES", "BASS FINE", "ENERGY", "DYNAMICS", "CUSTOM" };
+static const char *const mpl_lw_outer[] = { "BASS", "TREBLE" };
+static const char *const mpl_lw_nest[] = { "NESTED", "OVERLAP" };
+static const char *const mpl_lw_draw[] = { "BLOCKS", "SMOOTH" };
+static const char *const mpl_lw_color_mode[] = { "ACCENT", "THEME", "CUSTOM" };
+static const char *const mpl_lw_grad[] = { "TINTS", "SHADES", "ANALOGOUS", "COMPLEMENT" };
+static const char *const mpl_lw_color_outer[] = { "ACCENT", "TEXT", "TEXT2", "OK", "WARN", "DANGER", "PILL", "ERROR", "SURFACE", "TRACK", "BASE", "BG" };
+static const char *const mpl_lw_color_inner[] = { "ACCENT", "TEXT", "TEXT2", "OK", "WARN", "DANGER", "PILL", "ERROR", "SURFACE", "TRACK", "BASE", "BG" };
+static const char *const mpl_lw_color_bg[] = { "ACCENT", "TEXT", "TEXT2", "OK", "WARN", "DANGER", "PILL", "ERROR", "SURFACE", "TRACK", "BASE", "BG" };
+static const char *const mpl_lw_hstyle[] = { "BLOCKS", "EQ BELLS", "CURVE" };
+static const char *const mpl_lw_aa[] = { "OFF", "EDGE 2", "EDGE 4", "EDGE 8" };
+static const char *const mpl_lw_bmode[] = { "OFF", "ALPHA", "AVERAGE", "ADD", "SUBTRACT", "ADD QUARTER" };
+static const char *const mpl_lw_guard[] = { "ON", "RELAXED", "OFF" };
+static const mpd_t mpd_lw[34] = {
+    { "VIEW", 1, 0, 0, 1, 1, 2, mpl_lw_view, 255, 0 },
+    { "LAYERS", 0, 0, 1, 6, 1, 0, 0, 255, 0 },
+    { "LAYER SPLIT", 1, 0, 0, 4, 1, 5, mpl_lw_split, 255, 0 },
+    { "OUTER LAYER", 1, 0, 0, 1, 1, 2, mpl_lw_outer, 255, 0 },
+    { "LAYER MODE", 1, 0, 0, 1, 1, 2, mpl_lw_nest, 255, 0 },
+    { "SPLIT 1", 0, 0, 1, 15, 1, 0, 0, 2, 4 },
+    { "SPLIT 2", 0, 0, 1, 15, 1, 0, 0, 2, 4 },
+    { "SPLIT 3", 0, 0, 1, 15, 1, 0, 0, 2, 4 },
+    { "SPLIT 4", 0, 0, 1, 15, 1, 0, 0, 2, 4 },
+    { "SPLIT 5", 0, 0, 1, 15, 1, 0, 0, 2, 4 },
+    { "DRAW", 1, 0, 0, 1, 1, 2, mpl_lw_draw, 255, 0 },
+    { "RESOLUTION", 0, 0, 16, 400, 8, 0, 0, 255, 0 },
+    { "SCROLL SPEED", 0, 0, 20, 240, 10, 0, 0, 0, 0 },
+    { "RESPONSE", 0, 0, 1, 100, 5, 0, 0, 255, 0 },
+    { "TAIL TAPER", 0, 0, 0, 100, 5, 0, 0, 255, 0 },
+    { "COLOUR SOURCE", 1, 0, 0, 2, 1, 3, mpl_lw_color_mode, 255, 0 },
+    { "ACCENT GRADATION", 1, 0, 0, 3, 1, 4, mpl_lw_grad, 15, 0 },
+    { "OUTER COLOUR", 1, 0, 0, 11, 1, 12, mpl_lw_color_outer, 15, 1 },
+    { "INNER COLOUR", 1, 0, 0, 11, 1, 12, mpl_lw_color_inner, 15, 1 },
+    { "BACKGROUND", 1, 0, 0, 11, 1, 12, mpl_lw_color_bg, 15, 1 },
+    { "CUSTOM OUTER", 0, 1, 0, 65535, 1, 0, 0, 15, 2 },
+    { "CUSTOM INNER", 0, 1, 0, 65535, 1, 0, 0, 15, 2 },
+    { "CUSTOM BACKGROUND", 0, 1, 0, 65535, 1, 0, 0, 15, 2 },
+    { "SPECTRUM STYLE", 1, 1, 0, 2, 1, 3, mpl_lw_hstyle, 0, 1 },
+    { "ANTIALIASING", 1, 1, 0, 3, 1, 4, mpl_lw_aa, 255, 0 },
+    { "LAYER BLENDING", 1, 1, 0, 5, 1, 6, mpl_lw_bmode, 255, 0 },
+    { "BLEND ALPHA", 0, 1, 5, 100, 5, 0, 0, 25, 1 },
+    { "COST GUARD", 1, 1, 0, 2, 1, 3, mpl_lw_guard, 255, 0 },
+    { "GAIN, LAYER 1", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
+    { "GAIN, LAYER 2", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
+    { "GAIN, LAYER 3", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
+    { "GAIN, LAYER 4", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
+    { "GAIN, LAYER 5", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
+    { "GAIN, LAYER 6", 0, 1, 0, 36, 1, 0, 0, 255, 0 },
+};
+#define MPD_LW_N 34u
 #endif

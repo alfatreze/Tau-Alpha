@@ -3,6 +3,7 @@
 #ifndef P2_SETTINGS_VIEW_H
 #define P2_SETTINGS_VIEW_H
 #include <stdint.h>
+extern uint8_t blank_sel;                 /* the screen-blank choice (0 off, then 1, 5, 10, 30 minutes) */
 void settings_view_enter(void);
 int  settings_view_input(uint32_t edge);    /* VW_STAY, or the view to switch to (Now Playing on close, Info, Report) */
 void settings_view_mark(void);              /* once per loop pass: marks the region when a value changed elsewhere */

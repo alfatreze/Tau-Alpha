@@ -17,7 +17,7 @@ def build(td, mutant):
     if mutant == "noproof":
         a = "    if (!lw_ps) {"; assert a in src; src = src.replace(a, "    if (!lw_ps) { lw_ps = 1u; } if (0) {")
     if mutant == "nopreset":
-        a = "preset_cur != want"; assert a in src; src = src.replace(a, "preset_cur == 0xFFFFu")
+        a = "lw_mv[k] = lw_preset[want][k]"; assert a in src; src = src.replace(a, "lw_mv[k] = lw_preset[0][k]")
     (d / "ui/meter_layered_wave.c").write_text(src)
     for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "generated/lw_presets.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_lw_harness.c").read_text().replace('"../fw2/ui/meter_layered_wave.c"', '"../ui/meter_layered_wave.c"'))

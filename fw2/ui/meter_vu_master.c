@@ -27,10 +27,16 @@ static uint32_t seg_x(uint32_t lx, uint32_t lw, uint32_t seg, uint32_t *seg_w_ou
 }
 static uint8_t fixed; static uint16_t fixed_c[3];                      /* a preset with its own zone colours (STANDARD, CUSTOM EXAMPLE) instead of the theme's roles */
 const char *meter_vu_master_preset_name(uint32_t i) { return mpp_vu_name[i < MPP_VU_PRESETS ? i : 0u]; }
+uint16_t meter_vu_master_mv[MPP_VU_N];
+void meter_vu_master_apply(void)
+{
+    const uint16_t *v = meter_vu_master_mv;
+    fixed = (uint8_t)(v[MPP_VU_COLOR_MODE] == 1u); fixed_c[0] = v[MPP_VU_COLOR_GREEN]; fixed_c[1] = v[MPP_VU_COLOR_YELLOW]; fixed_c[2] = v[MPP_VU_COLOR_RED];
+}
 void meter_vu_master_preset(uint32_t i)
 {
-    const uint16_t *v = mpp_vu[i < MPP_VU_PRESETS ? i : 0u];
-    fixed = (uint8_t)(v[MPP_VU_COLOR_MODE] == 1u); fixed_c[0] = v[MPP_VU_COLOR_GREEN]; fixed_c[1] = v[MPP_VU_COLOR_YELLOW]; fixed_c[2] = v[MPP_VU_COLOR_RED];
+    for (uint32_t k = 0; k < MPP_VU_N; k++) meter_vu_master_mv[k] = mpp_vu[i < MPP_VU_PRESETS ? i : 0u][k];
+    meter_vu_master_apply();
 }
 static uint16_t zone_color(uint32_t zone) { if (fixed) return fixed_c[zone > 2u ? 2u : zone]; return zone == 0u ? th_role[TR_OK] : zone == 1u ? th_role[TR_WARN] : th_role[TR_DANGER]; }
 

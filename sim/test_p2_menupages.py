@@ -30,7 +30,7 @@ with tempfile.TemporaryDirectory() as td:
     _, r = run(g, "R D D D D D A L")
     check("a toggle (ALBUM ART): A flips it, Left flips it back (Left is not 'back' on a toggle)", r[6][5:] == (1, 7, 1) and r[7][5:] == (1, 7, 0) and r[7][1] == 1, r[5:])
     _, r = run(g, "R D D D D A R L")
-    check("a placeholder row (METER: CONFIGURE) does nothing on A or Right; Left is back", r[5][5] == 0 and r[5][1] == 1 and r[6][5] == 0 and r[6][1] == 1 and r[7][1] == 0, r)
+    check("METER: CONFIGURE is an action: A reports ACT_CONFIGURE (4), Right does nothing, Left is back", r[5][5:7] == (2, 4) and r[6][5] == 0 and r[6][1] == 1 and r[7][1] == 0, r)
     _, r = run(g, "D R v 0 100 R L L v 0 0 L")
     check("volume: Right at 100 changes nothing, Left steps down by 3 (not back), Left at 0 changes nothing and stays", r[2][5] == 0 and r[3][5:] == (1, 0, 97) and r[3][1] == 1 and r[4][5:] == (1, 0, 94) and r[5][5] == 0 and r[5][1] == 1, r)
     _, r = run(g, "D R D v 1 2 A U A")
