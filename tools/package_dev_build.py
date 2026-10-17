@@ -152,7 +152,7 @@ def main():
             sys.exit(f"--semver must be a pre-release version such as 0.6.0-preview.2: got {args.semver!r}")
         ch = tau_layout.CHANNELS["preview"]
         platform, title, platforms = ch["platform"], ch["name"], list(ch["platforms"])
-        short = ch["core"] if args.variant == "tempo" else ch["diag"]
+        short = ch["core"] if args.variant in ("tempo", "player2") else ch["diag"]
         core_id, label = f"alfatreze.{short}", args.semver
         out = root / f"work/diagnostics/tau-preview-{args.semver}/pocket"
     else:

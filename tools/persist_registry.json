@@ -40,29 +40,29 @@
       "name": "(internal) list 1",
       "word": "SW_RETIRED_PLN0",
       "meaning": 3,
-      "since": "v0.6.0-preview.1",
-      "what": "NOT YET RELEASED (Player 2, first ships after v0.6.0-preview.1: set `since` to that release tag when it is cut). Word 0 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
+      "since": "v0.6.0-preview.2",
+      "what": "(Player 2, first shipped in v0.6.0-preview.2). Word 0 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
     },
     "21": {
       "name": "(internal) list 2",
       "word": "SW_RETIRED_PLN1",
       "meaning": 3,
-      "since": "v0.6.0-preview.1",
-      "what": "NOT YET RELEASED (Player 2, first ships after v0.6.0-preview.1: set `since` to that release tag when it is cut). Word 1 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
+      "since": "v0.6.0-preview.2",
+      "what": "(Player 2, first shipped in v0.6.0-preview.2). Word 1 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
     },
     "22": {
       "name": "(internal) list 3",
       "word": "SW_RETIRED_PLN2",
       "meaning": 3,
-      "since": "v0.6.0-preview.1",
-      "what": "NOT YET RELEASED (Player 2, first ships after v0.6.0-preview.1: set `since` to that release tag when it is cut). Word 2 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
+      "since": "v0.6.0-preview.2",
+      "what": "(Player 2, first shipped in v0.6.0-preview.2). Word 2 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
     },
     "23": {
       "name": "(internal) list 4",
       "word": "SW_RETIRED_PLHASH",
       "meaning": 3,
-      "since": "v0.6.0-preview.1",
-      "what": "NOT YET RELEASED (Player 2, first ships after v0.6.0-preview.1: set `since` to that release tag when it is cut). Word 3 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
+      "since": "v0.6.0-preview.2",
+      "what": "(Player 2, first shipped in v0.6.0-preview.2). Word 3 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
     },
     "24": {
       "name": "(internal) library 1",
@@ -103,8 +103,8 @@
       "name": "(internal) meter presets",
       "word": "SW_MPRE",
       "meaning": 1,
-      "since": "v0.6.0-preview.1",
-      "what": "NOT YET RELEASED (Player 2, first ships after v0.6.0-preview.1: set `since` to that release tag when it is cut). The selected preset of each meter, four bits each in the meter table order: Winamp Bars (bits 3-0, 5 presets), Winamp Scope (7-4, 5), Chladni (11-8, 4), Layered Wave (15-12, 8), Master VU (19-16, 3); Player 2 (Select+X cycles); a value out of range reads as the first preset"
+      "since": "v0.6.0-preview.2",
+      "what": "(Player 2, first shipped in v0.6.0-preview.2). The selected preset of each meter, four bits each in the meter table order: Winamp Bars (bits 3-0, 5 presets), Winamp Scope (7-4, 5), Chladni (11-8, 4), Layered Wave (15-12, 8), Master VU (19-16, 3); Player 2 (Select+X cycles); a value out of range reads as the first preset"
     }
   }
 }

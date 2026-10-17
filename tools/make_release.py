@@ -94,6 +94,8 @@ def main():
     ap.add_argument("--previous-release", help="the tag of the --previous zips (checked against their version, date and the CHANGELOG)")
     ap.add_argument("--bitstream-version", help="CORE_VERSION of --rbf when it has no fit manifest (<rbf>.json)")
     ap.add_argument("--test", action="store_true", help="also run make test-host")
+    ap.add_argument("--player2", action="store_true", help="ship Player 2 (fw2/): ONE core, 'TAU Preview' (Player 2 includes the diagnostics), packaged by "
+                    "tools/package_dev_build.py --semver --variant player2; the old firmware and the Diagnostics core are not built")
     args = ap.parse_args()
     rbf = args.rbf if args.rbf.is_absolute() else ROOT / args.rbf
     if sha(rbf) != args.rbf_sha256:
@@ -110,6 +112,8 @@ def main():
             raise tau_compat.CompatError(f"--release {args.release} is not core.json version {version}")
         tau_compat.changelog_section(args.release, ROOT / "CHANGELOG.md")
         cl_date = tau_compat.changelog_releases(ROOT / "CHANGELOG.md").get(args.release)
+        if args.player2 and cl_date:
+            date = cl_date                          # Player 2: the package's core.json date follows the CHANGELOG heading
         if cl_date and cl_date != date:      # the rehearsal of 2026-10-08 zipped "2026-10-07" under a heading dated 8 October
             raise tau_compat.CompatError(f"core.json date_release {date} differs from the CHANGELOG heading's date {cl_date}: set one of them")
         if args.previous and not args.previous_release:
@@ -126,6 +130,21 @@ def main():
     ch = tau_layout.CHANNELS[channel]
     normal_id, diag_id = f"alfatreze.{ch['core']}", f"alfatreze.{ch['diag']}"
     print(f"channel {channel}: {normal_id} + {diag_id} on platform {ch['platform']}")
+
+    if args.player2:
+        if channel != "preview":
+            sys.exit("--player2 ships in the Preview channel only (tag with a pre-release label)")
+        full = args.release[1:]
+        sh([sys.executable, "tools/package_dev_build.py", "--variant", "player2", "--semver", full, "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256,
+            "--build-flags", "PLAYER2=1,FLAC2=1,LPC=1"])
+        normal_src = ROOT / f"work/diagnostics/tau-preview-{full}/pocket"
+        cj = json.loads((normal_src / "Cores" / normal_id / "core.json").read_text())
+        cj["core"]["metadata"]["date_release"] = date
+        (normal_src / "Cores" / normal_id / "core.json").write_text(json.dumps(cj, indent=4) + "\n")
+        if args.test:
+            sh(["make", "test-host"])
+        jobs = [(normal_id, normal_src, tau_layout.core_dir(normal_src, ch["platform"], normal_id) / "tau.rom")]
+        return finish(args, jobs, rbf, raw, date, channel, ch)
 
     env = dict(os.environ)
     # B-581: the release bitstream is the 192 KB / 66.667 MHz one (CORE_VERSION rev 26), so the firmware must be
@@ -157,13 +176,15 @@ def main():
     if args.test:
         sh(["make", "test-host"])
 
-    OUT.mkdir(exist_ok=True)
-    # The full version every view shows (owner, 2026-10-08): the zipped core.json `version` (Pocket's Select Core row) and the ROM's
-    # TAUVER field (splash, Info), both from the release tag; the ROM also carries the commit (tools/tau_version.py).
-    import tau_version
-    full = args.release[1:]
     jobs = [(core_id, src, tau_layout.core_dir(src, ch["platform"], core_id) / "tau.rom")
             for core_id, src in ((normal_id, normal_src), (diag_id, DIAG))]
+    finish(args, jobs, rbf, raw, date, channel, ch)
+
+
+def finish(args, jobs, rbf, raw, date, channel, ch):
+    OUT.mkdir(exist_ok=True)
+    import tau_version
+    full = args.release[1:]
     for core_id, src, rom in jobs:
         core_dir = src / "Cores" / core_id
         cj = json.loads((core_dir / "core.json").read_text())
