@@ -12,7 +12,7 @@
 #include "../aout/halcyon.h"
 #include "../aout/aout.h"
 #include "regions.h"
-#include "../transport/mp3play.h"
+#include "../cores/controls_core.h"
 
 /* The layout of Figma "now-playing" (file rT7ux8u0R7SS3D34J4Idsq, nodes 384:563 playing and 384:1315 no track), 400 x 360: the cover top left, the pills + title + artist + album beside it, the meter full width, the
  * time row (state, elapsed, track n/m, total) under a progress bar, and a bottom bar with the two button hints on the left and repeat / shuffle / volume on the right. One font for all text (the font chosen in Appearance). */
@@ -71,20 +71,20 @@ static void cover_placeholder(void)                          /* no cover, or no 
     gfx_rect(COV_X, COV_Y, COV_S, COV_S, TRK);
     icon_draw(ICON_NOTE, COV_X + (COV_S - icon_width(ICON_NOTE)) / 2u, COV_Y + (COV_S - ICON_H) / 2u, DIM, TRK);
 }
-static void state_glyph(uint32_t playing)                     /* the 14 px play triangle or pause bars before the elapsed time */
+static void state_glyph(uint32_t playing)                     /* the 14 px play / pause icon before the elapsed time */
 {
     gfx_rect(PB_X, TIME_Y + 1u, 14, 14, BG);
-    if (playing) { for (uint32_t k = 0; k < 7u; k++) { const uint32_t h = 14u - 2u * k; gfx_rect(PB_X + 2u + 2u * k, TIME_Y + 1u + k, 2, h > 0 ? h : 2u, ACC); } }
-    else { gfx_rect(PB_X + 2u, TIME_Y + 2u, 3, 12, ACC); gfx_rect(PB_X + 9u, TIME_Y + 2u, 3, 12, ACC); }
+    const uint32_t id = playing ? ICON_PLAY_S : ICON_PAUSE_S;
+    icon_draw(id, PB_X + (14u - icon_width(id)) / 2u, TIME_Y + 1u, ACC, BG);
 }
-static void bottom_bar_static(void)
+static void bottom_bar_static(void)                          /* the icons are 28 px tall, the height of the bar */
 {
     gfx_rect(0, BAR_Y0, GFX_W, BAR_H, PAN);
-    gfx_rect(12, BAR_Y0 + 2u, 24, 24, TRK); gfx_text(12, BAR_Y0 + 6u, "SEL", FG, TRK);
-    uint32_t x = 12u + 24u + 4u;
-    gfx_text(x, BAR_Y0 + 6u, "PLAYLIST", FG, PAN); x += gfx_text_width("PLAYLIST") + 12u;
-    gfx_rect(x, BAR_Y0 + 2u, 24, 24, TRK); gfx_text(x + 4u, BAR_Y0 + 6u, "ST", FG, TRK);
-    gfx_text(x + 28u, BAR_Y0 + 6u, "MENU", FG, PAN);
+    uint32_t x = 12u;
+    icon_draw(ICON_SELECT, x, BAR_Y0, FG, PAN); x += icon_width(ICON_SELECT) + 4u;
+    gfx_text(x, BAR_Y0 + 6u, "PLAYLIST", FG, PAN); x += gfx_text_width("PLAYLIST") + 14u;
+    icon_draw(ICON_START, x, BAR_Y0, FG, PAN); x += icon_width(ICON_START) + 4u;
+    gfx_text(x, BAR_Y0 + 6u, "MENU", FG, PAN);
 }
 
 void nowplaying_enter(void)
@@ -115,8 +115,8 @@ void nowplaying_draw_head(void)
     }
     if (!p->valid) {
         if (art_state != 1u) { art_state = 1u; art_gen = 0xFFFFFFFFu; cover_placeholder(); for (uint32_t i = 1; i < 4u; i++) cache[i].s[0] = 0; }
-        put(1, MX, TITLE_Y, "NO TRACK LOADED", FG, MW, 0, BG);
-        put(2, MX, ARTIST_Y, "OPEN THE PLAYLIST", ACC, MW, 0, BG);
+        put(1, MX, TITLE_Y, "SELECT A TRACK", FG, MW, 0, BG);
+        put(2, MX, ARTIST_Y, "PRESS SELECT", ACC, MW, 0, BG);
         put(3, MX, ALBUM_Y, "", DIM, MW, 0, BG);
         return;
     }
@@ -150,11 +150,15 @@ void nowplaying_draw_foot(void)
     const uint32_t sig = p->repeat * 4u + (p->shuffle ? 1u : 0u) + p->volume * 16u;      /* the bottom bar's right side: repeat, shuffle, volume */
     if (sig != bar_sig) {
         bar_sig = sig;
-        gfx_rect(262, BAR_Y0 + 2u, 130, 24, PAN);
-        gfx_text(266, BAR_Y0 + 6u, p->repeat == 0 ? "REP" : p->repeat == 1 ? "REP" : "RE1", p->repeat ? ACC : DIM, PAN);
-        gfx_text(266 + 36u, BAR_Y0 + 6u, "SHF", p->shuffle ? ACC : DIM, PAN);
-        gfx_rect(266 + 72u, BAR_Y0 + 13u, 50, 2, TRK);
-        gfx_rect(266 + 72u, BAR_Y0 + 13u, (p->volume > 100u ? 100u : p->volume) / 2u, 2, ACC);
+        const uint32_t ri = p->repeat == 0 ? ICON_PLAY_BOX_S : p->repeat == 1 ? ICON_REPEAT_S : ICON_REPEAT_ONE_S, si = p->shuffle ? ICON_SHUFFLE_S : ICON_SHUFFLE_OFF_S, vi = ctl_vol_icon(p->volume) + 16u;
+        gfx_rect(236, BAR_Y0, 164, BAR_H, PAN);
+        const uint32_t iy = BAR_Y0 + 7u;                       /* the 14 px icons centred in the bar */
+        uint32_t x = 270u;
+        icon_draw(ri, x, iy, p->repeat ? ACC : DIM, PAN); x += icon_width(ri) + 12u;
+        icon_draw(si, x, iy, p->shuffle ? ACC : DIM, PAN); x += icon_width(si) + 12u;
+        icon_draw(vi, x, iy, FG, PAN); x += icon_width(vi) + 8u;
+        gfx_rect(x, BAR_Y0 + 13u, 50, 2, TRK);
+        gfx_rect(x, BAR_Y0 + 13u, (p->volume > 100u ? 100u : p->volume) / 2u, 2, ACC);
     }
 }
 
