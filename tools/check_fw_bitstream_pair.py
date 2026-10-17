@@ -81,11 +81,17 @@ def main(argv=None):
     ap.add_argument("--bitstream-manifest", help="the JSON next to a collected RBF (tools/vm_fit.py collect): also check the firmware's FEATURES against the macros it was built with")
     ap.add_argument("--allow-missing", default="", help="comma list of features that may be missing on purpose (HALCYON,LPC,POLY,SDRAM_BUSY)")
     a = ap.parse_args(argv)
-    ver = (a.bitstream_version or os.environ.get("TAU_BITSTREAM_VERSION") or tree_core_version()).upper()
+    import json
+    macros = set(json.loads(Path(a.bitstream_manifest).read_text())["macros"]) if a.bitstream_manifest else None
+    ver = a.bitstream_version or os.environ.get("TAU_BITSTREAM_VERSION")
+    if not ver and macros is not None:
+        # the bitstream is the one the manifest describes: its CORE_VERSION is the `ifdef chain of mp3_soc.v evaluated with ITS macros (a font-memory fit is rev 27, the earlier ones rev 26)
+        sys.path.insert(0, str(ROOT / "tools"))
+        import tau_compat
+        ver = tau_compat.core_version_for_macros(macros)
+    ver = (ver or tree_core_version()).upper()
     errs = [e for p in a.packages for e in check(p, ver)]
-    if a.bitstream_manifest:
-        import json
-        macros = set(json.loads(Path(a.bitstream_manifest).read_text())["macros"])
+    if macros is not None:
         errs += [e for p in a.packages for e in check_features(p, macros, tuple(x for x in a.allow_missing.split(",") if x))]
     for e in errs:
         print("PAIR MISMATCH:", e, file=sys.stderr)
