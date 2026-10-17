@@ -93,7 +93,7 @@ int settings_view_input(uint32_t edge)
         else if (e.id == V_A16) mp3play_a16_set(e.value);
         pull();
         break;
-    case EF_ACTION: resume = 1; return e.id == ACT_INFO ? V_INFO : e.id == ACT_HALCYON ? V_HALCYON : e.id == ACT_CONFIGURE ? V_CONFIGURE : e.id == ACT_CHECK ? V_CHECK : V_REPORT;
+    case EF_ACTION: resume = 1; return e.id == ACT_INFO ? V_INFO : e.id == ACT_HALCYON ? V_HALCYON : e.id == ACT_CONFIGURE ? V_CONFIGURE : e.id == ACT_CHECK ? V_CHECK : e.id == ACT_CONTROLS ? V_CONTROLS : V_REPORT;
     case EF_CLOSE: return V_NOWPLAYING;
     default: break;
     }

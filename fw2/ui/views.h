@@ -3,7 +3,7 @@
 #ifndef P2_VIEWS_H
 #define P2_VIEWS_H
 #include <stdint.h>
-enum { V_NOWPLAYING = 0, V_LIBRARY, V_SETTINGS, V_INFO, V_REPORT, V_HALCYON, V_FULLSCREEN, V_CONFIGURE, V_CHECK, VIEW_COUNT };
+enum { V_NOWPLAYING = 0, V_LIBRARY, V_SETTINGS, V_INFO, V_REPORT, V_HALCYON, V_FULLSCREEN, V_CONFIGURE, V_CHECK, V_CONTROLS, VIEW_COUNT };
 typedef struct { void (*info_init)(void); void (*info_key)(uint32_t keys); void (*info_draw)(void); void (*report_draw)(void); void (*check_enter)(void); int (*check_key)(uint32_t); void (*check_tick)(void); void (*check_draw)(void); uint32_t (*check_dirty)(void); void (*check_exit)(void); void (*check_repaint)(void); void (*report_payload)(const uint8_t *, uint32_t); } views_diag_t;
 void     views_set_diag(const views_diag_t *d);   /* before views_init: the Info and Report pages (diagnostics) */
 void     views_init(void);                  /* registers the regions, enters Now Playing */

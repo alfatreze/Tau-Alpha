@@ -11,6 +11,7 @@
 #include "halcyon_view.h"
 #include "fullscreen_view.h"
 #include "configure_view.h"
+#include "controls_view.h"
 #include "meter.h"
 
 static vw_t vw;
@@ -57,6 +58,7 @@ static const view_t tab[VIEW_COUNT] = {
     [V_REPORT]     = { report_enter, 0, report_input, 0, 0, 0 },
     [V_HALCYON]    = { halcyon_view_enter, 0, halcyon_view_input, halcyon_view_mark, RM(R_HAL), halcyon_view_redraw },
     [V_CONFIGURE]  = { configure_view_enter, 0, configure_view_input, configure_view_mark, RM(R_CONF_PREV) | RM(R_CONF_LIST), configure_view_redraw },
+    [V_CONTROLS]   = { controls_view_enter, 0, controls_view_input, controls_view_mark, RM(R_CONTROLS), controls_view_redraw },
     [V_CHECK]      = { check_enter, check_exit, check_input, check_mark, RM(R_CHECK), check_repaint },
     [V_FULLSCREEN] = { fullscreen_view_enter, 0, nowplaying_input, fullscreen_view_mark, RM(R_FS_FIG) | RM(R_FS_FOOT), fullscreen_view_enter },
 };
@@ -76,6 +78,7 @@ void views_init(void)
     helios_region(configure_view_draw_preview, 26, 126);                /* R_CONF_PREV */
     helios_region(configure_view_draw_list, 134, 360);                  /* R_CONF_LIST */
     helios_region(check_redraw, 0, HL_WHOLE);                           /* R_CHECK */
+    helios_region(controls_view_draw, 0, HL_WHOLE);                     /* R_CONTROLS */
     vw_init(&vw, tab, VIEW_COUNT, V_NOWPLAYING);
     vw.frame_begin = view_frame_begin; vw.frame_end = view_frame_end;
     vw_start(&vw, &helios);
