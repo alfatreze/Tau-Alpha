@@ -2,6 +2,22 @@
 
 What changed in each release, newest first. Lines starting `- Omega:` are copied into the release's `tau-compat.json` notes for Tau Omega.
 
+## v0.6.0 — 17 October 2026
+
+The first release on the **Stable** channel of the new scheme: **TAU** (Player 2) on platform `tau`, replacing the TAU core of v0.5.0. Player 2 is a rewrite of the player firmware (fw2/); the diagnostics (Info, Check, report grids) are
+part of it, so there is no separate Diagnostics core any more (remove `TAU_DIAGNOSTIC` / `TAU Diagnostics` / `TAU Preview` cores from older installs). Needs the matching new bitstream (writable font memory, CORE_VERSION rev 27).
+Everything in v0.6.0-preview.1 and preview.2 is included: Halcyon EQ as the only EQ, 192 KB RAM and 66.667 MHz clock, hardware MP3 window and FLAC LPC units, FLAC Rice fast path, dB volume with ReplayGain, audiobook tempo,
+gapless FLAC, the Cymo resampler, the pixel-grid report codes and the full-version splash.
+
+- **New now-playing screen** laid out after the Figma frames: cover top left, SMOOTH / format tags, title, artist, album, a full-width meter, progress bar with elapsed, track n/m and total, and a bottom bar with the Select and Start hints and repeat, shuffle and volume icons (the 14-pixel player icons). The no-track state shows a note icon and "SELECT A TRACK".
+- **Settings > CONTROLS** lists every button and combination, with the player icons.
+- **Fonts.** Tamzen Regular is the default; Tamzen Bold, Space Grotesk SemiBold and Bold are in Settings > Appearance > FONT (saved). Latin-1 accented text works; Japanese is not supported yet.
+- **Speed and Time Stretch.** SPEED (varispeed) and TEMPO (pitch-preserving, MP3 only) are separate rows with their own speed lists; Normal only has 1.0x. FLAC plays at 1.00x only.
+- **Meters.** Double-buffered, flicker-free redraws, the Winamp Scope trail fades by alpha blend, Settings pages cross-fade, presets (Select+X) and a Configure page with colour pickers, experimental Layered Wave options, saved tuned values and a code export; presets can be replaced from the METR section of tau-assets.bin.
+- **Diagnostics** (Settings > Diagnostics): runtime toggles and the audio tests in Check, plus FONT MEMORY and ICONS rows.
+- **Known:** seek acceleration while holding is untested; tempo above 1.75x still clicks; font sizes and icon use need more tuning (0.7).
+- Omega: persist id 29 (meter presets) and word 18 bits 20-22 (font) are new since v0.6.0-preview.1; ids 20-23 carry the saved meter tuning; the Diagnostics core is no longer shipped.
+
 ## v0.6.0-preview.2 — 17 October 2026
 
 **Player 2.** The player firmware is rewritten (fw2/) and ships as one core, **TAU Preview**, which includes the diagnostics (Info, Check, report grids). The old Diagnostics core of preview.1 is not

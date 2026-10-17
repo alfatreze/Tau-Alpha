@@ -132,12 +132,12 @@ def main():
     print(f"channel {channel}: {normal_id} + {diag_id} on platform {ch['platform']}")
 
     if args.player2:
-        if channel != "preview":
-            sys.exit("--player2 ships in the Preview channel only (tag with a pre-release label)")
+        if channel == "dev":
+            sys.exit("--player2 ships in the Stable or Preview channel")
         full = args.release[1:]
         sh([sys.executable, "tools/package_dev_build.py", "--variant", "player2", "--semver", full, "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256,
             "--build-flags", "PLAYER2=1,FLAC2=1,LPC=1"])
-        normal_src = ROOT / f"work/diagnostics/tau-preview-{full}/pocket"
+        normal_src = ROOT / f"work/diagnostics/tau-{channel}-{full}/pocket"
         cj = json.loads((normal_src / "Cores" / normal_id / "core.json").read_text())
         cj["core"]["metadata"]["date_release"] = date
         (normal_src / "Cores" / normal_id / "core.json").write_text(json.dumps(cj, indent=4) + "\n")
