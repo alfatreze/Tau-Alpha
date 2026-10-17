@@ -11,8 +11,10 @@ pixel by pixel from the CPU.
 
 Current version **v0.6.0** (17 October 2026). See [CHANGELOG.md](CHANGELOG.md).
 
-<img width="400" height="360" alt="20260930_235633" src="https://github.com/user-attachments/assets/103e9513-db6b-42d2-8834-debe4b39251d" />
-<img width="400" height="360" alt="20260930_235713" src="https://github.com/user-attachments/assets/1194cfac-1036-40ce-a656-de22e0866354" />
+<img width="400" height="360" alt="20261017_125518" src="https://github.com/user-attachments/assets/a31940d5-2a70-4af5-9c25-884f2e197ff2" />
+<img width="400" height="360" alt="20261017_125559" src="https://github.com/user-attachments/assets/38fba9de-5f2e-4739-947a-53c656a5609f" />
+<img width="400" height="360" alt="20261017_125641" src="https://github.com/user-attachments/assets/5e8ca0a3-55b1-47b3-9055-8e440df7b410" />
+
 
 ## What Tau does
 
@@ -37,8 +39,9 @@ Current version **v0.6.0** (17 October 2026). See [CHANGELOG.md](CHANGELOG.md).
   profiles, a Meter Sweep and QR-code reports that can be decoded from a screenshot.
 
 <br clear="right">
-<img width="400" height="360" alt="20260930_235724" src="https://github.com/user-attachments/assets/1be1db5c-2ad3-4db2-b370-ca151b2401ef" />
-<img width="400" height="360" alt="20260930_235740" src="https://github.com/user-attachments/assets/21790d13-cb8c-418c-bbd8-40cc0bf34c23" />
+<img width="400" height="360" alt="20261017_125651" src="https://github.com/user-attachments/assets/a678281c-0b25-4f6f-bee8-0efecf7f0331" />
+<img width="400" height="360" alt="20261017_125703" src="https://github.com/user-attachments/assets/f5c1e955-bd98-4bee-9b51-1b996dda2a5a" />
+
 
 ## Performance at a glance
 
@@ -96,11 +99,12 @@ It is a separate project and repository, built as the product version of `tools/
 
 ## Provenance
 
-Tau is a derivative of **[HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player)** v1.4.0 by
-HarpMudd. As of last count 60% had already been re-written, with quite a bit still to re-work. The project intentionally retains the complete upstream Git history, copyright notice, and inherited
-release history in [CHANGELOG.md](CHANGELOG.md). Tau's new identity, packaging, artwork pipeline, technical
-plans, and subsequent changes are maintained by alfatreze. See [NOTICE.md](NOTICE.md) for provenance and
-third-party licensing boundaries, [docs/ATTRIBUTIONS.md](docs/ATTRIBUTIONS.md) for the full credits, and
+Tau was originally a derivative of **[HarpMudd MP3 Player](https://github.com/harpmudd/HarpMudd.mp3player)** v1.4.0 with minor lets by
+HarpMudd. 
+Through the course of developmetn most of Harpmudd's code has been replaced, with around 18% used. 
+Release history in [CHANGELOG.md](CHANGELOG.md). 
+
+See [NOTICE.md](NOTICE.md) for provenance and third-party licensing boundaries, [docs/ATTRIBUTIONS.md](docs/ATTRIBUTIONS.md) for the full credits, and
 [PROJECT.md](PROJECT.md) for the current milestone ledger and plan.
 
 ## License
