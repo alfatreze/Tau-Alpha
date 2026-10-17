@@ -167,7 +167,12 @@ with tempfile.TemporaryDirectory() as td:
     cl.write_text((ROOT / "CHANGELOG.md").read_text().replace("## v0.6.0-alpha.4", f"## v{ver}-preview.1 — 8 October 2026\n- test\n\n## v0.6.0-alpha.4", 1))
     acc = tc.rom_accepts((pkg / "Assets/tau/alfatreze.TAU/tau.rom").read_bytes())
     cpath = td / "tau-compat.json"
-    cpath.write_text(tc.dumps(tc.build(release=f"v{ver}-preview.1", zips=[zp], previous=None, bitstream_version=acc[0], changelog=cl)))
+    reg = json.loads((ROOT / "tools/persist_registry.json").read_text())      # the tree's registry names later releases than this fixture's
+    for v in reg["ids"].values():
+        if tc.tag_key(v["since"]) > tc.tag_key(f"v{ver}-preview.1"):
+            v["since"] = f"v{ver}-preview.1"
+    (td / "reg.json").write_text(json.dumps(reg))
+    cpath.write_text(tc.dumps(tc.build(release=f"v{ver}-preview.1", zips=[zp], previous=None, bitstream_version=acc[0], changelog=cl, registry_file=td / "reg.json")))
     (card / "Assets/tau/alfatreze.TAU").mkdir(parents=True, exist_ok=True)
     (card / "Assets/tau/alfatreze.TAU/TAU.json").write_text("{}")
     rc, out = run(pkg, "--card", card, "--backup-dir", td / "bk6", "--replace", "--allow-release", "--compat", cpath, "--no-eject", "--yes")

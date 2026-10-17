@@ -11,6 +11,15 @@ import tau_compat as tc  # noqa: E402
 import tau_library  # noqa: E402
 
 HEAD = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+def _clamped_registry(out, tag="v0.6.0-preview.1"):
+    """The real registry with every `since` later than `tag` set to `tag`: this test releases a fixture at `tag`, and the registry of the tree already names later releases."""
+    d = json.loads((ROOT / "tools/persist_registry.json").read_text())
+    for v in d["ids"].values():
+        if tc.tag_key(v["since"]) > tc.tag_key(tag):
+            v["since"] = tag
+    Path(out).write_text(json.dumps(d))
+    return Path(out)
+
 def fitman(macros, rbf_sha, **extra):
     return json.dumps(dict({"macros": macros, "rbf_sha256": rbf_sha, "commit": HEAD, "rtl_dirty": False}, **extra))
 
@@ -86,7 +95,7 @@ with tempfile.TemporaryDirectory() as t:
     # the test inserts its own v0.6.0-preview.1 section below: once the real changelog has released that tag, its heading must not collide (2026-10-09)
     real_cl = real_cl.replace("## v0.6.0-preview.1", "## v0.6.0-preview.0", 1) if "## v0.6.0-preview.1" in real_cl else real_cl
     cl.write_text(real_cl.replace("## v0.6.0-alpha.4", "## v0.6.0-preview.1 — 8 October 2026\n\n- Halcyon only.\n- Omega: persist id 16 is the Halcyon preset now.\n\n## v0.6.0-alpha.4", 1))
-    kw = dict(release="v0.6.0-preview.1", zips=zips, previous=prev, rbf=rbf, changelog=cl, previous_release="v0.6.0-alpha.4")
+    kw = dict(release="v0.6.0-preview.1", zips=zips, previous=prev, rbf=rbf, changelog=cl, previous_release="v0.6.0-alpha.4", registry_file=_clamped_registry(t / "registry.json"))
 
     # 1. the CORE_VERSION ifdef evaluator against the real mp3_soc.v (four contracts, not the first literal)
     for macros, want in (([], "4D503317"), (["TAU_RAM_192K"], "4D503318"), (["TAU_CLK66"], "4D503319"),
