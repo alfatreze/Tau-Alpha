@@ -148,13 +148,14 @@ def main():
         # Preview channel (RELEASE_SYSTEM_SPEC section 4): one rolling "TAU Preview" core (release-style firmware) or "TAU Preview
         # Diagnostics" (diagnostic firmware) on the TAU Preview platform, reading TAU's media in place; the exact version is in
         # core.json and the ROM. Replaces the old one-platform-per-build TAU_0_6_0_A_N scheme.
-        if not re.fullmatch(r"\d+\.\d+\.\d+-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*", args.semver) or tau_layout.channel_of(args.semver) != "preview":
-            sys.exit(f"--semver must be a pre-release version such as 0.6.0-preview.2: got {args.semver!r}")
-        ch = tau_layout.CHANNELS["preview"]
+        sch = tau_layout.channel_of(args.semver)
+        if not re.fullmatch(r"\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?", args.semver) or sch == "dev" or (sch == "stable" and args.variant != "player2"):
+            sys.exit(f"--semver must be a pre-release version such as 0.6.0-preview.2 (or X.Y.Z with --variant player2, a Stable release): got {args.semver!r}")
+        ch = tau_layout.CHANNELS[sch]
         platform, title, platforms = ch["platform"], ch["name"], list(ch["platforms"])
         short = ch["core"] if args.variant in ("tempo", "player2") else ch["diag"]
         core_id, label = f"alfatreze.{short}", args.semver
-        out = root / f"work/diagnostics/tau-preview-{args.semver}/pocket"
+        out = root / f"work/diagnostics/tau-{sch}-{args.semver}/pocket"
     else:
         nn = f"{args.number:02d}"
         platform, short, label = tau_layout.DEV_PLATFORM, f"TAU DEV {nn}", f"numbered test build {nn}"
