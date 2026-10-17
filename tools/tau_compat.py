@@ -692,7 +692,7 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
         pm = re.fullmatch(r"v(\d+\.\d+\.\d+).*", previous_release).group(1)
         for z in previous:
             r = read_zip(z)
-            if r["version"] != pm or (releases[previous_release] and r["date_release"] != releases[previous_release]):
+            if r["version"] not in (pm, previous_release[1:]) or (releases[previous_release] and r["date_release"] != releases[previous_release]):
                 raise CompatError(f"{Path(z).name} is {r['version']} of {r['date_release']}, not {previous_release} "
                                   f"({pm} of {releases[previous_release]}): wrong previous zip")
     req = dict(tree_facts(root))
