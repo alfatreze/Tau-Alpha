@@ -16,6 +16,18 @@ Current version **v0.6.0** (17 October 2026). See [CHANGELOG.md](CHANGELOG.md).
 <img width="400" height="360" alt="20261017_125641" src="https://github.com/user-attachments/assets/5e8ca0a3-55b1-47b3-9055-8e440df7b410" />
 
 
+## Companion app
+
+**[Tau Omega](../Tau%20Omega/)** is th desktop companion (macOS and Windows) for building and syncing the
+Tau media library onto the Pocket's SD card and for managing Tau (and other openFPGA) cores and their media.
+It is a separate project and repository, built as the product version of `tools/tau_library.py` and
+`tools/sync_media.py`.
+
+> [!IMPORTANT]
+> Tau Omega is **REQUIRED** to be able to sync media so it builds the required library.
+
+
+
 ## What Tau does
 
 - **MP3 and FLAC.** CBR and VBR MPEG-1 and MPEG-2 Layer III at every standard bitrate and sample rate, mono
@@ -89,13 +101,6 @@ Full controls, playlists, settings and known limits: [docs/guide/USER_GUIDE.md](
 | [Roadmap and status](docs/ROADMAP_PUBLIC.md) | What is done and what is next |
 | [How it works](docs/HOW_IT_WORKS.md) | The interesting parts of the build, told as a story |
 | [Documentation map](docs/README.md) | Index of every document in `docs/` (specs, plans, handoffs, test scripts, issues) |
-
-## Companion app
-
-**[Tau Omega](../Tau%20Omega/)** is the desktop companion (macOS and Windows) for building and syncing the
-Tau media library onto the Pocket's SD card and for managing Tau (and other openFPGA) cores and their media.
-It is a separate project and repository, built as the product version of `tools/tau_library.py` and
-`tools/sync_media.py`.
 
 ## Provenance
 
