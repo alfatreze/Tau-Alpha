@@ -20,7 +20,7 @@ def build(td, mutant):
     c = (ROOT / "fw2/ui/meter_chladni.c").read_text().replace('"../../fw/chladni_core.h"', f'"{ROOT}/fw/chladni_core.h"')
     (d / "fw2/ui/meter_chladni.c").write_text(c)
     for f in ("gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "ui/meter.h", "ui/theme.h", "generated/meter_presets.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
-    (d / "fw/font_metrics.h").write_text((ROOT / "fw/font_metrics.h").read_text())
+    (d / "fw2/generated").mkdir(parents=True, exist_ok=True); (d / "fw2/generated/font_data.h").write_text((ROOT / "fw2/generated/font_data.h").read_text())
     (d / "sim/p2_engine_model.h").write_text((ROOT / "sim/p2_engine_model.h").read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_chladni_dbuf_harness.c").read_text())
     exe = d / "h"

@@ -5,14 +5,14 @@
 #include "mmio.h"
 
 typedef struct {
-    uint8_t ring, gain, cymo, halcyon, poly, lpc, wave, spec, dbuf, under;   /* 1 = the unit is built into this bitstream */
+    uint8_t ring, gain, cymo, halcyon, poly, lpc, wave, spec, dbuf, under, font;   /* 1 = the unit is built into this bitstream */
     uint32_t core_version;
 } caps_t;
 
 extern caps_t caps;
 
-/* The CORE_VERSION values this image accepts (192 KB + CLK66 bitstream, rev 26). The same text is in the ROM as TAUFWPAIR (platform.c) for the package checks. */
-#define P2_CORE_VERSION 0x4D50331Au
+/* The CORE_VERSION values this image accepts (192 KB + CLK66 + writable font memory bitstream, rev 27). The same text is in the ROM as TAUFWPAIR (platform.c) for the package checks. */
+#define P2_CORE_VERSION 0x4D50331Bu
 
 void platform_probe(void);                       /* fills caps */
 int  platform_version_ok(void);

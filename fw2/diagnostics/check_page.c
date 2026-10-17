@@ -6,6 +6,11 @@
 #include "../aout/aout.h"
 #include "../transport/mp3play.h"
 #include "../ui/theme.h"
+#include "../gfx/font.h"
+#include "../generated/font_data.h"
+#include "../cores/font_core.h"
+#include "../gfx/icon.h"
+#include "../cores/icon_core.h"
 
 #define BG UI_BG_SCREEN
 #define DIM UI_DIM
@@ -15,9 +20,9 @@
 #define TOP_Y 40u
 
 /* The tests. Steady ones (AUDIO, the six rates) fail on any FIFO stall; TRACKS fails when a skip does not land or the reader falls behind data it holds. Rates are MP3 only (skipped on FLAC). */
-enum { T_AUDIO = 0, T_TRACKS, T_ST110, T_ST150, T_ST200, T_PI110, T_PI150, T_PI200, T_N };
-static const char *const names[T_N] = { "AUDIO 20 S", "TRACK CHANGES X6", "STRETCH 1.10X", "STRETCH 1.50X", "STRETCH 2.00X", "PITCH 1.10X", "PITCH 1.50X", "PITCH 2.00X" };
-static const uint8_t mode_of[T_N] = { 0, 0, 2, 2, 2, 1, 1, 1 }, sel_of[T_N] = { 0, 0, 0, 2, 4, 2, 5, 7 };    /* Stretch list 1.10 1.25 1.50 1.75 2.00; Pitch list 0.85 0.95 1.10 1.20 1.30 1.50 1.75 2.00 */
+enum { T_FONT = 0, T_ICONS, T_AUDIO, T_TRACKS, T_ST110, T_ST150, T_ST200, T_PI110, T_PI150, T_PI200, T_N };
+static const char *const names[T_N] = { "FONT MEMORY", "ICONS", "AUDIO 20 S", "TRACK CHANGES X6", "STRETCH 1.10X", "STRETCH 1.50X", "STRETCH 2.00X", "PITCH 1.10X", "PITCH 1.50X", "PITCH 2.00X" };
+static const uint8_t mode_of[T_N] = { 0, 0, 0, 0, 2, 2, 2, 1, 1, 1 }, sel_of[T_N] = { 0, 0, 0, 0, 0, 2, 4, 2, 5, 7 };    /* Stretch list 1.10 1.25 1.50 1.75 2.00; Pitch list 0.85 0.95 1.10 1.20 1.30 1.50 1.75 2.00 */
 uint32_t check_mask, check_under;
 static uint8_t res[T_N]; static uint32_t val[T_N];
 static uint8_t state, cur, step, dirty = 1;               /* state 0 ready, 1 running, 2 done, 3 refused */
@@ -27,8 +32,61 @@ static uint32_t stalls(void) { return aout_stats.under_ring + aout_stats.dry; }
 static void publish(void) { uint32_t m = 0; for (uint32_t i = 0; i < T_N; i++) m |= (uint32_t)res[i] << (2u * i); check_mask = m; }
 static void normal(void) { mp3play_pref_set(PREF_STRETCH, 0u); }
 static void finish(uint8_t st) { normal(); state = st; dirty = 1; publish(); }
+/* The font memory test (needs no audio): draw glyphs through the engine in white on black into the stash, read the pixels back, and compare them with what the loaded font's own atlas predicts through the
+ * engine's weight table. Proves the load (every word, in order), the 8-bit glyph code and the second range on the real hardware. The glyphs: A (ASCII), e-acute and y-diaeresis (the 0xA0 range, bit 7 on bit 15). */
+static uint32_t font_check(void)
+{
+    static const uint16_t w16[16] = { 0, 4, 6, 7, 8, 10, 10, 11, 12, 13, 13, 14, 15, 15, 16, 16 };       /* the engine's dark-polarity coverage weights (mp3_fb.sv cov_weight) */
+    static const uint8_t codes[3] = { 0x41, 0xE9, 0xFF };
+    ft_t f; if (ft_parse(font_recs[font_cur < FONT_COUNT ? font_cur : 0u], font_rec_len, &f)) return 0xFFFFu;
+    uint32_t bad = 0;
+    for (uint32_t k = 0; k < 3u; k++) {
+        const uint32_t g = codes[k], idx = g < 0x80u ? g - 0x20u : g - 0xA0u + 95u, x0 = 8u + k * 24u, y0 = 540u;
+        gfx_rect_stash(x0, y0, 16, 16, 0x0001u);                                        /* a known background first: no stale pixel can pass */
+        gfx_char_stash(x0, y0, g, 0xFFFFu, 0x0000u);
+        gfx_fence();
+        for (uint32_t row = 0; row < 16u; row++)
+            for (uint32_t c = 0; c < 16u; c += 2u) {
+                uint32_t r = 0;
+                if (gfx_mb_read((y0 + row) * GFX_STRIDE + x0 + c, &r)) { bad++; continue; }
+                for (uint32_t h = 0; h < 2u; h++) {
+                    const uint32_t cov = (f.words[idx * 32u + row * 2u + (c + h) / 8u] >> (4u * ((c + h) % 8u))) & 15u, w = w16[cov];
+                    const uint32_t want = (((31u * w) >> 4) & 31u) << 11 | (((63u * w) >> 4) & 63u) << 5 | (((31u * w) >> 4) & 31u);
+                    const uint32_t got = h ? (r >> 16) & 0xFFFFu : r & 0xFFFFu;           /* either half may hold the pixel: the mailbox word's two halves are the two pixels of the pair */
+                    if (got != want) bad++;
+                }
+            }
+    }
+    return bad;
+}
+/* The icons test: draw three icons into the stash (white on black, through the palette blit), read the pixels back and compare them with the record's own coverage through the same colour table. Proves the
+ * plane build, the colour-table load and OP_CBLIT on the real hardware. The icons: play, shuffle (24 wide) and vol3 (26 wide). */
+static uint32_t icon_check(void)
+{
+    static const uint8_t ids[3] = { ICON_PLAY, ICON_SHUFFLE, ICON_VOL3 };
+    uint32_t bad = 0;
+    for (uint32_t k = 0; k < 3u; k++) {
+        ti_icon_t ic; if (ti_find(icon_rec, icon_rec_len, ids[k], &ic)) return 0xFFFFu;
+        const uint32_t x0 = 300u, y0 = 560u + 0u;
+        if (k) gfx_rect_stash(x0, y0, 32, 28, 0x0001u);                                 /* a known background: nothing stale can pass */
+        if (icon_draw_stash(ids[k], x0, y0, 0xFFFFu, 0x0000u)) return 0xFFFFu;
+        gfx_fence();
+        for (uint32_t row = 0; row < ic.h; row++)
+            for (uint32_t col = 0; col < ic.w; col += 2u) {
+                uint32_t r = 0;
+                if (gfx_mb_read((y0 + row) * GFX_STRIDE + x0 + col, &r)) { bad++; continue; }
+                for (uint32_t h = 0; h < 2u && col + h < ic.w; h++) {
+                    const uint32_t want = ti_colour(0x0000u, 0xFFFFu, ti_cov(&ic, col + h, row)), got = h ? (r >> 16) & 0xFFFFu : r & 0xFFFFu;
+                    if (got != want) bad++;
+                }
+            }
+    }
+    return bad;
+}
 static void begin_test(uint32_t i)
 {
+    if (i == T_ICONS) { val[i] = icon_check(); res[i] = val[i] ? 2u : 1u; cur = (uint8_t)i; step = 0; t0 = cycles(); dirty = 1; return; }
+    if (i == T_FONT) { val[i] = font_check(); res[i] = val[i] ? 2u : 1u; cur = (uint8_t)i; step = 0; t0 = cycles(); dirty = 1; return; }
     cur = (uint8_t)i; step = 0; t0 = cycles(); u0 = stalls(); gen0 = mp.gen; dirty = 1;
     if (i >= T_ST110) {
         if (mp3play_is_flac()) { res[i] = 3; return; }                    /* skipped: no rate change for FLAC */
@@ -54,6 +112,7 @@ int check_page_key(uint32_t edge)
 void check_page_tick(void)
 {
     if (state != 1u) return;
+    if (cur == T_FONT || cur == T_ICONS) { next_test(); return; }                          /* the font memory test ran in begin_test and needs no audio */
     if (!mp.playing || mp.held) { res[cur] = 2; val[cur] = 0xFFFFu; next_test(); return; }      /* playback stopped or paused: the test did not run to its end */
     if (cur >= T_ST110 && res[cur] == 3u) { next_test(); return; }
     switch (cur) {
@@ -87,7 +146,7 @@ void check_page_draw(void)
         gfx_text(GFX_W - 10 - gfx_text_width(v), y + 4, v, res[i] == 2u ? ACC : FG, BG);
     }
     gfx_rect(0, GFX_H - 44, GFX_W, 44, BG);
-    gfx_text(10, GFX_H - 40, "FIFO STALLS PER TEST; RATES MP3 ONLY", DIM, BG);
+    gfx_text(10, GFX_H - 40, "FONT, ICONS, FIFO STALLS PER TEST", DIM, BG);
     gfx_text(10, GFX_H - 20, state == 1u ? "B STOP" : "A RUN  B BACK", DIM, BG);
     dirty = 0;
 }

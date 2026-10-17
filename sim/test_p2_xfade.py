@@ -24,7 +24,7 @@ def build(td, mutant):
     if mutant == "unprotected": mg("if (!caps_dbuf || held || (REG_RD(R_DBUF_DISP) & 2u)) return 0;", "if (!caps_dbuf || (REG_RD(R_DBUF_DISP) & 2u)) return 0;")
     (d / "fw2/ui/xfade.c").write_text(x); (d / "fw2/gfx/gfx.c").write_text(g)
     for f in ("ui/xfade.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
-    (d / "fw/font_metrics.h").write_text((ROOT / "fw/font_metrics.h").read_text())
+    (d / "fw2/generated").mkdir(parents=True, exist_ok=True); (d / "fw2/generated/font_data.h").write_text((ROOT / "fw2/generated/font_data.h").read_text())
     (d / "sim/p2_engine_model.h").write_text((ROOT / "sim/p2_engine_model.h").read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_xfade_harness.c").read_text())
     exe = d / "h"

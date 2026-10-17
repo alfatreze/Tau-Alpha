@@ -129,6 +129,8 @@ test-host:
 	$(PYTHON) sim/test_font_atlases.py
 	$(PYTHON) sim/test_font_fit.py
 	$(PYTHON) sim/test_icons.py
+	$(PYTHON) sim/test_p2_font.py
+	$(PYTHON) sim/test_p2_icon.py
 	$(PYTHON) sim/test_latin1_text.py
 	$(PYTHON) sim/test_p2_blank.py
 	$(PYTHON) sim/test_p2_gfx.py
