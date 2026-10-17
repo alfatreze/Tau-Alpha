@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Player icons (tools/gen_icons.py, docs/features/FONT_SPEC.md 13): an independent reader parses fw2/generated/icons/player.ticn and checks the layout and CRC, the fourteen names, sizes inside the engine's limits
+"""Player icons (tools/gen_icons.py, docs/features/FONT_SPEC.md 13): an independent reader parses fw2/generated/icons/player.ticn and checks the layout and CRC, the sixteen names, sizes inside the engine's limits
 (width at most 127, height 28), and that every icon equals the source strip's pixels (grey level scaled to 4 bits, read straight from assets/icons/player_icons_strip.png with its own column spans); the strip has no ink
 outside the icons; the file equals a fresh render. Mutants: a flipped bit fails the CRC; a nibble swapped in the packing is caught by the pixel comparison."""
 import struct, subprocess, sys, zlib
@@ -25,16 +25,17 @@ def parse(b):
 rec = (ROOT / "fw2/generated/icons/player.ticn").read_bytes()
 icons = parse(rec)
 check("the record parses (magic, version, CRC, exact length, row sizes)", icons is not None)
-NAMES = ("play", "pause", "back", "play_box", "repeat", "repeat_one", "shuffle_off", "shuffle", "note", "mute", "vol0", "vol1", "vol2", "vol3")
-check("fourteen icons with the agreed names and ids 0..13", icons is not None and [(i, n) for i, n, *_ in icons] == list(enumerate(NAMES)))
-check("every icon is at most 127 wide (the engine's row buffer) and exactly 28 tall", all(w <= 127 and h == 28 for _, _, w, h, _ in icons))
+NAMES16 = ("play", "pause", "back", "play_box", "repeat", "repeat_one", "shuffle_off", "shuffle", "note", "mute", "vol0", "vol1", "vol2", "vol3", "select", "start")
+NAMES = NAMES16 + tuple(n[:10] + "_s" for n in NAMES16)
+check("thirty-two icons (the sixteen and their half-size twins) with the agreed names and ids 0..31", icons is not None and [(i, n) for i, n, *_ in icons] == list(enumerate(NAMES)))
+check("every icon is at most 127 wide (the engine's row buffer) and exactly 28 tall (the half-size ones 14)", all(w <= 127 and h == (28 if i < 16 else 14) for i, _, w, h, _ in icons))
 check("every pixel is a 4-bit coverage and each icon has ink", all(0 <= v <= 15 for *_, rows in icons for r in rows for v in r) and all(any(any(r) for r in rows) for *_, rows in icons))
 from PIL import Image
 im = Image.open(ROOT / "assets/icons/player_icons_strip.png").convert("RGBA"); bg = Image.new("RGBA", im.size, (0, 0, 0, 255)); bg.alpha_composite(im); g = bg.convert("L"); px = g.load()
 top = max(px[x, y] for x in range(g.width) for y in range(g.height))
-SP = ((8, 19), (32, 48), (60, 79), (87, 108), (115, 136), (143, 164), (170, 193), (198, 221), (226, 247), (255, 276), (288, 299), (313, 330), (339, 360), (365, 390))
+SP = ((8, 19), (32, 48), (60, 79), (87, 108), (115, 136), (143, 164), (170, 193), (198, 221), (226, 247), (255, 276), (288, 299), (313, 330), (339, 360), (365, 390), (394, 413), (418, 437))
 ok = True
-for (i, name, w, h, rows), (a, b) in zip(icons, SP):
+for (i, name, w, h, rows), (a, b) in zip(icons[:16], SP):
     if w != b - a + 1: ok = False
     for y in range(h):
         for x in range(w):
