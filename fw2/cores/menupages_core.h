@@ -11,7 +11,7 @@
 #define BUG 0
 #endif
 /* Value ids: 0..6 mirror PREF_* (cores/settings_core.h, asserted in ui/settings_view.c); 7 and up are view-level flags that are not persisted. */
-enum { V_VOLUME = 0, V_RG, V_STRETCH, V_REPEAT, V_SHUFFLE, V_SEEKSTEP, V_SKIPSIL, V_SPEED, V_ART, V_ACCEPT_ALL, V_COLOUR, V_THEME, V_MODE, V_METER, V_BLANK, V_CYMO, V_A16, V_COUNT };
+enum { V_VOLUME = 0, V_RG, V_STRETCH, V_REPEAT, V_SHUFFLE, V_SEEKSTEP, V_SKIPSIL, V_SPEED, V_ART, V_ACCEPT_ALL, V_COLOUR, V_THEME, V_MODE, V_METER, V_BLANK, V_CYMO, V_A16, V_FONT, V_COUNT };
 enum { RK_GROUP = 0, RK_CHOICE, RK_TOGGLE, RK_VOL, RK_ACTION, RK_SOON };
 enum { PG_HOME = 0, PG_APPEAR, PG_AUDIO, PG_PLAY, PG_DIAG, PG_CHOICE, PG_COUNT };   /* PG_CHOICE is the option list of the choice row that opened it */
 enum { ACT_INFO = 1, ACT_REPORT = 2, ACT_HALCYON = 3, ACT_CONFIGURE = 4, ACT_CHECK = 5 };
@@ -22,7 +22,7 @@ typedef struct { const char *const *opt; uint8_t n; } mg_choice_t;       /* the 
 static const mg_row_t mg_home_rows[] = { { "APPEARANCE", RK_GROUP, PG_APPEAR }, { "AUDIO", RK_GROUP, PG_AUDIO }, { "PLAYBACK", RK_GROUP, PG_PLAY }, { "DIAGNOSTICS", RK_GROUP, PG_DIAG },
                                          { "INFO", RK_ACTION, ACT_INFO } };      /* always the last row, as before */
 static const mg_row_t mg_appear_rows[] = { { "COLOUR", RK_CHOICE, V_COLOUR }, { "THEME", RK_CHOICE, V_THEME }, { "MODE", RK_CHOICE, V_MODE }, { "METER", RK_CHOICE, V_METER }, { "METER: CONFIGURE", RK_ACTION, ACT_CONFIGURE },
-                                           { "ALBUM ART", RK_TOGGLE, V_ART }, { "SCREEN BLANK", RK_CHOICE, V_BLANK } };
+                                           { "ALBUM ART", RK_TOGGLE, V_ART }, { "SCREEN BLANK", RK_CHOICE, V_BLANK }, { "FONT", RK_CHOICE, V_FONT } };
 static const mg_row_t mg_audio_rows[] = { { "VOLUME", RK_VOL, V_VOLUME }, { "REPLAYGAIN", RK_CHOICE, V_RG }, { "HALCYON EQ", RK_ACTION, ACT_HALCYON } };
 static const mg_row_t mg_play_rows[] = { { "REPEAT", RK_CHOICE, V_REPEAT }, { "SHUFFLE", RK_TOGGLE, V_SHUFFLE }, { "TIME STRETCH (MP3)", RK_CHOICE, V_STRETCH }, { "SPEED (MP3)", RK_CHOICE, V_SPEED }, { "SEEK STEP", RK_CHOICE, V_SEEKSTEP },
                                          { "SKIP SILENCE", RK_TOGGLE, V_SKIPSIL } };
@@ -32,6 +32,7 @@ static const mg_page_t mg_pages[PG_COUNT] = {
     { "MENU", mg_home_rows, MG_N(mg_home_rows) }, { "APPEARANCE", mg_appear_rows, MG_N(mg_appear_rows) }, { "AUDIO", mg_audio_rows, MG_N(mg_audio_rows) },
     { "PLAYBACK", mg_play_rows, MG_N(mg_play_rows) }, { "DIAGNOSTICS", mg_diag_rows, MG_N(mg_diag_rows) }, { "", 0, 0 } };
 static const char *const mg_rg_opt[] = { "OFF", "TRACK", "ALBUM" }, *const mg_rp_opt[] = { "OFF", "ALL", "ONE" },
+                         *const mg_ft_opt[] = { "TAMZEN", "TAMZEN BOLD", "GROTESK SEMIBOLD", "GROTESK BOLD" },       /* the Appearance font list: the order of fw2/generated/font_data.c */
                          *const mg_st_opt[] = { "NORMAL", "PITCH", "STRETCH" },
                          *const mg_sp_normal[] = { "1.00X" },                                                                       /* Normal has one speed and its row cannot be opened (a choice with one option) */
                          *const mg_sp_pitch[] = { "0.85X", "0.95X", "1.10X", "1.20X", "1.30X", "1.50X", "1.75X", "2.00X" },        /* Pitch: varispeed, the pitch follows */
@@ -39,7 +40,7 @@ static const char *const mg_rg_opt[] = { "OFF", "TRACK", "ALBUM" }, *const mg_rp
                          *const mg_sk_opt[] = { "10 S", "30 S", "60 S", "120 S" };
 static const char *const mg_mode_opt[] = { "DARK", "LIGHT" }, *const mg_bl_opt[] = { "OFF", "1 MIN", "5 MIN", "10 MIN", "30 MIN" };
 /* The option lists of THEME, COLOUR and METER depend on the build and the files on the card: the firmware sets them (mg_set_choice) before the first draw. */
-static mg_choice_t mg_choices[V_COUNT] = { [V_RG] = { mg_rg_opt, 3 }, [V_REPEAT] = { mg_rp_opt, 3 }, [V_STRETCH] = { mg_st_opt, 3 }, [V_SPEED] = { mg_sp_normal, 1 }, [V_SEEKSTEP] = { mg_sk_opt, 4 }, [V_MODE] = { mg_mode_opt, 2 }, [V_BLANK] = { mg_bl_opt, 5 } };
+static mg_choice_t mg_choices[V_COUNT] = { [V_RG] = { mg_rg_opt, 3 }, [V_REPEAT] = { mg_rp_opt, 3 }, [V_STRETCH] = { mg_st_opt, 3 }, [V_FONT] = { mg_ft_opt, 4 }, [V_SPEED] = { mg_sp_normal, 1 }, [V_SEEKSTEP] = { mg_sk_opt, 4 }, [V_MODE] = { mg_mode_opt, 2 }, [V_BLANK] = { mg_bl_opt, 5 } };
 /* The speed list follows the Time Stretch mode (0 Normal, 1 Pitch, 2 Stretch). */
 static inline void mg_speed_for_mode(uint32_t mode) { if (mode == 1u) { mg_choices[V_SPEED].opt = mg_sp_pitch; mg_choices[V_SPEED].n = 8; } else if (mode == 2u) { mg_choices[V_SPEED].opt = mg_sp_stretch; mg_choices[V_SPEED].n = 5; } else { mg_choices[V_SPEED].opt = mg_sp_normal; mg_choices[V_SPEED].n = 1; } }
 static inline void mg_set_choice(uint32_t id, const char *const *opt, uint32_t n) { mg_choices[id].opt = opt; mg_choices[id].n = (uint8_t)n; }

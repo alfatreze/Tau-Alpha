@@ -20,7 +20,7 @@ def parse(b):
     fam = body[:16].rstrip(b"\0").decode(); weight, cw, ch, nr, base, _ = struct.unpack_from("<HBBBBH", body, 16)
     off = 24; ranges = [struct.unpack_from("<HH", body, off + 4 * i) for i in range(nr)]; off += 4 * nr
     n = sum(b2 - a + 1 for a, b2 in ranges)
-    adv = list(body[off:off + n]); off += n
+    adv = list(body[off:off + n]); off += n + (-n % 4)
     words = list(struct.unpack_from(f"<{n * 32}I", body, off)); off += 4 * n * 32
     if off != len(body): return None
     return dict(family=fam, weight=weight, cw=cw, ch=ch, base=base, ranges=ranges, adv=adv, words=words, n=n)

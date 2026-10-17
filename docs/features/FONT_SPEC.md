@@ -45,7 +45,7 @@ One font = one record, little endian, built by `tools/gen_font_atlases.py`:
 family[16] | weight u16 (400..900) | cell_w u8 = 16 | cell_h u8 = 16
 nranges u8 = 2 | baseline u8 | reserved u16
 ranges[nranges]                    first u16, last u16: 0x0020..0x007E, 0x00A0..0x00FF (in this order, contiguous in the atlas)
-advance[n]                         one byte per glyph, n = the sum of the range sizes (191)
+advance[n]                         one byte per glyph, n = the sum of the range sizes (191), then zero bytes up to a multiple of 4 (the words that follow start on a 4-byte boundary)
 atlas words                        n * 32 x u32, the exact words font_ram expects
 ```
 

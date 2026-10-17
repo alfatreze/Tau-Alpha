@@ -6,8 +6,8 @@ extern char _image_end, _tag_start, _stack_top, _stack_size;
 
 /* The package tools read these out of the ROM: the CORE_VERSION list this image accepts, the bitstream features it needs (none yet), and the version field
  * the packagers stamp after the build (tools/tau_version.py). Their exact text is a contract with tools/check_fw_bitstream_pair.py and tools/tau_version.py. */
-static const char p2_pair_marker[] __attribute__((used, retain)) = "TAUFWPAIR:4D50331A;";
-static const char p2_need_marker[] __attribute__((used, retain)) = "TAUFWNEED:;";
+static const char p2_pair_marker[] __attribute__((used, retain)) = "TAUFWPAIR:4D50331B;";
+static const char p2_need_marker[] __attribute__((used, retain)) = "TAUFWNEED:FONT;";
 const char p2_ver_field[48] __attribute__((used, retain)) = "TAUVER:0.6.0";
 
 void platform_probe(void)
@@ -23,6 +23,7 @@ void platform_probe(void)
     caps.wave    = (uint8_t)(REG(R_WAVE_ST) & 1u);
     caps.spec    = (uint8_t)(REG(R_SPEC_ST) & 1u);
     caps.dbuf    = (uint8_t)(REG(R_DBUF_DISP) >> 31);
+    caps.font    = (uint8_t)(REG(R_FONT_CTRL) >> 31);
 }
 
 int platform_version_ok(void) { return REG(R_VERSION) == P2_CORE_VERSION; }

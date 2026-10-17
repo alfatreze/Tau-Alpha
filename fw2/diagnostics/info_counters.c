@@ -5,6 +5,7 @@
 #include "../ui/helios.h"
 #include "check_page.h"
 extern uint32_t gfx_blend_state, gfx_blend_tries;
+#include "../gfx/font.h"
 #include "../stream/cold.h"
 #include "../aout/halcyon.h"
 #include "../stream/assets.h"
@@ -198,6 +199,10 @@ const cnt_t counters_table[] = {
     U32("FREE",        CU_BYTES,  &v.free_b),
     { "CHECK MASK",   CK_HEX32, CU_NONE,  &check_mask },      /* 2 bits per test: 1 pass 2 fail 3 skipped (AUDIO, TRACKS, STRETCH 1.10/1.50/2.00, PITCH 1.10/1.50/2.00) */
     U32("CHECK STALLS", CU_NONE,  &check_under),
+    U32("FONT",         CU_NONE,   &font_cur),        /* the font in the engine memory: 0 Tamzen, 1 Tamzen Bold, 2 Grotesk SemiBold, 3 Grotesk Bold */
+    U32("FONT ERR",     CU_NONE,   &font_err),      /* the last refused or failed load: 1 bad record, 2 no font memory, 3 the load counter did not step, 4 engine held */
+    U32("FONT LOADS",   CU_NONE,   &font_loads),
+    U32("FONT MS",      CU_NONE,   &font_ms),
     U32("BLEND PROBE", CU_NONE,   &gfx_blend_state),     /* 0 not asked yet, 1 the hardware blend works, 2 it answered wrongly (no blend), 3 the mailbox did not answer (asks again) */
     U32("BLEND TRIES", CU_NONE,   &gfx_blend_tries),
 };

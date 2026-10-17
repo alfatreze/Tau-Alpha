@@ -4,6 +4,7 @@
 #include "../platform/mmio.h"
 #include "../transport/mp3play.h"
 #include "../aout/aout.h"
+#include "../gfx/font.h"
 #include "../cores/menupages_core.h"
 #include "../cores/view_core.h"
 #include "nowplaying.h"
@@ -37,6 +38,7 @@ static void pull(void)
     if (vals[V_ART] != np_art_on) { vals[V_ART] = np_art_on; dirty = 1; }
     { const uint32_t cy = aout_cymo_user_is_off() ? 0u : 1u, a16 = mp3play_a16_get(); if (vals[V_CYMO] != cy) { vals[V_CYMO] = cy; dirty = 1; } if (vals[V_A16] != a16) { vals[V_A16] = a16; dirty = 1; } }
     if (vals[V_BLANK] != blank_sel) { vals[V_BLANK] = blank_sel; dirty = 1; }
+    if (vals[V_FONT] != font_cur) { vals[V_FONT] = font_cur; dirty = 1; }
     if (vals[V_ACCEPT_ALL] != mp3play_accept_all) { vals[V_ACCEPT_ALL] = mp3play_accept_all; dirty = 1; }
 }
 static void put_num(char *o, uint32_t v)
@@ -86,6 +88,7 @@ int settings_view_input(uint32_t edge)
         else if (e.id == V_MODE) theme_set(th_theme, e.value, th_pal);
         else if (e.id == V_METER) meters_select(e.value);
         else if (e.id == V_BLANK) blank_sel = (uint8_t)e.value;
+        else if (e.id == V_FONT) font_select(e.value);                 /* loads the font into the engine; the main loop repaints the view once (font_changed) */
         else if (e.id == V_CYMO) aout_cymo_user_off(e.value ? 0 : 1);
         else if (e.id == V_A16) mp3play_a16_set(e.value);
         pull();

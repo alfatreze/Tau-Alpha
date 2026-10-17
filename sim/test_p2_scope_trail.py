@@ -20,7 +20,7 @@ def build(td, mutant):
     if mutant == "ignored": m("if (trail && gfx_blend_ready()) {", "if (0) {")
     (d / "fw2/ui/meter_winamp_scope.c").write_text(src)
     for f in ("gfx/gfx.h", "gfx/gfx.c", "platform/mmio.h", "platform/platform.h", "ui/meter.h", "ui/theme.h", "generated/meter_presets.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
-    (d / "fw/font_metrics.h").write_text((ROOT / "fw/font_metrics.h").read_text())
+    (d / "fw2/generated").mkdir(parents=True, exist_ok=True); (d / "fw2/generated/font_data.h").write_text((ROOT / "fw2/generated/font_data.h").read_text())
     (d / "sim/p2_engine_model.h").write_text((ROOT / "sim/p2_engine_model.h").read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_scope_trail_harness.c").read_text())
     exe = d / "h"

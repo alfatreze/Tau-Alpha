@@ -36,6 +36,8 @@ int  gfx_compose_begin(uint32_t x, uint32_t y, uint32_t w, uint32_t h);   /* 1 =
 void gfx_compose_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h);   /* copy the box onto the displayed buffer and draw there again */
 /* Crossfade: hold_next() keeps the next frame's picture in the idle buffer (no flip); xfade_step(a) moves the shown buffer toward it by a/256 (>= 256: an exact copy); xfade_end() releases the hold. */
 void gfx_hold_next(void);
+void gfx_char_stash(uint32_t x, uint32_t y, uint32_t g, uint16_t fg, uint16_t bg);   /* one glyph in the off-screen stash (the font self-test) */
+extern uint8_t font_adv_cur[];                  /* the advance of every glyph of the font in the engine's memory (191 entries); fw2/gfx/font.c replaces it with the font it loads */
 int  gfx_held(void);
 void gfx_xfade_step(uint32_t a);
 void gfx_xfade_end(void);

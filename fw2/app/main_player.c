@@ -18,6 +18,7 @@
 #include "../ui/settings_view.h"
 #include "../aout/halcyon.h"
 #include "../stream/assets.h"
+#include "../gfx/font.h"
 #include "../cores/view_core.h"
 #include "../../fw/key_repeat.h"
 
@@ -114,7 +115,7 @@ int main(void)
             aout_poll((int)mp.playing);
         }
         loops++; counters_loops = loops; counters_keys = keys;
-        if (th_changed) { th_changed = 0; views_refresh(); }                             /* a colour, theme or mode change repaints the view in place */
+        if (th_changed || font_changed) { th_changed = 0; font_changed = 0; views_refresh(); }                             /* a colour, theme or mode change repaints the view in place */
         if (!blank.blanked) { views_mark(); views_flush(); }                                                       /* the view marks what changed; the dirty regions the beam is not in are drawn */
         uint32_t d = cycles() - t_prev; t_prev = cycles();
         if (d > loop_max) { loop_max = d; counters_loop_max_cyc = d; }

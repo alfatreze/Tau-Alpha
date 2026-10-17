@@ -51,6 +51,9 @@
 #define R_CYMO_STATUS 0x8000015Cu
 #define R_CYMO_CTRL  0x80000150u         /* bit 2 = LIVE_ENABLE (sticky): hands the real audio path to the resampler */
 #define R_AUDIO_CFG  0x80000164u         /* bit 1 (read) = the bitstream has the switch, bit 0 = 16-bit I2S slot (sticky; 0 = the original 15-bit mapping) */
+#define R_FONT_CTRL  0x800001A0u         /* writable font memory: read [31] present, [27:16] loads completed, [15:0] words; write bit 0 restarts the index */
+#define R_FONT_IDX   0x800001A4u
+#define R_FONT_DATA  0x800001A8u         /* one word into the glyph RAM at FONT_IDX, then FONT_IDX + 1 */
 #define R_GAIN_CTRL  0x80000168u
 #define R_GAIN_TARGET 0x8000016Cu        /* Q15, 32768 = unity */
 #define R_GAIN_CUR   0x80000170u
