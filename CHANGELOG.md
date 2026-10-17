@@ -2,6 +2,20 @@
 
 What changed in each release, newest first. Lines starting `- Omega:` are copied into the release's `tau-compat.json` notes for Tau Omega.
 
+## v0.6.0-preview.2 — 17 October 2026
+
+**Player 2.** The player firmware is rewritten (fw2/) and ships as one core, **TAU Preview**, which includes the diagnostics (Info, Check, report grids). The old Diagnostics core of preview.1 is not
+replaced: remove it. Needs the matching new bitstream (writable font memory, CORE_VERSION rev 27); the firmware refuses an older one.
+
+- **Fonts.** Tamzen Regular is the default; Tamzen Bold, Space Grotesk SemiBold and Bold are in Settings > Appearance > FONT (saved). Latin-1 accented text works; Japanese is not supported yet. Fonts live in the cold image and are loaded into a new writable font memory.
+- **Icons.** A 14-icon player strip is loaded and drawn through the palette blit (not yet used by the screens: transport icons still use the drawn ones; this comes in 0.7).
+- **Speed and Time Stretch.** SPEED (varispeed) and TEMPO (pitch-preserving, MP3 only) are separate rows, each with its own speed list; Normal only has 1.0x. FLAC plays at 1.00x only.
+- **FLAC** uses the new decoder (the old one is retired); gapless FLAC verified with a 1 kHz tone.
+- **Meters.** Double-buffered, flicker-free redraws (Chladni and Layered Wave compose off screen), the Winamp Scope trail fades by alpha blend, Settings pages cross-fade, presets (Select+X) and a Configure page with colour pickers, experimental Layered Wave options, saved tuned values and a QR/grid export of a tuned config; presets can be replaced from the METR section of tau-assets.bin (also over 4 KiB).
+- **Audio diagnostics are back:** runtime toggles under Diagnostics and the audio tests in Check (plus FONT MEMORY and ICONS rows).
+- **Known:** seek acceleration while holding is untested; tempo above 1.75x still clicks; font sizes and icon use need more tuning (0.7).
+- Omega: persist id 29 (meter presets) and word 18 bits 20-22 (font) are new; the card layout is unchanged from preview.1 except that `TAU Preview Diagnostics` is no longer shipped.
+
 ## v0.6.0-preview.1 — 9 October 2026
 
 First release on the new channel scheme. **TAU Preview** and **TAU Preview Diagnostics** install beside your existing TAU (they have their own entries in the Select Core list and read the music, covers
