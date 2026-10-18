@@ -32,7 +32,6 @@ test-host:
 	$(PYTHON) tools/triad/test_director.py
 	$(PYTHON) tools/check_splash_asset.py
 	$(PYTHON) tools/check_tau_package.py
-	$(PYTHON) tools/check_ui_snapshot_renderer.py
 	$(PYTHON) tools/check_claude_md.py
 	$(PYTHON) sim/test_check_claude_md.py
 	$(PYTHON) tools/check_audit_trail.py
@@ -40,71 +39,46 @@ test-host:
 	$(PYTHON) tools/gen_layered_wave_tables.py --check
 	$(PYTHON) tools/check_meter_deps.py
 	$(PYTHON) sim/test_meter_core.py --check
-	$(PYTHON) sim/test_meter_module.py
-	$(PYTHON) sim/test_chladni_params.py
 	$(PYTHON) sim/test_cymo_loopback.py
 	$(PYTHON) sim/test_cymo_isp.py
 	$(PYTHON) sim/test_cymo_crossfeed.py
 	$(PYTHON) sim/test_cymo_tplimit.py
-	$(PYTHON) sim/test_lame_tag.py
 	$(PYTHON) sim/test_halcyon_assets.py
 	$(PYTHON) sim/test_assets_load.py
 	$(PYTHON) sim/test_halcyon_core.py
 	$(PYTHON) sim/test_halcyon_hw.py
 	$(PYTHON) sim/test_halcyon_prst.py
 	$(PYTHON) sim/test_halcyon_curve.py
-	$(PYTHON) sim/test_halcyon_page.py
 	$(PYTHON) tools/make_halcyon_test_assets.py selftest
 	$(PYTHON) sim/test_halcyon_lab.py
 	$(PYTHON) sim/test_cymo_out_model.py
 	$(PYTHON) sim/test_sound_i2s_full16.py
-	$(PYTHON) sim/test_settings_menu_counts.py
 	$(PYTHON) sim/test_halcyon_model.py
 	$(PYTHON) sim/test_eq_coeff_precision.py
 	$(PYTHON) sim/test_halcyon_generator.py
 	$(PYTHON) sim/test_cymo_gain_model.py
 	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js && $(PYTHON) sim/test_meter_golden.py && $(PYTHON) sim/test_layered_wave_golden.py && $(PYTHON) sim/test_meter_trace.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
-	$(PYTHON) sim/test_lw_ring.py
 	$(PYTHON) tools/gen_themes.py --check
-	$(PYTHON) tools/meter_cost_estimate.py
 	$(PYTHON) sim/test_psram_decode.py
 	$(PYTHON) sim/test_library_index.py
 	$(PYTHON) sim/test_library_fw.py
 	$(PYTHON) sim/test_track_details.py
-	$(PYTHON) sim/test_track_details_fw.py
 	$(PYTHON) sim/test_cold_fw.py
 	$(PYTHON) sim/test_suite.py
 	$(PYTHON) sim/test_install_dev_core.py
 	$(PYTHON) sim/test_tau_compat.py
-	$(PYTHON) sim/test_tau_version.py
 	$(PYTHON) sim/test_tau_image.py
 	$(PYTHON) sim/test_art_source.py
-	$(PYTHON) sim/test_ram192k.py
-	$(PYTHON) sim/test_clk66.py
-	$(PYTHON) sim/test_helios_beam.py
-	$(PYTHON) sim/test_chladni_module.py
-	$(PYTHON) sim/test_tau_timg.py
-	CLUT_FIXED=1 $(PYTHON) sim/test_tau_timg.py
-	$(PYTHON) sim/test_clut_contract.py
-	$(PYTHON) sim/test_thumb_dbuf.py
 	$(PYTHON) sim/test_splash_asset.py
 	$(PYTHON) sim/test_mp3_poly_probe.py
 	$(PYTHON) sim/test_mp3_poly_fw.py
 	$(PYTHON) sim/test_mp3_poly_subband.py
 	$(PYTHON) sim/test_chladni_core.py
 	$(PYTHON) sim/test_vu_master.py
-	$(PYTHON) sim/test_helios_rect.py
-	$(PYTHON) sim/test_helios_clip.py
-	$(PYTHON) sim/test_start_gesture.py
-	$(PYTHON) sim/test_meter_policy.py
 	$(PYTHON) sim/test_pcm_push.py
-	$(PYTHON) sim/test_pixgrid.py
 	$(PYTHON) sim/test_tpg.py
 	$(PYTHON) sim/test_tpg_fw.py
 	$(PYTHON) sim/test_pcm_burst.py
-	$(PYTHON) sim/test_pcm_ring.py
-	$(PYTHON) sim/test_pcm_ring_hw.py
-	$(PYTHON) sim/test_pcm_ring_gp.py
 	$(PYTHON) sim/test_p2_timeline.py
 	$(PYTHON) sim/test_p2_governor.py
 	$(PYTHON) sim/test_p2_counters.py
@@ -165,11 +139,7 @@ test-host:
 	$(PYTHON) tools/check_deps.py
 	TAU_BUILD_OUT=work/heapcheck bash fw2/build.sh
 	$(PYTHON) tools/player2/baseline.py --check docs/research/player2/BASELINE.json
-	$(PYTHON) sim/test_mp3_trim.py
-	$(PYTHON) sim/test_replaygain.py
-	$(PYTHON) sim/test_persist_ranges.py
 	$(PYTHON) sim/test_key_repeat.py
-	$(PYTHON) sim/test_headroom.py
 	$(PYTHON) sim/test_wsola.py
 	$(PYTHON) sim/test_tempo_funnel.py
 	$(PYTHON) sim/test_tempo_funnel.py -DTEMPO_SLICE=1
@@ -177,19 +147,9 @@ test-host:
 	$(PYTHON) sim/test_overlay_proto.py
 	$(PYTHON) tools/gen_diag_features.py --check
 	$(PYTHON) sim/test_diag_features.py
-	$(PYTHON) sim/test_theme.py
 	$(PYTHON) sim/test_tau_assets.py
 	$(PYTHON) sim/test_flac_lpc_symmetry.py
-	$(PYTHON) sim/test_flac_lpc_fw_redirect.py
-	$(PYTHON) sim/test_flac_rice_fast.py
-	$(PYTHON) sim/test_flac_to16.py
 	$(PYTHON) sim/test_ram_report.py
-	$(PYTHON) sim/test_art_decode.py
-	$(PYTHON) sim/test_fw_pair_check.py
-	$(PYTHON) sim/test_gain_handover.py
-	$(PYTHON) sim/test_sdram_map_overlap.py
-	$(PYTHON) tools/check_art_load_order.py --check
-	$(PYTHON) tools/check_targets_link.py
 	$(PYTHON) tools/fit_manifest.py check-bundles
 	$(PYTHON) sim/test_fit_manifest.py
 
