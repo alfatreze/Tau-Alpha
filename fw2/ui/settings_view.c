@@ -8,6 +8,8 @@
 #include "../cores/menupages_core.h"
 #include "../cores/view_core.h"
 #include "nowplaying.h"
+#include "meterlist_thumb.h"
+#include "../generated/meter_registry.h"
 #include "views.h"
 #include "regions.h"
 #include "theme.h"
@@ -23,6 +25,9 @@
 #define ACC  UI_ACCENT
 #define ROW_H 34u
 #define TOP_Y 34u
+#define MLIST_ROW_H 40u                      /* the METER list: rows tall enough for a 32 px preview */
+#define MLIST_VIS 7u
+_Static_assert(METER_N <= MLIST_VIS, "the METER list shows every meter without scrolling: give it its own scrolling before adding more");
 /* The menu's value ids 0..6 are the transport's preferences. */
 _Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_STRETCH == PREF_STRETCH && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL && V_SPEED == PREF_SPEED, "menu value ids must mirror PREF_*");
 
@@ -76,6 +81,9 @@ int settings_view_input(uint32_t edge)
 {
     xfade_finish();                                   /* a key while a fade runs: the fade is completed first, then the key acts on the finished page */
     pull();
+    if ((edge & KEY_X) && menu.page[menu.depth] == PG_CHOICE && menu.choice_val[menu.depth] == V_METER) {       /* X in the METER list: that meter's Configure page */
+        meters_select(menu.sel[menu.depth]); resume = 1; return V_CONFIGURE;
+    }
     mg_effect_t e = mg_input(&menu, edge, vals);
     dirty = 1;
     switch (e.kind) {
@@ -109,6 +117,21 @@ void settings_view_draw(void)
     gfx_rect(0, 0, GFX_W, TOP_Y, BG);
     const char *title = pg == PG_CHOICE ? mg_pages[menu.page[d - 1u]].rows[menu.sel[d - 1u]].label : mg_pages[pg].title;
     gfx_text(20, 6, title, ACC, BG);
+    if (pg == PG_CHOICE && menu.choice_val[d] == V_METER) {         /* the METER list: a preview beside each name, taller rows */
+        for (uint32_t k = 0; k < MLIST_VIS; k++) {
+            const uint32_t i = top + k, y = TOP_Y + k * MLIST_ROW_H;
+            if (i >= n) { gfx_rect(0, y, GFX_W, MLIST_ROW_H, BG); continue; }
+            const int on = i == menu.sel[d]; const uint16_t bg = on ? ACC : BG;
+            gfx_rect(0, y, GFX_W, MLIST_ROW_H, bg);
+            meter_thumb_draw(i, 20, y + (MLIST_ROW_H - METER_THUMB_H) / 2u);
+            gfx_text(92, y + 12, mg_choices[V_METER].opt[i], on ? UI_ON_ACCENT : FG, bg);
+            if (vals[V_METER] == i) gfx_text(GFX_W - 24 - gfx_text_width("*"), y + 12, "*", on ? UI_ON_ACCENT : DIM, bg);
+        }
+        gfx_rect(0, 322, GFX_W, 38, BG);
+        gfx_text(20, 322, "UP DOWN  A PICK  X CONFIGURE", DIM, BG);
+        gfx_text(20, 340, "B BACK  START CLOSE", DIM, BG);
+        return;
+    }
     for (uint32_t k = 0; k < MG_VIS; k++) {
         const uint32_t i = top + k, y = TOP_Y + k * ROW_H;
         if (i >= n) { gfx_rect(0, y, GFX_W, ROW_H, BG); continue; }
@@ -123,7 +146,7 @@ void settings_view_draw(void)
         if (v[0]) gfx_text(GFX_W - 24 - gfx_text_width(v), y + 9, v, on ? UI_ON_ACCENT : (soon ? OFFC : DIM), bg);
     }
     gfx_rect(0, 322, GFX_W, 38, BG);
-    gfx_text(20, 322, pg == PG_CHOICE ? "UP DOWN  A PICK  B BACK" : "UP DOWN  A OPEN  LEFT RIGHT CHANGE", DIM, BG);
+    gfx_text(20, 322, pg == PG_CHOICE ? (menu.choice_val[d] == V_METER ? "UP DOWN  A PICK  X CONFIGURE" : "UP DOWN  A PICK  B BACK") : "UP DOWN  A OPEN  LEFT RIGHT CHANGE", DIM, BG);
     gfx_text(20, 340, d ? "B BACK  START CLOSE" : "B OR START CLOSE", DIM, BG);
 }
 

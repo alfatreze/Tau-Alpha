@@ -99,7 +99,8 @@ int main(void)
         }
         else if ((keys & KEY_SELECT) && (edge & KEY_B)) views_switch(np_like ? V_INFO : V_NOWPLAYING);
         else if (np_like) {
-            if (keys & KEY_SELECT) {                                                          /* Select + ... */
+            if ((keys & KEY_START) && (edge & KEY_X)) views_switch(V_CONFIGURE);                  /* Start+X: the Configure page of the current meter */
+            else if (keys & KEY_SELECT) {                                                     /* Select + ... */
                 if (edge & KEY_UP) mp3play_act(MPA_ALBUM, -1);
                 if (edge & KEY_DOWN) mp3play_act(MPA_ALBUM, 1);
                 if (edge & KEY_LEFT) mp3play_act(MPA_SEEK, -1);
