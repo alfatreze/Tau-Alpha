@@ -5,6 +5,9 @@ the Cymo row — see below). Why things are the way they are is in `docs/AUDIT_T
 `docs/archive/CURRENT_STATUS_history_2026-09-26.md`.
 Full detail on this session: `docs/handoffs/SESSION_HANDOFF_2026-10-03_CYMO_TEMPO.md` — **read it first** (the 2026-10-01 resampler handoff is still correct for what it covers).
 
+## Update 2026-10-21: meters on Player 2, loadable meter packs, the Waterfall grid (branch `meters-p2`, not merged)
+**Read `docs/handoffs/SESSION_HANDOFF_2026-10-21_METERS_PLAYER2_PACKS.md` first.** Audit B-787..B-798; worktree `../tau-alpha-meters-p2`, head `4d0f986`, 23 commits ahead of `main`, **not pushed**. Hardware-confirmed: all five meters run as packs (`TAU DEV 173`), the METER list previews and Configure keys (`TAU DEV 174`). On the card: `TAU DEV 173`-`176` (176 has the review fixes and the idle degrade). **Not on any build:** the Waterfall rework, always-visible grid, preset save for the sixth meter and the colour-save fix (B-798). Pending in order: package/test `TAU DEV 177`; per-meter command budget + Helios layer; Layered Wave pack vs built-in; packs carrying their own descriptors (Bars the only built-in); pack signing decision.
+
 ## Update 2026-10-16 (late): Player 2 meters, themes, presets, Configure page, screen blank, double buffering
 **Read `docs/handoffs/SESSION_HANDOFF_2026-10-16_PLAYER2_METERS_H2.md` first.** Audit B-782..B-784; worktree `../tau-alpha-player2`, branch `player2`. `TAU DEV 165` is installed (everything except double buffering); B-784 (double-buffered redraws, off-screen compose for Chladni and Layered Wave, Scope trail, Settings crossfade) is committed and host-proven but not packaged or run on a Pocket.
 
