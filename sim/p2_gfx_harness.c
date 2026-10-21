@@ -95,10 +95,29 @@ static void sc_nodbuf(void)
     gfx_cblit(0, 400, 30, 30, 8, 1); gfx_frame_end(0); gfx_fence();
     chk("drawing goes to buffer 0 and the registers were not touched", em_px(0, 8, 8) == 0x1234 && em_cpu == 0 && em_disp == 0 && em_nflips == 0);
 }
+static void sc_bar(void)
+{
+    em_reset(); caps.dbuf = 0; em_has_dbuf = 0;
+    static const uint32_t hs[] = { 1, 5, 60, 127, 128, 200, 323 }, ls[] = { 0, 1, 2, 63, 127, 128, 129, 255, 256, 300, 323, 400, 511, 600 };
+    int ok = 1;
+    for (uint32_t hi = 0; hi < sizeof hs / sizeof *hs; hi++) for (uint32_t li = 0; li < sizeof ls / sizeof *ls; li++) {
+        const uint32_t h = hs[hi], lit = ls[li], eff = lit > 511u ? 511u : lit, want_lit = eff > h ? h : eff;
+        gfx_rect(0, 0, 400, 360, 0x0001);
+        gfx_bar(10, 20, 7, h, lit, 0xF800, 0x001F); gfx_fence();
+        for (uint32_t y = 0; y < 360u; y++) for (uint32_t x = 0; x < 400u; x++) {
+            uint16_t want = 0x0001;
+            if (x >= 10u && x < 17u && y >= 20u && y < 20u + h && y < 360u) want = (y - 20u) < h - want_lit ? 0x001F : 0xF800;
+            if (em_px(0, x, y) != want) ok = 0;
+        }
+    }
+    chk("a bar column: the bottom `lit` rows in the foreground, the rest in the background, for heights to 323 and lit counts past 127 (the two high bits) and past the height", ok);
+    gfx_rect(0, 0, 400, 360, 0x0001); gfx_bar(390, 350, 30, 30, 15, 0xF800, 0x001F); gfx_fence();
+    chk("a bar is clipped to the visible frame", em_px(0, 399, 359) == 0xF800 && em_px(0, 399, 349) == 0x0001);
+}
 int main(int argc, char **argv)
 {
     const char *s = argc > 1 ? argv[1] : "bracket";
     if (!strcmp(s, "bracket")) sc_bracket(); else if (!strcmp(s, "blitmode")) sc_blitmode(); else if (!strcmp(s, "stash")) sc_stash();
-    else if (!strcmp(s, "compose")) sc_compose(); else if (!strcmp(s, "blend")) sc_blend(); else if (!strcmp(s, "noblend")) sc_noblend(); else if (!strcmp(s, "nodbuf")) sc_nodbuf();
+    else if (!strcmp(s, "compose")) sc_compose(); else if (!strcmp(s, "blend")) sc_blend(); else if (!strcmp(s, "noblend")) sc_noblend(); else if (!strcmp(s, "nodbuf")) sc_nodbuf(); else if (!strcmp(s, "bar")) sc_bar();
     return fails ? 1 : 0;
 }

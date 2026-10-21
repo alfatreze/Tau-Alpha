@@ -162,6 +162,6 @@
       }
     }
   ],
-  "p2": {"cmds": 96, "slot": 0, "tag": "BARS", "compose": false, "budget": {"cold": 1600, "hot_ram": 192}},
+  "p2": {"cmds": 64, "slot": 0, "tag": "BARS", "compose": false, "budget": {"cold": 1600, "hot_ram": 192}},
   "default_preset": 0
 }

@@ -33,6 +33,9 @@ static void em_exec(const em_cmd_t *c)
     em_executed++;
     if (op == 1u) {                                                  /* RECT */
         for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) em_mem[em_dbuf_addr(c->addr + j * EM_STRIDE + i, em_cpu)] = (uint16_t)c->color;
+    } else if (op == 5u) {                                           /* BAR: lit = cmd_glyph (go[9:3]) with cmd_glyph_hi (go[16:15]) above it, clamped to h; unlit rows on top in the background colour, lit rows below in the foreground (mp3_fb.sv OP_BAR) */
+        uint32_t lit = ((c->go >> 3) & 0x7Fu) | (((c->go >> 15) & 3u) << 7); if (lit > h) lit = h;
+        for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) em_mem[em_dbuf_addr(c->addr + j * EM_STRIDE + i, em_cpu)] = (uint16_t)(j < h - lit ? (c->color >> 16) : (c->color & 0xFFFFu));
     } else if (op == 4u || op == 6u || op == 7u) {                   /* BLIT / SBLIT / CBLIT: addressed through the sticky bases */
         const uint32_t src = ((c->color & 7u) << 16) | (c->color >> 16);
         const uint32_t sx = (op == 6u) ? (((c->go >> 10) & 3u) ? ((c->go >> 10) & 3u) : 1u) : 1u, sy = (op == 6u) ? (((c->go >> 12) & 3u) ? ((c->go >> 12) & 3u) : 1u) : 1u;

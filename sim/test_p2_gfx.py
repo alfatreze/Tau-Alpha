@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Player 2 graphics layer (fw2/gfx/gfx.c) against a host model of the draw engine with two display buffers, a lazily draining command queue, sticky bases/blend read at execution and a flip applied at a vblank:
 a full redraw into the idle buffer, blit-mode commands following the drawing target, shared stash rows, an off-screen compose copied onto the displayed buffer, the alpha blend, and the no-H2 fallback.
-Mutants: blit bases not following the target; the bases changed without draining the queue first; the redraw flips without a fence; blend turned off without a fence; the present copies the wrong buffer; the blend probe always says yes."""
+Mutants: blit bases not following the target; the bases changed without draining the queue first; the redraw flips without a fence; blend turned off without a fence; the present copies the wrong buffer; the blend probe always says yes; the bar's two high lit bits dropped."""
 import subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -10,7 +10,7 @@ def check(name, ok):
     global fails
     print(("ok   " if ok else "FAIL ") + name)
     if not ok: fails += 1
-SCEN = ("bracket", "blitmode", "stash", "compose", "blend", "noblend", "nodbuf")
+SCEN = ("bracket", "blitmode", "stash", "compose", "blend", "noblend", "nodbuf", "bar")
 def build(td, mutant):
     d = Path(td)
     for sub in ("sim", "fw2/gfx", "fw2/platform"): (d / sub).mkdir(parents=True, exist_ok=True)
@@ -25,6 +25,8 @@ def build(td, mutant):
     if mutant == "nofence": m("    if (!active) return;\n    gfx_fence();\n", "    if (!active) return;\n")
     if mutant == "blendfence": m("void gfx_blend_off(void) { gfx_fence();", "void gfx_blend_off(void) {")
     if mutant == "present": m("buf_base(back), buf_base(front)); }", "buf_base(front), buf_base(back)); }")
+    if mutant == "barhi": m("(((lit >> 7) & 0x3u) << 15)", "0u")
+    if mutant == "barclip": m("    if (lit > 511u) lit = 511u;\n", "")
     if mutant == "probe": m("    return gfx_blend_state == 1u;\n}\n/* Blend the w x h box", "    gfx_blend_state = 1u; return 1;\n}\n/* Blend the w x h box")
     (d / "fw2/gfx/gfx.c").write_text(src)
     (d / "fw2/cores").mkdir(parents=True, exist_ok=True); (d / "fw2/cores/gfx_touch_core.h").write_text((ROOT / "fw2/cores/gfx_touch_core.h").read_text())
@@ -47,7 +49,7 @@ with tempfile.TemporaryDirectory() as td:
             if l.startswith("ok"): print(l)
             elif l: check(l, False)
         if rc: fails += 0
-for mut, scen in (("bases", "blitmode"), ("nofence", "bracket"), ("setfence", "blitmode"), ("nosync", "bracket"), ("composesync", "compose"), ("blendfence", "blend"), ("present", "compose"), ("probe", "noblend")):
+for mut, scen in (("bases", "blitmode"), ("nofence", "bracket"), ("setfence", "blitmode"), ("nosync", "bracket"), ("composesync", "compose"), ("blendfence", "blend"), ("present", "compose"), ("probe", "noblend"), ("barhi", "bar")):
     with tempfile.TemporaryDirectory() as td:
         out, rc = run(build(td, mut), scen); check(f"mutant {mut} is caught", rc != 0)
 print("PASSED" if not fails else f"FAILED ({fails})")

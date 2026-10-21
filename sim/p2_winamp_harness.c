@@ -9,6 +9,7 @@
 static uint16_t fb[W * H], ex[W * H];
 uint16_t th_role[TR_COUNT];
 void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) if (x + i < W && y + j < H) fb[(y + j) * W + x + i] = c; }
+void gfx_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t f, uint16_t b) { if (lit > h) lit = h; gfx_rect(x, y, w, h - lit, b); gfx_rect(x, y + h - lit, w, lit, f); }      /* OP_BAR: unlit rows on top, lit rows below (tested against the engine model in test_p2_gfx.py) */
 static void rect_to(uint16_t *e, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) if (x + i < W && y + j < H) e[(y + j) * W + x + i] = c; }
 static uint32_t rng;
 static uint32_t rnd(void) { rng = rng * 1664525u + 1013904223u; return rng >> 8; }

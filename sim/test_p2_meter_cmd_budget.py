@@ -29,7 +29,9 @@ def build(td, mutant):
     if r.returncode: print(r.stderr); sys.exit(1)
     return d
 def run(d): return subprocess.run([str(d / "h")], capture_output=True, text=True).stdout.strip().split("\n")
-GOOD = ['ceiling bars 96', 'inside self 0 over 0 last 96', 'exactly at the ceiling: self 0 over 0', 'one over: self 1 over 1', 'max 97', 'over for 8 windows: drawn 3 self 2', 'the meter was told degrade 2', 'a forced repaint is not judged: over 4 self 2', 'back inside for 64 windows: drawn 16 self 1', 'and a while longer: self 0', "the governor's level wins when higher: told 1", 'another meter has its own level: vu self 1 bars self 2', 'beam inside: rows 50-150 direct 1 exposed 1', 'beam well ahead of the rows: direct 1 exposed 0', 'beam already past: direct 1 exposed 0', 'vertical blanking: direct 1 exposed 0', 'no beam counter: direct 1 exposed 0', 'nothing visible drawn: rows 0 direct 0', 'stash rows only: direct 0 exposed 0']
+import re
+B = int(re.search(r"meter_cmd_budget\[METER_N\] = \{ (\d+),", (ROOT / "fw2/generated/meter_registry.h").read_text()).group(1))       # Winamp Bars' ceiling (the first meter): the expectations follow the manifest
+GOOD = [g.replace("@B1", str(B + 1)).replace("@B", str(B)) for g in ['ceiling bars @B', 'inside self 0 over 0 last @B', 'exactly at the ceiling: self 0 over 0', 'one over: self 1 over 1', 'max @B1', 'over for 8 windows: drawn 3 self 2', 'the meter was told degrade 2', 'a forced repaint is not judged: over 4 self 2', 'back inside for 64 windows: drawn 16 self 1', 'and a while longer: self 0', "the governor's level wins when higher: told 1", 'another meter has its own level: vu self 1 bars self 2', 'beam inside: rows 50-150 direct 1 exposed 1', 'beam well ahead of the rows: direct 1 exposed 0', 'beam already past: direct 1 exposed 0', 'vertical blanking: direct 1 exposed 0', 'no beam counter: direct 1 exposed 0', 'nothing visible drawn: rows 0 direct 0', 'stash rows only: direct 0 exposed 0']]
 with tempfile.TemporaryDirectory() as td:
     out = run(build(td, None))
     for g, o in zip(GOOD, out): check(g, g == o)
