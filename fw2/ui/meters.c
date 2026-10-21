@@ -157,9 +157,17 @@ static int fetch(uint32_t *m)                        /* a new window, read coher
     return 1;
 }
 
+meter_stats_t meter_stats;
+static uint32_t shed_win = 0xFFFFFFFFu;                  /* the last window counted as shed */
+_Static_assert(METER_N <= 8u, "meter_stats_t.max_cyc holds eight meters: widen it with the registry");
 void meters_tick(int allowed)
 {
-    if (!caps.spec || !allowed || !bw) return;
+    if (!caps.spec || !bw) return;
+    if (!allowed) {                                                                   /* the window stays pending (drawn when the UI is allowed again); it is counted once */
+        const uint32_t w0 = (REG_RD(R_SPEC_ST) >> 16) & 0xFFFFu;
+        if (w0 != win_seen && w0 != shed_win) { meter_stats.shed++; shed_win = w0; }
+        return;
+    }
     uint32_t m[MTR_BANDS];
     if (!fetch(m)) return;
     for (uint32_t b = 0; b < MTR_BANDS; b++) lvl[b] = (uint8_t)spec_ballistics(lvl[b], spec_level(m[b], b));
@@ -170,5 +178,9 @@ void meters_tick(int allowed)
     force_next = 0;
     const int comp = meter_table[cur].compose && gfx_compose_begin(bx, by, bw, bh);
     meter_table[cur].tick(&in);
-    if (comp) gfx_compose_present(bx, by, bw, bh);
+    meter_stats.compose_cyc = 0;
+    if (comp) { const uint32_t c0 = cycles(); gfx_compose_present(bx, by, bw, bh); meter_stats.compose_cyc = cycles() - c0; }
+    const uint32_t spent = cycles() - t;
+    meter_stats.ticks++; meter_stats.last_cyc = spent;
+    if (spent > meter_stats.max_cyc[cur]) meter_stats.max_cyc[cur] = spent;
 }
