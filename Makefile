@@ -96,6 +96,7 @@ test-host:
 	$(PYTHON) sim/test_p2_mpre.py
 	$(PYTHON) sim/test_p2_ramp.py
 	$(PYTHON) sim/test_p2_meter_stats.py
+	$(PYTHON) sim/test_p2_meter_budget.py
 	$(PYTHON) sim/test_p2_configure.py
 	$(PYTHON) sim/test_p2_configure_view.py
 	$(PYTHON) sim/test_p2_controls.py
@@ -140,6 +141,7 @@ test-host:
 	$(PYTHON) sim/test_check_deps.py
 	$(PYTHON) tools/check_deps.py
 	TAU_BUILD_OUT=work/heapcheck bash fw2/build.sh
+	$(PYTHON) tools/player2/meter_budget.py work/heapcheck/player2/obj
 	$(PYTHON) tools/player2/baseline.py --check docs/research/player2/BASELINE.json
 	$(PYTHON) sim/test_key_repeat.py
 	$(PYTHON) sim/test_wsola.py

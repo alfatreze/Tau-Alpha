@@ -25,5 +25,9 @@ b = dict(base); b["platform/p.h"] += '#include "../aout/a.h"\n';        check("p
 b = dict(base); b["aout/a.h"] += '#include "../diagnostics/x.c"\n';     check("including the diagnostics leaf fails", rc(tree(b)) == 1)
 b = dict(base); b["mystery/z.h"] = "";                                   check("an unknown module directory fails", rc(tree(b)) == 1)
 b = dict(base); b["stream/s.h"] += '#include "../decode/d.h"\n';        check("a two-module cycle fails", rc(tree(b)) == 1)
+b = dict(base); b["ui/meter_x.c"] = '#include "meter.h"\n#include "../gfx/g.h"\n#include "../cores/c.h"\n#include "../platform/mmio.h"\n'; b["ui/meter.h"] = ""; b["gfx/g.h"] = ""; b["platform/mmio.h"] = ""
+check("a meter using only gfx, cores, mmio and meter.h passes", rc(tree(b)) == 0)
+for bad in ("../transport/t.h", "../aout/a.h", "../platform/p.h", "../ui/u.h", "../stream/s.h"):
+    b2 = dict(b); b2["ui/meter_x.c"] += '#include "%s"\n' % bad;  check("a meter including %s fails" % bad, rc(tree(b2)) == 1)
 check("the real fw2/ tree passes", subprocess.run([sys.executable, str(ROOT / "tools/check_deps.py")], capture_output=True).returncode == 0)
 print("PASSED" if not fails else f"{fails} FAILED"); sys.exit(1 if fails else 0)

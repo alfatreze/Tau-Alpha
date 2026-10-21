@@ -22,6 +22,24 @@ ALLOWED = {
     "cores":       {"cores"},
 }
 
+# The meter module rule (docs/features/meters/METERS_PLAYER2_PLAN.md): a meter (fw2/ui/meter_<key>.c) draws through gfx, reads its inputs from meter.h and the theme roles, and takes its logic from cores. It may include
+# only these; it must not reach transport, settings, aout, art, queue, stream, diagnostics, the platform beyond the register map, or another meter. (The old player's portable cores under fw/ are allowed until they move into fw2/cores.)
+METER_OK_FILES = {"ui/meter.h", "ui/theme.h", "platform/mmio.h"}
+METER_OK_DIRS = {"gfx", "cores", "generated"}
+def meter_violations(f, root, text):
+    out = []
+    for line_no, line in enumerate(text.splitlines(), 1):
+        m = re.match(r'\s*#\s*include\s+"([^"]+)"', line)
+        if not m: continue
+        inc = m.group(1); tgt = (f.parent / inc).resolve()
+        try: rel = tgt.relative_to(root.resolve()).as_posix()
+        except ValueError:
+            if "/fw/" in "/" + Path(inc).as_posix() or inc.startswith("../../fw/") or "fw/" in inc: continue        # an old-player core (transitional)
+            continue                                                                                           # system or vendor header
+        if rel in METER_OK_FILES or rel.split("/")[0] in METER_OK_DIRS: continue
+        out.append(f"{f.relative_to(root)}:{line_no}: a meter module may include only meter.h, theme.h, gfx/, platform/mmio.h, cores/ and generated/ ({inc})")
+    return out
+
 def module_of(path, root):
     rel = path.relative_to(root)
     return rel.parts[0] if len(rel.parts) > 1 else None
@@ -34,6 +52,7 @@ def scan(root):
         if src is None or src == "generated": continue
         if src not in ALLOWED: unknown.add(src); continue
         text = re.sub(r"/\*.*?\*/", "", f.read_text(), flags=re.S)
+        if src == "ui" and f.name.startswith("meter_") and f.suffix == ".c": viol.extend(meter_violations(f, root, text))
         for line_no, line in enumerate(text.splitlines(), 1):
             m = re.match(r'\s*#\s*include\s+"([^"]+)"', line)
             if not m: continue
