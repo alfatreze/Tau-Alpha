@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End to end for the meter trace pipeline (M3), without hardware: a synthetic 'recorded' trace is encoded exactly as the firmware's
 SR_T_METERTRACE record (fw/suite.inc mt_take, same layout, same TAUD1 text), decoded by tools/decode_tau_suite.py (--trace), then replayed
-through the REAL firmware drawing code and the JS preview modules; the command logs must be identical (sim/test_meter_golden.py's harness).
+through the REAL firmware drawing code and the JS preview modules; the command logs must be identical (sim/test_p2_meter_golden.py's harness).
 That is the "a recorded real trace reproduces exactly" proof; a trace captured on a Pocket enters the same path."""
 import json, subprocess, sys, tempfile
 from pathlib import Path
@@ -47,7 +47,7 @@ def main():
         if [(f["dt_ms"], f["spec"], f["wave"]) for f in tr["frames"]] != frames:
             print("FAIL: the decoded trace differs from what was recorded"); sys.exit(1)
         # replay: the golden harness with this trace instead of the demo source
-        g = subprocess.run([sys.executable, str(ROOT / "sim" / "test_meter_golden.py"), "--trace", str(out)], capture_output=True, text=True)
+        g = subprocess.run([sys.executable, str(ROOT / "sim" / "test_p2_meter_golden.py"), "--trace", str(out)], capture_output=True, text=True)
         print(g.stdout.strip())
         if g.returncode:
             print(g.stderr); sys.exit(1)
