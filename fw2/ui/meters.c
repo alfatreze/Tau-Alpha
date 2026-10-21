@@ -22,6 +22,10 @@ METER_LIST(DECL)
 const meter_def_t meter_table[] = { METER_LIST(ROW) };
 const uint32_t meter_count = sizeof meter_table / sizeof meter_table[0];
 
+#ifdef P2_PACKS
+#include "meter_pack.h"
+static mpkb_slot_t pack_slot[MTR_PACK_SLOTS];                       /* per meter slot: the pack's state (see the packs block below) */
+#endif
 static uint32_t cur, bx, by, bw, bh, win_seen = 0xFFFFFFFFu, frame, last_t, force_next;
 static uint8_t lvl[MTR_BANDS];
 extern uint32_t mp3play_paused_now(void);          /* mp3play.c: 1 when nothing is being heard */
@@ -48,7 +52,11 @@ static void user_preset(uint32_t m, uint32_t p, uint16_t *vals, char *name)     
     if (name) metr_name(buf, &e, 0u, name);
     if (vals) metr_values(buf, &e, 0u, shapes(m), meter_table[m].np, vals);
 }
-void meters_init(void) { cur = 0; for (uint32_t i = 0; i < meter_count; i++) { pre[i] = 0; custom[i] = 0; user_n[i] = 0; meter_table[i].set_pre(0u); } }
+void meters_init(void) {
+#ifdef P2_PACKS
+    for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) pack_slot[i].status = 0xFFu;          /* no pack until a bundle has installed one (status 0 would mean a running pack) */
+#endif
+    cur = 0; for (uint32_t i = 0; i < meter_count; i++) { pre[i] = 0; custom[i] = 0; user_n[i] = 0; meter_table[i].set_pre(0u); } }
 uint32_t meters_metr_load(const uint8_t *src, uint32_t n)       /* returns the number of meters whose presets were replaced; the section is validated first */
 {
     if (n > METR_MAX_BYTES || metr_check(src, n)) return 0;
@@ -160,26 +168,40 @@ static int fetch(uint32_t *m)                        /* a new window, read coher
 #ifdef P2_PACKS
 /* Loadable meters (docs/features/meters/METER_PACKS.md): a pack in the MPKB section of tau-assets.bin is verified and copied into its PSRAM slot once at boot; while it is the selected meter its entry point draws instead of the
  * built-in one (which stays as the per-meter fallback: a refused or missing pack just leaves the built-in meter in use). Only the active pack's working state is resident, in the 4 KB scratch under the tag zone. */
-#include "meter_pack.h"
-static mpkb_slot_t pack_slot[MTR_PACK_SLOTS];
 static uint32_t pack_act = 0xFFu, pack_seen, pack_err = 0xFFu;         /* the meter whose pack state is in the scratch; packs in the file; the bundle's own result (0xFF: no bundle) */
 static uint32_t pack_stats[MTR_PACK_STATS];
 static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stats, gfx_text, gfx_rect_stash, gfx_blend_ready, gfx_blend_on, gfx_blend_blit, gfx_blend_off, gfx_mb_write, gfx_mb_read, gfx_fence, gfx_blit, gfx_blit_abs, gfx_sblit };
-static volatile uint8_t *pack_slot_data(uint32_t i) { return (volatile uint8_t *)(uintptr_t)((MTR_PACK_SLOT_BASE + i * MTR_PACK_SLOT_SIZE) | 0x80000000u); }   /* written through the data alias, executed at the instruction alias */
+/* The three places that touch the Pocket's address space can be replaced by a host test (sim/test_p2_meter_pack_dispatch.py): the slot (written through the data alias, executed at the instruction alias), the scratch and the call. */
+#ifndef PACK_SLOT_DATA
+#define PACK_SLOT_DATA(i) ((volatile uint8_t *)(uintptr_t)((MTR_PACK_SLOT_BASE + (i) * MTR_PACK_SLOT_SIZE) | 0x80000000u))
+#endif
+#ifndef PACK_SCRATCH
+#define PACK_SCRATCH ((uint8_t *)(uintptr_t)MTR_PACK_SCRATCH_ORG)
+#endif
+#ifndef PACK_CALL
+#define PACK_CALL(e, in, api) ((mtr_pack_entry_fn)(uintptr_t)(e))(in, api)
+#endif
+static volatile uint8_t *pack_slot_data(uint32_t i) { return PACK_SLOT_DATA(i); }
 static int pack_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len) { const volatile uint8_t *s = (const volatile uint8_t *)ctx; for (uint32_t i = 0; i < len; i++) dst[i] = s[off + i]; return 1; }
 void meters_packs_load(const uint8_t *p, uint32_t n)                    /* the MPKB section: the caller has proven the PSRAM window (the slots live in it) */
 {
     static const uint16_t ids[MTR_PACK_SLOTS] = { 0, 1, 2, 3, 4 };      /* slot i belongs to meter i: the manifests' p2.slot, which is the registry order */
     pack_act = 0xFFu;
-    pack_err = (uint32_t)mpkb_install_all(pack_rd, (void *)p, (uint8_t *)(uintptr_t)MTR_PACK_SCRATCH_ORG, n, pack_slot_data(0), ids, MTR_PACK_SCRATCH_ORG, MTR_PACK_SCRATCH_SIZE, pack_slot, &pack_seen);
+    pack_err = (uint32_t)mpkb_install_all(pack_rd, (void *)p, PACK_SCRATCH, n, pack_slot_data(0), ids, MTR_PACK_SCRATCH_ORG, MTR_PACK_SCRATCH_SIZE, pack_slot, &pack_seen);
 }
 uint32_t meters_pack_state(uint32_t m) { return m < MTR_PACK_SLOTS ? pack_slot[m].status : 0xFFu; }     /* 0 = the pack runs, 0xFF = none, else the refusal code */
+void meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err, uint32_t *seen)     /* for Info: bit m of `running` = meter m runs as a pack; the first refusal code (0 none); the bundle's own result (0xFF no bundle); packs in the file */
+{
+    uint32_t r = 0, e = 0;
+    for (uint32_t m = 0; m < MTR_PACK_SLOTS; m++) { if (pack_slot[m].status == MPK_OK) r |= 1u << m; else if (pack_slot[m].status != 0xFFu && !e) e = pack_slot[m].status; }
+    *running = r; *first_err = e; *file_err = pack_err; *seen = pack_seen;
+}
 static int pack_ok(uint32_t m) { return m < MTR_PACK_SLOTS && pack_slot[m].status == MPK_OK; }
 static void pack_tick(const mtr_in_t *in)
 {
-    if (pack_act != cur) { mpk_activate(&pack_slot[cur].info, pack_slot_data(cur), (volatile uint8_t *)(uintptr_t)MTR_PACK_SCRATCH_ORG); pack_act = cur; }
+    if (pack_act != cur) { mpk_activate(&pack_slot[cur].info, pack_slot_data(cur), (volatile uint8_t *)PACK_SCRATCH); pack_act = cur; }
     pack_api.params = meter_table[cur].mv;
-    ((mtr_pack_entry_fn)(uintptr_t)pack_slot[cur].info.entry)(in, &pack_api);
+    PACK_CALL(pack_slot[cur].info.entry, in, &pack_api);
 }
 #endif
 meter_stats_t meter_stats;
