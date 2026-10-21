@@ -43,9 +43,9 @@ static uint8_t pre[8], custom[8];                                  /* the select
 #endif
 #define METR_MAX_BYTES 0xF000u                                      /* the PSRAM region 0xA4550000..0xA4560000 less a margin (the Layered Wave ring starts at 0xA4560000) */
 static metr_e_t ue[8]; static uint8_t user_n[8];
-static metr_p_t mp[8][40];                                         /* the parameter shapes of each meter, from the descriptors */
+static metr_p_t sh[40];                                            /* the parameter shapes of ONE meter, from its descriptors, rebuilt when needed (all of them at once cost 2,560 B of hot RAM) */
 static uint8_t is_wide(const mpd_t *p) { return p->type == 3u || (p->type == 0u && p->max > 255u); }
-static void shapes(uint32_t m) { const meter_def_t *d = &meter_table[m]; for (uint32_t i = 0; i < d->np && i < 40u; i++) { mp[m][i].min = d->pd[i].min; mp[m][i].max = d->pd[i].max; mp[m][i].kind = d->pd[i].type; mp[m][i].enum_n = d->pd[i].nval; mp[m][i].wide = is_wide(&d->pd[i]); } }
+static const metr_p_t *shapes(uint32_t m) { const meter_def_t *d = &meter_table[m]; for (uint32_t i = 0; i < d->np && i < 40u; i++) { sh[i].min = d->pd[i].min; sh[i].max = d->pd[i].max; sh[i].kind = d->pd[i].type; sh[i].enum_n = d->pd[i].nval; sh[i].wide = is_wide(&d->pd[i]); } return sh; }
 static uint32_t tune_cache[TUNE_WORDS], tune_meter = 0xFFu;
 static void tune_clear(void) { for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[k] = 0; tune_meter = 0xFFu; }
 uint32_t meters_npre(uint32_t m) { return m >= meter_count ? 1u : user_n[m] ? user_n[m] : meter_table[m].npre; }
@@ -55,9 +55,9 @@ static void user_preset(uint32_t m, uint32_t p, uint16_t *vals, char *name)     
     for (uint32_t w = w0; w < w1; w += 4u) { const uint32_t v = METR_PSRAM[w >> 2]; for (uint32_t k = 0; k < 4u && w - w0 + k < sizeof buf; k++) buf[w - w0 + k] = (uint8_t)(v >> (8u * k)); }
     e.off = at - w0; e.psize = 0u;
     if (name) metr_name(buf, &e, 0u, name);
-    if (vals) metr_values(buf, &e, 0u, mp[m], meter_table[m].np, vals);
+    if (vals) metr_values(buf, &e, 0u, shapes(m), meter_table[m].np, vals);
 }
-void meters_init(void) { cur = 0; for (uint32_t i = 0; i < meter_count; i++) { pre[i] = 0; custom[i] = 0; user_n[i] = 0; shapes(i); meter_table[i].set_pre(0u); } }
+void meters_init(void) { cur = 0; for (uint32_t i = 0; i < meter_count; i++) { pre[i] = 0; custom[i] = 0; user_n[i] = 0; meter_table[i].set_pre(0u); } }
 uint32_t meters_metr_load(const uint8_t *src, uint32_t n)       /* returns the number of meters whose presets were replaced; the section is validated first */
 {
     static const uint8_t ids[8] = { 12, 13, 14, 16, 15, 0, 0, 0 };       /* the manifest's meter id of each table entry, in the table's order */
@@ -65,7 +65,7 @@ uint32_t meters_metr_load(const uint8_t *src, uint32_t n)       /* returns the n
     uint32_t done = 0;
     for (uint32_t m = 0; m < meter_count; m++) {
         metr_e_t e;
-        if (!metr_find(src, n, ids[m], mp[m], meter_table[m].np, &e)) continue;
+        if (!metr_find(src, n, ids[m], shapes(m), meter_table[m].np, &e)) continue;
         ue[m] = e; user_n[m] = e.npre; done++;
     }
     if (!done) return 0;
