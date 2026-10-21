@@ -5,6 +5,12 @@ Tau is an Analogue Pocket music player core derived from
 It preserves the upstream Git history and copyright notice; see `NOTICE.md` for
 full provenance and third-party licenses.
 
+**Origin/rebuild audit (2026-10-13):**
+[HarpMudd comparison and rewrite plan](docs/research/HARPMUDD_COMPARISON_AND_REWRITE_2026-10-12.md)
+records the pinned fork/current-upstream comparison, complete module inventory,
+scoped source percentages and staged rebuild gates. It supersedes the older
+origin percentages; this is source/host analysis, not a firmware or RTL rebuild.
+
 **Current preview:** v0.1.0 · **Core identity:** `alfatreze.TAU` ·
 **Platform:** `tau` / Media Players
 
@@ -212,3 +218,6 @@ Update this file before every GitHub push or release when the published project
 state has materially changed. Record what was verified on hardware separately
 from host-side checks, keep the next action current, and preserve HarpMudd
 attribution.
+
+
+MOD investigation has moved to the independent [Tau Μ project](../Tau%20Μ/README.md), including Approach B and tracker UI concepts. Alpha retains its MP3/FLAC scope.
