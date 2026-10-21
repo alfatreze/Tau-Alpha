@@ -7,6 +7,7 @@ void nowplaying_enter(void);     /* clear the screen and forget what was drawn *
 void nowplaying_draw_head(void);    /* rows 0..210: the heard track's text, clock, bar and cover; cheap when nothing changed */
 void nowplaying_draw_meter(void);   /* rows 212..292 */
 void nowplaying_draw_foot(void);    /* rows 296..360: volume, tempo, repeat, shuffle, the key hint */
+uint32_t nowplaying_fallback(void);   /* FB_* (cores/help_core.h): which fallback screen is up, 0 = the normal player */
 int  nowplaying_input(uint32_t edge);   /* the plain key edges; returns VW_STAY (-1) */
 void nowplaying_mark(void);         /* once per loop pass: marks the three regions (their ids are views.h NP_REGIONS) */
 extern uint8_t np_art_on;           /* Album art on/off (Settings > Appearance) */

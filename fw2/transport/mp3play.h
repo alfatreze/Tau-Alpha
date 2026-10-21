@@ -31,6 +31,7 @@ typedef struct {
     uint32_t playing, held, volume, rg_mode, repeat, shuffle, tempo_q8, varispeed, valid, gov, fault;       /* fault: the required MP3 window unit is missing or failed (stereo MP3 would be silent) */
 } np_info_t;
 const np_info_t *mp3play_np(void);
+uint32_t mp3play_library(uint32_t *err, uint32_t *n_tracks);   /* the library's state (0 not loaded, 1 loaded, 2 failed), its LIB_E_* code and its track count: the Now Playing fallback screens need them */
 /* Let the media stream's command in flight finish and issue nothing new until the next pump: the one card command channel is then free for a blocking job (the cover load). */
 void mp3play_io_quiesce(void);
 /* Play a queue the library just built (u16 ids in library_queue_buf()): n tracks, starting at `start`. `src_kind`/`src_parent` remember how to rebuild its natural order (X shuffle off). */

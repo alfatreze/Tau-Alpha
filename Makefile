@@ -98,6 +98,7 @@ test-host:
 	$(PYTHON) sim/test_p2_configure.py
 	$(PYTHON) sim/test_p2_configure_view.py
 	$(PYTHON) sim/test_p2_controls.py
+	$(PYTHON) sim/test_p2_help.py
 	$(PYTHON) sim/test_p2_metr.py
 	$(PYTHON) sim/test_p2_colour.py
 	$(PYTHON) sim/test_p2_tune.py
