@@ -17,11 +17,19 @@
 
 #include "library_core.h"
 
-/* The ABI numbers a pack and the firmware agree on (fw2/ui/meter_pack.h adds the host table). Player 2 restarted the ABI at 1 (ABI 2 added text, the stash rectangle and the blend calls for Scope and VU Master; ABI 3 the mailbox, fence and blit calls for Chladni; ABI 4 mtr_in_t.degrade and the bar and scroll methods): the table is a thin layer over gfx_* (not the old player's engine calls).
+/* The ABI numbers a pack and the firmware agree on (fw2/ui/meter_pack.h adds the host table). Player 2 restarted the ABI at 1 (ABI 2 added text, the stash rectangle and the blend calls for Scope and VU Master; ABI 3 the mailbox, fence and blit calls for Chladni; ABI 4 mtr_in_t.degrade and the bar and scroll methods; ABI 5 the palette load and blit; then versioned: major 1, minor 0 = all of that): the table is a thin layer over gfx_* (not the old player's engine calls).
  *   scratch: MTR_PACK_SCRATCH_SIZE bytes of hot RAM at a fixed address just under the tag landing zone (fw2/platform/link.ld reserves it in a PACKS build); the active meter's .data and .bss live there.
  *   slots:   MTR_PACK_SLOTS slots of MTR_PACK_SLOT_SIZE in free PSRAM after the cold image (8 MiB + 1 MiB), executed at the 0x24xx_xxxx alias and written through the 0xA4xx_xxxx data alias.
  *            Slot i belongs to meter slot_ids[i] (the manifest's p2.pack id: the meter's index in the registry table). Host tests override the bases (the simulator has no PSRAM window). */
-#define MTR_PACK_ABI 5u
+/* Versioned ABI (B-803): the u16 in the pack header is major << 8 | minor. A MAJOR change breaks packs (a field removed, reordered or resized, a call's meaning changed): old packs are refused. A MINOR change only APPENDS (a host table
+ * entry, an mtr_in_t field): the firmware runs every pack whose minor is not above its own, because the pack never touches what it was not built against. A pack declares the minor it NEEDS (the highest appended entry it
+ * uses: `#define MTR_PACK_NEEDS_MINOR n` in its source, default 0), not the firmware's current one, so it keeps running on firmware that predates later additions. sim/test_p2_meter_pack.py fails until the tracked
+ * prefix fingerprints and the minor agree with the two structs. */
+#define MTR_PACK_ABI_MAJOR 1u
+#ifndef MTR_PACK_ABI_MINOR
+#define MTR_PACK_ABI_MINOR 0u
+#endif
+#define MTR_PACK_ABI ((MTR_PACK_ABI_MAJOR << 8) | MTR_PACK_ABI_MINOR)
 #ifndef MTR_PACK_SCRATCH_ORG
 #define MTR_PACK_SCRATCH_ORG  0x00026C00u
 #endif
@@ -52,7 +60,7 @@ static int mpk_install(lib_read_fn rd, void *ctx, uint8_t *win, volatile uint8_t
     const uint32_t abi = lib_ld16(win + 4), id = lib_ld16(win + 6), size = lib_ld32(win + 8), origin = lib_ld32(win + 12), entry = lib_ld32(win + 16);
     const uint32_t crc0 = lib_ld32(win + 20), data_off = lib_ld32(win + 24), data_size = lib_ld32(win + 28), s_org = lib_ld32(win + 32), bss = lib_ld32(win + 36);
     const uint32_t ps_off = lib_ld32(win + 40), ps_size = lib_ld32(win + 44);
-    if (abi != MTR_PACK_ABI) return MPK_E_ABI;
+    if ((abi >> 8) != MTR_PACK_ABI_MAJOR || (abi & 0xFFu) > MTR_PACK_ABI_MINOR) return MPK_E_ABI;      /* another major, or a pack that needs more than this firmware offers */
     if (id != want_meter) return MPK_E_ID;
     if (origin != slot_origin) return MPK_E_ORIGIN;
     if (size == 0u || size > slot_cap || ps_off < size || ps_off > slot_cap || ps_size > slot_cap - ps_off) return MPK_E_SIZE;
