@@ -44,14 +44,14 @@ static void report(int s, uint32_t n, uint64_t h)
     hputs("S "); hputu((uint32_t)s); hputc(' '); hputu(n); hputc(' ');
     const char *d = "0123456789abcdef";
     for (int i = 60; i >= 0; i -= 4) hputc(d[(h >> i) & 0xFu]);
-    hnl();
+    hputc(' '); hputu(tr_viol); hnl();
 }
 int main(void)
 {
     uint32_t addr = 0;
 #ifdef PACK_BUNDLE
     static mpkb_slot_t slots[MTR_PACK_SLOTS];
-    static const uint16_t ids[MTR_PACK_SLOTS] = { 0, 1, 2, 3, 4 };
+    static const uint16_t ids[MTR_PACK_SLOTS] = { 0, 1, 2, 3, 4, 5, 6, 7 };
     uint32_t seen = 0;
     const int be = mpkb_install_all(rd, 0, win, hfilesize(), (volatile uint8_t *)PACK_ORG, ids, SCRATCH_ORG, SCRATCH_CAP, slots, &seen);
     hputs("BUNDLE E"); hputu((uint32_t)be); hputs(" SEEN "); hputu(seen); hnl();
@@ -67,12 +67,14 @@ int main(void)
     for (int i = 0; i < TR_COUNT; i++) roles[i] = (uint16_t)(0x1234u + i * 0x0421u);
     api.abi = MTR_PACK_ABI; api.rect = tr_hash_rect; api.role = roles; api.params = params; api.stats = api_stats;
     api.text = tr_hash_text; api.rect_stash = tr_hash_stash; api.blend_ready = tr_ready; api.blend_on = tr_hash_blend_on; api.blend_blit = tr_hash_blit; api.blend_off = tr_hash_blend_off;
-    api.mb_write = tr_mb_write; api.mb_read = tr_mb_read; api.fence = tr_fence; api.blit = tr_hash_blit; api.blit_abs = tr_hash_blit_abs; api.sblit = tr_hash_sblit;
+    api.mb_write = tr_mb_write; api.mb_read = tr_mb_read; api.fence = tr_fence; api.blit = tr_hash_blit; api.blit_abs = tr_hash_blit_abs; api.sblit = tr_hash_sblit; api.bar = tr_bar_hash; api.scroll_down = tr_scroll_hash;
     entry = (mtr_pack_entry_fn)addr;
 #ifdef PACK_BARS
     bars_trace(params, 0, run, report);
 #elif defined(PACK_VU)
     vu_trace(params, 0, run, report);
+#elif defined(PACK_WF)
+    wf_trace(params, 0, run, report);
 #elif defined(PACK_CHL)
     chl_trace(params, 0, run, report);
 #elif defined(PACK_LW)

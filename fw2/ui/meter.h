@@ -14,6 +14,7 @@ typedef struct {
     uint8_t force;                /* 1 = repaint the whole rectangle and drop every redraw cache (the context changed) */
     uint8_t paused;               /* playback is paused or stopped: levels fall to zero */
     uint32_t peak_l, peak_r;      /* the loudest sample of each channel since the previous tick, scaled by 3/4 of headroom (0..24575) */
+    uint8_t degrade;              /* 0 full; 1 and 2: the audio's lead is shrinking, the host already skips windows (every 2nd, every 4th): a meter may also reduce detail (fewer cells, coarser steps) with mtr_degrade_div(); the meters are off at 3 */
     const int8_t *wave;           /* optional: signed waveform columns (a meter that needs one builds it from peak_l/peak_r otherwise); null in the host */
 } mtr_in_t;
 #ifndef P2_MPD_T
@@ -30,6 +31,7 @@ typedef struct {
 /* What drawing costs, measured around every tick (one writer: meters_tick; the counter registry publishes it on Info and in the reports). Cycles of the 66.667 MHz counter. */
 typedef struct {
     uint32_t ticks;                 /* ticks drawn */
+    uint32_t degraded;              /* windows not drawn because the degrade level asked for fewer pictures */
     uint32_t shed;                  /* spectrum windows that had to wait because the governor shed the UI (counted once each; the window is drawn when the UI is allowed again) */
     uint32_t last_cyc;              /* the last tick, including the compose copy */
     uint32_t compose_cyc;           /* the last compose copy onto the shown buffer (0 for a meter that draws directly) */

@@ -212,6 +212,7 @@ const cnt_t counters_table[] = {
     U32("BLEND TRIES", CU_NONE,   &gfx_blend_tries),
     U32("METER CUR",    CU_NONE,   &v.meter_cur),             /* the selected meter: its index in the table (meters_cur) */
     U32("METER TICKS",  CU_NONE,   &meter_stats.ticks),       /* pictures drawn */
+    U32("METER DEGRADED", CU_NONE, &meter_stats.degraded),  /* windows not drawn because the audio's lead was shrinking (degrade level 1 or 2) */
     U32("METER SHED",   CU_NONE,   &meter_stats.shed),        /* spectrum windows that waited because the governor shed the UI */
     U32("METER LAST",   CU_CYC,    &meter_stats.last_cyc),    /* the last tick, compose copy included */
     U32("METER COMPOSE", CU_CYC,   &meter_stats.compose_cyc), /* the last compose copy onto the shown buffer (0: the meter draws directly) */

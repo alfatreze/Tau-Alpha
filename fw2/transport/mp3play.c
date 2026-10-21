@@ -398,7 +398,7 @@ void mp3play_pump(void)
     if (mp.state != MPS_DEC) return;
     for (uint32_t k = 0; k < 2u; k++) {
         aout_snap_t sn = aout_snap(); uint32_t fill = aout_fill(&sn);
-        mp.gov_mode = (uint32_t)gov_update(&mp_gov, fill);
+        mp.gov_mode = (uint32_t)gov_update(&mp_gov, fill); mp.degrade = gov_degrade(&mp_gov, mp_gov.mode, fill);
         if (!gov_decode_wanted(&mp_gov, fill)) break;
 #if P2_FLAC2
         if (is_flac) { if (flac_pass(s)) break; continue; }
@@ -513,12 +513,13 @@ SMALL static void np_refresh(const tl_seg_t *g, uint32_t id)
     np.cover[0] = 0; if (!library_cover_path(id, np.cover, sizeof np.cover)) np.cover[0] = 0;
     np.id = id; np.gen++; (void)g;
 }
+uint32_t mp3play_degrade_now(void) { return mp.degrade; }
 uint32_t mp3play_paused_now(void) { return (!mp.playing || mp.held) ? 1u : 0u; }
 SMALL uint32_t mp3play_library(uint32_t *err, uint32_t *n_tracks) { *err = lib_err; *n_tracks = lib_n_tracks; return lib_state; }
 SMALL const np_info_t *mp3play_np(void)
 {
     np.fault = (uint32_t)(mp.poly_fail ? 1u : 0u);
-    np.playing = mp.playing; np.held = mp.held; np.volume = mp.volume; np.rg_mode = mp.rg_mode; np.repeat = q.repeat; np.shuffle = lp.shuffle; np.varispeed = mp.speed_idx != 2u; np.tempo_q8 = np.varispeed ? (uint32_t)speed_num[mp.speed_idx] * 256u / speed_den[mp.speed_idx] : tempo_q8[mp.tempo_idx]; np.gov = mp.gov_mode;
+    np.playing = mp.playing; np.held = mp.held; np.volume = mp.volume; np.rg_mode = mp.rg_mode; np.repeat = q.repeat; np.shuffle = lp.shuffle; np.varispeed = mp.speed_idx != 2u; np.tempo_q8 = np.varispeed ? (uint32_t)speed_num[mp.speed_idx] * 256u / speed_den[mp.speed_idx] : tempo_q8[mp.tempo_idx]; np.gov = mp.gov_mode; np.degrade = mp.degrade;
     return &np;
 }
 

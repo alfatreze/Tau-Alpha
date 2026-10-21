@@ -45,10 +45,10 @@ int main(int argc, char **argv)
         if (in.force) for (uint32_t i = 0; i < W * H; i++) fb[i] = (rnd() & 1) ? 0 : 0x1234;
         meter_vu_master_tick(&in);
         for (uint32_t i = 0; i < W * H; i++) ex[i] = 0;
-        expect_ladder(0, lx, BY, lw, 0); expect_ladder(1, lx, BY + ROW2_Y, lw, 0);
-        for (uint32_t y = BY; y < BY + 2u * ROW2_Y; y += 1) for (uint32_t x = lx; x < lx + lw; x++) {
-            if (y >= BY + ROW_H && y < BY + ROW2_Y) continue;                  /* the scale line and ticks between the ladders are not part of this check */
-            if (y >= BY + ROW2_Y + ROW_H) continue;
+        expect_ladder(0, lx, BY + LABEL_PAD, lw, 0); expect_ladder(1, lx, BY + LABEL_PAD + ROW2_Y, lw, 0);
+        for (uint32_t y = BY + LABEL_PAD; y < BY + LABEL_PAD + 2u * ROW2_Y; y += 1) for (uint32_t x = lx; x < lx + lw; x++) {
+            if (y >= BY + LABEL_PAD + ROW_H && y < BY + LABEL_PAD + ROW2_Y) continue;                  /* the scale line and ticks between the ladders are not part of this check */
+            if (y >= BY + LABEL_PAD + ROW2_Y + ROW_H) continue;
             if (fb[y * W + x] != ex[y * W + x]) { bad++; goto next; }
         }
     next:;

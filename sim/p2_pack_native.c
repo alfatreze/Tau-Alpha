@@ -37,6 +37,9 @@ static void dev_wr(uint32_t a, uint32_t v) { if ((a & 0xFFFu) == 0xF0u) dm_idx =
 #include "../fw2/ui/meter_winamp_bars.c"
 #elif defined(PACK_VU)
 #include "../fw2/ui/meter_vu_master.c"
+#elif defined(PACK_WF)
+#define P2_PACK 1                       /* the real code of the waterfall exists only with P2_PACK */
+#include "../fw2/ui/meter_waterfall_grid.c"
 #elif defined(PACK_CHL)
 #include "../fw2/ui/meter_chladni.c"
 #elif defined(PACK_LW)
@@ -48,6 +51,8 @@ static void dev_wr(uint32_t a, uint32_t v) { if ((a & 0xFFFu) == 0xF0u) dm_idx =
 uint16_t th_role[TR_COUNT];
 void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { tr_hash_rect(x, y, w, h, c); }
 uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t fg, uint16_t bg) { return tr_hash_text(x, y, s, fg, bg); }
+void gfx_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t f, uint16_t b) { tr_bar_hash(x, y, w, h, lit, f, b); }
+void gfx_scroll_down(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d) { tr_scroll_hash(x, y, w, h, d); }
 #ifdef PACK_CHL
 int gfx_mb_write(uint32_t a, uint32_t d) { return tr_mb_write(a, d); }
 int gfx_mb_read(uint32_t a, uint32_t *d) { return tr_mb_read(a, d); }
@@ -63,7 +68,7 @@ void gfx_blend_on(uint32_t a) { tr_hash_blend_on(a); }
 void gfx_blend_off(void) { tr_hash_blend_off(); }
 void gfx_blend_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { tr_hash_blit(sx, sy, dx, dy, w, h); }
 #endif
-static void report(int s, uint32_t n, uint64_t h) { printf("S %d %u %016llx\n", s, n, (unsigned long long)h); }
+static void report(int s, uint32_t n, uint64_t h) { printf("S %d %u %016llx %u\n", s, n, (unsigned long long)h, tr_viol); }
 #ifdef PACK_BARS
 static void run(const mtr_in_t *in) { meter_winamp_bars_tick(in); }
 #define MV meter_winamp_bars_mv
@@ -75,6 +80,13 @@ static void run(const mtr_in_t *in) { meter_layered_wave_tick(in); }
 static void lw_noapply(void) { }
 #define APPLY lw_noapply
 #define TRACE lw_trace
+#elif defined(PACK_WF)
+static uint16_t wf_params[MPP_WF_N];
+static void wf_apply(void) { wf_load(wf_params); }
+static void run(const mtr_in_t *in) { wf_tick(in); }
+#define MV wf_params
+#define APPLY wf_apply
+#define TRACE wf_trace
 #elif defined(PACK_CHL)
 static void run(const mtr_in_t *in) { meter_chladni_tick(in); }
 #define MV meter_chladni_mv
