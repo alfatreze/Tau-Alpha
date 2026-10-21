@@ -29,7 +29,9 @@ def main():
     # Pocket hardware does not render the superscript-alpha metadata glyph.
     # Keep OS-visible strings ASCII and carry the brand mark in artwork and in
     # Tau's own framebuffer, where the project controls glyph rendering.
-    assert core["description"] == "TAU Music Player"
+    assert 0 < len(core["description"]) <= 63, "core.json description must be 1..63 characters (Pocket limit)"
+    assert "Tau Omega" in core["description"], "the description should say that music is synced with Tau Omega"
+    assert core.get("url") == "https://github.com/alfatreze/Tau-Alpha" and len(core["url"]) <= 63, "core.json needs the repository url (openFPGA Library requirement, 63 characters at most)"
     assert platform["name"] == "TAU"
     assert platform["manufacturer"] == "alfatreze"
 

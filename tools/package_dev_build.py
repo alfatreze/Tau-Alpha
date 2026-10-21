@@ -169,6 +169,11 @@ def main():
                 f"{base_ver}-dev.barcode.{args.barcode}" if args.barcode is not None else f"{base_ver}-dev.{args.number}")
     if not args.release_diagnostic:
         desc = f"TAU {label}: {kind}, " + (args.note or default_note)
+    if args.semver and not args.note:
+        # A Stable or Preview release keeps the core.json description of dist/ (63 characters at most; it also tells people how to get music onto the card); the fuller text goes to info.txt, the About screen.
+        desc = json.loads((src / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["description"]
+        release_info = ("TAU music player for the Analogue Pocket. It plays MP3 and FLAC from the SD card: the music, covers and library index must be put there with Tau Omega "
+                        "(the companion app) or with the Python tools in the project repository (tools/sync_media.py). https://github.com/alfatreze/Tau-Alpha\n")
 
     if out.exists(): shutil.rmtree(out)
     c = out / "Cores" / core_id
@@ -181,6 +186,8 @@ def main():
     m["platform_ids"] = platforms
     # core.json description is limited to 63 characters (cores vanish from the menu otherwise, B-142);
     # the full text goes to info.txt, the About-screen field that is meant for it.
+    if args.semver and not args.note:
+        (c / "info.txt").write_text(release_info)
     if len(desc) > 63:
         (c / "info.txt").write_text(desc + "\n")
         desc = desc[:60] + "..."
