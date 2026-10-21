@@ -4,6 +4,7 @@
 #include "../gfx/gfx.h"
 #include "../platform/mmio.h"
 #include "../generated/meter_presets.h"
+#include "../cores/ramp_core.h"
 #define CHL_DATA
 #include "../../fw/chladni_core.h"
 
@@ -41,14 +42,6 @@ void meter_chladni_preset(uint32_t i)
 {
     for (uint32_t k = 0; k < MPP_CHL_N; k++) meter_chladni_mv[k] = mpp_chl[i < MPP_CHL_PRESETS ? i : 0u][k];
     meter_chladni_apply();
-}
-
-static uint16_t mix(uint16_t a, uint16_t b, uint32_t t, uint32_t n)
-{
-    uint32_t r = (((a >> 11) & 0x1Fu) * (n - t) + ((b >> 11) & 0x1Fu) * t) / n;
-    uint32_t g = (((a >> 5)  & 0x3Fu) * (n - t) + ((b >> 5)  & 0x3Fu) * t) / n;
-    uint32_t bl = ((a & 0x1Fu) * (n - t) + (b & 0x1Fu) * t) / n;
-    return (uint16_t)((r << 11) | (g << 5) | bl);
 }
 
 /* Known-answer probe: two DIFFERENT pixels (0x07E0 low half, 0xF800 high half) at the probe word, the engine copies that word elsewhere, the mailbox reads it back. A low half of 0x07E0 means the mailbox's low
@@ -138,7 +131,7 @@ void meter_chladni_tick(const mtr_in_t *in)
     struct ctx ctx; ctx.rx = rx; ctx.ok = 1;
     if (paint_want == 1u)      { ctx.pal[0] = 0x3800u; ctx.pal[1] = 0xC2C1u; ctx.pal[2] = 0xFD42u; ctx.pal[3] = 0xFF55u; }   /* EMBER */
     else if (paint_want == 2u) { ctx.pal[0] = 0x0806u; ctx.pal[1] = 0x1237u; ctx.pal[2] = 0x25F7u; ctx.pal[3] = 0xBF7Eu; }   /* OCEAN */
-    else { ctx.pal[0] = in->bg; ctx.pal[1] = mix(in->bg, UI_ACCENT, 1u, 3u); ctx.pal[2] = mix(in->bg, UI_ACCENT, 2u, 3u); ctx.pal[3] = UI_ACCENT; }   /* LINE */
+    else { ctx.pal[0] = in->bg; ctx.pal[1] = rc_ramp(in->bg, UI_ACCENT, 1u, 3u); ctx.pal[2] = rc_ramp(in->bg, UI_ACCENT, 2u, 3u); ctx.pal[3] = UI_ACCENT; }   /* LINE */
     chl_render(md, K, rx, ry, chl_hw_q8(&st, &cfg, rx), ring, cfg.fold ? half : (int16_t *)0, cxm, cxn, lvl, row, &ctx);
     if (!ctx.ok) { ok = 2u; gfx_text(in->x + 8u, in->y + in->h / 2u - 8u, "CHLADNI UNAVAILABLE", UI_RED, in->bg); return; }
     /* the scaled blit's w/h are SOURCE cells (the engine scales them, clamped at 127): the plane's own size, cut so the scaled tile never leaves the box */

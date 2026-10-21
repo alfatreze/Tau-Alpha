@@ -62,7 +62,7 @@ int main(int argc, char **argv)
             if (fb[(BY + y) * FW + BX + x] != want) { diff = 1; break; }
         }
         for (uint32_t j = 0; j < ry && !diff; j++) for (uint32_t i = 0; i < rx; i++) {            /* the plane holds the levels the core produced, through the palette */
-            const uint16_t pal[4] = { 0, mix(0, 0xF7BEu, 1u, 3u), mix(0, 0xF7BEu, 2u, 3u), 0xF7BEu };
+            const uint16_t pal[4] = { 0, rc_ramp(0, 0xF7BEu, 1u, 3u), rc_ramp(0, 0xF7BEu, 2u, 3u), 0xF7BEu };
             if (fb[(CHL_PLANE_Y + j) * FW + i] != pal[trace[j][i]]) { diff = 1; break; }
         }
         bad += diff;

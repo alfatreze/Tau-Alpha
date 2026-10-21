@@ -17,7 +17,7 @@ def build(td, mutant):
         a = "void gfx_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { blit_op(sx, sy, dx, dy, w, h, OP_BLIT, buf_base(cpu_buf), buf_base(cpu_buf)); }"; assert a in g
         g = g.replace(a, "void gfx_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { blit_op(sx, sy, dx, dy, w, h, OP_BLIT, 0u, 0u); }")
     (d / "fw2/gfx/gfx.c").write_text(g)
-    c = (ROOT / "fw2/ui/meter_chladni.c").read_text().replace('"../../fw/chladni_core.h"', f'"{ROOT}/fw/chladni_core.h"')
+    c = (ROOT / "fw2/ui/meter_chladni.c").read_text().replace('"../../fw/chladni_core.h"', f'"{ROOT}/fw/chladni_core.h"').replace('"../cores/ramp_core.h"', f'"{ROOT}/fw2/cores/ramp_core.h"')
     (d / "fw2/ui/meter_chladni.c").write_text(c)
     for f in ("gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "ui/meter.h", "ui/theme.h", "generated/meter_presets.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "fw2/generated").mkdir(parents=True, exist_ok=True); (d / "fw2/generated/font_data.h").write_text((ROOT / "fw2/generated/font_data.h").read_text())

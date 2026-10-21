@@ -9,11 +9,14 @@
 #endif
 #define TC_PALETTE_N 19u
 #define TC_LIGHT_ACC_MAX_L 110u
+#define TC_LUMA_R 2126u              /* the Rec. 709 luma weights, in ten-thousandths (they sum to 10,000) */
+#define TC_LUMA_G 7152u
+#define TC_LUMA_B 722u
 static inline uint16_t tc_accent(uint16_t a, uint32_t light)
 {
     if (!light) return a;
     uint32_t r = ((a >> 11) & 0x1Fu) * 255u / 31u, g = ((a >> 5) & 0x3Fu) * 255u / 63u, b = (a & 0x1Fu) * 255u / 31u;
-    uint32_t l = (2126u * r + 7152u * g + 722u * b) / 10000u;
+    uint32_t l = (r * TC_LUMA_R + g * TC_LUMA_G + b * TC_LUMA_B) / 10000u;
 #if BUG == 1
     if (l >= TC_LIGHT_ACC_MAX_L + 40u) {                                      /* too late: bright accents survive */
 #else

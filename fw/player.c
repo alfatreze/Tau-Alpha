@@ -5414,7 +5414,7 @@ COLD_FN3 static void meters_publish(void)
          * MANY songs.
          *
          * One constant, applied in one place, so all ten meters keep agreeing.
-         * tools/meter_preview.py renders the effect from real audio. */
+         * the old tools/meter_preview.py rendered the effect from real audio (archived). */
         if (wave_hw) {                       /* B-283: the block tracks max |L| / |R| continuously; read and clear it */
             const uint32_t pk = REG(R_WAVE_PK);
             REG(R_WAVE_CTL) = 1u;
