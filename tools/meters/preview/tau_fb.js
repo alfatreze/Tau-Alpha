@@ -4,7 +4,7 @@
   const to565 = (r, g, b) => (((r * 31 + 127) / 255 | 0) << 11) | (((g * 63 + 127) / 255 | 0) << 5) | ((b * 31 + 127) / 255 | 0);
   const from565 = (c) => [((c >> 11) * 255 / 31) | 0, (((c >> 5) & 63) * 255 / 63) | 0, ((c & 31) * 255 / 31) | 0];
   class Fb {
-    constructor(w, h, log) { this.w = w; this.h = h; this.px = new Uint16Array(w * h); this.cmds = 0; this.pix = 0; this.ops = 0; this.log = log ? [] : null; this.barReady = true; }
+    constructor(w, h, log) { this.w = w; this.h = h; this.px = new Uint16Array(w * h); this.cmds = 0; this.pix = 0; this.ops = 0; this.log = log ? [] : null; this.barReady = true; this.blendReady = true; }
     _rec(op, a) { this.cmds++; if (this.log) this.log.push(op + ' ' + a.join(' ')); }
     rect(x, y, w, h, c) {
       this._rec('rect', [x, y, w, h, c]);

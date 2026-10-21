@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Golden frames for Player 2: the JS preview module of Winamp Bars and the REAL fw2/ui/meter_winamp_bars.c must draw the same picture (compared pixel by pixel after every frame) for the same input trace (every preset, 90 frames, Dark and Light,
-paused frames included). The Scope is not compared here: fw2 draws it from the hardware capture block with a blend trail (see test_p2_scope*.py), which the JS scope twin does not yet model (plan M1b). The mutant
-changes the bar height rounding and must fail."""
+paused frames included). Winamp Scope too: the JS twin and fw2/ui/meter_winamp_scope.c, fed the same 256-column captures through a model of the capture block, issue the same rectangles command for command (the wipe
+path: the blended trail is one lab command on the JS side and four strip blits on the Pocket, and is checked against the engine model by test_p2_scope_trail.py). Chladni has no twin (plan M1b). Mutants: the bar
+height rounding; the scope's smoothing arithmetic. Each must fail."""
 import json, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -64,4 +65,49 @@ with tempfile.TemporaryDirectory() as td:
 total = sum(len(x) for s in scen for x in s["log"])
 print(f"ok   {len(scen)} Winamp Bars scenarios, {total} commands paint identical pictures in fw2 and the JS module" if not bad else f"FAIL {bad} scenarios differ")
 print("ok   mutant (bar height rounding) is caught" if caught else "FAIL mutant not caught")
-print("PASSED" if not bad and caught else "FAILED"); sys.exit(0 if not bad and caught else 1)
+
+# ---- Winamp Scope: command-for-command against the same captures
+def build_scope(td, mutant):
+    d = Path(td)
+    for sub in ("ui", "gfx", "generated", "platform", "sim"): (d / sub).mkdir()
+    src = (ROOT / "fw2/ui/meter_winamp_scope.c").read_text()
+    if mutant:
+        a = "(((mid - sc_mid[c]) * (100 - (int32_t)smooth)) / 100)"; assert a in src
+        src = src.replace(a, "(((mid - sc_mid[c]) * (100 - (int32_t)smooth)) / 101)")
+    (d / "ui/meter_winamp_scope.c").write_text(src)
+    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "generated/meter_presets.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
+    (d / "sim/h.c").write_text((ROOT / "sim/p2_scope_golden_harness.c").read_text().replace('"../fw2/ui/meter_winamp_scope.c"', '"../ui/meter_winamp_scope.c"'))
+    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
+    if r.returncode: print(r.stderr); sys.exit(1)
+    return d / "h"
+def run_scope(exe, scen, td):
+    lines = [str(len(scen))]
+    for s in scen:
+        c, b = s["colors"], s["box"]
+        lines.append("%d %d %d %d %d %d %d %d %d %d" % (len(s["params"]), c["accent"], c["prim"], c["track"], c["bg"], b["x"], b["y"], b["w"], b["h"], len(s["frames"])))
+        lines.append(" ".join(str(v) for v in s["params"]))
+        for fr in s["frames"]: lines.append(str(fr["paused"]) + " " + " ".join("%d %d" % (a, b) for a, b in fr["capture"]))
+    (Path(td) / "sin.txt").write_text("\n".join(lines) + "\n")
+    out = subprocess.run([str(exe), str(Path(td) / "sin.txt")], capture_output=True, text=True, check=True).stdout.splitlines()
+    got, cur = [], None
+    for ln in out:
+        if ln.startswith("F "): cur = [] if cur is None else cur; frame = []; cur.append(frame)
+        elif ln == "S": got.append(cur); cur = None
+        else: frame.append(ln)
+    return got
+def scope_diffs(scen, got, quiet=False):
+    n = 0
+    for s, cf in zip(scen, got):
+        for i, (jl, cl) in enumerate(zip(s["log"], cf)):
+            if jl != cl: n += 1; (not quiet) and print(f"MISMATCH {s['name']} frame {i}: js {jl[:3]} vs c {cl[:3]}"); break
+    return n
+sscen = [s for s in json.loads(node.stdout) if s["key"] == "winamp_scope"]
+with tempfile.TemporaryDirectory() as td:
+    sbad = scope_diffs(sscen, run_scope(build_scope(td, False), sscen, td))
+with tempfile.TemporaryDirectory() as td:
+    scaught = scope_diffs(sscen, run_scope(build_scope(td, True), sscen, td), True) > 0
+stotal = sum(len(x) for s in sscen for x in s["log"])
+print(f"ok   {len(sscen)} Winamp Scope scenarios, {stotal} commands identical between fw2 and the JS module" if not sbad else f"FAIL {sbad} scope scenarios differ")
+print("ok   mutant (scope smoothing arithmetic) is caught" if scaught else "FAIL scope mutant not caught")
+good = not bad and caught and not sbad and scaught
+print("PASSED" if good else "FAILED"); sys.exit(0 if good else 1)

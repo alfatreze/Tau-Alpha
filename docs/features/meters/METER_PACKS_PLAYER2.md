@@ -34,6 +34,9 @@ One meter's drawing code, compiled freestanding for rv32im, linked at its slot i
 | Layered Wave | 15,700 B (+2,424 B ring state in the slot) | 1,072 B |
  A `PACKS=1` firmware is +116 B ROM and +24 B hot RAM over the default; the default build does not change.
 
+## Fallback and Info
+Per-meter fallback, the dispatch and the Info rows are host-tested (`sim/test_p2_meter_pack_dispatch.py`: no bundle, all valid, one corrupt, not a bundle, another ABI, two mutants). Info rows (a `PACKS=1` build): `PACKS RUN` (bit per meter), `PACK ERR` (the first refusal code), `PACK FILE` (0 read, 255 no bundle, 30 not a bundle), `PACKS SEEN`. The test found a real bug: a slot's status was 0 (= running) until a bundle had been read, so a PACKS build without an `MPKB` section would have jumped to address 0; `meters_init` now marks every slot empty.
+
 ## Not done
 `PACKS_ONLY` (leave the built-in code out); an Info row for the pack state; a Pocket run (needs a `PACKS=1` DEV package and a `tau-assets.bin` with an `MPKB` section; card write needs approval); pack fallback tests (last, as agreed).
 
