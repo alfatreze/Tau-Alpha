@@ -34,7 +34,10 @@ One meter's drawing code, compiled freestanding for rv32im, linked at its slot i
 | Layered Wave | 15,700 B (+2,424 B ring state in the slot) | 1,072 B |
  A `PACKS=1` firmware is +116 B ROM and +24 B hot RAM over the default; the default build does not change.
 
-## ABI 5 (B-802)
+## Versioned ABI (B-803)
+The header's ABI field is `major << 8 | minor` (now 1.0 = `0x0100`). A **major** change breaks packs and old ones are refused (E22). A **minor** change only appends (a host table entry, an `mtr_in_t` field): firmware runs every pack whose minor is not above its own, and a pack declares the minor it NEEDS (`#define MTR_PACK_NEEDS_MINOR n` in its source; default 0; `pack_meter.py` writes it), not the firmware's, so packs built today keep running on firmware that is newer. `sim/test_p2_meter_pack.py` tracks the prefix fingerprint of both structs for every minor (`ABI_HISTORY`): changing an existing declaration fails it; appending needs a new history line and `MTR_PACK_ABI_MINOR`. Packs built before this (ABI 4 and 5 numbers) are major 0 and refused: rebuild once.
+
+## ABI 5 (B-802, now the content of 1.0)
 The host table gained `clut_load` (a palette load) and `cblit` (palette indices from the stash through the palette to the drawing buffer, 127 columns at most); `MTR_PACK_ABI` is 5, so every pack must be rebuilt and old ones are refused (E22). First user: the Waterfall's entering-row plane (stash rows 722..734). Other users of the palette (icons, previews, art) load their own before their blits, so a pack must do the same.
 
 ## Pack cost (B-800, `tools/player2/measure_pack_cost.py`)

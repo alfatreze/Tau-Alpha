@@ -11,7 +11,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 _CORE = (ROOT / "fw2/cores/meter_pack_core.h").read_text()
-ABI = int(re.search(r"#define MTR_PACK_ABI (\d+)u", _CORE).group(1))      # read from the firmware header: one source of truth
+ABI_MAJOR = int(re.search(r"#define MTR_PACK_ABI_MAJOR (\d+)u", _CORE).group(1))      # read from the firmware header: one source of truth
+ABI_MINOR_FW = int(re.search(r"#define MTR_PACK_ABI_MINOR (\d+)u", _CORE).group(1))
+ABI = (ABI_MAJOR << 8) | ABI_MINOR_FW                                              # the firmware's own (what the host table offers)
 _hex = lambda n: int(re.search(r"#define %s\s+(0x[0-9A-Fa-f]+)u" % n, _CORE).group(1), 16)
 SLOT_BASE, SLOT_SIZE, SCRATCH_ORG = _hex("MTR_PACK_SLOT_BASE"), _hex("MTR_PACK_SLOT_SIZE"), _hex("MTR_PACK_SCRATCH_ORG")
 def _ids():
@@ -69,7 +71,9 @@ def build(meter, org, elf_out=None, extra=(), scratch=None):
     entry = sy["mtr_pack_entry"][0] - org
     if bss_start != data_end:
         raise SystemExit(".bss does not follow .data in the scratch area")
-    hdr = struct.pack("<IHHIIIIIIIIII", 0x4B504D54, ABI, METER_IDS[meter], len(body), org, entry, zlib.crc32(body) & 0xFFFFFFFF, data_lma, data_end - data_start,
+    needs = re.search(r"#define MTR_PACK_NEEDS_MINOR (\d+)u?", src.read_text()); abi = (ABI_MAJOR << 8) | (int(needs.group(1)) if needs else 0)      # the minor the pack NEEDS, not the firmware's: it keeps running on older firmware
+    if (abi & 0xFF) > ABI_MINOR_FW: raise SystemExit("the pack needs ABI minor %d, the firmware header has %d" % (abi & 0xFF, ABI_MINOR_FW))
+    hdr = struct.pack("<IHHIIIIIIIIII", 0x4B504D54, abi, METER_IDS[meter], len(body), org, entry, zlib.crc32(body) & 0xFFFFFFFF, data_lma, data_end - data_start,
                       data_start, bss_end - bss_start, pst_off, pst_end - pst_off)
     return hdr + body, {"load": len(body), "data": data_end - data_start, "bss": bss_end - bss_start, "pstate": pst_end - pst_off, "entry": entry, "org": org, "scratch": scratch}
 
