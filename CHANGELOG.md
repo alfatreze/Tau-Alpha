@@ -2,6 +2,15 @@
 
 What changed in each release, newest first. Lines starting `- Omega:` are copied into the release's `tau-compat.json` notes for Tau Omega.
 
+## v0.6.1 — 21 October 2026
+
+A small release that makes the card setup clearer and meets the openFPGA Library's requirements.
+
+- **Fallback screens.** When TAU has no usable library it now says so instead of showing an empty player: no library file, a library that can't be read (with its error code), an empty library, or a library whose track files aren't on the card. Each one shows the Tau Omega address (github.com/alfatreze/Tau-Omega) and what to do. A opens Help.
+- **Menu > HELP.** Three pages: adding music with Tau Omega (Mac, Windows and Linux), where things are on the card, and the Python alternative from the repository (`tools/sync_media.py`), with pointers to the Tau Omega help and `docs/guide/MEDIA_AND_TOOLS.md`.
+- **Core details.** `core.json` now carries the repository URL (an openFPGA Library requirement) and a description that says music is synced with Tau Omega or the repo's tools; the About screen (`info.txt`) explains the card setup.
+- Omega: nothing changed in the files or persist ids since v0.6.0; the core's description and url fields are new.
+
 ## v0.6.0 — 17 October 2026
 
 The first release on the **Stable** channel of the new scheme: **TAU** (Player 2) on platform `tau`, replacing the TAU core of v0.5.0. Player 2 is a rewrite of the player firmware (fw2/); the diagnostics (Info, Check, report grids) are

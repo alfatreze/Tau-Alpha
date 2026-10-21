@@ -9,7 +9,7 @@
             "description": "Music player. Sync music with Tau Omega or the repo's tools",
             "author": "alfatreze",
             "url": "https://github.com/alfatreze/Tau-Alpha",
-            "version": "0.6.0",
+            "version": "0.6.1",
             "date_release": "2026-10-09"
         },
         "framework": {
