@@ -1,5 +1,7 @@
 # Comprehensive Code Origin Analysis: Tau-Alpha and Tau Omega
 
+> **Superseded for Tau Alpha on 2026-10-13:** use the [pinned HarpMudd comparison and rewrite report](HARPMUDD_COMPARISON_AND_REWRITE_2026-10-12.md) and its complete source inventory. This historical analysis mixes documentation with source, has unreconciled totals and misidentifies some components; its percentages are not a current retained-code measurement. Kept intact below as audit history. Tau Omega was not re-audited by the replacement report.
+
 **Date:** 2026-09-27  
 **Fork Point:** HarpMudd upstream merge-base `7ef8f0f` (v1.4.0 era)  
 **Current States:** Tau-Alpha HEAD, Tau Omega HEAD

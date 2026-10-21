@@ -1,0 +1,50 @@
+{
+  "7ef8f0fb84abd4ae5a6a187805fd910351ae57dc": {
+    "sloc": {
+      "firmware": 6479,
+      "generated": 5974,
+      "tooling": 4216,
+      "test": 2193,
+      "framework": 1460,
+      "rtl": 1554,
+      "vendor_mixed": 660,
+      "vendor_generated": 6521,
+      "vendor": 6990
+    },
+    "files": {
+      "firmware": 12,
+      "generated": 7,
+      "tooling": 30,
+      "test": 25,
+      "framework": 9,
+      "rtl": 9,
+      "vendor_mixed": 4,
+      "vendor_generated": 2,
+      "vendor": 34
+    }
+  },
+  "f4b8f012e0514c6240a546cfb3b48e90488f5fef": {
+    "sloc": {
+      "firmware": 7513,
+      "generated": 6039,
+      "tooling": 5111,
+      "test": 2896,
+      "framework": 1460,
+      "rtl": 1946,
+      "vendor_mixed": 660,
+      "vendor_generated": 6521,
+      "vendor": 6990
+    },
+    "files": {
+      "firmware": 13,
+      "generated": 8,
+      "tooling": 36,
+      "test": 30,
+      "framework": 9,
+      "rtl": 10,
+      "vendor_mixed": 4,
+      "vendor_generated": 2,
+      "vendor": 34
+    }
+  }
+}
