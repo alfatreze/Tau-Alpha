@@ -45,7 +45,7 @@ def build(meter, org, elf_out=None, extra=(), scratch=None):
     scratch = SCRATCH_ORG if scratch is None else scratch
     alias = 0x80000000 if org >= 0x24000000 else 0     # rodata/pstate at the data alias of the PSRAM window (the instruction alias cannot be loaded from)
     cmd = [tool("gcc"), "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-O2", "-ffreestanding", "-nostdlib", "-nostartfiles", "-fno-pic", "-mcmodel=medany",
-           "-ffunction-sections", "-fdata-sections", "-Wall", "-Wno-unused-function", "-Wno-comment", "-Wno-unused-variable", "-Wno-unused-const-variable", "-I", str(ROOT / "fw2/ui"), "-I", str(ROOT / "fw2/cores"),
+           "-ffunction-sections", "-fdata-sections", "-Wall", "-Wno-unused-function", "-Wno-comment", "-Wno-unused-variable", "-Wno-unused-const-variable", "-I", str(ROOT / "fw2/ui"), "-I", str(ROOT / "fw2/cores"), "-I", str(ROOT / "fw"),
            "-Wl,--gc-sections", "-Wl,--no-warn-rwx-segments", "-Wl,--defsym=PACK_ORG=0x%X" % org, "-Wl,--defsym=DATA_ALIAS=0x%X" % alias, "-Wl,--defsym=SCRATCH_ORG=0x%X" % scratch, "-T", str(ROOT / "fw2/ui/meter_pack.ld"), str(src), "-lgcc", "-o", str(elf)] + list(extra)
     r = subprocess.run(cmd, capture_output=True, text=True)
     stderr = "\n".join(l for l in r.stderr.splitlines() if "dot moved backwards" not in l)   # benign: sections at explicit scratch/alias addresses

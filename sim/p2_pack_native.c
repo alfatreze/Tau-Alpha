@@ -1,6 +1,19 @@
 /* The reference: a meter's own source compiled straight in and run over the pack trace (sim/p2_pack_trace.h). Built with -DPACK_BARS, -DPACK_VU or -DPACK_SCOPE. Prints "S <scenario> <commands> <hash>" lines. */
 #include <stdio.h>
 #include <stdint.h>
+#ifdef PACK_CHL
+#define P2_HOST 1                /* cycles() reads 0: the shedding stays off on both sides */
+#define REG_RD(a) 0u
+#define REG_WR(a, v) ((void)(a), (void)(v))
+#endif
+#ifdef PACK_LW
+#define P2_HOST 1                /* the PSRAM status words as the dev model returns them; cycles() reads 0 */
+#define REG_RD(a) ((a) == 0x80000088u ? 0x50535231u : (a) == 0x800000A0u ? 0x10000u : 0u)
+#define REG_WR(a, v) ((void)(a), (void)(v))
+static uint32_t lw_state_dummy[700];
+#define __psram_state_start lw_state_dummy
+#define __psram_state_end (lw_state_dummy + 700)
+#endif
 #ifdef PACK_SCOPE
 #define P2_HOST 1
 /* the capture-block model: the same function as tools/p2_dev_model.py */
@@ -24,6 +37,10 @@ static void dev_wr(uint32_t a, uint32_t v) { if ((a & 0xFFFu) == 0xF0u) dm_idx =
 #include "../fw2/ui/meter_winamp_bars.c"
 #elif defined(PACK_VU)
 #include "../fw2/ui/meter_vu_master.c"
+#elif defined(PACK_CHL)
+#include "../fw2/ui/meter_chladni.c"
+#elif defined(PACK_LW)
+#include "../fw2/ui/meter_layered_wave.c"
 #else
 #include "../fw2/ui/meter_winamp_scope.c"
 #endif
@@ -31,6 +48,14 @@ static void dev_wr(uint32_t a, uint32_t v) { if ((a & 0xFFFu) == 0xF0u) dm_idx =
 uint16_t th_role[TR_COUNT];
 void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { tr_hash_rect(x, y, w, h, c); }
 uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t fg, uint16_t bg) { return tr_hash_text(x, y, s, fg, bg); }
+#ifdef PACK_CHL
+int gfx_mb_write(uint32_t a, uint32_t d) { return tr_mb_write(a, d); }
+int gfx_mb_read(uint32_t a, uint32_t *d) { return tr_mb_read(a, d); }
+void gfx_fence(void) { tr_fence(); }
+void gfx_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { tr_hash_blit(sx, sy, dx, dy, w, h); }
+void gfx_blit_abs(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { tr_hash_blit_abs(sx, sy, dx, dy, w, h); }
+void gfx_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t sc) { tr_hash_sblit(sx, sy, dx, dy, w, h, sc); }
+#endif
 #ifdef PACK_SCOPE
 void gfx_rect_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { tr_hash_stash(x, y, w, h, c); }
 int gfx_blend_ready(void) { return tr_ready(); }
@@ -44,6 +69,17 @@ static void run(const mtr_in_t *in) { meter_winamp_bars_tick(in); }
 #define MV meter_winamp_bars_mv
 #define APPLY meter_winamp_bars_apply
 #define TRACE bars_trace
+#elif defined(PACK_LW)
+static void run(const mtr_in_t *in) { meter_layered_wave_tick(in); }
+#define MV meter_layered_wave_mv
+static void lw_noapply(void) { }
+#define APPLY lw_noapply
+#define TRACE lw_trace
+#elif defined(PACK_CHL)
+static void run(const mtr_in_t *in) { meter_chladni_tick(in); }
+#define MV meter_chladni_mv
+#define APPLY meter_chladni_apply
+#define TRACE chl_trace
 #elif defined(PACK_VU)
 static void run(const mtr_in_t *in) { meter_vu_master_tick(in); }
 #define MV meter_vu_master_mv

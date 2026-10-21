@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Meter packs on Player 2 (docs/features/meters/METER_PACKS.md): Winamp Bars, Winamp Scope and Master VU built as loadable packs, loaded through the firmware's portable loader and run on the RISC-V simulator, must draw exactly what the
+"""Meter packs on Player 2 (docs/features/meters/METER_PACKS.md): Winamp Bars, Winamp Scope, Master VU, Chladni and Layered Wave built as loadable packs, loaded through the firmware's portable loader and run on the RISC-V simulator, must draw exactly what the
 built-in meter draws, and the loader must refuse every kind of bad file.
   1. the pack builds, is freestanding (no undefined symbols) and links at the real PSRAM slot and the real scratch address as well as at the simulator's;
   2. native build of fw2/ui/meter_winamp_bars.c over a fixed input trace: reference command counts and hashes;
@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "tools/player2")); sys.path.insert(0, str(ROOT / "
 import pack_meter as pm
 import pack_bundle as pb
 SIM_ORG, SIM_SCRATCH = 0x00400000, 0x00300000
-FINGERPRINT = "f9eb1dc5"
+FINGERPRINT = "14555172"
 fails = 0
 def check(name, cond, info=""):
     global fails
@@ -25,11 +25,11 @@ def abi_fingerprint():
     parts = [re.sub(r"\s+", " ", m.group(0)).strip() for m in re.finditer(r"typedef struct \{[^{}]*\} (?:mtr_in_t|mtr_host_api_t);", txt)]
     assert len(parts) == 2, parts
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:8]
-METERS = {"winamp_bars": "PACK_BARS", "winamp_scope": "PACK_SCOPE", "vu_master": "PACK_VU"}
+METERS = {"winamp_bars": "PACK_BARS", "winamp_scope": "PACK_SCOPE", "vu_master": "PACK_VU", "chladni": "PACK_CHL", "layered_wave": "PACK_LW"}
 SIMREGS = ["-include", str(ROOT / "sim/p2_pack_sim_regs.h")]
 def run_native(tmp, key):
     exe = tmp / ("native_" + key)
-    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-D" + METERS[key], "-o", str(exe), str(ROOT / "sim/p2_pack_native.c")], capture_output=True, text=True)
+    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-D" + METERS[key], "-I", str(ROOT / "fw"), "-o", str(exe), str(ROOT / "sim/p2_pack_native.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return [ln for ln in subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines() if ln.startswith("S ")]
 def build_harness(tmp, key, bundle=False):
@@ -53,7 +53,7 @@ def main():
         for key in METERS:
             blob_k, info = pm.build(key, SIM_ORG, tmp / (key + ".elf"), SIMREGS, scratch=SIM_SCRATCH)
             check("%s: the pack builds freestanding (no undefined symbols) at the simulator slot" % key, len(blob_k) > 48 and info["entry"] == 0)
-            check("%s: the working state fits the on-chip scratch area (4 KB) with room to spare" % key, 0 < info["data"] + info["bss"] <= 512, str(info))
+            check("%s: the working state fits the on-chip scratch area (4 KB) (Chladni is the largest user)" % key, 0 < info["data"] + info["bss"] <= 3072 and info["pstate"] <= 4096, str(info))
             blob_hw, info_hw = pm.build(key, pm.SLOT_BASE + pm.SLOT[key] * pm.SLOT_SIZE, tmp / (key + "_hw.elf"))
             check("%s: the same pack links at its real slot address and the real scratch address (the ABI defaults)" % key, struct.unpack_from("<I", blob_hw, 32)[0] == pm.SCRATCH_ORG and info_hw["org"] == pm.SLOT_BASE + pm.SLOT[key] * pm.SLOT_SIZE)
             print("     %s: %d B image in the slot, %d B working state in on-chip scratch, %d B file" % (key, info["load"], info["data"] + info["bss"], len(blob_k)))
@@ -93,7 +93,7 @@ def main():
         for key in METERS:
             be = build_harness(tmp, key, True)
             out = run_sim(be, pb.bundle(multi), tmp)
-            check("%s: in a bundle of all three packs it installs and runs identically" % key, out[0] == "BUNDLE E0 SEEN 3" and out[1 + pm.SLOT[key]] == "SLOT %d E0" % pm.SLOT[key] and out[6:] == built[key][2], str(out[:6]))
+            check("%s: in a bundle of all the packs it installs and runs identically" % key, out[0] == "BUNDLE E0 SEEN %d" % len(METERS) and out[1 + pm.SLOT[key]] == "SLOT %d E0" % pm.SLOT[key] and out[1 + 5:] == built[key][2], str(out[:6]))
         unknown = bytearray(blob); unknown[6] = 77
         out = run_sim(belf, pb.bundle([bytes(unknown), blob]), tmp)
         check("a pack for a meter that cannot be a pack is skipped and the next one still installs", out[:2] == ["BUNDLE E0 SEEN 2", "SLOT 0 E0"] and out[6:] == want, str(out[:6]))
@@ -110,7 +110,7 @@ def main():
     import tau_assets as ta
     ta_blob = ta.pack_container([(b"MPKB", good)])
     r = ta.parse(ta_blob)
-    check("tau-assets.bin carries the bundle as an MPKB section and reads it back", r["packs"] == [{"meter": 0, "abi": 2, "size": len(blob) - 48, "entry": 0}], str(r.get("packs")))
+    check("tau-assets.bin carries the bundle as an MPKB section and reads it back", r["packs"] == [{"meter": 0, "abi": 3, "size": len(blob) - 48, "entry": 0}], str(r.get("packs")))
     bad_blob = bytearray(good); bad_blob[60] ^= 0x10
     try: ta.parse(ta.pack_container([(b"MPKB", bytes(bad_blob))])); ok = False
     except ValueError: ok = True

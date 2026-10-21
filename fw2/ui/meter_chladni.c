@@ -29,20 +29,27 @@ static uint8_t ok;                      /* 0 = not probed yet, 1 = ready, 2 = un
 static uint8_t swap;                    /* 1: the mailbox's high half is the LOWER SDRAM address */
 static uint8_t shed;
 static uint32_t now_ms, last_draw, drawn_n, skipped_n;
+/* ch_load: the layout and paint choices from the live parameters (the manifest's order); a new layout restarts the figure at the next tick. The firmware calls it from apply(), a pack (P2_PACK) each tick. */
+static void ch_load(const uint16_t *v)
+{
+    layout_want = (uint8_t)(v[MPP_CHL_LAYOUT] < CHL_PRESET_N ? v[MPP_CHL_LAYOUT] : 0u); paint_want = (uint8_t)(v[MPP_CHL_PAINT] < 3u ? v[MPP_CHL_PAINT] : 0u);
+}
+#ifndef P2_PACK
 uint32_t chladni_drawn(void) { return drawn_n; }
 uint32_t chladni_unavailable(void) { return ok == 2u; }
 uint16_t meter_chladni_mv[MPP_CHL_N];                           /* the live parameters, in the manifest's order (the Configure page edits these) */
 const char *meter_chladni_preset_name(uint32_t i) { return mpp_chl_name[i < MPP_CHL_PRESETS ? i : 0u]; }
-void meter_chladni_apply(void)
-{
-    const uint16_t *v = meter_chladni_mv;
-    layout_want = (uint8_t)(v[MPP_CHL_LAYOUT] < CHL_PRESET_N ? v[MPP_CHL_LAYOUT] : 0u); paint_want = (uint8_t)(v[MPP_CHL_PAINT] < 3u ? v[MPP_CHL_PAINT] : 0u);   /* a new layout restarts the figure at the next tick */
-}
+void meter_chladni_apply(void) { ch_load(meter_chladni_mv); }
 void meter_chladni_preset(uint32_t i)
 {
     for (uint32_t k = 0; k < MPP_CHL_N; k++) meter_chladni_mv[k] = mpp_chl[i < MPP_CHL_PRESETS ? i : 0u][k];
     meter_chladni_apply();
 }
+#define LIVE_V meter_chladni_mv
+#else
+static const uint16_t *live_v;                                  /* the pack's parameters: the host's table, set at every entry */
+#define LIVE_V live_v
+#endif
 
 /* Known-answer probe: two DIFFERENT pixels (0x07E0 low half, 0xF800 high half) at the probe word, the engine copies that word elsewhere, the mailbox reads it back. A low half of 0x07E0 means the mailbox's low
  * half is the lower address; 0xF800 in the high half means the halves are swapped; anything else means the path does not behave as assumed. */
@@ -95,7 +102,7 @@ static void replicate(uint32_t x0, uint32_t y0, uint32_t tw, uint32_t th, uint32
 
 static void tunables(void)
 {
-    const uint16_t *pv = meter_chladni_mv;
+    const uint16_t *pv = LIVE_V;
     cfg.eps0 = pv[MPP_CHL_LINE_WIDTH]; cfg.topk = (uint8_t)pv[MPP_CHL_MODES]; cfg.up_q12_s = pv[MPP_CHL_RISE]; cfg.dn_q12_s = pv[MPP_CHL_FALL];
     cfg.morph_base = pv[MPP_CHL_MORPH]; cfg.morph_gain = pv[MPP_CHL_MORPH_GAIN]; cfg.sens_q4 = (uint8_t)pv[MPP_CHL_TRIGGER]; cfg.refr_ms = pv[MPP_CHL_REFRACTORY]; cfg.tonal = (uint8_t)pv[MPP_CHL_TONAL];
 }

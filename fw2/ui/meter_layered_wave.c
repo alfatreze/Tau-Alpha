@@ -15,7 +15,9 @@
 #define WAVE_COLS 256u
 #define fig_rect gfx_rect
 #define ui_accent UI_ACCENT
-#ifndef P2_HOST
+#if defined(P2_PACK)
+#define MTR_PSRAM __attribute__((section(".pstate")))     /* the pack's own PSRAM state in its slot (fw2/ui/meter_pack.ld) */
+#elif !defined(P2_HOST)
 #define MTR_PSRAM __attribute__((section(".psram_state")))
 #else
 #define MTR_PSRAM
@@ -26,11 +28,20 @@
 #ifndef TAU_DIAGNOSTIC
 #define TAU_DIAGNOSTIC 0
 #endif
+#ifndef P2_PACK
 uint16_t meter_layered_wave_mv[MP_LAYERED_WAVE_N];       /* the live parameters, in the manifest's order (the Configure page edits these) */
 #define lw_mv meter_layered_wave_mv
+#else
+static const uint16_t *lw_live;                          /* a pack reads the host's table, set at every entry */
+#define lw_mv lw_live
+#endif
 static uint8_t wviz_force;
 static uint8_t lw_ps;                 /* the PSRAM window: 0 untested, 1 proven, 2 failed */
-#ifndef P2_HOST
+#ifdef P2_PACK
+extern uint32_t _pack_pstate_start[], _pack_pstate_end[];      /* the slot's state region (the link script) */
+#define __psram_state_start _pack_pstate_start
+#define __psram_state_end _pack_pstate_end
+#elif !defined(P2_HOST)
 extern uint32_t __psram_state_start[], __psram_state_end[];
 #endif
 static int mtr_psram_ready(void)
@@ -40,7 +51,7 @@ static int mtr_psram_ready(void)
         lw_ps = 1u;
         if (REG_RD(0x80000088u) != 0x50535231u || !((REG_RD(0x800000A0u) >> 16) & 1u)) lw_ps = 2u;       /* the PSRAM controller and its CPU window must be in this bitstream */
         else {
-            volatile uint32_t *w0 = (volatile uint32_t *)__psram_state_start, *w1 = (volatile uint32_t *)__psram_state_end - 1;
+            volatile uint32_t *w0 = (volatile uint32_t *)__psram_state_start, *w1 = (volatile uint32_t *)((uintptr_t)__psram_state_end - 4u);
             for (uint32_t k = 0; k < 2u; k++) { *w0 = pat[k]; *w1 = ~pat[k]; if (*w0 != pat[k] || *w1 != ~pat[k]) lw_ps = 2u; }
         }
     }
@@ -49,10 +60,12 @@ static int mtr_psram_ready(void)
 #include "layered_wave.inc"
 
 static uint32_t want;
+#ifndef P2_PACK
 uint32_t lw_unavailable(void) { return lw_ps == 2u; }
 void meter_layered_wave_apply(void) { }                           /* the parameters are read at every tick */
 void meter_layered_wave_preset(uint32_t i) { want = i < LW_PRESET_N ? i : 0u; for (uint32_t k = 0; k < MP_LAYERED_WAVE_N; k++) lw_mv[k] = lw_preset[want][k]; }
 const char *meter_layered_wave_preset_name(uint32_t i) { return lw_preset_name[i < LW_PRESET_N ? i : 0u]; }
+#endif
 
 void meter_layered_wave_tick(const mtr_in_t *in0)
 {

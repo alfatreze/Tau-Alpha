@@ -15,6 +15,14 @@ static void tr_hash_blend_on(uint32_t a) { const uint32_t v[2] = { 4, a }; tr_mi
 static void tr_hash_blend_off(void) { const uint32_t v[1] = { 5 }; tr_mix(v, 1); }
 static void tr_hash_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { const uint32_t v[7] = { 6, sx, sy, dx, dy, w, h }; tr_mix(v, 7); }
 static int tr_ready(void) { return tr_blend_ready; }
+/* a sparse model of the framebuffer SDRAM words the Chladni probe uses (mailbox write, engine copy, mailbox read): address-keyed, linear probing */
+static uint32_t tr_mk[16384], tr_mv[16384];
+static uint32_t *tr_slot(uint32_t a) { uint32_t h = (a * 2654435761u) >> 18; for (;;) { if (tr_mk[h] == a + 1u || tr_mk[h] == 0u) { tr_mk[h] = a + 1u; return &tr_mv[h]; } h = (h + 1u) & 16383u; } }
+static int tr_mb_write(uint32_t a, uint32_t d) { const uint32_t v[3] = { 7, a, d }; tr_mix(v, 3); *tr_slot(a) = d; return 0; }
+static int tr_mb_read(uint32_t a, uint32_t *d) { *d = *tr_slot(a); return 0; }
+static void tr_fence(void) { const uint32_t v[1] = { 8 }; tr_mix(v, 1); }
+static void tr_hash_blit_abs(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { const uint32_t v[7] = { 9, sx, sy, dx, dy, w, h }; tr_mix(v, 7); *tr_slot(dy * 512u + dx) = *tr_slot(sy * 512u + sx); }   /* the probe's one-word copy */
+static void tr_hash_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t sc) { const uint32_t v[8] = { 10, sx, sy, dx, dy, w, h, sc }; tr_mix(v, 8); }
 
 #define TR_BEGIN(seed) do { tr_rs = (seed); tr_H = 1469598103934665603ull; tr_N = 0; } while (0)
 static void tr_in(mtr_in_t *in, uint32_t n, const uint8_t *spec, const int8_t *wave)
@@ -94,4 +102,57 @@ static void scope_trace(uint16_t *params, void (*apply)(void), void (*run)(const
         report(s, tr_N, tr_H);
     }
 }
+#endif
+#ifdef PACK_CHL
+/* Chladni: every preset with its own layout and paint (LINE, EMBER, OCEAN), loud and quiet stretches and a pause, the box moved mid-run. */
+static void chl_trace(uint16_t *params, void (*apply)(void), void (*run)(const mtr_in_t *), void (*report)(int scen, uint32_t n, uint64_t h))
+{
+    for (int s = 0; s < 4; s++) {
+        for (uint32_t i = 0; i < MPP_CHL_N; i++) params[i] = mpp_chl[s][i];
+        params[MPP_CHL_LAYOUT] = (uint16_t)(s % 2); params[MPP_CHL_PAINT] = (uint16_t)(s % 3);
+        if (apply) apply();
+        TR_BEGIN(31337u + (uint32_t)s);
+        for (int n = 0; n < TR_NFRAMES; n++) {
+            uint8_t spec[16]; int8_t wave[64];
+            const int quiet = (n >= 40 && n < 50);
+            for (int i = 0; i < 16; i++) spec[i] = quiet ? 0 : (uint8_t)((tr_rnd() % 256u) * (16u - (uint32_t)i) / 16u);
+            if (n % 10 == 3) spec[(n / 10) % 16] = 255;                                              /* a strong band now and then: the onset detector */
+            for (int i = 0; i < 64; i++) wave[i] = 0;
+            mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
+            in.paused = (uint8_t)(n >= 20 && n < 26); in.h = 110;
+            if (s == 3 && n >= 60) { in.x = 8; in.w = 300; in.h = 100; }
+            run(&in);
+        }
+        report(s, tr_N, tr_H);
+    }
+}
+#endif
+#ifdef PACK_LW
+#pragma push_macro("paused")
+#undef paused                      /* the Layered Wave source defines a macro called paused */
+/* Layered Wave: four presets (the first, a later one, and two experimental [EX] ones), loud and quiet stretches with a pause, both the spectrum bands and the peaks (the DYNAMICS split) driven, the box moved mid-run. */
+static void lw_trace(uint16_t *params, void (*apply)(void), void (*run)(const mtr_in_t *), void (*report)(int scen, uint32_t n, uint64_t h))
+{
+    static const uint8_t which[4] = { 0, 3, 9, 13 };
+    for (int s = 0; s < 4; s++) {
+        for (uint32_t i = 0; i < MP_LAYERED_WAVE_N; i++) params[i] = lw_preset[which[s] < LW_PRESET_N ? which[s] : 0][i];
+        if (apply) apply();
+        TR_BEGIN(5150u + (uint32_t)s);
+        uint32_t pl = 0, pr = 0;
+        for (int n = 0; n < TR_NFRAMES; n++) {
+            uint8_t spec[16]; int8_t wave[64];
+            const int quiet = (n >= 40 && n < 50);
+            for (int i = 0; i < 16; i++) spec[i] = quiet ? 0 : (uint8_t)((tr_rnd() % 256u) * (16u - (uint32_t)i / 2u) / 16u);
+            for (int i = 0; i < 64; i++) wave[i] = 0;
+            if (n % 8 == 0) { pl = quiet ? 0u : tr_rnd() % 24576u; pr = quiet ? 0u : tr_rnd() % 24576u; }
+            mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
+            in.paused = (uint8_t)(n >= 20 && n < 26);
+            in.peak_l = pl; in.peak_r = pr;
+            if (s == 3 && n >= 60) { in.x = 8; in.w = 300; in.h = 100; }
+            run(&in);
+        }
+        report(s, tr_N, tr_H);
+    }
+}
+#pragma pop_macro("paused")
 #endif

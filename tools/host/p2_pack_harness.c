@@ -12,6 +12,9 @@
 #include "../../fw2/ui/meter_pack.h"
 #include "../../fw2/ui/theme.h"
 #include "../../fw2/generated/meter_presets.h"
+#ifdef PACK_LW
+#include "../../fw2/generated/lw_presets.h"
+#endif
 #include "../../sim/p2_pack_trace.h"
 #ifndef PACK_SLOT
 #define PACK_SLOT 0u
@@ -29,7 +32,7 @@ static uint8_t win[LIB_WIN] __attribute__((aligned(16)));
 static uint16_t roles[TR_COUNT];
 static int rd(void *ctx, uint32_t off, uint8_t *d, uint32_t len) { (void)ctx; if (off + len > hfilesize()) return 0; return hread(off, d, len) == len; }
 #ifndef PACK_PARAMS
-#define PACK_PARAMS 8u
+#define PACK_PARAMS 48u
 #endif
 static uint32_t api_stats[MTR_PACK_STATS];
 static mtr_pack_entry_fn entry;
@@ -64,11 +67,16 @@ int main(void)
     for (int i = 0; i < TR_COUNT; i++) roles[i] = (uint16_t)(0x1234u + i * 0x0421u);
     api.abi = MTR_PACK_ABI; api.rect = tr_hash_rect; api.role = roles; api.params = params; api.stats = api_stats;
     api.text = tr_hash_text; api.rect_stash = tr_hash_stash; api.blend_ready = tr_ready; api.blend_on = tr_hash_blend_on; api.blend_blit = tr_hash_blit; api.blend_off = tr_hash_blend_off;
+    api.mb_write = tr_mb_write; api.mb_read = tr_mb_read; api.fence = tr_fence; api.blit = tr_hash_blit; api.blit_abs = tr_hash_blit_abs; api.sblit = tr_hash_sblit;
     entry = (mtr_pack_entry_fn)addr;
 #ifdef PACK_BARS
     bars_trace(params, 0, run, report);
 #elif defined(PACK_VU)
     vu_trace(params, 0, run, report);
+#elif defined(PACK_CHL)
+    chl_trace(params, 0, run, report);
+#elif defined(PACK_LW)
+    lw_trace(params, 0, run, report);
 #else
     scope_trace(params, 0, run, report);
 #endif
