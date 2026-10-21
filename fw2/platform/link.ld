@@ -102,5 +102,9 @@ SECTIONS {
 	_stack_top  = ORIGIN(ram) + LENGTH(ram);
 	_ring_start = _stack_top - _stack_size - _ring_size;
 	_tag_start  = _ring_start - _tag_size;
-	ASSERT(_image_end + _min_free <= _tag_start, "Player 2 image collides with the reserved DMA buffers (or leaves less than _min_free)")
+	/* PACKS build (--defsym=_packs=1): the 4 KB scratch of the loadable meters sits just under the tag zone at a fixed address (the pack ABI, fw2/cores/meter_pack_core.h MTR_PACK_SCRATCH_ORG); the heap gap shrinks by it. */
+	_pack_scratch = _tag_start - 0x1000;
+	_heap_limit = DEFINED(_packs) ? _pack_scratch : _tag_start;
+	ASSERT(!DEFINED(_packs) || _pack_scratch == 0x26C00, "the pack scratch address moved: MTR_PACK_SCRATCH_ORG in fw2/cores/meter_pack_core.h must follow")
+	ASSERT(_image_end + _min_free <= _heap_limit, "Player 2 image collides with the reserved DMA buffers (or leaves less than _min_free)")
 }

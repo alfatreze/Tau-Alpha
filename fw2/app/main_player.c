@@ -30,6 +30,9 @@ static void hand_out_assets(void)
     if (!base) return;
     theme_file_load(base, total);                       /* THEM: extra themes (a bad section leaves the built-ins and a code for Info) */
     if (assets_section("PRST", &p, &n)) halcyon_prst_load(p, n, assets_in_psram(), assets_psram_ok);
+#ifdef P2_PACKS
+    if (assets_section("MPKB", &p, &n) && (!assets_in_psram() || assets_psram_ok()) && assets_psram_ok()) meters_packs_load(p, n);       /* the pack slots live in the PSRAM window: proven first */
+#endif
     if (assets_section("METR", &p, &n) && (!assets_in_psram() || assets_psram_ok())) meters_metr_load(p, n);       /* a file over 4 KiB sits in the PSRAM staging area: proven first, as for PRST */                              /* user presets replace the built-in ones of the meters the file carries */
 }
 static void info_draw_all(void) { counters_refresh(); info_page_draw(); }

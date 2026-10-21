@@ -14,18 +14,16 @@ sys.path.insert(0, str(ROOT / "tools/player2")); sys.path.insert(0, str(ROOT / "
 import pack_meter as pm
 import pack_bundle as pb
 SIM_ORG, SIM_SCRATCH = 0x00400000, 0x00300000
-FINGERPRINT = "bdca4a91"
+FINGERPRINT = "f6def297"
 fails = 0
 def check(name, cond, info=""):
     global fails
     print(("ok   " if cond else "FAIL ") + name + ("  " + info if info and not cond else ""))
     fails += 0 if cond else 1
 def abi_fingerprint():
-    txt = (ROOT / "fw2/ui/meter.h").read_text() + (ROOT / "fw2/ui/meter_pack.h").read_text()
-    parts = []
-    for m in re.finditer(r"typedef struct \{.*?\} (mtr_in_t|mtr_host_api_t);", txt, re.S):
-        body = re.sub(r"/\*.*?\*/", "", m.group(0), flags=re.S)
-        parts.append(re.sub(r"\s+", " ", body).strip())
+    txt = re.sub(r"/\*.*?\*/", "", (ROOT / "fw2/ui/meter.h").read_text() + (ROOT / "fw2/ui/meter_pack.h").read_text(), flags=re.S)
+    parts = [re.sub(r"\s+", " ", m.group(0)).strip() for m in re.finditer(r"typedef struct \{[^{}]*\} (?:mtr_in_t|mtr_host_api_t);", txt)]
+    assert len(parts) == 2, parts
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:8]
 def run_native(tmp):
     exe = tmp / "native"

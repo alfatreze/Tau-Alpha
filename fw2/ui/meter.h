@@ -48,6 +48,10 @@ uint32_t    meters_preset_of(uint32_t meter);          /* the selected preset of
 void        meters_preset_select(uint32_t meter, uint32_t p);   /* a saved or menu choice (out of range = the first); repaints when it is the meter on screen */
 void        meters_preset_next(void);
 uint32_t    meters_npre(uint32_t meter);               /* presets of a meter: the built-in ones, or the METR file's */
+#ifdef P2_PACKS
+void        meters_packs_load(const uint8_t *p, uint32_t n);    /* the MPKB section of tau-assets.bin: loadable meters (a PACKS build) */
+uint32_t    meters_pack_state(uint32_t m);                       /* 0 = meter m runs as a pack, 0xFF = no pack, else the refusal code */
+#endif
 uint32_t    meters_metr_load(const uint8_t *src, uint32_t n);   /* the METR section of tau-assets.bin: replaces the presets of the meters it carries (returns how many); applies each boot preset */                  /* Select+X: the next preset of the current meter */
 const char *meters_preset_name(void);
 void        meters_params_changed(uint32_t meter);   /* the Configure page edited meter `meter`: re-read, repaint, call the preset CUSTOM */
