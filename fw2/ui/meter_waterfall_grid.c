@@ -9,7 +9,7 @@
 /* Waterfall (meters/waterfall_grid/meter.json): a grid of small cells lit by the spectrum. Each cell has a fixed random threshold; a cell is lit when its band's level is above it, brighter the further above (three
  * steps), so the lit fraction follows the level and the picture reads as a heat map. SPECTROGRAM: frequency across, new rows enter at the top and the grid scrolls down (the engine's copy does the scroll,
  * gfx_scroll_down, a few commands a step). ZONES: the grid keeps still; every cell is owned by one band, scattered over the box, and shows that band's level (only cells that changed are redrawn, a quarter of
- * the rows each tick). The standard degrade: the host skips windows by mtr_in_t.degrade; ZONES also refreshes fewer rows (mtr_degrade_div).
+ * the rows each tick). Cadence and compose are the host's (manifest p2: composed and drawn once per `speed` ms in SPECTROGRAM only, so the scroll happens in the idle buffer and is never seen tearing). The standard degrade: the host skips windows by mtr_in_t.degrade; ZONES also refreshes fewer rows (mtr_degrade_div).
  *
  * A pack-only meter (the framework test, docs/features/meters/METER_FRAMEWORK_FINDINGS.md): the real code exists only with P2_PACK (meter_pack_waterfall_grid.c); the firmware carries a stub that tells the
  * viewer the pack is missing, so a build without the pack costs a few dozen bytes, not the meter. */
@@ -22,7 +22,7 @@ static void wf_load(const uint16_t *v) { cfg.mode = (uint8_t)v[MPP_WF_MODE]; cfg
 
 #ifdef P2_PACK
 static uint8_t zone[WF_ROWS * WF_COLS];                  /* ZONES: the brightness step (0..3) drawn in each cell */
-static uint32_t acc_ms, step_n, geom;                    /* time to the next row; rows entered so far (the noise changes with it); the geometry the grid was drawn for */
+static uint32_t step_n, geom;                            /* rows entered so far (the noise changes with it); the geometry the grid was drawn for */
 static uint32_t hx(uint32_t a, uint32_t b)
 {
     uint32_t x = a * 0x9E3779B1u ^ (b + 0x7F4A7C15u) * 0x85EBCA6Bu; x ^= x >> 15; x *= 0x2C1B3C6Du; x ^= x >> 12; return x;
@@ -49,17 +49,15 @@ static void wf_tick(const mtr_in_t *in)
     const uint16_t bg = in->bg, pal[4] = { bg, rc_ramp(bg, UI_ACCENT, 1u, 3u), rc_ramp(bg, UI_ACCENT, 2u, 3u), UI_ACCENT };
     const uint32_t sig = (in->w << 20) ^ (in->h << 10) ^ (pitch << 4) ^ cfg.mode;
     if (in->force || sig != geom) {                                     /* a new context or geometry: wipe and start again */
-        geom = sig; gfx_rect(in->x, in->y, in->w, in->h, bg); acc_ms = 0;
+        geom = sig; gfx_rect(in->x, in->y, in->w, in->h, bg);
         for (uint32_t i = 0; i < WF_ROWS * WF_COLS; i++) zone[i] = 0;
     }
     uint8_t spec[MTR_BANDS];
     for (uint32_t b = 0; b < MTR_BANDS; b++) { const uint32_t v = in->paused ? 0u : (uint32_t)in->spec[b] * cfg.gain / 100u; spec[b] = (uint8_t)(v > 255u ? 255u : v); }
     if (cfg.mode == 0u) {                                               /* SPECTROGRAM */
-        acc_ms += in->dt_ms;
-        uint32_t steps = acc_ms / (cfg.speed ? cfg.speed : 1u);
+        uint32_t steps = in->dt_ms / (cfg.speed ? cfg.speed : 1u);        /* the host draws this meter once per `speed` ms (manifest cadence) and passes the whole periods that elapsed */
         if (!steps) return;
         if (steps > 3u) steps = 3u;
-        acc_ms = 0;
         if (rows > steps) gfx_scroll_down(in->x, in->y, cols * pitch, rows * pitch, steps * pitch);
         for (uint32_t k = 0; k < steps; k++) {
             const uint32_t y = in->y + k * pitch;
