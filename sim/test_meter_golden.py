@@ -107,7 +107,7 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         (d / "h.c").write_text(code); (d / "in.txt").write_text("\n".join(lines) + "\n")
-        r = subprocess.run(["cc", "-O1", "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-I", str(ROOT / "fw"), "-o", str(d / "h"), str(d / "h.c")], capture_output=True, text=True)
+        r = subprocess.run(["cc", "-O1", "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-I", str(ROOT / "fw"), "-I", str(ROOT / "fw2/cores"), "-o", str(d / "h"), str(d / "h.c")], capture_output=True, text=True)
         if r.returncode:
             print(r.stderr); sys.exit(1)
         out = subprocess.run([str(d / "h"), str(d / "in.txt")], capture_output=True, text=True, check=True).stdout.splitlines()

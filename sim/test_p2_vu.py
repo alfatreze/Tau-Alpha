@@ -13,7 +13,7 @@ def build(td, mutant):
     d = Path(td)
     for sub in ("ui", "gfx", "generated", "sim"): (d / sub).mkdir()
     src = (ROOT / "fw2/ui/meter_vu_master.c").read_text()
-    for f in ("meter_core", "vu_master_core", "vu_segment_table"): src = src.replace(f'#include "../../fw/{f}.h"', f'#include "{ROOT}/fw/{f}.h"')
+    for f, sd in (("meter_core", "cores"), ("vu_master_core", "cores"), ("vu_segment_table", "generated")): src = src.replace(f'#include "../{sd}/{f}.h"', f'#include "{ROOT}/fw2/{sd}/{f}.h"')
     if mutant:
         a = "    gfx_rect(lx, ly, lw, ROW_H, bg);\n    uint32_t zone[3]"
         assert a in src

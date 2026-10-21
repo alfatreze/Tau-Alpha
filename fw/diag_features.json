@@ -7,7 +7,7 @@
       "converted": true,
       "title": "Experimental meter parameters and presets (Layered Wave: anti-aliasing, layer blend, EQ-bell and CURVE spectrum styles, per-layer gains, the [EX] presets)",
       "depends": [],
-      "owner": "meters/*/meter.json 'experimental' flag via tools/gen_meters.py; fw/layered_wave.inc",
+      "owner": "meters/*/meter.json 'experimental' flag via tools/gen_meters.py; fw2/ui/layered_wave.inc",
       "class": "option",
       "influences": "adds experimental meter settings and presets; defaults unchanged",
       "safe_to_drop": "yes"

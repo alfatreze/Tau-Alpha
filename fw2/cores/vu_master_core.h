@@ -1,11 +1,11 @@
 /* MASTER VU meter core (docs/METER_VU_MASTERING_SPEC.md): portable, host-testable logic with no MMIO, no engine
- * calls and no floating point (rv32im has none) -- same discipline as fw/meter_core.h and fw/chladni_core.h.
+ * calls and no floating point (rv32im has none) -- same discipline as fw2/cores/meter_core.h and fw2/cores/chladni_core.h.
  * The firmware module (fw/vu_master.inc) supplies drawing; sim/test_vu_master.py tests this file natively.
  *
  * Two independent pieces:
  *   1. vum_peak_to_segments() -- a peak magnitude (the MTR_HEADROOM-scaled 16-bit peak_l/peak_r accumulators,
  *      fw/player.c:4500-4502) to a lit-segment count 0..24, via an offline-generated lookup table
- *      (tools/gen_vu_segment_table.py -> fw/vu_segment_table.h) instead of a runtime log10 (spec section 2.3).
+ *      (tools/gen_vu_segment_table.py -> fw2/generated/vu_segment_table.h) instead of a runtime log10 (spec section 2.3).
  *   2. vum_coalesce() -- the "always at most 3 rects" zone-coalescing rule (spec section 4.2): the lit segments
  *      are always a contiguous run from segment 1, and each colour zone (green/yellow/red) is a fixed contiguous
  *      range, so the lit portion always draws as at most one rect per zone that has a lit segment in it.
@@ -18,10 +18,10 @@
 #define VUM_ZONE_GREEN_MAX   16u   /* segments 1..16: green (-48..-16 dBFS)  */
 #define VUM_ZONE_YELLOW_MAX  21u   /* segments 17..21: yellow (-16..-6 dBFS) */
                                    /* segments 22..24: red (-6..0 dBFS)      */
-#define VUM_TABLE_N          256u  /* fw/vu_segment_table.h: 256 entries over peak's 16-bit range, indexed by >>7 */
+#define VUM_TABLE_N          256u  /* fw2/generated/vu_segment_table.h: 256 entries over peak's 16-bit range, indexed by >>7 */
 
 /* peak is the MTR_HEADROOM-scaled 16-bit accumulator (0..32767ish); table[] is vu_db_to_segment[VUM_TABLE_N]
- * from fw/vu_segment_table.h, generated offline by tools/gen_vu_segment_table.py from
+ * from fw2/generated/vu_segment_table.h, generated offline by tools/gen_vu_segment_table.py from
  * db = 20*log10(peak/32768), clamped -48..0, lit = round((db+48)/2). table_n is passed rather than assumed so
  * the host test can exercise a table of any size it builds. */
 static inline uint32_t vum_peak_to_segments(uint32_t peak, const uint8_t *table, uint32_t table_n)

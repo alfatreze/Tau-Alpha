@@ -3,9 +3,9 @@
 #include "theme.h"
 #include "../gfx/gfx.h"
 #include "../generated/meter_presets.h"
-#include "../../fw/meter_core.h"
-#include "../../fw/vu_master_core.h"
-#include "../../fw/vu_segment_table.h"
+#include "../cores/meter_core.h"
+#include "../cores/vu_master_core.h"
+#include "../generated/vu_segment_table.h"
 
 /* Master VU (docs/METER_VU_MASTERING_SPEC.md): mastering-style segmented dB peak ladders, L above R, 24 segments each (-48..0 dBFS, 2 dB a segment), green / yellow / red zones (the theme's OK, WARN and
  * DANGER roles), a held-peak marker per channel. The dB-to-segment table and the "at most three coalesced rectangles" rule are the old player's host-tested core. The technical-info overlay of the old meter

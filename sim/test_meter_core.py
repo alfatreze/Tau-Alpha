@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host test for fw/meter_core.h (M1.5). Two jobs:
+"""Host test for fw2/cores/meter_core.h (M1.5). Two jobs:
  1. EQUIVALENCE: the core's functions equal the ORIGINAL code that lived in fw/player.c's wviz_bars_tick() (a verbatim copy is kept
     below as the reference) -- exhaustively for ease, over long randomised sequences for the peak cap, and for every band count for
     the band mapping and redraw cache. A ROM diff cannot prove this (the compiler orders code differently), so behaviour is compared.
@@ -145,7 +145,7 @@ def build_run(emit):
     with tempfile.TemporaryDirectory() as d:
         c, exe = Path(d) / "h.c", Path(d) / "h"
         c.write_text(HARNESS)
-        r = subprocess.run(["cc", "-O2", "-Wall", "-Werror", "-Wno-unused-function", "-I", str(ROOT / "fw"), "-o", str(exe), str(c)], capture_output=True, text=True)
+        r = subprocess.run(["cc", "-O2", "-Wall", "-Werror", "-Wno-unused-function", "-I", str(ROOT / "fw"), "-I", str(ROOT / "fw2/cores"), "-o", str(exe), str(c)], capture_output=True, text=True)
         if r.returncode:
             print(r.stderr); sys.exit(1)
         p = subprocess.run([str(exe)] + (["emit"] if emit else []), capture_output=True, text=True)

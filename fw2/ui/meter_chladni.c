@@ -6,9 +6,9 @@
 #include "../generated/meter_presets.h"
 #include "../cores/ramp_core.h"
 #define CHL_DATA
-#include "../../fw/chladni_core.h"
+#include "../cores/chladni_core.h"
 
-/* Chladni meter (docs/CHLADNI_METER_SPEC.md): nodal-line figures of a vibrating plate driven by the spectrum. The maths is the old player's portable, host-tested core (fw/chladni_core.h). How a figure reaches the
+/* Chladni meter (docs/CHLADNI_METER_SPEC.md): nodal-line figures of a vibrating plate driven by the spectrum. The maths is the old player's portable, host-tested core (fw2/cores/chladni_core.h). How a figure reaches the
  * screen, using only primitives proven on the Pocket: (1) chl_render streams one tile a row of cell levels at a time, packed two pixels to a word and written through the SDRAM mailbox into off-screen rows
  * CHL_PLANE_Y..; (2) ONE scaled blit puts that plane 3x (or 2x) into the box's top-left tile; (3) plain blits double the tile across the box (at most 120 words a copy; every mode of a figure is from one parity
  * class, so the field repeats exactly across a tile edge). Self-test: the first figure runs a known-answer copy that tells which half of a mailbox word is the lower address; if the path does not behave as assumed the

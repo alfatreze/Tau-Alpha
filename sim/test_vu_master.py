@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Host test for fw/vu_master_core.h (the MASTER VU meter's portable logic, docs/features/meters/METER_VU_MASTERING_SPEC.md),
-through tools/host/vu_master_harness.c -- same pattern as sim/test_chladni_core.py for fw/chladni_core.h.
+"""Host test for fw2/cores/vu_master_core.h (the MASTER VU meter's portable logic, docs/features/meters/METER_VU_MASTERING_SPEC.md),
+through tools/host/vu_master_harness.c -- same pattern as sim/test_chladni_core.py for fw2/cores/chladni_core.h.
 
 Checks:
-  1. The checked-in table (fw/vu_segment_table.h) is exactly what tools/gen_vu_segment_table.py produces now
+  1. The checked-in table (fw2/generated/vu_segment_table.h) is exactly what tools/gen_vu_segment_table.py produces now
      (a second, independent check beside that tool's own --check, run here so `make test-host` catches drift
      even if a future change forgets to wire the generator's own check in).
   2. vum_peak_to_segments() (the C function, via the harness) agrees with the SAME table read directly in
@@ -80,9 +80,9 @@ def main():
 
     # 1. Checked-in table matches the generator, independently of the generator's own --check.
     table = gen.build_table()
-    text_now = open(os.path.join(ROOT, "fw", "vu_segment_table.h")).read()
+    text_now = open(os.path.join(ROOT, "fw2", "generated", "vu_segment_table.h")).read()
     text_gen = gen.render(table)
-    check("fw/vu_segment_table.h matches tools/gen_vu_segment_table.py", text_now == text_gen)
+    check("fw2/generated/vu_segment_table.h matches tools/gen_vu_segment_table.py", text_now == text_gen)
 
     # 2. vum_peak_to_segments(): C harness agrees with the same table read in Python; monotonic;
     #    boundary sanity (0 -> segment 0, 32767 -> segment 24).

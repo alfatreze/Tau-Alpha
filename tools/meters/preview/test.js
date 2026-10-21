@@ -38,7 +38,7 @@ for (const key of ['winamp_bars', 'winamp_scope']) {
 }
 check('winamp_bars: Light theme renders too (accent capped, box respected)', () => { const r = Run.run({ data, schema, key: 'winamp_bars', source: Audio.demo(1), frames: 30, light: true }); assert.ok(r.theme.accent !== undefined && r.cost.max > 0); });
 
-/* layered_wave (firmware: fw/layered_wave.inc; the C-vs-JS golden frames are sim/test_layered_wave_golden.py) */
+/* layered_wave (firmware: fw2/ui/layered_wave.inc; the C-vs-JS golden frames are sim/test_layered_wave_golden.py) */
 {
   const LW = require('./meters/layered_wave.js'), lm = schema.meters.find((m) => m.key === 'layered_wave');
   const box = { x: 16, y: 152, w: 368, h: 122 };

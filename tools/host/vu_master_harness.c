@@ -1,6 +1,6 @@
-/* Native test harness for fw/vu_master_core.h (the MASTER VU meter's portable logic). Prints results for
+/* Native test harness for fw2/cores/vu_master_core.h (the MASTER VU meter's portable logic). Prints results for
  * sim/test_vu_master.py to check against an independent Python reference -- same pattern as
- * tools/host/chladni_harness.c for fw/chladni_core.h.
+ * tools/host/chladni_harness.c for fw2/cores/chladni_core.h.
  *
  * Usage:
  *   segments <peak>              -- vum_peak_to_segments(peak, vu_db_to_segment, VU_SEGMENT_TABLE_N)
@@ -10,8 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../../fw/vu_master_core.h"
-#include "../../fw/vu_segment_table.h"
+#include "../../fw2/cores/vu_master_core.h"
+#include "../../fw2/generated/vu_segment_table.h"
 
 int main(int argc, char **argv)
 {

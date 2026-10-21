@@ -3,7 +3,7 @@
 #include "theme.h"
 #include "../gfx/gfx.h"
 #include "../generated/meter_presets.h"
-#include "../../fw/meter_core.h"             /* the shared ballistics, peak cap, band mapping and redraw cache (host-tested against the original arithmetic) */
+#include "../cores/meter_core.h"             /* the shared ballistics, peak cap, band mapping and redraw cache (host-tested against the original arithmetic) */
 
 /* Winamp bars (meters/winamp_bars/meter.json): solid per-band bars with an eased level and a falling peak cap. Defaults = the FLUID preset. */
 #define BANDS_MIN 4u
