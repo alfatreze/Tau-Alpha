@@ -10,20 +10,23 @@
 #define BANDS_MAX 16u
 typedef struct { uint8_t bands, ease, attack, release, peak_on, peak_gravity, peak_fall; uint16_t peak_hold_ms; } wb_cfg_t;
 static wb_cfg_t cfg = { 16u, 2u, 55u, 22u, 1u, 1u, 35u, 200u };
-const char *meter_winamp_bars_preset_name(uint32_t i) { return mpp_bars_name[i < MPP_BARS_PRESETS ? i : 0u]; }
-uint16_t meter_winamp_bars_mv[MPP_BARS_N];                  /* the live parameters, in the manifest's order (the Configure page edits these) */
-void meter_winamp_bars_apply(void)
+/* wb_load: the live parameters (in the manifest's order) into the working configuration. The firmware calls it from apply(); a pack (P2_PACK, fw2/ui/meter_pack_winamp_bars.c) calls it with the host's table each tick. */
+static void wb_load(const uint16_t *v)
 {
-    const uint16_t *v = meter_winamp_bars_mv;
     cfg.bands = (uint8_t)v[MPP_BARS_BANDS]; cfg.ease = (uint8_t)v[MPP_BARS_EASE]; cfg.attack = (uint8_t)v[MPP_BARS_ATTACK]; cfg.release = (uint8_t)v[MPP_BARS_RELEASE];
     cfg.peak_on = (uint8_t)v[MPP_BARS_PEAK_ON]; cfg.peak_gravity = (uint8_t)v[MPP_BARS_PEAK_GRAVITY]; cfg.peak_hold_ms = v[MPP_BARS_PEAK_HOLD_MS]; cfg.peak_fall = (uint8_t)v[MPP_BARS_PEAK_FALL];
 }
+#ifndef P2_PACK
+const char *meter_winamp_bars_preset_name(uint32_t i) { return mpp_bars_name[i < MPP_BARS_PRESETS ? i : 0u]; }
+uint16_t meter_winamp_bars_mv[MPP_BARS_N];                  /* the live parameters, in the manifest's order (the Configure page edits these) */
+void meter_winamp_bars_apply(void) { wb_load(meter_winamp_bars_mv); }
 void meter_winamp_bars_preset(uint32_t i)
 {
     const uint16_t *v = mpp_bars[i < MPP_BARS_PRESETS ? i : 0u];
     for (uint32_t k = 0; k < MPP_BARS_N; k++) meter_winamp_bars_mv[k] = v[k];
     meter_winamp_bars_apply();
 }
+#endif
 
 static uint8_t disp[BANDS_MAX], drawn[BANDS_MAX], peak_drawn[BANDS_MAX]; static int16_t vel[BANDS_MAX]; static mtr_peak_t pk[BANDS_MAX];
 
