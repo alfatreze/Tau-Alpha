@@ -94,6 +94,7 @@ test-host:
 	$(PYTHON) sim/test_p2_lw.py
 	$(PYTHON) tools/player2/gen_meters_p2.py --check
 	$(PYTHON) sim/test_p2_mpre.py
+	$(PYTHON) sim/test_p2_ramp.py
 	$(PYTHON) sim/test_p2_configure.py
 	$(PYTHON) sim/test_p2_configure_view.py
 	$(PYTHON) sim/test_p2_controls.py

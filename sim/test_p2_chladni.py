@@ -12,7 +12,7 @@ def check(name, ok):
 def build(td, mutant):
     d = Path(td)
     for sub in ("ui", "gfx", "platform", "generated", "sim"): (d / sub).mkdir()
-    src = (ROOT / "fw2/ui/meter_chladni.c").read_text().replace('"../../fw/chladni_core.h"', f'"{ROOT}/fw/chladni_core.h"')
+    src = (ROOT / "fw2/ui/meter_chladni.c").read_text().replace('"../../fw/chladni_core.h"', f'"{ROOT}/fw/chladni_core.h"').replace('"../cores/ramp_core.h"', f'"{ROOT}/fw2/cores/ramp_core.h"')
     if mutant == "norepeat":
         a = "    have = rows;\n    while (have < h) {"
         assert a in src; src = src.replace(a, "    have = rows;\n    while (0) {")
