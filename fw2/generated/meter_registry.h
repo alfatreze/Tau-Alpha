@@ -10,6 +10,6 @@
     X(chladni, "CHLADNI", 14, chl, CHL, 4, 0x00000001u) \
     X(layered_wave, "LAYERED WAVE", 16, lw, LW, 16, 0x00000001u) \
     X(vu_master, "VU MASTER", 15, vu, VU, 3, 0x00000000u) \
-    X(waterfall_grid, "WATERFALL", 17, wf, WF, 4, 0x80418040u)
+    X(waterfall_grid, "WATERFALL", 17, wf, WF, 5, 0x00008040u)
 static const uint8_t meter_manifest_id[METER_N] = { 12, 13, 14, 16, 15, 17 };      /* the id of each table entry in tau-assets.bin METR and the reports */
 #endif

@@ -7,7 +7,8 @@
 settings_stats_t settings_stats;
 static uint32_t pub[SF_WORDS];           /* the words as last published or adopted */
 static uint32_t pub_vals[SF_COUNT];
-static uint32_t next_poll;
+static uint32_t next_poll, dirty_t0;
+static uint8_t was_dirty;
 
 static uint32_t rd(uint32_t w) { REG_WR(R_SET_IDX, w); return REG_RD(R_SET_DAT); }
 static void     wr(uint32_t w, uint32_t v) { REG_WR(R_SET_IDX, w); REG_WR(R_SET_DAT, v); }
@@ -57,7 +58,14 @@ int settings_service(uint32_t *vals, int streaming)
     int changed = 0;
     for (uint32_t i = 0; i < SF_COUNT; i++) if (vals[i] != pub_vals[i]) changed = 1;
     settings_stats.dirty = (uint32_t)changed;
-    if (changed) { if (!streaming) publish(vals); return 0; }          /* a button change wins over the menu until it is published */
+    /* A change is published at once when nothing is streaming, and after one second of staying unpublished while it is (a register-file write costs nothing audible, and a setting changed during playback was lost
+     * when the core was quit before the music stopped: the Appearance settings did not save). A button change wins over the menu until it is published. */
+    if (changed) {
+        if (!was_dirty) { was_dirty = 1; dirty_t0 = cycles(); }
+        if (!streaming || (int32_t)(cycles() - dirty_t0) >= (int32_t)CLK_HZ) { publish(vals); was_dirty = 0; }
+        return 0;
+    }
+    was_dirty = 0;
     if ((int32_t)(cycles() - next_poll) < 0) return 0;
     next_poll = cycles() + CLK_HZ / 2u;
     for (uint32_t i = 0; i < SF_COUNT; i++) {                          /* has Core Settings moved one of our words? */

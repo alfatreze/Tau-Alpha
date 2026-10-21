@@ -59,16 +59,11 @@ int main(void)
     printf("force drawn %u skipped %u\n", meter_stats.ticks - t0, meter_stats.degraded - d0);
     degrade_level = 0; t0 = meter_stats.ticks; for (int i = 0; i < 3; i++) { win++; meters_tick(1); }
     printf("deg0 drawn %u\n", meter_stats.ticks - t0);
-    /* Cadence and the compose gate of the Waterfall (meter 5): mode SPECTROGRAM (0), 100 ms a row, a window every 30 ms for 1.2 s: twelve pictures with the remainder carried (a clock reset each time would give ten),
-       each called with exactly the periods that elapsed, and composed; in mode ZONES (1) every window draws and nothing is composed. */
-    for (uint32_t m = 0; m < METER_N; m++) { spend[m] = 0; sum_dt[m] = 0; }
-    meters_select(idx_waterfall_grid); meter_waterfall_grid_mv[MPD_WF_N > 1u ? 1 : 0] = 100u; meter_waterfall_grid_mv[0] = 0u;
-    win++; meters_tick(1); degrade_level = 0;                                                    /* the forced first draw */
-    t0 = meter_stats.ticks; comp_calls = 0; sum_dt[idx_waterfall_grid] = 0;
-    for (int i = 0; i < 40; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
-    printf("cad drawn %u sumdt %u composed %u\n", meter_stats.ticks - t0, sum_dt[idx_waterfall_grid], comp_calls);
-    meter_waterfall_grid_mv[0] = 1u; t0 = meter_stats.ticks; comp_calls = 0; sum_dt[idx_waterfall_grid] = 0;
-    for (int i = 0; i < 10; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
-    printf("zones drawn %u composed %u\n", meter_stats.ticks - t0, comp_calls);
+    /* The compose gate of the Waterfall (meter 5): composed in mode SPECTROGRAM (0), not in ZONES (1). */
+    meters_select(idx_waterfall_grid); meter_waterfall_grid_mv[0] = 0u; win++; meters_tick(1);
+    comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
+    printf("spectrogram composed %u\n", comp_calls);
+    meter_waterfall_grid_mv[0] = 1u; comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
+    printf("zones composed %u\n", comp_calls);
     return 0;
 }

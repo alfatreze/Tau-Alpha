@@ -27,22 +27,23 @@ def abi_fingerprint():
     return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:8]
 METERS = {"winamp_bars": "PACK_BARS", "winamp_scope": "PACK_SCOPE", "vu_master": "PACK_VU", "chladni": "PACK_CHL", "layered_wave": "PACK_LW", "waterfall_grid": "PACK_WF"}
 SIMREGS = ["-include", str(ROOT / "sim/p2_pack_sim_regs.h")]
-def run_native(tmp, key):
-    exe = tmp / ("native_" + key)
-    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-D" + METERS[key], "-I", str(ROOT / "fw"), "-o", str(exe), str(ROOT / "sim/p2_pack_native.c")], capture_output=True, text=True)
+def run_native(tmp, key, frames=None):
+    exe = tmp / ("native_%s_%s" % (key, frames))
+    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-D" + METERS[key]] + (["-DTR_NFRAMES=%d" % frames] if frames else []) + [ "-I", str(ROOT / "fw"), "-o", str(exe), str(ROOT / "sim/p2_pack_native.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return [ln for ln in subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines() if ln.startswith("S ")]
-def build_harness(tmp, key, bundle=False):
+def build_harness(tmp, key, bundle=False, frames=None):
     slot = pm.SLOT[key]
-    elf = tmp / ("harness_%s%s.elf" % (key, "_bundle" if bundle else ""))
+    elf = tmp / ("harness_%s%s_%s.elf" % (key, "_bundle" if bundle else "", frames))
     cmd = [pm.tool("gcc"), "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-O2", "-ffreestanding", "-nostdlib", "-nostartfiles", "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-const-variable", "-Wno-comment",
-           "-DPACK_ORG=0x%X" % SIM_ORG, "-DSCRATCH_ORG=0x%X" % SIM_SCRATCH, "-D" + METERS[key], "-DPACK_METER=%d" % pm.METER_IDS[key], "-DPACK_SLOT=%d" % slot] + (["-DPACK_BUNDLE"] if bundle else []) + ["-Wl,--no-warn-rwx-segments", "-T", str(ROOT / "tools/host/link.ld"),
+           "-DPACK_ORG=0x%X" % SIM_ORG, "-DSCRATCH_ORG=0x%X" % SIM_SCRATCH, "-D" + METERS[key], "-DPACK_METER=%d" % pm.METER_IDS[key], "-DPACK_SLOT=%d" % slot] + (["-DPACK_BUNDLE"] if bundle else []) + (["-DTR_NFRAMES=%d" % frames] if frames else []) + ["-Wl,--no-warn-rwx-segments", "-T", str(ROOT / "tools/host/link.ld"),
            str(ROOT / "tools/host/start.S"), str(ROOT / "tools/host/p2_pack_harness.c"), "-I", str(ROOT / "fw2/ui"), "-I", str(ROOT / "fw2/cores"), "-o", str(elf), "-lgcc"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return elf
 def run_sim(elf, blob, tmp):
-    f = tmp / "pack.tmpk"; f.write_bytes(blob)
+    import tempfile as _t
+    with _t.NamedTemporaryFile(dir=tmp, suffix=".tmpk", delete=False) as fh: fh.write(blob); f = Path(fh.name)
     r = subprocess.run([sys.executable, str(ROOT / "tools/rv32sim.py"), "--dev=" + str(ROOT / "tools/p2_dev_model.py"), str(elf), str(f)], capture_output=True, text=True)
     return [ln for ln in r.stdout.splitlines() if not ln.startswith("[")]
 def set32(b, off, v): b[off:off + 4] = struct.pack("<I", v); return b
@@ -50,19 +51,22 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         built = {}
-        for key in METERS:
+        def per_meter(key):                                   # one meter's pack build, native reference and rv32sim run: independent of the others, so they run side by side
             blob_k, info = pm.build(key, SIM_ORG, tmp / (key + ".elf"), SIMREGS, scratch=SIM_SCRATCH)
+            blob_hw, info_hw = pm.build(key, pm.SLOT_BASE + pm.SLOT[key] * pm.SLOT_SIZE, tmp / (key + "_hw.elf"))
+            want_k = run_native(tmp, key)
+            elf_k = build_harness(tmp, key)
+            return key, blob_k, info, blob_hw, info_hw, want_k, elf_k, run_sim(elf_k, blob_k, tmp)
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=len(METERS)) as ex: results = list(ex.map(per_meter, METERS))
+        for key, blob_k, info, blob_hw, info_hw, want_k, elf_k, got in results:
             check("%s: the pack builds freestanding (no undefined symbols) at the simulator slot" % key, len(blob_k) > 48 and info["entry"] == 0)
             check("%s: the working state fits the on-chip scratch area (4 KB) (Chladni is the largest user)" % key, 0 < info["data"] + info["bss"] <= 3072 and info["pstate"] <= 4096, str(info))
-            blob_hw, info_hw = pm.build(key, pm.SLOT_BASE + pm.SLOT[key] * pm.SLOT_SIZE, tmp / (key + "_hw.elf"))
             check("%s: the same pack links at its real slot address and the real scratch address (the ABI defaults)" % key, struct.unpack_from("<I", blob_hw, 32)[0] == pm.SCRATCH_ORG and info_hw["org"] == pm.SLOT_BASE + pm.SLOT[key] * pm.SLOT_SIZE)
             print("     %s: %d B image in the slot, %d B working state in on-chip scratch, %d B file" % (key, info["load"], info["data"] + info["bss"], len(blob_k)))
-            want_k = run_native(tmp, key)
-            check("%s: the native reference trace produced 4 scenarios with draw commands" % key, len(want_k) == 4 and all(int(w.split()[2]) > 50 for w in want_k), str(want_k))
-            elf_k = build_harness(tmp, key)
-            got = run_sim(elf_k, blob_k, tmp)
+            check("%s: the native reference trace produced its scenarios with draw commands" % key, len(want_k) >= 4 and all(int(w.split()[2]) > 50 for w in want_k), str(want_k))
             check("%s: the loader accepts the pack" % key, got[:1] == ["LOAD E0"], str(got[:3]))
-            check("%s: the pack run on rv32sim draws exactly what the built-in meter draws (command counts and hashes, 4 scenarios)" % key, got[1:] == want_k, "\n got  %s\n want %s" % (got[1:], want_k))
+            check("%s: the pack run on rv32sim draws exactly what the built-in meter draws (command counts and hashes, every scenario)" % key, got[1:] == want_k, "\n got  %s\n want %s" % (got[1:], want_k))
             check("%s: no draw outside the box in any scenario, the fullscreen box (400x323) included" % key, all(int(w.split()[4]) == 0 for w in want_k), str(want_k))
             built[key] = (blob_k, elf_k, want_k)
         blob, elf, want = built["winamp_bars"]
@@ -83,7 +87,9 @@ def main():
         bad("a scratch origin the firmware does not use", lambda b: set32(b, 32, 0x00310000), 28)
         bad("working state larger than the scratch area", lambda b: set32(b, 36, 0x00010000), 29)
         bad("an empty file", lambda b: b"", 20)
-        belf = build_harness(tmp, "winamp_bars", True)
+        SHORT = 6                                             # the bundle cases check installation and that each pack still runs identically: a short trace is enough
+        belf = build_harness(tmp, "winamp_bars", True, SHORT)
+        want_s = {k: run_native(tmp, k, SHORT) for k in METERS}; want = want_s["winamp_bars"]
         good = pb.bundle([blob])
         out = run_sim(belf, good, tmp)
         check("a bundle with the pack installs it and runs identically", out[:2] == ["BUNDLE E0 SEEN 1", "SLOT 0 E0"] and out[9:] == want, str(out[:9]))
@@ -92,9 +98,9 @@ def main():
             bk, _ = pm.build(key, SIM_ORG + pm.SLOT[key] * pm.SLOT_SIZE, tmp / (key + "_b.elf"), SIMREGS, scratch=SIM_SCRATCH)
             multi.append(bk)
         for key in METERS:
-            be = build_harness(tmp, key, True)
+            be = build_harness(tmp, key, True, SHORT)
             out = run_sim(be, pb.bundle(multi), tmp)
-            check("%s: in a bundle of all the packs it installs and runs identically" % key, out[0] == "BUNDLE E0 SEEN %d" % len(METERS) and out[1 + pm.SLOT[key]] == "SLOT %d E0" % pm.SLOT[key] and out[1 + 8:] == built[key][2], str(out[:9]))
+            check("%s: in a bundle of all the packs it installs and runs identically" % key, out[0] == "BUNDLE E0 SEEN %d" % len(METERS) and out[1 + pm.SLOT[key]] == "SLOT %d E0" % pm.SLOT[key] and out[1 + 8:] == want_s[key], str(out[:9]))
         unknown = bytearray(blob); unknown[6] = 77
         out = run_sim(belf, pb.bundle([bytes(unknown), blob]), tmp)
         check("a pack for a meter that cannot be a pack is skipped and the next one still installs", out[:2] == ["BUNDLE E0 SEEN 2", "SLOT 0 E0"] and out[9:] == want, str(out[:9]))

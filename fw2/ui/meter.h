@@ -26,7 +26,7 @@ typedef struct {
     const char *name; void (*tick)(const mtr_in_t *in);
     uint8_t npre; void (*set_pre)(uint32_t); const char *(*pre_name)(uint32_t);
     uint16_t *mv; const mpd_t *pd; uint8_t np; void (*apply)(void);
-    uint32_t cmp;                             /* low 16 bits: when the meter is composed (0 never, 1 always, or a parameter gate): it repaints its whole box each tick, so it is drawn into the idle buffer and copied onto the shown one (no wipe, no tear is ever seen); high 16: its cadence (0 none, or the parameter holding the milliseconds between pictures, optionally gated by a mode parameter). Encoding: tools/player2/gen_meters_p2.py cmp_code */
+    uint32_t cmp;                             /* when the meter is composed: 0 never, 1 always, or a parameter gate (low 16 bits; tools/player2/gen_meters_p2.py cmp_code): it repaints its whole box each tick, so it is drawn into the idle buffer and copied onto the shown one (no wipe, no tear is ever seen) */
 } meter_def_t;
 /* What drawing costs, measured around every tick (one writer: meters_tick; the counter registry publishes it on Info and in the reports). Cycles of the 66.667 MHz counter. */
 typedef struct {
