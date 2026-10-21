@@ -18,6 +18,7 @@ int main(void)
     for (unsigned k = FB_NOLIB; k <= FB_NOFILES; k++) {
         const fb_text_t *t = &fb_texts[k];
         const char *all[] = { t->l1, t->l2, t->step[0], t->step[1], t->step[2], t->small[0], t->small[1] };
+        if (strlen(t->l1) > FB_META_MAXCH || strlen(t->l2) > FB_META_MAXCH) { long_lines++; printf("LONG meta %u\n", k); }
         for (unsigned i = 0; i < 7; i++) if (strlen(all[i]) > HP_MAXCH) { long_lines++; printf("LONG fallback %u: %s\n", k, all[i]); }
     }
     printf("long=%u omega_url_on_help=%d\n", long_lines, strstr(hp_p1[4].s, HP_URL_OMEGA) != 0);

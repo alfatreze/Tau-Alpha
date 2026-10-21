@@ -13,6 +13,7 @@
 #define HP_URL_OMEGA "github.com/alfatreze/Tau-Omega"
 #define HP_URL_REPO  "github.com/alfatreze/Tau-Alpha"
 #define HP_MAXCH 36u
+#define FB_META_MAXCH 24u                                    /* the lines beside the cover (240 px) in the widest font */
 enum { HS_TEXT = 0, HS_ACCENT, HS_DIM, HS_GAP };               /* a line's style; HS_GAP is an empty line */
 typedef struct { uint8_t style; const char *s; } hp_line_t;
 typedef struct { const char *title; const hp_line_t *lines; uint8_t n; } hp_page_t;
@@ -74,13 +75,13 @@ static inline uint32_t fb_kind(uint32_t lib_state, uint32_t lib_err, uint32_t n_
 }
 typedef struct { const char *pill, *title, *l1, *l2, *step[3], *small[2]; uint8_t red; } fb_text_t;       /* red: the pill is an error (red) */
 static const fb_text_t fb_texts[] = {
-    [FB_NOLIB] = { "NO LIBRARY", "NO LIBRARY FOUND", "tau-library.tdb is missing", "The card has no music index.",
+    [FB_NOLIB] = { "NO LIBRARY", "NO LIBRARY FOUND", "tau-library.tdb missing", "The card has no index.",
                    { "1  Get Tau Omega for your computer", "2  Sync your music to this card", "3  Put the card back, start TAU" }, { "Press A for the step by step help.", "" }, 0 },
     [FB_UNREADABLE] = { "ERROR", "CAN'T READ LIBRARY", "The index is damaged", "or from another version.",
                    { "Sync again with Tau Omega to", "rebuild the library on this card.", "" }, { "Your music files are not touched.", "Press A for the step by step help." }, 1 },
-    [FB_EMPTY] = { "0 TRACKS", "LIBRARY IS EMPTY", "No MP3 or FLAC files found", "when the library was built.",
+    [FB_EMPTY] = { "0 TRACKS", "LIBRARY IS EMPTY", "No MP3 or FLAC found", "when it was built.",
                    { "Add music, then sync again with", "Tau Omega to rebuild the library.", "" }, { "Supported: MP3 and FLAC.", "Press A for the step by step help." }, 0 },
-    [FB_NOFILES] = { "CAN'T OPEN", "FILES NOT FOUND", "The library lists tracks the", "card doesn't have.",
+    [FB_NOFILES] = { "CAN'T OPEN", "FILES NOT FOUND", "Tracks are missing", "from the card.",
                    { "The library may belong to another", "core or card. Sync again with", "Tau Omega to rebuild it here." }, { "Press A for the step by step help.", "" }, 1 },
 };
 #endif
