@@ -18,14 +18,17 @@ static uint8_t smooth = 35u, trail = 30u;                         /* temporal sm
 #define STRIP_Y 600u
 #define STRIP_W 112u
 static uint16_t strip_bg; static uint16_t strip_h;
+static void ws_load(const uint16_t *v) { smooth = (uint8_t)v[MPP_SCOPE_SCOPE_SMOOTH]; trail = (uint8_t)v[MPP_SCOPE_SCOPE_TRAIL]; }       /* the live parameters (the manifest's order); a pack (P2_PACK) calls it each tick with the host's table */
+#ifndef P2_PACK
 const char *meter_winamp_scope_preset_name(uint32_t i) { return mpp_scope_name[i < MPP_SCOPE_PRESETS ? i : 0u]; }
 uint16_t meter_winamp_scope_mv[MPP_SCOPE_N];
-void meter_winamp_scope_apply(void) { smooth = (uint8_t)meter_winamp_scope_mv[MPP_SCOPE_SCOPE_SMOOTH]; trail = (uint8_t)meter_winamp_scope_mv[MPP_SCOPE_SCOPE_TRAIL]; }
+void meter_winamp_scope_apply(void) { ws_load(meter_winamp_scope_mv); }
 void meter_winamp_scope_preset(uint32_t i)
 {
     for (uint32_t k = 0; k < MPP_SCOPE_N; k++) meter_winamp_scope_mv[k] = mpp_scope[i < MPP_SCOPE_PRESETS ? i : 0u][k];
     meter_winamp_scope_apply();
 }
+#endif
 static uint32_t sc_pk = 1u; static uint8_t armed, init;
 static int16_t sc_mid[COLS], sc_half[COLS];                       /* the picture's own state: the smoothed centre and half height of each column */
 
