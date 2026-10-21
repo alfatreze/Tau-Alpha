@@ -34,6 +34,9 @@ One meter's drawing code, compiled freestanding for rv32im, linked at its slot i
 | Layered Wave | 15,700 B (+2,424 B ring state in the slot) | 1,072 B |
  A `PACKS=1` firmware is +116 B ROM and +24 B hot RAM over the default; the default build does not change.
 
+## ABI 5 (B-802)
+The host table gained `clut_load` (a palette load) and `cblit` (palette indices from the stash through the palette to the drawing buffer, 127 columns at most); `MTR_PACK_ABI` is 5, so every pack must be rebuilt and old ones are refused (E22). First user: the Waterfall's entering-row plane (stash rows 722..734). Other users of the palette (icons, previews, art) load their own before their blits, so a pack must do the same.
+
 ## Pack cost (B-800, `tools/player2/measure_pack_cost.py`)
 The built-in Layered Wave is itself a cold object (`fw2/platform/link.ld`: `meter_layered_wave.o`), executed from PSRAM through the same instruction alias as a pack slot, so a pack pays no extra fetch price: both run from PSRAM. The difference is the host table: every draw call goes through a function pointer and a command counter. Under rv32sim over the same trace (320 pictures, 67,485 draw commands, `-DTR_NOHASH` so both sides pay the same for an engine call) the built-in takes 86,073,089 instructions and the pack 87,002,952: **the pack adds 1.08%** (13.8 instructions per draw command). The only Pocket figure so far is the pack's (DEV 173: slowest tick 7.66 M cycles); the matching built-in figure needs a build without `PACKS=1` on the card (`METER MAX LAYERED WAVE` on Info), which has not been run.
 

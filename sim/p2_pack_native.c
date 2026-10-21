@@ -61,6 +61,11 @@ void gfx_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, ui
 void gfx_blit_abs(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { tr_hash_blit_abs(sx, sy, dx, dy, w, h); }
 void gfx_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t sc) { tr_hash_sblit(sx, sy, dx, dy, w, h, sc); }
 #endif
+#ifdef PACK_WF
+void gfx_rect_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { tr_hash_stash(x, y, w, h, c); }
+void gfx_clut_load(uint32_t s, const uint16_t *c, uint32_t n) { tr_clut_hash(s, c, n); }
+void gfx_cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { tr_cblit_hash(sx, sy, dx, dy, w, h); }
+#endif
 #ifdef PACK_SCOPE
 void gfx_rect_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { tr_hash_stash(x, y, w, h, c); }
 int gfx_blend_ready(void) { return tr_ready(); }

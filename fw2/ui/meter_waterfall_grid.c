@@ -8,7 +8,8 @@
 
 /* Waterfall (meters/waterfall_grid/meter.json): a grid of small cells lit by the spectrum. The grid is ALWAYS visible: an unlit cell is a dim cell, never the background.
  * SPECTROGRAM: frequency across, time down. The grid scrolls smoothly, a few pixels every picture at a set pixel speed (so the speed does not depend on the cell size), by the engine's copy (gfx_scroll_down, a
- * handful of commands); the next row enters cell by cell from the top edge (its cells grow into view like the rest of the grid moves), its brightness the band's level in three steps with a small ordered dither.
+ * handful of commands); the next row enters from the top edge (its cells grow into view like the rest of the grid moves), its brightness the band's level in three steps with a small ordered dither. The entering row is
+ * built ONCE in the stash as a plane of palette indices (the four steps and the background; a rectangle a cell, once a row) and shown with a few palette blits a picture (gfx_cblit), not a rectangle a cell a picture.
  * ZONES: the grid keeps still, in 4 x 4 regions (bass top-left to treble bottom-right in reading order); each region is one band and fills from its centre outwards as the level rises (a heat map).
  * DUST: the same still grid with the bands scattered at random over the cells (the first version).
  * Compose is the host's (manifest p2: composed only in SPECTROGRAM, so the scroll happens in the idle buffer and is never seen tearing). The standard degrade: the host skips windows by mtr_in_t.degrade; the still
@@ -57,6 +58,16 @@ static uint32_t region_thr(uint32_t c, uint32_t r, uint32_t cols, uint32_t rows)
     return d * 190u / 255u + bayer(c, r) * 3u;                                            /* 0..235 */
 }
 static uint32_t region_band(uint32_t c, uint32_t r, uint32_t cols, uint32_t rows) { return (r * 4u / rows) * 4u + c * 4u / cols; }
+#define WF_PLANE_Y 722u                                   /* the entering row's plane in the stash (gfx.h map): pitch rows of palette indices, 0..3 the steps, 4 the background */
+static void plane_build(uint32_t cols, uint32_t pitch, uint32_t gw)
+{
+    gfx_rect_stash(0u, WF_PLANE_Y, gw, pitch, 4u);
+    for (uint32_t c = 0; c < cols; c++) gfx_rect_stash(c * pitch, WF_PLANE_Y, cfg.cell, cfg.cell, rowv[c]);
+}
+static void plane_blit(const mtr_in_t *in, uint32_t gw, uint32_t sy, uint32_t dy, uint32_t h)      /* plane rows sy.. to the grid's rows dy.. (the engine's copy takes at most 127 columns) */
+{
+    for (uint32_t xo = 0; xo < gw; xo += 127u) gfx_cblit(xo, WF_PLANE_Y + sy, in->x + xo, in->y + dy, gw - xo < 127u ? gw - xo : 127u, h);
+}
 static void draw_cell(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t col) { gfx_rect(x, y, w, h, col); }
 static void wf_tick(const mtr_in_t *in)
 {
@@ -74,25 +85,25 @@ static void wf_tick(const mtr_in_t *in)
         gfx_rect(in->x, in->y, in->w, in->h, bg);
         for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) { zone[r * WF_COLS + c] = 0; draw_cell(in->x + c * pitch, in->y + r * pitch, cfg.cell, cfg.cell, pal[0]); }
         for (uint32_t c = 0; c < cols; c++) rowv[c] = 0;
+        plane_build(cols, pitch, gw);
     }
     if (cfg.mode == 0u) {                                               /* SPECTROGRAM */
         acc_q8 += (uint32_t)in->dt_ms * cfg.speed * 256u / 1000u;
         uint32_t d = acc_q8 >> 8; acc_q8 &= 255u;
         if (!d) return;
         if (d > pitch) d = pitch;                                       /* behind: the picture jumps one cell, never more */
+        const uint16_t clut[5] = { pal[0], pal[1], pal[2], pal[3], bg };
+        gfx_clut_load(0u, clut, 5u);
         if (rows * pitch > d) gfx_scroll_down(in->x, in->y, gw, rows * pitch, d);
-        gfx_rect(in->x, in->y, gw, d, bg);                                  /* what the scroll left at the top */
         expo += d;
-        if (expo >= pitch) {                                            /* the entering row is complete: draw it whole, start the next one */
+        if (expo >= pitch) {                                            /* the entering row is complete: show it whole (the plane holds it), build the next one */
             const uint32_t over = expo - pitch;
-            for (uint32_t c = 0; c < cols; c++) draw_cell(in->x + c * pitch, in->y + over, cfg.cell, cfg.cell, pal[rowv[c]]);
+            plane_blit(in, gw, 0u, over, pitch);
             expo = over; step_n++;
             for (uint32_t c = 0; c < cols; c++) { const int32_t lv = (int32_t)col_level(spec, c, cols) + ((int32_t)bayer(c, step_n) - 8) * 2; rowv[c] = (uint8_t)(lv < 40 ? 0u : lv < 110 ? 1u : lv < 180 ? 2u : 3u); }
+            plane_build(cols, pitch, gw);
         }
-        if (expo) {                                                     /* the part of the entering row that is in view: its lower rows come in first, the gap before the cell */
-            const uint32_t b0 = pitch - expo;
-            if (b0 < cfg.cell) for (uint32_t c = 0; c < cols; c++) draw_cell(in->x + c * pitch, in->y, cfg.cell, cfg.cell - b0, pal[rowv[c]]);
-        }
+        if (expo) plane_blit(in, gw, pitch - expo, 0u, expo);          /* the part of the entering row that is in view: the plane's lower rows come in first (the gap, then the cells) */
     } else {                                                            /* ZONES and DUST: the still grid, only the cells that changed are redrawn */
         const uint32_t div = mtr_degrade_div(in->degrade);
         for (uint32_t r = 0; r < rows; r++) {

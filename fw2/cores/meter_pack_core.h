@@ -21,7 +21,7 @@
  *   scratch: MTR_PACK_SCRATCH_SIZE bytes of hot RAM at a fixed address just under the tag landing zone (fw2/platform/link.ld reserves it in a PACKS build); the active meter's .data and .bss live there.
  *   slots:   MTR_PACK_SLOTS slots of MTR_PACK_SLOT_SIZE in free PSRAM after the cold image (8 MiB + 1 MiB), executed at the 0x24xx_xxxx alias and written through the 0xA4xx_xxxx data alias.
  *            Slot i belongs to meter slot_ids[i] (the manifest's p2.pack id: the meter's index in the registry table). Host tests override the bases (the simulator has no PSRAM window). */
-#define MTR_PACK_ABI 4u
+#define MTR_PACK_ABI 5u
 #ifndef MTR_PACK_SCRATCH_ORG
 #define MTR_PACK_SCRATCH_ORG  0x00026C00u
 #endif

@@ -6,9 +6,12 @@
 #include "../fw2/ui/meter_waterfall_grid.c"
 #define W 400u
 #define H 360u
-static uint16_t fb[W * H]; static uint32_t scrolled, scrolls;
+static uint16_t fb[W * H], stash[512u * 1024u], clut[256]; static uint32_t scrolled, scrolls;
 uint16_t th_role[TR_COUNT];
 void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) if (x + i < W && y + j < H) fb[(y + j) * W + x + i] = c; }
+void gfx_rect_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) stash[(y + j) * 512u + x + i] = c; }
+void gfx_clut_load(uint32_t s, const uint16_t *c, uint32_t n) { for (uint32_t i = 0; i < n; i++) clut[(s + i) & 255u] = c[i]; }
+void gfx_cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) if (dx + i < W && dy + j < H) fb[(dy + j) * W + dx + i] = clut[stash[(sy + j) * 512u + sx + i] & 255u]; }
 void gfx_scroll_down(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d)
 {
     scrolled += d; scrolls++;
