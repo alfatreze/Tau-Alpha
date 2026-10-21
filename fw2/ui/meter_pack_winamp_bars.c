@@ -11,6 +11,7 @@
 static const mtr_host_api_t *g_api;
 static uint32_t g_cmds;
 #define gfx_rect(...)   (g_cmds++, g_api->rect(__VA_ARGS__))
+#define gfx_bar(...)    (g_cmds++, g_api->bar(__VA_ARGS__))
 #undef  th_role
 #define th_role         g_api->role
 #include "meter_winamp_bars.c"

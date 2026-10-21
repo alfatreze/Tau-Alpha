@@ -4,6 +4,7 @@
 #include "../fw2/ui/meter_winamp_bars.c"
 uint16_t th_role[TR_COUNT];
 void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { printf("rect %u %u %u %u %u\n", x, y, w, h, c); }
+void gfx_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t f, uint16_t b) { printf("bar %u %u %u %u %u %u %u\n", x, y, w, h, lit, f, b); }
 static void reset(void) { for (uint32_t i = 0; i < BANDS_MAX; i++) { disp[i] = drawn[i] = peak_drawn[i] = 0; vel[i] = 0; pk[i].peak = 0; pk[i].vel = 0; pk[i].hold = 0; } }
 int main(int argc, char **argv)
 {

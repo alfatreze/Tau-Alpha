@@ -46,8 +46,7 @@ void meter_winamp_bars_tick(const mtr_in_t *in)
         const uint32_t x = x0 + b * (colw + gap);
         uint32_t bh = (disp[b] * h) / 255u;
         if (bh < 2u) bh = 2u;
-        if (h > bh) gfx_rect(x, y, colw, h - bh, in->bg);               /* everything above the bar (the old bar top and the old cap) */
-        gfx_rect(x, y + h - bh, colw, bh, UI_ACCENT);
+        gfx_bar(x, y, colw, h, bh, UI_ACCENT, in->bg);                  /* the whole column in ONE command: the bottom bh rows the bar, the rows above it (the old bar top and the old cap) erased */
         if (cfg.peak_on) {
             const uint32_t ph = (pk[b].peak * h) / 255u;
             if (ph > bh + 1u && ph < h) gfx_rect(x, y + h - ph, colw, 1u, UI_WHITE);
