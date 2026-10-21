@@ -29,6 +29,7 @@ static const ctl_row_t ctl_rows[] = {
     { "SEL + Y",          "FULLSCREEN METER",  { CI_NONE, CI_NONE, CI_NONE } },
     { "SEL + B",          "INFO PAGE",         { CI_NONE, CI_NONE, CI_NONE } },
     { "START",            "SETTINGS",          { CI_NONE, CI_NONE, CI_NONE } },
+    { "START + X",        "METER CONFIGURE",   { CI_NONE, CI_NONE, CI_NONE } },
     { "SEL + START",      "REPORT GRID",       { CI_NONE, CI_NONE, CI_NONE } },
     { "MENU > SHUFFLE",   "OFF / ON",          { ICON_SHUFFLE_OFF, ICON_SHUFFLE, CI_NONE } },
     { "A / RIGHT",        "MENU: OPEN",        { CI_NONE, CI_NONE, CI_NONE } },
