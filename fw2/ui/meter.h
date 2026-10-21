@@ -35,6 +35,12 @@ typedef struct {
     uint32_t shed;                  /* spectrum windows that had to wait because the governor shed the UI (counted once each; the window is drawn when the UI is allowed again) */
     uint32_t last_cyc;              /* the last tick, including the compose copy */
     uint32_t compose_cyc;           /* the last compose copy onto the shown buffer (0 for a meter that draws directly) */
+    uint32_t cmds_last;             /* draw-engine commands the last tick issued */
+    uint32_t cmds_max;              /* the most commands one drawn tick has issued since boot (forced repaints included) */
+    uint32_t over;                  /* drawn ticks that exceeded the meter's command ceiling (each raised its own degrade level; cores/meter_budget_core.h) */
+    uint32_t rows;                  /* the visible rows the last tick wrote: first << 16 | one past the last (0 when it drew nothing visible) */
+    uint32_t direct;                /* ticks drawn straight onto the shown buffer (not composed, no idle-buffer frame), forced repaints excluded */
+    uint32_t exposed;               /* of those, the ticks that began while the beam was inside the rows they wrote (seen half old, half new for a frame) */
     uint32_t max_cyc[8];            /* the slowest tick of each meter since boot (indexed like meter_table; METER_MAX_STATS bounds the table) */
 } meter_stats_t;
 extern meter_stats_t meter_stats;
@@ -46,6 +52,7 @@ void        meters_tick(int allowed);          /* once per loop pass: draws when
 void        meters_select(uint32_t idx);       /* a saved or menu choice (an index outside the table means the first meter) */
 void        meters_next(int dir);              /* X: the next / previous meter */
 uint32_t    meters_cur(void);
+uint32_t    meters_self_degrade(uint32_t meter);   /* the meter's own degrade level 0..2 (it issued more draw commands than its ceiling; 0 when it stays inside) */
 uint32_t    meters_preset_of(uint32_t meter);          /* the selected preset of a meter */
 void        meters_preset_select(uint32_t meter, uint32_t p);   /* a saved or menu choice (out of range = the first); repaints when it is the meter on screen */
 void        meters_preset_next(void);

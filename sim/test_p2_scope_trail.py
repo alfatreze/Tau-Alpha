@@ -19,6 +19,7 @@ def build(td, mutant):
     if mutant == "inverse": m("uint32_t a = (100u - trail) * 256u / 100u;", "uint32_t a = trail * 256u / 100u;")
     if mutant == "ignored": m("if (trail && gfx_blend_ready()) {", "if (0) {")
     (d / "fw2/ui/meter_winamp_scope.c").write_text(src)
+    (d / "fw2/cores").mkdir(parents=True, exist_ok=True); (d / "fw2/cores/gfx_touch_core.h").write_text((ROOT / "fw2/cores/gfx_touch_core.h").read_text())
     for f in ("gfx/gfx.h", "gfx/gfx.c", "platform/mmio.h", "platform/platform.h", "ui/meter.h", "ui/theme.h", "generated/meter_presets.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "fw2/generated").mkdir(parents=True, exist_ok=True); (d / "fw2/generated/font_data.h").write_text((ROOT / "fw2/generated/font_data.h").read_text())
     (d / "sim/p2_engine_model.h").write_text((ROOT / "sim/p2_engine_model.h").read_text())

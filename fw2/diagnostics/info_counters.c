@@ -213,6 +213,12 @@ const cnt_t counters_table[] = {
     U32("METER CUR",    CU_NONE,   &v.meter_cur),             /* the selected meter: its index in the table (meters_cur) */
     U32("METER TICKS",  CU_NONE,   &meter_stats.ticks),       /* pictures drawn */
     U32("METER DEGRADED", CU_NONE, &meter_stats.degraded),  /* windows not drawn because the audio's lead was shrinking (degrade level 1 or 2) */
+    U32("METER CMDS",   CU_NONE,   &meter_stats.cmds_last),   /* draw-engine commands of the last tick */
+    U32("METER CMDS MAX", CU_NONE, &meter_stats.cmds_max),    /* the most commands one tick has issued since boot */
+    U32("METER OVER",   CU_NONE,   &meter_stats.over),        /* ticks over the meter's command ceiling (each lowered its picture rate) */
+    U32("METER ROWS",   CU_NONE,   &meter_stats.rows),        /* the rows the last tick wrote: first << 16 | end */
+    U32("METER DIRECT", CU_NONE,   &meter_stats.direct),      /* ticks drawn straight onto the shown buffer */
+    U32("METER EXPOSED", CU_NONE,  &meter_stats.exposed),     /* of those, ticks that began with the beam inside the rows they wrote (a tear risk) */
     U32("METER SHED",   CU_NONE,   &meter_stats.shed),        /* spectrum windows that waited because the governor shed the UI */
     U32("METER LAST",   CU_CYC,    &meter_stats.last_cyc),    /* the last tick, compose copy included */
     U32("METER COMPOSE", CU_CYC,   &meter_stats.compose_cyc), /* the last compose copy onto the shown buffer (0: the meter draws directly) */

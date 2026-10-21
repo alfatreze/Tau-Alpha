@@ -1206,7 +1206,7 @@
       "experimental": true
     }
   ],
-  "p2": {"slot": 3, "tag": "LW", "compose": true, "budget": {"cold": 16384, "hot_ram": 1216, "psram_state": 2432}},
+  "p2": {"cmds": 640, "slot": 3, "tag": "LW", "compose": true, "budget": {"cold": 16384, "hot_ram": 1216, "psram_state": 2432}},
   "default_preset": 0,
   "sel_index": 12,
   "groups": [
