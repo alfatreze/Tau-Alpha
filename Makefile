@@ -143,6 +143,8 @@ test-host:
 	$(PYTHON) tools/check_deps.py
 	TAU_BUILD_OUT=work/heapcheck bash fw2/build.sh
 	$(PYTHON) tools/player2/meter_budget.py work/heapcheck/player2/obj
+	PACKS=1 TAU_BUILD_OUT=work/heapcheck/packs bash fw2/build.sh
+	$(PYTHON) tools/player2/check_packs_abi.py work/heapcheck/packs/player2/fw2.elf
 	$(PYTHON) tools/player2/baseline.py --check docs/research/player2/BASELINE.json
 	$(PYTHON) sim/test_key_repeat.py
 	$(PYTHON) sim/test_wsola.py

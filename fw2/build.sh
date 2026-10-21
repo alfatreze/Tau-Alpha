@@ -16,6 +16,9 @@ SRCS=("$FW2/platform/start.S" "$FW2/platform/platform.c" "$FW2/stream/cold.c" "$
 MAINC=""
 DEFS=(-DP2_COLD=1 -DP2_MP3PLAY -DP2_LISTPLAY)
 INCS=()
+LDFLAGS=()
+# PACKS=1: loadable meters (a pack in the MPKB section of tau-assets.bin replaces a built-in meter; the built-in stays as the fallback). Reserves a 4 KB scratch under the tag zone (fw2/platform/link.ld).
+if [ "${PACKS:-0}" = "1" ]; then DEFS+=(-DP2_PACKS=1); LDFLAGS+=(-Wl,--defsym=_packs=1); fi
 H="$ROOT/third_party/libhelix-mp3"
 SRCS+=("$H/mp3dec.c" "$H/mp3tabs.c" "$H"/real/{bitstream,buffers,dct32,dequant,dqchan,huffman,hufftabs,imdct,polyphase,scalfact,stproc,subband,trigtabs}.c)
 INCS+=(-I "$H/pub" -I "$H/real" -I "$FW2/cores")
@@ -33,7 +36,7 @@ for src in "${SRCS[@]}"; do
     "$GCC" ${DEFS[@]+"${DEFS[@]}"} ${INCS[@]+"${INCS[@]}"} "${CFLAGS[@]}" -c "$src" -o "$o" 2>> "$OUT/build.log" || { grep -v "LOAD segment with RWX" "$OUT/build.log" >&2; echo "*** Player 2 COMPILE FAILED ***" >&2; exit 1; }
     OBJS+=("$o")
 done
-"$GCC" "${CFLAGS[@]}" -Wl,--gc-sections -T "$FW2/platform/link.ld" -o "$OUT/fw2.elf" "${OBJS[@]}" -lgcc 2>> "$OUT/build.log" || { grep -v "LOAD segment with RWX" "$OUT/build.log" >&2; echo "*** Player 2 COMPILE FAILED ***" >&2; exit 1; }
+"$GCC" "${CFLAGS[@]}" -Wl,--gc-sections ${LDFLAGS[@]+"${LDFLAGS[@]}"} -T "$FW2/platform/link.ld" -o "$OUT/fw2.elf" "${OBJS[@]}" -lgcc 2>> "$OUT/build.log" || { grep -v "LOAD segment with RWX" "$OUT/build.log" >&2; echo "*** Player 2 COMPILE FAILED ***" >&2; exit 1; }
 grep -v "LOAD segment with RWX" "$OUT/build.log" >&2 || true
 "$SIZE" "$OUT/fw2.elf"
 # the entry point and the hot loop must be in hot RAM: a link.ld pattern that is too greedy (it once took start.o) would otherwise only show as a black screen
