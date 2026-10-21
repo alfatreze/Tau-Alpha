@@ -89,6 +89,19 @@ static inline uint32_t gov_degrade(const gov_t *g, gov_mode_t mode, uint32_t fil
 #endif
 }
 
+/* What the rest of the player sees (mode and meter degrade level). While nothing is decoding (idle, stopped, between tracks) the audio is not at risk, so both read 0 at once instead of keeping the last value
+ * the decoder left (a stale level made the meters draw at half or quarter rate, or not at all, with nothing playing); the governor's own state keeps its memory and carries on from it when decoding resumes. */
+static inline void gov_publish(gov_t *g, int decoding, uint32_t fill, uint32_t *mode, uint32_t *degrade)
+{
+    if (!decoding) {
+#if BUG != 5
+        *mode = 0u; *degrade = 0u;
+#endif
+        return;
+    }
+    *mode = (uint32_t)gov_update(g, fill); *degrade = gov_degrade(g, g->mode, fill);
+}
+
 /* True while the decoder should keep producing. */
 static inline int gov_decode_wanted(const gov_t *g, uint32_t fill) { return fill < g->hi; }
 #endif

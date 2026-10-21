@@ -383,6 +383,7 @@ void mp3play_pump(void)
     dip_poll();
     io_service();
     lp.qn = q.n; lp.cur_pos = q.pos;
+    if (mp.state != MPS_DEC) gov_publish(&mp_gov, 0, 0u, &mp.gov_mode, &mp.degrade);          /* idle, stopped, between tracks: the audio is not at risk, the meters and the UI get their full speed back at once */
     if (mp.state == MPS_WAITRATE || mp.state == MPS_ENDDRAIN) {           /* everything put must be heard before the rate may change or the list may end */
         aout_snap_t sn = aout_snap();
         if ((int32_t)(aout_heard(&sn) - mp_tl.put_total) >= 0) {
@@ -398,7 +399,7 @@ void mp3play_pump(void)
     if (mp.state != MPS_DEC) return;
     for (uint32_t k = 0; k < 2u; k++) {
         aout_snap_t sn = aout_snap(); uint32_t fill = aout_fill(&sn);
-        mp.gov_mode = (uint32_t)gov_update(&mp_gov, fill); mp.degrade = gov_degrade(&mp_gov, mp_gov.mode, fill);
+        gov_publish(&mp_gov, 1, fill, &mp.gov_mode, &mp.degrade);
         if (!gov_decode_wanted(&mp_gov, fill)) break;
 #if P2_FLAC2
         if (is_flac) { if (flac_pass(s)) break; continue; }

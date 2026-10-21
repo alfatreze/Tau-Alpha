@@ -12,6 +12,7 @@ def check(name, ok):
     print(("ok   " if ok else "FAIL ") + name)
     if not ok: fails += 1
 
+IDLE = 0xFFFFFFFF
 CAP = 48672                                         # usable pairs of the shipped ring
 
 class Gov:                                          # an independent statement of the spec table
@@ -41,6 +42,8 @@ def fills(seed):
         else:                                              # hug a threshold or its hysteresis edge
             thr = r.choice(g.t); f = max(0, thr + r.choice([-g.h, -1, 0, 1, g.h - 1, g.h, g.h + 1]))
         out.append(f)
+    for i in range(len(out)):
+        if r.random() < 0.06: out[i] = IDLE                  # nothing decoding for a pass (idle, stopped, between tracks)
     return out
 
 def build(d, bug):
@@ -55,6 +58,9 @@ def agrees(exe):
         out = subprocess.run([str(exe)], input=f"{CAP}\n" + "\n".join(map(str, fl)) + "\n", capture_output=True, text=True).stdout.split("\n")
         for f, line in zip(fl, out):
             m, w, dg = map(int, line.split())
+            if f == IDLE:
+                if (m, w, dg) != (0, 0, 0): return False                        # published at once as full speed; the governor's own state is kept
+                continue
             if m != g.update(f) or bool(w) != g.want(f) or dg != g.degrade(f): return False
     return True
 
@@ -91,7 +97,7 @@ with tempfile.TemporaryDirectory() as td:
     d = Path(td)
     good = build(d, 0)
     check("governor core equals the twin over 120 random and threshold-hugging sequences (modes and the decode flag)", agrees(good))
-    for b, nm in {1: "a level exactly at a threshold falls a mode", 2: "no hysteresis (the mode flaps around a threshold)", 3: "recovery jumps straight to the wanted mode instead of one step", 4: "the meter degrade level uses halves and quarters instead of thirds"}.items():
+    for b, nm in {1: "a level exactly at a threshold falls a mode", 2: "no hysteresis (the mode flaps around a threshold)", 3: "recovery jumps straight to the wanted mode instead of one step", 4: "the meter degrade level uses halves and quarters instead of thirds", 5: "an idle decoder keeps publishing the last mode and degrade level"}.items():
         check(f"mutant caught: {nm}", not agrees(build(d, b)))
 
 # MP3 128 kbps stereo: 11.5 ms of CPU for a 1152-pair frame; the UI costs 2 ms a pass
