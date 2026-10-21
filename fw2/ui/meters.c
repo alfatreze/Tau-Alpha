@@ -164,7 +164,7 @@ static int fetch(uint32_t *m)                        /* a new window, read coher
 static mpkb_slot_t pack_slot[MTR_PACK_SLOTS];
 static uint32_t pack_act = 0xFFu, pack_seen, pack_err = 0xFFu;         /* the meter whose pack state is in the scratch; packs in the file; the bundle's own result (0xFF: no bundle) */
 static uint32_t pack_stats[MTR_PACK_STATS];
-static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stats };
+static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stats, gfx_text, gfx_rect_stash, gfx_blend_ready, gfx_blend_on, gfx_blend_blit, gfx_blend_off };
 static volatile uint8_t *pack_slot_data(uint32_t i) { return (volatile uint8_t *)(uintptr_t)((MTR_PACK_SLOT_BASE + i * MTR_PACK_SLOT_SIZE) | 0x80000000u); }   /* written through the data alias, executed at the instruction alias */
 static int pack_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len) { const volatile uint8_t *s = (const volatile uint8_t *)ctx; for (uint32_t i = 0; i < len; i++) dst[i] = s[off + i]; return 1; }
 void meters_packs_load(const uint8_t *p, uint32_t n)                    /* the MPKB section: the caller has proven the PSRAM window (the slots live in it) */

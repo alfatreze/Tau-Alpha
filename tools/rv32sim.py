@@ -42,6 +42,7 @@ class Machine:
         self.dma_dst = self.dma_src = self.dma_len = 0
         self.halted = None
         self.icount = 0
+        self.dev = None
         self.count_regions = []          # optional data-access accounting: [(name, lo, hi)]; see --count
         self.count_rd = {}
         self.count_wr = {}
@@ -76,6 +77,8 @@ class Machine:
 
     def mmio_store(self, addr, val):
         off = addr - MMIO
+        if off >= 0x1000 and self.dev:                   # --dev: a Python model of device registers at MMIO + 0x1000 + offset
+            self.dev.store(off - 0x1000, val); return
         if off == 0:
             self.out.append(val & 0xFF)
             if val == 10:
@@ -95,6 +98,8 @@ class Machine:
 
     def mmio_load(self, addr):
         off = addr - MMIO
+        if off >= 0x1000 and self.dev:
+            return self.dev.load(off - 0x1000) & M32
         if off == 0x18:
             return self.dma_len
         if off == 0x1C:
@@ -312,7 +317,10 @@ def main():
     m = Machine()
     args = []
     for a in sys.argv[1:]:                            # --count NAME:LO:HI counts data loads and stores to that range (decimal or 0x hex)
-        if a.startswith('--count='):
+        if a.startswith('--dev='):
+            import importlib.util
+            sp = importlib.util.spec_from_file_location('devmodel', a[6:]); m.dev = importlib.util.module_from_spec(sp); sp.loader.exec_module(m.dev)
+        elif a.startswith('--count='):
             nm, lo, hi = a[8:].split(':')
             m.count_regions.append((nm, int(lo, 0), int(hi, 0)))
         else:

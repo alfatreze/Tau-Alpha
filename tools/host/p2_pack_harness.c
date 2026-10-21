@@ -1,4 +1,4 @@
-/* Loads a meter pack (the simulator's data file) through fw2/cores/meter_pack_core.h into a slot at PACK_ORG and, if the load is accepted, runs the pack over the shared trace of sim/p2_bars_pack_trace.h.
+/* Loads a meter pack (the simulator's data file; -DPACK_BARS, -DPACK_VU or -DPACK_SCOPE picks the trace) through fw2/cores/meter_pack_core.h into a slot at PACK_ORG and, if the load is accepted, runs the pack over the shared trace of sim/p2_pack_trace.h.
  * Prints "LOAD E<n>" (single pack) or the bundle lines ("BUNDLE E<n> SEEN <k>", "SLOT <i> E<n>|none") and, on success, "S <scenario> <commands> <hash>" lines. Built by sim/test_p2_meter_pack.py. */
 #include "hostio.h"
 #ifndef PACK_ORG
@@ -12,7 +12,7 @@
 #include "../../fw2/ui/meter_pack.h"
 #include "../../fw2/ui/theme.h"
 #include "../../fw2/generated/meter_presets.h"
-#include "../../sim/p2_bars_pack_trace.h"
+#include "../../sim/p2_pack_trace.h"
 #ifndef PACK_SLOT
 #define PACK_SLOT 0u
 #endif
@@ -28,11 +28,13 @@
 static uint8_t win[LIB_WIN] __attribute__((aligned(16)));
 static uint16_t roles[TR_COUNT];
 static int rd(void *ctx, uint32_t off, uint8_t *d, uint32_t len) { (void)ctx; if (off + len > hfilesize()) return 0; return hread(off, d, len) == len; }
-static void api_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { bp_hash_rect(x, y, w, h, c); }
+#ifndef PACK_PARAMS
+#define PACK_PARAMS 8u
+#endif
 static uint32_t api_stats[MTR_PACK_STATS];
 static mtr_pack_entry_fn entry;
 static mtr_host_api_t api;
-static uint16_t params[MPP_BARS_N];
+static uint16_t params[PACK_PARAMS];
 static void run(const mtr_in_t *in) { entry(in, &api); }
 static void report(int s, uint32_t n, uint64_t h)
 {
@@ -60,8 +62,15 @@ int main(void)
     if (e) return 0;
 #endif
     for (int i = 0; i < TR_COUNT; i++) roles[i] = (uint16_t)(0x1234u + i * 0x0421u);
-    api.abi = MTR_PACK_ABI; api.rect = api_rect; api.role = roles; api.params = params; api.stats = api_stats;
+    api.abi = MTR_PACK_ABI; api.rect = tr_hash_rect; api.role = roles; api.params = params; api.stats = api_stats;
+    api.text = tr_hash_text; api.rect_stash = tr_hash_stash; api.blend_ready = tr_ready; api.blend_on = tr_hash_blend_on; api.blend_blit = tr_hash_blit; api.blend_off = tr_hash_blend_off;
     entry = (mtr_pack_entry_fn)addr;
+#ifdef PACK_BARS
     bars_trace(params, 0, run, report);
+#elif defined(PACK_VU)
+    vu_trace(params, 0, run, report);
+#else
+    scope_trace(params, 0, run, report);
+#endif
     return 0;
 }

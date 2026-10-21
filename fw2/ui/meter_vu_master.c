@@ -26,18 +26,21 @@ static uint32_t seg_x(uint32_t lx, uint32_t lw, uint32_t seg, uint32_t *seg_w_ou
     return lx + seg * (seg_w + SEG_GAP);
 }
 static uint8_t fixed; static uint16_t fixed_c[3];                      /* a preset with its own zone colours (STANDARD, CUSTOM EXAMPLE) instead of the theme's roles */
-const char *meter_vu_master_preset_name(uint32_t i) { return mpp_vu_name[i < MPP_VU_PRESETS ? i : 0u]; }
-uint16_t meter_vu_master_mv[MPP_VU_N];
-void meter_vu_master_apply(void)
+/* vu_load: the live parameters (the manifest's order) into the working configuration; the firmware calls it from apply(), a pack (P2_PACK) with the host's table each tick. */
+static void vu_load(const uint16_t *v)
 {
-    const uint16_t *v = meter_vu_master_mv;
     fixed = (uint8_t)(v[MPP_VU_COLOR_MODE] == 1u); fixed_c[0] = v[MPP_VU_COLOR_GREEN]; fixed_c[1] = v[MPP_VU_COLOR_YELLOW]; fixed_c[2] = v[MPP_VU_COLOR_RED];
 }
+#ifndef P2_PACK
+const char *meter_vu_master_preset_name(uint32_t i) { return mpp_vu_name[i < MPP_VU_PRESETS ? i : 0u]; }
+uint16_t meter_vu_master_mv[MPP_VU_N];
+void meter_vu_master_apply(void) { vu_load(meter_vu_master_mv); }
 void meter_vu_master_preset(uint32_t i)
 {
     for (uint32_t k = 0; k < MPP_VU_N; k++) meter_vu_master_mv[k] = mpp_vu[i < MPP_VU_PRESETS ? i : 0u][k];
     meter_vu_master_apply();
 }
+#endif
 static uint16_t zone_color(uint32_t zone) { if (fixed) return fixed_c[zone > 2u ? 2u : zone]; return zone == 0u ? th_role[TR_OK] : zone == 1u ? th_role[TR_WARN] : th_role[TR_DANGER]; }
 
 static void ladder(uint32_t ch, uint32_t lx, uint32_t ly, uint32_t lw, uint16_t bg, uint32_t peak, uint32_t force, uint32_t dt)
