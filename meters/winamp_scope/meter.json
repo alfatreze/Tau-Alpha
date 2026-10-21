@@ -68,5 +68,6 @@
       }
     }
   ],
+  "p2": {"slot": 1, "tag": "SCOPE", "compose": false},
   "default_preset": 0
 }

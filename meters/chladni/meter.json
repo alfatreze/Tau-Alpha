@@ -182,5 +182,6 @@
       }
     }
   ],
+  "p2": {"slot": 2, "tag": "CHL", "compose": true},
   "default_preset": 0
 }

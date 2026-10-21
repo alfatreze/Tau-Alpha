@@ -87,5 +87,6 @@
       }
     }
   ],
+  "p2": {"slot": 4, "tag": "VU", "compose": false, "label": "VU MASTER"},
   "default_preset": 0
 }
