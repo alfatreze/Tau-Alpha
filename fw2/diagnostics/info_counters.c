@@ -3,6 +3,8 @@
 #include "../platform/platform.h"
 #include "../aout/aout.h"
 #include "../ui/helios.h"
+#include "../ui/meter.h"
+#include "../generated/meter_registry.h"
 #include "check_page.h"
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
@@ -22,11 +24,14 @@ extern uint32_t gfx_blend_state, gfx_blend_tries;
 /* Shadow values: written only here (one writer, P2), read through the table. */
 static struct { uint32_t hw_under_ev, hw_under_tk, aout_init, tone_state, tone_rate, heard_seg, heard_pos_ms, heard_valid, put_seg, swaps, acct_err, acct_bad, tl_overflow, tl_empty, tl_flushes, ring_fill, ring_min, ring_max,
                 under_ring, dry, put_stalls, put_max_cyc, put_pairs, put_blocks, gov_mode, gov_n1, gov_n2, gov_n3, tone_stalls; int32_t last_delta;
-                uint32_t uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, ring_hold, ring_empty, gain_cur, cymo_st, keys, stack_peak, image_b, free_b; } v;
+                uint32_t meter_cur, uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, ring_hold, ring_empty, gain_cur, cymo_st, keys, stack_peak, image_b, free_b; } v;
 uint32_t counters_loops, counters_loop_max_cyc, counters_keys, counters_aout_init;            /* the loop's own measurements (app writes, this file publishes) */
 static mc_t uptime_clk;                  /* monotone seconds from the 32-bit cycle counter (it wraps every 64.4 s) */
 
 #define U32(nm, unit, p) { nm, CK_U32, unit, (const volatile void *)(p) }
+#define METER_IDX_X(key, nm, id, lc, UC, np, cmp) mtr_idx_##key,
+enum { METER_LIST(METER_IDX_X) };
+#define METER_MAX_ROW(key, nm, id, lc, UC, np, cmp) U32("METER MAX " #UC, CU_CYC, &meter_stats.max_cyc[mtr_idx_##key]),
 const cnt_t counters_table[] = {
     { "FIRMWARE",     CK_STR,   CU_NONE,  p2_ver_field + 7 },       /* read through a volatile pointer at run time: the packagers patch these bytes after the build */
     { "CORE VERSION", CK_HEX32, CU_NONE,  &caps.core_version },
@@ -205,6 +210,12 @@ const cnt_t counters_table[] = {
     U32("FONT MS",      CU_NONE,   &font_ms),
     U32("BLEND PROBE", CU_NONE,   &gfx_blend_state),     /* 0 not asked yet, 1 the hardware blend works, 2 it answered wrongly (no blend), 3 the mailbox did not answer (asks again) */
     U32("BLEND TRIES", CU_NONE,   &gfx_blend_tries),
+    U32("METER CUR",    CU_NONE,   &v.meter_cur),             /* the selected meter: its index in the table (meters_cur) */
+    U32("METER TICKS",  CU_NONE,   &meter_stats.ticks),       /* pictures drawn */
+    U32("METER SHED",   CU_NONE,   &meter_stats.shed),        /* spectrum windows that waited because the governor shed the UI */
+    U32("METER LAST",   CU_CYC,    &meter_stats.last_cyc),    /* the last tick, compose copy included */
+    U32("METER COMPOSE", CU_CYC,   &meter_stats.compose_cyc), /* the last compose copy onto the shown buffer (0: the meter draws directly) */
+    METER_LIST(METER_MAX_ROW)                                 /* the slowest tick of each meter since boot, one row per registry entry */
 };
 const uint32_t counters_count = sizeof counters_table / sizeof counters_table[0];
 
@@ -232,5 +243,6 @@ void counters_refresh(void)
     v.ring_cnt = REG(R_RING_CNT); v.ring_ridx = REG(R_RING_RIDX); v.ring_wptr = REG(R_RING_WPTR); v.ring_ctrl = REG(R_RING_CTRL); v.ring_hold = (v.ring_ctrl >> 3) & 1u; v.ring_empty = (v.ring_ctrl >> 1) & 1u;
     { uint32_t u = REG(R_UNDER); v.hw_under_ev = (u >> 16) & 0x7FFFu; v.hw_under_tk = u & 0xFFFFu; }
     v.gain_cur = REG(R_GAIN_CUR); v.cymo_st = REG(R_CYMO_STATUS);
+    v.meter_cur = meters_cur();
     v.stack_peak = platform_stack_peak(); v.image_b = platform_image_bytes(); v.free_b = platform_free_bytes();
 }

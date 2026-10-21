@@ -27,6 +27,15 @@ typedef struct {
     uint16_t *mv; const mpd_t *pd; uint8_t np; void (*apply)(void);
     uint8_t compose;                          /* 1: the meter repaints its whole box each tick, so it is drawn into the idle buffer and copied onto the shown one (no wipe is ever seen) */         /* the live parameters, their descriptors (the manifest's order) and the call that makes the module re-read them */
 } meter_def_t;
+/* What drawing costs, measured around every tick (one writer: meters_tick; the counter registry publishes it on Info and in the reports). Cycles of the 66.667 MHz counter. */
+typedef struct {
+    uint32_t ticks;                 /* ticks drawn */
+    uint32_t shed;                  /* spectrum windows that had to wait because the governor shed the UI (counted once each; the window is drawn when the UI is allowed again) */
+    uint32_t last_cyc;              /* the last tick, including the compose copy */
+    uint32_t compose_cyc;           /* the last compose copy onto the shown buffer (0 for a meter that draws directly) */
+    uint32_t max_cyc[8];            /* the slowest tick of each meter since boot (indexed like meter_table; METER_MAX_STATS bounds the table) */
+} meter_stats_t;
+extern meter_stats_t meter_stats;
 extern const meter_def_t meter_table[];
 extern const uint32_t meter_count;
 void        meters_init(void);
