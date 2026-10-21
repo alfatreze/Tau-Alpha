@@ -19,7 +19,8 @@ int  gfx_mb_write(uint32_t pixel_addr, uint32_t two_pixels);       /* 0 ok, -1 t
 int  gfx_mb_read(uint32_t pixel_addr, uint32_t *two_pixels);
 void gfx_fence(void);                                                /* every queued draw command has executed (bounded wait) */
 void gfx_clut_begin(uint32_t start_index);                           /* waits for the engine to drain, then points the palette at `start_index` */
-void gfx_clut_put(uint16_t rgb565);                                  /* next palette entry (auto-increments) */
+void gfx_clut_put(uint16_t rgb565);
+void gfx_clut_load(uint32_t start, const uint16_t *colors, uint32_t n);   /* begin + n puts: the palette entries start.. (every user of the palette loads its own before its blits: icons, previews and art do) */                                  /* next palette entry (auto-increments) */
 void gfx_cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);   /* indices at (sx,sy) through the palette to (dx,dy); w <= 127 */
 void gfx_cblit_abs(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);   /* self-tests: stash to stash, buffer 0 addresses */
 void gfx_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);    /* copy a block inside the buffer being drawn into; w <= 127, source and destination must not overlap */
@@ -46,7 +47,7 @@ void gfx_xfade_end(void);
  *   gfx_bar     one column of a bar meter in ONE command: h rows, the bottom `lit` rows in fg, the rest in bg (OP_BAR, lit up to 511); half the commands of two rectangles.
  *   gfx_scroll_down  the box (x, y, w, h) moves down by d rows (the top d rows are left as they were: the caller paints the new row), through the stash, in chunks the engine can take: a waterfall costs
  *               a handful of copies a step instead of a redraw. Uses the stash rows 780..979 and columns 0..399.
- * The off-screen stash map (rows 360 and below, shared by both buffers): 400..527 album-art plane, 560..587 icons, 600..721 scope background strip (columns 0..111), 740..771 meter previews, 780..979 scroll
+ * The off-screen stash map (rows 360 and below, shared by both buffers): 400..527 album-art plane, 560..587 icons, 600..721 scope background strip (columns 0..111), 722..734 the Waterfall's entering-row plane (palette indices, columns 0..399), 740..771 meter previews, 780..979 scroll
  * temporary, 984..1023 Chladni plane and the probe words; columns 400..511 of every row hold the engine's own markers. A new user of the stash adds its rows here. */
 void gfx_touch_reset(void);                    /* start collecting the rows the commands write (cores/gfx_touch_core.h) */
 uint32_t gfx_touch_rows(void);                 /* the visible rows written since the reset: first << 16 | one past the last; 0 when none */

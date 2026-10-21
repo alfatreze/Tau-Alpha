@@ -121,6 +121,7 @@ void gfx_fence(void)
 }
 void gfx_clut_begin(uint32_t start) { wait_fifo(); gfx_fence(); REG_WR(R_CLUT_IDX_A, start); }
 void gfx_clut_put(uint16_t v) { REG_WR(R_CLUT_DATA_A, v); }
+void gfx_clut_load(uint32_t start, const uint16_t *c, uint32_t n) { gfx_clut_begin(start); for (uint32_t i = 0; i < n; i++) gfx_clut_put(c[i]); }
 
 /* ---- the buffer the CPU draws into (Helios H2) -----------------------------------------------------------------------------------------------------------------
  * Plain rectangles and text follow R_DBUF_CPU in hardware. The blit-mode commands (BLIT, SBLIT, CBLIT) are addressed through the sticky SRC_BASE / DST_BASE fields instead, so every wrapper below sets them

@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "tools/player2")); sys.path.insert(0, str(ROOT / "
 import pack_meter as pm
 import pack_bundle as pb
 SIM_ORG, SIM_SCRATCH = 0x00400000, 0x00300000
-FINGERPRINT = "999d4630"
+FINGERPRINT = "6c4f5f03"
 fails = 0
 def check(name, cond, info=""):
     global fails
@@ -117,7 +117,7 @@ def main():
     import tau_assets as ta
     ta_blob = ta.pack_container([(b"MPKB", good)])
     r = ta.parse(ta_blob)
-    check("tau-assets.bin carries the bundle as an MPKB section and reads it back", r["packs"] == [{"meter": 0, "abi": 4, "size": len(blob) - 48, "entry": 0}], str(r.get("packs")))
+    check("tau-assets.bin carries the bundle as an MPKB section and reads it back", r["packs"] == [{"meter": 0, "abi": 5, "size": len(blob) - 48, "entry": 0}], str(r.get("packs")))
     bad_blob = bytearray(good); bad_blob[60] ^= 0x10
     try: ta.parse(ta.pack_container([(b"MPKB", bytes(bad_blob))])); ok = False
     except ValueError: ok = True

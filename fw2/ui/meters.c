@@ -175,7 +175,7 @@ static int fetch(uint32_t *m)                        /* a new window, read coher
  * built-in one (which stays as the per-meter fallback: a refused or missing pack just leaves the built-in meter in use). Only the active pack's working state is resident, in the 4 KB scratch under the tag zone. */
 static uint32_t pack_act = 0xFFu, pack_seen, pack_err = 0xFFu;         /* the meter whose pack state is in the scratch; packs in the file; the bundle's own result (0xFF: no bundle) */
 static uint32_t pack_stats[MTR_PACK_STATS];
-static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stats, gfx_text, gfx_rect_stash, gfx_blend_ready, gfx_blend_on, gfx_blend_blit, gfx_blend_off, gfx_mb_write, gfx_mb_read, gfx_fence, gfx_blit, gfx_blit_abs, gfx_sblit, gfx_bar, gfx_scroll_down };
+static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stats, gfx_text, gfx_rect_stash, gfx_blend_ready, gfx_blend_on, gfx_blend_blit, gfx_blend_off, gfx_mb_write, gfx_mb_read, gfx_fence, gfx_blit, gfx_blit_abs, gfx_sblit, gfx_bar, gfx_scroll_down, gfx_clut_load, gfx_cblit };
 /* The three places that touch the Pocket's address space can be replaced by a host test (sim/test_p2_meter_pack_dispatch.py): the slot (written through the data alias, executed at the instruction alias), the scratch and the call. */
 #ifndef PACK_SLOT_DATA
 #define PACK_SLOT_DATA(i) ((volatile uint8_t *)(uintptr_t)((MTR_PACK_SLOT_BASE + (i) * MTR_PACK_SLOT_SIZE) | 0x80000000u))
