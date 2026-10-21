@@ -157,15 +157,21 @@ with tempfile.TemporaryDirectory() as td:
     import zipfile
     sys.path.insert(0, str(ROOT / "tools"))
     import tau_compat as tc
+    import tau_version
+    rel = td / "relpkg" / "pkg"; shutil.copytree(pkg, rel)                  # a copy: the real dist/ is pinned
+    ver = json.loads((rel / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["version"]
+    rom_p = rel / "Assets/tau/alfatreze.TAU/tau.rom"
+    rom_p.write_bytes(tau_version.stamp(rom_p.read_bytes(), ver))      # the fixture's ROM carries the version of its core.json (a release does)
     zp = td / "alfatreze.TAU_rel.zip"
     with zipfile.ZipFile(zp, "w") as z:
-        for f in sorted(pkg.rglob("*")):
-            if f.is_file() and f.relative_to(pkg).parts[0] in ("Cores", "Assets", "Platforms") and not f.name.startswith("._") and f.name != ".DS_Store":
-                z.write(f, str(f.relative_to(pkg)))
-    ver = json.loads((pkg / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["version"]
+        for f in sorted(rel.rglob("*")):
+            if f.is_file() and f.relative_to(rel).parts[0] in ("Cores", "Assets", "Platforms") and not f.name.startswith("._") and f.name != ".DS_Store":
+                z.write(f, str(f.relative_to(rel)))
+    ver = json.loads((rel / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["version"]
     cl = td / "CL.md"
     cl.write_text((ROOT / "CHANGELOG.md").read_text().replace("## v0.6.0-alpha.4", f"## v{ver}-preview.1 — 8 October 2026\n- test\n\n## v0.6.0-alpha.4", 1))
-    acc = tc.rom_accepts((pkg / "Assets/tau/alfatreze.TAU/tau.rom").read_bytes())
+    acc = tc.rom_accepts((rel / "Assets/tau/alfatreze.TAU/tau.rom").read_bytes())
+    pkg = rel                                                       # the installs below use the stamped copy, the one the manifest describes
     cpath = td / "tau-compat.json"
     reg = json.loads((ROOT / "tools/persist_registry.json").read_text())      # the tree's registry names later releases than this fixture's
     for v in reg["ids"].values():
