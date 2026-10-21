@@ -99,6 +99,14 @@ static uint32_t fb_cur(void)
     return fb_kind(st, err, n, (lp.open_err && !p->valid) ? 1u : 0u);
 }
 uint32_t nowplaying_fallback(void) { return fb_cur(); }
+static void fb_meta(uint32_t y, const char *s, uint16_t fg)      /* a line beside the cover, cut to the 240 px the widest font allows */
+{
+    char b[40]; uint32_t n = 0;
+    for (; s[n] && n + 1u < sizeof b; n++) b[n] = s[n];
+    b[n] = 0;
+    while (n && gfx_text_width(b) > MW) b[--n] = 0;
+    gfx_text(MX, y, b, fg, BG);
+}
 static void fb_static(uint32_t kind)
 {
     const fb_text_t *t = &fb_texts[kind];
@@ -109,9 +117,7 @@ static void fb_static(uint32_t kind)
     pill_txt[n] = 0;
     { const uint32_t w = gfx_text_width(pill_txt) + 16u;
       gfx_rect(MX, PILL_Y, w, PILL_H, PAN); gfx_text(MX + 8u, PILL_Y + 1u, pill_txt, t->red ? UI_RED : ACC, PAN); }
-    gfx_text(MX, TITLE_Y, t->title, FG, BG);
-    gfx_text(MX, ARTIST_Y, t->l1, ACC, BG);
-    gfx_text(MX, ALBUM_Y, t->l2, DIM, BG);
+    fb_meta(TITLE_Y, t->title, FG); fb_meta(ARTIST_Y, t->l1, ACC); fb_meta(ALBUM_Y, t->l2, DIM);
     gfx_rect(16, NP_METER_Y0, 368, 122, PAN);
     for (uint32_t i = 0; i < 3u; i++) if (t->step[i][0]) gfx_text(30, NP_METER_Y0 + 14u + i * 24u, t->step[i], FG, PAN);
     for (uint32_t i = 0; i < 2u; i++) if (t->small[i][0]) gfx_text(30, NP_METER_Y0 + 92u + i * 16u - (t->small[1][0] ? 0u : 8u), t->small[i], DIM, PAN);
