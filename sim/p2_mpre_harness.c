@@ -7,12 +7,13 @@ static uint32_t psram_mem[2048];
 uint32_t host_rd(uint32_t a) { (void)a; return 0; }
 void host_wr(uint32_t a, uint32_t v) { (void)a; (void)v; }
 uint16_t th_role[TR_COUNT]; uint32_t mp3play_paused_now(void) { return 0; } caps_t caps;
-static uint32_t last[8];
-#define STUB(m) void meter_##m##_tick(const mtr_in_t *i) { (void)i; }
-STUB(winamp_bars) STUB(winamp_scope) STUB(chladni) STUB(layered_wave) STUB(vu_master)
-uint16_t meter_winamp_bars_mv[8], meter_winamp_scope_mv[2], meter_chladni_mv[11], meter_layered_wave_mv[34], meter_vu_master_mv[5];
-#define PS(m, k) void meter_##m##_apply(void) { } void meter_##m##_preset(uint32_t p) { last[k] = p; } const char *meter_##m##_preset_name(uint32_t p) { (void)p; return #m; }
-PS(winamp_bars, 0) PS(winamp_scope, 1) PS(chladni, 2) PS(layered_wave, 3) PS(vu_master, 4)
+static uint32_t last[METER_N];
+#define IDX_X(key, nm, id, lc, UC, np, cmp) idx_##key,
+enum { METER_LIST(IDX_X) };
+#define STUB_X(key, nm, id, lc, UC, np, cmp) \
+    void meter_##key##_tick(const mtr_in_t *i) { (void)i; } uint16_t meter_##key##_mv[MPD_##UC##_N]; void meter_##key##_apply(void) { } \
+    void meter_##key##_preset(uint32_t p) { last[idx_##key] = p; } const char *meter_##key##_preset_name(uint32_t p) { (void)p; return #key; }
+METER_LIST(STUB_X)
 int gfx_compose_begin(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; return 0; }
 void gfx_compose_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; }
 void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }

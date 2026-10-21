@@ -162,5 +162,6 @@
       }
     }
   ],
+  "p2": {"slot": 0, "tag": "BARS", "compose": false},
   "default_preset": 0
 }

@@ -7,6 +7,7 @@
 #include "../cores/spectrum_core.h"
 #include "../generated/meter_presets.h"
 #include "../generated/lw_presets.h"
+#include "../generated/meter_registry.h"
 #include "../cores/metr_core.h"
 #include "../cores/tune_core.h"
 
@@ -14,35 +15,25 @@
 #define R_SPEC_DATA 0x800000E0u
 _Static_assert(MTR_BANDS == SPEC_BANDS, "the meter inputs carry one value per hardware band");
 
-extern void meter_winamp_bars_tick(const mtr_in_t *in);
-extern void meter_winamp_scope_tick(const mtr_in_t *in);
-extern void meter_vu_master_tick(const mtr_in_t *in);
-extern void meter_chladni_tick(const mtr_in_t *in);
-extern void meter_layered_wave_tick(const mtr_in_t *in);
-#define PRESET_API(m) extern void meter_##m##_preset(uint32_t); extern const char *meter_##m##_preset_name(uint32_t); extern uint16_t meter_##m##_mv[]; extern void meter_##m##_apply(void)
-PRESET_API(winamp_bars); PRESET_API(winamp_scope); PRESET_API(chladni); PRESET_API(layered_wave); PRESET_API(vu_master);
-#define P(m, n, d, np, c) n, meter_##m##_preset, meter_##m##_preset_name, meter_##m##_mv, d, np, meter_##m##_apply, c
-const meter_def_t meter_table[] = {
-    { "WINAMP BARS", meter_winamp_bars_tick, P(winamp_bars, 5, mpd_bars, MPD_BARS_N, 0) },
-    { "WINAMP SCOPE", meter_winamp_scope_tick, P(winamp_scope, 5, mpd_scope, MPD_SCOPE_N, 0) },
-    { "CHLADNI", meter_chladni_tick, P(chladni, 4, mpd_chl, MPD_CHL_N, 1) },
-    { "LAYERED WAVE", meter_layered_wave_tick, P(layered_wave, 16, mpd_lw, MPD_LW_N, 1) },
-    { "VU MASTER", meter_vu_master_tick, P(vu_master, 3, mpd_vu, MPD_VU_N, 0) },
-};
+/* The module list is generated from the manifests (meter_registry.h, tools/player2/gen_meters_p2.py): a meter is its manifest plus one meter_<key>.c that provides these five functions and the live parameters. */
+#define DECL(key, nm, id, lc, UC, np, cmp) extern void meter_##key##_tick(const mtr_in_t *in); extern void meter_##key##_preset(uint32_t); extern const char *meter_##key##_preset_name(uint32_t); extern uint16_t meter_##key##_mv[]; extern void meter_##key##_apply(void);
+METER_LIST(DECL)
+#define ROW(key, nm, id, lc, UC, np, cmp) { nm, meter_##key##_tick, np, meter_##key##_preset, meter_##key##_preset_name, meter_##key##_mv, mpd_##lc, MPD_##UC##_N, meter_##key##_apply, cmp },
+const meter_def_t meter_table[] = { METER_LIST(ROW) };
 const uint32_t meter_count = sizeof meter_table / sizeof meter_table[0];
 
 static uint32_t cur, bx, by, bw, bh, win_seen = 0xFFFFFFFFu, frame, last_t, force_next;
 static uint8_t lvl[MTR_BANDS];
 extern uint32_t mp3play_paused_now(void);          /* mp3play.c: 1 when nothing is being heard */
 
-static uint8_t pre[8], custom[8];                                  /* the selected preset of each meter */
+static uint8_t pre[METER_N], custom[METER_N];                                  /* the selected preset of each meter */
 /* User presets (the METR section of tau-assets.bin) replace a meter's built-in ones. The section is copied to PSRAM at boot (the tag buffer it arrives in is reused); a preset is read back a word at a time
  * (the window takes word accesses only) into a small buffer and applied through the same metr_core.h that the host test checks against the Python writer. */
 #ifndef METR_PSRAM
 #define METR_PSRAM ((volatile uint32_t *)(uintptr_t)0xA4550000u)
 #endif
 #define METR_MAX_BYTES 0xF000u                                      /* the PSRAM region 0xA4550000..0xA4560000 less a margin (the Layered Wave ring starts at 0xA4560000) */
-static metr_e_t ue[8]; static uint8_t user_n[8];
+static metr_e_t ue[METER_N]; static uint8_t user_n[METER_N];
 static metr_p_t sh[40];                                            /* the parameter shapes of ONE meter, from its descriptors, rebuilt when needed (all of them at once cost 2,560 B of hot RAM) */
 static uint8_t is_wide(const mpd_t *p) { return p->type == 3u || (p->type == 0u && p->max > 255u); }
 static const metr_p_t *shapes(uint32_t m) { const meter_def_t *d = &meter_table[m]; for (uint32_t i = 0; i < d->np && i < 40u; i++) { sh[i].min = d->pd[i].min; sh[i].max = d->pd[i].max; sh[i].kind = d->pd[i].type; sh[i].enum_n = d->pd[i].nval; sh[i].wide = is_wide(&d->pd[i]); } return sh; }
@@ -60,12 +51,11 @@ static void user_preset(uint32_t m, uint32_t p, uint16_t *vals, char *name)     
 void meters_init(void) { cur = 0; for (uint32_t i = 0; i < meter_count; i++) { pre[i] = 0; custom[i] = 0; user_n[i] = 0; meter_table[i].set_pre(0u); } }
 uint32_t meters_metr_load(const uint8_t *src, uint32_t n)       /* returns the number of meters whose presets were replaced; the section is validated first */
 {
-    static const uint8_t ids[8] = { 12, 13, 14, 16, 15, 0, 0, 0 };       /* the manifest's meter id of each table entry, in the table's order */
     if (n > METR_MAX_BYTES || metr_check(src, n)) return 0;
     uint32_t done = 0;
     for (uint32_t m = 0; m < meter_count; m++) {
         metr_e_t e;
-        if (!metr_find(src, n, ids[m], shapes(m), meter_table[m].np, &e)) continue;
+        if (!metr_find(src, n, meter_manifest_id[m], shapes(m), meter_table[m].np, &e)) continue;
         ue[m] = e; user_n[m] = e.npre; done++;
     }
     if (!done) return 0;
@@ -117,10 +107,9 @@ void meters_tune_save(uint32_t m)            /* the parameters of meter m were e
 }
 uint32_t meters_payload(uint32_t m, uint8_t *out)                  /* the SR_T_METERCFG entry: manifest meter id, schema 1, preset (0xFF = tuned), nparams, then the values (two bytes for a wide one) */
 {
-    static const uint8_t mids[8] = { 12, 13, 14, 16, 15, 0, 0, 0 };
     if (m >= meter_count) return 0;
     const meter_def_t *d = &meter_table[m]; uint32_t n = 0;
-    out[n++] = mids[m]; out[n++] = 1u; out[n++] = custom[m] ? 0xFFu : pre[m]; out[n++] = d->np;
+    out[n++] = meter_manifest_id[m]; out[n++] = 1u; out[n++] = custom[m] ? 0xFFu : pre[m]; out[n++] = d->np;
     for (uint32_t i = 0; i < d->np; i++) { out[n++] = (uint8_t)d->mv[i]; if (is_wide(&d->pd[i])) out[n++] = (uint8_t)(d->mv[i] >> 8); }
     return n;
 }
