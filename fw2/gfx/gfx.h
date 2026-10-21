@@ -48,6 +48,9 @@ void gfx_xfade_end(void);
  *               a handful of copies a step instead of a redraw. Uses the stash rows 780..979 and columns 0..399.
  * The off-screen stash map (rows 360 and below, shared by both buffers): 400..527 album-art plane, 560..587 icons, 600..721 scope background strip (columns 0..111), 740..771 meter previews, 780..979 scroll
  * temporary, 984..1023 Chladni plane and the probe words; columns 400..511 of every row hold the engine's own markers. A new user of the stash adds its rows here. */
+void gfx_touch_reset(void);                    /* start collecting the rows the commands write (cores/gfx_touch_core.h) */
+uint32_t gfx_touch_rows(void);                 /* the visible rows written since the reset: first << 16 | one past the last; 0 when none */
+extern uint32_t gfx_cmds;       /* draw-engine commands issued since boot (a free-running counter; the meter host takes differences) */
 void gfx_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg);
 void gfx_scroll_down(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d);
 /* Alpha blend (OP_BLIT only): on(a), blend_blit(...) any number of times, off() (fences). */

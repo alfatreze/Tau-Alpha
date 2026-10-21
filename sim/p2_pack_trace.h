@@ -9,7 +9,11 @@ static uint32_t tr_rnd(void) { tr_rs = tr_rs * 1664525u + 1013904223u; return tr
 static uint64_t tr_H; static uint32_t tr_N, tr_viol; static int tr_blend_ready;
 static uint32_t tr_bx, tr_by, tr_bw, tr_bh;      /* the box of the current frame: a draw to the visible screen outside it is a violation (the framework rule: a meter never draws outside its box; the stash is exempt) */
 static void tr_chk(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { if (x >= 400u || y >= 360u) return; if (x < tr_bx || y < tr_by || x + w > tr_bx + tr_bw || y + h > tr_by + tr_bh) tr_viol++; }
+#ifdef TR_NOHASH
+static void tr_mix(const uint32_t *v, int n) { (void)v; (void)n; tr_N++; }      /* instruction-count measurements (tools/player2/measure_pack_cost.py): the stub costs the same few instructions on both sides */
+#else
 static void tr_mix(const uint32_t *v, int n) { for (int i = 0; i < n; i++) { tr_H ^= v[i]; tr_H *= 1099511628211ull; } tr_N++; }
+#endif
 static void tr_hash_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { const uint32_t v[6] = { 1, x, y, w, h, c }; tr_mix(v, 6); tr_chk(x, y, w, h); }
 static void tr_hash_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { const uint32_t v[6] = { 2, x, y, w, h, c }; tr_mix(v, 6); }
 static uint32_t tr_hash_text(uint32_t x, uint32_t y, const char *s, uint16_t fg, uint16_t bg) { uint32_t sh = 5381u; for (; *s; s++) sh = sh * 33u + (uint8_t)*s; const uint32_t v[6] = { 3, x, y, sh, fg, bg }; tr_mix(v, 6); tr_chk(x, y, 1u, 16u); return x + 16u; }   /* a text cell is 16 px tall */
@@ -27,8 +31,14 @@ static void tr_hash_blit_abs(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy,
 static void tr_hash_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t sc) { const uint32_t v[8] = { 10, sx, sy, dx, dy, w, h, sc }; tr_mix(v, 8); }
 
 #define TR_BEGIN(seed) do { tr_rs = (seed); tr_H = 1469598103934665603ull; tr_N = 0; tr_viol = 0; } while (0)
+#ifdef TR_PEAK
+static uint32_t tr_last, tr_pk, tr_pkf;
+#endif
 static void tr_in(mtr_in_t *in, uint32_t n, const uint8_t *spec, const int8_t *wave)
 {
+#ifdef TR_PEAK
+    if (n == 0) { tr_last = tr_N; tr_pk = 0; tr_pkf = 0; } else { uint32_t d = tr_N - tr_last; if (n - 1 == 0 || n - 1 == 30) { if (d > tr_pkf) tr_pkf = d; } else if (d > tr_pk) tr_pk = d; tr_last = tr_N; fprintf(stderr, "PEAK %u %u\n", tr_pk, tr_pkf); }
+#endif
     for (unsigned k = 0; k < sizeof *in; k++) ((uint8_t *)in)[k] = 0;
     in->spec = spec; in->wave = wave; in->force = (uint8_t)(n == 0 || n == 30); in->dt_ms = 26u; in->bg = 0x18C3u;
     in->x = 16; in->y = 152; in->w = 368; in->h = 122;

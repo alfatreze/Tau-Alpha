@@ -27,6 +27,7 @@ def build(td, mutant):
     if mutant == "present": m("buf_base(back), buf_base(front)); }", "buf_base(front), buf_base(back)); }")
     if mutant == "probe": m("    return gfx_blend_state == 1u;\n}\n/* Blend the w x h box", "    gfx_blend_state = 1u; return 1;\n}\n/* Blend the w x h box")
     (d / "fw2/gfx/gfx.c").write_text(src)
+    (d / "fw2/cores").mkdir(parents=True, exist_ok=True); (d / "fw2/cores/gfx_touch_core.h").write_text((ROOT / "fw2/cores/gfx_touch_core.h").read_text())
     for f in ("gfx/gfx.h", "platform/mmio.h", "platform/platform.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "fw").mkdir(exist_ok=True)
     (d / "fw2/generated").mkdir(parents=True, exist_ok=True); (d / "fw2/generated/font_data.h").write_text((ROOT / "fw2/generated/font_data.h").read_text())

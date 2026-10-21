@@ -87,6 +87,8 @@ for n, d in enumerate(ORDER):
     tag = d["p2"]["tag"]
     rout.append('    X(%s, "%s", %d, %s, %s, %d, %s)%s' % (d["key"], d["p2"].get("label", d["name"]), d["index"], tag.lower(), tag, len(d["presets"]), cmp_code(d), " \\" if n + 1 < len(ORDER) else ""))
 rout.append("static const uint8_t meter_manifest_id[METER_N] = { " + ", ".join(str(d["index"]) for d in ORDER) + " };      /* the id of each table entry in tau-assets.bin METR and the reports */")
+rout.append("/* the draw-command ceiling of one drawn tick of each meter (manifest p2.cmds; 0 = unbudgeted): cores/meter_budget_core.h */")
+rout.append("static const uint16_t meter_cmd_budget[METER_N] = { " + ", ".join(str(d["p2"].get("cmds", 0)) for d in ORDER) + " };")
 rout += ["#endif", ""]
 reg_text = "\n".join(rout)
 

@@ -10,7 +10,10 @@
 #include "../generated/meter_registry.h"
 #include "../cores/metr_core.h"
 #include "../cores/tune_core.h"
+#include "../cores/meter_budget_core.h"
+#include "../cores/helios_core.h"
 
+#define R_SCAN      0x800000E8u            /* B-267 beam position: bit 9 = present, bits 8:0 = the video line counter (helios.c) */
 #define R_SPEC_IDX  0x800000DCu
 #define R_SPEC_DATA 0x800000E0u
 _Static_assert(MTR_BANDS == SPEC_BANDS, "the meter inputs carry one value per hardware band");
@@ -28,6 +31,7 @@ static mpkb_slot_t pack_slot[MTR_PACK_SLOTS];                       /* per meter
 #endif
 static uint32_t cur, bx, by, bw, bh, win_seen = 0xFFFFFFFFu, frame, last_t, force_next;
 static uint8_t lvl[MTR_BANDS];
+static mb_t budget[METER_N];                                          /* each meter's own degrade level, from the draw commands it issues (cores/meter_budget_core.h) */
 extern uint32_t mp3play_paused_now(void);          /* mp3play.c: 1 when nothing is being heard */
 extern uint32_t mp3play_degrade_now(void);         /* mp3play.c: the meter degrade level 0..3 (governor_core.h gov_degrade) */
 
@@ -57,7 +61,7 @@ void meters_init(void) {
 #ifdef P2_PACKS
     for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) pack_slot[i].status = 0xFFu;          /* no pack until a bundle has installed one (status 0 would mean a running pack) */
 #endif
-    cur = 0; for (uint32_t i = 0; i < meter_count; i++) { pre[i] = 0; custom[i] = 0; user_n[i] = 0; meter_table[i].set_pre(0u); } }
+    cur = 0; for (uint32_t i = 0; i < meter_count; i++) { mb_reset(&budget[i]); pre[i] = 0; custom[i] = 0; user_n[i] = 0; meter_table[i].set_pre(0u); } }
 uint32_t meters_metr_load(const uint8_t *src, uint32_t n)       /* returns the number of meters whose presets were replaced; the section is validated first */
 {
     if (n > METR_MAX_BYTES || metr_check(src, n)) return 0;
@@ -211,6 +215,7 @@ meter_stats_t meter_stats;
 static int cmp_gate(const uint16_t *mv, uint32_t c) { if (!(c & 0x8000u)) return 1; const uint32_t v = mv[(c >> 10) & 31u]; return v < 4u && ((c >> (6u + v)) & 1u); }
 static int composed(const meter_def_t *d) { const uint32_t c = d->cmp & 0xFFFFu; return c == 1u || (c > 1u && cmp_gate(d->mv, c)); }
 static uint32_t shed_win = 0xFFFFFFFFu, degrade_win;                  /* the last window counted as shed */
+uint32_t meters_self_degrade(uint32_t m) { return m < METER_N ? budget[m].level : 0u; }
 _Static_assert(METER_N <= 8u, "meter_stats_t.max_cyc holds eight meters: widen it with the registry");
 void meters_tick(int allowed)
 {
@@ -225,7 +230,7 @@ void meters_tick(int allowed)
     for (uint32_t b = 0; b < MTR_BANDS; b++) lvl[b] = (uint8_t)spec_ballistics(lvl[b], spec_level(m[b], b));
     /* Standard degrade (spec 9.2, the user's rule: the meters always give way to the audio): at level 1 and 2 only every 2nd / 4th window is drawn (the ballistics above still run every window, the wave peaks keep
      * accumulating, the elapsed time adds up), whatever the meter; a forced repaint is never skipped. At level 3 the governor has already turned the meters off (meters_tick(0)). */
-    const uint32_t dg = mp3play_degrade_now();
+    const uint32_t dg = mb_effective(mp3play_degrade_now(), budget[cur].level);      /* the governor's level or the meter's own (it drew more commands than its ceiling), whichever is worse */
     if (dg && dg < 3u && !force_next) { degrade_win++; if (degrade_win & ((1u << dg) - 1u)) { meter_stats.degraded++; return; } }
     const uint32_t t = cycles(), dt = (t - last_t) / (CLK_HZ / 1000u); last_t = t;
     uint32_t pl = 0, pr = 0;
@@ -233,10 +238,22 @@ void meters_tick(int allowed)
     mtr_in_t in = { lvl, frame++, (uint16_t)(dt > 200u ? 200u : dt), (uint16_t)bx, (uint16_t)by, (uint16_t)bw, (uint16_t)bh, th_role[TR_BG_BOTTOM], (uint8_t)force_next, (uint8_t)mp3play_paused_now(), pl, pr, (uint8_t)dg };
     force_next = 0;
     const int comp = composed(&meter_table[cur]) && gfx_compose_begin(bx, by, bw, bh);
+    const uint32_t cmd0 = gfx_cmds, scan0 = REG_RD(R_SCAN);
+    gfx_touch_reset();
 #ifdef P2_PACKS
     if (pack_ok(cur)) pack_tick(&in); else
 #endif
     meter_table[cur].tick(&in);
+    /* Beam exposure (docs/features/meters/METER_FRAMEWORK_FINDINGS.md finding 7): a meter that draws straight onto the shown buffer (not composed, not inside a view's idle-buffer frame) is seen mid-picture when the beam was inside the rows
+     * it wrote (helios_core.h, the rule every region uses). Only counted: whether to hold such ticks back is the owner's call once the Pocket shows how often it happens. */
+    const uint32_t rows = gfx_touch_rows();
+    meter_stats.rows = rows;
+    if (rows) {
+        if (!comp && !in.force && gfx_cur_buf() == gfx_front_buf()) { meter_stats.direct++; if (!hl_rows_safe((int)((scan0 >> 9) & 1u), scan0 & 0x1FFu, rows >> 16, rows & 0xFFFFu)) meter_stats.exposed++; }
+    }
+    meter_stats.cmds_last = gfx_cmds - cmd0;                                           /* every engine command the tick issued, built-in or pack */
+    if (!in.force) { mb_judge(&budget[cur], meter_stats.cmds_last, meter_cmd_budget[cur]); meter_stats.over += (uint32_t)mb_over(meter_stats.cmds_last, meter_cmd_budget[cur]); }      /* a forced repaint is the costliest picture by design: not judged */
+    if (meter_stats.cmds_last > meter_stats.cmds_max) meter_stats.cmds_max = meter_stats.cmds_last;
     meter_stats.compose_cyc = 0;
     if (comp) { const uint32_t c0 = cycles(); gfx_compose_present(bx, by, bw, bh); meter_stats.compose_cyc = cycles() - c0; }
     const uint32_t spent = cycles() - t;

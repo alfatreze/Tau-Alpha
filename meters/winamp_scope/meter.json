@@ -68,6 +68,6 @@
       }
     }
   ],
-  "p2": {"slot": 1, "tag": "SCOPE", "compose": false, "budget": {"cold": 1300, "hot_ram": 160}},
+  "p2": {"cmds": 128, "slot": 1, "tag": "SCOPE", "compose": false, "budget": {"cold": 1300, "hot_ram": 160}},
   "default_preset": 0
 }

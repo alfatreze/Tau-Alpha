@@ -12,4 +12,6 @@
     X(vu_master, "VU MASTER", 15, vu, VU, 3, 0x00000000u) \
     X(waterfall_grid, "WATERFALL", 17, wf, WF, 5, 0x00008040u)
 static const uint8_t meter_manifest_id[METER_N] = { 12, 13, 14, 16, 15, 17 };      /* the id of each table entry in tau-assets.bin METR and the reports */
+/* the draw-command ceiling of one drawn tick of each meter (manifest p2.cmds; 0 = unbudgeted): cores/meter_budget_core.h */
+static const uint16_t meter_cmd_budget[METER_N] = { 96, 128, 1280, 640, 32, 3072 };
 #endif

@@ -19,6 +19,7 @@ def build(td, mutant):
     (d / "fw2/gfx/gfx.c").write_text(g)
     c = (ROOT / "fw2/ui/meter_chladni.c").read_text().replace('"../cores/chladni_core.h"', f'"{ROOT}/fw2/cores/chladni_core.h"').replace('"../cores/ramp_core.h"', f'"{ROOT}/fw2/cores/ramp_core.h"')
     (d / "fw2/ui/meter_chladni.c").write_text(c)
+    (d / "fw2/cores").mkdir(parents=True, exist_ok=True); (d / "fw2/cores/gfx_touch_core.h").write_text((ROOT / "fw2/cores/gfx_touch_core.h").read_text())
     for f in ("gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "ui/meter.h", "ui/theme.h", "generated/meter_presets.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "fw2/generated").mkdir(parents=True, exist_ok=True); (d / "fw2/generated/font_data.h").write_text((ROOT / "fw2/generated/font_data.h").read_text())
     (d / "sim/p2_engine_model.h").write_text((ROOT / "sim/p2_engine_model.h").read_text())
