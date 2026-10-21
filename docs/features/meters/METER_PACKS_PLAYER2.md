@@ -1,9 +1,9 @@
 # Loadable meters on Player 2 (packs)
 
-Status 2026-10-21: built and host-proven for Winamp Bars, Winamp Scope and Master VU (ABI 2); **not run on a Pocket**. The design and the hardware proof of the mechanism come from the old player's `meter-builder` branch (`docs/features/meters/METER_PACKS.md` there: a pack loads, runs from the PSRAM code window and draws; owner-confirmed on `TAU_DEV_METER_18`). This is the Player 2 form; the ABI restarted at 1.
+Status 2026-10-21: built and host-proven for all five meters (ABI 3); **not run on a Pocket**. The design and the hardware proof of the mechanism come from the old player's `meter-builder` branch (`docs/features/meters/METER_PACKS.md` there: a pack loads, runs from the PSRAM code window and draws; owner-confirmed on `TAU_DEV_METER_18`). This is the Player 2 form; the ABI restarted at 1.
 
 ## What a pack is
-One meter's drawing code, compiled freestanding for rv32im, linked at its slot in the PSRAM code window and carrying its own `memset`/`memcpy`. It reaches the firmware only through `mtr_host_api_t` (`fw2/ui/meter_pack.h`: `rect`, `text`, `rect_stash` and the `blend_*` calls = the `gfx_*` functions, the theme `role` table, the meter's live `params`, a small `stats` array). Registers are not in the table: a pack includes `platform/mmio.h` and reads them directly (hardware addresses, not firmware symbols); it never names a firmware symbol. Entry point: `uint32_t mtr_pack_entry(const mtr_in_t *in, const mtr_host_api_t *api)`, the same contract as a built-in `tick`.
+One meter's drawing code, compiled freestanding for rv32im, linked at its slot in the PSRAM code window and carrying its own `memset`/`memcpy`. It reaches the firmware only through `mtr_host_api_t` (`fw2/ui/meter_pack.h`: `rect`, `text`, `rect_stash`, the `blend_*` calls, the mailbox (`mb_write/mb_read`), `fence`, `blit`, `blit_abs` and `sblit` = the `gfx_*` functions, the theme `role` table, the meter's live `params`, a small `stats` array). Registers are not in the table: a pack includes `platform/mmio.h` and reads them directly (hardware addresses, not firmware symbols); it never names a firmware symbol. Entry point: `uint32_t mtr_pack_entry(const mtr_in_t *in, const mtr_host_api_t *api)`, the same contract as a built-in `tick`.
 
 **One source.** The pack source (`fw2/ui/meter_pack_<key>.c`) defines `P2_PACK`, redirects `gfx_*` and `th_role` to the table and includes the meter's own `meter_<key>.c`, which leaves out its firmware-only part (presets, the live parameter array) under `P2_PACK`. The built-in meter and the pack are compiled from the same lines.
 
@@ -18,10 +18,11 @@ One meter's drawing code, compiled freestanding for rv32im, linked at its slot i
 - A refused or missing pack leaves the built-in meter in use (per-meter fallback; `meters_pack_state(m)`: 0 runs, 0xFF none, else the refusal code E21..E29).
 - Refusal order: header, ABI, meter id, origin, sizes, CRC, entry, scratch origin, scratch capacity. Nothing is executed before the CRC matches.
 - Any change to `mtr_in_t` or `mtr_host_api_t` bumps `MTR_PACK_ABI`; `sim/test_p2_meter_pack.py` fails until its fingerprint is updated.
-- A pack grows the host table only when a meter that is a pack needs it (today: rect, text, stash rect, blend). Chladni and Layered Wave need blit, mailbox, compose and the PSRAM history first.
+- A pack grows the host table only when a meter that is a pack needs it. Compose (the off-screen draw of a whole-box meter) stays the host's: the host calls the pack between `gfx_compose_begin` and `present`, exactly as for a built-in meter.
+- A pack's PSRAM history (Layered Wave's ring) is its `.pstate` region in its own slot, after the image: zeroed on activation, proven by the pack before first use.
 
 ## Tools and tests
-`tools/player2/pack_meter.py <key> --out x.tmpk` (reads slot, id and addresses from the manifests and the core header), `tools/player2/pack_bundle.py`, `tools/player2/check_packs_abi.py` (firmware ELF vs the ABI), `sim/test_p2_meter_pack.py` (rv32sim: for each of the three packs, identical command hashes to the built-in meter over four scenarios, the Scope against a model of the capture block (`tools/p2_dev_model.py`, `rv32sim.py --dev`); 14 refusals; a bundle of all three; MPKB round trip; ABI fingerprint), build `PACKS=1 bash fw2/build.sh`.
+`tools/player2/pack_meter.py <key> --out x.tmpk` (reads slot, id and addresses from the manifests and the core header), `tools/player2/pack_bundle.py`, `tools/player2/check_packs_abi.py` (firmware ELF vs the ABI), `sim/test_p2_meter_pack.py` (rv32sim: for each of the five packs (Chladni against a model of the mailbox words its probe uses, Layered Wave with its PSRAM window words answered by the same model), identical command hashes to the built-in meter over four scenarios, the Scope against a model of the capture block (`tools/p2_dev_model.py`, `rv32sim.py --dev`); 14 refusals; a bundle of all five; MPKB round trip; ABI fingerprint), build `PACKS=1 bash fw2/build.sh`.
 
 ## Measured
 | Pack | image in the slot | working state in the scratch |
@@ -29,7 +30,11 @@ One meter's drawing code, compiled freestanding for rv32im, linked at its slot i
 | Winamp Bars | 1,428 B | 164 B |
 | Winamp Scope | 1,256 B | 152 B |
 | Master VU | 2,384 B | 36 B |
+| Chladni | 7,016 B | 2,744 B |
+| Layered Wave | 15,700 B (+2,424 B ring state in the slot) | 1,072 B |
  A `PACKS=1` firmware is +116 B ROM and +24 B hot RAM over the default; the default build does not change.
 
 ## Not done
-Chladni and Layered Wave as packs; `PACKS_ONLY` (leave the built-in code out); an Info row for the pack state; a Pocket run (needs a `PACKS=1` DEV package and a `tau-assets.bin` with an `MPKB` section; card write needs approval); pack fallback tests (last, as agreed).
+`PACKS_ONLY` (leave the built-in code out); an Info row for the pack state; a Pocket run (needs a `PACKS=1` DEV package and a `tau-assets.bin` with an `MPKB` section; card write needs approval); pack fallback tests (last, as agreed).
+
+`work/packs-p2/tau-assets.bin` (all five packs, 28 KB, so it is staged through the PSRAM like any file over 4 KB) is the test file for a `PACKS=1` DEV package; as it carries only `MPKB` it must be merged with the card's existing sections first.

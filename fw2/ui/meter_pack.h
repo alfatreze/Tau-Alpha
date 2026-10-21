@@ -23,6 +23,12 @@ typedef struct {
     void           (*blend_on)(uint32_t a);                                 /* gfx_blend_on: source weight a/256 for the blits that follow */
     void           (*blend_blit)(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);   /* gfx_blend_blit */
     void           (*blend_off)(void);                                      /* gfx_blend_off */
+    int            (*mb_write)(uint32_t pixel_addr, uint32_t two_pixels);   /* gfx_mb_write: the SDRAM mailbox, two pixels a word; 0 ok, -1 timeout */
+    int            (*mb_read)(uint32_t pixel_addr, uint32_t *two_pixels);   /* gfx_mb_read */
+    void           (*fence)(void);                                          /* gfx_fence: every queued draw command has executed */
+    void           (*blit)(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);       /* gfx_blit: a copy inside the buffer being drawn into */
+    void           (*blit_abs)(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);   /* gfx_blit_abs: stash to stash (self-tests) */
+    void           (*sblit)(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t scale);   /* gfx_sblit: a scaled copy from the stash */
 } mtr_host_api_t;
 
 typedef uint32_t (*mtr_pack_entry_fn)(const mtr_in_t *in, const mtr_host_api_t *api);

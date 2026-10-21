@@ -1,4 +1,4 @@
-"""A model of the hardware registers a meter pack reads, for tools/rv32sim.py --dev (the pack under test reaches them at 0xF0001000 + the register's low 12 bits, sim/p2_pack_sim_regs.h). The Winamp Scope capture block:
+"""A model of the hardware registers a meter pack reads, for tools/rv32sim.py --dev (the pack under test reaches them at 0xF0001000 + the register's low 12 bits, sim/p2_pack_sim_regs.h). The PSRAM status words (0x88, 0xA0) and the Winamp Scope capture block:
 ST (0xFC) reads 1 (never busy), IDX (0xF0) selects a column, DATA (0xF4) reads that column of the capture that the number of arms so far (writes of bit 1 to CTL 0xEC) decides. The same function is in
 sim/p2_pack_native.c, so the built-in meter and the pack see the same captures; modes: 0 normal, 1 DC-biased high, 2 one-sided, 3 loud."""
 M32 = 0xFFFFFFFF
@@ -17,6 +17,8 @@ def data(a, i):
     return ((lo & 0xFFFF) << 16) | (m & 0xFFFF)
 def load(off):
     if off == 0xFC: return 1
+    if off == 0x88: return 0x50535231                     # the PSRAM bus is in the bitstream (Layered Wave's window proof)
+    if off == 0xA0: return 0x10000                         # ...and its CPU window
     if off == 0xF4: return data(arms, idx & 255)
     return 0
 def store(off, val):
