@@ -12,7 +12,9 @@
 #include "../aout/halcyon.h"
 #include "../aout/aout.h"
 #include "regions.h"
+#include "views.h"
 #include "../cores/controls_core.h"
+#include "../cores/help_core.h"
 
 /* The layout of Figma "now-playing" (file rT7ux8u0R7SS3D34J4Idsq, nodes 384:563 playing and 384:1315 no track), 400 x 360: the cover top left, the pills + title + artist + album beside it, the meter full width, the
  * time row (state, elapsed, track n/m, total) under a progress bar, and a bottom bar with the two button hints on the left and repeat / shuffle / volume on the right. One font for all text (the font chosen in Appearance). */
@@ -87,11 +89,47 @@ static void bottom_bar_static(void)                          /* the icons are 28
     gfx_text(x, BAR_Y0 + 6u, "MENU", FG, PAN);
 }
 
+/* When there is no usable library the player shows a fallback screen instead of an empty one (help_core.h: no library file, unreadable, empty, files not found). Decided on entry and re-checked every pass. */
+static void num(char *o, uint32_t *n, uint32_t v);
+static uint32_t fb_shown = 0xFFu;
+static uint32_t fb_cur(void)
+{
+    const np_info_t *p = mp3play_np();
+    uint32_t err, n, st = mp3play_library(&err, &n);
+    return fb_kind(st, err, n, (lp.open_err && !p->valid) ? 1u : 0u);
+}
+uint32_t nowplaying_fallback(void) { return fb_cur(); }
+static void fb_static(uint32_t kind)
+{
+    const fb_text_t *t = &fb_texts[kind];
+    cover_placeholder();
+    char pill_txt[24]; uint32_t n = 0;
+    for (const char *s = t->pill; *s && n < 14u; s++) pill_txt[n++] = *s;
+    if (kind == FB_UNREADABLE) { uint32_t e, c; mp3play_library(&e, &c); pill_txt[n++] = ' '; num(pill_txt, &n, e); }
+    pill_txt[n] = 0;
+    { const uint32_t w = gfx_text_width(pill_txt) + 16u;
+      gfx_rect(MX, PILL_Y, w, PILL_H, PAN); gfx_text(MX + 8u, PILL_Y + 1u, pill_txt, t->red ? UI_RED : ACC, PAN); }
+    gfx_text(MX, TITLE_Y, t->title, FG, BG);
+    gfx_text(MX, ARTIST_Y, t->l1, ACC, BG);
+    gfx_text(MX, ALBUM_Y, t->l2, DIM, BG);
+    gfx_rect(16, NP_METER_Y0, 368, 122, PAN);
+    for (uint32_t i = 0; i < 3u; i++) if (t->step[i][0]) gfx_text(30, NP_METER_Y0 + 14u + i * 24u, t->step[i], FG, PAN);
+    for (uint32_t i = 0; i < 2u; i++) if (t->small[i][0]) gfx_text(30, NP_METER_Y0 + 92u + i * 16u - (t->small[1][0] ? 0u : 8u), t->small[i], DIM, PAN);
+    gfx_rect(16, 288, 368, 32, PAN);                                     /* the Tau Omega address: on every fallback screen */
+    gfx_text(200u - gfx_text_width(HP_URL_OMEGA) / 2u, 296, HP_URL_OMEGA, ACC, PAN);
+    gfx_rect(0, BAR_Y0, GFX_W, BAR_H, PAN);
+    icon_draw(ICON_START, 12, BAR_Y0, FG, PAN);
+    gfx_text(12u + icon_width(ICON_START) + 4u, BAR_Y0 + 6u, "MENU", FG, PAN);
+    gfx_text(GFX_W - 12u - gfx_text_width("A  HELP"), BAR_Y0 + 6u, "A  HELP", FG, PAN);
+}
+
 void nowplaying_enter(void)
 {
     gfx_rect(0, 0, GFX_W, GFX_H, BG);
     for (uint32_t i = 0; i < 12u; i++) cache[i].s[0] = 0;
     bar_px = 0xFFFFFFFFu; last_gen = 0xFFFFFFFFu; art_gen = 0xFFFFFFFFu; art_state = 0xFFu; pill_sig = 0xFFFFFFFFu; bar_sig = 0xFFFFFFFFu; st_sig = 0xFFFFFFFFu;
+    fb_shown = fb_cur();
+    if (fb_shown) { fb_static(fb_shown); return; }
     meters_enter(NP_METER_X, NP_METER_Y0, NP_METER_W, NP_METER_Y1 - NP_METER_Y0);
     bottom_bar_static();
 }
@@ -104,6 +142,7 @@ static void num(char *o, uint32_t *n, uint32_t v)
 
 void nowplaying_draw_head(void)
 {
+    if (fb_shown) return;
     const np_info_t *p = mp3play_np();
     const uint32_t cymo = aout_cymo_user_is_off() ? 0u : 1u, fmt = p->valid ? (p->quality[0] == 'F' ? 2u : 1u) : 0u;
     if (cymo * 4u + fmt != pill_sig) {                              /* the tags: SMOOTH while the resampler is on, the format of the track */
@@ -133,6 +172,7 @@ void nowplaying_draw_head(void)
 
 void nowplaying_draw_foot(void)
 {
+    if (fb_shown) return;
     const np_info_t *p = mp3play_np();
     if (st_sig != (p->playing && !p->held ? 1u : 0u)) { st_sig = p->playing && !p->held ? 1u : 0u; state_glyph(st_sig); }
     char t[16]; uint32_t n;
@@ -164,6 +204,7 @@ void nowplaying_draw_foot(void)
 
 void nowplaying_draw_meter(void)
 {
+    if (fb_shown) return;
     const np_info_t *p = mp3play_np();
     meters_tick(p->gov < 1u);                                   /* the governor sheds the UI first: no bars while the ring is below half */
 }
@@ -171,6 +212,7 @@ void nowplaying_draw_meter(void)
 /* The keys of Now Playing that are plain edges (the timed ones -- Left/Right tap and hold, the Select combinations -- are gestures, app/gestures in main_player.c). */
 int nowplaying_input(uint32_t edge)
 {
+    if ((edge & KEY_A) && fb_shown) return V_HELP;                 /* no usable library: A opens Help */
     if (edge & KEY_A) mp3play_act(MPA_PLAYPAUSE, 0);
     if (edge & KEY_B) mp3play_act(MPA_RESTART, 0);
     if (edge & KEY_UP) mp3play_act(MPA_VOL, 3);
@@ -182,4 +224,4 @@ int nowplaying_input(uint32_t edge)
     return -1;                                                   /* VW_STAY */
 }
 /* Marks the three regions for this pass: each redraw is a cheap compare against what the screen holds, and the flush waits for the beam to leave the rows. */
-void nowplaying_mark(void) { helios_dirty_mask(NP_REGIONS); }
+void nowplaying_mark(void) { if (fb_cur() != fb_shown) nowplaying_enter(); helios_dirty_mask(NP_REGIONS); }
