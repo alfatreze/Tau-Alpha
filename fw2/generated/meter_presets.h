@@ -88,18 +88,19 @@ static const mpd_t mpd_vu[5] = {
 };
 #define MPD_VU_N 5u
 enum { MPP_WF_MODE, MPP_WF_SPEED, MPP_WF_GAIN, MPP_WF_CELL, MPP_WF_N };
-#define MPP_WF_PRESETS 4u
-static const char *const mpp_wf_name[MPP_WF_PRESETS] = { "WATERFALL", "FAST FALL", "HEAT MAP", "FINE GRID" };
+#define MPP_WF_PRESETS 5u
+static const char *const mpp_wf_name[MPP_WF_PRESETS] = { "WATERFALL", "FAST FALL", "HEAT MAP", "FINE GRID", "DUST" };
 static const uint16_t mpp_wf[MPP_WF_PRESETS][MPP_WF_N] = {
-    { 0, 100, 100, 8 },   /* WATERFALL */
-    { 0, 50, 120, 6 },   /* FAST FALL */
-    { 1, 100, 110, 8 },   /* HEAT MAP */
-    { 1, 100, 100, 5 },   /* FINE GRID */
+    { 0, 90, 100, 8 },   /* WATERFALL */
+    { 0, 180, 120, 6 },   /* FAST FALL */
+    { 1, 90, 110, 8 },   /* HEAT MAP */
+    { 1, 90, 100, 5 },   /* FINE GRID */
+    { 2, 90, 110, 8 },   /* DUST */
 };
-static const char *const mpl_wf_mode[] = { "SPECTROGRAM", "ZONES" };
+static const char *const mpl_wf_mode[] = { "SPECTROGRAM", "ZONES", "DUST" };
 static const mpd_t mpd_wf[4] = {
-    { "MODE", 1, 0, 0, 1, 1, 2, mpl_wf_mode, 255, 0 },
-    { "SCROLL SPEED", 0, 0, 40, 400, 20, 0, 0, 0, 0 },
+    { "MODE", 1, 0, 0, 2, 1, 3, mpl_wf_mode, 255, 0 },
+    { "SCROLL SPEED", 0, 0, 20, 400, 10, 0, 0, 0, 0 },
     { "GAIN", 0, 0, 50, 200, 10, 0, 0, 255, 0 },
     { "CELL SIZE", 0, 0, 5, 12, 1, 0, 0, 255, 0 },
 };

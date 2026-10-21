@@ -10,7 +10,7 @@ def check(name, ok, extra=""):
     global fails
     print(("ok   " if ok else "FAIL ") + name + ((" " + str(extra)) if (extra and not ok) else ""))
     if not ok: fails += 1
-TABLE = [(0, 0, 32, 0, 100, 94), (2, 0, 32, 0, 2, 0), (17, 4, 2, 0, 2, 0), (6, 0, 32, 0, 30, 0), (1, 0, 32, 0, 18, 1), (16, 0, 32, 0, 31, 0), (17, 0, 1, 0, 1, 0), (5, 0, 32, 0, 14, 0), (18, 0, 4, 0, 7, 0), (18, 4, 4, 0, 7, 0), (18, 8, 4, 0, 7, 0), (18, 12, 4, 0, 15, 0), (18, 16, 4, 0, 7, 0), (8, 0, 31, 0, 0x7FFFFFFF, 0), (9, 0, 31, 0, 0x7FFFFFFF, 0), (10, 0, 31, 0, 0x7FFFFFFF, 0), (11, 0, 31, 0, 0x7FFFFFFF, 0), (18, 20, 3, 0, 7, 0)]
+TABLE = [(0, 0, 32, 0, 100, 94), (2, 0, 32, 0, 2, 0), (17, 4, 2, 0, 2, 0), (6, 0, 32, 0, 30, 0), (1, 0, 32, 0, 18, 1), (16, 0, 32, 0, 31, 0), (17, 0, 1, 0, 1, 0), (5, 0, 32, 0, 14, 0), (18, 0, 4, 0, 7, 0), (18, 4, 4, 0, 7, 0), (18, 8, 4, 0, 7, 0), (18, 12, 4, 0, 15, 0), (18, 16, 4, 0, 7, 0), (8, 0, 31, 0, 0x7FFFFFFF, 0), (9, 0, 31, 0, 0x7FFFFFFF, 0), (10, 0, 31, 0, 0x7FFFFFFF, 0), (11, 0, 31, 0, 0x7FFFFFFF, 0), (18, 20, 3, 0, 7, 0), (18, 23, 4, 0, 7, 0)]
 def m_unpack(w):
     out = []
     for word, sh, wd, lo, hi, df in TABLE:
@@ -39,18 +39,18 @@ def agrees(exe):
     r = random.Random(11); cases = [words(r) for _ in range(800)]
     got = run(exe, "\n".join("u " + " ".join(map(str, w)) for w in cases) + "\n")
     if any(list(map(int, g.split())) != m_unpack(w) for g, w in zip(got, cases)): return False
-    vs = [[r.randrange(0, 130), r.randrange(0, 5), r.randrange(0, 5), r.randrange(0, 40), r.randrange(0, 25), r.randrange(0, 35), r.randrange(0, 3), r.randrange(0, 18), r.randrange(0, 6), r.randrange(0, 6), r.randrange(0, 5), r.randrange(0, 9), r.randrange(0, 4), r.getrandbits(31), r.getrandbits(31), r.getrandbits(32), r.getrandbits(31), r.randrange(0, 9)] for _ in cases]
+    vs = [[r.randrange(0, 130), r.randrange(0, 5), r.randrange(0, 5), r.randrange(0, 40), r.randrange(0, 25), r.randrange(0, 35), r.randrange(0, 3), r.randrange(0, 18), r.randrange(0, 6), r.randrange(0, 6), r.randrange(0, 5), r.randrange(0, 9), r.randrange(0, 4), r.getrandbits(31), r.getrandbits(31), r.getrandbits(32), r.getrandbits(31), r.randrange(0, 9), r.randrange(0, 9)] for _ in cases]
     got = run(exe, "\n".join("p " + " ".join(map(str, w)) + " " + " ".join(map(str, v)) for w, v in zip(cases, vs)) + "\n")
     return all(list(map(int, g.split())) == m_pack(w, v) for g, w, v in zip(got, cases, vs))
 def props(exe):
     ok = {}
     legacy = [0] * 32; legacy[0] = 80; legacy[2] = 1; legacy[6] = 5; legacy[17] = 0x21                # volume 80, repeat all, polarity 1, RG mode 2 (album)
-    ok["legacy words read back exactly"] = run(exe, "u " + " ".join(map(str, legacy)) + "\n")[0].split() == ["80", "1", "2", "5", "0", "0", "1", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
+    ok["legacy words read back exactly"] = run(exe, "u " + " ".join(map(str, legacy)) + "\n")[0].split() == ["80", "1", "2", "5", "0", "0", "1", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
     junk = [0] * 32; junk[0] = 4000; junk[2] = 7; junk[6] = 31; junk[17] = 0x30                      # volume out of range, repeat 7, RG mode 3
-    ok["out-of-range values fall back to defaults"] = run(exe, "u " + " ".join(map(str, junk)) + "\n")[0].split() == ["94", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
-    p = run(exe, "p " + " ".join(map(str, legacy)) + " 55 2 1 7 5 3 1 4 2 3 1 5 2 123456789 0 2147483647 7 3\n")[0].split()
+    ok["out-of-range values fall back to defaults"] = run(exe, "u " + " ".join(map(str, junk)) + "\n")[0].split() == ["94", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
+    p = run(exe, "p " + " ".join(map(str, legacy)) + " 55 2 1 7 5 3 1 4 2 3 1 5 2 123456789 0 2147483647 7 3 6\n")[0].split()
     ok["pack keeps the theme polarity bit and every foreign word"] = int(p[17]) & 1 == 1 and int(p[17]) == (0x21 & ~0x30 & 0xFFFFFFFF | (1 << 4)) and all(p[i] == "0" for i in range(32) if i not in (0, 1, 2, 5, 6, 8, 9, 10, 11, 16, 17, 18))
-    ok["pack then unpack is the identity"] = run(exe, "u " + " ".join(p) + "\n")[0].split() == ["55", "2", "1", "7", "5", "3", "1", "4", "2", "3", "1", "5", "2", "123456789", "0", "2147483647", "7", "3"]
+    ok["pack then unpack is the identity"] = run(exe, "u " + " ".join(p) + "\n")[0].split() == ["55", "2", "1", "7", "5", "3", "1", "4", "2", "3", "1", "5", "2", "123456789", "0", "2147483647", "7", "3", "6"]
     return ok
 with tempfile.TemporaryDirectory() as td:
     d = Path(td); g = build(d, 0)

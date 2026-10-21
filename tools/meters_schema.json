@@ -1973,7 +1973,8 @@
      "type": "enum",
      "values": [
       "SPECTROGRAM",
-      "ZONES"
+      "ZONES",
+      "DUST"
      ],
      "default": 0
     },
@@ -1981,15 +1982,15 @@
      "key": "speed",
      "label": "Scroll speed",
      "type": "u16",
-     "min": 40,
+     "min": 20,
      "max": 400,
-     "step": 20,
-     "default": 100,
-     "unit": "ms",
+     "step": 10,
+     "default": 90,
+     "unit": "px/s",
      "when": {
       "mode": 0
      },
-     "note": "milliseconds per row of the spectrogram"
+     "note": "pixels per second, whatever the cell size"
     },
     {
      "key": "gain",
@@ -2019,7 +2020,7 @@
      "name": "WATERFALL",
      "values": {
       "mode": 0,
-      "speed": 100,
+      "speed": 90,
       "gain": 100,
       "cell": 8
      }
@@ -2028,7 +2029,7 @@
      "name": "FAST FALL",
      "values": {
       "mode": 0,
-      "speed": 50,
+      "speed": 180,
       "gain": 120,
       "cell": 6
      }
@@ -2037,7 +2038,7 @@
      "name": "HEAT MAP",
      "values": {
       "mode": 1,
-      "speed": 100,
+      "speed": 90,
       "gain": 110,
       "cell": 8
      }
@@ -2046,9 +2047,18 @@
      "name": "FINE GRID",
      "values": {
       "mode": 1,
-      "speed": 100,
+      "speed": 90,
       "gain": 100,
       "cell": 5
+     }
+    },
+    {
+     "name": "DUST",
+     "values": {
+      "mode": 2,
+      "speed": 90,
+      "gain": 110,
+      "cell": 8
      }
     }
    ],

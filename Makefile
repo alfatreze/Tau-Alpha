@@ -99,6 +99,8 @@ test-host:
 	$(PYTHON) sim/test_p2_meter_pack.py
 	$(PYTHON) sim/test_p2_meter_pack_dispatch.py
 	$(PYTHON) sim/test_p2_meter_thumb.py
+	$(PYTHON) sim/test_p2_waterfall.py
+	$(PYTHON) sim/test_p2_settings_service.py
 	$(PYTHON) sim/test_p2_meter_budget.py
 	$(PYTHON) sim/test_p2_configure.py
 	$(PYTHON) sim/test_p2_configure_view.py
