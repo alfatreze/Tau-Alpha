@@ -1,4 +1,4 @@
-/* JS twin of fw/meter_core.h (M1.5). Same integer arithmetic as the C: C division truncates toward zero, so every / uses Math.trunc.
+/* JS twin of fw2/cores/meter_core.h (M1.5). Same integer arithmetic as the C: C division truncates toward zero, so every / uses Math.trunc.
  * Checked against the C core's golden vectors (fixtures/core_vectors.json) by test.js. */
 (function (root) {
   const tdiv = (a, b) => Math.trunc(a / b);

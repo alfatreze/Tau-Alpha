@@ -12,7 +12,7 @@ def check(name, ok):
 def build(td, mutant):
     d = Path(td)
     for sub in ("ui", "gfx", "generated", "sim"): (d / sub).mkdir()
-    src = (ROOT / "fw2/ui/meter_winamp_bars.c").read_text().replace('#include "../../fw/meter_core.h"', '#include "' + str(ROOT / "fw/meter_core.h") + '"')
+    src = (ROOT / "fw2/ui/meter_winamp_bars.c").read_text().replace('#include "../cores/meter_core.h"', '#include "' + str(ROOT / "fw2/cores/meter_core.h") + '"')
     if mutant:
         a = "        if (h > bh) gfx_rect(x, y, colw, h - bh, in->bg);"
         assert a in src

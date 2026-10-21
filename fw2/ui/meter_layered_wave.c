@@ -6,7 +6,7 @@
 #include "../generated/lw_presets.h"
 
 /* Layered Wave (docs/features/meters/LAYERED_WAVE_METER_SPEC.md): nested, mirrored envelope layers on a solid background, driven by the 16 spectrum bands (or, for the DYNAMICS split, the loudest sample).
- * The module body is the old player's, unchanged (fw/layered_wave.inc: integer-only, the C twin of tools/meters/preview/meters/layered_wave.js, compared command for command by
+ * The module body is the old player's, unchanged (fw2/ui/layered_wave.inc: integer-only, the C twin of tools/meters/preview/meters/layered_wave.js, compared command for command by
  * sim/test_layered_wave_golden.py); this file supplies what that body expects: plain gfx_rect, the parameters of the selected preset, the colour roles, and a proven PSRAM window for the history ring.
  * The whole object is cold code. Experimental parameters (anti-aliasing, blend modes, per-layer gains) are on in Player 2 (the old player had them in the Diagnostic Build only). */
 #define COLD_FN3
@@ -46,7 +46,7 @@ static int mtr_psram_ready(void)
     }
     return lw_ps == 1u;
 }
-#include "../../fw/layered_wave.inc"
+#include "layered_wave.inc"
 
 static uint32_t want;
 uint32_t lw_unavailable(void) { return lw_ps == 2u; }

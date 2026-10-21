@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Emits golden scenarios for sim/test_layered_wave_golden.py: for the presets and a grid of parameter variations, the exact input trace and the
- * command log the JS integer twin produced. The Python test feeds the same trace to the REAL fw/layered_wave.inc compiled on the host and
+ * command log the JS integer twin produced. The Python test feeds the same trace to the REAL fw2/ui/layered_wave.inc compiled on the host and
  * compares the logs line for line. */
 const path = require('path'), cp = require('child_process');
 const root = path.join(__dirname, '..', '..', '..');

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Golden frames for the Layered Wave meter: the JS integer twin (tools/meters/preview/meters/layered_wave.js) and the REAL firmware code
-(fw/layered_wave.inc, compiled on the host with stub engine calls) must issue the same engine commands, line for line, for the same input trace --
+(fw2/ui/layered_wave.inc, compiled on the host with stub engine calls) must issue the same engine commands, line for line, for the same input trace --
 every preset plus a grid of views, draw modes, layer counts, splits, colour sources and boxes, with a paused stretch in the middle of each run.
 A change to either side that alters drawing fails here, not on a card.
 """
@@ -92,7 +92,7 @@ def compare(scen, diag):
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         (d / "h.c").write_text(HARNESS); (d / "in.txt").write_text("\n".join(lines) + "\n")
-        r = subprocess.run(["cc", "-O1", "-Wall", "-DTAU_DIAGNOSTIC=%d" % diag, "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-I", str(ROOT / "fw"), "-o", str(d / "h"), str(d / "h.c")], capture_output=True, text=True)
+        r = subprocess.run(["cc", "-O1", "-Wall", "-DTAU_DIAGNOSTIC=%d" % diag, "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-I", str(ROOT / "fw"), "-I", str(ROOT / "fw2/ui"), "-o", str(d / "h"), str(d / "h.c")], capture_output=True, text=True)
         if r.returncode:
             print(r.stderr); sys.exit(1)
         out = subprocess.run([str(d / "h"), str(d / "in.txt")], capture_output=True, text=True, check=True).stdout.splitlines()

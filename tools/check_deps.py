@@ -23,7 +23,7 @@ ALLOWED = {
 }
 
 # The meter module rule (docs/features/meters/METERS_PLAYER2_PLAN.md): a meter (fw2/ui/meter_<key>.c) draws through gfx, reads its inputs from meter.h and the theme roles, and takes its logic from cores. It may include
-# only these; it must not reach transport, settings, aout, art, queue, stream, diagnostics, the platform beyond the register map, or another meter. (The old player's portable cores under fw/ are allowed until they move into fw2/cores.)
+# only these; it must not reach transport, settings, aout, art, queue, stream, diagnostics, the platform beyond the register map, or another meter. (Its own body, ui/<key>.inc, is allowed.) (The old player's portable cores under fw/ are allowed until they move into fw2/cores.)
 METER_OK_FILES = {"ui/meter.h", "ui/theme.h", "platform/mmio.h"}
 METER_OK_DIRS = {"gfx", "cores", "generated"}
 def meter_violations(f, root, text):
@@ -37,6 +37,7 @@ def meter_violations(f, root, text):
             if "/fw/" in "/" + Path(inc).as_posix() or inc.startswith("../../fw/") or "fw/" in inc: continue        # an old-player core (transitional)
             continue                                                                                           # system or vendor header
         if rel in METER_OK_FILES or rel.split("/")[0] in METER_OK_DIRS: continue
+        if rel == "ui/" + f.name[len("meter_"):-2] + ".inc": continue                  # a meter's own body (meter_layered_wave.c includes layered_wave.inc)
         out.append(f"{f.relative_to(root)}:{line_no}: a meter module may include only meter.h, theme.h, gfx/, platform/mmio.h, cores/ and generated/ ({inc})")
     return out
 

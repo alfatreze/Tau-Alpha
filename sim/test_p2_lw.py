@@ -13,7 +13,7 @@ def build(td, mutant):
     d = Path(td)
     for sub in ("ui", "gfx", "platform", "generated", "sim"): (d / sub).mkdir()
     src = (ROOT / "fw2/ui/meter_layered_wave.c").read_text()
-    src = src.replace('"../../fw/layered_wave.inc"', f'"{ROOT}/fw/layered_wave.inc"')
+    src = src.replace('#include "layered_wave.inc"', f'#include "{ROOT}/fw2/ui/layered_wave.inc"')
     if mutant == "noproof":
         a = "    if (!lw_ps) {"; assert a in src; src = src.replace(a, "    if (!lw_ps) { lw_ps = 1u; } if (0) {")
     if mutant == "nopreset":

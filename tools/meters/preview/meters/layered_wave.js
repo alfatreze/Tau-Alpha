@@ -1,7 +1,7 @@
 /* layered_wave: nested, mirrored envelope layers on a SOLID background (docs/features/meters/LAYERED_WAVE_METER_SPEC.md).
  * ctx = {fb, x, y, w, h, theme, spec[16] (0..255, after the firmware's spectrum ballistics), wave[64] (-100..100), paused, p, st, force, dt}.
  *
- * INTEGER twin of fw/layered_wave.inc: every operation here is the same integer operation the C does (C division truncates, so every / is
+ * INTEGER twin of fw2/ui/layered_wave.inc: every operation here is the same integer operation the C does (C division truncates, so every / is
  * Math.trunc; >> is arithmetic; products stay inside 32 bits or go through an exact isqrt), so the two issue the SAME engine commands for the
  * same input (sim/test_layered_wave_golden.py compares them command for command). Floating point exists only in tools/gen_layered_wave_tables.py.
  *

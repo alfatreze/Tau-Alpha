@@ -4,7 +4,7 @@ tau-assets.bin, so the manifest ranges are a safety claim: nothing inside them m
 with the address and undefined-behaviour sanitisers (signed overflow, bad shifts, out-of-range indexes all abort) and runs 600 ticks of a synthetic
 loud/quiet/noisy track through detect, update, select and render for EVERY corner of the tunable ranges (each of the nine parameters at its minimum
 and its maximum, both layouts) plus 300 random interior points and the two shipped presets. Also proves the preset values equal the old hard-coded
-chl_presets[] tunables (so wiring the module changed no default), by compiling the real fw/chladni_core.h against the generated tables."""
+chl_presets[] tunables (so wiring the module changed no default), by compiling the real fw2/cores/chladni_core.h against the generated tables."""
 import itertools, json, random, subprocess, sys, tempfile
 from pathlib import Path
 
@@ -60,7 +60,7 @@ int main(void) {
     with tempfile.TemporaryDirectory() as d:
         c, exe = Path(d) / "e.c", Path(d) / "e"
         c.write_text(code)
-        r = subprocess.run(["cc", "-std=gnu11", "-O1", "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-const-variable", "-Werror", "-I", str(ROOT / "fw"), "-o", str(exe), str(c)], capture_output=True, text=True)
+        r = subprocess.run(["cc", "-std=gnu11", "-O1", "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-const-variable", "-Werror", "-I", str(ROOT / "fw"), "-I", str(ROOT / "fw2/cores"), "-o", str(exe), str(c)], capture_output=True, text=True)
         if r.returncode:
             print(r.stderr); return 1
         p = subprocess.run([str(exe)], capture_output=True, text=True)
