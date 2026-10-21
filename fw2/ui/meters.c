@@ -29,6 +29,7 @@ static mpkb_slot_t pack_slot[MTR_PACK_SLOTS];                       /* per meter
 static uint32_t cur, bx, by, bw, bh, win_seen = 0xFFFFFFFFu, frame, last_t, force_next;
 static uint8_t lvl[MTR_BANDS];
 extern uint32_t mp3play_paused_now(void);          /* mp3play.c: 1 when nothing is being heard */
+extern uint32_t mp3play_degrade_now(void);         /* mp3play.c: the meter degrade level 0..3 (governor_core.h gov_degrade) */
 
 static uint8_t pre[METER_N], custom[METER_N];                                  /* the selected preset of each meter */
 /* User presets (the METR section of tau-assets.bin) replace a meter's built-in ones. The section is copied to PSRAM at boot (the tag buffer it arrives in is reused); a preset is read back a word at a time
@@ -170,7 +171,7 @@ static int fetch(uint32_t *m)                        /* a new window, read coher
  * built-in one (which stays as the per-meter fallback: a refused or missing pack just leaves the built-in meter in use). Only the active pack's working state is resident, in the 4 KB scratch under the tag zone. */
 static uint32_t pack_act = 0xFFu, pack_seen, pack_err = 0xFFu;         /* the meter whose pack state is in the scratch; packs in the file; the bundle's own result (0xFF: no bundle) */
 static uint32_t pack_stats[MTR_PACK_STATS];
-static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stats, gfx_text, gfx_rect_stash, gfx_blend_ready, gfx_blend_on, gfx_blend_blit, gfx_blend_off, gfx_mb_write, gfx_mb_read, gfx_fence, gfx_blit, gfx_blit_abs, gfx_sblit };
+static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stats, gfx_text, gfx_rect_stash, gfx_blend_ready, gfx_blend_on, gfx_blend_blit, gfx_blend_off, gfx_mb_write, gfx_mb_read, gfx_fence, gfx_blit, gfx_blit_abs, gfx_sblit, gfx_bar, gfx_scroll_down };
 /* The three places that touch the Pocket's address space can be replaced by a host test (sim/test_p2_meter_pack_dispatch.py): the slot (written through the data alias, executed at the instruction alias), the scratch and the call. */
 #ifndef PACK_SLOT_DATA
 #define PACK_SLOT_DATA(i) ((volatile uint8_t *)(uintptr_t)((MTR_PACK_SLOT_BASE + (i) * MTR_PACK_SLOT_SIZE) | 0x80000000u))
@@ -185,7 +186,8 @@ static volatile uint8_t *pack_slot_data(uint32_t i) { return PACK_SLOT_DATA(i); 
 static int pack_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len) { const volatile uint8_t *s = (const volatile uint8_t *)ctx; for (uint32_t i = 0; i < len; i++) dst[i] = s[off + i]; return 1; }
 void meters_packs_load(const uint8_t *p, uint32_t n)                    /* the MPKB section: the caller has proven the PSRAM window (the slots live in it) */
 {
-    static const uint16_t ids[MTR_PACK_SLOTS] = { 0, 1, 2, 3, 4 };      /* slot i belongs to meter i: the manifests' p2.slot, which is the registry order */
+    uint16_t ids[MTR_PACK_SLOTS];                                        /* slot i belongs to meter i: the manifests' p2.slot, which is the registry order */
+    for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) ids[i] = (uint16_t)i;
     pack_act = 0xFFu;
     pack_err = (uint32_t)mpkb_install_all(pack_rd, (void *)p, PACK_SCRATCH, n, pack_slot_data(0), ids, MTR_PACK_SCRATCH_ORG, MTR_PACK_SCRATCH_SIZE, pack_slot, &pack_seen);
 }
@@ -205,7 +207,7 @@ static void pack_tick(const mtr_in_t *in)
 }
 #endif
 meter_stats_t meter_stats;
-static uint32_t shed_win = 0xFFFFFFFFu;                  /* the last window counted as shed */
+static uint32_t shed_win = 0xFFFFFFFFu, degrade_win;                  /* the last window counted as shed */
 _Static_assert(METER_N <= 8u, "meter_stats_t.max_cyc holds eight meters: widen it with the registry");
 void meters_tick(int allowed)
 {
@@ -218,10 +220,14 @@ void meters_tick(int allowed)
     uint32_t m[MTR_BANDS];
     if (!fetch(m)) return;
     for (uint32_t b = 0; b < MTR_BANDS; b++) lvl[b] = (uint8_t)spec_ballistics(lvl[b], spec_level(m[b], b));
+    /* Standard degrade (spec 9.2, the user's rule: the meters always give way to the audio): at level 1 and 2 only every 2nd / 4th window is drawn (the ballistics above still run every window, the wave peaks keep
+     * accumulating, the elapsed time adds up), whatever the meter; a forced repaint is never skipped. At level 3 the governor has already turned the meters off (meters_tick(0)). */
+    const uint32_t dg = mp3play_degrade_now();
+    if (dg && dg < 3u && !force_next) { degrade_win++; if (degrade_win & ((1u << dg) - 1u)) { meter_stats.degraded++; return; } }
     const uint32_t t = cycles(), dt = (t - last_t) / (CLK_HZ / 1000u); last_t = t;
     uint32_t pl = 0, pr = 0;
     if (caps.wave) { const uint32_t pk = REG_RD(R_WAVE_PK); pl = ((pk & 0xFFFFu) * 3u) / 4u; pr = ((pk >> 16) * 3u) / 4u; REG_WR(R_WAVE_CTL, 1u); }      /* peaks since the last tick, then cleared */
-    mtr_in_t in = { lvl, frame++, (uint16_t)(dt > 200u ? 200u : dt), (uint16_t)bx, (uint16_t)by, (uint16_t)bw, (uint16_t)bh, th_role[TR_BG_BOTTOM], (uint8_t)force_next, (uint8_t)mp3play_paused_now(), pl, pr };
+    mtr_in_t in = { lvl, frame++, (uint16_t)(dt > 200u ? 200u : dt), (uint16_t)bx, (uint16_t)by, (uint16_t)bw, (uint16_t)bh, th_role[TR_BG_BOTTOM], (uint8_t)force_next, (uint8_t)mp3play_paused_now(), pl, pr, (uint8_t)dg };
     force_next = 0;
     const int comp = meter_table[cur].compose && gfx_compose_begin(bx, by, bw, bh);
 #ifdef P2_PACKS

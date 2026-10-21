@@ -6,14 +6,16 @@
  * what the built-in meter does. Needs meter.h and generated/meter_presets.h (the parameter indices). tr_blend_ready decides whether the scope's trail path is taken (the harness sets it per scenario). */
 static uint32_t tr_rs;
 static uint32_t tr_rnd(void) { tr_rs = tr_rs * 1664525u + 1013904223u; return tr_rs >> 8; }
-static uint64_t tr_H; static uint32_t tr_N; static int tr_blend_ready;
+static uint64_t tr_H; static uint32_t tr_N, tr_viol; static int tr_blend_ready;
+static uint32_t tr_bx, tr_by, tr_bw, tr_bh;      /* the box of the current frame: a draw to the visible screen outside it is a violation (the framework rule: a meter never draws outside its box; the stash is exempt) */
+static void tr_chk(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { if (x >= 400u || y >= 360u) return; if (x < tr_bx || y < tr_by || x + w > tr_bx + tr_bw || y + h > tr_by + tr_bh) tr_viol++; }
 static void tr_mix(const uint32_t *v, int n) { for (int i = 0; i < n; i++) { tr_H ^= v[i]; tr_H *= 1099511628211ull; } tr_N++; }
-static void tr_hash_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { const uint32_t v[6] = { 1, x, y, w, h, c }; tr_mix(v, 6); }
+static void tr_hash_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { const uint32_t v[6] = { 1, x, y, w, h, c }; tr_mix(v, 6); tr_chk(x, y, w, h); }
 static void tr_hash_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { const uint32_t v[6] = { 2, x, y, w, h, c }; tr_mix(v, 6); }
-static uint32_t tr_hash_text(uint32_t x, uint32_t y, const char *s, uint16_t fg, uint16_t bg) { uint32_t sh = 5381u; for (; *s; s++) sh = sh * 33u + (uint8_t)*s; const uint32_t v[6] = { 3, x, y, sh, fg, bg }; tr_mix(v, 6); return x + 16u; }
+static uint32_t tr_hash_text(uint32_t x, uint32_t y, const char *s, uint16_t fg, uint16_t bg) { uint32_t sh = 5381u; for (; *s; s++) sh = sh * 33u + (uint8_t)*s; const uint32_t v[6] = { 3, x, y, sh, fg, bg }; tr_mix(v, 6); tr_chk(x, y, 1u, 16u); return x + 16u; }   /* a text cell is 16 px tall */
 static void tr_hash_blend_on(uint32_t a) { const uint32_t v[2] = { 4, a }; tr_mix(v, 2); }
 static void tr_hash_blend_off(void) { const uint32_t v[1] = { 5 }; tr_mix(v, 1); }
-static void tr_hash_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { const uint32_t v[7] = { 6, sx, sy, dx, dy, w, h }; tr_mix(v, 7); }
+static void tr_hash_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { const uint32_t v[7] = { 6, sx, sy, dx, dy, w, h }; tr_mix(v, 7); tr_chk(dx, dy, w, h); }
 static int tr_ready(void) { return tr_blend_ready; }
 /* a sparse model of the framebuffer SDRAM words the Chladni probe uses (mailbox write, engine copy, mailbox read): address-keyed, linear probing */
 static uint32_t tr_mk[16384], tr_mv[16384];
@@ -24,13 +26,16 @@ static void tr_fence(void) { const uint32_t v[1] = { 8 }; tr_mix(v, 1); }
 static void tr_hash_blit_abs(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { const uint32_t v[7] = { 9, sx, sy, dx, dy, w, h }; tr_mix(v, 7); *tr_slot(dy * 512u + dx) = *tr_slot(sy * 512u + sx); }   /* the probe's one-word copy */
 static void tr_hash_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t sc) { const uint32_t v[8] = { 10, sx, sy, dx, dy, w, h, sc }; tr_mix(v, 8); }
 
-#define TR_BEGIN(seed) do { tr_rs = (seed); tr_H = 1469598103934665603ull; tr_N = 0; } while (0)
+#define TR_BEGIN(seed) do { tr_rs = (seed); tr_H = 1469598103934665603ull; tr_N = 0; tr_viol = 0; } while (0)
 static void tr_in(mtr_in_t *in, uint32_t n, const uint8_t *spec, const int8_t *wave)
 {
     for (unsigned k = 0; k < sizeof *in; k++) ((uint8_t *)in)[k] = 0;
     in->spec = spec; in->wave = wave; in->force = (uint8_t)(n == 0 || n == 30); in->dt_ms = 26u; in->bg = 0x18C3u;
     in->x = 16; in->y = 152; in->w = 368; in->h = 122;
 }
+static void tr_box_of(const mtr_in_t *in) { tr_bx = in->x; tr_by = in->y; tr_bw = in->w; tr_bh = in->h; }
+static void tr_bar_hash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg) { const uint32_t v[8] = { 11, x, y, w, h, lit, fg, bg }; tr_mix(v, 8); tr_chk(x, y, w, h); }
+static void tr_scroll_hash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d) { const uint32_t v[6] = { 12, x, y, w, h, d }; tr_mix(v, 6); tr_chk(x, y, w, h); }
 /* params: the live setting values; apply: makes a built-in meter re-read them (0 for a pack, which reads the table each tick); run: the meter's tick. */
 #ifdef PACK_BARS
 static void bars_trace(uint16_t *params, void (*apply)(void), void (*run)(const mtr_in_t *), void (*report)(int scen, uint32_t n, uint64_t h))
@@ -49,8 +54,8 @@ static void bars_trace(uint16_t *params, void (*apply)(void), void (*run)(const 
             for (int i = 0; i < 64; i++) wave[i] = 0;
             mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
             in.paused = (uint8_t)(n >= 20 && n < 26);
-            if (s == 3 && n >= 60) { in.x = 8; in.w = 300; in.h = 100; }       /* a new geometry without a forced repaint */
-            run(&in);
+            if (s == 3 && n >= 60) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }                  /* the fullscreen box, entered mid-run (every meter has a fullscreen mode) */       /* a new geometry without a forced repaint */
+            tr_box_of(&in); run(&in);
         }
         report(s, tr_N, tr_H);
     }
@@ -74,8 +79,8 @@ static void vu_trace(uint16_t *params, void (*apply)(void), void (*run)(const mt
             if (n >= 40 && n < 55) { lvl_l = lvl_l / 2u; lvl_r = lvl_r / 3u; }
             mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
             in.paused = (uint8_t)(n >= 20 && n < 26); in.peak_l = lvl_l; in.peak_r = lvl_r; in.h = 60;
-            if (s == 3 && n >= 60) { in.x = 8; in.w = 300; }
-            run(&in);
+            if (s == 3 && n >= 60) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }
+            tr_box_of(&in); run(&in);
         }
         report(s, tr_N, tr_H);
     }
@@ -96,8 +101,8 @@ static void scope_trace(uint16_t *params, void (*apply)(void), void (*run)(const
             uint8_t spec[16] = { 0 }; int8_t wave[64] = { 0 };
             mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
             in.paused = (uint8_t)(n >= 20 && n < 26);
-            if (s == 3 && n >= 60) { in.x = 8; in.w = 300; in.h = 100; }
-            run(&in);
+            if (s == 3 && n >= 60) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }                  /* the fullscreen box, entered mid-run (every meter has a fullscreen mode) */
+            tr_box_of(&in); run(&in);
         }
         report(s, tr_N, tr_H);
     }
@@ -120,8 +125,8 @@ static void chl_trace(uint16_t *params, void (*apply)(void), void (*run)(const m
             for (int i = 0; i < 64; i++) wave[i] = 0;
             mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
             in.paused = (uint8_t)(n >= 20 && n < 26); in.h = 110;
-            if (s == 3 && n >= 60) { in.x = 8; in.w = 300; in.h = 100; }
-            run(&in);
+            if (s == 3 && n >= 60) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }                  /* the fullscreen box, entered mid-run (every meter has a fullscreen mode) */
+            tr_box_of(&in); run(&in);
         }
         report(s, tr_N, tr_H);
     }
@@ -148,11 +153,34 @@ static void lw_trace(uint16_t *params, void (*apply)(void), void (*run)(const mt
             mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
             in.paused = (uint8_t)(n >= 20 && n < 26);
             in.peak_l = pl; in.peak_r = pr;
-            if (s == 3 && n >= 60) { in.x = 8; in.w = 300; in.h = 100; }
-            run(&in);
+            if (s == 3 && n >= 60) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }                  /* the fullscreen box, entered mid-run (every meter has a fullscreen mode) */
+            tr_box_of(&in); run(&in);
         }
         report(s, tr_N, tr_H);
     }
 }
 #pragma pop_macro("paused")
+#endif
+#ifdef PACK_WF
+/* Waterfall: its four presets (two spectrogram, two zones), the degrade levels 1 and 2 for a stretch, loud and quiet bands and a pause; the last scenario enters the fullscreen box mid-run. */
+static void wf_trace(uint16_t *params, void (*apply)(void), void (*run)(const mtr_in_t *), void (*report)(int scen, uint32_t n, uint64_t h))
+{
+    for (int s = 0; s < 4; s++) {
+        for (uint32_t i = 0; i < MPP_WF_N; i++) params[i] = mpp_wf[s][i];
+        if (apply) apply();
+        TR_BEGIN(60606u + (uint32_t)s);
+        for (int n = 0; n < TR_NFRAMES * 2; n++) {
+            uint8_t spec[16]; int8_t wave[64];
+            const int quiet = (n >= 80 && n < 100);
+            for (int i = 0; i < 16; i++) spec[i] = quiet ? 0 : (uint8_t)((tr_rnd() % 256u) * (16u - (uint32_t)i / 2u) / 16u);
+            for (int i = 0; i < 64; i++) wave[i] = 0;
+            mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
+            in.paused = (uint8_t)(n >= 40 && n < 52); in.dt_ms = 40u; in.h = 120;
+            in.degrade = (uint8_t)(n >= 60 && n < 100 ? 1 : n >= 100 && n < 140 ? 2 : 0);
+            if (s == 3 && n >= 120) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }
+            tr_box_of(&in); run(&in);
+        }
+        report(s, tr_N, tr_H);
+    }
+}
 #endif

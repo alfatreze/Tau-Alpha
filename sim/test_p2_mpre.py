@@ -26,14 +26,14 @@ def build(td, mutant):
     return d
 GOOD = ["of3 6 of2 0 last3 6 last2 0", "chladni_after5 1 last2 1 name chladni", "vu_wrap 0"]
 def run_plain(d): return subprocess.run([str(d / "h")], capture_output=True, text=True).stdout.strip().split("\n")
-KEYS = (("winamp_bars", 3), ("winamp_scope", 2), ("chladni", 4), ("layered_wave", 5), ("vu_master", 2))
+KEYS = (("winamp_bars", 3), ("winamp_scope", 2), ("chladni", 4), ("layered_wave", 5), ("vu_master", 2), ("waterfall_grid", 3))
 def metr_spec():
     reg = ta.registry(); ms = []
     for key, n in KEYS:
         ms.append({"key": key, "default_preset": n - 1, "presets": [{"name": "USER %d" % i, "values": dict(p["values"])} for i, p in enumerate(reg[key]["presets"][:n])]})
     return {"meters": ms}
 def metr_expected(spec):
-    reg = ta.registry(); out = ["loaded 5"]
+    reg = ta.registry(); out = ["loaded %d" % len(KEYS)]
     for m, e in enumerate(spec["meters"]):
         keys = [p["key"] for p in reg[e["key"]]["params"]]
         out.append(f"meter {m} npre {len(e['presets'])} boot {e['default_preset']}")

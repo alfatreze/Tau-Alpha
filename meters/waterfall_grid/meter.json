@@ -1,0 +1,108 @@
+{
+  "key": "waterfall_grid",
+  "enum": "VIZ_WATERFALL_GRID",
+  "index": 17,
+  "name": "WATERFALL",
+  "selectable": true,
+  "sel_index": 0,
+  "caps": [],
+  "cost_class": 2,
+  "p2_only": true,
+  "considered": "A grid of small cells, each lit by a band of the spectrum with a fixed random threshold (a lit fraction proportional to the level, three brightness steps): SPECTROGRAM scrolls the rows down (frequency across, time down, scrolled by the draw engine's copy through the stash) and ZONES keeps the grid still, each cell owned by one band scattered over the box (a heat map). A Player 2 test of the pack framework: the drawing code exists only in its pack (meter_pack_waterfall_grid.c); the firmware carries a stub that says so.",
+  "params": [
+    {
+      "key": "mode",
+      "label": "Mode",
+      "type": "enum",
+      "values": [
+        "SPECTROGRAM",
+        "ZONES"
+      ],
+      "default": 0
+    },
+    {
+      "key": "speed",
+      "label": "Scroll speed",
+      "type": "u16",
+      "min": 40,
+      "max": 400,
+      "step": 20,
+      "default": 100,
+      "unit": "ms",
+      "when": {
+        "mode": 0
+      },
+      "note": "milliseconds per row of the spectrogram"
+    },
+    {
+      "key": "gain",
+      "label": "Gain",
+      "type": "u8",
+      "min": 50,
+      "max": 200,
+      "step": 10,
+      "default": 100,
+      "unit": "%",
+      "note": "how bright the grid is for a given level"
+    },
+    {
+      "key": "cell",
+      "label": "Cell size",
+      "type": "u8",
+      "min": 5,
+      "max": 12,
+      "step": 1,
+      "default": 8,
+      "unit": "px",
+      "note": "the cell is this many pixels square, with one pixel between cells"
+    }
+  ],
+  "presets": [
+    {
+      "name": "WATERFALL",
+      "values": {
+        "mode": 0,
+        "speed": 100,
+        "gain": 100,
+        "cell": 8
+      }
+    },
+    {
+      "name": "FAST FALL",
+      "values": {
+        "mode": 0,
+        "speed": 50,
+        "gain": 120,
+        "cell": 6
+      }
+    },
+    {
+      "name": "HEAT MAP",
+      "values": {
+        "mode": 1,
+        "speed": 100,
+        "gain": 110,
+        "cell": 8
+      }
+    },
+    {
+      "name": "FINE GRID",
+      "values": {
+        "mode": 1,
+        "speed": 100,
+        "gain": 100,
+        "cell": 5
+      }
+    }
+  ],
+  "p2": {
+    "slot": 5,
+    "tag": "WF",
+    "compose": false,
+    "budget": {
+      "cold": 4096,
+      "hot_ram": 2200
+    }
+  },
+  "default_preset": 0
+}

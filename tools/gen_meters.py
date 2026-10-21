@@ -400,19 +400,26 @@ def main():
     ap.add_argument("--check", action="store_true")
     args = ap.parse_args()
 
-    meters = load_meters(args.dir)
+    all_meters = load_meters(args.dir)
+    meters = [m for m in all_meters if not m.get("p2_only")]          # the old player's enum and tables
+    p2only = [m for m in all_meters if m.get("p2_only")]              # Player 2 meters: no code in fw/, but part of the registry (schema, docs, Tau Omega, the preview stack)
     by_index, by_sel = validate(meters)
+    for m in p2only:
+        if m["index"] in {x["index"] for x in meters} or m["index"] < len(meters):
+            raise SystemExit(f"{m['_path']}: a p2_only meter needs an index above the old player's 0..{len(meters)-1}")
+    if len({m["index"] for m in p2only}) != len(p2only):
+        raise SystemExit("two p2_only meters share an index")
     planned = load_planned(args.dir)
-    taken = {m["index"] for m in meters}
+    taken = {m["index"] for m in all_meters}
     for m in planned:
-        if m["index"] in taken or m["index"] < len(meters):
-            raise SystemExit(f"{m['_path']}: planned index {m['index']} collides with a firmware meter (firmware ids are 0..{len(meters)-1})")
+        if m["index"] in taken or m["index"] < len(all_meters):
+            raise SystemExit(f"{m['_path']}: planned index {m['index']} collides with a firmware meter (firmware ids are 0..{len(all_meters)-1})")
         taken.add(m["index"])
-    if len({m["enum"] for m in meters + planned}) != len(meters + planned):
+    if len({m["enum"] for m in all_meters + planned}) != len(all_meters + planned):
         raise SystemExit("a planned meter reuses an enum name")
     caps = load_caps()
-    validate_caps(meters + planned, caps)
-    for m in meters + planned:
+    validate_caps(all_meters + planned, caps)
+    for m in all_meters + planned:
         validate_params(m)
 
     ok = True
@@ -435,8 +442,8 @@ def main():
             f.write(text)
         print(f"wrote {out}")
 
-    doc = render_caps_doc(caps, meters + planned)
-    extra = [(os.path.join(ROOT, "fw", "meters_gen.h"), render_modules(meters)), (SCHEMA_PATH, render_schema(meters + planned)), (REGISTRY_DOC, render_registry_doc(meters + planned))]
+    doc = render_caps_doc(caps, all_meters + planned)
+    extra = [(os.path.join(ROOT, "fw", "meters_gen.h"), render_modules(meters)), (SCHEMA_PATH, render_schema(meters + p2only + planned)), (REGISTRY_DOC, render_registry_doc(meters + p2only + planned))]
     if args.check:
         for path, text in extra:
             if not os.path.exists(path) or open(path).read() != text:

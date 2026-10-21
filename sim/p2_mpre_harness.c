@@ -6,7 +6,7 @@ static uint32_t psram_mem[2048];
 #include "../fw2/ui/meters.c"
 uint32_t host_rd(uint32_t a) { (void)a; return 0; }
 void host_wr(uint32_t a, uint32_t v) { (void)a; (void)v; }
-uint16_t th_role[TR_COUNT]; uint32_t mp3play_paused_now(void) { return 0; } caps_t caps;
+uint16_t th_role[TR_COUNT]; uint32_t mp3play_paused_now(void) { return 0; } uint32_t mp3play_degrade_now(void) { return 0; } caps_t caps;
 static uint32_t last[METER_N];
 #define IDX_X(key, nm, id, lc, UC, np, cmp) idx_##key,
 enum { METER_LIST(IDX_X) };

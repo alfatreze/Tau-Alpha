@@ -6,6 +6,7 @@
 
 #define OP_RECT 1u
 #define OP_CHAR 2u
+#define OP_BAR 5u
 
 static uint32_t color_shadow = 0xFFFFFFFFu;
 static inline void wait_fifo(void) { while (REG_RD(R_FB_GO) & 1u) { } }
@@ -29,6 +30,18 @@ void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color)
     if (x + w > GFX_W) w = GFX_W - x;
     if (y + h > GFX_H) h = GFX_H - y;
     rect_raw(x, y, w, h, color);
+}
+void gfx_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg)       /* OP_BAR: the bottom `lit` rows in fg, the rest in bg, one command (the field is 9 bits wide in the bitstream) */
+{
+    if (!w || !h || x >= GFX_W || y >= GFX_H) return;
+    if (x + w > GFX_W) w = GFX_W - x;
+    if (y + h > GFX_H) h = GFX_H - y;
+    if (lit > 511u) lit = 511u;
+    wait_fifo();
+    REG_WR(R_FB_ADDR, y * GFX_STRIDE + x);
+    REG_WR(R_FB_SIZE, (h << 9) | w);
+    set_colors(fg, bg);
+    REG_WR(R_FB_GO, OP_BAR | ((lit & 0x7Fu) << 3) | (((lit >> 7) & 0x3u) << 15));       /* the lit count: cmd_glyph (7 bits) and cmd_glyph_hi (2 bits) */
 }
 void gfx_rect_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t color) { if (w && h) rect_raw(x, y, w, h, color); }      /* the off-screen stash (rows 360.., columns 400..): not clipped to the screen */
 

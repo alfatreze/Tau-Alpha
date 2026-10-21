@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Draw-cost counters of the meters (meter_stats in fw2/ui/meters.c): the cycles of each tick (compose copy included) and of the compose copy alone, the slowest tick of each meter, the number of ticks, and the
-spectrum windows that waited because the governor shed the UI (counted once per window, the window is still drawn later). Mutants: the maximum follows the last value; every shed call counts."""
+spectrum windows that waited because the governor shed the UI (counted once per window, the window is still drawn later). Degrade: at level 1 and 2 only every 2nd / 4th window is drawn, a forced repaint never skipped. Mutants: the maximum follows the last value; every shed call counts; the degrade level is ignored; a forced repaint can be skipped."""
 import subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,6 +14,8 @@ def build(td, mutant):
     for sub in ("ui", "gfx", "platform", "cores", "generated", "sim"): (d / sub).mkdir()
     src = (ROOT / "fw2/ui/meters.c").read_text()
     if mutant == "lastmax": a = "if (spent > meter_stats.max_cyc[cur]) meter_stats.max_cyc[cur] = spent;"; assert a in src; src = src.replace(a, "meter_stats.max_cyc[cur] = spent;")
+    if mutant == "nodegrade": a = "if (dg && dg < 3u && !force_next) {"; assert a in src; src = src.replace(a, "if (0) {")
+    if mutant == "skipforce": a = "if (dg && dg < 3u && !force_next) {"; assert a in src; src = src.replace(a, "if (dg && dg < 3u) {")
     if mutant == "everyshed": a = "if (w0 != win_seen && w0 != shed_win) { meter_stats.shed++; shed_win = w0; }"; assert a in src; src = src.replace(a, "if (w0 != win_seen) { meter_stats.shed++; shed_win = w0; }")
     (d / "ui/meters.c").write_text(src)
     for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
@@ -29,12 +31,16 @@ GOOD = ["a ticks 1 shed 0 last 100 compose 0 max 100 0 0 0 0",
         "d ticks 3 shed 1 last 340 compose 40 max 100 0 340 0 0",
         "e ticks 3 shed 1 last 340 compose 40 max 100 0 340 0 0",
         "f ticks 4 shed 1 last 940 compose 40 max 100 0 940 0 0",
-        "g ticks 5 shed 1 last 90 compose 40 max 100 0 940 0 0"]
+        "g ticks 5 shed 1 last 90 compose 40 max 100 0 940 0 0",
+        "deg1 drawn 4 skipped 4", "deg2 drawn 2 skipped 6", "force drawn 1 skipped 0", "deg0 drawn 3"]
+import re
+METER_N = int(re.search(r"#define METER_N (\d+)u", (ROOT / "fw2/generated/meter_registry.h").read_text()).group(1))
+GOOD = [(g + " 0" * (METER_N - 5)) if g[0] in "abcdefg" and len(g.split()[0]) == 1 else g for g in GOOD]       # the expectations are written for five meters: the others have not drawn
 with tempfile.TemporaryDirectory() as td:
     out = run(build(td, None))
     for g, o in zip(GOOD, out): check("%s: %s" % (g[0], g[2:]), g == o) if g != o else check("%s: %s" % (g[0], g[2:]), True)
     check("every step printed", len(out) == len(GOOD))
-for m, name in (("lastmax", "the maximum follows the last value"), ("everyshed", "every shed call counts")):
+for m, name in (("lastmax", "the maximum follows the last value"), ("everyshed", "every shed call counts"), ("nodegrade", "the degrade level is ignored"), ("skipforce", "a forced repaint can be skipped")):
     with tempfile.TemporaryDirectory() as td:
         check("mutant (%s) is caught" % name, run(build(td, m)) != GOOD)
 print("PASSED" if not fails else f"FAILED ({fails})")

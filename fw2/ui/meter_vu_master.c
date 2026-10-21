@@ -11,6 +11,7 @@
  * DANGER roles), a held-peak marker per channel. The dB-to-segment table and the "at most three coalesced rectangles" rule are the old player's host-tested core. The technical-info overlay of the old meter
  * (format, rate, CPU, decode share, SDRAM busy) is not ported: those readings are on the Info page. */
 #define LABEL_W 18u
+#define LABEL_PAD 2u
 #define ROW_H 12u
 #define SCALE_Y 26u
 #define ROW2_Y 28u
@@ -83,9 +84,9 @@ static void face(uint32_t x0, uint32_t y0, uint32_t w, uint16_t bg)
 }
 void meter_vu_master_tick(const mtr_in_t *in)
 {
-    const uint32_t x0 = in->x, y0 = in->y, w = in->w; const uint16_t bg = in->bg; const uint32_t force = in->force;
+    const uint32_t x0 = in->x, y0 = in->y + LABEL_PAD, w = in->w;   /* the ladders sit LABEL_PAD below the box top: the labels' 16 px cells are centred on the 12 px rows and must stay inside the box */ const uint16_t bg = in->bg; const uint32_t force = in->force;
     if (force) {
-        gfx_rect(x0, y0, w, in->h, bg);
+        gfx_rect(x0, in->y, w, in->h, bg);
         lit_drawn[0] = lit_drawn[1] = peak_drawn[0] = peak_drawn[1] = 0xFFu;
         face(x0, y0, w, bg);
     }

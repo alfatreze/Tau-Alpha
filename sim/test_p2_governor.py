@@ -27,6 +27,10 @@ class Gov:                                          # an independent statement o
             if f >= thr + s.h: s.mode -= 1; s.entered[s.mode] += 1
         return s.mode
     def want(s, f): return f < s.hi
+    def degrade(s, f):
+        if s.mode != 0: return 3
+        span = s.hi - s.t[0]; above = max(0, f - s.t[0])
+        return 0 if above >= span * 2 // 3 else 1 if above >= span // 3 else 2
 
 def fills(seed):
     r = random.Random(seed); g = Gov(CAP); f = r.randrange(0, CAP); out = []
@@ -50,8 +54,8 @@ def agrees(exe):
         fl = fills(sd); g = Gov(CAP)
         out = subprocess.run([str(exe)], input=f"{CAP}\n" + "\n".join(map(str, fl)) + "\n", capture_output=True, text=True).stdout.split("\n")
         for f, line in zip(fl, out):
-            m, w = map(int, line.split())
-            if m != g.update(f) or bool(w) != g.want(f): return False
+            m, w, dg = map(int, line.split())
+            if m != g.update(f) or bool(w) != g.want(f) or dg != g.degrade(f): return False
     return True
 
 # ---- the scheduling simulation -----------------------------------------------------------------------------------------------------------------------------------
@@ -87,7 +91,7 @@ with tempfile.TemporaryDirectory() as td:
     d = Path(td)
     good = build(d, 0)
     check("governor core equals the twin over 120 random and threshold-hugging sequences (modes and the decode flag)", agrees(good))
-    for b, nm in {1: "a level exactly at a threshold falls a mode", 2: "no hysteresis (the mode flaps around a threshold)", 3: "recovery jumps straight to the wanted mode instead of one step"}.items():
+    for b, nm in {1: "a level exactly at a threshold falls a mode", 2: "no hysteresis (the mode flaps around a threshold)", 3: "recovery jumps straight to the wanted mode instead of one step", 4: "the meter degrade level uses halves and quarters instead of thirds"}.items():
         check(f"mutant caught: {nm}", not agrees(build(d, b)))
 
 # MP3 128 kbps stereo: 11.5 ms of CPU for a 1152-pair frame; the UI costs 2 ms a pass

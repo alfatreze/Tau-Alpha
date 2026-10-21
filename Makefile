@@ -57,7 +57,7 @@ test-host:
 	$(PYTHON) sim/test_eq_coeff_precision.py
 	$(PYTHON) sim/test_halcyon_generator.py
 	$(PYTHON) sim/test_cymo_gain_model.py
-	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js && $(PYTHON) sim/test_p2_meter_golden.py && $(PYTHON) sim/test_layered_wave_golden.py && $(PYTHON) sim/test_meter_trace.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
+	@if command -v node >/dev/null 2>&1; then $(PYTHON) tools/meters/preview/build.py --check && node tools/meters/preview/test.js </dev/null && $(PYTHON) sim/test_p2_meter_golden.py && $(PYTHON) sim/test_layered_wave_golden.py && $(PYTHON) sim/test_meter_trace.py; else echo "node not found: meter preview and golden-frame tests skipped"; fi
 	$(PYTHON) tools/gen_themes.py --check
 	$(PYTHON) sim/test_psram_decode.py
 	$(PYTHON) sim/test_library_index.py

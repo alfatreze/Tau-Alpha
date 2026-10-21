@@ -29,6 +29,8 @@ typedef struct {
     void           (*blit)(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);       /* gfx_blit: a copy inside the buffer being drawn into */
     void           (*blit_abs)(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);   /* gfx_blit_abs: stash to stash (self-tests) */
     void           (*sblit)(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t scale);   /* gfx_sblit: a scaled copy from the stash */
+    void           (*bar)(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg);   /* gfx_bar: a bar column in one command (the bottom `lit` rows in fg, the rest in bg) */
+    void           (*scroll_down)(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d);                      /* gfx_scroll_down: the box moves down d rows (the framework's scroll: a few copies, not a redraw) */
 } mtr_host_api_t;
 
 typedef uint32_t (*mtr_pack_entry_fn)(const mtr_in_t *in, const mtr_host_api_t *api);

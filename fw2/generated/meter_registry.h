@@ -2,13 +2,14 @@
 #ifndef P2_METER_REGISTRY_H
 #define P2_METER_REGISTRY_H
 #include <stdint.h>
-#define METER_N 5u
+#define METER_N 6u
 /* X(key, NAME, manifest_id, tag_lower, TAG, presets, compose), in table order (the saved meter is the table index: slots never move, new meters append) */
 #define METER_LIST(X) \
     X(winamp_bars, "WINAMP BARS", 12, bars, BARS, 5, 0) \
     X(winamp_scope, "WINAMP SCOPE", 13, scope, SCOPE, 5, 0) \
     X(chladni, "CHLADNI", 14, chl, CHL, 4, 1) \
     X(layered_wave, "LAYERED WAVE", 16, lw, LW, 16, 1) \
-    X(vu_master, "VU MASTER", 15, vu, VU, 3, 0)
-static const uint8_t meter_manifest_id[METER_N] = { 12, 13, 14, 16, 15 };      /* the id of each table entry in tau-assets.bin METR and the reports */
+    X(vu_master, "VU MASTER", 15, vu, VU, 3, 0) \
+    X(waterfall_grid, "WATERFALL", 17, wf, WF, 4, 0)
+static const uint8_t meter_manifest_id[METER_N] = { 12, 13, 14, 16, 15, 17 };      /* the id of each table entry in tau-assets.bin METR and the reports */
 #endif

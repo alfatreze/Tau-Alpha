@@ -41,6 +41,14 @@ extern uint8_t font_adv_cur[];                  /* the advance of every glyph of
 int  gfx_held(void);
 void gfx_xfade_step(uint32_t a);
 void gfx_xfade_end(void);
+/* Meter drawing methods (Helios level): the efficient way for a meter to do what it needs most. A meter calls these (a pack through the host table) instead of hand-rolling loops of rectangles.
+ *   gfx_bar     one column of a bar meter in ONE command: h rows, the bottom `lit` rows in fg, the rest in bg (OP_BAR, lit up to 511); half the commands of two rectangles.
+ *   gfx_scroll_down  the box (x, y, w, h) moves down by d rows (the top d rows are left as they were: the caller paints the new row), through the stash, in chunks the engine can take: a waterfall costs
+ *               a handful of copies a step instead of a redraw. Uses the stash rows 780..979 and columns 0..399.
+ * The off-screen stash map (rows 360 and below, shared by both buffers): 400..527 album-art plane, 560..587 icons, 600..721 scope background strip (columns 0..111), 740..771 meter previews, 780..979 scroll
+ * temporary, 984..1023 Chladni plane and the probe words; columns 400..511 of every row hold the engine's own markers. A new user of the stash adds its rows here. */
+void gfx_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t fg, uint16_t bg);
+void gfx_scroll_down(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d);
 /* Alpha blend (OP_BLIT only): on(a), blend_blit(...) any number of times, off() (fences). */
 int  gfx_blend_ready(void);
 void gfx_blend_on(uint32_t a);

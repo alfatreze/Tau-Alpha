@@ -13,7 +13,7 @@ uint32_t host_rd(uint32_t a)
     return 0;
 }
 void host_wr(uint32_t a, uint32_t v) { (void)a; (void)v; }
-uint16_t th_role[TR_COUNT]; uint32_t mp3play_paused_now(void) { return 0; } caps_t caps;
+uint16_t th_role[TR_COUNT]; uint32_t mp3play_paused_now(void) { return 0; } uint32_t degrade_level; uint32_t mp3play_degrade_now(void) { return degrade_level; } caps_t caps;
 #define IDX_X(key, nm, id, lc, UC, np, cmp) idx_##key,
 enum { METER_LIST(IDX_X) };
 #define STUB_X(key, nm, id, lc, UC, np, cmp) \
@@ -48,5 +48,16 @@ int main(void)
     show("f");
     win = 5; spend[2] = 50; meters_tick(1);                   /* a faster one does not lower it */
     show("g");
+    uint32_t t0 = meter_stats.ticks, d0 = meter_stats.degraded;
+    degrade_level = 1; for (int i = 0; i < 8; i++) { win++; meters_tick(1); }                  /* level 1: every second window is drawn */
+    printf("deg1 drawn %u skipped %u\n", meter_stats.ticks - t0, meter_stats.degraded - d0);
+    t0 = meter_stats.ticks; d0 = meter_stats.degraded;
+    degrade_level = 2; for (int i = 0; i < 8; i++) { win++; meters_tick(1); }                  /* level 2: every fourth */
+    printf("deg2 drawn %u skipped %u\n", meter_stats.ticks - t0, meter_stats.degraded - d0);
+    t0 = meter_stats.ticks; d0 = meter_stats.degraded;
+    meters_select(1); win++; meters_tick(1);                                                    /* a forced repaint is never skipped */
+    printf("force drawn %u skipped %u\n", meter_stats.ticks - t0, meter_stats.degraded - d0);
+    degrade_level = 0; t0 = meter_stats.ticks; for (int i = 0; i < 3; i++) { win++; meters_tick(1); }
+    printf("deg0 drawn %u\n", meter_stats.ticks - t0);
     return 0;
 }

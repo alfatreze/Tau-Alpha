@@ -89,4 +89,6 @@ static inline int mtr_delta(uint8_t *drawn_a, uint8_t *drawn_b, uint8_t a, uint8
     *drawn_a = a; *drawn_b = b;
     return 1;
 }
+/* The standard degrade policy a meter follows for its own detail (the host already skips whole windows): the divisor to apply to its work, 1 at level 0, 2 at level 1, 4 at level 2 and above. */
+static inline uint32_t mtr_degrade_div(uint32_t level) { return level >= 2u ? 4u : level == 1u ? 2u : 1u; }
 #endif

@@ -75,6 +75,20 @@ static inline gov_mode_t gov_update(gov_t *g, uint32_t fill)
     return g->mode;
 }
 
+/* Meter degrade level 0..3: how much the meters must give up so the audio keeps its lead (fw2/ui/meter.h mtr_in_t.degrade; meters.c skips windows by it for every meter). Inside NORMAL the ring level above the
+ * 50% line is split in thirds of the span up to the decode ceiling: top third 0 (full), middle third 1 (every second picture), lower third 2 (every fourth); SHED_UI and worse 3 (the meters are off, drawn again
+ * when the mode recovers). No memory: a level that flaps costs only a changed picture rate, never a decision about audio. */
+static inline uint32_t gov_degrade(const gov_t *g, gov_mode_t mode, uint32_t fill)
+{
+    if (mode != GOV_NORMAL) return 3u;
+    const uint32_t span = g->hi - g->t50, above = fill > g->t50 ? fill - g->t50 : 0u;
+#if BUG == 4
+    return above >= span / 2u ? 0u : above >= span / 4u ? 1u : 2u;                       /* wrong thirds */
+#else
+    return above >= span * 2u / 3u ? 0u : above >= span / 3u ? 1u : 2u;
+#endif
+}
+
 /* True while the decoder should keep producing. */
 static inline int gov_decode_wanted(const gov_t *g, uint32_t fill) { return fill < g->hi; }
 #endif
