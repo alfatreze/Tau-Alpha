@@ -42,6 +42,9 @@ class Machine:
         self.dma_dst = self.dma_src = self.dma_len = 0
         self.halted = None
         self.icount = 0
+        self.count_regions = []          # optional data-access accounting: [(name, lo, hi)]; see --count
+        self.count_rd = {}
+        self.count_wr = {}
 
     # ---- ELF ---------------------------------------------------------------
     def load_elf(self, path):
@@ -103,6 +106,8 @@ class Machine:
         mem, reg = self.mem, self.reg
         pc = self.pc
         n = 0
+        regions = self.count_regions
+        cnt_rd, cnt_wr = self.count_rd, self.count_wr
         while n < max_instr:
             n += 1
             ins = (mem[pc] | (mem[pc + 1] << 8) |
@@ -197,6 +202,11 @@ class Machine:
                 if imm & 0x800:
                     imm -= 0x1000
                 addr = (reg[rs1] + imm) & M32
+                if regions:
+                    for nm, lo, hi in regions:
+                        if lo <= addr < hi:
+                            cnt_rd[nm] = cnt_rd.get(nm, 0) + 1
+                            break
                 if addr >= MMIO:
                     v = self.mmio_load(addr)
                 elif f3 == 2:
@@ -220,6 +230,11 @@ class Machine:
                     imm -= 0x1000
                 addr = (reg[rs1] + imm) & M32
                 v = reg[rs2]
+                if regions:
+                    for nm, lo, hi in regions:
+                        if lo <= addr < hi:
+                            cnt_wr[nm] = cnt_wr.get(nm, 0) + 1
+                            break
                 if addr >= MMIO:
                     self.mmio_store(addr, v)
                     if self.halted is not None:
@@ -295,11 +310,20 @@ def main():
         print('usage: rv32sim.py <elf> [datafile]')
         return 2
     m = Machine()
-    m.load_elf(sys.argv[1])
-    if len(sys.argv) > 2:
-        m.blob = open(sys.argv[2], 'rb').read()
+    args = []
+    for a in sys.argv[1:]:                            # --count NAME:LO:HI counts data loads and stores to that range (decimal or 0x hex)
+        if a.startswith('--count='):
+            nm, lo, hi = a[8:].split(':')
+            m.count_regions.append((nm, int(lo, 0), int(hi, 0)))
+        else:
+            args.append(a)
+    m.load_elf(args[0])
+    if len(args) > 1:
+        m.blob = open(args[1], 'rb').read()
     rc = m.run()
     sys.stderr.write('[%s instructions, exit %s]\n' % (format(m.icount, ','), rc))
+    for nm, _, _ in m.count_regions:
+        sys.stderr.write('[access %s reads %d writes %d]\n' % (nm, m.count_rd.get(nm, 0), m.count_wr.get(nm, 0)))
     return 0 if rc in (0, None) else 1
 
 

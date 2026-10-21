@@ -96,6 +96,7 @@ test-host:
 	$(PYTHON) sim/test_p2_mpre.py
 	$(PYTHON) sim/test_p2_ramp.py
 	$(PYTHON) sim/test_p2_meter_stats.py
+	$(PYTHON) sim/test_p2_meter_pack.py
 	$(PYTHON) sim/test_p2_meter_budget.py
 	$(PYTHON) sim/test_p2_configure.py
 	$(PYTHON) sim/test_p2_configure_view.py

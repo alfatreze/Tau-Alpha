@@ -37,7 +37,8 @@ def meter_violations(f, root, text):
             if "/fw/" in "/" + Path(inc).as_posix() or inc.startswith("../../fw/") or "fw/" in inc: continue        # an old-player core (transitional)
             continue                                                                                           # system or vendor header
         if rel in METER_OK_FILES or rel.split("/")[0] in METER_OK_DIRS: continue
-        if rel == "ui/" + f.name[len("meter_"):-2] + ".inc": continue                  # a meter's own body (meter_layered_wave.c includes layered_wave.inc)
+        if rel == "ui/" + f.name[len("meter_"):-2] + ".inc": continue
+        if f.name.startswith("meter_pack_") and rel in ("ui/meter_pack.h", "ui/meter_" + f.name[len("meter_pack_"):-2] + ".c"): continue      # a pack's entry source: the pack ABI and the meter's own source                  # a meter's own body (meter_layered_wave.c includes layered_wave.inc)
         out.append(f"{f.relative_to(root)}:{line_no}: a meter module may include only meter.h, theme.h, gfx/, platform/mmio.h, cores/ and generated/ ({inc})")
     return out
 
