@@ -169,6 +169,7 @@ static void wf_trace(uint16_t *params, void (*apply)(void), void (*run)(const mt
         for (uint32_t i = 0; i < MPP_WF_N; i++) params[i] = mpp_wf[s][i];
         if (apply) apply();
         TR_BEGIN(60606u + (uint32_t)s);
+        uint32_t elapsed = 0; const uint32_t period = mpp_wf[s][MPP_WF_SPEED];
         for (int n = 0; n < TR_NFRAMES * 2; n++) {
             uint8_t spec[16]; int8_t wave[64];
             const int quiet = (n >= 80 && n < 100);
@@ -178,6 +179,10 @@ static void wf_trace(uint16_t *params, void (*apply)(void), void (*run)(const mt
             in.paused = (uint8_t)(n >= 40 && n < 52); in.dt_ms = 40u; in.h = 120;
             in.degrade = (uint8_t)(n >= 60 && n < 100 ? 1 : n >= 100 && n < 140 ? 2 : 0);
             if (s == 3 && n >= 120) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }
+            if (mpp_wf[s][MPP_WF_MODE] == 0 && !in.force) {      /* the host's cadence (meters.c): drawn once per `speed` ms with the whole periods that elapsed as dt */
+                elapsed += 40u; if (elapsed < period) continue;
+                const uint32_t k = elapsed / period; in.dt_ms = (uint16_t)(k * period); elapsed -= k * period;
+            } else elapsed = 0;
             tr_box_of(&in); run(&in);
         }
         report(s, tr_N, tr_H);

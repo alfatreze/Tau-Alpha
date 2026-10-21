@@ -98,10 +98,24 @@
   "p2": {
     "slot": 5,
     "tag": "WF",
-    "compose": false,
+    "compose": {
+      "param": "mode",
+      "in": [
+        0
+      ]
+    },
     "budget": {
       "cold": 4096,
       "hot_ram": 2200
+    },
+    "cadence": {
+      "param": "speed",
+      "when": {
+        "param": "mode",
+        "in": [
+          0
+        ]
+      }
     }
   },
   "default_preset": 0

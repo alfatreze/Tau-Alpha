@@ -207,6 +207,10 @@ static void pack_tick(const mtr_in_t *in)
 }
 #endif
 meter_stats_t meter_stats;
+/* cmp: the compose and cadence codes of the registry (tools/player2/gen_meters_p2.py cmp_code). A gate is bit 15, the gating parameter in bits 14..10 and a mask of the values that enable it in bits 9..6. */
+static int cmp_gate(const uint16_t *mv, uint32_t c) { if (!(c & 0x8000u)) return 1; const uint32_t v = mv[(c >> 10) & 31u]; return v < 4u && ((c >> (6u + v)) & 1u); }
+static int composed(const meter_def_t *d) { const uint32_t c = d->cmp & 0xFFFFu; return c == 1u || (c > 1u && cmp_gate(d->mv, c)); }
+static uint32_t cadence_ms(const meter_def_t *d) { const uint32_t c = d->cmp >> 16; return (c && cmp_gate(d->mv, c)) ? d->mv[c & 31u] : 0u; }
 static uint32_t shed_win = 0xFFFFFFFFu, degrade_win;                  /* the last window counted as shed */
 _Static_assert(METER_N <= 8u, "meter_stats_t.max_cyc holds eight meters: widen it with the registry");
 void meters_tick(int allowed)
@@ -224,12 +228,16 @@ void meters_tick(int allowed)
      * accumulating, the elapsed time adds up), whatever the meter; a forced repaint is never skipped. At level 3 the governor has already turned the meters off (meters_tick(0)). */
     const uint32_t dg = mp3play_degrade_now();
     if (dg && dg < 3u && !force_next) { degrade_win++; if (degrade_win & ((1u << dg) - 1u)) { meter_stats.degraded++; return; } }
-    const uint32_t t = cycles(), dt = (t - last_t) / (CLK_HZ / 1000u); last_t = t;
+    /* Cadence: a meter that is drawn once per N ms (a scroll) is not drawn, and not composed, in between: the time adds up (last_t stays) and it is called with exactly the whole periods that have elapsed
+     * as dt_ms, the remainder carried, so its speed is the set one whatever the window rate. A forced repaint draws at once. */
+    const uint32_t t = cycles(), cad = cadence_ms(&meter_table[cur]);
+    uint32_t dt = (t - last_t) / (CLK_HZ / 1000u);
+    if (cad && !force_next) { if (dt < cad) return; const uint32_t n = dt / cad; dt = n * cad; last_t += dt * (CLK_HZ / 1000u); } else last_t = t;
     uint32_t pl = 0, pr = 0;
     if (caps.wave) { const uint32_t pk = REG_RD(R_WAVE_PK); pl = ((pk & 0xFFFFu) * 3u) / 4u; pr = ((pk >> 16) * 3u) / 4u; REG_WR(R_WAVE_CTL, 1u); }      /* peaks since the last tick, then cleared */
     mtr_in_t in = { lvl, frame++, (uint16_t)(dt > 200u ? 200u : dt), (uint16_t)bx, (uint16_t)by, (uint16_t)bw, (uint16_t)bh, th_role[TR_BG_BOTTOM], (uint8_t)force_next, (uint8_t)mp3play_paused_now(), pl, pr, (uint8_t)dg };
     force_next = 0;
-    const int comp = meter_table[cur].compose && gfx_compose_begin(bx, by, bw, bh);
+    const int comp = composed(&meter_table[cur]) && gfx_compose_begin(bx, by, bw, bh);
 #ifdef P2_PACKS
     if (pack_ok(cur)) pack_tick(&in); else
 #endif

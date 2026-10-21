@@ -145,6 +145,7 @@ static void blit_op(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t
 void gfx_cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { blit_op(sx, sy, dx, dy, w, h, OP_CBLIT, 0u, buf_base(cpu_buf)); }
 void gfx_cblit_abs(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { blit_op(sx, sy, dx, dy, w, h, OP_CBLIT, 0u, 0u); }
 void gfx_blit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { blit_op(sx, sy, dx, dy, w, h, OP_BLIT, buf_base(cpu_buf), buf_base(cpu_buf)); }
+void gfx_blit_to_stash(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { blit_op(sx, sy, dx, dy, w, h, OP_BLIT, buf_base(cpu_buf), 0u); }
 void gfx_blit_stash(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { blit_op(sx, sy, dx, dy, w, h, OP_BLIT, 0u, buf_base(cpu_buf)); }
 void gfx_blit_abs(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { blit_op(sx, sy, dx, dy, w, h, OP_BLIT, 0u, 0u); }
 void gfx_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t scale)
