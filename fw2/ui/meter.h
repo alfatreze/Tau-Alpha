@@ -38,6 +38,8 @@ typedef struct {
     uint32_t cmds_last;             /* draw-engine commands the last tick issued */
     uint32_t cmds_max;              /* the most commands one drawn tick has issued since boot (forced repaints included) */
     uint32_t over;                  /* drawn ticks that exceeded the meter's command ceiling (each raised its own degrade level; cores/meter_budget_core.h) */
+    uint32_t overruns;              /* ticks of a pack over its cycle limit (cores/pack_strike_core.h) */
+    uint32_t struck;                /* packs disabled for the session after three overruns */
     uint32_t rows;                  /* the visible rows the last tick wrote: first << 16 | one past the last (0 when it drew nothing visible) */
     uint32_t direct;                /* ticks drawn straight onto the shown buffer (not composed, no idle-buffer frame), forced repaints excluded */
     uint32_t exposed;               /* of those, the ticks that began while the beam was inside the rows they wrote (seen half old, half new for a frame) */

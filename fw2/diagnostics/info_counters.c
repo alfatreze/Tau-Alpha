@@ -225,6 +225,8 @@ const cnt_t counters_table[] = {
     U32("METER CMDS",   CU_NONE,   &meter_stats.cmds_last),   /* draw-engine commands of the last tick */
     U32("METER CMDS MAX", CU_NONE, &meter_stats.cmds_max),    /* the most commands one tick has issued since boot */
     U32("METER OVER",   CU_NONE,   &meter_stats.over),        /* ticks over the meter's command ceiling (each lowered its picture rate) */
+    U32("PACK OVERRUNS", CU_NONE,  &meter_stats.overruns),    /* ticks of a pack over its cycle limit */
+    U32("PACKS STRUCK", CU_NONE,   &meter_stats.struck),      /* packs disabled for the session after three overruns (PACK ERR 40) */
     U32("METER ROWS",   CU_NONE,   &meter_stats.rows),        /* the rows the last tick wrote: first << 16 | end */
     U32("METER DIRECT", CU_NONE,   &meter_stats.direct),      /* ticks drawn straight onto the shown buffer */
     U32("METER EXPOSED", CU_NONE,  &meter_stats.exposed),     /* of those, ticks that began with the beam inside the rows they wrote (a tear risk) */

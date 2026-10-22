@@ -146,7 +146,7 @@
     }
   ],
   "p2": {
-    "cmds": 3072,
+    "cmds": 3072, "max_cycles": 5000000,
     "slot": 5,
     "tag": "WF",
     "compose": {

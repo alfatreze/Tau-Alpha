@@ -89,6 +89,8 @@ for n, d in enumerate(ORDER):
 rout.append("static const uint8_t meter_manifest_id[METER_N] = { " + ", ".join(str(d["index"]) for d in ORDER) + " };      /* the id of each table entry in tau-assets.bin METR and the reports */")
 rout.append("/* the draw-command ceiling of one drawn tick of each meter (manifest p2.cmds; 0 = unbudgeted): cores/meter_budget_core.h */")
 rout.append("static const uint16_t meter_cmd_budget[METER_N] = { " + ", ".join(str(d["p2"].get("cmds", 0)) for d in ORDER) + " };")
+rout.append("/* the cycles one drawn tick of a PACK may take (manifest p2.max_cycles; 0 = no limit): three overruns disable the pack, cores/pack_strike_core.h */")
+rout.append("static const uint32_t meter_cyc_limit[METER_N] __attribute__((unused)) = { " + ", ".join("%du" % d["p2"].get("max_cycles", 0) for d in ORDER) + " };")
 rout += ["#endif", ""]
 reg_text = "\n".join(rout)
 
