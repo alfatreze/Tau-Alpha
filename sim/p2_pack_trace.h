@@ -174,10 +174,10 @@ static void lw_trace(uint16_t *params, void (*apply)(void), void (*run)(const mt
 #pragma pop_macro("paused")
 #endif
 #ifdef PACK_WF
-/* Waterfall: its four presets (two spectrogram, two zones), the degrade levels 1 and 2 for a stretch, loud and quiet bands and a pause; the last scenario enters the fullscreen box mid-run. */
+/* Waterfall: its seven presets (two spectrogram, two zones, dust, two sparkle), the degrade levels 1 and 2 for a stretch, loud and quiet bands and a pause; the last scenario enters the fullscreen box mid-run. */
 static void wf_trace(uint16_t *params, void (*apply)(void), void (*run)(const mtr_in_t *), void (*report)(int scen, uint32_t n, uint64_t h))
 {
-    for (int s = 0; s < 5; s++) {
+    for (int s = 0; s < (int)MPP_WF_PRESETS; s++) {
         for (uint32_t i = 0; i < MPP_WF_N; i++) params[i] = mpp_wf[s][i];
         if (apply) apply();
         TR_BEGIN(60606u + (uint32_t)s);

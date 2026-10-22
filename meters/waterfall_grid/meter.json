@@ -8,7 +8,7 @@
   "caps": [],
   "cost_class": 2,
   "p2_only": true,
-  "considered": "A grid of small cells, always drawn (unlit cells are a dim cell, so the grid is always visible). SPECTROGRAM: frequency across, time down; the grid scrolls smoothly a few pixels per picture (the engine's copy, gfx_scroll_down) at a set pixel speed and each new row enters cell by cell from the top edge; a cell's brightness follows its band's level in three steps. ZONES: the grid keeps still, split into 4 x 4 regions (bass top-left to treble bottom-right in reading order), each region one band that fills from its centre outwards as the level rises (a heat map). DUST: the same still grid with the bands scattered at random over the cells. A Player 2 test of the pack framework: the drawing code exists only in its pack (meter_pack_waterfall_grid.c); the firmware carries a stub that says so.",
+  "considered": "A grid of small cells, always drawn (unlit cells are a dim cell, so the grid is always visible). SPECTROGRAM: frequency across, time down; the grid scrolls smoothly a few pixels per picture (the engine's copy, gfx_scroll_down) at a set pixel speed and each new row enters cell by cell from the top edge; a cell's brightness follows its band's level in three steps. ZONES: the grid keeps still, split into 4 x 4 regions (bass top-left to treble bottom-right in reading order), each region one band that fills from its centre outwards as the level rises (a heat map). DUST: the same still grid with the bands scattered at random over the cells. A Player 2 test of the pack framework: the drawing code exists only in its pack (meter_pack_waterfall_grid.c); the firmware carries a stub that says so. SPARKLE: the still grid; a band that jumps well above its own running average (an onset: a hit, a pluck) lights a burst of cells around its column, which fades back to dim in three steps over the Fade time; silence and sustained notes light nothing.",
   "params": [
     {
       "key": "mode",
@@ -17,7 +17,8 @@
       "values": [
         "SPECTROGRAM",
         "ZONES",
-        "DUST"
+        "DUST",
+        "SPARKLE"
       ],
       "default": 0
     },
@@ -56,6 +57,20 @@
       "default": 8,
       "unit": "px",
       "note": "the cell is this many pixels square, with one pixel between cells"
+    },
+    {
+      "key": "fade",
+      "label": "Fade time",
+      "type": "u16",
+      "min": 200,
+      "max": 2000,
+      "step": 100,
+      "default": 700,
+      "unit": "ms",
+      "when": {
+        "mode": 3
+      },
+      "note": "how long a flash takes to fade back to the dim grid"
     }
   ],
   "presets": [
@@ -65,7 +80,8 @@
         "mode": 0,
         "speed": 90,
         "gain": 100,
-        "cell": 8
+        "cell": 8,
+        "fade": 700
       }
     },
     {
@@ -74,7 +90,8 @@
         "mode": 0,
         "speed": 180,
         "gain": 120,
-        "cell": 6
+        "cell": 6,
+        "fade": 700
       }
     },
     {
@@ -83,7 +100,8 @@
         "mode": 1,
         "speed": 90,
         "gain": 110,
-        "cell": 8
+        "cell": 8,
+        "fade": 700
       }
     },
     {
@@ -92,7 +110,8 @@
         "mode": 1,
         "speed": 90,
         "gain": 100,
-        "cell": 5
+        "cell": 5,
+        "fade": 700
       }
     },
     {
@@ -101,7 +120,28 @@
         "mode": 2,
         "speed": 90,
         "gain": 110,
-        "cell": 8
+        "cell": 8,
+        "fade": 700
+      }
+    },
+    {
+      "name": "SPARKLE",
+      "values": {
+        "mode": 3,
+        "speed": 90,
+        "gain": 100,
+        "cell": 8,
+        "fade": 700
+      }
+    },
+    {
+      "name": "STARS",
+      "values": {
+        "mode": 3,
+        "speed": 90,
+        "gain": 130,
+        "cell": 5,
+        "fade": 1200
       }
     }
   ],
