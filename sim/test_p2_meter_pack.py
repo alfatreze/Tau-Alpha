@@ -68,6 +68,8 @@ def main():
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=len(METERS)) as ex: results = list(ex.map(per_meter, METERS))
         for key, blob_k, info, blob_hw, info_hw, want_k, elf_k, got in results:
+            dl, dm = struct.unpack("<II", blob_k[-8:]); import meter_desc as _md
+            check("%s: the pack's last bytes are its meter descriptor (trailer found from the end, equal to what tools/player2/meter_desc.py builds from the manifest, and it parses)" % key, dm == 0x31435344 and dl % 4 == 0 and blob_k[-dl:] == _md.for_meter(key) and _md.parse_desc(blob_k[-dl:])["name"], dl)
             check("%s: the pack builds freestanding (no undefined symbols) at the simulator slot" % key, len(blob_k) > 48 and info["entry"] == 0)
             check("%s: the working state fits the on-chip scratch area (4 KB) (Chladni is the largest user)" % key, 0 < info["data"] + info["bss"] <= 3072 and info["pstate"] <= 4096, str(info))
             check("%s: the same pack links at its real slot address and the real scratch address (the ABI defaults)" % key, struct.unpack_from("<I", blob_hw, 32)[0] == pm.SCRATCH_ORG and info_hw["org"] == pm.SLOT_BASE + pm.SLOT[key] * pm.SLOT_SIZE)

@@ -17,6 +17,7 @@ static uint32_t g_cmds;
 #define gfx_blend_off()       g_api->blend_off()
 #undef  th_role
 #define th_role               g_api->role
+#include "../generated/desc_winamp_scope.h"          /* the meter descriptor this pack carries (section .mtr_desc, tools/player2/meter_desc.py) */
 #include "meter_winamp_scope.c"
 
 void *memset(void *d, int c, unsigned n) { uint8_t *p = (uint8_t *)d; while (n--) *p++ = (uint8_t)c; return d; }

@@ -13,6 +13,7 @@ static uint32_t g_cmds;
 #define gfx_text(...)   (g_cmds++, g_api->text(__VA_ARGS__))
 #undef  th_role
 #define th_role         g_api->role
+#include "../generated/desc_vu_master.h"          /* the meter descriptor this pack carries (section .mtr_desc, tools/player2/meter_desc.py) */
 #include "meter_vu_master.c"
 
 void *memset(void *d, int c, unsigned n) { uint8_t *p = (uint8_t *)d; while (n--) *p++ = (uint8_t)c; return d; }
