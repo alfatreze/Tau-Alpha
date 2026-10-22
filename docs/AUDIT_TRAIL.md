@@ -15515,3 +15515,6 @@ Owner: rebuild the meters for pack only. `p2.pack_only` is now set for Winamp Sc
 
 ## B-815: `make test-host-fast` (the test-host recipe on a worker pool; host tooling only)
 `tools/run_host_tests.py` reads the `test-host` recipe lines from the Makefile and runs them on up to 8 workers; lines running `build.sh` share output directories and run one at a time afterwards; a failing line prints its output and the run exits 1. `make test-host` stays the serial reference. **Evidence:** host. One full run: 144 lines, 0 failed, 132 s wall against about 6 min serial, with another simulation and a Quartus VM running on the machine. Not on a Pocket (tooling only).
+
+## B-816: the dev packager no longer re-adds the old library persist words to a Player 2 package (host; DEV 180 packaging)
+`package_dev_build.py` called `add_library_slot`, which appended interact variables 24..26 whenever they were missing, so a Player 2 package got 18 variables (over the Pocket's 16) and the compat check refused it (the registry no longer describes 24..26 since B-814). `add_library_slot(core_dir, persist_words=True)` now takes a flag; the packager passes False for `--variant player2` (the slot 5 declaration stays). Other variants are unchanged. **Evidence:** host: DEV 180 packages (`PACKS=1`, `fontram-b810`) and `tau-compat.json` is written. Not run on a Pocket.
