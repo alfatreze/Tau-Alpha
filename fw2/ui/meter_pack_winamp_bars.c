@@ -14,6 +14,7 @@ static uint32_t g_cmds;
 #define gfx_bar(...)    (g_cmds++, g_api->bar(__VA_ARGS__))
 #undef  th_role
 #define th_role         g_api->role
+#include "../generated/desc_winamp_bars.h"          /* the meter descriptor this pack carries (section .mtr_desc, tools/player2/meter_desc.py) */
 #include "meter_winamp_bars.c"
 
 /* the compiler may call these even in freestanding code; the pack carries its own so it names no firmware symbol */

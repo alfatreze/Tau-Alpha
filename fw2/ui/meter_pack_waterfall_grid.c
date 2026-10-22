@@ -17,6 +17,7 @@ static uint32_t g_cmds;
 #define gfx_cblit(...)        (g_cmds++, g_api->cblit(__VA_ARGS__))
 #undef  th_role
 #define th_role               g_api->role
+#include "../generated/desc_waterfall_grid.h"          /* the meter descriptor this pack carries (section .mtr_desc, tools/player2/meter_desc.py) */
 #include "meter_waterfall_grid.c"
 
 void *memset(void *d, int c, unsigned n) { uint8_t *p = (uint8_t *)d; while (n--) *p++ = (uint8_t)c; return d; }
