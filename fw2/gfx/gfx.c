@@ -165,6 +165,7 @@ void gfx_sblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, u
     blit_op(sx, sy, dx, dy, w, h, OP_SBLIT | (s << 10) | (s << 12), 0u, buf_base(cpu_buf));
 }
 uint32_t gfx_cur_buf(void) { return cpu_buf; }
+int gfx_mb_write_buf(uint32_t a, uint32_t d) { return gfx_mb_write(a + (cpu_buf && a < GFX_STRIDE * GFX_H ? DBUF_BASE1_W : 0u), d); }      /* the mailbox write that follows the drawing buffer (visible rows only: the stash is shared) */
 uint32_t gfx_front_buf(void) { return caps_dbuf ? (REG_RD(R_DBUF_DISP) & 1u) : 0u; }
 void gfx_set_target(uint32_t buf)
 {

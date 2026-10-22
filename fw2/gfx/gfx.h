@@ -17,6 +17,7 @@ uint32_t gfx_text_width(const char *s);
 #define GFX_CELL_X 480u
 int  gfx_mb_write(uint32_t pixel_addr, uint32_t two_pixels);       /* 0 ok, -1 timeout */
 int  gfx_mb_read(uint32_t pixel_addr, uint32_t *two_pixels);
+int  gfx_mb_write_buf(uint32_t pixel_addr, uint32_t two_pixels);   /* the same, but a visible row (below 360) goes to the buffer being drawn into: a view change draws into the idle buffer and flips, so a mailbox write to buffer 0 is invisible every second time */
 void gfx_fence(void);                                                /* every queued draw command has executed (bounded wait) */
 void gfx_clut_begin(uint32_t start_index);                           /* waits for the engine to drain, then points the palette at `start_index` */
 void gfx_clut_put(uint16_t rgb565);

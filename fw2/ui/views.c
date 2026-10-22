@@ -83,6 +83,7 @@ void views_init(void)
     helios_region(controls_view_draw, 0, HL_WHOLE);                     /* R_CONTROLS */
     helios_region(help_view_draw, 0, HL_WHOLE);                         /* R_HELP */
     vw_init(&vw, tab, VIEW_COUNT, V_NOWPLAYING);
+    vw.overlay = V_REPORT;                                              /* the Report is looked at from Info or Configure: Back from them must not lead into it again */
     vw.frame_begin = view_frame_begin; vw.frame_end = view_frame_end;
     vw_start(&vw, &helios);
 }

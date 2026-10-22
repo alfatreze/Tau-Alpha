@@ -31,6 +31,8 @@ with tempfile.TemporaryDirectory() as td:
     check("an input that asks for nothing changes nothing", o == "10 12 | cur=0 prev=0 switches=0 dirty=100", o)
     o = run(g, "S 2\n")
     check("a switch asked for from inside an enter is applied after it, never nested", o == "10 11 30 31 10 | cur=0 prev=2 switches=2 dirty=100", o)
+    o = run(g, "O\nN\nS 2\nS 1\nK 2\nQ\n")
+    check("an overlay (the Report) is left without becoming the view Back leads to: Settings > Info > Report > Back > Back reaches Settings, not the Report again", o.endswith("| cur=0 prev=2 switches=4 dirty=100"), o)
     o = run(g, "S 5\nS 200\n")
     check("an unknown view is ignored", o == "10 | cur=0 prev=0 switches=0 dirty=100", o)
     o = run(g, "D\nS 1\nD\n")
@@ -51,5 +53,7 @@ with tempfile.TemporaryDirectory() as td:
         m = build(td, bug)
         caught = run(m, "S 1\n") != "10 11 20 | cur=1 prev=0 switches=1 dirty=011"
         check(f"mutant {bug} ({what}) is caught", caught)
+    o = run(build(td, 6), "O\nN\nS 2\nS 1\nK 2\nQ\n")
+    check("mutant 6 (the overlay stays the view Back leads to) is caught", not o.endswith("| cur=0 prev=2 switches=4 dirty=100"), o)
 print("PASSED" if not fails else f"FAILED ({fails})")
 sys.exit(1 if fails else 0)

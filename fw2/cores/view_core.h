@@ -20,14 +20,14 @@ typedef struct {
     void (*redraw)(void);                /* repaint everything WITHOUT changing the view's state (the colours changed); 0 = enter() */
 } view_t;
 typedef struct {
-    const view_t *tab; uint8_t n, cur, prev, busy, pending; uint32_t switches;
+    const view_t *tab; uint8_t n, cur, prev, busy, pending, overlay, saved; uint32_t switches;      /* overlay: a view that is only looked at from another (the Report): leaving it restores `prev` to what it was before it was opened, so a Back from the view underneath goes where it always went, not back into the overlay */
     void (*frame_begin)(void);           /* optional: a view change is drawn inside this frame (a double-buffered redraw) ... */
     void (*frame_end)(void);             /* ... which ends here, after the new view's regions were marked (may be 0) */
 } vw_t;
 
 static inline void vw_init(vw_t *v, const view_t *tab, uint32_t n, uint32_t first)
 {
-    v->tab = tab; v->n = (uint8_t)n; v->cur = (uint8_t)first; v->prev = (uint8_t)first; v->busy = 0; v->pending = 0xFFu; v->switches = 0; v->frame_begin = 0; v->frame_end = 0;
+    v->tab = tab; v->n = (uint8_t)n; v->cur = (uint8_t)first; v->prev = (uint8_t)first; v->busy = 0; v->pending = 0xFFu; v->overlay = 0xFFu; v->saved = (uint8_t)first; v->switches = 0; v->frame_begin = 0; v->frame_end = 0;
 }
 /* Enters the first view (nothing to leave). */
 static inline void vw_start(vw_t *v, hl_t *h)
@@ -46,7 +46,14 @@ static inline void vw_switch(vw_t *v, hl_t *h, int to)
 #if BUG != 1
     if (v->tab[v->cur].exit) v->tab[v->cur].exit();
 #endif
+#if BUG != 6
+    const int leaving_overlay = v->cur == v->overlay;
+    if (to == (int)v->overlay && !leaving_overlay) v->saved = v->prev;              /* opening the overlay: remember where Back from the view underneath leads */
+#else
+    const int leaving_overlay = 0;
+#endif
     v->prev = v->cur; v->cur = (uint8_t)to;
+    if (leaving_overlay) v->prev = v->saved;                                          /* closing it: the view underneath goes back to what it went back to before */
 #if BUG != 3
     hl_clear(h);                                                                    /* regions the old view still had pending (deferred by the beam) must not draw over the new view */
 #endif

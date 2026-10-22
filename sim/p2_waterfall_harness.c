@@ -28,7 +28,7 @@ static void setup(uint16_t *mv, uint32_t mode, uint32_t speed, uint32_t cell)
 }
 static mtr_in_t mk(const uint8_t *spec, uint32_t frame, uint32_t force) { mtr_in_t in = {0}; in.spec = spec; in.frame = frame; in.dt_ms = 26; in.x = 16; in.y = 100; in.w = 368; in.h = 122; in.bg = BG; in.force = (uint8_t)force; return in; }
 /* the class of the cell at grid position (c, r): 0..3 the palette step, 9 background, 8 anything else */
-static int cell_class(uint32_t c, uint32_t r, uint32_t pitch) { const uint16_t px = fb[(100 + r * pitch + (cfg.mode == 0u ? expo : 0u) + 1u) * W + 16 + c * pitch + 1u];      /* the spectrogram's grid is shifted down by the part of the entering row in view */ for (int k = 0; k < 4; k++) if (px == PAL[k]) return k; return px == BG ? 9 : 8; }
+static int cell_class(uint32_t c, uint32_t r, uint32_t pitch) { const uint16_t px = fb[(oy + r * pitch + (cfg.mode == 0u ? expo : 0u) + 1u) * W + ox + c * pitch + 1u];      /* the spectrogram's grid is shifted down by the part of the entering row in view */ for (int k = 0; k < 4; k++) if (px == PAL[k]) return k; return px == BG ? 9 : 8; }
 int main(void)
 {
     uint16_t mv[MPP_WF_N]; uint8_t quiet[16] = { 0 }, loud[16], one[16] = { 0 };
@@ -71,7 +71,7 @@ int main(void)
       check("sparkle: silence lights nothing (the dim grid only)", dark);
       in = mk(b3, 40, 0); wf_tick(&in);
       int lit = 0, inband = 1; const uint32_t centre3 = 3u * (cols - 1u) / 15u;
-      for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) { const int k = cell_class(c, r, pitch); if (k > 0 && k < 9) { lit++; if (c + 6u < centre3 || c > centre3 + 6u) inband = 0; } }
+      for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) { const int k = cell_class(c, r, pitch); if (k > 0 && k < 9) { lit++; if (c + 8u < centre3 || c > centre3 + 8u) inband = 0; } }
       check("sparkle: a jump in one band lights cells, all around that band's column", lit >= 3 && inband);
       uint32_t lit_after_sustain = 0;
       for (uint32_t f = 41; f < 60; f++) { in = mk(b3, f, 0); wf_tick(&in); }
@@ -83,8 +83,21 @@ int main(void)
       for (uint32_t f = 160; f < 170; f++) { in = mk(s0, f, 0); wf_tick(&in); }
       in = mk(b12, 170, 0); wf_tick(&in);
       int far = 1, any = 0; const uint32_t centre12 = 12u * (cols - 1u) / 15u;
-      for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) { const int k = cell_class(c, r, pitch); if (k > 0 && k < 9) { any = 1; if (c + 6u < centre12 || c > centre12 + 6u) far = 0; } }
+      for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) { const int k = cell_class(c, r, pitch); if (k > 0 && k < 9) { any = 1; if (c + 8u < centre12 || c > centre12 + 8u) far = 0; } }
       check("sparkle: another band flashes at its own column", any && far && centre12 > centre3 + 12u); }
+    /* 7. the grid fills the box at every cell size (it was capped at 48 x 40 cells, so small cells left a strip of the fullscreen view empty), centred, and every cell is there */
+    { int fill = 1, centred = 1; static const uint32_t boxes[2][2] = { { 400, 323 }, { 368, 122 } };
+      for (uint32_t b = 0; b < 2u; b++) for (uint32_t cell = 5; cell <= 12u; cell++) for (uint32_t mode = 0; mode < 4u; mode++) {
+          setup(mv, mode, 90, cell); memset(fb, 0, sizeof fb);
+          mtr_in_t in = mk(quiet, 0, 1); in.x = 0; in.y = 0; in.w = (uint16_t)boxes[b][0]; in.h = (uint16_t)boxes[b][1]; wf_tick(&in);
+          const uint32_t pitch = cell + 1u, cols = in.w / pitch, rows = in.h / pitch;
+          if (cols * pitch + pitch <= in.w || rows * pitch + pitch <= in.h) { fill = 0; }                              /* a whole cell would still fit: the grid is too small */
+          const uint32_t xl = ox + (cols - 1u) * pitch, yb = oy + (rows - 1u) * pitch;                               /* the last cell: present (dim, not the background) and inside the box */
+          if (fb[yb * W + xl] != PAL[0] || xl + cell > in.w || yb + cell > in.h) fill = 0;
+          if (ox - in.x > (in.w - cols * pitch + 1u) / 2u + 1u || oy - in.y > (in.h - rows * pitch + 1u) / 2u + 1u) centred = 0;
+      }
+      check("the grid fills the box at every cell size 5 to 12, fullscreen and the Now Playing box, in every mode: the last cell is drawn and no whole cell would still fit", fill);
+      check("what does not fit a whole cell is split between the sides (the grid is centred)", centred); }
     /* 5. dust keeps the grid too and does not crash on a tiny box */
     setup(mv, 2, 90, 12); { mtr_in_t in = mk(loud, 0, 1); in.w = 10; in.h = 10; wf_tick(&in); }
     check("a box smaller than one cell draws nothing and does not fail", 1);

@@ -28,7 +28,9 @@ int main(void)
     uint16_t mv[MPP_WF_N]; uint8_t spec[16];
     th_role[TR_ACCENT] = 0x07E0; rng = 12345u;
     for (uint32_t scen = 0; scen < 6u; scen++) {
-        const uint32_t cell = 5u + (scen * 3u) % 8u, speed = 20u + scen * 60u, boxw = scen & 1u ? 368u : 400u, boxh = scen % 3u == 0u ? 122u : 323u;
+        const uint32_t cell = 5u + (scen * 3u) % 8u, speed = 20u + scen * 60u, pitch = cell + 1u;
+        /* whole cells (the new code centres the grid, the reference does not) and within the reference's 48 x 40 cells */
+        uint32_t boxw = (scen & 1u ? 368u : 400u) / pitch, boxh = (scen % 3u == 0u ? 122u : 323u) / pitch; if (boxw > 48u) boxw = 48u; if (boxh > 40u) boxh = 40u; boxw *= pitch; boxh *= pitch;
         mv[MPP_WF_MODE] = 0; mv[MPP_WF_SPEED] = (uint16_t)speed; mv[MPP_WF_GAIN] = 100; mv[MPP_WF_CELL] = (uint16_t)cell; wf_load(mv);
         memset(fb, 0, sizeof fb); memset(stash, 0xA5, sizeof stash);
         for (uint32_t n = 0; n < 400u; n++) {

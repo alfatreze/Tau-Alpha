@@ -62,10 +62,10 @@
       "key": "fade",
       "label": "Fade time",
       "type": "u16",
-      "min": 200,
+      "min": 150,
       "max": 2000,
       "step": 100,
-      "default": 700,
+      "default": 450,
       "unit": "ms",
       "when": {
         "mode": 3
@@ -81,7 +81,7 @@
         "speed": 90,
         "gain": 100,
         "cell": 8,
-        "fade": 700
+        "fade": 450
       }
     },
     {
@@ -91,7 +91,7 @@
         "speed": 180,
         "gain": 120,
         "cell": 6,
-        "fade": 700
+        "fade": 450
       }
     },
     {
@@ -101,7 +101,7 @@
         "speed": 90,
         "gain": 110,
         "cell": 8,
-        "fade": 700
+        "fade": 450
       }
     },
     {
@@ -111,7 +111,7 @@
         "speed": 90,
         "gain": 100,
         "cell": 5,
-        "fade": 700
+        "fade": 450
       }
     },
     {
@@ -121,7 +121,7 @@
         "speed": 90,
         "gain": 110,
         "cell": 8,
-        "fade": 700
+        "fade": 450
       }
     },
     {
@@ -131,7 +131,7 @@
         "speed": 90,
         "gain": 100,
         "cell": 8,
-        "fade": 700
+        "fade": 450
       }
     },
     {
@@ -141,7 +141,7 @@
         "speed": 90,
         "gain": 130,
         "cell": 5,
-        "fade": 1200
+        "fade": 900
       }
     }
   ],
