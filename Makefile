@@ -33,6 +33,11 @@ new-meter:
 	@test -n "$(KEY)" || { echo 'usage: make new-meter KEY=sparks [TAG=SPK] [LABEL="SPARKS"]'; exit 2; }
 	$(PYTHON) tools/player2/new_meter.py $(KEY) $(if $(TAG),--tag $(TAG)) $(if $(LABEL),--label "$(LABEL)")
 
+# same recipe as test-host on a worker pool (about 2 min instead of 6); test-host stays the serial reference
+.PHONY: test-host-fast
+test-host-fast:
+	$(PYTHON) tools/run_host_tests.py
+
 test-host:
 	$(PYTHON) tools/triad/test_director.py
 	$(PYTHON) tools/check_splash_asset.py
