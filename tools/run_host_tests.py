@@ -2,8 +2,8 @@
 """Run the `make test-host` recipe in parallel.
 
 Reads the recipe lines of the `test-host` target from the Makefile and runs them on a worker pool.
-Lines that run a firmware build (`build.sh`) write to shared output directories, so they run one at a time
-after the parallel part. Output of a passing line is dropped; a failing line prints its output and the
+A line that runs a firmware build (`build.sh`) writes shared output directories and later lines read them, so it is a barrier:
+the lines between two barriers run in parallel, a build line runs alone, in recipe order. Output of a passing line is dropped; a failing line prints its output and the
 run exits 1. `make test-host` stays the serial reference.
 
   python3 tools/run_host_tests.py [-j 8] [--only SUBSTRING]
@@ -41,12 +41,17 @@ def main():
     ap.add_argument("--only", help="run only recipe lines containing this text")
     a = ap.parse_args()
     cmds = [c for c in recipe() if not a.only or a.only in c]
-    par = [c for c in cmds if "build.sh" not in c]
-    ser = [c for c in cmds if "build.sh" in c]
+    batches, cur = [], []
+    for c in cmds:
+        if "build.sh" in c:
+            batches += [cur, [c]]; cur = []
+        else:
+            cur.append(c)
+    batches.append(cur)
     t0, results = time.time(), []
     with ThreadPoolExecutor(a.j) as ex:
-        results += list(ex.map(run, par))
-    results += [run(c) for c in ser]
+        for b in batches:
+            results += list(ex.map(run, b))
     bad = [r for r in results if r[1]]
     for cmd, rc, _, out in bad:
         print(f"\n=== FAIL (rc {rc}): {cmd}\n{out[-4000:]}")

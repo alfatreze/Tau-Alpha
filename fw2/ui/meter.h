@@ -16,6 +16,14 @@ typedef struct {
     uint32_t peak_l, peak_r;      /* the loudest sample of each channel since the previous tick, scaled by 3/4 of headroom (0..24575) */
     uint8_t degrade;              /* 0 full; 1 and 2: the audio's lead is shrinking, the host already skips windows (every 2nd, every 4th): a meter may also reduce detail (fewer cells, coarser steps) with mtr_degrade_div(); the meters are off at 3 */
     const int8_t *wave;           /* optional: signed waveform columns (a meter that needs one builds it from peak_l/peak_r otherwise); null in the host */
+    /* ABI 1.1: audio statistics (fw2/cores/audio_stats_core.h). rms and corr need the hardware block (stats_ok = 1); centroid, crest, flux and onset are always there. All 0 while paused or silent. */
+    uint16_t rms_l, rms_r;        /* RMS of each channel over the picture's window, on the same scale as peak_l/peak_r (0..24575) */
+    int16_t corr;                 /* L/R correlation, Q8: -256 opposite phase, 0 unrelated, +256 identical; 0 when stats_ok is 0 */
+    uint8_t centroid;             /* spectral centroid, 0..255: the level-weighted mean band */
+    uint8_t crest;                /* peak / RMS, Q4 (16 = 1.0); 0 when stats_ok is 0 */
+    uint8_t flux;                 /* spectral flux: the summed rise of the bands since the previous picture, capped at 255 */
+    uint8_t onset;                /* 1 when this picture holds a hit (a flux spike against its own running mean) */
+    uint8_t stats_ok;             /* 1 when the hardware statistics block is present (rms_l, rms_r, corr and crest are real) */
 } mtr_in_t;
 #ifndef P2_MPD_T
 #define P2_MPD_T

@@ -12,7 +12,7 @@ def check(name, ok, info=""):
     global fails
     print(("ok   " if ok else "FAIL ") + name + ("" if ok else "  " + str(info)))
     fails += 0 if ok else 1
-LISTS = ["cores/pack_strike_core.h", "cores/meter_desc_core.h", "cores/meter_budget_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h"]
+LISTS = ["cores/pack_strike_core.h", "cores/audio_stats_core.h", "cores/meter_desc_core.h", "cores/meter_budget_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h"]
 def build(td, mutant=None):
     d = Path(td); d.mkdir(parents=True, exist_ok=True)
     for sub in ("ui", "gfx", "platform", "cores", "generated", "sim"): (d / "fw2" / sub).mkdir(parents=True, exist_ok=True)

@@ -21,6 +21,8 @@ void platform_probe(void)
     caps.poly    = (uint8_t)(REG(R_POLY_ST) & 1u);
     caps.lpc     = (uint8_t)(REG(R_LPC_STATUS) & 1u);
     caps.wave    = (uint8_t)(REG(R_WAVE_ST) & 1u);
+    REG_WR(R_STATS_IDX, 0u);
+    { const uint32_t st = REG(R_STATS_DATA); caps.stats = (uint8_t)((st >> 16) == 0x5354u && (st & 1u)); }          /* the 'ST' signature: a bitstream without the block must not be mistaken for one */
     caps.spec    = (uint8_t)(REG(R_SPEC_ST) & 1u);
     caps.dbuf    = (uint8_t)(REG(R_DBUF_DISP) >> 31);
     caps.font    = (uint8_t)(REG(R_FONT_CTRL) >> 31);

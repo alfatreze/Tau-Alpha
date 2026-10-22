@@ -80,6 +80,7 @@ module mp3_soc #(
     // Level and waveform meters (B-283): tau_wave_meter.sv fed from the same sample strobe. Peak L/R, and a 256-column
     // min/max scope capture with its own zero-crossing trigger. Registers 0xEC-0xFC. Inert (reads 0) when 0.
     parameter WAVE_ENABLE = 0,
+    parameter STATS_ENABLE = 0,          // audio statistics block (tau_audio_stats.sv): rms and stereo correlation sums for the meters
     // MP3 synthesis-window unit (B-292): tau_mp3_poly.sv, registers 0x100-0x110. Inert (reads 0) when 0.
     parameter POLY_ENABLE = 0,
     // Helios H2 (B-340): double buffering via base-pointer swap in mp3_fb.sv. Registers 0x118-0x11C.
@@ -1136,6 +1137,24 @@ module mp3_soc #(
         end
     endgenerate
 
+    // ---- audio statistics for the meters (tau_audio_stats.sv): sums of L*L, R*R, L*R over the window since the last latch --------------------------
+    // 0x1AC STATS_CTL W: bit 0 latch + new window, bit 1 clear. 0x1B0 STATS_IDX W: read-out word 0..7. 0x1B4 STATS_DATA R (word 0 = status, 'ST' signature in 31:16, 0 when not built).
+    localparam [8:0] R_STATS_CTL = 9'h1AC, R_STATS_IDX = 9'h1B0, R_STATS_DATA = 9'h1B4;
+    reg         stats_ctl_we = 1'b0, stats_idx_we = 1'b0;
+    reg  [1:0]  stats_ctl_d  = 2'd0;
+    reg  [2:0]  stats_idx_d  = 3'd0;
+    wire [31:0] stats_rd, stats_status;
+    generate
+        if (STATS_ENABLE != 0) begin : g_stats
+            tau_audio_stats u_stats (
+                .clk(clk), .rst(rst), .tick(pcm_sample_tick), .in_l(fifo_l), .in_r(fifo_r),
+                .ctl_we(stats_ctl_we), .ctl_data(stats_ctl_d), .idx_we(stats_idx_we), .idx_data(stats_idx_d),
+                .rd_data(stats_rd), .status(stats_status));
+        end else begin : g_nostats
+            assign stats_rd = 32'd0; assign stats_status = 32'd0;
+        end
+    endgenerate
+
     // ---- MP3 synthesis window (B-292) ------------------------------------------------------------------------------------
     // 0x100 POLY_CTL W: bit 0 = clear the history (1,024 clocks, busy), bit 1 = go. 0x104 POLY_PUSH W: one FDCT32 output word (64 per slot: channel 0's
     // 32 in push order, then channel 1's). 0x108 POLY_IDX W: PCM word 0..31 to present. 0x10C POLY_OUT R: {R sample, L sample}.
@@ -1315,7 +1334,7 @@ module mp3_soc #(
         con_wr      <= 1'b0;
         tgt_go      <= 1'b0;
         fb_cmd_push <= 1'b0;
-        wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0;
+        wave_ctl_we <= 1'b0; wave_idx_we <= 1'b0; stats_ctl_we <= 1'b0; stats_idx_we <= 1'b0;
         poly_clear <= 1'b0; poly_go <= 1'b0; poly_push_we <= 1'b0; poly_idx_we <= 1'b0;
         lpc_cfg_we <= 1'b0; lpc_coef_idx_we <= 1'b0; lpc_coef_data_we <= 1'b0;
         lpc_warm_idx_we <= 1'b0; lpc_warm_data_we <= 1'b0; lpc_residual_we <= 1'b0;
@@ -1401,6 +1420,8 @@ module mp3_soc #(
                 R_SPEC_IDX: spec_idx <= dDAT_MOSI[3:0];
                 R_WAVE_CTL: begin wave_ctl_d <= dDAT_MOSI[11:0]; wave_ctl_we <= 1'b1; end
                 R_WAVE_IDX: begin wave_idx_d <= dDAT_MOSI[7:0];  wave_idx_we <= 1'b1; end
+                R_STATS_CTL: begin stats_ctl_d <= dDAT_MOSI[1:0]; stats_ctl_we <= 1'b1; end
+                R_STATS_IDX: begin stats_idx_d <= dDAT_MOSI[2:0]; stats_idx_we <= 1'b1; end
                 9'h100:     begin poly_clear <= dDAT_MOSI[0]; poly_go <= dDAT_MOSI[1]; end
                 9'h104:     begin poly_push_d <= dDAT_MOSI; poly_push_we <= 1'b1; end
                 9'h108:     begin poly_idx_d <= dDAT_MOSI[4:0]; poly_idx_we <= 1'b1; end
@@ -1545,6 +1566,7 @@ module mp3_soc #(
             R_HAL_CTRL:    mmio_rdata = {(HALCYON_ENABLE != 0), 17'd0, hal_nact, 5'd0, hal_busy, hal_bypass, hal_en};   // B-639
             R_HAL_IDX:     mmio_rdata = {24'd0, hal_idx};
             R_FONT_CTRL:   mmio_rdata = (FONT_RAM_ENABLE != 0) ? {1'b1, 3'd0, font_gen, 16'd6112} : 32'd0;
+            R_STATS_DATA:  mmio_rdata = stats_rd;                                      // audio statistics read-out word at STATS_IDX (0 when not built)
             R_FONT_IDX:    mmio_rdata = (FONT_RAM_ENABLE != 0) ? {19'd0, font_idx} : 32'd0;
             R_GAIN_TARGET: mmio_rdata = {16'd0, gain_target};
             R_RING_BASE:   mmio_rdata = (PCM_RING_ENABLE != 0) ? {9'd0, ring_base} : 32'd0;   // B-741

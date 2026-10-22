@@ -16,7 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CLASSES = {"cold": (".text", ".rodata", ".srodata"), "hot_ram": (".data", ".sdata", ".bss", ".sbss"), "psram_state": (".psram_state",)}
-FRAMEWORK = {"meters": {"hot_ram": 672, "cold": 12000}}                      # fw2/ui/meters.o: the registry, the preset and METR bookkeeping, the tuning words, the draw-cost counters
+FRAMEWORK = {"meters": {"hot_ram": 704, "cold": 12000}}                      # fw2/ui/meters.o: the registry, the preset and METR bookkeeping, the tuning words, the draw-cost counters
 
 
 def objdump():

@@ -42,6 +42,9 @@
 #define R_WAVE_DATA  0x800000F4u        /* read: {min[31:16], max[15:0]} (signed 16-bit each) of the selected column of the last capture */
 #define R_WAVE_PK    0x800000F8u        /* read: {max |R| [31:16], max |L| [15:0]} since the last clear */
 #define R_WAVE_ST    0x800000FCu
+#define R_STATS_CTL  0x800001ACu        /* audio statistics block (tau_audio_stats.sv): write bit 0 = latch the sums into the read-out and start a new window, bit 1 = clear both */
+#define R_STATS_IDX  0x800001B0u        /* write: word 0..7 to present at R_STATS_DATA */
+#define R_STATS_DATA 0x800001B4u        /* read: 0 status ('ST' << 16 | sequence << 8 | 1 when built in), 1 sample count, 2/3 sum L*L low/high (high = bits 47:32), 4/5 sum R*R, 6/7 sum L*R (high sign-extended) */
 #define R_POLY_ST    0x80000110u
 #define R_DBUF_CPU   0x80000118u        /* Helios H2: bit 0 = the buffer plain RECT/CHAR/COPY commands target (rows of the visible frame only; the off-screen stash rows are shared); read bit 31 = built in */
 #define R_DBUF_DISP  0x8000011Cu        /* write bit 0 = 1: flip at the next vblank; read: bit 31 built in, bit 1 flip pending, bit 0 the displayed buffer */
