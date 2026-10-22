@@ -14,7 +14,7 @@ What a meter can read today (`mtr_in_t`): 16 spectrum bands after the shared bal
 | E | **Character map**: rows are not frequency but descriptors: loudness (RMS), brightness (spectral centroid), noisiness (flatness), crest factor, onset density; each is a row of cells whose count lit follows the value | derived from bands and peaks | a "what kind of sound is this" panel | tiny |
 | F | **Long memory**: one column per second for the last minute, brightness = loudness, hue = centroid | derived, history | a track overview | a ring of history in PSRAM |
 
-A and B are built, and C is built (B-806: SPARKLE, mode 3 of the Waterfall, with a Fade time parameter); D and E need the audio-statistics inputs of the roadmap (RMS, correlation, centroid; `AUDIO_METERING_RESEARCH.md`).
+A and B are built, and C is built (B-806: SPARKLE, mode 3 of the Waterfall, with a Fade time parameter). **D, E and F are built (B-818..B-820) as the three modes of one meter, SOUND MAP** (`SOUND_MAP_METER.md`): the audio-statistics inputs (RMS, correlation, centroid, crest, flux, onset) are in `mtr_in_t` ABI 1.1; RMS and correlation need the new hardware block, which is simulated and wired but not fitted.
 
 ## 2. What was built
 `fw2/ui/meter_waterfall_grid.c` (one source, real code only under `P2_PACK`; the firmware carries a stub that says WATERFALL NEEDS ITS PACK), `meter_pack_waterfall_grid.c`, `meters/waterfall_grid/{meter.json,thumb.json}`. Parameters: mode (SPECTROGRAM / ZONES), scroll speed, gain, cell size; four presets. As a pack: 1.85 KB image, 1.95 KB working state. Equal to itself under rv32sim in four scenarios (the degrade levels and the fullscreen box included), no draw outside its box.
