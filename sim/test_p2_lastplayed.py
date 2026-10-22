@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The last played track (fw2/cores/lastplayed_core.h): pack then unpack is the identity for every kind/parent/track; an unset record packs to zeros and is refused; a record with a wrong check word (stale, foreign,
+"""The last played track (fw2/cores/lastplayed_core.h): every word is at most 31 bits (the interact variables are 0..2147483647: the 32-bit first version was clamped by the Pocket and never came back); pack then unpack is the identity for every kind/parent/track; an unset record packs to zeros and is refused; a record with a wrong check word (stale, foreign,
 a flipped bit in any of the three words) is refused; the track is found in the rebuilt queue (first, middle, last) and a track that is no longer in it is not found. Mutants: the check word is ignored; the search misses
 the last track."""
 import random, subprocess, sys, tempfile
@@ -27,12 +27,14 @@ def props(exe):
     for c, p in zip(cases[:100], packs[:100]):
         w = [int(x) for x in p.split()]
         for wi in range(3):
-            for bit in (0, 5, 17, 31):
+            for bit in (0, 5, 17, 29):
                 v = list(w); v[wi] ^= 1 << bit
-                if wi == 0 and bit == 31: continue                       # clearing the valid bit is a refusal by itself
+                if wi == 0 and bit == 30: continue                       # clearing the record flag is a refusal by itself
                 flips.append("u %d %d %d\n" % tuple(v))
     ok["a flipped bit in any of the three words is refused"] = all(r == "-" for r in run(exe, "".join(flips)))
-    ok["a foreign word set (the old player's library words) is refused"] = run(exe, "u 2147483648 12345 99\n") == ["-"]
+    ok["a foreign word set (the old player's library words) is refused"] = run(exe, "u 1090519040 12345 99\n") == ["-"]
+    ok["every packed word fits 31 bits (the Pocket clamps a persisted variable to 2147483647)"] = all(all(int(x) < 2 ** 31 for x in p.split()) for p in packs)
+    ok["a word with bit 31 set is refused whatever the rest says"] = all(run(exe, "u %d %s\n" % (int(p.split()[0]) | 2 ** 31, " ".join(p.split()[1:])))[0] == "-" for p in packs[:50])
     ids = [7, 3, 9, 2, 40, 5]
     ok["the track is found in the rebuilt queue (first, middle, last)"] = run(exe, "".join("f %d %d %s\n" % (i, len(ids), " ".join(map(str, ids))) for i in (7, 9, 5))) == ["0", "2", "5"]
     ok["a track that is no longer in the queue is not found"] = run(exe, "f 8 %d %s\n" % (len(ids), " ".join(map(str, ids)))) == ["-1"]

@@ -59,8 +59,8 @@ int main(void)
     halcyon_init();
     halcyon_set_dip(mp3play_dip_begin, mp3play_dip_end);
     meters_init();                                                                          /* before the assets and the saved settings: both set meter presets */
+    theme_init();                                                                           /* BEFORE the saved settings are applied: it resets theme, mode and colour to the defaults, so after them it threw the restored colour away and the next settings service published the default over the saved one */
     if (!counters_aout_init) { mp3play_init(caps.cymo); assets_load(); hand_out_assets(); uint32_t sv[SF_COUNT]; settings_init(sv); mp3play_settings_set(sv); appearance_set(sv); mp3play_last_restore(&sv[SF_LAST0]); settings_view_init_choices(); }       /* the assets (user Halcyon presets) are read before the saved preset is applied */
-    theme_init();
     views_set_diag(&diag_pages);
     views_init();
     kr_t kr_pad = { 0 }, kr_vol = { 0 };

@@ -31,7 +31,7 @@ static const sf_field_t sf_table[SF_COUNT] = {
     /* the sixth meter's preset (the Waterfall grid): four bits of word 18 above the font */
     { 18u, 23u, 4u, 0u, 7u, 0u },
     /* the last played track (cores/lastplayed_core.h): words 12, 13, 14 = persist ids 24, 25, 26 (the old player's library words; a record that fails its check word is ignored) */
-    { 12u, 0u, 32u, 0u, 0xFFFFFFFFu, 0u }, { 13u, 0u, 32u, 0u, 0xFFFFFFFFu, 0u }, { 14u, 0u, 32u, 0u, 0xFFFFFFFFu, 0u },
+    { 12u, 0u, 31u, 0u, 0x7FFFFFFFu, 0u }, { 13u, 0u, 31u, 0u, 0x7FFFFFFFu, 0u }, { 14u, 0u, 31u, 0u, 0x7FFFFFFFu, 0u },
 };
 #define SF_LAZY_FIRST SF_LAST0           /* the fields from here on are saved only when nothing is streaming, or after a long delay: a track change must not disturb the card stream with an APF save */
 static inline uint32_t sf_mask(const sf_field_t *f) { return f->width >= 32u ? 0xFFFFFFFFu : ((1u << f->width) - 1u); }

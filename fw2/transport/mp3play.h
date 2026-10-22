@@ -37,6 +37,7 @@ void mp3play_io_quiesce(void);
 /* Play a queue the library just built (u16 ids in library_queue_buf()): n tracks, starting at `start`. `src_kind`/`src_parent` remember how to rebuild its natural order (X shuffle off). */
 void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t src_parent, int shuffled, uint32_t seed);
 /* The persisted values (cores/settings_core.h order: volume, repeat, ReplayGain mode). */
+extern uint32_t last_state, last_boot[3];             /* Info: the restore's outcome and the three words read at boot */
 void mp3play_last_get(uint32_t *w3);                  /* the last played track as three persisted words (cores/lastplayed_core.h): what to save */
 void mp3play_last_restore(const uint32_t *w3);        /* at boot, after the library is loaded: queue the saved track (stopped; A plays it) if the three words are a valid record that still matches the library */
 void mp3play_settings_get(uint32_t *vals);

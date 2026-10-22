@@ -10,7 +10,7 @@ def check(name, ok, extra=""):
     global fails
     print(("ok   " if ok else "FAIL ") + name + ((" " + str(extra)) if (extra and not ok) else ""))
     if not ok: fails += 1
-TABLE = [(0, 0, 32, 0, 100, 94), (2, 0, 32, 0, 2, 0), (17, 4, 2, 0, 2, 0), (6, 0, 32, 0, 30, 0), (1, 0, 32, 0, 18, 1), (16, 0, 32, 0, 31, 0), (17, 0, 1, 0, 1, 0), (5, 0, 32, 0, 14, 0), (18, 0, 4, 0, 7, 0), (18, 4, 4, 0, 7, 0), (18, 8, 4, 0, 7, 0), (18, 12, 4, 0, 15, 0), (18, 16, 4, 0, 7, 0), (8, 0, 31, 0, 0x7FFFFFFF, 0), (9, 0, 31, 0, 0x7FFFFFFF, 0), (10, 0, 31, 0, 0x7FFFFFFF, 0), (11, 0, 31, 0, 0x7FFFFFFF, 0), (18, 20, 3, 0, 7, 0), (18, 23, 4, 0, 7, 0), (12, 0, 32, 0, 4294967295, 0), (13, 0, 32, 0, 4294967295, 0), (14, 0, 32, 0, 4294967295, 0)]
+TABLE = [(0, 0, 32, 0, 100, 94), (2, 0, 32, 0, 2, 0), (17, 4, 2, 0, 2, 0), (6, 0, 32, 0, 30, 0), (1, 0, 32, 0, 18, 1), (16, 0, 32, 0, 31, 0), (17, 0, 1, 0, 1, 0), (5, 0, 32, 0, 14, 0), (18, 0, 4, 0, 7, 0), (18, 4, 4, 0, 7, 0), (18, 8, 4, 0, 7, 0), (18, 12, 4, 0, 15, 0), (18, 16, 4, 0, 7, 0), (8, 0, 31, 0, 0x7FFFFFFF, 0), (9, 0, 31, 0, 0x7FFFFFFF, 0), (10, 0, 31, 0, 0x7FFFFFFF, 0), (11, 0, 31, 0, 0x7FFFFFFF, 0), (18, 20, 3, 0, 7, 0), (18, 23, 4, 0, 7, 0), (12, 0, 31, 0, 2147483647, 0), (13, 0, 31, 0, 2147483647, 0), (14, 0, 31, 0, 2147483647, 0)]
 def m_unpack(w):
     out = []
     for word, sh, wd, lo, hi, df in TABLE:
@@ -52,7 +52,22 @@ def props(exe):
     ok["pack keeps the theme polarity bit and every foreign word"] = int(p[17]) & 1 == 1 and int(p[17]) == (0x21 & ~0x30 & 0xFFFFFFFF | (1 << 4)) and all(p[i] == "0" for i in range(32) if i not in (0, 1, 2, 5, 6, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18))
     ok["pack then unpack is the identity"] = run(exe, "u " + " ".join(p) + "\n")[0].split() == ["55", "2", "1", "7", "5", "3", "1", "4", "2", "3", "1", "5", "2", "123456789", "0", "2147483647", "7", "3", "6", "5", "6", "7"]
     return ok
+def interact_limits():
+    import json
+    d = json.loads((ROOT / "dist/Cores/alfatreze.TAU/interact.json").read_text())
+    return {int(v["address"], 16) // 4 % 32: v for v in d["interact"]["variables"] if v.get("persist")}
+def fits_interact():
+    """Every persisted field must fit the interact variable that carries its word (a value above its max is clamped or refused by the Pocket: the 32-bit last-played words were, and never came back)."""
+    lim = interact_limits(); bad = []
+    for word, sh, wd, lo, hi, df in TABLE:
+        v = lim.get(word)
+        top = (hi << sh) if wd < 32 else hi
+        if v is None: bad.append("word %d has no persisted interact variable" % word); continue
+        g = v["graphical"]
+        if top > g["max"] or lo < g["min"]: bad.append("word %d: field reaches %d, variable %d allows %d..%d" % (word, top, v["id"], g["min"], g["max"]))
+    return bad
 with tempfile.TemporaryDirectory() as td:
+    bad = fits_interact(); check("every persisted field fits the interact variable of its word (interact.json min/max)", not bad, bad)
     d = Path(td); g = build(d, 0)
     check("C core equals the independent table over 800 random register files (unpack and pack)", agrees(g))
     for k, v in props(g).items(): check(k, v)
