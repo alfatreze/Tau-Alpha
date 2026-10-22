@@ -101,6 +101,7 @@ test-host:
 	$(PYTHON) sim/test_p2_waterfall_blit.py
 	$(PYTHON) sim/test_p2_lastplayed.py
 	$(PYTHON) sim/test_p2_boot_order.py
+	$(PYTHON) sim/test_p2_pack_strike.py
 	$(PYTHON) sim/test_p2_meter_pack.py
 	$(PYTHON) sim/test_p2_meter_pack_dispatch.py
 	$(PYTHON) sim/test_p2_meter_thumb.py

@@ -11,6 +11,7 @@
 #include "../cores/metr_core.h"
 #include "../cores/tune_core.h"
 #include "../cores/meter_budget_core.h"
+#include "../cores/pack_strike_core.h"
 #include "../cores/helios_core.h"
 
 #define R_SCAN      0x800000E8u            /* B-267 beam position: bit 9 = present, bits 8:0 = the video line counter (helios.c) */
@@ -27,6 +28,7 @@ const uint32_t meter_count = sizeof meter_table / sizeof meter_table[0];
 
 #ifdef P2_PACKS
 #include "meter_pack.h"
+static ps_t pack_strike[MTR_PACK_SLOTS];                            /* each pack's overruns of its cycle limit (cores/pack_strike_core.h) */
 static mpkb_slot_t pack_slot[MTR_PACK_SLOTS];                       /* per meter slot: the pack's state (see the packs block below) */
 #endif
 static uint32_t cur, bx, by, bw, bh, win_seen = 0xFFFFFFFFu, frame, last_t, force_next;
@@ -59,7 +61,7 @@ static void user_preset(uint32_t m, uint32_t p, uint16_t *vals, char *name)     
 }
 void meters_init(void) {
 #ifdef P2_PACKS
-    for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) pack_slot[i].status = 0xFFu;          /* no pack until a bundle has installed one (status 0 would mean a running pack) */
+    for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) { pack_slot[i].status = 0xFFu; ps_reset(&pack_strike[i]); }          /* no pack until a bundle has installed one (status 0 would mean a running pack) */
 #endif
     cur = 0; for (uint32_t i = 0; i < meter_count; i++) { mb_reset(&budget[i]); pre[i] = 0; custom[i] = 0; user_n[i] = 0; meter_table[i].set_pre(0u); } }
 uint32_t meters_metr_load(const uint8_t *src, uint32_t n)       /* returns the number of meters whose presets were replaced; the section is validated first */
@@ -241,7 +243,13 @@ void meters_tick(int allowed)
     const uint32_t cmd0 = gfx_cmds, scan0 = REG_RD(R_SCAN);
     gfx_touch_reset();
 #ifdef P2_PACKS
-    if (pack_ok(cur)) pack_tick(&in); else
+    if (pack_ok(cur)) {
+        const uint32_t tp = cycles(); pack_tick(&in); const uint32_t took = cycles() - tp;
+        if (!in.force) {                                                              /* a forced repaint is the costliest picture by design: not judged */
+            if (took > meter_cyc_limit[cur]) meter_stats.overruns++;
+            if (ps_judge(&pack_strike[cur], took, meter_cyc_limit[cur])) { pack_slot[cur].status = MPK_E_STRIKE; force_next = 1; meter_stats.struck++; }      /* struck out: the built-in code (or nothing) from the next picture */
+        }
+    } else
 #endif
     meter_table[cur].tick(&in);
     /* Beam exposure (docs/features/meters/METER_FRAMEWORK_FINDINGS.md finding 7): a meter that draws straight onto the shown buffer (not composed, not inside a view's idle-buffer frame) is seen mid-picture when the beam was inside the rows
