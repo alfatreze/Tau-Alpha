@@ -12,6 +12,8 @@
  * built ONCE in the stash as a plane of palette indices (the four steps and the background; a rectangle a cell, once a row) and shown with a few palette blits a picture (gfx_cblit), not a rectangle a cell a picture.
  * ZONES: the grid keeps still, in 4 x 4 regions (bass top-left to treble bottom-right in reading order); each region is one band and fills from its centre outwards as the level rises (a heat map).
  * DUST: the same still grid with the bands scattered at random over the cells (the first version).
+ * SPARKLE: the still grid; a band that jumps well above its own running average (an onset: a hit, a pluck) lights a burst of cells around its column (the louder the jump, the wider the burst and the more cells),
+ * which fade back to the dim grid in three steps over the Fade time. Silence and sustained notes light nothing. Only the flashes in a short list are visited and drawn, so the cost follows the events, not the grid.
  * Compose is the host's (manifest p2: composed only in SPECTROGRAM, so the scroll happens in the idle buffer and is never seen tearing). The standard degrade: the host skips windows by mtr_in_t.degrade; the still
  * modes also refresh fewer rows (mtr_degrade_div).
  *
@@ -19,14 +21,17 @@
  * viewer the pack is missing, so a build without the pack costs a few dozen bytes, not the meter. */
 #define WF_COLS 48u
 #define WF_ROWS 40u
-typedef struct { uint8_t mode, gain, cell; uint16_t speed; } wf_cfg_t;
-static wf_cfg_t cfg = { 0u, 100u, 8u, 90u };
+typedef struct { uint8_t mode, gain, cell; uint16_t speed, fade; } wf_cfg_t;
+static wf_cfg_t cfg = { 0u, 100u, 8u, 90u, 700u };
 /* wf_load: the live parameters (the manifest's order) into the working configuration; a pack calls it each tick with the host's table. */
-static void wf_load(const uint16_t *v) { cfg.mode = (uint8_t)v[MPP_WF_MODE]; cfg.speed = v[MPP_WF_SPEED]; cfg.gain = (uint8_t)v[MPP_WF_GAIN]; cfg.cell = (uint8_t)v[MPP_WF_CELL]; }
+static void wf_load(const uint16_t *v) { cfg.mode = (uint8_t)v[MPP_WF_MODE]; cfg.speed = v[MPP_WF_SPEED]; cfg.gain = (uint8_t)v[MPP_WF_GAIN]; cfg.cell = (uint8_t)v[MPP_WF_CELL]; cfg.fade = v[MPP_WF_FADE]; }
 
 #ifdef P2_PACK
 static uint8_t zone[WF_ROWS * WF_COLS];                  /* the still modes: the brightness step (0..3) drawn in each cell */
 static uint8_t rowv[WF_COLS];                            /* SPECTROGRAM: the steps of the row that is entering */
+#define WF_ACT 192u
+static uint16_t act[WF_ACT], band_avg[MTR_BANDS];        /* SPARKLE: the cells that are lit (grid index; their heat is in zone[]); each band's running average of its level (x16) */
+static uint32_t nact;
 static uint32_t acc_q8, expo, step_n, geom;              /* scroll pixels not yet taken (1/256); how much of the entering row is in view; rows entered (the dither and the dust change with it); the geometry drawn for */
 static uint32_t hx(uint32_t a, uint32_t b)
 {
@@ -68,6 +73,8 @@ static void plane_blit(const mtr_in_t *in, uint32_t gw, uint32_t sy, uint32_t dy
 {
     for (uint32_t xo = 0; xo < gw; xo += 127u) gfx_cblit(xo, WF_PLANE_Y + sy, in->x + xo, in->y + dy, gw - xo < 127u ? gw - xo : 127u, h);
 }
+#define WF_ONSET 28u                                             /* how far above its running average a band must jump (levels of 256) to count as an onset */
+static uint32_t heat_step(uint32_t h) { return h >= 170u ? 3u : h >= 90u ? 2u : h >= 30u ? 1u : 0u; }      /* a flash's brightness step from its heat */
 static void draw_cell(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t col) { gfx_rect(x, y, w, h, col); }
 static void wf_tick(const mtr_in_t *in)
 {
@@ -81,7 +88,7 @@ static void wf_tick(const mtr_in_t *in)
     for (uint32_t b = 0; b < MTR_BANDS; b++) { const uint32_t v = in->paused ? 0u : (uint32_t)in->spec[b] * cfg.gain / 100u; spec[b] = (uint8_t)(v > 255u ? 255u : v); }
     const uint32_t sig = (in->w << 20) ^ (in->h << 10) ^ (pitch << 4) ^ cfg.mode, gw = cols * pitch;
     if (in->force || sig != geom) {                                     /* a new context or geometry: the whole grid, dim, then start again */
-        geom = sig; acc_q8 = 0; expo = 0;
+        geom = sig; acc_q8 = 0; expo = 0; nact = 0;
         gfx_rect(in->x, in->y, in->w, in->h, bg);
         for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) { zone[r * WF_COLS + c] = 0; draw_cell(in->x + c * pitch, in->y + r * pitch, cfg.cell, cfg.cell, pal[0]); }
         for (uint32_t c = 0; c < cols; c++) rowv[c] = 0;
@@ -104,6 +111,33 @@ static void wf_tick(const mtr_in_t *in)
             plane_build(cols, pitch, gw);
         }
         if (expo) plane_blit(in, gw, pitch - expo, 0u, expo);          /* the part of the entering row that is in view: the plane's lower rows come in first (the gap, then the cells) */
+    } else if (cfg.mode == 3u) {                                        /* SPARKLE */
+        const uint32_t div = mtr_degrade_div(in->degrade), dec = (uint32_t)in->dt_ms * 255u / (cfg.fade < 100u ? 100u : cfg.fade) + 1u;
+        for (uint32_t k = 0; k < nact; ) {                              /* fade what is lit: a cell is drawn only when its step changes */
+            const uint32_t i = act[k], h = zone[i], nh = h > dec ? h - dec : 0u, os = heat_step(h), ns = heat_step(nh);
+            zone[i] = (uint8_t)nh;
+            if (os != ns) draw_cell(in->x + (i % WF_COLS) * pitch, in->y + (i / WF_COLS) * pitch, cfg.cell, cfg.cell, pal[ns]);
+            if (nh) k++; else act[k] = act[--nact];
+        }
+        step_n++;
+        for (uint32_t b = 0; b < MTR_BANDS; b++) {
+            const uint32_t lv = (uint32_t)spec[b] << 4, av = band_avg[b];
+            band_avg[b] = (uint16_t)(lv > av ? av + ((lv - av) >> 2) : av - ((av - lv) >> 4));        /* quick to follow a rise, slow to forget */
+            if (lv < av + (WF_ONSET << 4)) continue;                    /* not a jump */
+            band_avg[b] = (uint16_t)lv;                                 /* the average jumps up with it: a held note is one onset, only a further jump is another */
+            const uint32_t s = (lv - av) >> 4, radius = 1u + s / 48u, n = (2u + s / 16u) / div, centre = b * (cols - 1u) / (MTR_BANDS - 1u);
+            for (uint32_t k = 0; k < n; k++) {
+                const uint32_t h = hx(step_n * 31u + b, k + 5u), dx = (h >> 8) % (2u * radius + 1u), c = centre + dx < radius ? 0u : centre + dx - radius, r = (h >> 16) % rows;
+                const uint32_t i = r * WF_COLS + (c < cols ? c : cols - 1u);
+                if (zone[i]) {                                          /* already lit: refresh it (brighter again if it had faded) */
+                    if (heat_step(zone[i]) != 3u) draw_cell(in->x + (i % WF_COLS) * pitch, in->y + (i / WF_COLS) * pitch, cfg.cell, cfg.cell, pal[3]);
+                    zone[i] = 255u; continue;
+                }
+                if (nact >= WF_ACT) continue;
+                zone[i] = 255u; act[nact++] = (uint16_t)i;
+                draw_cell(in->x + (i % WF_COLS) * pitch, in->y + (i / WF_COLS) * pitch, cfg.cell, cfg.cell, pal[3]);
+            }
+        }
     } else {                                                            /* ZONES and DUST: the still grid, only the cells that changed are redrawn */
         const uint32_t div = mtr_degrade_div(in->degrade);
         for (uint32_t r = 0; r < rows; r++) {

@@ -204,6 +204,11 @@ const cnt_t counters_table[] = {
     U32("FREE",        CU_BYTES,  &v.free_b),
     { "CHECK MASK",   CK_HEX32, CU_NONE,  &check_mask },      /* 2 bits per test: 1 pass 2 fail 3 skipped (AUDIO, TRACKS, STRETCH 1.10/1.50/2.00, PITCH 1.10/1.50/2.00) */
     U32("CHECK STALLS", CU_NONE,  &check_under),
+    U32("BOOT ASSETS",  CU_CYC,    &assets_boot.load),        /* reading and validating tau-assets.bin at boot (the staging copy of a file over 4 KiB included) */
+    U32("BOOT THEMES",  CU_CYC,    &assets_boot.themes),      /* handing out the THEM section */
+    U32("BOOT PRST",    CU_CYC,    &assets_boot.prst),        /* the Halcyon presets section */
+    U32("BOOT PACKS",   CU_CYC,    &assets_boot.packs),       /* the MPKB section: every pack verified and copied into its PSRAM slot */
+    U32("BOOT PRESETS", CU_CYC,    &assets_boot.presets),     /* the METR section: the meter presets */
     U32("FONT",         CU_NONE,   &font_cur),        /* the font in the engine memory: 0 Tamzen, 1 Tamzen Bold, 2 Grotesk SemiBold, 3 Grotesk Bold */
     U32("FONT ERR",     CU_NONE,   &font_err),      /* the last refused or failed load: 1 bad record, 2 no font memory, 3 the load counter did not step, 4 engine held */
     U32("FONT LOADS",   CU_NONE,   &font_loads),

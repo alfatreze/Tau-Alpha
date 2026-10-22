@@ -87,24 +87,27 @@ static const mpd_t mpd_vu[5] = {
     { "RED", 3, 0, 0, 65535, 1, 0, 0, 1, 1 },
 };
 #define MPD_VU_N 5u
-enum { MPP_WF_MODE, MPP_WF_SPEED, MPP_WF_GAIN, MPP_WF_CELL, MPP_WF_N };
-#define MPP_WF_PRESETS 5u
-static const char *const mpp_wf_name[MPP_WF_PRESETS] = { "WATERFALL", "FAST FALL", "HEAT MAP", "FINE GRID", "DUST" };
+enum { MPP_WF_MODE, MPP_WF_SPEED, MPP_WF_GAIN, MPP_WF_CELL, MPP_WF_FADE, MPP_WF_N };
+#define MPP_WF_PRESETS 7u
+static const char *const mpp_wf_name[MPP_WF_PRESETS] = { "WATERFALL", "FAST FALL", "HEAT MAP", "FINE GRID", "DUST", "SPARKLE", "STARS" };
 static const uint16_t mpp_wf[MPP_WF_PRESETS][MPP_WF_N] = {
-    { 0, 90, 100, 8 },   /* WATERFALL */
-    { 0, 180, 120, 6 },   /* FAST FALL */
-    { 1, 90, 110, 8 },   /* HEAT MAP */
-    { 1, 90, 100, 5 },   /* FINE GRID */
-    { 2, 90, 110, 8 },   /* DUST */
+    { 0, 90, 100, 8, 700 },   /* WATERFALL */
+    { 0, 180, 120, 6, 700 },   /* FAST FALL */
+    { 1, 90, 110, 8, 700 },   /* HEAT MAP */
+    { 1, 90, 100, 5, 700 },   /* FINE GRID */
+    { 2, 90, 110, 8, 700 },   /* DUST */
+    { 3, 90, 100, 8, 700 },   /* SPARKLE */
+    { 3, 90, 130, 5, 1200 },   /* STARS */
 };
-static const char *const mpl_wf_mode[] = { "SPECTROGRAM", "ZONES", "DUST" };
-static const mpd_t mpd_wf[4] = {
-    { "MODE", 1, 0, 0, 2, 1, 3, mpl_wf_mode, 255, 0 },
+static const char *const mpl_wf_mode[] = { "SPECTROGRAM", "ZONES", "DUST", "SPARKLE" };
+static const mpd_t mpd_wf[5] = {
+    { "MODE", 1, 0, 0, 3, 1, 4, mpl_wf_mode, 255, 0 },
     { "SCROLL SPEED", 0, 0, 20, 400, 10, 0, 0, 0, 0 },
     { "GAIN", 0, 0, 50, 200, 10, 0, 0, 255, 0 },
     { "CELL SIZE", 0, 0, 5, 12, 1, 0, 0, 255, 0 },
+    { "FADE TIME", 0, 0, 200, 2000, 100, 0, 0, 0, 3 },
 };
-#define MPD_WF_N 4u
+#define MPD_WF_N 5u
 static const char *const mpl_lw_view[] = { "HISTORY", "SPECTRUM" };
 static const char *const mpl_lw_split[] = { "OCTAVES", "BASS FINE", "ENERGY", "DYNAMICS", "CUSTOM" };
 static const char *const mpl_lw_outer[] = { "BASS", "TREBLE" };

@@ -1974,7 +1974,8 @@
      "values": [
       "SPECTROGRAM",
       "ZONES",
-      "DUST"
+      "DUST",
+      "SPARKLE"
      ],
      "default": 0
     },
@@ -2013,6 +2014,20 @@
      "default": 8,
      "unit": "px",
      "note": "the cell is this many pixels square, with one pixel between cells"
+    },
+    {
+     "key": "fade",
+     "label": "Fade time",
+     "type": "u16",
+     "min": 200,
+     "max": 2000,
+     "step": 100,
+     "default": 700,
+     "unit": "ms",
+     "when": {
+      "mode": 3
+     },
+     "note": "how long a flash takes to fade back to the dim grid"
     }
    ],
    "presets": [
@@ -2022,7 +2037,8 @@
       "mode": 0,
       "speed": 90,
       "gain": 100,
-      "cell": 8
+      "cell": 8,
+      "fade": 700
      }
     },
     {
@@ -2031,7 +2047,8 @@
       "mode": 0,
       "speed": 180,
       "gain": 120,
-      "cell": 6
+      "cell": 6,
+      "fade": 700
      }
     },
     {
@@ -2040,7 +2057,8 @@
       "mode": 1,
       "speed": 90,
       "gain": 110,
-      "cell": 8
+      "cell": 8,
+      "fade": 700
      }
     },
     {
@@ -2049,7 +2067,8 @@
       "mode": 1,
       "speed": 90,
       "gain": 100,
-      "cell": 5
+      "cell": 5,
+      "fade": 700
      }
     },
     {
@@ -2058,7 +2077,28 @@
       "mode": 2,
       "speed": 90,
       "gain": 110,
-      "cell": 8
+      "cell": 8,
+      "fade": 700
+     }
+    },
+    {
+     "name": "SPARKLE",
+     "values": {
+      "mode": 3,
+      "speed": 90,
+      "gain": 100,
+      "cell": 8,
+      "fade": 700
+     }
+    },
+    {
+     "name": "STARS",
+     "values": {
+      "mode": 3,
+      "speed": 90,
+      "gain": 130,
+      "cell": 5,
+      "fade": 1200
      }
     }
    ],

@@ -61,6 +61,30 @@ int main(void)
       }
       check("zones: a loud band lights only its own region", inside && lit > 0);
       check("zones: the lit cells of a region are nearer its centre than the unlit ones (it fills from the middle outwards)", nlit > 0 && nun > 0 && dlit / nlit < dun / nun); }
+    /* 6. SPARKLE: silence lights nothing; a jump in one band lights cells around that band's column only; the flash fades back to the dim grid by the fade time; a sustained tone is one burst, not a stream; a second band flashes elsewhere */
+    { setup(mv, 3, 90, 8); mv[MPP_WF_FADE] = 700; wf_load(mv);
+      const uint32_t pitch = 9, cols = 368 / pitch, rows = 122 / pitch; uint8_t s0[16] = { 0 }, b3[16] = { 0 }, b12[16] = { 0 };
+      b3[3] = 255; b12[12] = 255;
+      mtr_in_t in = mk(s0, 0, 1); wf_tick(&in);
+      for (uint32_t f = 1; f < 40; f++) { in = mk(s0, f, 0); wf_tick(&in); }
+      int dark = 1; for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) if (cell_class(c, r, pitch) != 0) dark = 0;
+      check("sparkle: silence lights nothing (the dim grid only)", dark);
+      in = mk(b3, 40, 0); wf_tick(&in);
+      int lit = 0, inband = 1; const uint32_t centre3 = 3u * (cols - 1u) / 15u;
+      for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) { const int k = cell_class(c, r, pitch); if (k > 0 && k < 9) { lit++; if (c + 6u < centre3 || c > centre3 + 6u) inband = 0; } }
+      check("sparkle: a jump in one band lights cells, all around that band's column", lit >= 3 && inband);
+      uint32_t lit_after_sustain = 0;
+      for (uint32_t f = 41; f < 60; f++) { in = mk(b3, f, 0); wf_tick(&in); }
+      for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) { const int k = cell_class(c, r, pitch); if (k > 0 && k < 9) lit_after_sustain++; }
+      check("sparkle: a sustained tone is one burst (it does not keep adding flashes)", lit_after_sustain <= (uint32_t)lit + 4u);
+      for (uint32_t f = 60; f < 160; f++) { in = mk(s0, f, 0); wf_tick(&in); }
+      int back = 1; for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) if (cell_class(c, r, pitch) != 0) back = 0;
+      check("sparkle: after the fade time every flash is back to the dim grid", back);
+      for (uint32_t f = 160; f < 170; f++) { in = mk(s0, f, 0); wf_tick(&in); }
+      in = mk(b12, 170, 0); wf_tick(&in);
+      int far = 1, any = 0; const uint32_t centre12 = 12u * (cols - 1u) / 15u;
+      for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) { const int k = cell_class(c, r, pitch); if (k > 0 && k < 9) { any = 1; if (c + 6u < centre12 || c > centre12 + 6u) far = 0; } }
+      check("sparkle: another band flashes at its own column", any && far && centre12 > centre3 + 12u); }
     /* 5. dust keeps the grid too and does not crash on a tiny box */
     setup(mv, 2, 90, 12); { mtr_in_t in = mk(loud, 0, 1); in.w = 10; in.h = 10; wf_tick(&in); }
     check("a box smaller than one cell draws nothing and does not fail", 1);

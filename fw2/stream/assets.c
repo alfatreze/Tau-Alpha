@@ -26,11 +26,14 @@ int assets_psram_ok(void)
     return 1;
 }
 
+assets_boot_t assets_boot;
 void assets_load(void)
 {
+    const uint32_t t0 = cycles();
     uint8_t *win = (uint8_t *)(uintptr_t)(0xC0000000u + (uint32_t)(uintptr_t)&_tag_start);     /* the tag zone through the uncached alias */
     const uint8_t *base = 0; uint32_t total = 0;
     int e = as_load(assets_rd, 0, win, (volatile uint8_t *)(uintptr_t)ASSETS_PSRAM_BASE, AS_MAX_FILE, assets_psram_ok, &base, &total);
+    assets_boot.load = cycles() - t0;
     if (e == AS_NOFILE) { assets_state = 1; return; }
     if (e) { assets_state = 3; assets_err = (uint32_t)e; return; }
     assets_state = 2; assets_bytes = total;
