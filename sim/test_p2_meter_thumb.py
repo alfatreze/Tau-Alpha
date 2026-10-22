@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The METER list previews (fw2/ui/meterlist_thumb.c): the plane built in the stash equals an independent decode of each meters/<key>/thumb.json, the palette loaded is that meter's own resolved from the theme roles (a role, a ramp between two roles, or the fixed colour), and the blit takes
-the 56x32 plane to the requested position. The Waterfall is pack-only: its preview (stream and palette spec) is read from the descriptor its pack carries, through the same core as the firmware. Mutants: runs that cross a row end are not wrapped; a ramp ignores its second role."""
+the 56x32 plane to the requested position. Every meter but Winamp Bars is pack-only: its preview (stream and palette spec) is read from the descriptor its pack carries, through the same core as the firmware. Mutants: runs that cross a row end are not wrapped; a ramp ignores its second role."""
 import json, subprocess, sys, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -24,10 +24,10 @@ def run(mutant):
         for f in ("ui/meterlist_thumb.h", "ui/meter.h", "cores/meter_desc_core.h", "ui/theme.h", "cores/ramp_core.h", "gfx/gfx.h", "generated/meter_registry.h", "generated/meter_thumbs.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
         (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_thumb_harness.c").read_text().replace('"../fw2/ui/meterlist_thumb.c"', '"../ui/meterlist_thumb.c"').replace('"../fw2/cores/meter_desc_core.h"', '"../cores/meter_desc_core.h"'))
         sys.path.insert(0, str(ROOT / "tools/player2")); import meter_desc as _md
-        (d / "wf.desc").write_bytes(_md.for_meter("waterfall_grid"))
+        for k in ("winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid"): (d / ("%s.desc" % k)).write_bytes(_md.for_meter(k))
         r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
         if r.returncode: print(r.stderr); sys.exit(1)
-        return subprocess.run([str(d / "h"), str(d / "wf.desc")], capture_output=True, text=True).stdout.splitlines()
+        return subprocess.run([str(d / "h")] + [str(d / ("%s.desc" % k)) for k in ("winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid")], capture_output=True, text=True).stdout.splitlines()
 ROLES = ["bg_top", "bg_bottom", "surface", "surface_track", "text_primary", "text_secondary", "accent", "on_accent", "accent2", "ok", "warn", "danger", "base", "chrome", "pill", "error", "faint", "splash_bg", "splash_bar", "fs_red", "fs_track"]
 def role(name): return (ROLES.index(name) * 0x0841 + 0x1234) & 0xFFFF                 # the harness's role colours
 def ramp(a, b, t, n):                                                                   # an independent twin of rc_ramp (RGB565 channels, truncating)

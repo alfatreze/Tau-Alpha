@@ -31,11 +31,11 @@ def build(d, mutant=None):
     return d / "h"
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td)
-    blob, _ = pm.build("vu_master", pm.SLOT_BASE + pm.SLOT["vu_master"] * pm.SLOT_SIZE, tmp / "vu.elf")
+    blob, _ = pm.build("winamp_bars", pm.SLOT_BASE + pm.SLOT["winamp_bars"] * pm.SLOT_SIZE, tmp / "bars.elf")
     bundle = tmp / "b.bin"; bundle.write_bytes(pb.bundle([blob]))
     def run(exe, costs): return subprocess.run([str(exe), str(bundle)] + [str(c) for c in costs], capture_output=True, text=True).stdout.strip().splitlines()
     exe = build(tmp / "good")
-    lim = int(run(exe, [])[0].split()[1]); check("the Master VU limit comes from its manifest", lim == 200000, lim)
+    lim = int(run(exe, [])[0].split()[1]); check("the Winamp Bars limit comes from its manifest", lim == 200000, lim)
     o = run(exe, ["F0", lim + 1, lim + 1, lim + 1, 0, 0])[1:]
     check("a forced first tick runs the pack and is not judged; two overruns keep the pack running", o[0] == "pack state 0 struck 0 overruns 0" and o[1] == "pack state 0 struck 0 overruns 1" and o[2] == "pack state 0 struck 0 overruns 2", o)
     check("the third overrun strikes the pack out (state 40) and from the next picture the built-in draws", o[3] == "pack state 40 struck 1 overruns 3" and o[4] == "built-in state 40 struck 1 overruns 3" and o[5] == "built-in state 40 struck 1 overruns 3", o)
@@ -52,4 +52,10 @@ with tempfile.TemporaryDirectory() as td:
         e2 = build(tmp / m, m)
         probe = {"atlimit": ["F0", lim, lim, lim], "fourth": ["F0", lim + 1, lim + 1, lim + 1], "noforgive": seq, "forced": ["F0", "F%d" % (lim * 5), "F%d" % (lim * 5), "F%d" % (lim * 5)]}[m]
         check("mutant (%s) is caught" % name, run(e2, probe) != run(exe, probe))
+    # a pack-only meter (the Scope) has no built-in: struck out, it shows the "pack not running" note once and then nothing
+    sblob, _ = pm.build("winamp_scope", pm.SLOT_BASE + pm.SLOT["winamp_scope"] * pm.SLOT_SIZE, tmp / "scope.elf"); sb = tmp / "sb.bin"; sb.write_bytes(pb.bundle([sblob]))
+    import os, json
+    slim = json.loads((ROOT / "meters/winamp_scope/meter.json").read_text())["p2"]["max_cycles"]
+    out = subprocess.run([str(exe), str(sb)] + [str(c) for c in ["F0", slim + 1, slim + 1, slim + 1, 0, 0, 0]], capture_output=True, text=True, env=dict(os.environ, ROW=str(pm.SLOT["winamp_scope"]))).stdout.strip().splitlines()[1:]
+    check("a pack-only meter struck out shows its 'pack not running' note once (the next forced picture) and then draws nothing", out[3] == "pack state 40 struck 1 overruns 3" and out[4] == "built-in state 40 struck 1 overruns 3" and out[5] == "none state 40 struck 1 overruns 3", out)
 print("PASSED" if not fails else "FAILED (%d)" % fails); sys.exit(1 if fails else 0)

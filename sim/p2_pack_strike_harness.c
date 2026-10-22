@@ -11,7 +11,7 @@ static uint8_t slot_mem[8][0x10000], scratch_mem[0x1000];
 #define PACK_SLOT_DATA(i) (slot_mem[i])
 #define PACK_SCRATCH (scratch_mem)
 #define PACK_CALL(e, in, api) pack_call((e), (in), (api))
-static uint32_t pack_calls, now, spend;
+static uint32_t pack_calls, now, spend, stub_text;
 static uint32_t pack_call(uint32_t e, const void *in, const void *api);
 #include "../fw2/ui/meters.c"
 static uint32_t pack_call(uint32_t e, const void *in, const void *api) { (void)e; (void)in; (void)api; pack_calls++; now += spend; return 0; }
@@ -29,7 +29,7 @@ int gfx_compose_begin(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x;
 void gfx_compose_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; }
 uint32_t gfx_cmds; void gfx_touch_reset(void) { } uint32_t gfx_touch_rows(void) { return 0u; } uint32_t gfx_cur_buf(void) { return 0; } uint32_t gfx_front_buf(void) { return 0; }
 void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
-uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t f, uint16_t b) { (void)x; (void)y; (void)s; (void)f; (void)b; return 0; }
+uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t f, uint16_t b) { (void)x; (void)y; (void)s; (void)f; (void)b; stub_text++; return 0; }
 void gfx_rect_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
 int gfx_blend_ready(void) { return 0; } void gfx_blend_on(uint32_t a) { (void)a; } void gfx_blend_off(void) { }
 void gfx_blend_blit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
@@ -46,13 +46,14 @@ int main(int argc, char **argv)
 {
     caps.spec = 1; meters_init(); meters_enter(0, 0, 100, 50);
     FILE *f = fopen(argv[1], "rb"); static uint8_t buf[0x10000]; uint32_t n = f ? (uint32_t)fread(buf, 1, sizeof buf, f) : 0; if (f) fclose(f); meters_packs_load(buf, n);
-    meters_select(idx_vu_master);
-    printf("limit %u\n", meter_cyc_limit[idx_vu_master]);
+    const uint32_t row = getenv("ROW") ? (uint32_t)atoi(getenv("ROW")) : (uint32_t)idx_winamp_bars;      /* a pack-only row falls back to its "pack not running" note (a forced picture draws it), the built-in meter to its built-in tick */
+    meters_select(row);
+    printf("limit %u\n", cyc_limit_of(row));
     for (int a = 2; a < argc; a++) {
         const int force = argv[a][0] == 'F'; spend = (uint32_t)strtoul(argv[a] + (force ? 1 : 0), 0, 10);
         if (force) force_next = 1;
-        const uint32_t p0 = pack_calls, b0 = builtin[idx_vu_master]; win++; meters_tick(1);
-        printf("%s state %u struck %u overruns %u\n", pack_calls > p0 ? "pack" : builtin[idx_vu_master] > b0 ? "built-in" : "none", meters_pack_state(idx_vu_master), meter_stats.struck, meter_stats.overruns);
+        const uint32_t p0 = pack_calls, b0 = row < METER_N ? builtin[row] : stub_text; win++; meters_tick(1);
+        printf("%s state %u struck %u overruns %u\n", pack_calls > p0 ? "pack" : (row < METER_N ? builtin[row] : stub_text) > b0 ? "built-in" : "none", meters_pack_state(row), meter_stats.struck, meter_stats.overruns);
     }
     return 0;
 }

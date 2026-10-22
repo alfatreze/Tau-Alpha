@@ -48,7 +48,7 @@ int main(int argc, char **argv)
 {
     caps.spec = 1; meters_init(); meters_enter(0, 0, 100, 50);
     if (argc > 1) { FILE *f = fopen(argv[1], "rb"); static uint8_t buf[0x10000]; uint32_t n = f ? (uint32_t)fread(buf, 1, sizeof buf, f) : 0; if (f) fclose(f); meters_packs_load(buf, n); }
-    const uint32_t R = METER_N;
+    const uint32_t R = getenv("ROW") ? (uint32_t)atoi(getenv("ROW")) : (uint32_t)METER_N;      /* the pack-only row under test */
     printf("present %d count %u list %u state %u\n", meters_present(R), meter_count, meters_list_count(), meters_pack_state(R));
     meters_select(R); printf("select row %u -> cur %u\n", R, meters_cur());
     meters_select(0);

@@ -19,14 +19,21 @@ def build(td, mutant):
     if mutant == "norange": a = "if (p >= meters_npre(m)) p = 0u;"; assert a in src; src = src.replace(a, "")
     if mutant == "offbyone": a = "const uint32_t at = e.off + p * e.psize"; assert a in src; src = src.replace(a, "const uint32_t at = e.off + 1u + p * e.psize")
     (d / "ui/meters.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
+    for f in ("ui/meter_pack.h", "cores/meter_desc_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"): (d / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_mpre_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../ui/meters.c"'))
+    (d / "sim/p2_dyn_register.h").write_text((ROOT / "sim/p2_dyn_register.h").read_text())
+    sys.path.insert(0, str(ROOT / "tools/player2")); import meter_desc as _md
+    for k in ("winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid"): (d / ("%s.desc" % k)).write_bytes(_md.for_meter(k))
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return d
-GOOD = ["of3 6 of2 0 last3 6 last2 0", "chladni_after5 1 last2 1 name chladni", "vu_wrap 0"]
-def run_plain(d): return subprocess.run([str(d / "h")], capture_output=True, text=True).stdout.strip().split("\n")
-KEYS = (("winamp_bars", 3), ("winamp_scope", 2), ("chladni", 4), ("layered_wave", 5), ("vu_master", 2))      # the built-in meters (the Waterfall is pack-only: its rows and METR presets are tested with the pack, sim/test_p2_pack_only.py)
+import json
+def man(k): return json.loads((ROOT / "meters" / k / "meter.json").read_text())
+DESCS = ["winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid"]
+def vals(k, p): d = man(k); return " ".join(str(d["presets"][p]["values"][x["key"]]) for x in d["params"])
+GOOD = ["rows 5 count 6", "of3 6 of2 0", "mv3 " + vals("layered_wave", 6), "chladni_after5 1 name " + man("chladni")["presets"][1]["name"], "mv2 " + vals("chladni", 1), "vu_wrap 0", "bars_next 1 last0 1"]
+def run_plain(d): return subprocess.run([str(d / "h"), "-"] + [str(d / ("%s.desc" % k)) for k in DESCS], capture_output=True, text=True).stdout.strip().split("\n")
+KEYS = (("winamp_bars", 3), ("winamp_scope", 2), ("chladni", 4), ("layered_wave", 5), ("vu_master", 2), ("waterfall_grid", 3))      # every meter: Winamp Bars is built in, the others are rows through their descriptors
 def metr_spec():
     reg = ta.registry(); ms = []
     for key, n in KEYS:
@@ -41,7 +48,7 @@ def metr_expected(spec):
     return out
 def run_metr(d, blob):
     f = d / "metr.bin"; f.write_bytes(blob)
-    return subprocess.run([str(d / "h"), str(f)], capture_output=True, text=True).stdout.strip().split("\n")
+    return subprocess.run([str(d / "h"), str(f)] + [str(d / ("%s.desc" % k)) for k in DESCS], capture_output=True, text=True).stdout.strip().split("\n")
 with tempfile.TemporaryDirectory() as td:
     d = build(td, None)
     check("select validates, next wraps per meter, names come from the module", run_plain(d) == GOOD)

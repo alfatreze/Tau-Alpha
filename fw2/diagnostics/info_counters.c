@@ -233,9 +233,8 @@ const cnt_t counters_table[] = {
     U32("METER SHED",   CU_NONE,   &meter_stats.shed),        /* spectrum windows that waited because the governor shed the UI */
     U32("METER LAST",   CU_CYC,    &meter_stats.last_cyc),    /* the last tick, compose copy included */
     U32("METER COMPOSE", CU_CYC,   &meter_stats.compose_cyc), /* the last compose copy onto the shown buffer (0: the meter draws directly) */
-#if METER_SLOTS > METER_N
-    U32("METER MAX PACK", CU_CYC, &meter_stats.max_cyc[METER_N]),    /* the slowest tick of the first pack-only meter (the Waterfall) */
-#endif
+#define METER_PACK_MAX_ROW(row, nm) U32("METER MAX " nm, CU_CYC, &meter_stats.max_cyc[row]),
+    METER_PACK_LIST(METER_PACK_MAX_ROW)                       /* the same for every pack-only meter, by name */
     METER_LIST(METER_MAX_ROW)                                 /* the slowest tick of each meter since boot, one row per registry entry */
 #ifdef P2_PACKS
     { "PACKS RUN",     CK_HEX32, CU_NONE, &v.pack_run },      /* bit per meter (table order): 1 = the meter runs from its pack */

@@ -30,6 +30,8 @@ static const mpd_t mpd_bars[8] = {
     { "PEAK FALL SPEED", 0, 0, 1, 100, 5, 0, 0, 4, 1 },
 };
 #define MPD_BARS_N 8u
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_SCOPE_SCOPE_SMOOTH, MPP_SCOPE_SCOPE_TRAIL, MPP_SCOPE_N };
 #define MPP_SCOPE_PRESETS 5u
 static const char *const mpp_scope_name[MPP_SCOPE_PRESETS] = { "FLUID", "CLASSIC", "BOUNCY", "SLOW FADE", "SNAPPY" };
@@ -45,6 +47,9 @@ static const mpd_t mpd_scope[2] = {
     { "SCOPE TRAIL", 0, 0, 0, 80, 5, 0, 0, 255, 0 },
 };
 #define MPD_SCOPE_N 2u
+#pragma GCC diagnostic pop
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_CHL_LAYOUT, MPP_CHL_LINE_WIDTH, MPP_CHL_MODES, MPP_CHL_RISE, MPP_CHL_FALL, MPP_CHL_MORPH, MPP_CHL_MORPH_GAIN, MPP_CHL_TRIGGER, MPP_CHL_REFRACTORY, MPP_CHL_TONAL, MPP_CHL_PAINT, MPP_CHL_N };
 #define MPP_CHL_PRESETS 4u
 static const char *const mpp_chl_name[MPP_CHL_PRESETS] = { "LATTICE", "SHIMMER", "EMBER", "OCEAN" };
@@ -70,6 +75,9 @@ static const mpd_t mpd_chl[11] = {
     { "PAINT", 1, 0, 0, 2, 1, 3, mpl_chl_paint, 255, 0 },
 };
 #define MPD_CHL_N 11u
+#pragma GCC diagnostic pop
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_VU_INFO, MPP_VU_COLOR_MODE, MPP_VU_COLOR_GREEN, MPP_VU_COLOR_YELLOW, MPP_VU_COLOR_RED, MPP_VU_N };
 #define MPP_VU_PRESETS 3u
 static const char *const mpp_vu_name[MPP_VU_PRESETS] = { "THEME", "STANDARD", "CUSTOM EXAMPLE" };
@@ -87,6 +95,7 @@ static const mpd_t mpd_vu[5] = {
     { "RED", 3, 0, 0, 65535, 1, 0, 0, 1, 1 },
 };
 #define MPD_VU_N 5u
+#pragma GCC diagnostic pop
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_WF_MODE, MPP_WF_SPEED, MPP_WF_GAIN, MPP_WF_CELL, MPP_WF_FADE, MPP_WF_N };
@@ -111,6 +120,8 @@ static const mpd_t mpd_wf[5] = {
 };
 #define MPD_WF_N 5u
 #pragma GCC diagnostic pop
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
 static const char *const mpl_lw_view[] = { "HISTORY", "SPECTRUM" };
 static const char *const mpl_lw_split[] = { "OCTAVES", "BASS FINE", "ENERGY", "DYNAMICS", "CUSTOM" };
 static const char *const mpl_lw_outer[] = { "BASS", "TREBLE" };
@@ -162,4 +173,5 @@ static const mpd_t mpd_lw[34] = {
     { "GAIN, LAYER 6", 0, 0, 0, 36, 1, 0, 0, 255, 0 },
 };
 #define MPD_LW_N 34u
+#pragma GCC diagnostic pop
 #endif

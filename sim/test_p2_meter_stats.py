@@ -22,15 +22,17 @@ def build(td, mutant):
     for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/meter_desc_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "ui/meter_pack.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
         (d / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_stats_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../ui/meters.c"').replace('"../fw2/generated/meter_registry.h"', '"../generated/meter_registry.h"'))
+    (d / "sim/p2_dyn_register.h").write_text((ROOT / "sim/p2_dyn_register.h").read_text())
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return d
 sys.path.insert(0, str(ROOT / "tools/player2"))
 import meter_desc as _md
+DESCS = ["winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid"]         # Winamp Bars is built in; the other meters are rows through their descriptors
 def run(d):
-    (d / "wf.desc").write_bytes(_md.for_meter("waterfall_grid"))
-    return subprocess.run([str(d / "h"), str(d / "wf.desc")], capture_output=True, text=True).stdout.strip().split("\n")
-GOOD = ["waterfall row 1 count 6", "a ticks 1 shed 0 last 100 compose 0 max 100 0 0 0 0",
+    for k in DESCS: (d / ("%s.desc" % k)).write_bytes(_md.for_meter(k))
+    return subprocess.run([str(d / "h")] + [str(d / ("%s.desc" % k)) for k in DESCS], capture_output=True, text=True).stdout.strip().split("\n")
+GOOD = ["rows 5 count 6", "a ticks 1 shed 0 last 100 compose 0 max 100 0 0 0 0",
         "b ticks 2 shed 0 last 340 compose 40 max 100 0 340 0 0",
         "c ticks 2 shed 1 last 340 compose 40 max 100 0 340 0 0",
         "d ticks 3 shed 1 last 340 compose 40 max 100 0 340 0 0",
@@ -39,7 +41,7 @@ GOOD = ["waterfall row 1 count 6", "a ticks 1 shed 0 last 100 compose 0 max 100 
         "g ticks 5 shed 1 last 90 compose 40 max 100 0 940 0 0",
         "deg1 drawn 4 skipped 4", "deg2 drawn 2 skipped 6", "force drawn 1 skipped 0", "deg0 drawn 3", "spectrogram composed 4", "zones composed 0"]
 import re
-METER_N = int(re.search(r"#define METER_N (\d+)u", (ROOT / "fw2/generated/meter_registry.h").read_text()).group(1))
+METER_N = int(re.search(r"#define METER_SLOTS (\d+)u", (ROOT / "fw2/generated/meter_registry.h").read_text()).group(1))
 GOOD = [(g + " 0" * (METER_N - 5)) if g[0] in "abcdefg" and len(g.split()[0]) == 1 else g for g in GOOD]       # the expectations are written for five meters: the others have not drawn
 with tempfile.TemporaryDirectory() as td:
     out = run(build(td, None))

@@ -6,7 +6,6 @@
 #include "../platform/platform.h"
 #include "../cores/spectrum_core.h"
 #include "../generated/meter_presets.h"
-#include "../generated/lw_presets.h"
 #include "../generated/meter_registry.h"
 #include "../cores/metr_core.h"
 #include "../cores/tune_core.h"
@@ -232,9 +231,9 @@ static void pack_tick(const mtr_in_t *in)
 /* ---- the pack-only rows (descriptors from the packs; B-812) and the accessors every other part of the host uses ---------------------------------------------------------------------------------------- */
 #ifdef P2_PACKS
 #include "../cores/meter_desc_core.h"
-#define DYN_MAX_P 12u                                          /* parameters a pack-only meter may have (its Configure descriptors are copied to hot RAM while it is edited) */
-#define DYN_POOL 320u                                          /* the label and choice strings of those descriptors */
-#define DYN_MAX_V 16u
+#define DYN_MAX_P 36u                                          /* parameters a pack-only meter may have (its Configure descriptors are copied to hot RAM while it is edited) */
+#define DYN_POOL 880u                                          /* the label and choice strings of those descriptors */
+#define DYN_MAX_V 72u
 typedef struct { uint32_t off, len, cmds, cyc, cmp; uint16_t mid, np, npre; uint8_t ok, code; char name[MD_MAX_STR + 1u]; } dyn_t;
 static dyn_t dyn[DYN_ROWS];
 static meter_def_t dyn_def[DYN_ROWS];
