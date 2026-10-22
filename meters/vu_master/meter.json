@@ -87,6 +87,6 @@
       }
     }
   ],
-  "p2": {"cmds": 32, "max_cycles": 200000, "slot": 4, "tag": "VU", "compose": false, "label": "VU MASTER", "budget": {"cold": 2400, "hot_ram": 48}},
+  "p2": {"pack_only": true, "cmds": 32, "max_cycles": 200000, "slot": 4, "tag": "VU", "compose": false, "label": "VU MASTER", "budget": {"cold": 2400, "hot_ram": 48}},
   "default_preset": 0
 }

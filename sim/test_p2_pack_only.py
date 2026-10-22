@@ -27,37 +27,46 @@ def build(td, mutant=None):
     if r.returncode: print(r.stderr); sys.exit(1)
     return d / "h"
 def run(exe, bundle=None): return subprocess.run([str(exe)] + ([str(bundle)] if bundle else []), capture_output=True, text=True).stdout.strip().splitlines()
+import os
+def run_row(exe, row, bundle=None):
+    return subprocess.run([str(exe)] + ([str(bundle)] if bundle else []), capture_output=True, text=True, env=dict(os.environ, ROW=str(row))).stdout.strip().splitlines()
 with tempfile.TemporaryDirectory() as td:
     tmp = Path(td); exe = build(tmp / "good")
-    wf = json.loads((ROOT / "meters/waterfall_grid/meter.json").read_text()); slot = wf["p2"]["slot"]
-    blob, _ = pm.build("waterfall_grid", pm.SLOT_BASE + slot * pm.SLOT_SIZE, tmp / "wf.elf")
-    bundle = tmp / "b.bin"; bundle.write_bytes(pb.bundle([blob]))
+    mans = {k: json.loads((ROOT / "meters" / k / "meter.json").read_text()) for k in ("winamp_scope", "chladni", "layered_wave", "vu_master", "waterfall_grid")}
     n_static = len([1 for p in (ROOT / "meters").glob("*/meter.json") if "p2" in json.loads(p.read_text()) and not json.loads(p.read_text())["p2"].get("pack_only")])
-    check("the Waterfall's manifest is pack-only and takes the first slot after the built-in meters", wf["p2"].get("pack_only") and slot == n_static, slot)
-    o = run(exe, bundle)
-    check("with its pack installed the Waterfall is a row and the METER list holds every meter", o[0] == "present 1 count %d list %d state 0" % (n_static + 1, n_static + 1), o[0])
-    check("selecting the row selects it, X walks every row and wraps, and the last row follows the first when going back", o[1] == "select row %d -> cur %d" % (n_static, n_static) and [l for l in o if l.startswith("next")] == ["next -> %d" % i for i in list(range(1, n_static + 1)) + [0]] and "prev from 0 -> %d" % n_static in o, o[1:10])
-    rows = md.param_rows(wf)
-    want_name = "name %s np %d npre %d cmp %d" % (wf["p2"].get("label", wf["name"]), len(rows), len(wf["presets"]), md.cmp_code_int(wf))
-    check("its name, parameter count, preset count and compose code are the manifest's", want_name in o, [l for l in o if l.startswith("name")])
-    pds = [l for l in o if l.startswith("pd ")]
-    want = ["pd %s %d %d %d %d %d %d %d %d" % (r["label"], r["type"], r["hidden"], r["min"], r["max"], r["step"], len(r["vals"]), r["when_idx"], r["when_val"]) + "".join(" [%s]" % v for v in r["vals"]) for r in rows]
-    check("its Configure descriptors (label, type, range, step, choices, when) are the manifest's", pds == want, pds[:2])
-    keys = [p["key"] for p in wf["params"]]
-    prs = [l for l in o if l.startswith("preset ") and l.split()[1].isdigit()]
-    check("its presets (names and values) are the manifest's and selecting one fills the live parameters", prs == ["preset %d %s %s" % (k, p["name"], " ".join(str(p["values"][key]) for key in keys)) for k, p in enumerate(wf["presets"])], prs[:2])
-    check("it ticks as a pack, its manifest id goes into the config export, and its preview stream is readable", "ticks pack 2 builtin-text 0" in o and "payload id %d n %d" % (wf["index"], 4 + len(keys) + sum(1 for r in rows if r["type"] == 3 or (r["type"] == 0 and r["max"] > 255))) in o and "thumb len %d" % len(bytes.fromhex(json.loads((ROOT / "meters/waterfall_grid/thumb.json").read_text())["rle"])) in o, o[-4:])
-    none = run(exe)
-    check("without a bundle the row is absent: the list is the built-in meters", none[0] == "present 0 count %d list %d state 255" % (n_static, n_static), none[0])
-    check("selecting the absent row falls back to the first meter and X never lands on it", none[1] == "select row %d -> cur 0" % n_static and all(l == "next -> %d" % ((i + 1) % n_static) for i, l in enumerate([l for l in none if l.startswith("next")][:n_static])), none[1:9])
+    check("every meter but Winamp Bars is pack-only and they take the slots after the built-in one", n_static == 1 and sorted(m["p2"]["slot"] for m in mans.values()) == list(range(n_static, n_static + 5)) and all(m["p2"].get("pack_only") for m in mans.values()))
+    for key, wf in mans.items():
+        slot = wf["p2"]["slot"]
+        blob, _ = pm.build(key, pm.SLOT_BASE + slot * pm.SLOT_SIZE, tmp / (key + ".elf"))
+        bundle = tmp / (key + ".bin"); bundle.write_bytes(pb.bundle([blob]))
+        o = run_row(exe, slot, bundle)
+        check("%s: with its pack installed it is a row; the list is Winamp Bars and it" % key, o[0] == "present 1 count %d list %d state 0" % (slot + 1, n_static + 1), o[0])
+        walk = [l for l in o if l.startswith("next")]
+        check("%s: selecting the row selects it, X alternates between the two meters that are there (the absent rows are skipped), going back from the first reaches the row" % key, o[1] == "select row %d -> cur %d" % (slot, slot) and walk == ["next -> %d" % (slot if i % 2 == 0 else 0) for i in range(6)] and "prev from 0 -> %d" % slot in o, o[1:10])
+        rows = md.param_rows(wf)
+        want_name = "name %s np %d npre %d cmp %d" % (wf["p2"].get("label", wf["name"]), len(rows), len(wf["presets"]), md.cmp_code_int(wf))
+        check("%s: its name, parameter count (%d), preset count (%d) and compose code are the manifest's" % (key, len(rows), len(wf["presets"])), want_name in o, [l for l in o if l.startswith("name")])
+        pds = [l for l in o if l.startswith("pd ")]
+        want = ["pd %s %d %d %d %d %d %d %d %d" % (r["label"], r["type"], r["hidden"], r["min"], r["max"], r["step"], len(r["vals"]), r["when_idx"], r["when_val"]) + "".join(" [%s]" % v for v in r["vals"]) for r in rows]
+        check("%s: its Configure descriptors (label, type, range, step, choices, when) are the manifest's" % key, pds == want, pds[:2])
+        keys = [p["key"] for p in wf["params"]]
+        prs = [l for l in o if l.startswith("preset ") and l.split()[1].isdigit()]
+        check("%s: its presets (names and values) are the manifest's and selecting one fills the live parameters" % key, prs == ["preset %d %s %s" % (k, p["name"], " ".join(str(p["values"][x]) for x in keys)) for k, p in enumerate(wf["presets"])], prs[:2])
+        thumb = json.loads((ROOT / "meters" / key / "thumb.json").read_text())
+        check("%s: it ticks as a pack, its manifest id goes into the config export, and its preview stream is readable" % key, "ticks pack 2 builtin-text 0" in o and "payload id %d n %d" % (wf["index"], 4 + len(keys) + sum(1 for r in rows if r["type"] == 3 or (r["type"] == 0 and r["max"] > 255))) in o and "thumb len %d" % len(bytes.fromhex(thumb["rle"])) in o, o[-4:])
+    key = "waterfall_grid"; wf = mans[key]; slot = wf["p2"]["slot"]
+    blob, _ = pm.build(key, pm.SLOT_BASE + slot * pm.SLOT_SIZE, tmp / (key + ".elf")); bundle = tmp / (key + ".bin")
+    none = run_row(exe, slot)
+    check("without a bundle the row is absent: the list is Winamp Bars alone", none[0] == "present 0 count %d list %d state 255" % (n_static, n_static), none[0])
+    check("selecting the absent row falls back to the first meter and X never lands on it", none[1] == "select row %d -> cur 0" % slot and all(l == "next -> 0" for l in [l for l in none if l.startswith("next")]), none[1:9])
     check("the saved preset of an absent meter is kept (not reset to 0), so it comes back with the pack", "preset of absent/present row after select 3: 3" in none, none[-1])
     # a pack whose descriptor is damaged but whose CRC is right: refused (41), the meter is not listed
-    bad = bytearray(blob); dl = struct.unpack("<I", bad[-8:-4])[0]; at = len(bad) - dl + 40 + 16 * 0 + 6          # the first parameter's min field
+    bad = bytearray(blob); dl = struct.unpack("<I", bad[-8:-4])[0]; at = len(bad) - dl + 40 + 6          # the first parameter's min field
     bad[at:at + 2] = (9000).to_bytes(2, "little"); body = bytes(bad[48:]); struct.pack_into("<I", bad, 20, zlib.crc32(body) & 0xFFFFFFFF)
     bb = tmp / "bad.bin"; bb.write_bytes(pb.bundle([bytes(bad)]))
-    o2 = run(exe, bb)
+    o2 = run_row(exe, slot, bb)
     check("a pack whose descriptor is damaged (its CRC right) is refused with 41 and the meter is not listed", o2[0] == "present 0 count %d list %d state 41" % (n_static, n_static), o2[0])
     for m, name in (("listed", "the row is listed without a pack"), ("baddesc", "a damaged descriptor is accepted")):
         e2 = build(tmp / m, m)
-        check("mutant (%s) is caught" % name, (run(e2, None) == none) is False if m == "listed" else (run(e2, bb) == o2) is False)
+        check("mutant (%s) is caught" % name, (run_row(e2, slot) == none) is False if m == "listed" else (run_row(e2, slot, bb) == o2) is False)
 print("PASSED" if not fails else "FAILED (%d)" % fails); sys.exit(1 if fails else 0)

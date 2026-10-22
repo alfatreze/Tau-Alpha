@@ -22,15 +22,19 @@ def build(td, mutant):
     if mutant == "atceiling": flags = ["-DBUG=1"]
     if mutant == "nohysteresis": flags = ["-DBUG=2"]
     (d / "ui/meters.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
+    for f in ("ui/meter_pack.h", "cores/meter_desc_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
         (d / f).write_text((ROOT / "fw2" / f).read_text())
-    (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_budget_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../ui/meters.c"').replace('"../fw2/cores/gfx_touch_core.h"', '"../cores/gfx_touch_core.h"'))
+    (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_budget_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../ui/meters.c"').replace('"../fw2/cores/gfx_touch_core.h"', '"../cores/gfx_touch_core.h"').replace('"../fw2/generated/meter_registry.h"', '"../generated/meter_registry.h"').replace('"../fw2/cores/meter_pack_core.h"', '"../cores/meter_pack_core.h"').replace('"../fw2/ui/meter.h"', '"../ui/meter.h"'))
+    (d / "sim/p2_dyn_register.h").write_text((ROOT / "sim/p2_dyn_register.h").read_text())
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST"] + flags + ["-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return d
-def run(d): return subprocess.run([str(d / "h")], capture_output=True, text=True).stdout.strip().split("\n")
+sys.path.insert(0, str(ROOT / "tools/player2")); import meter_desc as _md
+def run(d):
+    (d / "vu.desc").write_bytes(_md.for_meter("vu_master"))
+    return subprocess.run([str(d / "h"), str(d / "vu.desc")], capture_output=True, text=True).stdout.strip().split("\n")
 import re
-B = int(re.search(r"meter_cmd_budget\[METER_N\] = \{ (\d+),", (ROOT / "fw2/generated/meter_registry.h").read_text()).group(1))       # Winamp Bars' ceiling (the first meter): the expectations follow the manifest
+B = int(re.search(r"meter_cmd_budget\[METER_N\] = \{ (\d+)", (ROOT / "fw2/generated/meter_registry.h").read_text()).group(1))       # Winamp Bars' ceiling (the first meter): the expectations follow the manifest
 GOOD = [g.replace("@B1", str(B + 1)).replace("@B", str(B)) for g in ['ceiling bars @B', 'inside self 0 over 0 last @B', 'exactly at the ceiling: self 0 over 0', 'one over: self 1 over 1', 'max @B1', 'over for 8 windows: drawn 3 self 2', 'the meter was told degrade 2', 'a forced repaint is not judged: over 4 self 2', 'back inside for 64 windows: drawn 16 self 1', 'and a while longer: self 0', "the governor's level wins when higher: told 1", 'another meter has its own level: vu self 1 bars self 2', 'beam inside: rows 50-150 direct 1 exposed 1', 'beam well ahead of the rows: direct 1 exposed 0', 'beam already past: direct 1 exposed 0', 'vertical blanking: direct 1 exposed 0', 'no beam counter: direct 1 exposed 0', 'nothing visible drawn: rows 0 direct 0', 'stash rows only: direct 0 exposed 0']]
 with tempfile.TemporaryDirectory() as td:
     out = run(build(td, None))

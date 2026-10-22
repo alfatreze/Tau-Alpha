@@ -49,8 +49,8 @@ int main(int argc, char **argv)
     caps.spec = 1; meters_init(); meters_enter(0, 0, 100, 50);
     if (argc > 1) { FILE *f = fopen(argv[1], "rb"); static uint8_t buf[0x10000]; uint32_t n = f ? (uint32_t)fread(buf, 1, sizeof buf, f) : 0; if (f) fclose(f); meters_packs_load(buf, n); }
     for (uint32_t pass = 0; pass < 2; pass++)                                   /* two passes: back to a meter after the others (the pack state is activated again) */
-        for (uint32_t m = 0; m < METER_N; m++) { meters_select(m); win++; meters_tick(1); }
-    for (uint32_t m = 0; m < METER_N; m++) printf("m%u builtin %u pack %u state %u\n", m, builtin[m], m < 8 ? pack_calls[m] : 0u, meters_pack_state(m));
+        for (uint32_t m = 0; m < METER_SLOTS; m++) { if (!meters_present(m)) continue; meters_select(m); win++; meters_tick(1); }
+    for (uint32_t m = 0; m < METER_SLOTS; m++) printf("m%u builtin %u pack %u state %u present %d\n", m, m < METER_N ? builtin[m] : 0u, m < 8 ? pack_calls[m] : 0u, meters_pack_state(m), meters_present(m));
     uint32_t r, e, fe, sn; meters_pack_info(&r, &e, &fe, &sn);
     printf("info run %x err %u file %u seen %u\n", r, e, fe, sn);
     return 0;

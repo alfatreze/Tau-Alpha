@@ -13,6 +13,7 @@ static uint8_t slot_mem[8][0x10000] __attribute__((aligned(4))), scratch_mem[0x1
 static uint32_t now, win, spend[METER_SLOTS + 1], comp_cost, sum_dt[METER_SLOTS + 1], comp_calls;
 static uint32_t pack_call(uint32_t e, const void *in, const void *api);
 #include "../fw2/ui/meters.c"
+#include "p2_dyn_register.h"
 static uint32_t pack_call(uint32_t e, const void *in, const void *api) { (void)api; sum_dt[(e - MTR_PACK_SLOT_BASE) / MTR_PACK_SLOT_SIZE] += ((const mtr_in_t *)in)->dt_ms; now += spend[(e - MTR_PACK_SLOT_BASE) / MTR_PACK_SLOT_SIZE]; return 0; }
 uint32_t host_rd(uint32_t a)
 {
@@ -48,16 +49,14 @@ void gfx_sblit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint3
 static void show(const char *tag)
 {
     printf("%s ticks %u shed %u last %u compose %u max", tag, meter_stats.ticks, meter_stats.shed, meter_stats.last_cyc, meter_stats.compose_cyc);
-    for (uint32_t m = 0; m < METER_N; m++) printf(" %u", meter_stats.max_cyc[m]);
+    for (uint32_t m = 0; m < METER_SLOTS; m++) printf(" %u", meter_stats.max_cyc[m]);
     printf("\n");
 }
 int main(int argc, char **argv)
 {
     caps.spec = 1; meters_init(); meters_enter(0, 0, 100, 50);
-    { FILE *f = fopen(argv[1], "rb"); static uint8_t desc[4096]; const uint32_t n = f ? (uint32_t)fread(desc, 1, sizeof desc, f) : 0u; if (f) fclose(f);
-      const uint32_t size = 64u + n; for (uint32_t i = 0; i < n; i++) slot_mem[METER_N][size - n + i] = desc[i];
-      pack_slot[METER_N].info.size = size; pack_slot[METER_N].status = MPK_OK; dyn_register(METER_N); printf("waterfall row %d count %u\n", meters_present(METER_N), meter_count); }
-    for (uint32_t m = 0; m < METER_N; m++) spend[m] = 100u * (m + 1u);
+    printf("rows %u count %u\n", dyn_load_files(argc - 1, argv + 1), meter_count);
+    for (uint32_t m = 0; m < METER_SLOTS; m++) spend[m] = 100u * (m + 1u);
     comp_cost = 40;
     win = 1; meters_tick(1);                                  /* meter 0: 100 cycles, no compose in the table (compose flag 0) */
     show("a");
@@ -85,10 +84,10 @@ int main(int argc, char **argv)
     degrade_level = 0; t0 = meter_stats.ticks; for (int i = 0; i < 3; i++) { win++; meters_tick(1); }
     printf("deg0 drawn %u\n", meter_stats.ticks - t0);
     /* The compose gate of the Waterfall (meter 5): composed in mode SPECTROGRAM (0), not in ZONES (1). */
-    meters_select(METER_N); dyn_mv[0][0] = 0u; win++; meters_tick(1);
+    meters_select(5); dyn_mv[4][0] = 0u; win++; meters_tick(1);
     comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
     printf("spectrogram composed %u\n", comp_calls);
-    dyn_mv[0][0] = 1u; comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
+    dyn_mv[4][0] = 1u; comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
     printf("zones composed %u\n", comp_calls);
     return 0;
 }
