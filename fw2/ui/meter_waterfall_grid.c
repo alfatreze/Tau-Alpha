@@ -5,6 +5,7 @@
 #include "../generated/meter_presets.h"
 #include "../cores/ramp_core.h"
 #include "../cores/meter_core.h"
+#include "meter_grid.h"                              /* the cell grid: geometry, nibble state, delta drawing (B-814) */
 
 /* Waterfall (meters/waterfall_grid/meter.json): a grid of small cells lit by the spectrum. The grid is ALWAYS visible: an unlit cell is a dim cell, never the background.
  * SPECTROGRAM: frequency across, time down. The grid scrolls smoothly, a few pixels every picture at a set pixel speed (so the speed does not depend on the cell size), by the engine's copy (gfx_scroll_down, a
@@ -28,16 +29,18 @@ static wf_cfg_t cfg = { 0u, 100u, 8u, 90u, 450u };
 static void wf_load(const uint16_t *v) { cfg.mode = (uint8_t)v[MPP_WF_MODE]; cfg.speed = v[MPP_WF_SPEED]; cfg.gain = (uint8_t)v[MPP_WF_GAIN]; cfg.cell = (uint8_t)v[MPP_WF_CELL]; cfg.fade = v[MPP_WF_FADE]; }
 
 #ifdef P2_PACK
-static uint8_t zone[(WF_ROWS * WF_COLS + 1u) / 2u];     /* a nibble a cell: the still modes' brightness step (0..3), SPARKLE's heat (0..15) */
+static uint8_t zone[CG_BYTES(WF_COLS, WF_ROWS)];     /* a nibble a cell: the still modes' brightness step (0..3), SPARKLE's heat (0..15) */
 static uint8_t rowv[WF_COLS];                            /* SPECTROGRAM: the steps of the row that is entering */
 static uint8_t cnx[WF_COLS], rny[WF_ROWS];               /* ZONES: per column and per row, how far from its region's centre (0..255): the per-cell arithmetic is then a few adds */
 #define WF_ACT 192u
 static uint16_t act[WF_ACT], band_avg[MTR_BANDS];        /* SPARKLE: the cells that are lit (grid index; their heat is in zone[]); each band's running average of its level (x16) */
 static uint32_t nact, fade_acc;
 static uint8_t zq[MTR_BANDS];                            /* ZONES: the level (in sixteenths) each region was last drawn for (255: draw it again) */
-static uint32_t ox, oy;                                   /* the grid's top-left: the grid is centred in the box (what does not fit a whole cell is split between the sides) */
-static uint32_t zget(uint32_t i) { return (zone[i >> 1] >> ((i & 1u) * 4u)) & 15u; }
-static void zset(uint32_t i, uint32_t v) { const uint32_t sh = (i & 1u) * 4u; zone[i >> 1] = (uint8_t)((zone[i >> 1] & ~(15u << sh)) | (v << sh)); }
+static mgrid_t wfg;                                      /* the grid: its geometry (centred in the box, whole cells) and its four steps */
+#define ox (wfg.g.x0)
+#define oy (wfg.g.y0)
+#define zget(i) cg_get(zone, (i))
+#define zset(i, v) cg_set(zone, (i), (v))
 static uint32_t acc_q8, expo, step_n, geom;              /* scroll pixels not yet taken (1/256); how much of the entering row is in view; rows entered (the dither and the dust change with it); the geometry drawn for */
 static uint32_t hx(uint32_t a, uint32_t b)
 {
@@ -91,25 +94,21 @@ static void plane_blit(uint32_t gw, uint32_t sy, uint32_t dy, uint32_t h)      /
 #define WF_ONSET 20u                                             /* how far above its running average a band must jump (levels of 256) to count as an onset */
 #define WF_MAX_NEW 24u                                           /* the most new flashes a picture may start (a loud passage must not cost more than a quiet one) */
 static uint32_t heat_step(uint32_t h) { return h >= 11u ? 3u : h >= 6u ? 2u : h >= 2u ? 1u : 0u; }      /* a flash's brightness step from its heat (0..15) */
-static void cell_at(uint32_t c, uint32_t r, uint32_t pitch, uint16_t col) { gfx_rect(ox + c * pitch, oy + r * pitch, cfg.cell, cfg.cell, col); }
+static void cell_at(uint32_t c, uint32_t r, uint32_t pitch, uint16_t col) { (void)pitch; mgrid_cell(&wfg, c, r, col); }
 static void wf_tick(const mtr_in_t *in)
 {
-    const uint32_t pitch = cfg.cell + 1u;
-    uint32_t cols = in->w / pitch, rows = in->h / pitch;
-    if (cols > WF_COLS) cols = WF_COLS;
-    if (rows > WF_ROWS) rows = WF_ROWS;
-    if (!cols || !rows) return;
-    const uint16_t bg = in->bg, pal[4] = { rc_ramp(bg, UI_ACCENT, 1u, 7u), rc_ramp(bg, UI_ACCENT, 3u, 7u), rc_ramp(bg, UI_ACCENT, 5u, 7u), UI_ACCENT };
+    if (!cg_fit(&wfg.g, in->x, in->y, in->w, in->h, cfg.cell, WF_COLS, WF_ROWS)) return;
+    const uint32_t pitch = wfg.g.pitch, cols = wfg.g.cols, rows = wfg.g.rows, gw = cg_w(&wfg.g);
+    const uint16_t bg = in->bg;
+    mgrid_palette(&wfg, bg, UI_ACCENT);
+    const uint16_t *pal = wfg.pal;
     uint8_t spec[MTR_BANDS];
     for (uint32_t b = 0; b < MTR_BANDS; b++) { const uint32_t v = in->paused ? 0u : (uint32_t)in->spec[b] * cfg.gain / 100u; spec[b] = (uint8_t)(v > 255u ? 255u : v); }
-    const uint32_t sig = (in->w << 20) ^ (in->h << 10) ^ (pitch << 4) ^ cfg.mode, gw = cols * pitch;
-    ox = in->x + (in->w - gw) / 2u; oy = in->y + (in->h - rows * pitch) / 2u;
+    const uint32_t sig = cg_sig(in->w, in->h, pitch, cfg.mode);
     if (in->force || sig != geom) {                                     /* a new context or geometry: the whole grid, dim, then start again */
         geom = sig; acc_q8 = 0; expo = 0; nact = 0; fade_acc = 0;
-        gfx_rect(in->x, in->y, in->w, in->h, bg);
-        for (uint32_t i = 0; i < sizeof zone; i++) zone[i] = 0;
+        mgrid_clear(&wfg, zone, sizeof zone, in->x, in->y, in->w, in->h, bg);
         for (uint32_t b = 0; b < MTR_BANDS; b++) zq[b] = 255u;
-        for (uint32_t r = 0; r < rows; r++) for (uint32_t c = 0; c < cols; c++) cell_at(c, r, pitch, pal[0]);
         for (uint32_t c = 0; c < cols; c++) rowv[c] = 0;
         plane_build(cols, pitch, gw);
         if (cfg.mode == 1u) zones_prepare(cols, rows);
@@ -170,7 +169,7 @@ static void wf_tick(const mtr_in_t *in)
                 if (div > 1u && (r % div) != (in->frame % div)) { zq[band] = 255u; continue; }           /* a row skipped by the degrade: this band is visited again next picture */
                 for (uint32_t c = c0; c < c1; c++) {
                     const uint32_t v = cell_step(q ? (q << 4) | 8u : 0u, region_thr(c, r)), i = r * WF_COLS + c;
-                    if (v != zget(i)) { zset(i, v); cell_at(c, r, pitch, pal[v]); }
+                    mgrid_put(&wfg, zone, WF_COLS, c, r, v); (void)i;
                 }
             }
         }
@@ -180,7 +179,7 @@ static void wf_tick(const mtr_in_t *in)
             if (div > 1u && (r % div) != (in->frame % div)) continue;
             for (uint32_t c = 0; c < cols; c++) {
                 const uint32_t h = hx(c + 1u, r + 77u), v = cell_step(spec[(h >> 8) & 15u], h >> 24), i = r * WF_COLS + c;
-                if (v != zget(i)) { zset(i, v); cell_at(c, r, pitch, pal[v]); }
+                mgrid_put(&wfg, zone, WF_COLS, c, r, v); (void)i;
             }
         }
     }

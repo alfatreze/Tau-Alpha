@@ -84,8 +84,8 @@ static int seg_open_; static uint8_t fade_pending;
 static uint32_t skip_lead_p, skip_tail_p; static uint8_t skip_pending;       /* skip silence: the numbers for the track being opened, applied at its first decoded block */
 static uint32_t qsrc_kind = LQ_ALL_NATURAL, qsrc_parent;      /* how the current queue was made (to rebuild its natural order)*/
 static np_info_t np; static void np_refresh(const tl_seg_t *g, uint32_t id);
-uint32_t last_state, last_boot[3];                                  /* Info: how the restore went (0 not tried, 1 restored, 2 no record, 3 check failed, 4 the track is not in that queue, 5 no library) and the three words read at boot */
-static uint32_t lastw[3];                                         /* the last played track as persisted words (cores/lastplayed_core.h) */
+uint32_t last_state, last_boot[LASTP_WORDS];                                  /* Info: how the restore went (0 not tried, 1 restored, 2 no record, 3 check failed, 4 the track is not in that queue, 5 no library) and the three words read at boot */
+static uint32_t lastw[LASTP_WORDS];                                         /* the last played track as persisted words (cores/lastplayed_core.h) */
 static void last_note(uint32_t id) { lastp_t l = { 1u, qsrc_kind, qsrc_parent, id }; lastp_pack(&l, lastw); }
 /* The gain of each segment (volume x ReplayGain) is applied when the segment is HEARD; the table is keyed by the segment's generation. */
 static struct { uint32_t gen; gain_trk_t g; uint32_t id; } seg_gain[4]; static gain_trk_t dec_g, heard_g = { 32768u, 32768u }; static uint32_t heard_gain_gen;
@@ -476,10 +476,10 @@ SMALL void mp3play_heard(void)
     }
 }
 
-void mp3play_last_get(uint32_t *w) { w[0] = lastw[0]; w[1] = lastw[1]; w[2] = lastw[2]; }
+void mp3play_last_get(uint32_t *w) { w[0] = lastw[0]; w[1] = lastw[1]; }
 void mp3play_last_restore(const uint32_t *w)
 {
-    lastp_t l; lastw[0] = lastw[1] = lastw[2] = 0u; last_boot[0] = w[0]; last_boot[1] = w[1]; last_boot[2] = w[2];
+    lastp_t l; lastw[0] = lastw[1] = 0u; last_boot[0] = w[0]; last_boot[1] = w[1];
     if (lib_state != 1) { last_state = 5u; return; }
     if (!lastp_unpack(w, &l)) { last_state = (w[0] & 0x40000000u) ? 3u : 2u; return; }
     uint16_t *qb = library_queue_buf(); uint32_t st = 0;
@@ -488,7 +488,7 @@ void mp3play_last_restore(const uint32_t *w)
     if (pos < 0) { last_state = 4u; return; }                            /* the library changed: the track is not in that queue any more */
     qsrc_kind = l.kind; qsrc_parent = l.parent;
     queue_set(&q, qb, n); q.pos = (uint32_t)pos; lp.qn = q.n; lp.cur_pos = q.pos; lp.shuffle = 0u;
-    lastw[0] = w[0]; lastw[1] = w[1]; lastw[2] = w[2];
+    lastw[0] = w[0]; lastw[1] = w[1];
     np_refresh(0, l.id); np.valid = 1; last_state = 1u;                 /* Now Playing shows it, stopped */
 }
 void mp3play_settings_get(uint32_t *v) { v[0] = mp.volume; v[1] = q.repeat; v[2] = mp.rg_mode; v[3] = halcyon_saved; }

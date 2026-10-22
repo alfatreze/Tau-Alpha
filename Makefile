@@ -1,4 +1,4 @@
-.PHONY: test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: new-meter test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -27,6 +27,11 @@ package:
 	$(PYTHON) package.py
 
 test: test-host test-rtl
+
+# a new Player 2 meter as a working pack-only meter (tools/player2/new_meter.py): make new-meter KEY=sparks [TAG=SPK] [LABEL="SPARKS"]
+new-meter:
+	@test -n "$(KEY)" || { echo 'usage: make new-meter KEY=sparks [TAG=SPK] [LABEL="SPARKS"]'; exit 2; }
+	$(PYTHON) tools/player2/new_meter.py $(KEY) $(if $(TAG),--tag $(TAG)) $(if $(LABEL),--label "$(LABEL)")
 
 test-host:
 	$(PYTHON) tools/triad/test_director.py
@@ -104,6 +109,8 @@ test-host:
 	$(PYTHON) sim/test_p2_pack_strike.py
 	$(PYTHON) sim/test_p2_meter_desc.py
 	$(PYTHON) sim/test_p2_pack_only.py
+	$(PYTHON) sim/test_p2_meter_helpers.py
+	$(PYTHON) sim/test_p2_new_meter.py
 	$(PYTHON) sim/test_p2_meter_pack.py
 	$(PYTHON) sim/test_p2_meter_pack_dispatch.py
 	$(PYTHON) sim/test_p2_meter_thumb.py

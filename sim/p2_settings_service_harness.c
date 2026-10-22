@@ -34,18 +34,18 @@ int main(void)
     printf("revert stores %u reg1 %u\n", stores_at(), regs[1]);
     /* the last played track (the lazy fields): not with the urgency of a setting while streaming, at once when nothing is */
     uint32_t s0 = stores_at();
-    vals[SF_LAST0] = 0x81000007u; vals[SF_LAST1] = 42u; vals[SF_LAST2] = 99u;
+    vals[SF_LAST0] = 0x41000007u; vals[SF_LAST1] = 42u;
     now += 100; settings_service(vals, 1);
     now += CLK_HZ * 2u; settings_service(vals, 1);
-    printf("track streaming t+2s stores %u reg12 %u\n", stores_at() - s0, regs[12]);
+    printf("track streaming t+2s stores %u reg19 %u\n", stores_at() - s0, regs[19]);
     vals[SF_LAST1] = 43u; now += CLK_HZ * 5u; settings_service(vals, 1);                           /* a new track at about 7 s: the wait starts over */
     now += CLK_HZ * 5u; settings_service(vals, 1);
-    printf("track streaming, new track, 5s later stores %u reg13 %u\n", stores_at() - s0, regs[13]);
+    printf("track streaming, new track, 5s later stores %u reg20 %u\n", stores_at() - s0, regs[20]);
     now += CLK_HZ * 4u; settings_service(vals, 1);
-    printf("track streaming, 9s on the same track stores %u reg13 %u\n", stores_at() - s0, regs[13]);
+    printf("track streaming, 9s on the same track stores %u reg20 %u\n", stores_at() - s0, regs[20]);
     vals[SF_LAST1] = 44u; now += 100; settings_service(vals, 0);
-    printf("track not streaming stores %u reg13 %u\n", stores_at() - s0, regs[13]);
+    printf("track not streaming stores %u reg20 %u\n", stores_at() - s0, regs[20]);
     vals[SF_LAST1] = 45u; vals[SF_COLOUR] = 13u; now += 100; settings_service(vals, 1); now += CLK_HZ + 10u; settings_service(vals, 1);
-    printf("a setting published with the track stores %u reg1 %u reg13 %u\n", stores_at() - s0, regs[1], regs[13]);
+    printf("a setting published with the track stores %u reg1 %u reg20 %u\n", stores_at() - s0, regs[1], regs[20]);
     return 0;
 }

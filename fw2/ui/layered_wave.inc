@@ -1,4 +1,5 @@
 #include "diag_features.h"
+#include "../cores/histring_core.h"          /* the ring arithmetic (B-814): the head, the word read-modify-write push and the unwrap */
 /* ==================================================================== LAYERED WAVE meter (VIZ_LAYERED_WAVE)
  * Nested, mirrored envelope layers on a solid background (docs/features/meters/LAYERED_WAVE_METER_SPEC.md). Inputs are hardware only: the 16 band
  * levels from the spectrum bank (in->spec) and, for the DYNAMICS split, the capture's waveform peak (in->wave). Draws with plain fb_rect().
@@ -344,9 +345,8 @@ COLD_FN3 static void lw_endlayer(const lw_lay_t *l)
  * index), then each layer takes ONE word read-modify-write; (uint8_t) is the truncation the shift-register's own store had. */
 COLD_FN3 static void lw_push(int32_t n)
 {
-    lw_head = (uint16_t)(lw_head == 0u ? LW_HMAX - 1u : lw_head - 1u);
-    const uint32_t wi = (uint32_t)lw_head >> 2, sh = ((uint32_t)lw_head & 3u) * 8u;
-    for (int32_t k = 0; k < n; k++) lw_ring[k][wi] = (lw_ring[k][wi] & ~(0xFFu << sh)) | ((uint32_t)(uint8_t)lw_u8(lw_s[k]) << sh);
+    lw_head = (uint16_t)hr_back(lw_head, LW_HMAX);
+    for (int32_t k = 0; k < n; k++) hr_store(lw_ring[k], lw_head, (uint32_t)(uint8_t)lw_u8(lw_s[k]));
 }
 
 /* Unwrap layer k's newest `len` samples (newest first) into the hot scratch lw_row: lw_row[j] = the value pushed j pushes ago, exactly what
@@ -358,13 +358,7 @@ COLD_FN3 static void lw_unwrap(int32_t k, uint32_t len)
 #ifdef LW_STATS
     const uint32_t u0 = cycles();
 #endif
-    uint32_t i = lw_head, j = 0;
-    while (j < len) {
-        const uint32_t w = lw_ring[k][i >> 2];
-        for (uint32_t b = i & 3u; b < 4u && j < len; b++) lw_row[j++] = (uint8_t)(w >> (b * 8u));
-        i = (i & ~3u) + 4u;
-        if (i >= LW_HMAX) i -= LW_HMAX;
-    }
+    hr_unwrap(lw_ring[k], lw_head, LW_HMAX, lw_row, len);
 #ifdef LW_STATS
     lw_t_unw += (uint32_t)(cycles() - u0);
 #endif

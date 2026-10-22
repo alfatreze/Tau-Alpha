@@ -18,7 +18,7 @@ def run(mutant=0):
         r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
         if r.returncode: print(r.stderr); sys.exit(1)
         return subprocess.run([str(d / "h")], capture_output=True, text=True).stdout.strip().splitlines()
-GOOD = ["start stores 0", "streaming t+0 stores 0 reg1 0", "streaming t+0.5s stores 0 reg1 0", "streaming t+1s stores 1 reg1 7", "idle stores 2 reg1 9", "revert stores 2 reg1 9", "track streaming t+2s stores 0 reg12 0", "track streaming, new track, 5s later stores 0 reg13 0", "track streaming, 9s on the same track stores 1 reg13 43", "track not streaming stores 2 reg13 44", "a setting published with the track stores 3 reg1 13 reg13 45"]
+GOOD = ["start stores 0", "streaming t+0 stores 0 reg1 0", "streaming t+0.5s stores 0 reg1 0", "streaming t+1s stores 1 reg1 7", "idle stores 2 reg1 9", "revert stores 2 reg1 9", "track streaming t+2s stores 0 reg19 0", "track streaming, new track, 5s later stores 0 reg20 0", "track streaming, 9s on the same track stores 1 reg20 43", "track not streaming stores 2 reg20 44", "a setting published with the track stores 3 reg1 13 reg20 45"]
 fails = 0
 out = run(0)
 for g, o in zip(GOOD, out):

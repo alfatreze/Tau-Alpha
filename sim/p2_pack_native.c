@@ -40,6 +40,9 @@ static void dev_wr(uint32_t a, uint32_t v) { if ((a & 0xFFFu) == 0xF0u) dm_idx =
 #elif defined(PACK_WF)
 #define P2_PACK 1                       /* the real code of the waterfall exists only with P2_PACK */
 #include "../fw2/ui/meter_waterfall_grid.c"
+#elif defined(PACK_GEN)
+#define P2_PACK 1                       /* a scaffolded meter (tools/player2/new_meter.py): its source and names come from the manifest, as -D flags of the test */
+#include GEN_SRC
 #elif defined(PACK_CHL)
 #include "../fw2/ui/meter_chladni.c"
 #elif defined(PACK_LW)
@@ -92,6 +95,13 @@ static void run(const mtr_in_t *in) { wf_tick(in); }
 #define MV wf_params
 #define APPLY wf_apply
 #define TRACE wf_trace
+#elif defined(PACK_GEN)
+static uint16_t gen_params[GEN_PN];
+static void gen_apply(void) { GEN_LOAD(gen_params); }
+static void run(const mtr_in_t *in) { GEN_TICK(in); }
+#define MV gen_params
+#define APPLY gen_apply
+#define TRACE gen_trace
 #elif defined(PACK_CHL)
 static void run(const mtr_in_t *in) { meter_chladni_tick(in); }
 #define MV meter_chladni_mv

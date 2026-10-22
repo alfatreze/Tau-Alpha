@@ -24,7 +24,7 @@ ALLOWED = {
 
 # The meter module rule (docs/features/meters/METERS_PLAYER2_PLAN.md): a meter (fw2/ui/meter_<key>.c) draws through gfx, reads its inputs from meter.h and the theme roles, and takes its logic from cores. It may include
 # only these; it must not reach transport, settings, aout, art, queue, stream, diagnostics, the platform beyond the register map, or another meter. (Its own body, ui/<key>.inc, is allowed.) (The old player's portable cores under fw/ are allowed until they move into fw2/cores.)
-METER_OK_FILES = {"ui/meter.h", "ui/theme.h", "platform/mmio.h"}
+METER_OK_FILES = {"ui/meter_grid.h", "ui/meter.h", "ui/theme.h", "platform/mmio.h"}
 METER_OK_DIRS = {"gfx", "cores", "generated"}
 def meter_violations(f, root, text):
     out = []
