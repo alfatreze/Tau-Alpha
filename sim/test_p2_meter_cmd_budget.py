@@ -14,7 +14,7 @@ def build(td, mutant):
     d = Path(td)
     for sub in ("ui", "gfx", "platform", "cores", "generated", "sim"): (d / sub).mkdir()
     src = (ROOT / "fw2/ui/meters.c").read_text(); flags = []
-    if mutant == "nojudge": a = "mb_judge(&budget[cur], meter_stats.cmds_last, meter_cmd_budget[cur]);"; assert a in src; src = src.replace(a, "")
+    if mutant == "nojudge": a = "mb_judge(&budget[cur], meter_stats.cmds_last, cmd_limit_of(cur));"; assert a in src; src = src.replace(a, "")
     if mutant == "judgeforce": a = "if (!in.force) { mb_judge("; assert a in src; src = src.replace(a, "if (1) { mb_judge(")
     if mutant == "ownignored": a = "mb_effective(mp3play_degrade_now(), budget[cur].level)"; assert a in src; src = src.replace(a, "mp3play_degrade_now()")
     if mutant == "noexpose": a = "if (!hl_rows_safe("; assert a in src; src = src.replace(a, "if (0 && !hl_rows_safe(")

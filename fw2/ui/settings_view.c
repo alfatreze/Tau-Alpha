@@ -27,7 +27,7 @@
 #define TOP_Y 34u
 #define MLIST_ROW_H 40u                      /* the METER list: rows tall enough for a 32 px preview */
 #define MLIST_VIS 7u
-_Static_assert(METER_N <= MLIST_VIS, "the METER list shows every meter without scrolling: give it its own scrolling before adding more");
+_Static_assert(METER_SLOTS <= MLIST_VIS, "the METER list shows every meter without scrolling: give it its own scrolling before adding more");
 /* The menu's value ids 0..6 are the transport's preferences. */
 _Static_assert(V_VOLUME == PREF_VOLUME && V_RG == PREF_RG && V_STRETCH == PREF_STRETCH && V_REPEAT == PREF_REPEAT && V_SHUFFLE == PREF_SHUFFLE && V_SEEKSTEP == PREF_SEEKSTEP && V_SKIPSIL == PREF_SKIPSIL && V_SPEED == PREF_SPEED, "menu value ids must mirror PREF_*");
 
@@ -36,7 +36,7 @@ static mg_t menu; static uint32_t vals[V_COUNT], dirty; static uint8_t resume;  
 
 static void pull(void)
 {
-    const uint32_t cur_vals[4] = { th_pal, th_theme, th_pol, meters_cur() };
+    const uint32_t cur_vals[4] = { th_pal, th_theme, th_pol, meters_list_index(meters_cur()) };       /* the METER choice is a position in the list of the meters that are there */
     for (uint32_t k = 0; k < 4u; k++) if (vals[V_COLOUR + k] != cur_vals[k]) { vals[V_COLOUR + k] = cur_vals[k]; dirty = 1; }
     for (uint32_t i = 0; i < PREF_COUNT; i++) { uint32_t v = mp3play_pref_get(i); if (v != vals[i]) { vals[i] = v; dirty = 1; } }
     mg_speed_for_mode(vals[V_STRETCH]);                           /* the speed list follows the mode */
@@ -82,7 +82,7 @@ int settings_view_input(uint32_t edge)
     xfade_finish();                                   /* a key while a fade runs: the fade is completed first, then the key acts on the finished page */
     pull();
     if ((edge & KEY_X) && menu.page[menu.depth] == PG_CHOICE && menu.choice_val[menu.depth] == V_METER) {       /* X in the METER list: that meter's Configure page */
-        meters_select(menu.sel[menu.depth]); resume = 1; return V_CONFIGURE;
+        meters_select(meters_list_row(menu.sel[menu.depth])); resume = 1; return V_CONFIGURE;
     }
     mg_effect_t e = mg_input(&menu, edge, vals);
     dirty = 1;
@@ -94,7 +94,7 @@ int settings_view_input(uint32_t edge)
         else if (e.id == V_COLOUR) theme_set(th_theme, th_pol, e.value);
         else if (e.id == V_THEME) theme_set(e.value, th_pol, th_pal);
         else if (e.id == V_MODE) theme_set(th_theme, e.value, th_pal);
-        else if (e.id == V_METER) meters_select(e.value);
+        else if (e.id == V_METER) meters_select(meters_list_row(e.value));
         else if (e.id == V_BLANK) blank_sel = (uint8_t)e.value;
         else if (e.id == V_FONT) font_select(e.value);                 /* loads the font into the engine; the main loop repaints the view once (font_changed) */
         else if (e.id == V_CYMO) aout_cymo_user_off(e.value ? 0 : 1);
@@ -123,7 +123,7 @@ void settings_view_draw(void)
             if (i >= n) { gfx_rect(0, y, GFX_W, MLIST_ROW_H, BG); continue; }
             const int on = i == menu.sel[d]; const uint16_t bg = on ? ACC : BG;
             gfx_rect(0, y, GFX_W, MLIST_ROW_H, bg);
-            meter_thumb_draw(i, 20, y + (MLIST_ROW_H - METER_THUMB_H) / 2u);
+            meter_thumb_draw(meters_list_row(i), 20, y + (MLIST_ROW_H - METER_THUMB_H) / 2u);
             gfx_text(92, y + 12, mg_choices[V_METER].opt[i], on ? UI_ON_ACCENT : FG, bg);
             if (vals[V_METER] == i) gfx_text(GFX_W - 24 - gfx_text_width("*"), y + 12, "*", on ? UI_ON_ACCENT : DIM, bg);
         }
@@ -156,8 +156,8 @@ void settings_view_init_choices(void)
     static const char *theme_names[8], *meter_names[8];
     uint32_t n = theme_count(); if (n > 8u) n = 8u;
     for (uint32_t i = 0; i < n; i++) theme_names[i] = theme_name(i);
-    uint32_t m = meter_count > 8u ? 8u : meter_count;
-    for (uint32_t i = 0; i < m; i++) meter_names[i] = meter_table[i].name;
+    uint32_t m = meters_list_count(); if (m > 8u) m = 8u;
+    for (uint32_t i = 0; i < m; i++) meter_names[i] = meters_def(meters_list_row(i))->name;
     mg_set_choice(V_COLOUR, th_palette_name, 19u);
     mg_set_choice(V_THEME, theme_names, n);
     mg_set_choice(V_METER, meter_names, m);

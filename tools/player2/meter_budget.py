@@ -46,7 +46,7 @@ def targets():
     t = []
     for p in sorted((ROOT / "meters").glob("*/meter.json")):
         m = json.loads(p.read_text())
-        if "p2" in m:
+        if "p2" in m and not m["p2"].get("pack_only"):                  # a pack-only meter has no object in the firmware (its descriptor and code are in its pack)
             t.append(("meter_" + m["key"], m["key"], m["p2"].get("budget")))
     for obj, b in FRAMEWORK.items(): t.append((obj, obj, b))
     return t

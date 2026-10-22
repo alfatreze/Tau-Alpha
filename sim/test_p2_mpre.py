@@ -26,7 +26,7 @@ def build(td, mutant):
     return d
 GOOD = ["of3 6 of2 0 last3 6 last2 0", "chladni_after5 1 last2 1 name chladni", "vu_wrap 0"]
 def run_plain(d): return subprocess.run([str(d / "h")], capture_output=True, text=True).stdout.strip().split("\n")
-KEYS = (("winamp_bars", 3), ("winamp_scope", 2), ("chladni", 4), ("layered_wave", 5), ("vu_master", 2), ("waterfall_grid", 3))
+KEYS = (("winamp_bars", 3), ("winamp_scope", 2), ("chladni", 4), ("layered_wave", 5), ("vu_master", 2))      # the built-in meters (the Waterfall is pack-only: its rows and METR presets are tested with the pack, sim/test_p2_pack_only.py)
 def metr_spec():
     reg = ta.registry(); ms = []
     for key, n in KEYS:

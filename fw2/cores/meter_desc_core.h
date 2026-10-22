@@ -10,14 +10,14 @@
 #define MD_MAGIC 0x4353444Du
 #define MD_TRAILER 0x31435344u
 #define MD_VERSION 1u
-#define MD_HDR 32u
+#define MD_HDR 40u
 #define MD_MAX_PARAMS 48u
 #define MD_MAX_PRESETS 16u
 #define MD_MAX_NVAL 12u
 #define MD_MAX_STR 23u
 #define MD_MAX_LEN 4096u
 typedef int (*md_rd_fn)(void *ctx, uint32_t off, uint8_t *dst, uint32_t n);        /* 1 = read, 0 = outside */
-typedef struct { uint32_t total, cmp, max_cycles; uint16_t cmds, name, params, presets, pal, rle, rle_len; uint8_t np, npre; } md_hdr_t;
+typedef struct { uint32_t total, cmp, max_cycles; uint16_t cmds, name, params, presets, pal, rle, rle_len, mid, slot; uint8_t np, npre; } md_hdr_t;
 typedef struct { uint16_t label, min, max, step, when_val, vals; uint8_t type, hidden, nval, when_idx; } md_param_t;
 typedef struct { uint16_t fixed; uint8_t a, b, t, n; } md_col_t;
 static inline uint32_t md_u16(const uint8_t *p) { return (uint32_t)p[0] | ((uint32_t)p[1] << 8); }
@@ -26,12 +26,12 @@ static inline uint32_t md_stride(uint32_t np) { return (2u + 2u * np + 3u) & ~3u
 /* The whole descriptor is `len` bytes (the pack loader knows it from the trailer). Returns 1 and the header when it is sound. */
 static inline int md_header(md_rd_fn rd, void *ctx, uint32_t len, md_hdr_t *h)
 {
-    uint8_t b[MD_HDR + 8];
+    uint8_t b[MD_HDR];
     if (len < MD_HDR + 8u || len > MD_MAX_LEN || (len & 3u)) return 0;
     if (!rd(ctx, 0u, b, MD_HDR)) return 0;
     if (md_u32(b) != MD_MAGIC || md_u16(b + 4) != MD_VERSION || md_u16(b + 6) != len) return 0;
     h->total = len; h->np = b[8]; h->npre = b[9]; h->cmds = (uint16_t)md_u16(b + 10); h->cmp = md_u32(b + 12); h->max_cycles = md_u32(b + 16);
-    h->name = (uint16_t)md_u16(b + 20); h->params = (uint16_t)md_u16(b + 22); h->presets = (uint16_t)md_u16(b + 24); h->pal = (uint16_t)md_u16(b + 26); h->rle = (uint16_t)md_u16(b + 28); h->rle_len = (uint16_t)md_u16(b + 30);
+    h->name = (uint16_t)md_u16(b + 20); h->params = (uint16_t)md_u16(b + 22); h->presets = (uint16_t)md_u16(b + 24); h->pal = (uint16_t)md_u16(b + 26); h->rle = (uint16_t)md_u16(b + 28); h->rle_len = (uint16_t)md_u16(b + 30); h->mid = (uint16_t)md_u16(b + 32); h->slot = (uint16_t)md_u16(b + 34);
     uint8_t t[8];
     if (!rd(ctx, len - 8u, t, 8u) || md_u32(t) != len || md_u32(t + 4) != MD_TRAILER) return 0;
     return h->np <= MD_MAX_PARAMS && h->npre >= 1u && h->npre <= MD_MAX_PRESETS;

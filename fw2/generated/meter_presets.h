@@ -87,6 +87,8 @@ static const mpd_t mpd_vu[5] = {
     { "RED", 3, 0, 0, 65535, 1, 0, 0, 1, 1 },
 };
 #define MPD_VU_N 5u
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
 enum { MPP_WF_MODE, MPP_WF_SPEED, MPP_WF_GAIN, MPP_WF_CELL, MPP_WF_FADE, MPP_WF_N };
 #define MPP_WF_PRESETS 7u
 static const char *const mpp_wf_name[MPP_WF_PRESETS] = { "WATERFALL", "FAST FALL", "HEAT MAP", "FINE GRID", "DUST", "SPARKLE", "STARS" };
@@ -108,6 +110,7 @@ static const mpd_t mpd_wf[5] = {
     { "FADE TIME", 0, 0, 150, 2000, 100, 0, 0, 0, 3 },
 };
 #define MPD_WF_N 5u
+#pragma GCC diagnostic pop
 static const char *const mpl_lw_view[] = { "HISTORY", "SPECTRUM" };
 static const char *const mpl_lw_split[] = { "OCTAVES", "BASS FINE", "ENERGY", "DYNAMICS", "CUSTOM" };
 static const char *const mpl_lw_outer[] = { "BASS", "TREBLE" };
