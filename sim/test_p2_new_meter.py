@@ -19,9 +19,15 @@ with tempfile.TemporaryDirectory() as td:
     shutil.copy(ROOT / "Makefile", cp / "Makefile")
     (cp / "docs").mkdir()                                                          # tools/gen_meters.py writes its tables there
     (cp / "dist/Cores/alfatreze.TAU").mkdir(parents=True); shutil.copy(ROOT / "dist/Cores/alfatreze.TAU/interact.json", cp / "dist/Cores/alfatreze.TAU/interact.json")
+    # the seven slots are all in use (the last one is SOUND MAP): the copy gives its slot back so the scaffold has somewhere to go
+    shutil.rmtree(cp / "meters/sound_map")
+    for f in ("fw2/ui/meter_sound_map.c", "fw2/ui/meter_pack_sound_map.c", "fw2/generated/desc_sound_map.h"): (cp / f).unlink()
     tc = ROOT / "toolchain"
     env = dict(os.environ, RISCV_TOOLCHAIN_BIN=str(next(tc.glob("*/bin")))) if tc.exists() and list(tc.glob("*/bin")) else dict(os.environ)
     def make(*args): return subprocess.run(["make", "new-meter"] + list(args), cwd=cp, capture_output=True, text=True, env=env)
+    for g in ("tools/player2/gen_meters_p2.py", "tools/gen_meters.py"):
+        gr = subprocess.run([sys.executable, g], cwd=cp, capture_output=True, text=True, env=env)
+        if gr.returncode: print(gr.stdout[-600:] + gr.stderr[-600:]); sys.exit(1)
     before = sorted(str(p.relative_to(cp)) for p in cp.rglob("*") if p.is_file())
     r = make("KEY=winamp_bars", "TAG=ZZ")
     check("a key that exists is refused", r.returncode != 0 and "exists" in (r.stdout + r.stderr))
@@ -31,7 +37,7 @@ with tempfile.TemporaryDirectory() as td:
     r = make("KEY=sparks", "TAG=SPK", "LABEL=SPARKS")
     check("the scaffold runs, generates the tables and builds the pack", r.returncode == 0 and "pack_meter.py sparks" in r.stdout, r.stdout[-600:] + r.stderr[-600:])
     if r.returncode == 0:
-        m = json.loads((cp / "meters/sparks/meter.json").read_text()); old = [json.loads(p.read_text()) for p in (ROOT / "meters").glob("*/meter.json")]
+        m = json.loads((cp / "meters/sparks/meter.json").read_text()); old = [json.loads(p.read_text()) for p in (cp / "meters").glob("*/meter.json") if "sparks" not in str(p)]
         check("its manifest takes the next slot and manifest index, is pack-only, and its limits are set", m["p2"]["slot"] == max(o["p2"]["slot"] for o in old if "p2" in o) + 1 and m["index"] == max(o["index"] for o in old) + 1 and m["p2"]["pack_only"] and m["p2"]["cmds"] > 0 and m["p2"]["max_cycles"] > 0 and m["p2"]["tag"] == "SPK", m["p2"])
         check("its files exist: preview, drawing source, pack source and the pack", all((cp / f).exists() for f in ("meters/sparks/thumb.json", "fw2/ui/meter_sparks.c", "fw2/ui/meter_pack_sparks.c", "work/packs-p2/sparks.tmpk")))
         reg = (cp / "fw2/generated/meter_registry.h").read_text()

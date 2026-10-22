@@ -1,0 +1,112 @@
+{
+  "key": "sound_map",
+  "enum": "VIZ_SOUND_MAP",
+  "index": 18,
+  "name": "SOUND MAP",
+  "selectable": true,
+  "sel_index": 0,
+  "caps": [],
+  "cost_class": 2,
+  "p2_only": true,
+  "considered": "Shows what the sound IS from the audio statistics (RMS, L/R correlation, spectral centroid, crest, flux/onset; mtr_in_t ABI 1.1): a stereo sound field with a width gauge, a character map of five descriptors, and a one-column-per-second memory of the track. Three views in one meter because seven is the limit (saved presets, METER list rows) and one slot was left. Without the hardware statistics block the field and the loudness use the peaks.",
+  "params": [
+    {
+      "key": "mode",
+      "label": "Mode",
+      "type": "enum",
+      "values": [
+        "STEREO FIELD",
+        "CHARACTER",
+        "LONG MEMORY"
+      ],
+      "default": 0
+    },
+    {
+      "key": "gain",
+      "label": "Gain",
+      "type": "u8",
+      "min": 50,
+      "max": 200,
+      "step": 10,
+      "default": 100,
+      "unit": "%",
+      "note": "how bright / tall for a given level"
+    },
+    {
+      "key": "cell",
+      "label": "Cell size",
+      "type": "u8",
+      "min": 5,
+      "max": 12,
+      "step": 1,
+      "default": 8,
+      "unit": "px",
+      "note": "the cell is this many pixels square, with one pixel between cells"
+    },
+    {
+      "key": "span",
+      "label": "Seconds per column",
+      "type": "u8",
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "default": 1,
+      "unit": "s",
+      "when": {
+        "mode": 2
+      },
+      "note": "how much time one column of the long memory covers"
+    }
+  ],
+  "presets": [
+    {
+      "name": "STEREO FIELD",
+      "values": {
+        "mode": 0,
+        "gain": 100,
+        "cell": 8,
+        "span": 1
+      }
+    },
+    {
+      "name": "CHARACTER",
+      "values": {
+        "mode": 1,
+        "gain": 100,
+        "cell": 8,
+        "span": 1
+      }
+    },
+    {
+      "name": "LONG MEMORY",
+      "values": {
+        "mode": 2,
+        "gain": 120,
+        "cell": 6,
+        "span": 1
+      }
+    },
+    {
+      "name": "MEMORY 5 S",
+      "values": {
+        "mode": 2,
+        "gain": 120,
+        "cell": 8,
+        "span": 5
+      }
+    }
+  ],
+  "p2": {
+    "pack_only": true,
+    "cmds": 1500,
+    "max_cycles": 3000000,
+    "slot": 6,
+    "tag": "SMP",
+    "compose": false,
+    "budget": {
+      "cold": 4096,
+      "hot_ram": 2048
+    }
+  },
+  "default_preset": 0
+}

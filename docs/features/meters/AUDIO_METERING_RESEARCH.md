@@ -89,6 +89,6 @@ shape with a different accumulator.
 6. **True/inter-sample peak** — last, and only if clipping detection on a mastering-style meter turns out
    to matter enough to justify oversampling hardware.
 
-Nothing above is built. This is the map; `docs/features/meters/HARDWARE_METER_IDEAS.md` keeps the
+**Update 2026-10-22 (B-818..B-820):** onset (shared field), centroid, crest, flux, RMS and correlation are now `mtr_in_t` fields (ABI 1.1); RMS and correlation come from `tau_audio_stats.sv` (simulated, wired into `mp3_soc.v`, NOT fitted); the clip counter and true peak are not built. SOUND MAP is the first meter to read them. This is the map; `docs/features/meters/HARDWARE_METER_IDEAS.md` keeps the
 items this doesn't touch (beat/onset *detection circuitry* specifically, ballistics-in-hardware, the
 Chladni field evaluator, scope decimator reuse).

@@ -122,6 +122,26 @@ static const mpd_t mpd_wf[5] = {
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
+enum { MPP_SMP_MODE, MPP_SMP_GAIN, MPP_SMP_CELL, MPP_SMP_SPAN, MPP_SMP_N };
+#define MPP_SMP_PRESETS 4u
+static const char *const mpp_smp_name[MPP_SMP_PRESETS] = { "STEREO FIELD", "CHARACTER", "LONG MEMORY", "MEMORY 5 S" };
+static const uint16_t mpp_smp[MPP_SMP_PRESETS][MPP_SMP_N] = {
+    { 0, 100, 8, 1 },   /* STEREO FIELD */
+    { 1, 100, 8, 1 },   /* CHARACTER */
+    { 2, 120, 6, 1 },   /* LONG MEMORY */
+    { 2, 120, 8, 5 },   /* MEMORY 5 S */
+};
+static const char *const mpl_smp_mode[] = { "STEREO FIELD", "CHARACTER", "LONG MEMORY" };
+static const mpd_t mpd_smp[4] = {
+    { "MODE", 1, 0, 0, 2, 1, 3, mpl_smp_mode, 255, 0 },
+    { "GAIN", 0, 0, 50, 200, 10, 0, 0, 255, 0 },
+    { "CELL SIZE", 0, 0, 5, 12, 1, 0, 0, 255, 0 },
+    { "SECONDS PER COLUMN", 0, 0, 1, 10, 1, 0, 0, 0, 2 },
+};
+#define MPD_SMP_N 4u
+#pragma GCC diagnostic pop
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
 static const char *const mpl_lw_view[] = { "HISTORY", "SPECTRUM" };
 static const char *const mpl_lw_split[] = { "OCTAVES", "BASS FINE", "ENERGY", "DYNAMICS", "CUSTOM" };
 static const char *const mpl_lw_outer[] = { "BASS", "TREBLE" };

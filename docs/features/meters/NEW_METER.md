@@ -13,7 +13,7 @@ make new-meter KEY=sparks TAG=SPK LABEL="SPARKS"
 | `fw2/ui/meter_<key>.c` | the drawing: `<tag>_load(params)` and `<tag>_tick(in)` under `P2_PACK`; LEVELS lights a cell grid from the band levels, HISTORY scrolls a loudness history |
 | `fw2/ui/meter_pack_<key>.c` | the pack wrapper (redirects to the host table, the descriptor, the entry point) |
 
-then runs the generators (`gen_meters_p2.py`, `gen_meters.py`) and `pack_meter.py`. The limits: seven meters (the saved presets have seven fields, `cores/settings_core.h` `SF_MPRE0..6`, and the METER list shows seven rows); a slot beyond that needs a field and list scrolling first.
+then runs the generators (`gen_meters_p2.py`, `gen_meters.py`) and `pack_meter.py`. **All seven slots are now in use (SOUND MAP is the seventh); a further meter needs the extra preset field and list scrolling first.** The limits: seven meters (the saved presets have seven fields, `cores/settings_core.h` `SF_MPRE0..6`, and the METER list shows seven rows); a slot beyond that needs a field and list scrolling first.
 
 ## What to edit
 1. The manifest: parameters (the order is the host's parameter table; `when` hides one until another has a value), presets (every parameter in every preset), the limits. Run `python3 tools/player2/gen_meters_p2.py` after a change.

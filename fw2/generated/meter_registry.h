@@ -3,7 +3,7 @@
 #define P2_METER_REGISTRY_H
 #include <stdint.h>
 #define METER_N 1u
-#define METER_SLOTS 6u      /* the table's rows: the built-in meters first, then the pack_only ones by slot (rows 0..METER_N-1 are static, the others come from their pack's descriptor) */
+#define METER_SLOTS 7u      /* the table's rows: the built-in meters first, then the pack_only ones by slot (rows 0..METER_N-1 are static, the others come from their pack's descriptor) */
 /* X(key, NAME, manifest_id, tag_lower, TAG, presets, cmp), in table order (the saved meter is the table index: slots never move, new meters append) */
 #define METER_LIST(X) \
     X(winamp_bars, "WINAMP BARS", 12, bars, BARS, 5, 0x00000000u)
@@ -13,7 +13,8 @@
     X(2, "CHLADNI") \
     X(3, "LAYERED WAVE") \
     X(4, "VU MASTER") \
-    X(5, "WATERFALL")
+    X(5, "WATERFALL") \
+    X(6, "SOUND MAP")
 static const uint8_t meter_manifest_id[METER_N] = { 12 };      /* the id of each table entry in tau-assets.bin METR and the reports */
 /* the draw-command ceiling of one drawn tick of each meter (manifest p2.cmds; 0 = unbudgeted): cores/meter_budget_core.h */
 static const uint16_t meter_cmd_budget[METER_N] = { 64 };
