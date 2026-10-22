@@ -57,6 +57,11 @@ def cmd_launch(a):
     if not a.seed:
         sys.exit("give at least one --seed")
     busy = running_compiles()
+    while busy and a.wait_free:                          # the VM is occupied: check again every --poll seconds (default 30 min), then launch the approved fit
+        import time
+        print(time.strftime("%H:%M"), "VM busy (%d Quartus process(es)); checking again in %d min" % (len(busy), a.poll // 60), flush=True)
+        time.sleep(a.poll)
+        busy = running_compiles()
     if busy and not a.force:
         sys.exit("the VM already has a Quartus process running (use --force only if you are sure it is idle):\n" + "\n".join(busy))
     append = (ROOT / a.append).read_text() if a.append else ""
@@ -150,7 +155,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     l = sub.add_parser("launch"); l.add_argument("name"); l.add_argument("--append"); l.add_argument("--seed", action="append", type=int)
-    l.add_argument("--force", action="store_true"); l.set_defaults(fn=cmd_launch)
+    l.add_argument("--force", action="store_true")
+    l.add_argument("--wait-free", action="store_true", help="if the VM is busy, poll until it is free, then launch (only for a fit the owner has already approved)")
+    l.add_argument("--poll", type=int, default=1800, help="seconds between checks with --wait-free (default 1800 = 30 min)"); l.set_defaults(fn=cmd_launch)
     s = sub.add_parser("status"); s.add_argument("name"); s.set_defaults(fn=cmd_status)
     c = sub.add_parser("collect"); c.add_argument("--append", help="the bundle an older fit was launched with (rebuilds the manifest)"); c.add_argument("name"); c.add_argument("--seed", type=int, required=True); c.set_defaults(fn=cmd_collect)
     a = ap.parse_args()
