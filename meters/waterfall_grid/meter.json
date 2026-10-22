@@ -146,7 +146,8 @@
     }
   ],
   "p2": {
-    "cmds": 3072, "max_cycles": 5000000,
+    "cmds": 3072,
+    "max_cycles": 5000000,
     "slot": 5,
     "tag": "WF",
     "compose": {
@@ -158,7 +159,8 @@
     "budget": {
       "cold": 4096,
       "hot_ram": 2200
-    }
+    },
+    "pack_only": true
   },
   "default_preset": 0
 }

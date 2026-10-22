@@ -16,7 +16,7 @@ int main(int argc, char **argv)
     md_hdr_t h; const int e = md_check(rd, 0, len, 21u, &h);
     printf("check %d outside %d\n", e, outside);
     if (e) return 0;
-    char s[32]; md_string(rd, 0, &h, h.name, s, sizeof s); printf("name %s cmds %u cmp %u maxc %u np %u npre %u\n", s, h.cmds, h.cmp, h.max_cycles, h.np, h.npre);
+    char s[32]; md_string(rd, 0, &h, h.name, s, sizeof s); printf("name %s cmds %u cmp %u maxc %u np %u npre %u mid %u slot %u\n", s, h.cmds, h.cmp, h.max_cycles, h.np, h.npre, h.mid, h.slot);
     for (uint32_t i = 0; i < h.np; i++) {
         md_param_t p; md_param(rd, 0, &h, i, &p); md_string(rd, 0, &h, p.label, s, sizeof s);
         printf("p %s %u %u %u %u %u %u %u", s, p.type, p.hidden, p.min, p.max, p.step, p.when_idx, p.when_val);

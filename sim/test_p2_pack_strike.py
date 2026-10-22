@@ -22,7 +22,7 @@ def build(d, mutant=None):
     for sub in ("ui", "gfx", "platform", "cores", "generated"): (d / "fw2" / sub).mkdir(parents=True, exist_ok=True)
     (d / "sim").mkdir(exist_ok=True)
     (d / "fw2/ui/meters.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "ui/meter_pack.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
+    for f in ("ui/meter.h", "ui/theme.h", "ui/meter_pack.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/meter_desc_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
         (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "fw2/gfx/gfx.h").write_text((ROOT / "fw2/gfx/gfx.h").read_text())
     (d / "sim/h.c").write_text((ROOT / "sim/p2_pack_strike_harness.c").read_text())

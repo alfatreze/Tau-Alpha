@@ -46,8 +46,16 @@ typedef struct {
     uint32_t max_cyc[8];            /* the slowest tick of each meter since boot (indexed like meter_table; METER_MAX_STATS bounds the table) */
 } meter_stats_t;
 extern meter_stats_t meter_stats;
-extern const meter_def_t meter_table[];
-extern const uint32_t meter_count;
+extern const meter_def_t meter_table[];                 /* the built-in rows (0..METER_N-1) */
+extern uint32_t meter_count;                            /* the rows in use: a pack-only meter's row (METER_N..) exists only while its pack is installed with a sound descriptor */
+int         meters_present(uint32_t row);               /* the row has a meter (rows in between may be absent) */
+const meter_def_t *meters_def(uint32_t row);            /* the row's definition (a pack-only row's Configure descriptors are copied to hot RAM on first use and stay until another pack-only row is asked for) */
+uint32_t    meters_list_count(void);                    /* the METER list: the meters that are there, in row order */
+uint32_t    meters_list_row(uint32_t i);                /* list position -> row (the saved meter index) */
+uint32_t    meters_list_index(uint32_t row);            /* row -> list position */
+uint32_t    meters_thumb_len(uint32_t row);             /* a pack-only meter's preview, read from its descriptor: stream length, byte, palette entry (0 for a built-in row: its preview is in the firmware) */
+int         meters_thumb_rle(uint32_t row, uint32_t i, uint8_t *v);
+int         meters_thumb_col(uint32_t row, uint32_t c, uint16_t *fixed, uint8_t *a, uint8_t *b, uint8_t *t, uint8_t *n);
 void        meters_init(void);
 void        meters_enter(uint32_t x, uint32_t y, uint32_t w, uint32_t h);   /* a new rectangle (or a new meter): clear it, drop every cache, skip the window in progress */
 void        meters_tick(int allowed);          /* once per loop pass: draws when a new spectrum window is complete (allowed = 0 while the governor has shed the UI) */

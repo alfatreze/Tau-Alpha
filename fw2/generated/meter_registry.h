@@ -2,18 +2,18 @@
 #ifndef P2_METER_REGISTRY_H
 #define P2_METER_REGISTRY_H
 #include <stdint.h>
-#define METER_N 6u
+#define METER_N 5u
+#define METER_SLOTS 6u      /* the table's rows: the built-in meters first, then the pack_only ones by slot (rows 0..METER_N-1 are static, the others come from their pack's descriptor) */
 /* X(key, NAME, manifest_id, tag_lower, TAG, presets, cmp), in table order (the saved meter is the table index: slots never move, new meters append) */
 #define METER_LIST(X) \
     X(winamp_bars, "WINAMP BARS", 12, bars, BARS, 5, 0x00000000u) \
     X(winamp_scope, "WINAMP SCOPE", 13, scope, SCOPE, 5, 0x00000000u) \
     X(chladni, "CHLADNI", 14, chl, CHL, 4, 0x00000001u) \
     X(layered_wave, "LAYERED WAVE", 16, lw, LW, 16, 0x00000001u) \
-    X(vu_master, "VU MASTER", 15, vu, VU, 3, 0x00000000u) \
-    X(waterfall_grid, "WATERFALL", 17, wf, WF, 7, 0x00008040u)
-static const uint8_t meter_manifest_id[METER_N] = { 12, 13, 14, 16, 15, 17 };      /* the id of each table entry in tau-assets.bin METR and the reports */
+    X(vu_master, "VU MASTER", 15, vu, VU, 3, 0x00000000u)
+static const uint8_t meter_manifest_id[METER_N] = { 12, 13, 14, 16, 15 };      /* the id of each table entry in tau-assets.bin METR and the reports */
 /* the draw-command ceiling of one drawn tick of each meter (manifest p2.cmds; 0 = unbudgeted): cores/meter_budget_core.h */
-static const uint16_t meter_cmd_budget[METER_N] = { 64, 128, 1280, 640, 32, 3072 };
+static const uint16_t meter_cmd_budget[METER_N] = { 64, 128, 1280, 640, 32 };
 /* the cycles one drawn tick of a PACK may take (manifest p2.max_cycles; 0 = no limit): three overruns disable the pack, cores/pack_strike_core.h */
-static const uint32_t meter_cyc_limit[METER_N] __attribute__((unused)) = { 200000u, 1200000u, 4500000u, 15000000u, 200000u, 5000000u };
+static const uint32_t meter_cyc_limit[METER_N] __attribute__((unused)) = { 200000u, 1200000u, 4500000u, 15000000u, 200000u };
 #endif

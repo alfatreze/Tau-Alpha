@@ -6,6 +6,7 @@ parameter descriptors, the presets, the preview (palette spec + run-length strea
 Layout (little endian; every offset from the start of the descriptor; the whole is a multiple of 4 bytes):
   0 u32 'MDSC'   4 u16 version (1)   6 u16 total length (trailer included)   8 u8 nparams   9 u8 npresets   10 u16 cmds   12 u32 cmp (compose code)   16 u32 max_cycles
   20 u16 name offset   22 u16 params offset   24 u16 presets offset   26 u16 palette offset   28 u16 rle offset   30 u16 rle length
+  32 u16 manifest id (the meter's id in tau-assets.bin METR and the reports)   34 u16 slot   36 u32 reserved (0)
   params:  nparams x 16 B { u16 label, u8 type, u8 hidden, u16 min, u16 max, u16 step, u8 nval, u8 when_idx, u16 when_val, u16 vals offset }   (vals: nval u16 string offsets)
   presets: npresets x stride { u16 name offset, u16 value[nparams] } (stride = 2 + 2 nparams rounded up to 4)
   palette: 8 x 8 B { u16 fixed, u8 a, u8 b, u8 t, u8 n, u16 0 }   (the preview's colours: a fixed RGB565 (a = 255), a theme role, or a ramp between two roles, as fw2/generated/meter_thumbs.h)
@@ -64,7 +65,7 @@ def build_desc(d, thumb):
     name_s = S(d["p2"].get("label", d["name"])); label_s = [S(r["label"]) for r in rows]; val_s = [[S(v) for v in r["vals"]] for r in rows]; pre_s = [S(p["name"]) for p in d["presets"]]
     rle = bytes.fromhex(thumb["rle"]); assert (thumb["w"], thumb["h"]) == (56, 32) and sum((b & 31) + 1 for b in rle) == 56 * 32 and len(thumb["palette"]) == 8
     stride = (2 + 2 * np_ + 3) & ~3
-    off = 32; params_off = off; off += 16 * np_
+    off = 40; params_off = off; off += 16 * np_
     vals_off = []
     for r in rows: vals_off.append(off if r["vals"] else 0); off += 2 * len(r["vals"])
     off = (off + 3) & ~3; presets_off = off; off += stride * npre
@@ -73,6 +74,7 @@ def build_desc(d, thumb):
     b = bytearray(total)
     struct.pack_into("<IHHBBHII", b, 0, MAGIC, VERSION, total, np_, npre, d["p2"].get("cmds", 0), cmp_code_int(d), d["p2"].get("max_cycles", 0))
     struct.pack_into("<HHHHHH", b, 20, pool_off + name_s, params_off, presets_off, pal_off, rle_off, len(rle))
+    struct.pack_into("<HHI", b, 32, d["index"], d["p2"]["slot"], 0)
     for i, r in enumerate(rows):
         struct.pack_into("<HBBHHHBBHH", b, params_off + 16 * i, pool_off + label_s[i], r["type"], r["hidden"], r["min"], r["max"], r["step"], len(r["vals"]), r["when_idx"], r["when_val"], vals_off[i])
         for j, so in enumerate(val_s[i]): struct.pack_into("<H", b, vals_off[i] + 2 * j, pool_off + so)
@@ -86,7 +88,7 @@ def build_desc(d, thumb):
 def parse_desc(b):
     """An independent reader: returns a dict, or raises ValueError (the checks fw2/cores/meter_desc_core.h makes too)."""
     def u16(o): return struct.unpack_from("<H", b, o)[0]
-    if len(b) < 40 or len(b) % 4: raise ValueError("size")
+    if len(b) < 48 or len(b) % 4: raise ValueError("size")
     magic, ver, total, np_, npre, cmds, cmp_, maxc = struct.unpack_from("<IHHBBHII", b, 0)
     if magic != MAGIC or ver != VERSION or total != len(b): raise ValueError("header")
     if struct.unpack_from("<II", b, total - 8) != (total, TRAILER): raise ValueError("trailer")
@@ -94,7 +96,8 @@ def parse_desc(b):
     def string(o):
         if o >= total - 8: raise ValueError("string offset")
         e = b.index(b"\0", o, total - 8); return b[o:e].decode("latin1")
-    out = {"name": string(name_o), "cmds": cmds, "cmp": cmp_, "max_cycles": maxc, "params": [], "presets": [], "palette": [], "rle": bytes(b[rle_o:rle_o + rle_n])}
+    mid, slot_, _ = struct.unpack_from("<HHI", b, 32)
+    out = {"mid": mid, "slot": slot_, "name": string(name_o), "cmds": cmds, "cmp": cmp_, "max_cycles": maxc, "params": [], "presets": [], "palette": [], "rle": bytes(b[rle_o:rle_o + rle_n])}
     for i in range(np_):
         lab, ty, hid, lo, hi, st, nv, wi, wv, vo = struct.unpack_from("<HBBHHHBBHH", b, params_o + 16 * i)
         out["params"].append({"label": string(lab), "type": ty, "hidden": hid, "min": lo, "max": hi, "step": st, "vals": [string(u16(vo + 2 * j)) for j in range(nv)], "when_idx": wi, "when_val": wv})

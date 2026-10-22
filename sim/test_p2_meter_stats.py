@@ -19,14 +19,18 @@ def build(td, mutant):
     if mutant == "ungated": a = "static int composed(const meter_def_t *d) { const uint32_t c = d->cmp & 0xFFFFu; return c == 1u || (c > 1u && cmp_gate(d->mv, c)); }"; assert a in src; src = src.replace(a, "static int composed(const meter_def_t *d) { return (d->cmp & 0xFFFFu) != 0u; }")
     if mutant == "everyshed": a = "if (w0 != win_seen && w0 != shed_win) { meter_stats.shed++; shed_win = w0; }"; assert a in src; src = src.replace(a, "if (w0 != win_seen) { meter_stats.shed++; shed_win = w0; }")
     (d / "ui/meters.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
+    for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/meter_desc_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "ui/meter_pack.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
         (d / f).write_text((ROOT / "fw2" / f).read_text())
-    (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_stats_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../ui/meters.c"'))
+    (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_stats_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../ui/meters.c"').replace('"../fw2/generated/meter_registry.h"', '"../generated/meter_registry.h"'))
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return d
-def run(d): return subprocess.run([str(d / "h")], capture_output=True, text=True).stdout.strip().split("\n")
-GOOD = ["a ticks 1 shed 0 last 100 compose 0 max 100 0 0 0 0",
+sys.path.insert(0, str(ROOT / "tools/player2"))
+import meter_desc as _md
+def run(d):
+    (d / "wf.desc").write_bytes(_md.for_meter("waterfall_grid"))
+    return subprocess.run([str(d / "h"), str(d / "wf.desc")], capture_output=True, text=True).stdout.strip().split("\n")
+GOOD = ["waterfall row 1 count 6", "a ticks 1 shed 0 last 100 compose 0 max 100 0 0 0 0",
         "b ticks 2 shed 0 last 340 compose 40 max 100 0 340 0 0",
         "c ticks 2 shed 1 last 340 compose 40 max 100 0 340 0 0",
         "d ticks 3 shed 1 last 340 compose 40 max 100 0 340 0 0",
@@ -39,7 +43,7 @@ METER_N = int(re.search(r"#define METER_N (\d+)u", (ROOT / "fw2/generated/meter_
 GOOD = [(g + " 0" * (METER_N - 5)) if g[0] in "abcdefg" and len(g.split()[0]) == 1 else g for g in GOOD]       # the expectations are written for five meters: the others have not drawn
 with tempfile.TemporaryDirectory() as td:
     out = run(build(td, None))
-    for g, o in zip(GOOD, out): check("%s: %s" % (g[0], g[2:]), g == o) if g != o else check("%s: %s" % (g[0], g[2:]), True)
+    for g, o in zip(GOOD, out): check(g, g == o)
     check("every step printed", len(out) == len(GOOD))
 for m, name in (("lastmax", "the maximum follows the last value"), ("everyshed", "every shed call counts"), ("nodegrade", "the degrade level is ignored"), ("skipforce", "a forced repaint can be skipped"), ("ungated", "the compose gate is ignored")):
     with tempfile.TemporaryDirectory() as td:

@@ -47,7 +47,9 @@
 #define MPKB_HDR  8u
 enum { MPK_OK = 0, MPK_E_NOFILE = 20, MPK_E_HDR = 21, MPK_E_ABI = 22, MPK_E_ID = 23, MPK_E_ORIGIN = 24, MPK_E_SIZE = 25, MPK_E_CRC = 26, MPK_E_ENTRY = 27, MPK_E_SCRATCH_ORG = 28, MPK_E_SCRATCH_CAP = 29,
        MPKB_E_HDR = 30, MPKB_E_FULL = 31,
-       MPK_E_STRIKE = 40 /* not a load refusal: the pack ran and overran its cycle limit three times (cores/pack_strike_core.h) */ };
+       MPK_E_STRIKE = 40,   /* not a load refusal: the pack ran and overran its cycle limit three times (cores/pack_strike_core.h) */
+       MPK_E_DESC = 41,     /* a pack-only meter's descriptor is missing or damaged (cores/meter_desc_core.h): the meter is not listed */
+       MPK_E_DESC_BIG = 42  /* ... or too big for the host's caches */ };
 
 typedef struct {                  /* what an installed pack needs to be activated and called */
     uint32_t meter, size, entry, data_off, data_size, bss, ps_off, ps_size;

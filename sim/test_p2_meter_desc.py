@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory() as td:
         d = json.loads((ROOT / "meters" / key / "meter.json").read_text()); t = json.loads((ROOT / "meters" / key / "thumb.json").read_text())
         blob = md.build_desc(d, t); py = md.parse_desc(blob); out = run(exe, blob, tmp)
         rows = md.param_rows(d)
-        ok = out[0] == "check 0 outside 0" and out[1] == "name %s cmds %d cmp %d maxc %d np %d npre %d" % (d["p2"].get("label", d["name"]), d["p2"].get("cmds", 0), md.cmp_code_int(d), d["p2"].get("max_cycles", 0), len(rows), len(d["presets"]))
+        ok = out[0] == "check 0 outside 0" and out[1] == "name %s cmds %d cmp %d maxc %d np %d npre %d mid %d slot %d" % (d["p2"].get("label", d["name"]), d["p2"].get("cmds", 0), md.cmp_code_int(d), d["p2"].get("max_cycles", 0), len(rows), len(d["presets"]), d["index"], d["p2"]["slot"])
         ps = [l for l in out if l.startswith("p ")]
         want = ["p %s %d %d %d %d %d %d %d" % (r["label"], r["type"], r["hidden"], r["min"], r["max"], r["step"], r["when_idx"], r["when_val"]) + "".join(" [%s]" % v for v in r["vals"]) for r in rows]
         ok &= ps == want

@@ -28,7 +28,7 @@ static void put_num(char *o, uint32_t v)
     char t[8]; uint32_t k = 0, n = 0; do { t[k++] = (char)('0' + v % 10u); v /= 10u; } while (v);
     while (k) o[n++] = t[--k]; o[n] = 0;
 }
-static const meter_def_t *def(void) { return &meter_table[meter]; }
+static const meter_def_t *def(void) { return meters_def(meter); }
 static void rebuild(void) { cf_build(&cf, (const cf_pd_t *)def()->pd, def()->np, def()->mv); }
 static void paint_all(void)
 {

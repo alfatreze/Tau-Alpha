@@ -4,8 +4,16 @@
 #include <stdint.h>
 static uint32_t psram_mem[2048];
 #define METR_PSRAM psram_mem
+#include "../fw2/generated/meter_registry.h"
+#define P2_PACKS 1                                                     /* the Waterfall is pack-only: it is a row only through its pack's descriptor (argv[1]), run by a stub */
+static uint8_t slot_mem[8][0x10000] __attribute__((aligned(4))), scratch_mem[0x1000];
+#define PACK_SLOT_DATA(i) (slot_mem[i])
+#define PACK_SCRATCH (scratch_mem)
+#define PACK_CALL(e, in, api) pack_call((e), (in), (api))
+static uint32_t now, win, spend[METER_SLOTS + 1], comp_cost, sum_dt[METER_SLOTS + 1], comp_calls;
+static uint32_t pack_call(uint32_t e, const void *in, const void *api);
 #include "../fw2/ui/meters.c"
-static uint32_t now, win, spend[METER_N], comp_cost, sum_dt[METER_N], comp_calls;
+static uint32_t pack_call(uint32_t e, const void *in, const void *api) { (void)api; sum_dt[(e - MTR_PACK_SLOT_BASE) / MTR_PACK_SLOT_SIZE] += ((const mtr_in_t *)in)->dt_ms; now += spend[(e - MTR_PACK_SLOT_BASE) / MTR_PACK_SLOT_SIZE]; return 0; }
 uint32_t host_rd(uint32_t a)
 {
     if (a == R_CYCLES) return now;
@@ -24,15 +32,31 @@ int gfx_compose_begin(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x;
 void gfx_compose_present(uint32_t x, uint32_t y, uint32_t w, uint32_t h) { (void)x; (void)y; (void)w; (void)h; now += comp_cost; }
 uint32_t gfx_cmds; void gfx_touch_reset(void) { } uint32_t gfx_touch_rows(void) { return 0u; } uint32_t gfx_cur_buf(void) { return 0; } uint32_t gfx_front_buf(void) { return 0; }
 void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
+uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t f, uint16_t b) { (void)x; (void)y; (void)s; (void)f; (void)b; return 0; }
+void gfx_rect_stash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { (void)x; (void)y; (void)w; (void)h; (void)c; }
+int gfx_blend_ready(void) { return 0; } void gfx_blend_on(uint32_t a) { (void)a; } void gfx_blend_off(void) { }
+void gfx_blend_blit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
+int gfx_mb_write(uint32_t a, uint32_t d) { (void)a; (void)d; return 0; } int gfx_mb_read(uint32_t a, uint32_t *d) { (void)a; *d = 0; return 0; }
+void gfx_fence(void) { }
+void gfx_clut_load(uint32_t s, const uint16_t *c, uint32_t n) { (void)s; (void)c; (void)n; }
+void gfx_cblit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
+void gfx_bar(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint16_t f, uint16_t g) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g; }
+void gfx_scroll_down(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e) { (void)a; (void)b; (void)c; (void)d; (void)e; }
+void gfx_blit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
+void gfx_blit_abs(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
+void gfx_sblit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f, uint32_t g) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g; }
 static void show(const char *tag)
 {
     printf("%s ticks %u shed %u last %u compose %u max", tag, meter_stats.ticks, meter_stats.shed, meter_stats.last_cyc, meter_stats.compose_cyc);
     for (uint32_t m = 0; m < METER_N; m++) printf(" %u", meter_stats.max_cyc[m]);
     printf("\n");
 }
-int main(void)
+int main(int argc, char **argv)
 {
     caps.spec = 1; meters_init(); meters_enter(0, 0, 100, 50);
+    { FILE *f = fopen(argv[1], "rb"); static uint8_t desc[4096]; const uint32_t n = f ? (uint32_t)fread(desc, 1, sizeof desc, f) : 0u; if (f) fclose(f);
+      const uint32_t size = 64u + n; for (uint32_t i = 0; i < n; i++) slot_mem[METER_N][size - n + i] = desc[i];
+      pack_slot[METER_N].info.size = size; pack_slot[METER_N].status = MPK_OK; dyn_register(METER_N); printf("waterfall row %d count %u\n", meters_present(METER_N), meter_count); }
     for (uint32_t m = 0; m < METER_N; m++) spend[m] = 100u * (m + 1u);
     comp_cost = 40;
     win = 1; meters_tick(1);                                  /* meter 0: 100 cycles, no compose in the table (compose flag 0) */
@@ -61,10 +85,10 @@ int main(void)
     degrade_level = 0; t0 = meter_stats.ticks; for (int i = 0; i < 3; i++) { win++; meters_tick(1); }
     printf("deg0 drawn %u\n", meter_stats.ticks - t0);
     /* The compose gate of the Waterfall (meter 5): composed in mode SPECTROGRAM (0), not in ZONES (1). */
-    meters_select(idx_waterfall_grid); meter_waterfall_grid_mv[0] = 0u; win++; meters_tick(1);
+    meters_select(METER_N); dyn_mv[0][0] = 0u; win++; meters_tick(1);
     comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
     printf("spectrogram composed %u\n", comp_calls);
-    meter_waterfall_grid_mv[0] = 1u; comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
+    dyn_mv[0][0] = 1u; comp_calls = 0; for (int i = 0; i < 4; i++) { now += 30u * (CLK_HZ / 1000u); win++; meters_tick(1); }
     printf("zones composed %u\n", comp_calls);
     return 0;
 }

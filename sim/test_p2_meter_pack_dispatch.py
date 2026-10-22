@@ -15,11 +15,11 @@ def check(name, ok, info=""):
 def build(d, mutant=None):
     src = (ROOT / "fw2/ui/meters.c").read_text()
     if mutant == "refused_runs": a = "static int pack_ok(uint32_t m) { return m < MTR_PACK_SLOTS && pack_slot[m].status == MPK_OK; }"; assert a in src; src = src.replace(a, "static int pack_ok(uint32_t m) { return m < MTR_PACK_SLOTS && pack_slot[m].status != 0xFFu; }")
-    if mutant == "both": a = "    } else\n#endif\n    meter_table[cur].tick(&in);"; assert a in src; src = src.replace(a, "    }\n#endif\n    meter_table[cur].tick(&in);")
+    if mutant == "both": a = "    } else\n#endif\n    mdef(cur)->tick(&in);"; assert a in src; src = src.replace(a, "    }\n#endif\n    mdef(cur)->tick(&in);")
     ui = d / "fw2/ui"; ui.mkdir(parents=True)
     for sub in ("gfx", "platform", "cores", "generated", "diagnostics"): (d / "fw2" / sub).mkdir()
     (ui / "meters.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "ui/meter_pack.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
+    for f in ("ui/meter.h", "ui/theme.h", "ui/meter_pack.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/meter_desc_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
         (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim").mkdir(); (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_pack_dispatch_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../fw2/ui/meters.c"'))
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
