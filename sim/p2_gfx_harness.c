@@ -114,10 +114,24 @@ static void sc_bar(void)
     gfx_rect(0, 0, 400, 360, 0x0001); gfx_bar(390, 350, 30, 30, 15, 0xF800, 0x001F); gfx_fence();
     chk("a bar is clipped to the visible frame", em_px(0, 399, 359) == 0xF800 && em_px(0, 399, 349) == 0x0001);
 }
+static void sc_mbbuf(void)
+{
+    em_reset(); caps.dbuf = 1; fill_front(0x1111);
+    const int act = gfx_frame_begin();
+    gfx_rect(0, 0, 400, 360, 0x0000); gfx_fence();                                    /* the mailbox has no ordering with the queue: the report waits for the queue to drain too */
+    chk("a frame draws into the idle buffer", act == 1 && gfx_cur_buf() == 1);
+    gfx_mb_write_buf(100u * 512u + 10u, 0x22221111u); gfx_mb_write_buf(401u * 512u + 4u, 0x0000ABCDu); gfx_fence();
+    chk("a visible-row mailbox write lands in the buffer being drawn into, not in the shown one", em_px(1, 10, 100) == 0x1111 && em_px(1, 11, 100) == 0x2222 && em_px(0, 10, 100) == 0x1111 && em_px(0, 11, 100) == 0x1111);
+    chk("a stash-row mailbox write is shared (the same pixels whichever buffer is drawn into)", em_px(0, 4, 401) == 0xABCD);
+    gfx_frame_end(act);
+    chk("after the flip the written pixels are the ones displayed", em_disp == 1 && em_px(em_disp, 11, 100) == 0x2222);
+    const int act2 = gfx_frame_begin(); gfx_rect(0, 0, 400, 360, 0x0000); gfx_fence(); gfx_mb_write_buf(50u * 512u + 20u, 0x44443333u); gfx_frame_end(act2);
+    chk("and again the other way round (every view change alternates the buffers)", em_disp == 0 && em_px(em_disp, 20, 50) == 0x3333 && em_px(em_disp, 21, 50) == 0x4444);
+}
 int main(int argc, char **argv)
 {
     const char *s = argc > 1 ? argv[1] : "bracket";
     if (!strcmp(s, "bracket")) sc_bracket(); else if (!strcmp(s, "blitmode")) sc_blitmode(); else if (!strcmp(s, "stash")) sc_stash();
-    else if (!strcmp(s, "compose")) sc_compose(); else if (!strcmp(s, "blend")) sc_blend(); else if (!strcmp(s, "noblend")) sc_noblend(); else if (!strcmp(s, "nodbuf")) sc_nodbuf(); else if (!strcmp(s, "bar")) sc_bar();
+    else if (!strcmp(s, "compose")) sc_compose(); else if (!strcmp(s, "blend")) sc_blend(); else if (!strcmp(s, "noblend")) sc_noblend(); else if (!strcmp(s, "nodbuf")) sc_nodbuf(); else if (!strcmp(s, "bar")) sc_bar(); else if (!strcmp(s, "mbbuf")) sc_mbbuf();
     return fails ? 1 : 0;
 }

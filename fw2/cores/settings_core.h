@@ -11,7 +11,7 @@
 #define BUG 0
 #endif
 typedef struct { uint8_t word, shift, width; uint32_t min, max, def; } sf_field_t;
-enum { SF_VOLUME = 0, SF_REPEAT, SF_RGMODE, SF_HALCYON, SF_COLOUR, SF_THEME, SF_POLARITY, SF_METER, SF_MPRE0, SF_MPRE1, SF_MPRE2, SF_MPRE3, SF_MPRE4, SF_TUNE0, SF_TUNE1, SF_TUNE2, SF_TUNE3, SF_FONT, SF_MPRE5, SF_COUNT };      /* SF_MPRE5: the sixth meter's preset (appended: the table below is in this order) */
+enum { SF_VOLUME = 0, SF_REPEAT, SF_RGMODE, SF_HALCYON, SF_COLOUR, SF_THEME, SF_POLARITY, SF_METER, SF_MPRE0, SF_MPRE1, SF_MPRE2, SF_MPRE3, SF_MPRE4, SF_TUNE0, SF_TUNE1, SF_TUNE2, SF_TUNE3, SF_FONT, SF_MPRE5, SF_LAST0, SF_LAST1, SF_LAST2, SF_COUNT };      /* SF_MPRE5: the sixth meter's preset (appended: the table below is in this order) */
 #define SF_WORDS 32u                   /* the register file: 32 words (the wide file; an older 16-word bitstream cannot hold word 17) */
 static const sf_field_t sf_table[SF_COUNT] = {
     { 0u,  0u, 32u, 0u, 100u, 94u },   /* volume 0..100 (the dB taper position), default 94 */
@@ -30,7 +30,10 @@ static const sf_field_t sf_table[SF_COUNT] = {
     { 18u, 20u, 3u, 0u, 7u, 0u },
     /* the sixth meter's preset (the Waterfall grid): four bits of word 18 above the font */
     { 18u, 23u, 4u, 0u, 7u, 0u },
+    /* the last played track (cores/lastplayed_core.h): words 12, 13, 14 = persist ids 24, 25, 26 (the old player's library words; a record that fails its check word is ignored) */
+    { 12u, 0u, 32u, 0u, 0xFFFFFFFFu, 0u }, { 13u, 0u, 32u, 0u, 0xFFFFFFFFu, 0u }, { 14u, 0u, 32u, 0u, 0xFFFFFFFFu, 0u },
 };
+#define SF_LAZY_FIRST SF_LAST0           /* the fields from here on are saved only when nothing is streaming, or after a long delay: a track change must not disturb the card stream with an APF save */
 static inline uint32_t sf_mask(const sf_field_t *f) { return f->width >= 32u ? 0xFFFFFFFFu : ((1u << f->width) - 1u); }
 static inline uint32_t sf_unpack1(const uint32_t *words, uint32_t i)
 {

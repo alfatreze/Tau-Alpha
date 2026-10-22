@@ -177,7 +177,11 @@ static void lw_trace(uint16_t *params, void (*apply)(void), void (*run)(const mt
 /* Waterfall: its seven presets (two spectrogram, two zones, dust, two sparkle), the degrade levels 1 and 2 for a stretch, loud and quiet bands and a pause; the last scenario enters the fullscreen box mid-run. */
 static void wf_trace(uint16_t *params, void (*apply)(void), void (*run)(const mtr_in_t *), void (*report)(int scen, uint32_t n, uint64_t h))
 {
+    #ifdef TR_WF_ONLY
+    for (int s = TR_WF_ONLY; s <= TR_WF_ONLY; s++) {                      /* one preset only (tools/player2/measure_pack_cost.py --wf) */
+#else
     for (int s = 0; s < (int)MPP_WF_PRESETS; s++) {
+#endif
         for (uint32_t i = 0; i < MPP_WF_N; i++) params[i] = mpp_wf[s][i];
         if (apply) apply();
         TR_BEGIN(60606u + (uint32_t)s);

@@ -11,10 +11,11 @@ def run(mutant):
         src = (ROOT / "fw2/ui/meter_waterfall_grid.c").read_text()
         if mutant == "nogrid": a = "pal[4] = { rc_ramp(bg, UI_ACCENT, 1u, 7u),"; assert a in src; src = src.replace(a, "pal[4] = { bg,")
         if mutant == "perrow": a = "acc_q8 += (uint32_t)in->dt_ms * cfg.speed * 256u / 1000u;"; assert a in src; src = src.replace(a, "acc_q8 += (uint32_t)in->dt_ms * cfg.speed * 256u / 1000u * pitch / 9u;")
-        if mutant == "sparkle_all": a = "if (lv < av + (WF_ONSET << 4)) continue;"; assert a in src; src = src.replace(a, "if (lv < 16u) continue;")
-        if mutant == "sparkle_stay": a = "const uint32_t i = act[k], h = zone[i], nh = h > dec ? h - dec : 0u,"; assert a in src; src = src.replace(a, "const uint32_t i = act[k], h = zone[i], nh = h,")
+        if mutant == "sparkle_all": a = "if (lv < av + (WF_ONSET << 4) || fresh >= WF_MAX_NEW) continue;"; assert a in src; src = src.replace(a, "if (lv < 16u) continue;")
+        if mutant == "sparkle_stay": a = "h = zget(i), nh = h > dec ? h - dec : 0u,"; assert a in src; src = src.replace(a, "h = zget(i), nh = h,")
         if mutant == "sparkle_col": a = "centre = b * (cols - 1u) / (MTR_BANDS - 1u);"; assert a in src; src = src.replace(a, "centre = 0u;")
-        if mutant == "scatter": a = "if (cfg.mode == 1u) v = cell_step(spec[region_band(c, r, cols, rows)], region_thr(c, r, cols, rows));"; assert a in src; src = src.replace(a, "if (0) v = 0;")
+        if mutant == "caps": a = "#define WF_COLS 67u"; assert a in src; src = src.replace(a, "#define WF_COLS 48u").replace("#define WF_ROWS 54u", "#define WF_ROWS 40u")
+        if mutant == "scatter": a = "q = (uint32_t)spec[band] >> 4;"; assert a in src; src = src.replace(a, "q = (uint32_t)spec[(band * 7u + 3u) & 15u] >> 4;")
         (d / "fw2/ui/meter_waterfall_grid.c").write_text(src)
         for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "generated/meter_presets.h", "cores/ramp_core.h", "cores/meter_core.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
         (d / "sim/h.c").write_text((ROOT / "sim/p2_waterfall_harness.c").read_text())
@@ -24,6 +25,6 @@ def run(mutant):
 good = run(None)
 print("\n".join(good))
 fails = 0 if good[-1] == "PASSED" else 1
-for m, name in (("nogrid", "unlit cells are the background"), ("perrow", "the speed depends on the cell size"), ("scatter", "zones are not structured"), ("sparkle_all", "every loud picture is an onset"), ("sparkle_stay", "flashes never fade"), ("sparkle_col", "flashes ignore the band")):
+for m, name in (("nogrid", "unlit cells are the background"), ("perrow", "the speed depends on the cell size"), ("scatter", "zones are not structured"), ("sparkle_all", "every loud picture is an onset"), ("sparkle_stay", "flashes never fade"), ("sparkle_col", "flashes ignore the band"), ("caps", "the grid is capped at 48 x 40 cells")):
     out = run(m); ok = out[-1] == "FAILED"; print(("ok   " if ok else "FAIL ") + "mutant (%s) is caught" % name); fails += 0 if ok else 1
 print("PASSED" if not fails else "FAILED (%d)" % fails); sys.exit(1 if fails else 0)

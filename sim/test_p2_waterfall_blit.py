@@ -29,7 +29,7 @@ check("the box holds the same picture as the rectangle version after every tick"
 rc, gc = int(ref[-1].split()[1]), int(got[-1].split()[1])
 print("     commands (model units): rectangles %d, palette blit %d" % (rc, gc))
 check("the palette blit issues fewer commands", gc < rc)
-for name, a, b in (("the blit reads the plane one row too low", "plane_blit(in, gw, pitch - expo, 0u, expo)", "plane_blit(in, gw, pitch - expo + 1u, 0u, expo)"),
+for name, a, b in (("the blit reads the plane one row too low", "plane_blit(gw, pitch - expo, 0u, expo)", "plane_blit(gw, pitch - expo + 1u, 0u, expo)"),
                    ("the background index is the dim step", "gfx_rect_stash(0u, WF_PLANE_Y, gw, pitch, 4u)", "gfx_rect_stash(0u, WF_PLANE_Y, gw, pitch, 0u)")):
     assert a in new_src, a
     check("mutant (%s) is caught" % name, run(new_src.replace(a, b, 1), "mut")[:-1] != ref[:-1])

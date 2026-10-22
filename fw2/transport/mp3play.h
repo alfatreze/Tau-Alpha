@@ -37,6 +37,8 @@ void mp3play_io_quiesce(void);
 /* Play a queue the library just built (u16 ids in library_queue_buf()): n tracks, starting at `start`. `src_kind`/`src_parent` remember how to rebuild its natural order (X shuffle off). */
 void mp3play_play_queue(uint32_t n, uint32_t start, uint32_t src_kind, uint32_t src_parent, int shuffled, uint32_t seed);
 /* The persisted values (cores/settings_core.h order: volume, repeat, ReplayGain mode). */
+void mp3play_last_get(uint32_t *w3);                  /* the last played track as three persisted words (cores/lastplayed_core.h): what to save */
+void mp3play_last_restore(const uint32_t *w3);        /* at boot, after the library is loaded: queue the saved track (stopped; A plays it) if the three words are a valid record that still matches the library */
 void mp3play_settings_get(uint32_t *vals);
 void mp3play_settings_set(const uint32_t *vals);
 /* The preferences the Settings menu edits (the first three of cores/settings_core.h are also persisted). Values: volume 0..100, ReplayGain 0..2, time stretch mode 0..2 (Normal, Pitch, Stretch), speed 0..7 (Pitch: 0.85 .. 2.00x) or 0..4 (Stretch: 1.10 .. 2.00x) in the mode's own list, repeat 0..2, shuffle 0..1, seek step index 0..3 (10/30/60/120 s). */

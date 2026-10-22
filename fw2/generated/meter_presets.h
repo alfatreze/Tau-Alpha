@@ -91,13 +91,13 @@ enum { MPP_WF_MODE, MPP_WF_SPEED, MPP_WF_GAIN, MPP_WF_CELL, MPP_WF_FADE, MPP_WF_
 #define MPP_WF_PRESETS 7u
 static const char *const mpp_wf_name[MPP_WF_PRESETS] = { "WATERFALL", "FAST FALL", "HEAT MAP", "FINE GRID", "DUST", "SPARKLE", "STARS" };
 static const uint16_t mpp_wf[MPP_WF_PRESETS][MPP_WF_N] = {
-    { 0, 90, 100, 8, 700 },   /* WATERFALL */
-    { 0, 180, 120, 6, 700 },   /* FAST FALL */
-    { 1, 90, 110, 8, 700 },   /* HEAT MAP */
-    { 1, 90, 100, 5, 700 },   /* FINE GRID */
-    { 2, 90, 110, 8, 700 },   /* DUST */
-    { 3, 90, 100, 8, 700 },   /* SPARKLE */
-    { 3, 90, 130, 5, 1200 },   /* STARS */
+    { 0, 90, 100, 8, 450 },   /* WATERFALL */
+    { 0, 180, 120, 6, 450 },   /* FAST FALL */
+    { 1, 90, 110, 8, 450 },   /* HEAT MAP */
+    { 1, 90, 100, 5, 450 },   /* FINE GRID */
+    { 2, 90, 110, 8, 450 },   /* DUST */
+    { 3, 90, 100, 8, 450 },   /* SPARKLE */
+    { 3, 90, 130, 5, 900 },   /* STARS */
 };
 static const char *const mpl_wf_mode[] = { "SPECTROGRAM", "ZONES", "DUST", "SPARKLE" };
 static const mpd_t mpd_wf[5] = {
@@ -105,7 +105,7 @@ static const mpd_t mpd_wf[5] = {
     { "SCROLL SPEED", 0, 0, 20, 400, 10, 0, 0, 0, 0 },
     { "GAIN", 0, 0, 50, 200, 10, 0, 0, 255, 0 },
     { "CELL SIZE", 0, 0, 5, 12, 1, 0, 0, 255, 0 },
-    { "FADE TIME", 0, 0, 200, 2000, 100, 0, 0, 0, 3 },
+    { "FADE TIME", 0, 0, 150, 2000, 100, 0, 0, 0, 3 },
 };
 #define MPD_WF_N 5u
 static const char *const mpl_lw_view[] = { "HISTORY", "SPECTRUM" };

@@ -4,11 +4,12 @@
 #define R_SET_IDX 0x8000006Cu
 #define R_SET_DAT 0x80000070u
 
+#define LAZY_STREAMING_CYC (CLK_HZ * 8u)
 settings_stats_t settings_stats;
 static uint32_t pub[SF_WORDS];           /* the words as last published or adopted */
 static uint32_t pub_vals[SF_COUNT];
-static uint32_t next_poll, dirty_t0;
-static uint8_t was_dirty;
+static uint32_t next_poll, dirty_t0, lazy_t0;
+static uint8_t was_dirty, lazy_dirty; static uint32_t lazy_snap[SF_COUNT - SF_LAZY_FIRST];
 
 static uint32_t rd(uint32_t w) { REG_WR(R_SET_IDX, w); return REG_RD(R_SET_DAT); }
 static void     wr(uint32_t w, uint32_t v) { REG_WR(R_SET_IDX, w); REG_WR(R_SET_DAT, v); }
@@ -50,14 +51,24 @@ static void publish(const uint32_t *vals)
         pub[k] = w[k];
     }
     for (uint32_t i = 0; i < SF_COUNT; i++) pub_vals[i] = vals[i];
+    lazy_dirty = 0;
     settings_stats.stores++;
 }
 
 int settings_service(uint32_t *vals, int streaming)
 {
-    int changed = 0;
-    for (uint32_t i = 0; i < SF_COUNT; i++) if (vals[i] != pub_vals[i]) changed = 1;
-    settings_stats.dirty = (uint32_t)changed;
+    int changed = 0, lazy = 0;
+    for (uint32_t i = 0; i < SF_LAZY_FIRST; i++) if (vals[i] != pub_vals[i]) changed = 1;
+    for (uint32_t i = SF_LAZY_FIRST; i < SF_COUNT; i++) if (vals[i] != pub_vals[i]) lazy = 1;
+    settings_stats.dirty = (uint32_t)(changed | lazy);
+    /* The last played track changes with every track: it is saved when nothing is streaming (paused or stopped), or after LAZY_STREAMING_CYC of playing the same track, never with the 1 s urgency of a setting. */
+    if (lazy && !changed) {
+        int moved = !lazy_dirty; for (uint32_t i = SF_LAZY_FIRST; i < SF_COUNT; i++) if (lazy_snap[i - SF_LAZY_FIRST] != vals[i]) moved = 1;
+        if (moved) { lazy_dirty = 1; lazy_t0 = cycles(); for (uint32_t i = SF_LAZY_FIRST; i < SF_COUNT; i++) lazy_snap[i - SF_LAZY_FIRST] = vals[i]; }      /* a new track restarts the wait */
+        if (!streaming || (int32_t)(cycles() - lazy_t0) >= (int32_t)LAZY_STREAMING_CYC) { publish(vals); lazy_dirty = 0; }
+        return 0;
+    }
+    if (!lazy) lazy_dirty = 0;
     /* A change is published at once when nothing is streaming, and after one second of staying unpublished while it is (a register-file write costs nothing audible, and a setting changed during playback was lost
      * when the core was quit before the music stopped: the Appearance settings did not save). A button change wins over the menu until it is published. */
     if (changed) {

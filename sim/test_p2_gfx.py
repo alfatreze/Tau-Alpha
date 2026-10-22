@@ -10,7 +10,7 @@ def check(name, ok):
     global fails
     print(("ok   " if ok else "FAIL ") + name)
     if not ok: fails += 1
-SCEN = ("bracket", "blitmode", "stash", "compose", "blend", "noblend", "nodbuf", "bar")
+SCEN = ("bracket", "blitmode", "stash", "compose", "blend", "noblend", "nodbuf", "bar", "mbbuf")
 def build(td, mutant):
     d = Path(td)
     for sub in ("sim", "fw2/gfx", "fw2/platform"): (d / sub).mkdir(parents=True, exist_ok=True)
@@ -25,6 +25,7 @@ def build(td, mutant):
     if mutant == "nofence": m("    if (!active) return;\n    gfx_fence();\n", "    if (!active) return;\n")
     if mutant == "blendfence": m("void gfx_blend_off(void) { gfx_fence();", "void gfx_blend_off(void) {")
     if mutant == "present": m("buf_base(back), buf_base(front)); }", "buf_base(front), buf_base(back)); }")
+    if mutant == "mbbuf": m("a + (cpu_buf && a < GFX_STRIDE * GFX_H ? DBUF_BASE1_W : 0u)", "a")
     if mutant == "barhi": m("(((lit >> 7) & 0x3u) << 15)", "0u")
     if mutant == "barclip": m("    if (lit > 511u) lit = 511u;\n", "")
     if mutant == "probe": m("    return gfx_blend_state == 1u;\n}\n/* Blend the w x h box", "    gfx_blend_state = 1u; return 1;\n}\n/* Blend the w x h box")
@@ -49,7 +50,7 @@ with tempfile.TemporaryDirectory() as td:
             if l.startswith("ok"): print(l)
             elif l: check(l, False)
         if rc: fails += 0
-for mut, scen in (("bases", "blitmode"), ("nofence", "bracket"), ("setfence", "blitmode"), ("nosync", "bracket"), ("composesync", "compose"), ("blendfence", "blend"), ("present", "compose"), ("probe", "noblend"), ("barhi", "bar")):
+for mut, scen in (("bases", "blitmode"), ("nofence", "bracket"), ("setfence", "blitmode"), ("nosync", "bracket"), ("composesync", "compose"), ("blendfence", "blend"), ("present", "compose"), ("probe", "noblend"), ("barhi", "bar"), ("mbbuf", "mbbuf")):
     with tempfile.TemporaryDirectory() as td:
         out, rc = run(build(td, mut), scen); check(f"mutant {mut} is caught", rc != 0)
 print("PASSED" if not fails else f"FAILED ({fails})")
