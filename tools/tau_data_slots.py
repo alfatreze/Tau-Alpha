@@ -11,10 +11,12 @@ def save(p: Path, v: dict) -> None:
     p.write_text(json.dumps(v, indent=4) + "\n")
 
 
-def add_library_slot(core_dir: Path) -> None:
+def add_library_slot(core_dir: Path, persist_words: bool = True) -> None:
     """Data slot 5: the host-built index, read at boot (deferload, optional -- shipped cores never bundle the file
     itself, since it is built from the user's own music by tools/sync_media.py). Persist words 24-26: what was
     playing (kind/id/position), the index build it refers to, and the Shuffle All seed.
+
+    persist_words=False (Player 2) declares only the slot: its interact.json has no room for them (the Pocket takes 16 variables).
 
     Id 27 ("Library off (restart)") was retired with legacy playlist mode, and is no longer declared here. Correction
     (2026-10-08): contrary to the rule this docstring stated, id 27 WAS later reused for "(internal) theme" (B-346, at a
@@ -34,6 +36,8 @@ def add_library_slot(core_dir: Path) -> None:
                       "parameters": "0x0", "filename": "tau-library.tdb"})
         save(core_dir / "data.json", dj)
 
+    if not persist_words:
+        return
     ij = json.loads((core_dir / "interact.json").read_text())
     vs = ij["interact"]["variables"]
     if any(v["id"] in (24, 25, 26) for v in vs):
