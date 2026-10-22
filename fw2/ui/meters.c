@@ -5,6 +5,7 @@
 #include "../platform/mmio.h"
 #include "../platform/platform.h"
 #include "../cores/spectrum_core.h"
+#include "../cores/audio_stats_core.h"
 #include "../generated/meter_presets.h"
 #include "../generated/meter_registry.h"
 #include "../cores/metr_core.h"
@@ -45,6 +46,20 @@ static volatile uint8_t *pack_slot_data(uint32_t i);
 #endif
 static uint32_t cur, bx, by, bw, bh, win_seen = 0xFFFFFFFFu, frame, last_t, force_next;
 static uint8_t lvl[MTR_BANDS];
+static as_onset_t onset_st;
+/* The hardware statistics block: latch the window since the last picture (it starts a new one), read the sums, reduce them (audio_stats_core.h). Scaled like the peaks (3/4 of headroom). */
+static int stats_take(uint16_t *rl, uint16_t *rr, int16_t *corr)
+{
+    REG_WR(R_STATS_CTL, 1u);
+    uint32_t w[8];
+    for (uint32_t i = 0; i < 8u; i++) { REG_WR(R_STATS_IDX, i); w[i] = REG_RD(R_STATS_DATA); }
+    const uint32_t n = w[1];
+    const uint64_t ll = ((uint64_t)(w[3] & 0xFFFFu) << 32) | w[2], rr2 = ((uint64_t)(w[5] & 0xFFFFu) << 32) | w[4];
+    const int64_t lr = (int64_t)((uint64_t)(uint32_t)((int32_t)(w[7] << 16) >> 16) << 32 | w[6]);                  /* 48 bits, sign-extended */
+    *rl = (uint16_t)((as_rms(ll, n) * 3u) / 4u); *rr = (uint16_t)((as_rms(rr2, n) * 3u) / 4u);
+    *corr = (int16_t)as_corr_q8(ll, rr2, lr);
+    return n != 0u;
+}
 static mb_t budget[METER_SLOTS];                                          /* each meter's own degrade level, from the draw commands it issues (cores/meter_budget_core.h) */
 extern uint32_t mp3play_paused_now(void);          /* mp3play.c: 1 when nothing is being heard */
 extern uint32_t mp3play_degrade_now(void);         /* mp3play.c: the meter degrade level 0..3 (governor_core.h gov_degrade) */
@@ -374,6 +389,13 @@ void meters_tick(int allowed)
     uint32_t pl = 0, pr = 0;
     if (caps.wave) { const uint32_t pk = REG_RD(R_WAVE_PK); pl = ((pk & 0xFFFFu) * 3u) / 4u; pr = ((pk >> 16) * 3u) / 4u; REG_WR(R_WAVE_CTL, 1u); }      /* peaks since the last tick, then cleared */
     mtr_in_t in = { lvl, frame++, (uint16_t)(dt > 200u ? 200u : dt), (uint16_t)bx, (uint16_t)by, (uint16_t)bw, (uint16_t)bh, th_role[TR_BG_BOTTOM], (uint8_t)force_next, (uint8_t)mp3play_paused_now(), pl, pr, (uint8_t)dg };
+    /* ABI 1.1 statistics. Nothing is accumulated while paused (the block is still drained so a resume starts a fresh window). */
+    if (caps.stats && stats_take(&in.rms_l, &in.rms_r, &in.corr)) in.stats_ok = 1u; else in.rms_l = in.rms_r = 0u, in.corr = 0;
+    if (in.paused) { in.rms_l = in.rms_r = 0u; in.corr = 0; }
+    in.centroid = in.paused ? 0u : (uint8_t)as_centroid(lvl);
+    as_onset_step(&onset_st, in.paused ? (const uint8_t[MTR_BANDS]){0} : lvl, (uint32_t)(t / (CLK_HZ / 1000u)));
+    in.flux = onset_st.flux; in.onset = onset_st.onset;
+    { const uint32_t pk = pl > pr ? pl : pr, rm = in.rms_l > in.rms_r ? in.rms_l : in.rms_r; in.crest = (uint8_t)(in.stats_ok ? as_crest_q4(pk, rm) : 0u); }
     force_next = 0;
     const int comp = composed(mdef(cur)) && gfx_compose_begin(bx, by, bw, bh);
     const uint32_t cmd0 = gfx_cmds, scan0 = REG_RD(R_SCAN);

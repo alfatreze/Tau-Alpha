@@ -87,7 +87,10 @@ only 8 bits of offset (`mmio_reg`, 64 registers, 4-byte stride); offsets at
 | 0x1A0 | FONT_CTRL | R/W | Writable Latin-1 font memory (`TAU_FONT_RAM`, `docs/features/FONT_SPEC.md`, CORE_VERSION rev 27). Read: [31] present, [27:16] loads completed (the write index passed the last word), [15:0] words (6,112). Write: bit 0 = restart the write index at 0. Reads 0 on a bitstream without the memory. |
 | 0x1A4 | FONT_IDX | R/W | Write index (word, 0..6111; a larger value goes to 0), sticky. |
 | 0x1A8 | FONT_DATA | W | Writes the 32-bit word at FONT_IDX into the glyph RAM (8 pixels of 4-bit coverage), then FONT_IDX + 1; after word 6111 the index wraps to 0 and the load counter steps. The firmware fences the draw engine first (the engine reads this memory while drawing text). |
-| 0x1AC-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
+| 0x1AC | STATS_CTL | W | B-819 audio statistics block (`tau_audio_stats.sv`, `TAU_STATS`): bit 0 latches the sums into the read-out and starts a new window, bit 1 clears everything. |
+| 0x1B0 | STATS_IDX | W | read-out word 0..7 presented at STATS_DATA. |
+| 0x1B4 | STATS_DATA | R | 0 status (`'ST'` 0x5354 in 31:16, latch count in 15:8, bit 1 window overflowed, bit 0 built in; 0 on a bitstream without the block), 1 sample count N, 2/3 sum L*L (low, bits 47:32), 4/5 sum R*R, 6/7 sum L*R (high word sign-extended). |
+| 0x1B8-0x1FC | free | | B-287 widened the decode (0x100 upward is open); 0x00-0xFF is full. |
 
 `OP_CHAR` with the font memory: the glyph code is 8 bits, bit 7 is `R_FB_GO` bit 15 (`cmd_glyph_hi[0]`), bits 6:0 are bits 9:3 as before; glyph index 0..94 = U+0020..U+007E, 95..190 = U+00A0..U+00FF, any other code is the blank glyph 0. A command with bit 15 clear is exactly the old one.
 

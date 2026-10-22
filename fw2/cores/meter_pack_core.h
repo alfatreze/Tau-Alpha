@@ -27,7 +27,7 @@
  * prefix fingerprints and the minor agree with the two structs. */
 #define MTR_PACK_ABI_MAJOR 1u
 #ifndef MTR_PACK_ABI_MINOR
-#define MTR_PACK_ABI_MINOR 0u
+#define MTR_PACK_ABI_MINOR 1u
 #endif
 #define MTR_PACK_ABI ((MTR_PACK_ABI_MAJOR << 8) | MTR_PACK_ABI_MINOR)
 #ifndef MTR_PACK_SCRATCH_ORG

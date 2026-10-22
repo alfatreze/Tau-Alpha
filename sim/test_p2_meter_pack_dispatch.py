@@ -18,7 +18,7 @@ def build(d, mutant=None):
     ui = d / "fw2/ui"; ui.mkdir(parents=True)
     for sub in ("gfx", "platform", "cores", "generated", "diagnostics"): (d / "fw2" / sub).mkdir()
     (ui / "meters.c").write_text(src)
-    for f in ("ui/meter.h", "ui/theme.h", "ui/meter_pack.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/meter_desc_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
+    for f in ("ui/meter.h", "ui/theme.h", "ui/meter_pack.h", "gfx/gfx.h", "platform/mmio.h", "platform/platform.h", "cores/spectrum_core.h", "cores/metr_core.h", "cores/tune_core.h", "cores/meter_budget_core.h", "cores/pack_strike_core.h", "cores/audio_stats_core.h", "cores/meter_desc_core.h", "cores/helios_core.h", "cores/gfx_touch_core.h", "cores/meter_pack_core.h", "cores/library_core.h", "generated/meter_presets.h", "generated/lw_presets.h", "generated/meter_registry.h"):
         (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
     (d / "sim").mkdir(); (d / "sim/h.c").write_text((ROOT / "sim/p2_meter_pack_dispatch_harness.c").read_text().replace('"../fw2/ui/meters.c"', '"../fw2/ui/meters.c"'))
     r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-DP2_HOST", "-include", str(ROOT / "sim/p2_host_regs.h"), "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory() as td:
     garbage = tmp / "garbage.bin"; garbage.write_bytes(b"NOPE" + b"\0" * 100)
     g = parse(run(exe, garbage))
     check("a file that is not a bundle (E30): Winamp Bars keeps its built-in, no pack-only meter is listed", g[bars]["p"] == 0 and g[bars]["b"] == 2 and all(absent(g, m) for m in range(n_meters) if m != bars) and g["info"]["file"] == 30, str(g))
-    old = bytearray(packs["vu_master"]); old[4] = 1                    # a pack that needs a newer ABI minor
+    old = bytearray(packs["vu_master"]); old[4] = 2                    # a pack that needs a newer ABI minor
     o = parse(run(exe, bundle_of([bytes(old)], "old.bin")))
     check("a pack of another ABI is refused (E22) and its meter is not listed", o[vu]["s"] == 22 and absent(o, vu), str(o))
     with tempfile.TemporaryDirectory() as t2:
