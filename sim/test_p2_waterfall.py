@@ -9,7 +9,6 @@ def run(mutant):
     with tempfile.TemporaryDirectory() as td:
         d = Path(td); (d / "fw2/ui").mkdir(parents=True); (d / "fw2/gfx").mkdir(); (d / "fw2/cores").mkdir(); (d / "fw2/generated").mkdir(); (d / "sim").mkdir()
         src = (ROOT / "fw2/ui/meter_waterfall_grid.c").read_text()
-        if mutant == "nogrid": a = "pal[4] = { rc_ramp(bg, UI_ACCENT, 1u, 7u),"; assert a in src; src = src.replace(a, "pal[4] = { bg,")
         if mutant == "perrow": a = "acc_q8 += (uint32_t)in->dt_ms * cfg.speed * 256u / 1000u;"; assert a in src; src = src.replace(a, "acc_q8 += (uint32_t)in->dt_ms * cfg.speed * 256u / 1000u * pitch / 9u;")
         if mutant == "sparkle_all": a = "if (lv < av + (WF_ONSET << 4) || fresh >= WF_MAX_NEW) continue;"; assert a in src; src = src.replace(a, "if (lv < 16u) continue;")
         if mutant == "sparkle_stay": a = "h = zget(i), nh = h > dec ? h - dec : 0u,"; assert a in src; src = src.replace(a, "h = zget(i), nh = h,")
@@ -17,7 +16,9 @@ def run(mutant):
         if mutant == "caps": a = "#define WF_COLS 67u"; assert a in src; src = src.replace(a, "#define WF_COLS 48u").replace("#define WF_ROWS 54u", "#define WF_ROWS 40u")
         if mutant == "scatter": a = "q = (uint32_t)spec[band] >> 4;"; assert a in src; src = src.replace(a, "q = (uint32_t)spec[(band * 7u + 3u) & 15u] >> 4;")
         (d / "fw2/ui/meter_waterfall_grid.c").write_text(src)
-        for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "generated/meter_presets.h", "cores/ramp_core.h", "cores/meter_core.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
+        for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "generated/meter_presets.h", "cores/ramp_core.h", "cores/meter_core.h", "ui/meter_grid.h", "cores/cellgrid_core.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
+        if mutant == "nogrid":
+            hp = d / "fw2/ui/meter_grid.h"; hs = hp.read_text(); a = "m->pal[0] = rc_ramp(bg, accent, 1u, 7u);"; assert a in hs; hp.write_text(hs.replace(a, "m->pal[0] = bg;"))
         (d / "sim/h.c").write_text((ROOT / "sim/p2_waterfall_harness.c").read_text())
         r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
         if r.returncode: print(r.stderr); sys.exit(1)

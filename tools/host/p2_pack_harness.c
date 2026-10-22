@@ -75,6 +75,8 @@ int main(void)
     vu_trace(params, 0, run, report);
 #elif defined(PACK_WF)
     wf_trace(params, 0, run, report);
+#elif defined(PACK_GEN)
+    gen_trace(params, 0, run, report);
 #elif defined(PACK_CHL)
     chl_trace(params, 0, run, report);
 #elif defined(PACK_LW)

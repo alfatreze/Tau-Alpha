@@ -64,27 +64,6 @@
       "since": "v0.6.0-preview.2",
       "what": "(Player 2, first shipped in v0.6.0-preview.2). Word 3 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
     },
-    "24": {
-      "name": "(internal) library 1",
-      "word": "SW_LIBH",
-      "meaning": 1,
-      "since": "v0.4.0",
-      "what": "what was playing: kind, id and position"
-    },
-    "25": {
-      "name": "(internal) library 2",
-      "word": "SW_LIBB",
-      "meaning": 1,
-      "since": "v0.4.0",
-      "what": "build id of the library index the position refers to"
-    },
-    "26": {
-      "name": "(internal) library 3",
-      "word": "SW_LIBS",
-      "meaning": 1,
-      "since": "v0.4.0",
-      "what": "Shuffle All seed"
-    },
     "27": {
       "name": "(internal) theme",
       "word": "SW_THEME",
@@ -104,7 +83,28 @@
       "word": "SW_MPRE",
       "meaning": 1,
       "since": "v0.6.0-preview.2",
-      "what": "(Player 2, first shipped in v0.6.0-preview.2). The selected preset of each meter, four bits each in the meter table order: Winamp Bars (bits 3-0, 5 presets), Winamp Scope (7-4, 5), Chladni (11-8, 4), Layered Wave (15-12, 8), Master VU (19-16, 3); Player 2 (Select+X cycles); a value out of range reads as the first preset"
+      "what": "(Player 2, first shipped in v0.6.0-preview.2). The selected preset of each meter, four bits each in the meter table order: Winamp Bars (bits 3-0, 5 presets), Winamp Scope (7-4, 5), Chladni (11-8, 4), Layered Wave (15-12, 8 and more), Master VU (19-16, 3); bits 22-20 are the font (v0.6.1) and bits 26-23 the sixth meter, the Waterfall (v0.6.1); Player 2 (Select+X cycles); a value out of range reads as the first preset"
+    },
+    "30": {
+      "name": "(internal) meter presets 2",
+      "word": "SW_MPRE2",
+      "meaning": 1,
+      "since": "v0.6.1",
+      "what": "(Player 2) the selected preset of the seventh meter, four bits (bits 3-0); a value out of range reads as the first preset"
+    },
+    "31": {
+      "name": "(internal) last played 1",
+      "word": "SW_LAST0",
+      "meaning": 1,
+      "since": "v0.6.1",
+      "what": "(Player 2) the last played track (fw2/cores/lastplayed_core.h), word 0 of 2: record flag, queue kind, queue parent and the low ten bits of the track; 31 bits a word (an interact variable is 0..2147483647). The old player's library words (ids 24..26) are retired from interact.json (the Pocket takes at most 16 variables)."
+    },
+    "32": {
+      "name": "(internal) last played 2",
+      "word": "SW_LAST1",
+      "meaning": 1,
+      "since": "v0.6.1",
+      "what": "(Player 2) the last played track, word 1 of 2: a 27-bit check over word 0 and the high four bits of the track; a record that fails the check restores nothing."
     }
   }
 }

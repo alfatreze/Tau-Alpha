@@ -34,17 +34,31 @@ def abi_fingerprint(n_in, n_api):
 # MTR_PACK_ABI_MINOR); anything that alters an existing declaration breaks old packs and needs a new MAJOR (restart this list and bump MTR_PACK_ABI_MAJOR).
 ABI_HISTORY = [(0, 10, 21, "3ef391fc")]
 METERS = {"winamp_bars": "PACK_BARS", "winamp_scope": "PACK_SCOPE", "vu_master": "PACK_VU", "chladni": "PACK_CHL", "layered_wave": "PACK_LW", "waterfall_grid": "PACK_WF"}
+def generic_meters():
+    """every other p2 manifest is a scaffolded meter (tools/player2/new_meter.py): the generic trace, with its names as -D flags"""
+    import json
+    out = {}
+    for p in sorted((ROOT / "meters").glob("*/meter.json")):
+        d = json.loads(p.read_text())
+        if "p2" in d and d["key"] not in METERS: out[d["key"]] = d["p2"]["tag"]
+    return out
+GENERIC = generic_meters()
+for _k in GENERIC: METERS[_k] = "PACK_GEN"
+def gen_flags(key):
+    if key not in GENERIC: return []
+    tag = GENERIC[key]; lc = tag.lower()
+    return ['-DGEN_SRC="../fw2/ui/meter_%s.c"' % key, "-DGEN_TICK=%s_tick" % lc, "-DGEN_LOAD=%s_load" % lc, "-DGEN_PN=MPP_%s_N" % tag, "-DGEN_PRESETS=MPP_%s_PRESETS" % tag, "-DGEN_TABLE=mpp_%s" % lc]
 SIMREGS = ["-include", str(ROOT / "sim/p2_pack_sim_regs.h")]
 def run_native(tmp, key, frames=None):
     exe = tmp / ("native_%s_%s" % (key, frames))
-    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-D" + METERS[key]] + (["-DTR_NFRAMES=%d" % frames] if frames else []) + [ "-I", str(ROOT / "fw"), "-o", str(exe), str(ROOT / "sim/p2_pack_native.c")], capture_output=True, text=True)
+    r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", "-D" + METERS[key]] + gen_flags(key) + (["-DTR_NFRAMES=%d" % frames] if frames else []) + [ "-I", str(ROOT / "fw"), "-o", str(exe), str(ROOT / "sim/p2_pack_native.c")], capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)
     return [ln for ln in subprocess.run([str(exe)], capture_output=True, text=True, check=True).stdout.splitlines() if ln.startswith("S ")]
 def build_harness(tmp, key, bundle=False, frames=None, extra=()):
     slot = pm.SLOT[key]
     elf = tmp / ("harness_%s%s_%s%s.elf" % (key, "_bundle" if bundle else "", frames, "".join(e.replace("-", "").replace("=", "") for e in extra)))
     cmd = [pm.tool("gcc"), "-march=rv32im", "-mabi=ilp32", "-mno-relax", "-O2", "-ffreestanding", "-nostdlib", "-nostartfiles", "-Wall", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-const-variable", "-Wno-comment",
-           "-DPACK_ORG=0x%X" % SIM_ORG, "-DSCRATCH_ORG=0x%X" % SIM_SCRATCH, "-D" + METERS[key], "-DPACK_METER=%d" % pm.METER_IDS[key], "-DPACK_SLOT=%d" % slot] + (["-DPACK_BUNDLE"] if bundle else []) + (["-DTR_NFRAMES=%d" % frames] if frames else []) + list(extra) + ["-Wl,--no-warn-rwx-segments", "-T", str(ROOT / "tools/host/link.ld"),
+           "-DPACK_ORG=0x%X" % SIM_ORG, "-DSCRATCH_ORG=0x%X" % SIM_SCRATCH, "-D" + METERS[key], "-DPACK_METER=%d" % pm.METER_IDS[key], "-DPACK_SLOT=%d" % slot] + [f for f in gen_flags(key) if not f.startswith("-DGEN_SRC")] + (["-DPACK_BUNDLE"] if bundle else []) + (["-DTR_NFRAMES=%d" % frames] if frames else []) + list(extra) + ["-Wl,--no-warn-rwx-segments", "-T", str(ROOT / "tools/host/link.ld"),
            str(ROOT / "tools/host/start.S"), str(ROOT / "tools/host/p2_pack_harness.c"), "-I", str(ROOT / "fw2/ui"), "-I", str(ROOT / "fw2/cores"), "-o", str(elf), "-lgcc"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode: print(r.stderr); sys.exit(1)

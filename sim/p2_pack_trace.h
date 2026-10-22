@@ -200,3 +200,28 @@ static void wf_trace(uint16_t *params, void (*apply)(void), void (*run)(const mt
     }
 }
 #endif
+#ifdef PACK_GEN
+/* A scaffolded meter (tools/player2/new_meter.py), whatever it draws: every preset in turn (GEN_TABLE x GEN_PRESETS x GEN_PN, from its manifest), loud and quiet bands and a pause, the degrade levels 1 and 2 for a stretch,
+ * and the last preset enters the fullscreen box mid-run. */
+static void gen_trace(uint16_t *params, void (*apply)(void), void (*run)(const mtr_in_t *), void (*report)(int scen, uint32_t n, uint64_t h))
+{
+    const int ns = GEN_PRESETS < 4u ? 4 : (int)GEN_PRESETS;                  /* at least four scenarios: a meter with two presets runs them twice, the second time with other input */
+    for (int s = 0; s < ns; s++) {
+        for (uint32_t i = 0; i < GEN_PN; i++) params[i] = GEN_TABLE[s % GEN_PRESETS][i];
+        if (apply) apply();
+        TR_BEGIN(70707u + (uint32_t)s);
+        for (int n = 0; n < TR_NFRAMES * 2; n++) {
+            uint8_t spec[16]; int8_t wave[64];
+            const int quiet = (n >= 80 && n < 100);
+            for (int i = 0; i < 16; i++) spec[i] = quiet ? 0 : (uint8_t)((tr_rnd() % 256u) * (16u - (uint32_t)i / 2u) / 16u);
+            for (int i = 0; i < 64; i++) wave[i] = 0;
+            mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
+            in.paused = (uint8_t)(n >= 40 && n < 52); in.dt_ms = 26u; in.h = 120;
+            in.degrade = (uint8_t)(n >= 60 && n < 100 ? 1 : n >= 100 && n < 140 ? 2 : 0);
+            if (s == ns - 1 && n >= 120) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }
+            tr_box_of(&in); run(&in);
+        }
+        report(s, tr_N, tr_H);
+    }
+}
+#endif

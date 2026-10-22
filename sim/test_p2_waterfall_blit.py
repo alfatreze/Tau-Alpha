@@ -16,7 +16,7 @@ def run(src_text, tag):
         d = Path(td)
         for sub in ("fw2/ui", "fw2/gfx", "fw2/cores", "fw2/generated", "sim"): (d / sub).mkdir(parents=True)
         (d / "fw2/ui/wf.c").write_text(src_text)
-        for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "generated/meter_presets.h", "cores/ramp_core.h", "cores/meter_core.h", "cores/gfx_touch_core.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
+        for f in ("ui/meter.h", "ui/theme.h", "gfx/gfx.h", "generated/meter_presets.h", "cores/ramp_core.h", "cores/meter_core.h", "ui/meter_grid.h", "cores/cellgrid_core.h", "cores/gfx_touch_core.h"): (d / "fw2" / f).write_text((ROOT / "fw2" / f).read_text())
         (d / "sim/h.c").write_text((ROOT / "sim/p2_waterfall_equiv_harness.c").read_text())
         r = subprocess.run(["cc", "-std=gnu11", "-O1", "-w", '-DWF_SRC="../fw2/ui/wf.c"', "-o", str(d / "h"), str(d / "sim/h.c")], capture_output=True, text=True)
         if r.returncode: print(r.stderr); sys.exit(1)

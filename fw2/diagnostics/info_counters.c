@@ -89,9 +89,8 @@ const cnt_t counters_table[] = {
     { "SET MENU",     CK_U32, CU_NONE,   &settings_stats.menu_changes },
     { "SET DIRTY",    CK_U32, CU_NONE,   &settings_stats.dirty },
     { "LAST STATE",   CK_U32, CU_NONE,   &last_state },                /* the last played track at boot: 0 not tried, 1 restored, 2 no record saved, 3 record failed its check, 4 track not in that queue, 5 no library */
-    { "LAST W0",      CK_HEX32, CU_NONE, &last_boot[0] },             /* the three persisted words as read at boot (0x8... = a record; ids 24..26) */
+    { "LAST W0",      CK_HEX32, CU_NONE, &last_boot[0] },             /* the two persisted words as read at boot (0x4... = a record; ids 31 and 32) */
     { "LAST W1",      CK_HEX32, CU_NONE, &last_boot[1] },
-    { "LAST W2",      CK_HEX32, CU_NONE, &last_boot[2] },
     { "ART LOADED",   CK_U32, CU_NONE,   &art_loaded },
     { "ART FAILED",   CK_U32, CU_NONE,   &art_failed },
     { "ART ERR",      CK_U32, CU_NONE,   &art_last_err },           /* TIMG_E_*: 1 magic 2 format 3 size 4 open 5 read 7 mailbox 8 probe */
