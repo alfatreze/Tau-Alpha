@@ -183,6 +183,7 @@ const cnt_t counters_table[] = {
     { "CAP POLY",     CK_U8,    CU_NONE,  &caps.poly },
     { "CAP LPC",      CK_U8,    CU_NONE,  &caps.lpc },
     { "CAP WAVE",     CK_U8,    CU_NONE,  &caps.wave },
+    { "CAP STATS",    CK_U8,    CU_NONE,  &caps.stats },          /* the audio statistics block (tau_audio_stats.sv) answered with its signature */
     { "CAP SPEC",     CK_U8,    CU_NONE,  &caps.spec },
     { "CAP DBUF",     CK_U8,    CU_NONE,  &caps.dbuf },
     { "CAP UNDER",    CK_U8,    CU_NONE,  &caps.under },
@@ -231,6 +232,11 @@ const cnt_t counters_table[] = {
     U32("METER EXPOSED", CU_NONE,  &meter_stats.exposed),     /* of those, ticks that began with the beam inside the rows they wrote (a tear risk) */
     U32("METER SHED",   CU_NONE,   &meter_stats.shed),        /* spectrum windows that waited because the governor shed the UI */
     U32("METER LAST",   CU_CYC,    &meter_stats.last_cyc),    /* the last tick, compose copy included */
+    U32("STATS WINDOWS", CU_NONE,  &meter_stats.stats_win),   /* hardware statistics windows read (0 on a bitstream without the block) */
+    U32("STATS N",      CU_NONE,   &meter_stats.stats_n),     /* samples in the last window (about 1,250 at 26 ms) */
+    { "STATS OVF",    CK_U16,   CU_NONE,  &meter_stats.stats_ovf },   /* windows that overflowed the block's sums (should stay 0) */
+    { "STATS RMS",    CK_U16,   CU_NONE,  &meter_stats.stats_rms },   /* last RMS, mean of both channels, 0..24575 */
+    { "STATS CORR",   CK_I32,   CU_NONE,  &meter_stats.stats_corr },   /* last L/R correlation, Q8: 256 mono, 0 unrelated, -256 opposite phase */
     U32("METER COMPOSE", CU_CYC,   &meter_stats.compose_cyc), /* the last compose copy onto the shown buffer (0: the meter draws directly) */
 #define METER_PACK_MAX_ROW(row, nm) U32("METER MAX " nm, CU_CYC, &meter_stats.max_cyc[row]),
     METER_PACK_LIST(METER_PACK_MAX_ROW)                       /* the same for every pack-only meter, by name */
