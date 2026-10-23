@@ -23,10 +23,10 @@
  * viewer the pack is missing, so a build without the pack costs a few dozen bytes, not the meter. */
 #define WF_COLS 67u                                      /* the most the fullscreen box holds at the smallest cell (5 px + 1: 400 / 6 columns, 323 / 6 rows): the grid always fills the box */
 #define WF_ROWS 54u
-typedef struct { uint8_t mode, gain, cell; uint16_t speed, fade; } wf_cfg_t;
-static wf_cfg_t cfg = { 0u, 100u, 8u, 90u, 450u };
+typedef struct { uint8_t mode, gain, cell, palette; uint16_t speed, fade; } wf_cfg_t;
+static wf_cfg_t cfg = { 0u, 100u, 8u, 1u, 90u, 450u };
 /* wf_load: the live parameters (the manifest's order) into the working configuration; a pack calls it each tick with the host's table. */
-static void wf_load(const uint16_t *v) { cfg.mode = (uint8_t)v[MPP_WF_MODE]; cfg.speed = v[MPP_WF_SPEED]; cfg.gain = (uint8_t)v[MPP_WF_GAIN]; cfg.cell = (uint8_t)v[MPP_WF_CELL]; cfg.fade = v[MPP_WF_FADE]; }
+static void wf_load(const uint16_t *v) { cfg.mode = (uint8_t)v[MPP_WF_MODE]; cfg.speed = v[MPP_WF_SPEED]; cfg.gain = (uint8_t)v[MPP_WF_GAIN]; cfg.cell = (uint8_t)v[MPP_WF_CELL]; cfg.fade = v[MPP_WF_FADE]; cfg.palette = (uint8_t)v[MPP_WF_PALETTE]; }
 
 #ifdef P2_PACK
 static uint8_t zone[CG_BYTES(WF_COLS, WF_ROWS)];     /* a nibble a cell: the still modes' brightness step (0..3), SPARKLE's heat (0..15) */
@@ -81,10 +81,42 @@ static uint32_t region_thr(uint32_t c, uint32_t r)       /* ZONES: the threshold
     const uint32_t nx = cnx[c], ny = rny[r], hi = nx > ny ? nx : ny, lo = nx > ny ? ny : nx, d = (3u * hi + lo) / 4u;
     return d * 190u / 255u + bayer(c, r) * 3u;
 }
+/* The colour maps (palette 1..3; 0 = THEME keeps the original three steps of the accent colour): a handful of stops in RGB, interpolated to 32 levels for the spectrogram's entering row (the CLUT) and sampled at four
+ * points for the steps of the other modes. INFERNO is the classic audio-spectrogram map (black, deep purple, red, orange, yellow, white); RAINBOW the blue-to-red map; ICE blue to white. */
+#define WF_LEVELS 32u
+#define WF_BGI WF_LEVELS                                  /* the palette index of the background (the gap between cells) */
+static const uint8_t wf_stops[] = {
+    0, 0, 4,  40, 11, 84,  101, 21, 110,  159, 42, 99,  212, 72, 66,  245, 125, 21,  250, 193, 39,  252, 255, 164,      /* INFERNO: 8 stops */
+    0, 0, 96,  0, 0, 255,  0, 160, 255,  0, 255, 160,  160, 255, 0,  255, 160, 0,  255, 0, 0,                          /* RAINBOW: 7 */
+    0, 0, 8,  10, 30, 110,  20, 100, 200,  110, 200, 240,  255, 255, 255                                              /* ICE: 5 */
+};
+static uint16_t wf_col(uint32_t map, uint32_t v)         /* the colour of map 1..3 at level v 0..255 */
+{
+    static const uint8_t off[4] = { 0, 0, 24, 45 }, cnt[4] = { 0, 8, 7, 5 };
+    const uint8_t *st = &wf_stops[off[map]]; const uint32_t n = cnt[map], p = v * (n - 1u), seg = p / 255u < n - 1u ? p / 255u : n - 2u, f = p - seg * 255u;
+    uint32_t ch[3];
+    for (uint32_t k = 0; k < 3u; k++) ch[k] = ((uint32_t)st[seg * 3u + k] * (255u - f) + (uint32_t)st[(seg + 1u) * 3u + k] * f) / 255u;
+    return (uint16_t)(((ch[0] >> 3) << 11) | ((ch[1] >> 2) << 5) | (ch[2] >> 3));
+}
+static uint16_t wf_clut[WF_LEVELS + 1u];                 /* the spectrogram's palette: 32 levels and the background; built when the map or the background changes */
+static uint32_t clut_sig = 0xFFFFFFFFu;
+static void wf_palette(mgrid_t *m, uint16_t bg)          /* the four steps of the grid (and, for the wide maps, the 32-level CLUT of the spectrogram) */
+{
+    if (cfg.palette == 0u) { mgrid_palette(m, bg, UI_ACCENT); return; }
+    const uint32_t sig = ((uint32_t)cfg.palette << 16) | bg;
+    if (sig != clut_sig) {
+        clut_sig = sig;
+        const uint16_t dim = rc_ramp(bg, wf_col(cfg.palette, 48u), 1u, 2u);
+        wf_clut[0] = dim;
+        for (uint32_t i = 1; i < WF_LEVELS; i++) wf_clut[i] = wf_col(cfg.palette, i * 255u / (WF_LEVELS - 1u));
+        wf_clut[WF_BGI] = bg;
+    }
+    m->pal[0] = wf_clut[0]; m->pal[1] = wf_clut[11]; m->pal[2] = wf_clut[21]; m->pal[3] = wf_clut[31];
+}
 #define WF_PLANE_Y 722u                                   /* the entering row's plane in the stash (gfx.h map): pitch rows of palette indices, 0..3 the steps, 4 the background */
 static void plane_build(uint32_t cols, uint32_t pitch, uint32_t gw)
 {
-    gfx_rect_stash(0u, WF_PLANE_Y, gw, pitch, 4u);
+    gfx_rect_stash(0u, WF_PLANE_Y, gw, pitch, cfg.palette ? WF_BGI : 4u);
     for (uint32_t c = 0; c < cols; c++) gfx_rect_stash(c * pitch, WF_PLANE_Y, cfg.cell, cfg.cell, rowv[c]);
 }
 static void plane_blit(uint32_t gw, uint32_t sy, uint32_t dy, uint32_t h)      /* plane rows sy.. to the grid's rows dy.. (the engine's copy takes at most 127 columns) */
@@ -100,7 +132,7 @@ static void wf_tick(const mtr_in_t *in)
     if (!cg_fit(&wfg.g, in->x, in->y, in->w, in->h, cfg.cell, WF_COLS, WF_ROWS)) return;
     const uint32_t pitch = wfg.g.pitch, cols = wfg.g.cols, rows = wfg.g.rows, gw = cg_w(&wfg.g);
     const uint16_t bg = in->bg;
-    mgrid_palette(&wfg, bg, UI_ACCENT);
+    wf_palette(&wfg, bg);
     const uint16_t *pal = wfg.pal;
     uint8_t spec[MTR_BANDS];
     for (uint32_t b = 0; b < MTR_BANDS; b++) { const uint32_t v = in->paused ? 0u : (uint32_t)in->spec[b] * cfg.gain / 100u; spec[b] = (uint8_t)(v > 255u ? 255u : v); }
@@ -118,15 +150,15 @@ static void wf_tick(const mtr_in_t *in)
         uint32_t d = acc_q8 >> 8; acc_q8 &= 255u;
         if (!d) return;
         if (d > pitch) d = pitch;                                       /* behind: the picture jumps one cell, never more */
-        const uint16_t clut[5] = { pal[0], pal[1], pal[2], pal[3], bg };
-        gfx_clut_load(0u, clut, 5u);
+        if (cfg.palette) gfx_clut_load(0u, wf_clut, WF_LEVELS + 1u);
+        else { const uint16_t clut[5] = { pal[0], pal[1], pal[2], pal[3], bg }; gfx_clut_load(0u, clut, 5u); }
         if (rows * pitch > d) gfx_scroll_down(ox, oy, gw, rows * pitch, d);
         expo += d;
         if (expo >= pitch) {                                            /* the entering row is complete: show it whole (the plane holds it), build the next one */
             const uint32_t over = expo - pitch;
             plane_blit(gw, 0u, over, pitch);
             expo = over; step_n++;
-            for (uint32_t c = 0; c < cols; c++) { const int32_t lv = (int32_t)col_level(spec, c, cols) + ((int32_t)bayer(c, step_n) - 8) * 2; rowv[c] = (uint8_t)(lv < 40 ? 0u : lv < 110 ? 1u : lv < 180 ? 2u : 3u); }
+            for (uint32_t c = 0; c < cols; c++) { const int32_t lv = (int32_t)col_level(spec, c, cols) + ((int32_t)bayer(c, step_n) - 8) * 2; rowv[c] = (uint8_t)(cfg.palette ? (lv < 20 ? 0u : lv >= 255 ? WF_LEVELS - 1u : 1u + (uint32_t)(lv - 20) * (WF_LEVELS - 2u) / 235u) : (lv < 40 ? 0u : lv < 110 ? 1u : lv < 180 ? 2u : 3u)); }
             plane_build(cols, pitch, gw);
         }
         if (expo) plane_blit(gw, pitch - expo, 0u, expo);               /* the part of the entering row that is in view: the plane's lower rows come in first (the gap, then the cells) */

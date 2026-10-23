@@ -109,6 +109,7 @@ test-host:
 	$(PYTHON) sim/test_p2_meter_cmd_budget.py
 	$(PYTHON) sim/test_p2_gfx_touch.py
 	$(PYTHON) sim/test_p2_waterfall_blit.py
+	$(PYTHON) sim/test_p2_waterfall_palette.py
 	$(PYTHON) sim/test_p2_lastplayed.py
 	$(PYTHON) sim/test_p2_boot_order.py
 	$(PYTHON) sim/test_p2_pack_strike.py

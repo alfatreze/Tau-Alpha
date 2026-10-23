@@ -2028,6 +2028,19 @@
       "mode": 3
      },
      "note": "how long a flash takes to fade back to the dim grid"
+    },
+    {
+     "key": "palette",
+     "label": "Colours",
+     "type": "enum",
+     "values": [
+      "THEME",
+      "INFERNO",
+      "RAINBOW",
+      "ICE"
+     ],
+     "default": 1,
+     "note": "the colour map of the grid: THEME (the accent colour, three steps), INFERNO (black, purple, red, yellow, white: the classic spectrogram), RAINBOW (blue to red), ICE (blue to white); the map's 32 levels show in SPECTROGRAM, its steps colour the other modes"
     }
    ],
    "presets": [
@@ -2038,7 +2051,8 @@
       "speed": 90,
       "gain": 100,
       "cell": 8,
-      "fade": 450
+      "fade": 450,
+      "palette": 1
      }
     },
     {
@@ -2048,7 +2062,8 @@
       "speed": 180,
       "gain": 120,
       "cell": 6,
-      "fade": 450
+      "fade": 450,
+      "palette": 2
      }
     },
     {
@@ -2058,7 +2073,8 @@
       "speed": 90,
       "gain": 110,
       "cell": 8,
-      "fade": 450
+      "fade": 450,
+      "palette": 1
      }
     },
     {
@@ -2068,7 +2084,8 @@
       "speed": 90,
       "gain": 100,
       "cell": 5,
-      "fade": 450
+      "fade": 450,
+      "palette": 3
      }
     },
     {
@@ -2078,7 +2095,8 @@
       "speed": 90,
       "gain": 110,
       "cell": 8,
-      "fade": 450
+      "fade": 450,
+      "palette": 0
      }
     },
     {
@@ -2088,7 +2106,8 @@
       "speed": 90,
       "gain": 100,
       "cell": 8,
-      "fade": 450
+      "fade": 450,
+      "palette": 0
      }
     },
     {
@@ -2098,7 +2117,8 @@
       "speed": 90,
       "gain": 130,
       "cell": 5,
-      "fade": 900
+      "fade": 900,
+      "palette": 0
      }
     }
    ],

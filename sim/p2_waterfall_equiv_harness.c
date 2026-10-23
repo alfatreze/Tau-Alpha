@@ -23,6 +23,27 @@ void gfx_cblit(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, u
 uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t f, uint16_t b) { (void)x; (void)y; (void)s; (void)f; (void)b; return 0; }
 static uint32_t rng;
 static uint32_t rnd(void) { rng = rng * 1664525u + 1013904223u; return rng >> 8; }
+#ifdef PALETTE_TEST
+/* The wide colour maps end to end (sim/test_p2_waterfall_palette.py): "C map v rgb565" for every level of every map, then for each map and several constant levels the spectrogram runs 160 ticks and
+ * "S map level distinct luma" prints how many different colours the grid shows and their mean luma. */
+int main(void)
+{
+    th_role[TR_ACCENT] = 0x07E0;
+    for (uint32_t map = 1; map <= 3; map++) for (uint32_t v = 0; v < 256; v++) printf("C %u %u %u\n", map, v, wf_col(map, v));
+    for (uint32_t map = 0; map <= 3; map++) for (uint32_t lv = 0; lv <= 306; lv += 51) {                     /* 306: a gradient across the bands */
+        uint16_t mv[MPP_WF_N]; uint8_t spec[16];
+        mv[MPP_WF_MODE] = 0; mv[MPP_WF_SPEED] = 200; mv[MPP_WF_GAIN] = 100; mv[MPP_WF_CELL] = 8; mv[MPP_WF_FADE] = 450; mv[MPP_WF_PALETTE] = (uint16_t)map; wf_load(mv);
+        memset(fb, 0, sizeof fb); memset(stash, 0xA5, sizeof stash);
+        for (uint32_t b = 0; b < 16u; b++) spec[b] = (uint8_t)(lv > 255u ? b * 17u : lv);
+        for (uint32_t n = 0; n < 160u; n++) { mtr_in_t in = {0}; in.spec = spec; in.frame = n; in.dt_ms = 40; in.x = 16; in.y = 20; in.w = 368; in.h = 270; in.bg = 0x0821; in.force = (uint8_t)(n == 0); wf_tick(&in); }
+        static uint16_t seen[4096]; uint32_t ns = 0; unsigned long luma = 0, cnt = 0;
+        for (uint32_t y = 20; y < 290; y++) for (uint32_t x = 16; x < 384; x++) { const uint16_t c = fb[y * W + x]; if (c == 0x0821) continue; int f = 0; for (uint32_t k = 0; k < ns; k++) if (seen[k] == c) { f = 1; break; } if (!f && ns < 4096) seen[ns++] = c;
+            luma += (((c >> 11) & 31u) * 8u * 30u + ((c >> 5) & 63u) * 4u * 59u + (c & 31u) * 8u * 11u) / 100u; cnt++; }
+        printf("S %u %u %u %lu\n", map, lv, ns, cnt ? luma / cnt : 0ul);
+    }
+    return 0;
+}
+#else
 int main(void)
 {
     uint16_t mv[MPP_WF_N]; uint8_t spec[16];
@@ -31,7 +52,7 @@ int main(void)
         const uint32_t cell = 5u + (scen * 3u) % 8u, speed = 20u + scen * 60u, pitch = cell + 1u;
         /* whole cells (the new code centres the grid, the reference does not) and within the reference's 48 x 40 cells */
         uint32_t boxw = (scen & 1u ? 368u : 400u) / pitch, boxh = (scen % 3u == 0u ? 122u : 323u) / pitch; if (boxw > 48u) boxw = 48u; if (boxh > 40u) boxh = 40u; boxw *= pitch; boxh *= pitch;
-        mv[MPP_WF_MODE] = 0; mv[MPP_WF_SPEED] = (uint16_t)speed; mv[MPP_WF_GAIN] = 100; mv[MPP_WF_CELL] = (uint16_t)cell; wf_load(mv);
+        mv[MPP_WF_MODE] = 0; mv[MPP_WF_SPEED] = (uint16_t)speed; mv[MPP_WF_GAIN] = 100; mv[MPP_WF_CELL] = (uint16_t)cell; mv[MPP_WF_PALETTE] = 0; wf_load(mv);        /* THEME: the original three steps (the frozen reference has no wide maps) */
         memset(fb, 0, sizeof fb); memset(stash, 0xA5, sizeof stash);
         for (uint32_t n = 0; n < 400u; n++) {
             for (uint32_t b = 0; b < 16u; b++) spec[b] = (uint8_t)((n / 40u) % 3u == 0u ? 0u : rnd() % 256u);
@@ -48,3 +69,4 @@ int main(void)
     printf("CMDS %lu\n", cmds);
     return 0;
 }
+#endif
