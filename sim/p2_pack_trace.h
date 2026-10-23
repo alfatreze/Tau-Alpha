@@ -192,10 +192,6 @@ static void wf_trace(uint16_t *params, void (*apply)(void), void (*run)(const mt
             for (int i = 0; i < 64; i++) wave[i] = 0;
             mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
             in.paused = (uint8_t)(n >= 40 && n < 52); in.dt_ms = 26u; in.h = 120;
-            /* ABI 1.1 inputs: centroid, flux and onset always; the hardware statistics (rms, correlation, crest) in every second scenario (stats_ok), with a negative-correlation stretch */
-            in.centroid = (uint8_t)(tr_rnd() % 256u); in.flux = (uint8_t)(tr_rnd() % 256u); in.onset = (uint8_t)(tr_rnd() % 7u == 0u);
-            if (s & 1) { in.stats_ok = 1; in.rms_l = (uint16_t)(tr_rnd() % 12000u); in.rms_r = (uint16_t)(tr_rnd() % 12000u); in.corr = (int16_t)((int32_t)(tr_rnd() % 513u) - 256 - (n >= 20 && n < 30 ? 0 : 0)); in.crest = (uint8_t)(tr_rnd() % 120u); }
-            in.peak_l = (uint32_t)(tr_rnd() % 24576u); in.peak_r = (uint32_t)(tr_rnd() % 24576u);
             in.degrade = (uint8_t)(n >= 60 && n < 100 ? 1 : n >= 100 && n < 140 ? 2 : 0);
             if (s == 4 && n >= 120) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }
             tr_box_of(&in); run(&in);
@@ -221,6 +217,10 @@ static void gen_trace(uint16_t *params, void (*apply)(void), void (*run)(const m
             for (int i = 0; i < 64; i++) wave[i] = 0;
             mtr_in_t in; tr_in(&in, (uint32_t)n, spec, wave);
             in.paused = (uint8_t)(n >= 40 && n < 52); in.dt_ms = 26u; in.h = 120;
+            /* ABI 1.1 inputs: centroid, flux and onset always; the hardware statistics (rms, correlation, crest) in every second scenario (stats_ok), with a negative-correlation stretch */
+            in.centroid = (uint8_t)(tr_rnd() % 256u); in.flux = (uint8_t)(tr_rnd() % 256u); in.onset = (uint8_t)(tr_rnd() % 7u == 0u);
+            if (s & 1) { in.stats_ok = 1; in.rms_l = (uint16_t)(tr_rnd() % 12000u); in.rms_r = (uint16_t)(tr_rnd() % 12000u); in.corr = (int16_t)((int32_t)(tr_rnd() % 513u) - 256); in.crest = (uint8_t)(tr_rnd() % 120u); }
+            in.peak_l = (uint32_t)(tr_rnd() % 24576u); in.peak_r = (uint32_t)(tr_rnd() % 24576u);
             in.degrade = (uint8_t)(n >= 60 && n < 100 ? 1 : n >= 100 && n < 140 ? 2 : 0);
             if (s == ns - 1 && n >= 120) { in.x = 0; in.y = 0; in.w = 400; in.h = 323; }
             tr_box_of(&in); run(&in);

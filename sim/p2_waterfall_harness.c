@@ -23,7 +23,7 @@ static void check(const char *n, int ok) { printf("%s %s\n", ok ? "ok  " : "FAIL
 static uint16_t BG = 0x0821, PAL[4];
 static void setup(uint16_t *mv, uint32_t mode, uint32_t speed, uint32_t cell)
 {
-    mv[MPP_WF_MODE] = (uint16_t)mode; mv[MPP_WF_SPEED] = (uint16_t)speed; mv[MPP_WF_GAIN] = 100; mv[MPP_WF_CELL] = (uint16_t)cell; wf_load(mv);
+    mv[MPP_WF_MODE] = (uint16_t)mode; mv[MPP_WF_SPEED] = (uint16_t)speed; mv[MPP_WF_GAIN] = 100; mv[MPP_WF_CELL] = (uint16_t)cell; mv[MPP_WF_FADE] = 450; mv[MPP_WF_PALETTE] = 0; wf_load(mv);        /* THEME: the three-step look these checks describe (the wide maps: test_p2_waterfall_palette) */
     th_role[TR_ACCENT] = 0x07E0; for (uint32_t k = 0; k < 4u; k++) PAL[k] = k == 3u ? 0x07E0 : rc_ramp(BG, 0x07E0, 1u + 2u * k, 7u);
 }
 static mtr_in_t mk(const uint8_t *spec, uint32_t frame, uint32_t force) { mtr_in_t in = {0}; in.spec = spec; in.frame = frame; in.dt_ms = 26; in.x = 16; in.y = 100; in.w = 368; in.h = 122; in.bg = BG; in.force = (uint8_t)force; return in; }
