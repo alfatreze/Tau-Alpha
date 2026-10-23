@@ -150,15 +150,14 @@ void nowplaying_draw_head(void)
 {
     if (fb_shown) return;
     const np_info_t *p = mp3play_np();
-    const uint32_t cymo = aout_cymo_user_is_off() ? 0u : 1u, fmt = p->valid ? (p->quality[0] == 'F' ? 2u : 1u) : 0u;
+    const uint32_t fmt = p->valid ? (p->quality[0] == 'F' ? 2u : 1u) : 0u;
     const uint32_t hal = (halcyon_present && halcyon_sel != 0u) ? 1u + halcyon_sel + 256u * halcyon_cmp : 0u;
-    if (cymo * 4u + fmt + (hal << 4) != pill_sig) {                 /* the tags: SMOOTH while the resampler is on, the format of the track, the Halcyon preset while an EQ is on */
-        pill_sig = cymo * 4u + fmt + (hal << 4);
+    if (fmt + (hal << 2) != pill_sig) {                             /* the tags: the Halcyon preset while an EQ is on (its name: SMOOTH is one of the presets), then the format of the track */
+        pill_sig = fmt + (hal << 2);
         gfx_rect(MX, PILL_Y, MW, PILL_H, BG);
         uint32_t x = MX;
-        if (cymo) x += pill(x, "SMOOTH") + 4u;
-        if (fmt) x += pill(x, fmt == 2u ? "FLAC" : "MP3") + 4u;
-        if (hal) { const char *nm = halcyon_name(); pill(x, x + gfx_text_width(nm) + 16u <= MX + MW ? nm : "EQ"); }
+        if (hal) { const char *nm = halcyon_name(); x += pill(x, x + gfx_text_width(nm) + 16u + 4u + 48u <= MX + MW ? nm : "EQ") + 4u; }      /* the name, or EQ when it would crowd the format tag out */
+        if (fmt) pill(x, fmt == 2u ? "FLAC" : "MP3");
     }
     if (!p->valid) {
         if (art_state != 1u) { art_state = 1u; art_gen = 0xFFFFFFFFu; cover_placeholder(); for (uint32_t i = 1; i < 4u; i++) cache[i].s[0] = 0; }
