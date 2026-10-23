@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory() as td:
     garbage = tmp / "garbage.bin"; garbage.write_bytes(b"NOPE" + b"\0" * 100)
     g = parse(run(exe, garbage))
     check("a file that is not a bundle (E30): Winamp Bars keeps its built-in, no pack-only meter is listed", g[bars]["p"] == 0 and g[bars]["b"] == 2 and all(absent(g, m) for m in range(n_meters) if m != bars) and g["info"]["file"] == 30, str(g))
-    old = bytearray(packs["vu_master"]); old[4] = 2                    # a pack that needs a newer ABI minor
+    old = bytearray(packs["vu_master"]); old[4] = 3                    # a pack that needs a newer ABI minor
     o = parse(run(exe, bundle_of([bytes(old)], "old.bin")))
     check("a pack of another ABI is refused (E22) and its meter is not listed", o[vu]["s"] == 22 and absent(o, vu), str(o))
     with tempfile.TemporaryDirectory() as t2:

@@ -54,7 +54,8 @@ static int stats_take(uint16_t *rl, uint16_t *rr, int16_t *corr)
     uint32_t w[8];
     for (uint32_t i = 0; i < 8u; i++) { REG_WR(R_STATS_IDX, i); w[i] = REG_RD(R_STATS_DATA); }
     const uint32_t n = w[1];
-    meter_stats.stats_win++; meter_stats.stats_n = n; if (w[0] & 2u) meter_stats.stats_ovf++;
+    meter_stats.stats_win++; meter_stats.stats_n = n;
+    if (w[0] & 2u) { meter_stats.stats_ovf++; return 0; }                      /* the window outgrew the sums (the meters were not drawn for a while: a menu, a pause of the UI): its numbers are wrong, so this picture has none */
     const uint64_t ll = ((uint64_t)(w[3] & 0xFFFFu) << 32) | w[2], rr2 = ((uint64_t)(w[5] & 0xFFFFu) << 32) | w[4];
     const int64_t lr = (int64_t)((uint64_t)(uint32_t)((int32_t)(w[7] << 16) >> 16) << 32 | w[6]);                  /* 48 bits, sign-extended */
     *rl = (uint16_t)((as_rms(ll, n) * 3u) / 4u); *rr = (uint16_t)((as_rms(rr2, n) * 3u) / 4u);
@@ -222,7 +223,7 @@ static int fetch(uint32_t *m)                        /* a new window, read coher
  * built-in one (which stays as the per-meter fallback: a refused or missing pack just leaves the built-in meter in use). Only the active pack's working state is resident, in the 4 KB scratch under the tag zone. */
 static uint32_t pack_act = 0xFFu, pack_seen, pack_err = 0xFFu;         /* the meter whose pack state is in the scratch; packs in the file; the bundle's own result (0xFF: no bundle) */
 static uint32_t pack_stats[MTR_PACK_STATS];
-static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stats, gfx_text, gfx_rect_stash, gfx_blend_ready, gfx_blend_on, gfx_blend_blit, gfx_blend_off, gfx_mb_write, gfx_mb_read, gfx_fence, gfx_blit, gfx_blit_abs, gfx_sblit, gfx_bar, gfx_scroll_down, gfx_clut_load, gfx_cblit };
+static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stats, gfx_text, gfx_rect_stash, gfx_blend_ready, gfx_blend_on, gfx_blend_blit, gfx_blend_off, gfx_mb_write, gfx_mb_read, gfx_fence, gfx_blit, gfx_blit_abs, gfx_sblit, gfx_bar, gfx_scroll_down, gfx_clut_load, gfx_cblit, gfx_scroll_left };
 /* The three places that touch the Pocket's address space can be replaced by a host test (sim/test_p2_meter_pack_dispatch.py): the slot (written through the data alias, executed at the instruction alias), the scratch and the call. */
 #ifndef PACK_SLOT_DATA
 #define PACK_SLOT_DATA(i) ((volatile uint8_t *)(uintptr_t)((MTR_PACK_SLOT_BASE + (i) * MTR_PACK_SLOT_SIZE) | 0x80000000u))

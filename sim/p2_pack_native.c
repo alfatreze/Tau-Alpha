@@ -56,6 +56,7 @@ void gfx_rect(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint16_t c) { tr_h
 uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t fg, uint16_t bg) { return tr_hash_text(x, y, s, fg, bg); }
 void gfx_bar(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t lit, uint16_t f, uint16_t b) { tr_bar_hash(x, y, w, h, lit, f, b); }
 void gfx_scroll_down(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d) { tr_scroll_hash(x, y, w, h, d); }
+void gfx_scroll_left(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d) { tr_scroll_left_hash(x, y, w, h, d); }
 #ifdef PACK_CHL
 int gfx_mb_write(uint32_t a, uint32_t d) { return tr_mb_write(a, d); }
 int gfx_mb_read(uint32_t a, uint32_t *d) { return tr_mb_read(a, d); }

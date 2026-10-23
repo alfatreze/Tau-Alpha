@@ -84,6 +84,20 @@
       ],
       "default": 1,
       "note": "the colour map of the grid: THEME (the accent colour, three steps), INFERNO (black, purple, red, yellow, white: the classic spectrogram), RAINBOW (blue to red), ICE (blue to white); the map's 32 levels show in SPECTROGRAM, its steps colour the other modes"
+    },
+    {
+      "key": "flow",
+      "label": "Direction",
+      "type": "enum",
+      "values": [
+        "VERTICAL",
+        "HORIZONTAL"
+      ],
+      "default": 1,
+      "when": {
+        "mode": 0
+      },
+      "note": "SPECTROGRAM: HORIZONTAL (time runs across, low frequencies at the bottom, the new picture enters at the right) or VERTICAL (frequency runs across, the new picture enters at the top)"
     }
   ],
   "presets": [
@@ -95,7 +109,8 @@
         "gain": 100,
         "cell": 8,
         "fade": 450,
-        "palette": 1
+        "palette": 1,
+        "flow": 1
       }
     },
     {
@@ -106,7 +121,8 @@
         "gain": 120,
         "cell": 6,
         "fade": 450,
-        "palette": 2
+        "palette": 2,
+        "flow": 1
       }
     },
     {
@@ -117,7 +133,8 @@
         "gain": 110,
         "cell": 8,
         "fade": 450,
-        "palette": 1
+        "palette": 1,
+        "flow": 1
       }
     },
     {
@@ -128,7 +145,8 @@
         "gain": 100,
         "cell": 5,
         "fade": 450,
-        "palette": 3
+        "palette": 3,
+        "flow": 1
       }
     },
     {
@@ -139,7 +157,8 @@
         "gain": 110,
         "cell": 8,
         "fade": 450,
-        "palette": 0
+        "palette": 0,
+        "flow": 1
       }
     },
     {
@@ -150,7 +169,8 @@
         "gain": 100,
         "cell": 8,
         "fade": 450,
-        "palette": 0
+        "palette": 0,
+        "flow": 1
       }
     },
     {
@@ -161,7 +181,8 @@
         "gain": 130,
         "cell": 5,
         "fade": 900,
-        "palette": 0
+        "palette": 0,
+        "flow": 1
       }
     }
   ],

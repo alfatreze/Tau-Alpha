@@ -17,13 +17,18 @@ void gfx_scroll_down(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d)
     scrolled += d; scrolls++;
     for (uint32_t j = h - 1u; j >= d; j--) { for (uint32_t i = 0; i < w; i++) fb[(y + j) * W + x + i] = fb[(y + j - d) * W + x + i]; if (j == d) break; }
 }
+void gfx_scroll_left(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d)
+{
+    scrolled += d; scrolls++;
+    for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i + d < w; i++) fb[(y + j) * W + x + i] = fb[(y + j) * W + x + i + d];
+}
 uint32_t gfx_text(uint32_t x, uint32_t y, const char *s, uint16_t f, uint16_t b) { (void)x; (void)y; (void)s; (void)f; (void)b; return 0; }
 static int fails;
 static void check(const char *n, int ok) { printf("%s %s\n", ok ? "ok  " : "FAIL", n); if (!ok) fails++; }
 static uint16_t BG = 0x0821, PAL[4];
 static void setup(uint16_t *mv, uint32_t mode, uint32_t speed, uint32_t cell)
 {
-    mv[MPP_WF_MODE] = (uint16_t)mode; mv[MPP_WF_SPEED] = (uint16_t)speed; mv[MPP_WF_GAIN] = 100; mv[MPP_WF_CELL] = (uint16_t)cell; mv[MPP_WF_FADE] = 450; mv[MPP_WF_PALETTE] = 0; wf_load(mv);        /* THEME: the three-step look these checks describe (the wide maps: test_p2_waterfall_palette) */
+    mv[MPP_WF_MODE] = (uint16_t)mode; mv[MPP_WF_SPEED] = (uint16_t)speed; mv[MPP_WF_GAIN] = 100; mv[MPP_WF_CELL] = (uint16_t)cell; mv[MPP_WF_FADE] = 450; mv[MPP_WF_PALETTE] = 0; mv[MPP_WF_FLOW] = 0; wf_load(mv);        /* THEME: the three-step look these checks describe (the wide maps: test_p2_waterfall_palette) */
     th_role[TR_ACCENT] = 0x07E0; for (uint32_t k = 0; k < 4u; k++) PAL[k] = k == 3u ? 0x07E0 : rc_ramp(BG, 0x07E0, 1u + 2u * k, 7u);
 }
 static mtr_in_t mk(const uint8_t *spec, uint32_t frame, uint32_t force) { mtr_in_t in = {0}; in.spec = spec; in.frame = frame; in.dt_ms = 26; in.x = 16; in.y = 100; in.w = 368; in.h = 122; in.bg = BG; in.force = (uint8_t)force; return in; }

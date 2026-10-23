@@ -18,3 +18,18 @@ void gfx_scroll_down(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d)
         rem -= n;
     }
 }
+
+/* gfx_scroll_left: the box moves left by d columns. In chunks of at most 120 columns and 200 rows, LEFT TO RIGHT: a chunk's destination only covers columns that were already moved (or the d columns that fall off
+ * the box), because the next chunk's source starts d columns to the right of where this one's destination ends. Copy a chunk out to the temporary, then back d columns to the left. */
+void gfx_scroll_left(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d)
+{
+    if (!h || !d || d >= w) return;
+    for (uint32_t yo = 0; yo < h; yo += SCROLL_TEMP_ROWS) {
+        const uint32_t n = h - yo < SCROLL_TEMP_ROWS ? h - yo : SCROLL_TEMP_ROWS;
+        for (uint32_t xo = d; xo < w; xo += SCROLL_COLS) {
+            const uint32_t ww = w - xo < SCROLL_COLS ? w - xo : SCROLL_COLS;
+            gfx_blit_to_stash(x + xo, y + yo, 0u, SCROLL_TEMP_Y, ww, n);
+            gfx_blit_stash(0u, SCROLL_TEMP_Y, x + xo - d, y + yo, ww, n);
+        }
+    }
+}

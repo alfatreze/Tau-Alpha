@@ -48,6 +48,7 @@ static void tr_bar_hash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t
 static void tr_clut_hash(uint32_t start, const uint16_t *c, uint32_t n) { uint32_t v[4 + 8] = { 13, start, n }; uint32_t k = 3; for (uint32_t i = 0; i < n && k < 12; i++) v[k++] = c[i]; tr_mix(v, (int)k); }
 static void tr_cblit_hash(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) { const uint32_t v[7] = { 14, sx, sy, dx, dy, w, h }; tr_mix(v, 7); tr_chk(dx, dy, w, h); }
 static void tr_scroll_hash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d) { const uint32_t v[6] = { 12, x, y, w, h, d }; tr_mix(v, 6); tr_chk(x, y, w, h); }
+static void tr_scroll_left_hash(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d) { const uint32_t v[6] = { 16, x, y, w, h, d }; tr_mix(v, 6); tr_chk(x, y, w, h); }
 /* params: the live setting values; apply: makes a built-in meter re-read them (0 for a pack, which reads the table each tick); run: the meter's tick. */
 #ifdef PACK_BARS
 static void bars_trace(uint16_t *params, void (*apply)(void), void (*run)(const mtr_in_t *), void (*report)(int scen, uint32_t n, uint64_t h))
