@@ -2,95 +2,95 @@
   "about": "What each persisted interact.json id MEANS (RELEASE_SYSTEM_REVIEW_2026-10-08 H2). Bump `meaning` and set `since` to the release that first ships the new meaning whenever the firmware changes how a saved value is read or written (packing, units, enum, range), even when interact.json does not change. `since` is a release tag with a CHANGELOG heading, or the upcoming release's tag. Baseline: earlier history is not tracked before the first release listed. tools/tau_compat.py reports an id as changed when its `since` is later than the previous release, and refuses a release whose interact.json persists an id missing here or named differently. Never reuse an id: give a new meaning a new id when the format allows it.",
   "ids": {
     "10": {
-      "name": "Volume",
-      "word": "SW_VOL",
-      "meaning": 2,
-      "since": "v0.6.0-alpha.4",
-      "what": "volume position 0-100 on the dB taper (B-598); before alpha.4 the same number was a linear gain, so a saved value now sounds quieter"
+      "name": "(internal) playback",
+      "word": "SW_PLAYBACK",
+      "meaning": 3,
+      "since": "v0.6.2",
+      "what": "(Player 2) word 0: bits 30-27 the layout version (0 = the legacy layout of v0.6.1 and older, where this word was the volume 0-100; 1 = the layout by area, docs/features/PERSISTENCE_LAYOUT.md), bit 26 which tuning slot was saved last (0 = A, 1 = B); the rest is reserved for playback options. A default of 1<<27 puts a fresh card on the new layout; a card saved before is migrated at the first boot"
     },
     "11": {
-      "name": "Color",
-      "word": "SW_PAL",
-      "meaning": 1,
-      "since": "v0.3.0",
-      "what": "accent colour index into the 19-colour Pocket palette"
+      "name": "(internal) appearance",
+      "word": "SW_APPEARANCE",
+      "meaning": 2,
+      "since": "v0.6.2",
+      "what": "(Player 2) word 1: accent colour bits 4-0 (0-18), theme bits 10-5, polarity bit 11 (Dark 0, Light 1), font bits 14-12; before v0.6.2 this word was the accent colour alone. Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
     },
     "12": {
-      "name": "Repeat",
-      "word": "SW_REP",
-      "meaning": 1,
-      "since": "v0.3.0",
-      "what": "repeat mode 0 off, 1 all, 2 one"
+      "name": "(internal) audio",
+      "word": "SW_AUDIO",
+      "meaning": 2,
+      "since": "v0.6.2",
+      "what": "(Player 2) word 2: volume bits 6-0 (0-100, the dB taper), repeat bits 8-7 (0 off, 1 all, 2 one), ReplayGain mode bits 10-9 (0 off, 1 track, 2 album), Halcyon EQ preset bits 15-11 (0-30); before v0.6.2 this word was the repeat mode alone. Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
     },
     "15": {
-      "name": "Meter",
-      "word": "SW_VIZ",
-      "meaning": 2,
-      "since": "v0.5.0",
-      "what": "meter = VIZ_* enum number (append-only); since v0.5.0 numbers 2, 7, 9, 11 are retired (7 also saves Bars in its mirrored layout), list order is not enum order"
+      "name": "(internal) meters 1",
+      "word": "SW_METERS1",
+      "meaning": 3,
+      "since": "v0.6.2",
+      "what": "(Player 2) word 5: the selected meter bits 5-0 (an index in the meter table), then the selected preset of meters 0-5, four bits each from bit 6; before v0.6.2 this word was the meter number alone. Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
     },
     "16": {
-      "name": "Halcyon EQ preset",
-      "word": "SW_EQ",
-      "meaning": 2,
-      "since": "v0.6.0-preview.1",
-      "what": "Halcyon EQ preset index 0-30 (B-651); before, the index of one of the eight legacy preset EQs"
+      "name": "(internal) meters 2",
+      "word": "SW_METERS2",
+      "meaning": 3,
+      "since": "v0.6.2",
+      "what": "(Player 2) word 6: the selected preset of meters 6-12, four bits each from bit 0; before v0.6.2 this word was the Halcyon EQ preset. Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
     },
     "20": {
-      "name": "(internal) list 1",
-      "word": "SW_RETIRED_PLN0",
-      "meaning": 3,
-      "since": "v0.6.0-preview.2",
-      "what": "(Player 2, first shipped in v0.6.0-preview.2). Word 0 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
+      "name": "(internal) tuning A 1",
+      "word": "SW_TUNE_A1",
+      "meaning": 4,
+      "since": "v0.6.2",
+      "what": "(Player 2) tuning slot A, word 1 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.6.2 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
     },
     "21": {
-      "name": "(internal) list 2",
-      "word": "SW_RETIRED_PLN1",
-      "meaning": 3,
-      "since": "v0.6.0-preview.2",
-      "what": "(Player 2, first shipped in v0.6.0-preview.2). Word 1 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
+      "name": "(internal) tuning A 2",
+      "word": "SW_TUNE_A2",
+      "meaning": 4,
+      "since": "v0.6.2",
+      "what": "(Player 2) tuning slot A, word 2 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.6.2 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
     },
     "22": {
-      "name": "(internal) list 3",
-      "word": "SW_RETIRED_PLN2",
-      "meaning": 3,
-      "since": "v0.6.0-preview.2",
-      "what": "(Player 2, first shipped in v0.6.0-preview.2). Word 2 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
+      "name": "(internal) tuning A 3",
+      "word": "SW_TUNE_A3",
+      "meaning": 4,
+      "since": "v0.6.2",
+      "what": "(Player 2) tuning slot A, word 3 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.6.2 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
     },
     "23": {
-      "name": "(internal) list 4",
-      "word": "SW_RETIRED_PLHASH",
-      "meaning": 3,
-      "since": "v0.6.0-preview.2",
-      "what": "(Player 2, first shipped in v0.6.0-preview.2). Word 3 of 4 of the saved meter tuning (fw2/cores/tune_core.h: check byte, meter, preset, then the parameters that differ from the preset; 31 bits per word, a stale old Check summary fails the check byte and is ignored). Before this it held the saved Check summary (TAUD1) of the old player"
+      "name": "(internal) tuning A 4",
+      "word": "SW_TUNE_A4",
+      "meaning": 4,
+      "since": "v0.6.2",
+      "what": "(Player 2) tuning slot A, word 4 of 4 (fw2/cores/tune_core.h: check byte, meter 5 bits, preset 4 bits, count 4 bits, then the parameters that differ from the preset; 31 bits per word). Since v0.6.2 the header carries a 5-bit meter number (was 3) and there are two slots (A and B): a tuning saved before is not carried over"
     },
     "27": {
-      "name": "(internal) theme",
-      "word": "SW_THEME",
-      "meaning": 2,
-      "since": "v0.6.0-alpha.1",
-      "what": "theme index (B-346). Until v0.5.0 id 27 was 'Library off (restart)' at another address; the id was reused, contrary to tools/tau_data_slots.py's own rule, so a value saved by v0.5.0 or older must not be read as a theme"
+      "name": "(internal) tuning B 1",
+      "word": "SW_TUNE_B1",
+      "meaning": 3,
+      "since": "v0.6.2",
+      "what": "(Player 2) tuning slot B, word 1 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.6.2 id 27 was the theme index"
     },
     "28": {
-      "name": "(internal) theme mode",
-      "word": "SW_POL",
-      "meaning": 2,
-      "since": "v0.6.0-alpha.4",
-      "what": "bit 0 theme polarity (Dark 0, Light 1; since v0.6.0-alpha.1), bits 4-5 ReplayGain mode 0 Off 1 Track 2 Album (B-599, range widened to 255 in B-600)"
+      "name": "(internal) tuning B 2",
+      "word": "SW_TUNE_B2",
+      "meaning": 3,
+      "since": "v0.6.2",
+      "what": "(Player 2) tuning slot B, word 2 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.6.2 id 28 was the theme polarity and the ReplayGain mode"
     },
     "29": {
-      "name": "(internal) meter presets",
-      "word": "SW_MPRE",
-      "meaning": 1,
-      "since": "v0.6.0-preview.2",
-      "what": "(Player 2, first shipped in v0.6.0-preview.2). The selected preset of each meter, four bits each in the meter table order: Winamp Bars (bits 3-0, 5 presets), Winamp Scope (7-4, 5), Chladni (11-8, 4), Layered Wave (15-12, 8 and more), Master VU (19-16, 3); bits 22-20 are the font (v0.6.1) and bits 26-23 the sixth meter, the Waterfall (v0.6.1); Player 2 (Select+X cycles); a value out of range reads as the first preset"
+      "name": "(internal) tuning B 3",
+      "word": "SW_TUNE_B3",
+      "meaning": 2,
+      "since": "v0.6.2",
+      "what": "(Player 2) tuning slot B, word 3 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.6.2 id 29 was the meter presets, the font and the sixth meter's preset"
     },
     "30": {
-      "name": "(internal) meter presets 2",
-      "word": "SW_MPRE2",
-      "meaning": 1,
-      "since": "v0.6.1",
-      "what": "(Player 2) the selected preset of the seventh meter, four bits (bits 3-0); a value out of range reads as the first preset"
+      "name": "(internal) meters 3",
+      "word": "SW_METERS3",
+      "meaning": 2,
+      "since": "v0.6.2",
+      "what": "(Player 2) word 15: the selected preset of meters 13-19, four bits each from bit 0 (until v0.6.1 bits 3-0 were the seventh meter's preset, which is meter 6 and now lives in word 6). Bit 30 is the mark that this word is already in the new layout (a migration resumes from it); no field uses it"
     },
     "31": {
       "name": "(internal) last played 1",
@@ -105,6 +105,13 @@
       "meaning": 1,
       "since": "v0.6.1",
       "what": "(Player 2) the last played track, word 1 of 2: a 27-bit check over word 0 and the high four bits of the track; a record that fails the check restores nothing."
+    },
+    "33": {
+      "name": "(internal) tuning B 4",
+      "word": "SW_TUNE_B4",
+      "meaning": 1,
+      "since": "v0.6.2",
+      "what": "(Player 2) tuning slot B, word 4 of 4, same layout as slot A; the slot saved least recently is evicted. Before v0.6.2 id 33 was not declared"
     }
   }
 }

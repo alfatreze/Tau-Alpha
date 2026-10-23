@@ -53,6 +53,23 @@ int main(int argc, char **argv)
         }
         return 0;
     }
+    if (argc > 1 && argv[1][0] == '-' && argv[1][1] == 't') {          /* tuning pool mode: "-t" then the descriptors */
+        uint32_t w[TUNE_SLOTS * TUNE_WORDS];
+#define SLOT_METER(s) ({ uint32_t mt = 99, pr = 0; uint8_t ix[TUNE_MAX]; uint16_t vl[TUNE_MAX]; tune_unpack(&w[(s) * TUNE_WORDS], tune_max_of, &mt, &pr, ix, vl) ? mt : 99u; })
+#define SHOW(tag) do { meters_tune_words(w); printf("%s A %u B %u newer %u\n", tag, SLOT_METER(0), SLOT_METER(1), meters_tune_newer()); } while (0)
+#define EDIT(m, i) do { uint32_t np = 0; const uint16_t *mx = tune_max_of(m, &np); uint16_t *v = mdef(m)->mv; v[i] = v[i] < mx[i] ? (uint16_t)(v[i] + 1u) : (uint16_t)(v[i] - 1u); meters_params_changed(m); } while (0)
+        SHOW("empty");
+        EDIT(1, 0); SHOW("tuned 1");
+        EDIT(2, 0); SHOW("tuned 2");
+        EDIT(3, 0); SHOW("tuned 3 evicts the oldest");
+        EDIT(2, 1); SHOW("tuned 2 again replaces its own slot");
+        meters_preset_select(3, meters_preset_of(3)); SHOW("preset of 3 reselected drops its tuning");
+        uint32_t saved[TUNE_SLOTS * TUNE_WORDS], newer = meters_tune_newer(), v2 = mdef(2)->mv[1]; meters_tune_words(saved);
+        meters_preset_select(2, meters_preset_of(2)); meters_preset_select(1, meters_preset_of(1)); SHOW("both presets reselected");
+        meters_tune_apply(saved, newer); SHOW("boot restore");
+        printf("restored custom2 %u custom1 %u v2 %u\n", custom[2], custom[1], mdef(2)->mv[1] == v2);
+        return 0;
+    }
     printf("rows %u count %u\n", up, meter_count);
     meters_preset_select(3, 6); meters_preset_select(2, 9); meters_preset_select(9, 1);          /* 9 is past Chladni's 4 presets: the first; meter 9 does not exist */
     printf("of3 %u of2 %u\n", meters_preset_of(3), meters_preset_of(2));

@@ -16,6 +16,7 @@ def build(td, mutant):
     for sub in ("ui", "gfx", "platform", "cores", "generated", "sim"): (d / sub).mkdir()
     src = (ROOT / "fw2/ui/meters.c").read_text()
     if mutant == "skips": a = "(pre[cur] + 1u) % meters_npre(cur)"; assert a in src; src = src.replace(a, "(pre[cur] + 2u) % meters_npre(cur)")
+    if mutant == "evict_newest": a = "if (s == TUNE_SLOTS) s = tune_newer ? 0u : 1u;"; assert a in src; src = src.replace(a, "if (s == TUNE_SLOTS) s = tune_newer ? 1u : 0u;")
     if mutant == "norange": a = "if (p >= meters_npre(m)) p = 0u;"; assert a in src; src = src.replace(a, "")
     if mutant == "offbyone": a = "const uint32_t at = e.off + p * e.psize"; assert a in src; src = src.replace(a, "const uint32_t at = e.off + 1u + p * e.psize")
     (d / "ui/meters.c").write_text(src)
@@ -49,11 +50,16 @@ def metr_expected(spec):
 def run_metr(d, blob):
     f = d / "metr.bin"; f.write_bytes(blob)
     return subprocess.run([str(d / "h"), str(f)] + [str(d / ("%s.desc" % k)) for k in DESCS], capture_output=True, text=True).stdout.strip().split("\n")
+def run_tune(d): return subprocess.run([str(d / "h"), "-t"] + [str(d / ("%s.desc" % k)) for k in DESCS], capture_output=True, text=True).stdout.strip().split("\n")
+GOOD_TUNE = ["empty A 99 B 99 newer 0", "tuned 1 A 1 B 99 newer 0", "tuned 2 A 1 B 2 newer 1", "tuned 3 evicts the oldest A 3 B 2 newer 0", "tuned 2 again replaces its own slot A 3 B 2 newer 1",
+             "preset of 3 reselected drops its tuning A 99 B 2 newer 1", "both presets reselected A 99 B 99 newer 1", "boot restore A 99 B 2 newer 1", "restored custom2 1 custom1 0 v2 1"]
 with tempfile.TemporaryDirectory() as td:
     d = build(td, None)
+    check("the tuning pool: two slots, a meter keeps its own slot, the one saved least recently is evicted, a reselected preset drops its tuning, a boot restores what its preset still matches", run_tune(d) == GOOD_TUNE)
     check("select validates, next wraps per meter, names come from the module", run_plain(d) == GOOD)
     spec = metr_spec(); blob = ta.pack_meters(spec)
     check("a METR file replaces the presets: counts, names, values and boot presets equal the Python writer's", run_metr(d, blob) == metr_expected(spec))
+with tempfile.TemporaryDirectory() as td: check("mutant evict_newest (the pool evicts the slot saved last) is caught", run_tune(build(td, "evict_newest")) != GOOD_TUNE)
 for m in ("skips", "norange"):
     with tempfile.TemporaryDirectory() as td: check(f"mutant {m} is caught", run_plain(build(td, m)) != GOOD)
 with tempfile.TemporaryDirectory() as td:

@@ -39,8 +39,8 @@
    "sha256": "1f026a73eacbe9565f855af60387dbc9e3f179061bf274e797f22578a405675c"
   },
   "dist/Cores/alfatreze.TAU/interact.json": {
-   "bytes": 7697,
-   "sha256": "6fc0acd681aa2d1738bbba516e78894441fd3212d63999002c3a18a908426f10"
+   "sha256": "0ad46b7db6da8b23fd1f2ba7c6ceb1c674f75225e806c315662800ea4d152949",
+   "bytes": 8384
   },
   "dist/Cores/alfatreze.TAU/variants.json": {
    "bytes": 85,

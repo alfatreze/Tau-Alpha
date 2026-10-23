@@ -121,7 +121,7 @@ int main(void)
         else if (edge) views_input(edge);
         if (!counters_aout_init) {
             mp3play_pump(); mp3play_heard();
-            uint32_t sv[SF_COUNT]; mp3play_settings_get(sv); appearance_get(sv); mp3play_last_get(&sv[SF_LAST0]); if (settings_service(sv, mp.playing && !mp.held)) { mp3play_settings_set(sv); appearance_set(sv); }
+            uint32_t sv[SF_COUNT]; settings_seed(sv); mp3play_settings_get(sv); appearance_get(sv); mp3play_last_get(&sv[SF_LAST0]); if (settings_service(sv, mp.playing && !mp.held)) { mp3play_settings_set(sv); appearance_set(sv); }
             aout_poll((int)mp.playing);
         }
         loops++; counters_loops = loops; counters_keys = keys;

@@ -18,10 +18,10 @@ static void     wr(uint32_t w, uint32_t v) { REG_WR(R_SET_IDX, w); REG_WR(R_SET_
  * the same word): word 0 must survive a write to word 16. (fw/settings.inc, B-346.) */
 static int wide_probe(void)
 {
-    uint32_t save0 = rd(0u), probe0 = save0 ^ 0x5A5A5A5Au;
+    uint32_t save0 = rd(0u), save16 = rd(16u), probe0 = save0 ^ 0x5A5A5A5Au;      /* on the narrow file word 16 IS word 0 (save16 == save0) */
     wr(0u, probe0); wr(16u, ~probe0);
     int ok = rd(0u) == probe0;
-    wr(0u, save0);
+    wr(16u, save16); wr(0u, save0);                                              /* word 16 holds a tuning now: it is put back too (restoring 16 before 0 is right on both files) */
     return ok;
 }
 
@@ -31,25 +31,40 @@ static void read_words(uint32_t *w)
     for (uint32_t i = 0; i < SF_COUNT; i++) { uint32_t k = sf_table[i].word; if (k < 16u || settings_stats.wide) w[k] = rd(k); }
 }
 
+/* Word 0 holds the layout version and goes last: a power loss in between leaves the legacy marker, and the next boot resumes the migration from the words that carry the new-layout mark and the legacy words that are still there. */
+static void write_words(const uint32_t *w)
+{
+    for (uint32_t n = 0; n < sizeof sf_write_order; n++) {      /* the order matters for a migration (cores/settings_core.h sf_write_order) */
+        const uint32_t k = sf_write_order[n];
+        if (k >= 16u && !settings_stats.wide) continue;      /* never write an index that would alias onto word 0 */
+        if (rd(k) != w[k]) wr(k, w[k]);
+    }
+    if (rd(0u) != w[0]) wr(0u, w[0]);
+}
+
 void settings_init(uint32_t *vals)
 {
     settings_stats.wide = (uint32_t)wide_probe();
     read_words(pub);
+    if (sf_is_legacy(pub)) {                                 /* a card saved by TAU DEV 181 or older: convert it once */
+        uint32_t nw[SF_WORDS]; sf_migrate_resume(pub, nw);
+        write_words(nw);
+        for (uint32_t k = 0; k < SF_WORDS; k++) pub[k] = nw[k];
+        settings_stats.migrated = 1;
+    }
     sf_unpack(pub, vals);
     for (uint32_t i = 0; i < SF_COUNT; i++) pub_vals[i] = vals[i];
     settings_stats.loads++;
 }
 
+void settings_seed(uint32_t *vals) { for (uint32_t i = 0; i < SF_COUNT; i++) vals[i] = pub_vals[i]; }
+
 static void publish(const uint32_t *vals)
 {
     uint32_t w[SF_WORDS]; read_words(w);                     /* read-modify-write: bits that are not ours stay */
     sf_pack(w, vals);
-    for (uint32_t i = 0; i < SF_COUNT; i++) {
-        uint32_t k = sf_table[i].word;
-        if (k >= 16u && !settings_stats.wide) continue;      /* never write an index that would alias onto the volume */
-        if (rd(k) != w[k]) wr(k, w[k]);
-        pub[k] = w[k];
-    }
+    write_words(w);
+    for (uint32_t i = 0; i < SF_COUNT; i++) pub[sf_table[i].word] = w[sf_table[i].word];
     for (uint32_t i = 0; i < SF_COUNT; i++) pub_vals[i] = vals[i];
     lazy_dirty = 0;
     settings_stats.stores++;

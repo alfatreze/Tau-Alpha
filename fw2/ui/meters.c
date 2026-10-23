@@ -77,8 +77,11 @@ static metr_e_t ue[METER_SLOTS]; static uint8_t user_n[METER_SLOTS];
 static metr_p_t sh[40];                                            /* the parameter shapes of ONE meter, from its descriptors, rebuilt when needed (all of them at once cost 2,560 B of hot RAM) */
 static uint8_t is_wide(const mpd_t *p) { return p->type == 3u || (p->type == 0u && p->max > 255u); }
 static const metr_p_t *shapes(uint32_t m) { const meter_def_t *d = mdef(m); for (uint32_t i = 0; i < d->np && i < 40u; i++) { sh[i].min = d->pd[i].min; sh[i].max = d->pd[i].max; sh[i].kind = d->pd[i].type; sh[i].enum_n = d->pd[i].nval; sh[i].wide = is_wide(&d->pd[i]); } return sh; }
-static uint32_t tune_cache[TUNE_WORDS], tune_meter = 0xFFu;
-static void tune_clear(void) { for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[k] = 0; tune_meter = 0xFFu; }
+#define TUNE_SLOTS 2u                                   /* the tuning pool: two slots of TUNE_WORDS words, one tuned meter each; the one saved least recently is evicted */
+static uint32_t tune_cache[TUNE_SLOTS][TUNE_WORDS];
+static uint8_t tune_meter[TUNE_SLOTS] = { 0xFFu, 0xFFu }, tune_newer;
+static void tune_clear_slot(uint32_t s) { for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = 0; tune_meter[s] = 0xFFu; }
+static void tune_drop(uint32_t m) { for (uint32_t s = 0; s < TUNE_SLOTS; s++) if (tune_meter[s] == m) tune_clear_slot(s); }       /* any tuning of meter m */
 uint32_t meters_npre(uint32_t m) { return m >= meter_count || !meters_present(m) ? 1u : user_n[m] ? user_n[m] : def_npre(m); }
 static void user_preset(uint32_t m, uint32_t p, uint16_t *vals, char *name)       /* reads preset p of meter m from the PSRAM copy */
 {
@@ -114,7 +117,7 @@ void meters_preset_select(uint32_t m, uint32_t p)
     if (m >= METER_SLOTS) return;
     if (!meters_present(m)) { pre[m] = (uint8_t)(p & 15u); return; }                  /* a pack-only meter whose pack is not there now: its saved preset is kept as it is, not lost */
     if (p >= meters_npre(m)) p = 0u;
-    pre[m] = (uint8_t)p; custom[m] = 0u; if (tune_meter == m) tune_clear();
+    pre[m] = (uint8_t)p; custom[m] = 0u; tune_drop(m);
     if (user_n[m]) { uint16_t v[40]; user_preset(m, p, v, 0); const meter_def_t *d = mdef(m); for (uint32_t i = 0; i < d->np; i++) d->mv[i] = v[i]; def_apply(m); }
     else def_set_pre(m, p);
     if (m == cur) force_next = 1;
@@ -140,7 +143,7 @@ void meters_tune_save(uint32_t m)            /* the parameters of meter m were e
 {
     if (m >= meter_count || !meters_present(m)) return;
     const meter_def_t *d = mdef(m);
-    if (!custom[m]) { if (tune_meter == m) tune_clear(); return; }
+    if (!custom[m]) { tune_drop(m); return; }
     uint16_t keep[40], base[40];
     for (uint32_t i = 0; i < d->np && i < 40u; i++) keep[i] = d->mv[i];
     if (user_n[m]) user_preset(m, pre[m], base, 0); else { def_set_pre(m, pre[m]); for (uint32_t i = 0; i < d->np && i < 40u; i++) base[i] = d->mv[i]; }
@@ -148,8 +151,14 @@ void meters_tune_save(uint32_t m)            /* the parameters of meter m were e
     def_apply(m);
     uint32_t np = 0; const uint16_t *mx = tune_max_of(m, &np);
     uint32_t w[TUNE_WORDS];
-    if (tune_pack(m, pre[m], keep, base, mx, np, w)) { for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[k] = w[k]; tune_meter = m; }
-    else if (tune_meter == m) tune_clear();
+    if (tune_pack(m, pre[m], keep, base, mx, np, w)) {
+        uint32_t s = TUNE_SLOTS;                                        /* the slot of this meter, else an empty one, else the one saved least recently */
+        for (uint32_t i = 0; i < TUNE_SLOTS; i++) if (tune_meter[i] == m) s = i;
+        for (uint32_t i = 0; i < TUNE_SLOTS && s == TUNE_SLOTS; i++) if (tune_meter[i] == 0xFFu) s = i;
+        if (s == TUNE_SLOTS) s = tune_newer ? 0u : 1u;
+        for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = w[k];
+        tune_meter[s] = (uint8_t)m; tune_newer = (uint8_t)s;
+    } else tune_drop(m);
 }
 uint32_t meters_payload(uint32_t m, uint8_t *out)                  /* the SR_T_METERCFG entry: manifest meter id, schema 1, preset (0xFF = tuned), nparams, then the values (two bytes for a wide one) */
 {
@@ -159,19 +168,24 @@ uint32_t meters_payload(uint32_t m, uint8_t *out)                  /* the SR_T_M
     for (uint32_t i = 0; i < d->np; i++) { out[n++] = (uint8_t)d->mv[i]; if (is_wide(&d->pd[i])) out[n++] = (uint8_t)(d->mv[i] >> 8); }
     return n;
 }
-void meters_tune_words(uint32_t *w) { for (uint32_t k = 0; k < TUNE_WORDS; k++) w[k] = tune_cache[k]; }
-void meters_tune_apply(const uint32_t *w)    /* the persisted words changed (boot, or Core Settings): apply the tuning when it belongs to the preset now selected */
+void meters_tune_words(uint32_t *w) { for (uint32_t s = 0; s < TUNE_SLOTS; s++) for (uint32_t k = 0; k < TUNE_WORDS; k++) w[s * TUNE_WORDS + k] = tune_cache[s][k]; }
+uint32_t meters_tune_newer(void) { return tune_newer; }
+void meters_tune_apply(const uint32_t *wp, uint32_t newer)    /* the persisted words changed (boot): apply each slot's tuning when it belongs to the preset now selected */
 {
-    int same = 1; for (uint32_t k = 0; k < TUNE_WORDS; k++) if (w[k] != tune_cache[k]) same = 0;
-    if (same) return;
-    uint32_t mt = 0, pr = 0; uint8_t ix[TUNE_MAX]; uint16_t vl[TUNE_MAX];
-    const uint32_t n = tune_unpack(w, tune_max_of, &mt, &pr, ix, vl);
-    if (!n || mt >= meter_count || !meters_present(mt) || pr != pre[mt]) return;
-    const meter_def_t *d = mdef(mt);
-    for (uint32_t k = 0; k < n; k++) { uint32_t v = vl[k]; const mpd_t *p = &d->pd[ix[k]]; if (p->type == 0u && v < p->min) v = p->min; d->mv[ix[k]] = (uint16_t)v; }
-    custom[mt] = 1u; def_apply(mt); if (mt == cur) force_next = 1;
-    for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[k] = w[k];
-    tune_meter = mt;
+    tune_newer = (uint8_t)(newer & 1u);
+    for (uint32_t s = 0; s < TUNE_SLOTS; s++) {
+        const uint32_t *w = &wp[s * TUNE_WORDS];
+        int same = 1; for (uint32_t k = 0; k < TUNE_WORDS; k++) if (w[k] != tune_cache[s][k]) same = 0;
+        if (same) continue;
+        uint32_t mt = 0, pr = 0; uint8_t ix[TUNE_MAX]; uint16_t vl[TUNE_MAX];
+        const uint32_t n = tune_unpack(w, tune_max_of, &mt, &pr, ix, vl);
+        if (!n || mt >= meter_count || !meters_present(mt) || pr != pre[mt]) continue;
+        const meter_def_t *d = mdef(mt);
+        for (uint32_t k = 0; k < n; k++) { uint32_t v = vl[k]; const mpd_t *p = &d->pd[ix[k]]; if (p->type == 0u && v < p->min) v = p->min; d->mv[ix[k]] = (uint16_t)v; }
+        custom[mt] = 1u; def_apply(mt); if (mt == cur) force_next = 1;
+        for (uint32_t k = 0; k < TUNE_WORDS; k++) tune_cache[s][k] = w[k];
+        tune_meter[s] = (uint8_t)mt;
+    }
 }
 void meters_params_changed(uint32_t m) { if (m >= meter_count || !meters_present(m)) return; custom[m] = 1u; def_apply(m); if (m == cur) force_next = 1; meters_tune_save(m); }
 uint32_t meters_custom(uint32_t m) { return m < METER_SLOTS ? custom[m] : 0u; }

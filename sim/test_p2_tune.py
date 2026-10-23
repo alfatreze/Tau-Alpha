@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Saving a tuned meter (fw2/cores/tune_core.h): the C packer must equal an independent Python implementation of the layout (check 8 | meter 3 | preset 4 | count 4 | count x { index 6 | value n bits } in
+"""Saving a tuned meter (fw2/cores/tune_core.h): the C packer must equal an independent Python implementation of the layout (check 8 | meter 5 | preset 4 | count 4 | count x { index 6 | value n bits } in
 4 words of 31 bits), the C reader must give back what the Python writer stored, and anything else (zeros, a flipped bit, an index past the table, a value past its maximum) is refused.
 Mutant: the check byte ignores the data."""
 import random, subprocess, sys, tempfile
@@ -24,7 +24,7 @@ def py_pack(meter, preset, mv, base, mx):
     def put(pos, v, n):
         for i in range(n): bits[pos + i] = (v >> i) & 1
         return pos + n
-    pos, n = 19, 0
+    pos, n = 21, 0
     py_pack.last = []
     for i in range(len(mv)):
         if mv[i] == base[i] or n >= 15: continue
@@ -32,7 +32,7 @@ def py_pack(meter, preset, mv, base, mx):
         if pos + 6 + nb > 124: continue
         pos = put(pos, i, 6); pos = put(pos, mv[i], nb); n += 1; py_pack.last.append((i, mv[i]))
     if not n: return 0, [0, 0, 0, 0]
-    put(8, meter & 7, 3); put(11, preset & 15, 4); put(15, n, 4)
+    put(8, meter & 31, 5); put(13, preset & 15, 4); put(17, n, 4)
     b = [sum(bits[8 * k + j] << j for j in range(8)) for k in range(16)]
     c = 0xA5
     for k in range(1, 16): c = (((c << 1) | (c >> 7)) & 255); c = (c + b[k]) & 255
@@ -45,7 +45,7 @@ def rand_case():
     mx = [rng.choice([1, 1, 3, 11, 15, 100, 255, 400, 65535]) for _ in range(np_)]
     base = [rng.randint(0, m) for m in mx]
     mv = [rng.randint(0, m) if rng.random() < 0.3 else b for m, b in zip(mx, base)]
-    return rng.randint(0, 7), rng.randint(0, 15), mv, base, mx
+    return rng.randint(0, 31), rng.randint(0, 15), mv, base, mx
 def scenario(exe):
     ok = {}
     cases = [rand_case() for _ in range(300)]
