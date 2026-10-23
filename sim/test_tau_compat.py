@@ -124,9 +124,9 @@ with tempfile.TemporaryDirectory() as t:
     check(r["library_index_version"] == 1 and r["assets_read_limit_bytes"] == 65536, "index version 1, assets limit 64 KiB (fw)")
     check(set(r["assets_sections"]) == {"THEM", "METR", "PRST"}, f"assets sections read by the firmware: {r['assets_sections']}")
     check(r["report_tags_max"] == 28, f"last report tag {r['report_tags_max']} (SR_T_TRACKINFO = 28)")
-    check(r["persist_ids_changed"] == [12, 16, 18, 20, 21, 22, 23, 29, 30, 31, 32], f"persist ids changed (12 range), removed (18), re-meant per the registry (16 and 20-23, the saved meter tuning), new (29 meter presets, 30 the seventh meter, 31 and 32 the last played track: Player 2; the old library words 24-26 are retired from interact.json) vs alpha.4: {r['persist_ids_changed']}")
+    check(r["persist_ids_changed"] == [10, 11, 12, 15, 16, 18, 20, 21, 22, 23, 27, 28, 29, 30, 31, 32, 33], f"persist ids changed (12 range), removed (18), re-meant per the registry (every word is regrouped by area since v0.6.2: 10, 11, 12, 15, 16, 20-23, 27-30), new (31 and 32 the last played track, 33 tuning slot B; the old library words 24-26 are retired from interact.json) vs alpha.4: {r['persist_ids_changed']}")
     check(doc["previous_release"] == "v0.6.0-alpha.4", "previous_release recorded")
-    check(doc["persist_registry"]["16"] == {"name": "Halcyon EQ preset", "meaning": 2, "since": "v0.6.0-preview.1"}
+    check(doc["persist_registry"]["16"] == {"name": "(internal) meters 2", "meaning": 3, "since": "v0.6.0-preview.1"}
           and set(doc["persist_registry"]) == {str(v["id"]) for v in REAL_INTERACT["interact"]["variables"] if v.get("persist")},
           "persist_registry lists every persisted id with its meaning and since")
     check(r["min_omega"] == json.loads((ROOT / "tools/omega_compat.json").read_text())["min_omega"], "min_omega from tools/omega_compat.json")
@@ -306,7 +306,7 @@ with tempfile.TemporaryDirectory() as t:
     raises(lambda: tc.build(**dict(kw, previous_release="v0.6.0-preview.1")), "a previous release not older than the release", "not older")
     # Omega's union rule over a skipped release: changes since alpha.3 include the alpha.4 meanings (10 Volume, 28 theme mode)
     since3 = sorted(int(i) for i, v in doc["persist_registry"].items() if tc.tag_key(v["since"]) > tc.tag_key("v0.6.0-alpha.3"))
-    check(since3 == [10, 16, 20, 21, 22, 23, 28, 29, 30, 31, 32], f"from persist_registry, a card on alpha.3 must treat ids {since3} as changed (union rule)")
+    check(since3 == [10, 11, 12, 15, 16, 20, 21, 22, 23, 27, 28, 29, 30, 31, 32, 33], f"from persist_registry, a card on alpha.3 must treat ids {since3} as changed (union rule)")
 
     # 2h. dev packages get their own manifest (review M5)
     dev = t / "devpkg"; (dev / "pocket").mkdir(parents=True)
@@ -364,7 +364,7 @@ with tempfile.TemporaryDirectory() as t:
     pk = {p["core_id"]: p for p in dd["packages"]}
     check(pk["alfatreze.TAU Diagnostics"]["replaces"] == ["alfatreze.TAU_DIAGNOSTIC"] and pk["alfatreze.TAU"]["replaces"] == [],
           "TAU Diagnostics names the old TAU_DIAGNOSTIC as replaced")
-    check(dd["requires_omega"]["persist_ids_changed"] == [12, 16, 18, 20, 21, 22, 23, 29, 30, 31, 32], "a renamed core is compared with its predecessor's previous zip")
+    check(dd["requires_omega"]["persist_ids_changed"] == [10, 11, 12, 15, 16, 18, 20, 21, 22, 23, 27, 28, 29, 30, 31, 32, 33], "a renamed core is compared with its predecessor's previous zip")
     rt = tl.retarget(ROOT / "dist", t / "rt", "alfatreze.TAU", "alfatreze.TAU Preview", "preview")
     rcj = json.loads((rt / "Cores/alfatreze.TAU Preview/core.json").read_text())["core"]["metadata"]
     rdj = {sl["id"]: sl["parameters"] for sl in json.loads((rt / "Cores/alfatreze.TAU Preview/data.json").read_text())["data"]["data_slots"]}

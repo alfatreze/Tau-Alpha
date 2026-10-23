@@ -21,17 +21,17 @@ int main(void)
     printf("start stores %u\n", stores_at());
     vals[SF_COLOUR] = 7;
     now += 10; settings_service(vals, 1);                            /* changed while streaming: not yet */
-    printf("streaming t+0 stores %u reg1 %u\n", stores_at(), regs[1]);
+    printf("streaming t+0 stores %u reg1 %u\n", stores_at(), (regs[1] & 31u));
     now += CLK_HZ / 2u; settings_service(vals, 1);
-    printf("streaming t+0.5s stores %u reg1 %u\n", stores_at(), regs[1]);
+    printf("streaming t+0.5s stores %u reg1 %u\n", stores_at(), (regs[1] & 31u));
     now += CLK_HZ / 2u + 20u; settings_service(vals, 1);             /* a second after the first unpublished change */
-    printf("streaming t+1s stores %u reg1 %u\n", stores_at(), regs[1]);
+    printf("streaming t+1s stores %u reg1 %u\n", stores_at(), (regs[1] & 31u));
     vals[SF_COLOUR] = 9; now += 100; settings_service(vals, 0);      /* not streaming: at once */
-    printf("idle stores %u reg1 %u\n", stores_at(), regs[1]);
+    printf("idle stores %u reg1 %u\n", stores_at(), (regs[1] & 31u));
     vals[SF_COLOUR] = 11; now += 100; settings_service(vals, 1); now += 100; settings_service(vals, 1);
     vals[SF_COLOUR] = 9; now += 100; settings_service(vals, 1);      /* changed back to what was published: the timer restarts for a later change */
     now += CLK_HZ + 10u; settings_service(vals, 1);
-    printf("revert stores %u reg1 %u\n", stores_at(), regs[1]);
+    printf("revert stores %u reg1 %u\n", stores_at(), (regs[1] & 31u));
     /* the last played track (the lazy fields): not with the urgency of a setting while streaming, at once when nothing is */
     uint32_t s0 = stores_at();
     vals[SF_LAST0] = 0x41000007u; vals[SF_LAST1] = 42u;
@@ -46,6 +46,6 @@ int main(void)
     vals[SF_LAST1] = 44u; now += 100; settings_service(vals, 0);
     printf("track not streaming stores %u reg20 %u\n", stores_at() - s0, regs[20]);
     vals[SF_LAST1] = 45u; vals[SF_COLOUR] = 13u; now += 100; settings_service(vals, 1); now += CLK_HZ + 10u; settings_service(vals, 1);
-    printf("a setting published with the track stores %u reg1 %u reg20 %u\n", stores_at() - s0, regs[1], regs[20]);
+    printf("a setting published with the track stores %u reg1 %u reg20 %u\n", stores_at() - s0, (regs[1] & 31u), regs[20]);
     return 0;
 }

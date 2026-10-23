@@ -3,87 +3,87 @@
         "magic": "APF_VER_1",
         "variables": [
             {
-                "name": "Volume",
+                "name": "(internal) playback",
                 "id": 10,
                 "type": "slider_u32",
                 "enabled": true,
                 "persist": true,
                 "address": "0x20000000",
-                "defaultval": 94,
+                "defaultval": 134217728,
                 "graphical": {
                     "signed": false,
                     "min": 0,
-                    "max": 100,
+                    "max": 2147483647,
                     "adjust_small": 1,
-                    "adjust_large": 5
+                    "adjust_large": 1
                 }
             },
             {
-                "name": "Color",
+                "name": "(internal) appearance",
                 "id": 11,
                 "type": "slider_u32",
                 "enabled": true,
                 "persist": true,
                 "address": "0x20000004",
-                "defaultval": 1,
+                "defaultval": 1073741825,
                 "graphical": {
                     "signed": false,
                     "min": 0,
-                    "max": 18,
+                    "max": 2147483647,
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
             },
             {
-                "name": "Repeat",
+                "name": "(internal) audio",
                 "id": 12,
                 "type": "slider_u32",
                 "enabled": true,
                 "persist": true,
                 "address": "0x20000008",
-                "defaultval": 0,
+                "defaultval": 1073741918,
                 "graphical": {
                     "signed": false,
                     "min": 0,
-                    "max": 2,
+                    "max": 2147483647,
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
             },
             {
-                "name": "Meter",
+                "name": "(internal) meters 1",
                 "id": 15,
                 "type": "slider_u32",
                 "enabled": true,
                 "persist": true,
                 "address": "0x20000014",
-                "defaultval": 0,
+                "defaultval": 1073741824,
                 "graphical": {
                     "signed": false,
                     "min": 0,
-                    "max": 14,
+                    "max": 2147483647,
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
             },
             {
-                "name": "Halcyon EQ preset",
+                "name": "(internal) meters 2",
                 "id": 16,
                 "type": "slider_u32",
                 "enabled": true,
                 "persist": true,
                 "address": "0x20000018",
-                "defaultval": 0,
+                "defaultval": 1073741824,
                 "graphical": {
                     "signed": false,
                     "min": 0,
-                    "max": 30,
+                    "max": 2147483647,
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
             },
             {
-                "name": "(internal) list 1",
+                "name": "(internal) tuning A 1",
                 "id": 20,
                 "type": "slider_u32",
                 "enabled": true,
@@ -99,7 +99,7 @@
                 }
             },
             {
-                "name": "(internal) list 2",
+                "name": "(internal) tuning A 2",
                 "id": 21,
                 "type": "slider_u32",
                 "enabled": true,
@@ -115,7 +115,7 @@
                 }
             },
             {
-                "name": "(internal) list 3",
+                "name": "(internal) tuning A 3",
                 "id": 22,
                 "type": "slider_u32",
                 "enabled": true,
@@ -131,7 +131,7 @@
                 }
             },
             {
-                "name": "(internal) list 4",
+                "name": "(internal) tuning A 4",
                 "id": 23,
                 "type": "slider_u32",
                 "enabled": true,
@@ -147,7 +147,7 @@
                 }
             },
             {
-                "name": "(internal) theme",
+                "name": "(internal) tuning B 1",
                 "id": 27,
                 "type": "slider_u32",
                 "enabled": true,
@@ -157,13 +157,13 @@
                 "graphical": {
                     "signed": false,
                     "min": 0,
-                    "max": 31,
+                    "max": 2147483647,
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
             },
             {
-                "name": "(internal) theme mode",
+                "name": "(internal) tuning B 2",
                 "id": 28,
                 "type": "slider_u32",
                 "enabled": true,
@@ -173,13 +173,13 @@
                 "graphical": {
                     "signed": false,
                     "min": 0,
-                    "max": 255,
+                    "max": 2147483647,
                     "adjust_small": 1,
                     "adjust_large": 1
                 }
             },
             {
-                "name": "(internal) meter presets",
+                "name": "(internal) tuning B 3",
                 "id": 29,
                 "type": "slider_u32",
                 "enabled": true,
@@ -195,13 +195,13 @@
                 }
             },
             {
-                "name": "(internal) meter presets 2",
+                "name": "(internal) meters 3",
                 "id": 30,
                 "type": "slider_u32",
                 "enabled": true,
                 "persist": true,
                 "address": "0x2000003C",
-                "defaultval": 0,
+                "defaultval": 1073741824,
                 "graphical": {
                     "signed": false,
                     "min": 0,
@@ -233,6 +233,22 @@
                 "enabled": true,
                 "persist": true,
                 "address": "0x20000050",
+                "defaultval": 0,
+                "graphical": {
+                    "signed": false,
+                    "min": 0,
+                    "max": 2147483647,
+                    "adjust_small": 1,
+                    "adjust_large": 1
+                }
+            },
+            {
+                "name": "(internal) tuning B 4",
+                "id": 33,
+                "type": "slider_u32",
+                "enabled": true,
+                "persist": true,
+                "address": "0x20000054",
                 "defaultval": 0,
                 "graphical": {
                     "signed": false,

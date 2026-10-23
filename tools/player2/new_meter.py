@@ -122,7 +122,7 @@ def main():
     if any(m["key"] == key for m in ms): sys.exit("a meter with the key %s exists" % key)
     if any(m.get("p2", {}).get("tag") == tag for m in ms): sys.exit("the tag %s is taken (--tag)" % tag)
     slot = max(m["p2"]["slot"] for m in ms if "p2" in m) + 1; index = max(m["index"] for m in ms) + 1
-    if slot >= 7: sys.exit("the saved presets have room for seven meters (cores/settings_core.h SF_MPRE*, the METER list shows seven rows): add a field and scrolling for slot %d first" % slot)
+    if slot >= 7: sys.exit("seven meters is the limit for now (the METER list shows seven rows without scrolling; the saved presets already persist 20, cores/settings_core.h SF_MPRE*): add list scrolling for slot %d first" % slot)
     d = {"key": key, "enum": "VIZ_" + key.upper(), "index": index, "name": label, "selectable": True, "sel_index": 0, "caps": [], "cost_class": 2, "p2_only": True,
          "considered": "Scaffolded by tools/player2/new_meter.py: LEVELS lights a cell grid from the band levels, HISTORY scrolls the loudness. Replace this with what the meter shows and why.",
          "params": [{"key": "mode", "label": "Mode", "type": "enum", "values": ["LEVELS", "HISTORY"], "default": 0},

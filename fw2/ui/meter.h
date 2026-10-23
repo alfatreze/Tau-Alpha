@@ -91,7 +91,8 @@ void        meters_params_changed(uint32_t meter);   /* the Configure page edite
 uint32_t    meters_custom(uint32_t meter);           /* 1 when the parameters were edited since the preset was chosen */                  /* the current meter's current preset */
 const char *meters_name(void);
 void        meters_tune_save(uint32_t meter);       /* the parameters of `meter` were edited: store what differs from its preset (one meter at a time) */
-void        meters_tune_words(uint32_t *w);         /* the four persisted words of the stored tuning */
-void        meters_tune_apply(const uint32_t *w);   /* persisted words changed (boot, Core Settings): apply the tuning when it belongs to the preset now selected */
+void        meters_tune_words(uint32_t *w);         /* the eight persisted words of the tuning pool (two slots of four) */
+uint32_t    meters_tune_newer(void);                /* which slot was saved last (0 or 1): the other is evicted next */
+void        meters_tune_apply(const uint32_t *w, uint32_t newer);   /* persisted words changed (boot): apply each slot's tuning when it belongs to the preset now selected */
 uint32_t    meters_payload(uint32_t meter, uint8_t *out);   /* the SR_T_METERCFG entry of the meter as it is now (see report export) */
 #endif
