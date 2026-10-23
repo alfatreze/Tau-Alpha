@@ -17,7 +17,7 @@
 #define SMP_COLS 66u                                        /* the most cells the fullscreen box holds at the smallest cell */
 #define SMP_ROWS 53u
 #define SMP_HIST 128u                                       /* a memory ring: samples (a multiple of 4) */
-#define SMP_LABEL_W 38u                                     /* the character map's label column */
+#define SMP_LABEL_W 50u                                     /* the character map's label column */
 #define SMP_STEP_RED 4u                                     /* a cell state beyond the palette: the out-of-phase marker */
 typedef struct { uint8_t mode, gain, cell, span; } smp_cfg_t;
 static smp_cfg_t cfg = { 0u, 100u, 8u, 1u };
@@ -60,7 +60,7 @@ static void stereo(const mtr_in_t *in, uint32_t cols, uint32_t rows)
         const uint32_t dist = (two > centre ? two - centre : centre - two) * 256u / (cols > 1u ? cols : 1u);
         const uint32_t side = two < centre ? sm_l : two > centre ? sm_r : ((uint32_t)sm_l + sm_r) / 2u;
         for (uint32_t row = g0; row < rows; row++) {
-            const uint32_t vd = (row > mid ? row - mid : mid - row) * 1024u / fr;                      /* an ellipse: widest on the middle row, so it swells from the centre with the level */
+            const uint32_t vd = (row > mid ? row - mid : mid - row) * 510u / fr;                       /* a diamond that reaches the box's edges at full level in BOTH directions (a small box is not a flat sliver) */
             const uint32_t e = side > dist + vd ? side - dist - vd : 0u;
             uint32_t step = e > 60u ? 3u : e > 28u ? 2u : e ? 1u : 0u;
             if (dist + vd < shared) step = 3u;                                             /* the shared core, the same shape */
@@ -89,12 +89,12 @@ static void character(const mtr_in_t *in, uint32_t cols, uint32_t rows)
     static uint32_t hits;
     hits = hits - hits / 16u + (in->onset && !p ? 48u : 0u); if (hits > 255u) hits = 255u;
     t[4] = hits;
-    const uint32_t gh = rows / 5u;
+    const uint32_t gh = rows / 5u, off = (rows - 5u * gh) / 2u;                                       /* the groups centred in the box */
     for (uint32_t d = 0; d < 5u; d++) {
         sm[d] = (uint8_t)ease(sm[d], t[d]);
         const uint32_t n = (uint32_t)sm[d] * cols / 256u, frac = (uint32_t)sm[d] * cols % 256u;
         for (uint32_t k = 0; k + 1u < gh || gh == 1u; k++) {                                         /* the group's rows (its last row is the gap) */
-            const uint32_t row = d * gh + k;
+            const uint32_t row = off + d * gh + k;
             if (row >= rows) break;
             for (uint32_t c = 0; c < cols; c++) put_field(c, row, c < n ? 3u : (c == n && frac > 128u) ? 2u : (c == n && frac > 48u) ? 1u : 0u);
             if (gh == 1u) break;
@@ -142,10 +142,10 @@ static void smp_tick(const mtr_in_t *in)
         sm_l = sm_r = 0; for (uint32_t d = 0; d < 5u; d++) sm[d] = 0;
         if (cfg.mode == 1u) {
             static const char *const name[5] = { "LOUD", "BRIGHT", "NOISE", "CREST", "HITS" };
-            const uint32_t gh = rows / 5u;
+            const uint32_t gh = rows / 5u, off = (rows - 5u * gh) / 2u;
             for (uint32_t d = 0; d < 5u; d++) {
-                gfx_text(in->x, cg_y(&grid.g, d * gh) , name[d], UI_DIM, in->bg);
-                if (gh > 1u) gfx_rect(grid.g.x0, cg_y(&grid.g, d * gh + gh - 1u), cols * grid.g.pitch, grid.g.pitch, in->bg);            /* the gap row between groups */
+                gfx_text(in->x, cg_y(&grid.g, off + d * gh) , name[d], UI_DIM, in->bg);
+                if (gh > 1u) gfx_rect(grid.g.x0, cg_y(&grid.g, off + d * gh + gh - 1u), cols * grid.g.pitch, grid.g.pitch, in->bg);            /* the gap row between groups */
             }
         }
     }

@@ -127,7 +127,7 @@ void settings_view_draw(void)
             gfx_text(92, y + 12, mg_choices[V_METER].opt[i], on ? UI_ON_ACCENT : FG, bg);
             if (vals[V_METER] == i) gfx_text(GFX_W - 24 - gfx_text_width("*"), y + 12, "*", on ? UI_ON_ACCENT : DIM, bg);
         }
-        gfx_rect(0, 322, GFX_W, 38, BG);
+        { const uint32_t ye = TOP_Y + MLIST_VIS * MLIST_ROW_H; gfx_rect(0, ye, GFX_W, 360u - ye, BG); }                 /* the gap under the last row too (seven rows end above the hints: it kept the old screen) */
         gfx_text(20, 322, "UP DOWN  A PICK  X CONFIGURE", DIM, BG);
         gfx_text(20, 340, "B BACK  START CLOSE", DIM, BG);
         return;
