@@ -136,7 +136,7 @@ def main():
             sys.exit("--player2 ships in the Stable or Preview channel")
         full = args.release[1:]
         sh([sys.executable, "tools/package_dev_build.py", "--variant", "player2", "--semver", full, "--rbf", str(rbf), "--rbf-sha256", args.rbf_sha256,
-            "--build-flags", "PLAYER2=1,FLAC2=1,LPC=1"])
+            "--build-flags", "PLAYER2=1,FLAC2=1,LPC=1,PACKS=1"])      # PACKS=1: the loadable meters; the packager then builds tau-packs.bin (data slot 9) next to tau.rom
         normal_src = ROOT / f"work/diagnostics/tau-{channel}-{full}/pocket"
         cj = json.loads((normal_src / "Cores" / normal_id / "core.json").read_text())
         cj["core"]["metadata"]["date_release"] = date

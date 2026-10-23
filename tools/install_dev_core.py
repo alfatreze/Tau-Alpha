@@ -409,7 +409,7 @@ def main():
     for f in ("Platforms/" + f"{new_plat}.json", "Platforms/_images/" + f"{new_plat}.bin"):
         if sha(pkg / f) != sha(card / f): restore(f"{f} differs after copy")
     for rel in [f"Cores/{new_id}/bitstream.rbf_r"] + [str(f.relative_to(pkg)) for f in (tau_layout.find(pkg, n, new_plat, new_id)
-                                                                                          for n in ("tau.rom", "tau-cold.bin")) if f]:
+                                                                                          for n in ("tau.rom", "tau-cold.bin", "tau-packs.bin")) if f]:
         if (pkg / rel).exists():
             print(f"   {sha(card / rel)[:16]}  {rel}  identical")
 

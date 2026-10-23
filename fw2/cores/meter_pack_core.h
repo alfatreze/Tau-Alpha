@@ -118,6 +118,21 @@ static int mpkb_rd(void *c, uint32_t off, uint8_t *dst, uint32_t len) { const mp
 /* Per meter slot: the state of the pack for it. status MPK_OK + info valid = installed; anything else = refused (the code says why) or 0xFF = no pack in the bundle for it. */
 typedef struct { uint8_t status; mpk_info_t info; } mpkb_slot_t;
 
+/* The length of a bundle read through `rd` (a data-slot file: its size is not known to the firmware): walk the pack headers and require the last byte of the last pack to exist. 0 when there is no bundle, it is not
+ * one, or it is cut short (a truncated file is refused whole: the release ships it with its packs, so a missing tail is damage, not a partial install). `win` needs MPK_HDR bytes. */
+static uint32_t mpkb_length(lib_read_fn rd, void *ctx, uint8_t *win)
+{
+    if (!rd(ctx, 0u, win, MPKB_HDR) || lib_ld32(win) != MPKB_MAGIC || lib_ld16(win + 4) != 1u) return 0u;
+    const uint32_t count = lib_ld16(win + 6);
+    uint32_t off = MPKB_HDR;
+    for (uint32_t k = 0; k < count; k++) {
+        if (!rd(ctx, off, win, MPK_HDR) || lib_ld32(win) != MPK_MAGIC) return 0u;
+        const uint32_t size = lib_ld32(win + 8);
+        if (size == 0u || size > 0x100000u) return 0u;
+        off += MPK_HDR + size;
+    }
+    return (off > MPKB_HDR && rd(ctx, off - 1u, win, 1u)) ? off : 0u;
+}
 /* Reads the bundle of `file_len` bytes and installs every pack it finds. `slot_data` is the first slot's data-alias address (slot i is at slot_data + i * MTR_PACK_SLOT_SIZE); `slot_ids[i]` is the meter id slot i belongs to.
  * Returns MPK_OK (even if some packs were refused: see slots[i].status), MPK_E_NOFILE (no file) or MPKB_E_HDR (not a bundle). `seen` receives the number of packs in the file. */
 static int mpkb_install_all(lib_read_fn rd, void *ctx, uint8_t *win, uint32_t file_len, volatile uint8_t *slot_data, const uint16_t slot_ids[MTR_PACK_SLOTS],

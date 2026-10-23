@@ -374,6 +374,22 @@ with tempfile.TemporaryDirectory() as t:
           and rdj[5] == "0x1000000" and rdj[8] == "0x1000000" and rdj[1] == "0x10A",
           "retarget: dist as 'TAU Preview' on tau_preview + tau, build files moved, shared slots read TAU's media")
 
+    # 2l. the core's own meter packs (data slot 9, tau-packs.bin): owned, core-specific, in the layout with its slot; in the common/ folder it is refused like the ROM
+    dj9 = json.loads(DATA); dj9["data"]["data_slots"].append({"name": "Meter packs", "id": 9, "required": False, "deferload": True, "parameters": "0x2", "filename": "tau-packs.bin"})
+    chp = t / "chp"; chp.mkdir()
+    zp = make(chp, "alfatreze.TAU", "tau", ROM_N, data=json.dumps(dj9), extra={"Assets/tau/alfatreze.TAU/tau-packs.bin": b"TPKB" + bytes(40)})
+    dp = tc.build(**dict(kw, zips=[zp], previous=prev[:1], rbf=None, bitstream_version="4D50331A"))
+    lp = {e["path"]: e for e in dp["packages"][0]["layout"]}
+    check(lp["Assets/tau/alfatreze.TAU/tau-packs.bin"]["role"] == "owned" and lp["Assets/tau/alfatreze.TAU/tau-packs.bin"]["slot"] == 9 and not lp["Assets/tau/alfatreze.TAU/tau-packs.bin"]["required"],
+          "tau-packs.bin: owned by the core, in its own folder, data slot 9, optional")
+    chq = t / "chq"; chq.mkdir()
+    zq = make(chq, "alfatreze.TAU", "tau", ROM_N, data=json.dumps(dj9), extra={"Assets/tau/common/tau-packs.bin": b"TPKB" + bytes(40)})
+    raises(lambda: tc.build(**dict(kw, zips=[zq], previous=prev[:1], rbf=None, bitstream_version="4D50331A")), "tau-packs.bin in the platform-wide common/ folder", "build-bound")
+    dj9b = json.loads(DATA); dj9b["data"]["data_slots"].append({"name": "Meter packs", "id": 9, "required": False, "deferload": True, "parameters": "0x0", "filename": "tau-packs.bin"})
+    chr_ = t / "chr"; chr_.mkdir()
+    zr = make(chr_, "alfatreze.TAU", "tau", ROM_N, data=json.dumps(dj9b), extra={"Assets/tau/alfatreze.TAU/tau-packs.bin": b"TPKB" + bytes(40)})
+    raises(lambda: tc.build(**dict(kw, zips=[zr], previous=prev[:1], rbf=None, bitstream_version="4D50331A")), "tau-packs.bin's slot not core-specific", "build-bound")
+
     # 3. mutations
     mrom = bytearray(ROM_N); mrom[3] ^= 1
     make(new, "alfatreze.TAU", "tau", bytes(mrom))                       # rebuild the normal zip with one ROM byte changed

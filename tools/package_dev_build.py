@@ -200,6 +200,8 @@ def main():
     if c.name != f"{m['author']}.{short}": raise ValueError("core folder does not match author.shortname metadata")
     if not (rom.parent / "tau-cold.bin").exists(): sys.exit(f"{rom.parent}/tau-cold.bin missing")
     slots_lib.add_cold_slot(c)                          # data slot 6 = the cold image
+    with_packs = args.variant == "player2" and "PACKS=1" in (args.build_flags or "")
+    if with_packs: slots_lib.add_packs_slot(c)          # data slot 9 = tau-packs.bin: the meter packs of this firmware, shipped with it (the release must; a dev build does it too, so no merge into tau-assets.bin is needed)
     slots_lib.add_assets_slot(c)                        # data slot 8 = tau-assets.bin (extra themes; optional file)
     slots_lib.add_cover_slot(c)                         # data slot 7 = the cover image (TIM1 reader, on by default since B-325)
     if shared_media:                                    # library index and tau-assets.bin come from TAU's common/ (platform_ids[1])
@@ -210,6 +212,8 @@ def main():
     shutil.copy2(rom, cd / "tau.rom")
     shutil.copy2(rom.parent / "tau-cold.bin", cd / "tau-cold.bin")
     shutil.copy2(src / "Assets/tau/alfatreze.TAU/tau-loading.bin", cd / "tau-loading.bin")
+    if with_packs:
+        subprocess.run([sys.executable, str(root / "tools/player2/build_packs.py"), str(cd / "tau-packs.bin")], cwd=root, check=True)     # every pack, from this tree, in slot order
     if full_ver:
         import tau_version
         try:

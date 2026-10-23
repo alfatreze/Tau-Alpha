@@ -236,14 +236,27 @@ static mtr_host_api_t pack_api = { MTR_PACK_ABI, gfx_rect, th_role, 0, pack_stat
 #endif
 static volatile uint8_t *pack_slot_data(uint32_t i) { return PACK_SLOT_DATA(i); }
 static int pack_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len) { const volatile uint8_t *s = (const volatile uint8_t *)ctx; for (uint32_t i = 0; i < len; i++) dst[i] = s[off + i]; return 1; }
-void meters_packs_load(const uint8_t *p, uint32_t n)                    /* the MPKB section: the caller has proven the PSRAM window (the slots live in it) */
+static uint32_t pack_src;                                                /* where the bundle came from: 0 none, 1 the MPKB section of tau-assets.bin, 2 the core's own tau-packs.bin */
+static void packs_install(lib_read_fn rd, void *ctx, uint32_t n)
 {
     uint16_t ids[MTR_PACK_SLOTS];                                        /* slot i belongs to meter i: the manifests' p2.slot, which is the registry order */
     for (uint32_t i = 0; i < MTR_PACK_SLOTS; i++) ids[i] = (uint16_t)i;
     pack_act = 0xFFu;
-    pack_err = (uint32_t)mpkb_install_all(pack_rd, (void *)p, PACK_SCRATCH, n, pack_slot_data(0), ids, MTR_PACK_SCRATCH_ORG, MTR_PACK_SCRATCH_SIZE, pack_slot, &pack_seen);
+    pack_err = (uint32_t)mpkb_install_all(rd, ctx, PACK_SCRATCH, n, pack_slot_data(0), ids, MTR_PACK_SCRATCH_ORG, MTR_PACK_SCRATCH_SIZE, pack_slot, &pack_seen);
     for (uint32_t m = METER_N; m < METER_SLOTS; m++) if (pack_slot[m].status == MPK_OK) dyn_register(m);        /* the pack-only meters: listed only when their descriptor is sound */
 }
+void meters_packs_load(const uint8_t *p, uint32_t n)                    /* the MPKB section: the caller has proven the PSRAM window (the slots live in it) */
+{
+    pack_src = 1u; packs_install(pack_rd, (void *)p, n);
+}
+int meters_packs_load_file(lib_read_fn rd, void *ctx)                   /* the core's own tau-packs.bin (data slot 9): 1 when a bundle was there (the packs are installed), 0 when there is none (the caller falls back to tau-assets.bin) */
+{
+    const uint32_t n = mpkb_length(rd, ctx, PACK_SCRATCH);
+    if (!n) return 0;
+    pack_src = 2u; packs_install(rd, ctx, n);
+    return 1;
+}
+uint32_t meters_pack_source(void) { return pack_src; }
 uint32_t meters_pack_state(uint32_t m) { return m < MTR_PACK_SLOTS ? pack_slot[m].status : 0xFFu; }     /* 0 = the pack runs, 0xFF = none, else the refusal code */
 void meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err, uint32_t *seen)     /* for Info: bit m of `running` = meter m runs as a pack; the first refusal code (0 none); the bundle's own result (0xFF no bundle); packs in the file */
 {
