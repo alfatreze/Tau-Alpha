@@ -54,10 +54,12 @@ static int stats_take(uint16_t *rl, uint16_t *rr, int16_t *corr)
     uint32_t w[8];
     for (uint32_t i = 0; i < 8u; i++) { REG_WR(R_STATS_IDX, i); w[i] = REG_RD(R_STATS_DATA); }
     const uint32_t n = w[1];
+    meter_stats.stats_win++; meter_stats.stats_n = n; if (w[0] & 2u) meter_stats.stats_ovf++;
     const uint64_t ll = ((uint64_t)(w[3] & 0xFFFFu) << 32) | w[2], rr2 = ((uint64_t)(w[5] & 0xFFFFu) << 32) | w[4];
     const int64_t lr = (int64_t)((uint64_t)(uint32_t)((int32_t)(w[7] << 16) >> 16) << 32 | w[6]);                  /* 48 bits, sign-extended */
     *rl = (uint16_t)((as_rms(ll, n) * 3u) / 4u); *rr = (uint16_t)((as_rms(rr2, n) * 3u) / 4u);
     *corr = (int16_t)as_corr_q8(ll, rr2, lr);
+    if (n) { meter_stats.stats_rms = (uint16_t)(((uint32_t)*rl + *rr) / 2u); meter_stats.stats_corr = *corr; }
     return n != 0u;
 }
 static mb_t budget[METER_SLOTS];                                          /* each meter's own degrade level, from the draw commands it issues (cores/meter_budget_core.h) */

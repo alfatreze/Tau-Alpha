@@ -50,6 +50,11 @@ typedef struct {
     uint32_t struck;                /* packs disabled for the session after three overruns */
     uint32_t rows;                  /* the visible rows the last tick wrote: first << 16 | one past the last (0 when it drew nothing visible) */
     uint32_t direct;                /* ticks drawn straight onto the shown buffer (not composed, no idle-buffer frame), forced repaints excluded */
+    uint32_t stats_win;             /* hardware statistics windows read (one per drawn picture while the block is present) */
+    uint32_t stats_n;               /* samples in the last window */
+    uint16_t stats_ovf;             /* windows that overflowed the block's 131,072-sample sums */
+    uint16_t stats_rms;             /* the last window's RMS, mean of both channels, on the peaks' scale (0..24575) */
+    int32_t  stats_corr;            /* the last window's L/R correlation, Q8 (-256..256) */
     uint32_t exposed;               /* of those, the ticks that began while the beam was inside the rows they wrote (seen half old, half new for a frame) */
     uint32_t max_cyc[8];            /* the slowest tick of each meter since boot (indexed like meter_table; METER_MAX_STATS bounds the table) */
 } meter_stats_t;
