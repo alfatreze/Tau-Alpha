@@ -10,7 +10,7 @@ Readers accept both places: packages and cards made before the move keep the fil
 """
 from pathlib import Path
 
-BUILD_BOUND = ("tau.rom", "tau-cold.bin", "tau-loading.bin")
+BUILD_BOUND = ("tau.rom", "tau-cold.bin", "tau-loading.bin", "tau-packs.bin")
 CORE_SPECIFIC = 0x2          # data.json parameter bit 1: "file specific to this core only"
 
 

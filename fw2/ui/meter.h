@@ -82,6 +82,8 @@ void        meters_preset_next(void);
 uint32_t    meters_npre(uint32_t meter);               /* presets of a meter: the built-in ones, or the METR file's */
 #ifdef P2_PACKS
 void        meters_packs_load(const uint8_t *p, uint32_t n);    /* the MPKB section of tau-assets.bin: loadable meters (a PACKS build) */
+int         meters_packs_load_file(int (*rd)(void *ctx, uint32_t off, uint8_t *dst, uint32_t len), void *ctx);   /* the core's own tau-packs.bin (data slot 9, shipped with the release): 1 = installed from it, 0 = no such file */
+uint32_t    meters_pack_source(void);                           /* where the packs came from: 0 none, 1 tau-assets.bin (MPKB), 2 tau-packs.bin */
 void        meters_pack_info(uint32_t *running, uint32_t *first_err, uint32_t *file_err, uint32_t *seen);   /* Info: packs running (bit per meter), first refusal code, the bundle's result (0xFF: no bundle), packs in the file */
 uint32_t    meters_pack_state(uint32_t m);                       /* 0 = meter m runs as a pack, 0xFF = no pack, else the refusal code */
 #endif

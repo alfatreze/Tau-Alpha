@@ -19,6 +19,7 @@
 #include "../ui/settings_view.h"
 #include "../aout/halcyon.h"
 #include "../stream/assets.h"
+#include "../stream/packfile.h"
 #include "../gfx/font.h"
 #include "../cores/view_core.h"
 #include "../../fw/key_repeat.h"
@@ -27,16 +28,25 @@
 static void hand_out_assets(void)
 {
     uint32_t total; const uint8_t *base = assets_file(&total); const uint8_t *p; uint32_t n;
-    if (!base) return;
     uint32_t t0 = cycles();
+#ifdef P2_PACKS
+    /* The meter packs first (they do not depend on tau-assets.bin): the core's own tau-packs.bin (data slot 9, shipped with the release) wins, else the MPKB section of tau-assets.bin (a card prepared by hand);
+     * the pack slots live in the PSRAM window: proven first. */
+    int packs_done = 0;
+    if (assets_psram_ok()) packs_done = meters_packs_load_file(packfile_rd, 0);
+    assets_boot.packs = cycles() - t0; t0 = cycles();
+    if (!base) return;
+#else
+    if (!base) return;
+#endif
     theme_file_load(base, total);                       /* THEM: extra themes (a bad section leaves the built-ins and a code for Info) */
     assets_boot.themes = cycles() - t0; t0 = cycles();
     if (assets_section("PRST", &p, &n)) halcyon_prst_load(p, n, assets_in_psram(), assets_psram_ok);
     assets_boot.prst = cycles() - t0; t0 = cycles();
 #ifdef P2_PACKS
-    if (assets_section("MPKB", &p, &n) && (!assets_in_psram() || assets_psram_ok()) && assets_psram_ok()) meters_packs_load(p, n);       /* the pack slots live in the PSRAM window: proven first */
+    if (!packs_done && assets_section("MPKB", &p, &n) && (!assets_in_psram() || assets_psram_ok()) && assets_psram_ok()) { meters_packs_load(p, n); assets_boot.packs = cycles() - t0; }
+    t0 = cycles();
 #endif
-    assets_boot.packs = cycles() - t0; t0 = cycles();
     if (assets_section("METR", &p, &n) && (!assets_in_psram() || assets_psram_ok())) meters_metr_load(p, n);       /* a file over 4 KiB sits in the PSRAM staging area: proven first, as for PRST */                              /* user presets replace the built-in ones of the meters the file carries */
     assets_boot.presets = cycles() - t0;
 }

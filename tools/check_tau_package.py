@@ -42,9 +42,9 @@ def main():
     assert (ASSET_DIR / firmware["filename"]).is_file()
     assert (ASSET_DIR / splash["filename"]).is_file()
     for slot in data:                                    # H4: every build-bound slot reads from the core's own folder
-        if slot.get("filename") in ("tau.rom", "tau-cold.bin", "tau-loading.bin"):
+        if slot.get("filename") in ("tau.rom", "tau-cold.bin", "tau-loading.bin", "tau-packs.bin"):
             assert int(str(slot["parameters"]), 16) & 2, f"data slot {slot['id']} ({slot['filename']}) must be core-specific (parameter bit 1)"
-    assert not any((DIST / "Assets/tau/common" / n).exists() for n in ("tau.rom", "tau-cold.bin", "tau-loading.bin")), \
+    assert not any((DIST / "Assets/tau/common" / n).exists() for n in ("tau.rom", "tau-cold.bin", "tau-loading.bin", "tau-packs.bin")), \
         "build-bound files must not be in the platform-wide common/ folder"
     assert PLATFORM_ART.stat().st_size == 521 * 165 * 2
     assert (CORE_DIR / "icon.bin").stat().st_size == 36 * 36 * 2

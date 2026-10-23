@@ -24,7 +24,7 @@ extern uint32_t gfx_blend_state, gfx_blend_tries;
 /* Shadow values: written only here (one writer, P2), read through the table. */
 static struct { uint32_t hw_under_ev, hw_under_tk, aout_init, tone_state, tone_rate, heard_seg, heard_pos_ms, heard_valid, put_seg, swaps, acct_err, acct_bad, tl_overflow, tl_empty, tl_flushes, ring_fill, ring_min, ring_max,
                 under_ring, dry, put_stalls, put_max_cyc, put_pairs, put_blocks, gov_mode, gov_n1, gov_n2, gov_n3, tone_stalls; int32_t last_delta;
-                uint32_t pack_run, pack_err, pack_file, pack_seen, meter_cur, uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, ring_hold, ring_empty, gain_cur, cymo_st, keys, stack_peak, image_b, free_b; } v;
+                uint32_t pack_run, pack_err, pack_file, pack_seen, pack_src, meter_cur, uptime_s, loops, loop_max_cyc, pcm_level, pcm_flags, ring_cnt, ring_ridx, ring_wptr, ring_ctrl, ring_hold, ring_empty, gain_cur, cymo_st, keys, stack_peak, image_b, free_b; } v;
 uint32_t counters_loops, counters_loop_max_cyc, counters_keys, counters_aout_init;            /* the loop's own measurements (app writes, this file publishes) */
 static mc_t uptime_clk;                  /* monotone seconds from the 32-bit cycle counter (it wraps every 64.4 s) */
 
@@ -246,6 +246,7 @@ const cnt_t counters_table[] = {
     U32("PACK ERR",     CU_NONE,   &v.pack_err),              /* the first refusal code of a pack (21 header, 22 ABI, 23 id, 24 origin, 25 size, 26 CRC, 27 entry, 28/29 scratch); 0 none */
     U32("PACK FILE",    CU_NONE,   &v.pack_file),             /* the bundle: 0 read, 255 no bundle in tau-assets.bin, 30 not a bundle */
     U32("PACKS SEEN",   CU_NONE,   &v.pack_seen),             /* packs found in the bundle */
+    U32("PACK SRC",     CU_NONE,   &v.pack_src),              /* where the bundle came from: 0 none, 1 tau-assets.bin (MPKB), 2 the core's own tau-packs.bin (the release) */
 #endif
 };
 const uint32_t counters_count = sizeof counters_table / sizeof counters_table[0];
@@ -276,7 +277,7 @@ void counters_refresh(void)
     v.gain_cur = REG(R_GAIN_CUR); v.cymo_st = REG(R_CYMO_STATUS);
     v.meter_cur = meters_cur();
 #ifdef P2_PACKS
-    meters_pack_info(&v.pack_run, &v.pack_err, &v.pack_file, &v.pack_seen);
+    meters_pack_info(&v.pack_run, &v.pack_err, &v.pack_file, &v.pack_seen); v.pack_src = meters_pack_source();
 #endif
     v.stack_peak = platform_stack_peak(); v.image_b = platform_image_bytes(); v.free_b = platform_free_bytes();
 }

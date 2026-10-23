@@ -66,6 +66,19 @@ def add_cold_slot(core_dir: Path) -> None:
     save(core_dir / "data.json", dj)
 
 
+def add_packs_slot(core_dir: Path) -> None:
+    """Data slot 9: tau-packs.bin, the meter packs of a PACKS=1 core (fw2/stream/packfile.c): core-specific like the ROM and the cold image (parameter bit 1), because the packs are built with the firmware and
+    only run on its ABI. Optional: a card without it falls back to the MPKB section of tau-assets.bin, and without that shows Winamp Bars alone."""
+    dj = json.loads((core_dir / "data.json").read_text())
+    want = {"name": "Meter packs", "id": 9, "required": False, "deferload": True, "parameters": "0x2", "filename": "tau-packs.bin"}
+    existing = next((x for x in dj["data"]["data_slots"] if x["id"] == 9), None)
+    if existing is not None:
+        assert existing == want, f"data slot 9 already declared, and differently: {existing}"
+        return
+    dj["data"]["data_slots"].append(want)
+    save(core_dir / "data.json", dj)
+
+
 def add_cover_slot(core_dir: Path) -> None:
     """Data slot 7: the pre-converted cover image (TAU_ART_TIMG, B-285, docs/COVER_TIMG_READER.md). Opened BY NAME at run time
     (the same 0192 mechanism as the playlist slot); no filename, so nothing is loaded at boot. Only cores built with the

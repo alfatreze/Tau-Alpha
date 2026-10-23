@@ -45,14 +45,22 @@ void gfx_scroll_left(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e)
 void gfx_blit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
 void gfx_blit_abs(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; }
 void gfx_sblit(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f, uint32_t g) { (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g; }
+static const uint8_t *file_buf; static uint32_t file_len;
+static int file_rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)          /* a data-slot file: read in pieces, a read past its end fails */
+{
+    (void)ctx; if (!file_buf || (uint64_t)off + len > file_len) return 0;
+    for (uint32_t i = 0; i < len; i++) dst[i] = file_buf[off + i];
+    return 1;
+}
 int main(int argc, char **argv)
 {
     caps.spec = 1; meters_init(); meters_enter(0, 0, 100, 50);
-    if (argc > 1) { FILE *f = fopen(argv[1], "rb"); static uint8_t buf[0x10000]; uint32_t n = f ? (uint32_t)fread(buf, 1, sizeof buf, f) : 0; if (f) fclose(f); meters_packs_load(buf, n); }
+    if (argc > 1) { FILE *f = fopen(argv[1], "rb"); static uint8_t buf[0x10000]; uint32_t n = f ? (uint32_t)fread(buf, 1, sizeof buf, f) : 0; if (f) fclose(f);
+        if (argc > 2) { file_buf = n ? buf : 0; file_len = n; printf("fileload %d\n", meters_packs_load_file(file_rd, 0)); } else meters_packs_load(buf, n); }
     for (uint32_t pass = 0; pass < 2; pass++)                                   /* two passes: back to a meter after the others (the pack state is activated again) */
         for (uint32_t m = 0; m < METER_SLOTS; m++) { if (!meters_present(m)) continue; meters_select(m); win++; meters_tick(1); }
     for (uint32_t m = 0; m < METER_SLOTS; m++) printf("m%u builtin %u pack %u state %u present %d\n", m, m < METER_N ? builtin[m] : 0u, m < 8 ? pack_calls[m] : 0u, meters_pack_state(m), meters_present(m));
     uint32_t r, e, fe, sn; meters_pack_info(&r, &e, &fe, &sn);
-    printf("info run %x err %u file %u seen %u\n", r, e, fe, sn);
+    printf("info run %x err %u file %u seen %u src %u\n", r, e, fe, sn, meters_pack_source());
     return 0;
 }
