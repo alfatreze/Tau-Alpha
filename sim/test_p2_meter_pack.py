@@ -32,7 +32,7 @@ def abi_fingerprint(n_in, n_api):
     return hashlib.sha256("\n".join(st["mtr_in_t"][:n_in] + ["--"] + st["mtr_host_api_t"][:n_api]).encode()).hexdigest()[:8]
 # Every minor ever shipped: (minor, declarations of mtr_in_t, declarations of mtr_host_api_t, fingerprint of exactly that prefix). A change may only APPEND (a new line here with minor + 1, and
 # MTR_PACK_ABI_MINOR); anything that alters an existing declaration breaks old packs and needs a new MAJOR (restart this list and bump MTR_PACK_ABI_MAJOR).
-ABI_HISTORY = [(0, 10, 21, "3ef391fc"), (1, 17, 21, "aa0de8b5")]
+ABI_HISTORY = [(0, 10, 21, "3ef391fc"), (1, 17, 21, "aa0de8b5"), (2, 17, 22, "1e3b1407")]
 METERS = {"winamp_bars": "PACK_BARS", "winamp_scope": "PACK_SCOPE", "vu_master": "PACK_VU", "chladni": "PACK_CHL", "layered_wave": "PACK_LW", "waterfall_grid": "PACK_WF"}
 def generic_meters():
     """every other p2 manifest is a scaffolded meter (tools/player2/new_meter.py): the generic trace, with its names as -D flags"""
@@ -101,7 +101,7 @@ def main():
         bad("wrong ABI", lambda b: (b.__setitem__(4, 9), b)[1], 22)
         bad("another ABI major", lambda b: (b.__setitem__(5, 2), b)[1], 22)
         bad("an ABI major 0 pack (before versioning)", lambda b: (b.__setitem__(4, 5), b.__setitem__(5, 0), b)[2], 22)
-        bad("a pack that needs a newer minor than the firmware has", lambda b: (b.__setitem__(4, 2), b)[1], 22)
+        bad("a pack that needs a newer minor than the firmware has", lambda b: (b.__setitem__(4, 3), b)[1], 22)
         bad("wrong meter id", lambda b: (b.__setitem__(6, 3), b)[1], 23)
         bad("linked for another slot", lambda b: set32(b, 12, SIM_ORG + 0x1000), 24)
         bad("a flipped bit in the body", lambda b: (b.__setitem__(60, b[60] ^ 0x10), b)[1], 26)

@@ -67,7 +67,7 @@ int main(void)
     for (int i = 0; i < TR_COUNT; i++) roles[i] = (uint16_t)(0x1234u + i * 0x0421u);
     api.abi = MTR_PACK_ABI; api.rect = tr_hash_rect; api.role = roles; api.params = params; api.stats = api_stats;
     api.text = tr_hash_text; api.rect_stash = tr_hash_stash; api.blend_ready = tr_ready; api.blend_on = tr_hash_blend_on; api.blend_blit = tr_hash_blit; api.blend_off = tr_hash_blend_off;
-    api.mb_write = tr_mb_write; api.mb_read = tr_mb_read; api.fence = tr_fence; api.blit = tr_hash_blit; api.blit_abs = tr_hash_blit_abs; api.sblit = tr_hash_sblit; api.bar = tr_bar_hash; api.scroll_down = tr_scroll_hash; api.clut_load = tr_clut_hash; api.cblit = tr_cblit_hash;
+    api.mb_write = tr_mb_write; api.mb_read = tr_mb_read; api.fence = tr_fence; api.blit = tr_hash_blit; api.blit_abs = tr_hash_blit_abs; api.sblit = tr_hash_sblit; api.bar = tr_bar_hash; api.scroll_down = tr_scroll_hash; api.clut_load = tr_clut_hash; api.cblit = tr_cblit_hash; api.scroll_left = tr_scroll_left_hash;
     entry = (mtr_pack_entry_fn)addr;
 #ifdef PACK_BARS
     bars_trace(params, 0, run, report);

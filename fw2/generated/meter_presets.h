@@ -98,29 +98,31 @@ static const mpd_t mpd_vu[5] = {
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
-enum { MPP_WF_MODE, MPP_WF_SPEED, MPP_WF_GAIN, MPP_WF_CELL, MPP_WF_FADE, MPP_WF_PALETTE, MPP_WF_N };
+enum { MPP_WF_MODE, MPP_WF_SPEED, MPP_WF_GAIN, MPP_WF_CELL, MPP_WF_FADE, MPP_WF_PALETTE, MPP_WF_FLOW, MPP_WF_N };
 #define MPP_WF_PRESETS 7u
 static const char *const mpp_wf_name[MPP_WF_PRESETS] = { "WATERFALL", "FAST FALL", "HEAT MAP", "FINE GRID", "DUST", "SPARKLE", "STARS" };
 static const uint16_t mpp_wf[MPP_WF_PRESETS][MPP_WF_N] = {
-    { 0, 90, 100, 8, 450, 1 },   /* WATERFALL */
-    { 0, 180, 120, 6, 450, 2 },   /* FAST FALL */
-    { 1, 90, 110, 8, 450, 1 },   /* HEAT MAP */
-    { 1, 90, 100, 5, 450, 3 },   /* FINE GRID */
-    { 2, 90, 110, 8, 450, 0 },   /* DUST */
-    { 3, 90, 100, 8, 450, 0 },   /* SPARKLE */
-    { 3, 90, 130, 5, 900, 0 },   /* STARS */
+    { 0, 90, 100, 8, 450, 1, 1 },   /* WATERFALL */
+    { 0, 180, 120, 6, 450, 2, 1 },   /* FAST FALL */
+    { 1, 90, 110, 8, 450, 1, 1 },   /* HEAT MAP */
+    { 1, 90, 100, 5, 450, 3, 1 },   /* FINE GRID */
+    { 2, 90, 110, 8, 450, 0, 1 },   /* DUST */
+    { 3, 90, 100, 8, 450, 0, 1 },   /* SPARKLE */
+    { 3, 90, 130, 5, 900, 0, 1 },   /* STARS */
 };
 static const char *const mpl_wf_mode[] = { "SPECTROGRAM", "ZONES", "DUST", "SPARKLE" };
 static const char *const mpl_wf_palette[] = { "THEME", "INFERNO", "RAINBOW", "ICE" };
-static const mpd_t mpd_wf[6] = {
+static const char *const mpl_wf_flow[] = { "VERTICAL", "HORIZONTAL" };
+static const mpd_t mpd_wf[7] = {
     { "MODE", 1, 0, 0, 3, 1, 4, mpl_wf_mode, 255, 0 },
     { "SCROLL SPEED", 0, 0, 20, 400, 10, 0, 0, 0, 0 },
     { "GAIN", 0, 0, 50, 200, 10, 0, 0, 255, 0 },
     { "CELL SIZE", 0, 0, 5, 12, 1, 0, 0, 255, 0 },
     { "FADE TIME", 0, 0, 150, 2000, 100, 0, 0, 0, 3 },
     { "COLOURS", 1, 0, 0, 3, 1, 4, mpl_wf_palette, 255, 0 },
+    { "DIRECTION", 1, 0, 0, 1, 1, 2, mpl_wf_flow, 0, 0 },
 };
-#define MPD_WF_N 6u
+#define MPD_WF_N 7u
 #pragma GCC diagnostic pop
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-const-variable"

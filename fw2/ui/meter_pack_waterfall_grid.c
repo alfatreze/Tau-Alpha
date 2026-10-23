@@ -1,5 +1,6 @@
 /* Waterfall as a loadable meter pack: meter_waterfall_grid.c included under P2_PACK, where its real code exists (the firmware has only a stub): see meter_pack_winamp_bars.c. It draws with the framework's
  * methods through the host table: rectangles for the cells, gfx_scroll_down for the spectrogram's scroll and a palette blit (gfx_cblit from a one-row plane in the stash) for the entering row. Build: tools/player2/pack_meter.py waterfall_grid. */
+#define MTR_PACK_NEEDS_MINOR 2                    /* gfx_scroll_left (ABI 1.2): the horizontal spectrogram */
 #define P2_PACK 1
 #include <stdint.h>
 #include "meter_pack.h"
@@ -12,6 +13,7 @@ static const mtr_host_api_t *g_api;
 static uint32_t g_cmds;
 #define gfx_rect(...)         (g_cmds++, g_api->rect(__VA_ARGS__))
 #define gfx_scroll_down(...)  (g_cmds++, g_api->scroll_down(__VA_ARGS__))
+#define gfx_scroll_left(...)  (g_cmds++, g_api->scroll_left(__VA_ARGS__))
 #define gfx_rect_stash(...)   (g_cmds++, g_api->rect_stash(__VA_ARGS__))
 #define gfx_clut_load(...)    (g_api->clut_load(__VA_ARGS__))
 #define gfx_cblit(...)        (g_cmds++, g_api->cblit(__VA_ARGS__))

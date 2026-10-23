@@ -23,10 +23,10 @@
  * viewer the pack is missing, so a build without the pack costs a few dozen bytes, not the meter. */
 #define WF_COLS 67u                                      /* the most the fullscreen box holds at the smallest cell (5 px + 1: 400 / 6 columns, 323 / 6 rows): the grid always fills the box */
 #define WF_ROWS 54u
-typedef struct { uint8_t mode, gain, cell, palette; uint16_t speed, fade; } wf_cfg_t;
-static wf_cfg_t cfg = { 0u, 100u, 8u, 1u, 90u, 450u };
+typedef struct { uint8_t mode, gain, cell, palette, flow; uint16_t speed, fade; } wf_cfg_t;
+static wf_cfg_t cfg = { 0u, 100u, 8u, 1u, 1u, 90u, 450u };
 /* wf_load: the live parameters (the manifest's order) into the working configuration; a pack calls it each tick with the host's table. */
-static void wf_load(const uint16_t *v) { cfg.mode = (uint8_t)v[MPP_WF_MODE]; cfg.speed = v[MPP_WF_SPEED]; cfg.gain = (uint8_t)v[MPP_WF_GAIN]; cfg.cell = (uint8_t)v[MPP_WF_CELL]; cfg.fade = v[MPP_WF_FADE]; cfg.palette = (uint8_t)v[MPP_WF_PALETTE]; }
+static void wf_load(const uint16_t *v) { cfg.mode = (uint8_t)v[MPP_WF_MODE]; cfg.speed = v[MPP_WF_SPEED]; cfg.gain = (uint8_t)v[MPP_WF_GAIN]; cfg.cell = (uint8_t)v[MPP_WF_CELL]; cfg.fade = v[MPP_WF_FADE]; cfg.palette = (uint8_t)v[MPP_WF_PALETTE]; cfg.flow = (uint8_t)v[MPP_WF_FLOW]; }
 
 #ifdef P2_PACK
 static uint8_t zone[CG_BYTES(WF_COLS, WF_ROWS)];     /* a nibble a cell: the still modes' brightness step (0..3), SPARKLE's heat (0..15) */
@@ -136,7 +136,7 @@ static void wf_tick(const mtr_in_t *in)
     const uint16_t *pal = wfg.pal;
     uint8_t spec[MTR_BANDS];
     for (uint32_t b = 0; b < MTR_BANDS; b++) { const uint32_t v = in->paused ? 0u : (uint32_t)in->spec[b] * cfg.gain / 100u; spec[b] = (uint8_t)(v > 255u ? 255u : v); }
-    const uint32_t sig = cg_sig(in->w, in->h, pitch, cfg.mode);
+    const uint32_t sig = cg_sig(in->w, in->h, pitch, cfg.mode | ((uint32_t)cfg.flow << 4));
     if (in->force || sig != geom) {                                     /* a new context or geometry: the whole grid, dim, then start again */
         geom = sig; acc_q8 = 0; expo = 0; nact = 0; fade_acc = 0;
         mgrid_clear(&wfg, zone, sizeof zone, in->x, in->y, in->w, in->h, bg);
@@ -145,7 +145,30 @@ static void wf_tick(const mtr_in_t *in)
         plane_build(cols, pitch, gw);
         if (cfg.mode == 1u) zones_prepare(cols, rows);
     }
-    if (cfg.mode == 0u) {                                               /* SPECTROGRAM */
+    if (cfg.mode == 0u && cfg.flow) {                                   /* SPECTROGRAM, HORIZONTAL: time across, low frequencies at the bottom, the new column enters at the right edge */
+        acc_q8 += (uint32_t)in->dt_ms * cfg.speed * 256u / 1000u;
+        uint32_t d = acc_q8 >> 8; acc_q8 &= 255u;
+        if (!d) return;
+        if (d > pitch) d = pitch;                                       /* behind: the picture jumps one cell, never more */
+        if (gw > d) gfx_scroll_left(ox, oy, gw, rows * pitch, d);
+        uint32_t x = ox + gw - d, left = d;
+        while (left) {                                                  /* the d columns of pixels at the right edge: the entering column's pattern (cell, then one gap pixel), its levels set when it starts */
+            const uint32_t seg = pitch - expo < left ? pitch - expo : left;
+            if (expo < cfg.cell) {                                      /* the cell part of the column: one rectangle per row */
+                const uint32_t cw = cfg.cell - expo < seg ? cfg.cell - expo : seg;
+                for (uint32_t r = 0; r < rows; r++) gfx_rect(x, cg_y(&wfg.g, r), cw, cfg.cell, cfg.palette ? wf_clut[rowv[r]] : pal[rowv[r]]);
+                if (seg > cw) gfx_rect(x + cw, oy, seg - cw, rows * pitch, bg);
+            } else gfx_rect(x, oy, seg, rows * pitch, bg);              /* the gap pixel (and the gaps between the cells of a row, which the column rectangles leave) */
+            x += seg; left -= seg; expo += seg;
+            if (expo >= pitch) {                                        /* the column is complete: the next one starts with the levels of now (frequency up the box) */
+                expo = 0; step_n++;
+                for (uint32_t r = 0; r < rows; r++) {
+                    const int32_t lv = (int32_t)col_level(spec, rows - 1u - r, rows) + ((int32_t)bayer(r, step_n) - 8) * 2;
+                    rowv[r] = (uint8_t)(cfg.palette ? (lv < 20 ? 0u : lv >= 255 ? WF_LEVELS - 1u : 1u + (uint32_t)(lv - 20) * (WF_LEVELS - 2u) / 235u) : (lv < 40 ? 0u : lv < 110 ? 1u : lv < 180 ? 2u : 3u));
+                }
+            }
+        }
+    } else if (cfg.mode == 0u) {                                        /* SPECTROGRAM, VERTICAL */
         acc_q8 += (uint32_t)in->dt_ms * cfg.speed * 256u / 1000u;
         uint32_t d = acc_q8 >> 8; acc_q8 &= 255u;
         if (!d) return;

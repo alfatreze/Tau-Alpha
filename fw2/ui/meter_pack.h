@@ -33,6 +33,7 @@ typedef struct {
     void           (*scroll_down)(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d);                      /* gfx_scroll_down: the box moves down d rows (the framework's scroll: a few copies, not a redraw) */
     void           (*clut_load)(uint32_t start, const uint16_t *colors, uint32_t n);                                 /* gfx_clut_load: palette entries start.. (load yours before your blits: other users of the palette overwrite it) */
     void           (*cblit)(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);              /* gfx_cblit: palette indices from the stash at (sx, sy) through the palette to the drawing buffer; w <= 127 */
+    void           (*scroll_left)(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t d);                      /* gfx_scroll_left (ABI 1.2): the box moves left d columns */
 } mtr_host_api_t;
 
 typedef uint32_t (*mtr_pack_entry_fn)(const mtr_in_t *in, const mtr_host_api_t *api);
