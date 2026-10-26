@@ -4,7 +4,7 @@
   gen_signaltap_stp.py [--out tau_proof.stp] [--depth 2048] [--ram MLAB]
 
 One instance, sample clock clk_sys (60 MHz), the 32 registered taps of tau_signaltap_tap
-(instance g_phase2_window.u_stp_tap in mp3_soc). Bit map (keep in step with mp3_soc.v):
+(instance g_phase2_window.u_stp_tap in tau_soc). Bit map (keep in step with tau_soc.v):
   0 cpu_req (sdram window, stb)   1 dWE          2 wb_ack        3 wb_unsupported
   4 bridge_req  5 bridge_write    6 accept       7 done          8..27 bridge_addr[19:0]
   28 dACK       29 d_bus_err      30 rst         31 bridge_rdata[0]
@@ -19,7 +19,7 @@ internal error, so do not "simplify" this structure without re-running that chec
 import argparse
 import datetime
 
-TAP = "core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap"
+TAP = "core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap"
 CLOCK = "core_top:ic|tau_sdram_cpu_bridge:u_sdram_cpu_bridge|clk_sys"
 N = 32
 QUAL_LEVEL = """          <storage_qualifier_level type="basic">

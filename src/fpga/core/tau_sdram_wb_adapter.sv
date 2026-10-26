@@ -77,7 +77,7 @@ module tau_sdram_wb_adapter (
                 // to the next CLASSIC beat. Waiting for !wb_req here deadlocks
                 // that legal back-to-back form, so return to IDLE after a
                 // fixed turnaround instead. It must be TWO cycles: wb_ack is
-                // registered again in mp3_soc (dACK), so the CPU still shows
+                // registered again in tau_soc (dACK), so the CPU still shows
                 // the just-completed beat's STB for one cycle after this
                 // adapter leaves S_WAIT and one more after S_RELEASE.
                 // Returning to IDLE after one cycle (A-060) re-accepted that

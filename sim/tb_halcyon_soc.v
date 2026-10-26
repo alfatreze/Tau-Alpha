@@ -1,4 +1,4 @@
-// B-639: the Halcyon MMIO glue in mp3_soc.v, driven by the real VexRiscv running sim/fw_halcyon/main.c. The TB presses the keys the firmware waits for and
+// B-639: the Halcyon MMIO glue in tau_soc.v, driven by the real VexRiscv running sim/fw_halcyon/main.c. The TB presses the keys the firmware waits for and
 // checks the audio output after each step (constant 16000 in): 16000 / 8000 (bank committed through the shadow path, engine selected) / 16000 (bypass) / 8000 (bypass off, clear) / 16000 (engine off).
 // +ROM=<file>. The engine's own defects are covered by tb_tau_halcyon.v; this proves the register glue.
 `timescale 1ns/1ps
@@ -17,7 +17,7 @@ module tb_halcyon_soc;
     wire [4:0]  set_idx;  wire set_wr;  wire [31:0] set_wdata;
     wire [15:0] audio_l, audio_r;
     parameter WIDE = 0;
-    mp3_soc #(.HALCYON_ENABLE(1), .CYMO_RESAMP_ENABLE(1), .WIDE_EQ_ENABLE(WIDE)) u_soc (
+    tau_soc #(.HALCYON_ENABLE(1), .CYMO_RESAMP_ENABLE(1), .WIDE_EQ_ENABLE(WIDE)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
         .ld_wr(ld_wr), .ld_addr(ld_addr), .ld_data(ld_data),
         .cont_key(cont_key), .in_menu(1'b0),

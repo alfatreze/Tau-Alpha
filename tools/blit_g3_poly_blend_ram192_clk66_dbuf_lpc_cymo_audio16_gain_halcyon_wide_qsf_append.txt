@@ -1,7 +1,7 @@
 # B-602 (Cymo C3, F2): the shipped Cymo macro bundle verbatim (blit_g3_poly_blend_ram192_clk66_dbuf_lpc_cymo_qsf_append.txt, as used by clut-rtl-b576) plus TAU_AUDIO16=1 (runtime-switchable 16-bit I2S slot, register 0x164).
 # B-471: the shipped all6+poly+blend+ram192+clk66+dbuf+lpc bundle (blit_g3_poly_blend_ram192_clk66_dbuf_lpc_qsf_append.txt,
 # verbatim) plus TAU_CYMO_RESAMP=1 -- the new standalone Cymo resampler unit (tau_cymo_resamp.sv), wired into
-# mp3_soc.v behind its own macro, no RTL dependency on any of the other macros here. Synthesis-only check first
+# tau_soc.v behind its own macro, no RTL dependency on any of the other macros here. Synthesis-only check first
 # (quartus_map, not a full fit): confirms it elaborates cleanly against the real macro set it will eventually ship
 # alongside (the B-130 lesson -- fit against the CURRENT macro bundle, never a bare base) before spending a real fit.
 

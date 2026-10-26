@@ -45,7 +45,7 @@ int main(void) {
         out = subprocess.run([str(Path(td) / "t")], capture_output=True, text=True).stdout.strip() if r.returncode == 0 else "compile failed"
     check("udiv64 equals native 64-bit division (200k random + edge cases)", out == "0")
 
-rtl = (ROOT / "src/fpga/core/mp3_soc.v").read_text()
+rtl = (ROOT / "src/fpga/core/tau_soc.v").read_text()
 check("RTL: the TAU_RAM_192K-alone bitstream (TAU_CLK66 undefined) reports CORE_VERSION rev 24 (4D503318)",
       re.search(r"`elsif TAU_RAM_192K\b.*?localparam \[31:0\] CORE_VERSION = 32'h4D503318;", rtl, re.S) is not None)   # B-338 put TAU_CLK66 first in the chain
 check("RTL: every other bitstream keeps rev 23 (4D503317)", "CORE_VERSION = 32'h4D503317;" in rtl)

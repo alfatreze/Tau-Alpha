@@ -3,7 +3,7 @@
 //
 // The CPU WRITES decoded stereo pairs (one 32-bit word each, {right, left}) into a ring in the PSRAM through its uncached window and moves a WRITE INDEX; this unit READS
 // them back into the audio FIFO on its own, so no firmware stall can underrun the audio until the ring itself is empty. It is a third client of the single PSRAM controller
-// port (arbitrated in mp3_soc.v: this client wins a tie, a granted transaction is never interrupted, the arbiter's two-cycle gap applies).
+// port (arbitrated in tau_soc.v: this client wins a tie, a granted transaction is never interrupted, the arbiter's two-cycle gap applies).
 //
 // Indices, not counts: `wptr` and `ridx` are both in [0, size). The ring is empty when they are equal; the CPU keeps it from filling completely (capacity size - 1), as in
 // fw/pcm_ring.h. `cnt` counts every pair pushed (free-running, for the heard-position arithmetic). A flush (the firmware's pcm_flush) drops whatever is unread: ridx <= wptr.

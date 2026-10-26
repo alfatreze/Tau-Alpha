@@ -3,7 +3,7 @@
 // front of tau_psram_async, plus the four CRAM chip pin groups. Built only with
 // TAU_PSRAM_PROBE; it is not part of a product bitstream.
 //
-// Mailbox (byte offsets inside the mp3_soc MMIO page, allocation table in
+// Mailbox (byte offsets inside the tau_soc MMIO page, allocation table in
 // docs/MMIO_ALLOCATION.md). All registers live in clk_sys.
 //   0x88 ID     R   0x50535231 ("PSR1"): firmware refuses to run without it
 //   0x8C ADDR   RW  [22:0] CPU word offset ([22] chip, [21] die, [20:0] word)
@@ -24,7 +24,7 @@
 //   0xAC WCOUNT R   completed CPU-window ops, 32 bits (B-016)
 //
 // The controller is shared with the CPU window (win_* client, driven by the bus
-// wrapper in mp3_soc). One owner at a time: the window has priority when both
+// wrapper in tau_soc). One owner at a time: the window has priority when both
 // are waiting (the CPU is stalled on it); a waiting mailbox request keeps its
 // place and runs next. STATUS BUSY covers both.
 //
@@ -49,7 +49,7 @@ module tau_psram_probe #(
     input  wire        clk,
     input  wire        rst,
 
-    // expansion-MMIO port from mp3_soc
+    // expansion-MMIO port from tau_soc
     input  wire [7:0]  xm_reg,
     input  wire        xm_wr,
     input  wire [31:0] xm_wdata,

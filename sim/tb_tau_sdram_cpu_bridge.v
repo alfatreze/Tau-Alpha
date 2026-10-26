@@ -1,6 +1,6 @@
 // ============================================================================
 // Verify a 60 MHz-style requester crossing to a 100 MHz-style SDRAM port.
-// The fake port accepts one request at a time, emits sdram_fb's deliberately
+// The fake port accepts one request at a time, emits tau_sdram_ctrl's deliberately
 // early read-available notification with stale zero data, then presents the
 // actual halfword on the next qualifying cycle. Sampling the first notification
 // reproduces the A-066 Pocket all-zero readback failure.
@@ -74,7 +74,7 @@ module tb_tau_sdram_cpu_bridge;
             end
         end else if (port_busy) begin
             delay <= delay + 1;
-            // Matches sdram_fb's documented client contract: data-available
+            // Matches tau_sdram_ctrl's documented client contract: data-available
             // leads READ_OUTPUT so a synchronous consumer captures this word
             // and asserts end-burst for the following controller edge.
             if (port_read && delay == 1) begin

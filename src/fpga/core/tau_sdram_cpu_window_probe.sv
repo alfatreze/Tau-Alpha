@@ -30,7 +30,7 @@
 module tau_sdram_cpu_window_probe #(
     // 0 preserves A-074 bridge-response semantics. 1 reuses cells 46..48
     // for CPU-facing return data; 2 captures adapter data immediately before
-    // mp3_soc's registered return selector; 3 captures the owner-mux response
+    // tau_soc's registered return selector; 3 captures the owner-mux response
     // immediately before the adapter's capture point.
     parameter RETURN_PATH_MODE = 0
 ) (

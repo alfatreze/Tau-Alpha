@@ -1,5 +1,5 @@
 // =============================================================================
-// mp3_soc.v -- VexRiscv + BRAM + memory-mapped peripherals.
+// tau_soc.v -- VexRiscv + BRAM + memory-mapped peripherals.
 //
 // Memory map (BYTE addresses as seen by firmware):
 //   0x0000_0000 .. RAM_BYTES-1   RAM  (CACHED -- code, data, buffers)
@@ -45,7 +45,7 @@
 // At 65536 it infers correctly: 256 KB costs ~256 M10K blocks (byte-wide arrays
 // force x8 mode, ~80% bit efficiency), measured 271/308 total with the rest of
 // the core. pcm_fifo adds ~8 more.
-module mp3_soc #(
+module tau_soc #(
     parameter RAM_WORDS = 65536,           // 256 KB -- power of two, required
     parameter RAM_AW    = 16,
     // Phase 2 remains opt-in until its address map, uncached adapter, and
@@ -285,7 +285,7 @@ module mp3_soc #(
     input  wire [9:0]   scan_rd,     // {present, vc[8:0]} video line counter (B-267), 0 when TAU_BEAM is off
     input  wire [16:0]  vblank_rd,   // {frame count[15:0], level} from tau_vs_counter (B-260)
 
-    // Phase F B1: sticky blit-engine addressing state (section 9). Driven from mp3_soc's own
+    // Phase F B1: sticky blit-engine addressing state (section 9). Driven from tau_soc's own
     // R_BLT_IDX/R_BLT_DATA registers regardless of BLIT_ENABLE; only OP_BLIT in mp3_fb.sv reads
     // them, and that opcode does not exist unless TAU_BLIT is built there too.
     // Theme/gamma: text weight table select (MMIO 0x114 bit 0), clk_sys domain; synchronised into clk_sdram by the caller.
@@ -319,7 +319,7 @@ module mp3_soc #(
     output wire [7:0]   blt_reindex,
 
     // Phase F B8 ("B8 detailed design", PHASE_F_SPEC.md section 5): CLUT load,
-    // from mp3_soc's own R_CLUT_IDX/R_CLUT_DATA. A plain indexed write, not one
+    // from tau_soc's own R_CLUT_IDX/R_CLUT_DATA. A plain indexed write, not one
     // of the section-9 sticky fields (a 256-entry bulk table load is a
     // different kind of write traffic than five mostly-static config fields,
     // so it gets its own register pair rather than sharing BLT_IDX/DATA's).
@@ -330,7 +330,7 @@ module mp3_soc #(
     output wire [7:0]   clut_waddr,
     output wire [15:0]  clut_wdata,
 
-    // B11 (section 5): corner-cut lookup table, from mp3_soc's own R_RC_IDX/R_RC_DATA -- a bulk
+    // B11 (section 5): corner-cut lookup table, from tau_soc's own R_RC_IDX/R_RC_DATA -- a bulk
     // table load, own register pair (same reasoning as R_CLUT_IDX/DATA above: a 16-entry table
     // load is different write traffic from a handful of sticky per-command fields). Driven
     // regardless of BLIT_ENABLE, same convention as every other blt_*/clut_* signal here.
@@ -977,7 +977,7 @@ module mp3_soc #(
 
     // Phase F section 9: sticky blit-engine state. Plain flops, no logic reads
     // them unless BLIT_ENABLE -- see the port declarations above and the reset
-    // block below for the rest of this feature's mp3_soc-side footprint.
+    // block below for the rest of this feature's tau_soc-side footprint.
     reg  [2:0]  blt_idx = 3'd0;
     reg         text_light_r = 1'b0;
     assign text_light = text_light_r;

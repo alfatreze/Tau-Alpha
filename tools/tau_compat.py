@@ -11,7 +11,7 @@ SHA256SUMS.txt; the zips themselves are unchanged. Every field is derived, never
   release, prerelease       --release, refused unless CHANGELOG.md has that heading and core.json carries its X.Y.Z
   date_release, packages[]  the zips: core.json, bitstream.rbf_r, Assets/*/common/tau.rom and tau-cold.bin, ROM markers
   bitstream_core_version    the RBF's fit manifest (<rbf>.json, B-653) evaluated through the CORE_VERSION ifdefs in
-                            src/fpga/core/mp3_soc.v (not the first literal), or --bitstream-version for an RBF without one;
+                            src/fpga/core/tau_soc.v (not the first literal), or --bitstream-version for an RBF without one;
                             the RBF must be the one in the zips and every ROM must accept the value
   library_index_version     fw/library_core.h (the newest index version the firmware reads), cross-checked with tools/tau_library.py
   assets_sections           every as_find(..., "XXXX") the firmware does
@@ -70,7 +70,7 @@ def sha(b):
 
 def selecting_macros(soc_text=None):
     """The macros whose `ifdef/`elsif chains enclose a CORE_VERSION localparam (today TAU_CLK66, TAU_RAM_192K)."""
-    text = soc_text if soc_text is not None else (ROOT / "src/fpga/core/mp3_soc.v").read_text()
+    text = soc_text if soc_text is not None else (ROOT / "src/fpga/core/tau_soc.v").read_text()
     stack, names = [], set()
     for line in text.splitlines():
         m = re.match(r"\s*`(ifdef|ifndef|elsif|else|endif)\b\s*(\w*)", line)
@@ -90,7 +90,7 @@ def selecting_macros(soc_text=None):
 
 def core_version_for_macros(macros, soc_text=None):
     """Evaluate the `ifdef/`elsif/`else/`endif around `localparam ... CORE_VERSION` for this set of defined macros."""
-    text = soc_text if soc_text is not None else (ROOT / "src/fpga/core/mp3_soc.v").read_text()
+    text = soc_text if soc_text is not None else (ROOT / "src/fpga/core/tau_soc.v").read_text()
     defined = set(macros)
     stack, found = [], []          # stack of [parent_active, branch_taken, active]
     active = True
@@ -146,8 +146,8 @@ def zero_defined(bundle_text, soc_text):
 
 
 def bitstream_core_version(rbf=None, override=None, root=ROOT):
-    """CORE_VERSION of the bitstream: from its fit manifest (the macros it was built with), evaluated against mp3_soc.v AT THE
-    COMMIT THE FIT WAS BUILT FROM (review H3), never today's tree. Refuses a fit built from a dirty RTL tree (its mp3_soc.v is
+    """CORE_VERSION of the bitstream: from its fit manifest (the macros it was built with), evaluated against tau_soc.v AT THE
+    COMMIT THE FIT WAS BUILT FROM (review H3), never today's tree. Refuses a fit built from a dirty RTL tree (its tau_soc.v is
     unknown) and a fit bundle that writes a CORE_VERSION-selecting macro as NAME=0 (Verilog `ifdef sees it as defined, our
     tooling as off). --bitstream-version overrides all of this for an RBF without a usable manifest."""
     if override:
@@ -160,11 +160,14 @@ def bitstream_core_version(rbf=None, override=None, root=ROOT):
     if j is None:
         raise CompatError(f"{rbf} has no fit manifest {Path(str(rbf) + '.json').name} (fits collected before B-653): pass --bitstream-version explicitly")
     if j.get("rtl_dirty"):
-        raise CompatError(f"the fit of {Path(rbf).name} was built from a dirty RTL tree (rtl_dirty): its mp3_soc.v is unknown; pass --bitstream-version explicitly")
+        raise CompatError(f"the fit of {Path(rbf).name} was built from a dirty RTL tree (rtl_dirty): its tau_soc.v is unknown; pass --bitstream-version explicitly")
     commit = j.get("commit")
     if not commit:
         raise CompatError(f"the fit manifest of {Path(rbf).name} has no commit: pass --bitstream-version explicitly")
-    soc = git_show(commit, "src/fpga/core/mp3_soc.v", root)
+    try:   # the SoC file was called mp3_soc.v until the Talos 2 T2 rename (D-T02): a fit built from an older commit has the old name
+        soc = git_show(commit, "src/fpga/core/tau_soc.v", root)
+    except CompatError:
+        soc = git_show(commit, "src/fpga/core/mp3_soc.v", root)
     if j.get("append"):
         bundle = git_show(commit, j["append"], root)
         zero = zero_defined(bundle, soc)

@@ -351,7 +351,7 @@ test-rtl-flac-lpc-mutation: $(RTL_BUILD_DIR)/flac_lpc_vectors.txt
 # Cymo polyphase FIR resampler, 44100:48000 only (docs/features/CYMO_AUDIO_ENGINE.md section 15, B-467+):
 # a new design, not a port -- sim/cymo_resamp_model.c IS the reference, independently cross-checked in
 # Python by sim/test_cymo_resamp_model.py (this project's own "prove it twice, differently" discipline).
-# Standalone unit, NOT yet wired into pcm_fifo.v/mp3_soc.v.
+# Standalone unit, NOT yet wired into pcm_fifo.v/tau_soc.v.
 CYMO_RESAMP_SRC = sim/tb_tau_cymo_resamp.v src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_resamp_rom.svh
 $(RTL_BUILD_DIR)/cymo_resamp_vectors.txt: sim/test_cymo_resamp_model.py sim/cymo_resamp_model.c tools/gen_cymo_resamp_rom.py | $(RTL_BUILD_DIR)
 	$(PYTHON) sim/test_cymo_resamp_model.py
@@ -443,9 +443,9 @@ test-rtl-halcyon-mutation: $(HALCYON_SRC) $(RTL_BUILD_DIR)/halcyon_vectors_w16.t
 	@set -e; for b in 6 10; do $(IVERILOG) -g2012 -DHWI=18 -DHWO=16 -DHIFB=0 -DHOFB=0 -DHBUG=$$b '-DHVEC="$(RTL_BUILD_DIR)/halcyon_vectors_wide18.txt"' -o $(RTL_BUILD_DIR)/halcyon_mut.vvp $(HALCYON_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/halcyon_mut.vvp | grep -q "^FAIL"; then echo "mutant killed (wide input): tau_halcyon BUG=$$b"; else echo "MUTANT SURVIVED (wide input): tau_halcyon BUG=$$b"; exit 1; fi; done
 
-# B-639: the Halcyon MMIO glue in mp3_soc.v, with the real CPU driving it (firmware sim/fw_halcyon/main.c, the audio output checked after each step).
-HALCYON_SOC_SRC = sim/tb_halcyon_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_pcm_ring.sv
-test-rtl-halcyon-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+# B-639: the Halcyon MMIO glue in tau_soc.v, with the real CPU driving it (firmware sim/fw_halcyon/main.c, the audio output checked after each step).
+HALCYON_SOC_SRC = sim/tb_halcyon_soc.v $(RTL_BUILD_DIR)/tau_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_pcm_ring.sv
+test-rtl-halcyon-soc: $(RTL_BUILD_DIR)/tau_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_halcyon/main.c -o $(RTL_BUILD_DIR)/fw_halcyon.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_halcyon.elf $(RTL_BUILD_DIR)/fw_halcyon.bin
 	@set -e; for wide in 0 1; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_halcyon_soc.WIDE=$$wide -o $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp $(HALCYON_SOC_SRC); \
@@ -455,9 +455,9 @@ test-rtl-halcyon-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 test-rtl-font-ram:
 	$(PYTHON) sim/test_font_ram.py
 
-# The font memory registers in mp3_soc.v (FONT_CTRL/IDX/DATA) with the real CPU driving them (firmware sim/fw_font/main.c, sim/tb_font_soc.v checks the verdicts and the write port); two mutation hooks must fail it.
+# The font memory registers in tau_soc.v (FONT_CTRL/IDX/DATA) with the real CPU driving them (firmware sim/fw_font/main.c, sim/tb_font_soc.v checks the verdicts and the write port); two mutation hooks must fail it.
 FONT_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_font_soc.v,$(HALCYON_SOC_SRC))
-test-rtl-font-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+test-rtl-font-soc: $(RTL_BUILD_DIR)/tau_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_font/main.c -o $(RTL_BUILD_DIR)/fw_font.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_font.elf $(RTL_BUILD_DIR)/fw_font.bin
 	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_font_soc.vvp $(FONT_SOC_SRC); \
@@ -465,9 +465,9 @@ test-rtl-font-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	@set -e; for b in BUG_FONT_NO_INC BUG_FONT_NO_GEN; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_font_soc.$$b=1 -o $(RTL_BUILD_DIR)/tb_font_soc_mut.vvp $(FONT_SOC_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_font_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_font.bin | grep -q "^FAIL"; then echo "mutant killed: $$b"; else echo "MUTANT SURVIVED: $$b"; exit 1; fi; done
 
-# The audio statistics registers in mp3_soc.v (STATS_CTL/IDX/DATA) with the real CPU driving them (firmware sim/fw_stats/main.c; sim/tb_stats_soc.v forces eight known samples into the block's tap); the block left out (ENABLE=0) must fail it.
+# The audio statistics registers in tau_soc.v (STATS_CTL/IDX/DATA) with the real CPU driving them (firmware sim/fw_stats/main.c; sim/tb_stats_soc.v forces eight known samples into the block's tap); the block left out (ENABLE=0) must fail it.
 STATS_SOC_SRC = $(subst sim/tb_halcyon_soc.v,sim/tb_stats_soc.v,$(HALCYON_SOC_SRC)) src/fpga/core/tau_audio_stats.sv
-test-rtl-stats-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+test-rtl-stats-soc: $(RTL_BUILD_DIR)/tau_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_stats/main.c -o $(RTL_BUILD_DIR)/fw_stats.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_stats.elf $(RTL_BUILD_DIR)/fw_stats.bin
 	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_stats_soc.vvp $(STATS_SOC_SRC); \
@@ -475,13 +475,13 @@ test-rtl-stats-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_stats_soc.ENABLE=0 -o $(RTL_BUILD_DIR)/tb_stats_soc_mut.vvp $(STATS_SOC_SRC); \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_stats_soc_mut.vvp +ROM=$(RTL_BUILD_DIR)/fw_stats.bin | grep -q "^FAIL"; then echo "mutant killed: block not built"; else echo "MUTANT SURVIVED: block not built"; exit 1; fi
 
-# B-653: the stereo pair invariant through the real mp3_soc audio path and the real sound_i2s writer (sim/tb_audio_pair.v, firmware sim/fw_audiopair/main.c), in six configurations; the
+# B-653: the stereo pair invariant through the real tau_soc audio path and the real sound_i2s writer (sim/tb_audio_pair.v, firmware sim/fw_audiopair/main.c), in six configurations; the
 # bench's own mutant (-DTORN=1, the right channel a clock late) must FAIL.
-AUDIO_PAIR_SRC = sim/tb_audio_pair.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_pcm_ring.sv src/fpga/core/tau_gain_stage.sv $(RTL_BUILD_DIR)/sound_i2s_sim.v src/fpga/core/sync_fifo.v
+AUDIO_PAIR_SRC = sim/tb_audio_pair.v $(RTL_BUILD_DIR)/tau_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_halcyon.sv src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_clut_wr.sv src/fpga/core/tau_cymo_resamp.sv src/fpga/core/tau_cymo_feed.sv src/fpga/core/tau_pcm_ring.sv src/fpga/core/tau_gain_stage.sv $(RTL_BUILD_DIR)/sound_i2s_sim.v src/fpga/core/sync_fifo.v
 # Icarus rejects sound_i2s.v's unused negative-repeat branch ({(15 - CHANNEL_WIDTH){1'b0}} with a 16-bit channel); the copy changes nothing for CHANNEL_WIDTH 16 (as sim/test_cymo_i2s_rate.py).
 $(RTL_BUILD_DIR)/sound_i2s_sim.v: src/fpga/core/sound_i2s.v | $(RTL_BUILD_DIR)
 	$(PYTHON) -c "import sys;s=open(sys.argv[1]).read();open(sys.argv[2],'w').write(s.replace(\"{(15 - CHANNEL_WIDTH){1'b0}}\",\"{((CHANNEL_WIDTH < 15) ? (15 - CHANNEL_WIDTH) : 1){1'b0}}\"))" $< $@
-test-rtl-audio-pair: $(RTL_BUILD_DIR)/mp3_soc_sim.v $(RTL_BUILD_DIR)/sound_i2s_sim.v
+test-rtl-audio-pair: $(RTL_BUILD_DIR)/tau_soc_sim.v $(RTL_BUILD_DIR)/sound_i2s_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_audiopair/main.c -o $(RTL_BUILD_DIR)/fw_audiopair.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_audiopair.elf $(RTL_BUILD_DIR)/fw_audiopair.bin
 	@set -e; $(IVERILOG) -g2012 -Isrc/fpga/core -Isim -o $(RTL_BUILD_DIR)/tb_audio_pair.vvp $(AUDIO_PAIR_SRC); \
@@ -645,15 +645,15 @@ test-rtl-psram-probe: $(RTL_BUILD_DIR)/tb_tau_psram_probe.vvp
 	$(IVERILOG) -g2012 -Ptb_tau_psram_probe.WD=8 -o $(RTL_BUILD_DIR)/tb_tau_psram_probe_wd8.vvp sim/tb_tau_psram_probe.v src/fpga/core/tau_psram_probe.sv $(PSRAM_SRC)
 	$(VVP) $(RTL_BUILD_DIR)/tb_tau_psram_probe_wd8.vvp | tail -3 | tee $(RTL_BUILD_DIR)/psram_probe_wd8.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_probe_wd8.log
 
-PSRAM_FW_SRC = sim/tb_psram_fw.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
+PSRAM_FW_SRC = sim/tb_psram_fw.v $(RTL_BUILD_DIR)/tau_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
 
-$(RTL_BUILD_DIR)/mp3_soc_sim.v: src/fpga/core/mp3_soc.v sim/make_soc_sim.py | $(RTL_BUILD_DIR)
+$(RTL_BUILD_DIR)/tau_soc_sim.v: src/fpga/core/tau_soc.v sim/make_soc_sim.py | $(RTL_BUILD_DIR)
 	$(PYTHON) sim/make_soc_sim.py $< $@
 
 # Builds the short-fill ROM, runs it on the real VexRiscv against the RTL and
 # the strict chip model (good run, then one injected bit flip that MUST be
 # reported), and verifies both published records independently in Python.
-test-rtl-psram-fw: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+test-rtl-psram-fw: $(RTL_BUILD_DIR)/tau_soc_sim.v
 	bash fw/build.sh psram-diag-sim > $(RTL_BUILD_DIR)/psram_fw_build.log 2>&1 || { cat $(RTL_BUILD_DIR)/psram_fw_build.log; exit 1; }
 	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_psram_fw.vvp $(PSRAM_FW_SRC)
 	$(VVP) $(RTL_BUILD_DIR)/tb_psram_fw.vvp +OUT=$(RTL_BUILD_DIR)/psram_fw_record.txt | tail -4 | tee $(RTL_BUILD_DIR)/psram_fw.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/psram_fw.log
@@ -664,17 +664,17 @@ test-rtl-psram-fw: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 
 # Phase G2: real CPU executing code from PSRAM through the instruction alias, sharing the controller with the data window.
 # Also builds without the feature (the firmware must then report NOFEATURE, proving the netlist is inert).
-PSRAM_IFETCH_SRC = sim/tb_psram_ifetch.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
-# B-741: the PCM ring reader end to end (real CPU, mp3_soc, arbiter, PSRAM controller and chip model).
-PCM_RING_SOC_SRC = sim/tb_pcm_ring_soc.v $(RTL_BUILD_DIR)/mp3_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_pcm_ring.sv $(PSRAM_SRC)
-test-rtl-pcm-ring-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+PSRAM_IFETCH_SRC = sim/tb_psram_ifetch.v $(RTL_BUILD_DIR)/tau_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv $(PSRAM_SRC)
+# B-741: the PCM ring reader end to end (real CPU, tau_soc, arbiter, PSRAM controller and chip model).
+PCM_RING_SOC_SRC = sim/tb_pcm_ring_soc.v $(RTL_BUILD_DIR)/tau_soc_sim.v src/fpga/rtl/VexRiscv_Full.v src/fpga/core/pcm_fifo.v src/fpga/core/tau_sdram_addr_decode.sv src/fpga/core/tau_sdram_wb_adapter.sv src/fpga/core/tau_psram_probe.sv src/fpga/core/tau_cdc_sync1.sv src/fpga/core/tau_pcm_ring.sv $(PSRAM_SRC)
+test-rtl-pcm-ring-soc: $(RTL_BUILD_DIR)/tau_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_pcmring/main.c -o $(RTL_BUILD_DIR)/fw_pcmring.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_pcmring.elf $(RTL_BUILD_DIR)/fw_pcmring.bin
 	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_pcm_ring_soc.vvp $(PCM_RING_SOC_SRC)
 	$(VVP) $(RTL_BUILD_DIR)/tb_pcm_ring_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_pcmring.bin | tee $(RTL_BUILD_DIR)/pcm_ring_soc.log | tail -12; grep -q "^PASSED" $(RTL_BUILD_DIR)/pcm_ring_soc.log
 	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_pcm_ring_soc.RING=0 -o $(RTL_BUILD_DIR)/tb_pcm_ring_soc_off.vvp $(PCM_RING_SOC_SRC)
 	$(VVP) $(RTL_BUILD_DIR)/tb_pcm_ring_soc_off.vvp +ROM=$(RTL_BUILD_DIR)/fw_pcmring.bin | tail -4 | tee $(RTL_BUILD_DIR)/pcm_ring_soc_off.log; grep -q "^PASSED" $(RTL_BUILD_DIR)/pcm_ring_soc_off.log
-test-rtl-psram-ifetch: $(RTL_BUILD_DIR)/mp3_soc_sim.v
+test-rtl-psram-ifetch: $(RTL_BUILD_DIR)/tau_soc_sim.v
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-gcc -march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostdlib -nostartfiles -Wl,--no-warn-rwx-segments -T sim/fw_ifetch/link.ld sim/fw_ifetch/start.S sim/fw_ifetch/main.c -o $(RTL_BUILD_DIR)/fw_ifetch.elf
 	toolchain/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf-objcopy -O binary $(RTL_BUILD_DIR)/fw_ifetch.elf $(RTL_BUILD_DIR)/fw_ifetch.bin
 	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_psram_ifetch.vvp $(PSRAM_IFETCH_SRC)
@@ -685,7 +685,7 @@ test-rtl-psram-ifetch: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 # Verilator's generated GNUmakefiles cannot run beneath this repository's path
 # because it contains spaces. Keep this tool-only artefact outside the tree.
 test-rtl-sdram-controller-probe:
-	$(VERILATOR) --binary --timing -DSIM -DTAU_PHASE2_WINDOW -DTAU_PHASE2_PROBE --top-module tb_sdram_fb_controller_probe -Wno-fatal -Wno-TIMESCALEMOD -Wno-REALCVT -Mdir /tmp/tau_sdram_fb_controller_probe sim/tb_sdram_fb_controller_probe.v src/fpga/rtl/mem/sdram_fb.sv
+	$(VERILATOR) --binary --timing -DSIM -DTAU_PHASE2_WINDOW -DTAU_PHASE2_PROBE --top-module tb_sdram_fb_controller_probe -Wno-fatal -Wno-TIMESCALEMOD -Wno-REALCVT -Mdir /tmp/tau_sdram_fb_controller_probe sim/tb_sdram_fb_controller_probe.v src/fpga/rtl/mem/tau_sdram_ctrl.sv
 	/tmp/tau_sdram_fb_controller_probe/Vtb_sdram_fb_controller_probe
 
 rtl-lint:

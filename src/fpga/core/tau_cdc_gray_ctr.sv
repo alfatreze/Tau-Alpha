@@ -6,7 +6,7 @@
 // (b2g/g2b + a two-flop synchroniser), generalised and reused here for
 // PHASE_F_SPEC.md's B7 (SDRAM busy-cycle counter): the counter lives in
 // clk_src (the SDRAM arbiter's 100 MHz clk_sdram), the read side is clk_dst
-// (mp3_soc's 60 MHz clk_sys), and the two are not phase- or frequency-related.
+// (tau_soc's 60 MHz clk_sys), and the two are not phase- or frequency-related.
 //
 // Why Gray code, not a plain double-flop on the binary value: a binary
 // counter can have many bits change at once (e.g. 0111 -> 1000), and
@@ -35,7 +35,7 @@
 // asynchronous domain boundary is its own CDC hazard (the clear pulse would
 // need its own synchroniser, and a race between "clear" and "increment"
 // arriving in the same source cycle needs care). Matches the existing
-// convention for CYCLES (mp3_soc 0x0C) -- also free-running, never cleared --
+// convention for CYCLES (tau_soc 0x0C) -- also free-running, never cleared --
 // firmware computes deltas by sampling before and after a measurement
 // window, not by clearing.
 // =============================================================================

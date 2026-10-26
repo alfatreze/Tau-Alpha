@@ -201,7 +201,7 @@ module tb_blit_scene;
         end
     endtask
 
-    // B8: one CLUT write (clk_sys domain), matching mp3_soc.v's own one-write-
+    // B8: one CLUT write (clk_sys domain), matching tau_soc.v's own one-write-
     // per-entry contract (clut_wr is a single-cycle pulse).
     task clut_load(input [7:0] idx, input [15:0] data);
         begin

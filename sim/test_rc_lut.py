@@ -2,7 +2,7 @@
 """Native tests for fw/rc_lut.h (the B11 hardware corner-cut LUT loader), through
 tools/host/rc_lut_harness.c.
 
-Root cause: mp3_soc.v's rc_cut_lut_r resets to all-zero and nothing in firmware ever wrote
+Root cause: tau_soc.v's rc_cut_lut_r resets to all-zero and nothing in firmware ever wrote
 R_RC_IDX/R_RC_DATA, so every hardware-drawn OP_RRECT rendered square corners (docs/AUDIT_TRAIL.md).
 This checks rc_lut_cut()'s per-dy cut values against an independent Python re-implementation of the
 same quarter-circle search fb_round_rect()/fb_round_rect_on() use in fw/player.c, for radii 0, 3, 5,

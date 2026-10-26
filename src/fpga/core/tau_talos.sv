@@ -49,7 +49,7 @@
 //             must finish inside one scanline, ~4167 clk_sdram cycles @100MHz)
 //     RECT  : one constant-data burst write per row, h rows
 //     CHAR  : compose one output row into glyphbuf, then one STREAMING burst
-//             write (varying data via sdram_fb's wsrc port), 16*sy rows
+//             write (varying data via tau_sdram_ctrl's wsrc port), 16*sy rows
 //   clk_vid: read line buffer -> video_rgb / de / hs / vs
 //
 // Scanout FILL always wins arbitration. Everything else is decomposed into
@@ -146,12 +146,12 @@ module tau_talos #(
     // cmd_glyph itself -- CHAR (ASCII, 7 bits is exactly right) and OP_RRECT (radius, clamped to 15)
     // both keep reading cmd_glyph's original 7-bit [14:8] slice completely unchanged; only BAR's own
     // lit-count math additionally consults this. Claims 2 of the FIFO word's 4 remaining padding bits
-    // (CW stays 88) and 2 of R_FB_GO's genuinely-unused bits (15:16) at the mp3_soc.v boundary -- see
+    // (CW stays 88) and 2 of R_FB_GO's genuinely-unused bits (15:16) at the tau_soc.v boundary -- see
     // that file's own comment. On any bitstream without this port at all (old RTL), the write simply
     // has nowhere to land; BAR_WIDE_READY() (fw/blit_probe.inc) is the runtime test that tells firmware
     // which behaviour it is actually talking to, so old and new bitstreams both behave safely.
     input  wire [1:0]  cmd_glyph_hi,
-    // Writable font memory, clk_sys domain (mp3_soc.v registers FONT_IDX/FONT_DATA); ignored when FONT_RAM_ENABLE = 0.
+    // Writable font memory, clk_sys domain (tau_soc.v registers FONT_IDX/FONT_DATA); ignored when FONT_RAM_ENABLE = 0.
     input  wire        font_we,
     input  wire [12:0] font_waddr,
     input  wire [31:0] font_wdata,
@@ -162,7 +162,7 @@ module tau_talos #(
     // quasi-static, changed only by the theme switch which repaints everything afterwards.
     input  wire        text_light,
 
-    // Phase F B1 (section 9): sticky blit addressing state, from mp3_soc.v's
+    // Phase F B1 (section 9): sticky blit addressing state, from tau_soc.v's
     // R_BLT_IDX/R_BLT_DATA registers. Read only by OP_BLIT below; RUN/RECT/
     // CHAR/COPY are entirely unaffected (unchanged FB_BASE/512-stride math).
     input  wire [24:0] blt_src_base,
@@ -182,7 +182,7 @@ module tau_talos #(
     input  wire [7:0]  blt_blend_alpha,  // DSP mode only, 0-255
 
     // B11 (section 5): the corner-cut lookup table, loaded by the CPU (clk_sys) through
-    // mp3_soc.v's R_RC_IDX/R_RC_DATA -- a bulk table load, own register pair (not folded into
+    // tau_soc.v's R_RC_IDX/R_RC_DATA -- a bulk table load, own register pair (not folded into
     // R_BLT_IDX/DATA, same reasoning B8's own CLUT-vs-sticky-field split already gives). 16
     // entries x 5 bits, indexed by dy = r - row (never by the row itself -- see the module-header
     // comment on OP_RRECT). Plain flops (80 bits, no M10K), informal CDC: CPU-paced configuration
@@ -199,7 +199,7 @@ module tau_talos #(
     input  wire [7:0]  blt_reindex,
 
     // Phase F B8 (section 5, "B8 detailed design"): 256-entry CLUT, loaded by
-    // the CPU (clk_sys) through mp3_soc.v's R_CLUT_IDX/R_CLUT_DATA. Independent
+    // the CPU (clk_sys) through tau_soc.v's R_CLUT_IDX/R_CLUT_DATA. Independent
     // write (clk_sys) / read (clk_sdram) ports, a standard dual-clock M10K --
     // no synchronizer needed for the block RAM itself, and the write side is
     // CPU-paced configuration (a palette load, not a value sampled every
@@ -221,7 +221,7 @@ module tau_talos #(
     // the flip itself is only ever applied during vertical blanking (clk_vid's own vs_pulse window),
     // synchronised into clk_sdram the same toggle-and-sample way `fill_req_tgl` already is below --
     // never a raw level crossing a clock domain. `dbuf_disp_buf`/`dbuf_flip_pending` are read back by
-    // mp3_soc for its status register; both are clk_sdram registers, informally sampled by clk_sys the
+    // tau_soc for its status register; both are clk_sdram registers, informally sampled by clk_sys the
     // same way blt_* fields are sampled the other direction (a status bit changing at most once every
     // ~16.7 ms is not a hazard worth a formal synchroniser).
     input  wire        dbuf_cpu_buf,
@@ -229,7 +229,7 @@ module tau_talos #(
     output wire        dbuf_disp_buf,
     output wire        dbuf_flip_pending,
 
-    // SDRAM master port (clk_sdram) -> wired to sdram_fb in core_game.vh ----
+    // SDRAM master port (clk_sdram) -> wired to tau_sdram_ctrl in core_game.vh ----
     input  wire        sdram_init_complete,
     output reg  [24:0] p0_addr,
     output reg  [15:0] p0_data,
@@ -244,7 +244,7 @@ module tau_talos #(
     input  wire        p0_ready,
     input  wire        p0_data_available,
 
-    // Streaming-write source port: sdram_fb pulls one word per burst beat from
+    // Streaming-write source port: tau_sdram_ctrl pulls one word per burst beat from
     // here when p0_wr_stream was set on the request. Used by CHAR, whose rows
     // are varying-colour (a constant-data burst cannot express a glyph).
     input  wire [10:0] wsrc_addr,
@@ -563,7 +563,7 @@ module tau_talos #(
 
     // ======================================================================
     // Glyph row buffer -- one composed output row of a CHAR, handed to
-    // sdram_fb's streaming-write port one word per burst beat. 64 entries =
+    // tau_sdram_ctrl's streaming-write port one word per burst beat. 64 entries =
     // the widest glyph (8 source px * 2 EPX * 4x scale). Small enough that
     // Quartus will use MLAB rather than spending an M10K.
     // ======================================================================
@@ -1723,7 +1723,7 @@ module tau_talos #(
     // accumulating state -- meaning firmware writes the right alpha to R_BLT_DATA every single frame,
     // yet the trail still never visibly fades regardless of which alpha was requested. The remaining
     // explanation this rules everything else out in favour of: the sticky field's OWN hardware storage
-    // (whatever register `blt_blend_alpha` actually is, upstream of this module in mp3_soc.v) isn't
+    // (whatever register `blt_blend_alpha` actually is, upstream of this module in tau_soc.v) isn't
     // correctly latching what gets written to it, so `blend_px()` computes correctly from an alpha that
     // was never what firmware intended in the first place. Comparing THIS probe's `blt_blend_alpha`
     // against what firmware's own shadow reports for the same moment is the direct test.

@@ -37,7 +37,7 @@ endfunction
 // then DQM-mask + tWR + PRECHARGE + tRP. Keep clear chunks <= 512 words so an
 // auto-refresh can run between chunks (a full 1024-word burst outlasts tREF).
 // Reads are unchanged. See DESIGN.md sec.3.
-module sdram_fb #(
+module tau_sdram_ctrl #(
     parameter CLOCK_SPEED_MHZ = 0,
     parameter BURST_TYPE = 0,  // 1 for interleaved
     parameter CAS_LATENCY = 2,  // 1, 2, or 3 cycle delays

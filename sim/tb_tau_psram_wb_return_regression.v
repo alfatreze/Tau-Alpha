@@ -1,5 +1,5 @@
 // P1 bus regression (KB-024 / A-093 shape): Wishbone master with an
-// mp3_soc-style registered ACK (dACK <= wb_ack) that either keeps STB asserted
+// tau_soc-style registered ACK (dACK <= wb_ack) that either keeps STB asserted
 // into the next beat (gap 0) or idles (gap > 0), driving tau_psram_bus ->
 // tau_psram_async -> strict chip model. Asserts data, that every beat produces
 // exactly one controller request, and that a guard beat returns ERR, not data.

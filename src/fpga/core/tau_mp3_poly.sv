@@ -15,7 +15,7 @@
 // own input and product registers, so nothing chains a 32x32 multiply into a 64-bit add in one cycle. About 16 clocks per macro-step, 136 macro-steps
 // per channel per slot: roughly 4,400 clocks (73 us at 60 MHz) per stereo slot, 36 slots per MP3 frame = about 10 percent of hardware time.
 //
-// MMIO-facing protocol (mp3_soc.v wires the registers): push_we with push_data, 64 times (channel 0's 32 words, then channel 1's); then go; poll busy;
+// MMIO-facing protocol (tau_soc.v wires the registers): push_we with push_data, 64 times (channel 0's 32 words, then channel 1's); then go; poll busy;
 // then out_idx_we / rd_data for the 32 PCM words ({R sample, L sample}). STEREO ONLY: a mono stream is left to the software path.
 // =============================================================================
 module tau_mp3_poly #(

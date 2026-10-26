@@ -2,7 +2,7 @@
 `default_nettype none
 
 // A-077: retain adapter response data for the target fifth CPU read before
-// mp3_soc selects it onto the CPU-facing Wishbone return bus.
+// tau_soc selects it onto the CPU-facing Wishbone return bus.
 module tb_tau_sdram_adapter_return_probe;
     reg clk = 0;
     always #5 clk = ~clk;

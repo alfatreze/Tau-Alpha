@@ -1,9 +1,9 @@
-// P2 firmware-in-the-loop test: the real VexRiscv CPU (via mp3_soc) runs the
+// P2 firmware-in-the-loop test: the real VexRiscv CPU (via tau_soc) runs the
 // psram_diag ROM against tau_psram_probe and the strict four-die chip model.
 // Two runs: A (default timing) then B (slow dials). The published interact record
 // (set_* words) is dumped so tools can verify it independently of the firmware:
 //   +ROM=<file>  +OUT=<file>
-// Uses the sim copy of mp3_soc made by sim/make_soc_sim.py.
+// Uses the sim copy of tau_soc made by sim/make_soc_sim.py.
 `timescale 1ns/1ps
 `default_nettype none
 module tb_psram_fw;
@@ -42,13 +42,13 @@ module tb_psram_fw;
     // ---- expansion MMIO <-> probe ------------------------------------------
     wire [7:0]  xm_reg;  wire xm_wr;  wire [31:0] xm_wdata;  wire [31:0] xm_rdata;
 
-    // PSRAM CPU window: controller-side interface between mp3_soc and the probe
+    // PSRAM CPU window: controller-side interface between tau_soc and the probe
     wire        pw_req, pw_we, pw_done, pw_guard;
     wire [22:0] pw_word;
     wire [31:0] pw_wdata, pw_rdata;
     wire [3:0]  pw_be;
 
-    mp3_soc #(.PHASE2_WINDOW_ENABLE(WIN), .PSRAM_WINDOW_ENABLE(WIN)) u_soc (
+    tau_soc #(.PHASE2_WINDOW_ENABLE(WIN), .PSRAM_WINDOW_ENABLE(WIN)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
         .ld_wr(ld_wr), .ld_addr(ld_addr), .ld_data(ld_data),
         .cont_key(cont_key), .in_menu(1'b0),

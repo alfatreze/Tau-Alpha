@@ -1,4 +1,4 @@
-// tau_clut_wr.sv -- the CLUT write port of mp3_soc (R_CLUT_IDX / R_CLUT_DATA, Phase F B8), as a module so it can be simulated.
+// tau_clut_wr.sv -- the CLUT write port of tau_soc (R_CLUT_IDX / R_CLUT_DATA, Phase F B8), as a module so it can be simulated.
 //
 // Contract (what firmware relies on): a write to R_CLUT_IDX sets the index; every write to R_CLUT_DATA stores its value in the slot the
 // index named AT THAT WRITE and advances the index by one (8-bit, wraps 255 -> 0). So a load that starts with IDX = s puts its n-th

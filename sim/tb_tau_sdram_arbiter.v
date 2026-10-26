@@ -29,7 +29,7 @@ module tb_tau_sdram_arbiter;
     wire [10:0] p_len;
     wire p_stream, p_wr, p_rd, p_end;
     reg [15:0] p_q = 0;
-    // sdram_fb deasserts available combinationally when p_wr/p_rd is present.
+    // tau_sdram_ctrl deasserts available combinationally when p_wr/p_rd is present.
     // Start low to model that real controller behavior; a request must still
     // acquire arbiter ownership in this cycle.
     reg p_avail = 0, p_ready = 0, p_data_avail = 0;

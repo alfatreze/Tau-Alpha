@@ -3,7 +3,7 @@
 // tau_psram_async. One CPU beat = one controller request. ACK/ERR are pulsed
 // only after the response register has been loaded from the controller's held
 // response (KB-008), and the adapter returns to idle two cycles after ACK
-// because mp3_soc registers ACK once more (KB-024, A-092/A-093).
+// because tau_soc registers ACK once more (KB-024, A-092/A-093).
 // =============================================================================
 `default_nettype none
 

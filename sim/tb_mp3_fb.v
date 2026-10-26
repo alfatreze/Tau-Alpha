@@ -4,9 +4,9 @@
 // rule, a wrong scale, or an off-by-one in the row loop is visible directly
 // rather than inferred from "the Pocket looks wrong".
 //
-// sdram_fb.sv itself cannot be elaborated here (unpacked SV structs are past
+// tau_sdram_ctrl.sv itself cannot be elaborated here (unpacked SV structs are past
 // iverilog), so the controller is stubbed to the contract mp3_fb actually
-// depends on, taken from sdram_fb's own comments:
+// depends on, taken from tau_sdram_ctrl's own comments:
 //   * p0_available high only when idle
 //   * a streaming write pulls beat N from wsrc_q, with wsrc_addr driven ahead
 //     of each beat (BRAM read latency 1)
@@ -139,7 +139,7 @@ module tb_mp3_fb;
                     st          <= p0_wr_stream ? S_STREAM : S_CONST;
                 end
             end
-            // Mirrors sdram_fb: wsrc_addr leads by one cycle, so the word
+            // Mirrors tau_sdram_ctrl: wsrc_addr leads by one cycle, so the word
             // valid on wsrc_q now is the one requested last cycle.
             S_STREAM: begin
                 wsrc_addr <= wsrc_addr + 11'd1;

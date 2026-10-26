@@ -1,5 +1,5 @@
 // tb_tau_cymo_feed.v -- the Cymo hand-off against the REAL resampler at the real clock ratio (B-527).
-// Two free-running fractional accumulators exactly as in mp3_soc.v: the 48 kHz output tick (CYMO_TICK_RATE_INC) starts the resampler, a track-rate tick
+// Two free-running fractional accumulators exactly as in tau_soc.v: the 48 kHz output tick (CYMO_TICK_RATE_INC) starts the resampler, a track-rate tick
 // (TRACK_INC, 44.1 kHz) supplies one new input sample per tick (a counting ramp, so a dropped or repeated sample is visible as a break in the pushed sequence).
 // Checks, over SIM_MS of simulated audio: no stale consumes, no dropped ticks, and the sequence pushed into the resampler is the ramp 1,2,3,... with nothing
 // skipped or repeated. Parameter BUG=1 (the old tick-gated hand-off) must FAIL (make test-rtl-cymo-feed-mutation).
@@ -8,7 +8,7 @@ module tb_tau_cymo_feed;
     parameter integer BUG = 0;
     parameter integer SIM_MS = 40;
     parameter [31:0] TRACK_INC = 32'd2841063;     // 44100 * 2^32 / 66,666,667
-    parameter [31:0] CYMO_INC  = 32'd3092376;     // 48000 * 2^32 / 66,666,667 (mp3_soc.v CYMO_TICK_RATE_INC)
+    parameter [31:0] CYMO_INC  = 32'd3092376;     // 48000 * 2^32 / 66,666,667 (tau_soc.v CYMO_TICK_RATE_INC)
 
     reg clk = 0; always #7.5 clk = ~clk;
     reg rst = 1, clear = 0;

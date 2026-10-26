@@ -237,7 +237,7 @@ module tau_sdram_cpu_bridge (
                     complete();
                 end
                 S_RD_LO_REQ:  if (m_accepted)      state <= S_RD_LO_DATA;
-                // sdram_fb advertises availability one cycle before its
+                // tau_sdram_ctrl advertises availability one cycle before its
                 // READ_OUTPUT state so synchronous consumers capture p0_q on
                 // this edge and request burst termination for the next edge.
                 // A-067 experimentally delayed this capture and regressed the
