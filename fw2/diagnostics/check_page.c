@@ -139,7 +139,7 @@ void check_page_tick(void)
         break;
     case T_TRACKS: {
         const uint32_t el = (uint32_t)(cycles() - t0);
-        if (step == 0u) { mp3play_act(MPA_NEXT, 0); gen0 = mp.gen; t0 = cycles(); step = 1u; }                          /* skip */
+        if (step == 0u) { gen0 = mp.gen; mp3play_act(MPA_NEXT, 0); t0 = cycles(); step = 1u; }                          /* skip: the generation is read BEFORE the act, which bumps it inside the call (B-864) */
         else if ((mp.gen != gen0 && el > CLK_HZ * 2u) || el > CLK_HZ * 5u) {                                             /* the new track runs for 2 s, or no skip landed in 5 s */
             if (mp.gen == gen0) { res[cur] = 2u; next_test(); break; }
             val[cur]++; t0 = cycles(); step = 0u;
