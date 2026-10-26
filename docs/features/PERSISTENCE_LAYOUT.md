@@ -1,4 +1,4 @@
-# Persistence by theme: one word per area (BUILT 2026-10-23 as B-825, host-proven; not yet on a Pocket)
+# Persistence by theme: one word per area (BUILT 2026-10-23 as B-825, host-proven; the new layout saves and restores on a Pocket (TAU DEV 182..184), the MIGRATION from the legacy layout has NOT yet run on a Pocket: every core id keeps its own settings file, so the DEV builds started from empty files; B-842)
 
 ## The limits (all measured, not guessed)
 * Settings survive only through `interact.json` persist variables: the Pocket takes **16** (B-456, hardware-confirmed), each a `slider_u32` of **31 usable bits** (`0..2147483647`): about **496 bits** in all. 15 variables are declared (ids 10, 11, 12, 15, 16, 20..23, 27..32), one is free.
