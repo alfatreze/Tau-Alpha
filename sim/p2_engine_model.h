@@ -19,6 +19,7 @@ static uint32_t em_fb_addr, em_fb_size, em_fb_color, em_cycles, em_reads;
 static uint32_t em_blt_idx, em_src_base, em_dst_base, em_blend_on, em_blend_a;
 static uint32_t em_cpu, em_disp, em_flip_pending, em_has_dbuf = 1, em_has_blend = 1;
 static uint32_t em_sdr_addr, em_sdr_data, em_sdr_rdata, em_clut_idx; static uint16_t em_clut[256];
+static uint32_t em_fence_n, em_has_fence = 1, em_fence_stuck;      /* Talos T3 status block present (R_GFX_*; 0 models the earlier bitstreams); em_fence_stuck: the fence counter never advances (the firmware's 50 ms fallback) */
 static uint32_t em_nflips, em_executed, em_torn, em_overwide;      /* em_overwide: BLIT/CBLIT commands wider than the 127-pixel row buffer */
 static uint32_t (*em_ext_rd)(uint32_t a); static void (*em_ext_wr)(uint32_t a, uint32_t v);      /* registers outside the draw engine (a test supplies the ones its module reads) */
 static uint32_t em_dbuf_addr(uint32_t a, uint32_t sel) { return (em_has_dbuf && sel && a < EM_VISIBLE) ? a + EM_BUF_PX : a; }
@@ -29,7 +30,8 @@ static uint16_t em_blend_px(uint16_t s, uint16_t d, uint32_t a)
 }
 static void em_exec(const em_cmd_t *c)
 {
-    const uint32_t w = c->size & 0x1FFu, h = (c->size >> 9) & 0x1FFu, op = c->go & 7u;
+    const uint32_t w = c->size & 0x1FFu, h = (c->size >> 9) & 0x1FFu, op = (c->go & 7u) | ((c->go >> 11) & 8u);   /* bit 14 is op bit 3 */
+    if (op == 9u) { if (!em_fence_stuck) em_fence_n++; return; }                          /* FENCE (Talos T3): retires in order, draws nothing, is not a draw command */
     em_executed++;
     if (op == 1u) {                                                  /* RECT */
         for (uint32_t j = 0; j < h; j++) for (uint32_t i = 0; i < w; i++) em_mem[em_dbuf_addr(c->addr + j * EM_STRIDE + i, em_cpu)] = (uint16_t)c->color;
@@ -59,7 +61,10 @@ uint32_t host_rd(uint32_t a)
 {
     switch (a) {
     case 0x8000000Cu: em_cycles += 3000u; em_step(); return em_cycles;
-    case 0x80000054u: return 0u;                                      /* R_FB_GO: the FIFO is never full */
+    case 0x80000054u: return (em_has_fence && em_qh == em_qt) ? 2u : 0u;   /* R_FB_GO: the FIFO is never full; bit 1 idle (T3) */
+    case 0x800001B8u: return em_has_fence ? em_fence_n : 0u;
+    case 0x800001BCu: return em_has_fence ? (0x80000000u | (em_qh == em_qt ? (1u << 16) : 0u) | 255u) : 0u;
+    case 0x800001C0u: return 0u;
     case 0x80000084u: return 0u;                                      /* mailbox status: never busy */
     case 0x80000080u: return em_sdr_rdata;
     case 0x8000011Cu: return (em_has_dbuf ? 0x80000000u : 0u) | (em_flip_pending << 1) | em_disp;

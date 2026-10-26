@@ -17,7 +17,7 @@ extern uint32_t bt_n, bt_wait_n, bt_wait_max, bt_max;   /* fw2/transport/mp3play
 #endif
 extern uint32_t report_rows, report_len;   /* fw2/diagnostics/report_page.c */
 extern uint32_t gfx_flip_n, gfx_flip_cyc, gfx_flip_max; extern uint32_t gfx_fence_n[7], gfx_fence_c[7]; extern uint32_t gfx_bench[4], blit_check_mask; uint32_t blit_check_bad_px(void);   /* fw2/diagnostics/check_page.c */
-extern uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;   /* fw2/gfx/gfx.c, T0 of the Talos plan (not in gfx.h: the wasm meter preview hashes that header) */
+extern uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo; extern uint32_t gfx_hw_ovf, gfx_hw_uf;   /* fw2/gfx/gfx.c, T0 of the Talos plan (not in gfx.h: the wasm meter preview hashes that header) */
 #include "../stream/cold.h"
 #include "../aout/halcyon.h"
 #include "../stream/assets.h"
@@ -131,6 +131,8 @@ const cnt_t counters_table[] = {
     { "GFX FENCES",   CK_U32, CU_NONE,   &gfx_fences },
     { "GFX FENCE CYC", CK_U32, CU_NONE,  &gfx_fence_cyc },          /* CPU cycles spent in fences (the marker round trip, 256-cycle polls) */
     { "GFX FENCE TMO", CK_U32, CU_NONE,  &gfx_fence_tmo },          /* fences that gave up after 50 ms */
+    { "GFX Q OVF",    CK_U32, CU_NONE,   &gfx_hw_ovf },             /* Talos T3: commands dropped because the queue was full (read after each hardware fence; 0 = the poll before every push works) */
+    { "GFX SCAN LATE", CK_U32, CU_NONE,  &gfx_hw_uf },              /* Talos T3: scanout lines whose fill was late (the instrument for "scanout always wins"; 0 on a healthy build) */
     { "GFX B1 ISSUE", CK_U32, CU_NONE,   &gfx_bench[0] },           /* Check > GFX ISSUE: CPU cycles per command to issue 1,000 one-pixel rectangles (the CPU's cost per command) */
     { "GFX B1 DRAIN", CK_U32, CU_NONE,   &gfx_bench[1] },           /* cycles per command still queued when the issue loop ended, drained by the fence */
     { "GFX B100 ISSUE", CK_U32, CU_NONE, &gfx_bench[2] },           /* the same with 100-pixel rectangles: higher means the engine, not the CPU, is the limit */

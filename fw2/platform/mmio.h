@@ -31,7 +31,10 @@
 #define R_FB_ADDR    0x80000048u
 #define R_FB_SIZE    0x8000004Cu         /* {h[17:9], w[8:0]} */
 #define R_FB_COLOR   0x80000050u         /* {bg[31:16], fg[15:0]} RGB565 */
-#define R_FB_GO      0x80000054u         /* write: {sy[13:12], sx[11:10], glyph[9:3], op[1:0]}; read bit 0 = the command FIFO is full */
+#define R_FB_GO      0x80000054u         /* write: {sy[13:12], sx[11:10], glyph[9:3], op[1:0]}; read bit 0 = the command FIFO is full, bit 1 = idle (every accepted command has retired; 0 on a bitstream without Talos T3) */
+#define R_GFX_FENCE  0x800001B8u         /* Talos T3 (read): FENCE commands retired, a monotonic 32-bit count (0 without T3) */
+#define R_GFX_STATUS 0x800001BCu         /* Talos T3 (read): [31] present (the probe), [16] idle, [8:0] free command-queue slots */
+#define R_GFX_COUNTS 0x800001C0u         /* Talos T3 (read): [31:16] scanout lines whose fill was late (wraps), [15:0] pushes dropped while the queue was full (saturating) */
 #define R_SDR_ADDR   0x80000074u         /* SDRAM mailbox: the CPU writes one framebuffer word (two RGB565 pixels) at a pixel address */
 #define R_SDR_DATA   0x80000078u
 #define R_SDR_CTRL   0x8000007Cu         /* write 0x3F = a full-word write */
