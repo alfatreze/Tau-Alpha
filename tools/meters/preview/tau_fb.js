@@ -44,6 +44,12 @@
         this.pix++; this.ops += 3;   // a blended pixel reads the destination, reads the source and writes
       }
     }
+    /* Lab-only: a text run is ONE command (the firmware's fb_text); the lab has no font, so each glyph is a 5 x 6 block of the foreground colour (the width is the firmware's about 7 px a character). Returns the run's width. */
+    text(x, y, s, fg, bg) {
+      this._rec('text', [x, y, s, fg, bg]);
+      for (let i = 0; i < s.length; i++) if (s[i] !== ' ') this._fill(x + 7 * i, y + 2, 5, 6, fg);
+      return 7 * s.length;
+    }
     _fill(x, y, w, h, c) {
       const x0 = Math.max(0, x), x1 = Math.min(this.w, x + w), y0 = Math.max(0, y), y1 = Math.min(this.h, y + h);
       for (let yy = y0; yy < y1; yy++) this.px.fill(c, yy * this.w + x0, yy * this.w + x1);
