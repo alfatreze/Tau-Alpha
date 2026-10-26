@@ -125,6 +125,8 @@ test-host:
 	$(PYTHON) sim/test_p2_waterfall.py
 	$(PYTHON) sim/test_p2_settings_service.py
 	$(PYTHON) sim/test_p2_settings_boot.py
+	$(PYTHON) sim/test_persist_layout.py
+	$(PYTHON) sim/test_tau_packs_info.py
 	$(PYTHON) sim/test_p2_meter_budget.py
 	$(PYTHON) sim/test_p2_configure.py
 	$(PYTHON) sim/test_p2_configure_view.py

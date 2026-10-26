@@ -1,0 +1,87 @@
+{
+  "interact_persist": {
+    "magic": "APF_VER_1",
+    "variables": [
+      {
+        "id": 10,
+        "type": "slider_u32",
+        "val": 134217728
+      },
+      {
+        "id": 11,
+        "type": "slider_u32",
+        "val": 1073741832
+      },
+      {
+        "id": 12,
+        "type": "slider_u32",
+        "val": 1073746014
+      },
+      {
+        "id": 15,
+        "type": "slider_u32",
+        "val": 1140850693
+      },
+      {
+        "id": 16,
+        "type": "slider_u32",
+        "val": 1073741824
+      },
+      {
+        "id": 20,
+        "type": "slider_u32",
+        "val": 1076372846
+      },
+      {
+        "id": 21,
+        "type": "slider_u32",
+        "val": 706502732
+      },
+      {
+        "id": 22,
+        "type": "slider_u32",
+        "val": 49
+      },
+      {
+        "id": 23,
+        "type": "slider_u32",
+        "val": 0
+      },
+      {
+        "id": 27,
+        "type": "slider_u32",
+        "val": 0
+      },
+      {
+        "id": 28,
+        "type": "slider_u32",
+        "val": 0
+      },
+      {
+        "id": 29,
+        "type": "slider_u32",
+        "val": 0
+      },
+      {
+        "id": 30,
+        "type": "slider_u32",
+        "val": 1073741824
+      },
+      {
+        "id": 31,
+        "type": "slider_u32",
+        "val": 1342181421
+      },
+      {
+        "id": 32,
+        "type": "slider_u32",
+        "val": 1158138816
+      },
+      {
+        "id": 33,
+        "type": "slider_u32",
+        "val": 0
+      }
+    ]
+  }
+}
