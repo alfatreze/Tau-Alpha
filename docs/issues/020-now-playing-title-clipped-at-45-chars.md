@@ -1,6 +1,6 @@
 # BUG-002: long track titles are clipped on the now-playing screen (about 45 characters)
 
-**Status (2026-10-26, B-874): MARQUEE built for Player 2 (owner chose it), host-proven, not yet on a Pocket.** Earlier status:  Confirmed on hardware (owner report, B-033 run, 2026-09-21); not fixed. Found while testing phase 0 with the longest title on the test card.
+**Status (2026-10-26, B-874): MARQUEE built for Player 2 (owner chose it), host-proven AND confirmed good on a Pocket by the owner (DEV 190, 2026-10-26: "confirmed good", no screenshot taken).** Earlier status:  Confirmed on hardware (owner report, B-033 run, 2026-09-21); not fixed. Found while testing phase 0 with the longest title on the test card.
 
 ## Observed
 Track 3 of the phase 0 playlist (`04. Giant Warrior ~ Torumekian Army ~ Her Royal Highness Princess Kushana.mp3`, tag title 69 characters) showed on the now-playing screen as `... Her Royal H` and the marquee scrolled only that clipped text. The playlist screen showed the full name.
