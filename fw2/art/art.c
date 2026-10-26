@@ -6,6 +6,7 @@
 
 #define PLANE_Y 400u                       /* 128 rows of index words, below the visible 360 */
 #define PROBE_ROW 1022u
+#define PROBE_DX 484u                      /* the destination cell: its own, NOT the fence's (1021, 480): the fence overwrote the sentinel the poll waits on (B-859, B-888) */
 extern char _tag_start;
 #define TAG_OFF ((uint32_t)(uintptr_t)&_tag_start)
 #define TAG_SZ  4096u
@@ -21,13 +22,13 @@ static uint8_t probe_fails;
 uint32_t art_probe_raw;
 static int probe(void)
 {
-    const uint32_t src = PROBE_ROW * GFX_STRIDE + GFX_CELL_X, dst = (PROBE_ROW - 1u) * GFX_STRIDE + GFX_CELL_X;
+    const uint32_t src = PROBE_ROW * GFX_STRIDE + GFX_CELL_X, dst = PROBE_ROW * GFX_STRIDE + PROBE_DX;
     const uint32_t sentinel = 0xA5C33C5Au;                    /* neither half can be a palette answer (0x1004..0x1007) */
     uint32_t r = sentinel;
     if (gfx_mb_write(src, (5u << 16) | 7u) || gfx_mb_write(dst, sentinel)) return TIMG_E_MAILBOX;
     gfx_clut_begin(0u);
     for (uint32_t i = 0; i < 256u; i++) gfx_clut_put((uint16_t)(0x1000u + i));
-    gfx_cblit_abs(GFX_CELL_X, PROBE_ROW, GFX_CELL_X, PROBE_ROW - 1u, 1u, 1u);
+    gfx_cblit_abs(GFX_CELL_X, PROBE_ROW, PROBE_DX, PROBE_ROW, 1u, 1u);
     /* The copy is queued behind whatever the screen drew just before (a track change): reading the destination at a fixed time read it BEFORE the copy landed (the old player's B-325, the
      * Info row ART ERR 8 on every track here). Poll until the destination differs from the sentinel, about 50 ms at most, and only then judge it. */
     const uint32_t t0 = cycles();

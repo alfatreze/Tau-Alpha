@@ -15,13 +15,23 @@ uint32_t gfx_touch_rows(void) { return gt_visible(&gfx_touch) ? ((uint32_t)gfx_t
 uint32_t gfx_cmds;                                         /* engine commands issued since boot (every R_FB_GO write): the host's per-meter command budget reads the difference around a tick */
 #define FB_GO(v) do { gfx_cmds++; REG_WR(R_FB_GO, (v)); } while (0)
 static uint32_t color_shadow = 0xFFFFFFFFu;
+#ifndef P2_DIAG
+#define P2_DIAG 1                           /* the Diagnostic Build keeps the instrumentation (counters below); the normal build (fw2/build.sh DIAG=0) does not pay its hot bytes */
+#endif
+#if P2_DIAG
 uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;
+uint32_t gfx_flip_n, gfx_flip_cyc, gfx_flip_max;                    /* the wait for the flip to land at a vblank after a frame ends (the second spin of a frame, after the fence): count, cycles, the longest */
 uint32_t gfx_fence_n[7], gfx_fence_c[7];                              /* the same, by reason: 0 other (public gfx_fence), 1 frame end, 2 palette load, 3 bases, 4 compose before, 5 compose after, 6 blend off */   /* T0 of the Talos plan: how the CPU spends its time feeding the engine (Info GFX rows) */
 static inline void wait_fifo(void)
 {
     gfx_polls++;                                                        /* one command-FIFO "full" read per call, whether it waits or not */
     if (REG_RD(R_FB_GO) & 1u) { gfx_stalls++; const uint32_t t = cycles(); while (REG_RD(R_FB_GO) & 1u) { } gfx_stall_cyc += (uint32_t)(cycles() - t); }
 }
+#define GD(x) x
+#else
+static inline void wait_fifo(void) { while (REG_RD(R_FB_GO) & 1u) { } }
+#define GD(x)
+#endif
 static void set_colors(uint16_t fg, uint16_t bg)
 {
     uint32_t v = ((uint32_t)bg << 16) | fg;
@@ -123,10 +133,10 @@ static void fence_why(uint32_t why)
     if (gfx_mb_write(a, 0xDEADBEEFu)) return;
     rect_raw(GFX_CELL_X, 1021u, 1u, 1u, 0x0001u);        /* the engine runs in order: when this lands, everything before it has (a stash row: shared by both buffers) */
     const uint32_t t0 = cycles();
-    gfx_fences++; gfx_fence_n[why]++;
+    GD(gfx_fences++; gfx_fence_n[why]++;)
     do { uint32_t t = cycles(); while ((uint32_t)(cycles() - t) < 256u) { } if (gfx_mb_read(a, &r)) return; } while (r == 0xDEADBEEFu && (uint32_t)(cycles() - t0) < CLK_HZ / 20u);
-    gfx_fence_cyc += (uint32_t)(cycles() - t0); gfx_fence_c[why] += (uint32_t)(cycles() - t0);
-    if (r == 0xDEADBEEFu) gfx_fence_tmo++;                               /* gave up after 50 ms: the marker never landed (KB-188) */
+    GD(gfx_fence_cyc += (uint32_t)(cycles() - t0); gfx_fence_c[why] += (uint32_t)(cycles() - t0);)
+    GD(if (r == 0xDEADBEEFu) gfx_fence_tmo++;)                               /* gave up after 50 ms: the marker never landed (KB-188) */
 }
 void gfx_fence(void) { fence_why(0u); }
 void gfx_clut_begin(uint32_t start) { wait_fifo(); fence_why(2u); REG_WR(R_CLUT_IDX_A, start); }
@@ -153,6 +163,10 @@ static void set_bases(uint32_t src, uint32_t dst)
 static void blit_op(uint32_t sx, uint32_t sy, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h, uint32_t go, uint32_t src_base, uint32_t dst_base)
 {
     if (!w || !h) return;
+    if (w > 127u) {                                                          /* the engine's row buffer holds 127 pixels: a wider box would overrun it (T1 of the Talos plan: split here, not in every caller) */
+        for (uint32_t xo = 0; xo < w; xo += 127u) blit_op(sx + xo, sy, dx + xo, dy, w - xo < 127u ? w - xo : 127u, h, go, src_base, dst_base);
+        return;
+    }
     uint32_t src = sy * GFX_STRIDE + sx;
     gt_note(&gfx_touch, dy, h);
     set_bases(src_base, dst_base);
@@ -206,6 +220,7 @@ void gfx_frame_end(int active)
     REG_WR(R_DBUF_DISP, 1u);
     const uint32_t t0 = cycles();
     while ((REG_RD(R_DBUF_DISP) & 2u) && (uint32_t)(cycles() - t0) < CLK_HZ / 10u) { }
+    GD({ const uint32_t w = (uint32_t)(cycles() - t0); gfx_flip_n++; gfx_flip_cyc += w; if (w > gfx_flip_max) gfx_flip_max = w; })
     gfx_set_target(REG_RD(R_DBUF_DISP) & 1u);
 }
 /* An off-screen compose: the figure is drawn into the idle buffer (where no beam can show a half-built picture) and then copied onto the displayed one with blits (about a millisecond for a meter box,

@@ -114,6 +114,21 @@ static void sc_bar(void)
     gfx_rect(0, 0, 400, 360, 0x0001); gfx_bar(390, 350, 30, 30, 15, 0xF800, 0x001F); gfx_fence();
     chk("a bar is clipped to the visible frame", em_px(0, 399, 359) == 0xF800 && em_px(0, 399, 349) == 0x0001);
 }
+static void sc_wide(void)
+{
+    em_reset(); caps.dbuf = 0; em_has_dbuf = 0;
+    for (uint32_t i = 0; i < 300u; i += 2u) gfx_mb_write(420u * 512u + i, ((uint32_t)(0x1000u + i + 1u) << 16) | (0x1000u + i));        /* a 300-pixel source row in the stash */
+    for (uint32_t i = 0; i < 256u; i++) { gfx_clut_begin(i); gfx_clut_put((uint16_t)(0x4000u + i)); }
+    gfx_blit(0, 0, 0, 0, 1, 1); gfx_fence();
+    gfx_blit_stash(0, 420, 10, 50, 300, 1); gfx_fence();
+    int ok = 1; for (uint32_t i = 0; i < 300u; i++) if (em_px(0, 10 + i, 50) != (uint16_t)(0x1000u + i)) ok = 0;
+    chk("a 300-pixel copy from the stash lands whole", ok);
+    chk("no command was wider than the row buffer (127)", em_overwide == 0);
+    gfx_cblit(0, 420, 20, 60, 300, 1); gfx_fence();
+    ok = 1; for (uint32_t i = 0; i < 300u; i++) if (em_px(0, 20 + i, 60) != (uint16_t)(0x4000u + ((0x1000u + i) & 255u))) ok = 0;
+    chk("a 300-pixel palette blit lands whole", ok);
+    chk("... and again no command wider than 127", em_overwide == 0);
+}
 static void sc_mbbuf(void)
 {
     em_reset(); caps.dbuf = 1; fill_front(0x1111);
@@ -132,6 +147,6 @@ int main(int argc, char **argv)
 {
     const char *s = argc > 1 ? argv[1] : "bracket";
     if (!strcmp(s, "bracket")) sc_bracket(); else if (!strcmp(s, "blitmode")) sc_blitmode(); else if (!strcmp(s, "stash")) sc_stash();
-    else if (!strcmp(s, "compose")) sc_compose(); else if (!strcmp(s, "blend")) sc_blend(); else if (!strcmp(s, "noblend")) sc_noblend(); else if (!strcmp(s, "nodbuf")) sc_nodbuf(); else if (!strcmp(s, "bar")) sc_bar(); else if (!strcmp(s, "mbbuf")) sc_mbbuf();
+    else if (!strcmp(s, "compose")) sc_compose(); else if (!strcmp(s, "blend")) sc_blend(); else if (!strcmp(s, "noblend")) sc_noblend(); else if (!strcmp(s, "nodbuf")) sc_nodbuf(); else if (!strcmp(s, "wide")) sc_wide(); else if (!strcmp(s, "bar")) sc_bar(); else if (!strcmp(s, "mbbuf")) sc_mbbuf();
     return fails ? 1 : 0;
 }
