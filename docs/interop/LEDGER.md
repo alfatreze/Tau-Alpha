@@ -2,6 +2,14 @@
 
 | id | what | who answers | status |
 |---|---|---|---|
+| R-014 | Built `meter_lab.html` in the lab drop (Omega 004) | Tau-Alpha | **ACCEPTED 2026-10-26 (D-O02), message 005**; generated at the v0.7.0 release drop, not built yet |
+| R-017 | `lab-data.json` (schema, themes, accents) in the lab drop (Omega 005) | Tau-Alpha | **ACCEPTED (D-O02), message 005**; same drop, not built yet |
+| Q-016 | Lab frame sandbox | closed | **ANSWERED:** `allow-scripts` only; ask with an R-id before widening |
+| Q-018 | How Omega chooses the meters | Tau-Alpha | **DECIDED P1 by the owner (D-O01), message 005**; manifest role change in `tau_compat.py` open for us, count-0 bundle untested |
+| Q-019 | Pack library and Omega building TPKB bundles | Tau-Alpha | **YES to Omega building bundles; library asset accepted in principle, not built** (message 005) |
+| Q-020 | Bundle limits | closed | **ANSWERED:** 8 slots x 64 KB, seven extra meters at most; assets limit 65,536 B is for `tau-assets.bin` only |
+| Q-021 | Apply METR flags/order | Tau-Alpha | **YES, scheduled (D-O03)**; firmware not built, not in v0.7.0 unless added |
+| Q-022 | METR vs a pack's own presets | closed | **ANSWERED:** METR replaces the whole set; no append |
 | R-011 | Which rule for "optional" owned files | Tau-Alpha | **ANSWERED 2026-10-26 (B-876):** owned files with no data slot are `required: true`; only `tau-cold.bin`, `tau-loading.bin`, `tau-packs.bin` are optional; manifest and `tau_compat.py` aligned (Omega's F-008 found the defect); rehearsal rebuilt |
 | Q-010 | A CARDWRITE rehearsal | closed | **owner: no** (not needed after the real-card rehearsal) |
 | F-009b | Real-card rehearsal on Pock: install, check, undo, 0 differences (Omega 002) | closed | **CONFIRMED by Omega**; the owner decides whether a CARDWRITE run (Q-010) is wanted |
