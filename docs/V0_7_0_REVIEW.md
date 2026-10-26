@@ -1,5 +1,7 @@
 # v0.7.0 review: candidates, recommended cut, everything else pending or parked
 
+**Superseded in scope by `docs/V0_7_0_SCOPE.md` (the owner widened the scope on 2026-10-26); section 1 (what `main` carries), the release gates and the lists in 3 to 5 remain a useful record. Gapless: the ROADMAP says closed for FLAC (DEV 167); only real-music MP3 acceptance is unrecorded.**
+
 Prepared 2026-10-26 for the owner's review. Proposal only: the order and the cut are the owner's (`docs/ROADMAP.md` stays the only ordered list). Evidence labels follow `docs/AUDIT_TRAIL.md`.
 
 ## 1. What `main` already carries since v0.6.1 (the base of v0.7.0)
@@ -56,7 +58,7 @@ Release gates (not features):
 | Omega 0.6.0 (persist decoding, packs left alone, `min_omega` check) | Omega |
 | Cymo recordings with a MONO plug (groups 9-14, soaks, 32 ohm load) | owner (hardware) |
 | Gapless hardware acceptance and the sidecar work, art sidecar spec | owner / later |
-| Report codes (TPG): default on in the Diagnostic Build (D-R04), Reed-Solomon, extra context items | owner decision |
+| Report codes (TPG): the pixel grid is already the default (D-R04 was reversed 2026-10-06); Reed-Solomon and extra context items | see `docs/V0_7_0_SCOPE.md` |
 | Stable `v0.6.0` follow-ups: edit old preview notes | owner |
 
 ## 5. Parked on purpose (do not re-litigate without the owner)

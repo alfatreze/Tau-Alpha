@@ -15626,3 +15626,6 @@ Answer to Omega's R-004: tag 28 (`SR_T_TRACKINFO`) is emitted only by the old pl
 
 ## B-852: v0.7.0 review document (2026-10-26)
 `docs/V0_7_0_REVIEW.md`: what `main` carries since v0.6.1 with evidence, a recommended cut (ship `main` plus issue 025 and doc fixes; no RTL or fit items; BUG-001 to the owner), release gates (Pocket run of the release zip, Omega 0.6.0, publish approval), open defects, pending items, parked items. Proposal only. **Evidence:** documentation.
+
+## B-853: v0.7.0 scope widened by the owner; scope document with the state of every item from the code (2026-10-26)
+`docs/V0_7_0_SCOPE.md` (state per item from a read-only research pass: writable font memory, FLAC v2 wiring, Latin-1 display and Halcyon presets are already built; Talos P3 was declined; TPG default already on; the fits needed; the Info/Diagnostics rethink with an audience tag on the counter registry, an About page and a `P2_DIAG` Diagnostic Build; proposed order A/B/C). Corrected stale lines in `docs/V0_7_0_REVIEW.md`; one line added to `docs/ROADMAP.md`. Stale headers noticed, not yet fixed: `FONT_SPEC.md` line 3, `FLAC_DECODER_V2_REVIEW.md` s11. **Evidence:** documentation; the research was by reading, nothing run.
