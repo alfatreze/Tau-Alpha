@@ -56,7 +56,7 @@ for i, a in enumerate(cells):
 for k in m["known_collisions"]:
     names = {c["name"] for c in cells}
     check(k["a"] in names and k["b"] in names, f"known collision {k['a']} / {k['b']} names real cells")
-fb = (ROOT / "src/fpga/core/mp3_fb.sv").read_text()
+fb = (ROOT / "src/fpga/core/tau_talos.sv").read_text()
 rtl = int(re.search(r"DBUF_BASE1\s*=\s*25'd(\d+)", fb).group(1))
 c = (ROOT / "fw2/gfx/gfx.c").read_text()
 cw = int(re.search(r"DBUF_BASE1_W\s+(\d+)u", c).group(1))

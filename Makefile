@@ -1,4 +1,4 @@
-.PHONY: new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
+.PHONY: test-rtl-gfx-diff new-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-font-ram test-rtl-font-soc test-rtl-audio-pair test-rtl-halcyon-soc test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-psram-ifetch check check-firmware check-fpga firmware fpga package test test-host test-rtl rtl-lint test-rtl-fb test-rtl-tgt test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-mux-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-gray-bus test-rtl-fb-mutation test-rtl-pcm-prime card-check visual-review
 
 PYTHON ?= python3
 QUARTUS_SH ?= quartus_sh
@@ -197,12 +197,12 @@ test-host:
 	$(PYTHON) tools/fit_manifest.py check-bundles
 	$(PYTHON) sim/test_fit_manifest.py
 
-test-rtl: test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
+test-rtl: test-rtl-font-ram test-rtl-font-soc test-rtl-gain-boost test-rtl-gain-boost-mutation test-rtl-clut-wr test-rtl-clut-wr-mutation test-rtl-fb test-rtl-fb-mutation test-rtl-gfx-diff test-rtl-helios-dbuf test-rtl-blit-reference test-rtl-tgt test-rtl-pcm test-rtl-pcm-prime test-rtl-pcm-under test-rtl-pcm-under-mutation test-rtl-sdram-arbiter test-rtl-sdram-bridge test-rtl-sdram-decode test-rtl-sdram-wb-adapter test-rtl-sdram-bridge-mux test-rtl-sdram-phase2-path test-rtl-sdram-composed-path test-rtl-sdram-cpu-window-probe test-rtl-sdram-cpu-return-probe test-rtl-sdram-adapter-return-probe test-rtl-sdram-wb-return test-rtl-sdram-controller-probe test-rtl-cdc-gray-ctr test-rtl-cdc-sync1 test-rtl-vs-counter test-rtl-spec-bank test-rtl-wave-meter test-rtl-audio-stats test-rtl-audio-stats-mutation test-rtl-stats-soc test-rtl-mp3-poly test-rtl-mp3-poly-mutation test-rtl-flac-lpc test-rtl-flac-lpc-mutation test-rtl-cymo-resamp test-rtl-cymo-resamp-mutation test-rtl-cymo-feed test-rtl-cymo-feed-mutation test-rtl-pcm-ring test-rtl-pcm-ring-mutation test-rtl-gain-stage test-rtl-gain-stage-mutation test-rtl-halcyon test-rtl-halcyon-mutation test-rtl-halcyon-soc test-rtl-audio-pair test-rtl-gray-bus test-rtl-main-ram test-rtl-psram-idle test-rtl-psram-async test-rtl-psram-wb-return test-rtl-psram-mutation test-rtl-psram-probe test-rtl-psram-fw test-rtl-psram-ifetch
 
 $(RTL_BUILD_DIR):
 	mkdir -p $@
 
-$(RTL_BUILD_DIR)/tb_mp3_fb.vvp: sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v | $(RTL_BUILD_DIR)
+$(RTL_BUILD_DIR)/tb_mp3_fb.vvp: sim/tb_mp3_fb.v src/fpga/core/tau_gfx.sv src/fpga/core/tau_talos.sv src/fpga/core/tau_scanout.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v | $(RTL_BUILD_DIR)
 	$(IVERILOG) -g2012 -o $@ $^
 
 test-rtl-fb: $(RTL_BUILD_DIR)/tb_mp3_fb.vvp
@@ -212,15 +212,29 @@ test-rtl-fb: $(RTL_BUILD_DIR)/tb_mp3_fb.vvp
 # behaviour) and =0 (must reproduce today's addressing exactly, no matter what the flip-request/cpu_buf
 # ports are driven with -- DBUF_ENABLE gates the RTL itself, not just what a well-behaved caller wires up).
 test-rtl-helios-dbuf: | $(RTL_BUILD_DIR)
-	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_helios_dbuf.vvp sim/tb_helios_dbuf.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
+	$(IVERILOG) -g2012 -Isrc/fpga/core -o $(RTL_BUILD_DIR)/tb_helios_dbuf.vvp sim/tb_helios_dbuf.v src/fpga/core/tau_gfx.sv src/fpga/core/tau_talos.sv src/fpga/core/tau_scanout.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
 	$(VVP) $(RTL_BUILD_DIR)/tb_helios_dbuf.vvp | grep -q "^PASSED"
-	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_helios_dbuf.DBUF_ENABLE=0 -o $(RTL_BUILD_DIR)/tb_helios_dbuf0.vvp sim/tb_helios_dbuf.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
+	$(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_helios_dbuf.DBUF_ENABLE=0 -o $(RTL_BUILD_DIR)/tb_helios_dbuf0.vvp sim/tb_helios_dbuf.v src/fpga/core/tau_gfx.sv src/fpga/core/tau_talos.sv src/fpga/core/tau_scanout.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
 	$(VVP) $(RTL_BUILD_DIR)/tb_helios_dbuf0.vvp | grep -q "^PASSED"
+
+# Talos 2 T2 (D-T04): the split graphics path (tau_gfx = tau_talos + tau_scanout) against the preserved
+# pre-split original (sim/oracle/tau_talos1_oracle.sv): identical random stimulus, every output compared
+# on every clock edge, SDRAM contents compared at the end, both with the optional features built and
+# without; a deliberately mis-wired split (MUTATE=1) must FAIL. About 2 minutes.
+GFX_DIFF_SRC = sim/tb_tau_gfx_diff.v sim/oracle/tau_talos1_oracle.sv src/fpga/core/tau_gfx.sv src/fpga/core/tau_talos.sv src/fpga/core/tau_scanout.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
+test-rtl-gfx-diff: | $(RTL_BUILD_DIR)
+	@set -e; \
+	run() { $(IVERILOG) -g2012 -Isrc/fpga/core $$1 -o $(RTL_BUILD_DIR)/tb_tau_gfx_diff_$$2.vvp $(GFX_DIFF_SRC); $(VVP) $(RTL_BUILD_DIR)/tb_tau_gfx_diff_$$2.vvp > $(RTL_BUILD_DIR)/tb_tau_gfx_diff_$$2.log; }; \
+	run -Ptb_tau_gfx_diff.FEATURES=1 f1 & p1=$$!; run -Ptb_tau_gfx_diff.FEATURES=0 f0 & p0=$$!; run -Ptb_tau_gfx_diff.MUTATE=1 m & pm=$$!; \
+	wait $$p1; wait $$p0; wait $$pm; \
+	grep -q "^PASSED" $(RTL_BUILD_DIR)/tb_tau_gfx_diff_f1.log; \
+	grep -q "^PASSED" $(RTL_BUILD_DIR)/tb_tau_gfx_diff_f0.log; \
+	if grep -q "^PASSED" $(RTL_BUILD_DIR)/tb_tau_gfx_diff_m.log; then echo "MUTANT SURVIVED: mis-wired split not detected"; exit 1; else echo "mutant killed: mis-wired split"; fi
 
 # Phase F B1/B2: each mutant MUST fail this bench.
 test-rtl-fb-mutation: | $(RTL_BUILD_DIR)
 	@set -e; \
-	run() { $(IVERILOG) -g2012 $$1 -o $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp sim/tb_mp3_fb.v src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v; \
+	run() { $(IVERILOG) -g2012 $$1 -o $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp sim/tb_mp3_fb.v src/fpga/core/tau_gfx.sv src/fpga/core/tau_talos.sv src/fpga/core/tau_scanout.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v; \
 	  if $(VVP) $(RTL_BUILD_DIR)/tb_mp3_fb_mut.vvp | grep -q "^FAILED"; then echo "mutant killed: $$1"; \
 	  else echo "MUTANT SURVIVED: $$1"; exit 1; fi; }; \
 	run -Ptb_mp3_fb.BUG_IGNORE_BLIT_STRIDE=1; \
@@ -437,7 +451,7 @@ test-rtl-halcyon-soc: $(RTL_BUILD_DIR)/mp3_soc_sim.v
 	@set -e; for wide in 0 1; do $(IVERILOG) -g2012 -Isrc/fpga/core -Ptb_halcyon_soc.WIDE=$$wide -o $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp $(HALCYON_SOC_SRC); \
 	  $(VVP) $(RTL_BUILD_DIR)/tb_halcyon_soc.vvp +ROM=$(RTL_BUILD_DIR)/fw_halcyon.bin | tee $(RTL_BUILD_DIR)/halcyon_soc.log | tail -13; grep -q "^PASSED" $(RTL_BUILD_DIR)/halcyon_soc.log; done
 
-# The writable Latin-1 font memory (sim/tb_font_ram.v through the real mp3_fb, compared with tools/host/blit_reference.py; three mutation hooks must make it differ)
+# The writable Latin-1 font memory (sim/tb_font_ram.v through the real tau_gfx, compared with tools/host/blit_reference.py; three mutation hooks must make it differ)
 test-rtl-font-ram:
 	$(PYTHON) sim/test_font_ram.py
 
@@ -675,7 +689,7 @@ test-rtl-sdram-controller-probe:
 	/tmp/tau_sdram_fb_controller_probe/Vtb_sdram_fb_controller_probe
 
 rtl-lint:
-	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module mp3_fb src/fpga/core/mp3_fb.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
+	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_gfx src/fpga/core/tau_gfx.sv src/fpga/core/tau_talos.sv src/fpga/core/tau_scanout.sv src/fpga/core/font_rom.v src/fpga/core/font_ram.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tgt_cmd src/fpga/core/tgt_cmd.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module pcm_fifo src/fpga/core/pcm_fifo.v
 	$(VERILATOR) $(VERILATOR_LINT_FLAGS) --top-module tau_sdram_arbiter src/fpga/core/tau_sdram_arbiter.sv

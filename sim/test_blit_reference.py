@@ -4,7 +4,7 @@ tools/host/blit_reference.py (the software reference renderer) and through
 RTL simulation (sim/tb_blit_scene.v), then diff the two buffers exactly.
 
 Also confirms the diff is a real regression net, not just a passing test: it
-re-runs the RTL scene with each mutation hook mp3_fb.sv defines
+re-runs the RTL scene with each mutation hook tau_talos.sv defines
 (BUG_IGNORE_BLIT_STRIDE, BUG_IGNORE_KEY, BUG_SBLIT_NO_SCALE,
 BUG_BLEND_ALWAYS_SRC, BUG_CBLIT_NO_LOOKUP, BUG_IGNORE_REINDEX) and requires
 the diff to catch every one -- the "injected-fault case that must be caught"
@@ -25,9 +25,9 @@ sys.path.insert(0, str(ROOT / "tools" / "host"))
 from blit_reference import Renderer, load_font_words  # noqa: E402
 
 TB = ROOT / "sim" / "tb_blit_scene.v"
-MP3_FB = ROOT / "src" / "fpga" / "core" / "mp3_fb.sv"
+MP3_FB = [ROOT / "src" / "fpga" / "core" / f"tau_{n}.sv" for n in ("gfx", "talos", "scanout")]
 FONT_ROM = ROOT / "src" / "fpga" / "core" / "font_rom.v"
-FONT_RAM = ROOT / "src" / "fpga" / "core" / "font_ram.v"      # mp3_fb.sv instantiates it in an unused generate branch
+FONT_RAM = ROOT / "src" / "fpga" / "core" / "font_ram.v"      # tau_talos.sv instantiates it in an unused generate branch
 BUILD = ROOT / "build" / "rtl"
 
 
@@ -82,7 +82,7 @@ def run_rtl_scene(mutation: str | None = None) -> dict[int, int]:
     cmd = ["iverilog", "-g2012"]
     if mutation:
         cmd.append(f"-Ptb_blit_scene.{mutation}=1")
-    cmd += ["-o", str(vvp), str(TB), str(MP3_FB), str(FONT_ROM), str(FONT_RAM)]
+    cmd += ["-o", str(vvp), str(TB), *map(str, MP3_FB), str(FONT_ROM), str(FONT_RAM)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"iverilog failed: {r.stdout}\n{r.stderr}")
@@ -125,7 +125,7 @@ def main() -> int:
         return 1
     print(f"ok:   clean scene matches the reference exactly ({len(actual)} words)")
 
-    # Injected-fault case: every existing mp3_fb.sv mutation hook must be
+    # Injected-fault case: every existing tau_talos.sv mutation hook must be
     # caught by this same diff, or the pixel-diff isn't a real regression net.
     mutations = [
         "BUG_IGNORE_BLIT_STRIDE",
