@@ -117,7 +117,7 @@ Complete technical specifications for five architectural diagrams. Use these as 
   - **Features:**
     - Color-key transparency (B2)
     - Scaled blit (B4)
-    - Alpha blend: **SHELVED** (timing cliff)
+    - Alpha blend (B5): pipelined in B-327, closes timing (earlier -2.972 ns standalone fit was the shelved state)
     - Gradient bar: parked (B13)
   - **Open Issues:**
     - Blit Test page hangs (B-166, JTAG diagnosis pending)
