@@ -516,7 +516,10 @@ def check_card(doc, card, core=None, max_pattern_files=2000):
             listed.add(e["path"])
             if e["role"] in ("owned", "shared"):
                 if not f.is_file():
-                    out.append(("error", f"{p['core_id']}: {e['path']} is missing"))
+                    if e["role"] == "owned" and not e["required"]:
+                        out.append(("warn", f"{p['core_id']}: optional {e['path']} is missing (the core falls back without it)"))
+                    else:
+                        out.append(("error", f"{p['core_id']}: {e['path']} is missing"))
                 elif sha(f.read_bytes()) != e["sha256"]:
                     out.append(("error" if e["role"] == "owned" else "warn", f"{p['core_id']}: {e['path']} differs from {doc['release']}"))
             elif e["role"] == "obsolete":
