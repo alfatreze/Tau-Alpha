@@ -15620,3 +15620,6 @@ DEV 185 booted on a Pocket with DEV 181's real legacy persist file staged as its
 
 ## B-850: capability keys `persist_layout` and `packs_abi` in `requires_omega` (owner: yes, 2026-10-26)
 `tools/tau_compat.py` reads `SF_LAYOUT_VERSION` (fw2/cores/settings_core.h, 1) and `MTR_PACK_ABI_MAJOR` (fw2/cores/meter_pack_core.h, 1) into `requires_omega`; optional integers in `docs/schemas/tau-compat.schema.json` (schema 2 unchanged); `sim/test_tau_compat.py` 0 failures; rehearsal package in `docs/interop/rehearsal-v0.7.0/` regenerated (merged `main` into the throwaway rehearsal branch, rebuilt). Note: the other facts (`report_tags_max`, sections) are still read from the old player's `fw/`; fine today, to revisit when `fw/` is retired. **Evidence:** host.
+
+## B-851: tag 28 declared legacy (owner, 2026-10-26)
+Answer to Omega's R-004: tag 28 (`SR_T_TRACKINFO`) is emitted only by the old player, never by Player 2; no real capture will be made (ledger R-004 closed, message 001 section 4). **Evidence:** documentation only.
