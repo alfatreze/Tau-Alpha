@@ -2,7 +2,7 @@
 // tau_ram_probe_a.sv -- EXPERIMENT, not a real feature. B-226's isolation test:
 // is a byte-array memory, in its OWN module (module-port boundary), with NO
 // generate block and NO split-region logic -- otherwise a literal, unmodified
-// copy of mp3_soc.v's original working array shape -- still M10K-inferrable?
+// copy of tau_soc.v's original working array shape -- still M10K-inferrable?
 //
 // If this infers cleanly, the module boundary alone is not the problem and
 // B-225/B-226's `generate` block is the real suspect. If this ALSO fails,

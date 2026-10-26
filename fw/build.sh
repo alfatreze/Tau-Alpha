@@ -112,7 +112,7 @@ player-library-diagnostic-profile)
     OUT="$ROOT/work/diagnostics/library-diagnostic-profile"
     # SDRAM_BUSY=1 (default 0): pair with a bitstream built with TAU_SDRAM_BUSY=1 (Phase F B7).
     # Kept opt-in, not a default, because R_SDR_BUSY reads a hardwired 0 on any OTHER bitstream
-    # (mp3_soc.v gates it on SDRAM_BUSY_ENABLE) -- turning this on against the wrong bitstream
+    # (tau_soc.v gates it on SDRAM_BUSY_ENABLE) -- turning this on against the wrong bitstream
     # would report a real-looking but false "0% busy" instead of CT_BLT's own N/A sentinel.
     STRESS_CFLAGS="-DTAU_ART_TIMG=${ART_TIMG:-1} -DTAU_ART_PSRAM=${ART_PSRAM:-1} -DTAU_DIAGNOSTIC=1 -DTAU_G4=${G4:-3} -DMP3_PROFILE=1 -DFLAC_PROFILE=1 -DTAU_SDRAM_BUSY=${SDRAM_BUSY:-0}"
     FLAC_O_CFLAGS="-DFLAC_PROFILE=1"
@@ -198,7 +198,7 @@ fi
 
 # CLK66=1 (default 0, every target): clk_sys 60 -> 66.667 MHz (B-338, docs/HARPMUDD_UPSTREAM_1.5_REVIEW.md section 1). Every deadline
 # already scales off CLK_HZ; this flag just changes it. B-347: now combines with RAM_192K=1 -- both -D flags are set together and the
-# RTL/boot interlock both accept the combined bitstream's own CORE_VERSION rev 26 (mp3_soc.v, fw/player.c). The two `if` blocks below
+# RTL/boot interlock both accept the combined bitstream's own CORE_VERSION rev 26 (tau_soc.v, fw/player.c). The two `if` blocks below
 # are independent and purely additive: setting both env vars just adds both -D flags to CFLAGS.
 if [[ "${CLK66:-0}" == "1" ]]; then
     CFLAGS="$CFLAGS -DTAU_CLK66_FW=1"

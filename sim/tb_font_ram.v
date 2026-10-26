@@ -1,7 +1,7 @@
 // ============================================================================
 // tb_font_ram.v -- the writable Latin-1 font memory (docs/features/FONT_SPEC.md, TAU_FONT_RAM) through the
 // real mp3_fb command interface: CHAR commands for ASCII and for the 0xA0..0xFF range (glyph bit 7 = cmd_glyph_hi[0]),
-// the blank codes (0x7F..0x9F), then the CPU write port (FONT_IDX/FONT_DATA as mp3_soc.v drives it) replacing two
+// the blank codes (0x7F..0x9F), then the CPU write port (FONT_IDX/FONT_DATA as tau_soc.v drives it) replacing two
 // glyphs, and CHAR again. Every word the engine writes is dumped for sim/test_font_ram.py to diff against
 // tools/host/blit_reference.py using the same atlas (font_ram.v's power-up contents plus the patches).
 // Harness adapted from sim/tb_blit_scene.v. Mutation hooks: BUG_FONT_NO_HI, BUG_FONT_RANGE, BUG_FONT_NO_WRITE.
@@ -201,7 +201,7 @@ module tb_font_ram;
         end
     endtask
 
-    // One word into the font memory (clk_sys), as mp3_soc.v's FONT_DATA write does.
+    // One word into the font memory (clk_sys), as tau_soc.v's FONT_DATA write does.
     task font_write(input [12:0] idx, input [31:0] data);
         begin
             @(posedge clk_sys);
@@ -211,7 +211,7 @@ module tb_font_ram;
         end
     endtask
 
-    // B8: one CLUT write (clk_sys domain), matching mp3_soc.v's own one-write-
+    // B8: one CLUT write (clk_sys domain), matching tau_soc.v's own one-write-
     // per-entry contract (clut_wr is a single-cycle pulse).
     task clut_load(input [7:0] idx, input [15:0] data);
         begin

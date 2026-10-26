@@ -7,7 +7,7 @@
 # blit_g3_poly_blend_ram192_qsf_append.txt -- TAU_BLIT_BLEND and TAU_RAM_192K together). What is
 # genuinely new here is TAU_CLK66 and TAU_DBUF joining that stack, and TAU_CLK66 + TAU_RAM_192K
 # appearing together for the first time on real hardware (B-347 gave that pairing its own
-# CORE_VERSION rev 26 / 0x4D50331A and a strict firmware interlock -- see mp3_soc.v and
+# CORE_VERSION rev 26 / 0x4D50331A and a strict firmware interlock -- see tau_soc.v and
 # fw/player.c's VERSION_OK). Do not be surprised if this does not close timing: five previously-
 # separate pieces stacked for the first time is a real, useful experiment, not an expected pass.
 #

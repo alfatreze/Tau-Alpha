@@ -27,30 +27,30 @@
       <top_entity/>
       <signal_vec>
         <trigger_input_vec>
-          <wire name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" tap_mode="classic"/>
-          <wire name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" tap_mode="classic"/>
+          <wire name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" tap_mode="classic"/>
+          <wire name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" tap_mode="classic"/>
         </trigger_input_vec>
         <data_input_vec>
-          <wire name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" tap_mode="classic"/>
-          <wire name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" tap_mode="classic"/>
+          <wire name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" tap_mode="classic"/>
+          <wire name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" tap_mode="classic"/>
         </data_input_vec>
         <storage_qualifier_input_vec>
-          <wire name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" tap_mode="classic"/>
-          <wire name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" tap_mode="classic"/>
+          <wire name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" tap_mode="classic"/>
+          <wire name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" tap_mode="classic"/>
         </storage_qualifier_input_vec>
       </signal_vec>
       <presentation>
         <unified_setup_data_view>
-          <node duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" tap_mode="classic" type="register"/>
-          <node duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" tap_mode="classic" type="register"/>
+          <node duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" tap_mode="classic" type="register"/>
+          <node duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" tap_mode="classic" type="register"/>
         </unified_setup_data_view>
         <data_view>
-          <net data_index="1" duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" storage_index="1" tap_mode="classic" trigger_index="1" type="unknown"/>
-          <net data_index="0" duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" storage_index="0" tap_mode="classic" trigger_index="0" type="unknown"/>
+          <net data_index="1" duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" storage_index="1" tap_mode="classic" trigger_index="1" type="unknown"/>
+          <net data_index="0" duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" storage_index="0" tap_mode="classic" trigger_index="0" type="unknown"/>
         </data_view>
         <setup_view>
-          <net data_index="1" duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" storage_index="1" tap_mode="classic" trigger_index="1" type="unknown"/>
-          <net data_index="0" duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|mp3_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" storage_index="0" tap_mode="classic" trigger_index="0" type="unknown"/>
+          <net data_index="1" duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[1]" storage_index="1" tap_mode="classic" trigger_index="1" type="unknown"/>
+          <net data_index="0" duplicate_name_allowed="false" is_data_input="true" is_node_valid="true" is_selected="false" is_storage_input="true" is_trigger_input="true" name="core_top:ic|tau_soc:u_soc|tau_signaltap_tap:g_phase2_window.u_stp_tap|tap[0]" storage_index="0" tap_mode="classic" trigger_index="0" type="unknown"/>
         </setup_view>
         <trigger_in_editor/>
         <trigger_out_editor/>

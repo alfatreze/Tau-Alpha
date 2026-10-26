@@ -1,4 +1,4 @@
-/* B-741 firmware-in-the-loop for sim/tb_pcm_ring_soc.v: the real VexRiscv drives the PCM ring reader through the real mp3_soc, PSRAM arbiter, tau_psram_async controller and
+/* B-741 firmware-in-the-loop for sim/tb_pcm_ring_soc.v: the real VexRiscv drives the PCM ring reader through the real tau_soc, PSRAM arbiter, tau_psram_async controller and
  * strict chip model. It (1) enables the ring, then puts 2500 distinct pairs into a 64-pair ring through the uncached PSRAM window (data first, then the write index), waiting while the
  * ring is full, and also writes a poison value to R_AUDIO every iteration (ignored while the ring is on); (2) stops the FIFO drain (rate 0) so the FIFO stays at the reader's threshold
  * and the ring keeps unread pairs, puts 10 marked pairs and flushes at once (the unread ones must never reach the FIFO); (3) puts 5 more pairs that must be delivered. The testbench

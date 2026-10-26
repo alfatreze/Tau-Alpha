@@ -1,6 +1,6 @@
 // =============================================================================
 // tau_flac_lpc.sv -- FLAC LPC/FIXED reconstruction in hardware. B-364..B-369; design:
-// docs/research/FLAC_LPC_KERNEL_DESIGN.md. Wired into mp3_soc.v behind LPC_ENABLE (B-369).
+// docs/research/FLAC_LPC_KERNEL_DESIGN.md. Wired into tau_soc.v behind LPC_ENABLE (B-369).
 //
 // UNLIKE tau_mp3_poly.sv, this unit has no fixed coefficient ROM: FLAC's predictor order (1-32),
 // right-shift (0-31) and coefficients are per-subframe and streamed in by firmware before each

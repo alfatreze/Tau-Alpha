@@ -1,4 +1,4 @@
-/* Firmware-in-the-loop test of the audio statistics registers in mp3_soc.v (STATS_CTL 0x1AC, STATS_IDX 0x1B0, STATS_DATA 0x1B4), run by the real VexRiscv; sim/tb_stats_soc.v forces eight
+/* Firmware-in-the-loop test of the audio statistics registers in tau_soc.v (STATS_CTL 0x1AC, STATS_IDX 0x1B0, STATS_DATA 0x1B4), run by the real VexRiscv; sim/tb_stats_soc.v forces eight
  * known samples into the block's tap after it sees READY. Every check prints "STATS ok n" or "STATS FAIL n"; the last line is "STATS DONE". */
 #include <stdint.h>
 #include "samples.h"

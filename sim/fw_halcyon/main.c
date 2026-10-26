@@ -1,4 +1,4 @@
-/* B-639 firmware-in-the-loop test of the Halcyon MMIO glue in mp3_soc.v (registers 0x178-0x180). The real VexRiscv pushes a constant stereo
+/* B-639 firmware-in-the-loop test of the Halcyon MMIO glue in tau_soc.v (registers 0x178-0x180). The real VexRiscv pushes a constant stereo
  * signal (16000) into the PCM FIFO and drives the engine through its registers; sim/tb_halcyon_soc.v watches the audio outputs.
  *   boot            engine disabled, a first bank (gain 0.25) committed with nact 1: audio must be 16000 (the engine is not selected)
  *   key A (bit 4)   second bank (gain 0.5) written to the SHADOW bank, committed, engine enabled: audio must become 8000

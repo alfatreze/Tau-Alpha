@@ -2,10 +2,10 @@
 // tau_main_ram.sv -- the CPU's main RAM, one shared read/write port, backing
 // store optionally split into two independently power-of-two-sized regions.
 //
-// Extracted out of mp3_soc.v's own inline array (Phase G, RAM-shrink track,
+// Extracted out of tau_soc.v's own inline array (Phase G, RAM-shrink track,
 // docs/PHASE_F_SPEC.md section 4/4.1) so the region-select logic has its own
 // name and its own focused testbench (sim/tb_tau_main_ram.v) instead of being
-// one more thing buried in mp3_soc.v's already-large always block.
+// one more thing buried in tau_soc.v's already-large always block.
 //
 // WHY TWO REGIONS: RAM_WORDS **must be a power of two** -- a single
 // 49,152-word array (192 KB / 4 lanes) once exploded the Fitter into LUTs
@@ -15,12 +15,12 @@
 // two, sidestepping the irregular-depth problem entirely.
 //
 // WORDS_B = 0 collapses this to a single region, bit-identical in structure
-// to mp3_soc.v's original array (same one clocked always block, same single
+// to tau_soc.v's original array (same one clocked always block, same single
 // computed address, same registered read) -- this is what every build uses
 // today; WORDS_B > 0 is the opt-in RAM-shrink path (TAU_RAM_192K in
-// mp3_soc.v), not yet enabled in any shipped or tested bitstream.
+// tau_soc.v), not yet enabled in any shipped or tested bitstream.
 //
-// A REAL, DOCUMENTED RISK, not a theoretical one: mp3_soc.v's own comment on
+// A REAL, DOCUMENTED RISK, not a theoretical one: tau_soc.v's own comment on
 // the array this replaces says plainly that a *different* restructuring of
 // this exact memory (splitting the loader onto a second always block) once
 // made Quartus fail to infer RAM megafunctions AT ALL for the whole 256 KB,
@@ -64,7 +64,7 @@ module tau_main_ram #(
 
     generate
     if (WORDS_B == 0) begin : g_single
-        // Bit-for-bit the original mp3_soc.v array: one always block, one
+        // Bit-for-bit the original tau_soc.v array: one always block, one
         // address, four byte lanes, a registered read. B-225: indexes the
         // port signal directly (no intermediate address wire) -- an earlier
         // version routed through a local `idx` wire and Quartus reported
@@ -102,7 +102,7 @@ module tau_main_ram #(
         // register budget. A parallel isolation (B-227) ruled out both the
         // module-port boundary and the `generate` block as the cause: the
         // SAME failure reproduced even with the split written inline in
-        // mp3_soc.v, no module, no generate. What's left, and what this
+        // tau_soc.v, no module, no generate. What's left, and what this
         // version fixes: EVERY OTHER inferred RAM in this codebase (the
         // original array included) reads with a single, unconditional,
         // directly-addressed `reg <= array[addr];` -- nothing else on the

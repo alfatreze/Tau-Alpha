@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """B-570/B-575: the pieces of the CLUT write fix must stay consistent.
 
-  - RTL: mp3_soc.v must drive the CLUT write port through tau_clut_wr (registered write address, own testbench) and must not go back
+  - RTL: tau_soc.v must drive the CLUT write port through tau_clut_wr (registered write address, own testbench) and must not go back
     to the inline version where `clut_waddr` followed the already-advanced `clut_idx` (the one-slot skew of B-569).
   - Firmware: the start index is probed once (clut_probe(), fw/blit_probe.inc, run from blit_probe_ensure()); until the probe has run, and
     if it cannot tell, the LEGACY start 255 is used, because every bitstream built before B-575 has the skew. The default must be 255.
@@ -21,9 +21,9 @@ def check(cond, msg):
     fails += not cond
 
 
-rtl = (ROOT / "src/fpga/core/mp3_soc.v").read_text()
-check(re.search(r"\btau_clut_wr\s+u_clut_wr\b", rtl) is not None, "mp3_soc.v instantiates tau_clut_wr for the CLUT write port")
-check(re.search(r"assign\s+clut_waddr\s*=\s*clut_idx\s*;", rtl) is None, "mp3_soc.v does not drive clut_waddr from the live index again")
+rtl = (ROOT / "src/fpga/core/tau_soc.v").read_text()
+check(re.search(r"\btau_clut_wr\s+u_clut_wr\b", rtl) is not None, "tau_soc.v instantiates tau_clut_wr for the CLUT write port")
+check(re.search(r"assign\s+clut_waddr\s*=\s*clut_idx\s*;", rtl) is None, "tau_soc.v does not drive clut_waddr from the live index again")
 mod = (ROOT / "src/fpga/core/tau_clut_wr.sv").read_text()
 check(re.search(r"waddr_r\s*<=\s*idx\s*;", mod) is not None, "tau_clut_wr registers the address with the write pulse")
 check("tau_clut_wr.sv" in (ROOT / "src/fpga/ap_core.qsf").read_text(), "tau_clut_wr.sv is in ap_core.qsf")

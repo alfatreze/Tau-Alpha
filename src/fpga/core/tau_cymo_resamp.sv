@@ -41,7 +41,7 @@
 // + a few cycles for shift/clip/push: comfortably inside the ~1,389-cycle budget per 48kHz output sample
 // at clk_sys ~66.7MHz (cycle budget was never the constraint here, M10K for the ROM is -- section 15).
 //
-// REGISTER CONTRACT (not yet wired into mp3_soc.v -- this module's own ports ARE the register contract
+// REGISTER CONTRACT (not yet wired into tau_soc.v -- this module's own ports ARE the register contract
 // once it is): `clear` resets history to all-zero and phase to 0 (new track / flush, mirrors pcm_fifo.v's
 // own flush semantics); caller pushes one input sample pair via push_we/push_l/push_r whenever `pop_req`
 // asked for one (any other time push_we is a caller bug, not guarded against here -- same trust-the-

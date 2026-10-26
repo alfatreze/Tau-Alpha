@@ -1,4 +1,4 @@
-// The font memory registers in mp3_soc.v (FONT_CTRL/IDX/DATA) driven by the real VexRiscv running sim/fw_font/main.c. The testbench checks the firmware's own verdicts
+// The font memory registers in tau_soc.v (FONT_CTRL/IDX/DATA) driven by the real VexRiscv running sim/fw_font/main.c. The testbench checks the firmware's own verdicts
 // (FONT ok n / FONT FAIL n on the console) and the write port the registers drive (fb_font_we pulses with the index and the data): word 6110, 6111, then 0, in that order and nothing else.
 // Mutation hooks (-Ptb_font_soc.BUG_FONT_NO_INC / BUG_FONT_NO_GEN) must make it fail. +ROM=<file>.
 `timescale 1ns/1ps
@@ -18,7 +18,7 @@ module tb_font_soc;
     wire [4:0]  set_idx;  wire set_wr;  wire [31:0] set_wdata;
     wire [15:0] audio_l, audio_r;
     wire        font_we; wire [12:0] font_waddr; wire [31:0] font_wdata;
-    mp3_soc #(.FONT_RAM_ENABLE(1), .BUG_FONT_NO_INC(BUG_FONT_NO_INC), .BUG_FONT_NO_GEN(BUG_FONT_NO_GEN)) u_soc (
+    tau_soc #(.FONT_RAM_ENABLE(1), .BUG_FONT_NO_INC(BUG_FONT_NO_INC), .BUG_FONT_NO_GEN(BUG_FONT_NO_GEN)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
         .ld_wr(ld_wr), .ld_addr(ld_addr), .ld_data(ld_data),
         .cont_key(32'd0), .in_menu(1'b0),

@@ -26,7 +26,7 @@
 //            Pocket's native 1600x1440 panel (confirmed via Analogue's own
 //            spec: the panel is built around integer scaling).
 // outclk_2 = 12 MHz shifted 90 degrees (APF requires both edges).
-// outclk_3 = 100 MHz SDRAM framebuffer controller (tau_gfx.sv / sdram_fb.sv).
+// outclk_3 = 100 MHz SDRAM framebuffer controller (tau_gfx.sv / tau_sdram_ctrl.sv).
 //            No phase shift needed -- confirmed against HarpMudd.starwars'
 //            proven SDRAM PLL: the DAC-side DDR forwarding happens inside the
 //            controller itself, not via a separately-phased clock input.
@@ -142,7 +142,7 @@ wire [1:0]  soc_fb_cmd_sx, soc_fb_cmd_sy;
 wire [1:0]  soc_fb_cmd_glyph_hi;   // B12 (B-454): BAR's lit-row count, high 2 bits
 wire        soc_fb_cmd_full;
 wire        soc_text_light, fb_text_light;   // theme/gamma: text weight table select, clk_sys -> clk_sdram
-// Phase F B1 (section 9): sticky blit addressing state, mp3_soc -> tau_gfx.
+// Phase F B1 (section 9): sticky blit addressing state, tau_soc -> tau_gfx.
 wire [24:0] soc_blt_src_base, soc_blt_dst_base;
 wire [9:0]  soc_blt_src_stride, soc_blt_dst_stride;
 // Phase F B2: colour-key transparency, sticky field 4.
@@ -154,11 +154,11 @@ wire [2:0]  soc_blt_blend_mode;
 wire [7:0]  soc_blt_blend_alpha;
 // Phase F B9 (Tier 2): palette re-index offset, sticky field 6.
 wire [7:0]  soc_blt_reindex;
-// Phase F B8 ("B8 detailed design"): CLUT load, mp3_soc -> tau_gfx.
+// Phase F B8 ("B8 detailed design"): CLUT load, tau_soc -> tau_gfx.
 wire        soc_clut_wr;
 wire [7:0]  soc_clut_waddr;
 wire [15:0] soc_clut_wdata;
-// B11 (section 5): corner-cut LUT, mp3_soc -> tau_gfx.
+// B11 (section 5): corner-cut LUT, tau_soc -> tau_gfx.
 wire [79:0] soc_rc_cut_lut;
 
 // SDRAM Phase 1 diagnostic mailbox.  These are MMIO-only controls; no normal
@@ -341,7 +341,7 @@ wire [31:0] soc_sdram_wb_debug_adapter_rdata, soc_sdram_wb_debug_cpu_rdata;
 `else
 `define TAU_DBUF_EN 0
 `endif
-// Writable Latin-1 font memory (docs/features/FONT_SPEC.md): the engine's glyph RAM, loaded by the CPU through mp3_soc.v's FONT_* registers.
+// Writable Latin-1 font memory (docs/features/FONT_SPEC.md): the engine's glyph RAM, loaded by the CPU through tau_soc.v's FONT_* registers.
 `ifdef TAU_FONT_RAM
 `define TAU_FONT_RAM_EN 1
 `else
@@ -363,7 +363,7 @@ wire        soc_xm_wr;
 wire [31:0] soc_xm_wdata;
 wire [31:0] soc_xm_rdata;
 
-// Phase F B7: SDRAM busy-cycle counter. `arb_p0_available` is sdram_fb's own p0_available
+// Phase F B7: SDRAM busy-cycle counter. `arb_p0_available` is tau_sdram_ctrl's own p0_available
 // (declared below, driven by u_sdram) -- per tau_sdram_arbiter.sv's own comment, that signal
 // is asserted only while the single SDRAM port is idle with no request pending, so its inverse
 // is exactly "the SDRAM port is busy", independent of which master (framebuffer or CPU) holds
@@ -371,11 +371,11 @@ wire [31:0] soc_xm_rdata;
 // tau_cdc_gray_ctr (Gray-coded, matching mp3_fb.sv's own FIFO-pointer CDC) into clk_sys.
 wire [31:0] soc_sdram_busy_rd;
 // B-467 (Cymo 44.1 kHz investigation): sound_i2s.v's own clk_mclk-domain toggle, declared here per
-// this file's own convention of declaring soc_* wires before their mp3_soc use (sound_i2s itself is
+// this file's own convention of declaring soc_* wires before their tau_soc use (sound_i2s itself is
 // instantiated later, in section 7). Synchronised into clk_sys and turned into a jitter measurement
-// entirely inside mp3_soc.v -- a single bit needs no CDC handling here.
+// entirely inside tau_soc.v -- a single bit needs no CDC handling here.
 wire soc_i2s_diag_toggle;
-wire soc_audio_full16;   // B-602: mp3_soc register -> sound_i2s full16
+wire soc_audio_full16;   // B-602: tau_soc register -> sound_i2s full16
 `ifdef TAU_SDRAM_BUSY
 tau_cdc_gray_ctr #(.WIDTH(32)) u_sdram_busy_ctr (
     .clk_src(clk_sdram), .rst_src(~pll_locked), .inc(~arb_p0_available),
@@ -414,9 +414,9 @@ assign soc_vblank_rd = 17'd0;
 `endif
 
 `ifdef TAU_PHASE2_WINDOW
-mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN)) u_soc (
+tau_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(`TAU_PSRAM_WIN_EN), .PSRAM_IFETCH_ENABLE(`TAU_PSRAM_IFE_EN), .SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN)) u_soc (
 `else
-mp3_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN)) u_soc (
+tau_soc #(.SDRAM_BUSY_ENABLE(`TAU_SDR_BUSY_EN), .BLIT_ENABLE(`TAU_BLIT_EN), .VBLANK_ENABLE(`TAU_VBLANK_EN), .SPEC_ENABLE(`TAU_SPEC_EN), .WAVE_ENABLE(`TAU_WAVE_EN), .STATS_ENABLE(`TAU_STATS_EN), .POLY_ENABLE(`TAU_POLY_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .LPC_ENABLE(`TAU_LPC_EN), .CYMO_RESAMP_ENABLE(`TAU_CYMO_RESAMP_EN), .I2S_DIAG_ENABLE(`TAU_I2S_DIAG_EN), .AUDIO16_ENABLE(`TAU_AUDIO16_EN), .GAIN_ENABLE(`TAU_GAIN_EN), .PCM_RING_ENABLE(`TAU_PCM_RING_EN), .GAIN_BOOST(`TAU_GAIN_BOOST_EN), .HALCYON_ENABLE(`TAU_HALCYON_EN), .WIDE_EQ_ENABLE(`TAU_WIDE_EQ_EN), .FONT_RAM_ENABLE(`TAU_FONT_RAM_EN)) u_soc (
 `endif
     .clk     (clk_sys),
     .rst     (cpu_reset),
@@ -683,7 +683,7 @@ end
 // mattered: the core is already at 90% BRAM utilisation.
 //
 // reset(~pll_locked) directly, no synchroniser: matches HarpMudd.starwars'
-// proven sdram_fb instantiation exactly (PLL lock status is a slow, stable
+// proven tau_sdram_ctrl instantiation exactly (PLL lock status is a slow, stable
 // flag in practice, not something that has bitten this pattern on hardware).
 wire        sdram_init_complete;
 wire [24:0] fb_p0_addr;
@@ -714,7 +714,7 @@ wire [15:0] arb_wsrc_q;
 
 // Phase 2 shared bridge boundary. The mapped-window client can be enabled only
 // in the explicitly flagged diagnostic build; normal builds drive it inactive
-// at mp3_soc and diagnostic MMIO always traverses the owner mux.
+// at tau_soc and diagnostic MMIO always traverses the owner mux.
 wire sdram_mux_busy, sdram_mux_diag_done;
 wire [31:0] sdram_mux_diag_rdata;
 wire sdram_mux_start, sdram_mux_write, sdram_mux_wb_start;
@@ -796,7 +796,7 @@ tau_sdram_arbiter u_sdram_arbiter (
     .wsrc_addr(arb_wsrc_addr), .wsrc_q(arb_wsrc_q)
 );
 
-sdram_fb #(.CLOCK_SPEED_MHZ(100), .BURST_TYPE(0), .CAS_LATENCY(2), .WRITE_BURST(1)) u_sdram (
+tau_sdram_ctrl #(.CLOCK_SPEED_MHZ(100), .BURST_TYPE(0), .CAS_LATENCY(2), .WRITE_BURST(1)) u_sdram (
     .clk(clk_sdram), .reset(~pll_locked), .init_complete(sdram_init_complete),
     .p0_addr(arb_p0_addr), .p0_data(arb_p0_data), .p0_byte_en(arb_p0_byte_en),
     .p0_wr_len(arb_p0_wr_len), .p0_q(arb_p0_q),
@@ -945,7 +945,7 @@ tau_gfx #(.BLIT_BLEND_ENABLE(`TAU_BLIT_BLEND_EN), .DBUF_ENABLE(`TAU_DBUF_EN), .F
     .rc_cut_lut(soc_rc_cut_lut),
 
     // Helios H2 (B-340): tied to constant 0 at this instantiation when TAU_DBUF is not defined --
-    // matching DBUF_ENABLE=0's own no-op, belt and suspenders (mp3_soc.v also only ever drives these
+    // matching DBUF_ENABLE=0's own no-op, belt and suspenders (tau_soc.v also only ever drives these
     // from real logic under `ifdef TAU_DBUF`, see its own comment).
 `ifdef TAU_DBUF
     .dbuf_cpu_buf     (fb_dbuf_cpu_buf),

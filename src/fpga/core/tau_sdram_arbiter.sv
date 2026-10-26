@@ -1,5 +1,5 @@
 // =============================================================================
-// tau_sdram_arbiter.sv -- framebuffer-priority owner lock for sdram_fb port 0.
+// tau_sdram_arbiter.sv -- framebuffer-priority owner lock for tau_sdram_ctrl port 0.
 //
 // The Pocket SDRAM controller is intentionally single-port.  This module does
 // not modify its command/state machine: it chooses one caller while the
@@ -9,7 +9,7 @@
 //
 // Phase 1 uses the CPU side for single halfword transfers only.  The bridge
 // turns a CPU 32-bit access into two separate requests, restoring a framebuffer
-// arbitration point between them.  CPU writes never use sdram_fb's streaming
+// arbitration point between them.  CPU writes never use tau_sdram_ctrl's streaming
 // source, which remains exclusive to mp3_fb.
 // =============================================================================
 `default_nettype none
@@ -80,12 +80,12 @@ module tau_sdram_arbiter (
     // CPU request is also waiting.  Once selected, the owner stays unchanged
     // through data beats and the controller's ready pulse.
     //
-    // Do NOT use p0_available as the acceptance condition. sdram_fb defines
+    // Do NOT use p0_available as the acceptance condition. tau_sdram_ctrl defines
     // it as IDLE && !port_req, so it falls combinationally in the exact cycle
     // a forwarded request is asserted. Requiring it here creates a circular
     // handshake: the controller sees and queues the request while this
     // arbiter/CPU bridge never considers it accepted, holding the request
-    // forever. Ownership itself is the accepted-request latch; sdram_fb
+    // forever. Ownership itself is the accepted-request latch; tau_sdram_ctrl
     // retains an accepted request internally until it raises p0_ready.
     wire select_fb  = (owner == OWNER_FB) ||
                       ((owner == OWNER_NONE) && fb_req);

@@ -1,5 +1,5 @@
 // Phase G2 firmware-in-the-loop test: the real VexRiscv runs code fetched from PSRAM through the instruction alias
-// (mp3_soc PSRAM_IFETCH_ENABLE) while the data window shares the same controller, against the strict PSRAM chip model.
+// (tau_soc PSRAM_IFETCH_ENABLE) while the data window shares the same controller, against the strict PSRAM chip model.
 //   +ROM=<file>   the firmware is sim/fw_ifetch (prints lines through the console register)
 // Pass condition: the firmware prints "G2 PASS", no DQ contention, no guard access, no chip-model errors.
 `timescale 1ns/1ps
@@ -32,7 +32,7 @@ module tb_psram_ifetch;
     wire [31:0] pw_wdata, pw_rdata;
     wire [3:0]  pw_be;
 
-    mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(1), .PSRAM_IFETCH_ENABLE(IFETCH), .IFETCH_GAP(IFETCH_GAP)) u_soc (
+    tau_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(1), .PSRAM_IFETCH_ENABLE(IFETCH), .IFETCH_GAP(IFETCH_GAP)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
         .ld_wr(ld_wr), .ld_addr(ld_addr), .ld_data(ld_data),
         .cont_key(cont_key), .in_menu(1'b0),

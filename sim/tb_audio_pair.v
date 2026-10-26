@@ -1,4 +1,4 @@
-// B-653: the stereo pair invariant, through the REAL mp3_soc audio path and the REAL sound_i2s writer.
+// B-653: the stereo pair invariant, through the REAL tau_soc audio path and the REAL sound_i2s writer.
 // sound_i2s pushes a word into its output FIFO whenever EITHER channel's input changes, so a channel that updates a clock or more before the other hands the serialiser a TORN pair (this
 // sample's left with the last sample's right): the old Halcyon/EQ engines did exactly that (B-650). Nothing checked the other sources, they were only believed to be atomic. This bench
 // streams a signal whose left and right differ and change on every sample (sim/fw_audiopair/main.c) through six configurations of the real SoC (plain FIFO, + hardware gain stage, + Halcyon
@@ -25,7 +25,7 @@ module tb_audio_pair;
     reg  [31:0] cont_key = 0;
     wire [4:0]  set_idx;  wire set_wr;  wire [31:0] set_wdata;
     wire [15:0] soc_l, soc_r;
-    mp3_soc #(.HALCYON_ENABLE(1), .CYMO_RESAMP_ENABLE(1), .GAIN_ENABLE(1), .WIDE_EQ_ENABLE(0)) u_soc (
+    tau_soc #(.HALCYON_ENABLE(1), .CYMO_RESAMP_ENABLE(1), .GAIN_ENABLE(1), .WIDE_EQ_ENABLE(0)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
         .ld_wr(ld_wr), .ld_addr(ld_addr), .ld_data(ld_data),
         .cont_key(cont_key), .in_menu(1'b0),

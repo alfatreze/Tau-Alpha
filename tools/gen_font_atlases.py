@@ -184,7 +184,7 @@ def render_font_ram(words):
         "//",
         "// The writable glyph memory of the drawing engine (docs/features/FONT_SPEC.md, TAU_FONT_RAM): %d words" % n,
         "// (Latin-1: 191 glyphs of 32 words, 16 x 16 cell, 4 bits of coverage per pixel, 8 pixels per word).",
-        "// Read port in clk_r (the engine, registered); write port in clk_w (the CPU, through mp3_soc.v's",
+        "// Read port in clk_r (the engine, registered); write port in clk_w (the CPU, through tau_soc.v's",
         "// FONT_IDX / FONT_DATA registers). It powers up holding the default font (Tamzen Regular),",
         "// so text works before the cold image loads; firmware replaces it with the chosen font. The CPU never",
         "// writes while the engine draws text (it fences first), so read-during-write is don't-care.",

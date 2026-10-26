@@ -46,7 +46,7 @@ module tb_sdram_fb_controller_probe;
         end
     end
 
-    sdram_fb #(.CLOCK_SPEED_MHZ(100), .BURST_TYPE(0), .CAS_LATENCY(2), .WRITE_BURST(1)) dut (
+    tau_sdram_ctrl #(.CLOCK_SPEED_MHZ(100), .BURST_TYPE(0), .CAS_LATENCY(2), .WRITE_BURST(1)) dut (
         .clk(clk), .reset(reset), .init_complete(init_complete),
         .p0_addr(p0_addr), .p0_data(p0_data), .p0_byte_en(p0_byte_en),
         .p0_wr_len(p0_wr_len), .p0_q(p0_q), .p0_wr_stream(1'b0),
@@ -116,13 +116,13 @@ module tb_sdram_fb_controller_probe;
                    dbg_read_seen, dbg_read_data_seen, dbg_read_data_zero,
                    dbg_read_data_allones);
 
-        $display("PASS: sdram_fb provenance records registered WRITE pins and zero READ_OUTPUT");
+        $display("PASS: tau_sdram_ctrl provenance records registered WRITE pins and zero READ_OUTPUT");
         $finish;
     end
 
     initial begin
         #500000;
-        $fatal(1, "timeout waiting for sdram_fb controller probe");
+        $fatal(1, "timeout waiting for tau_sdram_ctrl controller probe");
     end
 endmodule
 

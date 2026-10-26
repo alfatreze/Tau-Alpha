@@ -97,7 +97,7 @@ with tempfile.TemporaryDirectory() as t:
     cl.write_text(real_cl.replace("## v0.6.0-alpha.4", "## v0.6.0-preview.1 — 8 October 2026\n\n- Halcyon only.\n- Omega: persist id 16 is the Halcyon preset now.\n\n## v0.6.0-alpha.4", 1))
     kw = dict(release="v0.6.0-preview.1", zips=zips, previous=prev, rbf=rbf, changelog=cl, previous_release="v0.6.0-alpha.4", registry_file=_clamped_registry(t / "registry.json"))
 
-    # 1. the CORE_VERSION ifdef evaluator against the real mp3_soc.v (four contracts, not the first literal)
+    # 1. the CORE_VERSION ifdef evaluator against the real tau_soc.v (four contracts, not the first literal)
     for macros, want in (([], "4D503317"), (["TAU_RAM_192K"], "4D503318"), (["TAU_CLK66"], "4D503319"),
                          (["TAU_RAM_192K", "TAU_CLK66", "TAU_BLIT"], "4D50331A")):
         check(tc.core_version_for_macros(macros) == want, f"CORE_VERSION for {macros or 'no macros'} = {want}")
@@ -164,7 +164,7 @@ with tempfile.TemporaryDirectory() as t:
     import tau_assets
     fx = tau_assets.parse((ROOT / "docs/schemas/fixtures/tau-assets-roundtrip.bin").read_bytes())
     check(list(fx["sections"]) == ["THEM", "METR", "PRST"], "the round-trip fixture carries THEM, METR and PRST")
-    soc = (ROOT / "src/fpga/core/mp3_soc.v").read_text()
+    soc = (ROOT / "src/fpga/core/tau_soc.v").read_text()
     check(tc.selecting_macros(soc) == ["TAU_CLK66", "TAU_FONT_RAM", "TAU_RAM_192K"], f"CORE_VERSION is selected by {tc.selecting_macros(soc)}")
     check(tc.zero_defined('set_global_assignment -name VERILOG_MACRO "TAU_CLK66=0"\n', soc) == ["TAU_CLK66"]
           and tc.zero_defined('set_global_assignment -name VERILOG_MACRO "TAU_CLK66=1"\nset_global_assignment -name VERILOG_MACRO "TAU_SPEC=0"\n', soc) == [],

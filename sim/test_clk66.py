@@ -23,7 +23,7 @@ def check(name, cond):
     print(("ok   " if cond else "FAIL ") + name)
     fails += 0 if cond else 1
 
-rtl = (ROOT / "src/fpga/core/mp3_soc.v").read_text()
+rtl = (ROOT / "src/fpga/core/tau_soc.v").read_text()
 fw = (ROOT / "fw/player.c").read_text()
 
 m = re.search(r"TAU_CLK66\s*\n\s*pcm_rate <= 32'd(\d+);", rtl)

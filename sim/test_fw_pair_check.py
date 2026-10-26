@@ -19,7 +19,7 @@ def ok(cond, msg):
     print(("ok   " if cond else "FAIL ") + msg); fails += 0 if cond else 1
 
 ok([a.split(",") for a in accepts] == want, "FW_ACCEPTS strings equal the VERSION_OK constants in fw/player.c")
-ok(consts["EXPECT_VERSION_192K_CLK66"] == c.tree_core_version(), "CORE_VERSION in mp3_soc.v equals the 192K+CLK66 interlock constant")
+ok(consts["EXPECT_VERSION_192K_CLK66"] == c.tree_core_version(), "CORE_VERSION in tau_soc.v equals the 192K+CLK66 interlock constant")
 
 def pkg(td, blob):
     d = Path(td) / "Assets/tau/common"; d.mkdir(parents=True); (d / "tau.rom").write_bytes(blob); return td

@@ -1,4 +1,4 @@
-/* Firmware-in-the-loop test of the font memory registers in mp3_soc.v (FONT_CTRL 0x1A0, FONT_IDX 0x1A4, FONT_DATA 0x1A8), run by the real VexRiscv; sim/tb_font_soc.v watches
+/* Firmware-in-the-loop test of the font memory registers in tau_soc.v (FONT_CTRL 0x1A0, FONT_IDX 0x1A4, FONT_DATA 0x1A8), run by the real VexRiscv; sim/tb_font_soc.v watches
  * the write port (fb_font_we / waddr / wdata) and the console. Every check prints "FONT ok n" or "FONT FAIL n"; the last line is "FONT DONE". */
 #include <stdint.h>
 #define REG(a) (*(volatile uint32_t *)(a))

@@ -1,4 +1,4 @@
-// B-741: the PCM ring reader through the REAL mp3_soc, PSRAM arbiter, tau_psram_async controller and strict chip model, driven by the real VexRiscv (sim/fw_pcmring/main.c).
+// B-741: the PCM ring reader through the REAL tau_soc, PSRAM arbiter, tau_psram_async controller and strict chip model, driven by the real VexRiscv (sim/fw_pcmring/main.c).
 // The stream the pcm_fifo receives must be: the 2500 pairs the firmware put, in order, none twice or lost, the poison written to R_AUDIO ignored; then, after the flush, none of the 10 marked
 // pairs that were still unread, and the 5 pairs put after it, in order. The FIFO is never pushed at or above the reader's threshold and never overflows; no DQ contention, no guard access.
 `timescale 1ns/1ps
@@ -32,7 +32,7 @@ module tb_psram_ifetch;
     wire [31:0] pw_wdata, pw_rdata;
     wire [3:0]  pw_be;
 
-    mp3_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(1), .PSRAM_IFETCH_ENABLE(IFETCH), .IFETCH_GAP(IFETCH_GAP), .PCM_RING_ENABLE(RING)) u_soc (
+    tau_soc #(.PHASE2_WINDOW_ENABLE(1), .PSRAM_WINDOW_ENABLE(1), .PSRAM_IFETCH_ENABLE(IFETCH), .IFETCH_GAP(IFETCH_GAP), .PCM_RING_ENABLE(RING)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
         .ld_wr(ld_wr), .ld_addr(ld_addr), .ld_data(ld_data),
         .cont_key(cont_key), .in_menu(1'b0),

@@ -1,5 +1,5 @@
 // A-093 regression: production-timing Wishbone -> adapter -> mux -> CDC bridge
-// -> arbiter -> functional memory, with an mp3_soc-style registered ACK
+// -> arbiter -> functional memory, with an tau_soc-style registered ACK
 // (dACK <= adapter wb_ack) and a master that either keeps STB asserted into the
 // next beat (gap 0) or idles (gap > 0).  Hardware (A-092) showed CPU reads
 // returning the previous read's data and a load after a store returning stale
@@ -12,7 +12,7 @@ module tb_tau_sdram_wb_return_regression;
     always #8.333 clk_sys = ~clk_sys;
     always #5 clk_sdram = ~clk_sdram;
 
-    // ---- CPU-side Wishbone master + mp3_soc-style registered ACK ------------
+    // ---- CPU-side Wishbone master + tau_soc-style registered ACK ------------
     reg cyc = 0, stb = 0, we = 0;
     reg [24:0] addr = 0;
     reg [31:0] wdata = 0;

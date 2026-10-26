@@ -1,4 +1,4 @@
-// The audio statistics registers in mp3_soc.v (STATS_CTL/IDX/DATA) with the real CPU driving them (firmware sim/fw_stats/main.c). After the firmware prints READY the bench forces eight known
+// The audio statistics registers in tau_soc.v (STATS_CTL/IDX/DATA) with the real CPU driving them (firmware sim/fw_stats/main.c). After the firmware prints READY the bench forces eight known
 // samples into the block's tap (the PCM FIFO's sample strobe and outputs); the firmware checks N and the three sums. Also: a build without STATS_ENABLE must read 0 at STATS_DATA
 // (ENABLE = 0, the mutant), and the firmware's "FAIL" verdicts fail the bench. +ROM=<file>.
 `timescale 1ns/1ps
@@ -16,7 +16,7 @@ module tb_stats_soc;
     reg  [1023:0] romfile;
     wire [4:0]  set_idx;  wire set_wr;  wire [31:0] set_wdata;
     wire [15:0] audio_l, audio_r;
-    mp3_soc #(.STATS_ENABLE(ENABLE)) u_soc (
+    tau_soc #(.STATS_ENABLE(ENABLE)) u_soc (
         .clk(clk), .rst(rst), .clk_74a(clk74),
         .ld_wr(ld_wr), .ld_addr(ld_addr), .ld_data(ld_data),
         .cont_key(32'd0), .in_menu(1'b0),

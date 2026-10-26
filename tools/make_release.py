@@ -106,7 +106,7 @@ def main():
     version, date = meta["version"].split("-")[0], meta["date_release"]     # X.Y.Z (dist may still carry a previous pre-release label)
     print(f"release {args.release}: core.json v{version} ({date})")
     # tau-compat.json (Tau Omega): refuse early what would refuse late -- the tag must match core.json and the changelog,
-    # and the bitstream's CORE_VERSION comes from its fit manifest, not from the first literal in mp3_soc.v.
+    # and the bitstream's CORE_VERSION comes from its fit manifest, not from the first literal in tau_soc.v.
     try:
         if not args.release.startswith(f"v{version}") or args.release[len(version) + 1:][:1] not in ("", "-"):
             raise tau_compat.CompatError(f"--release {args.release} is not core.json version {version}")

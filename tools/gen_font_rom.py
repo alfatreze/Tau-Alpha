@@ -90,7 +90,7 @@ def render_verilog(words):
     """Both packing styles read the SAME `words` list -- TAU_FONT_REPACK (B-085/
     PHASE_F_SPEC.md section 3 item 1) only changes how it is split into M10K-
     native lanes, not the atlas content, so this is content-preserving by
-    construction. Mirrors mp3_soc.v's four-byte-wide-array trick for main RAM."""
+    construction. Mirrors tau_soc.v's four-byte-wide-array trick for main RAM."""
     n = len(words)
     out = [
         "// ==========================================================================",
@@ -107,7 +107,7 @@ def render_verilog(words):
         "// TAU_FONT_REPACK (PHASE_F_SPEC.md section 3 item 1): four byte-wide arrays",
         "// instead of one 32-bit array. Same content, split into M10K-native lanes",
         "// (256x32 packs at ~74%%; 8-bit width lets Quartus pack tighter) -- the same",
-        "// trick mp3_soc.v already uses for main RAM. Functionally inert either way.",
+        "// trick tau_soc.v already uses for main RAM. Functionally inert either way.",
         "// ==========================================================================",
         "",
         "`default_nettype none",
