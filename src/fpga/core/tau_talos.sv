@@ -126,7 +126,14 @@ module tau_talos #(
     parameter BUG_FONT_NO_WRITE = 0,     // 1: the CPU write port is ignored
     // Mutation-test hook only (sim/tb_tau_gfx_t3.v MUT=1): 1 bumps the fence counter when ANY command retires, not
     // only FENCE. Never set outside that test.
-    parameter BUG_FENCE_ANY = 0
+    parameter BUG_FENCE_ANY = 0,
+    // Talos 2 T3b (docs/research/TALOS_T4_MEASUREMENT_RESULT_2026-10-27.md): 1 reads a CBLIT source row as ONE SDRAM burst and looks each word up in the CLUT as it
+    // arrives (the Waterfall's colour-mapped blit spent 95% of a fullscreen tick waiting for the one-transaction-per-pixel path); 0 keeps that per-pixel path (the
+    // old behaviour, cycle for cycle, for the differential test and as the A/B).
+    parameter CBLIT_BURST = 1,
+    // Mutation-test hooks only (sim/tb_tau_gfx_cblit.v): BUG_CBLIT_EARLY 1 ends the burst one pixel short (the row's last pixel is never written) / BUG_CBLIT_SHIFT 1 writes every pixel one column to the left.
+    parameter BUG_CBLIT_EARLY = 0,
+    parameter BUG_CBLIT_SHIFT = 0
 ) (
     input  wire        reset,
     input  wire        clk_sys,     // CPU / FIFO write domain
@@ -690,7 +697,7 @@ module tau_talos #(
     localparam A_IDLE=4'd0, A_FILL=4'd1, A_FILL_END=4'd2, A_WRWAIT=4'd3,
                A_ROWFETCH=4'd4, A_COMPOSE=4'd5, A_COPYRD=4'd6, A_KEYDST=4'd7,
                A_SBLIT=4'd8, A_CBLIT_RD=4'd9, A_CBLIT_WAIT=4'd10,
-               A_COMPOSE_WR=4'd11;
+               A_COMPOSE_WR=4'd11, A_CBLIT_BURST=4'd12;
     reg [3:0]  astate = A_IDLE;
     reg [10:0] fill_cnt = 0;
 
@@ -867,6 +874,8 @@ module tau_talos #(
     // exactly as OP_SBLIT already does) purely to get blit_dst_addr/
     // blit_src_addr's existing per-row sticky-stride step in A_WRWAIT for free.
     reg        cblit_mode;
+    reg        cb_v = 1'b0;          // T3b: a looked-up CBLIT pixel is in clut_q this cycle and is written into glyphbuf at cb_i
+    reg [6:0]  cb_i = 7'd0;
 
     // ---- 4bpp coverage sampling (combinational) --------------------------
     // rowbits holds the CURRENT source row: 16 pixels x 4 bits, fetched as two
@@ -1101,7 +1110,9 @@ module tau_talos #(
                 bl_i1 <= bl_i0;
             end
             if (bl_v1) begin gb_we = 1'b1; gb_addr = bl_i1; gb_data = bl_r; end
-            if (bl_drain && !bl_v0 && !bl_v1) begin
+            cb_v <= 1'b0;
+            if (cb_v) begin gb_we = 1'b1; gb_addr = cb_i; gb_data = cblit_wval; end   // T3b: the word read last cycle has been through the CLUT
+            if (bl_drain && !bl_v0 && !bl_v1 && !cb_v) begin
                 bl_drain       <= 1'b0;
                 char_row_ready <= 1'b1;
             end
@@ -1199,6 +1210,12 @@ module tau_talos #(
                     // Phase F B8: one source word per pixel, same shape as SBLIT's own
                     // one-word-per-transaction read above -- copy_cnt tracks the column
                     // within the row (reset at dispatch, and again per row in A_WRWAIT).
+                    end else if (cblit_mode && CBLIT_BURST != 0 && char_rows_left_nz
+                                 && !char_row_ready && !bl_drain && can_sdram) begin
+                        // T3b: the whole source row in one burst (COPY's shape); copy_cnt is 0 here (reset at dispatch and after every row)
+                        p0_addr   <= blit_src_addr;
+                        p0_rd_req <= 1'b1;
+                        astate    <= A_CBLIT_BURST;
                     end else if (cblit_mode && char_rows_left_nz
                                  && !char_row_ready && !bl_drain && can_sdram) begin
                         p0_addr   <= blit_src_addr + {17'd0, copy_cnt};
@@ -1627,6 +1644,20 @@ module tau_talos #(
                 // (M10K) output needs to become valid, then writes it into
                 // glyphbuf exactly where every other opcode's per-pixel write
                 // lands.
+                // T3b: the burst version. Every cycle a source word is present (p0_data_available) clut_raddr already shows its index, so clut_q holds the
+                // looked-up colour the NEXT cycle, when cb_v writes it into glyphbuf at the pixel's own column; the row is released (bl_drain, the blend's
+                // existing hold) only after that last write.
+                A_CBLIT_BURST: begin
+                    if (p0_data_available) begin
+                        cb_v <= 1'b1;
+                        cb_i <= (BUG_CBLIT_SHIFT != 0) ? (copy_cnt[6:0] - 7'd1) : copy_cnt[6:0];
+                        if (copy_cnt == char_w[6:0] - 7'd1 - ((BUG_CBLIT_EARLY != 0) ? 7'd1 : 7'd0)) begin
+                            p0_end_burst_req <= 1'b1;
+                            bl_drain <= 1'b1;
+                            astate   <= A_IDLE;
+                        end else copy_cnt <= copy_cnt + 8'd1;
+                    end
+                end
                 A_CBLIT_RD: begin
                     if (p0_data_available) begin
                         p0_end_burst_req <= 1'b1;
