@@ -115,6 +115,6 @@ def retarget(src_pkg, out, src_core_id, core_id, channel):
     (out / "Platforms" / f"{plat}.json").write_text(json.dumps(pj, indent=4) + "\n")
     return out
 # The core whose previous release a channel core is compared with (persist ids) when it has none of its own yet.
-PREDECESSORS = {"alfatreze.TAU Diagnostics": ["alfatreze.TAU_DIAGNOSTIC"],
+PREDECESSORS = {"alfatreze.TAU Diagnostics": ["alfatreze.TAU_DIAGNOSTIC", "alfatreze.TAU"],       # Player 2's Diagnostic Build shares the normal core's persisted layout (the same firmware family), so a release that ships it for the first time compares with TAU
                 "alfatreze.TAU Preview": ["alfatreze.TAU"],
-                "alfatreze.TAU Preview Diagnostics": ["alfatreze.TAU Diagnostics", "alfatreze.TAU_DIAGNOSTIC"]}
+                "alfatreze.TAU Preview Diagnostics": ["alfatreze.TAU Diagnostics", "alfatreze.TAU_DIAGNOSTIC", "alfatreze.TAU Preview", "alfatreze.TAU"]}
