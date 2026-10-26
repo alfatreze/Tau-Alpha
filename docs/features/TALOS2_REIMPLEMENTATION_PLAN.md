@@ -23,6 +23,8 @@
 > | T4 | Column-list primitive, lab twin, wave/scope path re-enabled | v0.7 bundle if small, else its own |
 > | T5 | New scanout; then the row-job engine (old P3) if T0 shows the engine is the bottleneck; then the SDRAM controller; each hardware-confirmed before its old code is deleted | own fits |
 > | T6 | Command ring, gradient and pattern src_kinds, `GLYPH_PSRAM` for Extended/CJK | after T5 |
+>
+> **Status 2026-10-27 (B-891..B-897):** T0 DONE on a Pocket. T1 DONE (art probe and `FNC FLIP` rows seen on a Pocket, DEV 194). T2 DONE in host and in a baseline fit (`t2split-b892`, both seeds closed, ALM +4; not on a Pocket; the pre-split oracle stays until it is). T3 BUILT and host-proven (idle, FENCE and counter, free slots, overflow, scanout-late counter, firmware hardware fence with probe and fallback); its in-queue SET_FIELD/CLUT_WR/RC_WR NOT built (2% CPU). **T4 replaced by a measurement (DEV 195, on a Pocket): command issue is at most 9% of any meter's tick, so the column list and the T6 command ring are not justified**; the data pointed to **T3b, the burst CBLIT, BUILT and host-proven (3.1x fewer engine cycles on wide rows)**. T3 + T3b are in the running fit `t3-b898` (launched 2026-10-27 23:42 WET). T5 (clone-first new scanout, then engine, then SDRAM controller) and the gradient/pattern/GLYPH_PSRAM part of T6 are not started. Remaining T3b items from the exhaustive review (DQM keying, the 400-word scanout fill) are not built. Details: `docs/research/TALOS_T4_MEASUREMENT_RESULT_2026-10-27.md`, `docs/features/TALOS_T3_SPEC.md`.
 
 **Status (updated 2026-09-29, owner decision): P1 shipped as T2-00 (below); the rest (P2-P4, the actual
 "Talos 2" front-end/row-job rewrite) is DECLINED for now, revisit only when a genuinely new opcode is
