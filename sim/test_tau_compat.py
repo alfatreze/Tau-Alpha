@@ -202,6 +202,12 @@ with tempfile.TemporaryDirectory() as t:
     rom.unlink()
     check(any(l == "error" and "tau.rom is missing" in m for l, m in tc.check_card(doc, card)), "card: missing ROM is an error")
     rom.write_bytes(good)
+    opt = [e for pk in doc["packages"] if pk["core_id"] == "alfatreze.TAU" for e in pk["layout"] if e["role"] == "owned" and not e["required"] and (card / e["path"]).is_file()]
+    check(bool(opt), "the test package has an optional owned file")
+    if opt:
+        of = card / opt[0]["path"]; ob = of.read_bytes(); of.unlink()
+        check([l for l, m in tc.check_card(doc, card)] == ["warn"], "card: a missing OPTIONAL owned file is a warning, not an error (Q-001)")
+        of.write_bytes(ob)
     (card / "Platforms/tau.json").write_text('{"other": 1}')
     check([l for l, m in tc.check_card(doc, card)] == ["warn"], "card: a shared file from another release is only a warning")
     with zipfile.ZipFile(zips[0]) as f:
