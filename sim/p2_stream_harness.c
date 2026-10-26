@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#define CLK_HZ_ST 66000000u        /* the model's 66 cycles per microsecond */
 #include "stream_core.h"
 
 #define STEP_US 100u
@@ -75,5 +76,6 @@ int main(int argc, char **argv)
     printf("wrap=%d\nsteady_min=%u\nbad=%d\nstarted_busy=%d\nconsumed=%u\npos=%u\ndone=%u\neof=%d\nerr=%d\nreads=%u\nfails=%u\nretries=%u\ntimeouts=%u\nstale=%u\nstarved=%u\nstarved_us=%u\nmin_avail=%u\nmax_lat=%u\nsize_final=%u\nt_ms=%u\nseeks=%u\n",
            wrap_viol, steady_min == 0xFFFFFFFFu ? 0u : steady_min, bad, started_while_busy, consumed, s.pos, done_all, s.eof, s.err, s.reads, s.fails_total, s.retries, s.timeouts, s.stale, s.starved, starved_us,
            s.min_avail == 0xFFFFFFFFu ? 0u : s.min_avail, s.max_lat / CYC_PER_US, s.size, (unsigned)(t_us / 1000u), s.seeks);
+    printf("hist=%u,%u,%u,%u,%u,%u,%u\nfresh_us=%u\nstale_us=%u\nslow_stale=%u\nslow_off=%u\n", s.lat_hist[0], s.lat_hist[1], s.lat_hist[2], s.lat_hist[3], s.lat_hist[4], s.lat_hist[5], s.lat_hist[6], s.max_lat_fresh / CYC_PER_US, s.max_lat_stale / CYC_PER_US, s.slow_stale, s.slow_off);
     return 0;
 }

@@ -9,6 +9,7 @@
 extern uint32_t gfx_blend_state, gfx_blend_tries;
 #include "../gfx/font.h"
 #include "../gfx/gfx.h"
+extern uint32_t bt_n, bt_wait_n, bt_wait_max, bt_max;   /* fw2/transport/mp3play.c */
 extern uint32_t report_rows, report_len;   /* fw2/diagnostics/report_page.c */
 extern uint32_t gfx_fence_n[7], gfx_fence_c[7]; extern uint32_t gfx_bench[4], blit_check_mask; uint32_t blit_check_bad_px(void);   /* fw2/diagnostics/check_page.c */
 extern uint32_t gfx_polls, gfx_stalls, gfx_stall_cyc, gfx_fences, gfx_fence_cyc, gfx_fence_tmo;   /* fw2/gfx/gfx.c, T0 of the Talos plan (not in gfx.h: the wasm meter preview hashes that header) */
@@ -132,6 +133,23 @@ const cnt_t counters_table[] = {
     { "FNC BLEND CYC", CK_U32, CU_NONE, &gfx_fence_c[6] },
     { "REPORT ROWS",  CK_U32, CU_NONE,   &report_rows },            /* the last report: counters in it */
     { "REPORT BYTES", CK_U32, CU_NONE,   &report_len },             /* and the bytes of its record (0 = it did not fit the buffer) */
+    /* stream read latency (B-879): finished reads by time, stale ones (issued before a skip) included */
+    { "ST LAT <5MS", CK_U32, CU_NONE, &lp_stream.lat_hist[0] },
+    { "ST LAT <20MS", CK_U32, CU_NONE, &lp_stream.lat_hist[1] },
+    { "ST LAT <50MS", CK_U32, CU_NONE, &lp_stream.lat_hist[2] },
+    { "ST LAT <200MS", CK_U32, CU_NONE, &lp_stream.lat_hist[3] },
+    { "ST LAT <1S", CK_U32, CU_NONE, &lp_stream.lat_hist[4] },
+    { "ST LAT <3S", CK_U32, CU_NONE, &lp_stream.lat_hist[5] },
+    { "ST LAT >=3S", CK_U32, CU_NONE, &lp_stream.lat_hist[6] },
+    { "ST FRESH MAX", CK_U32, CU_CYC,  &lp_stream.max_lat_fresh },    /* the slowest read of the generation that was current when it finished */
+    { "ST STALE MAX", CK_U32, CU_CYC,  &lp_stream.max_lat_stale },    /* the slowest read that finished after a skip or open had moved on */
+    { "ST SLOW OFF",  CK_U32, CU_NONE, &lp_stream.slow_off },         /* the slowest read overall: its file offset, length, and 1 when it was stale */
+    { "ST SLOW LEN",  CK_U32, CU_NONE, &lp_stream.slow_len },
+    { "ST SLOW STALE", CK_U32, CU_NONE, &lp_stream.slow_stale },
+    { "BT N",         CK_U32, CU_NONE, &bt_n },                       /* track starts */
+    { "BT WAIT N",    CK_U32, CU_NONE, &bt_wait_n },                  /* ... that waited for the read in flight (the one card channel) */
+    { "BT WAIT MAX",  CK_U32, CU_CYC,  &bt_wait_max },                /* the longest such wait: the main loop does nothing else meanwhile */
+    { "BT MAX",       CK_U32, CU_CYC,  &bt_max },                     /* the longest whole track start */
     { "HELIOS BEAM",     CK_U32, CU_NONE,  &helios_beam },        /* 1: the bitstream has the video line counter, regions wait for the beam to leave their rows */
     { "HELIOS DRAWN",    CK_U32, CU_NONE,  &helios.drawn },       /* beam-checked region draws that went ahead */
     { "HELIOS DEFERRED", CK_U32, CU_NONE,  &helios.deferred },    /* ... and those that waited a pass because the beam was in their rows */
