@@ -39,6 +39,17 @@ static int  info_input(uint32_t edge)
 }
 static void info_mark(void) { uint32_t t = cycles(); if ((uint32_t)(t - info_last) >= CLK_HZ / 4u) { info_last = t; helios_dirty(R_INFO); } }
 static void info_redraw(void) { if (dg) dg->info_draw(); }
+/* About: the player in words (docs/features/ABOUT_PAGE_SPEC.md): scrolls like Info, redraws every quarter second (the running time) */
+static void about_enter(void) { if (dg) dg->about_init(); info_last = 0; }
+static int  about_input(uint32_t edge)
+{
+    if (edge & (KEY_B | KEY_LEFT)) return VW_BACK;
+    if (dg) dg->about_key(edge & (KEY_UP | KEY_DOWN));
+    helios_dirty(R_ABOUT);
+    return VW_STAY;
+}
+static void about_mark(void) { uint32_t t = cycles(); if ((uint32_t)(t - info_last) >= CLK_HZ / 4u) { info_last = t; helios_dirty(R_ABOUT); } }
+static void about_redraw(void) { if (dg) dg->about_draw(); }
 /* Report: a snapshot of every counter as a pixel grid; any of these keys returns */
 static void report_enter(void) { if (dg) dg->report_draw(); }
 static int  report_input(uint32_t edge) { return (edge & (KEY_A | KEY_B | KEY_X | KEY_Y | KEY_UP | KEY_DOWN)) ? VW_BACK : VW_STAY; }
@@ -61,6 +72,7 @@ static const view_t tab[VIEW_COUNT] = {
     [V_CONFIGURE]  = { configure_view_enter, 0, configure_view_input, configure_view_mark, RM(R_CONF_PREV) | RM(R_CONF_LIST), configure_view_redraw },
     [V_CONTROLS]   = { controls_view_enter, 0, controls_view_input, controls_view_mark, RM(R_CONTROLS), controls_view_redraw },
     [V_HELP]       = { help_view_enter, 0, help_view_input, help_view_mark, RM(R_HELP), help_view_redraw },
+    [V_ABOUT]      = { about_enter, 0, about_input, about_mark, RM(R_ABOUT), about_enter },
     [V_CHECK]      = { check_enter, check_exit, check_input, check_mark, RM(R_CHECK), check_repaint },
     [V_FULLSCREEN] = { fullscreen_view_enter, 0, nowplaying_input, fullscreen_view_mark, RM(R_FS_FIG) | RM(R_FS_FOOT), fullscreen_view_enter },
 };
@@ -82,6 +94,7 @@ void views_init(void)
     helios_region(check_redraw, 0, HL_WHOLE);                           /* R_CHECK */
     helios_region(controls_view_draw, 0, HL_WHOLE);                     /* R_CONTROLS */
     helios_region(help_view_draw, 0, HL_WHOLE);                         /* R_HELP */
+    helios_region(about_redraw, 0, HL_WHOLE);                           /* R_ABOUT */
     vw_init(&vw, tab, VIEW_COUNT, V_NOWPLAYING);
     vw.overlay = V_REPORT;                                              /* the Report is looked at from Info or Configure: Back from them must not lead into it again */
     vw.frame_begin = view_frame_begin; vw.frame_end = view_frame_end;

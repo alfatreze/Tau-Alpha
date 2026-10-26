@@ -5,6 +5,7 @@
 #include "../diagnostics/info_counters.h"
 #include "../gfx/gfx.h"
 #include "../diagnostics/info_page.h"
+#include "../diagnostics/about_page.h"
 #include "../diagnostics/check_page.h"
 #include "../diagnostics/report_page.h"
 #include "../aout/aout.h"
@@ -51,7 +52,7 @@ static void hand_out_assets(void)
     assets_boot.presets = cycles() - t0;
 }
 static void info_draw_all(void) { counters_refresh(); info_page_draw(); }
-static const views_diag_t diag_pages = { info_page_init, info_page_key, info_draw_all, report_page_draw, check_page_enter, check_page_key, check_page_tick, check_page_draw, check_page_dirty, check_page_exit, check_page_repaint, report_page_set_payload };
+static const views_diag_t diag_pages = { info_page_init, info_page_key, info_draw_all, report_page_draw, check_page_enter, check_page_key, check_page_tick, check_page_draw, check_page_dirty, check_page_exit, check_page_repaint, report_page_set_payload, about_page_init, about_page_key, about_page_draw };
 
 int main(void)
 {
@@ -88,7 +89,7 @@ int main(void)
           if (bs == BL_WAKE || blank.blanked) { edge = 0; rel = 0; keys = 0; } }
         const uint32_t cur = views_cur(), np_like = (cur == V_NOWPLAYING || cur == V_FULLSCREEN);
         { uint32_t rep = 0;
-          if (cur == V_LIBRARY || cur == V_SETTINGS || cur == V_INFO || cur == V_CONFIGURE || cur == V_CONTROLS || cur == V_HELP) edge = kr_step(&kr_pad, edge, keys, KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT, now, CLK_HZ * 2u / 5u, CLK_HZ / 14u, &rep);      /* hold a direction to repeat */
+          if (cur == V_LIBRARY || cur == V_SETTINGS || cur == V_INFO || cur == V_CONFIGURE || cur == V_CONTROLS || cur == V_HELP || cur == V_ABOUT) edge = kr_step(&kr_pad, edge, keys, KEY_UP | KEY_DOWN | KEY_LEFT | KEY_RIGHT, now, CLK_HZ * 2u / 5u, CLK_HZ / 14u, &rep);      /* hold a direction to repeat */
           else if (np_like && !(keys & KEY_SELECT)) edge = kr_step(&kr_vol, edge, keys, KEY_UP | KEY_DOWN, now, CLK_HZ * 2u / 5u, CLK_HZ / 14u, &rep);                                  /* hold Up/Down for volume */
         }
         /* Select and Start are taps (acted on at release, and not at all if another key was pressed while they were down) or modifiers. */
@@ -108,7 +109,7 @@ int main(void)
         else if (lr_key && !(keys & lr_key)) lr_key = 0;
         if (((edge & KEY_START) && (keys & KEY_SELECT)) || ((edge & KEY_SELECT) && (keys & KEY_START))) { if (cur == V_REPORT) views_report_refresh(); else views_switch(V_REPORT); }      /* Select+Start: one screenshot decodes every counter; again refreshes */
         else if (cur == V_REPORT) { if (edge) views_input(edge); }
-        else if ((rel & KEY_START) && !st_used) views_switch(cur == V_SETTINGS || cur == V_LIBRARY || cur == V_HALCYON || cur == V_CONFIGURE || cur == V_CONTROLS || cur == V_HELP ? V_NOWPLAYING : V_SETTINGS);     /* Start: Settings (closes Settings or the library) */
+        else if ((rel & KEY_START) && !st_used) views_switch(cur == V_SETTINGS || cur == V_LIBRARY || cur == V_HALCYON || cur == V_CONFIGURE || cur == V_CONTROLS || cur == V_HELP || cur == V_ABOUT ? V_NOWPLAYING : V_SETTINGS);     /* Start: Settings (closes Settings or the library) */
         else if ((rel & KEY_SELECT) && !sel_used) {                                           /* Select: the library (back a level inside it) */
             if (cur == V_LIBRARY) views_input(KEY_B); else views_switch(np_like ? (nowplaying_fallback() ? V_HELP : V_LIBRARY) : V_NOWPLAYING);
         }

@@ -9,6 +9,8 @@ extern uint32_t lib_ms;           /* load time */
 extern uint32_t lib_n_tracks;
 void     library_load(void);
 uint32_t library_path(uint32_t id, char *out, uint32_t cap);      /* returns the length, 0 on failure */
+uint32_t library_albums(void);                                     /* the loaded index's album and artist counts (0 when no library is loaded): the About page */
+uint32_t library_artists(void);
 uint32_t library_size(uint32_t id);                                 /* bytes from the details record, 0 when the index has none */
 uint32_t library_rate(uint32_t id);                                 /* source Hz from the details record, 0 when unknown */
 uint32_t library_codec(uint32_t id);                                /* 1 MP3, 2 FLAC, 0 unknown */
