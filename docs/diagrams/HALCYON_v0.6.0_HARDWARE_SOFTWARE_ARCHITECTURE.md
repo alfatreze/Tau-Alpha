@@ -33,7 +33,7 @@ flowchart TB
   WT --> M4 --> R4
 ```
 
-Boot probes: each wrapper runs a known-answer probe once at start-up. If the bitstream does not contain the unit (status reads 0), or a call fails mid-frame, the caller takes the software path with no change in output.
+Boot probes (called POLY_READY and LPC_READY in the docs; the code has no macros of those names): `player.c` reads bit 0 of `POLY_ST` / `LPC_STATUS` once at start-up and sets `tau_poly_hw_enable` / `tau_lpc_hw_enable`. A bitstream without the unit reads 0, so the software path runs. A real hardware timeout later clears the flag for the rest of the session (permanent software fallback). A failed LPC call mid-frame falls back for that frame (B-370 tests).
 
 ## 2. Hardware units
 
@@ -84,7 +84,7 @@ Alpha blend history, reconciled: a standalone fit once failed at -2.972 ns (the 
 ## 3. Firmware hooks and builds
 
 - Redirects: `Subband()` (MP3); `subframe()` and `subframe_stream()` (FLAC).
-- Software fallback is the reference path; `sim/test_flac_lpc_fw_redirect.py` compares the 8 combinations of unit on/off against clean, mid-frame failure and early failure (B-370 bugs).
+- Software is the reference path; `sim/test_flac_lpc_fw_redirect.py` compares the 8 combinations of unit on/off against clean, mid-frame failure and early failure (B-370 bugs).
 - Macros: `POLY_FW`, `LPC_FW` (firmware, default 0, on for diagnostic targets); `TAU_POLY`, `TAU_LPC`, `TAU_VBLANK`, `TAU_BEAM`, `TAU_DBUF`, `TAU_BLIT_BLEND` (bitstream).
 - The shipped link is 192 KB (`RAM_192K=1 CLK66=1 SDRAM_BUSY=1`).
 
