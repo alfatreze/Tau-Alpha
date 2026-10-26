@@ -15,3 +15,6 @@ Recommendation: title 80, artist 64, album 64, marquee text 80, done together wi
 
 ## Relation to the library
 The library list rows draw titles from the index (own buffer, up to 63), so it is not affected, but now-playing after a library play is.
+
+## Recheck on Player 2, 2026-10-26 (B-854, by reading the code; not run on a Pocket)
+Still applies, in a different form. Player 2 holds the now-playing text in `mp3_info_t` (`fw2/transport/mp3play.h`: `title[48]`, `artist[40]`, `album[40]`), so a title is cut at 47 characters, an artist or album at 39, even though the index stores up to 63. Then `put()` in `fw2/ui/nowplaying.c` cuts the text to the pixel width of its box (`MW`) by measuring; **there is no marquee in Player 2**, so a long title is simply cut off. Options for the owner: (1) a marquee on the title/artist/album (the old player had one), (2) an ellipsis, (3) both with the buffers raised to 64. To confirm on a Pocket: a track with a title of about 70 characters (the old `04. Giant Warrior ~ ...` file).

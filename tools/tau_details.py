@@ -199,10 +199,10 @@ def extract(path):
 
 
 def pack(d, pool):
-    """One 32-byte record; `pool.add(text)` returns the string offset (0 stays 'none': the pool's first string is the root path, so a real string never has offset 0)."""
+    """One 32-byte record (peaks are u16 Q15: a peak of 2.0 or more is stored as 65535, issue 025; parse_peak_q15 is unchanged so the firmware rule stays identical); `pool.add(text)` returns the string offset (0 stays 'none': the pool's first string is the root path, so a real string never has offset 0)."""
     enc = pool.add(d["enc"]) if d.get("enc") else 0
     return struct.pack("<BBBBIIHHhhHHHHI", d["codec"], d["ch"], d["bits"], d["flags"], d["rate"], min(d["size"], 0xFFFFFFFF),
-                       min(d["kbps"], 65535), d["cover_kib"], d.get("tg", 0), d.get("ag", 0), d.get("tp", 0), d.get("ap", 0),
+                       min(d["kbps"], 65535), d["cover_kib"], d.get("tg", 0), d.get("ag", 0), min(d.get("tp", 0), 65535), min(d.get("ap", 0), 65535),
                        d.get("delay", 0), d.get("pad", 0), enc)
 
 

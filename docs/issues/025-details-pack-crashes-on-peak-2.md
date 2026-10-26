@@ -1,6 +1,6 @@
 # 025: `tau_details.pack` crashes on a ReplayGain peak of 2.0 or more
 
-**Status:** OPEN, logged 2026-10-14 (reported by the Tau Omega session; Omega clamps the value on its side, nothing was changed here). Found by reading, reproduced on the host.
+**Status:** FIXED 2026-10-26 (B-854): `pack()` clamps both peaks to 65,535, test in `sim/test_track_details.py`. Originally OPEN, logged 2026-10-14 (reported by the Tau Omega session; Omega clamps the value on its side, nothing was changed here). Found by reading, reproduced on the host.
 
 **What happens.** `tools/tau_details.py` `pack()` writes the track and album peaks as unsigned 16-bit Q15 (`struct.pack("<BBBBIIHHhhHHHHI", ...)`: 1.0 = 32768). `parse_peak_q15()` accepts a whole part up to 7 (like `fw/replaygain.h rg_parse_peak_q15`), so a PEAK tag of 2.0 or more gives 65,536 or more (`parse_peak_q15("2.0")` = 65,536; "3.5" = 114,688; even "1.99997" rounds up to 65,536), and `struct.pack` raises `ushort format requires 0 <= number <= 65535`. The exception stops the whole index build, so one such track (a clipped master with a sample peak above 2.0 is rare but real) makes `tau_library.py build` / `sync_media.py --library` fail for the entire library.
 
