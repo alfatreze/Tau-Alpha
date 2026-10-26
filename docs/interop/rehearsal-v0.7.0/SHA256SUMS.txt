@@ -1,2 +1,2 @@
-f9aabd6cb4b728ce6faea38bb7fc87a7c54a089937cdef0ef9c33d35367f4bf6  alfatreze.TAU_0.7.0_2026-10-26.zip
-af9f93178af2b06822b26819c909c25d3924d44ed9741e9338dadf1e6bd79f2f  tau-compat.json
+ae22b789e0b655b6f973d26e640bc3c20dbfc4bfe032f30de8b6de95d6da11a2  alfatreze.TAU_0.7.0_2026-10-26.zip
+617db8cd8eb43eb325b6982cd32be3aaa61dda19c8f7a2222bd0f48152253237  tau-compat.json

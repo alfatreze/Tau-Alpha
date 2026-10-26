@@ -239,6 +239,14 @@
             "minimum": 0
           }
         },
+        "persist_layout": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "packs_abi": {
+          "type": "integer",
+          "minimum": 1
+        },
         "min_omega": {
           "type": "string",
           "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
