@@ -15623,3 +15623,6 @@ DEV 185 booted on a Pocket with DEV 181's real legacy persist file staged as its
 
 ## B-851: tag 28 declared legacy (owner, 2026-10-26)
 Answer to Omega's R-004: tag 28 (`SR_T_TRACKINFO`) is emitted only by the old player, never by Player 2; no real capture will be made (ledger R-004 closed, message 001 section 4). **Evidence:** documentation only.
+
+## B-852: v0.7.0 review document (2026-10-26)
+`docs/V0_7_0_REVIEW.md`: what `main` carries since v0.6.1 with evidence, a recommended cut (ship `main` plus issue 025 and doc fixes; no RTL or fit items; BUG-001 to the owner), release gates (Pocket run of the release zip, Omega 0.6.0, publish approval), open defects, pending items, parked items. Proposal only. **Evidence:** documentation.
