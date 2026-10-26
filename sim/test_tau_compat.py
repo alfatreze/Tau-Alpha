@@ -362,8 +362,10 @@ with tempfile.TemporaryDirectory() as t:
     dz = make(chz, "alfatreze.TAU Diagnostics", "tau", ROM_D)
     dd = tc.build(**dict(kw, zips=[zips[0], dz], previous=prev, rbf=None, bitstream_version="4D50331A"))
     pk = {p["core_id"]: p for p in dd["packages"]}
-    check(pk["alfatreze.TAU Diagnostics"]["replaces"] == ["alfatreze.TAU_DIAGNOSTIC"] and pk["alfatreze.TAU"]["replaces"] == [],
-          "TAU Diagnostics names the old TAU_DIAGNOSTIC as replaced")
+    check(pk["alfatreze.TAU Diagnostics"]["replaces"] == ["alfatreze.TAU_DIAGNOSTIC"]
+          and pk["alfatreze.TAU"]["replaces"] == ["alfatreze.TAU_DIAGNOSTIC", "alfatreze.TAU Preview", "alfatreze.TAU Preview Diagnostics"],
+          "TAU Diagnostics names the old TAU_DIAGNOSTIC as replaced; TAU names the old diagnostics core and the Preview cores, but not the Diagnostics core the same release ships")
+    check(tl.REPLACES["alfatreze.TAU Preview"] == ["alfatreze.TAU Preview Diagnostics"], "TAU Preview replaces only its own diagnostics core (a Preview never supersedes the Stable)")
     check(dd["requires_omega"]["persist_ids_changed"] == [10, 11, 12, 15, 16, 18, 20, 21, 22, 23, 27, 28, 29, 30, 31, 32, 33], "a renamed core is compared with its predecessor's previous zip")
     rt = tl.retarget(ROOT / "dist", t / "rt", "alfatreze.TAU", "alfatreze.TAU Preview", "preview")
     rcj = json.loads((rt / "Cores/alfatreze.TAU Preview/core.json").read_text())["core"]["metadata"]
@@ -379,6 +381,8 @@ with tempfile.TemporaryDirectory() as t:
     chp = t / "chp"; chp.mkdir()
     zp = make(chp, "alfatreze.TAU", "tau", ROM_N, data=json.dumps(dj9), extra={"Assets/tau/alfatreze.TAU/tau-packs.bin": b"TPKB" + bytes(40)})
     dp = tc.build(**dict(kw, zips=[zp], previous=prev[:1], rbf=None, bitstream_version="4D50331A"))
+    check(dp["packages"][0]["replaces"] == ["alfatreze.TAU_DIAGNOSTIC", "alfatreze.TAU Diagnostics", "alfatreze.TAU Preview", "alfatreze.TAU Preview Diagnostics"],
+          "a Stable TAU release that ships only TAU (Player 2) names every superseded core in `replaces`")
     lp = {e["path"]: e for e in dp["packages"][0]["layout"]}
     check(lp["Assets/tau/alfatreze.TAU/tau-packs.bin"]["role"] == "owned" and lp["Assets/tau/alfatreze.TAU/tau-packs.bin"]["slot"] == 9 and not lp["Assets/tau/alfatreze.TAU/tau-packs.bin"]["required"],
           "tau-packs.bin: owned by the core, in its own folder, data slot 9, optional")

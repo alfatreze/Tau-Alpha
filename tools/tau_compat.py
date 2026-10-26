@@ -708,7 +708,7 @@ def build(release, zips, previous, rbf=None, bitstream_version=None, changelog=R
                       "bitstream_sha256": sha(p["bitstream"]), "bitstream_core_version": cv, "bitstream_features": feats,
                       "rom_sha256": p["rom_sha256"], "cold_sha256": p["cold_sha256"],
                       "rom_accepts": p["rom_accepts"], "rom_needs": p["rom_needs"], "rom_version": p["rom_version"],
-                      "replaces": REPLACES.get(p["core_id"], []),
+                      "replaces": [c for c in REPLACES.get(p["core_id"], []) if c not in {q["core_id"] for q in pkgs}],
                       "layout": layout(p, root, cfg.get("obsolete", []))} for p in pkgs],
         "requires_omega": {k: req[k] for k in ("library_index_version", "assets_sections", "assets_read_limit_bytes",
                                                "report_tags_max", "persist_ids_changed", "min_omega")},
