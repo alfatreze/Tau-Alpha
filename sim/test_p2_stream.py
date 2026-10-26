@@ -18,7 +18,11 @@ def build(d, bug):
     return exe
 def run(exe, known=1, size=200000, rate=40000, frame=1152, lat=6000, jit=2000, outl=-1, outl_ms=0, settle=0, seek_ms=-1, seek_to=0, maxms=20000, cap=24576, seed=1):
     out = subprocess.run([str(exe), *map(str, (known, size, rate, frame, lat, jit, outl, outl_ms, settle, seek_ms, seek_to, maxms, cap, seed))], capture_output=True, text=True).stdout
-    return {k: int(v) for k, v in (l.split("=") for l in out.split())}
+    d = {}
+    for l in out.split():
+        k, v = l.split("=")
+        d[k] = [int(x) for x in v.split(",")] if "," in v else int(v)
+    return d
 
 def scenarios(exe):
     r = {}
@@ -58,6 +62,11 @@ def properties(r):
         x = r[k]; ok[f"{k}: transient open failures survived"] = x["done"] in ((1,) if k == "settle_k" else (1, 2)) and x["retries"] >= 2 and x["err"] == 0 and (k == "settle_k" or 150001 - x["consumed"] < 512)
     o = r["outlier"]; ok["1.07 s outlier: counted starvation, recovers, exact"] = o["starved"] >= 1 and o["done"] == 1 and o["consumed"] == 200000 and o["max_lat"] >= 1074000 // 1000 * 1000 // 1000
     ok["seek: stale completions dropped, never accepted"] = all(x["bad"] == 0 and x["seeks"] == 1 and x["done"] == 1 for x in r["seek"]) and sum(x["stale"] for x in r["seek"]) >= 1
+    comp = lambda x: sum(x["hist"]) == x["reads"] + x["fails"] + x["stale"]
+    ok["latency histogram: every finished read (ok, failed or stale) is counted once"] = allr(comp)
+    ok["latency buckets: a 1.07 s outlier lands in the 200 ms..1 s or 1..3 s bucket and in the fresh maximum"] = (o["hist"][4] + o["hist"][5]) >= 1 and o["fresh_us"] >= 1070000
+    sk = [x for x in r["seek"] if x["stale"] >= 1]
+    ok["latency: a read finished after a seek is a STALE read, with its own maximum and flagged on the slowest if it was"] = bool(sk) and all(x["stale_us"] > 0 for x in sk) and any(x["slow_stale"] == 1 for x in sk)
     h = r["hang"]; ok["hang: timeout counted, nothing issued meanwhile"] = h["timeouts"] == 1 and h["started_busy"] == 0
     return ok
 
@@ -65,7 +74,7 @@ with tempfile.TemporaryDirectory() as td:
     d = Path(td)
     good = properties(scenarios(build(d, 0)))
     for k, v in good.items(): check(k, v)
-    for bug, name in ((1, "no generation check"), (2, "read wraps the ring"), (3, "no read-ahead"), (4, "second command while one is in flight"), (5, "first failure is end of file")):
+    for bug, name in ((1, "no generation check"), (2, "read wraps the ring"), (3, "no read-ahead"), (4, "second command while one is in flight"), (5, "first failure is end of file"), (6, "stale reads not told apart in the latency")):
         bad = properties(scenarios(build(d, bug)))
         check(f"mutant {bug} ({name}) is caught", any(not v for v in bad.values()))
 print("FAILED" if fails else "all ok", fails)

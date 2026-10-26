@@ -142,16 +142,27 @@ SMALL static int flac_begin(void)
 }
 #endif
 
+uint32_t bt_n, bt_wait_n, bt_wait_max, bt_max;     /* track starts, the ones that had to wait for a read in flight, the longest such wait, the longest whole start (cycles; Info BT *) */
+SMALL static int begin_track_impl(void);
 SMALL static int begin_track(void)
+{
+    const uint32_t t0 = cycles(); bt_n++;
+    const int ok = begin_track_impl();
+    const uint32_t dt = (uint32_t)(cycles() - t0); if (dt > bt_max) bt_max = dt;
+    return ok;
+}
+SMALL static int begin_track_impl(void)
 {
     lp.cur_id = queue_cur(&q); lp.expect = library_size(lp.cur_id); rg_for_track(lp.cur_id); last_note(lp.cur_id);
     char path[LIBP_MAX_PATH]; uint32_t n = library_path(lp.cur_id, path, sizeof path);
     stream_close(&lp_stream);
     uint32_t t0 = cycles();
+    if (lp_stream.fl.active) bt_wait_n++;
     while (lp_stream.fl.active) {                                       /* the one command channel: wait the in-flight read out */
         io_result_t r = slot_read_poll(); io_req_t rq; stream_pump(&lp_stream, cycles(), r, &rq);
         if ((uint32_t)(cycles() - t0) > 6u * CLK_HZ) break;
     }
+    { const uint32_t w = (uint32_t)(cycles() - t0); if (w > bt_wait_max) bt_wait_max = w; }
     skip_pending = 0; skip_lead_p = skip_tail_p = 0;
     if (mp.skip_on && n) { uint32_t a = 0, b2 = 0; if (skiplist_lookup(path, &a, &b2)) { skip_lead_p = a; skip_tail_p = b2; skip_pending = 1; } }      /* the card channel is free here */
     if (!n || !slot_open_path(SLOT_MEDIA, path)) { lp.open_err++; lp.skipped++; return 0; }
