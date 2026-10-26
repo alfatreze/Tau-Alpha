@@ -48,6 +48,9 @@ def main():
     ap.add_argument("--release-diagnostic", action="store_true",
                     help="the shipped Diagnostic Build ('TAU Diagnostics' or 'TAU Preview Diagnostics' by --channel, used by make_release.py): "
                          "variant diagnostic, needs --rbf/--rbf-sha256, no --number/--semver")
+    ap.add_argument("--diagnostic-core", action="store_true",
+                    help="with --variant player2 --semver: the Diagnostic Build of a Player 2 release ('TAU Diagnostics' or 'TAU Preview Diagnostics' by the version's channel), built with DIAG=1; "
+                         "without it the core is the normal build (DIAG=0 in the flags): docs/DECISIONS.md D-U02, make_release.py --player2 builds both")
     ap.add_argument("--cover-slot", action="store_true", help="(kept for old command lines; data slot 7, the TIM1 cover image, is always declared now)")
     ap.add_argument("--note", help="replaces the default text after the build kind in the description")
     ap.add_argument("--rbf", type=Path, help="pair the ROM with this raw Quartus RBF instead of dist/'s")
@@ -76,6 +79,8 @@ def main():
         if args.number is not None or args.semver or args.barcode is not None or not args.rbf:
             sys.exit("--release-diagnostic takes --rbf/--rbf-sha256 and no --number/--semver/--barcode")
         args.variant = "diagnostic"
+    elif args.diagnostic_core and not (args.semver and args.variant == "player2"):
+        sys.exit("--diagnostic-core goes with --variant player2 --semver")
     elif [args.number is not None, bool(args.semver), args.barcode is not None].count(True) != 1:
         sys.exit("give exactly one of --number, --semver or --barcode")
 
@@ -153,9 +158,9 @@ def main():
             sys.exit(f"--semver must be a pre-release version such as 0.6.0-preview.2 (or X.Y.Z with --variant player2, a Stable release): got {args.semver!r}")
         ch = tau_layout.CHANNELS[sch]
         platform, title, platforms = ch["platform"], ch["name"], list(ch["platforms"])
-        short = ch["core"] if args.variant in ("tempo", "player2") else ch["diag"]
+        short = ch["diag"] if args.diagnostic_core else ch["core"] if args.variant in ("tempo", "player2") else ch["diag"]
         core_id, label = f"alfatreze.{short}", args.semver
-        out = root / f"work/diagnostics/tau-{sch}-{args.semver}/pocket"
+        out = root / f"work/diagnostics/tau-{sch}-{args.semver}{'-diag' if args.diagnostic_core else ''}/pocket"
     else:
         nn = f"{args.number:02d}"
         platform, short, label = tau_layout.DEV_PLATFORM, f"TAU DEV {nn}", f"numbered test build {nn}"
@@ -172,6 +177,7 @@ def main():
     if args.semver and not args.note:
         # A Stable or Preview release keeps the core.json description of dist/ (63 characters at most; it also tells people how to get music onto the card); the fuller text goes to info.txt, the About screen.
         desc = json.loads((src / "Cores/alfatreze.TAU/core.json").read_text())["core"]["metadata"]["description"]
+        if args.diagnostic_core: desc = "TAU diagnostics: every counter, the Check, diagnostic tests"
         release_info = ("TAU music player for the Analogue Pocket. It plays MP3 and FLAC from the SD card: the music, covers and library index must be put there with Tau Omega "
                         "(the companion app) or with the Python tools in the project repository (tools/sync_media.py). https://github.com/alfatreze/Tau-Alpha\n")
 
