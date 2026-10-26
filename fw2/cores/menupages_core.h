@@ -14,13 +14,24 @@
 enum { V_VOLUME = 0, V_RG, V_STRETCH, V_REPEAT, V_SHUFFLE, V_SEEKSTEP, V_SKIPSIL, V_SPEED, V_ART, V_ACCEPT_ALL, V_COLOUR, V_THEME, V_MODE, V_METER, V_BLANK, V_CYMO, V_A16, V_FONT, V_COUNT };
 enum { RK_GROUP = 0, RK_CHOICE, RK_TOGGLE, RK_VOL, RK_ACTION, RK_SOON };
 enum { PG_HOME = 0, PG_APPEAR, PG_AUDIO, PG_PLAY, PG_DIAG, PG_CHOICE, PG_COUNT };   /* PG_CHOICE is the option list of the choice row that opened it */
+#ifndef P2_DIAG
+#define P2_DIAG 1       /* 1 = the Diagnostic Build, 0 = the normal build (no DIAGNOSTICS group, no INFO row) */
+#endif
 enum { ACT_INFO = 1, ACT_REPORT = 2, ACT_HALCYON = 3, ACT_CONFIGURE = 4, ACT_CHECK = 5, ACT_CONTROLS = 6, ACT_HELP = 7, ACT_ABOUT = 8 };
 typedef struct { const char *label; uint8_t kind, arg; } mg_row_t;      /* arg: the page (GROUP), the value id (CHOICE/TOGGLE/VOL), the action (ACTION) */
 typedef struct { const char *title; const mg_row_t *rows; uint8_t n; } mg_page_t;
 typedef struct { const char *const *opt; uint8_t n; } mg_choice_t;       /* the options of a choice value, indexed by value */
 
-static const mg_row_t mg_home_rows[] = { { "APPEARANCE", RK_GROUP, PG_APPEAR }, { "AUDIO", RK_GROUP, PG_AUDIO }, { "PLAYBACK", RK_GROUP, PG_PLAY }, { "DIAGNOSTICS", RK_GROUP, PG_DIAG },
-                                         { "CONTROLS", RK_ACTION, ACT_CONTROLS }, { "HELP", RK_ACTION, ACT_HELP }, { "ABOUT", RK_ACTION, ACT_ABOUT }, { "INFO", RK_ACTION, ACT_INFO } };      /* always the last row, as before */
+static const mg_row_t mg_home_rows[] = { { "APPEARANCE", RK_GROUP, PG_APPEAR }, { "AUDIO", RK_GROUP, PG_AUDIO }, { "PLAYBACK", RK_GROUP, PG_PLAY },
+#if P2_DIAG
+                                         { "DIAGNOSTICS", RK_GROUP, PG_DIAG },
+#endif
+
+                                         { "CONTROLS", RK_ACTION, ACT_CONTROLS }, { "HELP", RK_ACTION, ACT_HELP }, { "ABOUT", RK_ACTION, ACT_ABOUT }
+#if P2_DIAG
+                                         , { "INFO", RK_ACTION, ACT_INFO }
+#endif
+                                         };      /* always the last row, as before */
 static const mg_row_t mg_appear_rows[] = { { "COLOUR", RK_CHOICE, V_COLOUR }, { "THEME", RK_CHOICE, V_THEME }, { "MODE", RK_CHOICE, V_MODE }, { "METER", RK_CHOICE, V_METER }, { "METER: CONFIGURE", RK_ACTION, ACT_CONFIGURE },
                                            { "ALBUM ART", RK_TOGGLE, V_ART }, { "SCREEN BLANK", RK_CHOICE, V_BLANK }, { "FONT", RK_CHOICE, V_FONT } };
 static const mg_row_t mg_audio_rows[] = { { "VOLUME", RK_VOL, V_VOLUME }, { "REPLAYGAIN", RK_CHOICE, V_RG }, { "HALCYON EQ", RK_ACTION, ACT_HALCYON } };

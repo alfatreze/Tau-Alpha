@@ -1,5 +1,8 @@
 #pragma GCC optimize ("Os")   /* not on a hot path: smaller code is what the 192 KB link needs */
 #include "info_counters.h"
+#ifndef P2_DIAG
+#define P2_DIAG 1      /* 1 = the Diagnostic Build (every counter, the Check, the raw Info page); 0 = the normal build (the support set only, the About page) */
+#endif
 #include "../platform/platform.h"
 #include "../aout/aout.h"
 #include "../ui/helios.h"
@@ -43,8 +46,11 @@ const cnt_t counters_table[] = {
     { "MP STATE",     CK_U32, CU_NONE,   &mp.state },             /* 0 idle, 1 decoding, 2 ending, 3 waiting to change rate */
     { "MP RATE",      CK_U32, CU_NONE,   &mp.rate },
     { "MP CH",        CK_U32, CU_NONE,   &mp.ch },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "MP FRAMES",    CK_U32, CU_NONE,   &mp.frames },
+#endif
     { "MP ERRORS",    CK_U32, CU_NONE,   &mp.errors },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "MP RESYNCS",   CK_U32, CU_NONE,   &mp.resyncs },
     { "MP PAIRS OUT", CK_U32, CU_PAIRS,  &mp.pairs_out },
     { "MP PAIRS TOT", CK_U32, CU_PAIRS,  &mp.pairs_total },       /* the P3 expectation of the track being decoded (0 = unknown) */
@@ -55,14 +61,18 @@ const cnt_t counters_table[] = {
     { "MP NEED DATA", CK_U32, CU_NONE,   &mp.need_data },
     { "MP DEC MAX",   CK_U32, CU_CYC,    &mp.dec_max_cyc },       /* the longest atomic decode step */
     { "MP DEC STEPS", CK_U32, CU_NONE,   &mp.dec_steps },
+#endif
     { "MP INIT FAIL", CK_U32, CU_NONE,   &mp.init_fail },
     { "MP NON-MP3",   CK_U32, CU_NONE,   &mp.non_mp3 },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "MP SEEKS",     CK_U32, CU_NONE,   &mp.seeks },
     { "MP SEEK FAIL", CK_U32, CU_NONE,   &mp.seek_fail },
     { "MP SEEK IGN",  CK_U32, CU_NONE,   &mp.seek_ign },
     { "MP SEEK TO",   CK_U32, CU_PAIRS,  &mp.seek_to },
+#endif
     { "MP VOLUME",    CK_U32, CU_NONE,   &mp.volume },
     { "MP RG MODE",   CK_U32, CU_NONE,   &mp.rg_mode },          /* 0 off, 1 track, 2 album (Select cycles) */
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "MP RG FACTOR", CK_U32, CU_NONE,   &mp.rg_factor },        /* Q15, 32768 = 0 dB */
     { "MP RG CAP",    CK_U32, CU_NONE,   &mp.rg_cap },
     { "MP GAIN TGT",  CK_U32, CU_NONE,   &mp.gain_tgt },
@@ -76,8 +86,10 @@ const cnt_t counters_table[] = {
     { "MP SPEED IDX", CK_U32, CU_NONE,   &mp.speed_idx },         /* 0.85 0.95 1.00 1.10 1.20 1.30 1.50 1.75 2.00 (2 = normal) */
     { "MP TEMPO IDX", CK_U32, CU_NONE,   &mp.tempo_idx },         /* table index: 0.75 0.85 1.00 1.10 1.25 1.50 1.75 2.00, 2 = off */
     { "MP TEMPO OUT", CK_U32, CU_PAIRS,  &mp.tempo_out },
+#endif
     { "FLAC REFUSED", CK_U32, CU_NONE,   &mp.flac_refused },      /* rate over 48 kHz, more than 2 channels, blocks too large or a bad header */
     { "FLAC ERR",     CK_U32, CU_NONE,   &mp.flac_err },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "FLAC WAITS",   CK_U32, CU_NONE,   &mp.flac_waits },        /* times the decoder had to wait for the card (open only; must not grow while playing) */
     { "LPC SAMPLES",  CK_U32, CU_NONE,   &mp.lpc_slots },
     { "LPC TMO",      CK_U32, CU_NONE,   &mp.lpc_timeout },
@@ -90,17 +102,23 @@ const cnt_t counters_table[] = {
     { "F2 SEEKPROBE", CK_U32, CU_NONE,   &mp.f2_probes },
     { "F2 REPOS", CK_U32, CU_NONE,   &mp.f2_repos },
     { "F2 STAGEMAX", CK_U32, CU_NONE,   &mp.f2_staged_max },
+#endif
     { "SET STORES",   CK_U32, CU_NONE,   &settings_stats.stores },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "SET MENU",     CK_U32, CU_NONE,   &settings_stats.menu_changes },
     { "SET DIRTY",    CK_U32, CU_NONE,   &settings_stats.dirty },
+#endif
     { "SET MIGRATED", CK_U32, CU_NONE,   &settings_stats.migrated },     /* 1: this boot converted a legacy-layout card (the settings of TAU DEV 181 and older) to the layout by area */
     { "SET LAYOUT",   CK_U32, CU_NONE,   &settings_stats.layout },       /* the layout version the register file holds: 1 = by area (0 would be legacy) */
     { "LAST STATE",   CK_U32, CU_NONE,   &last_state },                /* the last played track at boot: 0 not tried, 1 restored, 2 no record saved, 3 record failed its check, 4 track not in that queue, 5 no library */
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "LAST W0",      CK_HEX32, CU_NONE, &last_boot[0] },             /* the two persisted words as read at boot (0x4... = a record; ids 31 and 32) */
     { "LAST W1",      CK_HEX32, CU_NONE, &last_boot[1] },
+#endif
     { "ART LOADED",   CK_U32, CU_NONE,   &art_loaded },
     { "ART FAILED",   CK_U32, CU_NONE,   &art_failed },
     { "ART ERR",      CK_U32, CU_NONE,   &art_last_err },           /* TIMG_E_*: 1 magic 2 format 3 size 4 open 5 read 7 mailbox 8 probe */
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "ART MS",       CK_U32, CU_MS,     &art_ms },
     { "ART PROBE RAW", CK_HEX32, CU_NONE, &art_probe_raw },    /* what the palette probe read back: 1004..1007 (low or high half) means it worked */
     { "ART CLUT",     CK_U32, CU_NONE,   &art_clut_start },         /* palette load start index the probe chose: 0 registered, 255 legacy */
@@ -155,8 +173,11 @@ const cnt_t counters_table[] = {
     { "HELIOS DEFERRED", CK_U32, CU_NONE,  &helios.deferred },    /* ... and those that waited a pass because the beam was in their rows */
     { "COLD MS",         CK_U32, CU_MS,    &cold_ms },            /* boot time to load and verify the cold image */
     { "COLD BYTES",      CK_U32, CU_BYTES, &cold_bytes },
+#endif
     { "COLD ERR",        CK_U32, CU_NONE,  &cold_err },           /* 0 = ok (a failure stops the boot with the code on screen) */
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "ACCEPT RATES",    CK_U8,  CU_NONE,  &mp3play_accept_all },  /* Settings > Diagnostics: FLAC above 48 kHz is decoded */
+#endif
     { "HAL PRESENT",     CK_U8,  CU_NONE,  &halcyon_present },     /* the bitstream has the Halcyon engine */
     { "HAL SEL",         CK_U8,  CU_NONE,  &halcyon_sel },         /* 0 off, 1..8 built-in, 9.. user, 200 custom */
     { "HAL USER",        CK_U8,  CU_NONE,  &halcyon_user_n },      /* user presets loaded from tau-assets.bin */
@@ -167,6 +188,7 @@ const cnt_t counters_table[] = {
     { "COLOUR",          CK_U8,  CU_NONE,  &th_pal },              /* the accent colour index (0..18) */
     { "THEME FILES",     CK_U8,  CU_NONE,  &th_file_n },           /* themes read from tau-assets.bin */
     { "THEME ERR",       CK_U8,  CU_NONE,  &th_file_err },         /* 0 none, else an AS_E_* code */
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "SKIP ON",      CK_U32, CU_NONE,   &mp.skip_on },
     { "SKIP LEAD",    CK_U32, CU_PAIRS,  &mp.skip_lead },
     { "SKIP TAIL",    CK_U32, CU_PAIRS,  &mp.skip_tail },
@@ -175,30 +197,40 @@ const cnt_t counters_table[] = {
     { "SKIP MISSES",  CK_U32, CU_NONE,   &skiplist_misses },
     { "MP STALLS",    CK_U32, CU_NONE,   &mp.stalls },
     { "LP STATE",     CK_U32, CU_NONE,   &lp.state },             /* 0 idle, 1 streaming, 2 opening */
+#endif
     { "LIB STATE",    CK_U8,  CU_NONE,   &lib_state },            /* 1 loaded, 2 failed */
     { "LIB ERR",      CK_U8,  CU_NONE,   &lib_err },
     { "LIB TRACKS",   CK_U32, CU_NONE,   &lib_n_tracks },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "LIB LOAD",     CK_U32, CU_MS,     &lib_ms },
     { "LP QUEUE",     CK_U32, CU_NONE,   &lp.qn },
     { "LP POS",       CK_U32, CU_NONE,   &lp.cur_pos },
     { "LP TRACK ID",  CK_U32, CU_NONE,   &lp.cur_id },
+#endif
     { "LP OPEN ERR",  CK_U32, CU_NONE,   &lp.open_err },
     { "LP SKIPPED",   CK_U32, CU_NONE,   &lp.skipped },
     { "SLOT ERR",     CK_U8,  CU_NONE,   &slot_err },
     { "SLOT ERRCODE", CK_U8,  CU_NONE,   &slot_errcode },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "SLOT OPENS",   CK_U32, CU_NONE,   &slot_opens },
+#endif
     { "SLOT OPEN FAIL", CK_U32, CU_NONE, &slot_open_fails },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "OPEN LAST",    CK_U32, CU_MS,     &slot_open_ms_last },
     { "OPEN MAX",     CK_U32, CU_MS,     &slot_open_ms_max },
     { "ST READS",     CK_U32, CU_NONE,   &lp_stream.reads },
     { "ST BYTES",     CK_U32, CU_NONE,   &lp_stream.bytes },
     { "ST TO OFF",    CK_U32, CU_NONE,   &lp_stream.to_off },
     { "ST TO LEN",    CK_U32, CU_NONE,   &lp_stream.to_len },
+#endif
     { "ST FAILS",     CK_U32, CU_NONE,   &lp_stream.fails_total },
     { "ST RETRIES",   CK_U32, CU_NONE,   &lp_stream.retries },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "ST STALE",     CK_U32, CU_NONE,   &lp_stream.stale },
+#endif
     { "ST TIMEOUTS",  CK_U32, CU_NONE,   &lp_stream.timeouts },
     { "ST STARVED",   CK_U32, CU_NONE,   &lp_stream.starved },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "ST AVAIL",     CK_U32, CU_BYTES,  &lp_stream.avail },
     { "ST MIN AVAIL", CK_U32, CU_BYTES,  &lp_stream.min_avail },
     { "ST MAX LAT",   CK_U32, CU_CYC,    &lp_stream.max_lat },    /* cycles: /66,667 = ms */
@@ -216,8 +248,10 @@ const cnt_t counters_table[] = {
     U32("RING FILL",    CU_PAIRS,  &v.ring_fill),
     U32("RING MIN",     CU_PAIRS,  &v.ring_min),
     U32("RING MAX",     CU_PAIRS,  &v.ring_max),
+#endif
     U32("UNDER RING",   CU_NONE,   &v.under_ring),          /* the reader fell behind: must stay 0 */
     U32("DRY",          CU_NONE,   &v.dry),                 /* the producer fell behind */
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     U32("PUT STALLS",   CU_NONE,   &v.put_stalls),
     U32("PUT MAX",      CU_CYC,    &v.put_max_cyc),
     U32("PUT PAIRS",    CU_NONE,   &v.put_pairs),
@@ -228,6 +262,7 @@ const cnt_t counters_table[] = {
     U32("GOV MODE",     CU_NONE,   &v.gov_mode),
     U32("GOV SHED",     CU_NONE,   &v.gov_n1),
     U32("GOV AUDIO",    CU_NONE,   &v.gov_n2),
+#endif
     U32("GOV PANIC",    CU_NONE,   &v.gov_n3),
     { "CAP RING",     CK_U8,    CU_NONE,  &caps.ring },
     { "CAP GAIN",     CK_U8,    CU_NONE,  &caps.gain },
@@ -240,9 +275,12 @@ const cnt_t counters_table[] = {
     { "CAP SPEC",     CK_U8,    CU_NONE,  &caps.spec },
     { "CAP DBUF",     CK_U8,    CU_NONE,  &caps.dbuf },
     { "CAP UNDER",    CK_U8,    CU_NONE,  &caps.under },
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     U32("HW UNDER EV",  CU_NONE,   &v.hw_under_ev),          /* P6: runs of output ticks that found the FIFO empty (free-running since reset; the polling counters UNDER RING / DRY cannot see a short one) */
     U32("HW UNDER TK",  CU_NONE,   &v.hw_under_tk),          /* each is one lost sample pair */
+#endif
     U32("UPTIME",      CU_NONE,   &v.uptime_s),
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     U32("LOOPS",       CU_NONE,   &v.loops),
     U32("LOOP MAX",    CU_CYC,    &v.loop_max_cyc),
     U32("KEYS",        CU_NONE,   &v.keys),
@@ -256,9 +294,13 @@ const cnt_t counters_table[] = {
     U32("RING EMPTY",   CU_NONE,   &v.ring_empty),
     U32("GAIN CUR",    CU_NONE,   &v.gain_cur),
     { "CYMO STATUS",  CK_HEX32, CU_NONE,  &v.cymo_st },
+#endif
     U32("STACK PEAK",  CU_BYTES,  &v.stack_peak),
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     U32("IMAGE",       CU_BYTES,  &v.image_b),
+#endif
     U32("FREE",        CU_BYTES,  &v.free_b),
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     { "CHECK MASK",   CK_HEX32, CU_NONE,  &check_mask },      /* 2 bits per test: 1 pass 2 fail 3 skipped (AUDIO, TRACKS, STRETCH 1.10/1.50/2.00, PITCH 1.10/1.50/2.00) */
     U32("CHECK STALLS", CU_NONE,  &check_under),
     U32("BOOT ASSETS",  CU_CYC,    &assets_boot.load),        /* reading and validating tau-assets.bin at boot (the staging copy of a file over 4 KiB included) */
@@ -267,19 +309,25 @@ const cnt_t counters_table[] = {
     U32("BOOT PACKS",   CU_CYC,    &assets_boot.packs),       /* the MPKB section: every pack verified and copied into its PSRAM slot */
     U32("BOOT PRESETS", CU_CYC,    &assets_boot.presets),     /* the METR section: the meter presets */
     U32("FONT",         CU_NONE,   &font_cur),        /* the font in the engine memory: 0 Tamzen, 1 Tamzen Bold, 2 Grotesk SemiBold, 3 Grotesk Bold */
+#endif
     U32("FONT ERR",     CU_NONE,   &font_err),      /* the last refused or failed load: 1 bad record, 2 no font memory, 3 the load counter did not step, 4 engine held */
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     U32("FONT LOADS",   CU_NONE,   &font_loads),
     U32("FONT MS",      CU_NONE,   &font_ms),
     U32("BLEND PROBE", CU_NONE,   &gfx_blend_state),     /* 0 not asked yet, 1 the hardware blend works, 2 it answered wrongly (no blend), 3 the mailbox did not answer (asks again) */
     U32("BLEND TRIES", CU_NONE,   &gfx_blend_tries),
+#endif
     U32("METER CUR",    CU_NONE,   &v.meter_cur),             /* the selected meter: its index in the table (meters_cur) */
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     U32("METER TICKS",  CU_NONE,   &meter_stats.ticks),       /* pictures drawn */
     U32("METER DEGRADED", CU_NONE, &meter_stats.degraded),  /* windows not drawn because the audio's lead was shrinking (degrade level 1 or 2) */
     U32("METER CMDS",   CU_NONE,   &meter_stats.cmds_last),   /* draw-engine commands of the last tick */
     U32("METER CMDS MAX", CU_NONE, &meter_stats.cmds_max),    /* the most commands one tick has issued since boot */
     U32("METER OVER",   CU_NONE,   &meter_stats.over),        /* ticks over the meter's command ceiling (each lowered its picture rate) */
     U32("PACK OVERRUNS", CU_NONE,  &meter_stats.overruns),    /* ticks of a pack over its cycle limit */
+#endif
     U32("PACKS STRUCK", CU_NONE,   &meter_stats.struck),      /* packs disabled for the session after three overruns (PACK ERR 40) */
+#if P2_DIAG                                                    /* raw counters: the Diagnostic Build only (D-U02); the normal build keeps the support set */
     U32("METER ROWS",   CU_NONE,   &meter_stats.rows),        /* the rows the last tick wrote: first << 16 | end */
     U32("METER DIRECT", CU_NONE,   &meter_stats.direct),      /* ticks drawn straight onto the shown buffer */
     U32("METER EXPOSED", CU_NONE,  &meter_stats.exposed),     /* of those, ticks that began with the beam inside the rows they wrote (a tear risk) */
@@ -294,6 +342,7 @@ const cnt_t counters_table[] = {
 #define METER_PACK_MAX_ROW(row, nm) U32("METER MAX " nm, CU_CYC, &meter_stats.max_cyc[row]),
     METER_PACK_LIST(METER_PACK_MAX_ROW)                       /* the same for every pack-only meter, by name */
     METER_LIST(METER_MAX_ROW)                                 /* the slowest tick of each meter since boot, one row per registry entry */
+#endif
 #ifdef P2_PACKS
     { "PACKS RUN",     CK_HEX32, CU_NONE, &v.pack_run },      /* bit per meter (table order): 1 = the meter runs from its pack */
     U32("PACK ERR",     CU_NONE,   &v.pack_err),              /* the first refusal code of a pack (21 header, 22 ABI, 23 id, 24 origin, 25 size, 26 CRC, 27 entry, 28/29 scratch); 0 none */

@@ -27,6 +27,13 @@ if [ "${FLAC:-1}" = "1" ]; then
     DEFS+=(-DP2_FLAC=1 -DP2_FLAC2=1); SRCS+=("$FW2/decode/flac2_unit.c")
     if [ "${LPC:-1}" = "1" ]; then DEFS+=(-DTAU_LPC_FW=1); SRCS+=("$FW2/decode/lpc_hw.c"); INCS+=(-I "$ROOT/fw"); fi
 fi
+# DIAG=1 (default): the Diagnostic Build (every counter, the Check, the raw Info page, Settings > Diagnostics). DIAG=0: the normal build (the About page, the support Report from the support set of counters,
+# no Check and no raw counter table: docs/DECISIONS.md D-U01/D-U02, docs/features/ABOUT_PAGE_SPEC.md). The pieces left out are listed in fw2/diag_features.json and checked by sim/test_p2_diag_split.py.
+DIAG="${DIAG:-1}"
+if [ "$DIAG" = "0" ]; then
+    FILTERED=(); for s in "${SRCS[@]}"; do case "$s" in */diagnostics/check_page.c|*/diagnostics/blit_check.c|*/diagnostics/info_page.c) ;; *) FILTERED+=("$s");; esac; done
+    SRCS=("${FILTERED[@]}"); DEFS+=(-DP2_DIAG=0)
+else DEFS+=(-DP2_DIAG=1); fi
 # Every source is compiled to its own object (OUT/obj/<name>.o): fw2/platform/link.ld puts the cold objects (UI, diagnostics, art, library, settings) in the PSRAM cold image BY FILE NAME.
 OBJ="$OUT/obj"; rm -rf "$OBJ"; mkdir -p "$OBJ"; : > "$OUT/build.log"; OBJS=()
 CFLAGS=(-march=rv32im -mabi=ilp32 -mno-relax -O2 -ffreestanding -nostartfiles -nostdlib -ffunction-sections -fdata-sections -Wall -Wextra -Wno-unused-parameter)
