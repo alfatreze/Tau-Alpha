@@ -81,6 +81,12 @@ with tempfile.TemporaryDirectory() as td:
             return s.t[x]
     p = Pool(); rec = D.pack(D.extract(td / "a.mp3"), p)
     ok(len(rec) == 32, "a record is 32 bytes")
+    big = dict(D.extract(td / "a.mp3"), tp=D.parse_peak_q15("2.0"), ap=D.parse_peak_q15("7.9999"))
+    try:
+        ub = D.unpack(D.pack(big, Pool()))
+        ok(ub["tp"] == 65535 and ub["ap"] == 65535, "issue 025: a ReplayGain peak of 2.0 or more is clamped to 65535 (1.9999) in the record", ub)
+    except Exception as ex:
+        ok(False, "issue 025: a ReplayGain peak of 2.0 or more is clamped to 65535, not a crash", ex)
     u = D.unpack(rec); e = D.extract(td / "a.mp3")
     ok(all(u[k] == e.get(k, 0) for k in ("codec", "ch", "bits", "flags", "rate", "size", "kbps", "cover_kib", "tg", "ag", "tp", "ap", "delay", "pad")) and u["enc_off"] == p.t["LAME4.0"], "pack/unpack round trip", u)
     entries, _, w = L.scan(td)
