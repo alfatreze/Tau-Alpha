@@ -5,7 +5,7 @@
 #define P2_SETTINGS_H
 #include <stdint.h>
 #include "../cores/settings_core.h"
-typedef struct { uint32_t loads, stores, menu_changes, wide, dirty, migrated; } settings_stats_t;      /* migrated: 1 when this boot converted a legacy (layout version 0) card */
+typedef struct { uint32_t loads, stores, menu_changes, wide, dirty, migrated, layout; } settings_stats_t;      /* migrated: 1 when this boot converted a legacy (layout version 0) card; layout: the layout version the register file holds now (0 legacy, 1 by area) */
 extern settings_stats_t settings_stats;
 void settings_init(uint32_t *vals);                       /* probe the wide file, adopt what APF holds (a legacy layout is migrated and written first), defaults if nothing valid */
 void settings_seed(uint32_t *vals);                       /* the values as last published: the caller overwrites the fields it owns, so a field nobody sets (layout version, presets of meters that are not there) keeps its saved value */

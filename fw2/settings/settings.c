@@ -53,6 +53,7 @@ void settings_init(uint32_t *vals)
         settings_stats.migrated = 1;
     }
     sf_unpack(pub, vals);
+    settings_stats.layout = (pub[0] >> 27) & 15u;
     for (uint32_t i = 0; i < SF_COUNT; i++) pub_vals[i] = vals[i];
     settings_stats.loads++;
 }

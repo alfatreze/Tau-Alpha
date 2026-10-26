@@ -35,7 +35,7 @@ def parse(out):
         if p[0] == "w": d["log"].append(int(p[1]))
         elif p[0] == "regs": d["regs"] = list(map(int, p[1:]))
         elif p[0] == "vals": d["vals"] = list(map(int, p[1:]))
-        elif p[0] == "migrated": d["migrated"] = int(p[1])
+        elif p[0] == "migrated": d["migrated"] = int(p[1]); d["layout"] = int(p[5])
     return d
 def legacy(r):
     w = [0] * 32
@@ -55,6 +55,8 @@ def tests(exe):
         mig = p["log"][PROBE:]                                                  # after the probe's own four writes (word 0, 16, 16 back, 0 back)
         if not mig or mig[-1] != 0 or 0 in mig[:-1]: order = False
     ok["a legacy card is migrated at boot: the register file ends as the pure migration says"] = good
+    ok["the Info numbers after a boot: SET MIGRATED 1 and SET LAYOUT 1 for a legacy card, 0 and 1 for a card already by area"] = (parse(run(exe, "R " + fmt(legacy(random.Random(9))) + "\nI\n"))["layout"] == 1
+        and parse(run(exe, "R " + fmt(list(map(int, run(exe, "E " + fmt(legacy(random.Random(9))) + "\n")[0].split()))) + "\nI\n"))["migrated"] == 0)
     ok["word 0 is written last, once, and only after every other word"] = order
     # a power loss after k writes, then a normal boot
     w = legacy(r); want = list(map(int, run(exe, "E " + fmt(w) + "\n")[0].split()))

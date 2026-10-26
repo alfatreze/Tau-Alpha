@@ -88,6 +88,8 @@ const cnt_t counters_table[] = {
     { "SET STORES",   CK_U32, CU_NONE,   &settings_stats.stores },
     { "SET MENU",     CK_U32, CU_NONE,   &settings_stats.menu_changes },
     { "SET DIRTY",    CK_U32, CU_NONE,   &settings_stats.dirty },
+    { "SET MIGRATED", CK_U32, CU_NONE,   &settings_stats.migrated },     /* 1: this boot converted a legacy-layout card (the settings of TAU DEV 181 and older) to the layout by area */
+    { "SET LAYOUT",   CK_U32, CU_NONE,   &settings_stats.layout },       /* the layout version the register file holds: 1 = by area (0 would be legacy) */
     { "LAST STATE",   CK_U32, CU_NONE,   &last_state },                /* the last played track at boot: 0 not tried, 1 restored, 2 no record saved, 3 record failed its check, 4 track not in that queue, 5 no library */
     { "LAST W0",      CK_HEX32, CU_NONE, &last_boot[0] },             /* the two persisted words as read at boot (0x4... = a record; ids 31 and 32) */
     { "LAST W1",      CK_HEX32, CU_NONE, &last_boot[1] },

@@ -36,7 +36,7 @@ int main(void)
             uint32_t vals[SF_COUNT]; nlog = 0; memset(&settings_stats, 0, sizeof settings_stats);
             settings_init(vals);
             for (uint32_t i = 0; i < nlog; i++) printf("w %u\n", log_[i]);
-            printf("regs"); for (int i = 0; i < 32; i++) printf(" %u", regs[i]); printf("\nvals"); for (uint32_t i = 0; i < SF_COUNT; i++) printf(" %u", vals[i]); printf("\nmigrated %u wide %u\n", settings_stats.migrated, settings_stats.wide);
+            printf("regs"); for (int i = 0; i < 32; i++) printf(" %u", regs[i]); printf("\nvals"); for (uint32_t i = 0; i < SF_COUNT; i++) printf(" %u", vals[i]); printf("\nmigrated %u wide %u layout %u\n", settings_stats.migrated, settings_stats.wide, settings_stats.layout);
         }
     }
     return 0;
